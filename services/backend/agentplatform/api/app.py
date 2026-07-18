@@ -1,4 +1,8 @@
+from pathlib import Path
+
 from fastapi import Depends, FastAPI
+from agentplatform.agents import AgentStore
+from agentplatform.api import agents as agents_api
 from agentplatform.api import auth
 from agentplatform.api import secrets as secrets_api
 from agentplatform.secrets import InMemorySecretStore
@@ -8,9 +12,11 @@ def create_app(settings, session_factory, producer, secret_store=None, agent_sto
     st = app.state
     st.settings, st.session_factory, st.producer = settings, session_factory, producer
     secret_store = secret_store or InMemorySecretStore()
+    agent_store = agent_store or AgentStore(Path(settings.agents_root))
     st.secret_store, st.agent_store = secret_store, agent_store
     app.include_router(auth.router)
     app.include_router(secrets_api.router)
+    app.include_router(agents_api.router)
 
     @app.get("/api/runs", dependencies=[Depends(auth.require_admin)])
     async def list_runs_placeholder():  # replaced in Task 7
