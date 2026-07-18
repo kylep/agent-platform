@@ -45,3 +45,23 @@ async def test_cancel_active_run(sf, disp):
     assert disp.launcher.cancelled == [rid]
     async with sf() as s:
         assert (await s.get(Run, rid)).state == RunState.KILLED
+
+
+async def test_sweep_queued_drains_stale_runs(sf, disp):
+    from datetime import timedelta
+    from agentplatform.db import utcnow
+    rid = await make_run(sf)
+    async with sf() as s:
+        run = await s.get(Run, rid)
+        run.created_at = utcnow() - timedelta(seconds=60)
+        await s.commit()
+    drained = await disp.sweep_queued(older_than_seconds=15)
+    assert drained == 1
+    assert disp.launcher.launched == [rid]
+
+
+async def test_sweep_ignores_fresh_queued_runs(sf, disp):
+    await make_run(sf)
+    drained = await disp.sweep_queued(older_than_seconds=15)
+    assert drained == 0
+    assert disp.launcher.launched == []

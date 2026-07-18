@@ -1,4 +1,6 @@
+import asyncio
 import json
+import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -48,13 +50,34 @@ def create_app(settings, session_factory, producer, secret_store=None, agent_sto
             engine = make_engine(settings.db_url)
             await init_db(engine)
             st.session_factory = make_session_factory(engine)
+        # Kafka being down must not take the API down: runs are recorded in
+        # postgres first and the dispatcher sweep drains them once Kafka
+        # returns, so the producer connects in the background with retries.
+        start_task = None
         if st.producer is not None:
-            await st.producer.start()
+            async def _start_with_retry():
+                while True:
+                    try:
+                        await st.producer.start()
+                        return
+                    except asyncio.CancelledError:
+                        raise
+                    except Exception:
+                        logging.getLogger("api").warning(
+                            "kafka producer start failed; retrying in 5s")
+                        await asyncio.sleep(5)
+
+            start_task = asyncio.create_task(_start_with_retry())
         try:
             yield
         finally:
+            if start_task is not None:
+                start_task.cancel()
             if st.producer is not None:
-                await st.producer.stop()
+                try:
+                    await st.producer.stop()
+                except Exception:
+                    pass
 
     app = FastAPI(title="agent-platform", version="0.1.0", lifespan=lifespan)
     st = app.state

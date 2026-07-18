@@ -86,7 +86,9 @@ topics:
   # compatible with the broker's protocol version.
   image:
     registry: docker.io
-    repository: bitnami/kafka
+    # bitnamilegacy: Bitnami's 2025 catalog migration removed versioned tags
+    # from docker.io/bitnami; pinned tags live on under bitnamilegacy/.
+    repository: bitnamilegacy/kafka
     tag: 4.0.0-debian-12-r10
 
 # --- Subchart values (bitnami/postgresql, bitnami/kafka) ---
@@ -100,6 +102,11 @@ postgresql:
       size: 2Gi
 
 kafka:
+  # bitnamilegacy: see topics.image comment — versioned tags left docker.io/bitnami.
+  image:
+    registry: docker.io
+    repository: bitnamilegacy/kafka
+    tag: 4.0.0-debian-12-r10
   # Single-node KRaft controller-only mode (no dedicated broker pool).
   controller:
     replicaCount: 1

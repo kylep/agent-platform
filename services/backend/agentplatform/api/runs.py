@@ -1,9 +1,13 @@
+import logging
+
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 from sqlalchemy import select
 from agentplatform.api.auth import require_admin
 from agentplatform.db import ACTIVE_STATES, Run, TranscriptEvent
 from agentplatform.events import TOPIC_RUN_REQUESTS
+
+log = logging.getLogger("runs")
 
 router = APIRouter()
 
@@ -23,8 +27,13 @@ async def create_run(request: Request, body: RunIn, principal: str = Depends(req
     run = Run(agent=body.agent, trigger="manual", requested_by=principal, prompt=body.prompt)
     async with request.app.state.session_factory() as s:
         s.add(run); await s.commit()
-    await request.app.state.producer.publish(TOPIC_RUN_REQUESTS, run.id,
-                                             {"type": "run", "run_id": run.id})
+    try:
+        await request.app.state.producer.publish(TOPIC_RUN_REQUESTS, run.id,
+                                                 {"type": "run", "run_id": run.id})
+    except Exception:
+        # Row is committed; the dispatcher's queued-run sweep drains it once
+        # Kafka is reachable again. The run is accepted either way.
+        log.warning("publish failed for run %s; sweep will drain it", run.id)
     return {"id": run.id, "state": run.state}
 
 @router.get("/api/runs", dependencies=[Depends(require_admin)])

@@ -33,7 +33,13 @@ async def main() -> None:
     session_factory = make_session_factory(engine)
 
     producer = Producer(settings.kafka_bootstrap)
-    await producer.start()
+    while True:
+        try:
+            await producer.start()
+            break
+        except Exception:
+            log.warning("kafka unreachable; retrying producer start in 5s")
+            await asyncio.sleep(5)
 
     agent_store = AgentStore(settings.agents_root)
     launcher = K8sJobLauncher(batch, settings)
@@ -42,7 +48,8 @@ async def main() -> None:
     watcher = JobWatcher(batch, settings, session_factory, producer)
 
     try:
-        await asyncio.gather(dispatcher.run_forever(), watcher.run_forever())
+        await asyncio.gather(dispatcher.run_forever(), watcher.run_forever(),
+                             dispatcher.sweep_forever())
     finally:
         await producer.stop()
         await engine.dispose()

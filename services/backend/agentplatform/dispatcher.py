@@ -90,3 +90,29 @@ class Dispatcher:
                 await consumer.commit()
         finally:
             await consumer.stop(); await self.producer.stop()
+
+    async def sweep_queued(self, older_than_seconds: int = 15) -> int:
+        """Drain queued runs whose run-request message never made it to Kafka
+        (e.g. the API accepted the run while Kafka was down). handle() is
+        idempotent, so re-driving a run that also has a pending message is a
+        no-op for whichever copy arrives second."""
+        from datetime import timedelta
+        cutoff = utcnow() - timedelta(seconds=older_than_seconds)
+        async with self.sf() as s:
+            rows = (await s.execute(
+                select(Run.id).where(Run.state == RunState.QUEUED,
+                                     Run.created_at < cutoff))).scalars().all()
+        for run_id in rows:
+            try:
+                await self.handle({"type": "run", "run_id": run_id})
+            except Exception:
+                log.exception("sweep handle failed for %s", run_id)
+        return len(rows)
+
+    async def sweep_forever(self, interval_seconds: int = 15) -> None:
+        while True:
+            try:
+                await self.sweep_queued()
+            except Exception:
+                log.exception("sweep_queued failed")
+            await asyncio.sleep(interval_seconds)
