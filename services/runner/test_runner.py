@@ -26,3 +26,9 @@ def test_relays_stream_and_terminal(tmp_path, monkeypatch):
     first = p.published[0][2]
     assert first["seq"] == 1 and first["type"] == "assistant"
     assert p.published[-1][2]["terminal"] is True
+
+
+def test_kafka_wrapper_constructible_outside_event_loop():
+    # Regression: AIOKafkaProducer must not be built in __init__ (no loop yet).
+    w = runner.KafkaProducerWrapper("kafka:9092")
+    assert w._p is None

@@ -5,8 +5,14 @@ from aiokafka import AIOKafkaProducer
 TOPIC_TRANSCRIPT, TOPIC_EVENTS = "run.transcript", "run.events"
 
 class KafkaProducerWrapper:
-    def __init__(self, bootstrap): self._p = AIOKafkaProducer(bootstrap_servers=bootstrap)
-    async def start(self): await self._p.start()
+    # AIOKafkaProducer must be constructed inside a running event loop, so
+    # construction is deferred to start() (run() calls us from sync code).
+    def __init__(self, bootstrap):
+        self._bootstrap = bootstrap
+        self._p = None
+    async def start(self):
+        self._p = AIOKafkaProducer(bootstrap_servers=self._bootstrap)
+        await self._p.start()
     async def stop(self): await self._p.stop()
     async def publish(self, topic, key, value):
         await self._p.send_and_wait(topic, json.dumps(value).encode(), key=key.encode())
