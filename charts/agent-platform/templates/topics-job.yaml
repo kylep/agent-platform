@@ -1,0 +1,41 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ .Release.Name }}-topics
+  labels:
+    {{- include "agent-platform.labels" . | nindent 4 }}
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "0"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: 6
+  template:
+    metadata:
+      labels:
+        {{- include "agent-platform.selectorLabels" (dict "Release" .Release "Chart" .Chart "component" "topics-job") | nindent 8 }}
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: create-topics
+          image: "{{ .Values.topics.image.registry }}/{{ .Values.topics.image.repository }}:{{ .Values.topics.image.tag }}"
+          command: ["/bin/bash", "-c"]
+          args:
+            - |
+              set -eu
+              BOOTSTRAP="{{ .Release.Name }}-kafka:9092"
+              echo "waiting for kafka at $BOOTSTRAP"
+              for i in $(seq 1 30); do
+                if /opt/bitnami/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server "$BOOTSTRAP" >/dev/null 2>&1; then
+                  break
+                fi
+                echo "kafka not ready yet, retrying ($i/30)"
+                sleep 5
+              done
+              {{- range .Values.topics.names }}
+              /opt/bitnami/kafka/bin/kafka-topics.sh --create --if-not-exists \
+                --bootstrap-server "$BOOTSTRAP" \
+                --topic {{ . }} \
+                --partitions {{ $.Values.topics.partitions }} \
+                --replication-factor {{ $.Values.topics.replicationFactor }}
+              {{- end }}

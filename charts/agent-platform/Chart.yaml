@@ -1,0 +1,13 @@
+apiVersion: v2
+name: agent-platform
+description: Umbrella chart for agent-platform (api, dispatcher, recorder, web, agents-sync, postgres, kafka)
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+dependencies:
+  - name: postgresql
+    version: 18.8.0
+    repository: "oci://registry-1.docker.io/bitnamicharts"
+  - name: kafka
+    version: 32.4.3
+    repository: "oci://registry-1.docker.io/bitnamicharts"
