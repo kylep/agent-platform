@@ -14,8 +14,16 @@ async def secret_listing(request: Request) -> list[dict]:
     async with request.app.state.session_factory() as s:
         rows = {m.name: m.status for m in (await s.execute(select(SecretMeta))).scalars()}
     names = sorted(set(REQUIRED_SECRETS) | set(rows))
-    return [{"name": n, "status": rows.get(n, "missing"), "required": n in REQUIRED_SECRETS}
-            for n in names]
+    out = []
+    for n in names:
+        status = rows.get(n, "missing")
+        if status == "missing" and await request.app.state.secret_store.exists(n):
+            # Secret was created out-of-band (e.g. set-claude-token.sh kubectl
+            # mode writes the k8s Secret directly, bypassing the API): the
+            # store is the truth for existence, meta only tracks probe status.
+            status = "unprobed"
+        out.append({"name": n, "status": status, "required": n in REQUIRED_SECRETS})
+    return out
 
 @router.get("/api/secrets", dependencies=[Depends(require_admin)])
 async def list_secrets(request: Request):

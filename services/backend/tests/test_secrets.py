@@ -12,3 +12,10 @@ async def test_setup_state_includes_secrets(client):
     assert client is not None
     r = await client.get("/api/setup-state")
     assert r.json()["secrets"][0]["name"] == "claude-credentials"
+
+
+async def test_out_of_band_secret_reports_unprobed(admin_client, secret_store):
+    # Secret created directly in the store (kubectl path), no API PUT / meta row.
+    await secret_store.set("claude-credentials", {"credentials.json": "{}"})
+    r = await admin_client.get("/api/secrets")
+    assert r.json()[0]["status"] == "unprobed"

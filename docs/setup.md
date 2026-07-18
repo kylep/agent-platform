@@ -57,10 +57,22 @@ Copy your credentials JSON from `~/.claude/.credentials.json` and paste into the
 
 #### Option B: Use the install script
 
-If you prefer, run the install script instead:
+If you prefer, run the install script instead. It uses your current kubectl
+context — set `KUBECONFIG` explicitly so it targets the right cluster (easy
+trap if you also run a local cluster like Rancher Desktop):
 
 ```bash
-bin/set-claude-token.sh kubectl agent-platform
+KUBECONFIG=~/.kube/pai-nuc.yaml bin/set-claude-token.sh kubectl agent-platform
+```
+
+On macOS, Claude Code stores credentials in the Keychain rather than a
+file; export them first:
+
+```bash
+security find-generic-password -s "Claude Code-credentials" -w > /tmp/claude-creds.json
+KUBECONFIG=~/.kube/pai-nuc.yaml CLAUDE_CREDENTIALS_FILE=/tmp/claude-creds.json \
+  bin/set-claude-token.sh kubectl agent-platform
+rm /tmp/claude-creds.json
 ```
 
 This reads `~/.claude/.credentials.json` (or the path in `CLAUDE_CREDENTIALS_FILE`)
