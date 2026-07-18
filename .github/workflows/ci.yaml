@@ -55,5 +55,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: forbid API-key auth
+        # docs/ may quote the forbidden strings when describing this guard;
+        # the constraint binds code and config, so docs are excluded.
         run: |
-          ! grep -rn --exclude-dir=.git --exclude-dir=node_modules --exclude-dir=.venv --exclude-dir=dist --exclude=ci.yaml -e 'sk-ant-' -e 'ANTHROPIC_API_KEY' .
+          ! grep -rn --exclude-dir=.git --exclude-dir=node_modules --exclude-dir=.venv --exclude-dir=dist --exclude-dir=docs --exclude=ci.yaml -e 'sk-ant-' -e 'ANTHROPIC_API_KEY' .
