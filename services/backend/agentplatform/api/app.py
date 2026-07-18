@@ -48,7 +48,13 @@ def create_app(settings, session_factory, producer, secret_store=None, agent_sto
             engine = make_engine(settings.db_url)
             await init_db(engine)
             st.session_factory = make_session_factory(engine)
-        yield
+        if st.producer is not None:
+            await st.producer.start()
+        try:
+            yield
+        finally:
+            if st.producer is not None:
+                await st.producer.stop()
 
     app = FastAPI(title="agent-platform", version="0.1.0", lifespan=lifespan)
     st = app.state
