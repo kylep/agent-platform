@@ -1,13 +1,61 @@
 export type SecretStatus = { name: string; status: string; required: boolean };
 export type SetupState = { needs_admin: boolean; secrets: SecretStatus[] };
 
+export type AgentSummary = {
+  name: string;
+  description: string;
+  quarantined: boolean;
+  error: string | null;
+};
+
+export type AgentManifest = {
+  role: string;
+  concurrency: number;
+  timeout_seconds: number;
+  skills: string[];
+  secrets: string[];
+  description: string;
+};
+
+export type AgentDetail = {
+  name: string;
+  manifest: AgentManifest;
+  agent_md: string;
+  error: string | null;
+};
+
+export type RunSummary = {
+  id: string;
+  agent: string;
+  state: string;
+  trigger: string;
+  created_at: string;
+};
+
+export type RunDetailData = RunSummary & {
+  prompt: string;
+  exit_code: number | null;
+  error: string | null;
+  tokens_in: number | null;
+  tokens_out: number | null;
+  tool_calls: number | null;
+  started_at: string | null;
+  finished_at: string | null;
+};
+
+export type RunEvent = Record<string, unknown> & { type?: string; terminal?: boolean };
+
 export async function api<T>(path: string, opts: RequestInit = {}): Promise<T> {
   const res = await fetch(path, {
     credentials: "include",
     headers: { "Content-Type": "application/json" },
     ...opts,
   });
-  if (res.status === 401) { window.location.href = "/login"; throw new Error("401"); }
+  const isAuthCall = path.startsWith("/api/login") || path.startsWith("/api/setup");
+  if (res.status === 401) {
+    if (!isAuthCall) window.location.href = "/login";
+    throw new Error("401");
+  }
   if (!res.ok) throw new Error(`${res.status}: ${await res.text()}`);
   return res.json() as Promise<T>;
 }
