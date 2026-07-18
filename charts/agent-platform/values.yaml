@@ -53,6 +53,9 @@ web:
 # chart) can read agent definitions from a shared volume.
 agents:
   gitRepo: "https://github.com/kylep/agent-platform.git"
+  # Branch (or tag) the sync tracks. Agent definitions live in git; this is
+  # which line of history the cluster follows.
+  gitRef: "main"
   syncIntervalSeconds: 60
   storage: 1Gi
   storageClass: ""
