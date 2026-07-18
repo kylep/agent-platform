@@ -1,3 +1,5 @@
+from kubernetes.client.rest import ApiException
+
 from agentplatform.agents import Manifest
 from agentplatform.config import Settings
 from agentplatform.db import Run, RunState
@@ -46,6 +48,11 @@ class FakeBatch:
         return _Job(self._status)
 
 
+class NotFoundBatch:
+    def read_namespaced_job(self, name, namespace):
+        raise ApiException(status=404)
+
+
 async def make_run(sf, agent="hello-world", state=RunState.DISPATCHED) -> str:
     async with sf() as s:
         run = Run(agent=agent, trigger="manual", requested_by="t", prompt="x", state=state)
@@ -65,3 +72,29 @@ async def test_poll_once_marks_timed_out_on_deadline_exceeded(sf):
     assert run.state == RunState.TIMED_OUT
     assert run.finished_at is not None
     assert producer.published[-1][2]["state"] == RunState.TIMED_OUT
+
+
+async def test_poll_once_does_not_clobber_already_killed_run_on_job_404(sf):
+    # Run was cancelled (killed) out-of-band and its Job deleted. The watcher
+    # must not overwrite the terminal "killed" state with "failed: job disappeared".
+    rid = await make_run(sf, state=RunState.KILLED)
+    batch = NotFoundBatch()
+    producer = FakeProducer()
+    watcher = JobWatcher(batch, Settings(), sf, producer)
+    await watcher.poll_once()
+    async with sf() as s:
+        run = await s.get(Run, rid)
+    assert run.state == RunState.KILLED
+    assert producer.published == []
+
+
+async def test_poll_once_still_transitions_dispatched_to_running(sf):
+    rid = await make_run(sf, state=RunState.DISPATCHED)
+    batch = FakeBatch(_Status(active=1))
+    producer = FakeProducer()
+    watcher = JobWatcher(batch, Settings(), sf, producer)
+    await watcher.poll_once()
+    async with sf() as s:
+        run = await s.get(Run, rid)
+    assert run.state == RunState.RUNNING
+    assert producer.published[-1][2]["state"] == RunState.RUNNING
