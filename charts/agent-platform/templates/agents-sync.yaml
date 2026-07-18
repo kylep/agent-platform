@@ -40,16 +40,21 @@ spec:
             - |
               set -eu
               if [ ! -d /agents/.git ]; then
-                echo "cloning $GIT_REPO into /agents"
-                git clone --depth 1 "$GIT_REPO" /agents
+                echo "cloning $GIT_REPO ($GIT_REF) into /agents"
+                git clone --depth 1 --branch "$GIT_REF" "$GIT_REPO" /agents
               fi
               while true; do
-                git -C /agents pull --ff-only || echo "agents-sync: pull failed, will retry"
+                git -C /agents fetch --depth 1 origin "$GIT_REF" \
+                  && git -C /agents checkout -q "$GIT_REF" \
+                  && git -C /agents reset --hard -q "origin/$GIT_REF" \
+                  || echo "agents-sync: sync failed, will retry"
                 sleep "$SYNC_INTERVAL_SECONDS"
               done
           env:
             - name: GIT_REPO
               value: {{ .Values.agents.gitRepo | quote }}
+            - name: GIT_REF
+              value: {{ .Values.agents.gitRef | quote }}
             - name: SYNC_INTERVAL_SECONDS
               value: {{ .Values.agents.syncIntervalSeconds | quote }}
           volumeMounts:
