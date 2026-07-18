@@ -1,8 +1,0 @@
-pyproject.toml
-agentplatform/__init__.py
-agentplatform.egg-info/PKG-INFO
-agentplatform.egg-info/SOURCES.txt
-agentplatform.egg-info/dependency_links.txt
-agentplatform.egg-info/requires.txt
-agentplatform.egg-info/top_level.txt
-tests/test_config.py
