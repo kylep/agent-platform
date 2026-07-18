@@ -1,2 +1,1 @@
-# agent-platform
-Agent platform
+# Agent Platform
