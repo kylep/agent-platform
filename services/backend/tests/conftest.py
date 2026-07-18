@@ -2,6 +2,7 @@ import pytest, httpx
 from agentplatform.config import Settings
 from agentplatform.db import make_engine, make_session_factory, init_db
 from agentplatform.events import FakeProducer
+from agentplatform.secrets import InMemorySecretStore
 from agentplatform.api.app import create_app
 
 @pytest.fixture
@@ -16,8 +17,12 @@ def producer():
     return FakeProducer()
 
 @pytest.fixture
-async def client(sf, producer):
-    app = create_app(Settings(), sf, producer)
+def secret_store():
+    return InMemorySecretStore()
+
+@pytest.fixture
+async def client(sf, producer, secret_store):
+    app = create_app(Settings(), sf, producer, secret_store=secret_store)
     async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://t") as c:
         yield c
 
