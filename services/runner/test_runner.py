@@ -14,9 +14,12 @@ def test_relays_stream_and_terminal(tmp_path, monkeypatch):
     fake.chmod(fake.stat().st_mode | stat.S_IEXEC)
     creds = tmp_path / "secrets"; creds.mkdir()
     (creds / "credentials.json").write_text("{}")
+    agents = tmp_path / "agentdefs" / "hello-world"; agents.mkdir(parents=True)
+    (agents / "agent.md").write_text("# hello-world")
     monkeypatch.setenv("AP_RUN_ID", "RID"); monkeypatch.setenv("AP_AGENT", "hello-world")
     monkeypatch.setenv("AP_PROMPT", "hi"); monkeypatch.setenv("CLAUDE_BIN", str(fake))
     monkeypatch.setenv("AP_SECRETS_DIR", str(creds))
+    monkeypatch.setenv("AP_AGENTS_DIR", str(tmp_path / "agentdefs"))
     monkeypatch.setenv("HOME", str(tmp_path))
     p = FakeProducer()
     rc = runner.run(producer=p)
@@ -26,6 +29,7 @@ def test_relays_stream_and_terminal(tmp_path, monkeypatch):
     first = p.published[0][2]
     assert first["seq"] == 1 and first["type"] == "assistant"
     assert p.published[-1][2]["terminal"] is True
+    assert (tmp_path / ".claude" / "agents" / "hello-world.md").exists()
 
 
 def test_kafka_wrapper_constructible_outside_event_loop():
