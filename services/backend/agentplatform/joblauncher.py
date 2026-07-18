@@ -97,6 +97,12 @@ class JobWatcher:
             db_run = await s.get(Run, run_id)
             if db_run is None:
                 return
+            if db_run.state not in ACTIVE_STATES:
+                # Terminal states must never be regressed/clobbered by the watcher.
+                # Re-checked against the current DB row, not the state snapshot the
+                # poll loop started with, since the run may have transitioned
+                # (e.g. cancelled) between listing and this write.
+                return
             db_run.state = state
             if error:
                 db_run.error = error
