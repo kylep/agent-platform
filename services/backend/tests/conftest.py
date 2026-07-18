@@ -1,4 +1,5 @@
 import pytest, httpx
+from agentplatform.agents import AgentStore
 from agentplatform.config import Settings
 from agentplatform.db import make_engine, make_session_factory, init_db
 from agentplatform.events import FakeProducer
@@ -21,8 +22,21 @@ def secret_store():
     return InMemorySecretStore()
 
 @pytest.fixture
-async def client(sf, producer, secret_store):
-    app = create_app(Settings(), sf, producer, secret_store=secret_store)
+def tmp_agents(tmp_path):
+    d = tmp_path / "hello-world"
+    d.mkdir(parents=True)
+    (d / "agent.md").write_text("# hello-world\nYou are hello-world.")
+    (d / "manifest.yaml").write_text("description: test\n")
+    return tmp_path
+
+@pytest.fixture
+def agent_store(tmp_agents):
+    return AgentStore(tmp_agents)
+
+@pytest.fixture
+async def client(sf, producer, secret_store, agent_store):
+    app = create_app(Settings(agents_root=str(agent_store.root)), sf, producer,
+                      secret_store=secret_store, agent_store=agent_store)
     async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://t") as c:
         yield c
 
