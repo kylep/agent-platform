@@ -23,6 +23,14 @@ def _install_credentials() -> None:
     dst.parent.mkdir(parents=True, exist_ok=True)
     shutil.copy(src, dst)  # copy: never write back to the mount
 
+def _install_agent(agent: str) -> None:
+    # `claude --agent <name>` resolves agents from ~/.claude/agents/, so the
+    # synced definition is copied there under the agent's name.
+    src = Path(os.environ.get("AP_AGENTS_DIR", "/agents/agents")) / agent / "agent.md"
+    dst = Path.home() / ".claude" / "agents" / f"{agent}.md"
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy(src, dst)
+
 def run(producer=None) -> int:
     run_id, agent = os.environ["AP_RUN_ID"], os.environ["AP_AGENT"]
     prompt = os.environ["AP_PROMPT"]
@@ -31,6 +39,7 @@ def run(producer=None) -> int:
 
 async def _run(producer, run_id: str, agent: str, prompt: str) -> int:
     _install_credentials()
+    _install_agent(agent)
     await producer.start()
     claude = os.environ.get("CLAUDE_BIN", "claude")
     proc = subprocess.Popen(
