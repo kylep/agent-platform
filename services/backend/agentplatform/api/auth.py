@@ -19,15 +19,27 @@ async def _admin(request: Request) -> Principal | None:
     async with request.app.state.session_factory() as s:
         return (await s.execute(select(Principal).where(Principal.name == "admin"))).scalar_one_or_none()
 
-async def require_admin(request: Request) -> str:
-    cookie = request.cookies.get("ap_session")
+def validate_session_cookie(app, cookie: str | None) -> str | None:
+    """Validate an `ap_session` cookie against the app's session secret.
+
+    Returns the principal name on success, or None if the cookie is
+    missing or invalid. Shared by REST (require_admin) and websocket
+    (tail) auth paths so both use the same signer/salt.
+    """
     if not cookie:
-        raise HTTPException(401)
+        return None
+    signer = URLSafeSerializer(app.state.settings.session_secret, salt="ap-session")
     try:
-        data = _signer(request).loads(cookie)
+        data = signer.loads(cookie)
     except BadSignature:
-        raise HTTPException(401)
+        return None
     return data["principal"]
+
+async def require_admin(request: Request) -> str:
+    principal = validate_session_cookie(request.app, request.cookies.get("ap_session"))
+    if principal is None:
+        raise HTTPException(401)
+    return principal
 
 @router.get("/api/setup-state")
 async def setup_state(request: Request):

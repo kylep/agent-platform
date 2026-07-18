@@ -3,6 +3,7 @@ import json
 from fastapi import APIRouter, WebSocket
 from sqlalchemy import select
 
+from agentplatform.api.auth import validate_session_cookie
 from agentplatform.db import TranscriptEvent
 
 router = APIRouter()
@@ -11,6 +12,10 @@ router = APIRouter()
 @router.websocket("/api/runs/{run_id}/tail")
 async def tail(ws: WebSocket, run_id: str):
     await ws.accept()
+    principal = validate_session_cookie(ws.app, ws.cookies.get("ap_session"))
+    if principal is None:
+        await ws.close(code=4401)
+        return
     async with ws.app.state.session_factory() as s:
         rows = (
             await s.execute(
