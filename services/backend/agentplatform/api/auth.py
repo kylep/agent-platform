@@ -31,7 +31,11 @@ async def require_admin(request: Request) -> str:
 
 @router.get("/api/setup-state")
 async def setup_state(request: Request):
-    return {"needs_admin": await _admin(request) is None}
+    from agentplatform.api.secrets import secret_listing
+    return {
+        "needs_admin": await _admin(request) is None,
+        "secrets": await secret_listing(request),
+    }
 
 @router.post("/api/setup")
 async def setup(request: Request, creds: Creds):
