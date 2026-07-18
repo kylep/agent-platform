@@ -78,6 +78,12 @@ topics:
     - run.dlq
   partitions: 1
   replicationFactor: 1
+  # Hand-pinned to match the kafka.image.tag the bitnami/kafka subchart
+  # (Chart.yaml dependency) currently pulls in via its appVersion. This can
+  # drift: when Chart.yaml bumps the kafka dependency version, re-check
+  # https://github.com/bitnami/charts/blob/main/bitnami/kafka/Chart.yaml
+  # (appVersion) and bump this tag to match so kafka-topics.sh stays
+  # compatible with the broker's protocol version.
   image:
     registry: docker.io
     repository: bitnami/kafka
@@ -99,3 +105,11 @@ kafka:
     replicaCount: 1
   broker:
     replicaCount: 0
+  # LAN/M1 posture: no SASL credentials are wired into this chart, but the
+  # bitnami/kafka 32.4.3 default (listeners.client.protocol: SASL_PLAINTEXT)
+  # requires them, which breaks topics-job and every aiokafka client. Force
+  # PLAINTEXT for the client listener until SASL is added in the hardening
+  # milestone.
+  listeners:
+    client:
+      protocol: PLAINTEXT
