@@ -128,6 +128,155 @@ h1 {
   max-width: 720px;
 }
 
+.page-wide {
+  max-width: 960px;
+}
+
+h2 {
+  font-size: 16px;
+  font-weight: 600;
+  margin: 24px 0 10px;
+}
+
+/* tables */
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+
+.table th,
+.table td {
+  text-align: left;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+}
+
+.table th {
+  color: var(--muted);
+  font-weight: 500;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.table a {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+.table a:hover {
+  text-decoration: underline;
+}
+
+/* definition lists */
+.def-list {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 6px 16px;
+  margin: 0 0 16px;
+  font-size: 14px;
+}
+
+.def-list dt {
+  color: var(--muted);
+}
+
+.def-list dd {
+  margin: 0;
+}
+
+/* agent markdown / prompt display */
+.agent-md {
+  background: var(--bg-alt);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 14px;
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 13px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 400px;
+  overflow: auto;
+}
+
+/* transcript */
+.transcript {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.transcript-text {
+  margin: 0;
+  padding: 8px 12px;
+  background: var(--bg-alt);
+  border-radius: 6px;
+}
+
+.transcript-tool {
+  background: var(--bg-alt);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 10px;
+}
+
+.transcript-tool summary {
+  cursor: pointer;
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 13px;
+  color: var(--accent);
+}
+
+.transcript-tool pre {
+  margin: 8px 0 0;
+  font-size: 12px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.transcript-frame {
+  margin: 0;
+  font-size: 12px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.transcript-frame.dim {
+  color: var(--muted);
+}
+
+/* dashboard tiles */
+.tile-row {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.tile {
+  flex: 1;
+  text-align: center;
+  padding: 20px;
+  background: var(--bg-alt);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--fg);
+  text-decoration: none;
+  font-weight: 600;
+}
+
+.tile:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
 /* form controls */
 input,
 textarea,
