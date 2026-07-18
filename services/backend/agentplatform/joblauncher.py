@@ -1,3 +1,4 @@
+import asyncio
 import logging
 from kubernetes import client as k8s
 from kubernetes.client.rest import ApiException
@@ -63,13 +64,16 @@ class K8sJobLauncher(Launcher):
 
     async def launch(self, run: Run, manifest: Manifest) -> None:
         job = self.build_job(run, manifest)
-        self.batch.create_namespaced_job(self.settings.k8s_namespace, job)
+        await asyncio.to_thread(self.batch.create_namespaced_job, self.settings.k8s_namespace, job)
 
     async def cancel(self, run_id: str) -> None:
         name = f"run-{run_id[:12]}"
         try:
-            self.batch.delete_namespaced_job(
-                name, self.settings.k8s_namespace, propagation_policy="Foreground"
+            await asyncio.to_thread(
+                self.batch.delete_namespaced_job,
+                name,
+                self.settings.k8s_namespace,
+                propagation_policy="Foreground",
             )
         except ApiException as e:
             if e.status != 404:
@@ -113,7 +117,7 @@ class JobWatcher:
         for run_id, state in runs:
             name = f"run-{run_id[:12]}"
             try:
-                job = self.batch.read_namespaced_job(name, name_ns)
+                job = await asyncio.to_thread(self.batch.read_namespaced_job, name, name_ns)
             except ApiException as e:
                 if e.status == 404:
                     await self._set_state(run_id, RunState.FAILED, "job disappeared")
@@ -140,7 +144,6 @@ class JobWatcher:
                 await self._set_state(run_id, RunState.RUNNING)
 
     async def run_forever(self) -> None:
-        import asyncio
         while True:
             try:
                 await self.poll_once()
