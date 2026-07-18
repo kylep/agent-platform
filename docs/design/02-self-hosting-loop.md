@@ -24,6 +24,9 @@ exists.
   merge/close proxied through the GitHub API.
 - **Sync hardening:** webhook-or-poll main→volume sync with commit
   provenance shown in the UI.
+- **Change admin password:** a Settings flow for rotating the admin
+  password (today the only path is deleting the principal row in postgres
+  and re-running first-launch setup — see docs/setup.md troubleshooting).
 
 ## Done when
 

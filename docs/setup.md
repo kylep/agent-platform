@@ -148,10 +148,29 @@ If missing, install one appropriate for your cluster (e.g., local-path provision
 
 2. Verify Kafka topics were created:
    ```bash
-   kubectl exec -it statefulset/kafka -n agent-platform -- \
+   kubectl exec -it ap-kafka-controller-0 -n agent-platform -- \
      kafka-topics.sh --list --bootstrap-server localhost:9092
    ```
 
-   You should see topics like `agent-tasks`, `agent-results`, etc.
+   You should see `run.requests`, `run.events`, `run.transcript`, and `run.dlq`.
 
 3. If topics are missing, the topics job may have failed. Re-run the Helm install to trigger a fresh job.
+
+### Reset the admin password
+
+**Symptom:** Admin password lost, or you want to change it. There is no
+change-password UI yet (planned for milestone 02); the password exists only
+as an argon2 hash in postgres.
+
+**Fix:** Delete the admin principal, then reload the UI — the first-launch
+setup page returns and lets you choose a new password:
+
+```bash
+kubectl -n agent-platform exec ap-postgresql-0 -- \
+  env PGPASSWORD=$(kubectl -n agent-platform get secret ap-postgresql \
+    -o jsonpath='{.data.postgres-password}' | base64 -d) \
+  psql -U postgres -d agentplatform -c "DELETE FROM principals WHERE name='admin';"
+```
+
+Existing browser sessions are invalidated the next time they hit an
+authenticated endpoint.
