@@ -22,5 +22,13 @@ spec:
           command: ["python", "-m", "agentplatform.dispatcher_main"]
           env:
             {{- include "agent-platform.backendEnv" . | nindent 12 }}
+          volumeMounts:
+            - name: agent-definitions
+              mountPath: /agents
+              readOnly: true
           resources:
             {{- toYaml .Values.resources.dispatcher | nindent 12 }}
+      volumes:
+        - name: agent-definitions
+          persistentVolumeClaim:
+            claimName: {{ .Values.env.AP_AGENTS_VOLUME_CLAIM }}
