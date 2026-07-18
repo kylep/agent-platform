@@ -1,0 +1,59 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install backend
+        run: pip install -e 'services/backend[dev]'
+      - name: Run backend tests
+        run: pytest services/backend/tests
+
+  runner:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install runner deps
+        run: pip install aiokafka pytest pytest-asyncio
+      - name: Run runner tests
+        run: cd services/runner && python -m pytest test_runner.py
+
+  web:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Install and build web
+        run: cd services/web && npm ci && npm run build
+
+  helm:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/setup-helm@v4
+      - name: Update chart dependencies
+        # OCI deps (bitnamicharts) are handled natively by helm 3.8+; no login needed.
+        run: helm dependency update charts/agent-platform
+      - name: Lint chart
+        run: helm lint charts/agent-platform --set env.AP_SESSION_SECRET=x
+
+  subscription-guard:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: forbid API-key auth
+        run: |
+          ! grep -rn --exclude-dir=.git --exclude-dir=node_modules --exclude-dir=.venv --exclude-dir=dist --exclude=ci.yaml -e 'sk-ant-' -e 'ANTHROPIC_API_KEY' .
