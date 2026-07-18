@@ -1,0 +1,26 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}-dispatcher
+  labels:
+    {{- include "agent-platform.selectorLabels" (dict "Release" .Release "Chart" .Chart "component" "dispatcher") | nindent 4 }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "agent-platform.selectorLabels" (dict "Release" .Release "Chart" .Chart "component" "dispatcher") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "agent-platform.selectorLabels" (dict "Release" .Release "Chart" .Chart "component" "dispatcher") | nindent 8 }}
+    spec:
+      serviceAccountName: {{ .Release.Name }}-dispatcher
+      containers:
+        - name: dispatcher
+          image: "{{ .Values.images.backend.repository }}:{{ .Values.images.backend.tag }}"
+          imagePullPolicy: {{ .Values.images.backend.pullPolicy | default "IfNotPresent" }}
+          command: ["python", "-m", "agentplatform.dispatcher_main"]
+          env:
+            {{- include "agent-platform.backendEnv" . | nindent 12 }}
+          resources:
+            {{- toYaml .Values.resources.dispatcher | nindent 12 }}

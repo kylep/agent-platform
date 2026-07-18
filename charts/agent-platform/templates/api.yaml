@@ -1,0 +1,55 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}-api
+  labels:
+    {{- include "agent-platform.selectorLabels" (dict "Release" .Release "Chart" .Chart "component" "api") | nindent 4 }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "agent-platform.selectorLabels" (dict "Release" .Release "Chart" .Chart "component" "api") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "agent-platform.selectorLabels" (dict "Release" .Release "Chart" .Chart "component" "api") | nindent 8 }}
+    spec:
+      serviceAccountName: {{ .Release.Name }}-api
+      containers:
+        - name: api
+          image: "{{ .Values.images.backend.repository }}:{{ .Values.images.backend.tag }}"
+          imagePullPolicy: {{ .Values.images.backend.pullPolicy | default "IfNotPresent" }}
+          command: ["python", "-m", "agentplatform.api_main"]
+          ports:
+            - name: http
+              containerPort: 8000
+          env:
+            {{- include "agent-platform.backendEnv" . | nindent 12 }}
+            - name: AP_SESSION_SECRET
+              value: {{ required "env.AP_SESSION_SECRET is required (e.g. --set env.AP_SESSION_SECRET=...)" .Values.env.AP_SESSION_SECRET | quote }}
+          volumeMounts:
+            - name: agent-definitions
+              mountPath: /agents
+              readOnly: true
+          resources:
+            {{- toYaml .Values.resources.api | nindent 12 }}
+      volumes:
+        - name: agent-definitions
+          persistentVolumeClaim:
+            claimName: {{ .Values.env.AP_AGENTS_VOLUME_CLAIM }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  # Hardcoded: services/web/nginx.conf proxies /api/ to http://agent-platform-api:8000
+  # by this literal DNS name, so it cannot be release-name-templated.
+  name: agent-platform-api
+  labels:
+    {{- include "agent-platform.selectorLabels" (dict "Release" .Release "Chart" .Chart "component" "api") | nindent 4 }}
+spec:
+  selector:
+    {{- include "agent-platform.selectorLabels" (dict "Release" .Release "Chart" .Chart "component" "api") | nindent 4 }}
+  ports:
+    - name: http
+      port: 8000
+      targetPort: 8000

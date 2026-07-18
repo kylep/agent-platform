@@ -1,0 +1,25 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}-recorder
+  labels:
+    {{- include "agent-platform.selectorLabels" (dict "Release" .Release "Chart" .Chart "component" "recorder") | nindent 4 }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "agent-platform.selectorLabels" (dict "Release" .Release "Chart" .Chart "component" "recorder") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "agent-platform.selectorLabels" (dict "Release" .Release "Chart" .Chart "component" "recorder") | nindent 8 }}
+    spec:
+      containers:
+        - name: recorder
+          image: "{{ .Values.images.backend.repository }}:{{ .Values.images.backend.tag }}"
+          imagePullPolicy: {{ .Values.images.backend.pullPolicy | default "IfNotPresent" }}
+          command: ["python", "-m", "agentplatform.recorder_main"]
+          env:
+            {{- include "agent-platform.backendEnv" . | nindent 12 }}
+          resources:
+            {{- toYaml .Values.resources.recorder | nindent 12 }}

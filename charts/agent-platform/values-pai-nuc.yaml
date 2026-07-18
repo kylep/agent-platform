@@ -1,0 +1,62 @@
+# Memory profile for the pai-nuc single-node cluster (local-path storage,
+# tight resource envelope). Layer over values.yaml with:
+#   helm install agent-platform charts/agent-platform -f values-pai-nuc.yaml \
+#     --set env.AP_SESSION_SECRET=...
+
+resources:
+  api:
+    requests:
+      memory: 256Mi
+      cpu: 100m
+    limits:
+      memory: 256Mi
+  dispatcher:
+    requests:
+      memory: 256Mi
+      cpu: 100m
+    limits:
+      memory: 256Mi
+  recorder:
+    requests:
+      memory: 256Mi
+      cpu: 100m
+    limits:
+      memory: 256Mi
+  web:
+    requests:
+      memory: 128Mi
+      cpu: 50m
+    limits:
+      memory: 128Mi
+
+agents:
+  storageClass: local-path
+  storage: 1Gi
+
+postgresql:
+  primary:
+    resources:
+      requests:
+        memory: 1Gi
+        cpu: 250m
+      limits:
+        memory: 2Gi
+    persistence:
+      storageClass: local-path
+      size: 2Gi
+
+kafka:
+  controller:
+    resources:
+      requests:
+        memory: 2Gi
+        cpu: 500m
+      limits:
+        memory: 3Gi
+    heapOpts: "-Xmx1024m -Xms1024m"
+    persistence:
+      storageClass: local-path
+      size: 4Gi
+    logPersistence:
+      storageClass: local-path
+      size: 4Gi
