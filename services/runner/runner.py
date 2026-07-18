@@ -31,7 +31,10 @@ async def _run(producer, run_id: str, agent: str, prompt: str) -> int:
         [claude, "--agent", agent, "-p", prompt, "--output-format", "stream-json", "--verbose"],
         stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
     seq = 0
-    for line in proc.stdout:
+    while True:
+        line = await asyncio.to_thread(proc.stdout.readline)
+        if line == "":
+            break
         line = line.strip()
         if not line: continue
         seq += 1
@@ -41,7 +44,7 @@ async def _run(producer, run_id: str, agent: str, prompt: str) -> int:
             payload = {"type": "raw", "text": line}
         payload["seq"] = seq
         await producer.publish(TOPIC_TRANSCRIPT, run_id, payload)
-    rc = proc.wait()
+    rc = await asyncio.to_thread(proc.wait)
     state = "succeeded" if rc == 0 else "failed"
     await producer.publish(TOPIC_TRANSCRIPT, run_id,
                            {"seq": seq + 1, "type": "lifecycle", "terminal": True, "state": state})
