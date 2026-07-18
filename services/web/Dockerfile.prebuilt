@@ -1,0 +1,6 @@
+# Cross-build path: `npm run build` natively first, then package dist/ for amd64.
+# QEMU-emulated node (esbuild) SIGILLs on arm64 hosts; the canonical Dockerfile
+# stays the single-arch/CI path.
+FROM nginx:1.29-alpine
+COPY nginx.conf /etc/nginx/conf.d/default.conf
+COPY dist /usr/share/nginx/html
