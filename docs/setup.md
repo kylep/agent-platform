@@ -51,9 +51,14 @@ At the auth gate, create your admin credentials (email and password).
 
 You will see a secrets gate asking for Claude subscription credentials.
 
-#### Option A: Paste credentials via UI
+#### Option A (recommended): setup-token via UI
 
-Copy your credentials JSON from `~/.claude/.credentials.json` and paste into the gate.
+Run `claude setup-token` in any terminal (requires a Claude Pro/Max
+subscription; walks you through a browser OAuth authorization and prints a
+long-lived token valid for one year). Copy the token and paste it into the
+Secrets page. Nothing rotates this token, so it does not go stale the way a
+copied session credentials file does — a session file's refresh token is
+invalidated as soon as the machine that exported it refreshes again.
 
 #### Option B: Use the install script
 

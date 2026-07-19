@@ -17,11 +17,20 @@ class KafkaProducerWrapper:
     async def publish(self, topic, key, value):
         await self._p.send_and_wait(topic, json.dumps(value).encode(), key=key.encode())
 
-def _install_credentials() -> None:
-    src = Path(os.environ.get("AP_SECRETS_DIR", "/secrets/claude")) / "credentials.json"
+def _install_credentials() -> dict:
+    """Returns extra env for the claude subprocess. Preferred: a long-lived
+    `claude setup-token` under the secret's `token` key (nothing rotates it).
+    Fallback: a session credentials.json snapshot (goes stale fast — the
+    laptop's own claude rotates the refresh token; kept for completeness)."""
+    secrets = Path(os.environ.get("AP_SECRETS_DIR", "/secrets/claude"))
+    token_file = secrets / "token"
+    if token_file.is_file():
+        return {"CLAUDE_CODE_OAUTH_TOKEN": token_file.read_text().strip()}
+    src = secrets / "credentials.json"
     dst = Path.home() / ".claude" / ".credentials.json"
     dst.parent.mkdir(parents=True, exist_ok=True)
     shutil.copy(src, dst)  # copy: never write back to the mount
+    return {}
 
 def _install_agent(agent: str) -> None:
     # `claude --agent <name>` resolves agents from ~/.claude/agents/, so the
@@ -38,13 +47,14 @@ def run(producer=None) -> int:
     return asyncio.run(_run(producer, run_id, agent, prompt))
 
 async def _run(producer, run_id: str, agent: str, prompt: str) -> int:
-    _install_credentials()
+    extra_env = _install_credentials()
     _install_agent(agent)
     await producer.start()
     claude = os.environ.get("CLAUDE_BIN", "claude")
     proc = subprocess.Popen(
         [claude, "--agent", agent, "-p", prompt, "--output-format", "stream-json", "--verbose"],
-        stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+        stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+        env={**os.environ, **extra_env})
     seq = 0
     while True:
         line = await asyncio.to_thread(proc.stdout.readline)
