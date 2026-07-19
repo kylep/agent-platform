@@ -14,10 +14,15 @@ function SecretRow({ secret, onSaved }: { secret: SecretStatus; onSaved: () => v
 
   async function save() {
     setSaveState("saving");
+    // Heuristic: pasted JSON is a session credentials file; anything else is
+    // a long-lived `claude setup-token` value (the preferred credential).
+    const trimmed = value.trim();
+    const key = trimmed.startsWith("{") ? "credentials.json" : "token";
+    setSaveState("saving");
     try {
       await api(`/api/secrets/${encodeURIComponent(secret.name)}`, {
         method: "PUT",
-        body: JSON.stringify({ data: { "credentials.json": value } }),
+        body: JSON.stringify({ data: { [key]: trimmed } }),
       });
       setSaveState("saved");
       onSaved();
@@ -34,7 +39,7 @@ function SecretRow({ secret, onSaved }: { secret: SecretStatus; onSaved: () => v
         <StatusChip status={secret.status} />
       </div>
       <textarea
-        placeholder="Paste credentials.json contents…"
+        placeholder="Paste a `claude setup-token` value (or credentials.json contents)…"
         value={value}
         onChange={(e) => { setValue(e.target.value); setSaveState("idle"); }}
         rows={4}

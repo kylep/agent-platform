@@ -122,11 +122,14 @@ manifest earns, and (in the hardening milestone) NetworkPolicies and a
 tight securityContext. Workspaces are ephemeral `emptyDir`; persistent
 per-agent workspaces are a later opt-in.
 
-**Subscription token wrinkle:** concurrent runners refreshing a shared
-OAuth token can race. Runners mount a copy and never write back; one
-steward process is the sole refresher, updating the k8s Secret. Verify
-against real CLI behavior in milestone 01; the steward stays dormant if
-refresh proves unnecessary within run lifetimes.
+**Subscription token (resolved in M01 verification):** sharing the
+laptop's session credentials fails fast — the laptop's own claude rotates
+the refresh token, invalidating any snapshot. The platform instead uses a
+dedicated long-lived token from `claude setup-token` (1-year validity,
+subscription-billed), stored under the `token` key of the
+claude-credentials secret and passed to runners as
+`CLAUDE_CODE_OAUTH_TOKEN`. No steward process is needed; nothing rotates
+the token.
 
 ## Infra sizing (pai NUC: i3-7100U 2c/4t, 29Gi RAM, 480G NVMe)
 
