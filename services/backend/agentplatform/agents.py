@@ -9,6 +9,8 @@ class Manifest(BaseModel):
     skills: list[str] = []
     secrets: list[str] = []
     description: str = ""
+    # Optional 5-field cron expression; when set the scheduler fires the agent.
+    schedule: str = ""
 
 class AgentInfo(BaseModel):
     name: str

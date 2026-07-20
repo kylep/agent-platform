@@ -1,0 +1,5 @@
+description: Scheduler smoke-test agent; fires on a cron and replies OK.
+role: operator
+concurrency: 1
+timeout_seconds: 120
+schedule: "* * * * *"

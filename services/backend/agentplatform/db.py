@@ -53,6 +53,14 @@ class SecretMeta(Base):
     status: Mapped[str] = mapped_column(String(16), default="missing")
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
 
+class Schedule(Base):
+    __tablename__ = "schedules"
+    agent: Mapped[str] = mapped_column(String(128), primary_key=True)
+    enabled: Mapped[bool] = mapped_column(default=True)
+    last_fire: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    next_fire: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+
 class ApiKey(Base):
     __tablename__ = "api_keys"
     id: Mapped[str] = mapped_column(String(32), primary_key=True, default=lambda: uuid.uuid4().hex)

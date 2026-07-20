@@ -10,6 +10,7 @@ from agentplatform.api import agents as agents_api
 from agentplatform.api import apikeys as apikeys_api
 from agentplatform.api import auth
 from agentplatform.api import pulls as pulls_api
+from agentplatform.api import schedules as schedules_api
 from agentplatform.api import runs as runs_api
 from agentplatform.api import secrets as secrets_api
 from agentplatform.api import tail as tail_api
@@ -92,6 +93,7 @@ def create_app(settings, session_factory, producer, secret_store=None, agent_sto
     app.include_router(auth.router)
     app.include_router(apikeys_api.router)
     app.include_router(pulls_api.router)
+    app.include_router(schedules_api.router)
     app.include_router(secrets_api.router)
     app.include_router(agents_api.router)
     app.include_router(runs_api.router)
