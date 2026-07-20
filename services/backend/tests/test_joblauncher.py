@@ -98,3 +98,39 @@ async def test_poll_once_still_transitions_dispatched_to_running(sf):
         run = await s.get(Run, rid)
     assert run.state == RunState.RUNNING
     assert producer.published[-1][2]["state"] == RunState.RUNNING
+
+
+class _FakeApp:
+    def installation_token(self):
+        return "ghs_selfedit"
+
+
+def _selfedit_settings():
+    return Settings(runner_image="r:1", k8s_namespace="ap",
+                    git_remote_url="https://github.com/o/r.git", github_repo="o/r")
+
+
+def test_self_edit_env_injected_for_coder_run():
+    launcher = K8sJobLauncher(batch=None, settings=_selfedit_settings(), github_app=_FakeApp())
+    run = Run(agent="platform-coder", trigger="manual", requested_by="t", prompt="edit x")
+    run.id = "b" * 32
+    m = Manifest(role="coder", timeout_seconds=600)
+    assert launcher._is_self_edit(m) is True
+    job = launcher.build_job(run, m, self_edit_token="ghs_selfedit")
+    env = {e.name: e.value for e in job.spec.template.spec.containers[0].env}
+    assert env["AP_SELF_EDIT"] == "1" and env["AP_GITHUB_TOKEN"] == "ghs_selfedit"
+    assert env["AP_GIT_REMOTE_URL"] == "https://github.com/o/r.git" and env["AP_GITHUB_REPO"] == "o/r"
+
+
+def test_non_coder_run_is_not_self_edit():
+    launcher = K8sJobLauncher(batch=None, settings=_selfedit_settings(), github_app=_FakeApp())
+    assert launcher._is_self_edit(Manifest(role="operator")) is False
+    # and no self-edit env when no token passed
+    run = Run(agent="hello-world", trigger="manual", requested_by="t", prompt="hi"); run.id = "c" * 32
+    env = {e.name: e.value for e in launcher.build_job(run, Manifest()).spec.template.spec.containers[0].env}
+    assert "AP_SELF_EDIT" not in env
+
+
+def test_self_edit_off_without_app():
+    launcher = K8sJobLauncher(batch=None, settings=_selfedit_settings(), github_app=None)
+    assert launcher._is_self_edit(Manifest(role="coder")) is False

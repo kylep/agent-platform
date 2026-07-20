@@ -1,4 +1,5 @@
 import asyncio
+import logging
 import tempfile
 import uuid
 from pathlib import Path
@@ -7,9 +8,13 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 
 from agentplatform.api.auth import require_admin
+from agentplatform.db import Run
+from agentplatform.events import TOPIC_RUN_REQUESTS
 from agentplatform.github import GitHubClient
 from agentplatform.githubapp import GitHubApp
 from agentplatform.gitservice import EditService, GitWriter
+
+log = logging.getLogger("agents-api")
 
 router = APIRouter(dependencies=[Depends(require_admin)])
 
@@ -127,3 +132,32 @@ async def quick_edit(request: Request, name: str, body: QuickEditIn,
                          message=f"{principal}: quick-edit {name}/{body.field}",
                          branch=f"coder/{name}-{body.field}-{uuid.uuid4().hex[:8]}",
                          pr_title=f"Edit {name}: {body.field}")
+
+
+class FreeformEditIn(BaseModel):
+    instruction: str
+
+
+@router.post("/api/agents/{name}/edit", status_code=202)
+async def freeform_edit(request: Request, name: str, body: FreeformEditIn,
+                        principal: str = Depends(require_admin)):
+    """Dispatch platform-coder to edit agent `{name}` per a freeform
+    instruction; its changes land as a pull request (see the run's transcript
+    for the PR link). The run flows through the normal dispatcher/runner path."""
+    st = request.app.state
+    if st.agent_store.get(name) is None:
+        raise HTTPException(404, "unknown agent")
+    coder = st.agent_store.get("platform-coder")
+    if coder is None or coder.error is not None:
+        raise HTTPException(409, "platform-coder agent is unavailable")
+    prompt = (f"Edit the agent `{name}` in this repository. Work only within "
+              f"`agents/{name}/`. Instruction:\n\n{body.instruction}")
+    run = Run(agent="platform-coder", trigger="self-edit", requested_by=principal, prompt=prompt)
+    async with st.session_factory() as s:
+        s.add(run); await s.commit()
+    try:
+        await st.producer.publish(TOPIC_RUN_REQUESTS, run.id,
+                                  {"type": "run", "run_id": run.id})
+    except Exception:
+        log.warning("publish failed for self-edit run %s; sweep will drain it", run.id)
+    return {"id": run.id, "state": run.state, "target_agent": name}
