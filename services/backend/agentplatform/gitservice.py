@@ -167,6 +167,10 @@ class EditService:
         _write_files(repo, files)
         changes = compute_changes(repo)
         paths = [c.path for c in changes]
+        if not changes:
+            # The edit matches what's already committed — nothing to do (a
+            # bare `git commit` would fail with "nothing to commit").
+            return {"tier": 0, "branch": None, "sha": None, "changes": [], "pr": None}
         if classify_tier(changes) == TIER_DIRECT:
             sha = self.writer.commit(repo, message)
             self.writer.push(repo, self.writer.default_branch)
