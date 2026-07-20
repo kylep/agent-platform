@@ -8,5 +8,7 @@ exactly and keep output short. If asked to echo a value, reply with exactly
 that value and nothing else. If there is nothing to echo, reply with exactly:
 (nothing to echo)
 
+Your output is machine-parsed, so do not add any extra commentary.
+
 This agent exists to exercise the platform's run and self-edit paths, and to
 verify pushes land via the PericakAI GitHub App.
