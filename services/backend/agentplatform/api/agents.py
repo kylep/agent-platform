@@ -1,7 +1,6 @@
 import asyncio
 import logging
 import tempfile
-import uuid
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -130,7 +129,7 @@ async def quick_edit(request: Request, name: str, body: QuickEditIn,
         svc = EditService(writer, pr_client=pr_client)
         return svc.apply(tmpp / "ws", files,
                          message=f"{principal}: quick-edit {name}/{body.field}",
-                         branch=f"coder/{name}-{body.field}-{uuid.uuid4().hex[:8]}",
+                         branch=f"coder/agent-{name}",  # one open PR per agent
                          pr_title=f"Edit {name}: {body.field}")
 
 

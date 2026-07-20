@@ -133,8 +133,11 @@ class GitWriter:
              "-c", f"user.email={self.author_email}", "commit", "-m", message)
         return _git(repo, "rev-parse", "HEAD").strip()
 
-    def push(self, repo: Path, branch: str) -> None:
-        subprocess.run(["git", "-C", str(Path(repo)), "push", "origin", f"HEAD:{branch}"],
+    def push(self, repo: Path, branch: str, *, force: bool = False) -> None:
+        # `+` forces: a deterministic per-agent branch is overwritten so there
+        # is only ever one open PR per agent.
+        refspec = f"{'+' if force else ''}HEAD:{branch}"
+        subprocess.run(["git", "-C", str(Path(repo)), "push", "origin", refspec],
                        check=True, capture_output=True, text=True, env=self._auth_env())
 
 
@@ -178,10 +181,16 @@ class EditService:
                     "changes": paths, "pr": None}
         self.writer.create_branch(repo, branch)
         sha = self.writer.commit(repo, message)
-        self.writer.push(repo, branch)
+        self.writer.push(repo, branch, force=True)  # deterministic branch → overwrite
         pr = None
         if self.pr_client is not None:
-            pr = self.pr_client.open_pull_request(
-                head=branch, base=self.writer.default_branch,
-                title=pr_title or message, body=pr_body)
+            import urllib.error
+            try:
+                pr = self.pr_client.open_pull_request(
+                    head=branch, base=self.writer.default_branch,
+                    title=pr_title or message, body=pr_body)
+            except urllib.error.HTTPError as e:
+                if e.code != 422:  # 422 = a PR already exists for this branch
+                    raise
+                pr = self.pr_client.find_open_pull_request(branch)  # updated by the force-push
         return {"tier": 2, "branch": branch, "sha": sha, "changes": paths, "pr": pr}
