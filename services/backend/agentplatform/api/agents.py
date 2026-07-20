@@ -150,8 +150,9 @@ async def freeform_edit(request: Request, name: str, body: FreeformEditIn,
     coder = st.agent_store.get("platform-coder")
     if coder is None or coder.error is not None:
         raise HTTPException(409, "platform-coder agent is unavailable")
-    prompt = (f"Edit the agent `{name}` in this repository. Work only within "
-              f"`agents/{name}/`. Instruction:\n\n{body.instruction}")
+    # Instruction first so the runner derives a clean PR title from line 1.
+    prompt = (f"{body.instruction}\n\nContext: edit the agent `{name}` in this "
+              f"repository; only modify files under `agents/{name}/`.")
     run = Run(agent="platform-coder", trigger="self-edit", requested_by=principal, prompt=prompt)
     async with st.session_factory() as s:
         s.add(run); await s.commit()
