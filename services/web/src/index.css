@@ -335,6 +335,21 @@ button.linkish:hover {
   color: var(--accent);
 }
 
+.tool-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 16px;
+  margin-bottom: 8px;
+}
+.tool {
+  color: var(--muted);
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 13px;
+}
+.tool-on {
+  color: var(--fg);
+}
+
 button.tag {
   background: var(--bg);
   border: 1px solid var(--border);

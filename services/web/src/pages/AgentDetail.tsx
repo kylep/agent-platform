@@ -2,6 +2,17 @@ import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { api, type AgentDetail as AgentDetailData } from "../api";
 
+// The Claude Code tools an agent may be granted (frontmatter `tools:`).
+const AVAILABLE_TOOLS = ["Bash", "Read", "Write", "Edit", "Glob", "Grep",
+  "WebSearch", "WebFetch", "Task", "TodoWrite", "NotebookEdit"];
+
+function parseTools(md: string): Set<string> {
+  const fm = md.split("---")[1] ?? "";  // frontmatter is between the first pair of ---
+  const line = fm.split("\n").find((l) => /^\s*tools:/i.test(l));
+  if (!line) return new Set();
+  return new Set(line.replace(/^\s*tools:/i, "").split(/[,\s]+/).map((s) => s.trim()).filter(Boolean));
+}
+
 export default function AgentDetail() {
   const { name } = useParams<{ name: string }>();
   const navigate = useNavigate();
@@ -62,6 +73,8 @@ export default function AgentDetail() {
   if (loadError) return <div className="page"><div className="error">{loadError}</div></div>;
   if (!agent) return null;
 
+  const agentTools = parseTools(agent.agent_md);
+
   return (
     <div className="page">
       <h1>{agent.name}</h1>
@@ -81,6 +94,15 @@ export default function AgentDetail() {
         <dt>Secrets</dt>
         <dd>{agent.manifest.secrets.length ? agent.manifest.secrets.join(", ") : "—"}</dd>
       </dl>
+
+      <h2>Tools</h2>
+      <p className="muted">Tools this agent may use, declared in its definition. Change them by editing the agent below.</p>
+      <div className="tool-list">
+        {AVAILABLE_TOOLS.map((t) => {
+          const on = agentTools.has(t);
+          return <span key={t} className={on ? "tool tool-on" : "tool"}>{on ? "☑" : "☐"} {t}</span>;
+        })}
+      </div>
 
       <h2>Agent definition</h2>
       <p className="muted">The live definition, synced from <code>main</code> — this is exactly what runs.</p>
