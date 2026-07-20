@@ -33,3 +33,28 @@ exists.
 Kyle asks the UI to create a new agent; platform-coder opens a PR; the PR
 shows in Pending Changes; merging it makes the agent appear and runnable —
 with zero terminal use.
+
+## Progress (2026-07-20)
+
+Backend machinery built and tested (all merged to main; see
+`docs/plans/2026-07-20-milestone-02-self-hosting-loop.md`):
+
+- [x] **RBAC primitives** — `require_role`, roles reader<operator<coder<admin.
+- [x] **API keys** — `ap_` bearer tokens, admin mint/list/revoke, auth path.
+- [x] **Tier computation** — `classify_tier` (fails closed to PR).
+- [x] **Change computation** — `compute_changes` (workspace → FileChange).
+- [x] **GitWriter** — clone/commit/branch/push (tested vs local bare remote).
+- [x] **GitHub PR client** — open/list/merge/close (request-shape tested).
+- [x] **EditService** — end-to-end tier routing (commit vs branch+PR).
+- [x] **platform-coder agent** — coder role, edits under `agents/` only.
+- [x] **Quick-edit endpoint** — `POST /api/agents/{name}/quick-edit` (prompt).
+- [x] **Change admin password** — `POST /api/change-password`.
+
+**Blocked on a GitHub write credential** (only Kyle can provision it):
+- [ ] Live tier-2 PR path, freeform platform-coder run (clone repo into the
+      runner workspace + post-run tiered commit), and Pending Changes — all
+      need a repo write token/deploy key set as the `github-token` secret plus
+      helm values `git_remote_url` + `github_repo`, then a backend redeploy.
+- [ ] Frontend: API-keys management, quick-edit UI, Pending Changes page,
+      password Settings (buildable now; not yet started).
+- [ ] Sync hardening (webhook-or-poll provenance).
