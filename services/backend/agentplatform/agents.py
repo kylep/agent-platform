@@ -11,6 +11,12 @@ class Manifest(BaseModel):
     description: str = ""
     # Optional 5-field cron expression; when set the scheduler fires the agent.
     schedule: str = ""
+    # Optional claude model override (e.g. "sonnet" for cheap background work);
+    # empty = the CLI default.
+    model: str = ""
+    # System agents are platform-internal (e.g. the run summarizer): they get
+    # API access injected and are protected from deletion in the UI.
+    system: bool = False
 
 class AgentInfo(BaseModel):
     name: str

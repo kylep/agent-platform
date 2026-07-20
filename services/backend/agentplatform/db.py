@@ -33,6 +33,9 @@ class Run(Base):
     tokens_in: Mapped[int] = mapped_column(Integer, default=0)
     tokens_out: Mapped[int] = mapped_column(Integer, default=0)
     tool_calls: Mapped[int] = mapped_column(Integer, default=0)
+    # Post-hoc metadata, set by the run-summarizer system agent (or an admin).
+    summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+    tags: Mapped[list] = mapped_column(JSON, default=list)
 
 class TranscriptEvent(Base):
     __tablename__ = "run_transcript_events"

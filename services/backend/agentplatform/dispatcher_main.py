@@ -63,7 +63,8 @@ async def main() -> None:
             await asyncio.sleep(5)
 
     agent_store = AgentStore(settings.agents_root)
-    launcher = K8sJobLauncher(batch, settings, github_app=github_app)
+    launcher = K8sJobLauncher(batch, settings, github_app=github_app,
+                              session_factory=session_factory)
 
     dispatcher = Dispatcher(settings, session_factory, producer, agent_store, launcher)
     watcher = JobWatcher(batch, settings, session_factory, producer)

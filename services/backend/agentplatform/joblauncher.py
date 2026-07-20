@@ -3,7 +3,8 @@ import logging
 from kubernetes import client as k8s
 from kubernetes.client.rest import ApiException
 from agentplatform.agents import Manifest
-from agentplatform.db import ACTIVE_STATES, Run, RunState, utcnow
+from agentplatform.apikeys import generate_token, hash_token, token_prefix
+from agentplatform.db import ACTIVE_STATES, ApiKey, Run, RunState, utcnow
 from agentplatform.dispatcher import Launcher
 from agentplatform.events import TOPIC_RUN_EVENTS
 
@@ -11,19 +12,34 @@ log = logging.getLogger("joblauncher")
 
 
 class K8sJobLauncher(Launcher):
-    def __init__(self, batch, settings, github_app=None):
+    def __init__(self, batch, settings, github_app=None, session_factory=None):
         self.batch = batch
         self.settings = settings
         # When set, coder-role runs are launched as self-edits: the runner
         # clones the repo, lets the agent edit it, and opens a PR using a
         # freshly minted App installation token.
         self.github_app = github_app
+        self.sf = session_factory
+        # One operator API key per system agent, cached for the process
+        # lifetime (plaintext isn't recoverable from the stored hash).
+        self._system_tokens: dict[str, str] = {}
+
+    async def _system_token(self, agent: str) -> str:
+        if agent not in self._system_tokens:
+            token = generate_token()
+            async with self.sf() as s:
+                s.add(ApiKey(name=f"system:{agent}", role="operator", agent=agent,
+                             key_hash=hash_token(token), prefix=token_prefix(token)))
+                await s.commit()
+            self._system_tokens[agent] = token
+        return self._system_tokens[agent]
 
     def _is_self_edit(self, manifest: Manifest) -> bool:
         return (manifest.role == "coder" and self.github_app is not None
                 and bool(self.settings.git_remote_url) and bool(self.settings.github_repo))
 
-    def build_job(self, run: Run, manifest: Manifest, self_edit_token: str | None = None) -> k8s.V1Job:
+    def build_job(self, run: Run, manifest: Manifest, self_edit_token: str | None = None,
+                  api_token: str | None = None) -> k8s.V1Job:
         name = f"run-{run.id[:12]}"
         env = [
             k8s.V1EnvVar(name="AP_RUN_ID", value=run.id),
@@ -31,6 +47,13 @@ class K8sJobLauncher(Launcher):
             k8s.V1EnvVar(name="AP_PROMPT", value=run.prompt),
             k8s.V1EnvVar(name="AP_KAFKA_BOOTSTRAP", value=self.settings.kafka_bootstrap),
         ]
+        if manifest.model:
+            env.append(k8s.V1EnvVar(name="AP_MODEL", value=manifest.model))
+        if api_token:
+            env += [
+                k8s.V1EnvVar(name="AP_API_URL", value=self.settings.api_internal_url),
+                k8s.V1EnvVar(name="AP_API_TOKEN", value=api_token),
+            ]
         if self_edit_token:
             env += [
                 k8s.V1EnvVar(name="AP_SELF_EDIT", value="1"),
@@ -82,7 +105,8 @@ class K8sJobLauncher(Launcher):
         token = None
         if self._is_self_edit(manifest):
             token = await asyncio.to_thread(self.github_app.installation_token)
-        job = self.build_job(run, manifest, self_edit_token=token)
+        api_token = await self._system_token(run.agent) if (manifest.system and self.sf) else None
+        job = self.build_job(run, manifest, self_edit_token=token, api_token=api_token)
         await asyncio.to_thread(self.batch.create_namespaced_job, self.settings.k8s_namespace, job)
 
     async def cancel(self, run_id: str) -> None:

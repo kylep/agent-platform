@@ -146,12 +146,18 @@ async def _run(producer, run_id: str, agent: str, prompt: str) -> int:
 
     claude = os.environ.get("CLAUDE_BIN", "claude")
     args = [claude, "--agent", agent, "-p", prompt, "--output-format", "stream-json", "--verbose"]
+    if os.environ.get("AP_MODEL"):
+        args += ["--model", os.environ["AP_MODEL"]]
     if self_edit:
         # Headless runs can't approve tool use interactively; auto-accept file
         # edits so the agent can actually modify the clone. Safe because the
         # work is an ephemeral sandbox and every change lands as a reviewable
         # PR — nothing reaches the default branch without a human merge.
         args += ["--permission-mode", "acceptEdits"]
+    elif os.environ.get("AP_API_TOKEN"):
+        # A trusted system agent (API access injected) needs its tools to run
+        # unattended; its token is operator-scoped and it runs in a sandbox.
+        args += ["--permission-mode", "bypassPermissions"]
     proc = subprocess.Popen(
         args, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, cwd=cwd,
         env={**os.environ, **extra_env})
