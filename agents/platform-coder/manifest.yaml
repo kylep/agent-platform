@@ -1,0 +1,4 @@
+description: Edits agent definitions in the platform's own repository.
+role: coder
+concurrency: 1
+timeout_seconds: 600
