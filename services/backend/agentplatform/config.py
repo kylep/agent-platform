@@ -12,6 +12,12 @@ class Settings(BaseSettings):
     session_secret: str = "dev-insecure"
     global_concurrency: int = 3
     run_timeout_seconds: int = 1800
+    # Self-hosting git target. git_remote_url is what the platform clones and
+    # pushes to (a local bare repo in tests, the real repo over HTTPS in prod);
+    # github_repo ("owner/name") is used for the PR API. Empty = self-edit off.
+    git_remote_url: str = ""
+    github_repo: str = ""
+    default_branch: str = "main"
 
 @lru_cache
 def get_settings() -> Settings:
