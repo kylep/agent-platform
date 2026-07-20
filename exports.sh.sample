@@ -1,0 +1,24 @@
+# Copy to exports.sh (gitignored) and populate with real values; this sample
+# is tracked. Source it before running the workstation deploy/verify helpers.
+#
+#   source exports.sh
+
+# --- Platform admin ---
+# agent-platform admin UI password (http://pai:8090), set at first-launch
+# setup. Used by workstation scripts that log in via POST /api/login.
+export AGENT_PLATFORM_ADMIN=""
+
+# --- Self-hosting git credential (M2) ---
+# The platform edits its own repo. Pushing uses a repo-scoped deploy key
+# (github-deploy-key secret) today. Opening pull requests (tier-2, the
+# freeform platform-coder flow) needs the PericakAI GitHub App instead —
+# deploy keys can't call the REST API.
+#
+# PericakAI: github.com/settings/apps/pericakai  (the same app the blog uses;
+# copy these three from ~/gh/multi/apps/blog/exports.sh — the CLIENT_SECRET is
+# NOT needed here).
+export GITHUB_APP_ID=""       # App ID (a number), from the app's settings page
+export GITHUB_INSTALL_ID=""   # from github.com/settings/installations — NOT the App ID
+# Base64 of the app private key. Generate:
+#   base64 < ~/gh/multi/secrets/pericakai.private-key.pem
+export GITHUB_APP_PRIVATE_KEY_B64=""
