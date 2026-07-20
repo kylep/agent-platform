@@ -36,8 +36,14 @@ def validate_session_cookie(app, cookie: str | None) -> str | None:
         return None
     return data["principal"]
 
-# Role privilege order (ascending). `admin` is a superset of every scope.
-ROLES = ("reader", "operator", "coder", "admin")
+# Roles. reader/operator/coder/admin are the human/agent scopes; `annotator`
+# is a narrow machine role (read runs + annotate only) for system agents, so a
+# prompt-injected system agent can't mint runs or mutate unrelated state.
+# admin is a superset of every scope. NOTE: role checks are an explicit
+# allow-list per endpoint (not hierarchical) — list every role that may access.
+ROLES = ("reader", "annotator", "operator", "coder", "admin")
+READ_ROLES = ("reader", "annotator", "operator", "coder")
+ANNOTATE_ROLES = ("annotator", "operator", "coder")
 
 
 def role_allows(role: str | None, allowed: tuple[str, ...]) -> bool:
