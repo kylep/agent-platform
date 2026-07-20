@@ -1,7 +1,13 @@
 import { useEffect, useState } from "react";
 import { api, type ApiKey, type ApiKeyMinted } from "../api";
 
-const ROLES = ["reader", "operator", "coder", "admin"];
+const ROLE_DESC: Record<string, string> = {
+  reader: "Read-only: view agents, runs, schedules, and changes.",
+  operator: "Reader + trigger runs and fire webhooks.",
+  coder: "Operator + edit agents (self-edit / open PRs).",
+  admin: "Full control: secrets, API keys, merges, and settings.",
+};
+const ROLES = Object.keys(ROLE_DESC);
 
 function PasswordSection() {
   const [oldPw, setOldPw] = useState("");
@@ -89,11 +95,13 @@ function ApiKeysSection() {
       )}
       <div className="form-row">
         <input placeholder="Key name" value={name} onChange={(e) => setName(e.target.value)} />
-        <select value={role} onChange={(e) => setRole(e.target.value)}>
-          {ROLES.map((r) => <option key={r} value={r}>{r}</option>)}
+        <select value={role} onChange={(e) => setRole(e.target.value)}
+                title={ROLE_DESC[role]}>
+          {ROLES.map((r) => <option key={r} value={r} title={ROLE_DESC[r]}>{r}</option>)}
         </select>
         <button onClick={mint} disabled={name.trim() === ""}>Create key</button>
       </div>
+      <p className="muted"><strong>{role}</strong> — {ROLE_DESC[role]}</p>
       {error && <div className="error">{error}</div>}
       <table className="table">
         <thead>

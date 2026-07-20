@@ -36,6 +36,16 @@ async def list_pull_requests(request: Request):
     return [_view(p) for p in prs if p["head"]["ref"].startswith(CODER_BRANCH_PREFIX)]
 
 
+@router.get("/api/pull-requests/{number}/files")
+async def pull_request_files(request: Request, number: int):
+    """Changed files + unified diff for the Pending Changes detail view."""
+    gh = await _client(request)
+    files = await asyncio.to_thread(gh.pull_request_files, number)
+    return [{"filename": f["filename"], "status": f["status"],
+             "additions": f["additions"], "deletions": f["deletions"],
+             "patch": f.get("patch", "")} for f in files]
+
+
 @router.post("/api/pull-requests/{number}/merge")
 async def merge_pull_request(request: Request, number: int):
     gh = await _client(request)

@@ -54,6 +54,14 @@ export type PullRequest = {
   created_at: string;
 };
 
+export type PullRequestFile = {
+  filename: string;
+  status: string;
+  additions: number;
+  deletions: number;
+  patch: string;
+};
+
 export type ApiKey = {
   id: string;
   name: string;

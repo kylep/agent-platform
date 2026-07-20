@@ -322,6 +322,40 @@ button.secondary {
   white-space: nowrap;
 }
 
+button.linkish {
+  background: none;
+  border: none;
+  color: var(--fg);
+  font-weight: 500;
+  padding: 0;
+  text-align: left;
+  cursor: pointer;
+}
+button.linkish:hover {
+  color: var(--accent);
+}
+
+.diff-file {
+  margin-bottom: 12px;
+}
+.diff-file-head {
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 13px;
+  margin-bottom: 4px;
+}
+.diff-patch {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px 10px;
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.45;
+  overflow-x: auto;
+  white-space: pre;
+  max-height: 360px;
+}
+
 select {
   font: inherit;
   color: var(--fg);
