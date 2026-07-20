@@ -55,10 +55,19 @@ Backend machinery built and tested (all merged to main; see
       (`github-deploy-key` secret, push-only); backend image gained
       `openssh-client`; secrets passed via GIT_SSH_COMMAND/GIT_ASKPASS only.
 
-Remaining (needs a token / GitHub App — deploy keys can't use the REST API):
-- [ ] Tier-2 **PR** path live, freeform platform-coder run (clone repo into the
-      runner workspace + post-run tiered commit), and Pending Changes.
-- [ ] Frontend: API-keys management, quick-edit UI, Pending Changes page,
-      password Settings.
+- [x] **GitHub App (PericakAI) wired** — installation tokens (`githubapp.py`)
+      drive push + PRs; verified live (quick-edit push + a real open/close PR).
+- [x] **Freeform platform-coder flow LIVE** — `POST /api/agents/{name}/edit`
+      dispatches platform-coder; the dispatcher mints an App token and marks
+      the run self-edit; the runner clones the repo, runs the agent
+      (`--permission-mode acceptEdits`), and opens a **PR** for the change.
+      Verified end-to-end: a freeform instruction produced PR #2 editing
+      hello-world, authored by the app. Never commits straight to the branch.
+
+Remaining:
+- [ ] **Pending Changes** page (list/​diff/​merge platform PRs in the UI; the
+      run transcript currently carries the PR link).
+- [ ] Frontend: API-keys management, quick-edit UI, password Settings.
 - [ ] Sync hardening (webhook-or-poll provenance).
-- [ ] Migrate git credential to the PericakAI App for PR support (06-hardening).
+- [ ] Make git config declarative via `helm upgrade` (currently set with
+      `kubectl set env` on api + dispatcher); migrate off the deploy key.
