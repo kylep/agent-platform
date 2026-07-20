@@ -9,6 +9,7 @@ like claude-credentials); they are intentionally separated so tier
 classification is testable without any GitHub access.
 """
 import os
+import shlex
 import stat
 import subprocess
 import tempfile
@@ -17,6 +18,15 @@ from pathlib import Path
 import yaml
 
 from agentplatform.tiers import TIER_DIRECT, FileChange, classify_tier
+
+# GitHub's published SSH host keys (from https://api.github.com/meta -> ssh_keys).
+# Pinned so deploy-key pushes verify the host instead of trusting on first use;
+# refresh if GitHub rotates them (rare — last in 2023).
+GITHUB_KNOWN_HOSTS = (
+    "github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl\n"
+    "github.com ecdsa-sha2-nistp256 AAAAE2VjZHNhLXNoYTItbmlzdHAyNTYAAAAIbmlzdHAyNTYAAABBBEmKSENjQEezOmxkZMy7opKgwFB9nkt5YRrYMjNuG5N87uRgg6CLrbo5wAdT/y6v0mKV0U2w0WZ2YB/++Tpockg=\n"
+    "github.com ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQCj7ndNxQowgcQnjshcLrqPEiiphnt+VTTvDP6mHBL9j1aNUkY4Ue1gvwnGLVlOhGeYrnZaMgRK6+PKCUXaDbC7qtbW8gIkhL7aGCsOr/C56SJMy/BCZfxd1nWzAOxSDPgVsmerOBYfNqltV9/hWCqBywINIR+5dIg6JTJ72pcEpEjcYgXkE2YEFXV1JHnsKgbLWNlhScqb2UmyRkQyytRLtL+38TGxkxCflmO+5Z8CSSNY7GidjMIZ7Q4zMjA2n1nGrlTDkzwDCsw+wqFPGQA179cnfGWOWRVruj16z6XyvxvjJwbz0wQZ75XK5tKSb7FNyeIEs4TT4jk+S4dhPeAUC5y+bDYirYgM4GC7uEnztnZyaVWQ7B381AK4Qdrwt51ZqExKbQpTUNn+EjqoTwvqNj4kqx5QUCI0ThS/YkOxJCXmPUWZbhjpCg56i+2aB6CmK2JGhn57K5mj0MNdBXA4/WnwH6XoPWJzK5Nyu2zB3nAZp+S5hpQs+p1vN1/wsjk=\n"
+)
 
 
 def _git(repo: Path, *args: str) -> str:
@@ -89,9 +99,12 @@ class GitWriter:
 
     def _auth_env(self) -> dict:
         if self.ssh_key_path:
+            kh = Path(self.ssh_key_path).parent / "known_hosts"
+            if not kh.exists():
+                kh.write_text(GITHUB_KNOWN_HOSTS)
             return {**os.environ, "GIT_SSH_COMMAND":
-                    f"ssh -i {self.ssh_key_path} -o IdentitiesOnly=yes "
-                    "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"}
+                    f"ssh -i {shlex.quote(self.ssh_key_path)} -o IdentitiesOnly=yes "
+                    f"-o StrictHostKeyChecking=yes -o UserKnownHostsFile={shlex.quote(str(kh))}"}
         if not self.token:
             return dict(os.environ)
         if self._askpass is None:
