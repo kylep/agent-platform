@@ -13,7 +13,7 @@ from pathlib import Path
 
 import yaml
 
-from agentplatform.tiers import FileChange
+from agentplatform.tiers import TIER_DIRECT, FileChange, classify_tier
 
 
 def _git(repo: Path, *args: str) -> str:
@@ -92,3 +92,48 @@ class GitWriter:
 
     def push(self, repo: Path, branch: str) -> None:
         _git(Path(repo), "push", "origin", f"HEAD:{branch}")
+
+
+def _write_files(repo: Path, files: dict[str, str | None]) -> None:
+    """Apply an edit set to the workspace: str content writes/overwrites the
+    file (creating parents); None deletes it."""
+    for rel, content in files.items():
+        target = repo / rel
+        if content is None:
+            target.unlink(missing_ok=True)
+        else:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(content)
+
+
+class EditService:
+    """Orchestrates a self-edit end to end: clone, apply the edit, classify the
+    tier, then either commit straight to the default branch (tier 1) or push a
+    branch and open a pull request (tier 2). The PR client is optional so the
+    git path is exercisable without any GitHub access."""
+
+    def __init__(self, writer: "GitWriter", pr_client=None):
+        self.writer = writer
+        self.pr_client = pr_client
+
+    def apply(self, workspace: Path, files: dict[str, str | None], *,
+              message: str, branch: str, pr_title: str | None = None,
+              pr_body: str = "") -> dict:
+        repo = self.writer.clone(workspace)
+        _write_files(repo, files)
+        changes = compute_changes(repo)
+        paths = [c.path for c in changes]
+        if classify_tier(changes) == TIER_DIRECT:
+            sha = self.writer.commit(repo, message)
+            self.writer.push(repo, self.writer.default_branch)
+            return {"tier": 1, "branch": self.writer.default_branch, "sha": sha,
+                    "changes": paths, "pr": None}
+        self.writer.create_branch(repo, branch)
+        sha = self.writer.commit(repo, message)
+        self.writer.push(repo, branch)
+        pr = None
+        if self.pr_client is not None:
+            pr = self.pr_client.open_pull_request(
+                head=branch, base=self.writer.default_branch,
+                title=pr_title or message, body=pr_body)
+        return {"tier": 2, "branch": branch, "sha": sha, "changes": paths, "pr": pr}
