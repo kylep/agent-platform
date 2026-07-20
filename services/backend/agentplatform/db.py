@@ -84,6 +84,23 @@ def make_engine(db_url: str) -> AsyncEngine:
 def make_session_factory(engine: AsyncEngine) -> async_sessionmaker:
     return async_sessionmaker(engine, expire_on_commit=False)
 
+def _ensure_columns(conn) -> None:
+    """Minimal additive migration: create_all makes missing *tables* but never
+    adds *columns* to an existing one. Add any model columns missing from a
+    live table (portable ADD COLUMN — no `IF NOT EXISTS`, which sqlite lacks)."""
+    from sqlalchemy import inspect as sa_inspect
+    insp = sa_inspect(conn)
+    for table in Base.metadata.sorted_tables:
+        if not insp.has_table(table.name):
+            continue
+        existing = {c["name"] for c in insp.get_columns(table.name)}
+        for col in table.columns:
+            if col.name not in existing:
+                ddl = col.type.compile(dialect=conn.dialect)
+                conn.exec_driver_sql(f'ALTER TABLE {table.name} ADD COLUMN {col.name} {ddl}')
+
+
 async def init_db(engine: AsyncEngine) -> None:
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        await conn.run_sync(_ensure_columns)
