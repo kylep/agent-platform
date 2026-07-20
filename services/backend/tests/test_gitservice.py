@@ -86,6 +86,10 @@ def bare_remote(tmp_path):
     git(seed, "config", "user.email", "s@s"); git(seed, "config", "user.name", "s")
     (seed / "agents").mkdir()
     (seed / "agents" / "x.txt").write_text("hi\n")
+    hw = seed / "agents" / "hello-world"
+    hw.mkdir()
+    (hw / "agent.md").write_text("You are hello-world.\n")
+    (hw / "manifest.yaml").write_text("description: greet\nconcurrency: 1\n")
     git(seed, "add", "-A"); git(seed, "commit", "-qm", "init")
     git(seed, "branch", "-M", "main"); git(seed, "push", "-q", "origin", "main")
     return bare
@@ -121,3 +125,53 @@ def test_gitwriter_tier2_branch_push(bare_remote, tmp_path):
     assert "coder/edit-1" in _remote_branches(bare_remote)
     # main is untouched on the remote.
     assert "main" in _remote_branches(bare_remote)
+
+
+class FakePRClient:
+    def __init__(self):
+        self.calls = []
+    def open_pull_request(self, **kw):
+        self.calls.append(kw)
+        return {"number": 42, "html_url": "https://github.com/o/r/pull/42"}
+
+
+def test_editservice_tier1_commits_to_main(bare_remote, tmp_path):
+    from agentplatform.gitservice import EditService, GitWriter
+    pr = FakePRClient()
+    svc = EditService(GitWriter(str(bare_remote)), pr_client=pr)
+    res = svc.apply(tmp_path / "ws", {"agents/hello-world/agent.md": "You are hw. Nicer.\n"},
+                    message="tweak prompt", branch="coder/should-not-be-used")
+    assert res["tier"] == 1 and res["branch"] == "main" and res["pr"] is None
+    assert pr.calls == []  # tier-1 never opens a PR
+    remote_head = subprocess.run(["git", "-C", str(bare_remote), "rev-parse", "main"],
+                                 capture_output=True, text=True, check=True).stdout.strip()
+    assert remote_head == res["sha"]
+
+
+def test_editservice_tier2_opens_pr(bare_remote, tmp_path):
+    from agentplatform.gitservice import EditService, GitWriter
+    pr = FakePRClient()
+    svc = EditService(GitWriter(str(bare_remote)), pr_client=pr)
+    # New agent dir → tier 2.
+    res = svc.apply(tmp_path / "ws",
+                    {"agents/newbot/agent.md": "You are newbot.\n",
+                     "agents/newbot/manifest.yaml": "description: new\n"},
+                    message="add newbot", branch="coder/add-newbot",
+                    pr_title="Add newbot agent")
+    assert res["tier"] == 2 and res["branch"] == "coder/add-newbot"
+    assert "coder/add-newbot" in _remote_branches(bare_remote)
+    assert len(pr.calls) == 1
+    call = pr.calls[0]
+    assert call["head"] == "coder/add-newbot" and call["base"] == "main"
+    assert call["title"] == "Add newbot agent"
+    assert res["pr"]["number"] == 42
+
+
+def test_editservice_tier2_without_pr_client_still_pushes(bare_remote, tmp_path):
+    from agentplatform.gitservice import EditService, GitWriter
+    svc = EditService(GitWriter(str(bare_remote)))  # no PR client (no token yet)
+    res = svc.apply(tmp_path / "ws",
+                    {"agents/hello-world/manifest.yaml": "description: greet\nconcurrency: 9\n"},
+                    message="bump concurrency", branch="coder/bump")
+    assert res["tier"] == 2 and res["pr"] is None
+    assert "coder/bump" in _remote_branches(bare_remote)
