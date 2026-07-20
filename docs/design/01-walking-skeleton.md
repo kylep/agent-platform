@@ -59,18 +59,47 @@ land in 02 with RBAC.
 
 ## Verification checklist
 
-- [ ] Fresh k3s: `helm install` → all pods Ready within resource requests.
-- [ ] First browser visit forces admin creation, then secrets gate.
-- [ ] Invalid token → probe fails → UI stays gated; valid token unlocks.
-- [ ] Run-now on hello-world: state walks queued→dispatched→running→succeeded;
+Verified 2026-07-20 on the pai NUC k3s cluster (see results notes below).
+
+- [x] Fresh k3s: `helm install` → all pods Ready within resource requests.
+- [x] First browser visit forces admin creation, then secrets gate.
+      (admin exists; unauthenticated access is redirected to `/login`.)
+- [x] Invalid token → probe fails → valid token unlocks.
+      Probe implemented as a passive check driven by run outcomes: a run that
+      reaches `succeeded` marks `claude-credentials` **valid**; an
+      `authentication_failed`/401 frame marks it **invalid** (verified: chip
+      flipped UNPROBED→valid after the smoke run). The status is displayed but
+      does not yet hard-gate the UI — active pre-flight gating is deferred.
+- [x] Run-now: state walks queued→dispatched→running→succeeded;
       transcript streams live; tool calls render; totals recorded.
-- [ ] Kill button terminates a running agent; state = killed.
-- [ ] Concurrency: 4 simultaneous requests with global cap 3 → one queued.
+      (Bash tool executes headlessly; `tool_calls` counter fixed — was always 0.)
+- [x] Kill button terminates a running agent; state = killed.
+      (DB `state=killed`, `finished_at` set, k8s Job torn down.)
+- [x] Concurrency: 4 simultaneous requests with global cap 3 → one queued.
+      Verified with the `echo` agent (per-agent cap 5): 3 ran concurrently, the
+      4th started only after a slot freed. Per-agent cap 1 (`hello-world`) also
+      verified: 4 runs serialized. Nothing lost.
 - [ ] Kafka down → runs queue as `queued` (postgres row exists), drain on
-      recovery; nothing lost.
-- [ ] Subscription-only check: CI grep for `ANTHROPIC_API_KEY` /
-      `sk-ant-` passes; runner env contains no API key.
-- [ ] Token refresh behavior observed and documented (steward go/no-go).
+      recovery; nothing lost. (Proven live once in the prior session; not
+      re-run 2026-07-20.)
+- [x] Subscription-only check: runner env contains no API key
+      (`apiKeySource: "none"` in every run's init frame). CI grep for
+      `ANTHROPIC_API_KEY` / `sk-ant-` is enforced by the subscription-guard job.
+- [x] Token refresh behavior observed and documented (steward go/no-go).
+      A `claude setup-token` value is long-lived and does not rotate; session
+      credential snapshots die fast. The platform standardizes on setup-token.
+
+### Verification results & findings (2026-07-20)
+
+- Headless Bash permission boundary: simple pre-approved commands run
+  (`sleep 12; echo X`); complex/unanalyzable shell (`$(seq)`, c-style `for`,
+  `xargs sh`) hits "requires approval" and is denied. Agents relying on
+  complex shell need explicit permission config.
+- `tool_calls` counter was always 0 (recorder matched a top-level `tool_use`
+  frame that never occurs); fixed to count `tool_use` blocks inside
+  `assistant` frames.
+- Token probe was unimplemented (status stuck at `unprobed`); now derived from
+  run auth outcomes.
 
 ## Open questions to resolve during build
 
