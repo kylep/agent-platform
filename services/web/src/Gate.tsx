@@ -4,10 +4,10 @@ import { api, type SetupState } from "./api";
 
 const AUTH_PATHS = ["/setup", "/login", "/secrets"];
 
-// Secret statuses that do NOT block navigation. "unprobed" means a value
-// was saved but the platform hasn't smoke-tested it yet -- that happens
-// later via a run, not at gate time. Only "missing"/"invalid" block.
-const PASSING_STATUSES = new Set(["ok", "unprobed"]);
+// Secret statuses that do NOT block navigation. "unprobed" = saved but not yet
+// smoke-tested; "valid" = a run authenticated with it. Only "missing"/"invalid"
+// block.
+const PASSING_STATUSES = new Set(["ok", "unprobed", "valid"]);
 
 export default function Gate() {
   const location = useLocation();
