@@ -3,7 +3,7 @@ import logging
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 from sqlalchemy import select
-from agentplatform.api.auth import require_admin, require_role
+from agentplatform.api.auth import ANNOTATE_ROLES, READ_ROLES, require_admin, require_role
 from agentplatform.db import ACTIVE_STATES, Run, TranscriptEvent
 from agentplatform.events import TOPIC_RUN_REQUESTS
 
@@ -41,7 +41,7 @@ async def create_run(request: Request, body: RunIn, principal: str = Depends(req
         log.warning("publish failed for run %s; sweep will drain it", run.id)
     return {"id": run.id, "state": run.state}
 
-@router.get("/api/runs", dependencies=[Depends(require_role("reader"))])
+@router.get("/api/runs", dependencies=[Depends(require_role(*READ_ROLES))])
 async def list_runs(request: Request, limit: int = 50, tag: str | None = None,
                     needs_summary: bool = False):
     async with request.app.state.session_factory() as s:
@@ -55,7 +55,7 @@ async def list_runs(request: Request, limit: int = 50, tag: str | None = None,
         rows = [r for r in rows if tag in (r.tags or [])]
     return [_summary(r) for r in rows[:limit]]
 
-@router.get("/api/tags", dependencies=[Depends(require_role("reader"))])
+@router.get("/api/tags", dependencies=[Depends(require_role(*READ_ROLES))])
 async def list_tags(request: Request):
     async with request.app.state.session_factory() as s:
         rows = (await s.execute(select(Run.tags))).scalars()
@@ -64,7 +64,7 @@ async def list_tags(request: Request):
         seen.update(t or [])
     return sorted(seen)
 
-@router.get("/api/runs/{run_id}", dependencies=[Depends(require_role("reader"))])
+@router.get("/api/runs/{run_id}", dependencies=[Depends(require_role(*READ_ROLES))])
 async def get_run(request: Request, run_id: str):
     async with request.app.state.session_factory() as s:
         run = await s.get(Run, run_id)
@@ -77,7 +77,7 @@ async def get_run(request: Request, run_id: str):
                   "finished_at": run.finished_at.isoformat() if run.finished_at else None})
         return d
 
-@router.post("/api/runs/{run_id}/annotate", dependencies=[Depends(require_role("operator"))])
+@router.post("/api/runs/{run_id}/annotate", dependencies=[Depends(require_role(*ANNOTATE_ROLES))])
 async def annotate_run(request: Request, run_id: str, body: AnnotateIn):
     """Set a run's summary and/or tags. Used by the run-summarizer system
     agent (with its API key) and available to any operator+."""

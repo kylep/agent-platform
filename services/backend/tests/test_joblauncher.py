@@ -146,7 +146,7 @@ async def test_system_token_minted_cached_and_injected(sf):
     assert t1 == t2 and t1.startswith("ap_")
     async with sf() as s:
         keys = (await s.execute(select(ApiKey))).scalars().all()
-    assert len(keys) == 1 and keys[0].role == "operator" and keys[0].agent == "run-summarizer"
+    assert len(keys) == 1 and keys[0].role == "annotator" and keys[0].agent == "run-summarizer"
     run = Run(agent="run-summarizer", trigger="schedule", requested_by="scheduler", prompt="go"); run.id = "d" * 32
     env = {e.name: e.value for e in launcher.build_job(run, Manifest(system=True), api_token=t1).spec.template.spec.containers[0].env}
     assert env["AP_API_TOKEN"] == t1 and env["AP_API_URL"].startswith("http://agent-platform-api")

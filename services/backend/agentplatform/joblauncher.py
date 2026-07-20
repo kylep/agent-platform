@@ -28,7 +28,10 @@ class K8sJobLauncher(Launcher):
         if agent not in self._system_tokens:
             token = generate_token()
             async with self.sf() as s:
-                s.add(ApiKey(name=f"system:{agent}", role="operator", agent=agent,
+                # `annotator`: narrow scope (read runs + annotate) so a
+                # prompt-injected system agent can't trigger/kill runs or touch
+                # anything else.
+                s.add(ApiKey(name=f"system:{agent}", role="annotator", agent=agent,
                              key_hash=hash_token(token), prefix=token_prefix(token)))
                 await s.commit()
             self._system_tokens[agent] = token
