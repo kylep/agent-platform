@@ -2,8 +2,9 @@ import logging
 
 from sqlalchemy.exc import IntegrityError
 
-from agentplatform.db import ACTIVE_STATES, Run, RunState, TranscriptEvent, utcnow
+from agentplatform.db import ACTIVE_STATES, Run, RunState, SecretMeta, TranscriptEvent, utcnow
 from agentplatform.events import TOPIC_RUN_DLQ, TOPIC_RUN_EVENTS, TOPIC_RUN_TRANSCRIPT
+from agentplatform.secrets import CLAUDE_CREDENTIAL
 
 log = logging.getLogger("recorder")
 
@@ -11,6 +12,16 @@ log = logging.getLogger("recorder")
 class Recorder:
     def __init__(self, session_factory):
         self.sf = session_factory
+
+    async def _probe_credential(self, s, status: str) -> None:
+        """Record the observed validity of the Claude credential. This is the
+        token "probe": a run cannot reach `succeeded` without authenticating,
+        and the CLI reports auth failures with error=authentication_failed, so
+        real run outcomes tell us whether the stored token works."""
+        meta = await s.get(SecretMeta, CLAUDE_CREDENTIAL) or SecretMeta(name=CLAUDE_CREDENTIAL)
+        if meta.status != status:
+            meta.status = status
+            s.add(meta)
 
     async def handle(self, topic: str, key: str, value: dict) -> None:
         if topic == TOPIC_RUN_TRANSCRIPT:
@@ -45,6 +56,10 @@ class Recorder:
             usage = value.get("usage", {})
             run.tokens_in += usage.get("input_tokens", 0)
             run.tokens_out += usage.get("output_tokens", 0)
+            # A 401 / authentication_failed frame proves the stored token is
+            # bad, regardless of how the run ultimately terminates.
+            if value.get("error") == "authentication_failed" or value.get("error_status") == 401:
+                await self._probe_credential(s, "invalid")
             await s.commit()
 
     async def _handle_state(self, run_id: str, value: dict) -> None:
@@ -65,6 +80,10 @@ class Recorder:
                 detail = value.get("detail")
                 if detail:
                     run.error = detail
+                # A run that reached `succeeded` necessarily authenticated, so
+                # the stored Claude token is known-good.
+                if new_state == RunState.SUCCEEDED:
+                    await self._probe_credential(s, "valid")
             await s.commit()
 
     async def _handle_dlq(self, run_id: str, value: dict) -> None:
