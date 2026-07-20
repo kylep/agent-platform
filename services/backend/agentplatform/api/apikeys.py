@@ -12,7 +12,10 @@ router = APIRouter(dependencies=[Depends(require_admin)])
 class ApiKeyIn(BaseModel):
     name: str
     role: str
-    agent: str | None = None
+    # No `agent` scope: the role is the only authorization boundary. The
+    # ApiKey.agent column exists but is an internal owner label (system keys),
+    # not an enforced scope — exposing it here implied per-agent scoping that
+    # doesn't exist.
 
 
 def _view(k: ApiKey) -> dict:
@@ -33,7 +36,7 @@ async def mint_api_key(request: Request, body: ApiKeyIn):
     if body.role not in ROLES:
         raise HTTPException(422, f"role must be one of {ROLES}")
     token = generate_token()
-    key = ApiKey(name=body.name, role=body.role, agent=body.agent,
+    key = ApiKey(name=body.name, role=body.role,
                  key_hash=hash_token(token), prefix=token_prefix(token))
     async with request.app.state.session_factory() as s:
         s.add(key); await s.commit()

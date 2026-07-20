@@ -57,3 +57,9 @@ async def test_revoked_key_stops_working(admin_client):
     # Revoke needs admin; re-auth with the (still-valid) admin key to revoke itself.
     assert (await admin_client.delete(f"/api/api-keys/{key_id}", headers=hdr)).status_code == 200
     assert (await admin_client.get("/api/runs", headers=hdr)).status_code == 401
+
+
+async def test_mint_ignores_agent_scope(admin_client):
+    # the removed `agent` field must not become an enforced/echoed scope
+    r = await admin_client.post("/api/api-keys", json={"name": "x", "role": "reader", "agent": "hello-world"})
+    assert r.status_code == 201 and r.json()["agent"] is None
