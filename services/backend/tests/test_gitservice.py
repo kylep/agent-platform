@@ -187,3 +187,13 @@ def test_ssh_auth_env_pins_known_hosts(tmp_path):
     kh = tmp_path / "known_hosts"
     assert kh.exists() and kh.read_text() == GITHUB_KNOWN_HOSTS
     assert "github.com ssh-ed25519" in kh.read_text()
+
+
+def test_editservice_noop_when_no_change(bare_remote, tmp_path):
+    from agentplatform.gitservice import EditService, GitWriter
+    svc = EditService(GitWriter(str(bare_remote)))
+    # Write the identical content that already exists -> no diff.
+    res = svc.apply(tmp_path / "ws",
+                    {"agents/hello-world/agent.md": "You are hello-world.\n"},
+                    message="noop", branch="coder/noop")
+    assert res["tier"] == 0 and res["sha"] is None and res["changes"] == []
