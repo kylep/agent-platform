@@ -6,6 +6,7 @@ const links = [
   { to: "/runs", label: "Runs" },
   { to: "/changes", label: "Changes" },
   { to: "/secrets", label: "Secrets" },
+  { to: "/settings", label: "Settings" },
 ];
 
 export default function Layout() {

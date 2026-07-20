@@ -54,6 +54,18 @@ export type PullRequest = {
   created_at: string;
 };
 
+export type ApiKey = {
+  id: string;
+  name: string;
+  role: string;
+  agent: string | null;
+  prefix: string;
+  created_at: string;
+  revoked_at: string | null;
+};
+
+export type ApiKeyMinted = ApiKey & { token: string };
+
 export async function api<T>(path: string, opts: RequestInit = {}): Promise<T> {
   const res = await fetch(path, {
     credentials: "include",
