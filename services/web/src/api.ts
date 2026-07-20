@@ -45,6 +45,15 @@ export type RunDetailData = RunSummary & {
 
 export type RunEvent = Record<string, unknown> & { type?: string; terminal?: boolean };
 
+export type PullRequest = {
+  number: number;
+  title: string;
+  url: string;
+  branch: string;
+  author: string;
+  created_at: string;
+};
+
 export async function api<T>(path: string, opts: RequestInit = {}): Promise<T> {
   const res = await fetch(path, {
     credentials: "include",
