@@ -22,7 +22,9 @@ router = APIRouter(dependencies=[Depends(require_admin)])
 async def list_agents(request: Request):
     request.app.state.agent_store.reload()
     return [{"name": a.name, "description": a.manifest.description if a.manifest else "",
-             "quarantined": a.error is not None, "error": a.error}
+             "quarantined": a.error is not None, "error": a.error,
+             "system": bool(a.manifest and a.manifest.system),
+             "schedule": a.manifest.schedule if a.manifest else ""}
             for a in request.app.state.agent_store.list()]
 
 @router.get("/api/agents/{name}")

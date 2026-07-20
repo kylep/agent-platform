@@ -6,6 +6,8 @@ export type AgentSummary = {
   description: string;
   quarantined: boolean;
   error: string | null;
+  system: boolean;
+  schedule: string;
 };
 
 export type AgentManifest = {
@@ -30,6 +32,8 @@ export type RunSummary = {
   state: string;
   trigger: string;
   created_at: string;
+  summary: string | null;
+  tags: string[];
 };
 
 export type RunDetailData = RunSummary & {

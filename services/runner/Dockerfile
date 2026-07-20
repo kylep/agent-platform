@@ -1,6 +1,6 @@
 FROM node:22-slim
 RUN npm install -g @anthropic-ai/claude-code@2.1.214 \
- && apt-get update && apt-get install -y --no-install-recommends python3 python3-pip git ca-certificates \
+ && apt-get update && apt-get install -y --no-install-recommends python3 python3-pip git ca-certificates curl \
  && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY requirements.txt .

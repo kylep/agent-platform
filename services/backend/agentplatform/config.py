@@ -18,6 +18,9 @@ class Settings(BaseSettings):
     git_remote_url: str = ""
     github_repo: str = ""
     default_branch: str = "main"
+    # In-cluster API base URL injected into system-agent runs so they can call
+    # the platform (e.g. the run summarizer annotating runs).
+    api_internal_url: str = "http://agent-platform-api:8000"
 
 @lru_cache
 def get_settings() -> Settings:

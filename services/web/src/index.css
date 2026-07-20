@@ -335,6 +335,21 @@ button.linkish:hover {
   color: var(--accent);
 }
 
+button.tag {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  color: var(--muted);
+  border-radius: 10px;
+  padding: 1px 8px;
+  font-size: 12px;
+  margin: 0 4px 2px 0;
+  cursor: pointer;
+}
+button.tag:hover {
+  color: var(--fg);
+  border-color: var(--accent);
+}
+
 .diff-file {
   margin-bottom: 12px;
 }

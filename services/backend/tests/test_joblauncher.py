@@ -134,3 +134,19 @@ def test_non_coder_run_is_not_self_edit():
 def test_self_edit_off_without_app():
     launcher = K8sJobLauncher(batch=None, settings=_selfedit_settings(), github_app=None)
     assert launcher._is_self_edit(Manifest(role="coder")) is False
+
+
+async def test_system_token_minted_cached_and_injected(sf):
+    from sqlalchemy import select
+    from agentplatform.db import ApiKey
+    launcher = K8sJobLauncher(batch=None, settings=Settings(runner_image="r:1", k8s_namespace="ap"),
+                              session_factory=sf)
+    t1 = await launcher._system_token("run-summarizer")
+    t2 = await launcher._system_token("run-summarizer")
+    assert t1 == t2 and t1.startswith("ap_")
+    async with sf() as s:
+        keys = (await s.execute(select(ApiKey))).scalars().all()
+    assert len(keys) == 1 and keys[0].role == "operator" and keys[0].agent == "run-summarizer"
+    run = Run(agent="run-summarizer", trigger="schedule", requested_by="scheduler", prompt="go"); run.id = "d" * 32
+    env = {e.name: e.value for e in launcher.build_job(run, Manifest(system=True), api_token=t1).spec.template.spec.containers[0].env}
+    assert env["AP_API_TOKEN"] == t1 and env["AP_API_URL"].startswith("http://agent-platform-api")
