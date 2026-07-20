@@ -4,7 +4,8 @@ from fastapi import APIRouter, HTTPException, Request, Response, Depends
 from itsdangerous import BadSignature, URLSafeSerializer
 from pydantic import BaseModel
 from sqlalchemy import select
-from agentplatform.db import Principal
+from agentplatform.apikeys import hash_token
+from agentplatform.db import ApiKey, Principal
 
 ph = PasswordHasher()
 router = APIRouter()
@@ -51,17 +52,42 @@ async def _lookup_role(request: Request, name: str) -> str | None:
         return p.role if p else None
 
 
+async def _lookup_api_key(request: Request, token: str) -> tuple[str, str] | None:
+    async with request.app.state.session_factory() as s:
+        k = (await s.execute(select(ApiKey).where(
+            ApiKey.key_hash == hash_token(token),
+            ApiKey.revoked_at.is_(None)))).scalar_one_or_none()
+        return (k.name, k.role) if k else None
+
+
+async def authenticate(request: Request) -> tuple[str, str] | None:
+    """Resolve the caller to (principal_name, role), or None. A session cookie
+    (interactive admin) is tried first, then an `Authorization: Bearer ap_...`
+    API key (non-interactive / agent-invokes-agent)."""
+    name = validate_session_cookie(request.app, request.cookies.get("ap_session"))
+    if name is not None:
+        role = await _lookup_role(request, name)
+        if role is not None:
+            return (name, role)
+    header = request.headers.get("authorization", "")
+    if header.startswith("Bearer "):
+        token = header[len("Bearer "):].strip()
+        if token:
+            return await _lookup_api_key(request, token)
+    return None
+
+
 def require_role(*allowed: str):
-    """Dependency factory: authenticate via the session cookie and require the
-    principal's role to satisfy `allowed` (admin always passes). Returns the
+    """Dependency factory: authenticate (session cookie or API key) and require
+    the caller's role to satisfy `allowed` (admin always passes). Returns the
     principal name so handlers can attribute actions."""
     async def dep(request: Request) -> str:
-        name = validate_session_cookie(request.app, request.cookies.get("ap_session"))
-        if name is None:
+        ident = await authenticate(request)
+        if ident is None:
             raise HTTPException(401)
-        role = await _lookup_role(request, name)
+        name, role = ident
         if not role_allows(role, allowed):
-            raise HTTPException(403 if role is not None else 401)
+            raise HTTPException(403)
         return name
     return dep
 

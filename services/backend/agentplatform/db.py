@@ -53,6 +53,20 @@ class SecretMeta(Base):
     status: Mapped[str] = mapped_column(String(16), default="missing")
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
 
+class ApiKey(Base):
+    __tablename__ = "api_keys"
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=lambda: uuid.uuid4().hex)
+    name: Mapped[str] = mapped_column(String(128))
+    role: Mapped[str] = mapped_column(String(32))
+    # Optional agent scope: keys minted for a specific agent (agent-invokes-
+    # agent) carry the agent name; operator/human keys leave it null.
+    agent: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    # Only the hash and a display prefix are stored; the token is shown once.
+    key_hash: Mapped[str] = mapped_column(String(64), unique=True)
+    prefix: Mapped[str] = mapped_column(String(16))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
 def make_engine(db_url: str) -> AsyncEngine:
     return create_async_engine(db_url)
 
