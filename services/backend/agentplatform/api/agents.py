@@ -32,12 +32,41 @@ class QuickEditIn(BaseModel):
     value: str
 
 
-def _authed_remote(url: str, token: str | None) -> str:
-    """Inject a token into an https GitHub URL for push auth; pass other URLs
-    (e.g. a local bare repo in tests) through unchanged."""
+def _push_url(url: str, token: str | None) -> str:
+    """Set the `x-access-token` username on an https GitHub URL (no secret in
+    the URL — the token is supplied to git via GIT_ASKPASS). Other URLs (e.g. a
+    local bare repo in tests) pass through unchanged."""
     if token and url.startswith("https://github.com/"):
-        return url.replace("https://", f"https://x-access-token:{token}@", 1)
+        return url.replace("https://", "https://x-access-token@", 1)
     return url
+
+
+def _ssh_remote(repo: str) -> str:
+    return f"git@github.com:{repo}.git"
+
+
+def _build_writer(settings, tmp: Path, deploy: dict | None, token_creds: dict | None):
+    """Pick the git credential — a repo-scoped deploy key (ssh, preferred) or an
+    https token — and build the GitWriter (+ optional PR client). Returns
+    (writer, pr_client) or None if no usable credential is configured."""
+    if deploy and (deploy.get("key") or "").strip() and settings.github_repo:
+        key = deploy["key"]
+        keyfile = tmp / "deploy_key"
+        keyfile.write_text(key if key.endswith("\n") else key + "\n")
+        keyfile.chmod(0o600)
+        writer = GitWriter(_ssh_remote(settings.github_repo), ssh_key_path=str(keyfile),
+                           default_branch=settings.default_branch)
+        return writer, None  # deploy keys can't use the REST PR API
+    if token_creds and (token_creds.get("token") or "").strip() and settings.git_remote_url:
+        token = token_creds["token"].strip()
+        writer = GitWriter(_push_url(settings.git_remote_url, token), token=token,
+                           default_branch=settings.default_branch)
+        pr_client = GitHubClient(token, settings.github_repo) if settings.github_repo else None
+        return writer, pr_client
+    if settings.git_remote_url and not settings.git_remote_url.startswith("https://"):
+        # A non-https remote (a local bare repo, e.g. in tests) needs no auth.
+        return GitWriter(settings.git_remote_url, default_branch=settings.default_branch), None
+    return None
 
 
 @router.post("/api/agents/{name}/quick-edit")
@@ -47,25 +76,25 @@ async def quick_edit(request: Request, name: str, body: QuickEditIn,
     clone and lets the tiered git path commit it (tier 1) or open a PR."""
     st = request.app.state
     settings = st.settings
-    if not settings.git_remote_url:
-        raise HTTPException(409, "self-edit is not configured (git_remote_url unset)")
+    if not (settings.git_remote_url or settings.github_repo):
+        raise HTTPException(409, "self-edit is not configured")
     if st.agent_store.get(name) is None:
         raise HTTPException(404, "unknown agent")
     if body.field != "prompt":
         raise HTTPException(422, "unsupported field")
     files = {f"agents/{name}/agent.md": body.value}
 
-    token = None
-    creds = await st.secret_store.get("github-token")
-    if creds:
-        token = creds.get("token")
-    writer = GitWriter(_authed_remote(settings.git_remote_url, token),
-                       default_branch=settings.default_branch)
-    pr_client = (GitHubClient(token, settings.github_repo)
-                 if token and settings.github_repo else None)
-    svc = EditService(writer, pr_client=pr_client)
     with tempfile.TemporaryDirectory() as tmp:
-        return svc.apply(Path(tmp) / "ws", files,
+        tmpp = Path(tmp)
+        built = _build_writer(settings, tmpp,
+                              await st.secret_store.get("github-deploy-key"),
+                              await st.secret_store.get("github-token"))
+        if built is None:
+            raise HTTPException(409, "no git credential configured "
+                                     "(github-deploy-key or github-token)")
+        writer, pr_client = built
+        svc = EditService(writer, pr_client=pr_client)
+        return svc.apply(tmpp / "ws", files,
                          message=f"{principal}: quick-edit {name}/{body.field}",
                          branch=f"coder/{name}-{body.field}-{uuid.uuid4().hex[:8]}",
                          pr_title=f"Edit {name}: {body.field}")
