@@ -66,6 +66,14 @@ export type ApiKey = {
 
 export type ApiKeyMinted = ApiKey & { token: string };
 
+export type ScheduleEntry = {
+  agent: string;
+  cron: string;
+  enabled: boolean;
+  last_fire: string | null;
+  next_fire: string | null;
+};
+
 export async function api<T>(path: string, opts: RequestInit = {}): Promise<T> {
   const res = await fetch(path, {
     credentials: "include",
