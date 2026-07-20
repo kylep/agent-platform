@@ -1,3 +1,4 @@
+import asyncio
 import tempfile
 import uuid
 from pathlib import Path
@@ -7,6 +8,7 @@ from pydantic import BaseModel
 
 from agentplatform.api.auth import require_admin
 from agentplatform.github import GitHubClient
+from agentplatform.githubapp import GitHubApp
 from agentplatform.gitservice import EditService, GitWriter
 
 router = APIRouter(dependencies=[Depends(require_admin)])
@@ -43,6 +45,29 @@ def _push_url(url: str, token: str | None) -> str:
 
 def _ssh_remote(repo: str) -> str:
     return f"git@github.com:{repo}.git"
+
+
+async def _github_app_token(request: Request) -> str | None:
+    """Mint (cached) an installation token for the configured GitHub App, or
+    None if no `github-app` secret is set. The GitHubApp instance is cached on
+    app.state so its ~1h token is reused across requests."""
+    st = request.app.state
+    app = getattr(st, "github_app", None)
+    if app is None:
+        c = await st.secret_store.get("github-app")
+        if not (c and c.get("app_id") and c.get("install_id") and c.get("private_key")):
+            return None
+        app = GitHubApp(c["app_id"], c["install_id"], c["private_key"])
+        st.github_app = app
+    return await asyncio.to_thread(app.installation_token)
+
+
+def _writer_from_token(settings, token: str):
+    """GitWriter + PR client for an https token (App installation or PAT)."""
+    writer = GitWriter(_push_url(settings.git_remote_url, token), token=token,
+                       default_branch=settings.default_branch)
+    pr_client = GitHubClient(token, settings.github_repo) if settings.github_repo else None
+    return writer, pr_client
 
 
 def _build_writer(settings, tmp: Path, deploy: dict | None, token_creds: dict | None):
@@ -84,15 +109,19 @@ async def quick_edit(request: Request, name: str, body: QuickEditIn,
         raise HTTPException(422, "unsupported field")
     files = {f"agents/{name}/agent.md": body.value}
 
+    app_token = await _github_app_token(request)
     with tempfile.TemporaryDirectory() as tmp:
         tmpp = Path(tmp)
-        built = _build_writer(settings, tmpp,
-                              await st.secret_store.get("github-deploy-key"),
-                              await st.secret_store.get("github-token"))
-        if built is None:
-            raise HTTPException(409, "no git credential configured "
-                                     "(github-deploy-key or github-token)")
-        writer, pr_client = built
+        if app_token:                       # preferred: push + PR via the App
+            writer, pr_client = _writer_from_token(settings, app_token)
+        else:
+            built = _build_writer(settings, tmpp,
+                                  await st.secret_store.get("github-deploy-key"),
+                                  await st.secret_store.get("github-token"))
+            if built is None:
+                raise HTTPException(409, "no git credential configured "
+                                         "(github-app, github-deploy-key, or github-token)")
+            writer, pr_client = built
         svc = EditService(writer, pr_client=pr_client)
         return svc.apply(tmpp / "ws", files,
                          message=f"{principal}: quick-edit {name}/{body.field}",
