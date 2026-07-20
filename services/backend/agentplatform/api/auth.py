@@ -103,10 +103,12 @@ require_admin = require_role("admin")
 @router.get("/api/setup-state")
 async def setup_state(request: Request):
     from agentplatform.api.secrets import secret_listing
-    return {
-        "needs_admin": await _admin(request) is None,
-        "secrets": await secret_listing(request),
-    }
+    needs_admin = await _admin(request) is None
+    # Secret names/health are only exposed pre-setup (for the first-launch gate)
+    # or to an authenticated caller — not to anonymous callers post-setup.
+    authed = await authenticate(request) is not None
+    secrets = await secret_listing(request) if (needs_admin or authed) else []
+    return {"needs_admin": needs_admin, "secrets": secrets}
 
 @router.post("/api/setup")
 async def setup(request: Request, creds: Creds):

@@ -30,6 +30,23 @@ down.
 - **Backup/DR:** scheduled postgres backups to the second SSD or
   off-box, documented restore drill.
 
+## Adversarial test findings (2026-07-20)
+
+An adversarial agent probed the live platform (RBAC matrix, token scoping,
+self-hosting containment, input validation, webhook auth). Verdict: no
+exploitable issues — RBAC allow-lists exact, no auth bypass/escalation, no
+500s, tier classification fails closed. Fixed the hardening nits it found:
+
+- Removed the unenforced `agent` scope from the API-key mint API (role is the
+  only boundary; the column stays an internal owner label for system keys).
+- `GET /api/setup-state` no longer discloses secret names/health to anonymous
+  callers once setup is complete.
+- `GET /api/runs?limit=` is now bounded (`ge=1, le=500`).
+
+Still open (nit, no data exposure): an nginx path-normalization artifact makes
+`GET /api/<encoded-slash traversal>` return the public SPA HTML (200) instead
+of a JSON 404. Fix during a web-tier hardening pass.
+
 ## Done when
 
 Scans run clean in CI, a restore drill succeeds from backup, and the

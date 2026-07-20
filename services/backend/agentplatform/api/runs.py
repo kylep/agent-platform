@@ -1,6 +1,6 @@
 import logging
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel
 from sqlalchemy import select
 from agentplatform.api.auth import ANNOTATE_ROLES, READ_ROLES, require_admin, require_role
@@ -42,8 +42,8 @@ async def create_run(request: Request, body: RunIn, principal: str = Depends(req
     return {"id": run.id, "state": run.state}
 
 @router.get("/api/runs", dependencies=[Depends(require_role(*READ_ROLES))])
-async def list_runs(request: Request, limit: int = 50, tag: str | None = None,
-                    needs_summary: bool = False):
+async def list_runs(request: Request, limit: int = Query(50, ge=1, le=500),
+                    tag: str | None = None, needs_summary: bool = False):
     async with request.app.state.session_factory() as s:
         # Over-fetch then filter in Python (JSON tag membership isn't portable
         # across sqlite/postgres); fine at this scale.

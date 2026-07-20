@@ -37,3 +37,13 @@ async def test_change_password_requires_auth(client):
     r = await client.post("/api/change-password",
                           json={"old_password": "pw12345678", "new_password": "newpw12345"})
     assert r.status_code == 401
+
+
+async def test_setup_state_hides_secrets_when_unauthenticated_post_setup(client):
+    await client.post("/api/setup", json={"password": "pw12345678"})
+    # not logged in, admin exists → secrets must not be disclosed
+    body = (await client.get("/api/setup-state")).json()
+    assert body["needs_admin"] is False and body["secrets"] == []
+    # authenticated → secrets visible again (for the gate)
+    await client.post("/api/login", json={"password": "pw12345678"})
+    assert len((await client.get("/api/setup-state")).json()["secrets"]) >= 1

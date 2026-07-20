@@ -61,3 +61,8 @@ async def test_annotator_role_can_read_and_annotate_only(admin_client, sf):
     # but cannot trigger a run or kill
     assert (await admin_client.post("/api/webhooks/hello-world", json={}, headers=h)).status_code == 403
     assert (await admin_client.post(f"/api/runs/{rid}/kill", headers=h)).status_code == 403
+
+
+async def test_negative_limit_rejected(admin_client):
+    assert (await admin_client.get("/api/runs?limit=-1")).status_code == 422
+    assert (await admin_client.get("/api/runs?limit=99999")).status_code == 422
