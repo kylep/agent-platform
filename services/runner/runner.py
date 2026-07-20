@@ -1,4 +1,5 @@
-import asyncio, json, os, shutil, subprocess, sys
+import asyncio, json, os, shutil, stat, subprocess, sys, tempfile
+import urllib.request
 from pathlib import Path
 from aiokafka import AIOKafkaProducer
 
@@ -40,6 +41,65 @@ def _install_agent(agent: str) -> None:
     dst.parent.mkdir(parents=True, exist_ok=True)
     shutil.copy(src, dst)
 
+# --- self-edit (coder) support -------------------------------------------
+
+def _git_env() -> dict:
+    """Env that feeds the App token to git via GIT_ASKPASS — the token never
+    appears in a URL, argv, or subprocess error/log."""
+    d = Path(tempfile.mkdtemp())
+    askpass = d / "askpass.sh"
+    askpass.write_text('#!/bin/sh\nprintf "%s" "$AP_GIT_TOKEN"\n')
+    askpass.chmod(stat.S_IRWXU)
+    return {**os.environ, "AP_GIT_TOKEN": os.environ["AP_GITHUB_TOKEN"],
+            "GIT_ASKPASS": str(askpass), "GIT_TERMINAL_PROMPT": "0"}
+
+def _clone_url() -> str:
+    # username-only https URL; the password (token) comes from GIT_ASKPASS.
+    return os.environ["AP_GIT_REMOTE_URL"].replace("https://", "https://x-access-token@", 1)
+
+def _title(prompt: str) -> str:
+    first = next((l for l in prompt.strip().splitlines() if l.strip()), "edit")
+    return first.strip()[:60]
+
+def self_edit_clone(repo_dir: Path, env: dict) -> None:
+    subprocess.run(["git", "clone", "--depth", "1", _clone_url(), str(repo_dir)],
+                   check=True, env=env, capture_output=True, text=True)
+
+def _open_pr(branch: str, run_id: str, prompt: str) -> dict:
+    repo = os.environ["AP_GITHUB_REPO"]
+    base = os.environ.get("AP_DEFAULT_BRANCH", "main")
+    body = json.dumps({
+        "head": branch, "base": base, "title": f"platform-coder: {_title(prompt)}",
+        "body": f"Automated edit by platform-coder (run `{run_id}`).\n\nInstruction:\n\n> {prompt}",
+    }).encode()
+    req = urllib.request.Request(f"https://api.github.com/repos/{repo}/pulls",
+                                 method="POST", data=body)
+    req.add_header("Authorization", f"Bearer {os.environ['AP_GITHUB_TOKEN']}")
+    req.add_header("Accept", "application/vnd.github+json")
+    req.add_header("X-GitHub-Api-Version", "2022-11-28")
+    with urllib.request.urlopen(req) as r:
+        d = json.load(r)
+    return {"number": d["number"], "url": d["html_url"]}
+
+def self_edit_publish(repo_dir: Path, env: dict, run_id: str, agent: str, prompt: str) -> dict:
+    """Commit the agent's edits to a branch, push, and open a PR. Freeform
+    edits always go through a PR (never straight to the default branch)."""
+    def git(*a):
+        return subprocess.run(["git", "-C", str(repo_dir), *a],
+                              check=True, env=env, capture_output=True, text=True).stdout
+    if not git("status", "--porcelain").strip():
+        return {"changed": False}
+    branch = f"coder/{agent}-{run_id[:8]}"
+    git("checkout", "-b", branch)
+    git("add", "-A")
+    git("-c", "user.name=platform-coder", "-c",
+        "user.email=platform-coder@agent-platform.local", "commit", "-m",
+        f"platform-coder: {_title(prompt)}")
+    git("push", "origin", f"HEAD:{branch}")
+    return {"changed": True, "branch": branch, "pr": _open_pr(branch, run_id, prompt)}
+
+# -------------------------------------------------------------------------
+
 def run(producer=None) -> int:
     run_id, agent = os.environ["AP_RUN_ID"], os.environ["AP_AGENT"]
     prompt = os.environ["AP_PROMPT"]
@@ -50,10 +110,20 @@ async def _run(producer, run_id: str, agent: str, prompt: str) -> int:
     extra_env = _install_credentials()
     _install_agent(agent)
     await producer.start()
+
+    self_edit = os.environ.get("AP_SELF_EDIT") == "1"
+    cwd = None
+    git_env = None
+    if self_edit:
+        git_env = _git_env()
+        repo_dir = Path("/workspace/repo")
+        await asyncio.to_thread(self_edit_clone, repo_dir, git_env)
+        cwd = str(repo_dir)
+
     claude = os.environ.get("CLAUDE_BIN", "claude")
     proc = subprocess.Popen(
         [claude, "--agent", agent, "-p", prompt, "--output-format", "stream-json", "--verbose"],
-        stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+        stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, cwd=cwd,
         env={**os.environ, **extra_env})
     seq = 0
     while True:
@@ -71,6 +141,20 @@ async def _run(producer, run_id: str, agent: str, prompt: str) -> int:
         await producer.publish(TOPIC_TRANSCRIPT, run_id, payload)
     rc = await asyncio.to_thread(proc.wait)
     state = "succeeded" if rc == 0 else "failed"
+
+    # On a successful self-edit run, open a PR for whatever the agent changed.
+    if self_edit and rc == 0:
+        try:
+            result = await asyncio.to_thread(self_edit_publish, Path(cwd), git_env, run_id, agent, prompt)
+            seq += 1
+            await producer.publish(TOPIC_TRANSCRIPT, run_id,
+                                   {"seq": seq, "type": "self_edit", **result})
+        except Exception as e:
+            seq += 1
+            await producer.publish(TOPIC_TRANSCRIPT, run_id,
+                                   {"seq": seq, "type": "self_edit", "error": str(e)})
+            state = "failed"
+
     await producer.publish(TOPIC_TRANSCRIPT, run_id,
                            {"seq": seq + 1, "type": "lifecycle", "terminal": True, "state": state})
     await producer.publish(TOPIC_EVENTS, run_id,

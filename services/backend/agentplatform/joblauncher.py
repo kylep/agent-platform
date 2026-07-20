@@ -11,11 +11,19 @@ log = logging.getLogger("joblauncher")
 
 
 class K8sJobLauncher(Launcher):
-    def __init__(self, batch, settings):
+    def __init__(self, batch, settings, github_app=None):
         self.batch = batch
         self.settings = settings
+        # When set, coder-role runs are launched as self-edits: the runner
+        # clones the repo, lets the agent edit it, and opens a PR using a
+        # freshly minted App installation token.
+        self.github_app = github_app
 
-    def build_job(self, run: Run, manifest: Manifest) -> k8s.V1Job:
+    def _is_self_edit(self, manifest: Manifest) -> bool:
+        return (manifest.role == "coder" and self.github_app is not None
+                and bool(self.settings.git_remote_url) and bool(self.settings.github_repo))
+
+    def build_job(self, run: Run, manifest: Manifest, self_edit_token: str | None = None) -> k8s.V1Job:
         name = f"run-{run.id[:12]}"
         env = [
             k8s.V1EnvVar(name="AP_RUN_ID", value=run.id),
@@ -23,6 +31,14 @@ class K8sJobLauncher(Launcher):
             k8s.V1EnvVar(name="AP_PROMPT", value=run.prompt),
             k8s.V1EnvVar(name="AP_KAFKA_BOOTSTRAP", value=self.settings.kafka_bootstrap),
         ]
+        if self_edit_token:
+            env += [
+                k8s.V1EnvVar(name="AP_SELF_EDIT", value="1"),
+                k8s.V1EnvVar(name="AP_GIT_REMOTE_URL", value=self.settings.git_remote_url),
+                k8s.V1EnvVar(name="AP_GITHUB_REPO", value=self.settings.github_repo),
+                k8s.V1EnvVar(name="AP_DEFAULT_BRANCH", value=self.settings.default_branch),
+                k8s.V1EnvVar(name="AP_GITHUB_TOKEN", value=self_edit_token),
+            ]
         container = k8s.V1Container(
             name="runner",
             image=self.settings.runner_image,
@@ -63,7 +79,10 @@ class K8sJobLauncher(Launcher):
         )
 
     async def launch(self, run: Run, manifest: Manifest) -> None:
-        job = self.build_job(run, manifest)
+        token = None
+        if self._is_self_edit(manifest):
+            token = await asyncio.to_thread(self.github_app.installation_token)
+        job = self.build_job(run, manifest, self_edit_token=token)
         await asyncio.to_thread(self.batch.create_namespaced_job, self.settings.k8s_namespace, job)
 
     async def cancel(self, run_id: str) -> None:
