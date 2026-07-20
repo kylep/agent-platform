@@ -20,6 +20,19 @@ agents, and the DLQ story for when triggers misbehave.
 - **Kafka health:** consumer lag + broker liveness on the dashboard
   (fuller observability waits for 05).
 
+## Progress (2026-07-20)
+
+- [x] **Scheduler loop** — agents declare a 5-field cron `schedule` in their
+      manifest; a `Scheduler` in the dispatcher fires a `trigger=schedule` run
+      when due, tracking enable/disable + last/next fire in the `schedules`
+      table. Missed fires are skipped (next fire computed from now, never
+      backfilled). `GET/POST /api/schedules` + a Schedules UI page. Verified
+      live: a cron agent armed, fired on schedule, and disable/enable worked.
+- [ ] Webhook listeners.
+- [ ] Agent-invokes-agent (RBAC + run-chain depth loop guard).
+- [ ] DLQ surfacing UI.
+- [ ] Kafka health on the dashboard.
+
 ## Done when
 
 A cron agent fires on schedule and is visible in advance; an external
