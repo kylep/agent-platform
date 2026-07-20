@@ -49,12 +49,16 @@ Backend machinery built and tested (all merged to main; see
 - [x] **platform-coder agent** — coder role, edits under `agents/` only.
 - [x] **Quick-edit endpoint** — `POST /api/agents/{name}/quick-edit` (prompt).
 - [x] **Change admin password** — `POST /api/change-password`.
+- [x] **Self-hosting loop LIVE** — quick-edit through the API tier-1 commits
+      an agent's prompt and pushes to `origin/main` (authored by
+      platform-coder, zero terminal). Auth is a repo-scoped **ssh deploy key**
+      (`github-deploy-key` secret, push-only); backend image gained
+      `openssh-client`; secrets passed via GIT_SSH_COMMAND/GIT_ASKPASS only.
 
-**Blocked on a GitHub write credential** (only Kyle can provision it):
-- [ ] Live tier-2 PR path, freeform platform-coder run (clone repo into the
-      runner workspace + post-run tiered commit), and Pending Changes — all
-      need a repo write token/deploy key set as the `github-token` secret plus
-      helm values `git_remote_url` + `github_repo`, then a backend redeploy.
+Remaining (needs a token / GitHub App — deploy keys can't use the REST API):
+- [ ] Tier-2 **PR** path live, freeform platform-coder run (clone repo into the
+      runner workspace + post-run tiered commit), and Pending Changes.
 - [ ] Frontend: API-keys management, quick-edit UI, Pending Changes page,
-      password Settings (buildable now; not yet started).
+      password Settings.
 - [ ] Sync hardening (webhook-or-poll provenance).
+- [ ] Migrate git credential to the PericakAI App for PR support (06-hardening).
