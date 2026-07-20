@@ -18,7 +18,7 @@ def git(cwd, *args):
 def selfhost(tmp_path):
     """A bare origin holding one agent, plus a checkout the AgentStore reads."""
     bare = tmp_path / "origin.git"
-    git(tmp_path, "init", "--bare", "-q", str(bare))
+    git(tmp_path, "init", "--bare", "-b", "main", "-q", str(bare))
     seed = tmp_path / "seed"
     git(tmp_path, "clone", "-q", str(bare), str(seed))
     git(seed, "config", "user.email", "s@s"); git(seed, "config", "user.name", "s")

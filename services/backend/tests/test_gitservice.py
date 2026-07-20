@@ -80,7 +80,7 @@ def bare_remote(tmp_path):
     """A bare origin with one commit on main, plus a seeded working clone."""
     from agentplatform.gitservice import GitWriter
     bare = tmp_path / "origin.git"
-    git(tmp_path, "init", "--bare", "-q", str(bare))
+    git(tmp_path, "init", "--bare", "-b", "main", "-q", str(bare))
     seed = tmp_path / "seed"
     git(tmp_path, "clone", "-q", str(bare), str(seed))
     git(seed, "config", "user.email", "s@s"); git(seed, "config", "user.name", "s")
