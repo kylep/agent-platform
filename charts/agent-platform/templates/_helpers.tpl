@@ -64,4 +64,10 @@ Env vars shared by the api/dispatcher/recorder backend Deployments.
   value: {{ .Values.env.AP_GLOBAL_CONCURRENCY | quote }}
 - name: AP_RUN_TIMEOUT_SECONDS
   value: {{ .Values.env.AP_RUN_TIMEOUT_SECONDS | quote }}
+- name: AP_GIT_REMOTE_URL
+  value: {{ .Values.env.AP_GIT_REMOTE_URL | default "" | quote }}
+- name: AP_GITHUB_REPO
+  value: {{ .Values.env.AP_GITHUB_REPO | default "" | quote }}
+- name: AP_DEFAULT_BRANCH
+  value: {{ .Values.env.AP_DEFAULT_BRANCH | default "main" | quote }}
 {{- end -}}

@@ -33,6 +33,14 @@ agents:
   storageClass: local-path
   storage: 1Gi
 
+# Self-hosting loop (M2): the platform edits its own repo. Push/PR auth is the
+# `github-token` secret. NOTE: currently a personal gh token — migrate to the
+# PericakAI GitHub App (tracked in docs/design/06-hardening.md).
+env:
+  AP_GIT_REMOTE_URL: "https://github.com/kylep/agent-platform.git"
+  AP_GITHUB_REPO: "kylep/agent-platform"
+  AP_DEFAULT_BRANCH: "main"
+
 postgresql:
   primary:
     resources:

@@ -71,6 +71,11 @@ env:
   AP_GLOBAL_CONCURRENCY: "3"
   AP_RUN_TIMEOUT_SECONDS: "1800"
   AP_AGENTS_VOLUME_CLAIM: "agent-definitions"
+  # Self-hosting git target (M2). Empty git_remote_url disables self-edit.
+  # The push/PR credential is the `github-token` secret (key: token).
+  AP_GIT_REMOTE_URL: ""
+  AP_GITHUB_REPO: ""
+  AP_DEFAULT_BRANCH: "main"
 
 # Kafka topics created by the post-install/post-upgrade topics-job hook.
 topics:
