@@ -33,8 +33,15 @@ class Recorder:
             run = await s.get(Run, run_id)
             if run is None:
                 return
-            if value.get("type") == "tool_use":
-                run.tool_calls += 1
+            # Tool calls surface as `tool_use` content blocks inside an
+            # `assistant` stream-json frame (one block per invocation); the
+            # top-level frame type is never `tool_use`, so count the blocks.
+            if value.get("type") == "assistant":
+                content = value.get("message", {}).get("content") or []
+                run.tool_calls += sum(
+                    1 for b in content
+                    if isinstance(b, dict) and b.get("type") == "tool_use"
+                )
             usage = value.get("usage", {})
             run.tokens_in += usage.get("input_tokens", 0)
             run.tokens_out += usage.get("output_tokens", 0)

@@ -9,16 +9,30 @@ async def seed(sf) -> str:
                   prompt="x", state=RunState.RUNNING)
         s.add(run); await s.commit(); return run.id
 
+def _assistant_tool_use(seq, *names):
+    """A real stream-json assistant frame carrying one tool_use block per name."""
+    return {"seq": seq, "type": "assistant",
+            "message": {"role": "assistant",
+                        "content": [{"type": "tool_use", "name": n, "id": f"t{i}"}
+                                    for i, n in enumerate(names)]}}
+
 async def test_transcript_and_metrics(sf):
     rid = await seed(sf); rec = Recorder(sf)
-    await rec.handle(TOPIC_RUN_TRANSCRIPT, rid, {"seq": 1, "type": "tool_use", "name": "Bash"})
-    await rec.handle(TOPIC_RUN_TRANSCRIPT, rid, {"seq": 1, "type": "tool_use", "name": "Bash"})  # dup
+    # Two assistant frames: the first invokes Bash, the second invokes two
+    # tools in one turn (each tool_use block counts) → 3 tool calls total.
+    await rec.handle(TOPIC_RUN_TRANSCRIPT, rid, _assistant_tool_use(1, "Bash"))
+    await rec.handle(TOPIC_RUN_TRANSCRIPT, rid, _assistant_tool_use(1, "Bash"))  # dup seq
+    await rec.handle(TOPIC_RUN_TRANSCRIPT, rid, _assistant_tool_use(2, "Read", "Bash"))
+    # A text-only assistant frame must not count as a tool call.
     await rec.handle(TOPIC_RUN_TRANSCRIPT, rid,
-                     {"seq": 2, "type": "result", "usage": {"input_tokens": 10, "output_tokens": 5}})
+                     {"seq": 3, "type": "assistant",
+                      "message": {"content": [{"type": "text", "text": "OK"}]}})
+    await rec.handle(TOPIC_RUN_TRANSCRIPT, rid,
+                     {"seq": 4, "type": "result", "usage": {"input_tokens": 10, "output_tokens": 5}})
     async with sf() as s:
-        assert len((await s.execute(select(TranscriptEvent))).scalars().all()) == 2
+        assert len((await s.execute(select(TranscriptEvent))).scalars().all()) == 4
         run = await s.get(Run, rid)
-        assert run.tool_calls == 1 and run.tokens_in == 10 and run.tokens_out == 5
+        assert run.tool_calls == 3 and run.tokens_in == 10 and run.tokens_out == 5
 
 async def test_state_event_terminal(sf):
     rid = await seed(sf); rec = Recorder(sf)

@@ -1,6 +1,9 @@
+exports.sh
 .superpowers/
 __pycache__/
 *.pyc
 *.egg-info/
 .venv/
 charts/*/charts/*.tgz
+.playwright-mcp/
+run-*.png
