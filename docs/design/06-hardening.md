@@ -13,6 +13,13 @@ down.
 - **Secret rotation:** rotation workflows in the secrets UI, token
   steward finalized from 01's findings, audit log of secret access by
   run.
+- **Migrate the git write credential off the personal `gh` token:** M2
+  shipped using a personal `gh` OAuth token (broad scope, tied to Kyle's
+  account) as the `github-token` secret to unblock the self-hosting loop.
+  Replace it with the **PericakAI GitHub App** (repo-scoped installation
+  tokens): store App ID + private key + install id, mint installation
+  tokens on demand. Private key already exists at
+  `~/gh/multi/secrets/pericakai.private-key.pem`.
 - **Supply chain:** image scanning in CI (trivy), pinned digests,
   semgrep on services.
 - **Exposure:** authenticated path beyond the LAN (Cloudflare tunnel or
