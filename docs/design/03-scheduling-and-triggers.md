@@ -28,7 +28,11 @@ agents, and the DLQ story for when triggers misbehave.
       table. Missed fires are skipped (next fire computed from now, never
       backfilled). `GET/POST /api/schedules` + a Schedules UI page. Verified
       live: a cron agent armed, fired on schedule, and disable/enable worked.
-- [ ] Webhook listeners.
+- [x] **Webhook triggers** — `POST /api/webhooks/{agent}` fires an agent from
+      an external caller, authed by an operator+ `ap_` API key, with the body
+      as prompt context; queuing comes from the existing dispatcher path.
+      Verified live (operator key → webhook run succeeded). (Lean MVP: direct
+      run creation rather than the webhooks.in→mapper topic in the full spec.)
 - [ ] Agent-invokes-agent (RBAC + run-chain depth loop guard).
 - [ ] DLQ surfacing UI.
 - [ ] Kafka health on the dashboard.
