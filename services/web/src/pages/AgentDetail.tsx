@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import { api, type AgentDetail as AgentDetailData } from "../api";
 
 export default function AgentDetail() {
@@ -83,12 +83,14 @@ export default function AgentDetail() {
       </dl>
 
       <h2>Agent definition</h2>
+      <p className="muted">The live definition, synced from <code>main</code> — this is exactly what runs.</p>
       <pre className="agent-md">{agent.agent_md}</pre>
 
       <h2>Edit this agent</h2>
       <p className="muted">
-        Describe a change in plain language. platform-coder makes the edit and opens a pull
-        request you can review under Changes.
+        Describe a change in plain language. This edits the definition above — platform-coder
+        makes the change in the repo and opens a pull request (one per agent) that you review and
+        merge under <Link to="/changes">Changes</Link>. It does not change anything until you merge.
       </p>
       <textarea
         placeholder="e.g. Add a line telling the agent to always reply in English."

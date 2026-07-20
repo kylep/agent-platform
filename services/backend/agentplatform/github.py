@@ -42,6 +42,9 @@ class GitHubClient:
             "GET", f"/pulls?state=open&head={owner}:{head_branch}"))
         return res[0] if res else None
 
+    def pull_request_files(self, number: int) -> list:
+        return self._send(self.build_request("GET", f"/pulls/{number}/files"))
+
     def merge_pull_request(self, number: int, *, method: str = "squash") -> dict:
         return self._send(self.build_request(
             "PUT", f"/pulls/{number}/merge", {"merge_method": method}))
