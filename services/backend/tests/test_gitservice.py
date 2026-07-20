@@ -175,3 +175,15 @@ def test_editservice_tier2_without_pr_client_still_pushes(bare_remote, tmp_path)
                     message="bump concurrency", branch="coder/bump")
     assert res["tier"] == 2 and res["pr"] is None
     assert "coder/bump" in _remote_branches(bare_remote)
+
+
+def test_ssh_auth_env_pins_known_hosts(tmp_path):
+    from agentplatform.gitservice import GitWriter, GITHUB_KNOWN_HOSTS
+    key = tmp_path / "deploy_key"; key.write_text("PRIVKEY\n")
+    w = GitWriter("git@github.com:o/r.git", ssh_key_path=str(key))
+    cmd = w._auth_env()["GIT_SSH_COMMAND"]
+    assert "StrictHostKeyChecking=yes" in cmd
+    assert "StrictHostKeyChecking=no" not in cmd and "/dev/null" not in cmd
+    kh = tmp_path / "known_hosts"
+    assert kh.exists() and kh.read_text() == GITHUB_KNOWN_HOSTS
+    assert "github.com ssh-ed25519" in kh.read_text()
