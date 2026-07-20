@@ -64,10 +64,20 @@ Backend machinery built and tested (all merged to main; see
       Verified end-to-end: a freeform instruction produced PR #2 editing
       hello-world, authored by the app. Never commits straight to the branch.
 
-Remaining:
-- [ ] **Pending Changes** page (list/​diff/​merge platform PRs in the UI; the
-      run transcript currently carries the PR link).
-- [ ] Frontend: API-keys management, quick-edit UI, password Settings.
+- [x] **Pending Changes** page + endpoints — lists the platform's open coder/*
+      PRs with Merge/Close; verified end-to-end live: merged PR #2 from the UI,
+      the edit landed on main. (Also fixed a Gate regression: the probe's
+      'valid' status was treated as blocking.)
+
+- [x] **Full UI** — "Edit this agent" box on the agent page dispatches
+      platform-coder; Pending Changes lists/merges its PRs; a Settings page
+      does password rotation + API-key mint/list/revoke. Verified live: the
+      whole loop is browser-driven (edit box → run → PR #3 → Pending Changes).
+
+**Done-when: essentially met** (via the edit path; "create a new agent" uses
+the identical machinery). Remaining hardening (non-blocking):
+- [ ] Make git config declarative via `helm upgrade` (currently `kubectl set
+      env` on api + dispatcher; the chart values are correct, so an upgrade
+      reconciles cleanly — do it with care, this cluster can wedge on upgrade).
+- [ ] Retire the deploy key (App is primary; deploy key remains a fallback).
 - [ ] Sync hardening (webhook-or-poll provenance).
-- [ ] Make git config declarative via `helm upgrade` (currently set with
-      `kubectl set env` on api + dispatcher); migrate off the deploy key.
