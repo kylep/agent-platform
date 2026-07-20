@@ -1,6 +1,7 @@
-from agentplatform.db import Run, RunState, TranscriptEvent
+from agentplatform.db import Run, RunState, SecretMeta, TranscriptEvent
 from agentplatform.events import TOPIC_RUN_EVENTS, TOPIC_RUN_TRANSCRIPT
 from agentplatform.recorder import Recorder
+from agentplatform.secrets import CLAUDE_CREDENTIAL
 from sqlalchemy import select
 
 async def seed(sf) -> str:
@@ -41,3 +42,28 @@ async def test_state_event_terminal(sf):
     async with sf() as s:
         run = await s.get(Run, rid)
         assert run.state == "succeeded" and run.finished_at is not None and run.exit_code == 0
+
+async def _cred_status(sf):
+    async with sf() as s:
+        meta = await s.get(SecretMeta, CLAUDE_CREDENTIAL)
+        return meta.status if meta else None
+
+async def test_probe_marks_credential_valid_on_success(sf):
+    rid = await seed(sf); rec = Recorder(sf)
+    await rec.handle(TOPIC_RUN_EVENTS, rid, {"type": "state", "state": "succeeded", "exit_code": 0})
+    assert await _cred_status(sf) == "valid"
+
+async def test_probe_marks_credential_invalid_on_auth_failure(sf):
+    rid = await seed(sf); rec = Recorder(sf)
+    # The CLI reports auth failures with error=authentication_failed / 401.
+    await rec.handle(TOPIC_RUN_TRANSCRIPT, rid,
+                     {"seq": 1, "type": "system", "subtype": "api_retry",
+                      "error": "authentication_failed", "error_status": 401})
+    assert await _cred_status(sf) == "invalid"
+
+async def test_probe_ignores_non_auth_failure(sf):
+    rid = await seed(sf); rec = Recorder(sf)
+    # A run that fails for a non-auth reason must not invalidate the token.
+    await rec.handle(TOPIC_RUN_EVENTS, rid,
+                     {"type": "state", "state": "failed", "exit_code": 1})
+    assert await _cred_status(sf) is None

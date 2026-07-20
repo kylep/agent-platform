@@ -1,7 +1,8 @@
 import base64
 from kubernetes import client as k8s
 
-REQUIRED_SECRETS = ["claude-credentials"]
+CLAUDE_CREDENTIAL = "claude-credentials"
+REQUIRED_SECRETS = [CLAUDE_CREDENTIAL]
 
 class SecretStore:
     async def set(self, name: str, data: dict[str, str]) -> None: raise NotImplementedError
