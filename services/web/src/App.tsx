@@ -9,6 +9,7 @@ import Agents from "./pages/Agents";
 import AgentDetail from "./pages/AgentDetail";
 import Runs from "./pages/Runs";
 import RunDetail from "./pages/RunDetail";
+import Changes from "./pages/Changes";
 
 export default function App() {
   return (
@@ -23,6 +24,7 @@ export default function App() {
             <Route path="/agents/:name" element={<AgentDetail />} />
             <Route path="/runs" element={<Runs />} />
             <Route path="/runs/:id" element={<RunDetail />} />
+            <Route path="/changes" element={<Changes />} />
             <Route path="/secrets" element={<Secrets />} />
           </Route>
         </Route>

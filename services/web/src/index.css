@@ -309,6 +309,19 @@ button:disabled {
   cursor: not-allowed;
 }
 
+button.secondary {
+  background: var(--bg);
+  color: var(--fg);
+  border-color: var(--border);
+  font-weight: 500;
+}
+
+.row-actions {
+  display: flex;
+  gap: 8px;
+  white-space: nowrap;
+}
+
 /* secrets */
 .secret-row {
   border: 1px solid var(--border);
