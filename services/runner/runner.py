@@ -1,4 +1,5 @@
 import asyncio, json, os, shutil, stat, subprocess, sys, tempfile
+import urllib.error
 import urllib.request
 from pathlib import Path
 from aiokafka import AIOKafkaProducer
@@ -65,38 +66,61 @@ def self_edit_clone(repo_dir: Path, env: dict) -> None:
     subprocess.run(["git", "clone", "--depth", "1", _clone_url(), str(repo_dir)],
                    check=True, env=env, capture_output=True, text=True)
 
-def _open_pr(branch: str, run_id: str, prompt: str) -> dict:
+def _gh(method: str, path: str, body: dict | None = None):
     repo = os.environ["AP_GITHUB_REPO"]
-    base = os.environ.get("AP_DEFAULT_BRANCH", "main")
-    body = json.dumps({
-        "head": branch, "base": base, "title": f"platform-coder: {_title(prompt)}",
-        "body": f"Automated edit by platform-coder (run `{run_id}`).\n\nInstruction:\n\n> {prompt}",
-    }).encode()
-    req = urllib.request.Request(f"https://api.github.com/repos/{repo}/pulls",
-                                 method="POST", data=body)
+    data = json.dumps(body).encode() if body is not None else None
+    req = urllib.request.Request(f"https://api.github.com/repos/{repo}{path}",
+                                 method=method, data=data)
     req.add_header("Authorization", f"Bearer {os.environ['AP_GITHUB_TOKEN']}")
     req.add_header("Accept", "application/vnd.github+json")
     req.add_header("X-GitHub-Api-Version", "2022-11-28")
     with urllib.request.urlopen(req) as r:
-        d = json.load(r)
+        return json.load(r)
+
+def _open_or_find_pr(branch: str, run_id: str, prompt: str) -> dict:
+    base = os.environ.get("AP_DEFAULT_BRANCH", "main")
+    try:
+        d = _gh("POST", "/pulls", {
+            "head": branch, "base": base, "title": f"platform-coder: {_title(prompt)}",
+            "body": f"Automated edit by platform-coder (run `{run_id}`).\n\nInstruction:\n\n> {prompt}"})
+    except urllib.error.HTTPError as e:
+        if e.code != 422:  # 422 = a PR already exists for this (force-updated) branch
+            raise
+        owner = os.environ["AP_GITHUB_REPO"].split("/")[0]
+        found = _gh("GET", f"/pulls?state=open&head={owner}:{branch}")
+        if not found:
+            raise
+        d = found[0]
     return {"number": d["number"], "url": d["html_url"]}
 
+def _target_agent(status: str) -> str | None:
+    """The edited agent's name, from the first changed agents/<name>/ path."""
+    for line in status.splitlines():
+        parts = line[3:].strip().split("/")
+        if len(parts) >= 2 and parts[0] == "agents":
+            return parts[1]
+    return None
+
 def self_edit_publish(repo_dir: Path, env: dict, run_id: str, agent: str, prompt: str) -> dict:
-    """Commit the agent's edits to a branch, push, and open a PR. Freeform
-    edits always go through a PR (never straight to the default branch)."""
+    """Commit the agent's edits to the target agent's deterministic branch,
+    force-push, and open (or update) its PR. Freeform edits always go through a
+    PR; one open PR per agent."""
     def git(*a):
         return subprocess.run(["git", "-C", str(repo_dir), *a],
                               check=True, env=env, capture_output=True, text=True).stdout
-    if not git("status", "--porcelain").strip():
+    status = git("status", "--porcelain")
+    if not status.strip():
         return {"changed": False}
-    branch = f"coder/{agent}-{run_id[:8]}"
+    target = _target_agent(status) or agent
+    branch = f"coder/agent-{target}"
     git("checkout", "-b", branch)
     git("add", "-A")
     git("-c", "user.name=platform-coder", "-c",
         "user.email=platform-coder@agent-platform.local", "commit", "-m",
         f"platform-coder: {_title(prompt)}")
-    git("push", "origin", f"HEAD:{branch}")
-    return {"changed": True, "branch": branch, "pr": _open_pr(branch, run_id, prompt)}
+    git("push", "origin", f"+HEAD:{branch}")   # force → overwrite the per-agent branch
+    return {"changed": True, "branch": branch, "target": target,
+            "pr": _open_or_find_pr(branch, run_id, prompt)}
 
 # -------------------------------------------------------------------------
 

@@ -59,34 +59,39 @@ def bare_and_clone(tmp_path):
     seed = tmp_path / "seed"
     _git(tmp_path, "clone", "-q", str(bare), str(seed))
     _git(seed, "config", "user.email", "s@s"); _git(seed, "config", "user.name", "s")
-    (seed / "agents").mkdir()
-    (seed / "agents" / "demo.md").write_text("demo\n")
+    (seed / "agents" / "demo").mkdir(parents=True)
+    (seed / "agents" / "demo" / "agent.md").write_text("demo\n")
     _git(seed, "add", "-A"); _git(seed, "commit", "-qm", "init"); _git(seed, "push", "-q", "origin", "main")
     clone = tmp_path / "clone"
     _git(tmp_path, "clone", "-q", str(bare), str(clone))
     return bare, clone
 
 
-def test_self_edit_publish_opens_pr_on_change(bare_and_clone, monkeypatch):
+def test_target_agent_from_status():
+    assert runner._target_agent(" M agents/demo/agent.md\n?? other.txt") == "demo"
+    assert runner._target_agent(" M services/x.py") is None
+
+
+def test_self_edit_publish_uses_per_agent_branch(bare_and_clone, monkeypatch):
     bare, clone = bare_and_clone
     monkeypatch.setenv("AP_GITHUB_TOKEN", "ghs_x")
     monkeypatch.setenv("AP_GITHUB_REPO", "o/r")
     calls = {}
-    monkeypatch.setattr(runner, "_open_pr",
+    monkeypatch.setattr(runner, "_open_or_find_pr",
                         lambda branch, run_id, prompt: calls.update(branch=branch) or {"number": 7, "url": "u"})
-    (clone / "agents" / "demo.md").write_text("demo improved\n")
+    (clone / "agents" / "demo" / "agent.md").write_text("demo improved\n")
     env = {**os.environ}   # local remote needs no real auth
     res = runner.self_edit_publish(clone, env, "abcd1234efgh", "platform-coder", "improve demo")
-    assert res["changed"] and res["branch"] == "coder/platform-coder-abcd1234"
-    assert res["pr"] == {"number": 7, "url": "u"} and calls["branch"] == "coder/platform-coder-abcd1234"
-    # branch really landed on the remote
+    # deterministic branch derived from the edited agent, not the run id
+    assert res["changed"] and res["branch"] == "coder/agent-demo" and res["target"] == "demo"
+    assert res["pr"] == {"number": 7, "url": "u"} and calls["branch"] == "coder/agent-demo"
     out = subprocess.run(["git", "-C", str(bare), "branch", "--format=%(refname:short)"],
                          capture_output=True, text=True, check=True).stdout
-    assert "coder/platform-coder-abcd1234" in out.split()
+    assert "coder/agent-demo" in out.split()
 
 
 def test_self_edit_publish_noop_when_no_change(bare_and_clone, monkeypatch):
     bare, clone = bare_and_clone
-    monkeypatch.setattr(runner, "_open_pr", lambda *a, **k: pytest.fail("should not open PR"))
+    monkeypatch.setattr(runner, "_open_or_find_pr", lambda *a, **k: pytest.fail("should not open PR"))
     res = runner.self_edit_publish(clone, {**os.environ}, "abcd1234", "platform-coder", "noop")
     assert res == {"changed": False}
