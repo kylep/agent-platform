@@ -75,3 +75,57 @@ async def test_quick_edit_disabled_without_config(admin_client):
     r = await admin_client.post("/api/agents/hello-world/quick-edit",
                                 json={"field": "prompt", "value": "x"})
     assert r.status_code == 409
+
+
+def test_push_url_never_embeds_token():
+    from agentplatform.api.agents import _push_url
+    url = "https://github.com/kylep/agent-platform.git"
+    out = _push_url(url, "gho_secret")
+    assert out == "https://x-access-token@github.com/kylep/agent-platform.git"
+    assert "gho_secret" not in out           # token is NOT in the URL
+    # No token, or non-github URL (local bare remote in tests) → unchanged.
+    assert _push_url(url, None) == url
+    assert _push_url("/tmp/bare.git", "gho_secret") == "/tmp/bare.git"
+
+
+def test_gitwriter_strips_token_whitespace():
+    from agentplatform.gitservice import GitWriter
+    w = GitWriter("https://x-access-token@github.com/o/r.git", token="gho_x\n")
+    assert w.token == "gho_x"                # trailing newline stripped
+    assert GitWriter("u", token="  ").token is None or GitWriter("u", token="  ").token == ""
+
+
+class _S:
+    def __init__(self, **kw):
+        self.git_remote_url = kw.get("git_remote_url", "")
+        self.github_repo = kw.get("github_repo", "")
+        self.default_branch = "main"
+
+
+def test_build_writer_prefers_deploy_key(tmp_path):
+    from agentplatform.api.agents import _build_writer
+    s = _S(git_remote_url="https://github.com/o/r.git", github_repo="o/r")
+    writer, pr = _build_writer(s, tmp_path, {"key": "PRIVKEY"}, {"token": "gho_x"})
+    assert writer.ssh_key_path is not None and writer.remote_url == "git@github.com:o/r.git"
+    assert writer.token is None and pr is None            # deploy key → no REST PR client
+    assert (tmp_path / "deploy_key").read_text().endswith("\n")
+
+
+def test_build_writer_falls_back_to_token(tmp_path):
+    from agentplatform.api.agents import _build_writer
+    s = _S(git_remote_url="https://github.com/o/r.git", github_repo="o/r")
+    writer, pr = _build_writer(s, tmp_path, None, {"token": "gho_x"})
+    assert writer.token == "gho_x" and writer.ssh_key_path is None
+    assert "gho_x" not in writer.remote_url and pr is not None
+
+
+def test_build_writer_local_remote_needs_no_cred(tmp_path):
+    from agentplatform.api.agents import _build_writer
+    s = _S(git_remote_url="/tmp/bare.git")
+    writer, pr = _build_writer(s, tmp_path, None, None)
+    assert writer.token is None and writer.ssh_key_path is None and pr is None
+
+
+def test_build_writer_none_without_anything(tmp_path):
+    from agentplatform.api.agents import _build_writer
+    assert _build_writer(_S(), tmp_path, None, None) is None

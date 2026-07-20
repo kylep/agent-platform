@@ -8,7 +8,10 @@ consumes. The actual commit / branch / push / PR steps live in
 like claude-credentials); they are intentionally separated so tier
 classification is testable without any GitHub access.
 """
+import os
+import stat
 import subprocess
+import tempfile
 from pathlib import Path
 
 import yaml
@@ -65,18 +68,45 @@ class GitWriter:
     actual pull request is a separate GitHub-API step (see PR client) and is
     the only part that needs a repo write credential."""
 
-    def __init__(self, remote_url: str, *, default_branch: str = "main",
+    def __init__(self, remote_url: str, *, token: str | None = None,
+                 ssh_key_path: str | None = None,
+                 default_branch: str = "main",
                  author_name: str = "platform-coder",
                  author_email: str = "platform-coder@agent-platform.local"):
         self.remote_url = remote_url
+        # Auth is supplied to git out-of-band so no secret appears in a URL,
+        # argv, or subprocess error (which would leak it to logs):
+        #   - ssh_key_path: a deploy-key private key, used via GIT_SSH_COMMAND
+        #     (preferred: repo-scoped);
+        #   - token: an https token, used via GIT_ASKPASS (remote_url then
+        #     carries only the `x-access-token@` username).
+        self.token = token.strip() if token else None
+        self.ssh_key_path = ssh_key_path
         self.default_branch = default_branch
         self.author_name = author_name
         self.author_email = author_email
+        self._askpass: str | None = None
+
+    def _auth_env(self) -> dict:
+        if self.ssh_key_path:
+            return {**os.environ, "GIT_SSH_COMMAND":
+                    f"ssh -i {self.ssh_key_path} -o IdentitiesOnly=yes "
+                    "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"}
+        if not self.token:
+            return dict(os.environ)
+        if self._askpass is None:
+            fd, path = tempfile.mkstemp(prefix="ap-askpass-")
+            os.write(fd, b'#!/bin/sh\nprintf "%s" "$AP_GIT_TOKEN"\n')
+            os.close(fd)
+            os.chmod(path, stat.S_IRWXU)
+            self._askpass = path
+        return {**os.environ, "AP_GIT_TOKEN": self.token,
+                "GIT_ASKPASS": self._askpass, "GIT_TERMINAL_PROMPT": "0"}
 
     def clone(self, dest: Path) -> Path:
         dest = Path(dest)
         subprocess.run(["git", "clone", self.remote_url, str(dest)],
-                       check=True, capture_output=True, text=True)
+                       check=True, capture_output=True, text=True, env=self._auth_env())
         return dest
 
     def create_branch(self, repo: Path, branch: str) -> None:
@@ -91,7 +121,8 @@ class GitWriter:
         return _git(repo, "rev-parse", "HEAD").strip()
 
     def push(self, repo: Path, branch: str) -> None:
-        _git(Path(repo), "push", "origin", f"HEAD:{branch}")
+        subprocess.run(["git", "-C", str(Path(repo)), "push", "origin", f"HEAD:{branch}"],
+                       check=True, capture_output=True, text=True, env=self._auth_env())
 
 
 def _write_files(repo: Path, files: dict[str, str | None]) -> None:
