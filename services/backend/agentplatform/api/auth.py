@@ -128,3 +128,28 @@ async def login(request: Request, response: Response, creds: Creds):
 async def logout(response: Response):
     response.delete_cookie("ap_session")
     return {"ok": True}
+
+
+class PasswordChange(BaseModel):
+    old_password: str
+    new_password: str
+
+
+@router.post("/api/change-password", dependencies=[Depends(require_admin)])
+async def change_password(request: Request, body: PasswordChange):
+    """Rotate the admin password from Settings (re-auth with the current one),
+    replacing the postgres-row-delete-and-re-setup workaround."""
+    admin = await _admin(request)
+    if admin is None:
+        raise HTTPException(401)
+    try:
+        ph.verify(admin.password_hash, body.old_password)
+    except VerifyMismatchError:
+        raise HTTPException(403, "current password is incorrect")
+    if len(body.new_password) < 8:
+        raise HTTPException(422, "new password must be at least 8 characters")
+    async with request.app.state.session_factory() as s:
+        p = await s.get(Principal, admin.id)
+        p.password_hash = ph.hash(body.new_password)
+        await s.commit()
+    return {"ok": True}
