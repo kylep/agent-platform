@@ -35,11 +35,38 @@ def validate_session_cookie(app, cookie: str | None) -> str | None:
         return None
     return data["principal"]
 
-async def require_admin(request: Request) -> str:
-    principal = validate_session_cookie(request.app, request.cookies.get("ap_session"))
-    if principal is None:
-        raise HTTPException(401)
-    return principal
+# Role privilege order (ascending). `admin` is a superset of every scope.
+ROLES = ("reader", "operator", "coder", "admin")
+
+
+def role_allows(role: str | None, allowed: tuple[str, ...]) -> bool:
+    """Authorization decision: an authenticated `role` may access an endpoint
+    guarded by `allowed` if it is admin (allowed everywhere) or listed."""
+    return role is not None and (role == "admin" or role in allowed)
+
+
+async def _lookup_role(request: Request, name: str) -> str | None:
+    async with request.app.state.session_factory() as s:
+        p = (await s.execute(select(Principal).where(Principal.name == name))).scalar_one_or_none()
+        return p.role if p else None
+
+
+def require_role(*allowed: str):
+    """Dependency factory: authenticate via the session cookie and require the
+    principal's role to satisfy `allowed` (admin always passes). Returns the
+    principal name so handlers can attribute actions."""
+    async def dep(request: Request) -> str:
+        name = validate_session_cookie(request.app, request.cookies.get("ap_session"))
+        if name is None:
+            raise HTTPException(401)
+        role = await _lookup_role(request, name)
+        if not role_allows(role, allowed):
+            raise HTTPException(403 if role is not None else 401)
+        return name
+    return dep
+
+
+require_admin = require_role("admin")
 
 @router.get("/api/setup-state")
 async def setup_state(request: Request):
