@@ -322,6 +322,36 @@ button.secondary {
   white-space: nowrap;
 }
 
+select {
+  font: inherit;
+  color: var(--fg);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px 10px;
+}
+
+.form-col {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-width: 360px;
+  margin-bottom: 12px;
+}
+
+.form-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+}
+
+.form-row input {
+  flex: 1;
+  min-width: 180px;
+}
+
 /* secrets */
 .secret-row {
   border: 1px solid var(--border);
