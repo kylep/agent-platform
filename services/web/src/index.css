@@ -598,3 +598,31 @@ select {
 
 /* Cron cells: hint that hovering reveals the plain-English schedule */
 .cron { cursor: help; border-bottom: 1px dotted var(--muted); }
+
+/* --- readable run transcript --- */
+.transcript-text { margin: 10px 0; line-height: 1.55; white-space: pre-wrap; }
+
+.tcall { border: 1px solid var(--border); border-radius: 8px; margin: 8px 0; background: var(--bg-alt); overflow: hidden; }
+.tcall-err { border-color: var(--err, #f87171); }
+.tcall-head { display: flex; align-items: baseline; gap: 8px; padding: 7px 10px; flex-wrap: wrap; }
+.tcall-name { font-weight: 600; font-size: 13px; color: var(--accent); font-family: ui-monospace, Consolas, monospace; }
+.tcall-arg { font-family: ui-monospace, Consolas, monospace; font-size: 12px; color: var(--fg);
+  white-space: pre-wrap; word-break: break-word; overflow-wrap: anywhere; max-height: 4.5em; overflow: hidden; }
+.tcall-input { padding: 0 10px 6px; }
+.tcall-input summary { font-size: 12px; color: var(--muted); cursor: pointer; }
+.tcall-input pre { margin: 6px 0 0; font-size: 12px; }
+.tcall-result { margin: 0; padding: 8px 10px; border-top: 1px solid var(--border); background: var(--bg);
+  font-family: ui-monospace, Consolas, monospace; font-size: 12px; white-space: pre-wrap; word-break: break-word;
+  max-height: 240px; overflow: auto; color: var(--muted); }
+.tcall-result.err { color: var(--err, #f87171); }
+
+.final { border: 1px solid var(--accent); border-radius: 8px; padding: 12px 14px; margin: 14px 0;
+  background: rgba(110, 168, 254, 0.07); }
+.final-err { border-color: var(--err, #f87171); background: rgba(248, 113, 113, 0.07); }
+.final-label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); margin-bottom: 6px; }
+.final-text { white-space: pre-wrap; line-height: 1.55; }
+.final-meta { font-size: 12px; margin-top: 8px; }
+
+.transcript-noise { margin-top: 12px; }
+.transcript-noise summary { font-size: 12px; color: var(--muted); cursor: pointer; }
+.transcript-noise pre { font-size: 11px; margin-top: 6px; max-height: 300px; overflow: auto; }

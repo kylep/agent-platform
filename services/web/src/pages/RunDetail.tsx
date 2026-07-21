@@ -7,51 +7,129 @@ type ContentBlock = {
   type?: string;
   text?: string;
   name?: string;
-  input?: unknown;
+  input?: Record<string, unknown>;
+  id?: string;
+  tool_use_id?: string;
+  content?: unknown;
+  is_error?: boolean;
 };
 
-function AssistantFrame({ frame }: { frame: RunEvent }) {
-  const message = frame.message as { content?: ContentBlock[] } | undefined;
-  const content = message?.content;
-  if (!Array.isArray(content)) {
-    return <pre className="transcript-frame dim">{JSON.stringify(frame, null, 2)}</pre>;
+// The most useful single argument to show inline for a tool call.
+function toolArgSummary(name: string, input: Record<string, unknown> = {}): string {
+  const pick = (k: string) => (typeof input[k] === "string" ? (input[k] as string) : "");
+  const byTool: Record<string, string> = {
+    Bash: pick("command"), WebFetch: pick("url"), WebSearch: pick("query"),
+    Read: pick("file_path"), Glob: pick("pattern"), Grep: pick("pattern"),
+  };
+  const v = byTool[name] ?? "";
+  if (v) return v;
+  const s = JSON.stringify(input);
+  return s === "{}" ? "" : s;
+}
+
+// A tool_result's content → plain text.
+function resultText(content: unknown): string {
+  if (typeof content === "string") return content;
+  if (Array.isArray(content)) {
+    return content.map((b) => (b && typeof b === "object" && "text" in b ? String((b as ContentBlock).text ?? "") : JSON.stringify(b))).join("\n");
   }
+  return content == null ? "" : JSON.stringify(content, null, 2);
+}
+
+type ToolResult = { text: string; isError: boolean };
+
+function ToolCall({ name, input, result }: { name: string; input?: Record<string, unknown>; result?: ToolResult }) {
+  const summary = toolArgSummary(name, input);
   return (
-    <>
-      {content.map((block, i) => {
-        if (block.type === "text") {
-          return <p key={i} className="transcript-text">{block.text}</p>;
-        }
-        if (block.type === "tool_use") {
-          return (
-            <details key={i} className="transcript-tool">
-              <summary>{block.name}</summary>
-              <pre>{JSON.stringify(block.input, null, 2)}</pre>
-            </details>
-          );
-        }
-        return <pre key={i} className="transcript-frame dim">{JSON.stringify(block, null, 2)}</pre>;
-      })}
-    </>
+    <div className={`tcall${result?.isError ? " tcall-err" : ""}`}>
+      <div className="tcall-head">
+        <span className="tcall-name">{name}</span>
+        {summary && <code className="tcall-arg">{summary}</code>}
+      </div>
+      {input && Object.keys(input).length > 0 && (
+        <details className="tcall-input"><summary>arguments</summary>
+          <pre>{JSON.stringify(input, null, 2)}</pre>
+        </details>
+      )}
+      {result && (
+        <pre className={`tcall-result${result.isError ? " err" : ""}`}>{result.text || "(no output)"}</pre>
+      )}
+    </div>
   );
 }
 
-function TranscriptFrame({ frame, index }: { frame: RunEvent; index: number }) {
-  if (frame.type === "assistant") {
-    return <AssistantFrame frame={frame} />;
-  }
-  if (frame.type === "tool_use") {
-    return (
-      <details className="transcript-tool">
-        <summary>{String(frame.name ?? "tool")}</summary>
-        <pre>{JSON.stringify(frame.input, null, 2)}</pre>
-      </details>
-    );
-  }
+function FinalResult({ frame }: { frame: RunEvent }) {
+  const text = String(frame.result ?? "");
+  const usage = (frame.usage as { input_tokens?: number; output_tokens?: number }) ?? {};
+  const dur = typeof frame.duration_ms === "number" ? `${(frame.duration_ms / 1000).toFixed(1)}s` : null;
+  const cost = typeof frame.total_cost_usd === "number" ? `$${frame.total_cost_usd.toFixed(3)}` : null;
+  const err = frame.is_error === true || frame.subtype === "error_max_turns";
   return (
-    <pre key={index} className="transcript-frame dim">
-      {JSON.stringify(frame, null, 2)}
-    </pre>
+    <div className={`final${err ? " final-err" : ""}`}>
+      <div className="final-label">{err ? "Ended with error" : "Final reply"}</div>
+      {text ? <div className="final-text">{text}</div> : <div className="muted">(no reply text)</div>}
+      <div className="final-meta muted">
+        {[dur && `${dur}`, usage.input_tokens != null && `${usage.input_tokens}/${usage.output_tokens} tok`, cost,
+          typeof frame.num_turns === "number" && `${frame.num_turns} turns`].filter(Boolean).join(" · ")}
+      </div>
+    </div>
+  );
+}
+
+// Readable transcript: agent prose, tool calls paired with their results, a
+// highlighted final reply, and background frames (system/lifecycle) collapsed.
+function ReadableTranscript({ events }: { events: RunEvent[] }) {
+  const results = new Map<string, ToolResult>();
+  for (const f of events) {
+    if (f.type !== "user") continue;
+    const content = (f.message as { content?: ContentBlock[] } | undefined)?.content ?? [];
+    for (const b of content) {
+      if (b.type === "tool_result" && b.tool_use_id) {
+        results.set(b.tool_use_id, { text: resultText(b.content), isError: b.is_error === true });
+      }
+    }
+  }
+
+  const rendered: React.ReactNode[] = [];
+  let noise = 0;
+  events.forEach((f, i) => {
+    if (f.type === "assistant") {
+      const content = (f.message as { content?: ContentBlock[] } | undefined)?.content;
+      if (!Array.isArray(content)) return;
+      content.forEach((b, j) => {
+        if (b.type === "text" && b.text?.trim()) {
+          rendered.push(<p key={`${i}-${j}`} className="transcript-text">{b.text}</p>);
+        } else if (b.type === "tool_use" && b.name) {
+          rendered.push(<ToolCall key={`${i}-${j}`} name={b.name} input={b.input}
+            result={b.id ? results.get(b.id) : undefined} />);
+        }
+      });
+    } else if (f.type === "result") {
+      rendered.push(<FinalResult key={i} frame={f} />);
+    } else if (f.type !== "user") {
+      noise++;   // system / lifecycle / rate_limit_event — collapsed below
+    }
+  });
+
+  return (
+    <div className="transcript">
+      {rendered.length === 0 && <p className="muted">No transcript events yet.</p>}
+      {rendered}
+      {noise > 0 && (
+        <details className="transcript-noise"><summary>{noise} background events (system, lifecycle)</summary>
+          <pre>{JSON.stringify(events.filter((f) => f.type !== "assistant" && f.type !== "result" && f.type !== "user"), null, 2)}</pre>
+        </details>
+      )}
+    </div>
+  );
+}
+
+function RawTranscript({ events }: { events: RunEvent[] }) {
+  return (
+    <div className="transcript">
+      {events.map((f, i) => <pre key={i} className="transcript-frame dim">{JSON.stringify(f, null, 2)}</pre>)}
+      {events.length === 0 && <p className="muted">No transcript events yet.</p>}
+    </div>
   );
 }
 
@@ -61,6 +139,7 @@ export default function RunDetail() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [events, setEvents] = useState<RunEvent[]>([]);
   const [live, setLive] = useState(true);
+  const [raw, setRaw] = useState(false);
   const [killing, setKilling] = useState(false);
   const [killError, setKillError] = useState<string | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
@@ -72,9 +151,7 @@ export default function RunDetail() {
       .catch((err) => setLoadError(err instanceof Error ? err.message : "Failed to load run."));
   }, [id]);
 
-  useEffect(() => {
-    refetchHeader();
-  }, [refetchHeader]);
+  useEffect(() => { refetchHeader(); }, [refetchHeader]);
 
   useEffect(() => {
     if (!id) return;
@@ -86,10 +163,7 @@ export default function RunDetail() {
     ws.onmessage = (e) => {
       const frame = JSON.parse(e.data) as RunEvent;
       setEvents((prev) => [...prev, frame]);
-      if (frame.terminal) {
-        setLive(false);
-        refetchHeader();
-      }
+      if (frame.terminal) { setLive(false); refetchHeader(); }
     };
     ws.onclose = () => setLive(false);
     return () => ws.close();
@@ -119,7 +193,7 @@ export default function RunDetail() {
 
       <dl className="def-list">
         <dt>Agent</dt>
-        <dd>{run.agent}</dd>
+        <dd><Link to={`/agents/${encodeURIComponent(run.agent)}`}>{run.agent}</Link></dd>
         <dt>State</dt>
         <dd>
           <span className={`chip ${stateChipClass(run.state)}`}>{run.state}</span>
@@ -150,31 +224,24 @@ export default function RunDetail() {
         )}
         <dt>Exit code</dt>
         <dd>{run.exit_code ?? "—"}</dd>
-        {run.error && (
-          <>
-            <dt>Error</dt>
-            <dd className="error">{run.error}</dd>
-          </>
-        )}
+        {run.error && (<><dt>Error</dt><dd className="error">{run.error}</dd></>)}
       </dl>
 
       <div className="secret-row-footer">
-        <button onClick={kill} disabled={!active || killing}>
-          {killing ? "Killing…" : "Kill"}
-        </button>
+        <button onClick={kill} disabled={!active || killing}>{killing ? "Killing…" : "Kill"}</button>
         {killError && <span className="error">{killError}</span>}
       </div>
 
       <h2>Prompt</h2>
       <pre className="agent-md">{run.prompt}</pre>
 
-      <h2>Transcript</h2>
-      <div className="transcript">
-        {events.map((frame, i) => (
-          <TranscriptFrame key={i} frame={frame} index={i} />
-        ))}
-        {events.length === 0 && <p className="muted">No transcript events yet.</p>}
+      <div className="page-header">
+        <h2>Transcript</h2>
+        <button className="secondary" onClick={() => setRaw((v) => !v)}>
+          {raw ? "Readable view" : "Raw JSON"}
+        </button>
       </div>
+      {raw ? <RawTranscript events={events} /> : <ReadableTranscript events={events} />}
     </div>
   );
 }

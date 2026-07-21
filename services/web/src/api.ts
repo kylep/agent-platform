@@ -81,7 +81,7 @@ export type KafkaHealth = {
   backlog: { queued: number; active: number; dlq: number };
 };
 
-export type RunEvent = Record<string, unknown> & { type?: string; terminal?: boolean };
+export type RunEvent = Record<string, unknown> & { type?: string; terminal?: boolean; seq?: number };
 
 export type PullRequest = {
   number: number;
