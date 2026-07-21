@@ -1,11 +1,28 @@
-from fastapi import APIRouter, Depends, Request
+import asyncio
+import urllib.error
+import urllib.request
+
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 from sqlalchemy import select
 from agentplatform.api.auth import require_admin
 from agentplatform.db import SecretMeta
-from agentplatform.secrets import REQUIRED_SECRETS, SECRET_HINTS
+from agentplatform.secrets import (PROBEABLE_SECRETS, REQUIRED_SECRETS, SECRET_HINTS,
+                                   secret_probe_target)
 
 router = APIRouter()
+
+
+def _http_ok(url: str, headers: dict) -> bool:
+    """GET the url; True on a 2xx (the credential authenticates)."""
+    try:
+        req = urllib.request.Request(url, headers=headers)
+        with urllib.request.urlopen(req, timeout=8) as r:
+            return 200 <= r.status < 300
+    except urllib.error.HTTPError:
+        return False
+    except Exception:
+        return False
 
 class SecretIn(BaseModel):
     data: dict[str, str]
@@ -38,12 +55,31 @@ async def secret_listing(request: Request) -> list[dict]:
             status = "unprobed"
         hint = SECRET_HINTS.get(n, {})
         out.append({"name": n, "status": status, "required": n in REQUIRED_SECRETS,
-                    "hint": hint.get("hint", ""), "key": hint.get("key", "")})
+                    "hint": hint.get("hint", ""), "key": hint.get("key", ""),
+                    "probeable": n in PROBEABLE_SECRETS})
     return out
 
 @router.get("/api/secrets", dependencies=[Depends(require_admin)])
 async def list_secrets(request: Request):
     return await secret_listing(request)
+
+@router.post("/api/secrets/{name}/verify", dependencies=[Depends(require_admin)])
+async def verify_secret(request: Request, name: str):
+    """Validate a secret with a read-only API call and record the result."""
+    data = await request.app.state.secret_store.get(name)
+    if data is None:
+        raise HTTPException(404, "secret is not set")
+    target = secret_probe_target(name, data)
+    if target is None:
+        raise HTTPException(422, "this secret has no probe")
+    ok = await asyncio.to_thread(_http_ok, target[0], target[1])
+    status = "valid" if ok else "invalid"
+    async with request.app.state.session_factory() as s:
+        meta = await s.get(SecretMeta, name) or SecretMeta(name=name)
+        meta.status = status
+        s.add(meta); await s.commit()
+    return {"name": name, "status": status}
+
 
 @router.put("/api/secrets/{name}", dependencies=[Depends(require_admin)])
 async def put_secret(request: Request, name: str, body: SecretIn):
