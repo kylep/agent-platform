@@ -158,6 +158,11 @@ export type AgentMetrics = {
   last_run_at: string | null;
 };
 
+export type Retention = {
+  default_days: number;
+  per_agent_days: Record<string, number>;
+};
+
 export async function api<T>(path: string, opts: RequestInit = {}): Promise<T> {
   const res = await fetch(path, {
     credentials: "include",

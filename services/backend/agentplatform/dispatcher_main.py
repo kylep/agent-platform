@@ -13,6 +13,7 @@ from agentplatform.dispatcher import Dispatcher
 from agentplatform.events import Producer
 from agentplatform.githubapp import GitHubApp
 from agentplatform.joblauncher import JobWatcher, K8sJobLauncher
+from agentplatform.pruning import TranscriptPruner
 from agentplatform.scheduler import Scheduler
 from agentplatform.skills import SkillStore
 
@@ -71,10 +72,12 @@ async def main() -> None:
     dispatcher = Dispatcher(settings, session_factory, producer, agent_store, launcher)
     watcher = JobWatcher(batch, settings, session_factory, producer)
     scheduler = Scheduler(session_factory, agent_store, producer)
+    pruner = TranscriptPruner(session_factory, agent_store, settings)
 
     try:
         await asyncio.gather(dispatcher.run_forever(), watcher.run_forever(),
-                             dispatcher.sweep_forever(), scheduler.run_forever())
+                             dispatcher.sweep_forever(), scheduler.run_forever(),
+                             pruner.run_forever())
     finally:
         await producer.stop()
         await engine.dispose()

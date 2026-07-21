@@ -24,6 +24,9 @@ class Manifest(BaseModel):
     # When set, the agent gets an annotator-scoped, per-run API token so it can
     # save/recall memories in its own namespace across runs.
     memory: bool = False
+    # Per-agent transcript retention override (days). None = use the platform
+    # default; <= 0 = keep this agent's transcripts forever.
+    transcript_retention_days: int | None = None
 
 class AgentInfo(BaseModel):
     name: str

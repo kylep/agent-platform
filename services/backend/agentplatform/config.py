@@ -16,6 +16,10 @@ class Settings(BaseSettings):
     # Loop guard for agent-invokes-agent: a run whose depth would exceed this
     # is rejected. depth 0 = human/schedule/webhook; each nested invoke +1.
     max_run_chain_depth: int = 5
+    # Default transcript retention: prune run_transcript_events older than this
+    # many days (Run metadata/summary is kept). Per-agent manifest override wins;
+    # <= 0 disables pruning (keep forever).
+    transcript_retention_days: int = 30
     # Self-hosting git target. git_remote_url is what the platform clones and
     # pushes to (a local bare repo in tests, the real repo over HTTPS in prod);
     # github_repo ("owner/name") is used for the PR API. Empty = self-edit off.
