@@ -4,9 +4,13 @@ def _by(rows):
 
 async def test_secret_lifecycle(admin_client, secret_store):
     rows = _by((await admin_client.get("/api/secrets")).json())
-    assert rows["claude-credentials"] == {"name": "claude-credentials", "status": "missing", "required": True}
-    # connector-declared secret is surfaced as an optional row
+    cc = rows["claude-credentials"]
+    assert cc["status"] == "missing" and cc["required"] is True and cc["hint"]
+    # connector-declared secret is surfaced with a format hint + suggested key
     assert "discord-bot" in rows and rows["discord-bot"]["required"] is False
+    assert rows["discord-bot"]["key"] == "token" and rows["discord-bot"]["hint"]
+    # skill secret whose key must be the env var name it binds to
+    assert rows["github-token"]["key"] == "GITHUB_TOKEN"
     r = await admin_client.put("/api/secrets/claude-credentials",
                                json={"data": {"credentials.json": "{\"tok\":1}"}})
     assert r.status_code == 200

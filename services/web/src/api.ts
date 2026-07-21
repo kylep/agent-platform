@@ -1,4 +1,4 @@
-export type SecretStatus = { name: string; status: string; required: boolean };
+export type SecretStatus = { name: string; status: string; required: boolean; hint?: string; key?: string };
 export type SetupState = { needs_admin: boolean; secrets: SecretStatus[] };
 
 export type AgentSummary = {

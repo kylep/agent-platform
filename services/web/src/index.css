@@ -541,3 +541,5 @@ select {
 }
 .secret-editor textarea, .secret-editor > input { width: 100%; box-sizing: border-box; }
 .chip-valid { color: var(--ok); border-color: var(--ok); }
+
+.secret-hint { font-size: 12px; }
