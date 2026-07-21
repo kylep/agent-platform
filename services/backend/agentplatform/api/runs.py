@@ -3,7 +3,8 @@ import logging
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel
 from sqlalchemy import select
-from agentplatform.api.auth import ANNOTATE_ROLES, READ_ROLES, require_admin, require_role
+from agentplatform.api.auth import (ANNOTATE_ROLES, INVOKE_ROLES, READ_ROLES,
+                                     require_admin, require_role)
 from agentplatform.db import ACTIVE_STATES, Run, TranscriptEvent
 from agentplatform.events import TOPIC_RUN_REQUESTS
 
@@ -25,11 +26,26 @@ def _summary(r: Run) -> dict:
             "summary": r.summary, "tags": r.tags or []}
 
 @router.post("/api/runs")
-async def create_run(request: Request, body: RunIn, principal: str = Depends(require_admin)):
+async def create_run(request: Request, body: RunIn,
+                     principal: str = Depends(require_role(*INVOKE_ROLES))):
     info = request.app.state.agent_store.get(body.agent)
     if info is None: raise HTTPException(404, "unknown agent")
     if info.error is not None: raise HTTPException(409, "agent quarantined")
-    run = Run(agent=body.agent, trigger="manual", requested_by=principal, prompt=body.prompt)
+    # Agent-invokes-agent: when the caller authenticated with a per-run token,
+    # this run is a child in that run's chain. Depth is derived from the parent
+    # run (looked up by the token's run_id), not the request body, so an agent
+    # can't reset its own depth to dodge the loop guard.
+    parent_run_id = getattr(request.state, "api_key_run_id", None)
+    trigger, depth = "manual", 0
+    if parent_run_id:
+        async with request.app.state.session_factory() as s:
+            parent = await s.get(Run, parent_run_id)
+        if parent is not None:
+            trigger, depth = "agent", (parent.depth or 0) + 1
+            if depth > request.app.state.settings.max_run_chain_depth:
+                raise HTTPException(429, "run-chain depth limit exceeded")
+    run = Run(agent=body.agent, trigger=trigger, requested_by=principal, prompt=body.prompt,
+              parent_run_id=parent_run_id if trigger == "agent" else None, depth=depth)
     async with request.app.state.session_factory() as s:
         s.add(run); await s.commit()
     try:
@@ -73,6 +89,8 @@ async def get_run(request: Request, run_id: str):
         d.update({"prompt": run.prompt, "exit_code": run.exit_code, "error": run.error,
                   "tokens_in": run.tokens_in, "tokens_out": run.tokens_out,
                   "tool_calls": run.tool_calls,
+                  "parent_run_id": run.parent_run_id, "depth": run.depth or 0,
+                  "requested_by": run.requested_by,
                   "started_at": run.started_at.isoformat() if run.started_at else None,
                   "finished_at": run.finished_at.isoformat() if run.finished_at else None})
         return d

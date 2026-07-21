@@ -1,6 +1,7 @@
 import asyncio, json, logging
 from sqlalchemy import func, select
 from agentplatform.agents import AgentStore, Manifest
+from agentplatform.apikeys import revoke_run_keys
 from agentplatform.db import ACTIVE_STATES, Run, RunState, utcnow
 from agentplatform.events import (TOPIC_RUN_DLQ, TOPIC_RUN_EVENTS, TOPIC_RUN_REQUESTS)
 
@@ -36,7 +37,9 @@ class Dispatcher:
             db_run.state = state
             if error: db_run.error = error
             if state == RunState.DISPATCHED: db_run.started_at = utcnow()
-            if state in (RunState.REJECTED, RunState.DLQ, RunState.KILLED): db_run.finished_at = utcnow()
+            if state in (RunState.REJECTED, RunState.DLQ, RunState.KILLED):
+                db_run.finished_at = utcnow()
+                await revoke_run_keys(s, run.id)
             await s.commit()
         await self._event(run.id, state, error or "")
 

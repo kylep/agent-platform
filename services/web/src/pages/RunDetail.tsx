@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useParams } from "react-router-dom";
+import { Link, useParams } from "react-router-dom";
 import { api, type RunDetailData, type RunEvent } from "../api";
 import { isActiveState, stateChipClass } from "./Runs";
 
@@ -126,7 +126,12 @@ export default function RunDetail() {
           {live && <span className="muted"> · streaming…</span>}
         </dd>
         <dt>Trigger</dt>
-        <dd>{run.trigger}</dd>
+        <dd>
+          {run.trigger}
+          {run.trigger === "agent" && run.parent_run_id && (
+            <> · invoked by <Link to={`/runs/${run.parent_run_id}`}>{run.parent_run_id.slice(0, 8)}</Link> (depth {run.depth})</>
+          )}
+        </dd>
         <dt>Created</dt>
         <dd>{new Date(run.created_at).toLocaleString()}</dd>
         <dt>Started</dt>

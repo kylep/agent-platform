@@ -23,6 +23,11 @@ class Run(Base):
     agent: Mapped[str] = mapped_column(String(128))
     trigger: Mapped[str] = mapped_column(String(32))
     requested_by: Mapped[str] = mapped_column(String(128))
+    # Run-chain provenance for agent-invokes-agent. parent_run_id is the run
+    # whose API token requested this one (null for human/schedule/webhook
+    # triggers); depth is the chain length, used as a loop guard.
+    parent_run_id: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    depth: Mapped[int] = mapped_column(Integer, default=0)
     state: Mapped[str] = mapped_column(String(16), default=RunState.QUEUED)
     prompt: Mapped[str] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
@@ -72,6 +77,10 @@ class ApiKey(Base):
     # Optional agent scope: keys minted for a specific agent (agent-invokes-
     # agent) carry the agent name; operator/human keys leave it null.
     agent: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    # Optional run scope: a per-run token minted for one run (the caller in an
+    # agent-invokes-agent chain). Its run's depth authoritatively bounds the
+    # chain, and the key is revoked when that run terminates.
+    run_id: Mapped[str | None] = mapped_column(String(32), nullable=True)
     # Only the hash and a display prefix are stored; the token is shown once.
     key_hash: Mapped[str] = mapped_column(String(64), unique=True)
     prefix: Mapped[str] = mapped_column(String(16))

@@ -33,9 +33,24 @@ agents, and the DLQ story for when triggers misbehave.
       as prompt context; queuing comes from the existing dispatcher path.
       Verified live (operator key → webhook run succeeded). (Lean MVP: direct
       run creation rather than the webhooks.in→mapper topic in the full spec.)
-- [ ] Agent-invokes-agent (RBAC + run-chain depth loop guard).
-- [ ] DLQ surfacing UI.
-- [ ] Kafka health on the dashboard.
+- [x] **Agent-invokes-agent** — an agent whose manifest sets `can_invoke: true`
+      gets an operator-scoped, *per-run* `ap_` token injected (`AP_API_TOKEN`),
+      so it can `POST /api/runs` to invoke other agents. `INVOKE_ROLES`
+      (operator/coder/admin) gate run creation; the narrow `annotator` system
+      role can't. The child run's `parent_run_id`/`depth` are derived from the
+      caller run tied to the token — not the request body — so an agent can't
+      forge its parent to dodge the `max_run_chain_depth` (default 5) loop
+      guard (child depth > limit → 429). Per-run tokens are revoked when the run
+      terminates. Demo `orchestrator` agent invokes `echo`.
+- [x] **DLQ surfacing UI** — `GET /api/dlq` lists dead-lettered runs (reason +
+      timing); `POST /api/dlq/{id}/retry` re-queues + republishes (idempotent,
+      sweep-safe); `POST /api/dlq/{id}/discard` marks it failed. `/dlq` UI page
+      with retry/discard; dashboard surfaces the DLQ count.
+- [x] **Kafka health** — `GET /api/health/kafka`: broker liveness +
+      expected-topic presence via `AIOKafkaAdminClient`, best-effort dispatcher
+      consumer lag, and a DB-derived run backlog (queued/active/dlq). Degrades
+      gracefully when the broker is unreachable. Dashboard "Kafka health" panel.
+      (Fuller lag/broker metrics land with observability in M05.)
 
 ## Done when
 
