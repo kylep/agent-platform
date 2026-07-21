@@ -48,6 +48,19 @@ class TranscriptEvent(Base):
     seq: Mapped[int] = mapped_column(Integer, primary_key=True)
     payload: Mapped[dict] = mapped_column(JSON)
 
+class Memory(Base):
+    __tablename__ = "memories"
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=lambda: uuid.uuid4().hex)
+    # Namespace: memories are private to one agent. All access is scoped to the
+    # caller's agent (an agent can only see/write its own namespace).
+    agent: Mapped[str] = mapped_column(String(128), index=True)
+    # Optional short label; a save reusing a key overwrites (idempotent remember).
+    key: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    content: Mapped[str] = mapped_column(Text)
+    tags: Mapped[list] = mapped_column(JSON, default=list)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+
 class Principal(Base):
     __tablename__ = "principals"
     id: Mapped[str] = mapped_column(String(32), primary_key=True, default=lambda: uuid.uuid4().hex)

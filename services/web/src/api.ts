@@ -107,6 +107,16 @@ export type ScheduleEntry = {
   next_fire: string | null;
 };
 
+export type Memory = {
+  id: string;
+  agent: string;
+  key: string | null;
+  content: string;
+  tags: string[];
+  created_at: string | null;
+  updated_at: string | null;
+};
+
 export async function api<T>(path: string, opts: RequestInit = {}): Promise<T> {
   const res = await fetch(path, {
     credentials: "include",

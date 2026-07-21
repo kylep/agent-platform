@@ -49,6 +49,9 @@ ANNOTATE_ROLES = ("annotator", "operator", "coder")
 # default system-agent role) deliberately can't, so a prompt-injected summarizer
 # can't spawn runs.
 INVOKE_ROLES = ("operator", "coder", "admin")
+# Who may use the memory API. Agents (annotator+) manage their own namespace;
+# the namespace itself (not the role) is the isolation boundary.
+MEMORY_ROLES = ("annotator", "operator", "coder", "admin")
 
 
 def role_allows(role: str | None, allowed: tuple[str, ...]) -> bool:
@@ -91,6 +94,7 @@ async def authenticate(request: Request) -> tuple[str, str] | None:
             k = await _lookup_api_key(request, token)
             if k is not None:
                 request.state.api_key_run_id = k.run_id
+                request.state.api_key_agent = k.agent
                 return (k.name, k.role)
     return None
 
