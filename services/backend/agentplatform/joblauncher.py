@@ -148,7 +148,15 @@ class K8sJobLauncher(Launcher):
             ),
         )
         job_spec = k8s.V1JobSpec(
-            template=k8s.V1PodTemplateSpec(spec=pod_spec),
+            template=k8s.V1PodTemplateSpec(
+                # Label runner pods so NetworkPolicy can select them (e.g. allow
+                # runner→kafka/api egress) and for observability.
+                metadata=k8s.V1ObjectMeta(labels={
+                    "app.kubernetes.io/name": "agent-platform",
+                    "app.kubernetes.io/component": "runner",
+                }),
+                spec=pod_spec,
+            ),
             backoff_limit=0,
             active_deadline_seconds=manifest.timeout_seconds,
         )
