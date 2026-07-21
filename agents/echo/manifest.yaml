@@ -4,3 +4,4 @@ role: operator
 # run at once so the platform-wide cap is the binding constraint.
 concurrency: 5
 timeout_seconds: 300
+# This is the smoke-test agent.
