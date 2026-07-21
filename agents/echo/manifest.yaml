@@ -1,6 +1,4 @@
 description: Trivial echo agent with room to run concurrently.
 role: operator
-# Above the global concurrency cap (3) on purpose: lets several echo runs
-# run at once so the platform-wide cap is the binding constraint.
 concurrency: 5
 timeout_seconds: 300
