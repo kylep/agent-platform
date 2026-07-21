@@ -8,7 +8,7 @@ down.
 - **Pod security:** tight securityContext on all services and runners
   (non-root, no privilege escalation, dropped capabilities, seccomp),
   read-only root filesystems where possible.
-- **Network policy:** default-deny with explicit egress allowlists;
+- **Network policy:** default-deny with explicit ingress + egress allowlists;
   runner egress restricted to what its skills justify.
 - **Secret rotation:** rotation workflows in the secrets UI, token
   steward finalized from 01's findings, audit log of secret access by
@@ -25,10 +25,9 @@ down.
   paranoid, though that pod is gone.)
 - **Supply chain:** image scanning in CI (trivy), pinned digests,
   semgrep on services.
-- **Exposure:** authenticated path beyond the LAN (Cloudflare tunnel or
-  equivalent), rate limits on public listeners.
-- **Backup/DR:** scheduled postgres backups to the second SSD or
-  off-box, documented restore drill.
+
+**Out of scope** (removed 2026-07-20): external exposure / Cloudflare tunnel and
+backup/DR — the platform stays LAN-only and Kyle owns any DB backup out of band.
 
 ## Adversarial test findings (2026-07-20)
 
@@ -65,13 +64,13 @@ Done + verified live:
 - [x] **Supply-chain scanning in CI** — report-only `security-scan` job: Trivy
       fs (pinned @SHA) + Semgrep (pinned), least-privilege `permissions`.
 
-Blocked on Kyle (accounts/decisions or supervised rollout):
-- [ ] **Network policy** (default-deny + egress allowlists) — can sever pod↔
-      kafka/postgres/k8s-API; apply with Kyle present to test connectivity after.
-- [ ] **External exposure** (Cloudflare tunnel + rate limits) — needs Kyle's
-      Cloudflare account.
-- [ ] **Backup/DR** (postgres backups off-box + restore drill) — needs Kyle to
-      pick the backup target/credentials.
+Remaining:
+- [ ] **Network policy** (default-deny ingress + egress allowlists) — being done
+      autonomously, staged (ingress first, then egress), each stage applied via
+      helm and verified with a live run; `helm rollback` is the safety net.
+
+External exposure and backup/DR were removed from scope (see above). M07 (pai
+migration) is delayed.
 
 ## Done when
 

@@ -1,0 +1,97 @@
+{{- if .Values.networkPolicy.enabled }}
+# Default-deny all ingress in the namespace; the policies below re-allow only the
+# flows the platform needs. (Ingress-only for now — egress stays open; a stricter
+# egress allowlist is a follow-up stage.)
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ .Release.Name }}-default-deny-ingress
+  labels:
+    {{- include "agent-platform.labels" . | nindent 4 }}
+spec:
+  podSelector: {}
+  policyTypes: [Ingress]
+---
+# web: the LAN entrypoint (LoadBalancer) — reachable from anywhere on 8080.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ .Release.Name }}-allow-web
+  labels:
+    {{- include "agent-platform.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: agent-platform
+      app.kubernetes.io/component: web
+  policyTypes: [Ingress]
+  ingress:
+    - ports:
+        - port: 8080
+          protocol: TCP
+---
+# api: from web (UI proxy) and runner pods (system/memory agents call the API).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ .Release.Name }}-allow-api
+  labels:
+    {{- include "agent-platform.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: agent-platform
+      app.kubernetes.io/component: api
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchExpressions:
+              - {key: app.kubernetes.io/name, operator: In, values: [agent-platform]}
+              - {key: app.kubernetes.io/component, operator: In, values: [web, runner]}
+      ports:
+        - port: 8000
+          protocol: TCP
+---
+# postgres: only the backend services (api/dispatcher/recorder) on 5432.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ .Release.Name }}-allow-postgres
+  labels:
+    {{- include "agent-platform.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: postgresql
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchExpressions:
+              - {key: app.kubernetes.io/name, operator: In, values: [agent-platform]}
+              - {key: app.kubernetes.io/component, operator: In, values: [api, dispatcher, recorder]}
+      ports:
+        - port: 5432
+          protocol: TCP
+---
+# kafka: any pod in this namespace on 9092 (api/dispatcher/recorder/runner and the
+# topics-job hook all produce/consume).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ .Release.Name }}-allow-kafka
+  labels:
+    {{- include "agent-platform.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: kafka
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector: {}
+      ports:
+        - port: 9092
+          protocol: TCP
+{{- end }}

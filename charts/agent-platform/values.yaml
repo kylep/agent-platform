@@ -48,6 +48,11 @@ web:
     port: 8090
     targetPort: 8080
 
+# Default-deny-ingress + per-component allowlists (see templates/networkpolicy.yaml).
+# k3s enforces NetworkPolicy via its embedded controller.
+networkPolicy:
+  enabled: true
+
 # agents-sync keeps a PVC of the agent-definitions git repo up to date so the
 # api (read-only) and runner Jobs (spawned by the dispatcher, not by this
 # chart) can read agent definitions from a shared volume.
