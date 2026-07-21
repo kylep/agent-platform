@@ -68,3 +68,12 @@ kafka:
     logPersistence:
       storageClass: local-path
       size: 4Gi
+
+# Discord conversation connector: the bot is live as Pai#9508 and answers as the
+# `pai` agent. A mention creates a Discord thread == a platform Conversation;
+# replies post back in-thread. Requires the discord-bot secret + Message Content
+# Intent enabled in the Discord Developer Portal.
+connectors:
+  discord:
+    enabled: true
+    agent: pai
