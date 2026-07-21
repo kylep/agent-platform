@@ -543,3 +543,10 @@ select {
 .chip-valid { color: var(--ok); border-color: var(--ok); }
 
 .secret-hint { font-size: 12px; }
+
+.tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--border); margin-bottom: 16px; }
+.tab {
+  background: none; border: none; border-bottom: 2px solid transparent;
+  padding: 8px 14px; color: var(--muted); cursor: pointer; font-size: 14px;
+}
+.tab.active { color: var(--accent); border-bottom-color: var(--accent); }

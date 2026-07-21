@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends, Request
 from sqlalchemy import select
 
 from agentplatform.api.auth import READ_ROLES, require_role
-from agentplatform.db import ACTIVE_STATES, Run, RunState, utcnow
+from agentplatform.db import ACTIVE_STATES, Run, RunModelUsage, RunState, utcnow
 from agentplatform.scheduler import as_utc
 
 router = APIRouter()
@@ -76,6 +76,25 @@ async def overview(request: Request):
     out["runs_7d"] = len(week)
     out["dlq"] = out["by_state"].get(RunState.DLQ, 0)
     out["window"] = _WINDOW
+    return out
+
+
+@router.get("/api/metrics/models", dependencies=[Depends(require_role(*READ_ROLES))])
+async def by_model(request: Request, agent: str | None = None):
+    """Token usage grouped by model, optionally filtered to one agent. Sorted by
+    total tokens desc."""
+    from sqlalchemy import func
+    stmt = (select(RunModelUsage.model,
+                   func.count(func.distinct(RunModelUsage.run_id)),
+                   func.sum(RunModelUsage.tokens_in), func.sum(RunModelUsage.tokens_out))
+            .group_by(RunModelUsage.model))
+    if agent:
+        stmt = stmt.where(RunModelUsage.agent == agent)
+    async with request.app.state.session_factory() as s:
+        rows = (await s.execute(stmt)).all()
+    out = [{"model": m, "runs": runs, "tokens_in": ti or 0, "tokens_out": to or 0}
+           for m, runs, ti, to in rows]
+    out.sort(key=lambda r: r["tokens_in"] + r["tokens_out"], reverse=True)
     return out
 
 

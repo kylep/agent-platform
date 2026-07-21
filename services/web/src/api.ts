@@ -164,6 +164,22 @@ export type Retention = {
   per_agent_days: Record<string, number>;
 };
 
+export type Integration = {
+  name: string;
+  kind: string;
+  secrets: string[];
+  configured: boolean;
+  status: "working" | "configured" | "missing";
+  detail: string;
+};
+
+export type ModelUsage = {
+  model: string;
+  runs: number;
+  tokens_in: number;
+  tokens_out: number;
+};
+
 export type Connector = {
   name: string;
   kind: string;

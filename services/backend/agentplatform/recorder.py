@@ -3,8 +3,8 @@ import logging
 from sqlalchemy.exc import IntegrityError
 
 from agentplatform.apikeys import revoke_run_keys
-from agentplatform.db import (ACTIVE_STATES, Conversation, Run, RunState, SecretMeta,
-                              TranscriptEvent, utcnow)
+from agentplatform.db import (ACTIVE_STATES, Conversation, Run, RunModelUsage, RunState,
+                              SecretMeta, TranscriptEvent, utcnow)
 from agentplatform.events import (TOPIC_CONVERSATION_OUTBOUND, TOPIC_RUN_DLQ,
                                   TOPIC_RUN_EVENTS, TOPIC_RUN_TRANSCRIPT)
 from agentplatform.secrets import CLAUDE_CREDENTIAL
@@ -58,10 +58,16 @@ class Recorder:
                     1 for b in content
                     if isinstance(b, dict) and b.get("type") == "tool_use"
                 )
-            # The terminal `result` frame carries the final assistant reply —
-            # captured for conversation history + outbound delivery.
-            if value.get("type") == "result" and value.get("result"):
-                run.result = value.get("result")
+            # The terminal `result` frame carries the final assistant reply and
+            # the per-model token breakdown.
+            if value.get("type") == "result":
+                if value.get("result"):
+                    run.result = value.get("result")
+                for model, u in (value.get("modelUsage") or {}).items():
+                    # merge = idempotent upsert on (run_id, model) for redelivery.
+                    await s.merge(RunModelUsage(
+                        run_id=run_id, model=model, agent=run.agent,
+                        tokens_in=u.get("inputTokens", 0), tokens_out=u.get("outputTokens", 0)))
             usage = value.get("usage", {})
             run.tokens_in += usage.get("input_tokens", 0)
             run.tokens_out += usage.get("output_tokens", 0)

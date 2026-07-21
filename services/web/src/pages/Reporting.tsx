@@ -1,6 +1,11 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { api, type AgentMetrics, type KafkaHealth, type MetricsOverview, type Retention } from "../api";
+import { api, type AgentMetrics, type Integration, type KafkaHealth, type MetricsOverview, type ModelUsage, type Retention } from "../api";
+
+function IntegrationChip({ status }: { status: string }) {
+  const cls = status === "working" ? "chip-ok" : status === "missing" ? "chip-invalid" : "chip-unprobed";
+  return <span className={`chip ${cls}`}>{status}</span>;
+}
 
 function pct(x: number | null): string {
   return x === null ? "—" : `${(x * 100).toFixed(0)}%`;
@@ -23,6 +28,9 @@ export default function Reporting() {
   const [agents, setAgents] = useState<AgentMetrics[]>([]);
   const [kafka, setKafka] = useState<KafkaHealth | null>(null);
   const [retention, setRetention] = useState<Retention | null>(null);
+  const [integrations, setIntegrations] = useState<Integration[]>([]);
+  const [models, setModels] = useState<ModelUsage[]>([]);
+  const [modelAgent, setModelAgent] = useState<string>("");   // "" = all agents
   const [error, setError] = useState<string | null>(null);
   const [pruning, setPruning] = useState(false);
   const [pruneMsg, setPruneMsg] = useState<string | null>(null);
@@ -36,7 +44,13 @@ export default function Reporting() {
       .catch((err) => setError(err instanceof Error ? err.message : "Failed to load metrics."));
     api<KafkaHealth>("/api/health/kafka").then(setKafka).catch(() => setKafka(null));
     api<Retention>("/api/maintenance/retention").then(setRetention).catch(() => setRetention(null));
+    api<Integration[]>("/api/integrations").then(setIntegrations).catch(() => setIntegrations([]));
   }, []);
+
+  useEffect(() => {
+    const qs = modelAgent ? `?agent=${encodeURIComponent(modelAgent)}` : "";
+    api<ModelUsage[]>(`/api/metrics/models${qs}`).then(setModels).catch(() => setModels([]));
+  }, [modelAgent]);
 
   async function prune() {
     setPruning(true);
@@ -64,6 +78,22 @@ export default function Reporting() {
         <Stat label="active runs" value={ov?.active ?? "—"} />
         <Stat label="dlq depth" value={ov?.dlq ?? "—"} warn={(ov?.dlq ?? 0) > 0} />
       </div>
+
+      <h2>Integrations</h2>
+      <table className="table">
+        <thead><tr><th>Integration</th><th>Status</th><th>Secret</th><th>Detail</th></tr></thead>
+        <tbody>
+          {integrations.map((i) => (
+            <tr key={i.name}>
+              <td>{i.name}</td>
+              <td><IntegrationChip status={i.status} /></td>
+              <td className="muted">{i.secrets.join(", ") || "—"}</td>
+              <td className="muted">{i.detail}</td>
+            </tr>
+          ))}
+          {integrations.length === 0 && <tr><td colSpan={4} className="muted">No integrations.</td></tr>}
+        </tbody>
+      </table>
 
       <h2>Runs</h2>
       {ov && (
@@ -95,6 +125,29 @@ export default function Reporting() {
             </tr>
           ))}
           {agents.length === 0 && <tr><td colSpan={7} className="muted">No runs yet.</td></tr>}
+        </tbody>
+      </table>
+
+      <h2>Tokens by model</h2>
+      <div className="row-actions" style={{ marginBottom: 8 }}>
+        <label className="muted">Agent:</label>
+        <select value={modelAgent} onChange={(e) => setModelAgent(e.target.value)}>
+          <option value="">All agents</option>
+          {agents.map((a) => <option key={a.agent} value={a.agent}>{a.agent}</option>)}
+        </select>
+      </div>
+      <table className="table">
+        <thead><tr><th>Model</th><th>Runs</th><th>Tokens in</th><th>Tokens out</th></tr></thead>
+        <tbody>
+          {models.map((m) => (
+            <tr key={m.model}>
+              <td>{m.model}</td>
+              <td>{m.runs}</td>
+              <td className="muted">{m.tokens_in.toLocaleString()}</td>
+              <td className="muted">{m.tokens_out.toLocaleString()}</td>
+            </tr>
+          ))}
+          {models.length === 0 && <tr><td colSpan={4} className="muted">No model usage recorded yet.</td></tr>}
         </tbody>
       </table>
 

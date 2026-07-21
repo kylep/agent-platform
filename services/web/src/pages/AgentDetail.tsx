@@ -1,6 +1,52 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { api, type AgentDetail as AgentDetailData } from "../api";
+import { api, type AgentDetail as AgentDetailData, type AgentMetrics, type ModelUsage } from "../api";
+
+function AgentReport({ name }: { name: string }) {
+  const [m, setM] = useState<AgentMetrics | null>(null);
+  const [models, setModels] = useState<ModelUsage[]>([]);
+  const [loaded, setLoaded] = useState(false);
+  useEffect(() => {
+    api<AgentMetrics[]>("/api/metrics/agents")
+      .then((rows) => setM(rows.find((r) => r.agent === name) ?? null))
+      .finally(() => setLoaded(true));
+    api<ModelUsage[]>(`/api/metrics/models?agent=${encodeURIComponent(name)}`).then(setModels).catch(() => setModels([]));
+  }, [name]);
+
+  const pct = (x: number | null) => (x === null ? "—" : `${(x * 100).toFixed(0)}%`);
+  const dur = (x: number | null) => (x === null ? "—" : x >= 60 ? `${(x / 60).toFixed(1)}m` : `${x.toFixed(1)}s`);
+
+  if (loaded && !m) return <p className="muted">No runs recorded for this agent yet.</p>;
+  if (!m) return <p className="muted">Loading…</p>;
+  return (
+    <>
+      <div className="stat-row">
+        <div className="stat"><div className="stat-value">{m.total}</div><div className="stat-label">runs</div></div>
+        <div className={m.success_rate !== null && m.success_rate < 0.8 ? "stat stat-warn" : "stat"}>
+          <div className="stat-value">{pct(m.success_rate)}</div><div className="stat-label">success</div></div>
+        <div className={m.failure_streak > 0 ? "stat stat-warn" : "stat"}>
+          <div className="stat-value">{m.failure_streak}</div><div className="stat-label">fail streak</div></div>
+        <div className="stat"><div className="stat-value">{dur(m.avg_duration_seconds)}</div><div className="stat-label">avg duration</div></div>
+        <div className="stat"><div className="stat-value">{m.tokens_in}/{m.tokens_out}</div><div className="stat-label">tokens in/out</div></div>
+      </div>
+      <h2>Tokens by model</h2>
+      <table className="table">
+        <thead><tr><th>Model</th><th>Runs</th><th>Tokens in</th><th>Tokens out</th></tr></thead>
+        <tbody>
+          {models.map((mu) => (
+            <tr key={mu.model}>
+              <td>{mu.model}</td><td>{mu.runs}</td>
+              <td className="muted">{mu.tokens_in.toLocaleString()}</td>
+              <td className="muted">{mu.tokens_out.toLocaleString()}</td>
+            </tr>
+          ))}
+          {models.length === 0 && <tr><td colSpan={4} className="muted">No model usage recorded yet.</td></tr>}
+        </tbody>
+      </table>
+      <p className="muted">Last run: {m.last_run_at ? new Date(m.last_run_at).toLocaleString() : "—"}</p>
+    </>
+  );
+}
 
 // The Claude Code tools an agent may be granted (frontmatter `tools:`).
 const AVAILABLE_TOOLS = ["Bash", "Read", "Write", "Edit", "Glob", "Grep",
@@ -25,6 +71,7 @@ export default function AgentDetail() {
   const [instruction, setInstruction] = useState("");
   const [editing, setEditing] = useState(false);
   const [editError, setEditError] = useState<string | null>(null);
+  const [tab, setTab] = useState<"config" | "report">("config");
 
   useEffect(() => {
     if (!name) return;
@@ -80,6 +127,13 @@ export default function AgentDetail() {
       <h1>{agent.name}</h1>
       {agent.error && <div className="banner">{agent.error}</div>}
 
+      <div className="tabs">
+        <button className={tab === "config" ? "tab active" : "tab"} onClick={() => setTab("config")}>Config</button>
+        <button className={tab === "report" ? "tab active" : "tab"} onClick={() => setTab("report")}>Report</button>
+      </div>
+
+      {tab === "report" && <AgentReport name={agent.name} />}
+      {tab === "config" && (<>
       <dl className="def-list">
         <dt>Role</dt>
         <dd>{agent.manifest.role}</dd>
@@ -140,6 +194,7 @@ export default function AgentDetail() {
           {running ? "Starting…" : "Run now"}
         </button>
       </div>
+      </>)}
     </div>
   );
 }
