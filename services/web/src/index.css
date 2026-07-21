@@ -473,3 +473,35 @@ select {
   color: var(--accent);
   border-color: var(--accent);
 }
+
+/* Reporting stat cards */
+.stat-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin: 12px 0 20px;
+}
+.stat {
+  background: var(--bg-alt);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px 16px;
+  min-width: 110px;
+}
+.stat-value {
+  font-size: 22px;
+  font-weight: 600;
+}
+.stat-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+  margin-top: 4px;
+}
+.stat-warn {
+  border-color: var(--danger);
+}
+.stat-warn .stat-value {
+  color: var(--danger);
+}

@@ -127,6 +127,37 @@ export type Skill = {
 
 export type SkillDetail = Skill & { body: string };
 
+export type MetricsOverview = {
+  total: number;
+  by_state: Record<string, number>;
+  active: number;
+  succeeded: number;
+  success_rate: number | null;
+  tokens_in: number;
+  tokens_out: number;
+  tool_calls: number;
+  avg_duration_seconds: number | null;
+  max_duration_seconds: number | null;
+  last_run_at: string | null;
+  runs_24h: number;
+  runs_7d: number;
+  dlq: number;
+  window: number;
+};
+
+export type AgentMetrics = {
+  agent: string;
+  total: number;
+  succeeded: number;
+  success_rate: number | null;
+  failure_streak: number;
+  tokens_in: number;
+  tokens_out: number;
+  tool_calls: number;
+  avg_duration_seconds: number | null;
+  last_run_at: string | null;
+};
+
 export async function api<T>(path: string, opts: RequestInit = {}): Promise<T> {
   const res = await fetch(path, {
     credentials: "include",
