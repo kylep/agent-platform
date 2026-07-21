@@ -13,6 +13,7 @@ import Changes from "./pages/Changes";
 import Dlq from "./pages/Dlq";
 import Memories from "./pages/Memories";
 import Schedules from "./pages/Schedules";
+import Skills from "./pages/Skills";
 import Settings from "./pages/Settings";
 
 export default function App() {
@@ -31,6 +32,7 @@ export default function App() {
             <Route path="/changes" element={<Changes />} />
             <Route path="/dlq" element={<Dlq />} />
             <Route path="/memories" element={<Memories />} />
+            <Route path="/skills" element={<Skills />} />
             <Route path="/schedules" element={<Schedules />} />
             <Route path="/secrets" element={<Secrets />} />
             <Route path="/settings" element={<Settings />} />

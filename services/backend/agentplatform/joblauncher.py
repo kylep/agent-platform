@@ -65,6 +65,10 @@ class K8sJobLauncher(Launcher):
         ]
         if manifest.model:
             env.append(k8s.V1EnvVar(name="AP_MODEL", value=manifest.model))
+        if manifest.skills:
+            # The runner copies each named skill from the synced /agents/skills
+            # tree into ~/.claude/skills so `claude` can use it.
+            env.append(k8s.V1EnvVar(name="AP_SKILLS", value=",".join(manifest.skills)))
         if api_token:
             env += [
                 k8s.V1EnvVar(name="AP_API_URL", value=self.settings.api_internal_url),

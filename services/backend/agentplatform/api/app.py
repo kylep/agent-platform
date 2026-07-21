@@ -17,6 +17,7 @@ from agentplatform.api import schedules as schedules_api
 from agentplatform.api import webhooks as webhooks_api
 from agentplatform.api import runs as runs_api
 from agentplatform.api import secrets as secrets_api
+from agentplatform.api import skills as skills_api
 from agentplatform.api import tail as tail_api
 from agentplatform.db import make_engine, make_session_factory, init_db
 from agentplatform.secrets import InMemorySecretStore
@@ -93,6 +94,8 @@ def create_app(settings, session_factory, producer, secret_store=None, agent_sto
     secret_store = secret_store or InMemorySecretStore()
     agent_store = agent_store or AgentStore(Path(settings.agents_root))
     st.secret_store, st.agent_store = secret_store, agent_store
+    from agentplatform.skills import SkillStore
+    st.skill_store = SkillStore(Path(settings.skills_root))
 
     app.include_router(auth.router)
     app.include_router(apikeys_api.router)
@@ -105,5 +108,6 @@ def create_app(settings, session_factory, producer, secret_store=None, agent_sto
     app.include_router(secrets_api.router)
     app.include_router(agents_api.router)
     app.include_router(runs_api.router)
+    app.include_router(skills_api.router)
     app.include_router(tail_api.router)
     return app

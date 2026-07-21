@@ -42,6 +42,20 @@ def _install_agent(agent: str) -> None:
     dst.parent.mkdir(parents=True, exist_ok=True)
     shutil.copy(src, dst)
 
+def _install_skills() -> None:
+    # `claude` resolves skills from ~/.claude/skills/<name>/SKILL.md. Copy each
+    # skill named in AP_SKILLS (set by the launcher from the agent's manifest)
+    # from the synced skills tree into place. Unknown names are skipped.
+    names = [n.strip() for n in os.environ.get("AP_SKILLS", "").split(",") if n.strip()]
+    if not names:
+        return
+    src_root = Path(os.environ.get("AP_SKILLS_DIR", "/agents/skills"))
+    dst_root = Path.home() / ".claude" / "skills"
+    for name in names:
+        src = src_root / name
+        if src.is_dir():
+            shutil.copytree(src, dst_root / name, dirs_exist_ok=True)
+
 # --- self-edit (coder) support -------------------------------------------
 
 def _git_env() -> dict:
@@ -133,6 +147,7 @@ def run(producer=None) -> int:
 async def _run(producer, run_id: str, agent: str, prompt: str) -> int:
     extra_env = _install_credentials()
     _install_agent(agent)
+    _install_skills()
     await producer.start()
 
     self_edit = os.environ.get("AP_SELF_EDIT") == "1"
