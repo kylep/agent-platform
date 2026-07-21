@@ -79,7 +79,8 @@ class Producer:
             bootstrap_servers=self._bootstrap,
             enable_idempotence=True,
             acks="all",
-            compression_type="lz4",
+            # gzip: builtin (zlib), no native dependency to ship in the image.
+            compression_type="gzip",
         )
         await self._p.start()
 

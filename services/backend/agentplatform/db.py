@@ -28,8 +28,10 @@ class Run(Base):
     # triggers); depth is the chain length, used as a loop guard.
     parent_run_id: Mapped[str | None] = mapped_column(String(32), nullable=True)
     depth: Mapped[int] = mapped_column(Integer, default=0)
-    # When this run is a turn in a conversation, the owning conversation id.
+    # When this run is a turn in a conversation, the owning conversation id and
+    # the raw user message for that turn (prompt holds the built context prompt).
     conversation_id: Mapped[str | None] = mapped_column(String(32), nullable=True, index=True)
+    user_message: Mapped[str | None] = mapped_column(Text, nullable=True)
     state: Mapped[str] = mapped_column(String(16), default=RunState.QUEUED)
     prompt: Mapped[str] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
@@ -52,6 +54,20 @@ class TranscriptEvent(Base):
     run_id: Mapped[str] = mapped_column(String(32), primary_key=True)
     seq: Mapped[int] = mapped_column(Integer, primary_key=True)
     payload: Mapped[dict] = mapped_column(JSON)
+
+class Conversation(Base):
+    """A durable, multi-turn thread with an agent. Each turn is a Run
+    (Run.conversation_id). Sourced from a connector (web/discord/slack); an
+    external_ref binds it to the external channel (e.g. a Discord thread id)."""
+    __tablename__ = "conversations"
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=lambda: uuid.uuid4().hex)
+    connector: Mapped[str] = mapped_column(String(32))          # web | discord | slack
+    external_ref: Mapped[str | None] = mapped_column(String(256), nullable=True, index=True)
+    agent: Mapped[str] = mapped_column(String(128))
+    title: Mapped[str] = mapped_column(String(256), default="")
+    status: Mapped[str] = mapped_column(String(16), default="active")  # active | closed
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
 
 class Memory(Base):
     __tablename__ = "memories"
