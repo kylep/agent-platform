@@ -136,6 +136,40 @@ def test_self_edit_off_without_app():
     assert launcher._is_self_edit(Manifest(role="coder")) is False
 
 
+def _skill_store(tmp_path, name="git", secrets=("github-token",)):
+    from agentplatform.skills import SkillStore
+    d = tmp_path / name
+    d.mkdir(parents=True)
+    sec = "".join(f"  - {s}\n" for s in secrets)
+    (d / "SKILL.md").write_text(f"---\nname: {name}\nsecrets:\n{sec}---\nbody")
+    return SkillStore(tmp_path)
+
+
+def test_bound_secrets_union_of_manifest_and_skills(tmp_path):
+    launcher = K8sJobLauncher(batch=None, settings=Settings(runner_image="r:1", k8s_namespace="ap"),
+                              skill_store=_skill_store(tmp_path))
+    m = Manifest(skills=["git"], secrets=["extra", "github-token"])  # dedupe github-token
+    assert launcher.bound_secrets(m) == ["extra", "github-token"]
+
+
+def test_build_job_binds_secrets_via_envfrom(tmp_path):
+    launcher = K8sJobLauncher(batch=None, settings=Settings(runner_image="r:1", k8s_namespace="ap"),
+                              skill_store=_skill_store(tmp_path))
+    run = Run(agent="a", trigger="manual", requested_by="t", prompt="x"); run.id = "e" * 32
+    job = launcher.build_job(run, Manifest(skills=["git"], secrets=["extra"]))
+    refs = job.spec.template.spec.containers[0].env_from
+    bound = {e.secret_ref.name: e.secret_ref.optional for e in refs}
+    assert bound == {"extra": True, "github-token": True}
+
+
+def test_build_job_no_secrets_means_no_envfrom(tmp_path):
+    launcher = K8sJobLauncher(batch=None, settings=Settings(runner_image="r:1", k8s_namespace="ap"),
+                              skill_store=_skill_store(tmp_path))
+    run = Run(agent="a", trigger="manual", requested_by="t", prompt="x"); run.id = "f" * 32
+    job = launcher.build_job(run, Manifest())  # no skills, no secrets
+    assert job.spec.template.spec.containers[0].env_from is None
+
+
 async def test_system_token_minted_cached_and_injected(sf):
     from sqlalchemy import select
     from agentplatform.db import ApiKey

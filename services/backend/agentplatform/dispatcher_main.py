@@ -14,6 +14,7 @@ from agentplatform.events import Producer
 from agentplatform.githubapp import GitHubApp
 from agentplatform.joblauncher import JobWatcher, K8sJobLauncher
 from agentplatform.scheduler import Scheduler
+from agentplatform.skills import SkillStore
 
 log = logging.getLogger("dispatcher_main")
 
@@ -63,8 +64,9 @@ async def main() -> None:
             await asyncio.sleep(5)
 
     agent_store = AgentStore(settings.agents_root)
+    skill_store = SkillStore(settings.skills_root)
     launcher = K8sJobLauncher(batch, settings, github_app=github_app,
-                              session_factory=session_factory)
+                              session_factory=session_factory, skill_store=skill_store)
 
     dispatcher = Dispatcher(settings, session_factory, producer, agent_store, launcher)
     watcher = JobWatcher(batch, settings, session_factory, producer)
