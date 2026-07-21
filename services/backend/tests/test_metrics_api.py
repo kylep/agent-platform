@@ -1,6 +1,38 @@
 from datetime import timedelta
 
-from agentplatform.db import Run, RunState, utcnow
+from agentplatform.db import Run, RunModelUsage, RunState, utcnow
+
+
+async def test_recorder_captures_per_model_usage(sf):
+    from sqlalchemy import select
+    from agentplatform.recorder import Recorder
+    async with sf() as s:
+        r = Run(agent="echo", trigger="manual", requested_by="t", prompt="x")
+        s.add(r); await s.commit(); rid = r.id
+    rec = Recorder(sf)
+    await rec._handle_transcript(rid, {"seq": 1, "type": "result", "result": "hi",
+        "modelUsage": {"claude-sonnet-5": {"inputTokens": 10, "outputTokens": 20},
+                       "claude-haiku-4-5": {"inputTokens": 3, "outputTokens": 1}}})
+    async with sf() as s:
+        rows = {u.model: u for u in (await s.execute(select(RunModelUsage).where(RunModelUsage.run_id == rid))).scalars()}
+    assert rows["claude-sonnet-5"].tokens_in == 10 and rows["claude-sonnet-5"].agent == "echo"
+    assert rows["claude-haiku-4-5"].tokens_out == 1
+
+
+async def test_metrics_by_model_and_agent_filter(admin_client, sf):
+    async with sf() as s:
+        s.add(RunModelUsage(run_id="r1", model="claude-sonnet-5", agent="echo", tokens_in=10, tokens_out=20))
+        s.add(RunModelUsage(run_id="r1", model="claude-haiku-4-5", agent="echo", tokens_in=5, tokens_out=2))
+        s.add(RunModelUsage(run_id="r2", model="claude-sonnet-5", agent="hello", tokens_in=100, tokens_out=200))
+        await s.commit()
+    rows = (await admin_client.get("/api/metrics/models")).json()
+    by = {r["model"]: r for r in rows}
+    assert by["claude-sonnet-5"]["tokens_in"] == 110 and by["claude-sonnet-5"]["runs"] == 2
+    assert rows[0]["model"] == "claude-sonnet-5"   # sorted by total tokens desc
+    # agent filter
+    echo = {r["model"]: r for r in (await admin_client.get("/api/metrics/models?agent=echo")).json()}
+    assert echo["claude-sonnet-5"]["tokens_in"] == 10 and "claude-haiku-4-5" in echo
+    assert "claude-sonnet-5" in echo and len(echo) == 2
 
 
 async def _mk(sf, agent, state, *, tokens=(0, 0), tool_calls=0, dur=None, created=None):

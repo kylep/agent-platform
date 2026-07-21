@@ -49,6 +49,17 @@ class Run(Base):
     # `result` frame — used to build conversation history.
     result: Mapped[str | None] = mapped_column(Text, nullable=True)
 
+class RunModelUsage(Base):
+    """Per-(run, model) token usage, captured by the recorder from the run's
+    terminal `modelUsage` frame. A run can use several models (main + subagents),
+    so this is the grain for a by-model token breakdown."""
+    __tablename__ = "run_model_usage"
+    run_id: Mapped[str] = mapped_column(String(32), primary_key=True)
+    model: Mapped[str] = mapped_column(String(64), primary_key=True)
+    agent: Mapped[str] = mapped_column(String(128), index=True)
+    tokens_in: Mapped[int] = mapped_column(Integer, default=0)
+    tokens_out: Mapped[int] = mapped_column(Integer, default=0)
+
 class TranscriptEvent(Base):
     __tablename__ = "run_transcript_events"
     run_id: Mapped[str] = mapped_column(String(32), primary_key=True)
