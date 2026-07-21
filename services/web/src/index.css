@@ -533,3 +533,11 @@ select {
 .convo-compose textarea { flex: 1; }
 
 .secret-key { width: 160px; }
+
+.secret-editor {
+  display: flex; flex-direction: column; gap: 8px;
+  background: var(--bg-alt); border: 1px solid var(--border);
+  border-radius: 8px; padding: 12px;
+}
+.secret-editor textarea, .secret-editor > input { width: 100%; box-sizing: border-box; }
+.chip-valid { color: var(--ok); border-color: var(--ok); }
