@@ -70,9 +70,12 @@ def mutate_manifest_yaml(text: str, *, skills: list[str] | None = None,
                          description: str | None = None) -> str:
     """Parse an existing manifest, apply only the given changes, re-dump.
     Preserves unrelated fields (concurrency, secrets, can_invoke, …). Comments
-    are not preserved — a structured edit normalizes the file, and the PR diff
-    is the review surface."""
-    data = yaml.safe_load(text) or {}
+    are not preserved on a real edit — a structured edit normalizes the file,
+    and the PR diff is the review surface. A *semantic* no-op returns the
+    original text verbatim (so it never produces a spurious, comment-stripping
+    diff that would sneak straight to main)."""
+    before = yaml.safe_load(text) or {}
+    data = dict(before)
     if description is not None:
         data["description"] = description
     if skills is not None:
@@ -80,14 +83,18 @@ def mutate_manifest_yaml(text: str, *, skills: list[str] | None = None,
             data["skills"] = skills
         else:
             data.pop("skills", None)   # empty list → omit the key
+    if data == before:
+        return text
     return yaml.safe_dump(data, sort_keys=False, default_flow_style=False)
 
 
 def mutate_agent_md(text: str, *, tools: list[str] | None = None,
                     description: str | None = None) -> str:
     """Update an `agent.md`'s frontmatter (tools/description) in place, keeping
-    its name and prompt body. `name` falls back to nothing only if absent."""
+    its name and prompt body. A semantic no-op (frontmatter unchanged) returns
+    the original text verbatim so it never emits a spurious diff."""
     fm, body = parse_frontmatter(text)
+    before = dict(fm)
     if description is not None:
         fm["description"] = description
     if tools is not None:
@@ -96,6 +103,8 @@ def mutate_agent_md(text: str, *, tools: list[str] | None = None,
             fm["tools"] = line
         else:
             fm.pop("tools", None)      # all/none → unrestricted → omit
+    if fm == before:
+        return text
     # Preserve a stable key order: name, description, tools, then anything else.
     order = ["name", "description", "tools"]
     ordered = {k: fm[k] for k in order if k in fm}

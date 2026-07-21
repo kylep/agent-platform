@@ -67,6 +67,19 @@ def test_mutate_manifest_empty_skills_drops_key():
     assert "skills" not in out
 
 
+def test_mutate_manifest_semantic_noop_returns_original_verbatim():
+    # A no-op must not strip comments / reformat (which would produce a spurious
+    # diff that sneaks straight to main). Original text is returned byte-for-byte.
+    original = ("description: d\nrole: operator\n"
+                "# keep this comment\nconcurrency: 5\n")
+    assert mutate_manifest_yaml(original, skills=[], description=None) == original
+
+
+def test_mutate_agent_md_semantic_noop_returns_original_verbatim():
+    original = "---\nname: bob\ndescription: d\ntools: Bash\n---\nYou are bob.\n"
+    assert mutate_agent_md(original, tools=["Bash"]) == original
+
+
 def test_mutate_agent_md_updates_tools_keeps_body():
     md = "---\nname: bob\ndescription: d\ntools: Bash\n---\nYou are bob.\n"
     out = mutate_agent_md(md, tools=["Bash", "Read"])
