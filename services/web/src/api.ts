@@ -120,6 +120,17 @@ export type ScheduleEntry = {
   next_fire: string | null;
 };
 
+export type Job = {
+  id: string;
+  name: string;
+  agent: string;
+  cron: string;
+  prompt: string;
+  enabled: boolean;
+  last_fire: string | null;
+  next_fire: string | null;
+};
+
 export type Memory = {
   id: string;
   agent: string;

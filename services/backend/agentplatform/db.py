@@ -125,6 +125,23 @@ class Schedule(Base):
     next_fire: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
 
+class ScheduledJob(Base):
+    """A recurring task: run `agent` with `prompt` on a cron. Decouples the
+    schedule from the agent (1:many — one agent can back many jobs, each with
+    its own cron + prompt), unlike the manifest `schedule:` field. Created and
+    managed from the UI; the scheduler fires it when due."""
+    __tablename__ = "scheduled_jobs"
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=lambda: uuid.uuid4().hex)
+    name: Mapped[str] = mapped_column(String(128))
+    agent: Mapped[str] = mapped_column(String(128), index=True)
+    cron: Mapped[str] = mapped_column(String(128))
+    prompt: Mapped[str] = mapped_column(Text)
+    enabled: Mapped[bool] = mapped_column(default=True)
+    last_fire: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    next_fire: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+
 class ApiKey(Base):
     __tablename__ = "api_keys"
     id: Mapped[str] = mapped_column(String(32), primary_key=True, default=lambda: uuid.uuid4().hex)
