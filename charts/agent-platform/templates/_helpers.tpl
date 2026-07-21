@@ -58,6 +58,8 @@ Env vars shared by the api/dispatcher/recorder backend Deployments.
   value: "{{ .Values.images.runner.repository }}:{{ .Values.images.runner.tag }}"
 - name: AP_AGENTS_ROOT
   value: "/agents/agents"
+- name: AP_SKILLS_ROOT
+  value: "/agents/skills"
 - name: AP_AGENTS_VOLUME_CLAIM
   value: {{ .Values.env.AP_AGENTS_VOLUME_CLAIM | quote }}
 - name: AP_GLOBAL_CONCURRENCY

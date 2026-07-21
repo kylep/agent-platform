@@ -117,6 +117,16 @@ export type Memory = {
   updated_at: string | null;
 };
 
+export type Skill = {
+  name: string;
+  description: string;
+  secrets: string[];
+  error: string | null;
+  used_by: string[];
+};
+
+export type SkillDetail = Skill & { body: string };
+
 export async function api<T>(path: string, opts: RequestInit = {}): Promise<T> {
   const res = await fetch(path, {
     credentials: "include",

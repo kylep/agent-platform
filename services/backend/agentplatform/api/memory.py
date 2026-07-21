@@ -1,7 +1,7 @@
 import logging
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import and_, func, or_, select
 
 from agentplatform.api.auth import MEMORY_ROLES, READ_ROLES, require_role
@@ -11,14 +11,31 @@ log = logging.getLogger("memory")
 
 router = APIRouter()
 
+# Column caps (see db.Memory). Validated at the edge so malformed input is a
+# 422, not a DB DataError → 500 (postgres also rejects NUL bytes in text).
+_NAME_MAX = 128
+
+
+def _reject_nul(value: str | None) -> str | None:
+    if value is not None and "\x00" in value:
+        raise HTTPException(422, "value must not contain NUL bytes")
+    return value
+
 
 class MemoryIn(BaseModel):
     content: str
-    key: str | None = None
+    key: str | None = Field(default=None, max_length=_NAME_MAX)
     tags: list[str] | None = None
     # Only honored for human/admin callers; an agent key is pinned to its own
     # namespace and may not target another agent.
-    agent: str | None = None
+    agent: str | None = Field(default=None, max_length=_NAME_MAX)
+
+    @field_validator("content", "key", "agent")
+    @classmethod
+    def _no_nul(cls, v: str | None) -> str | None:
+        if v is not None and "\x00" in v:
+            raise ValueError("must not contain NUL bytes")
+        return v
 
 
 def _view(m: Memory) -> dict:
@@ -65,11 +82,15 @@ async def save_memory(request: Request, body: MemoryIn):
 
 
 @router.get("/api/memories", dependencies=[Depends(require_role(*READ_ROLES))])
-async def list_memories(request: Request, agent: str | None = None, q: str | None = None,
+async def list_memories(request: Request,
+                        agent: str | None = Query(None, max_length=_NAME_MAX),
+                        q: str | None = Query(None, max_length=1000),
                         limit: int = Query(50, ge=1, le=500)):
     """List or search memories in a namespace. `q` is split into terms; a memory
     matches when every term appears (case-insensitive) in its content or key.
     Portable across sqlite/postgres (no engine-specific FTS)."""
+    _reject_nul(agent)
+    _reject_nul(q)
     ns = _resolve_ns(request, agent)
     conds = [Memory.agent == ns]
     for term in (q or "").split():

@@ -36,9 +36,19 @@ programmable from outside.
       runs, save/search memory, health) mirroring the live OpenAPI, with an
       injectable transport for tests. Published `skills/agent-platform/SKILL.md`
       so any Claude session can operate the platform with one `ap_` key.
-- [ ] Skills-as-components (Skills UI, manifest skill refs mounted into pods,
-      secret-binding union enforcement) and hardened shipped `git`/`discord`
-      skills — next M04 slice.
+- [~] **Skills-as-components** — `SkillStore` reads `skills/<name>/SKILL.md`
+      (frontmatter: name/description/secrets); `GET /api/skills[/{name}]` lists
+      each skill, its required secrets, and which agents use it. The runner
+      copies an agent's manifest-declared skills (`AP_SKILLS`, set by the
+      launcher) from the synced `/agents/skills` tree into `~/.claude/skills/`.
+      Skills UI page. Shipped a documented `git` skill. **Still open:**
+      secret-binding *enforcement* — mounting the union of a skill's secrets
+      into the agent's pod (`SkillStore.secrets_for()` computes the union; pod
+      mounting is the remaining piece) — and a hardened `discord` skill.
+- [x] **Adversarial hardening** — a probe of the M03/M04 surface found RBAC /
+      namespace isolation / injection all enforced; one robustness gap fixed:
+      malformed `/api/memories` input (NUL bytes, over-length namespace) now
+      422s at the edge instead of a DB-level 500.
 - [ ] OpenAPI-generated SDK + platform-skill exercised in CI against a live
       chart install (currently: hand-written SDK + live manual exercise).
 

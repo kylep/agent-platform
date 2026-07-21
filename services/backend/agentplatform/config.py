@@ -8,6 +8,7 @@ class Settings(BaseSettings):
     k8s_namespace: str = "agent-platform"
     runner_image: str = "agent-platform-runner:dev"
     agents_root: str = "./agents"
+    skills_root: str = "./skills"
     agents_volume_claim: str = "agent-definitions"
     session_secret: str = "dev-insecure"
     global_concurrency: int = 3

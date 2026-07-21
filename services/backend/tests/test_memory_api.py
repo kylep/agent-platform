@@ -65,6 +65,19 @@ async def test_admin_must_name_namespace(admin_client, sf):
     assert (await admin_client.get("/api/memories?agent=notetaker")).status_code == 200
 
 
+async def test_malformed_input_is_422_not_500(admin_client, sf):
+    # Regression for the adversarial finding: NUL bytes / over-length namespaces
+    # must be rejected at the edge (422), never reach the DB as a 500. (The NUL-
+    # in-query-string case the probe hit via curl can't be sent through httpx,
+    # which rejects NUL in URLs; the _reject_nul guard covers it in prod. Here we
+    # cover over-length query + NUL/over-length in the JSON body.)
+    assert (await admin_client.get(f"/api/memories?agent={'x' * 200}")).status_code == 422
+    r = await admin_client.post("/api/memories", json={"content": "hi\x00there", "agent": "alpha"})
+    assert r.status_code == 422
+    r = await admin_client.post("/api/memories", json={"content": "x", "agent": "y" * 200})
+    assert r.status_code == 422
+
+
 async def test_admin_can_target_any_namespace(admin_client, sf):
     r = await admin_client.post("/api/memories", json={"content": "seeded", "agent": "notetaker"})
     assert r.status_code == 201
