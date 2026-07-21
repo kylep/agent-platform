@@ -64,13 +64,20 @@ Done + verified live:
 - [x] **Supply-chain scanning in CI** — report-only `security-scan` job: Trivy
       fs (pinned @SHA) + Semgrep (pinned), least-privilege `permissions`.
 
-Remaining:
-- [ ] **Network policy** (default-deny ingress + egress allowlists) — being done
-      autonomously, staged (ingress first, then egress), each stage applied via
-      helm and verified with a live run; `helm rollback` is the safety net.
+- [x] **Network policy** (default-deny ingress + egress) — `templates/
+      networkpolicy.yaml`, gated by `networkPolicy.enabled`/`.egress`. Ingress:
+      web:8080 from anywhere, api:8000 from web+runner, postgres:5432 from
+      backend, kafka:9092 from the namespace. Egress: DNS (kube-dns),
+      intra-namespace (postgres/kafka/api), and external :443/:6443 only for
+      api/dispatcher/runner/agents-sync (k8s API + Anthropic + github) — so a
+      compromised runner can reach only kafka, the api, and outbound HTTPS.
+      Applied via helm (rev 6); verified live end-to-end: login, dispatch, a run
+      (runner→kafka+anthropic), an API-calling agent (runner→api), and
+      agents-sync (github). Runner Jobs are labeled `component=runner` so
+      policies can select them.
 
-External exposure and backup/DR were removed from scope (see above). M07 (pai
-migration) is delayed.
+**M06 complete** for the in-scope items. External exposure and backup/DR were
+removed from scope (see above). M07 (pai migration) is delayed.
 
 ## Done when
 

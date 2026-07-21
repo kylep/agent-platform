@@ -94,4 +94,80 @@ spec:
       ports:
         - port: 9092
           protocol: TCP
+{{- if .Values.networkPolicy.egress }}
+---
+# --- Egress (stage 2) --------------------------------------------------------
+# Default-deny egress for pods in this namespace; the allows below cover DNS,
+# intra-namespace traffic, and the external HTTPS the platform genuinely needs.
+# (Subchart pods keep their own bitnami egress policies — additive.)
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ .Release.Name }}-default-deny-egress
+  labels:
+    {{- include "agent-platform.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: agent-platform
+  policyTypes: [Egress]
+---
+# DNS: every app pod resolves names via kube-dns in kube-system.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ .Release.Name }}-allow-egress-dns
+  labels:
+    {{- include "agent-platform.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: agent-platform
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - {port: 53, protocol: UDP}
+        - {port: 53, protocol: TCP}
+---
+# Intra-namespace: app pods reach postgres/kafka/api (and each other) in-ns.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ .Release.Name }}-allow-egress-internal
+  labels:
+    {{- include "agent-platform.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: agent-platform
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - podSelector: {}
+---
+# External HTTPS on 443: the k8s API server (in-cluster ClusterIP :443, for
+# dispatcher job creation + api secret access), the Anthropic API (runner runs
+# claude), and github.com (agents-sync, self-edit, skills). Scoped to the pods
+# that need outbound 443 — recorder/web do not.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ .Release.Name }}-allow-egress-https
+  labels:
+    {{- include "agent-platform.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchExpressions:
+      - {key: app.kubernetes.io/name, operator: In, values: [agent-platform]}
+      - {key: app.kubernetes.io/component, operator: In, values: [api, dispatcher, runner, agents-sync]}
+  policyTypes: [Egress]
+  egress:
+    - ports:
+        - {port: 443, protocol: TCP}
+        - {port: 6443, protocol: TCP}
+{{- end }}
 {{- end }}
