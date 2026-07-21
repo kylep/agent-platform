@@ -10,10 +10,24 @@ router = APIRouter()
 class SecretIn(BaseModel):
     data: dict[str, str]
 
+def _declared_secrets(request: Request) -> set[str]:
+    """Secrets the platform's components declare they need: skill `secrets:` and
+    connector secrets. Surfaced as (optional) rows so they're settable in the UI."""
+    from agentplatform.connectors import CONNECTOR_SECRETS
+    declared = set(CONNECTOR_SECRETS)
+    store = getattr(request.app.state, "skill_store", None)
+    if store is not None:
+        store.reload()
+        for info in store.list():
+            if info.skill:
+                declared |= set(info.skill.secrets)
+    return declared
+
+
 async def secret_listing(request: Request) -> list[dict]:
     async with request.app.state.session_factory() as s:
         rows = {m.name: m.status for m in (await s.execute(select(SecretMeta))).scalars()}
-    names = sorted(set(REQUIRED_SECRETS) | set(rows))
+    names = sorted(set(REQUIRED_SECRETS) | set(rows) | _declared_secrets(request))
     out = []
     for n in names:
         status = rows.get(n, "missing")

@@ -1,12 +1,24 @@
+def _by(rows):
+    return {r["name"]: r for r in rows}
+
+
 async def test_secret_lifecycle(admin_client, secret_store):
-    r = await admin_client.get("/api/secrets")
-    assert r.json() == [{"name": "claude-credentials", "status": "missing", "required": True}]
+    rows = _by((await admin_client.get("/api/secrets")).json())
+    assert rows["claude-credentials"] == {"name": "claude-credentials", "status": "missing", "required": True}
+    # connector-declared secret is surfaced as an optional row
+    assert "discord-bot" in rows and rows["discord-bot"]["required"] is False
     r = await admin_client.put("/api/secrets/claude-credentials",
                                json={"data": {"credentials.json": "{\"tok\":1}"}})
     assert r.status_code == 200
     assert await secret_store.get("claude-credentials") == {"credentials.json": "{\"tok\":1}"}
-    r = await admin_client.get("/api/secrets")
-    assert r.json()[0]["status"] == "unprobed"
+    rows = _by((await admin_client.get("/api/secrets")).json())
+    assert rows["claude-credentials"]["status"] == "unprobed"
+
+
+async def test_can_add_arbitrary_secret_via_api(admin_client, secret_store):
+    r = await admin_client.put("/api/secrets/discord-bot", json={"data": {"token": "abc123"}})
+    assert r.status_code == 200
+    assert await secret_store.get("discord-bot") == {"token": "abc123"}
 
 async def test_setup_state_includes_secrets(client):
     assert client is not None
