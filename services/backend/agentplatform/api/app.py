@@ -10,6 +10,7 @@ from agentplatform.api import agents as agents_api
 from agentplatform.api import apikeys as apikeys_api
 from agentplatform.api import audit as audit_api
 from agentplatform.api import auth
+from agentplatform.api import conversations as conversations_api
 from agentplatform.api import dlq as dlq_api
 from agentplatform.api import health as health_api
 from agentplatform.api import maintenance as maintenance_api
@@ -107,6 +108,7 @@ def create_app(settings, session_factory, producer, secret_store=None, agent_sto
     app.include_router(auth.router)
     app.include_router(apikeys_api.router)
     app.include_router(audit_api.router)
+    app.include_router(conversations_api.router)
     app.include_router(dlq_api.router)
     app.include_router(health_api.router)
     app.include_router(maintenance_api.router)

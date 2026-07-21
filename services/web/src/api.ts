@@ -164,6 +164,34 @@ export type Retention = {
   per_agent_days: Record<string, number>;
 };
 
+export type Connector = {
+  name: string;
+  kind: string;
+  implemented: boolean;
+  description: string;
+};
+
+export type Conversation = {
+  id: string;
+  connector: string;
+  external_ref: string | null;
+  agent: string;
+  title: string;
+  status: string;
+  created_at: string | null;
+  updated_at: string | null;
+};
+
+export type ConversationTurn = {
+  run_id: string;
+  user_message: string | null;
+  result: string | null;
+  state: string;
+  created_at: string | null;
+};
+
+export type ConversationDetail = Conversation & { turns: ConversationTurn[] };
+
 export async function api<T>(path: string, opts: RequestInit = {}): Promise<T> {
   const res = await fetch(path, {
     credentials: "include",
