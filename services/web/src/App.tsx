@@ -12,6 +12,7 @@ import RunDetail from "./pages/RunDetail";
 import Changes from "./pages/Changes";
 import Dlq from "./pages/Dlq";
 import Memories from "./pages/Memories";
+import Reporting from "./pages/Reporting";
 import Schedules from "./pages/Schedules";
 import Skills from "./pages/Skills";
 import Settings from "./pages/Settings";
@@ -31,6 +32,7 @@ export default function App() {
             <Route path="/runs/:id" element={<RunDetail />} />
             <Route path="/changes" element={<Changes />} />
             <Route path="/dlq" element={<Dlq />} />
+            <Route path="/reporting" element={<Reporting />} />
             <Route path="/memories" element={<Memories />} />
             <Route path="/skills" element={<Skills />} />
             <Route path="/schedules" element={<Schedules />} />
