@@ -50,6 +50,28 @@ jobs:
       - name: Lint chart
         run: helm lint charts/agent-platform --set env.AP_SESSION_SECRET=x
 
+  security-scan:
+    # Supply-chain hardening (M06): scan the repo for vulnerable deps, leaked
+    # secrets, IaC misconfig, and risky code patterns. Report-only for now
+    # (exit-code 0 / continue-on-error) — a visibility baseline before gating.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Trivy filesystem scan
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: fs
+          scanners: vuln,secret,misconfig
+          severity: HIGH,CRITICAL
+          exit-code: "0"
+          ignore-unfixed: true
+      - name: Semgrep scan
+        continue-on-error: true
+        run: |
+          pip install semgrep
+          semgrep --config p/python --config p/typescript --config p/secrets \
+            --error --severity ERROR services/
+
   subscription-guard:
     runs-on: ubuntu-latest
     steps:
