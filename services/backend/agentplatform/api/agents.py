@@ -6,6 +6,9 @@ from pathlib import Path
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 
+from agentplatform.agentspec import (AVAILABLE_TOOLS, mutate_agent_md,
+                                     mutate_manifest_yaml, render_agent_md,
+                                     render_manifest, validate_agent_name)
 from agentplatform.api.auth import READ_ROLES, require_admin, require_role
 from agentplatform.db import Run
 from agentplatform.events import TOPIC_RUN_REQUESTS
@@ -103,21 +106,16 @@ def _build_writer(settings, tmp: Path, deploy: dict | None, token_creds: dict | 
     return None
 
 
-@router.post("/api/agents/{name}/quick-edit")
-async def quick_edit(request: Request, name: str, body: QuickEditIn,
-                     principal: str = Depends(require_admin)):
-    """Deterministic edit that skips the agent: writes the change into a fresh
-    clone and lets the tiered git path commit it (tier 1) or open a PR."""
+async def _apply_files(request: Request, files: dict[str, str | None], *,
+                       message: str, branch: str, pr_title: str,
+                       pr_body: str = "") -> dict:
+    """Write an edit set into a fresh clone and let the tiered git path commit
+    it (tier 1) or open a PR (tier 2). Picks the git credential the same way for
+    every structured edit: a GitHub App token first, else a deploy key / PAT."""
     st = request.app.state
     settings = st.settings
     if not (settings.git_remote_url or settings.github_repo):
         raise HTTPException(409, "self-edit is not configured")
-    if st.agent_store.get(name) is None:
-        raise HTTPException(404, "unknown agent")
-    if body.field != "prompt":
-        raise HTTPException(422, "unsupported field")
-    files = {f"agents/{name}/agent.md": body.value}
-
     app_token = await _github_app_token(request)
     with tempfile.TemporaryDirectory() as tmp:
         tmpp = Path(tmp)
@@ -132,10 +130,23 @@ async def quick_edit(request: Request, name: str, body: QuickEditIn,
                                          "(github-app, github-deploy-key, or github-token)")
             writer, pr_client = built
         svc = EditService(writer, pr_client=pr_client)
-        return svc.apply(tmpp / "ws", files,
-                         message=f"{principal}: quick-edit {name}/{body.field}",
-                         branch=f"coder/agent-{name}",  # one open PR per agent
-                         pr_title=f"Edit {name}: {body.field}")
+        return svc.apply(tmpp / "ws", files, message=message, branch=branch,
+                         pr_title=pr_title, pr_body=pr_body)
+
+
+@router.post("/api/agents/{name}/quick-edit")
+async def quick_edit(request: Request, name: str, body: QuickEditIn,
+                     principal: str = Depends(require_admin)):
+    """Deterministic edit that skips the agent: writes the change into a fresh
+    clone and lets the tiered git path commit it (tier 1) or open a PR."""
+    if request.app.state.agent_store.get(name) is None:
+        raise HTTPException(404, "unknown agent")
+    if body.field != "prompt":
+        raise HTTPException(422, "unsupported field")
+    return await _apply_files(
+        request, {f"agents/{name}/agent.md": body.value},
+        message=f"{principal}: quick-edit {name}/{body.field}",
+        branch=f"coder/agent-{name}", pr_title=f"Edit {name}: {body.field}")
 
 
 class FreeformEditIn(BaseModel):
@@ -166,3 +177,108 @@ async def freeform_edit(request: Request, name: str, body: FreeformEditIn,
     except Exception:
         log.warning("publish failed for self-edit run %s; sweep will drain it", run.id)
     return {"id": run.id, "state": run.state, "target_agent": name}
+
+
+# --- structured create / config edit (New-Agent wizard + checkbox editor) ----
+
+@router.get("/api/agent-tools", dependencies=[Depends(require_role(*READ_ROLES))])
+async def agent_tools():
+    """The canonical tool list the UI renders as checkboxes (one source of truth
+    with the validation below)."""
+    return {"tools": AVAILABLE_TOOLS}
+
+
+def _known_skill_names(request: Request) -> set[str]:
+    request.app.state.skill_store.reload()
+    return {s.name for s in request.app.state.skill_store.list()}
+
+
+def _validate_selection(request: Request, skills: list[str], tools: list[str]) -> None:
+    """Reject unknown skills or tools before writing anything (422)."""
+    known = _known_skill_names(request)
+    bad_skills = [s for s in skills if s not in known]
+    if bad_skills:
+        raise HTTPException(422, f"unknown skill(s): {', '.join(bad_skills)}")
+    bad_tools = [t for t in tools if t not in AVAILABLE_TOOLS]
+    if bad_tools:
+        raise HTTPException(422, f"unknown tool(s): {', '.join(bad_tools)}")
+
+
+class CreateAgentIn(BaseModel):
+    name: str
+    description: str = ""
+    role: str = "operator"
+    model: str = ""
+    concurrency: int = 1
+    timeout_seconds: int = 1800
+    skills: list[str] = []
+    tools: list[str] = AVAILABLE_TOOLS  # default: unrestricted (all tools)
+    prompt: str = ""
+
+
+@router.post("/api/agents", status_code=201)
+async def create_agent(request: Request, body: CreateAgentIn,
+                       principal: str = Depends(require_admin)):
+    """Create a new agent from the wizard: render its manifest.yaml + agent.md
+    and open a pull request (new files are always Tier 2 / review-gated)."""
+    st = request.app.state
+    try:
+        name = validate_agent_name(body.name)
+    except ValueError as e:
+        raise HTTPException(422, str(e))
+    st.agent_store.reload()
+    if st.agent_store.get(name) is not None:
+        raise HTTPException(409, "an agent with that name already exists")
+    _validate_selection(request, body.skills, body.tools)
+
+    manifest = render_manifest({
+        "description": body.description,
+        "role": body.role if body.role != "operator" else None,
+        "model": body.model,
+        "concurrency": body.concurrency if body.concurrency != 1 else None,
+        "timeout_seconds": body.timeout_seconds if body.timeout_seconds != 1800 else None,
+        "skills": body.skills,
+    })
+    agent_md = render_agent_md(name, body.description, body.tools,
+                               body.prompt or f"You are {name}.")
+    files = {f"agents/{name}/manifest.yaml": manifest,
+             f"agents/{name}/agent.md": agent_md}
+    return await _apply_files(
+        request, files, message=f"{principal}: create agent {name}",
+        branch=f"coder/agent-{name}", pr_title=f"Create agent {name}",
+        pr_body=f"New agent `{name}` created via the New-Agent wizard.")
+
+
+class ConfigEditIn(BaseModel):
+    skills: list[str] | None = None
+    tools: list[str] | None = None
+    description: str | None = None
+
+
+@router.patch("/api/agents/{name}/config")
+async def edit_agent_config(request: Request, name: str, body: ConfigEditIn,
+                            principal: str = Depends(require_admin)):
+    """Apply a structured config edit (skills / tools / description) to an
+    existing agent and open a PR. A no-op edit returns tier 0."""
+    st = request.app.state
+    st.agent_store.reload()
+    info = st.agent_store.get(name)
+    if info is None:
+        raise HTTPException(404, "unknown agent")
+    _validate_selection(request, body.skills or [], body.tools or [])
+
+    root = Path(st.agent_store.root) / name
+    files: dict[str, str | None] = {}
+    if body.skills is not None or body.description is not None:
+        manifest_text = (root / "manifest.yaml").read_text()
+        files[f"agents/{name}/manifest.yaml"] = mutate_manifest_yaml(
+            manifest_text, skills=body.skills, description=body.description)
+    if body.tools is not None or body.description is not None:
+        files[f"agents/{name}/agent.md"] = mutate_agent_md(
+            info.agent_md, tools=body.tools, description=body.description)
+    if not files:
+        raise HTTPException(422, "nothing to change")
+    return await _apply_files(
+        request, files, message=f"{principal}: edit {name} config",
+        branch=f"coder/agent-{name}", pr_title=f"Edit {name}: skills & tools",
+        pr_body=f"Config edit for `{name}` via the agent editor.")

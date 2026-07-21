@@ -17,6 +17,18 @@ export type AgentManifest = {
   skills: string[];
   secrets: string[];
   description: string;
+  model?: string;
+  schedule?: string;
+  system?: boolean;
+  can_invoke?: boolean;
+  memory?: boolean;
+};
+
+export type EditResult = {
+  tier: number;
+  branch: string | null;
+  changes: string[];
+  pr: { number: number; url: string } | null;
 };
 
 export type AgentDetail = {
@@ -121,6 +133,7 @@ export type Memory = {
 export type Skill = {
   name: string;
   description: string;
+  icon: string;
   secrets: string[];
   error: string | null;
   used_by: string[];

@@ -53,6 +53,30 @@ def _manifest_field_changes(repo: Path, path: str) -> frozenset[str]:
     return frozenset(k for k in set(old) | set(new) if old.get(k) != new.get(k))
 
 
+def _frontmatter(text: str) -> dict:
+    """The YAML frontmatter of an agent.md ({} if none/unparseable)."""
+    if not text.startswith("---"):
+        return {}
+    parts = text.split("---", 2)
+    if len(parts) != 3:
+        return {}
+    try:
+        return yaml.safe_load(parts[1]) or {}
+    except yaml.YAMLError:
+        return {}
+
+
+def _agent_md_frontmatter_changed(repo: Path, path: str) -> bool:
+    """True when an agent.md's frontmatter differs between HEAD and the working
+    tree (a body-only prompt edit returns False)."""
+    try:
+        old = _git(repo, "show", f"HEAD:{path}")
+    except subprocess.CalledProcessError:
+        old = ""
+    new = (repo / path).read_text()
+    return _frontmatter(old) != _frontmatter(new)
+
+
 def compute_changes(repo: Path) -> list[FileChange]:
     """Structured diff of the working tree vs HEAD (staged, unstaged, and
     untracked), ready for tier classification."""
@@ -65,9 +89,13 @@ def compute_changes(repo: Path) -> list[FileChange]:
         xy, path = line[:2], line[3:]
         kind = _kind_from_status(xy)
         fields: frozenset[str] = frozenset()
+        fm_changed = False
         if path.endswith("manifest.yaml") and kind == "modified":
             fields = _manifest_field_changes(repo, path)
-        changes.append(FileChange(path=path, kind=kind, manifest_fields=fields))
+        elif path.endswith("agent.md") and kind == "modified":
+            fm_changed = _agent_md_frontmatter_changed(repo, path)
+        changes.append(FileChange(path=path, kind=kind, manifest_fields=fields,
+                                  frontmatter_changed=fm_changed))
     return changes
 
 

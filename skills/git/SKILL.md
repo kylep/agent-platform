@@ -1,6 +1,7 @@
 ---
 name: git
 description: Clone, branch, commit, and push to a Git remote over HTTPS using a token supplied via GIT_ASKPASS (never in a URL or argv). Use when an agent needs to make changes in a repo and open them as a branch/PR.
+icon: 🔀
 secrets:
   - github-token
 ---

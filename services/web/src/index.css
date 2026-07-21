@@ -562,3 +562,36 @@ select {
 }
 .nav-link.active .nav-badge { box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.12); }
 .secret-verify-note { font-size: 12px; }
+
+/* --- agent config editor: header action, checkbox pickers, skill icons --- */
+.page-header {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+}
+.button-link {
+  background: var(--accent); color: #0b0c10; text-decoration: none;
+  font-weight: 600; font-size: 13px; padding: 7px 14px; border-radius: 8px;
+  white-space: nowrap;
+}
+.button-link:hover { filter: brightness(1.08); }
+
+.skill-icon { font-size: 18px; text-align: center; width: 36px; }
+
+.field-label { display: block; font-size: 13px; color: var(--muted); margin: 12px 0 4px; }
+.field-label:first-of-type { margin-top: 0; }
+
+.check-grid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 8px; margin: 4px 0 6px;
+}
+.check-item {
+  display: flex; align-items: center; gap: 8px;
+  border: 1px solid var(--border); border-radius: 8px;
+  padding: 8px 10px; cursor: pointer; background: var(--bg-alt);
+  font-size: 14px; user-select: none;
+}
+.check-item:hover { border-color: var(--accent); }
+.check-item.on { border-color: var(--accent); background: rgba(110, 168, 254, 0.10); }
+.check-item input { accent-color: var(--accent); cursor: pointer; }
+.check-icon { font-size: 16px; }
+.check-name { font-family: ui-monospace, Consolas, monospace; }
+.check-note { font-size: 12px; margin-top: 2px; }
