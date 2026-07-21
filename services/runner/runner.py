@@ -23,7 +23,7 @@ class KafkaProducerWrapper:
     async def start(self):
         self._p = AIOKafkaProducer(bootstrap_servers=self._bootstrap,
                                    enable_idempotence=True, acks="all",
-                                   compression_type="lz4")
+                                   compression_type="gzip")
         await self._p.start()
     async def stop(self): await self._p.stop()
     async def publish(self, topic, key, value, type="run.transcript"):

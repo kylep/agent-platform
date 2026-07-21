@@ -36,7 +36,7 @@ Every Kafka message value becomes a versioned envelope (was: a raw dict):
 
 ### K2. Producer hardening
 
-`AIOKafkaProducer(enable_idempotence=True, acks="all", compression_type="lz4")`.
+`AIOKafkaProducer(enable_idempotence=True, acks="all", compression_type="gzip")`.
 Idempotent producer + acks=all = no duplicates on retry, durable to the leader.
 Add `lz4` to backend + runner requirements. (RF=1 on a single broker limits real
 durability — documented, not fixable without more brokers.)
