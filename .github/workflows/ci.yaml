@@ -4,6 +4,10 @@ on:
   push:
   pull_request:
 
+# Least privilege: jobs only need to read the repo.
+permissions:
+  contents: read
+
 jobs:
   backend:
     runs-on: ubuntu-latest
@@ -58,7 +62,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Trivy filesystem scan
-        uses: aquasecurity/trivy-action@master
+        # Pinned to a full commit SHA (supply-chain: don't track a mutable tag).
+        uses: aquasecurity/trivy-action@a9c7b0f06e461e9d4b4d1711f154ee024b8d7ab8 # v0.36.0
         with:
           scan-type: fs
           scanners: vuln,secret,misconfig
@@ -68,7 +73,7 @@ jobs:
       - name: Semgrep scan
         continue-on-error: true
         run: |
-          pip install semgrep
+          pip install semgrep==1.170.0
           semgrep --config p/python --config p/typescript --config p/secrets \
             --error --severity ERROR services/
 
