@@ -3,6 +3,12 @@
 `name`, `description`, and any `secrets` it needs. Agents reference skills by
 name in their manifest `skills:` list; the runner mounts the referenced skills
 into the pod and the pod is granted the union of those skills' secrets."""
+# Defer annotation evaluation: this module's SkillStore defines a `list()`
+# method, which would otherwise shadow the builtin in the `list[str]`
+# annotations below — a runtime TypeError on Python < 3.14, where annotations
+# are evaluated eagerly at class-definition time.
+from __future__ import annotations
+
 from pathlib import Path
 
 import yaml
