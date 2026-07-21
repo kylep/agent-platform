@@ -5,3 +5,7 @@ timeout_seconds: 300
 # Gets an operator-scoped, per-run API token so it can POST /api/runs to invoke
 # other agents. The run-chain depth limit is the loop guard.
 can_invoke: true
+# Declares the `git` skill: the runner mounts it and the pod is bound the
+# skill's secret (github-token) via envFrom — demonstrates secret-binding.
+skills:
+  - git

@@ -12,7 +12,7 @@ log = logging.getLogger("joblauncher")
 
 
 class K8sJobLauncher(Launcher):
-    def __init__(self, batch, settings, github_app=None, session_factory=None):
+    def __init__(self, batch, settings, github_app=None, session_factory=None, skill_store=None):
         self.batch = batch
         self.settings = settings
         # When set, coder-role runs are launched as self-edits: the runner
@@ -20,6 +20,10 @@ class K8sJobLauncher(Launcher):
         # freshly minted App installation token.
         self.github_app = github_app
         self.sf = session_factory
+        # Resolves an agent's skills → the secrets it may be bound. When set, a
+        # pod gets exactly the union of its manifest + skill secrets (and the
+        # base claude credential), nothing else.
+        self.skill_store = skill_store
         # One operator API key per system agent, cached for the process
         # lifetime (plaintext isn't recoverable from the stored hash).
         self._system_tokens: dict[str, str] = {}
@@ -54,6 +58,17 @@ class K8sJobLauncher(Launcher):
         return (manifest.role == "coder" and self.github_app is not None
                 and bool(self.settings.git_remote_url) and bool(self.settings.github_repo))
 
+    def bound_secrets(self, manifest: Manifest) -> list[str]:
+        """The de-duplicated union of secret names an agent's pod may receive:
+        its manifest `secrets` plus the secrets required by its skills. This is
+        the whole allow-list — the pod is bound to these and nothing else."""
+        names = list(manifest.secrets)
+        if self.skill_store is not None:
+            for s in self.skill_store.secrets_for(manifest.skills):
+                if s not in names:
+                    names.append(s)
+        return names
+
     def build_job(self, run: Run, manifest: Manifest, self_edit_token: str | None = None,
                   api_token: str | None = None) -> k8s.V1Job:
         name = f"run-{run.id[:12]}"
@@ -82,10 +97,19 @@ class K8sJobLauncher(Launcher):
                 k8s.V1EnvVar(name="AP_DEFAULT_BRANCH", value=self.settings.default_branch),
                 k8s.V1EnvVar(name="AP_GITHUB_TOKEN", value=self_edit_token),
             ]
+        # Secret-binding: inject each bound secret's key/values as env vars via
+        # envFrom. `optional` so a not-yet-configured secret doesn't wedge the
+        # pod; the agent simply runs without it (the skill degrades). Unbound
+        # secrets are never referenced, so the pod can't see them.
+        env_from = [
+            k8s.V1EnvFromSource(secret_ref=k8s.V1SecretEnvSource(name=s, optional=True))
+            for s in self.bound_secrets(manifest)
+        ]
         container = k8s.V1Container(
             name="runner",
             image=self.settings.runner_image,
             env=env,
+            env_from=env_from or None,
             volume_mounts=[
                 k8s.V1VolumeMount(name="claude-credentials", mount_path="/secrets/claude", read_only=True),
                 k8s.V1VolumeMount(name="agents", mount_path="/agents", read_only=True),
@@ -122,6 +146,10 @@ class K8sJobLauncher(Launcher):
         )
 
     async def launch(self, run: Run, manifest: Manifest) -> None:
+        # The skills tree is git-synced under us; re-read so a skill's secret
+        # bindings reflect the current definitions.
+        if self.skill_store is not None:
+            self.skill_store.reload()
         token = None
         if self._is_self_edit(manifest):
             token = await asyncio.to_thread(self.github_app.installation_token)
