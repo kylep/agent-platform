@@ -3,8 +3,10 @@ import logging
 from sqlalchemy.exc import IntegrityError
 
 from agentplatform.apikeys import revoke_run_keys
-from agentplatform.db import ACTIVE_STATES, Run, RunState, SecretMeta, TranscriptEvent, utcnow
-from agentplatform.events import TOPIC_RUN_DLQ, TOPIC_RUN_EVENTS, TOPIC_RUN_TRANSCRIPT
+from agentplatform.db import (ACTIVE_STATES, Conversation, Run, RunState, SecretMeta,
+                              TranscriptEvent, utcnow)
+from agentplatform.events import (TOPIC_CONVERSATION_OUTBOUND, TOPIC_RUN_DLQ,
+                                  TOPIC_RUN_EVENTS, TOPIC_RUN_TRANSCRIPT)
 from agentplatform.secrets import CLAUDE_CREDENTIAL
 
 log = logging.getLogger("recorder")
@@ -56,6 +58,10 @@ class Recorder:
                     1 for b in content
                     if isinstance(b, dict) and b.get("type") == "tool_use"
                 )
+            # The terminal `result` frame carries the final assistant reply —
+            # captured for conversation history + outbound delivery.
+            if value.get("type") == "result" and value.get("result"):
+                run.result = value.get("result")
             usage = value.get("usage", {})
             run.tokens_in += usage.get("input_tokens", 0)
             run.tokens_out += usage.get("output_tokens", 0)
@@ -89,6 +95,18 @@ class Recorder:
                 if new_state == RunState.SUCCEEDED:
                     await self._probe_credential(s, "valid")
             await s.commit()
+            outbound = None
+            if new_terminal and run.conversation_id and self.producer is not None:
+                conv = await s.get(Conversation, run.conversation_id)
+                if conv is not None:
+                    outbound = {"conversation_id": conv.id, "connector": conv.connector,
+                                "external_ref": conv.external_ref, "run_id": run_id,
+                                "state": new_state, "text": run.result or "(the agent produced no reply)"}
+        # Publish the conversation reply outside the DB session (connectors and the
+        # web UI consume conversation.outbound to deliver it).
+        if outbound is not None:
+            await self.producer.publish(TOPIC_CONVERSATION_OUTBOUND, outbound["conversation_id"],
+                                        outbound, type="conversation.reply")
 
     async def _handle_dlq(self, run_id: str, value: dict) -> None:
         async with self.sf() as s:

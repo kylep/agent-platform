@@ -24,6 +24,7 @@ async def materialize_run(session_factory, producer, spec: dict) -> str:
                 trigger=spec["trigger"], requested_by=spec["requested_by"],
                 parent_run_id=spec.get("parent_run_id"), depth=spec.get("depth", 0),
                 conversation_id=spec.get("conversation_id"),
+                user_message=spec.get("user_message"),
             ))
             await s.commit()
     try:

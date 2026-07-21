@@ -12,6 +12,7 @@ from agentplatform.db import init_db, make_engine, make_session_factory
 from agentplatform.dispatcher import Dispatcher
 from agentplatform.events import Producer
 from agentplatform.githubapp import GitHubApp
+from agentplatform.conversation_ingest import ConversationIngestor
 from agentplatform.ingest import Ingestor
 from agentplatform.joblauncher import JobWatcher, K8sJobLauncher
 from agentplatform.pruning import TranscriptPruner
@@ -75,11 +76,13 @@ async def main() -> None:
     scheduler = Scheduler(session_factory, agent_store, producer)
     pruner = TranscriptPruner(session_factory, agent_store, settings)
     ingestor = Ingestor(settings, session_factory, producer)
+    conv_ingestor = ConversationIngestor(settings, session_factory, producer)
 
     try:
         await asyncio.gather(dispatcher.run_forever(), watcher.run_forever(),
                              dispatcher.sweep_forever(), scheduler.run_forever(),
-                             pruner.run_forever(), ingestor.run_forever())
+                             pruner.run_forever(), ingestor.run_forever(),
+                             conv_ingestor.run_forever())
     finally:
         await producer.stop()
         await engine.dispose()
