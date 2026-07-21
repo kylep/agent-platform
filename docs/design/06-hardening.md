@@ -47,6 +47,31 @@ Still open (nit, no data exposure): an nginx path-normalization artifact makes
 `GET /api/<encoded-slash traversal>` return the public SPA HTML (200) instead
 of a JSON 404. Fix during a web-tier hardening pass.
 
+## Progress (2026-07-20)
+
+Done (safe, no-helm slices):
+- [x] **Runner pod securityContext** — runner Jobs run `runAsNonRoot`,
+      `allowPrivilegeEscalation=false`, drop ALL capabilities, seccomp
+      `RuntimeDefault` (set in `joblauncher.build_job`, no helm needed). Verified
+      live: runs still succeed with the tightened context.
+- [x] **Supply-chain scanning in CI** — report-only `security-scan` job: Trivy
+      fs (vuln/secret/misconfig) + Semgrep (python/typescript/secrets).
+
+Blocked on Kyle (decisions or risky helm ops — noted for a supervised pass):
+- [ ] **Network policy** (default-deny + egress allowlists) — chart change +
+      helm upgrade; can sever pod↔kafka/postgres/k8s-API connectivity, so needs
+      a supervised rollout.
+- [ ] **Platform-service securityContext** (api/dispatcher/recorder/web) — chart
+      change; `helm upgrade` on this cluster can wedge and would revert the
+      imperative env drift (AP_SKILLS_ROOT etc.) — reconcile with Kyle present.
+- [ ] **Secret rotation + audit log** — rotation is largely supported (set
+      overwrites + `updated_at`); the per-run secret-access audit log is the
+      real remaining feature.
+- [ ] **External exposure** (Cloudflare tunnel + rate limits) — needs Kyle's
+      Cloudflare account/decisions.
+- [ ] **Backup/DR** (postgres backups off-box + restore drill) — needs Kyle to
+      pick the backup target/credentials.
+
 ## Done when
 
 Scans run clean in CI, a restore drill succeeds from backup, and the
