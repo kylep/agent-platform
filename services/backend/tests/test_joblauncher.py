@@ -22,6 +22,17 @@ def test_build_job_spec():
     assert mounts == {"claude-credentials": "/secrets/claude", "agents": "/agents"}
 
 
+def test_build_job_hardens_security_context():
+    launcher = K8sJobLauncher(batch=None, settings=Settings(runner_image="r:1", k8s_namespace="ap"))
+    run = Run(agent="hello-world", trigger="manual", requested_by="t", prompt="x"); run.id = "a" * 32
+    spec = launcher.build_job(run, Manifest()).spec.template.spec
+    sc = spec.containers[0].security_context
+    assert sc.allow_privilege_escalation is False
+    assert sc.run_as_non_root is True
+    assert sc.capabilities.drop == ["ALL"]
+    assert spec.security_context.seccomp_profile.type == "RuntimeDefault"
+
+
 class _Status:
     def __init__(self, active=None, succeeded=None, failed=None, conditions=None):
         self.active = active

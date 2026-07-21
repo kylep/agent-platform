@@ -105,6 +105,10 @@ class K8sJobLauncher(Launcher):
             k8s.V1EnvFromSource(secret_ref=k8s.V1SecretEnvSource(name=s, optional=True))
             for s in self.bound_secrets(manifest)
         ]
+        # Tighten the runner's cage: the image already runs as the non-root
+        # `runner` user, so require non-root, forbid privilege escalation, and
+        # drop all Linux capabilities. (Read-only root FS is not set — the CLI
+        # writes to $HOME/.claude and clones repos to /workspace.)
         container = k8s.V1Container(
             name="runner",
             image=self.settings.runner_image,
@@ -116,6 +120,11 @@ class K8sJobLauncher(Launcher):
             ],
             resources=k8s.V1ResourceRequirements(
                 requests={"memory": "1Gi"}, limits={"memory": "3Gi"}
+            ),
+            security_context=k8s.V1SecurityContext(
+                allow_privilege_escalation=False,
+                run_as_non_root=True,
+                capabilities=k8s.V1Capabilities(drop=["ALL"]),
             ),
         )
         volumes = [
@@ -134,6 +143,9 @@ class K8sJobLauncher(Launcher):
             containers=[container],
             volumes=volumes,
             restart_policy="Never",
+            security_context=k8s.V1PodSecurityContext(
+                seccomp_profile=k8s.V1SeccompProfile(type="RuntimeDefault"),
+            ),
         )
         job_spec = k8s.V1JobSpec(
             template=k8s.V1PodTemplateSpec(spec=pod_spec),
