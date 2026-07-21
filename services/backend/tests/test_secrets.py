@@ -17,6 +17,23 @@ async def test_secret_lifecycle(admin_client, secret_store):
     assert rows["claude-credentials"]["status"] == "unprobed"
 
 
+async def test_verify_secret(admin_client, secret_store, monkeypatch):
+    import agentplatform.api.secrets as secrets_api
+    # not set → 404
+    assert (await admin_client.post("/api/secrets/discord-bot/verify")).status_code == 404
+    await secret_store.set("discord-bot", {"token": "abc"})
+    # a non-probeable secret → 422
+    await secret_store.set("claude-credentials", {"token": "x"})
+    assert (await admin_client.post("/api/secrets/claude-credentials/verify")).status_code == 422
+    # stub the HTTP check → valid, then invalid
+    monkeypatch.setattr(secrets_api, "_http_ok", lambda url, headers: True)
+    r = await admin_client.post("/api/secrets/discord-bot/verify")
+    assert r.status_code == 200 and r.json()["status"] == "valid"
+    monkeypatch.setattr(secrets_api, "_http_ok", lambda url, headers: False)
+    r = await admin_client.post("/api/secrets/discord-bot/verify")
+    assert r.json()["status"] == "invalid"
+
+
 async def test_can_add_arbitrary_secret_via_api(admin_client, secret_store):
     r = await admin_client.put("/api/secrets/discord-bot", json={"data": {"token": "abc123"}})
     assert r.status_code == 200

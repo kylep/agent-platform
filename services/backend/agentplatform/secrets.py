@@ -23,6 +23,24 @@ SECRET_HINTS: dict[str, dict[str, str]] = {
         "hint": "An SSH private deploy key with push access."},
 }
 
+# Secrets that can be validated with a cheap read-only API call. Returns the
+# (url, headers) to GET; a 2xx means the credential authenticates. (claude-
+# credentials is validated differently — via a run's success, in the recorder.)
+def secret_probe_target(name: str, data: dict[str, str]) -> tuple[str, dict[str, str]] | None:
+    if name == "discord-bot":
+        return "https://discord.com/api/v10/users/@me", {"Authorization": f"Bot {data.get('token', '')}"}
+    if name == "github-token":
+        tok = data.get("GITHUB_TOKEN") or data.get("token", "")
+        return "https://api.github.com/user", {"Authorization": f"Bearer {tok}", "User-Agent": "agent-platform"}
+    if name == "discord-webhook":
+        url = data.get("DISCORD_WEBHOOK_URL") or data.get("token", "")
+        return (url, {}) if url.startswith("http") else None
+    return None
+
+
+PROBEABLE_SECRETS = {"discord-bot", "github-token", "discord-webhook"}
+
+
 class SecretStore:
     async def set(self, name: str, data: dict[str, str]) -> None: raise NotImplementedError
     async def get(self, name: str) -> dict[str, str] | None: raise NotImplementedError
