@@ -6,7 +6,7 @@ from pathlib import Path
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 
-from agentplatform.api.auth import require_admin
+from agentplatform.api.auth import READ_ROLES, require_admin, require_role
 from agentplatform.db import Run
 from agentplatform.events import TOPIC_RUN_REQUESTS
 from agentplatform.github import GitHubClient
@@ -15,10 +15,13 @@ from agentplatform.gitservice import EditService, GitWriter
 
 log = logging.getLogger("agents-api")
 
-router = APIRouter(dependencies=[Depends(require_admin)])
+# Reads are open to any authenticated role (reader+); mutating routes below
+# guard themselves with require_admin. This lets an operator/reader key list and
+# inspect agents (SDK / platform skill) without granting edit rights.
+router = APIRouter()
 
 
-@router.get("/api/agents")
+@router.get("/api/agents", dependencies=[Depends(require_role(*READ_ROLES))])
 async def list_agents(request: Request):
     request.app.state.agent_store.reload()
     return [{"name": a.name, "description": a.manifest.description if a.manifest else "",
@@ -27,7 +30,7 @@ async def list_agents(request: Request):
              "schedule": a.manifest.schedule if a.manifest else ""}
             for a in request.app.state.agent_store.list()]
 
-@router.get("/api/agents/{name}")
+@router.get("/api/agents/{name}", dependencies=[Depends(require_role(*READ_ROLES))])
 async def get_agent(request: Request, name: str):
     a = request.app.state.agent_store.get(name)
     if a is None:
