@@ -11,6 +11,7 @@ from agentplatform.api import apikeys as apikeys_api
 from agentplatform.api import auth
 from agentplatform.api import dlq as dlq_api
 from agentplatform.api import health as health_api
+from agentplatform.api import maintenance as maintenance_api
 from agentplatform.api import memory as memory_api
 from agentplatform.api import metrics as metrics_api
 from agentplatform.api import pulls as pulls_api
@@ -102,6 +103,7 @@ def create_app(settings, session_factory, producer, secret_store=None, agent_sto
     app.include_router(apikeys_api.router)
     app.include_router(dlq_api.router)
     app.include_router(health_api.router)
+    app.include_router(maintenance_api.router)
     app.include_router(memory_api.router)
     app.include_router(metrics_api.router)
     app.include_router(pulls_api.router)

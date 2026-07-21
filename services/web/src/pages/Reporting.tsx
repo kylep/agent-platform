@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { api, type AgentMetrics, type KafkaHealth, type MetricsOverview } from "../api";
+import { api, type AgentMetrics, type KafkaHealth, type MetricsOverview, type Retention } from "../api";
 
 function pct(x: number | null): string {
   return x === null ? "—" : `${(x * 100).toFixed(0)}%`;
@@ -22,7 +22,10 @@ export default function Reporting() {
   const [ov, setOv] = useState<MetricsOverview | null>(null);
   const [agents, setAgents] = useState<AgentMetrics[]>([]);
   const [kafka, setKafka] = useState<KafkaHealth | null>(null);
+  const [retention, setRetention] = useState<Retention | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [pruning, setPruning] = useState(false);
+  const [pruneMsg, setPruneMsg] = useState<string | null>(null);
 
   useEffect(() => {
     Promise.all([
@@ -32,7 +35,21 @@ export default function Reporting() {
       .then(([o, a]) => { setOv(o); setAgents(a); })
       .catch((err) => setError(err instanceof Error ? err.message : "Failed to load metrics."));
     api<KafkaHealth>("/api/health/kafka").then(setKafka).catch(() => setKafka(null));
+    api<Retention>("/api/maintenance/retention").then(setRetention).catch(() => setRetention(null));
   }, []);
+
+  async function prune() {
+    setPruning(true);
+    setPruneMsg(null);
+    try {
+      const r = await api<{ deleted: number }>("/api/maintenance/prune-transcripts", { method: "POST" });
+      setPruneMsg(`Pruned ${r.deleted} transcript events.`);
+    } catch (err) {
+      setPruneMsg(err instanceof Error ? err.message : "Prune failed.");
+    } finally {
+      setPruning(false);
+    }
+  }
 
   return (
     <div className="page">
@@ -80,6 +97,17 @@ export default function Reporting() {
           {agents.length === 0 && <tr><td colSpan={7} className="muted">No runs yet.</td></tr>}
         </tbody>
       </table>
+
+      <h2>Transcript retention</h2>
+      <p className="muted">
+        Run metadata is kept forever; bulky transcript events are pruned after their agent's
+        retention (default {retention?.default_days ?? "—"} days, 0 = keep forever). Pruning runs
+        daily; you can also run it now.
+      </p>
+      <div className="row-actions">
+        <button onClick={prune} disabled={pruning}>{pruning ? "Pruning…" : "Prune transcripts now"}</button>
+        {pruneMsg && <span className="muted">{pruneMsg}</span>}
+      </div>
     </div>
   );
 }

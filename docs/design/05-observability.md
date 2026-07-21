@@ -31,8 +31,13 @@ that answers "is everything okay?"
       `failure_streak >= 3`, dlq depth, kafka lag/liveness), de-dupes against a
       remembered `alert-state`, and pings Discord on new breaches. (Delivery
       needs the `discord-webhook` secret set; detection/logic runs regardless.)
-- [ ] **Log retention** — transcript pruning policy with per-agent overrides —
-      next M05 slice.
+- [x] **Log retention** — `TranscriptPruner` deletes `run_transcript_events`
+      past their agent's retention (per-agent manifest
+      `transcript_retention_days` override, else the platform default; <= 0 keeps
+      forever), keeping Run metadata/summary/metrics. Runs daily in the
+      dispatcher's gather loop; `GET /api/maintenance/retention` shows the
+      effective per-agent windows and `POST /api/maintenance/prune-transcripts`
+      triggers it on demand (with a button on the Reporting page).
 
 ## Done when
 
