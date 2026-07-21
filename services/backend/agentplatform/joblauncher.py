@@ -3,7 +3,7 @@ import logging
 from kubernetes import client as k8s
 from kubernetes.client.rest import ApiException
 from agentplatform.agents import Manifest
-from agentplatform.apikeys import generate_token, hash_token, token_prefix
+from agentplatform.apikeys import generate_token, hash_token, revoke_run_keys, token_prefix
 from agentplatform.db import ACTIVE_STATES, ApiKey, Run, RunState, utcnow
 from agentplatform.dispatcher import Launcher
 from agentplatform.events import TOPIC_RUN_EVENTS
@@ -36,6 +36,17 @@ class K8sJobLauncher(Launcher):
                 await s.commit()
             self._system_tokens[agent] = token
         return self._system_tokens[agent]
+
+    async def _invoke_token(self, run: Run) -> str:
+        """Mint a per-run `operator` token so the agent can invoke other agents.
+        Tied to run.id: the run's chain depth bounds recursion, and the key is
+        revoked when the run terminates (revoke_run_keys)."""
+        token = generate_token()
+        async with self.sf() as s:
+            s.add(ApiKey(name=f"invoke:{run.agent}", role="operator", agent=run.agent,
+                         run_id=run.id, key_hash=hash_token(token), prefix=token_prefix(token)))
+            await s.commit()
+        return token
 
     def _is_self_edit(self, manifest: Manifest) -> bool:
         return (manifest.role == "coder" and self.github_app is not None
@@ -108,7 +119,14 @@ class K8sJobLauncher(Launcher):
         token = None
         if self._is_self_edit(manifest):
             token = await asyncio.to_thread(self.github_app.installation_token)
-        api_token = await self._system_token(run.agent) if (manifest.system and self.sf) else None
+        api_token = None
+        if self.sf:
+            if manifest.can_invoke:
+                # Operator-scoped, per-run token: can invoke other agents.
+                api_token = await self._invoke_token(run)
+            elif manifest.system:
+                # Narrow annotator token: read runs + annotate only.
+                api_token = await self._system_token(run.agent)
         job = self.build_job(run, manifest, self_edit_token=token, api_token=api_token)
         await asyncio.to_thread(self.batch.create_namespaced_job, self.settings.k8s_namespace, job)
 
@@ -154,6 +172,7 @@ class JobWatcher:
                 db_run.error = error
             if state not in ACTIVE_STATES:
                 db_run.finished_at = utcnow()
+                await revoke_run_keys(s, run_id)
             await s.commit()
         await self._event(run_id, state, error or "")
 

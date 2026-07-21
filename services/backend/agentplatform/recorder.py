@@ -2,6 +2,7 @@ import logging
 
 from sqlalchemy.exc import IntegrityError
 
+from agentplatform.apikeys import revoke_run_keys
 from agentplatform.db import ACTIVE_STATES, Run, RunState, SecretMeta, TranscriptEvent, utcnow
 from agentplatform.events import TOPIC_RUN_DLQ, TOPIC_RUN_EVENTS, TOPIC_RUN_TRANSCRIPT
 from agentplatform.secrets import CLAUDE_CREDENTIAL
@@ -76,6 +77,7 @@ class Recorder:
             if new_terminal:
                 if run.finished_at is None:
                     run.finished_at = utcnow()
+                await revoke_run_keys(s, run_id)
                 run.exit_code = value.get("exit_code")
                 detail = value.get("detail")
                 if detail:
@@ -96,6 +98,7 @@ class Recorder:
             run.state = RunState.DLQ
             if run.finished_at is None:
                 run.finished_at = utcnow()
+            await revoke_run_keys(s, run_id)
             error = value.get("error")
             if error:
                 run.error = error

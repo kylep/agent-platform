@@ -12,6 +12,9 @@ class Settings(BaseSettings):
     session_secret: str = "dev-insecure"
     global_concurrency: int = 3
     run_timeout_seconds: int = 1800
+    # Loop guard for agent-invokes-agent: a run whose depth would exceed this
+    # is rejected. depth 0 = human/schedule/webhook; each nested invoke +1.
+    max_run_chain_depth: int = 5
     # Self-hosting git target. git_remote_url is what the platform clones and
     # pushes to (a local bare repo in tests, the real repo over HTTPS in prod);
     # github_repo ("owner/name") is used for the PR API. Empty = self-edit off.

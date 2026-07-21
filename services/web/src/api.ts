@@ -45,6 +45,27 @@ export type RunDetailData = RunSummary & {
   tool_calls: number | null;
   started_at: string | null;
   finished_at: string | null;
+  parent_run_id: string | null;
+  depth: number;
+  requested_by: string;
+};
+
+export type DlqEntry = {
+  id: string;
+  agent: string;
+  trigger: string;
+  error: string | null;
+  created_at: string | null;
+  finished_at: string | null;
+};
+
+export type KafkaHealth = {
+  reachable: boolean;
+  topics: string[];
+  missing_topics: string[];
+  lag: number | null;
+  error: string | null;
+  backlog: { queued: number; active: number; dlq: number };
 };
 
 export type RunEvent = Record<string, unknown> & { type?: string; terminal?: boolean };

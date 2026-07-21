@@ -17,6 +17,10 @@ class Manifest(BaseModel):
     # System agents are platform-internal (e.g. the run summarizer): they get
     # API access injected and are protected from deletion in the UI.
     system: bool = False
+    # When set, the agent gets an operator-scoped, per-run API token injected so
+    # it can invoke other agents (agent-invokes-agent). Without it a system
+    # agent only gets the narrow `annotator` token (read runs + annotate).
+    can_invoke: bool = False
 
 class AgentInfo(BaseModel):
     name: str

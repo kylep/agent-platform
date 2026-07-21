@@ -19,3 +19,15 @@ def token_prefix(token: str) -> str:
     """First 11 chars (`ap_` + 8) — enough to identify a key in listings
     without revealing it."""
     return token[:11]
+
+
+async def revoke_run_keys(session, run_id: str) -> None:
+    """Revoke any per-run API tokens minted for `run_id`. Called when a run
+    reaches a terminal state so a finished run's (operator-scoped) token can no
+    longer invoke agents. Mutates rows in the caller's session; caller commits."""
+    from sqlalchemy import select
+    from agentplatform.db import ApiKey, utcnow
+    keys = (await session.execute(select(ApiKey).where(
+        ApiKey.run_id == run_id, ApiKey.revoked_at.is_(None)))).scalars().all()
+    for k in keys:
+        k.revoked_at = utcnow()

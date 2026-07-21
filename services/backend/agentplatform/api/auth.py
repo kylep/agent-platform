@@ -44,6 +44,11 @@ def validate_session_cookie(app, cookie: str | None) -> str | None:
 ROLES = ("reader", "annotator", "operator", "coder", "admin")
 READ_ROLES = ("reader", "annotator", "operator", "coder")
 ANNOTATE_ROLES = ("annotator", "operator", "coder")
+# Who may request a run (POST /api/runs) — humans (operator+) and agents whose
+# injected token is operator-scoped (agent-invokes-agent). `annotator` (the
+# default system-agent role) deliberately can't, so a prompt-injected summarizer
+# can't spawn runs.
+INVOKE_ROLES = ("operator", "coder", "admin")
 
 
 def role_allows(role: str | None, allowed: tuple[str, ...]) -> bool:
@@ -58,18 +63,22 @@ async def _lookup_role(request: Request, name: str) -> str | None:
         return p.role if p else None
 
 
-async def _lookup_api_key(request: Request, token: str) -> tuple[str, str] | None:
+async def _lookup_api_key(request: Request, token: str) -> ApiKey | None:
     async with request.app.state.session_factory() as s:
-        k = (await s.execute(select(ApiKey).where(
+        return (await s.execute(select(ApiKey).where(
             ApiKey.key_hash == hash_token(token),
             ApiKey.revoked_at.is_(None)))).scalar_one_or_none()
-        return (k.name, k.role) if k else None
 
 
 async def authenticate(request: Request) -> tuple[str, str] | None:
     """Resolve the caller to (principal_name, role), or None. A session cookie
     (interactive admin) is tried first, then an `Authorization: Bearer ap_...`
-    API key (non-interactive / agent-invokes-agent)."""
+    API key (non-interactive / agent-invokes-agent).
+
+    When the caller is a per-run API key, its `run_id` is stashed on
+    `request.state.api_key_run_id` so run creation can attribute the new run's
+    parent and enforce the chain-depth loop guard authoritatively (the caller
+    can't forge its own parent)."""
     name = validate_session_cookie(request.app, request.cookies.get("ap_session"))
     if name is not None:
         role = await _lookup_role(request, name)
@@ -79,7 +88,10 @@ async def authenticate(request: Request) -> tuple[str, str] | None:
     if header.startswith("Bearer "):
         token = header[len("Bearer "):].strip()
         if token:
-            return await _lookup_api_key(request, token)
+            k = await _lookup_api_key(request, token)
+            if k is not None:
+                request.state.api_key_run_id = k.run_id
+                return (k.name, k.role)
     return None
 
 
