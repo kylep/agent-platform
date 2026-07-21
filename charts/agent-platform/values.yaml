@@ -49,9 +49,11 @@ web:
     targetPort: 8080
 
 # Default-deny-ingress + per-component allowlists (see templates/networkpolicy.yaml).
-# k3s enforces NetworkPolicy via its embedded controller.
+# k3s enforces NetworkPolicy via its embedded controller. `egress` adds a
+# default-deny-egress stage (DNS + intra-namespace + external :443 allowlists).
 networkPolicy:
   enabled: true
+  egress: true
 
 # agents-sync keeps a PVC of the agent-definitions git repo up to date so the
 # api (read-only) and runner Jobs (spawned by the dispatcher, not by this
