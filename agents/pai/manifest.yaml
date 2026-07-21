@@ -1,0 +1,7 @@
+description: Conversational assistant that chats with people in Discord threads.
+role: operator
+# Opus for the best conversational quality (Kyle's pick). Chat turns are short,
+# so the cost is a handful of messages, not long agent runs.
+model: opus
+# Keep a turn snappy: a chat reply should not run for many minutes.
+timeout_seconds: 180
