@@ -1,0 +1,12 @@
+description: System agent that watches platform health and pings Discord on threshold breaches.
+role: operator
+concurrency: 1
+timeout_seconds: 300
+schedule: "*/15 * * * *"
+model: sonnet
+system: true
+# Remembers what it has already alerted on (dedup) across runs.
+memory: true
+# Posts alerts to a human channel.
+skills:
+  - discord
