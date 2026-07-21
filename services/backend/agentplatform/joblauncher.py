@@ -232,7 +232,8 @@ class JobWatcher:
 
     async def _event(self, run_id: str, state: str, detail: str = "") -> None:
         await self.producer.publish(
-            TOPIC_RUN_EVENTS, run_id, {"run_id": run_id, "type": "state", "state": state, "detail": detail}
+            TOPIC_RUN_EVENTS, run_id, {"run_id": run_id, "type": "state", "state": state, "detail": detail},
+            type="run.state"
         )
 
     async def _set_state(self, run_id: str, state: RunState, error: str | None = None) -> None:

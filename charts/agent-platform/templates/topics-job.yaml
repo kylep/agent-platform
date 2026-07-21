@@ -32,10 +32,21 @@ spec:
                 echo "kafka not ready yet, retrying ($i/30)"
                 sleep 5
               done
-              {{- range .Values.topics.names }}
+              {{- $rf := .Values.topics.replicationFactor }}
+              {{- range .Values.topics.specs }}
               /opt/bitnami/kafka/bin/kafka-topics.sh --create --if-not-exists \
                 --bootstrap-server "$BOOTSTRAP" \
-                --topic {{ . }} \
-                --partitions {{ $.Values.topics.partitions }} \
-                --replication-factor {{ $.Values.topics.replicationFactor }}
+                --topic {{ .name }} \
+                --partitions {{ .partitions }} \
+                --replication-factor {{ $rf }} \
+                --config retention.ms={{ .retentionMs }}
+              # Grow partitions on an existing topic (no-op / tolerated if already >=).
+              /opt/bitnami/kafka/bin/kafka-topics.sh --alter --if-exists \
+                --bootstrap-server "$BOOTSTRAP" \
+                --topic {{ .name }} --partitions {{ .partitions }} || true
+              # Reconcile retention on an existing topic.
+              /opt/bitnami/kafka/bin/kafka-configs.sh --alter \
+                --bootstrap-server "$BOOTSTRAP" \
+                --entity-type topics --entity-name {{ .name }} \
+                --add-config retention.ms={{ .retentionMs }} || true
               {{- end }}

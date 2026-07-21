@@ -1,10 +1,18 @@
-import asyncio, json, os, shutil, stat, subprocess, sys, tempfile
+import asyncio, json, os, shutil, stat, subprocess, sys, tempfile, uuid
 import urllib.error
 import urllib.request
+from datetime import datetime, timezone
 from pathlib import Path
 from aiokafka import AIOKafkaProducer
 
 TOPIC_TRANSCRIPT, TOPIC_EVENTS = "run.transcript", "run.events"
+SCHEMA_VERSION = 1
+
+def _envelope(type_: str, key: str, data: dict) -> dict:
+    # Must match agentplatform.events.Envelope so the recorder can unwrap.
+    return {"type": type_, "schema_version": SCHEMA_VERSION, "id": uuid.uuid4().hex,
+            "ts": datetime.now(timezone.utc).isoformat(), "key": key,
+            "source": "runner", "data": data}
 
 class KafkaProducerWrapper:
     # AIOKafkaProducer must be constructed inside a running event loop, so
@@ -13,11 +21,14 @@ class KafkaProducerWrapper:
         self._bootstrap = bootstrap
         self._p = None
     async def start(self):
-        self._p = AIOKafkaProducer(bootstrap_servers=self._bootstrap)
+        self._p = AIOKafkaProducer(bootstrap_servers=self._bootstrap,
+                                   enable_idempotence=True, acks="all",
+                                   compression_type="lz4")
         await self._p.start()
     async def stop(self): await self._p.stop()
-    async def publish(self, topic, key, value):
-        await self._p.send_and_wait(topic, json.dumps(value).encode(), key=key.encode())
+    async def publish(self, topic, key, value, type="run.transcript"):
+        env = _envelope(type, key, value)
+        await self._p.send_and_wait(topic, json.dumps(env).encode(), key=key.encode())
 
 def _install_credentials() -> dict:
     """Returns extra env for the claude subprocess. Preferred: a long-lived
@@ -210,7 +221,7 @@ async def _run(producer, run_id: str, agent: str, prompt: str) -> int:
                            {"seq": seq + 1, "type": "lifecycle", "terminal": True, "state": state})
     await producer.publish(TOPIC_EVENTS, run_id,
                            {"run_id": run_id, "type": "state", "state": state,
-                            "exit_code": rc, "terminal": True})
+                            "exit_code": rc, "terminal": True}, type="run.state")
     await producer.stop()
     return rc
 

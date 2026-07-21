@@ -9,12 +9,13 @@ runs.
 """
 import asyncio
 import logging
+import uuid
 from datetime import datetime, timezone
 
 from croniter import croniter
 
-from agentplatform.db import Run, Schedule, utcnow
-from agentplatform.events import TOPIC_RUN_REQUESTS
+from agentplatform.db import Schedule, utcnow
+from agentplatform.events import TOPIC_RUN_INBOUND
 
 log = logging.getLogger("scheduler")
 
@@ -59,18 +60,19 @@ class Scheduler:
                 return
             if not sched.enabled or now < as_utc(sched.next_fire):
                 return
-            run = Run(agent=name, trigger="schedule", requested_by="scheduler",
-                      prompt="Scheduled run.")
-            s.add(run)
+            run_id = uuid.uuid4().hex
             sched.last_fire = now
             sched.next_fire = next_fire(cron, now)  # from now → skip any missed fires
             await s.commit()
-            run_id = run.id
+        # Event-sourced: emit a run.requested event; the ingest consumer
+        # materializes the run.
         try:
-            await self.producer.publish(TOPIC_RUN_REQUESTS, run_id,
-                                        {"type": "run", "run_id": run_id})
+            await self.producer.publish(TOPIC_RUN_INBOUND, run_id, {
+                "run_id": run_id, "agent": name, "prompt": "Scheduled run.",
+                "trigger": "schedule", "requested_by": "scheduler",
+            }, type="run.requested")
         except Exception:
-            log.warning("publish failed for scheduled run %s; sweep will drain it", run_id)
+            log.warning("publish failed for scheduled run %s", run_id)
 
     async def run_forever(self, interval_seconds: int = 30) -> None:
         while True:

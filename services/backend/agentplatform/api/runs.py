@@ -1,4 +1,5 @@
 import logging
+import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel
@@ -7,6 +8,7 @@ from agentplatform.api.auth import (ANNOTATE_ROLES, INVOKE_ROLES, READ_ROLES,
                                      require_admin, require_role)
 from agentplatform.db import ACTIVE_STATES, Run, SecretAccess, TranscriptEvent
 from agentplatform.events import TOPIC_RUN_REQUESTS
+from agentplatform.materialize import materialize_run
 
 log = logging.getLogger("runs")
 
@@ -44,18 +46,15 @@ async def create_run(request: Request, body: RunIn,
             trigger, depth = "agent", (parent.depth or 0) + 1
             if depth > request.app.state.settings.max_run_chain_depth:
                 raise HTTPException(429, "run-chain depth limit exceeded")
-    run = Run(agent=body.agent, trigger=trigger, requested_by=principal, prompt=body.prompt,
-              parent_run_id=parent_run_id if trigger == "agent" else None, depth=depth)
-    async with request.app.state.session_factory() as s:
-        s.add(run); await s.commit()
-    try:
-        await request.app.state.producer.publish(TOPIC_RUN_REQUESTS, run.id,
-                                                 {"type": "run", "run_id": run.id})
-    except Exception:
-        # Row is committed; the dispatcher's queued-run sweep drains it once
-        # Kafka is reachable again. The run is accepted either way.
-        log.warning("publish failed for run %s; sweep will drain it", run.id)
-    return {"id": run.id, "state": run.state}
+    # Synchronous command: materialize the run now (DB-first) and return its id.
+    # (Async triggers — webhooks, schedules, connectors — go through run.inbound.)
+    run_id = uuid.uuid4().hex
+    await materialize_run(request.app.state.session_factory, request.app.state.producer, {
+        "run_id": run_id, "agent": body.agent, "prompt": body.prompt,
+        "trigger": trigger, "requested_by": principal,
+        "parent_run_id": parent_run_id if trigger == "agent" else None, "depth": depth,
+    })
+    return {"id": run_id, "state": "queued"}
 
 @router.get("/api/runs", dependencies=[Depends(require_role(*READ_ROLES))])
 async def list_runs(request: Request, limit: int = Query(50, ge=1, le=500),
@@ -125,5 +124,6 @@ async def kill_run(request: Request, run_id: str):
         if run is None: raise HTTPException(404)
         if run.state not in ACTIVE_STATES: raise HTTPException(409, "run is terminal")
     await request.app.state.producer.publish(TOPIC_RUN_REQUESTS, run_id,
-                                             {"type": "cancel", "run_id": run_id})
+                                             {"type": "cancel", "run_id": run_id},
+                                             type="run.request")
     return {"ok": True}

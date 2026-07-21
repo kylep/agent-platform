@@ -28,6 +28,8 @@ class Run(Base):
     # triggers); depth is the chain length, used as a loop guard.
     parent_run_id: Mapped[str | None] = mapped_column(String(32), nullable=True)
     depth: Mapped[int] = mapped_column(Integer, default=0)
+    # When this run is a turn in a conversation, the owning conversation id.
+    conversation_id: Mapped[str | None] = mapped_column(String(32), nullable=True, index=True)
     state: Mapped[str] = mapped_column(String(16), default=RunState.QUEUED)
     prompt: Mapped[str] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
@@ -41,6 +43,9 @@ class Run(Base):
     # Post-hoc metadata, set by the run-summarizer system agent (or an admin).
     summary: Mapped[str | None] = mapped_column(Text, nullable=True)
     tags: Mapped[list] = mapped_column(JSON, default=list)
+    # Final assistant reply text, captured by the recorder from the terminal
+    # `result` frame — used to build conversation history.
+    result: Mapped[str | None] = mapped_column(Text, nullable=True)
 
 class TranscriptEvent(Base):
     __tablename__ = "run_transcript_events"

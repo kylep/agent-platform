@@ -29,7 +29,8 @@ class Dispatcher:
 
     async def _event(self, run_id: str, state: str, detail: str = "") -> None:
         await self.producer.publish(TOPIC_RUN_EVENTS, run_id,
-            {"run_id": run_id, "type": "state", "state": state, "detail": detail})
+            {"run_id": run_id, "type": "state", "state": state, "detail": detail},
+            type="run.state")
 
     async def _set_state(self, run: Run, state: RunState, error: str | None = None) -> None:
         async with self.sf() as s:
@@ -70,30 +71,28 @@ class Dispatcher:
                            Run.state.in_([RunState.DISPATCHED, RunState.RUNNING])))).scalar_one()
         if busy >= self.settings.global_concurrency or agent_busy >= manifest.concurrency:
             await asyncio.sleep(5)
-            await self.producer.publish(TOPIC_RUN_REQUESTS, run_id, message)
+            await self.producer.publish(TOPIC_RUN_REQUESTS, run_id, message, type="run.request")
             return
         try:
             await self.launcher.launch(run, manifest)
         except Exception as e:
             await self._set_state(run, RunState.DLQ, str(e))
             await self.producer.publish(TOPIC_RUN_DLQ, run_id,
-                                        {"message": message, "error": str(e)})
+                                        {"message": message, "error": str(e)},
+                                        type="run.dlq")
             return
         await self._set_state(run, RunState.DISPATCHED)
 
     async def run_forever(self) -> None:
         from aiokafka import AIOKafkaConsumer
+        from agentplatform.events import consume_forever
         consumer = AIOKafkaConsumer(TOPIC_RUN_REQUESTS,
                                     bootstrap_servers=self.settings.kafka_bootstrap,
                                     group_id="dispatcher", enable_auto_commit=False)
         await consumer.start(); await self.producer.start()
         try:
-            async for msg in consumer:
-                try:
-                    await self.handle(json.loads(msg.value))
-                except Exception:
-                    log.exception("handle failed")
-                await consumer.commit()
+            await consume_forever(consumer, self.producer,
+                                  lambda msg, data: self.handle(data))
         finally:
             await consumer.stop(); await self.producer.stop()
 

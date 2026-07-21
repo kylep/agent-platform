@@ -11,8 +11,10 @@ log = logging.getLogger("recorder")
 
 
 class Recorder:
-    def __init__(self, session_factory):
+    def __init__(self, session_factory, producer=None):
         self.sf = session_factory
+        # Optional: publishes conversation.outbound when a conversation run ends.
+        self.producer = producer
 
     async def _probe_credential(self, s, status: str) -> None:
         """Record the observed validity of the Claude credential. This is the
