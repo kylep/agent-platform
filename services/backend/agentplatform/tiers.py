@@ -29,6 +29,11 @@ class FileChange:
     path: str                                   # repo-relative, e.g. agents/x/agent.md
     kind: str                                   # "added" | "modified" | "deleted"
     manifest_fields: frozenset[str] = field(default_factory=frozenset)  # for manifest.yaml edits
+    # For agent.md edits: True when the YAML frontmatter (name/description/tools)
+    # differs, not just the prompt body. The `tools:` line is a security
+    # boundary, so a frontmatter change is reviewable (Tier 2) even though a
+    # body-only prompt edit is not.
+    frontmatter_changed: bool = False
 
 
 def classify_tier(changes: list[FileChange]) -> int:
@@ -42,8 +47,9 @@ def classify_tier(changes: list[FileChange]) -> int:
         fname = parts[2]
         if fname == "agent.md":
             # Editing an existing agent's body is safe; adding (a new agent)
-            # or deleting one is not.
-            if c.kind != "modified":
+            # or deleting one is not — and neither is changing its frontmatter
+            # (name/description/tools), which is a capability boundary.
+            if c.kind != "modified" or c.frontmatter_changed:
                 return TIER_PR
         elif fname == "manifest.yaml":
             # Only in-place edits touching solely safe fields are direct.

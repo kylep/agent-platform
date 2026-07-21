@@ -18,6 +18,8 @@ from pydantic import BaseModel, ValidationError
 class Skill(BaseModel):
     name: str
     description: str = ""
+    # An optional emoji shown next to the skill in the UI (frontmatter `icon:`).
+    icon: str = ""
     # Secrets this skill needs; an agent using the skill gets these bound.
     secrets: list[str] = []
 

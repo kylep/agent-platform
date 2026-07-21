@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { api, type AgentDetail as AgentDetailData, type AgentMetrics, type ModelUsage } from "../api";
+import { api, type AgentDetail as AgentDetailData, type AgentMetrics, type EditResult, type ModelUsage } from "../api";
+import { SkillPicker, ToolPicker, useCapabilities } from "../components/CapabilityPickers";
 
 function AgentReport({ name }: { name: string }) {
   const [m, setM] = useState<AgentMetrics | null>(null);
@@ -48,15 +49,80 @@ function AgentReport({ name }: { name: string }) {
   );
 }
 
-// The Claude Code tools an agent may be granted (frontmatter `tools:`).
-const AVAILABLE_TOOLS = ["Bash", "Read", "Write", "Edit", "Glob", "Grep",
-  "WebSearch", "WebFetch", "Task", "TodoWrite", "NotebookEdit"];
-
-function parseTools(md: string): Set<string> {
-  const fm = md.split("---")[1] ?? "";  // frontmatter is between the first pair of ---
+// The tools an agent.md declares, or null when it has no `tools:` line (which
+// the CLI reads as "all tools"). Mirrors the backend parse_agent_tools.
+function parseTools(md: string): string[] | null {
+  const fm = md.split("---")[1] ?? "";
   const line = fm.split("\n").find((l) => /^\s*tools:/i.test(l));
-  if (!line) return new Set();
-  return new Set(line.replace(/^\s*tools:/i, "").split(/[,\s]+/).map((s) => s.trim()).filter(Boolean));
+  if (!line) return null;
+  return line.replace(/^\s*tools:/i, "").split(/[,\s]+/).map((s) => s.trim()).filter(Boolean);
+}
+
+// The editable Skills + Tools panel. Saving opens a PR via PATCH …/config.
+function CapabilityEditor({ agent }: { agent: AgentDetailData }) {
+  const { skills, tools, ready } = useCapabilities();
+  const [pickedSkills, setPickedSkills] = useState<Set<string>>(new Set(agent.manifest.skills));
+  const [pickedTools, setPickedTools] = useState<Set<string>>(new Set());
+  const [seeded, setSeeded] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [result, setResult] = useState<EditResult | null>(null);
+
+  // Once the tool catalog loads, seed the selection from the agent.md (no
+  // tools: line → all tools on).
+  if (ready && !seeded) {
+    const declared = parseTools(agent.agent_md);
+    setPickedTools(new Set(declared ?? tools));
+    setSeeded(true);
+  }
+
+  async function save() {
+    setSaving(true);
+    setError(null);
+    try {
+      const r = await api<EditResult>(`/api/agents/${encodeURIComponent(agent.name)}/config`, {
+        method: "PATCH",
+        body: JSON.stringify({ skills: [...pickedSkills], tools: [...pickedTools] }),
+      });
+      setResult(r);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to save.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <>
+      <h2>Skills</h2>
+      <p className="muted">Skills mount into the agent's pod and bind their required secrets.</p>
+      <SkillPicker skills={skills} selected={pickedSkills} onChange={setPickedSkills} />
+
+      <h2>Tools</h2>
+      <ToolPicker tools={tools} selected={pickedTools} onChange={setPickedTools} />
+
+      {result ? (
+        result.tier === 0 ? (
+          <div className="banner">No changes — the agent already matches this configuration.</div>
+        ) : (
+          <div className="banner">
+            Saved to branch <code>{result.branch}</code> as a pull request.
+            {result.pr && <> — <a href={result.pr.url} target="_blank" rel="noreferrer">PR #{result.pr.number}</a></>}
+            {" "}Review and merge it under <Link to="/changes">Changes</Link>.
+          </div>
+        )
+      ) : null}
+      {error && <div className="error">{error}</div>}
+      <div className="row-actions" style={{ marginTop: 12 }}>
+        <button onClick={save} disabled={saving || !ready}>
+          {saving ? "Saving…" : "Save skills & tools (opens PR)"}
+        </button>
+      </div>
+      <p className="muted check-note">
+        Changing skills or tools is review-gated: it always opens a pull request rather than editing <code>main</code> directly.
+      </p>
+    </>
+  );
 }
 
 export default function AgentDetail() {
@@ -120,8 +186,6 @@ export default function AgentDetail() {
   if (loadError) return <div className="page"><div className="error">{loadError}</div></div>;
   if (!agent) return null;
 
-  const agentTools = parseTools(agent.agent_md);
-
   return (
     <div className="page">
       <h1>{agent.name}</h1>
@@ -143,30 +207,21 @@ export default function AgentDetail() {
         <dd>{agent.manifest.concurrency}</dd>
         <dt>Timeout (s)</dt>
         <dd>{agent.manifest.timeout_seconds}</dd>
-        <dt>Skills</dt>
-        <dd>{agent.manifest.skills.length ? agent.manifest.skills.join(", ") : "—"}</dd>
         <dt>Secrets</dt>
         <dd>{agent.manifest.secrets.length ? agent.manifest.secrets.join(", ") : "—"}</dd>
       </dl>
 
-      <h2>Tools</h2>
-      <p className="muted">Tools this agent may use, declared in its definition. Change them by editing the agent below.</p>
-      <div className="tool-list">
-        {AVAILABLE_TOOLS.map((t) => {
-          const on = agentTools.has(t);
-          return <span key={t} className={on ? "tool tool-on" : "tool"}>{on ? "☑" : "☐"} {t}</span>;
-        })}
-      </div>
+      <CapabilityEditor agent={agent} />
 
       <h2>Agent definition</h2>
       <p className="muted">The live definition, synced from <code>main</code> — this is exactly what runs.</p>
       <pre className="agent-md">{agent.agent_md}</pre>
 
-      <h2>Edit this agent</h2>
+      <h2>Edit the prompt with platform-coder</h2>
       <p className="muted">
-        Describe a change in plain language. This edits the definition above — platform-coder
-        makes the change in the repo and opens a pull request (one per agent) that you review and
-        merge under <Link to="/changes">Changes</Link>. It does not change anything until you merge.
+        Describe a change in plain language. platform-coder makes the change in the repo and opens a
+        pull request (one per agent) that you review and merge under <Link to="/changes">Changes</Link>.
+        It does not change anything until you merge.
       </p>
       <textarea
         placeholder="e.g. Add a line telling the agent to always reply in English."

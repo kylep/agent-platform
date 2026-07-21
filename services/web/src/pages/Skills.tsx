@@ -41,12 +41,13 @@ export default function Skills() {
       {!loading && skills.length > 0 && (
         <table className="table">
           <thead>
-            <tr><th>Name</th><th>Description</th><th>Secrets</th><th>Used by</th></tr>
+            <tr><th></th><th>Name</th><th>Description</th><th>Secrets</th><th>Used by</th></tr>
           </thead>
           <tbody>
             {skills.map((s) => (
               <Fragment key={s.name}>
                 <tr>
+                  <td className="skill-icon">{s.icon || "🧩"}</td>
                   <td>
                     <button className="linkish" onClick={() => setOpen(open === s.name ? null : s.name)}>
                       {open === s.name ? "▾ " : "▸ "}{s.name}
@@ -67,7 +68,7 @@ export default function Skills() {
                   </td>
                 </tr>
                 {open === s.name && (
-                  <tr><td colSpan={4}><Body name={s.name} /></td></tr>
+                  <tr><td colSpan={5}><Body name={s.name} /></td></tr>
                 )}
               </Fragment>
             ))}

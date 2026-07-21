@@ -1,6 +1,7 @@
 ---
 name: agent-platform
 description: Operate the agent-platform (list/inspect agents, trigger and watch runs, browse memory) from any Claude session using a single ap_ API key. Use when the user wants to run a platform agent, check run status, or manage platform resources over its HTTP API.
+icon: 🤖
 ---
 # Operating the agent-platform
 

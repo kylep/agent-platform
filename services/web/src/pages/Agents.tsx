@@ -43,7 +43,10 @@ export default function Agents() {
 
   return (
     <div className="page">
-      <h1>Agents</h1>
+      <div className="page-header">
+        <h1>Agents</h1>
+        <Link to="/agents/new" className="button-link">+ New Agent</Link>
+      </div>
       {loading && <p className="muted">Loading…</p>}
       {error && <div className="error">{error}</div>}
       {!loading && !error && (

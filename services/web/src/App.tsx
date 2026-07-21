@@ -6,6 +6,7 @@ import Login from "./pages/Login";
 import Secrets from "./pages/Secrets";
 import Dashboard from "./pages/Dashboard";
 import Agents from "./pages/Agents";
+import NewAgent from "./pages/NewAgent";
 import AgentDetail from "./pages/AgentDetail";
 import Runs from "./pages/Runs";
 import RunDetail from "./pages/RunDetail";
@@ -28,6 +29,7 @@ export default function App() {
           <Route element={<Layout />}>
             <Route path="/" element={<Dashboard />} />
             <Route path="/agents" element={<Agents />} />
+            <Route path="/agents/new" element={<NewAgent />} />
             <Route path="/agents/:name" element={<AgentDetail />} />
             <Route path="/runs" element={<Runs />} />
             <Route path="/runs/:id" element={<RunDetail />} />
