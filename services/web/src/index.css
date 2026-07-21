@@ -550,3 +550,14 @@ select {
   padding: 8px 14px; color: var(--muted); cursor: pointer; font-size: 14px;
 }
 .tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+
+/* Pending-changes badge on the nav */
+.nav-link { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.nav-badge {
+  display: inline-flex; align-items: center; justify-content: center;
+  min-width: 19px; height: 19px; padding: 0 6px;
+  font-size: 11px; font-weight: 700; line-height: 1;
+  border-radius: 999px; background: var(--accent); color: #0b0c10;
+  box-shadow: 0 1px 6px rgba(0, 0, 0, 0.35);
+}
+.nav-link.active .nav-badge { box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.12); }
