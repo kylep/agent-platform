@@ -1,0 +1,14 @@
+description: Curates a morning news briefing and posts it to Discord #news as Pai.
+role: operator
+# Sonnet: multi's journalist ran on Sonnet — plenty for daily curation, and far
+# cheaper than Opus for a job that runs every day. Bump to opus if you want.
+model: sonnet
+# News gathering is several web searches + a couple of API calls; give it room.
+timeout_seconds: 600
+# Its dedup store (what it has already shared) AND — because it runs only on a
+# schedule, never on untrusted live chat — the elevated, unattended tool access
+# a scheduled job needs.
+memory: true
+# Reads + posts to #news via the bot token (posts as Pai).
+skills:
+  - discord-bot
