@@ -29,6 +29,7 @@ def test_build_job_hardens_security_context():
     sc = spec.containers[0].security_context
     assert sc.allow_privilege_escalation is False
     assert sc.run_as_non_root is True
+    assert sc.run_as_user == 1001 and sc.run_as_group == 1001
     assert sc.capabilities.drop == ["ALL"]
     assert spec.security_context.seccomp_profile.type == "RuntimeDefault"
 
