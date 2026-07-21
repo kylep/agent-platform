@@ -5,7 +5,7 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from agentplatform.api.auth import (ANNOTATE_ROLES, INVOKE_ROLES, READ_ROLES,
                                      require_admin, require_role)
-from agentplatform.db import ACTIVE_STATES, Run, TranscriptEvent
+from agentplatform.db import ACTIVE_STATES, Run, SecretAccess, TranscriptEvent
 from agentplatform.events import TOPIC_RUN_REQUESTS
 
 log = logging.getLogger("runs")
@@ -86,9 +86,11 @@ async def get_run(request: Request, run_id: str):
         run = await s.get(Run, run_id)
         if run is None: raise HTTPException(404)
         d = _summary(run)
+        granted = (await s.execute(select(SecretAccess.secret)
+                   .where(SecretAccess.run_id == run_id))).scalars().all()
         d.update({"prompt": run.prompt, "exit_code": run.exit_code, "error": run.error,
                   "tokens_in": run.tokens_in, "tokens_out": run.tokens_out,
-                  "tool_calls": run.tool_calls,
+                  "tool_calls": run.tool_calls, "secrets_granted": sorted(set(granted)),
                   "parent_run_id": run.parent_run_id, "depth": run.depth or 0,
                   "requested_by": run.requested_by,
                   "started_at": run.started_at.isoformat() if run.started_at else None,

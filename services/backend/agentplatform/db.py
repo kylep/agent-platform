@@ -61,6 +61,17 @@ class Memory(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
 
+class SecretAccess(Base):
+    """Audit trail: which k8s secrets a run's pod was granted at launch (the
+    base claude credential + the union of its manifest/skill secrets). One row
+    per (run, secret)."""
+    __tablename__ = "secret_access"
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=lambda: uuid.uuid4().hex)
+    run_id: Mapped[str] = mapped_column(String(32), index=True)
+    agent: Mapped[str] = mapped_column(String(128))
+    secret: Mapped[str] = mapped_column(String(128))
+    granted_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
 class Principal(Base):
     __tablename__ = "principals"
     id: Mapped[str] = mapped_column(String(32), primary_key=True, default=lambda: uuid.uuid4().hex)

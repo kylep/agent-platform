@@ -4,7 +4,7 @@ from kubernetes import client as k8s
 from kubernetes.client.rest import ApiException
 from agentplatform.agents import Manifest
 from agentplatform.apikeys import generate_token, hash_token, revoke_run_keys, token_prefix
-from agentplatform.db import ACTIVE_STATES, ApiKey, Run, RunState, utcnow
+from agentplatform.db import ACTIVE_STATES, ApiKey, Run, RunState, SecretAccess, utcnow
 from agentplatform.dispatcher import Launcher
 from agentplatform.events import TOPIC_RUN_EVENTS
 
@@ -178,7 +178,23 @@ class K8sJobLauncher(Launcher):
                 # Narrow annotator token: read runs + annotate only.
                 api_token = await self._system_token(run.agent)
         job = self.build_job(run, manifest, self_edit_token=token, api_token=api_token)
+        await self._audit_secret_access(run, manifest)
         await asyncio.to_thread(self.batch.create_namespaced_job, self.settings.k8s_namespace, job)
+
+    async def _audit_secret_access(self, run: Run, manifest: Manifest) -> None:
+        """Record the k8s secrets this run's pod is granted: the base claude
+        credential (mounted into every runner) plus the bound manifest/skill
+        secrets. Best-effort — auditing must never block a launch."""
+        if self.sf is None:
+            return
+        granted = ["claude-credentials", *self.bound_secrets(manifest)]
+        try:
+            async with self.sf() as s:
+                for secret in granted:
+                    s.add(SecretAccess(run_id=run.id, agent=run.agent, secret=secret))
+                await s.commit()
+        except Exception:
+            log.exception("secret-access audit failed for run %s", run.id)
 
     async def cancel(self, run_id: str) -> None:
         name = f"run-{run_id[:12]}"

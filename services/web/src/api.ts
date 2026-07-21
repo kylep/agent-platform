@@ -48,6 +48,7 @@ export type RunDetailData = RunSummary & {
   parent_run_id: string | null;
   depth: number;
   requested_by: string;
+  secrets_granted: string[];
 };
 
 export type DlqEntry = {
