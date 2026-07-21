@@ -13,16 +13,19 @@ from agentplatform.secrets import (PROBEABLE_SECRETS, REQUIRED_SECRETS, SECRET_H
 router = APIRouter()
 
 
-def _http_ok(url: str, headers: dict) -> bool:
-    """GET the url; True on a 2xx (the credential authenticates)."""
+def _http_probe(url: str, headers: dict) -> tuple[int | None, str]:
+    """GET the url; return (http_status, detail). status is None on a network
+    error (couldn't reach the host at all)."""
     try:
         req = urllib.request.Request(url, headers=headers)
         with urllib.request.urlopen(req, timeout=8) as r:
-            return 200 <= r.status < 300
-    except urllib.error.HTTPError:
-        return False
-    except Exception:
-        return False
+            return r.status, "ok"
+    except urllib.error.HTTPError as e:
+        return e.code, (e.reason or "")
+    except urllib.error.URLError as e:
+        return None, f"unreachable: {e.reason}"
+    except Exception as e:
+        return None, f"error: {e}"
 
 class SecretIn(BaseModel):
     data: dict[str, str]
@@ -72,13 +75,13 @@ async def verify_secret(request: Request, name: str):
     target = secret_probe_target(name, data)
     if target is None:
         raise HTTPException(422, "this secret has no probe")
-    ok = await asyncio.to_thread(_http_ok, target[0], target[1])
-    status = "valid" if ok else "invalid"
+    code, detail = await asyncio.to_thread(_http_probe, target[0], target[1])
+    status = "valid" if (code is not None and 200 <= code < 300) else "invalid"
     async with request.app.state.session_factory() as s:
         meta = await s.get(SecretMeta, name) or SecretMeta(name=name)
         meta.status = status
         s.add(meta); await s.commit()
-    return {"name": name, "status": status}
+    return {"name": name, "status": status, "code": code, "detail": detail}
 
 
 @router.put("/api/secrets/{name}", dependencies=[Depends(require_admin)])

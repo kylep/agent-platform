@@ -25,13 +25,13 @@ async def test_verify_secret(admin_client, secret_store, monkeypatch):
     # a non-probeable secret → 422
     await secret_store.set("claude-credentials", {"token": "x"})
     assert (await admin_client.post("/api/secrets/claude-credentials/verify")).status_code == 422
-    # stub the HTTP check → valid, then invalid
-    monkeypatch.setattr(secrets_api, "_http_ok", lambda url, headers: True)
+    # stub the HTTP probe → valid (200), then invalid (401 surfaced)
+    monkeypatch.setattr(secrets_api, "_http_probe", lambda url, headers: (200, "ok"))
     r = await admin_client.post("/api/secrets/discord-bot/verify")
-    assert r.status_code == 200 and r.json()["status"] == "valid"
-    monkeypatch.setattr(secrets_api, "_http_ok", lambda url, headers: False)
+    assert r.status_code == 200 and r.json()["status"] == "valid" and r.json()["code"] == 200
+    monkeypatch.setattr(secrets_api, "_http_probe", lambda url, headers: (401, "Unauthorized"))
     r = await admin_client.post("/api/secrets/discord-bot/verify")
-    assert r.json()["status"] == "invalid"
+    assert r.json()["status"] == "invalid" and r.json()["code"] == 401
 
 
 async def test_can_add_arbitrary_secret_via_api(admin_client, secret_store):

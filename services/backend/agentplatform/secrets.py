@@ -27,18 +27,21 @@ SECRET_HINTS: dict[str, dict[str, str]] = {
 # (url, headers) to GET; a 2xx means the credential authenticates. (claude-
 # credentials is validated differently — via a run's success, in the recorder.)
 def secret_probe_target(name: str, data: dict[str, str]) -> tuple[str, dict[str, str]] | None:
+    # Discord's API is behind Cloudflare, which 403s requests lacking a real
+    # User-Agent (urllib's default is blocked) — so every Discord probe sets one.
+    _UA = "DiscordBot (https://github.com/kylep/agent-platform, 1.0)"
     if name == "discord-bot":
         tok = data.get("token", "").strip()
         # Tolerate a pasted "Bot " prefix (the header adds its own).
         if tok.lower().startswith("bot "):
             tok = tok[4:].strip()
-        return "https://discord.com/api/v10/users/@me", {"Authorization": f"Bot {tok}"}
+        return "https://discord.com/api/v10/users/@me", {"Authorization": f"Bot {tok}", "User-Agent": _UA}
     if name == "github-token":
         tok = data.get("GITHUB_TOKEN") or data.get("token", "")
         return "https://api.github.com/user", {"Authorization": f"Bearer {tok}", "User-Agent": "agent-platform"}
     if name == "discord-webhook":
         url = data.get("DISCORD_WEBHOOK_URL") or data.get("token", "")
-        return (url, {}) if url.startswith("http") else None
+        return (url, {"User-Agent": _UA}) if url.startswith("http") else None
     return None
 
 

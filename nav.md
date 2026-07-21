@@ -1,0 +1,132 @@
+- generic [ref=f19e4]:
+  - navigation [ref=f19e5]:
+    - generic [ref=f19e6]: Agent Platform
+    - link "Dashboard" [ref=f19e7] [cursor=pointer]:
+      - /url: /
+    - link "Reporting" [ref=f19e9] [cursor=pointer]:
+      - /url: /reporting
+    - link "Agents" [ref=f19e11] [cursor=pointer]:
+      - /url: /agents
+    - link "Skills" [ref=f19e13] [cursor=pointer]:
+      - /url: /skills
+    - link "Runs" [ref=f19e15] [cursor=pointer]:
+      - /url: /runs
+    - link "Conversations" [ref=f19e17] [cursor=pointer]:
+      - /url: /conversations
+    - link "Memories" [ref=f19e19] [cursor=pointer]:
+      - /url: /memories
+    - link "Schedules" [ref=f19e21] [cursor=pointer]:
+      - /url: /schedules
+    - link "Changes 1" [ref=f19e23] [cursor=pointer]:
+      - /url: /changes
+      - generic [ref=f19e24]: Changes
+      - generic [ref=f19e25]: "1"
+    - link "DLQ" [ref=f19e26] [cursor=pointer]:
+      - /url: /dlq
+    - link "Secrets" [ref=f19e28] [cursor=pointer]:
+      - /url: /secrets
+    - link "Settings" [ref=f19e30] [cursor=pointer]:
+      - /url: /settings
+  - main [ref=f19e32]:
+    - generic [ref=f19e33]:
+      - heading "Dashboard" [level=1] [ref=f19e34]
+      - generic [ref=f19e35]:
+        - link "Agents" [ref=f19e36] [cursor=pointer]:
+          - /url: /agents
+        - link "Runs" [ref=f19e37] [cursor=pointer]:
+          - /url: /runs
+        - link "Secrets" [ref=f19e38] [cursor=pointer]:
+          - /url: /secrets
+      - heading "Kafka health" [level=2] [ref=f19e39]
+      - generic [ref=f19e40]:
+        - generic [ref=f19e41]: "broker: reachable"
+        - generic [ref=f19e42]: "queued: 0"
+        - generic [ref=f19e43]: "active: 1"
+        - 'link "dlq: 0" [ref=f19e44] [cursor=pointer]':
+          - /url: /dlq
+        - generic [ref=f19e45]: "dispatcher lag: 0"
+      - heading "Secrets" [level=2] [ref=f19e46]
+      - generic [ref=f19e47]:
+        - generic [ref=f19e48]: "claude-credentials: valid"
+        - generic [ref=f19e49]: "discord-bot: invalid"
+        - generic [ref=f19e50]: "discord-webhook: missing"
+        - generic [ref=f19e51]: "github-token: missing"
+      - heading "Recent runs" [level=2] [ref=f19e52]
+      - table [ref=f19e53]:
+        - rowgroup [ref=f19e54]:
+          - row [ref=f19e55]:
+            - columnheader "ID" [ref=f19e56]
+            - columnheader "Agent" [ref=f19e57]
+            - columnheader "State" [ref=f19e58]
+            - columnheader "Created" [ref=f19e59]
+        - rowgroup [ref=f19e60]:
+          - row [ref=f19e61]:
+            - cell [ref=f19e62]:
+              - link "4f9ccba2" [ref=f19e63] [cursor=pointer]:
+                - /url: /runs/4f9ccba2a64c4ceca394ed0ca91aea1c
+            - cell "health-monitor" [ref=f19e64]
+            - cell "dispatched" [ref=f19e65]
+            - cell "7/21/2026, 10:15:11 AM" [ref=f19e66]
+          - row [ref=f19e67]:
+            - cell [ref=f19e68]:
+              - link "d9d4a2cd" [ref=f19e69] [cursor=pointer]:
+                - /url: /runs/d9d4a2cd40ef4c01b4c5e4af68a5c169
+            - cell "platform-coder" [ref=f19e70]
+            - cell "succeeded" [ref=f19e71]
+            - cell "7/21/2026, 10:14:34 AM" [ref=f19e72]
+          - row [ref=f19e73]:
+            - cell [ref=f19e74]:
+              - link "52cec95d" [ref=f19e75] [cursor=pointer]:
+                - /url: /runs/52cec95d13e848a28f9e7f6eb84b5791
+            - cell "run-summarizer" [ref=f19e76]
+            - cell "succeeded" [ref=f19e77]
+            - cell "7/21/2026, 10:00:10 AM" [ref=f19e78]
+          - row [ref=f19e79]:
+            - cell [ref=f19e80]:
+              - link "6f218762" [ref=f19e81] [cursor=pointer]:
+                - /url: /runs/6f218762749b4b9cb7d9d02c4daa02ec
+            - cell "health-monitor" [ref=f19e82]
+            - cell "succeeded" [ref=f19e83]
+            - cell "7/21/2026, 10:00:10 AM" [ref=f19e84]
+          - row [ref=f19e85]:
+            - cell [ref=f19e86]:
+              - link "2c566516" [ref=f19e87] [cursor=pointer]:
+                - /url: /runs/2c566516f57d49d297d8f2b3af50367f
+            - cell "health-monitor" [ref=f19e88]
+            - cell "succeeded" [ref=f19e89]
+            - cell "7/21/2026, 9:45:09 AM" [ref=f19e90]
+          - row [ref=f19e91]:
+            - cell [ref=f19e92]:
+              - link "18d91b16" [ref=f19e93] [cursor=pointer]:
+                - /url: /runs/18d91b1638c84b5bad7ec3a3892a716c
+            - cell "health-monitor" [ref=f19e94]
+            - cell "succeeded" [ref=f19e95]
+            - cell "7/21/2026, 9:30:08 AM" [ref=f19e96]
+          - row [ref=f19e97]:
+            - cell [ref=f19e98]:
+              - link "bcf1ab06" [ref=f19e99] [cursor=pointer]:
+                - /url: /runs/bcf1ab06599749cd8921e9e82d04d56f
+            - cell "health-monitor" [ref=f19e100]
+            - cell "succeeded" [ref=f19e101]
+            - cell "7/21/2026, 9:15:07 AM" [ref=f19e102]
+          - row [ref=f19e103]:
+            - cell [ref=f19e104]:
+              - link "7c809021" [ref=f19e105] [cursor=pointer]:
+                - /url: /runs/7c809021204a4194b135febc8a0b2846
+            - cell "echo" [ref=f19e106]
+            - cell "succeeded" [ref=f19e107]
+            - cell "7/21/2026, 9:08:49 AM" [ref=f19e108]
+          - row [ref=f19e109]:
+            - cell [ref=f19e110]:
+              - link "d5a315f5" [ref=f19e111] [cursor=pointer]:
+                - /url: /runs/d5a315f5ca244897a2cb89ba928f2a6d
+            - cell "run-summarizer" [ref=f19e112]
+            - cell "succeeded" [ref=f19e113]
+            - cell "7/21/2026, 9:00:06 AM" [ref=f19e114]
+          - row [ref=f19e115]:
+            - cell [ref=f19e116]:
+              - link "666abe06" [ref=f19e117] [cursor=pointer]:
+                - /url: /runs/666abe06a5ba435a99f209b7fe6581d2
+            - cell "health-monitor" [ref=f19e118]
+            - cell "succeeded" [ref=f19e119]
+            - cell "7/21/2026, 9:00:06 AM" [ref=f19e120]
