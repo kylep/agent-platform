@@ -15,27 +15,39 @@ router = APIRouter()
 async def _dispatcher_lag(bootstrap: str) -> int | None:
     """Best-effort consumer lag for the dispatcher group on run.requests:
     end offsets minus the group's committed offsets. Returns None if it can't
-    be determined (fuller lag metrics land with observability in M05)."""
+    be determined (fuller lag metrics land with observability in M05).
+
+    aiokafka's consumer teardown can surface a spurious CancelledError from its
+    background coordinator task — a BaseException, not Exception — so cleanup is
+    suppressed and the whole probe is guarded by the caller."""
+    import contextlib
+
     from aiokafka import AIOKafkaConsumer, TopicPartition
     from aiokafka.admin import AIOKafkaAdminClient
+
+    # Partitions + the group's committed offsets come from the admin client
+    # (authoritative; the consumer's metadata cache is empty right after start).
+    admin = AIOKafkaAdminClient(bootstrap_servers=bootstrap)
+    await admin.start()
+    try:
+        desc = await admin.describe_topics([TOPIC_RUN_REQUESTS])
+        part_ids = [p["partition"] for p in (desc[0].get("partitions") if desc else [])]
+        committed = await admin.list_consumer_group_offsets("dispatcher")
+    finally:
+        with contextlib.suppress(BaseException):
+            await admin.close()
+
+    if not part_ids:
+        return None
+    tps = [TopicPartition(TOPIC_RUN_REQUESTS, pid) for pid in part_ids]
 
     consumer = AIOKafkaConsumer(bootstrap_servers=bootstrap, enable_auto_commit=False)
     await consumer.start()
     try:
-        parts = consumer.partitions_for_topic(TOPIC_RUN_REQUESTS)
-        if not parts:
-            return None
-        tps = [TopicPartition(TOPIC_RUN_REQUESTS, p) for p in parts]
         end = await consumer.end_offsets(tps)
     finally:
-        await consumer.stop()
-
-    admin = AIOKafkaAdminClient(bootstrap_servers=bootstrap)
-    await admin.start()
-    try:
-        committed = await admin.list_consumer_group_offsets("dispatcher")
-    finally:
-        await admin.close()
+        with contextlib.suppress(BaseException):
+            await consumer.stop()
 
     total = 0
     for tp in tps:
@@ -75,7 +87,7 @@ async def kafka_health(request: Request):
             result["missing_topics"] = [t for t in ALL_TOPICS if t not in topics]
             try:
                 result["lag"] = await _dispatcher_lag(bootstrap)
-            except Exception as e:
+            except BaseException as e:  # aiokafka teardown can raise CancelledError
                 log.warning("dispatcher lag probe failed: %s", e)
         finally:
             await admin.close()
