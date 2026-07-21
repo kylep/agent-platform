@@ -49,26 +49,27 @@ of a JSON 404. Fix during a web-tier hardening pass.
 
 ## Progress (2026-07-20)
 
-Done (safe, no-helm slices):
+Done + verified live:
 - [x] **Runner pod securityContext** — runner Jobs run `runAsNonRoot`,
       `allowPrivilegeEscalation=false`, drop ALL capabilities, seccomp
-      `RuntimeDefault` (set in `joblauncher.build_job`, no helm needed). Verified
-      live: runs still succeed with the tightened context.
+      `RuntimeDefault` (set in `joblauncher.build_job`). Runs still succeed.
+- [x] **Platform-service securityContext + declarative reconverge** — api/
+      dispatcher/recorder run non-root (numeric uid/gid 65534), drop ALL caps,
+      no-priv-escalation, seccomp; web/nginx gets no-priv-escalation + seccomp
+      (caps kept — nginx needs SETUID/SETGID/CHOWN). Applied via `helm upgrade`
+      (release rev 4), ending the imperative `kubectl set env` drift — **helm is
+      now the source of truth**; all config/infra changes go through the chart.
+- [x] **Secret-access audit log** — `secret_access` table records the k8s
+      secrets each run's pod is granted at launch; `GET /api/audit/secret-access`
+      (admin, filterable) + `secrets_granted` on the run detail.
 - [x] **Supply-chain scanning in CI** — report-only `security-scan` job: Trivy
-      fs (vuln/secret/misconfig) + Semgrep (python/typescript/secrets).
+      fs (pinned @SHA) + Semgrep (pinned), least-privilege `permissions`.
 
-Blocked on Kyle (decisions or risky helm ops — noted for a supervised pass):
-- [ ] **Network policy** (default-deny + egress allowlists) — chart change +
-      helm upgrade; can sever pod↔kafka/postgres/k8s-API connectivity, so needs
-      a supervised rollout.
-- [ ] **Platform-service securityContext** (api/dispatcher/recorder/web) — chart
-      change; `helm upgrade` on this cluster can wedge and would revert the
-      imperative env drift (AP_SKILLS_ROOT etc.) — reconcile with Kyle present.
-- [ ] **Secret rotation + audit log** — rotation is largely supported (set
-      overwrites + `updated_at`); the per-run secret-access audit log is the
-      real remaining feature.
+Blocked on Kyle (accounts/decisions or supervised rollout):
+- [ ] **Network policy** (default-deny + egress allowlists) — can sever pod↔
+      kafka/postgres/k8s-API; apply with Kyle present to test connectivity after.
 - [ ] **External exposure** (Cloudflare tunnel + rate limits) — needs Kyle's
-      Cloudflare account/decisions.
+      Cloudflare account.
 - [ ] **Backup/DR** (postgres backups off-box + restore drill) — needs Kyle to
       pick the backup target/credentials.
 
