@@ -531,3 +531,5 @@ select {
 }
 .convo-compose { display: flex; gap: 8px; margin-top: 10px; }
 .convo-compose textarea { flex: 1; }
+
+.secret-key { width: 160px; }
