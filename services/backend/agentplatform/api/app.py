@@ -18,6 +18,7 @@ from agentplatform.api import maintenance as maintenance_api
 from agentplatform.api import memory as memory_api
 from agentplatform.api import metrics as metrics_api
 from agentplatform.api import pulls as pulls_api
+from agentplatform.api import jobs as jobs_api
 from agentplatform.api import schedules as schedules_api
 from agentplatform.api import webhooks as webhooks_api
 from agentplatform.api import runs as runs_api
@@ -118,6 +119,7 @@ def create_app(settings, session_factory, producer, secret_store=None, agent_sto
     app.include_router(metrics_api.router)
     app.include_router(pulls_api.router)
     app.include_router(schedules_api.router)
+    app.include_router(jobs_api.router)
     app.include_router(webhooks_api.router)
     app.include_router(secrets_api.router)
     app.include_router(agents_api.router)

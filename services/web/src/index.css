@@ -595,3 +595,6 @@ select {
 .check-icon { font-size: 16px; }
 .check-name { font-family: ui-monospace, Consolas, monospace; }
 .check-note { font-size: 12px; margin-top: 2px; }
+
+/* Cron cells: hint that hovering reveals the plain-English schedule */
+.cron { cursor: help; border-bottom: 1px dotted var(--muted); }
