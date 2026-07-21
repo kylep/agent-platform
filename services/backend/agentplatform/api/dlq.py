@@ -45,7 +45,8 @@ async def retry_dlq(request: Request, run_id: str):
         await s.commit()
     try:
         await request.app.state.producer.publish(TOPIC_RUN_REQUESTS, run_id,
-                                                 {"type": "run", "run_id": run_id})
+                                                 {"type": "run", "run_id": run_id},
+                                                 type="run.request")
     except Exception:
         log.warning("publish failed for retried run %s; sweep will drain it", run_id)
     return {"ok": True, "id": run_id, "state": RunState.QUEUED}

@@ -1,12 +1,12 @@
 import asyncio
-import json
 import logging
 
 from aiokafka import AIOKafkaConsumer
 
 from agentplatform.config import get_settings
 from agentplatform.db import init_db, make_engine, make_session_factory
-from agentplatform.events import TOPIC_RUN_DLQ, TOPIC_RUN_EVENTS, TOPIC_RUN_TRANSCRIPT
+from agentplatform.events import (Producer, TOPIC_RUN_DLQ, TOPIC_RUN_EVENTS,
+                                  TOPIC_RUN_TRANSCRIPT, consume_forever)
 from agentplatform.recorder import Recorder
 
 log = logging.getLogger("recorder_main")
@@ -20,7 +20,10 @@ async def main() -> None:
     await init_db(engine)
     session_factory = make_session_factory(engine)
 
-    recorder = Recorder(session_factory)
+    # A producer for the conversation-outbound projector and dead-lettering.
+    producer = Producer(settings.kafka_bootstrap, source="recorder")
+    await producer.start()
+    recorder = Recorder(session_factory, producer)
 
     consumer = AIOKafkaConsumer(
         TOPIC_RUN_EVENTS, TOPIC_RUN_TRANSCRIPT, TOPIC_RUN_DLQ,
@@ -29,14 +32,11 @@ async def main() -> None:
     )
     await consumer.start()
     try:
-        async for msg in consumer:
-            try:
-                await recorder.handle(msg.topic, msg.key.decode(), json.loads(msg.value))
-            except Exception:
-                log.exception("handle failed")
-            await consumer.commit()
+        await consume_forever(consumer, producer,
+                              lambda msg, data: recorder.handle(msg.topic, msg.key.decode() if msg.key else "", data))
     finally:
         await consumer.stop()
+        await producer.stop()
         await engine.dispose()
 
 

@@ -1,5 +1,4 @@
-from agentplatform.db import Run
-from sqlalchemy import select
+from agentplatform.events import TOPIC_RUN_INBOUND
 
 
 async def _mint(client, role):
@@ -12,17 +11,21 @@ async def test_webhook_requires_auth(client):
     assert (await client.post("/api/webhooks/hello-world", json={"x": 1})).status_code == 401
 
 
-async def test_webhook_with_operator_key_creates_run(admin_client, sf):
+async def test_webhook_with_operator_key_emits_inbound(admin_client, producer):
     token = await _mint(admin_client, "operator")
     admin_client.cookies.clear()  # only the bearer key authenticates now
     r = await admin_client.post("/api/webhooks/hello-world",
                                 headers={"Authorization": f"Bearer {token}"},
                                 json={"event": "push", "ref": "main"})
     assert r.status_code == 202
-    async with sf() as s:
-        run = (await s.execute(select(Run))).scalars().one()
-    assert run.agent == "hello-world" and run.trigger == "webhook"
-    assert "push" in run.prompt and "webhook" in run.prompt.lower()
+    rid = r.json()["id"]
+    # Event-sourced: produced to run.inbound (no synchronous Run row); the
+    # ingest consumer materializes it.
+    inbound = [p for p in producer.published if p[0] == TOPIC_RUN_INBOUND]
+    assert len(inbound) == 1
+    _, key, data = inbound[0]
+    assert key == rid and data["agent"] == "hello-world" and data["trigger"] == "webhook"
+    assert "push" in data["prompt"] and "webhook" in data["prompt"].lower()
 
 
 async def test_webhook_reader_key_forbidden(admin_client):

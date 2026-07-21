@@ -85,14 +85,19 @@ env:
   AP_DEFAULT_BRANCH: "main"
 
 # Kafka topics created by the post-install/post-upgrade topics-job hook.
+# Per-topic partitions + retention (event bus, see agentplatform/events.py).
+# RF=1 everywhere (single broker); documented durability limit.
 topics:
-  names:
-    - run.requests
-    - run.events
-    - run.transcript
-    - run.dlq
-  partitions: 1
   replicationFactor: 1
+  specs:
+    - {name: run.inbound, partitions: 6, retentionMs: 3600000}       # 1h
+    - {name: run.requests, partitions: 6, retentionMs: 3600000}      # 1h
+    - {name: run.events, partitions: 6, retentionMs: 3600000}        # 1h
+    - {name: run.transcript, partitions: 6, retentionMs: 3600000}    # 1h (in DB)
+    - {name: run.dlq, partitions: 1, retentionMs: 604800000}         # 7d
+    - {name: conversation.inbound, partitions: 6, retentionMs: 86400000}   # 24h
+    - {name: conversation.outbound, partitions: 6, retentionMs: 86400000}  # 24h
+    - {name: dead.letter, partitions: 1, retentionMs: 604800000}     # 7d
   # Hand-pinned to match the kafka.image.tag the bitnami/kafka subchart
   # (Chart.yaml dependency) currently pulls in via its appVersion. This can
   # drift: when Chart.yaml bumps the kafka dependency version, re-check

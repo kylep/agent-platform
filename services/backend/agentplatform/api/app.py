@@ -35,6 +35,7 @@ def kafka_consumer_factory(settings):
         from aiokafka import AIOKafkaConsumer
         from agentplatform.events import TOPIC_RUN_EVENTS, TOPIC_RUN_TRANSCRIPT
 
+        from agentplatform.events import unwrap
         c = AIOKafkaConsumer(
             TOPIC_RUN_TRANSCRIPT,
             TOPIC_RUN_EVENTS,
@@ -45,9 +46,12 @@ def kafka_consumer_factory(settings):
         await c.start()
         try:
             async for msg in c:
-                yield (msg.key.decode() if msg.key else "", json.loads(msg.value))
+                # Unwrap the envelope → the UI receives the domain frame/data.
+                _, data = unwrap(msg.value)
+                yield (msg.key.decode() if msg.key else "", data)
         finally:
             await c.stop()
+
 
     return factory
 

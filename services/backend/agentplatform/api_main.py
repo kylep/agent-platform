@@ -9,7 +9,7 @@ from agentplatform.secrets import InMemorySecretStore, K8sSecretStore
 
 def build_app():
     settings = get_settings()
-    producer = Producer(settings.kafka_bootstrap)
+    producer = Producer(settings.kafka_bootstrap, source="api")
     try:
         from kubernetes import client, config
 

@@ -162,7 +162,7 @@ async def freeform_edit(request: Request, name: str, body: FreeformEditIn,
         s.add(run); await s.commit()
     try:
         await st.producer.publish(TOPIC_RUN_REQUESTS, run.id,
-                                  {"type": "run", "run_id": run.id})
+                                  {"type": "run", "run_id": run.id}, type="run.request")
     except Exception:
         log.warning("publish failed for self-edit run %s; sweep will drain it", run.id)
     return {"id": run.id, "state": run.state, "target_agent": name}

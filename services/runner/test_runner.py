@@ -6,7 +6,7 @@ class FakeProducer:
     def __init__(self): self.published = []
     async def start(self): pass
     async def stop(self): pass
-    async def publish(self, topic, key, value): self.published.append((topic, key, value))
+    async def publish(self, topic, key, value, type="run.transcript"): self.published.append((topic, key, value))
 
 def test_relays_stream_and_terminal(tmp_path, monkeypatch):
     fake = tmp_path / "claude"
