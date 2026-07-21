@@ -3,7 +3,7 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from agentplatform.api.auth import require_admin
 from agentplatform.db import SecretMeta
-from agentplatform.secrets import REQUIRED_SECRETS
+from agentplatform.secrets import REQUIRED_SECRETS, SECRET_HINTS
 
 router = APIRouter()
 
@@ -36,7 +36,9 @@ async def secret_listing(request: Request) -> list[dict]:
             # mode writes the k8s Secret directly, bypassing the API): the
             # store is the truth for existence, meta only tracks probe status.
             status = "unprobed"
-        out.append({"name": n, "status": status, "required": n in REQUIRED_SECRETS})
+        hint = SECRET_HINTS.get(n, {})
+        out.append({"name": n, "status": status, "required": n in REQUIRED_SECRETS,
+                    "hint": hint.get("hint", ""), "key": hint.get("key", "")})
     return out
 
 @router.get("/api/secrets", dependencies=[Depends(require_admin)])

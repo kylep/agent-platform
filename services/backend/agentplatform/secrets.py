@@ -4,6 +4,25 @@ from kubernetes import client as k8s
 CLAUDE_CREDENTIAL = "claude-credentials"
 REQUIRED_SECRETS = [CLAUDE_CREDENTIAL]
 
+# Format hints for the platform's known secrets. `key` is the suggested data key
+# (blank → let the UI heuristic decide). This matters for correctness, not just
+# UX: a skill's secret is bound via envFrom, so its *key* becomes the env var the
+# skill reads (e.g. GITHUB_TOKEN). `hint` describes the value.
+SECRET_HINTS: dict[str, dict[str, str]] = {
+    "claude-credentials": {"key": "",
+        "hint": "A `claude setup-token` value, or paste credentials.json contents (JSON is auto-detected)."},
+    "discord-bot": {"key": "token",
+        "hint": "Discord bot token — Developer Portal → your app → Bot → Reset/Copy Token."},
+    "discord-webhook": {"key": "DISCORD_WEBHOOK_URL",
+        "hint": "Discord incoming webhook URL, e.g. https://discord.com/api/webhooks/…"},
+    "github-token": {"key": "GITHUB_TOKEN",
+        "hint": "GitHub token/PAT with repo scope — skills read it as $GITHUB_TOKEN."},
+    "github-app": {"key": "",
+        "hint": "GitHub App creds (app_id, install_id, private_key) — a multi-key secret, set via the API."},
+    "github-deploy-key": {"key": "id_ed25519",
+        "hint": "An SSH private deploy key with push access."},
+}
+
 class SecretStore:
     async def set(self, name: str, data: dict[str, str]) -> None: raise NotImplementedError
     async def get(self, name: str) -> dict[str, str] | None: raise NotImplementedError
