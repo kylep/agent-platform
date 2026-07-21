@@ -1,0 +1,47 @@
+{{- if .Values.connectors.discord.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}-connector-discord
+  labels:
+    {{- include "agent-platform.selectorLabels" (dict "Release" .Release "Chart" .Chart "component" "connector-discord") | nindent 4 }}
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "agent-platform.selectorLabels" (dict "Release" .Release "Chart" .Chart "component" "connector-discord") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "agent-platform.selectorLabels" (dict "Release" .Release "Chart" .Chart "component" "connector-discord") | nindent 8 }}
+    spec:
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: connector-discord
+          image: "{{ .Values.connectors.discord.image.repository }}:{{ .Values.connectors.discord.image.tag }}"
+          imagePullPolicy: {{ .Values.connectors.discord.image.pullPolicy | default "IfNotPresent" }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            runAsNonRoot: true
+            runAsUser: 1001
+            runAsGroup: 1001
+            capabilities:
+              drop: ["ALL"]
+          env:
+            - name: AP_KAFKA_BOOTSTRAP
+              value: "{{ .Release.Name }}-kafka:9092"
+            - name: CONNECTOR_AGENT
+              value: {{ .Values.connectors.discord.agent | quote }}
+            - name: DISCORD_BOT_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: discord-bot
+                  key: token
+          resources:
+            requests: {memory: 128Mi, cpu: 50m}
+            limits: {memory: 256Mi}
+{{- end }}
