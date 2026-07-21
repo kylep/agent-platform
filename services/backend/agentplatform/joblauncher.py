@@ -124,6 +124,11 @@ class K8sJobLauncher(Launcher):
             security_context=k8s.V1SecurityContext(
                 allow_privilege_escalation=False,
                 run_as_non_root=True,
+                # Numeric uid/gid of the image's `runner` user (1001 — node:22
+                # already holds 1000). kubelet can't verify a non-numeric USER
+                # name against runAsNonRoot, so it must be numeric here.
+                run_as_user=1001,
+                run_as_group=1001,
                 capabilities=k8s.V1Capabilities(drop=["ALL"]),
             ),
         )
