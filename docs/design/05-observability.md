@@ -15,6 +15,25 @@ that answers "is everything okay?"
   publishing to a notification skill (discord first).
 - **Log retention:** transcript pruning policy with per-agent overrides.
 
+## Progress (2026-07-20)
+
+- [x] **Run-metrics rollups** — `GET /api/metrics/overview` (platform-wide:
+      totals, state histogram, success rate, 24h/7d counts, token sums, avg/max
+      duration, dlq depth) and `GET /api/metrics/agents` (per-agent aggregates +
+      `failure_streak`). Portable Python aggregation over a bounded recent
+      window. Verified live over real run history.
+- [x] **Reporting page** — one page with health stat cards (broker, dispatcher
+      lag, active runs, dlq) + run stats (success rate, throughput, duration,
+      tokens) + per-agent table with failure-streak highlighting. Kafka health
+      reused from the M03 `/api/health/kafka` probe.
+- [x] **Alerting hook** — `health-monitor` system agent (15-min cron, Sonnet,
+      memory + `discord` skill) evaluates threshold rules (per-agent
+      `failure_streak >= 3`, dlq depth, kafka lag/liveness), de-dupes against a
+      remembered `alert-state`, and pings Discord on new breaches. (Delivery
+      needs the `discord-webhook` secret set; detection/logic runs regardless.)
+- [ ] **Log retention** — transcript pruning policy with per-agent overrides —
+      next M05 slice.
+
 ## Done when
 
 The dashboard answers platform health at a glance; a failure streak on
