@@ -15,11 +15,21 @@ spec:
         {{- include "agent-platform.selectorLabels" (dict "Release" .Release "Chart" .Chart "component" "dispatcher") | nindent 8 }}
     spec:
       serviceAccountName: {{ .Release.Name }}-dispatcher
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: dispatcher
           image: "{{ .Values.images.backend.repository }}:{{ .Values.images.backend.tag }}"
           imagePullPolicy: {{ .Values.images.backend.pullPolicy | default "IfNotPresent" }}
           command: ["python", "-m", "agentplatform.dispatcher_main"]
+          securityContext:
+            allowPrivilegeEscalation: false
+            runAsNonRoot: true
+            runAsUser: 65534
+            runAsGroup: 65534
+            capabilities:
+              drop: ["ALL"]
           env:
             {{- include "agent-platform.backendEnv" . | nindent 12 }}
           volumeMounts:

@@ -14,10 +14,18 @@ spec:
       labels:
         {{- include "agent-platform.selectorLabels" (dict "Release" .Release "Chart" .Chart "component" "web") | nindent 8 }}
     spec:
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: web
           image: "{{ .Values.images.web.repository }}:{{ .Values.images.web.tag }}"
           imagePullPolicy: {{ .Values.images.web.pullPolicy | default "IfNotPresent" }}
+          # Stock nginx: master runs as root and needs SETUID/SETGID/CHOWN to
+          # spawn workers, so caps are NOT dropped and runAsNonRoot is omitted.
+          # We still forbid privilege escalation (+ seccomp at the pod level).
+          securityContext:
+            allowPrivilegeEscalation: false
           ports:
             - name: http
               containerPort: 8080

@@ -15,11 +15,23 @@ spec:
         {{- include "agent-platform.selectorLabels" (dict "Release" .Release "Chart" .Chart "component" "api") | nindent 8 }}
     spec:
       serviceAccountName: {{ .Release.Name }}-api
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: api
           image: "{{ .Values.images.backend.repository }}:{{ .Values.images.backend.tag }}"
           imagePullPolicy: {{ .Values.images.backend.pullPolicy | default "IfNotPresent" }}
           command: ["python", "-m", "agentplatform.api_main"]
+          securityContext:
+            allowPrivilegeEscalation: false
+            runAsNonRoot: true
+            # Numeric uid/gid (the image's `nobody`): kubelet can't verify a
+            # non-numeric USER name against runAsNonRoot.
+            runAsUser: 65534
+            runAsGroup: 65534
+            capabilities:
+              drop: ["ALL"]
           ports:
             - name: http
               containerPort: 8000
