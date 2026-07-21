@@ -1,0 +1,7 @@
+description: Demo agent that remembers notes across runs via the memory API.
+role: operator
+concurrency: 2
+timeout_seconds: 300
+# Gets an annotator-scoped, per-run token so it can save/recall memories in its
+# own namespace (agent "notetaker") across separate runs.
+memory: true

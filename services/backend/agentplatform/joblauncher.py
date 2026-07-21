@@ -37,13 +37,15 @@ class K8sJobLauncher(Launcher):
             self._system_tokens[agent] = token
         return self._system_tokens[agent]
 
-    async def _invoke_token(self, run: Run) -> str:
-        """Mint a per-run `operator` token so the agent can invoke other agents.
-        Tied to run.id: the run's chain depth bounds recursion, and the key is
-        revoked when the run terminates (revoke_run_keys)."""
+    async def _invoke_token(self, run: Run, role: str = "operator") -> str:
+        """Mint a per-run token (role `operator` for invoke, `annotator` for
+        memory-only), scoped to run.agent so its namespace/chain-depth are
+        derived authoritatively. Tied to run.id and revoked when the run
+        terminates (revoke_run_keys)."""
         token = generate_token()
+        label = "invoke" if role == "operator" else "memory"
         async with self.sf() as s:
-            s.add(ApiKey(name=f"invoke:{run.agent}", role="operator", agent=run.agent,
+            s.add(ApiKey(name=f"{label}:{run.agent}", role=role, agent=run.agent,
                          run_id=run.id, key_hash=hash_token(token), prefix=token_prefix(token)))
             await s.commit()
         return token
@@ -122,8 +124,12 @@ class K8sJobLauncher(Launcher):
         api_token = None
         if self.sf:
             if manifest.can_invoke:
-                # Operator-scoped, per-run token: can invoke other agents.
+                # Operator-scoped, per-run token: can invoke other agents (and,
+                # as operator, save/recall its own memories).
                 api_token = await self._invoke_token(run)
+            elif manifest.memory:
+                # Annotator-scoped, per-run token: memory access only.
+                api_token = await self._invoke_token(run, role="annotator")
             elif manifest.system:
                 # Narrow annotator token: read runs + annotate only.
                 api_token = await self._system_token(run.agent)

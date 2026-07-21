@@ -19,6 +19,29 @@ programmable from outside.
   published platform Claude skill so any Claude session can operate the
   platform, both exercised in CI against a live chart install.
 
+## Progress (2026-07-20)
+
+- [x] **Memory** — `memories` table (agent-namespaced), `POST /api/memories`
+      (save; reusing a `key` overwrites), `GET /api/memories?agent=&q=` (search;
+      portable term-match over content/key, no engine-specific FTS),
+      `GET/DELETE /api/memories/{id}`. Namespace isolation is the security
+      boundary: an agent key (its `agent` set) is locked to its own namespace —
+      a mismatched target is 403, another namespace's memory reads as 404.
+      Manifest `memory: true` injects an annotator-scoped, per-run token
+      (revoked on terminal); demo `notetaker` agent remembers across runs.
+      `MEMORY_ROLES` gate the API. **Memories** UI page (pick agent, search,
+      delete).
+- [x] **SDK + platform skill** — hand-written, dependency-free Python SDK in
+      `sdk/` (`agent_platform_sdk.Client`: list/inspect agents, create/get/list
+      runs, save/search memory, health) mirroring the live OpenAPI, with an
+      injectable transport for tests. Published `skills/agent-platform/SKILL.md`
+      so any Claude session can operate the platform with one `ap_` key.
+- [ ] Skills-as-components (Skills UI, manifest skill refs mounted into pods,
+      secret-binding union enforcement) and hardened shipped `git`/`discord`
+      skills — next M04 slice.
+- [ ] OpenAPI-generated SDK + platform-skill exercised in CI against a live
+      chart install (currently: hand-written SDK + live manual exercise).
+
 ## Done when
 
 An agent saves a memory in one run and recalls it in the next; memories

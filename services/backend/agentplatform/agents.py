@@ -21,6 +21,9 @@ class Manifest(BaseModel):
     # it can invoke other agents (agent-invokes-agent). Without it a system
     # agent only gets the narrow `annotator` token (read runs + annotate).
     can_invoke: bool = False
+    # When set, the agent gets an annotator-scoped, per-run API token so it can
+    # save/recall memories in its own namespace across runs.
+    memory: bool = False
 
 class AgentInfo(BaseModel):
     name: str
