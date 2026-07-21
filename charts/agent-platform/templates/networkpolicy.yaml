@@ -163,7 +163,7 @@ spec:
   podSelector:
     matchExpressions:
       - {key: app.kubernetes.io/name, operator: In, values: [agent-platform]}
-      - {key: app.kubernetes.io/component, operator: In, values: [api, dispatcher, runner, agents-sync]}
+      - {key: app.kubernetes.io/component, operator: In, values: [api, dispatcher, runner, agents-sync, connector-discord]}
   policyTypes: [Egress]
   egress:
     - ports:

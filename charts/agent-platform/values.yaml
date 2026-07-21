@@ -55,6 +55,18 @@ networkPolicy:
   enabled: true
   egress: true
 
+# Conversation connectors (long-lived bridges to external chat). Discord is
+# implemented but OFF by default — enable once the `discord-bot` secret (key:
+# token) is set. Slack is a stub (not deployed).
+connectors:
+  discord:
+    enabled: false
+    agent: echo            # default agent for new Discord conversations
+    image:
+      repository: agent-platform-connector-discord
+      tag: dev
+      pullPolicy: IfNotPresent
+
 # agents-sync keeps a PVC of the agent-definitions git repo up to date so the
 # api (read-only) and runner Jobs (spawned by the dispatcher, not by this
 # chart) can read agent definitions from a shared volume.
