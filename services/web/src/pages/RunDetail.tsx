@@ -142,6 +142,12 @@ export default function RunDetail() {
         <dd>{run.tokens_in ?? "—"} / {run.tokens_out ?? "—"}</dd>
         <dt>Tool calls</dt>
         <dd>{run.tool_calls ?? "—"}</dd>
+        {run.secrets_granted && run.secrets_granted.length > 0 && (
+          <>
+            <dt>Secrets granted</dt>
+            <dd className="muted">{run.secrets_granted.join(", ")}</dd>
+          </>
+        )}
         <dt>Exit code</dt>
         <dd>{run.exit_code ?? "—"}</dd>
         {run.error && (
