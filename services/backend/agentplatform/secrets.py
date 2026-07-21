@@ -28,7 +28,11 @@ SECRET_HINTS: dict[str, dict[str, str]] = {
 # credentials is validated differently — via a run's success, in the recorder.)
 def secret_probe_target(name: str, data: dict[str, str]) -> tuple[str, dict[str, str]] | None:
     if name == "discord-bot":
-        return "https://discord.com/api/v10/users/@me", {"Authorization": f"Bot {data.get('token', '')}"}
+        tok = data.get("token", "").strip()
+        # Tolerate a pasted "Bot " prefix (the header adds its own).
+        if tok.lower().startswith("bot "):
+            tok = tok[4:].strip()
+        return "https://discord.com/api/v10/users/@me", {"Authorization": f"Bot {tok}"}
     if name == "github-token":
         tok = data.get("GITHUB_TOKEN") or data.get("token", "")
         return "https://api.github.com/user", {"Authorization": f"Bearer {tok}", "User-Agent": "agent-platform"}
