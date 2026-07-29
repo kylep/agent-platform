@@ -60,6 +60,20 @@ async def test_project_dedups_records_and_prunes(sf):
     assert text and "H3" in text and "H1" not in text
 
 
+async def test_project_dedups_duplicate_urls_within_a_batch(sf):
+    # A gatherer can list the same URL twice; the projector must not try to
+    # insert the PK twice (that crashed the recorder live).
+    dupe = json.dumps({"date": "d", "items": [
+        {"section": "AI industry", "headline": "A", "why": "x", "url": "https://dup.example/1"},
+        {"section": "World", "headline": "B", "why": "y", "url": "https://dup.example/1"}]})
+    async with sf() as s:
+        text = await project(s, dupe)
+    assert text is not None
+    async with sf() as s:
+        rows = list((await s.execute(select(SharedNews.url))).scalars())
+    assert rows == ["https://dup.example/1"]     # recorded exactly once
+
+
 async def test_project_prunes_old_records(sf):
     async with sf() as s:
         s.add(SharedNews(url="https://old.example/x", posted_at=utcnow() - timedelta(days=30)))

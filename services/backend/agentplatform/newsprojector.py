@@ -100,9 +100,17 @@ async def project(session, result_text: str | None, *, days: int = 14) -> str | 
     urls = [_norm_url(it["url"]) for it in valid]
     if not urls:
         return None
-    existing = set((await session.execute(
+    seen = set((await session.execute(
         select(SharedNews.url).where(SharedNews.url.in_(urls)))).scalars())
-    new_items = [it for it in valid if _norm_url(it["url"]) not in existing]
+    # Drop URLs already posted AND intra-batch duplicates (a gatherer can list
+    # the same URL twice — two inserts of one PK would violate the constraint).
+    new_items = []
+    for it in valid:
+        u = _norm_url(it["url"])
+        if u in seen:
+            continue
+        seen.add(u)
+        new_items.append(it)
     if not new_items:
         return None
     for it in new_items:
