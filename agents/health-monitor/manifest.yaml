@@ -5,8 +5,7 @@ timeout_seconds: 300
 schedule: "*/15 * * * *"
 model: sonnet
 system: true
-# Remembers what it has already alerted on (dedup) across runs.
+# Remembers what it has already alerted on (dedup) across runs. Also injects the
+# per-run AP_API_TOKEN the platform MCP server uses to broker its API access, so
+# this agent needs no shell — it acts only through mcp__platform__* tools.
 memory: true
-# Posts alerts to a human channel.
-skills:
-  - discord
