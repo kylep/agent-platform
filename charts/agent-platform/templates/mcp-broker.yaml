@@ -29,8 +29,9 @@ spec:
             capabilities:
               drop: ["ALL"]
           env:
+            # The api Service is hardcoded agent-platform-api (not release-named).
             - name: AP_API_URL
-              value: "http://{{ .Release.Name }}-api:8000"
+              value: "http://agent-platform-api:8000"
           ports:
             - containerPort: 8000
           readinessProbe:
