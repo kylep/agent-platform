@@ -9,7 +9,6 @@ like claude-credentials); they are intentionally separated so tier
 classification is testable without any GitHub access.
 """
 import os
-import shlex
 import stat
 import subprocess
 import tempfile
@@ -18,15 +17,6 @@ from pathlib import Path
 import yaml
 
 from agentplatform.tiers import TIER_DIRECT, FileChange, classify_tier
-
-# GitHub's published SSH host keys (from https://api.github.com/meta -> ssh_keys).
-# Pinned so deploy-key pushes verify the host instead of trusting on first use;
-# refresh if GitHub rotates them (rare — last in 2023).
-GITHUB_KNOWN_HOSTS = (
-    "github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl\n"
-    "github.com ecdsa-sha2-nistp256 AAAAE2VjZHNhLXNoYTItbmlzdHAyNTYAAAAIbmlzdHAyNTYAAABBBEmKSENjQEezOmxkZMy7opKgwFB9nkt5YRrYMjNuG5N87uRgg6CLrbo5wAdT/y6v0mKV0U2w0WZ2YB/++Tpockg=\n"
-    "github.com ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQCj7ndNxQowgcQnjshcLrqPEiiphnt+VTTvDP6mHBL9j1aNUkY4Ue1gvwnGLVlOhGeYrnZaMgRK6+PKCUXaDbC7qtbW8gIkhL7aGCsOr/C56SJMy/BCZfxd1nWzAOxSDPgVsmerOBYfNqltV9/hWCqBywINIR+5dIg6JTJ72pcEpEjcYgXkE2YEFXV1JHnsKgbLWNlhScqb2UmyRkQyytRLtL+38TGxkxCflmO+5Z8CSSNY7GidjMIZ7Q4zMjA2n1nGrlTDkzwDCsw+wqFPGQA179cnfGWOWRVruj16z6XyvxvjJwbz0wQZ75XK5tKSb7FNyeIEs4TT4jk+S4dhPeAUC5y+bDYirYgM4GC7uEnztnZyaVWQ7B381AK4Qdrwt51ZqExKbQpTUNn+EjqoTwvqNj4kqx5QUCI0ThS/YkOxJCXmPUWZbhjpCg56i+2aB6CmK2JGhn57K5mj0MNdBXA4/WnwH6XoPWJzK5Nyu2zB3nAZp+S5hpQs+p1vN1/wsjk=\n"
-)
 
 
 def _git(repo: Path, *args: str) -> str:
@@ -107,32 +97,21 @@ class GitWriter:
     the only part that needs a repo write credential."""
 
     def __init__(self, remote_url: str, *, token: str | None = None,
-                 ssh_key_path: str | None = None,
                  default_branch: str = "main",
                  author_name: str = "platform-coder",
                  author_email: str = "platform-coder@agent-platform.local"):
         self.remote_url = remote_url
         # Auth is supplied to git out-of-band so no secret appears in a URL,
-        # argv, or subprocess error (which would leak it to logs):
-        #   - ssh_key_path: a deploy-key private key, used via GIT_SSH_COMMAND
-        #     (preferred: repo-scoped);
-        #   - token: an https token, used via GIT_ASKPASS (remote_url then
-        #     carries only the `x-access-token@` username).
+        # argv, or subprocess error (which would leak it to logs): the token is
+        # an https credential used via GIT_ASKPASS, and remote_url then carries
+        # only the `x-access-token@` username.
         self.token = token.strip() if token else None
-        self.ssh_key_path = ssh_key_path
         self.default_branch = default_branch
         self.author_name = author_name
         self.author_email = author_email
         self._askpass: str | None = None
 
     def _auth_env(self) -> dict:
-        if self.ssh_key_path:
-            kh = Path(self.ssh_key_path).parent / "known_hosts"
-            if not kh.exists():
-                kh.write_text(GITHUB_KNOWN_HOSTS)
-            return {**os.environ, "GIT_SSH_COMMAND":
-                    f"ssh -i {shlex.quote(self.ssh_key_path)} -o IdentitiesOnly=yes "
-                    f"-o StrictHostKeyChecking=yes -o UserKnownHostsFile={shlex.quote(str(kh))}"}
         if not self.token:
             return dict(os.environ)
         if self._askpass is None:

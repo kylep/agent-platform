@@ -19,8 +19,6 @@ SECRET_HINTS: dict[str, dict[str, str]] = {
         "hint": "GitHub token/PAT with repo scope — skills read it as $GITHUB_TOKEN."},
     "github-app": {"key": "",
         "hint": "GitHub App creds (app_id, install_id, private_key) — a multi-key secret, set via the API."},
-    "github-deploy-key": {"key": "id_ed25519",
-        "hint": "An SSH private deploy key with push access."},
 }
 
 # Secrets that can be validated with a cheap read-only API call. Returns the

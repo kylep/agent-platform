@@ -102,30 +102,22 @@ class _S:
         self.default_branch = "main"
 
 
-def test_build_writer_prefers_deploy_key(tmp_path):
+def test_build_writer_uses_token():
     from agentplatform.api.agents import _build_writer
     s = _S(git_remote_url="https://github.com/o/r.git", github_repo="o/r")
-    writer, pr = _build_writer(s, tmp_path, {"key": "PRIVKEY"}, {"token": "gho_x"})
-    assert writer.ssh_key_path is not None and writer.remote_url == "git@github.com:o/r.git"
-    assert writer.token is None and pr is None            # deploy key → no REST PR client
-    assert (tmp_path / "deploy_key").read_text().endswith("\n")
-
-
-def test_build_writer_falls_back_to_token(tmp_path):
-    from agentplatform.api.agents import _build_writer
-    s = _S(git_remote_url="https://github.com/o/r.git", github_repo="o/r")
-    writer, pr = _build_writer(s, tmp_path, None, {"token": "gho_x"})
-    assert writer.token == "gho_x" and writer.ssh_key_path is None
+    writer, pr = _build_writer(s, {"token": "gho_x"})
+    assert writer.token == "gho_x"
+    # The token never lands in the remote URL (it would leak into git's argv).
     assert "gho_x" not in writer.remote_url and pr is not None
 
 
-def test_build_writer_local_remote_needs_no_cred(tmp_path):
+def test_build_writer_local_remote_needs_no_cred():
     from agentplatform.api.agents import _build_writer
     s = _S(git_remote_url="/tmp/bare.git")
-    writer, pr = _build_writer(s, tmp_path, None, None)
-    assert writer.token is None and writer.ssh_key_path is None and pr is None
+    writer, pr = _build_writer(s, None)
+    assert writer.token is None and pr is None
 
 
-def test_build_writer_none_without_anything(tmp_path):
+def test_build_writer_none_without_anything():
     from agentplatform.api.agents import _build_writer
-    assert _build_writer(_S(), tmp_path, None, None) is None
+    assert _build_writer(_S(), None) is None

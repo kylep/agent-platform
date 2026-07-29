@@ -22,7 +22,7 @@ Successor to `multi/infra/ai-agents` (v2, clean slate, inspiration only).
 
 ## Architecture
 
-Seven deployables:
+Nine deployables:
 
 | Component | Role |
 |-----------|------|
@@ -30,9 +30,11 @@ Seven deployables:
 | **dispatcher** (Python) | Consumes `run.requests`, enforces RBAC + concurrency caps, creates k8s Jobs. Contains the cron scheduler loop. Idempotent against the `runs` table. |
 | **runner** (image) | Agent pod. Wraps `claude --agent <name> -p <prompt> --output-format stream-json`, mounts the subscription token read-only, publishes every stream event to Kafka. |
 | **recorder** (Python) | Consumes event topics, writes transcripts/metrics/state to postgres. |
-| **web** (React SPA) | Dashboard, agents, runs with live transcript, schedules, pending changes, skills, secrets, settings. |
-| **postgres** | Runtime state: runs, transcripts, schedules, principals, memories, secret metadata. |
-| **kafka** (single-node KRaft) | Topics: `run.requests`, `run.events`, `run.transcript`, `run.dlq`, `webhooks.in`. |
+| **web** (React SPA) | Dashboard, agents, runs with live transcript, schedules, pending changes, skills, secrets, reporting, settings. |
+| **mcp-broker** (FastMCP) | Exposes the platform API as `mcp__platform__*` tools over streamable HTTP. Holds no credentials — forwards each caller's bearer token, so a run's scope is preserved. Lets agents act without a shell, and lets external MCP clients drive the platform. |
+| **connector-discord** | Bridges Discord to the platform: a mention opens a thread, which is a Conversation; consumes `discord.channel.post` to speak. Sole holder of the bot token. |
+| **postgres** | Runtime state: runs, transcripts, schedules, jobs, principals, memories, conversations, secret metadata. |
+| **kafka** (single-node KRaft) | Topics: `run.requests`, `run.events`, `run.transcript`, `run.dlq`, `webhooks.in`, `conversation.*`, `discord.channel.post`, `dead.letter`. |
 
 Run flow: trigger (UI / cron / webhook / agent / API) → api writes `runs`
 row → publishes to `run.requests` → dispatcher validates and creates Job →
@@ -49,9 +51,11 @@ agents/<name>/agent.md        # pure Claude Code agent definition (portable)
 agents/<name>/manifest.yaml   # platform layer: rbac role, skills[], secrets[],
                               # triggers[], schedule, concurrency
 skills/<name>/                # Claude Code skill format; git/ and discord/ ship at launch
-services/{api,dispatcher,recorder,runner,web}/
+services/backend/              # api + dispatcher + recorder (one image, three entrypoints)
+services/{runner,web,mcp-broker,connector-discord}/
 charts/agent-platform/        # umbrella chart + postgres/kafka dependencies
-sdk/                          # generated from OpenAPI, python first
+sdk/                          # hand-written, dependency-free python; CI asserts
+                              # every path it calls exists in the live OpenAPI
 docs/design/                  # this doc + numbered milestone docs
 bin/                          # set-claude-token.sh and friends
 ```
@@ -98,7 +102,8 @@ Git writes are tiered by the *diff*, not the request:
 
 A Pending Changes page lists platform-authored branches/PRs with rendered
 diffs; affected agents get an "unmerged changes" badge. The platform
-authenticates to git with a repo-scoped deploy key.
+authenticates to git as a GitHub App (installation tokens, which can push and
+open PRs), with a `github-token` PAT as the fallback.
 
 ## Auth
 
@@ -116,11 +121,15 @@ and redirects to Settings → Secrets. Headless alternative:
 
 ## Runtime posture
 
-Runner pods get full autonomy inside a cage: `claude` runs
-unrestricted, contained by a scoped ServiceAccount, the secrets its
-manifest earns, and (in the hardening milestone) NetworkPolicies and a
-tight securityContext. Workspaces are ephemeral `emptyDir`; persistent
-per-agent workspaces are a later opt-in.
+Runner pods are caged on several sides at once: a scoped ServiceAccount, only
+the secrets the manifest earns, a default-deny NetworkPolicy, a non-root
+securityContext with capabilities dropped, and a **scoped tool allow-list
+derived from the agent's own declaration** — no agent runs with permissions
+bypassed (see [08](08-news-and-injection-hardening.md)). Denied tool calls are
+recorded on the run and surfaced in the UI. The one self-edit exception is
+platform-coder, which gets `acceptEdits` on an ephemeral clone.
+Workspaces are ephemeral `emptyDir`; persistent per-agent workspaces are a
+later opt-in.
 
 **Subscription token (resolved in M01 verification):** sharing the
 laptop's session credentials fails fast — the laptop's own claude rotates
@@ -150,4 +159,5 @@ hardening milestone.
 | [04](04-memory-skills-sdk.md) | Memory, skills, SDK | Memory API/UI, shipped skills, OpenAPI→SDK+skill |
 | [05](05-observability.md) | Observability & health | Metrics rollups, lag monitoring, reporting |
 | [06](06-hardening.md) | Hardening | NetworkPolicies, securityContext, rotation, exposure |
-| [07](07-pai-migration.md) | pai migration | Port multi's agents, retire the v1 stack |
+| [07](07-pai-migration.md) | Conversations & Kafka foundation | Event-sourced ingress, Conversation entity, Discord connector. **Reframed** — the original pai-migration scope is still open; see the doc. |
+| [08](08-news-and-injection-hardening.md) | News & injection hardening | Privilege separation, scoped tool allow-lists, no bypassed permissions |

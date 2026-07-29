@@ -59,10 +59,6 @@ def _push_url(url: str, token: str | None) -> str:
     return url
 
 
-def _ssh_remote(repo: str) -> str:
-    return f"git@github.com:{repo}.git"
-
-
 async def _github_app_token(request: Request) -> str | None:
     """Mint (cached) an installation token for the configured GitHub App, or
     None if no `github-app` secret is set. The GitHubApp instance is cached on
@@ -86,18 +82,9 @@ def _writer_from_token(settings, token: str):
     return writer, pr_client
 
 
-def _build_writer(settings, tmp: Path, deploy: dict | None, token_creds: dict | None):
-    """Pick the git credential — a repo-scoped deploy key (ssh, preferred) or an
-    https token — and build the GitWriter (+ optional PR client). Returns
+def _build_writer(settings, token_creds: dict | None):
+    """Build the GitWriter (+ optional PR client) from an https token. Returns
     (writer, pr_client) or None if no usable credential is configured."""
-    if deploy and (deploy.get("key") or "").strip() and settings.github_repo:
-        key = deploy["key"]
-        keyfile = tmp / "deploy_key"
-        keyfile.write_text(key if key.endswith("\n") else key + "\n")
-        keyfile.chmod(0o600)
-        writer = GitWriter(_ssh_remote(settings.github_repo), ssh_key_path=str(keyfile),
-                           default_branch=settings.default_branch)
-        return writer, None  # deploy keys can't use the REST PR API
     if token_creds and (token_creds.get("token") or "").strip() and settings.git_remote_url:
         token = token_creds["token"].strip()
         writer = GitWriter(_push_url(settings.git_remote_url, token), token=token,
@@ -115,7 +102,7 @@ async def _apply_files(request: Request, files: dict[str, str | None], *,
                        pr_body: str = "") -> dict:
     """Write an edit set into a fresh clone and let the tiered git path commit
     it (tier 1) or open a PR (tier 2). Picks the git credential the same way for
-    every structured edit: a GitHub App token first, else a deploy key / PAT."""
+    every structured edit: a GitHub App token first, else a PAT."""
     st = request.app.state
     settings = st.settings
     if not (settings.git_remote_url or settings.github_repo):
@@ -126,12 +113,10 @@ async def _apply_files(request: Request, files: dict[str, str | None], *,
         if app_token:                       # preferred: push + PR via the App
             writer, pr_client = _writer_from_token(settings, app_token)
         else:
-            built = _build_writer(settings, tmpp,
-                                  await st.secret_store.get("github-deploy-key"),
-                                  await st.secret_store.get("github-token"))
+            built = _build_writer(settings, await st.secret_store.get("github-token"))
             if built is None:
                 raise HTTPException(409, "no git credential configured "
-                                         "(github-app, github-deploy-key, or github-token)")
+                                         "(github-app or github-token)")
             writer, pr_client = built
         svc = EditService(writer, pr_client=pr_client)
         return svc.apply(tmpp / "ws", files, message=message, branch=branch,

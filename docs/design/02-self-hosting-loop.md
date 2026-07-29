@@ -76,8 +76,15 @@ Backend machinery built and tested (all merged to main; see
 
 **Done-when: essentially met** (via the edit path; "create a new agent" uses
 the identical machinery). Remaining hardening (non-blocking):
-- [ ] Make git config declarative via `helm upgrade` (currently `kubectl set
-      env` on api + dispatcher; the chart values are correct, so an upgrade
-      reconciles cleanly — do it with care, this cluster can wedge on upgrade).
-- [ ] Retire the deploy key (App is primary; deploy key remains a fallback).
+- [x] **Git config is declarative** (2026-07-29) — `AP_GIT_REMOTE_URL` and
+      `AP_GITHUB_REPO` are set in `values-pai-nuc.yaml`, so `helm upgrade`
+      reconciles them; the imperative `kubectl set env` is no longer needed.
+- [x] **Deploy key retired** (2026-07-29) — the `github-deploy-key` credential
+      path is gone from the code (its `GitWriter` ssh support, the pinned
+      known-hosts blob, and the `_build_writer` branch), the secret is deleted
+      from the cluster, and the secret registry no longer offers it. The App is
+      primary and `github-token` (a PAT) remains the fallback. Rationale: a
+      deploy key can't call the REST PR API, so it silently degraded tier-2
+      edits to "branch pushed, no PR opened" — strictly worse than the PAT
+      fallback it sat in front of.
 - [ ] Sync hardening (webhook-or-poll provenance).
