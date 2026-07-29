@@ -164,6 +164,10 @@ class K8sJobLauncher(Launcher):
             ),
             backoff_limit=0,
             active_deadline_seconds=manifest.timeout_seconds,
+            # GC finished run Jobs + their pods after this long. Safe: the run's
+            # transcript/state/metrics are already persisted to postgres by the
+            # recorder, and the UI reads history from there, not from pods.
+            ttl_seconds_after_finished=self.settings.run_ttl_seconds,
         )
         return k8s.V1Job(
             metadata=k8s.V1ObjectMeta(name=name, namespace=self.settings.k8s_namespace),

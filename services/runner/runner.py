@@ -31,6 +31,19 @@ def _permission_args(self_edit: bool, has_api_token: bool, agent: str) -> list[s
     return out
 
 
+def _write_mcp_config() -> str:
+    """Write a claude --mcp-config that registers the platform MCP server over
+    stdio, passing the run's API base+token through to it."""
+    cfg = {"mcpServers": {"platform": {
+        "command": "python3", "args": ["/app/platform_mcp.py"],
+        "env": {"AP_API_URL": os.environ.get("AP_API_URL", ""),
+                "AP_API_TOKEN": os.environ.get("AP_API_TOKEN", "")}}}}
+    fd, path = tempfile.mkstemp(prefix="mcp-", suffix=".json")
+    os.write(fd, json.dumps(cfg).encode())
+    os.close(fd)
+    return path
+
+
 def _agent_tools(agent: str) -> list[str]:
     """The tools an agent.md frontmatter declares (its `tools:` line), or []."""
     src = Path(os.environ.get("AP_AGENTS_DIR", "/agents/agents")) / agent / "agent.md"
@@ -218,6 +231,11 @@ async def _run(producer, run_id: str, agent: str, prompt: str) -> int:
     if os.environ.get("AP_MODEL"):
         args += ["--model", os.environ["AP_MODEL"]]
     args += _permission_args(self_edit, bool(os.environ.get("AP_API_TOKEN")), agent)
+    # Broker the platform API as MCP tools (mcp__platform__*) for token-bearing
+    # agents, so they can read/annotate runs, check health, use memory and post
+    # notifications WITHOUT a shell. The agent opts in by declaring the tools.
+    if os.environ.get("AP_API_TOKEN"):
+        args += ["--mcp-config", _write_mcp_config()]
     proc = subprocess.Popen(
         args, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, cwd=cwd,
         env={**os.environ, **extra_env})

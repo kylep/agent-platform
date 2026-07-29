@@ -18,6 +18,7 @@ def test_build_job_spec():
     assert env["AP_RUN_ID"] == run.id and env["AP_AGENT"] == "hello-world"
     assert job.spec.active_deadline_seconds == 600
     assert job.spec.backoff_limit == 0
+    assert job.spec.ttl_seconds_after_finished == 3600   # finished Jobs+pods GC'd
     mounts = {m.name: m.mount_path for m in c.volume_mounts}
     assert mounts == {"claude-credentials": "/secrets/claude", "agents": "/agents"}
 

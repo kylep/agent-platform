@@ -13,6 +13,9 @@ class Settings(BaseSettings):
     session_secret: str = "dev-insecure"
     global_concurrency: int = 3
     run_timeout_seconds: int = 1800
+    # GC finished run Jobs + pods this long after they finish (k8s TTL
+    # controller). Run history lives in postgres, so pods are disposable.
+    run_ttl_seconds: int = 3600
     # Loop guard for agent-invokes-agent: a run whose depth would exceed this
     # is rejected. depth 0 = human/schedule/webhook; each nested invoke +1.
     max_run_chain_depth: int = 5

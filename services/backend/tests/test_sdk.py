@@ -59,3 +59,32 @@ def test_error_status_raises():
     with pytest.raises(ApiError) as ei:
         Client("http://h", "ap_tok", fetch=f).create_run("echo", "hi")
     assert ei.value.status == 403
+
+
+def _matches(concrete: str, template: str) -> bool:
+    """A concrete path matches an OpenAPI template if segment counts agree and
+    each template segment is either a `{param}` or an exact match."""
+    cs, ts = concrete.strip("/").split("/"), template.strip("/").split("/")
+    return len(cs) == len(ts) and all(t.startswith("{") or t == c for c, t in zip(cs, ts))
+
+
+def test_sdk_paths_exist_in_live_openapi():
+    """Drift guard: every endpoint the hand-written SDK calls must exist (same
+    method + path) in the app's OpenAPI. Rename/remove an API route and this
+    fails, so the SDK can't silently go stale."""
+    from agentplatform.api.app import create_app
+    from agentplatform.config import Settings
+    from agentplatform.events import FakeProducer
+    spec = create_app(Settings(), None, FakeProducer()).openapi()["paths"]
+
+    f = FakeFetch()
+    c = Client("http://h", "ap_tok", fetch=f)
+    c.list_agents(); c.get_agent("echo"); c.create_run("echo", "hi"); c.get_run("r1")
+    c.list_runs(); c.save_memory("m"); c.search_memories(q="x"); c.kafka_health()
+
+    for call in f.calls:
+        path = call["url"][len("http://h"):].split("?")[0]
+        method = call["method"].lower()
+        assert any(_matches(path, tmpl) and method in ops
+                   for tmpl, ops in spec.items()), \
+            f"SDK calls {call['method']} {path} — not found in the live OpenAPI (drift)"

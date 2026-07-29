@@ -19,6 +19,8 @@ jobs:
       - name: Install backend
         run: pip install -e 'services/backend[dev]'
       - name: Run backend tests
+        # Includes the SDK drift guard (tests/test_sdk.py): every path the
+        # hand-written sdk/ calls must exist in the app's live OpenAPI.
         run: pytest services/backend/tests
 
   runner:

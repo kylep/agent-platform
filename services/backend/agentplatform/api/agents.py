@@ -35,7 +35,11 @@ async def list_agents(request: Request):
 
 @router.get("/api/agents/{name}", dependencies=[Depends(require_role(*READ_ROLES))])
 async def get_agent(request: Request, name: str):
-    a = request.app.state.agent_store.get(name)
+    store = request.app.state.agent_store
+    a = store.get(name)
+    if a is None:
+        store.reload()   # a just-synced agent isn't in the cache yet — refresh
+        a = store.get(name)
     if a is None:
         raise HTTPException(404)
     return a.model_dump()
