@@ -20,10 +20,24 @@ from agentplatform.skills import parse_frontmatter
 # The Claude Code tools an agent may be granted via `agent.md` frontmatter
 # `tools:`. Omitting the line entirely means "all tools" (the CLI default), so
 # the editor treats a fully-checked list as unrestricted and drops the line.
-AVAILABLE_TOOLS: list[str] = [
+CLAUDE_TOOLS: list[str] = [
     "Bash", "Read", "Write", "Edit", "Glob", "Grep",
     "WebSearch", "WebFetch", "Task", "TodoWrite", "NotebookEdit",
 ]
+
+# Tools the platform's own MCP broker exposes (services/mcp-broker). Agents that
+# act on the platform declare these instead of Bash, so they get a token-scoped
+# API call rather than a shell. Keep in sync with broker.py's @mcp.tool set.
+PLATFORM_MCP_TOOLS: list[str] = [
+    "mcp__platform__list_runs", "mcp__platform__get_run",
+    "mcp__platform__list_tags", "mcp__platform__annotate_run",
+    "mcp__platform__metrics_overview", "mcp__platform__metrics_agents",
+    "mcp__platform__kafka_health",
+    "mcp__platform__recall_memory", "mcp__platform__remember",
+    "mcp__platform__post_message",
+]
+
+AVAILABLE_TOOLS: list[str] = CLAUDE_TOOLS + PLATFORM_MCP_TOOLS
 
 _NAME_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,62}$")
 
@@ -40,9 +54,16 @@ def validate_agent_name(name: str) -> str:
 
 def _tools_line(tools: list[str]) -> str | None:
     """The frontmatter `tools:` value for a selection, or None to omit the line
-    (which the CLI reads as 'all tools'). All-selected → unrestricted → omit."""
-    chosen = [t for t in AVAILABLE_TOOLS if t in set(tools)]
-    if not chosen or len(chosen) == len(AVAILABLE_TOOLS):
+    (which the CLI reads as 'all tools'). All-selected → unrestricted → omit.
+
+    A tool this build doesn't know about is preserved verbatim rather than
+    dropped: silently forgetting an entry would *widen* the agent's access (drop
+    enough of them and the line vanishes, which means unrestricted), so an
+    unrecognized name must survive an edit it wasn't part of."""
+    selected = set(tools)
+    chosen = [t for t in AVAILABLE_TOOLS if t in selected]
+    chosen += [t for t in dict.fromkeys(tools) if t not in set(AVAILABLE_TOOLS)]
+    if not chosen or selected >= set(AVAILABLE_TOOLS):
         return None
     return ", ".join(chosen)
 

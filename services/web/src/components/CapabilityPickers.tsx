@@ -42,21 +42,35 @@ export function SkillPicker({ skills, selected, onChange }: {
   );
 }
 
+// `mcp__<server>__<tool>` is the wire name; show it as just the tool, since the
+// group heading already says which server it came from.
+const mcpLabel = (t: string) => t.split("__").slice(2).join("__") || t;
+
 export function ToolPicker({ tools, selected, onChange }: {
   tools: string[]; selected: Set<string>; onChange: (s: Set<string>) => void;
 }) {
   const allOn = tools.length > 0 && tools.every((t) => selected.has(t));
+  const builtin = tools.filter((t) => !t.startsWith("mcp__"));
+  const brokered = tools.filter((t) => t.startsWith("mcp__"));
+  const box = (t: string, label: string) => (
+    <label key={t} className={selected.has(t) ? "check-item on" : "check-item"}>
+      <input type="checkbox" checked={selected.has(t)}
+             onChange={() => onChange(toggle(selected, t))} />
+      <span className="check-name">{label}</span>
+    </label>
+  );
   return (
     <>
-      <div className="check-grid">
-        {tools.map((t) => (
-          <label key={t} className={selected.has(t) ? "check-item on" : "check-item"}>
-            <input type="checkbox" checked={selected.has(t)}
-                   onChange={() => onChange(toggle(selected, t))} />
-            <span className="check-name">{t}</span>
-          </label>
-        ))}
-      </div>
+      <div className="check-grid">{builtin.map((t) => box(t, t))}</div>
+      {brokered.length > 0 && (
+        <>
+          <p className="muted check-note">
+            Platform tools, via the MCP broker — an agent that has these can act
+            on the platform without a shell.
+          </p>
+          <div className="check-grid">{brokered.map((t) => box(t, mcpLabel(t)))}</div>
+        </>
+      )}
       <p className="muted check-note">
         {allOn
           ? "All tools selected — the agent runs unrestricted (no tools: line is written)."
