@@ -241,6 +241,11 @@ async def _run(producer, run_id: str, agent: str, prompt: str) -> int:
         mcp_cfg = _write_mcp_config()
         if mcp_cfg:
             args += ["--mcp-config", mcp_cfg]
+            # Load the broker's MCP tools UPFRONT into the model's context.
+            # Default tool-search defers them behind a search tool, so an agent
+            # that calls a tool by name (e.g. run-summarizer → list_runs) never
+            # sees it and emits the call as plain text. Upfront loading fixes it.
+            os.environ["ENABLE_TOOL_SEARCH"] = "false"
     proc = subprocess.Popen(
         args, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, cwd=cwd,
         env={**os.environ, **extra_env})
