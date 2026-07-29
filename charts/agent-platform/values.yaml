@@ -13,6 +13,14 @@ images:
     tag: dev
     pullPolicy: IfNotPresent
 
+# The MCP broker exposes the platform API as MCP tools over HTTP so token-
+# bearing agents can act without a shell (see docs/design/08).
+mcpBroker:
+  image:
+    repository: agent-platform-mcp-broker
+    tag: dev
+    pullPolicy: IfNotPresent
+
 # Per-service resource requests/limits for the agent-platform-owned Deployments
 # (api, dispatcher, recorder, web). Subchart (postgresql/kafka) resources are
 # configured under the `postgresql:` and `kafka:` keys below.

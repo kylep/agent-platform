@@ -5,7 +5,7 @@ RUN npm install -g @anthropic-ai/claude-code@2.1.214 \
 WORKDIR /app
 COPY requirements.txt .
 RUN pip3 install --break-system-packages -r requirements.txt
-COPY runner.py platform_mcp.py .
+COPY runner.py .
 RUN useradd -m runner && mkdir /workspace && chown runner /workspace
 USER runner
 WORKDIR /workspace

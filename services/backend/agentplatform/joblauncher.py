@@ -88,6 +88,10 @@ class K8sJobLauncher(Launcher):
             env += [
                 k8s.V1EnvVar(name="AP_API_URL", value=self.settings.api_internal_url),
                 k8s.V1EnvVar(name="AP_API_TOKEN", value=api_token),
+                # The MCP broker URL: the runner points claude at it (with the
+                # token above as the auth header) so the agent gets brokered API
+                # tools instead of a shell.
+                k8s.V1EnvVar(name="AP_MCP_URL", value=self.settings.mcp_broker_url),
             ]
         if self_edit_token:
             env += [
