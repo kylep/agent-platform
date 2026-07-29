@@ -44,7 +44,9 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: {{ .Release.Name }}-mcp-broker
+  # Hardcoded (like agent-platform-api) so the DNS name matches the runner's
+  # default AP_MCP_URL (config.mcp_broker_url) rather than the release name.
+  name: agent-platform-mcp-broker
   labels:
     {{- include "agent-platform.selectorLabels" (dict "Release" .Release "Chart" .Chart "component" "mcp-broker") | nindent 4 }}
 spec:
