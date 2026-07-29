@@ -48,6 +48,10 @@ class Run(Base):
     # Final assistant reply text, captured by the recorder from the terminal
     # `result` frame — used to build conversation history.
     result: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Tool calls the CLI blocked during the run (from the result frame's
+    # `permission_denials`). A non-empty list on a least-privilege agent is a
+    # signal the agent tried something outside its allow-list.
+    permission_denials: Mapped[list] = mapped_column(JSON, default=list)
 
 class RunModelUsage(Base):
     """Per-(run, model) token usage, captured by the recorder from the run's

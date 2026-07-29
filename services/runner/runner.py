@@ -10,18 +10,17 @@ from aiokafka import AIOKafkaProducer
 _SENSITIVE_TOOLS = ["Bash", "Read", "Edit", "Write", "NotebookEdit"]
 
 def _permission_args(self_edit: bool, has_api_token: bool, agent: str) -> list[str]:
-    """The claude permission flags for a run. Self-edit auto-accepts edits;
-    a token-bearing (trusted) agent runs bypassPermissions; a credential-less
-    agent gets ONLY its declared tools unattended (`--allowedTools`) with every
-    sensitive tool it didn't declare stripped from context (`--disallowedTools`)
-    — so an untrusted-input agent can't Bash or read the pod's secrets."""
+    """The claude permission flags for a run. Self-edit auto-accepts edits; every
+    other agent — trusted or not — gets ONLY its declared tools unattended
+    (`--allowedTools`) with every sensitive tool it didn't declare stripped from
+    context (`--disallowedTools`). No blanket `bypassPermissions`: even a
+    token-bearing system agent runs least-privilege, so nothing is in
+    "dangerously skip" mode (agents must declare the tools they need)."""
     if self_edit:
         # Headless runs can't approve tool use interactively; auto-accept file
         # edits so the agent can actually modify the clone. Safe because the
         # work is an ephemeral sandbox and every change lands as a reviewable PR.
         return ["--permission-mode", "acceptEdits"]
-    if has_api_token:
-        return ["--permission-mode", "bypassPermissions"]
     tools = _agent_tools(agent)
     out: list[str] = []
     if tools:

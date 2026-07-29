@@ -118,6 +118,17 @@ def test_permission_args_credential_less_agent_is_least_privilege(tmp_path, monk
     assert "bypassPermissions" not in args
 
 
-def test_permission_args_trusted_and_selfedit():
-    assert runner._permission_args(False, True, "x") == ["--permission-mode", "bypassPermissions"]
+def test_permission_args_no_agent_bypass_even_with_token(tmp_path, monkeypatch):
+    # A token-bearing (trusted) agent is NO LONGER bypassPermissions — it gets
+    # scoped allowedTools just like everyone else. A Bash-only system agent:
+    d = tmp_path / "agentdefs" / "mon"; d.mkdir(parents=True)
+    (d / "agent.md").write_text("---\nname: mon\ntools: Bash\n---\nbody")
+    monkeypatch.setenv("AP_AGENTS_DIR", str(tmp_path / "agentdefs"))
+    args = runner._permission_args(self_edit=False, has_api_token=True, agent="mon")
+    assert "bypassPermissions" not in args
+    assert args[:2] == ["--allowedTools", "Bash"]
+    assert "--disallowedTools" in args and "Read" in args and "Bash" not in args[args.index("--disallowedTools"):]
+
+
+def test_permission_args_selfedit():
     assert runner._permission_args(True, False, "x") == ["--permission-mode", "acceptEdits"]

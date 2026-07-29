@@ -90,6 +90,7 @@ async def get_run(request: Request, run_id: str):
         d.update({"prompt": run.prompt, "exit_code": run.exit_code, "error": run.error,
                   "tokens_in": run.tokens_in, "tokens_out": run.tokens_out,
                   "tool_calls": run.tool_calls, "secrets_granted": sorted(set(granted)),
+                  "permission_denials": run.permission_denials or [],
                   "parent_run_id": run.parent_run_id, "depth": run.depth or 0,
                   "requested_by": run.requested_by,
                   "started_at": run.started_at.isoformat() if run.started_at else None,

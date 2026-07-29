@@ -61,6 +61,7 @@ export type RunDetailData = RunSummary & {
   depth: number;
   requested_by: string;
   secrets_granted: string[];
+  permission_denials?: Array<Record<string, unknown>>;
 };
 
 export type DlqEntry = {

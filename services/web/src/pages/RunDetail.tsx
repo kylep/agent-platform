@@ -191,6 +191,17 @@ export default function RunDetail() {
     <div className="page page-wide">
       <h1>Run {run.id.slice(0, 8)}</h1>
 
+      {run.permission_denials && run.permission_denials.length > 0 && (
+        <div className="banner banner-warn">
+          ⛔ {run.permission_denials.length} blocked tool call
+          {run.permission_denials.length > 1 ? "s" : ""}:{" "}
+          {run.permission_denials
+            .map((d) => String(d.tool_name ?? d.tool ?? "tool"))
+            .join(", ")}{" "}
+          — the agent tried a tool outside its allow-list.
+        </div>
+      )}
+
       <dl className="def-list">
         <dt>Agent</dt>
         <dd><Link to={`/agents/${encodeURIComponent(run.agent)}`}>{run.agent}</Link></dd>

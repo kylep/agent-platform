@@ -626,3 +626,6 @@ select {
 .transcript-noise { margin-top: 12px; }
 .transcript-noise summary { font-size: 12px; color: var(--muted); cursor: pointer; }
 .transcript-noise pre { font-size: 11px; margin-top: 6px; max-height: 300px; overflow: auto; }
+
+/* denial warning banner on the run page */
+.banner-warn { border-color: var(--err, #f87171); background: rgba(248, 113, 113, 0.08); }

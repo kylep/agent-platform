@@ -77,6 +77,15 @@ class Recorder:
                     await s.merge(RunModelUsage(
                         run_id=run_id, model=model, agent=run.agent,
                         tokens_in=u.get("inputTokens", 0), tokens_out=u.get("outputTokens", 0)))
+                # Blocked tool calls: a signal a least-privilege agent tried
+                # something outside its allow-list (e.g. an injected agent).
+                denials = value.get("permission_denials") or []
+                if denials:
+                    run.permission_denials = denials
+                    tools = [d.get("tool_name") or d.get("tool") for d in denials
+                             if isinstance(d, dict)]
+                    log.warning("run %s (agent %s): %d permission denial(s): %s",
+                                run_id, run.agent, len(denials), tools)
                 # Project a successful gatherer result into a channel post. Done
                 # here (on the result frame) so the digest text is in hand — no
                 # dependency on the separate run.events ordering.

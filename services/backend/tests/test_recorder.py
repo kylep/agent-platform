@@ -67,3 +67,21 @@ async def test_probe_ignores_non_auth_failure(sf):
     await rec.handle(TOPIC_RUN_EVENTS, rid,
                      {"type": "state", "state": "failed", "exit_code": 1})
     assert await _cred_status(sf) is None
+
+
+async def test_captures_permission_denials(sf):
+    rid = await seed(sf); rec = Recorder(sf)
+    await rec.handle(TOPIC_RUN_TRANSCRIPT, rid, {
+        "seq": 1, "type": "result",
+        "permission_denials": [{"tool_name": "Bash", "tool_input": {"command": "cat /secrets"}}]})
+    async with sf() as s:
+        run = await s.get(Run, rid)
+        assert len(run.permission_denials) == 1
+        assert run.permission_denials[0]["tool_name"] == "Bash"
+
+
+async def test_no_denials_leaves_empty_list(sf):
+    rid = await seed(sf); rec = Recorder(sf)
+    await rec.handle(TOPIC_RUN_TRANSCRIPT, rid, {"seq": 1, "type": "result", "permission_denials": []})
+    async with sf() as s:
+        assert (await s.get(Run, rid)).permission_denials == []
