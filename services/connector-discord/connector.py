@@ -26,7 +26,24 @@ log = logging.getLogger("connector-discord")
 
 TOPIC_IN = "conversation.inbound"
 TOPIC_OUT = "conversation.outbound"
+TOPIC_CHANNEL_POST = "discord.channel.post"
 SCHEMA_VERSION = 1
+
+
+def _chunks(text: str, limit: int = 1990):
+    """Split text into <=limit pieces, preferring newline boundaries (Discord
+    caps a message at 2000 chars)."""
+    out, cur = [], ""
+    for line in (text or "").split("\n"):
+        if len(cur) + len(line) + 1 > limit:
+            if cur:
+                out.append(cur)
+            cur = line[:limit] if len(line) > limit else line
+        else:
+            cur = f"{cur}\n{line}" if cur else line
+    if cur:
+        out.append(cur)
+    return out or [""]
 
 
 def _envelope(type_: str, key: str, data: dict) -> bytes:
@@ -81,26 +98,55 @@ class DiscordConnector:
                 "external_user": message.author.name, "text": text, "agent": self.agent}))
         log.info("→ conversation.inbound thread=%s user=%s", thread.id, message.author.name)
 
+    def _channel_by_name(self, name: str):
+        """The first text channel named `name` across the bot's guilds."""
+        for guild in self.client.guilds:
+            ch = discord.utils.get(guild.text_channels, name=name)
+            if ch is not None:
+                return ch
+        return None
+
+    async def _deliver_thread_reply(self, data: dict):
+        if data.get("connector") != "discord" or not data.get("external_ref"):
+            return
+        tid = int(data["external_ref"])
+        channel = self.client.get_channel(tid) or await self.client.fetch_channel(tid)
+        if channel is not None:
+            await channel.send((data.get("text") or "")[:1900])
+            log.info("← posted reply to thread=%s", tid)
+
+    async def _deliver_channel_post(self, data: dict):
+        """A platform broadcast (e.g. the news digest) to a named channel. The
+        connector is the sole holder of the bot token; the text arrives already
+        deduped + sanitized by the platform's news projector."""
+        name, text = data.get("channel"), data.get("text")
+        if not name or not text:
+            return
+        channel = self._channel_by_name(name)
+        if channel is None:
+            log.warning("channel.post: no channel named #%s the bot can see", name)
+            return
+        for chunk in _chunks(text):
+            await channel.send(chunk)
+        log.info("← posted %d message(s) to #%s", len(_chunks(text)), name)
+
     async def consume_outbound(self):
         await self.client.wait_until_ready()
         consumer = AIOKafkaConsumer(
-            TOPIC_OUT, bootstrap_servers=self.bootstrap,
+            TOPIC_OUT, TOPIC_CHANNEL_POST, bootstrap_servers=self.bootstrap,
             group_id="connector-discord", auto_offset_reset="latest")
         await consumer.start()
-        log.info("consuming conversation.outbound")
+        log.info("consuming conversation.outbound + discord.channel.post")
         try:
             async for msg in consumer:
                 try:
                     data = _unwrap(msg.value)
-                    if data.get("connector") != "discord" or not data.get("external_ref"):
-                        continue
-                    tid = int(data["external_ref"])
-                    channel = self.client.get_channel(tid) or await self.client.fetch_channel(tid)
-                    if channel is not None:
-                        await channel.send((data.get("text") or "")[:1900])
-                        log.info("← posted reply to thread=%s", tid)
+                    if msg.topic == TOPIC_CHANNEL_POST:
+                        await self._deliver_channel_post(data)
+                    else:
+                        await self._deliver_thread_reply(data)
                 except Exception:
-                    log.exception("failed to deliver outbound reply")
+                    log.exception("failed to deliver outbound message")
         finally:
             await consumer.stop()
 

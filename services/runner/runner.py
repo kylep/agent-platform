@@ -1,9 +1,53 @@
-import asyncio, json, os, shutil, stat, subprocess, sys, tempfile, uuid
+import asyncio, json, os, re, shutil, stat, subprocess, sys, tempfile, uuid
 import urllib.error
 import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
 from aiokafka import AIOKafkaProducer
+
+# Tools that can read the pod's secrets/filesystem or run arbitrary code. A
+# credential-less agent that doesn't declare one has it removed from context.
+_SENSITIVE_TOOLS = ["Bash", "Read", "Edit", "Write", "NotebookEdit"]
+
+def _permission_args(self_edit: bool, has_api_token: bool, agent: str) -> list[str]:
+    """The claude permission flags for a run. Self-edit auto-accepts edits;
+    a token-bearing (trusted) agent runs bypassPermissions; a credential-less
+    agent gets ONLY its declared tools unattended (`--allowedTools`) with every
+    sensitive tool it didn't declare stripped from context (`--disallowedTools`)
+    — so an untrusted-input agent can't Bash or read the pod's secrets."""
+    if self_edit:
+        # Headless runs can't approve tool use interactively; auto-accept file
+        # edits so the agent can actually modify the clone. Safe because the
+        # work is an ephemeral sandbox and every change lands as a reviewable PR.
+        return ["--permission-mode", "acceptEdits"]
+    if has_api_token:
+        return ["--permission-mode", "bypassPermissions"]
+    tools = _agent_tools(agent)
+    out: list[str] = []
+    if tools:
+        out += ["--allowedTools", *tools]
+    strip = [t for t in _SENSITIVE_TOOLS if t not in tools]
+    if strip:
+        out += ["--disallowedTools", *strip]
+    return out
+
+
+def _agent_tools(agent: str) -> list[str]:
+    """The tools an agent.md frontmatter declares (its `tools:` line), or []."""
+    src = Path(os.environ.get("AP_AGENTS_DIR", "/agents/agents")) / agent / "agent.md"
+    try:
+        text = src.read_text()
+    except OSError:
+        return []
+    if not text.startswith("---"):
+        return []
+    parts = text.split("---", 2)
+    if len(parts) != 3:
+        return []
+    for line in parts[1].splitlines():
+        if re.match(r"\s*tools:", line, re.I):
+            return [t.strip() for t in re.split(r"[,\s]+", line.split(":", 1)[1]) if t.strip()]
+    return []
 
 TOPIC_TRANSCRIPT, TOPIC_EVENTS = "run.transcript", "run.events"
 SCHEMA_VERSION = 1
@@ -174,16 +218,7 @@ async def _run(producer, run_id: str, agent: str, prompt: str) -> int:
     args = [claude, "--agent", agent, "-p", prompt, "--output-format", "stream-json", "--verbose"]
     if os.environ.get("AP_MODEL"):
         args += ["--model", os.environ["AP_MODEL"]]
-    if self_edit:
-        # Headless runs can't approve tool use interactively; auto-accept file
-        # edits so the agent can actually modify the clone. Safe because the
-        # work is an ephemeral sandbox and every change lands as a reviewable
-        # PR — nothing reaches the default branch without a human merge.
-        args += ["--permission-mode", "acceptEdits"]
-    elif os.environ.get("AP_API_TOKEN"):
-        # A trusted system agent (API access injected) needs its tools to run
-        # unattended; its token is operator-scoped and it runs in a sandbox.
-        args += ["--permission-mode", "bypassPermissions"]
+    args += _permission_args(self_edit, bool(os.environ.get("AP_API_TOKEN")), agent)
     proc = subprocess.Popen(
         args, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, cwd=cwd,
         env={**os.environ, **extra_env})

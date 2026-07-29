@@ -111,6 +111,7 @@ topics:
     - {name: run.dlq, partitions: 1, retentionMs: "604800000"}         # 7d
     - {name: conversation.inbound, partitions: 6, retentionMs: "86400000"}   # 24h
     - {name: conversation.outbound, partitions: 6, retentionMs: "86400000"}  # 24h
+    - {name: discord.channel.post, partitions: 1, retentionMs: "86400000"}   # 24h (channel broadcasts)
     - {name: dead.letter, partitions: 1, retentionMs: "604800000"}     # 7d
   # Hand-pinned to match the kafka.image.tag the bitnami/kafka subchart
   # (Chart.yaml dependency) currently pulls in via its appVersion. This can

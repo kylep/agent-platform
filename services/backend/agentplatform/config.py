@@ -29,6 +29,12 @@ class Settings(BaseSettings):
     # In-cluster API base URL injected into system-agent runs so they can call
     # the platform (e.g. the run summarizer annotating runs).
     api_internal_url: str = "http://agent-platform-api:8000"
+    # News pipeline: a terminal run of `news_gatherer_agent` whose result is a
+    # digest JSON is projected (deduped/sanitized) and posted to `news_channel`
+    # via the connector. Kept credential-free — see the news-pipeline spec.
+    news_gatherer_agent: str = "news"
+    news_channel: str = "news"
+    news_retention_days: int = 14
 
 @lru_cache
 def get_settings() -> Settings:

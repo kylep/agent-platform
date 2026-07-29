@@ -5,18 +5,26 @@ from sqlalchemy.exc import IntegrityError
 from agentplatform.apikeys import revoke_run_keys
 from agentplatform.db import (ACTIVE_STATES, Conversation, Run, RunModelUsage, RunState,
                               SecretMeta, TranscriptEvent, utcnow)
-from agentplatform.events import (TOPIC_CONVERSATION_OUTBOUND, TOPIC_RUN_DLQ,
-                                  TOPIC_RUN_EVENTS, TOPIC_RUN_TRANSCRIPT)
+from agentplatform.events import (TOPIC_CHANNEL_POST, TOPIC_CONVERSATION_OUTBOUND,
+                                  TOPIC_RUN_DLQ, TOPIC_RUN_EVENTS, TOPIC_RUN_TRANSCRIPT)
+from agentplatform.newsprojector import project as project_news
 from agentplatform.secrets import CLAUDE_CREDENTIAL
 
 log = logging.getLogger("recorder")
 
 
 class Recorder:
-    def __init__(self, session_factory, producer=None):
+    def __init__(self, session_factory, producer=None, *,
+                 news_gatherer_agent: str = "", news_channel: str = "news",
+                 news_days: int = 14):
         self.sf = session_factory
         # Optional: publishes conversation.outbound when a conversation run ends.
         self.producer = producer
+        # News pipeline: a successful result frame from this agent is projected
+        # (deduped/sanitized) and posted to news_channel via the connector.
+        self.news_gatherer_agent = news_gatherer_agent
+        self.news_channel = news_channel
+        self.news_days = news_days
 
     async def _probe_credential(self, s, status: str) -> None:
         """Record the observed validity of the Claude credential. This is the
@@ -60,6 +68,7 @@ class Recorder:
                 )
             # The terminal `result` frame carries the final assistant reply and
             # the per-model token breakdown.
+            news_result = None
             if value.get("type") == "result":
                 if value.get("result"):
                     run.result = value.get("result")
@@ -68,6 +77,12 @@ class Recorder:
                     await s.merge(RunModelUsage(
                         run_id=run_id, model=model, agent=run.agent,
                         tokens_in=u.get("inputTokens", 0), tokens_out=u.get("outputTokens", 0)))
+                # Project a successful gatherer result into a channel post. Done
+                # here (on the result frame) so the digest text is in hand — no
+                # dependency on the separate run.events ordering.
+                if (self.news_gatherer_agent and run.agent == self.news_gatherer_agent
+                        and value.get("is_error") is not True and value.get("result")):
+                    news_result = value.get("result")
             usage = value.get("usage", {})
             run.tokens_in += usage.get("input_tokens", 0)
             run.tokens_out += usage.get("output_tokens", 0)
@@ -76,6 +91,15 @@ class Recorder:
             if value.get("error") == "authentication_failed" or value.get("error_status") == 401:
                 await self._probe_credential(s, "invalid")
             await s.commit()
+        # News projection runs in its own session (trusted, deterministic) and
+        # publishes discord.channel.post; the connector delivers it.
+        if news_result is not None and self.producer is not None:
+            async with self.sf() as s2:
+                text = await project_news(s2, news_result, days=self.news_days)
+            if text:
+                await self.producer.publish(TOPIC_CHANNEL_POST, self.news_channel,
+                                            {"channel": self.news_channel, "text": text},
+                                            type="channel.post")
 
     async def _handle_state(self, run_id: str, value: dict) -> None:
         async with self.sf() as s:

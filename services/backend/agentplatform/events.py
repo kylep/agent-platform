@@ -23,13 +23,14 @@ TOPIC_RUN_DLQ = "run.dlq"                  # run-launch failures (DLQ UI)
 # Conversations
 TOPIC_CONVERSATION_INBOUND = "conversation.inbound"    # connector → platform
 TOPIC_CONVERSATION_OUTBOUND = "conversation.outbound"  # platform → connector
+TOPIC_CHANNEL_POST = "discord.channel.post"            # platform → connector (broadcast to a channel)
 # Infra
 TOPIC_DEAD_LETTER = "dead.letter"          # consumer processing failures
 
 ALL_TOPICS = [
     TOPIC_RUN_INBOUND, TOPIC_RUN_REQUESTS, TOPIC_RUN_EVENTS, TOPIC_RUN_TRANSCRIPT,
     TOPIC_RUN_DLQ, TOPIC_CONVERSATION_INBOUND, TOPIC_CONVERSATION_OUTBOUND,
-    TOPIC_DEAD_LETTER,
+    TOPIC_CHANNEL_POST, TOPIC_DEAD_LETTER,
 ]
 
 SCHEMA_VERSION = 1

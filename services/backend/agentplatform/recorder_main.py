@@ -20,10 +20,13 @@ async def main() -> None:
     await init_db(engine)
     session_factory = make_session_factory(engine)
 
-    # A producer for the conversation-outbound projector and dead-lettering.
+    # A producer for the conversation-outbound / news projectors and dead-lettering.
     producer = Producer(settings.kafka_bootstrap, source="recorder")
     await producer.start()
-    recorder = Recorder(session_factory, producer)
+    recorder = Recorder(session_factory, producer,
+                        news_gatherer_agent=settings.news_gatherer_agent,
+                        news_channel=settings.news_channel,
+                        news_days=settings.news_retention_days)
 
     consumer = AIOKafkaConsumer(
         TOPIC_RUN_EVENTS, TOPIC_RUN_TRANSCRIPT, TOPIC_RUN_DLQ,

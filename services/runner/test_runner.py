@@ -95,3 +95,29 @@ def test_self_edit_publish_noop_when_no_change(bare_and_clone, monkeypatch):
     monkeypatch.setattr(runner, "_open_or_find_pr", lambda *a, **k: pytest.fail("should not open PR"))
     res = runner.self_edit_publish(clone, {**os.environ}, "abcd1234", "platform-coder", "noop")
     assert res == {"changed": False}
+
+
+def test_agent_tools_parses_frontmatter(tmp_path, monkeypatch):
+    d = tmp_path / "agentdefs" / "news"; d.mkdir(parents=True)
+    (d / "agent.md").write_text("---\nname: news\ntools: WebSearch, WebFetch\n---\nbody")
+    monkeypatch.setenv("AP_AGENTS_DIR", str(tmp_path / "agentdefs"))
+    assert runner._agent_tools("news") == ["WebSearch", "WebFetch"]
+    # No tools line → empty.
+    (d / "agent.md").write_text("---\nname: news\n---\nbody")
+    assert runner._agent_tools("news") == []
+
+
+def test_permission_args_credential_less_agent_is_least_privilege(tmp_path, monkeypatch):
+    d = tmp_path / "agentdefs" / "news"; d.mkdir(parents=True)
+    (d / "agent.md").write_text("---\nname: news\ntools: WebSearch, WebFetch\n---\nbody")
+    monkeypatch.setenv("AP_AGENTS_DIR", str(tmp_path / "agentdefs"))
+    args = runner._permission_args(self_edit=False, has_api_token=False, agent="news")
+    # Web tools pre-approved; Bash/Read/etc stripped from context; no bypass.
+    assert "--allowedTools" in args and "WebSearch" in args and "WebFetch" in args
+    assert "--disallowedTools" in args and "Bash" in args and "Read" in args
+    assert "bypassPermissions" not in args
+
+
+def test_permission_args_trusted_and_selfedit():
+    assert runner._permission_args(False, True, "x") == ["--permission-mode", "bypassPermissions"]
+    assert runner._permission_args(True, False, "x") == ["--permission-mode", "acceptEdits"]

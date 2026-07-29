@@ -1,14 +1,10 @@
-description: Curates a morning news briefing and posts it to Discord #news as Pai.
+description: Gathers the day's notable news and emits a structured digest (the platform posts it to #news).
 role: operator
-# Sonnet: multi's journalist ran on Sonnet — plenty for daily curation, and far
-# cheaper than Opus for a job that runs every day. Bump to opus if you want.
+# Sonnet is plenty for curation and cheap for a daily job.
 model: sonnet
-# News gathering is several web searches + a couple of API calls; give it room.
+# Several web searches; give it room.
 timeout_seconds: 600
-# Its dedup store (what it has already shared) AND — because it runs only on a
-# schedule, never on untrusted live chat — the elevated, unattended tool access
-# a scheduled job needs.
-memory: true
-# Reads + posts to #news via the bot token (posts as Pai).
-skills:
-  - discord-bot
+# Deliberately credential-less: NO memory, NO skills, NO bound secrets. It only
+# has WebSearch/WebFetch (agent.md frontmatter) and emits a JSON digest as its
+# result — the platform's news projector dedups/sanitizes and the connector
+# posts. This keeps the untrusted-input agent free of anything worth stealing.
