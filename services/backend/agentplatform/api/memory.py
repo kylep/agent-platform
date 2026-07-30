@@ -100,20 +100,33 @@ async def list_memories(request: Request,
                         agent: str | None = Query(None, max_length=_NAME_MAX),
                         q: str | None = Query(None, max_length=1000),
                         limit: int = Query(50, ge=1, le=500)):
-    """List or search memories in a namespace. `q` is split into terms; a memory
-    matches when every term appears (case-insensitive) in its content or key.
-    Portable across sqlite/postgres (no engine-specific FTS)."""
+    """List or search memories, newest first. Scope: an agent-scoped key is
+    locked to its own namespace; a human/admin caller may pass `agent` to scope
+    to one namespace, or omit it to search **across all agents** (the global
+    Memories view). `q` is split into terms; a memory matches when every term
+    appears (case-insensitive) in its content or key. Portable across
+    sqlite/postgres (no engine-specific FTS)."""
     _reject_nul(agent)
     _reject_nul(q)
-    ns = _resolve_ns(request, agent)
-    conds = [Memory.agent == ns]
+    key_agent = getattr(request.state, "api_key_agent", None)
+    conds = []
+    if key_agent:                       # agent key: locked to its namespace
+        if agent and agent != key_agent:
+            raise HTTPException(403, "cross-namespace access denied")
+        conds.append(Memory.agent == key_agent)
+    elif agent:                         # admin scoped to one namespace
+        conds.append(Memory.agent == agent)
+    # else: admin, no agent → global (all namespaces)
     for term in (q or "").split():
         needle = f"%{term.lower()}%"
         conds.append(or_(func.lower(Memory.content).like(needle),
                          func.lower(func.coalesce(Memory.key, "")).like(needle)))
     async with request.app.state.session_factory() as s:
-        rows = (await s.execute(select(Memory).where(and_(*conds))
-                .order_by(Memory.updated_at.desc()).limit(limit))).scalars().all()
+        stmt = select(Memory)
+        if conds:
+            stmt = stmt.where(and_(*conds))
+        rows = (await s.execute(stmt.order_by(Memory.updated_at.desc())
+                .limit(limit))).scalars().all()
     return [_view(m) for m in rows]
 
 

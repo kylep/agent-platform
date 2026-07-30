@@ -90,9 +90,12 @@ def sync_detailed(
 ) -> Response[HTTPValidationError | list[MemoryView]]:
     """List Memories
 
-     List or search memories in a namespace. `q` is split into terms; a memory
-    matches when every term appears (case-insensitive) in its content or key.
-    Portable across sqlite/postgres (no engine-specific FTS).
+     List or search memories, newest first. Scope: an agent-scoped key is
+    locked to its own namespace; a human/admin caller may pass `agent` to scope
+    to one namespace, or omit it to search **across all agents** (the global
+    Memories view). `q` is split into terms; a memory matches when every term
+    appears (case-insensitive) in its content or key. Portable across
+    sqlite/postgres (no engine-specific FTS).
 
     Args:
         agent (None | str | Unset):
@@ -129,9 +132,12 @@ def sync(
 ) -> HTTPValidationError | list[MemoryView] | None:
     """List Memories
 
-     List or search memories in a namespace. `q` is split into terms; a memory
-    matches when every term appears (case-insensitive) in its content or key.
-    Portable across sqlite/postgres (no engine-specific FTS).
+     List or search memories, newest first. Scope: an agent-scoped key is
+    locked to its own namespace; a human/admin caller may pass `agent` to scope
+    to one namespace, or omit it to search **across all agents** (the global
+    Memories view). `q` is split into terms; a memory matches when every term
+    appears (case-insensitive) in its content or key. Portable across
+    sqlite/postgres (no engine-specific FTS).
 
     Args:
         agent (None | str | Unset):
@@ -163,9 +169,12 @@ async def asyncio_detailed(
 ) -> Response[HTTPValidationError | list[MemoryView]]:
     """List Memories
 
-     List or search memories in a namespace. `q` is split into terms; a memory
-    matches when every term appears (case-insensitive) in its content or key.
-    Portable across sqlite/postgres (no engine-specific FTS).
+     List or search memories, newest first. Scope: an agent-scoped key is
+    locked to its own namespace; a human/admin caller may pass `agent` to scope
+    to one namespace, or omit it to search **across all agents** (the global
+    Memories view). `q` is split into terms; a memory matches when every term
+    appears (case-insensitive) in its content or key. Portable across
+    sqlite/postgres (no engine-specific FTS).
 
     Args:
         agent (None | str | Unset):
@@ -200,9 +209,12 @@ async def asyncio(
 ) -> HTTPValidationError | list[MemoryView] | None:
     """List Memories
 
-     List or search memories in a namespace. `q` is split into terms; a memory
-    matches when every term appears (case-insensitive) in its content or key.
-    Portable across sqlite/postgres (no engine-specific FTS).
+     List or search memories, newest first. Scope: an agent-scoped key is
+    locked to its own namespace; a human/admin caller may pass `agent` to scope
+    to one namespace, or omit it to search **across all agents** (the global
+    Memories view). `q` is split into terms; a memory matches when every term
+    appears (case-insensitive) in its content or key. Portable across
+    sqlite/postgres (no engine-specific FTS).
 
     Args:
         agent (None | str | Unset):

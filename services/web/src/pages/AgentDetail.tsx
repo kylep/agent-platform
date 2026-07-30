@@ -3,6 +3,8 @@ import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom"
 import { api, type AgentDetail as AgentDetailData, type AgentMetrics, type EditResult, type ModelUsage, type PullRequest } from "../api";
 import { SkillPicker, ToolPicker, useCapabilities } from "../components/CapabilityPickers";
 import AgentChat from "../components/AgentChat";
+import AgentMemories from "../components/AgentMemories";
+import AgentSchedules from "../components/AgentSchedules";
 
 function AgentReport({ name }: { name: string }) {
   const [m, setM] = useState<AgentMetrics | null>(null);
@@ -178,7 +180,7 @@ function DefinitionEditor({ agent, locked, onSaved }: {
   );
 }
 
-type Tab = "config" | "conversations" | "report";
+type Tab = "config" | "conversations" | "memories" | "schedules" | "report";
 
 export default function AgentDetail() {
   const { name } = useParams<{ name: string }>();
@@ -197,6 +199,7 @@ export default function AgentDetail() {
     const p = new URLSearchParams(params);
     p.set("tab", t);
     if (t !== "conversations") p.delete("conversation");
+    if (t !== "memories") p.delete("memory");
     setParams(p);
   }
 
@@ -269,11 +272,15 @@ export default function AgentDetail() {
       <div className="tabs">
         <button className={tab === "config" ? "tab active" : "tab"} onClick={() => setTab("config")}>Config</button>
         <button className={tab === "conversations" ? "tab active" : "tab"} onClick={() => setTab("conversations")}>Conversations</button>
+        <button className={tab === "memories" ? "tab active" : "tab"} onClick={() => setTab("memories")}>Memories</button>
+        <button className={tab === "schedules" ? "tab active" : "tab"} onClick={() => setTab("schedules")}>Schedules</button>
         <button className={tab === "report" ? "tab active" : "tab"} onClick={() => setTab("report")}>Report</button>
       </div>
 
       {tab === "report" && <AgentReport name={agent.name} />}
       {tab === "conversations" && <AgentChat agent={agent.name} />}
+      {tab === "memories" && <AgentMemories agent={agent.name} />}
+      {tab === "schedules" && <AgentSchedules agent={agent.name} />}
       {tab === "config" && (<>
       <dl className="def-list">
         <dt>Role</dt>

@@ -59,10 +59,19 @@ async def test_get_delete_other_namespace_is_404(client, sf):
     assert (await client.delete(f"/api/memories/{mid}", headers=_auth(a))).status_code == 200
 
 
-async def test_admin_must_name_namespace(admin_client, sf):
-    # Human/admin (no agent-scoped key) must pass ?agent=.
-    assert (await admin_client.get("/api/memories")).status_code == 400
-    assert (await admin_client.get("/api/memories?agent=notetaker")).status_code == 200
+async def test_admin_global_search_across_namespaces(admin_client, sf):
+    # Human/admin with no ?agent= searches across ALL agents (global view).
+    await admin_client.post("/api/memories", json={"content": "alpha note", "agent": "alpha"})
+    await admin_client.post("/api/memories", json={"content": "beta note", "agent": "beta"})
+    allm = (await admin_client.get("/api/memories")).json()
+    agents = {m["agent"] for m in allm}
+    assert {"alpha", "beta"} <= agents            # spans namespaces
+    # a query term filters across all of them
+    hits = (await admin_client.get("/api/memories?q=beta")).json()
+    assert hits and all("beta" in m["content"].lower() for m in hits)
+    # scoping to one namespace still works
+    scoped = (await admin_client.get("/api/memories?agent=alpha")).json()
+    assert scoped and all(m["agent"] == "alpha" for m in scoped)
 
 
 async def test_malformed_input_is_422_not_500(admin_client, sf):

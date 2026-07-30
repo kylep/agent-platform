@@ -118,6 +118,20 @@ h1 {
   color: var(--accent);
 }
 
+/* accordion groups (GCP-style): a parent link + a chevron toggle, children
+   indented under it */
+.nav-group { display: flex; flex-direction: column; gap: 4px; }
+.nav-group-head { display: flex; align-items: center; }
+.nav-parent { flex: 1; }
+.nav-chevron {
+  background: transparent; border: none; color: var(--muted);
+  font-size: 16px; line-height: 1; padding: 6px 8px; cursor: pointer;
+  transition: transform 0.15s ease; transform: rotate(0deg);
+}
+.nav-chevron:hover { color: var(--fg); }
+.nav-chevron.open { transform: rotate(90deg); }
+.nav-child { padding-left: 22px; font-size: 13px; }
+
 .main {
   flex: 1;
   padding: 24px 32px;
@@ -563,7 +577,16 @@ select {
   vertical-align: bottom;
 }
 .memory-content { white-space: pre-wrap; word-break: break-word; }
+/* fixed layout so the Memory column can't blow the table past the viewport;
+   a flex cell keeps the key chip intact and lets the preview text ellipsize */
+.mem-table { table-layout: fixed; width: 100%; }
+.mem-table td { overflow: hidden; }
+.mem-cell { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.mem-cell .memory-content.one-line {
+  flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
 .memory-edit { width: 100%; font-size: 14px; }
+.row-open td { background: rgba(110, 168, 254, 0.06); }
 .convo-item {
   /* it's a <button>, so override the accent button's near-black text */
   text-align: left; background: var(--bg-alt); color: var(--fg);

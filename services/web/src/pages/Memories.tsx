@@ -1,131 +1,75 @@
-import { useEffect, useState } from "react";
-import { api, type AgentSummary, type Memory } from "../api";
+import { useEffect, useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
+import { api, type Memory } from "../api";
 
+/** Global memories: one table across all agents, newest first, filterable by
+ * agent and searchable across every namespace. A row opens the full memory in
+ * its agent's Memories tab. */
 export default function Memories() {
-  const [agents, setAgents] = useState<AgentSummary[]>([]);
-  const [agent, setAgent] = useState<string>("");
-  const [q, setQ] = useState("");
+  const navigate = useNavigate();
   const [rows, setRows] = useState<Memory[]>([]);
-  const [loading, setLoading] = useState(false);
+  const [q, setQ] = useState("");
+  const [agentFilter, setAgentFilter] = useState("");
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState<string | null>(null);
-  const [editing, setEditing] = useState<string | null>(null);
-  const [draft, setDraft] = useState("");
 
-  useEffect(() => {
-    api<AgentSummary[]>("/api/agents")
-      .then((a) => { setAgents(a); if (a.length && !agent) setAgent(a[0].name); })
-      .catch((err) => setError(err instanceof Error ? err.message : "Failed to load agents."));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  function load(a = agent, query = q) {
-    if (!a) return;
+  function load(query = q) {
     setLoading(true);
     setError(null);
-    setEditing(null);
-    const qs = query.trim() ? `&q=${encodeURIComponent(query.trim())}` : "";
-    api<Memory[]>(`/api/memories?agent=${encodeURIComponent(a)}${qs}`)
+    const qs = query.trim() ? `?q=${encodeURIComponent(query.trim())}&limit=500` : "?limit=500";
+    api<Memory[]>(`/api/memories${qs}`)          // no agent → all namespaces
       .then(setRows)
       .catch((err) => setError(err instanceof Error ? err.message : "Failed to load memories."))
       .finally(() => setLoading(false));
   }
+  useEffect(() => { load(""); /* eslint-disable-next-line */ }, []);
 
-  useEffect(() => { if (agent) load(agent, q); // reload when the agent changes
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [agent]);
+  const agents = useMemo(
+    () => [...new Set(rows.map((m) => m.agent))].sort(), [rows]);
+  const shown = agentFilter ? rows.filter((m) => m.agent === agentFilter) : rows;
 
-  async function remove(id: string) {
-    setBusy(id);
-    try {
-      await api(`/api/memories/${id}`, { method: "DELETE" });
-      load();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Delete failed.");
-    } finally {
-      setBusy(null);
-    }
-  }
-
-  async function saveEdit(id: string) {
-    setBusy(id);
-    try {
-      await api(`/api/memories/${id}`, { method: "PATCH", body: JSON.stringify({ content: draft }) });
-      setEditing(null);
-      load();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Save failed.");
-    } finally {
-      setBusy(null);
-    }
-  }
+  const open = (m: Memory) =>
+    navigate(`/agents/${encodeURIComponent(m.agent)}?tab=memories&memory=${encodeURIComponent(m.id)}`);
+  const stamp = (iso: string | null) => (iso ? new Date(iso).toLocaleString() : "—");
 
   return (
-    <div className="page">
+    <div className="page page-wide">
       <h1>Memories</h1>
       <p className="muted">
-        What each agent has chosen to remember. Memories are private to an agent's namespace; pick an
-        agent to browse or search its memory.
+        What every agent has chosen to remember, newest first. Search runs across all agents; click a
+        memory to open it in its agent.
       </p>
 
       <div className="row-actions" style={{ marginBottom: 12 }}>
-        <select value={agent} onChange={(e) => setAgent(e.target.value)}>
-          {agents.map((a) => <option key={a.name} value={a.name}>{a.name}</option>)}
-        </select>
-        <input
-          placeholder="Search…"
-          value={q}
-          onChange={(e) => setQ(e.target.value)}
-          onKeyDown={(e) => { if (e.key === "Enter") load(); }}
-        />
+        <input placeholder="Search all memories…" value={q} style={{ flex: 1 }}
+               onChange={(e) => setQ(e.target.value)}
+               onKeyDown={(e) => { if (e.key === "Enter") load(); }} />
         <button onClick={() => load()}>Search</button>
+        <select value={agentFilter} onChange={(e) => setAgentFilter(e.target.value)}>
+          <option value="">All agents</option>
+          {agents.map((a) => <option key={a} value={a}>{a}</option>)}
+        </select>
       </div>
 
       {loading && <p className="muted">Loading…</p>}
       {error && <div className="error">{error}</div>}
-      {!loading && !error && rows.length === 0 && <p className="muted">No memories.</p>}
-      {!loading && rows.length > 0 && (
-        <table className="table">
+      {!loading && !error && shown.length === 0 && <p className="muted">No memories.</p>}
+      {!loading && shown.length > 0 && (
+        <table className="table mem-table">
           <thead>
-            <tr><th>Memory</th><th style={{ width: 130 }}>Updated</th><th style={{ width: 150 }}></th></tr>
+            <tr><th style={{ width: 140 }}>Agent</th><th>Memory</th><th style={{ width: 170 }}>Updated</th></tr>
           </thead>
           <tbody>
-            {rows.map((m) => (
-              <tr key={m.id}>
+            {shown.map((m) => (
+              <tr key={m.id} className="clickable-row" onClick={() => open(m)}>
+                <td>{m.agent}</td>
                 <td>
-                  {m.key && <span className="chip memory-key" title="Key — saving with this key overwrites this memory">{m.key}</span>}
-                  {editing === m.id ? (
-                    <textarea
-                      className="memory-edit"
-                      value={draft}
-                      onChange={(e) => setDraft(e.target.value)}
-                      rows={Math.min(12, Math.max(3, draft.split("\n").length + 1))}
-                      autoFocus
-                    />
-                  ) : (
-                    <div className="memory-content">{m.content}</div>
-                  )}
+                  <div className="mem-cell">
+                    {m.key && <span className="chip memory-key">{m.key}</span>}
+                    <span className="memory-content one-line">{m.content}</span>
+                  </div>
                 </td>
-                <td className="muted">{m.updated_at ? new Date(m.updated_at).toLocaleDateString() : "—"}</td>
-                <td>
-                  {editing === m.id ? (
-                    <div className="row-actions">
-                      <button onClick={() => saveEdit(m.id)} disabled={busy === m.id}>
-                        {busy === m.id ? "Saving…" : "Save"}
-                      </button>
-                      <button className="secondary" onClick={() => setEditing(null)}>Cancel</button>
-                    </div>
-                  ) : (
-                    <div className="row-actions">
-                      <button className="secondary" onClick={() => { setEditing(m.id); setDraft(m.content); }}>
-                        Edit
-                      </button>
-                      <button className="secondary" onClick={() => remove(m.id)} disabled={busy === m.id}>
-                        {busy === m.id ? "…" : "Delete"}
-                      </button>
-                    </div>
-                  )}
-                </td>
+                <td className="muted">{stamp(m.updated_at)}</td>
               </tr>
             ))}
           </tbody>
