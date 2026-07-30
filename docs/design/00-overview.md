@@ -136,9 +136,11 @@ laptop's session credentials fails fast — the laptop's own claude rotates
 the refresh token, invalidating any snapshot. The platform instead uses a
 dedicated long-lived token from `claude setup-token` (1-year validity,
 subscription-billed), stored under the `token` key of the
-claude-credentials secret and passed to runners as
-`CLAUDE_CODE_OAUTH_TOKEN`. No steward process is needed; nothing rotates
-the token.
+claude-credentials secret. Since token brokering
+([09](09-token-brokering.md)) the token never enters runner pods: only the
+claude-proxy holds it, and runners reach Anthropic through the proxy with a
+placeholder credential. No steward process is needed; nothing rotates the
+token.
 
 ## Infra sizing (pai NUC: i3-7100U 2c/4t, 29Gi RAM, 480G NVMe)
 

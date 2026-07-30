@@ -102,10 +102,10 @@ review flow for code:
 
 ## Deliberately out of scope (documented residuals)
 
-- The **shared Claude token** is still mounted in every runner pod. The trifecta
-  break (no untrusted agent can read it) is now **enforced** — `Bash`/`Read`/etc.
-  are self-edit-only regardless of the manifest — but the token is still
-  *present*. Full removal (an auth-injecting egress proxy) is a deferred
-  decision: see [09](09-token-brokering.md).
+- ~~The **shared Claude token** is still mounted in every runner pod.~~
+  **Resolved 2026-07-30:** the token is brokered out of runner pods entirely —
+  only the claude-proxy holds it. The enforced trifecta break
+  (`Bash`/`Read`/etc. self-edit-only regardless of the manifest) remains the
+  first line. See [09](09-token-brokering.md).
 
 See also the dated spec: `docs/superpowers/specs/2026-07-29-news-privilege-separation-design.md`.
