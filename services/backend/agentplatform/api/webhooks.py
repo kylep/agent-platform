@@ -9,10 +9,11 @@ from agentplatform.events import TOPIC_RUN_INBOUND
 
 log = logging.getLogger("webhooks")
 
+from agentplatform.api import schemas as S
 router = APIRouter()
 
 
-@router.post("/api/webhooks/{agent}", status_code=202)
+@router.post("/api/webhooks/{agent}", status_code=202, response_model=S.RunAccepted)
 async def webhook(request: Request, agent: str, principal: str = Depends(require_role("operator"))):
     """External async trigger: an operator+ caller fires `{agent}` with the
     request body as prompt context. This is **event-sourced** — we validate the

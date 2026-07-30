@@ -11,6 +11,7 @@ from agentplatform.db import Conversation, Run, utcnow
 
 log = logging.getLogger("conversations")
 
+from agentplatform.api import schemas as S
 router = APIRouter()
 
 
@@ -31,12 +32,12 @@ def _view(c: Conversation) -> dict:
             "updated_at": c.updated_at.isoformat() if c.updated_at else None}
 
 
-@router.get("/api/connectors", dependencies=[Depends(require_role(*READ_ROLES))])
+@router.get("/api/connectors", response_model=list[S.Connector], dependencies=[Depends(require_role(*READ_ROLES))])
 async def list_connectors():
     return CONNECTORS
 
 
-@router.post("/api/conversations", status_code=201,
+@router.post("/api/conversations", status_code=201, response_model=S.ConversationView,
              dependencies=[Depends(require_role(*INVOKE_ROLES))])
 async def create_conversation(request: Request, body: ConversationIn):
     if body.connector not in IMPLEMENTED:
@@ -53,7 +54,7 @@ async def create_conversation(request: Request, body: ConversationIn):
         return _view(conv)
 
 
-@router.get("/api/conversations", dependencies=[Depends(require_role(*READ_ROLES))])
+@router.get("/api/conversations", response_model=list[S.ConversationView], dependencies=[Depends(require_role(*READ_ROLES))])
 async def list_conversations(request: Request):
     async with request.app.state.session_factory() as s:
         rows = (await s.execute(select(Conversation)
@@ -61,7 +62,7 @@ async def list_conversations(request: Request):
     return [_view(c) for c in rows]
 
 
-@router.get("/api/conversations/{conversation_id}",
+@router.get("/api/conversations/{conversation_id}", response_model=S.ConversationDetail,
             dependencies=[Depends(require_role(*READ_ROLES))])
 async def get_conversation(request: Request, conversation_id: str):
     async with request.app.state.session_factory() as s:
@@ -78,7 +79,7 @@ async def get_conversation(request: Request, conversation_id: str):
     return d
 
 
-@router.delete("/api/conversations/{conversation_id}",
+@router.delete("/api/conversations/{conversation_id}", response_model=S.OkIdStatus,
                dependencies=[Depends(require_role(*INVOKE_ROLES))])
 async def close_conversation(request: Request, conversation_id: str):
     async with request.app.state.session_factory() as s:
@@ -91,7 +92,7 @@ async def close_conversation(request: Request, conversation_id: str):
     return {"ok": True, "id": conversation_id, "status": "closed"}
 
 
-@router.post("/api/conversations/{conversation_id}/messages",
+@router.post("/api/conversations/{conversation_id}/messages", response_model=S.MessageAccepted,
              dependencies=[Depends(require_role(*INVOKE_ROLES))])
 async def post_message(request: Request, conversation_id: str, body: MessageIn,
                        principal: str = Depends(require_role(*INVOKE_ROLES))):

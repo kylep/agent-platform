@@ -15,8 +15,9 @@ API. Everything is one authenticated REST surface; you need two things:
 
 If the user hasn't provided these, ask for the URL and key (never guess a key).
 
-Prefer the Python SDK when available (`sdk/` in this repo), else use `curl`.
-Always send `-H "Authorization: Bearer $AP_API_TOKEN"`.
+Prefer the Python SDK when available (`sdk/` in this repo — a typed client
+generated from the platform's OpenAPI), else use `curl`. Always send
+`-H "Authorization: Bearer $AP_API_TOKEN"`.
 
 ## Common operations (curl)
 
@@ -51,12 +52,18 @@ curl -s -H "Authorization: Bearer $AP_API_TOKEN" "$AP_API_URL/api/health/kafka"
 
 ## Using the Python SDK
 
+Each endpoint is a module under `agent_platform_sdk.api.default`; call
+`.sync(client=…)` for the parsed (typed) result.
+
 ```python
-from agent_platform_sdk import Client
-ap = Client("$AP_API_URL", "$AP_API_TOKEN")
-ap.list_agents()
-run = ap.create_run("echo", "hello")
-ap.get_run(run["id"])
+from agent_platform_sdk import AuthenticatedClient
+from agent_platform_sdk.api.default import list_agents, create_run, get_run
+from agent_platform_sdk.models import RunIn
+
+client = AuthenticatedClient(base_url="$AP_API_URL", token="$AP_API_TOKEN")
+list_agents.sync(client=client)                                   # -> list[AgentSummary]
+run = create_run.sync(client=client, body=RunIn(agent="echo", prompt="hello"))
+get_run.sync(client=client, run_id=run.id)                        # -> RunDetail
 ```
 
 ## Notes

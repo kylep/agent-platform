@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 
 from agentplatform.api.auth import READ_ROLES, require_role
 
+from agentplatform.api import schemas as S
 router = APIRouter()
 
 
@@ -14,7 +15,7 @@ def _agents_using(request: Request, skill_name: str) -> list[str]:
     return out
 
 
-@router.get("/api/skills", dependencies=[Depends(require_role(*READ_ROLES))])
+@router.get("/api/skills", response_model=list[S.SkillView], dependencies=[Depends(require_role(*READ_ROLES))])
 async def list_skills(request: Request):
     request.app.state.skill_store.reload()
     # Reload agents too so `used_by` reflects the latest synced manifests.
@@ -28,7 +29,7 @@ async def list_skills(request: Request):
             for s in request.app.state.skill_store.list()]
 
 
-@router.get("/api/skills/{name}", dependencies=[Depends(require_role(*READ_ROLES))])
+@router.get("/api/skills/{name}", response_model=S.SkillDetail, dependencies=[Depends(require_role(*READ_ROLES))])
 async def get_skill(request: Request, name: str):
     s = request.app.state.skill_store.get(name)
     if s is None:

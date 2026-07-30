@@ -12,6 +12,7 @@ from agentplatform.materialize import materialize_run
 
 log = logging.getLogger("runs")
 
+from agentplatform.api import schemas as S
 router = APIRouter()
 
 class RunIn(BaseModel):
@@ -27,7 +28,7 @@ def _summary(r: Run) -> dict:
             "created_at": r.created_at.isoformat() if r.created_at else None,
             "summary": r.summary, "tags": r.tags or []}
 
-@router.post("/api/runs")
+@router.post("/api/runs", response_model=S.RunAccepted)
 async def create_run(request: Request, body: RunIn,
                      principal: str = Depends(require_role(*INVOKE_ROLES))):
     store = request.app.state.agent_store
@@ -60,7 +61,7 @@ async def create_run(request: Request, body: RunIn,
     })
     return {"id": run_id, "state": "queued"}
 
-@router.get("/api/runs", dependencies=[Depends(require_role(*READ_ROLES))])
+@router.get("/api/runs", response_model=list[S.RunSummary], dependencies=[Depends(require_role(*READ_ROLES))])
 async def list_runs(request: Request, limit: int = Query(50, ge=1, le=500),
                     tag: str | None = None, needs_summary: bool = False):
     async with request.app.state.session_factory() as s:
@@ -74,7 +75,7 @@ async def list_runs(request: Request, limit: int = Query(50, ge=1, le=500),
         rows = [r for r in rows if tag in (r.tags or [])]
     return [_summary(r) for r in rows[:limit]]
 
-@router.get("/api/tags", dependencies=[Depends(require_role(*READ_ROLES))])
+@router.get("/api/tags", response_model=list[str], dependencies=[Depends(require_role(*READ_ROLES))])
 async def list_tags(request: Request):
     async with request.app.state.session_factory() as s:
         rows = (await s.execute(select(Run.tags))).scalars()
@@ -83,7 +84,7 @@ async def list_tags(request: Request):
         seen.update(t or [])
     return sorted(seen)
 
-@router.get("/api/runs/{run_id}", dependencies=[Depends(require_role(*READ_ROLES))])
+@router.get("/api/runs/{run_id}", response_model=S.RunDetail, dependencies=[Depends(require_role(*READ_ROLES))])
 async def get_run(request: Request, run_id: str):
     async with request.app.state.session_factory() as s:
         run = await s.get(Run, run_id)
@@ -101,7 +102,7 @@ async def get_run(request: Request, run_id: str):
                   "finished_at": run.finished_at.isoformat() if run.finished_at else None})
         return d
 
-@router.post("/api/runs/{run_id}/annotate", dependencies=[Depends(require_role(*ANNOTATE_ROLES))])
+@router.post("/api/runs/{run_id}/annotate", response_model=S.OkId, dependencies=[Depends(require_role(*ANNOTATE_ROLES))])
 async def annotate_run(request: Request, run_id: str, body: AnnotateIn):
     """Set a run's summary and/or tags. Used by the run-summarizer system
     agent (with its API key) and available to any operator+."""
@@ -122,7 +123,7 @@ async def run_events(request: Request, run_id: str):
                 .where(TranscriptEvent.run_id == run_id).order_by(TranscriptEvent.seq))).scalars()
         return [e.payload for e in rows]
 
-@router.post("/api/runs/{run_id}/kill", dependencies=[Depends(require_admin)])
+@router.post("/api/runs/{run_id}/kill", response_model=S.Ok, dependencies=[Depends(require_admin)])
 async def kill_run(request: Request, run_id: str):
     async with request.app.state.session_factory() as s:
         run = await s.get(Run, run_id)

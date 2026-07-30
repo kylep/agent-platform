@@ -4,6 +4,7 @@ from sqlalchemy import select
 from agentplatform.api.auth import require_admin
 from agentplatform.db import SecretAccess
 
+from agentplatform.api import schemas as S
 router = APIRouter()
 
 
@@ -12,7 +13,7 @@ def _view(a: SecretAccess) -> dict:
             "granted_at": a.granted_at.isoformat() if a.granted_at else None}
 
 
-@router.get("/api/audit/secret-access", dependencies=[Depends(require_admin)])
+@router.get("/api/audit/secret-access", response_model=list[S.SecretAccessView], dependencies=[Depends(require_admin)])
 async def secret_access(request: Request, run_id: str | None = None,
                         secret: str | None = None, agent: str | None = None,
                         limit: int = Query(100, ge=1, le=1000)):

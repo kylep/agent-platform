@@ -5,9 +5,9 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "agent-platform-sdk"
 version = "0.1.0"
-description = "Tiny, dependency-free Python client for the agent-platform HTTP API"
-requires-python = ">=3.10"
-dependencies = []
+description = "Typed Python client for the agent-platform HTTP API, generated from its OpenAPI spec"
+requires-python = ">=3.9"
+dependencies = ["httpx>=0.23", "attrs>=22.2", "python-dateutil>=2.8"]
 
-[tool.setuptools]
-packages = ["agent_platform_sdk"]
+[tool.setuptools.packages.find]
+include = ["agent_platform_sdk*"]

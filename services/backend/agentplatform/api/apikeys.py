@@ -6,6 +6,7 @@ from agentplatform.api.auth import ROLES, require_admin
 from agentplatform.apikeys import generate_token, hash_token, token_prefix
 from agentplatform.db import ApiKey, utcnow
 
+from agentplatform.api import schemas as S
 router = APIRouter(dependencies=[Depends(require_admin)])
 
 
@@ -24,14 +25,14 @@ def _view(k: ApiKey) -> dict:
             "revoked_at": k.revoked_at}
 
 
-@router.get("/api/api-keys")
+@router.get("/api/api-keys", response_model=list[S.ApiKeyView])
 async def list_api_keys(request: Request):
     async with request.app.state.session_factory() as s:
         rows = (await s.execute(select(ApiKey).order_by(ApiKey.created_at))).scalars().all()
     return [_view(k) for k in rows]
 
 
-@router.post("/api/api-keys", status_code=201)
+@router.post("/api/api-keys", status_code=201, response_model=S.ApiKeyCreated)
 async def mint_api_key(request: Request, body: ApiKeyIn):
     if body.role not in ROLES:
         raise HTTPException(422, f"role must be one of {ROLES}")
@@ -44,7 +45,7 @@ async def mint_api_key(request: Request, body: ApiKeyIn):
         return {**_view(key), "token": token}
 
 
-@router.delete("/api/api-keys/{key_id}")
+@router.delete("/api/api-keys/{key_id}", response_model=S.Ok)
 async def revoke_api_key(request: Request, key_id: str):
     async with request.app.state.session_factory() as s:
         key = await s.get(ApiKey, key_id)

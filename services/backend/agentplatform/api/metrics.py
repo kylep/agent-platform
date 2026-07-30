@@ -11,6 +11,7 @@ from agentplatform.api.auth import READ_ROLES, require_role
 from agentplatform.db import ACTIVE_STATES, Run, RunModelUsage, RunState, utcnow
 from agentplatform.scheduler import as_utc
 
+from agentplatform.api import schemas as S
 router = APIRouter()
 
 # Cap how many recent runs a rollup scans, so metrics stay cheap as history grows.
@@ -65,7 +66,7 @@ async def _recent_runs(request: Request) -> list[Run]:
             select(Run).order_by(Run.created_at.desc()).limit(_WINDOW))).scalars())
 
 
-@router.get("/api/metrics/overview", dependencies=[Depends(require_role(*READ_ROLES))])
+@router.get("/api/metrics/overview", response_model=S.MetricsOverview, dependencies=[Depends(require_role(*READ_ROLES))])
 async def overview(request: Request):
     runs = await _recent_runs(request)
     now = utcnow()
@@ -79,7 +80,7 @@ async def overview(request: Request):
     return out
 
 
-@router.get("/api/metrics/models", dependencies=[Depends(require_role(*READ_ROLES))])
+@router.get("/api/metrics/models", response_model=list[S.ModelUsage], dependencies=[Depends(require_role(*READ_ROLES))])
 async def by_model(request: Request, agent: str | None = None):
     """Token usage grouped by model, optionally filtered to one agent. Sorted by
     total tokens desc."""
@@ -98,7 +99,7 @@ async def by_model(request: Request, agent: str | None = None):
     return out
 
 
-@router.get("/api/metrics/agents", dependencies=[Depends(require_role(*READ_ROLES))])
+@router.get("/api/metrics/agents", response_model=list[S.AgentMetrics], dependencies=[Depends(require_role(*READ_ROLES))])
 async def per_agent(request: Request):
     runs = await _recent_runs(request)
     buckets: dict[str, list[Run]] = defaultdict(list)

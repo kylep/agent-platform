@@ -10,6 +10,8 @@ from agentplatform.agentspec import (AVAILABLE_TOOLS, mutate_agent_md,
                                      mutate_manifest_yaml, render_agent_md,
                                      render_manifest, validate_agent_name)
 from agentplatform.api.auth import READ_ROLES, require_admin, require_role
+from agentplatform.api.schemas import (AgentInfo, AgentSummary, AgentTools,
+                                       EditDispatch, EditResult)
 from agentplatform.db import Run
 from agentplatform.events import TOPIC_RUN_REQUESTS
 from agentplatform.github import GitHubClient
@@ -24,7 +26,7 @@ log = logging.getLogger("agents-api")
 router = APIRouter()
 
 
-@router.get("/api/agents", dependencies=[Depends(require_role(*READ_ROLES))])
+@router.get("/api/agents", response_model=list[AgentSummary], dependencies=[Depends(require_role(*READ_ROLES))])
 async def list_agents(request: Request):
     request.app.state.agent_store.reload()
     return [{"name": a.name, "description": a.manifest.description if a.manifest else "",
@@ -33,7 +35,7 @@ async def list_agents(request: Request):
              "schedule": a.manifest.schedule if a.manifest else ""}
             for a in request.app.state.agent_store.list()]
 
-@router.get("/api/agents/{name}", dependencies=[Depends(require_role(*READ_ROLES))])
+@router.get("/api/agents/{name}", response_model=AgentInfo, dependencies=[Depends(require_role(*READ_ROLES))])
 async def get_agent(request: Request, name: str):
     store = request.app.state.agent_store
     a = store.get(name)
@@ -123,7 +125,7 @@ async def _apply_files(request: Request, files: dict[str, str | None], *,
                          pr_title=pr_title, pr_body=pr_body)
 
 
-@router.post("/api/agents/{name}/quick-edit")
+@router.post("/api/agents/{name}/quick-edit", response_model=EditResult)
 async def quick_edit(request: Request, name: str, body: QuickEditIn,
                      principal: str = Depends(require_admin)):
     """Deterministic edit that skips the agent: writes the change into a fresh
@@ -142,7 +144,7 @@ class FreeformEditIn(BaseModel):
     instruction: str
 
 
-@router.post("/api/agents/{name}/edit", status_code=202)
+@router.post("/api/agents/{name}/edit", status_code=202, response_model=EditDispatch)
 async def freeform_edit(request: Request, name: str, body: FreeformEditIn,
                         principal: str = Depends(require_admin)):
     """Dispatch platform-coder to edit agent `{name}` per a freeform
@@ -170,7 +172,7 @@ async def freeform_edit(request: Request, name: str, body: FreeformEditIn,
 
 # --- structured create / config edit (New-Agent wizard + checkbox editor) ----
 
-@router.get("/api/agent-tools", dependencies=[Depends(require_role(*READ_ROLES))])
+@router.get("/api/agent-tools", response_model=AgentTools, dependencies=[Depends(require_role(*READ_ROLES))])
 async def agent_tools():
     """The canonical tool list the UI renders as checkboxes (one source of truth
     with the validation below)."""
@@ -205,7 +207,7 @@ class CreateAgentIn(BaseModel):
     prompt: str = ""
 
 
-@router.post("/api/agents", status_code=201)
+@router.post("/api/agents", status_code=201, response_model=EditResult)
 async def create_agent(request: Request, body: CreateAgentIn,
                        principal: str = Depends(require_admin)):
     """Create a new agent from the wizard: render its manifest.yaml + agent.md
@@ -244,7 +246,7 @@ class ConfigEditIn(BaseModel):
     description: str | None = None
 
 
-@router.patch("/api/agents/{name}/config")
+@router.patch("/api/agents/{name}/config", response_model=EditResult)
 async def edit_agent_config(request: Request, name: str, body: ConfigEditIn,
                             principal: str = Depends(require_admin)):
     """Apply a structured config edit (skills / tools / description) to an

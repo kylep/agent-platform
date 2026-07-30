@@ -1,0 +1,375 @@
+"""Response models for the REST API.
+
+These exist so the OpenAPI spec carries response schemas, which is what lets the
+SDK (`sdk/`) be *generated* from the spec with typed return values rather than
+hand-maintained. FastAPI serializes each handler's return **through** its
+`response_model`, so every field a handler returns MUST be declared here or it
+is silently dropped from the response — the backend test-suite asserts on these
+fields and is the guard against that.
+
+Loose/dynamic payloads (raw transcript frames, upstream GitHub merge results)
+are intentionally left unmodeled at the call site (return `dict`/`list`) — they
+generate as untyped, which is honest for genuinely free-form data.
+"""
+from __future__ import annotations
+
+from datetime import datetime
+
+from pydantic import BaseModel
+
+from agentplatform.agents import AgentInfo  # re-exported as the get_agent model
+
+
+# --- shared action results ---------------------------------------------------
+
+class Ok(BaseModel):
+    ok: bool = True
+
+
+class OkId(Ok):
+    id: str
+
+
+class OkIdState(Ok):
+    id: str
+    state: str
+
+
+class OkIdStatus(Ok):
+    id: str
+    status: str
+
+
+class PruneResult(Ok):
+    deleted: int
+
+
+# --- agents ------------------------------------------------------------------
+
+class AgentSummary(BaseModel):
+    name: str
+    description: str
+    quarantined: bool
+    error: str | None
+    system: bool
+    schedule: str
+
+
+class AgentTools(BaseModel):
+    tools: list[str]
+
+
+class PrRef(BaseModel):
+    number: int
+    url: str
+
+
+class EditResult(BaseModel):
+    tier: int
+    branch: str | None
+    sha: str | None
+    changes: list[str]
+    pr: PrRef | None
+
+
+class EditDispatch(BaseModel):
+    id: str
+    state: str
+    target_agent: str
+
+
+# --- runs --------------------------------------------------------------------
+
+class RunSummary(BaseModel):
+    id: str
+    agent: str
+    state: str
+    trigger: str
+    created_at: str | None
+    summary: str | None
+    tags: list[str]
+
+
+class RunDetail(RunSummary):
+    prompt: str
+    exit_code: int | None
+    error: str | None
+    tokens_in: int
+    tokens_out: int
+    tool_calls: int
+    secrets_granted: list[str]
+    permission_denials: list[dict]
+    parent_run_id: str | None
+    depth: int
+    requested_by: str
+    started_at: str | None
+    finished_at: str | None
+
+
+class RunAccepted(BaseModel):
+    id: str
+    state: str
+
+
+# --- api keys ----------------------------------------------------------------
+
+class ApiKeyView(BaseModel):
+    id: str
+    name: str
+    role: str
+    agent: str | None
+    prefix: str
+    created_at: datetime | None
+    revoked_at: datetime | None
+
+
+class ApiKeyCreated(ApiKeyView):
+    token: str
+
+
+# --- audit -------------------------------------------------------------------
+
+class SecretAccessView(BaseModel):
+    id: str
+    run_id: str
+    agent: str
+    secret: str
+    granted_at: str | None
+
+
+# --- conversations -----------------------------------------------------------
+
+class Connector(BaseModel):
+    name: str
+    kind: str
+    implemented: bool
+    secrets: list[str]
+    description: str
+
+
+class ConversationView(BaseModel):
+    id: str
+    connector: str
+    external_ref: str | None
+    agent: str
+    title: str
+    status: str
+    created_at: str | None
+    updated_at: str | None
+
+
+class ConversationTurn(BaseModel):
+    run_id: str
+    user_message: str | None
+    result: str | None
+    state: str
+    created_at: str | None
+
+
+class ConversationDetail(ConversationView):
+    turns: list[ConversationTurn]
+
+
+class MessageAccepted(BaseModel):
+    run_id: str
+
+
+# --- dlq ---------------------------------------------------------------------
+
+class DlqEntry(BaseModel):
+    id: str
+    agent: str
+    trigger: str
+    error: str | None
+    created_at: str | None
+    finished_at: str | None
+
+
+# --- health ------------------------------------------------------------------
+
+class Backlog(BaseModel):
+    queued: int
+    active: int
+    dlq: int
+
+
+class KafkaHealth(BaseModel):
+    reachable: bool
+    topics: list[str]
+    missing_topics: list[str]
+    lag: int | None
+    error: str | None
+    backlog: Backlog
+
+
+# --- integrations ------------------------------------------------------------
+
+class Integration(BaseModel):
+    name: str
+    kind: str
+    secrets: list[str]
+    configured: bool
+    status: str
+    detail: str
+
+
+# --- jobs --------------------------------------------------------------------
+
+class JobView(BaseModel):
+    id: str
+    name: str
+    agent: str
+    cron: str
+    prompt: str
+    enabled: bool
+    last_fire: str | None
+    next_fire: str | None
+
+
+class JobRunAccepted(BaseModel):
+    id: str
+    agent: str
+
+
+# --- maintenance -------------------------------------------------------------
+
+class Retention(BaseModel):
+    default_days: int
+    per_agent_days: dict[str, int]
+
+
+# --- memory ------------------------------------------------------------------
+
+class MemoryView(BaseModel):
+    id: str
+    agent: str
+    key: str | None
+    content: str
+    tags: list[str]
+    created_at: str | None
+    updated_at: str | None
+
+
+# --- metrics -----------------------------------------------------------------
+
+class _Agg(BaseModel):
+    total: int
+    by_state: dict[str, int]
+    active: int
+    succeeded: int
+    success_rate: float | None
+    tokens_in: int
+    tokens_out: int
+    tool_calls: int
+    avg_duration_seconds: float | None
+    max_duration_seconds: float | None
+    last_run_at: str | None
+
+
+class MetricsOverview(_Agg):
+    runs_24h: int
+    runs_7d: int
+    dlq: int
+    window: int
+
+
+class AgentMetrics(_Agg):
+    agent: str
+    failure_streak: int
+
+
+class ModelUsage(BaseModel):
+    model: str
+    runs: int
+    tokens_in: int
+    tokens_out: int
+
+
+# --- news --------------------------------------------------------------------
+
+class PendingNewsView(BaseModel):
+    id: str
+    created_at: str | None
+    run_id: str | None
+    channel: str
+    date: str
+    post_text: str
+    item_count: int
+    status: str
+
+
+# --- pull requests -----------------------------------------------------------
+
+class PullRequest(BaseModel):
+    number: int
+    title: str
+    url: str
+    branch: str
+    author: str
+    created_at: str
+
+
+class PullRequestFile(BaseModel):
+    filename: str
+    status: str
+    additions: int
+    deletions: int
+    patch: str | None
+
+
+# --- schedules ---------------------------------------------------------------
+
+class ScheduleRow(BaseModel):
+    agent: str
+    cron: str
+    enabled: bool
+    last_fire: datetime | None
+    next_fire: datetime | None
+
+
+class ScheduleToggle(BaseModel):
+    agent: str
+    enabled: bool
+
+
+# --- secrets -----------------------------------------------------------------
+
+class SecretStatus(BaseModel):
+    name: str
+    status: str
+    required: bool
+    hint: str
+    key: str
+    probeable: bool
+
+
+class SecretVerify(BaseModel):
+    name: str
+    status: str
+    code: int | None
+    detail: str
+
+
+# --- skills ------------------------------------------------------------------
+
+class SkillView(BaseModel):
+    name: str
+    description: str
+    icon: str
+    secrets: list[str]
+    error: str | None
+    used_by: list[str]
+
+
+class SkillDetail(SkillView):
+    body: str
+
+
+# --- setup -------------------------------------------------------------------
+
+class SetupState(BaseModel):
+    needs_admin: bool
+    secrets: list[SecretStatus]
+
+
+__all__ = [n for n in dir() if n[0].isupper()] + ["AgentInfo"]

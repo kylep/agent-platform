@@ -99,7 +99,13 @@ def create_app(settings, session_factory, producer, secret_store=None, agent_sto
                 except Exception:
                     pass
 
-    app = FastAPI(title="agent-platform", version="0.1.0", lifespan=lifespan)
+    # operationId = the endpoint function name (e.g. `list_agents`) instead of
+    # FastAPI's default `list_agents_api_agents_get`. This is the SDK's method
+    # name: the client is generated from this spec, so clean, stable operationIds
+    # give a clean generated API. Endpoint function names are unique across the
+    # app (asserted by tests/test_openapi.py).
+    app = FastAPI(title="agent-platform", version="0.1.0", lifespan=lifespan,
+                  generate_unique_id_function=lambda route: route.name)
     st = app.state
     st.settings, st.session_factory, st.producer = settings, session_factory, producer
     st.consumer_factory = consumer_factory

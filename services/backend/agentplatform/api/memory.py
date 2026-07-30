@@ -9,6 +9,7 @@ from agentplatform.db import Memory
 
 log = logging.getLogger("memory")
 
+from agentplatform.api import schemas as S
 router = APIRouter()
 
 # Column caps (see db.Memory). Validated at the edge so malformed input is a
@@ -59,7 +60,7 @@ def _resolve_ns(request: Request, requested: str | None) -> str:
     return requested
 
 
-@router.post("/api/memories", status_code=201, dependencies=[Depends(require_role(*MEMORY_ROLES))])
+@router.post("/api/memories", status_code=201, response_model=S.MemoryView, dependencies=[Depends(require_role(*MEMORY_ROLES))])
 async def save_memory(request: Request, body: MemoryIn):
     """Save a memory in the caller's namespace. A save reusing an existing
     `key` overwrites it (idempotent remember); otherwise a new memory is added."""
@@ -81,7 +82,7 @@ async def save_memory(request: Request, body: MemoryIn):
         return _view(m)
 
 
-@router.get("/api/memories", dependencies=[Depends(require_role(*READ_ROLES))])
+@router.get("/api/memories", response_model=list[S.MemoryView], dependencies=[Depends(require_role(*READ_ROLES))])
 async def list_memories(request: Request,
                         agent: str | None = Query(None, max_length=_NAME_MAX),
                         q: str | None = Query(None, max_length=1000),
@@ -114,12 +115,12 @@ async def _owned(request: Request, memory_id: str) -> Memory:
     return m
 
 
-@router.get("/api/memories/{memory_id}", dependencies=[Depends(require_role(*READ_ROLES))])
+@router.get("/api/memories/{memory_id}", response_model=S.MemoryView, dependencies=[Depends(require_role(*READ_ROLES))])
 async def get_memory(request: Request, memory_id: str):
     return _view(await _owned(request, memory_id))
 
 
-@router.delete("/api/memories/{memory_id}", dependencies=[Depends(require_role(*MEMORY_ROLES))])
+@router.delete("/api/memories/{memory_id}", response_model=S.OkId, dependencies=[Depends(require_role(*MEMORY_ROLES))])
 async def delete_memory(request: Request, memory_id: str):
     m = await _owned(request, memory_id)
     async with request.app.state.session_factory() as s:

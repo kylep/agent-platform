@@ -10,6 +10,7 @@ from agentplatform.db import SecretMeta
 from agentplatform.secrets import (PROBEABLE_SECRETS, REQUIRED_SECRETS, SECRET_HINTS,
                                    secret_probe_target)
 
+from agentplatform.api import schemas as S
 router = APIRouter()
 
 
@@ -62,11 +63,11 @@ async def secret_listing(request: Request) -> list[dict]:
                     "probeable": n in PROBEABLE_SECRETS})
     return out
 
-@router.get("/api/secrets", dependencies=[Depends(require_admin)])
+@router.get("/api/secrets", response_model=list[S.SecretStatus], dependencies=[Depends(require_admin)])
 async def list_secrets(request: Request):
     return await secret_listing(request)
 
-@router.post("/api/secrets/{name}/verify", dependencies=[Depends(require_admin)])
+@router.post("/api/secrets/{name}/verify", response_model=S.SecretVerify, dependencies=[Depends(require_admin)])
 async def verify_secret(request: Request, name: str):
     """Validate a secret with a read-only API call and record the result."""
     data = await request.app.state.secret_store.get(name)
@@ -84,7 +85,7 @@ async def verify_secret(request: Request, name: str):
     return {"name": name, "status": status, "code": code, "detail": detail}
 
 
-@router.put("/api/secrets/{name}", dependencies=[Depends(require_admin)])
+@router.put("/api/secrets/{name}", response_model=S.Ok, dependencies=[Depends(require_admin)])
 async def put_secret(request: Request, name: str, body: SecretIn):
     await request.app.state.secret_store.set(name, body.data)
     async with request.app.state.session_factory() as s:

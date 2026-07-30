@@ -19,12 +19,18 @@ jobs:
       - name: Install backend
         run: pip install -e 'services/backend[dev]'
       - name: Run backend tests
-        # Includes the SDK drift guard (tests/test_sdk.py) and the end-to-end
-        # exercise (tests/test_sdk_integration.py): the real SDK drives the real
-        # ASGI app over httpx with a genuine ap_ key — auth, RBAC, and
-        # serialization for real — and the platform skill's documented /api
-        # paths are held to the live OpenAPI so it can't drift either.
+        # Includes the end-to-end SDK exercise (tests/test_sdk_integration.py):
+        # the generated client drives the real ASGI app over httpx with a
+        # genuine ap_ key — auth, RBAC, typed responses for real — and the
+        # platform skill's documented /api paths are held to the live OpenAPI.
         run: pytest services/backend/tests
+      - name: SDK is in sync with the API
+        # The SDK is generated from the OpenAPI spec; regenerate and fail if the
+        # committed output differs, so it can never drift. Generator is pinned.
+        run: |
+          python sdk/regenerate.py
+          git diff --exit-code sdk/ \
+            || (echo "::error::sdk/ is stale — run 'python sdk/regenerate.py' and commit" && exit 1)
 
   runner:
     runs-on: ubuntu-latest

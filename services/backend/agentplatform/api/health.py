@@ -9,6 +9,7 @@ from agentplatform.events import ALL_TOPICS, TOPIC_RUN_REQUESTS
 
 log = logging.getLogger("health")
 
+from agentplatform.api import schemas as S
 router = APIRouter()
 
 
@@ -57,7 +58,7 @@ async def _dispatcher_lag(bootstrap: str) -> int | None:
     return total
 
 
-@router.get("/api/health/kafka", dependencies=[Depends(require_role(*READ_ROLES))])
+@router.get("/api/health/kafka", response_model=S.KafkaHealth, dependencies=[Depends(require_role(*READ_ROLES))])
 async def kafka_health(request: Request):
     """Broker liveness + expected-topic presence, a best-effort dispatcher lag,
     and a DB-derived run backlog (queued/active/dlq). Powers the dashboard's

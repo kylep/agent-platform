@@ -8,6 +8,7 @@ from agentplatform.apikeys import hash_token
 from agentplatform.db import ApiKey, Principal
 
 ph = PasswordHasher()
+from agentplatform.api import schemas as S
 router = APIRouter()
 
 class Creds(BaseModel):
@@ -116,7 +117,7 @@ def require_role(*allowed: str):
 
 require_admin = require_role("admin")
 
-@router.get("/api/setup-state")
+@router.get("/api/setup-state", response_model=S.SetupState)
 async def setup_state(request: Request):
     from agentplatform.api.secrets import secret_listing
     needs_admin = await _admin(request) is None
@@ -126,7 +127,7 @@ async def setup_state(request: Request):
     secrets = await secret_listing(request) if (needs_admin or authed) else []
     return {"needs_admin": needs_admin, "secrets": secrets}
 
-@router.post("/api/setup")
+@router.post("/api/setup", response_model=S.Ok)
 async def setup(request: Request, creds: Creds):
     if await _admin(request) is not None:
         raise HTTPException(409, "already set up")
@@ -135,7 +136,7 @@ async def setup(request: Request, creds: Creds):
         await s.commit()
     return {"ok": True}
 
-@router.post("/api/login")
+@router.post("/api/login", response_model=S.Ok)
 async def login(request: Request, response: Response, creds: Creds):
     admin = await _admin(request)
     if admin is None:
@@ -148,7 +149,7 @@ async def login(request: Request, response: Response, creds: Creds):
                         httponly=True, samesite="lax")
     return {"ok": True}
 
-@router.post("/api/logout")
+@router.post("/api/logout", response_model=S.Ok)
 async def logout(response: Response):
     response.delete_cookie("ap_session")
     return {"ok": True}
@@ -159,7 +160,7 @@ class PasswordChange(BaseModel):
     new_password: str
 
 
-@router.post("/api/change-password", dependencies=[Depends(require_admin)])
+@router.post("/api/change-password", response_model=S.Ok, dependencies=[Depends(require_admin)])
 async def change_password(request: Request, body: PasswordChange):
     """Rotate the admin password from Settings (re-auth with the current one),
     replacing the postgres-row-delete-and-re-setup workaround."""

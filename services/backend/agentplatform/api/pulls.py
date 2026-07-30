@@ -10,6 +10,7 @@ from agentplatform.github import GitHubClient
 # Platform-authored PRs live on coder/* branches.
 CODER_BRANCH_PREFIX = "coder/"
 
+from agentplatform.api import schemas as S
 router = APIRouter(dependencies=[Depends(require_admin)])
 
 
@@ -27,7 +28,7 @@ def _view(pr: dict) -> dict:
             "created_at": pr["created_at"]}
 
 
-@router.get("/api/pull-requests")
+@router.get("/api/pull-requests", response_model=list[S.PullRequest])
 async def list_pull_requests(request: Request):
     """Open pull requests the platform authored (coder/* branches) — the
     Pending Changes view."""
@@ -36,7 +37,7 @@ async def list_pull_requests(request: Request):
     return [_view(p) for p in prs if p["head"]["ref"].startswith(CODER_BRANCH_PREFIX)]
 
 
-@router.get("/api/pull-requests/{number}/files")
+@router.get("/api/pull-requests/{number}/files", response_model=list[S.PullRequestFile])
 async def pull_request_files(request: Request, number: int):
     """Changed files + unified diff for the Pending Changes detail view."""
     gh = await _client(request)

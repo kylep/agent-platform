@@ -5,6 +5,7 @@ from agentplatform.api.auth import require_admin
 from agentplatform.db import Schedule
 from agentplatform.scheduler import is_valid_cron
 
+from agentplatform.api import schemas as S
 router = APIRouter(dependencies=[Depends(require_admin)])
 
 
@@ -12,7 +13,7 @@ def _cron(info) -> str:
     return info.manifest.schedule if info and info.manifest else ""
 
 
-@router.get("/api/schedules")
+@router.get("/api/schedules", response_model=list[S.ScheduleRow])
 async def list_schedules(request: Request):
     """Agents with a valid cron schedule, joined with their runtime state."""
     store = request.app.state.agent_store
@@ -32,7 +33,7 @@ async def list_schedules(request: Request):
     return out
 
 
-@router.post("/api/schedules/{agent}/{action}")
+@router.post("/api/schedules/{agent}/{action}", response_model=S.ScheduleToggle)
 async def set_enabled(request: Request, agent: str, action: str):
     if action not in ("enable", "disable"):
         raise HTTPException(404, "unknown action")

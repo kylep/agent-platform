@@ -15,6 +15,7 @@ from agentplatform.db import ScheduledJob
 from agentplatform.materialize import materialize_run
 from agentplatform.scheduler import is_valid_cron
 
+from agentplatform.api import schemas as S
 router = APIRouter(dependencies=[Depends(require_admin)])
 
 
@@ -50,14 +51,14 @@ def _check(request: Request, *, cron: str | None, agent: str | None) -> None:
             raise HTTPException(422, f"unknown agent: {agent}")
 
 
-@router.get("/api/jobs")
+@router.get("/api/jobs", response_model=list[S.JobView])
 async def list_jobs(request: Request):
     async with request.app.state.session_factory() as s:
         jobs = (await s.execute(select(ScheduledJob).order_by(ScheduledJob.name))).scalars().all()
         return [_view(j) for j in jobs]
 
 
-@router.post("/api/jobs", status_code=201)
+@router.post("/api/jobs", status_code=201, response_model=S.JobView)
 async def create_job(request: Request, body: JobIn):
     _check(request, cron=body.cron, agent=body.agent)
     async with request.app.state.session_factory() as s:
@@ -67,7 +68,7 @@ async def create_job(request: Request, body: JobIn):
         return _view(job)
 
 
-@router.patch("/api/jobs/{job_id}")
+@router.patch("/api/jobs/{job_id}", response_model=S.JobView)
 async def edit_job(request: Request, job_id: str, body: JobPatch):
     _check(request, cron=body.cron, agent=body.agent)
     async with request.app.state.session_factory() as s:
@@ -95,7 +96,7 @@ async def delete_job(request: Request, job_id: str):
         await s.commit()
 
 
-@router.post("/api/jobs/{job_id}/run")
+@router.post("/api/jobs/{job_id}/run", response_model=S.JobRunAccepted)
 async def run_job_now(request: Request, job_id: str, principal: str = Depends(require_admin)):
     """Run Now: materialize a run immediately from the job's agent + prompt."""
     async with request.app.state.session_factory() as s:

@@ -10,6 +10,7 @@ from sqlalchemy import func, select
 from agentplatform.api.auth import require_admin
 from agentplatform.db import Conversation, Run, RunState, utcnow
 
+from agentplatform.api import schemas as S
 router = APIRouter()
 
 
@@ -20,7 +21,7 @@ def _row(name, kind, secrets, configured, active, *, working, configured_msg, mi
             "configured": configured, "status": status, "detail": detail}
 
 
-@router.get("/api/integrations", dependencies=[Depends(require_admin)])
+@router.get("/api/integrations", response_model=list[S.Integration], dependencies=[Depends(require_admin)])
 async def integrations(request: Request):
     store = request.app.state.secret_store
     sf = request.app.state.session_factory

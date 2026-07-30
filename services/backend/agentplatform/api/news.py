@@ -12,6 +12,7 @@ from agentplatform.db import PendingNews, utcnow
 from agentplatform.events import TOPIC_CHANNEL_POST
 from agentplatform.newsprojector import record_shared
 
+from agentplatform.api import schemas as S
 router = APIRouter()
 
 
@@ -22,7 +23,7 @@ def _view(p: PendingNews) -> dict:
             "status": p.status}
 
 
-@router.get("/api/news/pending", dependencies=[Depends(require_role(*READ_ROLES))])
+@router.get("/api/news/pending", response_model=list[S.PendingNewsView], dependencies=[Depends(require_role(*READ_ROLES))])
 async def list_pending(request: Request):
     """Digests awaiting a decision, newest first."""
     async with request.app.state.session_factory() as s:
@@ -32,7 +33,7 @@ async def list_pending(request: Request):
         return [_view(p) for p in rows]
 
 
-@router.post("/api/news/pending/{news_id}/approve")
+@router.post("/api/news/pending/{news_id}/approve", response_model=S.Ok)
 async def approve(request: Request, news_id: str,
                   principal: str = Depends(require_role(*ANNOTATE_ROLES))):
     """Post the held digest to its channel and record its stories as shared."""
@@ -55,7 +56,7 @@ async def approve(request: Request, news_id: str,
     return {"ok": True}
 
 
-@router.post("/api/news/pending/{news_id}/reject")
+@router.post("/api/news/pending/{news_id}/reject", response_model=S.Ok)
 async def reject(request: Request, news_id: str,
                  principal: str = Depends(require_role(*ANNOTATE_ROLES))):
     """Drop the held digest. Its stories are NOT recorded as shared, so a later

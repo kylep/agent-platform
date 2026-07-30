@@ -9,6 +9,7 @@ from agentplatform.events import TOPIC_RUN_REQUESTS
 
 log = logging.getLogger("dlq")
 
+from agentplatform.api import schemas as S
 router = APIRouter()
 
 
@@ -18,7 +19,7 @@ def _view(r: Run) -> dict:
             "finished_at": r.finished_at.isoformat() if r.finished_at else None}
 
 
-@router.get("/api/dlq", dependencies=[Depends(require_role(*READ_ROLES))])
+@router.get("/api/dlq", response_model=list[S.DlqEntry], dependencies=[Depends(require_role(*READ_ROLES))])
 async def list_dlq(request: Request):
     """Runs that landed in the dead-letter queue (launch failed after retries)."""
     async with request.app.state.session_factory() as s:
@@ -27,7 +28,7 @@ async def list_dlq(request: Request):
     return [_view(r) for r in rows]
 
 
-@router.post("/api/dlq/{run_id}/retry", dependencies=[Depends(require_admin)])
+@router.post("/api/dlq/{run_id}/retry", response_model=S.OkIdState, dependencies=[Depends(require_admin)])
 async def retry_dlq(request: Request, run_id: str):
     """Re-queue a dead-lettered run: reset it to queued, clear the failure, and
     republish its run-request. The dispatcher's handle() is idempotent, and its
@@ -52,7 +53,7 @@ async def retry_dlq(request: Request, run_id: str):
     return {"ok": True, "id": run_id, "state": RunState.QUEUED}
 
 
-@router.post("/api/dlq/{run_id}/discard", dependencies=[Depends(require_admin)])
+@router.post("/api/dlq/{run_id}/discard", response_model=S.OkIdState, dependencies=[Depends(require_admin)])
 async def discard_dlq(request: Request, run_id: str):
     """Acknowledge and drop a dead-lettered run: mark it failed with a note so it
     leaves the DLQ view without being retried."""

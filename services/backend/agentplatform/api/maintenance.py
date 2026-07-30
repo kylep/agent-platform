@@ -3,6 +3,7 @@ from fastapi import APIRouter, Depends, Request
 from agentplatform.api.auth import READ_ROLES, require_admin, require_role
 from agentplatform.pruning import TranscriptPruner
 
+from agentplatform.api import schemas as S
 router = APIRouter()
 
 
@@ -11,7 +12,7 @@ def _pruner(request: Request) -> TranscriptPruner:
     return TranscriptPruner(st.session_factory, st.agent_store, st.settings)
 
 
-@router.get("/api/maintenance/retention", dependencies=[Depends(require_role(*READ_ROLES))])
+@router.get("/api/maintenance/retention", response_model=S.Retention, dependencies=[Depends(require_role(*READ_ROLES))])
 async def retention(request: Request):
     """The effective transcript-retention window (days) per agent, and the
     platform default. <= 0 means keep forever."""
@@ -22,7 +23,7 @@ async def retention(request: Request):
             "per_agent_days": agents}
 
 
-@router.post("/api/maintenance/prune-transcripts", dependencies=[Depends(require_admin)])
+@router.post("/api/maintenance/prune-transcripts", response_model=S.PruneResult, dependencies=[Depends(require_admin)])
 async def prune_transcripts(request: Request):
     """Prune transcript events past their agent's retention now. Run metadata is
     kept; only the bulky per-frame events are deleted."""
