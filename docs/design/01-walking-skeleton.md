@@ -84,9 +84,17 @@ Verified 2026-07-20 on the pai NUC k3s cluster (see results notes below).
       Verified with the `echo` agent (per-agent cap 5): 3 ran concurrently, the
       4th started only after a slot freed. Per-agent cap 1 (`hello-world`) also
       verified: 4 runs serialized. Nothing lost.
-- [ ] Kafka down → runs queue as `queued` (postgres row exists), drain on
-      recovery; nothing lost. (Proven live once in the prior session; not
-      re-run 2026-07-20.)
+- [x] Kafka down → runs queue as `queued` (postgres row exists), drain on
+      recovery; nothing lost. **Re-verified live 2026-07-30** (scaled the kafka
+      statefulset to 0, created a run, scaled back): POST returned 200 with the
+      run `queued`, it was held through the outage, and drained to `succeeded`
+      on recovery. The re-run exposed and fixed two defects that had broken the
+      criterion: (1) `POST /api/runs` used to 504 because the broker publish hung
+      (~40s) — now `asyncio.wait_for` (5s), postgres-first so the row survives;
+      (2) the queued-run sweep dispatched *during* the outage and the run failed
+      (a runner can't publish events to a down broker) — the sweep now probes
+      broker reachability and holds queued runs until recovery. See
+      `fix(dispatch): graceful Kafka-down queue + drain-on-recovery`.
 - [x] Subscription-only check: runner env contains no API key
       (`apiKeySource: "none"` in every run's init frame). CI grep for
       `ANTHROPIC_API_KEY` / `sk-ant-` is enforced by the subscription-guard job.
