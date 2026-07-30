@@ -24,7 +24,7 @@ async def test_connectors_registry(admin_client):
     assert by["slack"]["implemented"] is False
 
 
-async def test_create_list_get_close(admin_client):
+async def test_create_list_get_delete(admin_client):
     r = await admin_client.post("/api/conversations", json={"connector": "web", "agent": "hello-world"})
     assert r.status_code == 201
     cid = r.json()["id"]
@@ -32,8 +32,46 @@ async def test_create_list_get_close(admin_client):
     assert any(c["id"] == cid for c in (await admin_client.get("/api/conversations")).json())
     got = (await admin_client.get(f"/api/conversations/{cid}")).json()
     assert got["turns"] == []
+    # Delete is a hard delete for web conversations — the row is gone (404).
     assert (await admin_client.delete(f"/api/conversations/{cid}")).status_code == 200
-    assert (await admin_client.get(f"/api/conversations/{cid}")).json()["status"] == "closed"
+    assert (await admin_client.get(f"/api/conversations/{cid}")).status_code == 404
+
+
+async def test_delete_web_detaches_turns_keeps_runs(admin_client, sf):
+    from agentplatform.db import Run, RunState
+    from sqlalchemy import select
+    cid = (await admin_client.post("/api/conversations",
+           json={"connector": "web", "agent": "hello-world"})).json()["id"]
+    async with sf() as s:
+        run = Run(agent="hello-world", trigger="conversation", requested_by="admin",
+                  prompt="p", conversation_id=cid, user_message="hi", state=RunState.SUCCEEDED)
+        s.add(run); await s.commit(); rid = run.id
+    assert (await admin_client.delete(f"/api/conversations/{cid}")).status_code == 200
+    async with sf() as s:
+        kept = await s.get(Run, rid)
+        assert kept is not None and kept.conversation_id is None  # run survives, detached
+
+
+async def test_delete_discord_conversation_409(admin_client, sf):
+    from agentplatform.db import Conversation
+    async with sf() as s:
+        conv = Conversation(connector="discord", external_ref="t-del", agent="hello-world")
+        s.add(conv); await s.commit(); cid = conv.id
+    r = await admin_client.delete(f"/api/conversations/{cid}")
+    assert r.status_code == 409
+
+
+async def test_turn_sender_surfaced(admin_client, sf):
+    from agentplatform.db import Conversation, Run, RunState
+    async with sf() as s:
+        conv = Conversation(connector="discord", external_ref="t-snd", agent="hello-world")
+        s.add(conv); await s.commit(); cid = conv.id
+        s.add(Run(agent="hello-world", trigger="conversation",
+                  requested_by="connector:discord:kyle", prompt="p", conversation_id=cid,
+                  user_message="hey", state=RunState.SUCCEEDED))
+        await s.commit()
+    d = (await admin_client.get(f"/api/conversations/{cid}")).json()
+    assert d["turns"][0]["sender"] == "kyle"
 
 
 async def test_unimplemented_connector_422(admin_client):
@@ -61,7 +99,7 @@ async def test_continue_creates_turn_with_history(admin_client, sf, producer):
     assert any(t == TOPIC_RUN_REQUESTS and k == run_id for t, k, _ in producer.published)
 
 
-async def test_continue_closed_conversation_409(admin_client):
+async def test_continue_deleted_conversation_409(admin_client):
     cid = (await admin_client.post("/api/conversations",
            json={"connector": "web", "agent": "hello-world"})).json()["id"]
     await admin_client.delete(f"/api/conversations/{cid}")

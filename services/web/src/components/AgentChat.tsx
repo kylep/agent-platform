@@ -4,9 +4,19 @@ import { api, type Conversation, type ConversationDetail } from "../api";
 
 const ACTIVE = new Set(["queued", "dispatched", "running"]);
 
+// Only conversations the platform originated (web) can be continued or deleted
+// from the UI. Connector conversations (Discord, …) are owned by their channel.
+const isWeb = (c: { connector: string }) => c.connector === "web";
+
+function TypeBadge({ connector }: { connector: string }) {
+  return <span className={`convo-type convo-type-${connector}`}>{connector}</span>;
+}
+
 /** ChatGPT-style conversation view scoped to one agent: a rail of this agent's
- * conversations plus a chat pane. The selected conversation lives in the
- * `?conversation=` search param so /conversations rows can deep-link here. */
+ * conversations plus a chat pane. Web conversations are interactive; connector
+ * conversations (Discord) are read-only transcripts with per-message senders.
+ * The selected conversation lives in the `?conversation=` search param so the
+ * /conversations table can deep-link here. */
 export default function AgentChat({ agent }: { agent: string }) {
   const [params, setParams] = useSearchParams();
   const selected = params.get("conversation");
@@ -15,6 +25,7 @@ export default function AgentChat({ agent }: { agent: string }) {
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState(false);
   const poll = useRef<ReturnType<typeof setInterval> | null>(null);
   const scroller = useRef<HTMLDivElement | null>(null);
 
@@ -45,16 +56,15 @@ export default function AgentChat({ agent }: { agent: string }) {
   useEffect(() => {
     if (poll.current) { clearInterval(poll.current); poll.current = null; }
     setDetail(null);
+    setConfirmDelete(false);
     if (selected) {
       loadDetail(selected);
-      // keep polling while a turn is in flight (cleared once idle)
       poll.current = setInterval(() => loadDetail(selected), 2500);
     }
     return () => { if (poll.current) clearInterval(poll.current); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selected]);
 
-  // pin the transcript to the bottom as turns stream in
   useEffect(() => {
     const el = scroller.current;
     if (el) el.scrollTop = el.scrollHeight;
@@ -84,13 +94,19 @@ export default function AgentChat({ agent }: { agent: string }) {
     finally { setBusy(false); }
   }
 
-  async function close(id: string) {
-    await api(`/api/conversations/${id}`, { method: "DELETE" }).catch(() => {});
-    loadList();
-    if (selected === id) loadDetail(id);
+  async function remove(id: string) {
+    setBusy(true);
+    try {
+      await api(`/api/conversations/${id}`, { method: "DELETE" });
+      setConfirmDelete(false);
+      select(null);
+      loadList();
+    } catch (err) { setError(err instanceof Error ? err.message : "Delete failed."); }
+    finally { setBusy(false); }
   }
 
   const thinking = detail?.turns.some((t) => ACTIVE.has(t.state)) ?? false;
+  const web = detail ? isWeb(detail) : false;
 
   return (
     <>
@@ -105,7 +121,7 @@ export default function AgentChat({ agent }: { agent: string }) {
               onClick={() => select(c.id)}
             >
               <div className="convo-item-title">{c.title}</div>
-              <div className="muted">{c.connector} · {c.status}</div>
+              <TypeBadge connector={c.connector} />
             </button>
           ))}
           {list.length === 0 && <p className="muted" style={{ padding: "4px 6px" }}>No conversations yet.</p>}
@@ -120,23 +136,35 @@ export default function AgentChat({ agent }: { agent: string }) {
           {detail && (
             <>
               <div className="convo-head">
-                <strong>{detail.title}</strong> <span className="muted">({detail.status})</span>
-                {detail.status === "active" && (
-                  <button className="secondary" style={{ float: "right" }} onClick={() => close(detail.id)}>Close</button>
+                <strong>{detail.title}</strong> <TypeBadge connector={detail.connector} />
+                {web && (
+                  <span className="convo-head-actions">
+                    <button className="danger-ghost" onClick={() => setConfirmDelete(true)}>Delete</button>
+                  </span>
                 )}
               </div>
+              {!web && (
+                <div className="convo-note muted">
+                  This is a {detail.connector} conversation — reply from {detail.connector} to continue it.
+                </div>
+              )}
               <div className="convo-turns" ref={scroller}>
                 {detail.turns.map((t) => (
                   <div key={t.run_id} className="convo-turn">
-                    {t.user_message && <div className="convo-user">{t.user_message}</div>}
+                    {t.user_message && (
+                      <div className="convo-user">
+                        {!web && <div className="convo-sender">{t.sender}</div>}
+                        {t.user_message}
+                      </div>
+                    )}
                     <div className="convo-agent">
                       {t.result ?? (ACTIVE.has(t.state) ? <span className="muted">…thinking</span> : <span className="muted">({t.state})</span>)}
                     </div>
                   </div>
                 ))}
-                {detail.turns.length === 0 && <p className="muted">No messages yet — say something.</p>}
+                {detail.turns.length === 0 && <p className="muted">No messages yet{web ? " — say something." : "."}</p>}
               </div>
-              {detail.status === "active" && (
+              {web && (
                 <div className="convo-compose">
                   <textarea
                     value={text}
@@ -152,6 +180,24 @@ export default function AgentChat({ agent }: { agent: string }) {
           )}
         </div>
       </div>
+
+      {confirmDelete && detail && (
+        <div className="modal-backdrop" onClick={() => setConfirmDelete(false)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <h2>Delete this conversation?</h2>
+            <p className="muted">
+              “{detail.title}” and its {detail.turns.length} turn{detail.turns.length === 1 ? "" : "s"} will be
+              permanently removed. The underlying run history is kept. This can't be undone.
+            </p>
+            <div className="row-actions" style={{ justifyContent: "flex-end" }}>
+              <button className="secondary" onClick={() => setConfirmDelete(false)}>Cancel</button>
+              <button className="danger" onClick={() => remove(detail.id)} disabled={busy}>
+                {busy ? "Deleting…" : "Delete permanently"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </>
   );
 }

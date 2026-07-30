@@ -244,6 +244,7 @@ export type ConversationTurn = {
   user_message: string | null;
   result: string | null;
   state: string;
+  sender: string;
   created_at: string | null;
 };
 

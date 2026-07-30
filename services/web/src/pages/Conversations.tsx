@@ -33,7 +33,7 @@ export default function Conversations() {
 
       <table className="table">
         <thead>
-          <tr><th>Title</th><th>Agent</th><th>Connector</th><th>Status</th><th>Updated</th></tr>
+          <tr><th>Title</th><th>Agent</th><th>Type</th><th>Updated</th></tr>
         </thead>
         <tbody>
           {list.map((c) => (
@@ -44,13 +44,12 @@ export default function Conversations() {
                   {c.agent}
                 </Link>
               </td>
-              <td className="muted">{c.connector}</td>
-              <td>{c.status === "active" ? c.status : <span className="muted">{c.status}</span>}</td>
+              <td><span className={`convo-type convo-type-${c.connector}`}>{c.connector}</span></td>
               <td className="muted">{when(c.updated_at)}</td>
             </tr>
           ))}
           {loaded && list.length === 0 && (
-            <tr><td colSpan={5} className="muted">No conversations yet — open an agent and start one.</td></tr>
+            <tr><td colSpan={4} className="muted">No conversations yet — open an agent and start one.</td></tr>
           )}
         </tbody>
       </table>

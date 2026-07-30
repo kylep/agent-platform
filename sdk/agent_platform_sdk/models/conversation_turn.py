@@ -7,6 +7,8 @@ from attrs import define as _attrs_define
 from attrs import field as _attrs_field
 from typing_extensions import Self
 
+from ..types import UNSET, Unset
+
 T = TypeVar("T", bound="ConversationTurn")
 
 
@@ -19,6 +21,7 @@ class ConversationTurn:
         run_id (str):
         state (str):
         user_message (None | str):
+        sender (str | Unset):  Default: 'unknown'.
     """
 
     created_at: None | str
@@ -26,6 +29,7 @@ class ConversationTurn:
     run_id: str
     state: str
     user_message: None | str
+    sender: str | Unset = "unknown"
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -42,6 +46,8 @@ class ConversationTurn:
         user_message: None | str
         user_message = self.user_message
 
+        sender = self.sender
+
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
@@ -53,6 +59,8 @@ class ConversationTurn:
                 "user_message": user_message,
             }
         )
+        if sender is not UNSET:
+            field_dict["sender"] = sender
 
         return field_dict
 
@@ -85,12 +93,15 @@ class ConversationTurn:
 
         user_message = _parse_user_message(d.pop("user_message"))
 
+        sender = d.pop("sender", UNSET)
+
         conversation_turn = cls(
             created_at=created_at,
             result=result,
             run_id=run_id,
             state=state,
             user_message=user_message,
+            sender=sender,
         )
 
         conversation_turn.additional_properties = d

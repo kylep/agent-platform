@@ -256,7 +256,7 @@ export default function AgentDetail() {
   if (!agent) return null;
 
   return (
-    <div className="page">
+    <div className={tab === "conversations" ? "page page-chat" : "page"}>
       <h1>{agent.name}</h1>
       {agent.error && <div className="banner">{agent.error}</div>}
       {pending && (

@@ -35,11 +35,6 @@ class OkIdState(Ok):
     state: str
 
 
-class OkIdStatus(Ok):
-    id: str
-    status: str
-
-
 class PruneResult(Ok):
     deleted: int
 
@@ -172,6 +167,7 @@ class ConversationTurn(BaseModel):
     user_message: str | None
     result: str | None
     state: str
+    sender: str = "unknown"
     created_at: str | None
 
 

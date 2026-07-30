@@ -7,7 +7,7 @@ import httpx
 from ... import errors
 from ...client import AuthenticatedClient, Client
 from ...models.http_validation_error import HTTPValidationError
-from ...models.ok_id_status import OkIdStatus
+from ...models.ok_id import OkId
 from ...types import Response
 
 
@@ -27,9 +27,9 @@ def _get_kwargs(
 
 def _parse_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> HTTPValidationError | OkIdStatus | None:
+) -> HTTPValidationError | OkId | None:
     if response.status_code == 200:
-        response_200 = OkIdStatus.from_dict(response.json())
+        response_200 = OkId.from_dict(response.json())
 
         return response_200
 
@@ -46,7 +46,7 @@ def _parse_response(
 
 def _build_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> Response[HTTPValidationError | OkIdStatus]:
+) -> Response[HTTPValidationError | OkId]:
     return Response(
         status_code=HTTPStatus(response.status_code),
         content=response.content,
@@ -59,8 +59,13 @@ def sync_detailed(
     conversation_id: str,
     *,
     client: AuthenticatedClient | Client,
-) -> Response[HTTPValidationError | OkIdStatus]:
-    """Close Conversation
+) -> Response[HTTPValidationError | OkId]:
+    """Delete Conversation
+
+     Permanently delete a web conversation and its turns. Connector-owned
+    conversations (Discord etc.) are not deletable here — their lifecycle
+    belongs to the external channel, and a delete would just be recreated on
+    the next inbound message.
 
     Args:
         conversation_id (str):
@@ -70,7 +75,7 @@ def sync_detailed(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[HTTPValidationError | OkIdStatus]
+        Response[HTTPValidationError | OkId]
     """
 
     kwargs = _get_kwargs(
@@ -88,8 +93,13 @@ def sync(
     conversation_id: str,
     *,
     client: AuthenticatedClient | Client,
-) -> HTTPValidationError | OkIdStatus | None:
-    """Close Conversation
+) -> HTTPValidationError | OkId | None:
+    """Delete Conversation
+
+     Permanently delete a web conversation and its turns. Connector-owned
+    conversations (Discord etc.) are not deletable here — their lifecycle
+    belongs to the external channel, and a delete would just be recreated on
+    the next inbound message.
 
     Args:
         conversation_id (str):
@@ -99,7 +109,7 @@ def sync(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        HTTPValidationError | OkIdStatus
+        HTTPValidationError | OkId
     """
 
     return sync_detailed(
@@ -112,8 +122,13 @@ async def asyncio_detailed(
     conversation_id: str,
     *,
     client: AuthenticatedClient | Client,
-) -> Response[HTTPValidationError | OkIdStatus]:
-    """Close Conversation
+) -> Response[HTTPValidationError | OkId]:
+    """Delete Conversation
+
+     Permanently delete a web conversation and its turns. Connector-owned
+    conversations (Discord etc.) are not deletable here — their lifecycle
+    belongs to the external channel, and a delete would just be recreated on
+    the next inbound message.
 
     Args:
         conversation_id (str):
@@ -123,7 +138,7 @@ async def asyncio_detailed(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[HTTPValidationError | OkIdStatus]
+        Response[HTTPValidationError | OkId]
     """
 
     kwargs = _get_kwargs(
@@ -139,8 +154,13 @@ async def asyncio(
     conversation_id: str,
     *,
     client: AuthenticatedClient | Client,
-) -> HTTPValidationError | OkIdStatus | None:
-    """Close Conversation
+) -> HTTPValidationError | OkId | None:
+    """Delete Conversation
+
+     Permanently delete a web conversation and its turns. Connector-owned
+    conversations (Discord etc.) are not deletable here — their lifecycle
+    belongs to the external channel, and a delete would just be recreated on
+    the next inbound message.
 
     Args:
         conversation_id (str):
@@ -150,7 +170,7 @@ async def asyncio(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        HTTPValidationError | OkIdStatus
+        HTTPValidationError | OkId
     """
 
     return (

@@ -132,6 +132,11 @@ h1 {
   max-width: 960px;
 }
 
+/* the chat tab wants the whole width, not the 720px reading column */
+.page-chat {
+  max-width: 1200px;
+}
+
 h2 {
   font-size: 16px;
   font-weight: 600;
@@ -571,10 +576,45 @@ select {
 }
 .convo-agent {
   align-self: flex-start; background: var(--bg-alt); border: 1px solid var(--border);
-  border-radius: 10px; padding: 6px 10px; max-width: 80%; white-space: pre-wrap;
+  border-radius: 10px; padding: 8px 12px; max-width: 92%; white-space: pre-wrap;
+  overflow-wrap: anywhere; word-break: break-word; font-size: 14px;
 }
+.convo-user { overflow-wrap: anywhere; word-break: break-word; }
+/* per-message sender label (connector conversations show who spoke) */
+.convo-sender { font-size: 11px; font-weight: 600; opacity: 0.75; margin-bottom: 2px; }
 .convo-compose { display: flex; gap: 8px; margin-top: 10px; }
 .convo-compose textarea { flex: 1; }
+
+/* conversation type badge (web / discord / …) */
+.convo-type {
+  display: inline-block; font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em;
+  border-radius: 999px; padding: 1px 7px; border: 1px solid var(--border); color: var(--muted);
+}
+.convo-type-web { color: var(--accent); border-color: var(--accent); }
+.convo-type-discord { color: #a5b4fc; border-color: #a5b4fc; }
+.convo-head-actions { float: right; }
+.convo-note {
+  font-size: 13px; margin: 6px 0 8px; padding: 6px 10px;
+  background: var(--bg-alt); border: 1px solid var(--border); border-radius: 6px;
+}
+
+/* destructive buttons */
+button.danger { background: var(--danger); color: #0b0f1a; border-color: var(--danger); }
+button.danger-ghost {
+  background: transparent; color: var(--danger); border-color: transparent; font-weight: 500; padding: 4px 8px;
+}
+button.danger-ghost:hover { border-color: var(--danger); }
+
+/* confirmation modal */
+.modal-backdrop {
+  position: fixed; inset: 0; background: rgba(0, 0, 0, 0.55);
+  display: flex; align-items: center; justify-content: center; z-index: 50;
+}
+.modal {
+  background: var(--bg-alt); border: 1px solid var(--border); border-radius: 10px;
+  padding: 20px; max-width: 440px; width: calc(100% - 32px);
+}
+.modal h2 { margin-top: 0; }
 
 .secret-key { width: 160px; }
 

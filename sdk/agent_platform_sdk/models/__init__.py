@@ -44,7 +44,6 @@ from .notify_in import NotifyIn
 from .ok import Ok
 from .ok_id import OkId
 from .ok_id_state import OkIdState
-from .ok_id_status import OkIdStatus
 from .password_change import PasswordChange
 from .pending_news_view import PendingNewsView
 from .pr_ref import PrRef
@@ -117,7 +116,6 @@ __all__ = (
     "Ok",
     "OkId",
     "OkIdState",
-    "OkIdStatus",
     "PasswordChange",
     "PendingNewsView",
     "PrRef",
