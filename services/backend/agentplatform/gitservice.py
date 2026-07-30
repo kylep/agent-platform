@@ -172,7 +172,11 @@ class EditService:
 
     def apply(self, workspace: Path, files: dict[str, str | None], *,
               message: str, branch: str, pr_title: str | None = None,
-              pr_body: str = "") -> dict:
+              pr_body: str = "", force_review: bool = False) -> dict:
+        """force_review=True skips the tier-1 fast path: even a change that
+        classifies as direct-committable goes through a PR. Used by the UI's
+        raw definition editor so every save lands as a reviewable pending
+        change (one deterministic flow, no silent commits to main)."""
         repo = self.writer.clone(workspace)
         _write_files(repo, files)
         changes = compute_changes(repo)
@@ -181,7 +185,7 @@ class EditService:
             # The edit matches what's already committed — nothing to do (a
             # bare `git commit` would fail with "nothing to commit").
             return {"tier": 0, "branch": None, "sha": None, "changes": [], "pr": None}
-        if classify_tier(changes) == TIER_DIRECT:
+        if not force_review and classify_tier(changes) == TIER_DIRECT:
             sha = self.writer.commit(repo, message)
             self.writer.push(repo, self.writer.default_branch)
             return {"tier": 1, "branch": self.writer.default_branch, "sha": sha,

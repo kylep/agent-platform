@@ -72,8 +72,11 @@ def sync_detailed(
 ) -> Response[EditResult | HTTPValidationError]:
     """Quick Edit
 
-     Deterministic edit that skips the agent: writes the change into a fresh
-    clone and lets the tiered git path commit it (tier 1) or open a PR.
+     Deterministic edit that skips the agent: writes the exact agent.md the
+    caller supplies into a fresh clone and ALWAYS opens a pull request — every
+    save is a reviewable pending change on the agent's deterministic branch
+    (`coder/agent-{name}`), accepted or discarded under Changes. (A no-op save
+    still returns tier 0.)
 
     Args:
         name (str):
@@ -107,8 +110,11 @@ def sync(
 ) -> EditResult | HTTPValidationError | None:
     """Quick Edit
 
-     Deterministic edit that skips the agent: writes the change into a fresh
-    clone and lets the tiered git path commit it (tier 1) or open a PR.
+     Deterministic edit that skips the agent: writes the exact agent.md the
+    caller supplies into a fresh clone and ALWAYS opens a pull request — every
+    save is a reviewable pending change on the agent's deterministic branch
+    (`coder/agent-{name}`), accepted or discarded under Changes. (A no-op save
+    still returns tier 0.)
 
     Args:
         name (str):
@@ -137,8 +143,11 @@ async def asyncio_detailed(
 ) -> Response[EditResult | HTTPValidationError]:
     """Quick Edit
 
-     Deterministic edit that skips the agent: writes the change into a fresh
-    clone and lets the tiered git path commit it (tier 1) or open a PR.
+     Deterministic edit that skips the agent: writes the exact agent.md the
+    caller supplies into a fresh clone and ALWAYS opens a pull request — every
+    save is a reviewable pending change on the agent's deterministic branch
+    (`coder/agent-{name}`), accepted or discarded under Changes. (A no-op save
+    still returns tier 0.)
 
     Args:
         name (str):
@@ -170,8 +179,11 @@ async def asyncio(
 ) -> EditResult | HTTPValidationError | None:
     """Quick Edit
 
-     Deterministic edit that skips the agent: writes the change into a fresh
-    clone and lets the tiered git path commit it (tier 1) or open a PR.
+     Deterministic edit that skips the agent: writes the exact agent.md the
+    caller supplies into a fresh clone and ALWAYS opens a pull request — every
+    save is a reviewable pending change on the agent's deterministic branch
+    (`coder/agent-{name}`), accepted or discarded under Changes. (A no-op save
+    still returns tier 0.)
 
     Args:
         name (str):

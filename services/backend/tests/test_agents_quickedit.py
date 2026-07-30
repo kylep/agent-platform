@@ -44,18 +44,33 @@ async def sh_client(sf, selfhost):
         yield c, selfhost
 
 
-async def test_quick_edit_prompt_is_tier1_and_lands_on_main(sh_client):
+async def test_quick_edit_always_opens_pending_change(sh_client):
+    """A raw definition save is review-gated even when the change would
+    classify tier 1 (body-only): it lands on the agent's deterministic branch,
+    never straight on main — the UI's pending-change lock depends on this."""
     c, selfhost = sh_client
     r = await c.post("/api/agents/demo/quick-edit",
                      json={"field": "prompt", "value": "You are demo. Improved.\n"})
     assert r.status_code == 200
     body = r.json()
-    assert body["tier"] == 1 and body["branch"] == "main" and body["pr"] is None
+    assert body["tier"] == 2 and body["branch"] == "coder/agent-demo"
     assert body["changes"] == ["agents/demo/agent.md"]
-    # The edit is present on the remote's main branch.
-    shown = subprocess.run(["git", "-C", str(selfhost["bare"]), "show", "main:agents/demo/agent.md"],
-                           capture_output=True, text=True, check=True).stdout
-    assert shown == "You are demo. Improved.\n"
+    # main is untouched; the edit sits on the branch awaiting review.
+    on_main = subprocess.run(["git", "-C", str(selfhost["bare"]), "show", "main:agents/demo/agent.md"],
+                             capture_output=True, text=True, check=True).stdout
+    assert on_main == "You are demo.\n"
+    on_branch = subprocess.run(["git", "-C", str(selfhost["bare"]),
+                                "show", "coder/agent-demo:agents/demo/agent.md"],
+                               capture_output=True, text=True, check=True).stdout
+    assert on_branch == "You are demo. Improved.\n"
+
+
+async def test_quick_edit_noop_save_is_tier0(sh_client):
+    c, _ = sh_client
+    r = await c.post("/api/agents/demo/quick-edit",
+                     json={"field": "prompt", "value": "You are demo.\n"})
+    assert r.status_code == 200
+    assert r.json()["tier"] == 0
 
 
 async def test_quick_edit_unknown_agent_404(sh_client):

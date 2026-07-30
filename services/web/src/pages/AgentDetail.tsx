@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
-import { api, type AgentDetail as AgentDetailData, type AgentMetrics, type EditResult, type ModelUsage } from "../api";
+import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
+import { api, type AgentDetail as AgentDetailData, type AgentMetrics, type EditResult, type ModelUsage, type PullRequest } from "../api";
 import { SkillPicker, ToolPicker, useCapabilities } from "../components/CapabilityPickers";
+import AgentChat from "../components/AgentChat";
 
 function AgentReport({ name }: { name: string }) {
   const [m, setM] = useState<AgentMetrics | null>(null);
@@ -59,14 +60,16 @@ function parseTools(md: string): string[] | null {
 }
 
 // The editable Skills + Tools panel. Saving opens a PR via PATCH …/config.
-function CapabilityEditor({ agent }: { agent: AgentDetailData }) {
+function CapabilityEditor({ agent, locked, onSaved }: {
+  agent: AgentDetailData; locked: boolean; onSaved: (r: EditResult) => void;
+}) {
   const { skills, tools, ready } = useCapabilities();
   const [pickedSkills, setPickedSkills] = useState<Set<string>>(new Set(agent.manifest.skills));
   const [pickedTools, setPickedTools] = useState<Set<string>>(new Set());
   const [seeded, setSeeded] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [result, setResult] = useState<EditResult | null>(null);
+  const [noop, setNoop] = useState(false);
 
   // Once the tool catalog loads, seed the selection from the agent.md (no
   // tools: line → all tools on).
@@ -79,12 +82,14 @@ function CapabilityEditor({ agent }: { agent: AgentDetailData }) {
   async function save() {
     setSaving(true);
     setError(null);
+    setNoop(false);
     try {
       const r = await api<EditResult>(`/api/agents/${encodeURIComponent(agent.name)}/config`, {
         method: "PATCH",
         body: JSON.stringify({ skills: [...pickedSkills], tools: [...pickedTools] }),
       });
-      setResult(r);
+      if (r.tier === 0) setNoop(true);
+      else onSaved(r);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to save.");
     } finally {
@@ -101,20 +106,10 @@ function CapabilityEditor({ agent }: { agent: AgentDetailData }) {
       <h2>Tools</h2>
       <ToolPicker tools={tools} selected={pickedTools} onChange={setPickedTools} />
 
-      {result ? (
-        result.tier === 0 ? (
-          <div className="banner">No changes — the agent already matches this configuration.</div>
-        ) : (
-          <div className="banner">
-            Saved to branch <code>{result.branch}</code> as a pull request.
-            {result.pr && <> — <a href={result.pr.url} target="_blank" rel="noreferrer">PR #{result.pr.number}</a></>}
-            {" "}Review and merge it under <Link to="/changes">Changes</Link>.
-          </div>
-        )
-      ) : null}
+      {noop && <div className="banner">No changes — the agent already matches this configuration.</div>}
       {error && <div className="error">{error}</div>}
       <div className="row-actions" style={{ marginTop: 12 }}>
-        <button onClick={save} disabled={saving || !ready}>
+        <button onClick={save} disabled={saving || !ready || locked}>
           {saving ? "Saving…" : "Save skills & tools (opens PR)"}
         </button>
       </div>
@@ -125,19 +120,95 @@ function CapabilityEditor({ agent }: { agent: AgentDetailData }) {
   );
 }
 
+// The raw agent.md editor: deterministic save — exactly what you type becomes
+// the pending change (a PR on the agent's branch), no agent in the loop.
+function DefinitionEditor({ agent, locked, onSaved }: {
+  agent: AgentDetailData; locked: boolean; onSaved: (r: EditResult) => void;
+}) {
+  const [md, setMd] = useState(agent.agent_md);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [noop, setNoop] = useState(false);
+  const dirty = md !== agent.agent_md;
+
+  async function save() {
+    setSaving(true);
+    setError(null);
+    setNoop(false);
+    try {
+      const r = await api<EditResult>(`/api/agents/${encodeURIComponent(agent.name)}/quick-edit`, {
+        method: "POST",
+        body: JSON.stringify({ field: "prompt", value: md }),
+      });
+      if (r.tier === 0) setNoop(true);
+      else onSaved(r);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to save.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <>
+      <h2>Agent definition</h2>
+      <p className="muted">
+        The live definition, synced from <code>main</code> — this is exactly what runs. Edit it and
+        save: your exact text becomes a pending change to review under <Link to="/changes">Changes</Link>.
+      </p>
+      <textarea
+        className="agent-md-editor"
+        value={md}
+        onChange={(e) => setMd(e.target.value)}
+        readOnly={locked}
+        spellCheck={false}
+        rows={Math.min(30, Math.max(12, md.split("\n").length + 2))}
+      />
+      {noop && <div className="banner">No changes — the definition already matches.</div>}
+      {error && <div className="error">{error}</div>}
+      <div className="row-actions" style={{ marginTop: 8 }}>
+        <button onClick={save} disabled={saving || locked || !dirty}>
+          {saving ? "Saving…" : "Save definition (opens PR)"}
+        </button>
+        {dirty && !locked && (
+          <button className="secondary" onClick={() => setMd(agent.agent_md)}>Discard edits</button>
+        )}
+      </div>
+    </>
+  );
+}
+
+type Tab = "config" | "conversations" | "report";
+
 export default function AgentDetail() {
   const { name } = useParams<{ name: string }>();
   const navigate = useNavigate();
+  const [params, setParams] = useSearchParams();
+  const tab = (params.get("tab") as Tab) ?? "config";
   const [agent, setAgent] = useState<AgentDetailData | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [prompt, setPrompt] = useState("");
-  const [running, setRunning] = useState(false);
-  const [runError, setRunError] = useState<string | null>(null);
   const [instruction, setInstruction] = useState("");
   const [editing, setEditing] = useState(false);
   const [editError, setEditError] = useState<string | null>(null);
-  const [tab, setTab] = useState<"config" | "report">("config");
+  const [pending, setPending] = useState<PullRequest | null>(null);
+
+  function setTab(t: Tab) {
+    const p = new URLSearchParams(params);
+    p.set("tab", t);
+    if (t !== "conversations") p.delete("conversation");
+    setParams(p);
+  }
+
+  // Is there an open platform PR for this agent's deterministic branch? While
+  // one exists, every editor on this page is locked — accept or delete the
+  // pending change first (one change in flight at a time, no branch clobber).
+  function loadPending() {
+    if (!name) return;
+    api<PullRequest[]>("/api/pull-requests")
+      .then((prs) => setPending(prs.find((p) => p.branch === `coder/agent-${name}`) ?? null))
+      .catch(() => setPending(null)); // PR listing unavailable → don't lock
+  }
 
   useEffect(() => {
     if (!name) return;
@@ -146,23 +217,21 @@ export default function AgentDetail() {
       .then(setAgent)
       .catch((err) => setLoadError(err instanceof Error ? err.message : "Failed to load agent."))
       .finally(() => setLoading(false));
+    loadPending();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [name]);
 
-  async function runNow() {
-    if (!name) return;
-    setRunning(true);
-    setRunError(null);
-    try {
-      const run = await api<{ id: string; state: string }>("/api/runs", {
-        method: "POST",
-        body: JSON.stringify({ agent: name, prompt }),
-      });
-      navigate(`/runs/${run.id}`);
-    } catch (err) {
-      setRunError(err instanceof Error ? err.message : "Failed to start run.");
-    } finally {
-      setRunning(false);
-    }
+  function onSaved(r: EditResult) {
+    // A save opened (or updated) the PR — reflect the lock immediately.
+    setPending({
+      number: r.pr?.number ?? 0,
+      title: `Pending change for ${name}`,
+      url: r.pr?.url ?? "",
+      branch: r.branch ?? `coder/agent-${name}`,
+      author: "you",
+      created_at: new Date().toISOString(),
+    });
+    loadPending(); // fill in real PR metadata
   }
 
   async function editAgent() {
@@ -190,13 +259,21 @@ export default function AgentDetail() {
     <div className="page">
       <h1>{agent.name}</h1>
       {agent.error && <div className="banner">{agent.error}</div>}
+      {pending && (
+        <div className="banner">
+          This agent has a pending change{pending.number ? <> (<a href={pending.url} target="_blank" rel="noreferrer">PR #{pending.number}</a>)</> : null} —
+          accept or delete it under <Link to="/changes">Changes</Link>. Editing is locked until then.
+        </div>
+      )}
 
       <div className="tabs">
         <button className={tab === "config" ? "tab active" : "tab"} onClick={() => setTab("config")}>Config</button>
+        <button className={tab === "conversations" ? "tab active" : "tab"} onClick={() => setTab("conversations")}>Conversations</button>
         <button className={tab === "report" ? "tab active" : "tab"} onClick={() => setTab("report")}>Report</button>
       </div>
 
       {tab === "report" && <AgentReport name={agent.name} />}
+      {tab === "conversations" && <AgentChat agent={agent.name} />}
       {tab === "config" && (<>
       <dl className="def-list">
         <dt>Role</dt>
@@ -211,15 +288,13 @@ export default function AgentDetail() {
         <dd>{agent.manifest.secrets.length ? agent.manifest.secrets.join(", ") : "—"}</dd>
       </dl>
 
-      <CapabilityEditor agent={agent} />
+      <DefinitionEditor agent={agent} locked={pending !== null} onSaved={onSaved} />
 
-      <h2>Agent definition</h2>
-      <p className="muted">The live definition, synced from <code>main</code> — this is exactly what runs.</p>
-      <pre className="agent-md">{agent.agent_md}</pre>
+      <CapabilityEditor agent={agent} locked={pending !== null} onSaved={onSaved} />
 
       <h2>Edit the prompt with platform-coder</h2>
       <p className="muted">
-        Describe a change in plain language. platform-coder makes the change in the repo and opens a
+        Or describe a change in plain language. platform-coder makes the change in the repo and opens a
         pull request (one per agent) that you review and merge under <Link to="/changes">Changes</Link>.
         It does not change anything until you merge.
       </p>
@@ -228,25 +303,12 @@ export default function AgentDetail() {
         value={instruction}
         onChange={(e) => setInstruction(e.target.value)}
         rows={3}
+        readOnly={pending !== null}
       />
       {editError && <div className="error">{editError}</div>}
       <div className="secret-row-footer">
-        <button onClick={editAgent} disabled={editing || instruction.trim() === ""}>
+        <button onClick={editAgent} disabled={editing || pending !== null || instruction.trim() === ""}>
           {editing ? "Dispatching…" : "Edit with platform-coder"}
-        </button>
-      </div>
-
-      <h2>Run now</h2>
-      <textarea
-        placeholder="Prompt…"
-        value={prompt}
-        onChange={(e) => setPrompt(e.target.value)}
-        rows={5}
-      />
-      {runError && <div className="error">{runError}</div>}
-      <div className="secret-row-footer">
-        <button onClick={runNow} disabled={running || prompt.trim() === ""}>
-          {running ? "Starting…" : "Run now"}
         </button>
       </div>
       </>)}

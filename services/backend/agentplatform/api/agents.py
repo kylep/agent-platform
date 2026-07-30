@@ -101,7 +101,7 @@ def _build_writer(settings, token_creds: dict | None):
 
 async def _apply_files(request: Request, files: dict[str, str | None], *,
                        message: str, branch: str, pr_title: str,
-                       pr_body: str = "") -> dict:
+                       pr_body: str = "", force_review: bool = False) -> dict:
     """Write an edit set into a fresh clone and let the tiered git path commit
     it (tier 1) or open a PR (tier 2). Picks the git credential the same way for
     every structured edit: a GitHub App token first, else a PAT."""
@@ -122,14 +122,18 @@ async def _apply_files(request: Request, files: dict[str, str | None], *,
             writer, pr_client = built
         svc = EditService(writer, pr_client=pr_client)
         return svc.apply(tmpp / "ws", files, message=message, branch=branch,
-                         pr_title=pr_title, pr_body=pr_body)
+                         pr_title=pr_title, pr_body=pr_body,
+                         force_review=force_review)
 
 
 @router.post("/api/agents/{name}/quick-edit", response_model=EditResult)
 async def quick_edit(request: Request, name: str, body: QuickEditIn,
                      principal: str = Depends(require_admin)):
-    """Deterministic edit that skips the agent: writes the change into a fresh
-    clone and lets the tiered git path commit it (tier 1) or open a PR."""
+    """Deterministic edit that skips the agent: writes the exact agent.md the
+    caller supplies into a fresh clone and ALWAYS opens a pull request — every
+    save is a reviewable pending change on the agent's deterministic branch
+    (`coder/agent-{name}`), accepted or discarded under Changes. (A no-op save
+    still returns tier 0.)"""
     if request.app.state.agent_store.get(name) is None:
         raise HTTPException(404, "unknown agent")
     if body.field != "prompt":
@@ -137,7 +141,9 @@ async def quick_edit(request: Request, name: str, body: QuickEditIn,
     return await _apply_files(
         request, {f"agents/{name}/agent.md": body.value},
         message=f"{principal}: quick-edit {name}/{body.field}",
-        branch=f"coder/agent-{name}", pr_title=f"Edit {name}: {body.field}")
+        branch=f"coder/agent-{name}", pr_title=f"Edit {name}: agent definition",
+        pr_body=f"Direct definition edit for `{name}` from the agent editor.",
+        force_review=True)
 
 
 class FreeformEditIn(BaseModel):

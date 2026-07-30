@@ -520,6 +520,30 @@ select {
 /* Conversations */
 .convo-layout { display: flex; gap: 16px; margin: 12px 0; min-height: 320px; }
 .convo-list { width: 260px; flex-shrink: 0; display: flex; flex-direction: column; gap: 4px; }
+
+/* Agent-page chat (Conversations tab): rail of threads + chat pane */
+.chat-layout { display: flex; gap: 14px; margin-top: 4px; height: calc(100vh - 240px); min-height: 420px; }
+.chat-rail {
+  width: 240px; flex-shrink: 0; display: flex; flex-direction: column; gap: 4px;
+  overflow-y: auto; padding-right: 2px;
+}
+.chat-new {
+  text-align: left; margin-bottom: 6px; background: transparent;
+  border: 1px dashed var(--border); color: var(--accent);
+}
+.chat-new:hover { border-color: var(--accent); }
+.convo-item-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chat-empty { flex: 1; display: flex; align-items: center; justify-content: center; text-align: center; padding: 24px; }
+
+/* raw agent.md editor */
+.agent-md-editor {
+  width: 100%; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 13px; line-height: 1.45; tab-size: 2;
+}
+.agent-md-editor[readonly] { opacity: 0.6; cursor: not-allowed; }
+
+.clickable-row { cursor: pointer; }
+.clickable-row:hover td { background: var(--bg-alt); }
 .convo-item {
   text-align: left; background: var(--bg-alt); border: 1px solid var(--border);
   border-radius: 6px; padding: 8px 10px; cursor: pointer; font-size: 13px;
