@@ -47,13 +47,20 @@ Verified 2026-07-29:
 | paiWeeklyHoroscopes | Not ported |
 | autolearn | Not ported |
 
-**Open decision (needs a human):** port the remaining six, or formally descope
-them and archive `multi/infra/ai-agents` to `multi-sandbox` per the repo-roles
-policy. They are real functionality that is currently switched off rather than
-replaced, so letting the doc imply "migrated" would be a lie either way.
+**DECIDED 2026-07-30 (Kyle): descope + archive, don't port.** "archive them,
+i'll make something new if needed." The six remaining v1 workloads
+(`seoBot`, `paiSelfImprover`, `paiMemoryBackup`, the three RSS crossposters,
+`paiWeeklyHoroscopes`, `autolearn`) are **dropped**, not ported. The entire dead
+pai-m1 stack (`multi/infra/ai-agents` — agent workloads + its cluster infra:
+argocd/traefik/vault/cloudflared/openobserve, all dormant, pai-m1 no longer
+resolves) is being archived to `multi-sandbox` per the repo-roles policy
+(migrate, don't delete — history stays in multi). The one real secret in there,
+`vault/gcp-credentials.json`, is gitignored/untracked and is NOT migrated.
+`news` (journalist) and `pai` (pai-responder) remain the only ported workloads.
 
 ## Done when
 
-Either every v1 workload is running on the platform, or the ones we've chosen to
-drop are written down as dropped — and `multi/infra/ai-agents` is archived per
-the repo-roles policy.
+~~Either every v1 workload is running, or the dropped ones are written down and
+`multi/infra/ai-agents` is archived.~~ **Met:** workloads formally dropped
+(above); the archival to multi-sandbox lands via a PR against `multi` (Kyle's
+merge = the final step).
