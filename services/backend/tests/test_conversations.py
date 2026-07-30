@@ -139,3 +139,25 @@ async def test_recorder_emits_outbound_on_terminal(sf):
     _, key, data = outbound[0]
     assert key == cid and data["connector"] == "discord" and data["external_ref"] == "t9"
     assert data["text"] == "the reply"
+
+
+async def test_rename_conversation_any_type(admin_client, sf):
+    from agentplatform.db import Conversation
+    # web
+    cid = (await admin_client.post("/api/conversations",
+           json={"connector": "web", "agent": "hello-world"})).json()["id"]
+    r = await admin_client.patch(f"/api/conversations/{cid}", json={"title": "  Roadmap chat  "})
+    assert r.status_code == 200 and r.json()["title"] == "Roadmap chat"
+    # discord (a local label — renaming is allowed and doesn't touch the channel)
+    async with sf() as s:
+        conv = Conversation(connector="discord", external_ref="t-ren", agent="hello-world",
+                            title="discord:t-ren")
+        s.add(conv); await s.commit(); did = conv.id
+    r = await admin_client.patch(f"/api/conversations/{did}", json={"title": "Kyle in Discord"})
+    assert r.status_code == 200 and r.json()["title"] == "Kyle in Discord"
+
+
+async def test_rename_empty_title_422(admin_client):
+    cid = (await admin_client.post("/api/conversations",
+           json={"connector": "web", "agent": "hello-world"})).json()["id"]
+    assert (await admin_client.patch(f"/api/conversations/{cid}", json={"title": ""})).status_code == 422

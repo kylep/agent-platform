@@ -12,6 +12,14 @@ function TypeBadge({ connector }: { connector: string }) {
   return <span className={`convo-type convo-type-${connector}`}>{connector}</span>;
 }
 
+// Last-activity stamp as local yyyy-mm-dd hh:mm.
+function stamp(iso: string | null): string {
+  if (!iso) return "";
+  const d = new Date(iso);
+  const p = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+
 /** ChatGPT-style conversation view scoped to one agent: a rail of this agent's
  * conversations plus a chat pane. Web conversations are interactive; connector
  * conversations (Discord) are read-only transcripts with per-message senders.
@@ -26,6 +34,8 @@ export default function AgentChat({ agent }: { agent: string }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [renaming, setRenaming] = useState(false);
+  const [nameDraft, setNameDraft] = useState("");
   const poll = useRef<ReturnType<typeof setInterval> | null>(null);
   const scroller = useRef<HTMLDivElement | null>(null);
 
@@ -57,6 +67,7 @@ export default function AgentChat({ agent }: { agent: string }) {
     if (poll.current) { clearInterval(poll.current); poll.current = null; }
     setDetail(null);
     setConfirmDelete(false);
+    setRenaming(false);
     if (selected) {
       loadDetail(selected);
       poll.current = setInterval(() => loadDetail(selected), 2500);
@@ -94,6 +105,19 @@ export default function AgentChat({ agent }: { agent: string }) {
     finally { setBusy(false); }
   }
 
+  async function rename(id: string) {
+    const title = nameDraft.trim();
+    if (!title) return;
+    try {
+      const c = await api<Conversation>(`/api/conversations/${id}`, {
+        method: "PATCH", body: JSON.stringify({ title }),
+      });
+      setRenaming(false);
+      setDetail((d) => (d ? { ...d, title: c.title } : d));
+      loadList();
+    } catch (err) { setError(err instanceof Error ? err.message : "Rename failed."); }
+  }
+
   async function remove(id: string) {
     setBusy(true);
     try {
@@ -121,7 +145,10 @@ export default function AgentChat({ agent }: { agent: string }) {
               onClick={() => select(c.id)}
             >
               <div className="convo-item-title">{c.title}</div>
-              <TypeBadge connector={c.connector} />
+              <div className="convo-item-meta">
+                <TypeBadge connector={c.connector} />
+                <span className="convo-item-ts">{stamp(c.updated_at)}</span>
+              </div>
             </button>
           ))}
           {list.length === 0 && <p className="muted" style={{ padding: "4px 6px" }}>No conversations yet.</p>}
@@ -136,8 +163,29 @@ export default function AgentChat({ agent }: { agent: string }) {
           {detail && (
             <>
               <div className="convo-head">
-                <strong>{detail.title}</strong> <TypeBadge connector={detail.connector} />
-                {web && (
+                {renaming ? (
+                  <span className="convo-rename">
+                    <input
+                      value={nameDraft}
+                      onChange={(e) => setNameDraft(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") { e.preventDefault(); rename(detail.id); }
+                        if (e.key === "Escape") setRenaming(false);
+                      }}
+                      autoFocus
+                    />
+                    <button onClick={() => rename(detail.id)} disabled={!nameDraft.trim()}>Save</button>
+                    <button className="secondary" onClick={() => setRenaming(false)}>Cancel</button>
+                  </span>
+                ) : (
+                  <>
+                    <strong>{detail.title}</strong> <TypeBadge connector={detail.connector} />
+                    <button className="linkish convo-rename-btn"
+                            onClick={() => { setNameDraft(detail.title); setRenaming(true); }}
+                            title="Rename conversation">✎</button>
+                  </>
+                )}
+                {web && !renaming && (
                   <span className="convo-head-actions">
                     <button className="danger-ghost" onClick={() => setConfirmDelete(true)}>Delete</button>
                   </span>

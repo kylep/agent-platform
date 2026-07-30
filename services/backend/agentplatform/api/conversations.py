@@ -1,7 +1,7 @@
 import logging
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import select
 
 from agentplatform.api.auth import INVOKE_ROLES, READ_ROLES, require_role
@@ -87,6 +87,24 @@ async def get_conversation(request: Request, conversation_id: str):
                    "created_at": t.created_at.isoformat() if t.created_at else None}
                   for t in turns]
     return d
+
+
+class ConversationPatch(BaseModel):
+    title: str = Field(min_length=1, max_length=256)
+
+
+@router.patch("/api/conversations/{conversation_id}", response_model=S.ConversationView,
+              dependencies=[Depends(require_role(*INVOKE_ROLES))])
+async def rename_conversation(request: Request, conversation_id: str, body: ConversationPatch):
+    """Rename a conversation. The title is a local display label (it does not
+    touch the external channel), so any type — including Discord — is renamable."""
+    async with request.app.state.session_factory() as s:
+        conv = await s.get(Conversation, conversation_id)
+        if conv is None:
+            raise HTTPException(404, "unknown conversation")
+        conv.title = body.title.strip()
+        await s.commit()
+        return _view(conv)
 
 
 @router.delete("/api/conversations/{conversation_id}", response_model=S.OkId,

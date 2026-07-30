@@ -15,6 +15,7 @@ from .config_edit_in import ConfigEditIn
 from .connector import Connector
 from .conversation_detail import ConversationDetail
 from .conversation_in import ConversationIn
+from .conversation_patch import ConversationPatch
 from .conversation_turn import ConversationTurn
 from .conversation_view import ConversationView
 from .create_agent_in import CreateAgentIn
@@ -87,6 +88,7 @@ __all__ = (
     "Connector",
     "ConversationDetail",
     "ConversationIn",
+    "ConversationPatch",
     "ConversationTurn",
     "ConversationView",
     "CreateAgentIn",
