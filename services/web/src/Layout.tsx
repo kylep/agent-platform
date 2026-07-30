@@ -12,8 +12,9 @@ const isGroup = (e: Entry): e is Group => "children" in e;
 
 const nav: Entry[] = [
   { to: "/", label: "Dashboard", end: true },
-  { to: "/reporting", label: "Reporting" },
-  { to: "/runs", label: "Runs" },
+  { to: "/reporting", label: "Reporting", children: [
+    { to: "/runs", label: "Runs" },
+  ] },
   { to: "/agents", label: "Agents", children: [
     { to: "/conversations", label: "Conversations" },
     { to: "/memories", label: "Memories" },
