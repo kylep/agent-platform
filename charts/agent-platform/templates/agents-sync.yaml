@@ -39,15 +39,34 @@ spec:
           args:
             - |
               set -eu
+              # Verify git objects on transfer/fetch so a corrupted or malformed
+              # object can't land in the checkout (cheap integrity, no signing
+              # needed).
+              git config --global fetch.fsckObjects true
+              git config --global transfer.fsckObjects true
               if [ ! -d /agents/.git ]; then
                 echo "cloning $GIT_REPO ($GIT_REF) into /agents"
                 git clone --depth 1 --branch "$GIT_REF" "$GIT_REPO" /agents
               fi
+              if [ "$VERIFY_COMMITS" = "true" ]; then
+                git -C /agents config gpg.ssh.allowedSignersFile /provenance/allowed_signers
+                echo "agents-sync: commit-signature verification is ON (fail-closed)"
+              fi
               while true; do
-                git -C /agents fetch --depth 1 origin "$GIT_REF" \
-                  && git -C /agents checkout -q "$GIT_REF" \
-                  && git -C /agents reset --hard -q "origin/$GIT_REF" \
-                  || echo "agents-sync: sync failed, will retry"
+                if git -C /agents fetch -q --depth 1 origin "$GIT_REF"; then
+                  NEW=$(git -C /agents rev-parse "origin/$GIT_REF")
+                  # Fail-closed provenance gate: only advance to a head whose
+                  # commit is signed by an allowed signer. A bad/unsigned head is
+                  # refused and the last good checkout stays live.
+                  if [ "$VERIFY_COMMITS" = "true" ] && ! git -C /agents verify-commit "$NEW" 2>/dev/null; then
+                    echo "agents-sync: REFUSING $NEW — not signed by an allowed signer; keeping current checkout"
+                  else
+                    git -C /agents checkout -q "$GIT_REF" \
+                      && git -C /agents reset --hard -q "$NEW"
+                  fi
+                else
+                  echo "agents-sync: fetch failed, will retry"
+                fi
                 sleep "$SYNC_INTERVAL_SECONDS"
               done
           env:
@@ -57,10 +76,35 @@ spec:
               value: {{ .Values.agents.gitRef | quote }}
             - name: SYNC_INTERVAL_SECONDS
               value: {{ .Values.agents.syncIntervalSeconds | quote }}
+            - name: VERIFY_COMMITS
+              value: {{ .Values.agents.verifyCommits | quote }}
           volumeMounts:
             - name: agent-definitions
               mountPath: /agents
+            {{- if .Values.agents.verifyCommits }}
+            - name: provenance
+              mountPath: /provenance
+              readOnly: true
+            {{- end }}
       volumes:
         - name: agent-definitions
           persistentVolumeClaim:
             claimName: {{ .Values.env.AP_AGENTS_VOLUME_CLAIM }}
+        {{- if .Values.agents.verifyCommits }}
+        - name: provenance
+          secret:
+            secretName: {{ .Release.Name }}-agents-allowed-signers
+        {{- end }}
+{{- if .Values.agents.verifyCommits }}
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ .Release.Name }}-agents-allowed-signers
+  labels:
+    {{- include "agent-platform.labels" . | nindent 4 }}
+stringData:
+  # SSH allowed_signers consulted by `git verify-commit` (fail-closed gate).
+  allowed_signers: |
+    {{- required "agents.verifyCommits is on but agents.allowedSigners is empty" .Values.agents.allowedSigners | nindent 4 }}
+{{- end }}

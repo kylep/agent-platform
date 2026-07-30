@@ -86,6 +86,22 @@ agents:
   syncIntervalSeconds: 60
   storage: 1Gi
   storageClass: ""
+  # Provenance gate: verify each synced commit is signed by an allowed signer
+  # before advancing the checkout (fail-closed — an unsigned/untrusted head is
+  # refused and the last good checkout is kept). Agent definitions are
+  # executable behavior (prompts, tool grants), so this proves the running
+  # definitions came from a trusted author, not just "whatever is on the ref".
+  #
+  # OFF by default: turning it on requires main's commits to be SSH-signed and
+  # `allowedSigners` populated, or sync will refuse everything. See
+  # docs/design/02.
+  verifyCommits: false
+  # SSH allowed_signers content (see `man ssh-keygen`, ALLOWED SIGNERS). One
+  # line per trusted signer, e.g.:
+  #   kyle@pericak.com ssh-ed25519 AAAAC3NzaC1lZDI1...
+  # Rendered into a Secret and consulted by `git verify-commit` when
+  # verifyCommits is true.
+  allowedSigners: ""
 
 # Env vars applied to the api/dispatcher/recorder Deployments (AP_ prefix,
 # see services/backend/agentplatform/config.py). AP_DB_URL, AP_KAFKA_BOOTSTRAP,

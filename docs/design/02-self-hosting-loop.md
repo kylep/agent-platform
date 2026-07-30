@@ -87,4 +87,14 @@ the identical machinery). Remaining hardening (non-blocking):
       deploy key can't call the REST PR API, so it silently degraded tier-2
       edits to "branch pushed, no PR opened" — strictly worse than the PAT
       fallback it sat in front of.
-- [ ] Sync hardening (webhook-or-poll provenance).
+- [x] **Sync hardening** (2026-07-30) — `agents-sync` now verifies git objects
+      on fetch (`fetch.fsckObjects`/`transfer.fsckObjects`) so a malformed object
+      can't land, and gained an **opt-in fail-closed provenance gate**: with
+      `agents.verifyCommits=true`, each synced head must be signed by an allowed
+      signer (`git verify-commit` against an `allowedSigners` Secret) before the
+      checkout advances — an unsigned/untrusted head is refused and the last good
+      checkout is kept. Agent definitions are executable behavior, so this proves
+      the running definitions came from a trusted author, not "whatever is on the
+      ref". **Off by default** (activation needs main's commits SSH-signed +
+      `allowedSigners` populated, or sync refuses everything — a deliberate
+      go/no-go for the operator). fsck integrity is always on.
