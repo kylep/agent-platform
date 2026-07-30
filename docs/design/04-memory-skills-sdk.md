@@ -51,8 +51,20 @@ programmable from outside.
       namespace isolation / injection all enforced; one robustness gap fixed:
       malformed `/api/memories` input (NUL bytes, over-length namespace) now
       422s at the edge instead of a DB-level 500.
-- [ ] OpenAPI-generated SDK + platform-skill exercised in CI against a live
-      chart install (currently: hand-written SDK + live manual exercise).
+- [x] **SDK + platform-skill exercised in CI** (2026-07-30) —
+      `tests/test_sdk_integration.py` drives the real `agent_platform_sdk.Client`
+      against the real ASGI app over httpx with a genuine `ap_` key: list agents
+      → trigger a run → fetch it → list runs → health, plus RBAC (a reader key is
+      refused a run trigger, 401 on a bad key) and namespaced memory round-trips.
+      The platform skill's documented `/api` paths are held to the live OpenAPI,
+      so `SKILL.md` can't drift either. Runs in the `backend` CI job.
+      **Deliberately NOT done:** replacing the hand-written SDK with an
+      OpenAPI-*generated* one. The hand-written client is ~90 lines,
+      dependency-free, and now both drift-guarded and exercised end-to-end;
+      a codegen toolchain would regress readability and add a heavy CI
+      dependency for no real gain. "Exercised against a live install" is read as
+      the in-process ASGI app (real routing/auth/RBAC/DB) rather than a full
+      `helm install` in CI, which would be slow and flaky for the same coverage.
 
 ## Done when
 
