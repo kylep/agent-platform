@@ -3,6 +3,7 @@ import logging
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import and_, func, or_, select
+from sqlalchemy.exc import IntegrityError
 
 from agentplatform.api.auth import MEMORY_ROLES, READ_ROLES, require_role
 from agentplatform.db import Memory
@@ -78,7 +79,19 @@ async def save_memory(request: Request, body: MemoryIn):
         else:
             m = Memory(agent=ns, key=body.key, content=body.content, tags=body.tags or [])
             s.add(m)
-        await s.commit()
+        try:
+            await s.commit()
+        except IntegrityError:
+            # Two concurrent saves of the same new key: the (agent, key) unique
+            # index made the loser fail — retry as the overwrite it wanted.
+            await s.rollback()
+            winner = (await s.execute(select(Memory).where(
+                Memory.agent == ns, Memory.key == body.key))).scalar_one()
+            winner.content = body.content
+            if body.tags is not None:
+                winner.tags = body.tags
+            await s.commit()
+            m = winner
         return _view(m)
 
 
@@ -118,6 +131,36 @@ async def _owned(request: Request, memory_id: str) -> Memory:
 @router.get("/api/memories/{memory_id}", response_model=S.MemoryView, dependencies=[Depends(require_role(*READ_ROLES))])
 async def get_memory(request: Request, memory_id: str):
     return _view(await _owned(request, memory_id))
+
+
+class MemoryPatch(BaseModel):
+    content: str | None = None
+    tags: list[str] | None = None
+
+    @field_validator("content")
+    @classmethod
+    def _no_nul(cls, v: str | None) -> str | None:
+        if v is not None and "\x00" in v:
+            raise ValueError("must not contain NUL bytes")
+        return v
+
+
+@router.patch("/api/memories/{memory_id}", response_model=S.MemoryView, dependencies=[Depends(require_role(*MEMORY_ROLES))])
+async def edit_memory(request: Request, memory_id: str, body: MemoryPatch):
+    """Edit a memory's content/tags in place (the key is identity and stays)."""
+    m = await _owned(request, memory_id)
+    if body.content is None and body.tags is None:
+        raise HTTPException(422, "nothing to change")
+    async with request.app.state.session_factory() as s:
+        row = await s.get(Memory, m.id)
+        if row is None:
+            raise HTTPException(404, "unknown memory")
+        if body.content is not None:
+            row.content = body.content
+        if body.tags is not None:
+            row.tags = body.tags
+        await s.commit()
+        return _view(row)
 
 
 @router.delete("/api/memories/{memory_id}", response_model=S.OkId, dependencies=[Depends(require_role(*MEMORY_ROLES))])

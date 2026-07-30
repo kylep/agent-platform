@@ -544,6 +544,15 @@ select {
 
 .clickable-row { cursor: pointer; }
 .clickable-row:hover td { background: var(--bg-alt); }
+
+/* Memories: content-first rows; the key is a small chip, not a column */
+.memory-key {
+  display: inline-block; margin: 0 0 4px; font-size: 11px;
+  max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  vertical-align: bottom;
+}
+.memory-content { white-space: pre-wrap; word-break: break-word; }
+.memory-edit { width: 100%; font-size: 14px; }
 .convo-item {
   text-align: left; background: var(--bg-alt); border: 1px solid var(--border);
   border-radius: 6px; padding: 8px 10px; cursor: pointer; font-size: 13px;

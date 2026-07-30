@@ -216,6 +216,11 @@ export type ModelUsage = {
   tokens_out: number;
 };
 
+export type ModelOption = {
+  id: string;
+  label: string;
+};
+
 export type Connector = {
   name: string;
   kind: string;

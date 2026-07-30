@@ -78,8 +78,10 @@ async def recall_memory(q: str = "") -> str:
 
 
 @mcp.tool
-async def remember(key: str, content: str, tags: list[str] | None = None) -> str:
-    """Save/overwrite a memory in your namespace (reusing a key overwrites it)."""
+async def remember(content: str, key: str | None = None, tags: list[str] | None = None) -> str:
+    """Save a memory in your namespace. Give a key ONLY for state you overwrite
+    in place (reusing a key replaces that memory); omit it for plain notes —
+    don't invent meaningless keys."""
     return await _call("POST", "/api/memories", json={"key": key, "content": content, "tags": tags or []})
 
 

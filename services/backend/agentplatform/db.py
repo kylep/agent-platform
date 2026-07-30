@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime, timezone
 from enum import StrEnum
-from sqlalchemy import JSON, DateTime, Integer, String, Text
+from sqlalchemy import JSON, DateTime, Index, Integer, String, Text, text
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
@@ -91,6 +91,15 @@ class Conversation(Base):
 
 class Memory(Base):
     __tablename__ = "memories"
+    # "Overwrite on same key" is only real with a constraint behind it: two
+    # concurrent saves of the same key would otherwise both insert and the
+    # namespace silently holds duplicates. Partial unique (keyless memories are
+    # append-only notes and may repeat). init_db backfills this on live DBs.
+    __table_args__ = (
+        Index("uq_memories_agent_key", "agent", "key", unique=True,
+              postgresql_where=text("key IS NOT NULL"),
+              sqlite_where=text("key IS NOT NULL")),
+    )
     id: Mapped[str] = mapped_column(String(32), primary_key=True, default=lambda: uuid.uuid4().hex)
     # Namespace: memories are private to one agent. All access is scoped to the
     # caller's agent (an agent can only see/write its own namespace).
@@ -220,7 +229,32 @@ def _ensure_columns(conn) -> None:
                 conn.exec_driver_sql(f'ALTER TABLE {table.name} ADD COLUMN {col.name} {ddl}')
 
 
+def _ensure_memory_key_index(conn) -> None:
+    """Backfill the (agent, key) partial unique index on a live DB: create_all
+    never touches an existing table, so dedup first (keep the newest row per
+    key — that's what "overwrite on save" always meant), then create the index.
+    Idempotent via IF NOT EXISTS (supported by both sqlite and postgres)."""
+    from sqlalchemy import inspect as sa_inspect
+    insp = sa_inspect(conn)
+    if not insp.has_table("memories"):
+        return
+    if any(ix["name"] == "uq_memories_agent_key" for ix in insp.get_indexes("memories")):
+        return
+    dupes = conn.execute(text(
+        "SELECT agent, key FROM memories WHERE key IS NOT NULL "
+        "GROUP BY agent, key HAVING count(*) > 1")).fetchall()
+    for agent, key in dupes:
+        ids = [r[0] for r in conn.execute(text(
+            "SELECT id FROM memories WHERE agent = :a AND key = :k "
+            "ORDER BY updated_at DESC, id DESC"), {"a": agent, "k": key}).fetchall()]
+        for stale in ids[1:]:
+            conn.execute(text("DELETE FROM memories WHERE id = :i"), {"i": stale})
+    conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uq_memories_agent_key "
+                      "ON memories (agent, key) WHERE key IS NOT NULL"))
+
+
 async def init_db(engine: AsyncEngine) -> None:
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
         await conn.run_sync(_ensure_columns)
+        await conn.run_sync(_ensure_memory_key_index)

@@ -1,6 +1,6 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { api, type EditResult } from "../api";
+import { api, type EditResult, type ModelOption } from "../api";
 import { SkillPicker, ToolPicker, useCapabilities } from "../components/CapabilityPickers";
 
 const NAME_RE = /^[a-z0-9][a-z0-9-]{0,62}$/;
@@ -21,6 +21,13 @@ export default function NewAgent() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<EditResult | null>(null);
+  const [models, setModels] = useState<ModelOption[]>([]);
+
+  useEffect(() => {
+    api<{ models: ModelOption[] }>("/api/agent-models")
+      .then((r) => setModels(r.models.filter((m) => m.id)))
+      .catch(() => setModels([]));
+  }, []);
 
   // Seed tools to "all on" once the catalog loads.
   if (ready && !seededTools) {
@@ -87,8 +94,11 @@ export default function NewAgent() {
              onChange={(e) => setDescription(e.target.value)} />
 
       <label className="field-label">Model <span className="muted">(optional)</span></label>
-      <input placeholder="e.g. sonnet — blank uses the platform default" value={model}
-             onChange={(e) => setModel(e.target.value.trim())} />
+      <input list="model-options" placeholder="blank uses the platform default — click or type to search"
+             value={model} onChange={(e) => setModel(e.target.value.trim())} />
+      <datalist id="model-options">
+        {models.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}
+      </datalist>
 
       <h2>Skills</h2>
       <p className="muted">Skills mount into the agent's pod and bind their required secrets.</p>

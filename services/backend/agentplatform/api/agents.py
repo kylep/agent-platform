@@ -6,12 +6,13 @@ from pathlib import Path
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 
-from agentplatform.agentspec import (AVAILABLE_TOOLS, mutate_agent_md,
-                                     mutate_manifest_yaml, render_agent_md,
-                                     render_manifest, validate_agent_name)
+from agentplatform.agentspec import (AVAILABLE_TOOLS, KNOWN_MODELS,
+                                     mutate_agent_md, mutate_manifest_yaml,
+                                     render_agent_md, render_manifest,
+                                     validate_agent_name)
 from agentplatform.api.auth import READ_ROLES, require_admin, require_role
-from agentplatform.api.schemas import (AgentInfo, AgentSummary, AgentTools,
-                                       EditDispatch, EditResult)
+from agentplatform.api.schemas import (AgentInfo, AgentModels, AgentSummary,
+                                       AgentTools, EditDispatch, EditResult)
 from agentplatform.db import Run
 from agentplatform.events import TOPIC_RUN_REQUESTS
 from agentplatform.github import GitHubClient
@@ -183,6 +184,13 @@ async def agent_tools():
     """The canonical tool list the UI renders as checkboxes (one source of truth
     with the validation below)."""
     return {"tools": AVAILABLE_TOOLS}
+
+
+@router.get("/api/agent-models", response_model=AgentModels, dependencies=[Depends(require_role(*READ_ROLES))])
+async def agent_models():
+    """Models the UI offers in the model picker. Advisory — the server accepts
+    any model string, so new models work before this list is updated."""
+    return {"models": KNOWN_MODELS}
 
 
 def _known_skill_names(request: Request) -> set[str]:

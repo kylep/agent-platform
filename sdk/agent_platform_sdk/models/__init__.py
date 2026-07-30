@@ -3,6 +3,7 @@
 from .agent_info import AgentInfo
 from .agent_metrics import AgentMetrics
 from .agent_metrics_by_state import AgentMetricsByState
+from .agent_models import AgentModels
 from .agent_summary import AgentSummary
 from .agent_tools import AgentTools
 from .annotate_in import AnnotateIn
@@ -31,11 +32,13 @@ from .job_view import JobView
 from .kafka_health import KafkaHealth
 from .manifest import Manifest
 from .memory_in import MemoryIn
+from .memory_patch import MemoryPatch
 from .memory_view import MemoryView
 from .message_accepted import MessageAccepted
 from .message_in import MessageIn
 from .metrics_overview import MetricsOverview
 from .metrics_overview_by_state import MetricsOverviewByState
+from .model_option import ModelOption
 from .model_usage import ModelUsage
 from .notify_in import NotifyIn
 from .ok import Ok
@@ -73,6 +76,7 @@ __all__ = (
     "AgentInfo",
     "AgentMetrics",
     "AgentMetricsByState",
+    "AgentModels",
     "AgentSummary",
     "AgentTools",
     "AnnotateIn",
@@ -101,11 +105,13 @@ __all__ = (
     "KafkaHealth",
     "Manifest",
     "MemoryIn",
+    "MemoryPatch",
     "MemoryView",
     "MessageAccepted",
     "MessageIn",
     "MetricsOverview",
     "MetricsOverviewByState",
+    "ModelOption",
     "ModelUsage",
     "NotifyIn",
     "Ok",

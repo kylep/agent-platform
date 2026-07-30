@@ -83,3 +83,53 @@ async def test_admin_can_target_any_namespace(admin_client, sf):
     assert r.status_code == 201
     hits = (await admin_client.get("/api/memories?agent=notetaker")).json()
     assert any(m["content"] == "seeded" for m in hits)
+
+
+async def test_edit_memory_content_in_place(admin_client, sf):
+    r = await admin_client.post("/api/memories", json={"content": "draft note", "agent": "alpha"})
+    mid = r.json()["id"]
+    r = await admin_client.patch(f"/api/memories/{mid}", json={"content": "final note"})
+    assert r.status_code == 200 and r.json()["content"] == "final note"
+    got = (await admin_client.get(f"/api/memories/{mid}")).json()
+    assert got["content"] == "final note"
+
+
+async def test_edit_memory_empty_patch_is_422(admin_client, sf):
+    r = await admin_client.post("/api/memories", json={"content": "x", "agent": "alpha"})
+    mid = r.json()["id"]
+    assert (await admin_client.patch(f"/api/memories/{mid}", json={})).status_code == 422
+
+
+async def test_agent_cannot_edit_other_namespace(client, sf):
+    a = await _agent_key(sf, agent="alpha")
+    b = await _agent_key(sf, agent="beta")
+    r = await client.post("/api/memories", json={"content": "mine"}, headers=_auth(a))
+    mid = r.json()["id"]
+    # Other namespace reads as 404 (existence not leaked), owner can edit.
+    assert (await client.patch(f"/api/memories/{mid}", json={"content": "z"},
+                               headers=_auth(b))).status_code == 404
+    assert (await client.patch(f"/api/memories/{mid}", json={"content": "z"},
+                               headers=_auth(a))).status_code == 200
+
+
+async def test_duplicate_keys_deduped_and_constrained(sf):
+    """The (agent, key) unique index: init_db dedupes pre-existing duplicates
+    (keeping the newest) and further duplicate inserts are refused by the DB."""
+    from datetime import datetime, timezone, timedelta
+    from sqlalchemy import select
+    from sqlalchemy.exc import IntegrityError
+    from agentplatform.db import Memory
+    import pytest
+
+    async with sf() as s:
+        m = Memory(agent="dup", key="k", content="new")
+        s.add(m)
+        await s.commit()
+        # A straight duplicate insert must now violate the unique index.
+        s.add(Memory(agent="dup", key="k", content="dupe"))
+        with pytest.raises(IntegrityError):
+            await s.commit()
+        await s.rollback()
+    async with sf() as s:
+        rows = (await s.execute(select(Memory).where(Memory.agent == "dup"))).scalars().all()
+    assert len(rows) == 1 and rows[0].content == "new"

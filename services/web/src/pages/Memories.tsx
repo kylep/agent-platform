@@ -9,6 +9,8 @@ export default function Memories() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
+  const [editing, setEditing] = useState<string | null>(null);
+  const [draft, setDraft] = useState("");
 
   useEffect(() => {
     api<AgentSummary[]>("/api/agents")
@@ -21,6 +23,7 @@ export default function Memories() {
     if (!a) return;
     setLoading(true);
     setError(null);
+    setEditing(null);
     const qs = query.trim() ? `&q=${encodeURIComponent(query.trim())}` : "";
     api<Memory[]>(`/api/memories?agent=${encodeURIComponent(a)}${qs}`)
       .then(setRows)
@@ -39,6 +42,19 @@ export default function Memories() {
       load();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Delete failed.");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function saveEdit(id: string) {
+    setBusy(id);
+    try {
+      await api(`/api/memories/${id}`, { method: "PATCH", body: JSON.stringify({ content: draft }) });
+      setEditing(null);
+      load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Save failed.");
     } finally {
       setBusy(null);
     }
@@ -71,18 +87,44 @@ export default function Memories() {
       {!loading && rows.length > 0 && (
         <table className="table">
           <thead>
-            <tr><th>Key</th><th>Content</th><th>Updated</th><th></th></tr>
+            <tr><th>Memory</th><th style={{ width: 130 }}>Updated</th><th style={{ width: 150 }}></th></tr>
           </thead>
           <tbody>
             {rows.map((m) => (
               <tr key={m.id}>
-                <td className="muted">{m.key || "—"}</td>
-                <td>{m.content}</td>
-                <td className="muted">{m.updated_at ? new Date(m.updated_at).toLocaleString() : "—"}</td>
                 <td>
-                  <button className="secondary" onClick={() => remove(m.id)} disabled={busy === m.id}>
-                    {busy === m.id ? "Deleting…" : "Delete"}
-                  </button>
+                  {m.key && <span className="chip memory-key" title="Key — saving with this key overwrites this memory">{m.key}</span>}
+                  {editing === m.id ? (
+                    <textarea
+                      className="memory-edit"
+                      value={draft}
+                      onChange={(e) => setDraft(e.target.value)}
+                      rows={Math.min(12, Math.max(3, draft.split("\n").length + 1))}
+                      autoFocus
+                    />
+                  ) : (
+                    <div className="memory-content">{m.content}</div>
+                  )}
+                </td>
+                <td className="muted">{m.updated_at ? new Date(m.updated_at).toLocaleDateString() : "—"}</td>
+                <td>
+                  {editing === m.id ? (
+                    <div className="row-actions">
+                      <button onClick={() => saveEdit(m.id)} disabled={busy === m.id}>
+                        {busy === m.id ? "Saving…" : "Save"}
+                      </button>
+                      <button className="secondary" onClick={() => setEditing(null)}>Cancel</button>
+                    </div>
+                  ) : (
+                    <div className="row-actions">
+                      <button className="secondary" onClick={() => { setEditing(m.id); setDraft(m.content); }}>
+                        Edit
+                      </button>
+                      <button className="secondary" onClick={() => remove(m.id)} disabled={busy === m.id}>
+                        {busy === m.id ? "…" : "Delete"}
+                      </button>
+                    </div>
+                  )}
                 </td>
               </tr>
             ))}

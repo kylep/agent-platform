@@ -39,6 +39,23 @@ PLATFORM_MCP_TOOLS: list[str] = [
 
 AVAILABLE_TOOLS: list[str] = CLAUDE_TOOLS + PLATFORM_MCP_TOOLS
 
+# Models the UI offers for an agent's `model:` (runner passes it to
+# `claude --model`). ADVISORY, not an allow-list: the server accepts any value,
+# so a brand-new model isn't blocked by a stale registry (the inverse trade-off
+# from AVAILABLE_TOOLS, where unknown = privilege escalation; an unknown model
+# just fails the run visibly). Verified against the models docs 2026-07-30.
+KNOWN_MODELS: list[dict[str, str]] = [
+    {"id": "", "label": "Platform default"},
+    {"id": "claude-fable-5", "label": "Fable 5 — most capable, long-running agents"},
+    {"id": "claude-opus-5", "label": "Opus 5 — complex agentic work"},
+    {"id": "claude-sonnet-5", "label": "Sonnet 5 — speed + intelligence"},
+    {"id": "claude-haiku-4-5", "label": "Haiku 4.5 — fastest"},
+    {"id": "claude-opus-4-8", "label": "Opus 4.8 (legacy)"},
+    {"id": "claude-sonnet-4-6", "label": "Sonnet 4.6 (legacy)"},
+    {"id": "claude-sonnet-4-5", "label": "Sonnet 4.5 (legacy)"},
+    {"id": "claude-opus-4-5", "label": "Opus 4.5 (legacy)"},
+]
+
 _NAME_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,62}$")
 
 

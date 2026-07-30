@@ -59,6 +59,15 @@ class AgentTools(BaseModel):
     tools: list[str]
 
 
+class ModelOption(BaseModel):
+    id: str
+    label: str
+
+
+class AgentModels(BaseModel):
+    models: list[ModelOption]
+
+
 class PrRef(BaseModel):
     number: int
     url: str
