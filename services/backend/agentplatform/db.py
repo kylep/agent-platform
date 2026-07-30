@@ -52,6 +52,11 @@ class Run(Base):
     # `permission_denials`). A non-empty list on a least-privilege agent is a
     # signal the agent tried something outside its allow-list.
     permission_denials: Mapped[list] = mapped_column(JSON, default=list)
+    # Set when this run's conversation reply has been published. The reply text
+    # (`result`) and the terminal state arrive on *different* Kafka topics, so
+    # both consumers race to publish; this is the claim that makes it once.
+    reply_published_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True)
 
 class RunModelUsage(Base):
     """Per-(run, model) token usage, captured by the recorder from the run's

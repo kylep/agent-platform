@@ -1,5 +1,7 @@
 import logging
+from datetime import timedelta
 
+from sqlalchemy import select, update
 from sqlalchemy.exc import IntegrityError
 
 from agentplatform.apikeys import revoke_run_keys
@@ -69,9 +71,20 @@ class Recorder:
             # The terminal `result` frame carries the final assistant reply and
             # the per-model token breakdown.
             news_result = None
+            outbound = None
             if value.get("type") == "result":
                 if value.get("result"):
                     run.result = value.get("result")
+                # The reply belongs to whichever consumer is holding the text,
+                # and that is this one: `result` is in hand right here. Waiting
+                # for the terminal state to publish it would be a cross-topic
+                # read with no ordering guarantee (see `_claim_reply`).
+                if run.conversation_id and self.producer is not None and run.result:
+                    state = (run.state if run.state not in ACTIVE_STATES else
+                             (RunState.FAILED if value.get("is_error") is True
+                              else RunState.SUCCEEDED))
+                    if await self._claim_reply(s, run_id):
+                        outbound = await self._outbound_for(s, run, state, run.result)
                 for model, u in (value.get("modelUsage") or {}).items():
                     # merge = idempotent upsert on (run_id, model) for redelivery.
                     await s.merge(RunModelUsage(
@@ -100,6 +113,10 @@ class Recorder:
             if value.get("error") == "authentication_failed" or value.get("error_status") == 401:
                 await self._probe_credential(s, "invalid")
             await s.commit()
+        # Publish outside the DB session (see _handle_state's note).
+        if outbound is not None:
+            await self.producer.publish(TOPIC_CONVERSATION_OUTBOUND, outbound["conversation_id"],
+                                        outbound, type="conversation.reply")
         # News projection runs in its own session (trusted, deterministic) and
         # publishes discord.channel.post; the connector delivers it.
         if news_result is not None and self.producer is not None:
@@ -109,6 +126,67 @@ class Recorder:
                 await self.producer.publish(TOPIC_CHANNEL_POST, self.news_channel,
                                             {"channel": self.news_channel, "text": text},
                                             type="channel.post")
+
+    async def _claim_reply(self, s, run_id: str) -> bool:
+        """Claim the right to publish this run's conversation reply, returning
+        True to the single winner.
+
+        The reply text (`run.result`) rides the `run.transcript` topic while the
+        terminal state rides `run.events`, and there is no ordering guarantee
+        between two topics. So whichever consumer is holding what it needs tries
+        to publish, and this conditional UPDATE — atomic in the database — makes
+        sure the thread gets exactly one message."""
+        res = await s.execute(
+            update(Run)
+            .where(Run.id == run_id, Run.reply_published_at.is_(None))
+            .values(reply_published_at=utcnow())
+            .returning(Run.id))
+        return res.first() is not None
+
+    async def _outbound_for(self, s, run: Run, state: str, text: str) -> dict | None:
+        """Build the `conversation.outbound` payload for a claimed reply."""
+        conv = await s.get(Conversation, run.conversation_id)
+        if conv is None:
+            return None
+        return {"conversation_id": conv.id, "connector": conv.connector,
+                "external_ref": conv.external_ref, "run_id": run.id,
+                "state": state, "text": text}
+
+    async def reconcile_replies(self, grace_seconds: int) -> int:
+        """Publish replies for finished conversation turns that never got one,
+        and return how many were sent.
+
+        The two publish sites each fire when they hold what they need, which
+        covers every ordering — but not a `result` frame that never arrives at
+        all. Without this, one lost frame leaves a Discord thread waiting
+        forever. Runs are only considered once they've been finished for
+        `grace_seconds`, so this never races the normal path."""
+        cutoff = utcnow() - timedelta(seconds=grace_seconds)
+        sent = 0
+        async with self.sf() as s:
+            rows = (await s.execute(
+                select(Run).where(Run.conversation_id.is_not(None),
+                                  Run.reply_published_at.is_(None),
+                                  Run.state.not_in(ACTIVE_STATES),
+                                  Run.finished_at.is_not(None),
+                                  Run.finished_at < cutoff))).scalars().all()
+            outbounds = []
+            for run in rows:
+                if not await self._claim_reply(s, run.id):
+                    continue
+                text = run.result or f"(the run {run.state} without a reply)"
+                ob = await self._outbound_for(s, run, run.state, text)
+                if ob is not None:
+                    outbounds.append(ob)
+            await s.commit()
+        for ob in outbounds:
+            log.warning("run %s: publishing conversation reply late — no result "
+                        "frame arrived within %ds", ob["run_id"], grace_seconds)
+            await self.producer.publish(TOPIC_CONVERSATION_OUTBOUND,
+                                        ob["conversation_id"], ob,
+                                        type="conversation.reply")
+            sent += 1
+        return sent
 
     async def _handle_state(self, run_id: str, value: dict) -> None:
         async with self.sf() as s:
@@ -133,14 +211,20 @@ class Recorder:
                 # the stored Claude token is known-good.
                 if new_state == RunState.SUCCEEDED:
                     await self._probe_credential(s, "valid")
-            await s.commit()
             outbound = None
             if new_terminal and run.conversation_id and self.producer is not None:
-                conv = await s.get(Conversation, run.conversation_id)
-                if conv is not None:
-                    outbound = {"conversation_id": conv.id, "connector": conv.connector,
-                                "external_ref": conv.external_ref, "run_id": run_id,
-                                "state": new_state, "text": run.result or "(the agent produced no reply)"}
+                # Only publish from here when this consumer actually holds the
+                # reply, or when no reply is ever coming. A run that succeeded
+                # but whose `result` frame hasn't landed yet is left alone — the
+                # transcript consumer publishes it, with the real text. Claiming
+                # it here would post a placeholder and permanently suppress the
+                # answer, which is the bug this guard exists to prevent.
+                text = run.result
+                if text is None and new_state != RunState.SUCCEEDED:
+                    text = f"(the run {new_state} without a reply)"
+                if text is not None and await self._claim_reply(s, run_id):
+                    outbound = await self._outbound_for(s, run, new_state, text)
+            await s.commit()
         # Publish the conversation reply outside the DB session (connectors and the
         # web UI consume conversation.outbound to deliver it).
         if outbound is not None:

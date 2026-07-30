@@ -1,5 +1,9 @@
-from agentplatform.db import Run, RunState, SecretMeta, TranscriptEvent
-from agentplatform.events import TOPIC_RUN_EVENTS, TOPIC_RUN_TRANSCRIPT
+from datetime import timedelta
+
+from agentplatform.db import (Conversation, Run, RunState, SecretMeta, TranscriptEvent,
+                             utcnow)
+from agentplatform.events import (TOPIC_CONVERSATION_OUTBOUND, TOPIC_RUN_EVENTS,
+                                  TOPIC_RUN_TRANSCRIPT)
 from agentplatform.recorder import Recorder
 from agentplatform.secrets import CLAUDE_CREDENTIAL
 from sqlalchemy import select
@@ -85,3 +89,92 @@ async def test_no_denials_leaves_empty_list(sf):
     await rec.handle(TOPIC_RUN_TRANSCRIPT, rid, {"seq": 1, "type": "result", "permission_denials": []})
     async with sf() as s:
         assert (await s.get(Run, rid)).permission_denials == []
+
+
+# --- conversation replies: the two topics race, the thread must get one message
+
+
+async def _seed_turn(sf, *, state=RunState.RUNNING, result=None, finished=None):
+    """A conversation turn (Run) plus its owning Conversation."""
+    async with sf() as s:
+        conv = Conversation(connector="discord", external_ref="thread-1", agent="pai")
+        s.add(conv); await s.flush()
+        run = Run(agent="pai", trigger="conversation", requested_by="u", prompt="p",
+                  conversation_id=conv.id, user_message="hi", state=state,
+                  result=result, finished_at=finished)
+        s.add(run); await s.commit()
+        return run.id, conv.id
+
+
+def _replies(producer):
+    return [d for t, _, d in producer.published if t == TOPIC_CONVERSATION_OUTBOUND]
+
+
+async def test_reply_published_from_result_frame(sf, producer):
+    """The result frame holds the text, so it publishes — no waiting on the
+    state event, which rides a different topic."""
+    rid, _ = await _seed_turn(sf)
+    rec = Recorder(sf, producer)
+    await rec.handle(TOPIC_RUN_TRANSCRIPT, rid, {"seq": 1, "type": "result", "result": "the answer"})
+    assert [d["text"] for d in _replies(producer)] == ["the answer"]
+    assert _replies(producer)[0]["external_ref"] == "thread-1"
+
+
+async def test_state_first_then_result_still_replies_once_with_real_text(sf, producer):
+    """The regression: the terminal state arriving BEFORE the result frame used
+    to publish '(the agent produced no reply)' and permanently lose the answer."""
+    rid, _ = await _seed_turn(sf)
+    rec = Recorder(sf, producer)
+    await rec.handle(TOPIC_RUN_EVENTS, rid, {"type": "state", "state": "succeeded", "exit_code": 0})
+    await rec.handle(TOPIC_RUN_TRANSCRIPT, rid, {"seq": 1, "type": "result", "result": "the answer"})
+    assert [d["text"] for d in _replies(producer)] == ["the answer"]
+
+
+async def test_result_first_then_state_replies_once(sf, producer):
+    """The other ordering must also yield exactly one reply, not two."""
+    rid, _ = await _seed_turn(sf)
+    rec = Recorder(sf, producer)
+    await rec.handle(TOPIC_RUN_TRANSCRIPT, rid, {"seq": 1, "type": "result", "result": "the answer"})
+    await rec.handle(TOPIC_RUN_EVENTS, rid, {"type": "state", "state": "succeeded", "exit_code": 0})
+    assert [d["text"] for d in _replies(producer)] == ["the answer"]
+
+
+async def test_failed_run_with_no_result_still_gets_a_reply(sf, producer):
+    """A run that dies without a result frame must not leave the thread silent."""
+    rid, _ = await _seed_turn(sf)
+    rec = Recorder(sf, producer)
+    await rec.handle(TOPIC_RUN_EVENTS, rid, {"type": "state", "state": "failed", "exit_code": 1})
+    assert len(_replies(producer)) == 1 and "failed" in _replies(producer)[0]["text"]
+
+
+async def test_sweep_publishes_when_result_frame_never_arrives(sf, producer):
+    """Backstop: a succeeded turn whose result frame was lost gets a reply once
+    the grace period has passed, rather than waiting forever."""
+    rid, _ = await _seed_turn(sf, state=RunState.SUCCEEDED,
+                             finished=utcnow() - timedelta(seconds=300))
+    rec = Recorder(sf, producer)
+    assert await rec.reconcile_replies(60) == 1
+    assert len(_replies(producer)) == 1
+    # ...and never twice.
+    assert await rec.reconcile_replies(60) == 0
+
+
+async def test_sweep_leaves_recent_runs_alone(sf, producer):
+    """Inside the grace window the normal path still owns the reply."""
+    rid, _ = await _seed_turn(sf, state=RunState.SUCCEEDED, finished=utcnow())
+    rec = Recorder(sf, producer)
+    assert await rec.reconcile_replies(60) == 0
+    assert _replies(producer) == []
+
+
+async def test_sweep_ignores_already_published(sf, producer):
+    rid, _ = await _seed_turn(sf)
+    rec = Recorder(sf, producer)
+    await rec.handle(TOPIC_RUN_TRANSCRIPT, rid, {"seq": 1, "type": "result", "result": "a"})
+    async with sf() as s:
+        run = await s.get(Run, rid)
+        run.state = RunState.SUCCEEDED
+        run.finished_at = utcnow() - timedelta(seconds=300)
+        await s.commit()
+    assert await rec.reconcile_replies(60) == 0
+    assert len(_replies(producer)) == 1

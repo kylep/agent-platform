@@ -23,6 +23,11 @@ class Settings(BaseSettings):
     # many days (Run metadata/summary is kept). Per-agent manifest override wins;
     # <= 0 disables pruning (keep forever).
     transcript_retention_days: int = 30
+    # A conversation turn's reply text and its terminal state arrive on separate
+    # Kafka topics. If a finished turn still has no published reply this long
+    # after finishing, the recorder's sweep publishes with what it has, so a lost
+    # frame can't leave a thread waiting forever. <= 0 disables the sweep.
+    reply_reconcile_seconds: int = 60
     # Self-hosting git target. git_remote_url is what the platform clones and
     # pushes to (a local bare repo in tests, the real repo over HTTPS in prod);
     # github_repo ("owner/name") is used for the PR API. Empty = self-edit off.
