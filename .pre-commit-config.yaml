@@ -1,0 +1,33 @@
+# Secret-leak prevention. Runs on your machine BEFORE a commit/push leaves it —
+# the only place prevention works for a public repo (once pushed, a secret is
+# public). One-time setup:  pip install pre-commit && pre-commit install --install-hooks --hook-type pre-commit --hook-type pre-push
+#
+# Three layers, because each catches what the others miss:
+#   - forbid-secret-files: blocks never-commit FILES by name (swap files, keys,
+#     .env, exports.sh) — catches base64'd keys and editor swap files that
+#     content scanners can't see. This is the exact vector that leaked once.
+#   - detect-private-key: raw PEM private keys pasted into a tracked file.
+#   - gitleaks: general secret/token/high-entropy content scanning.
+# The security-meta files themselves contain secret-SHAPED text (a filename
+# guard has to name key patterns; docs quote "BEGIN PRIVATE KEY"), so the content
+# scanners skip them. The filename guard still applies everywhere.
+exclude: '^(bin/forbid-secret-files\.sh|CONTRIBUTING\.md|\.pre-commit-config\.yaml)$'
+repos:
+  - repo: local
+    hooks:
+      - id: forbid-secret-files
+        name: Forbid never-commit files (swap / keys / env / exports)
+        entry: bin/forbid-secret-files.sh
+        language: script
+        stages: [pre-commit, pre-push]
+        pass_filenames: true
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: detect-private-key
+        stages: [pre-commit, pre-push]
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.30.0
+    hooks:
+      - id: gitleaks
+        stages: [pre-commit, pre-push]

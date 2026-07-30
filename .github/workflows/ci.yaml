@@ -65,10 +65,32 @@ jobs:
       - name: Lint chart
         run: helm lint charts/agent-platform --set env.AP_SESSION_SECRET=x
 
+  secret-scan:
+    # GATING backstop for the local pre-commit hooks (.pre-commit-config.yaml):
+    # blocks a merge if a secret or a never-commit file slips in without the
+    # hooks installed. Prevention still lives client-side (a public push exposes
+    # a secret immediately); this catches it on PRs and fails loudly otherwise.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0                       # gitleaks scans full history
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Run the same secret hooks as local pre-commit
+        # Reuses .pre-commit-config.yaml verbatim (forbid-secret-files +
+        # detect-private-key + gitleaks) so CI and dev machines check the exact
+        # same things. Fails the build on any finding.
+        run: |
+          pip install pre-commit
+          pre-commit run --all-files --show-diff-on-failure
+
   security-scan:
-    # Supply-chain hardening (M06): scan the repo for vulnerable deps, leaked
-    # secrets, IaC misconfig, and risky code patterns. Report-only for now
-    # (exit-code 0 / continue-on-error) — a visibility baseline before gating.
+    # Supply-chain hardening (M06): scan the repo for vulnerable deps, IaC
+    # misconfig, and risky code patterns. Report-only (exit-code 0 /
+    # continue-on-error) — a visibility baseline. Secret scanning is gated
+    # separately in the `secret-scan` job above.
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
