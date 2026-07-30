@@ -81,24 +81,28 @@ recorded and records >`news_retention_days` pruned. It publishes
   it forward over Kafka. Use this whenever an agent touches untrusted input —
   giving it an invoke token would re-arm the trifecta.
 
-## Approval gate (shipped 2026-07-30)
+## Approval gate — built then removed (2026-07-30)
 
-Bad-post containment used to be sanitization only — the digest posted itself.
-Now each projected digest is **held for human approval** before it reaches the
-channel (`news_require_approval`, default on), mirroring the Pending Changes
-review flow for code:
+A human approval gate ("Pending News" — hold each digest for approve/reject
+before posting) was shipped and then **removed the same day**. It was never a
+safety control: by the time a digest reaches this stage it is already bounded,
+sanitized text from a privilege-separated pipeline (the trifecta is broken), so
+the gate only added *curation* — and curation that needs standing human
+attention is worthless when nobody gives it (digests piled up unreviewed, and
+because `record_shared` only fired on approval, the dedup ledger went dormant).
+Same reasoning that retired sync-signing: don't keep a control that depends on
+attention you won't spend.
 
-- The projector splits into `build_candidate` (parse + dedup-filter, **no
-  writes**) and `record_shared` (commit the dedup ledger). The recorder, when
-  gating, stores the candidate as a `PendingNews` row and posts nothing.
-- `GET /api/news/pending` lists held digests; `POST …/{id}/approve` records the
-  stories as shared and publishes `discord.channel.post`; `POST …/{id}/reject`
-  drops it **without** recording — so rejected stories can resurface later
-  rather than being silently burned (the reason dedup is deferred to the
-  decision, not done at projection time). Approve/reject are `ANNOTATE_ROLES`.
-- UI: a **Pending News** page (nav badge like Changes) with a digest preview and
-  Approve/Reject. Set `AP_NEWS_REQUIRE_APPROVAL=false` to restore direct posting
-  once curation is trusted.
+Now the projector posts directly and deterministically: `project()` dedups the
+gatherer's digest against `shared_news`, sanitizes, records what it posts, and
+publishes `discord.channel.post`. A bad post is a mildly-wrong message in the
+owner's own channel — low cost, reversible by deleting it. The
+`build_candidate`/`record_shared` split remains internal to `project()`.
+
+Dedup keys on a **canonicalized URL** (`_norm_url`): lowercased scheme+host,
+fragment and tracking params (utm_*, fbclid, …) stripped, trailing slash
+trimmed — so the same story returning with a tracking tag is recognized as
+already-shared. Records prune after `news_retention_days` (14).
 
 ## Deliberately out of scope (documented residuals)
 

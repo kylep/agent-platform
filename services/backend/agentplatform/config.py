@@ -58,11 +58,6 @@ class Settings(BaseSettings):
     news_gatherer_agent: str = "news"
     news_channel: str = "news"
     news_retention_days: int = 14
-    # Hold each projected digest for a human decision (Pending News in the UI)
-    # instead of posting straight to the channel. The digest is already bounded
-    # to sanitized text, so this is a curation gate, not a safety one. Set false
-    # to restore direct posting once curation is trusted.
-    news_require_approval: bool = True
 
 @lru_cache
 def get_settings() -> Settings:

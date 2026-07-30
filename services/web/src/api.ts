@@ -93,17 +93,6 @@ export type PullRequest = {
   created_at: string;
 };
 
-export type PendingNews = {
-  id: string;
-  created_at: string | null;
-  run_id: string | null;
-  channel: string;
-  date: string;
-  post_text: string;
-  item_count: number;
-  status: string;
-};
-
 export type PullRequestFile = {
   filename: string;
   status: string;

@@ -13,6 +13,7 @@ from __future__ import annotations
 import json
 import re
 from datetime import timedelta
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from sqlalchemy import delete, select
 
@@ -62,8 +63,35 @@ def sanitize(s: str) -> str:
     return s.strip()
 
 
+# Query params that are tracking/analytics noise, not story identity — dropped
+# so the same article with a utm tag dedups against the plain URL. Anything else
+# (e.g. ?id=123, ?story=…) is kept, since it can be part of the real identity.
+_TRACKING_PARAMS = {
+    "utm_source", "utm_medium", "utm_campaign", "utm_term", "utm_content",
+    "utm_id", "utm_name", "utm_reader", "utm_brand", "utm_social",
+    "fbclid", "gclid", "dclid", "gbraid", "wbraid", "msclkid", "yclid",
+    "mc_cid", "mc_eid", "igshid", "ncid", "cmpid", "ito", "at_medium",
+    "at_campaign", "ref", "ref_src", "ref_url", "source", "spm", "s_cid",
+}
+
+
 def _norm_url(url: str) -> str:
-    return str(url).strip().rstrip("/")[:512]
+    """Canonicalize a story URL for dedup: lowercase scheme+host, drop the
+    fragment and tracking params, and trim a trailing slash — so the same story
+    arriving with a utm tag, a #anchor, or http/https variance is recognized as
+    already-shared. Falls back to a plain trim if the URL doesn't parse."""
+    raw = str(url).strip()
+    try:
+        parts = urlsplit(raw)
+        if not parts.scheme or not parts.netloc:
+            return raw.rstrip("/")[:512]
+        query = urlencode([(k, v) for k, v in parse_qsl(parts.query, keep_blank_values=True)
+                           if k.lower() not in _TRACKING_PARAMS])
+        path = parts.path.rstrip("/")
+        canon = urlunsplit((parts.scheme.lower(), parts.netloc.lower(), path, query, ""))
+        return canon[:512]
+    except ValueError:
+        return raw.rstrip("/")[:512]
 
 
 def format_post(date: str, items: list[dict]) -> str:

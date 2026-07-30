@@ -123,9 +123,6 @@ env:
   AP_GIT_REMOTE_URL: ""
   AP_GITHUB_REPO: ""
   AP_DEFAULT_BRANCH: "main"
-  # Hold each projected news digest for human approval (Pending News in the UI)
-  # instead of posting straight to the channel. Set "false" to post directly.
-  AP_NEWS_REQUIRE_APPROVAL: "true"
 
 # Kafka topics created by the post-install/post-upgrade topics-job hook.
 # Per-topic partitions + retention (event bus, see agentplatform/events.py).

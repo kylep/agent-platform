@@ -11,7 +11,6 @@ import AgentDetail from "./pages/AgentDetail";
 import Runs from "./pages/Runs";
 import RunDetail from "./pages/RunDetail";
 import Changes from "./pages/Changes";
-import News from "./pages/News";
 import Conversations from "./pages/Conversations";
 import Dlq from "./pages/Dlq";
 import Memories from "./pages/Memories";
@@ -36,7 +35,6 @@ export default function App() {
             <Route path="/runs/:id" element={<RunDetail />} />
             <Route path="/conversations" element={<Conversations />} />
             <Route path="/changes" element={<Changes />} />
-            <Route path="/news" element={<News />} />
             <Route path="/dlq" element={<Dlq />} />
             <Route path="/reporting" element={<Reporting />} />
             <Route path="/memories" element={<Memories />} />

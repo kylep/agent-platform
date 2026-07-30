@@ -93,13 +93,12 @@ async def test_project_empty_or_invalid_returns_none(sf):
 
 # --- recorder integration: a gatherer result frame → discord.channel.post ---
 
-async def _feed_result(sf, agent, frame_extra, rid="r1", require_approval=False):
+async def _feed_result(sf, agent, frame_extra, rid="r1"):
     from agentplatform.db import Run
     from agentplatform.events import FakeProducer, TOPIC_CHANNEL_POST
     from agentplatform.recorder import Recorder
     producer = FakeProducer()
-    rec = Recorder(sf, producer, news_gatherer_agent="news", news_channel="news",
-                   news_require_approval=require_approval)
+    rec = Recorder(sf, producer, news_gatherer_agent="news", news_channel="news")
     async with sf() as s:
         s.add(Run(id=rid, agent=agent, trigger="schedule", requested_by="job", prompt="go"))
         await s.commit()
@@ -117,27 +116,31 @@ async def test_recorder_ignores_other_agents_and_errors(sf):
     assert await _feed_result(sf, "news", {"is_error": True}, rid="rb") == []    # failed run
 
 
-# --- the approval gate --------------------------------------------------------
+# --- dedup URL normalization --------------------------------------------------
 
-async def test_build_candidate_does_not_record_shared(sf):
-    """The gate depends on this: building a candidate must NOT burn dedup, or a
-    held-then-rejected digest could never resurface."""
-    from agentplatform.newsprojector import build_candidate
+def test_norm_url_canonicalizes_for_dedup():
+    from agentplatform.newsprojector import _norm_url
+    base = "https://example.com/2026/story"
+    # tracking params, fragment, trailing slash, host case, http/https all fold
+    # to the same canonical key
+    assert _norm_url(base) == _norm_url(base + "/")
+    assert _norm_url(base) == _norm_url(base + "?utm_source=twitter&utm_campaign=x")
+    assert _norm_url(base) == _norm_url(base + "#section-2")
+    assert _norm_url(base) == _norm_url("https://Example.com/2026/story")
+    assert _norm_url(base + "?utm_source=x&id=42") == _norm_url(base + "?id=42")
+    # a meaningful query param is NOT dropped (distinct stories stay distinct)
+    assert _norm_url(base + "?id=1") != _norm_url(base + "?id=2")
+
+
+async def test_project_dedups_url_with_tracking_param(sf):
+    """A story already shared as a plain URL is recognized when it comes back
+    with a utm tag — the real point of the dedup ledger."""
+    plain = json.dumps({"date": "2026-07-29", "items": [
+        {"section": "World", "headline": "H", "why": "w", "url": "https://ex.com/a"}]})
+    tracked = json.dumps({"date": "2026-07-30", "items": [
+        {"section": "World", "headline": "H", "why": "w",
+         "url": "https://ex.com/a?utm_source=newsletter"}]})
     async with sf() as s:
-        cand = await build_candidate(s, DIGEST_JSON)
-        assert cand and len(cand["items"]) == 2 and "H1" in cand["post_text"]
-        assert (await s.execute(select(SharedNews))).scalars().all() == []
-
-
-async def test_recorder_gate_holds_instead_of_posting(sf):
-    """With approval on, a gatherer result is held as PendingNews and nothing is
-    posted to the channel."""
-    from agentplatform.db import PendingNews
-    posts = await _feed_result(sf, "news", {"is_error": False}, require_approval=True)
-    assert posts == []
+        assert await project(s, plain) is not None    # posts + records ex.com/a
     async with sf() as s:
-        held = (await s.execute(select(PendingNews))).scalars().all()
-        assert len(held) == 1 and held[0].status == "pending"
-        assert held[0].run_id == "r1" and len(held[0].items) == 2
-        # dedup is NOT committed while merely held
-        assert (await s.execute(select(SharedNews))).scalars().all() == []
+        assert await project(s, tracked) is None      # same story, deduped

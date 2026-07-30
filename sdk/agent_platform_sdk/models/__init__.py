@@ -46,7 +46,6 @@ from .ok import Ok
 from .ok_id import OkId
 from .ok_id_state import OkIdState
 from .password_change import PasswordChange
-from .pending_news_view import PendingNewsView
 from .pr_ref import PrRef
 from .prune_result import PruneResult
 from .pull_request import PullRequest
@@ -119,7 +118,6 @@ __all__ = (
     "OkId",
     "OkIdState",
     "PasswordChange",
-    "PendingNewsView",
     "PrRef",
     "PruneResult",
     "PullRequest",

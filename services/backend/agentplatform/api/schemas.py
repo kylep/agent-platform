@@ -290,19 +290,6 @@ class ModelUsage(BaseModel):
     tokens_out: int
 
 
-# --- news --------------------------------------------------------------------
-
-class PendingNewsView(BaseModel):
-    id: str
-    created_at: str | None
-    run_id: str | None
-    channel: str
-    date: str
-    post_text: str
-    item_count: int
-    status: str
-
-
 # --- pull requests -----------------------------------------------------------
 
 class PullRequest(BaseModel):
