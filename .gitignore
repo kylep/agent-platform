@@ -1,4 +1,19 @@
+# Secrets live only in the operator's local exports.sh — never in git.
+# The leading-dot pattern matters: vim names its swap for exports.sh
+# ".exports.sh.swp", which "exports.sh*" does NOT match.
 exports.sh
+.exports.sh*
+!exports.sh.sample
+*.pem
+
+# Editor droppings
+*.swp
+*.swo
+*.sw?
+.*.swp
+.*.swo
+.DS_Store
+
 .superpowers/
 __pycache__/
 *.pyc
