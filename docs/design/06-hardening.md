@@ -42,9 +42,14 @@ exploitable issues — RBAC allow-lists exact, no auth bypass/escalation, no
   callers once setup is complete.
 - `GET /api/runs?limit=` is now bounded (`ge=1, le=500`).
 
-Still open (nit, no data exposure): an nginx path-normalization artifact makes
-`GET /api/<encoded-slash traversal>` return the public SPA HTML (200) instead
-of a JSON 404. Fix during a web-tier hardening pass.
+**Fixed 2026-07-30:** an nginx path-normalization artifact made
+`GET /api/<encoded-slash traversal>` (e.g. `/api/..%2f`, which normalizes to
+`/`) fall into the SPA fallback and return the app shell (200) instead of a 404.
+The fallback now 404s any request whose **raw** URI targets `/api`
+(`if ($request_uri ~ ^/api(/|$|\?))`), and bare `/api` is answered by the API
+rather than a port-leaking trailing-slash 301. Genuine SPA routes never start
+with `/api`, so they're unaffected. Verified live (traversal paths → nginx 404;
+`/`, `/agents` → SPA; `/api/*` → API JSON).
 
 ## Progress (2026-07-20)
 
