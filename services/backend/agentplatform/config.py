@@ -19,6 +19,12 @@ class Settings(BaseSettings):
     # Loop guard for agent-invokes-agent: a run whose depth would exceed this
     # is rejected. depth 0 = human/schedule/webhook; each nested invoke +1.
     max_run_chain_depth: int = 5
+    # Pre-flight credential gate: once the Claude token is known-bad (a run hit
+    # a 401), the dispatcher rejects further runs up front instead of launching
+    # doomed pods. To detect recovery it lets ONE run through this often (a
+    # circuit-breaker half-open probe), so a fixed token self-heals. <= 0
+    # disables the gate (runs always dispatch).
+    credential_recheck_seconds: int = 300
     # Default transcript retention: prune run_transcript_events older than this
     # many days (Run metadata/summary is kept). Per-agent manifest override wins;
     # <= 0 disables pruning (keep forever).

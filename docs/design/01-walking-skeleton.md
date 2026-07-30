@@ -68,8 +68,13 @@ Verified 2026-07-20 on the pai NUC k3s cluster (see results notes below).
       Probe implemented as a passive check driven by run outcomes: a run that
       reaches `succeeded` marks `claude-credentials` **valid**; an
       `authentication_failed`/401 frame marks it **invalid** (verified: chip
-      flipped UNPROBED→valid after the smoke run). The status is displayed but
-      does not yet hard-gate the UI — active pre-flight gating is deferred.
+      flipped UNPROBED→valid after the smoke run).
+      **Active pre-flight gate shipped 2026-07-30:** once the credential is
+      known-`invalid`, the dispatcher rejects queued runs up front (clear error
+      on the run) instead of launching doomed pods — a circuit breaker that lets
+      one run through every `credential_recheck_seconds` (default 300) to detect
+      a fixed token, so recovery is automatic (writing the secret via the API
+      also resets it to `unprobed`). `<= 0` disables the gate.
 - [x] Run-now: state walks queued→dispatched→running→succeeded;
       transcript streams live; tool calls render; totals recorded.
       (Bash tool executes headlessly; `tool_calls` counter fixed — was always 0.)

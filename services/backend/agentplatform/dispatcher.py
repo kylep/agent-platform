@@ -1,9 +1,10 @@
-import asyncio, json, logging
+import asyncio, json, logging, time
 from sqlalchemy import func, select
 from agentplatform.agents import AgentStore, Manifest
 from agentplatform.apikeys import revoke_run_keys
-from agentplatform.db import ACTIVE_STATES, Run, RunState, utcnow
+from agentplatform.db import ACTIVE_STATES, Run, RunState, SecretMeta, utcnow
 from agentplatform.events import (TOPIC_RUN_DLQ, TOPIC_RUN_EVENTS, TOPIC_RUN_REQUESTS)
+from agentplatform.secrets import CLAUDE_CREDENTIAL
 
 log = logging.getLogger("dispatcher")
 
@@ -26,6 +27,33 @@ class Dispatcher:
     def __init__(self, settings, session_factory, producer, agent_store: AgentStore, launcher: Launcher):
         self.settings, self.sf, self.producer = settings, session_factory, producer
         self.agents, self.launcher = agent_store, launcher
+        # Circuit breaker for the Claude credential: monotonic time at/after
+        # which one run may probe a known-bad token (half-open). 0 = probe now.
+        self._cred_probe_at = 0.0
+
+    async def _credential_blocks(self, monotonic=time.monotonic) -> str | None:
+        """Pre-flight gate. When the Claude token is known-invalid (a prior run
+        got a 401 → recorder marked it), reject further runs up front rather than
+        launch pods that can only fail — EXCEPT one run every
+        `credential_recheck_seconds` is let through to detect a fixed token
+        (half-open probe), so recovery is automatic however the token was fixed.
+        Returns a rejection reason, or None to allow the run."""
+        recheck = self.settings.credential_recheck_seconds
+        if recheck <= 0:
+            return None
+        async with self.sf() as s:
+            meta = await s.get(SecretMeta, CLAUDE_CREDENTIAL)
+        if meta is None or meta.status != "invalid":
+            return None
+        now = monotonic()
+        if now >= self._cred_probe_at:
+            # Half-open: allow this one through to re-probe; hold the rest.
+            self._cred_probe_at = now + recheck
+            log.warning("Claude credential is invalid — letting one run through to re-probe")
+            return None
+        return ("Claude credential is invalid (a recent run failed to "
+                "authenticate). Update it in Settings → Secrets; runs resume "
+                "automatically once a token works.")
 
     async def _event(self, run_id: str, state: str, detail: str = "") -> None:
         await self.producer.publish(TOPIC_RUN_EVENTS, run_id,
@@ -61,6 +89,10 @@ class Dispatcher:
         info = self.agents.get(run.agent)
         if info is None or info.error is not None:
             await self._set_state(run, RunState.REJECTED, "unknown or quarantined agent")
+            return
+        blocked = await self._credential_blocks()
+        if blocked is not None:
+            await self._set_state(run, RunState.REJECTED, blocked)
             return
         manifest = info.manifest
         async with self.sf() as s:
