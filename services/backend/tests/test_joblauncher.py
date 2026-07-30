@@ -20,7 +20,8 @@ def test_build_job_spec():
     assert job.spec.backoff_limit == 0
     assert job.spec.ttl_seconds_after_finished == 3600   # finished Jobs+pods GC'd
     mounts = {m.name: m.mount_path for m in c.volume_mounts}
-    assert mounts == {"claude-credentials": "/secrets/claude", "agents": "/agents"}
+    assert mounts == {"claude-credentials": "/secrets/claude", "agents": "/agents",
+                      "home": "/home/runner", "workspace": "/workspace", "tmp": "/tmp"}
 
 
 def test_build_job_hardens_security_context():
@@ -32,7 +33,23 @@ def test_build_job_hardens_security_context():
     assert sc.run_as_non_root is True
     assert sc.run_as_user == 1001 and sc.run_as_group == 1001
     assert sc.capabilities.drop == ["ALL"]
+    assert sc.read_only_root_filesystem is True
     assert spec.security_context.seccomp_profile.type == "RuntimeDefault"
+    assert spec.security_context.fs_group == 1001
+    # The runner never calls the k8s API — no SA token in the agent-code pod.
+    assert spec.automount_service_account_token is False
+    # CPU + memory limits contain a runaway agent on the single node.
+    limits = spec.containers[0].resources.limits
+    assert limits["cpu"] == "2" and limits["memory"] == "3Gi"
+
+
+def test_writable_scratch_volumes_are_emptydirs():
+    """Read-only rootfs needs the three writable paths backed by emptyDirs."""
+    launcher = K8sJobLauncher(batch=None, settings=Settings(runner_image="r:1", k8s_namespace="ap"))
+    run = Run(agent="hello-world", trigger="manual", requested_by="t", prompt="x"); run.id = "a" * 32
+    vols = {v.name: v for v in launcher.build_job(run, Manifest()).spec.template.spec.volumes}
+    for name in ("home", "workspace", "tmp"):
+        assert vols[name].empty_dir is not None
 
 
 class _Status:

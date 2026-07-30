@@ -87,14 +87,18 @@ the identical machinery). Remaining hardening (non-blocking):
       deploy key can't call the REST PR API, so it silently degraded tier-2
       edits to "branch pushed, no PR opened" — strictly worse than the PAT
       fallback it sat in front of.
-- [x] **Sync hardening** (2026-07-30) — `agents-sync` now verifies git objects
-      on fetch (`fetch.fsckObjects`/`transfer.fsckObjects`) so a malformed object
-      can't land, and gained an **opt-in fail-closed provenance gate**: with
-      `agents.verifyCommits=true`, each synced head must be signed by an allowed
-      signer (`git verify-commit` against an `allowedSigners` Secret) before the
-      checkout advances — an unsigned/untrusted head is refused and the last good
-      checkout is kept. Agent definitions are executable behavior, so this proves
-      the running definitions came from a trusted author, not "whatever is on the
-      ref". **Off by default** (activation needs main's commits SSH-signed +
-      `allowedSigners` populated, or sync refuses everything — a deliberate
-      go/no-go for the operator). fsck integrity is always on.
+- [x] **Sync hardening** (2026-07-30) — `agents-sync` verifies git object
+      integrity on every fetch (`fetch.fsckObjects`/`transfer.fsckObjects`), so a
+      malformed/corrupted object can't land in the checkout. Automatic, no config.
+- [decided-against] **Commit-signature provenance gate.** Prototyped
+      (`agents.verifyCommits` + `git verify-commit` against an allowed-signers
+      Secret) and **removed 2026-07-30**. The goal was "only run agent definitions
+      provably authored by a trusted signer", but for a single-maintainer LAN
+      deploy it can't be *both* human-out-of-loop and low-UX: **fail-closed**
+      freezes all agents on any unsigned commit (a new-machine/CI slip silently
+      breaks the platform), and **fail-open + alert** is worthless when there's no
+      one watching alerts or running playbooks. It also had partial coverage
+      (GitHub-API/web-flow-signed commits pass, so a stolen-App-key *API merge*
+      wouldn't be caught). Would only earn its keep with a second pusher, CI with
+      write access, or off-LAN exposure — none true today. Security effort
+      redirected to prevention + automatic containment (see 06). fsck stays on.

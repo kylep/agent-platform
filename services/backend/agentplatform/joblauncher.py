@@ -109,10 +109,11 @@ class K8sJobLauncher(Launcher):
             k8s.V1EnvFromSource(secret_ref=k8s.V1SecretEnvSource(name=s, optional=True))
             for s in self.bound_secrets(manifest)
         ]
-        # Tighten the runner's cage: the image already runs as the non-root
-        # `runner` user, so require non-root, forbid privilege escalation, and
-        # drop all Linux capabilities. (Read-only root FS is not set — the CLI
-        # writes to $HOME/.claude and clones repos to /workspace.)
+        # Tighten the runner's cage: non-root, no privilege escalation, all
+        # Linux capabilities dropped, and a READ-ONLY root filesystem — the only
+        # writable paths are three explicit emptyDirs (the CLI writes $HOME/.claude,
+        # clones self-edits to /workspace, and uses /tmp). A compromised agent
+        # can't tamper with binaries or persist onto the root fs.
         container = k8s.V1Container(
             name="runner",
             image=self.settings.runner_image,
@@ -121,9 +122,17 @@ class K8sJobLauncher(Launcher):
             volume_mounts=[
                 k8s.V1VolumeMount(name="claude-credentials", mount_path="/secrets/claude", read_only=True),
                 k8s.V1VolumeMount(name="agents", mount_path="/agents", read_only=True),
+                # Writable scratch (read-only rootfs otherwise). fsGroup makes
+                # these group-writable by the runner (uid/gid 1001).
+                k8s.V1VolumeMount(name="home", mount_path="/home/runner"),
+                k8s.V1VolumeMount(name="workspace", mount_path="/workspace"),
+                k8s.V1VolumeMount(name="tmp", mount_path="/tmp"),
             ],
             resources=k8s.V1ResourceRequirements(
-                requests={"memory": "1Gi"}, limits={"memory": "3Gi"}
+                # CPU limit contains a runaway/malicious agent from starving the
+                # single node; memory limit bounds its footprint.
+                requests={"memory": "1Gi", "cpu": "250m"},
+                limits={"memory": "3Gi", "cpu": "2"},
             ),
             security_context=k8s.V1SecurityContext(
                 allow_privilege_escalation=False,
@@ -133,6 +142,7 @@ class K8sJobLauncher(Launcher):
                 # name against runAsNonRoot, so it must be numeric here.
                 run_as_user=1001,
                 run_as_group=1001,
+                read_only_root_filesystem=True,
                 capabilities=k8s.V1Capabilities(drop=["ALL"]),
             ),
         )
@@ -147,13 +157,23 @@ class K8sJobLauncher(Launcher):
                     claim_name=self.settings.agents_volume_claim
                 ),
             ),
+            k8s.V1Volume(name="home", empty_dir=k8s.V1EmptyDirVolumeSource()),
+            k8s.V1Volume(name="workspace", empty_dir=k8s.V1EmptyDirVolumeSource()),
+            k8s.V1Volume(name="tmp", empty_dir=k8s.V1EmptyDirVolumeSource()),
         ]
         pod_spec = k8s.V1PodSpec(
             containers=[container],
             volumes=volumes,
             restart_policy="Never",
+            # The runner never calls the k8s API — don't mount a ServiceAccount
+            # token into the pod that runs agent code (removes that credential
+            # and the API reach from the blast radius).
+            automount_service_account_token=False,
             security_context=k8s.V1PodSecurityContext(
                 seccomp_profile=k8s.V1SeccompProfile(type="RuntimeDefault"),
+                # Group-own the emptyDir scratch volumes so the non-root runner
+                # (gid 1001) can write them under the read-only root fs.
+                fs_group=1001,
             ),
         )
         job_spec = k8s.V1JobSpec(

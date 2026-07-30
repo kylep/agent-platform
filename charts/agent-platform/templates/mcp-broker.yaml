@@ -14,6 +14,8 @@ spec:
       labels:
         {{- include "agent-platform.selectorLabels" (dict "Release" .Release "Chart" .Chart "component" "mcp-broker") | nindent 8 }}
     spec:
+      # This pod never calls the k8s API — don't mount a ServiceAccount token.
+      automountServiceAccountToken: false
       securityContext:
         seccompProfile:
           type: RuntimeDefault
