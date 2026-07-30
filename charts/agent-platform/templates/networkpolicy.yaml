@@ -76,6 +76,30 @@ spec:
         - port: 8000
           protocol: TCP
 ---
+# claude-proxy: runner pods reach it on 8000; it holds the Claude token and
+# forwards to api.anthropic.com (docs/design/09).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ .Release.Name }}-allow-claude-proxy
+  labels:
+    {{- include "agent-platform.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: agent-platform
+      app.kubernetes.io/component: claude-proxy
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchExpressions:
+              - {key: app.kubernetes.io/name, operator: In, values: [agent-platform]}
+              - {key: app.kubernetes.io/component, operator: In, values: [runner]}
+      ports:
+        - port: 8000
+          protocol: TCP
+---
 # postgres: only the backend services (api/dispatcher/recorder) on 5432.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
@@ -173,9 +197,10 @@ spec:
         - podSelector: {}
 ---
 # External HTTPS on 443: the k8s API server (in-cluster ClusterIP :443, for
-# dispatcher job creation + api secret access), the Anthropic API (runner runs
-# claude), and github.com (agents-sync, self-edit, skills). Scoped to the pods
-# that need outbound 443 — recorder/web do not.
+# dispatcher job creation + api secret access), the Anthropic API (claude-proxy
+# forwards runner traffic; runners also keep 443 for client-side WebFetch and
+# self-edit git), and github.com (agents-sync, self-edit, skills). Scoped to
+# the pods that need outbound 443 — recorder/web do not.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -186,7 +211,7 @@ spec:
   podSelector:
     matchExpressions:
       - {key: app.kubernetes.io/name, operator: In, values: [agent-platform]}
-      - {key: app.kubernetes.io/component, operator: In, values: [api, dispatcher, runner, agents-sync, connector-discord]}
+      - {key: app.kubernetes.io/component, operator: In, values: [api, dispatcher, runner, agents-sync, connector-discord, claude-proxy]}
   policyTypes: [Egress]
   egress:
     - ports:

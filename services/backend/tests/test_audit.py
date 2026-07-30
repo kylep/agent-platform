@@ -28,6 +28,22 @@ async def test_audit_records_base_plus_bound_secrets(sf, tmp_path):
     assert secrets == {"claude-credentials", "github-token", "extra"}
 
 
+async def test_audit_excludes_claude_credentials_when_proxied(sf, tmp_path):
+    """With a claude-proxy the pod never receives the token, so the audit must
+    not claim it was granted."""
+    launcher = K8sJobLauncher(
+        batch=None, settings=Settings(claude_proxy_url="http://agent-platform-claude-proxy:8000"),
+        session_factory=sf, skill_store=_skill_store(tmp_path))
+    rid = await _run(sf)
+    run = Run(agent="a", trigger="manual", requested_by="t", prompt="x"); run.id = rid
+    await launcher._audit_secret_access(run, Manifest(skills=["git"], secrets=["extra"]))
+    from sqlalchemy import select
+    async with sf() as s:
+        secrets = set((await s.execute(select(SecretAccess.secret)
+                       .where(SecretAccess.run_id == rid))).scalars())
+    assert secrets == {"github-token", "extra"}
+
+
 async def test_audit_api_filters(admin_client, sf):
     async with sf() as s:
         s.add(SecretAccess(run_id="r1", agent="a", secret="claude-credentials"))

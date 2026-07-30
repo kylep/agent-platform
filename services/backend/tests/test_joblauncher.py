@@ -43,6 +43,31 @@ def test_build_job_hardens_security_context():
     assert limits["cpu"] == "2" and limits["memory"] == "3Gi"
 
 
+def test_claude_proxy_removes_token_from_pod():
+    """Token brokering (docs/design/09): with a claude-proxy configured the pod
+    gets the proxy URL and never mounts the claude-credentials secret."""
+    launcher = K8sJobLauncher(batch=None, settings=Settings(
+        runner_image="r:1", k8s_namespace="ap",
+        claude_proxy_url="http://agent-platform-claude-proxy:8000"))
+    run = Run(agent="hello-world", trigger="manual", requested_by="t", prompt="x"); run.id = "a" * 32
+    spec = launcher.build_job(run, Manifest()).spec.template.spec
+    env = {e.name: e.value for e in spec.containers[0].env}
+    assert env["AP_CLAUDE_PROXY_URL"] == "http://agent-platform-claude-proxy:8000"
+    mounts = {m.name for m in spec.containers[0].volume_mounts}
+    vols = {v.name for v in spec.volumes}
+    assert "claude-credentials" not in mounts and "claude-credentials" not in vols
+
+
+def test_no_claude_proxy_keeps_legacy_token_mount():
+    launcher = K8sJobLauncher(batch=None, settings=Settings(runner_image="r:1", k8s_namespace="ap"))
+    run = Run(agent="hello-world", trigger="manual", requested_by="t", prompt="x"); run.id = "a" * 32
+    spec = launcher.build_job(run, Manifest()).spec.template.spec
+    env = {e.name: e.value for e in spec.containers[0].env}
+    assert "AP_CLAUDE_PROXY_URL" not in env
+    assert {m.name for m in spec.containers[0].volume_mounts} >= {"claude-credentials"}
+    assert {v.name for v in spec.volumes} >= {"claude-credentials"}
+
+
 def test_writable_scratch_volumes_are_emptydirs():
     """Read-only rootfs needs the three writable paths backed by emptyDirs."""
     launcher = K8sJobLauncher(batch=None, settings=Settings(runner_image="r:1", k8s_namespace="ap"))

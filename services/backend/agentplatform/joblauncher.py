@@ -80,6 +80,11 @@ class K8sJobLauncher(Launcher):
         ]
         if manifest.model:
             env.append(k8s.V1EnvVar(name="AP_MODEL", value=manifest.model))
+        # Token brokering (docs/design/09): with a claude-proxy configured the
+        # runner is pointed at it instead of being handed the real token, and
+        # the claude-credentials secret is not mounted at all (see volumes).
+        if self.settings.claude_proxy_url:
+            env.append(k8s.V1EnvVar(name="AP_CLAUDE_PROXY_URL", value=self.settings.claude_proxy_url))
         if manifest.skills:
             # The runner copies each named skill from the synced /agents/skills
             # tree into ~/.claude/skills so `claude` can use it.
@@ -114,20 +119,24 @@ class K8sJobLauncher(Launcher):
         # writable paths are three explicit emptyDirs (the CLI writes $HOME/.claude,
         # clones self-edits to /workspace, and uses /tmp). A compromised agent
         # can't tamper with binaries or persist onto the root fs.
+        volume_mounts = [
+            k8s.V1VolumeMount(name="agents", mount_path="/agents", read_only=True),
+            # Writable scratch (read-only rootfs otherwise). fsGroup makes
+            # these group-writable by the runner (uid/gid 1001).
+            k8s.V1VolumeMount(name="home", mount_path="/home/runner"),
+            k8s.V1VolumeMount(name="workspace", mount_path="/workspace"),
+            k8s.V1VolumeMount(name="tmp", mount_path="/tmp"),
+        ]
+        if not self.settings.claude_proxy_url:
+            # Legacy direct-token mode only: the subscription token in the pod.
+            volume_mounts.insert(0, k8s.V1VolumeMount(
+                name="claude-credentials", mount_path="/secrets/claude", read_only=True))
         container = k8s.V1Container(
             name="runner",
             image=self.settings.runner_image,
             env=env,
             env_from=env_from or None,
-            volume_mounts=[
-                k8s.V1VolumeMount(name="claude-credentials", mount_path="/secrets/claude", read_only=True),
-                k8s.V1VolumeMount(name="agents", mount_path="/agents", read_only=True),
-                # Writable scratch (read-only rootfs otherwise). fsGroup makes
-                # these group-writable by the runner (uid/gid 1001).
-                k8s.V1VolumeMount(name="home", mount_path="/home/runner"),
-                k8s.V1VolumeMount(name="workspace", mount_path="/workspace"),
-                k8s.V1VolumeMount(name="tmp", mount_path="/tmp"),
-            ],
+            volume_mounts=volume_mounts,
             resources=k8s.V1ResourceRequirements(
                 # CPU limit contains a runaway/malicious agent from starving the
                 # single node; memory limit bounds its footprint.
@@ -148,10 +157,6 @@ class K8sJobLauncher(Launcher):
         )
         volumes = [
             k8s.V1Volume(
-                name="claude-credentials",
-                secret=k8s.V1SecretVolumeSource(secret_name="claude-credentials"),
-            ),
-            k8s.V1Volume(
                 name="agents",
                 persistent_volume_claim=k8s.V1PersistentVolumeClaimVolumeSource(
                     claim_name=self.settings.agents_volume_claim
@@ -161,6 +166,11 @@ class K8sJobLauncher(Launcher):
             k8s.V1Volume(name="workspace", empty_dir=k8s.V1EmptyDirVolumeSource()),
             k8s.V1Volume(name="tmp", empty_dir=k8s.V1EmptyDirVolumeSource()),
         ]
+        if not self.settings.claude_proxy_url:
+            volumes.insert(0, k8s.V1Volume(
+                name="claude-credentials",
+                secret=k8s.V1SecretVolumeSource(secret_name="claude-credentials"),
+            ))
         pod_spec = k8s.V1PodSpec(
             containers=[container],
             volumes=volumes,
@@ -224,11 +234,13 @@ class K8sJobLauncher(Launcher):
 
     async def _audit_secret_access(self, run: Run, manifest: Manifest) -> None:
         """Record the k8s secrets this run's pod is granted: the base claude
-        credential (mounted into every runner) plus the bound manifest/skill
-        secrets. Best-effort — auditing must never block a launch."""
+        credential (only in legacy direct-mount mode — with a claude-proxy the
+        pod never sees it) plus the bound manifest/skill secrets. Best-effort —
+        auditing must never block a launch."""
         if self.sf is None:
             return
-        granted = ["claude-credentials", *self.bound_secrets(manifest)]
+        base = [] if self.settings.claude_proxy_url else ["claude-credentials"]
+        granted = [*base, *self.bound_secrets(manifest)]
         try:
             async with self.sf() as s:
                 for secret in granted:

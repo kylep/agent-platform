@@ -32,6 +32,27 @@ def test_relays_stream_and_terminal(tmp_path, monkeypatch):
     assert (tmp_path / ".claude" / "agents" / "hello-world.md").exists()
 
 
+def test_install_credentials_prefers_claude_proxy(tmp_path, monkeypatch):
+    """Token brokering (docs/design/09): with a proxy URL the pod holds no real
+    credential — claude gets the proxy as base URL plus a placeholder token
+    (the CLI refuses to start with none at all), and the secrets dir is never
+    read (it isn't mounted in proxied pods)."""
+    monkeypatch.setenv("AP_CLAUDE_PROXY_URL", "http://agent-platform-claude-proxy:8000")
+    monkeypatch.setenv("AP_SECRETS_DIR", str(tmp_path / "does-not-exist"))
+    env = runner._install_credentials()
+    assert env["ANTHROPIC_BASE_URL"] == "http://agent-platform-claude-proxy:8000"
+    assert env["CLAUDE_CODE_OAUTH_TOKEN"]  # non-empty placeholder, not a secret
+
+
+def test_install_credentials_legacy_token_file(tmp_path, monkeypatch):
+    monkeypatch.delenv("AP_CLAUDE_PROXY_URL", raising=False)
+    creds = tmp_path / "secrets"; creds.mkdir()
+    (creds / "token").write_text("tok-123\n")
+    monkeypatch.setenv("AP_SECRETS_DIR", str(creds))
+    env = runner._install_credentials()
+    assert env == {"CLAUDE_CODE_OAUTH_TOKEN": "tok-123"}
+
+
 def test_kafka_wrapper_constructible_outside_event_loop():
     # Regression: AIOKafkaProducer must not be built in __init__ (no loop yet).
     w = runner.KafkaProducerWrapper("kafka:9092")

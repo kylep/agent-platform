@@ -96,10 +96,18 @@ class KafkaProducerWrapper:
         await self._p.send_and_wait(topic, json.dumps(env).encode(), key=key.encode())
 
 def _install_credentials() -> dict:
-    """Returns extra env for the claude subprocess. Preferred: a long-lived
-    `claude setup-token` under the secret's `token` key (nothing rotates it).
-    Fallback: a session credentials.json snapshot (goes stale fast — the
-    laptop's own claude rotates the refresh token; kept for completeness)."""
+    """Returns extra env for the claude subprocess. Preferred: token brokering
+    (docs/design/09) — the real subscription token lives only in the
+    claude-proxy pod, which swaps in the Authorization header; this pod holds
+    no credential. The CLI refuses to start with no token at all ("Not logged
+    in", spiked 2026-07-30), so it gets a placeholder — any non-empty value
+    keeps it in subscription-OAuth mode, and the proxy discards it.
+    Legacy fallbacks: a long-lived `claude setup-token` mounted under the
+    secret's `token` key, then a session credentials.json snapshot."""
+    proxy_url = os.environ.get("AP_CLAUDE_PROXY_URL")
+    if proxy_url:
+        return {"ANTHROPIC_BASE_URL": proxy_url,
+                "CLAUDE_CODE_OAUTH_TOKEN": "placeholder-token-lives-in-claude-proxy"}
     secrets = Path(os.environ.get("AP_SECRETS_DIR", "/secrets/claude"))
     token_file = secrets / "token"
     if token_file.is_file():

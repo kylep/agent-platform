@@ -43,6 +43,12 @@ class Settings(BaseSettings):
     # In-cluster API base URL injected into system-agent runs so they can call
     # the platform (e.g. the run summarizer annotating runs).
     api_internal_url: str = "http://agent-platform-api:8000"
+    # Auth-injecting egress proxy for the Claude API (docs/design/09). When set,
+    # runner pods get ANTHROPIC_BASE_URL=<this url> and a placeholder credential
+    # instead of the claude-credentials secret mount — the real subscription
+    # token lives only in the claude-proxy pod, which injects the Authorization
+    # header on the way out. Empty = legacy direct mount.
+    claude_proxy_url: str = ""
     # News pipeline: a terminal run of `news_gatherer_agent` whose result is a
     # digest JSON is projected (deduped/sanitized) and posted to `news_channel`
     # via the connector. Kept credential-free — see the news-pipeline spec.

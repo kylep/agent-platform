@@ -1,0 +1,89 @@
+{{- if .Values.claudeProxy.enabled }}
+# Auth-injecting egress proxy for the Claude API (docs/design/09): the ONLY pod
+# that holds the Claude subscription token. Runner pods run `claude` with a
+# placeholder credential and ANTHROPIC_BASE_URL pointed here; nginx replaces
+# the Authorization header with the real token on the way to api.anthropic.com.
+# Verified by spike 2026-07-30: the CLI needs *a* non-empty CLAUDE_CODE_OAUTH_TOKEN
+# to start, stays in subscription-OAuth mode with any value, and works end-to-end
+# through the proxy.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Release.Name }}-claude-proxy
+  labels:
+    {{- include "agent-platform.selectorLabels" (dict "Release" .Release "Chart" .Chart "component" "claude-proxy") | nindent 4 }}
+data:
+  # Main config: the image default plus the njs module (shipped in the official
+  # image), needed to read the token per-request. Mounted over /etc/nginx/nginx.conf.
+  nginx.conf: |
+    load_module modules/ngx_http_js_module.so;
+    worker_processes auto;
+    error_log /var/log/nginx/error.log notice;
+    pid /tmp/nginx.pid;
+    events { worker_connections 1024; }
+    http {
+      proxy_temp_path /tmp/proxy_temp;
+      client_body_temp_path /tmp/client_temp;
+      fastcgi_temp_path /tmp/fastcgi_temp;
+      uwsgi_temp_path /tmp/uwsgi_temp;
+      scgi_temp_path /tmp/scgi_temp;
+      include /etc/nginx/mime.types;
+      default_type application/octet-stream;
+      access_log /var/log/nginx/access.log;
+      sendfile on;
+      keepalive_timeout 65;
+      include /etc/nginx/conf.d/*.conf;
+    }
+  # Reads the token from the mounted secret ON EVERY REQUEST, so a rotation of
+  # claude-credentials (Secrets UI) propagates via the kubelet's volume sync
+  # (~1 min) with no pod restart. An env var would cache the token forever.
+  claude.js: |
+    import fs from 'fs';
+    function auth(r) {
+      try {
+        return 'Bearer ' + fs.readFileSync('/secrets/claude/token').toString().trim();
+      } catch (e) {
+        r.error('claude token unreadable: ' + e.message);
+        return '';
+      }
+    }
+    export default {auth};
+  # Rendered by the nginx image's envsubst entrypoint into /etc/nginx/conf.d;
+  # ${VARS} are container env. nginx runtime vars ($upstream, $claude_auth) are
+  # untouched (envsubst only substitutes names present in the environment).
+  claude-proxy.conf.template: |
+    js_path "/etc/nginx/njs/";
+    js_import claude from claude.js;
+    js_set $claude_auth claude.auth;
+    server {
+      listen 8000;
+      # Resolve the upstream through cluster DNS and honor TTLs, so a
+      # long-lived pod tracks Anthropic IP changes (a static proxy_pass
+      # resolves once at startup and can go stale).
+      resolver ${DNS_RESOLVER} valid=300s ipv6=off;
+      location / {
+        set $upstream https://api.anthropic.com;
+        proxy_pass $upstream;
+        proxy_http_version 1.1;
+        proxy_set_header Connection "";
+        proxy_set_header Host api.anthropic.com;
+        # Replace the runner's placeholder credential with the real token;
+        # whatever the client sent is never forwarded.
+        proxy_set_header Authorization $claude_auth;
+        proxy_set_header x-api-key "";
+        # Verify the upstream's TLS identity (nginx defaults to no verify).
+        proxy_ssl_server_name on;
+        proxy_ssl_name api.anthropic.com;
+        proxy_ssl_protocols TLSv1.2 TLSv1.3;
+        proxy_ssl_verify on;
+        proxy_ssl_trusted_certificate /etc/ssl/certs/ca-certificates.crt;
+        proxy_ssl_verify_depth 3;
+        # Stream SSE tokens as they arrive; don't spool bodies.
+        proxy_buffering off;
+        proxy_request_buffering off;
+        proxy_read_timeout 600s;
+        proxy_send_timeout 600s;
+        client_max_body_size 100m;
+      }
+    }
+{{- end }}

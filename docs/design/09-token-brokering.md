@@ -1,70 +1,95 @@
 # Design note — brokering the shared Claude token out of runner pods
 
-Status: **partially done (enforcement hardened); full removal deferred — needs a
-decision.** Tracks the long-standing residual from
-[08](08-news-and-injection-hardening.md): the subscription Claude token
-(`claude-credentials` → `/secrets/claude/token`) is mounted read-only in every
-runner pod, because the agent process *is* `claude` and needs
-`CLAUDE_CODE_OAUTH_TOKEN` to authenticate to Anthropic.
+Status: **SHIPPED 2026-07-30 (helm rev 20), verified live.** Runner pods no
+longer hold the Claude subscription token; it lives only in the `claude-proxy`
+pod, an auth-injecting egress proxy. Tracks the long-standing residual from
+[08](08-news-and-injection-hardening.md).
 
-## The actual risk
+## The risk this closes
 
-A token is only dangerous if an agent can both **read** it and **exfiltrate** it.
+A token is only dangerous if an agent can both **read** it and **exfiltrate**
+it. Runner egress must allow outbound 443 to any host (WebSearch/WebFetch
+agents reach arbitrary sites), so exfiltration can't be closed by allow-listing.
+The platform's first line is the **enforced trifecta break** (no agent has
+untrusted input + token-read tools + open egress; `runner._permission_args`
+denies Bash/Read/Edit/Write/NotebookEdit to every non-self-edit run). Token
+brokering removes the remaining defense-in-depth gap: the token was *present*
+in pods with open egress, one enforcement bug away from exposure. Now it isn't
+in those pods at all — prevention by construction, no one watching anything.
 
-- **Read** needs a token-reading tool — `Bash`/`Read` (the token is a file and an
-  env var). Web/MCP tools can't reach it.
-- **Exfiltrate** needs egress to an attacker host. Runner egress allows outbound
-  443 to *any* host **by necessity**: `news`/`pai` use WebSearch/WebFetch and
-  must reach arbitrary sites. So egress can't be allow-listed for web agents —
-  that path is inherent.
+## Feasibility spike (2026-07-30)
 
-The platform's safety therefore rests on the **trifecta break**: no single agent
-has (untrusted input) + (token read) + (open egress). Audited 2026-07-30:
+Run in-cluster as a throwaway Job (runner image + a stdlib Python proxy on
+127.0.0.1 injecting `Authorization` from the mounted secret), so the token
+never left the cluster. `claude` 2.1.214, subscription OAuth
+(`claude setup-token` long-lived token):
 
-| agent | tools | input | token-read? |
-|---|---|---|---|
-| news / pai | WebSearch, WebFetch | untrusted (web/Discord) | no |
-| health-monitor / run-summarizer | `mcp__platform__*` | internal | no |
-| platform-coder | Read, Write, Edit, Bash | **trusted** (Kyle's edits) | yes, but trusted input, ephemeral clone |
+| test | setup | result |
+|---|---|---|
+| control | real token, direct | works |
+| A | **no credential**, `ANTHROPIC_BASE_URL` → proxy | **client refuses**: "Not logged in · Please run /login" — exits before any API call |
+| B | dummy `sk-ant-oat01-…` token + proxy replaces Authorization | works end-to-end; client stays in subscription-OAuth mode (sends `oauth-2025-04-20` beta itself) |
+| C | `ANTHROPIC_AUTH_TOKEN=dummy` + proxy | works, but flips the client into API-auth mode (different default model selection) |
+| D | dummy token **without** the `sk-ant` prefix | works, identical to B |
 
-Only the self-edit agent can read the token, and its input is trusted. The break
-holds.
+Conclusions: the CLI needs *a* non-empty `CLAUDE_CODE_OAUTH_TOKEN` to start;
+any placeholder keeps it in subscription-OAuth mode; all API traffic follows
+`ANTHROPIC_BASE_URL` (nothing bypasses the proxy); the placeholder needs no
+particular format (so no collision with the `subscription-guard` CI grep).
 
-## What shipped (2026-07-30): make the break enforced, not conventional
+## Shipped architecture
 
-Previously the runner only stripped a sensitive tool from a non-self-edit agent
-when the manifest *didn't declare it* — so a manifest that declared `Bash` on a
-web agent (a mistake, or a prompt-injected self-edit editing `agents/`) would
-re-arm the trifecta. `runner._permission_args` now **always** denies the
-token-reading tools (`Bash`/`Read`/`Edit`/`Write`/`NotebookEdit`) for every
-non-self-edit run, even if declared. Token-read tools are self-edit-only by
-construction; no tool list can grant a web agent the token. Zero current agents
-are affected (none declare those tools).
+**`claude-proxy`** (chart `templates/claude-proxy{,-config}.yaml`,
+`claudeProxy.*` values): an nginx (`nginxinc/nginx-unprivileged`, pinned)
+Deployment + hardcoded Service `agent-platform-claude-proxy:8000`. The
+`claude-credentials` secret is mounted as a **volume** and read **per request**
+by an njs handler (`js_set $claude_auth`; njs ships in the official image), so
+a token rotation via the Secrets UI propagates through the kubelet's volume
+sync (~1 min) with **no restart** — an env var would have cached the old token
+until the pod died (the old per-Job mount re-read the secret each launch; this
+preserves that property). Every request **replaces** the inbound
+`Authorization` header with `Bearer <real token>` before forwarding to
+`https://api.anthropic.com` (TLS verified — `proxy_ssl_verify on`, which is
+not nginx's default; upstream re-resolved via cluster DNS with `valid=300s`;
+SSE unbuffered). Hardened like the other pods: non-root uid 101, read-only
+rootfs, no capabilities, no SA token, seccomp RuntimeDefault.
 
-## What's deferred: removing the token from the pod (needs a decision)
+**Runner wiring**: with `claudeProxy.enabled` (default on) the backend env
+gains `AP_CLAUDE_PROXY_URL`; `joblauncher.build_job` then omits the
+`claude-credentials` volume/mount entirely and passes the URL through;
+`runner._install_credentials` returns
+`ANTHROPIC_BASE_URL=<proxy>` + a **placeholder** `CLAUDE_CODE_OAUTH_TOKEN`
+(spike test A: the CLI refuses to start with none). The secret-access audit
+stops recording `claude-credentials` for proxied runs — `secrets_granted` is
+now `[]` for a plain agent pod, and that's true, not cosmetic.
 
-The residual — the token is *present* in pods that also have open egress — is
-only fully closed by keeping it out of those pods. The only viable design is an
-**auth-injecting egress proxy**: a sidecar (or per-node service) that holds the
-token, and `claude` runs with **no token**, pointed at the proxy via
-`ANTHROPIC_BASE_URL`; the proxy adds `Authorization` and forwards to Anthropic.
-The token then lives only in a container the agent can't exec into.
+**NetworkPolicy**: runner → claude-proxy:8000 ingress allowed; claude-proxy
+added to the egress-443 allowlist. Runner keeps open 443 egress (client-side
+WebFetch + self-edit git need it) — the point was never to close runner
+egress, it was to make sure there's no token behind it.
 
-**Why it's deferred rather than done autonomously:**
+**Rollback**: `claudeProxy.enabled=false` restores the legacy direct mount
+(joblauncher/runner keep both paths; covered by tests either way).
 
-1. **Open feasibility question.** It's unverified whether `claude`'s
-   *subscription OAuth* works when pointed at a custom base URL with no token in
-   the process — the client may refuse to start without a credential, or the
-   OAuth flow may not tolerate a proxy. This needs a spike with the real token,
-   which shouldn't be done casually on prod.
-2. **Blast radius.** Getting the proxy or `ANTHROPIC_BASE_URL` wiring wrong
-   breaks **every agent run** (nothing can reach Anthropic). This is not a
-   change to land unattended.
-3. **It closes defense-in-depth, not an active hole.** The trifecta break holds
-   and is now enforced, so the token is not currently reachable by any
-   untrusted agent.
+## Verified live (2026-07-30)
 
-**Recommendation:** treat full token-brokering as a scheduled spike — first
-answer the feasibility question (does `claude` + subscription OAuth work through
-an auth-injecting proxy?), in a throwaway environment, before committing to the
-architecture. Until then the enforced trifecta break is the guarantee.
+- Runner pods post-upgrade: volumes = agents/home/workspace/tmp only, no
+  `claude-credentials`, `AP_CLAUDE_PROXY_URL` set; `secrets_granted: []`.
+- run-summarizer + health-monitor (MCP tools, streaming) **succeeded** through
+  the proxy; proxy access log shows their `/v1/messages` 200s.
+- pai run retrieving live web content (server-side web tools) through the
+  proxy succeeded.
+- The njs per-request read verified live (helm rev 21): a run succeeds with
+  the client holding only the placeholder — possible only if njs injected the
+  real token from the volume.
+
+## Residual
+
+- The proxy is a single point of failure for all runs (like api/kafka/postgres
+  on this single-node cluster); a failed call fails the run, which retries via
+  the normal queue path.
+- An agent can still *use* the proxy to spend subscription quota — but it is a
+  claude process; it could always do that. What it can't do anymore is read or
+  exfiltrate the credential itself.
+- In-cluster hop is plain HTTP (like every other in-namespace service on this
+  single-node LAN deploy); the upstream hop is verified TLS.

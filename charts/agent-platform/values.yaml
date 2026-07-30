@@ -21,6 +21,21 @@ mcpBroker:
     tag: dev
     pullPolicy: IfNotPresent
 
+# Auth-injecting egress proxy for the Claude API (docs/design/09): the only pod
+# holding the Claude subscription token. Runner pods get a placeholder
+# credential + ANTHROPIC_BASE_URL pointed here, and never mount the
+# claude-credentials secret. Disable to fall back to mounting the token into
+# every runner pod (legacy).
+claudeProxy:
+  enabled: true
+  image:
+    repository: nginxinc/nginx-unprivileged
+    tag: "1.31.3"
+    pullPolicy: IfNotPresent
+  # ClusterIP of the cluster DNS service, for nginx's `resolver` directive
+  # (k3s/CoreDNS default). nginx needs an address here, not a name.
+  resolver: 10.43.0.10
+
 # Per-service resource requests/limits for the agent-platform-owned Deployments
 # (api, dispatcher, recorder, web). Subchart (postgresql/kafka) resources are
 # configured under the `postgresql:` and `kafka:` keys below.

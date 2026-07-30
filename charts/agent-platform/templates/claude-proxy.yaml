@@ -1,0 +1,108 @@
+{{- if .Values.claudeProxy.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}-claude-proxy
+  labels:
+    {{- include "agent-platform.selectorLabels" (dict "Release" .Release "Chart" .Chart "component" "claude-proxy") | nindent 4 }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "agent-platform.selectorLabels" (dict "Release" .Release "Chart" .Chart "component" "claude-proxy") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "agent-platform.selectorLabels" (dict "Release" .Release "Chart" .Chart "component" "claude-proxy") | nindent 8 }}
+      annotations:
+        # Restart the proxy when the nginx template changes.
+        checksum/config: {{ include (print $.Template.BasePath "/claude-proxy-config.yaml") . | sha256sum | trunc 32 }}
+    spec:
+      # Never calls the k8s API — no ServiceAccount token.
+      automountServiceAccountToken: false
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: claude-proxy
+          image: "{{ .Values.claudeProxy.image.repository }}:{{ .Values.claudeProxy.image.tag }}"
+          imagePullPolicy: {{ .Values.claudeProxy.image.pullPolicy | default "IfNotPresent" }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            runAsNonRoot: true
+            # nginx-unprivileged's nginx user.
+            runAsUser: 101
+            runAsGroup: 101
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          env:
+            - name: DNS_RESOLVER
+              value: {{ .Values.claudeProxy.resolver | quote }}
+          ports:
+            - containerPort: 8000
+          volumeMounts:
+            # The token comes from this VOLUME, read per-request by njs — a
+            # rotation of the secret propagates via kubelet sync, no restart.
+            # (An env var would cache the old token until the pod died.)
+            - name: claude-credentials
+              mountPath: /secrets/claude
+              readOnly: true
+            - name: config
+              mountPath: /etc/nginx/nginx.conf
+              subPath: nginx.conf
+              readOnly: true
+            - name: config
+              mountPath: /etc/nginx/njs
+              readOnly: true
+            - name: nginx-template
+              mountPath: /etc/nginx/templates
+              readOnly: true
+            # Writable paths under the read-only rootfs: envsubst output +
+            # nginx pid/cache (the unprivileged image uses /tmp for both).
+            - name: confd
+              mountPath: /etc/nginx/conf.d
+            - name: tmp
+              mountPath: /tmp
+          readinessProbe:
+            tcpSocket: {port: 8000}
+            initialDelaySeconds: 2
+            periodSeconds: 10
+          resources:
+            requests: {memory: 32Mi, cpu: 50m}
+            limits: {memory: 128Mi}
+      volumes:
+        - name: claude-credentials
+          secret:
+            secretName: claude-credentials
+        - name: config
+          configMap:
+            name: {{ .Release.Name }}-claude-proxy
+            items:
+              - {key: nginx.conf, path: nginx.conf}
+              - {key: claude.js, path: claude.js}
+        - name: nginx-template
+          configMap:
+            name: {{ .Release.Name }}-claude-proxy
+            items:
+              - {key: claude-proxy.conf.template, path: claude-proxy.conf.template}
+        - name: confd
+          emptyDir: {}
+        - name: tmp
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  # Hardcoded (like agent-platform-api / agent-platform-mcp-broker) so the DNS
+  # name matches the AP_CLAUDE_PROXY_URL the backend injects into runner pods.
+  name: agent-platform-claude-proxy
+  labels:
+    {{- include "agent-platform.selectorLabels" (dict "Release" .Release "Chart" .Chart "component" "claude-proxy") | nindent 4 }}
+spec:
+  selector:
+    {{- include "agent-platform.selectorLabels" (dict "Release" .Release "Chart" .Chart "component" "claude-proxy") | nindent 4 }}
+  ports:
+    - port: 8000
+      targetPort: 8000
+{{- end }}
