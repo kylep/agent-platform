@@ -5,29 +5,35 @@ from datetime import datetime, timezone
 from pathlib import Path
 from aiokafka import AIOKafkaProducer
 
-# Tools that can read the pod's secrets/filesystem or run arbitrary code. A
-# credential-less agent that doesn't declare one has it removed from context.
+# Tools that can read the pod's mounted Claude token (/secrets/claude/token),
+# read other secrets, or run arbitrary code. These are the tools that could
+# turn any agent into a token-exfil vector, so they are **self-edit-only**.
 _SENSITIVE_TOOLS = ["Bash", "Read", "Edit", "Write", "NotebookEdit"]
 
 def _permission_args(self_edit: bool, has_api_token: bool, agent: str) -> list[str]:
     """The claude permission flags for a run. Self-edit auto-accepts edits; every
     other agent — trusted or not — gets ONLY its declared tools unattended
-    (`--allowedTools`) with every sensitive tool it didn't declare stripped from
-    context (`--disallowedTools`). No blanket `bypassPermissions`: even a
-    token-bearing system agent runs least-privilege, so nothing is in
-    "dangerously skip" mode (agents must declare the tools they need)."""
+    (`--allowedTools`), and the sensitive/token-reading tools are ALWAYS denied
+    (`--disallowedTools`), even if the manifest declares them.
+
+    Denying them unconditionally (rather than only when undeclared) is what
+    hard-enforces the trifecta break: the shared Claude token is mounted in
+    every runner pod, so if a manifest — mis-configured, or altered by a
+    prompt-injected self-edit — could grant Bash/Read to a web-facing agent,
+    that agent (untrusted input + open egress) could read and exfiltrate the
+    token. Making Bash/Read/Edit/Write self-edit-only removes that path by
+    construction, no matter what the tool list says. No blanket
+    `bypassPermissions` anywhere."""
     if self_edit:
         # Headless runs can't approve tool use interactively; auto-accept file
         # edits so the agent can actually modify the clone. Safe because the
         # work is an ephemeral sandbox and every change lands as a reviewable PR.
         return ["--permission-mode", "acceptEdits"]
-    tools = _agent_tools(agent)
+    tools = [t for t in _agent_tools(agent) if t not in _SENSITIVE_TOOLS]
     out: list[str] = []
     if tools:
         out += ["--allowedTools", *tools]
-    strip = [t for t in _SENSITIVE_TOOLS if t not in tools]
-    if strip:
-        out += ["--disallowedTools", *strip]
+    out += ["--disallowedTools", *_SENSITIVE_TOOLS]
     return out
 
 

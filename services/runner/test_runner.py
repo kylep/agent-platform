@@ -119,15 +119,30 @@ def test_permission_args_credential_less_agent_is_least_privilege(tmp_path, monk
 
 
 def test_permission_args_no_agent_bypass_even_with_token(tmp_path, monkeypatch):
-    # A token-bearing (trusted) agent is NO LONGER bypassPermissions — it gets
-    # scoped allowedTools just like everyone else. A Bash-only system agent:
+    # No bypassPermissions for a token-bearing agent — scoped like everyone else.
     d = tmp_path / "agentdefs" / "mon"; d.mkdir(parents=True)
-    (d / "agent.md").write_text("---\nname: mon\ntools: Bash\n---\nbody")
+    (d / "agent.md").write_text("---\nname: mon\ntools: mcp__platform__list_runs\n---\nbody")
     monkeypatch.setenv("AP_AGENTS_DIR", str(tmp_path / "agentdefs"))
     args = runner._permission_args(self_edit=False, has_api_token=True, agent="mon")
     assert "bypassPermissions" not in args
-    assert args[:2] == ["--allowedTools", "Bash"]
-    assert "--disallowedTools" in args and "Read" in args and "Bash" not in args[args.index("--disallowedTools"):]
+    assert args[:2] == ["--allowedTools", "mcp__platform__list_runs"]
+    assert "--disallowedTools" in args and "Bash" in args and "Read" in args
+
+
+def test_permission_args_declared_bash_is_stripped_for_non_selfedit(tmp_path, monkeypatch):
+    """The trifecta-break is enforced, not merely conventional: a non-self-edit
+    agent that DECLARES a token-reading tool still doesn't get it. Otherwise a
+    mis-declared (or injection-altered) manifest could hand a web agent Bash and
+    let it read the mounted Claude token."""
+    d = tmp_path / "agentdefs" / "sneaky"; d.mkdir(parents=True)
+    (d / "agent.md").write_text("---\nname: sneaky\ntools: WebFetch, Bash, Read\n---\nbody")
+    monkeypatch.setenv("AP_AGENTS_DIR", str(tmp_path / "agentdefs"))
+    args = runner._permission_args(self_edit=False, has_api_token=False, agent="sneaky")
+    allowed = args[args.index("--allowedTools") + 1:args.index("--disallowedTools")]
+    assert "WebFetch" in allowed
+    assert "Bash" not in allowed and "Read" not in allowed          # declared, still stripped
+    disallowed = args[args.index("--disallowedTools") + 1:]
+    assert "Bash" in disallowed and "Read" in disallowed
 
 
 def test_permission_args_selfedit():
