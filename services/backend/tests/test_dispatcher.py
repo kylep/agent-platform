@@ -47,20 +47,49 @@ async def test_cancel_active_run(sf, disp):
         assert (await s.get(Run, rid)).state == RunState.KILLED
 
 
-async def test_sweep_queued_drains_stale_runs(sf, disp):
+async def _reachable(disp, ok: bool):
+    async def _probe():
+        return ok
+    disp._kafka_reachable = _probe
+
+
+async def _make_stale(sf, seconds=60):
     from datetime import timedelta
     from agentplatform.db import utcnow
     rid = await make_run(sf)
     async with sf() as s:
         run = await s.get(Run, rid)
-        run.created_at = utcnow() - timedelta(seconds=60)
+        run.created_at = utcnow() - timedelta(seconds=seconds)
         await s.commit()
+    return rid
+
+
+async def test_sweep_queued_drains_stale_runs_when_kafka_up(sf, disp):
+    await _reachable(disp, True)
+    rid = await _make_stale(sf)
     drained = await disp.sweep_queued(older_than_seconds=15)
     assert drained == 1
     assert disp.launcher.launched == [rid]
 
 
+async def test_sweep_holds_queued_runs_while_kafka_down(sf, disp):
+    """The drain-on-recovery guarantee: with Kafka unreachable, a stale queued
+    run is HELD (not launched into an outage where it would fail)."""
+    await _reachable(disp, False)
+    rid = await _make_stale(sf)
+    drained = await disp.sweep_queued(older_than_seconds=15)
+    assert drained == 0
+    assert disp.launcher.launched == []
+    async with sf() as s:                       # still queued, not failed
+        assert (await s.get(Run, rid)).state == RunState.QUEUED
+    # ...and once Kafka recovers, the next sweep drains it.
+    await _reachable(disp, True)
+    assert await disp.sweep_queued(older_than_seconds=15) == 1
+    assert disp.launcher.launched == [rid]
+
+
 async def test_sweep_ignores_fresh_queued_runs(sf, disp):
+    await _reachable(disp, True)
     await make_run(sf)
     drained = await disp.sweep_queued(older_than_seconds=15)
     assert drained == 0

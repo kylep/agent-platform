@@ -128,17 +128,44 @@ class Dispatcher:
         finally:
             await consumer.stop(); await self.producer.stop()
 
+    async def _kafka_reachable(self) -> bool:
+        """Best-effort: can we reach the broker right now? Used to decide whether
+        it's safe to dispatch swept runs (a runner pod can't publish its stream
+        events to a down broker, so a run launched during an outage just fails)."""
+        try:
+            from aiokafka.admin import AIOKafkaAdminClient
+            admin = AIOKafkaAdminClient(bootstrap_servers=self.settings.kafka_bootstrap,
+                                        request_timeout_ms=4000)
+            await admin.start()
+            try:
+                await admin.list_topics()
+                return True
+            finally:
+                await admin.close()
+        except Exception:
+            return False
+
     async def sweep_queued(self, older_than_seconds: int = 15) -> int:
         """Drain queued runs whose run-request message never made it to Kafka
         (e.g. the API accepted the run while Kafka was down). handle() is
         idempotent, so re-driving a run that also has a pending message is a
-        no-op for whichever copy arrives second."""
+        no-op for whichever copy arrives second.
+
+        Only drains when Kafka is reachable: a run launched during an outage
+        can't publish its events and would just fail, so queued runs are HELD
+        until recovery ("drain on recovery, nothing lost")."""
         from datetime import timedelta
         cutoff = utcnow() - timedelta(seconds=older_than_seconds)
         async with self.sf() as s:
             rows = (await s.execute(
                 select(Run.id).where(Run.state == RunState.QUEUED,
                                      Run.created_at < cutoff))).scalars().all()
+        if not rows:
+            return 0
+        if not await self._kafka_reachable():
+            log.info("sweep: holding %d queued run(s) — Kafka unreachable, "
+                     "will drain on recovery", len(rows))
+            return 0
         for run_id in rows:
             try:
                 await self.handle({"type": "run", "run_id": run_id})

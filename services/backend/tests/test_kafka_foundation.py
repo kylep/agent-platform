@@ -24,6 +24,28 @@ async def test_materialize_run_creates_and_is_idempotent(sf):
     assert len(reqs) == 2 and reqs[0][1] == "r" * 32
 
 
+async def test_materialize_run_survives_a_hanging_publish(sf):
+    """Kafka-down: the row must be committed as `queued` and the call must
+    return fast even though the broker publish hangs — the sweep drains it.
+    Regression for the POST /api/runs 504 during a Kafka outage."""
+    import asyncio
+
+    class HangingProducer(FakeProducer):
+        async def publish(self, *a, **k):
+            await asyncio.sleep(3600)   # broker down: send never completes
+
+    spec = {"run_id": "q" * 32, "agent": "echo", "prompt": "hi",
+            "trigger": "manual", "requested_by": "op"}
+    # A short timeout stands in for the production default (5s).
+    rid = await asyncio.wait_for(
+        materialize_run(sf, HangingProducer(), spec, publish_timeout=0.05),
+        timeout=5)
+    assert rid == "q" * 32
+    async with sf() as s:                       # committed, queued, not lost
+        run = await s.get(Run, "q" * 32)
+        assert run is not None and run.state == "queued"
+
+
 class _Msg:
     def __init__(self, topic, key, value):
         self.topic = topic
