@@ -17,6 +17,17 @@ import sys
 import tempfile
 from pathlib import Path
 
+# openapi-python-client tailors its output to the running Python (e.g. `-> Self`
+# + typing_extensions on 3.12 vs `-> T` on 3.14), so the committed SDK must be
+# generated on the SAME version CI/prod uses — 3.12 — or the CI drift check
+# fails on a version-only diff. Regenerate with a 3.12 interpreter, e.g.:
+#   docker run --rm -v "$PWD":/repo -w /repo python:3.12-slim \
+#     bash -c "pip install -e 'services/backend[dev]' && python sdk/regenerate.py"
+if sys.version_info[:2] != (3, 12):
+    print(f"WARNING: generating on Python {sys.version_info.major}."
+          f"{sys.version_info.minor}, but CI regenerates on 3.12 — the drift "
+          f"check will fail unless you regenerate on 3.12.", file=sys.stderr)
+
 ROOT = Path(__file__).resolve().parent
 BACKEND = ROOT.parent / "services" / "backend"
 sys.path.insert(0, str(BACKEND))
