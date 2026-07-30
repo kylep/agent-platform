@@ -81,12 +81,29 @@ recorded and records >`news_retention_days` pruned. It publishes
   it forward over Kafka. Use this whenever an agent touches untrusted input —
   giving it an invoke token would re-arm the trifecta.
 
+## Approval gate (shipped 2026-07-30)
+
+Bad-post containment used to be sanitization only — the digest posted itself.
+Now each projected digest is **held for human approval** before it reaches the
+channel (`news_require_approval`, default on), mirroring the Pending Changes
+review flow for code:
+
+- The projector splits into `build_candidate` (parse + dedup-filter, **no
+  writes**) and `record_shared` (commit the dedup ledger). The recorder, when
+  gating, stores the candidate as a `PendingNews` row and posts nothing.
+- `GET /api/news/pending` lists held digests; `POST …/{id}/approve` records the
+  stories as shared and publishes `discord.channel.post`; `POST …/{id}/reject`
+  drops it **without** recording — so rejected stories can resurface later
+  rather than being silently burned (the reason dedup is deferred to the
+  decision, not done at projection time). Approve/reject are `ANNOTATE_ROLES`.
+- UI: a **Pending News** page (nav badge like Changes) with a digest preview and
+  Approve/Reject. Set `AP_NEWS_REQUIRE_APPROVAL=false` to restore direct posting
+  once curation is trusted.
+
 ## Deliberately out of scope (documented residuals)
 
 - The **shared Claude token** is still mounted in every runner pod (the gatherer
   can't reach it without Bash/Read, but fully brokering it is a separate
   platform-wide hardening).
-- **Bad-post containment** is bounded to text by sanitization; a 👍-to-publish or
-  staging-channel gate could be added if desired.
 
 See also the dated spec: `docs/superpowers/specs/2026-07-29-news-privilege-separation-design.md`.

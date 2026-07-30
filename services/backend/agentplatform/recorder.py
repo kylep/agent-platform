@@ -5,10 +5,11 @@ from sqlalchemy import select, update
 from sqlalchemy.exc import IntegrityError
 
 from agentplatform.apikeys import revoke_run_keys
-from agentplatform.db import (ACTIVE_STATES, Conversation, Run, RunModelUsage, RunState,
-                              SecretMeta, TranscriptEvent, utcnow)
+from agentplatform.db import (ACTIVE_STATES, Conversation, PendingNews, Run, RunModelUsage,
+                              RunState, SecretMeta, TranscriptEvent, utcnow)
 from agentplatform.events import (TOPIC_CHANNEL_POST, TOPIC_CONVERSATION_OUTBOUND,
                                   TOPIC_RUN_DLQ, TOPIC_RUN_EVENTS, TOPIC_RUN_TRANSCRIPT)
+from agentplatform.newsprojector import build_candidate as build_news_candidate
 from agentplatform.newsprojector import project as project_news
 from agentplatform.secrets import CLAUDE_CREDENTIAL
 
@@ -18,15 +19,17 @@ log = logging.getLogger("recorder")
 class Recorder:
     def __init__(self, session_factory, producer=None, *,
                  news_gatherer_agent: str = "", news_channel: str = "news",
-                 news_days: int = 14):
+                 news_days: int = 14, news_require_approval: bool = True):
         self.sf = session_factory
         # Optional: publishes conversation.outbound when a conversation run ends.
         self.producer = producer
         # News pipeline: a successful result frame from this agent is projected
-        # (deduped/sanitized) and posted to news_channel via the connector.
+        # (deduped/sanitized) and either held for approval (Pending News) or
+        # posted straight to news_channel via the connector.
         self.news_gatherer_agent = news_gatherer_agent
         self.news_channel = news_channel
         self.news_days = news_days
+        self.news_require_approval = news_require_approval
 
     async def _probe_credential(self, s, status: str) -> None:
         """Record the observed validity of the Claude credential. This is the
@@ -117,10 +120,21 @@ class Recorder:
         if outbound is not None:
             await self.producer.publish(TOPIC_CONVERSATION_OUTBOUND, outbound["conversation_id"],
                                         outbound, type="conversation.reply")
-        # News projection runs in its own session (trusted, deterministic) and
-        # publishes discord.channel.post; the connector delivers it.
+        # News projection runs in its own session (trusted, deterministic).
+        # Gated: hold the digest as Pending News for a human decision. Ungated:
+        # publish discord.channel.post straight away; the connector delivers it.
         if news_result is not None and self.producer is not None:
             async with self.sf() as s2:
+                if self.news_require_approval:
+                    cand = await build_news_candidate(s2, news_result)
+                    if cand:
+                        s2.add(PendingNews(run_id=run_id, channel=self.news_channel,
+                                           date=cand["date"], post_text=cand["post_text"],
+                                           items=cand["items"]))
+                        await s2.commit()
+                        log.info("news digest held for approval (%d stories)",
+                                 len(cand["items"]))
+                    return
                 text = await project_news(s2, news_result, days=self.news_days)
             if text:
                 await self.producer.publish(TOPIC_CHANNEL_POST, self.news_channel,

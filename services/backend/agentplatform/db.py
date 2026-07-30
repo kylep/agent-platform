@@ -161,6 +161,25 @@ class SharedNews(Base):
     section: Mapped[str] = mapped_column(String(64), default="")
     posted_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
 
+
+class PendingNews(Base):
+    """A projected news digest awaiting a human decision before it posts to the
+    channel. The projector fills `post_text` (already sanitized/formatted) and
+    `items` (the new stories, to record into shared_news on approval). Dedup is
+    committed only on approval, so a rejected digest's stories aren't burned —
+    they can resurface in a later run."""
+    __tablename__ = "pending_news"
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=lambda: uuid.uuid4().hex)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
+    run_id: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    channel: Mapped[str] = mapped_column(String(64))
+    date: Mapped[str] = mapped_column(String(64), default="")
+    post_text: Mapped[str] = mapped_column(Text)
+    items: Mapped[list] = mapped_column(JSON, default=list)
+    status: Mapped[str] = mapped_column(String(16), default="pending", index=True)  # pending|approved|rejected
+    decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    decided_by: Mapped[str | None] = mapped_column(String(128), nullable=True)
+
 class ApiKey(Base):
     __tablename__ = "api_keys"
     id: Mapped[str] = mapped_column(String(32), primary_key=True, default=lambda: uuid.uuid4().hex)

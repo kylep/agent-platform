@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { NavLink, Outlet, useLocation } from "react-router-dom";
-import { api, type PullRequest } from "./api";
+import { api, type PendingNews, type PullRequest } from "./api";
 
 const links = [
   { to: "/", label: "Dashboard", end: true },
@@ -11,6 +11,7 @@ const links = [
   { to: "/conversations", label: "Conversations" },
   { to: "/memories", label: "Memories" },
   { to: "/schedules", label: "Schedules" },
+  { to: "/news", label: "News" },
   { to: "/changes", label: "Changes" },
   { to: "/dlq", label: "DLQ" },
   { to: "/secrets", label: "Secrets" },
@@ -19,22 +20,28 @@ const links = [
 
 export default function Layout() {
   const [pendingChanges, setPendingChanges] = useState(0);
+  const [pendingNews, setPendingNews] = useState(0);
   const location = useLocation();
 
-  function refreshChanges() {
+  function refreshBadges() {
     api<PullRequest[]>("/api/pull-requests")
       .then((prs) => setPendingChanges(prs.length))
       .catch(() => {});
+    api<PendingNews[]>("/api/news/pending")
+      .then((n) => setPendingNews(n.length))
+      .catch(() => {});
   }
 
-  // Poll for pending changes, and refresh on navigation (so merging one on the
-  // Changes page clears the badge promptly).
+  // Poll for pending changes/news, and refresh on navigation (so acting on one
+  // clears its badge promptly).
   useEffect(() => {
-    refreshChanges();
-    const id = setInterval(refreshChanges, 20000);
+    refreshBadges();
+    const id = setInterval(refreshBadges, 20000);
     return () => clearInterval(id);
   }, []);
-  useEffect(refreshChanges, [location.pathname]);
+  useEffect(refreshBadges, [location.pathname]);
+
+  const badge: Record<string, number> = { "/changes": pendingChanges, "/news": pendingNews };
 
   return (
     <div className="layout">
@@ -44,8 +51,8 @@ export default function Layout() {
           <NavLink key={l.to} to={l.to} end={l.end}
                    className={({ isActive }) => (isActive ? "nav-link active" : "nav-link")}>
             <span>{l.label}</span>
-            {l.to === "/changes" && pendingChanges > 0 && (
-              <span className="nav-badge">{pendingChanges >= 10 ? "!" : pendingChanges}</span>
+            {badge[l.to] > 0 && (
+              <span className="nav-badge">{badge[l.to] >= 10 ? "!" : badge[l.to]}</span>
             )}
           </NavLink>
         ))}

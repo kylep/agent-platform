@@ -93,12 +93,13 @@ async def test_project_empty_or_invalid_returns_none(sf):
 
 # --- recorder integration: a gatherer result frame → discord.channel.post ---
 
-async def _feed_result(sf, agent, frame_extra, rid="r1"):
+async def _feed_result(sf, agent, frame_extra, rid="r1", require_approval=False):
     from agentplatform.db import Run
     from agentplatform.events import FakeProducer, TOPIC_CHANNEL_POST
     from agentplatform.recorder import Recorder
     producer = FakeProducer()
-    rec = Recorder(sf, producer, news_gatherer_agent="news", news_channel="news")
+    rec = Recorder(sf, producer, news_gatherer_agent="news", news_channel="news",
+                   news_require_approval=require_approval)
     async with sf() as s:
         s.add(Run(id=rid, agent=agent, trigger="schedule", requested_by="job", prompt="go"))
         await s.commit()
@@ -114,3 +115,29 @@ async def test_recorder_projects_gatherer_result(sf):
 async def test_recorder_ignores_other_agents_and_errors(sf):
     assert await _feed_result(sf, "pai", {"is_error": False}, rid="ra") == []   # not the gatherer
     assert await _feed_result(sf, "news", {"is_error": True}, rid="rb") == []    # failed run
+
+
+# --- the approval gate --------------------------------------------------------
+
+async def test_build_candidate_does_not_record_shared(sf):
+    """The gate depends on this: building a candidate must NOT burn dedup, or a
+    held-then-rejected digest could never resurface."""
+    from agentplatform.newsprojector import build_candidate
+    async with sf() as s:
+        cand = await build_candidate(s, DIGEST_JSON)
+        assert cand and len(cand["items"]) == 2 and "H1" in cand["post_text"]
+        assert (await s.execute(select(SharedNews))).scalars().all() == []
+
+
+async def test_recorder_gate_holds_instead_of_posting(sf):
+    """With approval on, a gatherer result is held as PendingNews and nothing is
+    posted to the channel."""
+    from agentplatform.db import PendingNews
+    posts = await _feed_result(sf, "news", {"is_error": False}, require_approval=True)
+    assert posts == []
+    async with sf() as s:
+        held = (await s.execute(select(PendingNews))).scalars().all()
+        assert len(held) == 1 and held[0].status == "pending"
+        assert held[0].run_id == "r1" and len(held[0].items) == 2
+        # dedup is NOT committed while merely held
+        assert (await s.execute(select(SharedNews))).scalars().all() == []

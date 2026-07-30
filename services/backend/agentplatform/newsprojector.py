@@ -87,10 +87,15 @@ def format_post(date: str, items: list[dict]) -> str:
     return "\n".join(lines)
 
 
-async def project(session, result_text: str | None, *, days: int = 14) -> str | None:
-    """Parse the gatherer's digest, drop already-posted URLs, record the new
-    ones, prune old records, and return the sanitized post text — or None when
-    there is nothing new to post (or the result wasn't a valid digest)."""
+async def build_candidate(session, result_text: str | None) -> dict | None:
+    """Parse the gatherer's digest and drop already-posted / intra-batch
+    duplicate URLs, WITHOUT recording anything. Returns
+    `{"date", "post_text", "items"}` for the new stories, or None when there is
+    nothing new (or the result wasn't a valid digest).
+
+    Read-only on purpose: dedup is only *committed* (record_shared) once the
+    digest is going out — either straight away (ungated) or on approval — so a
+    held-then-rejected digest doesn't burn its stories."""
     digest = parse_digest(result_text)
     if digest is None:
         return None
@@ -102,22 +107,37 @@ async def project(session, result_text: str | None, *, days: int = 14) -> str | 
         return None
     seen = set((await session.execute(
         select(SharedNews.url).where(SharedNews.url.in_(urls)))).scalars())
-    # Drop URLs already posted AND intra-batch duplicates (a gatherer can list
-    # the same URL twice — two inserts of one PK would violate the constraint).
     new_items = []
     for it in valid:
         u = _norm_url(it["url"])
-        if u in seen:
+        if u in seen:      # already posted, or a duplicate earlier in this batch
             continue
         seen.add(u)
         new_items.append(it)
     if not new_items:
         return None
-    for it in new_items:
+    date = str(digest.get("date") or "")
+    return {"date": date, "post_text": format_post(date, new_items), "items": new_items}
+
+
+async def record_shared(session, items: list[dict], *, days: int = 14) -> None:
+    """Mark a digest's stories as posted (dedup ledger) and prune old records.
+    Called when a digest actually goes out — immediately (ungated) or on
+    approval of a held one."""
+    for it in items:
         session.add(SharedNews(url=_norm_url(it["url"]),
                                title=str(it.get("headline", ""))[:512],
                                section=str(it.get("section", ""))[:64]))
     await session.execute(delete(SharedNews).where(
         SharedNews.posted_at < utcnow() - timedelta(days=days)))
     await session.commit()
-    return format_post(str(digest.get("date") or ""), new_items)
+
+
+async def project(session, result_text: str | None, *, days: int = 14) -> str | None:
+    """Ungated path: build the candidate, record its stories, and return the
+    post text — or None when there is nothing new. Used when approval is off."""
+    candidate = await build_candidate(session, result_text)
+    if candidate is None:
+        return None
+    await record_shared(session, candidate["items"], days=days)
+    return candidate["post_text"]

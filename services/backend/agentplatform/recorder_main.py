@@ -26,7 +26,8 @@ async def main() -> None:
     recorder = Recorder(session_factory, producer,
                         news_gatherer_agent=settings.news_gatherer_agent,
                         news_channel=settings.news_channel,
-                        news_days=settings.news_retention_days)
+                        news_days=settings.news_retention_days,
+                        news_require_approval=settings.news_require_approval)
 
     consumer = AIOKafkaConsumer(
         TOPIC_RUN_EVENTS, TOPIC_RUN_TRANSCRIPT, TOPIC_RUN_DLQ,

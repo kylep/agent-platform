@@ -72,4 +72,6 @@ Env vars shared by the api/dispatcher/recorder backend Deployments.
   value: {{ .Values.env.AP_GITHUB_REPO | default "" | quote }}
 - name: AP_DEFAULT_BRANCH
   value: {{ .Values.env.AP_DEFAULT_BRANCH | default "main" | quote }}
+- name: AP_NEWS_REQUIRE_APPROVAL
+  value: {{ .Values.env.AP_NEWS_REQUIRE_APPROVAL | default "true" | quote }}
 {{- end -}}
