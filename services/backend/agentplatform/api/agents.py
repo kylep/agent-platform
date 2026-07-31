@@ -170,13 +170,29 @@ async def quick_edit(request: Request, name: str, body: QuickEditIn,
     still returns tier 0.)"""
     if request.app.state.agent_store.get(name) is None:
         raise HTTPException(404, "unknown agent")
-    if body.field != "prompt":
+    if body.field == "prompt":
+        files: dict[str, str | None] = {f"agents/{name}/agent.md": body.value}
+        what = "agent definition"
+    elif body.field == "entrypoints":
+        # Validate BEFORE proposing: a broken entrypoints.yaml would quarantine
+        # the agent on merge — reject it at save time with the parse error.
+        if body.value.strip():
+            import yaml as _yaml
+            from agentplatform.agents import Entrypoints
+            try:
+                Entrypoints(**(_yaml.safe_load(body.value) or {}))
+            except Exception as e:
+                raise HTTPException(422, f"invalid entrypoints.yaml: {e}")
+        # An emptied editor removes the file (= no durable triggers).
+        files = {f"agents/{name}/entrypoints.yaml": body.value if body.value.strip() else None}
+        what = "entrypoints"
+    else:
         raise HTTPException(422, "unsupported field")
     return await _apply_files(
-        request, {f"agents/{name}/agent.md": body.value},
+        request, files,
         message=f"{principal}: quick-edit {name}/{body.field}",
-        branch=f"coder/agent-{name}", pr_title=f"Edit {name}: agent definition",
-        pr_body=f"Direct definition edit for `{name}` from the agent editor.",
+        branch=f"coder/agent-{name}", pr_title=f"Edit {name}: {what}",
+        pr_body=f"Direct {what} edit for `{name}` from the agent editor.",
         force_review=True)
 
 

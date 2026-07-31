@@ -36,6 +36,7 @@ from .manifest import Manifest
 from .memory_in import MemoryIn
 from .memory_patch import MemoryPatch
 from .memory_view import MemoryView
+from .merge_result import MergeResult
 from .message_accepted import MessageAccepted
 from .message_in import MessageIn
 from .metrics_overview import MetricsOverview
@@ -48,6 +49,8 @@ from .ok_id import OkId
 from .ok_id_state import OkIdState
 from .password_change import PasswordChange
 from .pr_ref import PrRef
+from .probe_in import ProbeIn
+from .probe_in_headers import ProbeInHeaders
 from .prune_result import PruneResult
 from .pull_request import PullRequest
 from .pull_request_file import PullRequestFile
@@ -62,8 +65,12 @@ from .run_summary import RunSummary
 from .schedule_row import ScheduleRow
 from .schedule_toggle import ScheduleToggle
 from .secret_access_view import SecretAccessView
+from .secret_declaration import SecretDeclaration
+from .secret_declare_in import SecretDeclareIn
 from .secret_in import SecretIn
 from .secret_in_data import SecretInData
+from .secret_key_in import SecretKeyIn
+from .secret_quick_edit_in import SecretQuickEditIn
 from .secret_status import SecretStatus
 from .secret_verify import SecretVerify
 from .setup_state import SetupState
@@ -72,6 +79,7 @@ from .skill_quick_edit_in import SkillQuickEditIn
 from .skill_view import SkillView
 from .skill_wizard_in import SkillWizardIn
 from .skill_wizard_secret import SkillWizardSecret
+from .sync_status import SyncStatus
 from .validation_error import ValidationError
 from .validation_error_context import ValidationErrorContext
 from .webhook_entry import WebhookEntry
@@ -113,6 +121,7 @@ __all__ = (
     "MemoryIn",
     "MemoryPatch",
     "MemoryView",
+    "MergeResult",
     "MessageAccepted",
     "MessageIn",
     "MetricsOverview",
@@ -125,6 +134,8 @@ __all__ = (
     "OkIdState",
     "PasswordChange",
     "PrRef",
+    "ProbeIn",
+    "ProbeInHeaders",
     "PruneResult",
     "PullRequest",
     "PullRequestFile",
@@ -139,8 +150,12 @@ __all__ = (
     "ScheduleRow",
     "ScheduleToggle",
     "SecretAccessView",
+    "SecretDeclaration",
+    "SecretDeclareIn",
     "SecretIn",
     "SecretInData",
+    "SecretKeyIn",
+    "SecretQuickEditIn",
     "SecretStatus",
     "SecretVerify",
     "SetupState",
@@ -149,6 +164,7 @@ __all__ = (
     "SkillView",
     "SkillWizardIn",
     "SkillWizardSecret",
+    "SyncStatus",
     "ValidationError",
     "ValidationErrorContext",
     "WebhookEntry",

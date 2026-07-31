@@ -1,35 +1,40 @@
 from http import HTTPStatus
 from typing import Any
-from urllib.parse import quote
 
 import httpx
 
 from ... import errors
 from ...client import AuthenticatedClient, Client
+from ...models.edit_result import EditResult
 from ...models.http_validation_error import HTTPValidationError
-from ...models.merge_result import MergeResult
+from ...models.secret_declare_in import SecretDeclareIn
 from ...types import Response
 
 
 def _get_kwargs(
-    number: int,
+    *,
+    body: SecretDeclareIn,
 ) -> dict[str, Any]:
+    headers: dict[str, Any] = {}
 
     _kwargs: dict[str, Any] = {
         "method": "post",
-        "url": "/api/pull-requests/{number}/merge".format(
-            number=quote(str(number), safe=""),
-        ),
+        "url": "/api/secrets/declare",
     }
 
+    _kwargs["json"] = body.to_dict()
+
+    headers["Content-Type"] = "application/json"
+
+    _kwargs["headers"] = headers
     return _kwargs
 
 
 def _parse_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> HTTPValidationError | MergeResult | None:
+) -> EditResult | HTTPValidationError | None:
     if response.status_code == 200:
-        response_200 = MergeResult.from_dict(response.json())
+        response_200 = EditResult.from_dict(response.json())
 
         return response_200
 
@@ -46,7 +51,7 @@ def _parse_response(
 
 def _build_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> Response[HTTPValidationError | MergeResult]:
+) -> Response[EditResult | HTTPValidationError]:
     return Response(
         status_code=HTTPStatus(response.status_code),
         content=response.content,
@@ -56,28 +61,30 @@ def _build_response(
 
 
 def sync_detailed(
-    number: int,
     *,
     client: AuthenticatedClient | Client,
-) -> Response[HTTPValidationError | MergeResult]:
-    """Merge Pull Request
+    body: SecretDeclareIn,
+) -> Response[EditResult | HTTPValidationError]:
+    """Declare Secret
 
-     Accept a change. Returns the merge commit sha so the UI can track it
-    through /api/sync-status until the cluster is running it (Live).
+     Declare a new secret: scaffold `secrets/<name>/secret.yaml` from the
+    form and open a pull request on `coder/secret-<name>` — the standard
+    change loop. The value is set separately (Secrets page) once the
+    declaration is live.
 
     Args:
-        number (int):
+        body (SecretDeclareIn):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[HTTPValidationError | MergeResult]
+        Response[EditResult | HTTPValidationError]
     """
 
     kwargs = _get_kwargs(
-        number=number,
+        body=body,
     )
 
     response = client.get_httpx_client().request(
@@ -88,55 +95,59 @@ def sync_detailed(
 
 
 def sync(
-    number: int,
     *,
     client: AuthenticatedClient | Client,
-) -> HTTPValidationError | MergeResult | None:
-    """Merge Pull Request
+    body: SecretDeclareIn,
+) -> EditResult | HTTPValidationError | None:
+    """Declare Secret
 
-     Accept a change. Returns the merge commit sha so the UI can track it
-    through /api/sync-status until the cluster is running it (Live).
+     Declare a new secret: scaffold `secrets/<name>/secret.yaml` from the
+    form and open a pull request on `coder/secret-<name>` — the standard
+    change loop. The value is set separately (Secrets page) once the
+    declaration is live.
 
     Args:
-        number (int):
+        body (SecretDeclareIn):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        HTTPValidationError | MergeResult
+        EditResult | HTTPValidationError
     """
 
     return sync_detailed(
-        number=number,
         client=client,
+        body=body,
     ).parsed
 
 
 async def asyncio_detailed(
-    number: int,
     *,
     client: AuthenticatedClient | Client,
-) -> Response[HTTPValidationError | MergeResult]:
-    """Merge Pull Request
+    body: SecretDeclareIn,
+) -> Response[EditResult | HTTPValidationError]:
+    """Declare Secret
 
-     Accept a change. Returns the merge commit sha so the UI can track it
-    through /api/sync-status until the cluster is running it (Live).
+     Declare a new secret: scaffold `secrets/<name>/secret.yaml` from the
+    form and open a pull request on `coder/secret-<name>` — the standard
+    change loop. The value is set separately (Secrets page) once the
+    declaration is live.
 
     Args:
-        number (int):
+        body (SecretDeclareIn):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[HTTPValidationError | MergeResult]
+        Response[EditResult | HTTPValidationError]
     """
 
     kwargs = _get_kwargs(
-        number=number,
+        body=body,
     )
 
     response = await client.get_async_httpx_client().request(**kwargs)
@@ -145,29 +156,31 @@ async def asyncio_detailed(
 
 
 async def asyncio(
-    number: int,
     *,
     client: AuthenticatedClient | Client,
-) -> HTTPValidationError | MergeResult | None:
-    """Merge Pull Request
+    body: SecretDeclareIn,
+) -> EditResult | HTTPValidationError | None:
+    """Declare Secret
 
-     Accept a change. Returns the merge commit sha so the UI can track it
-    through /api/sync-status until the cluster is running it (Live).
+     Declare a new secret: scaffold `secrets/<name>/secret.yaml` from the
+    form and open a pull request on `coder/secret-<name>` — the standard
+    change loop. The value is set separately (Secrets page) once the
+    declaration is live.
 
     Args:
-        number (int):
+        body (SecretDeclareIn):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        HTTPValidationError | MergeResult
+        EditResult | HTTPValidationError
     """
 
     return (
         await asyncio_detailed(
-            number=number,
             client=client,
+            body=body,
         )
     ).parsed

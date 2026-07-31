@@ -58,6 +58,9 @@ class AgentInfo(BaseModel):
     manifest: Manifest | None
     agent_md: str
     entrypoints: Entrypoints = Entrypoints()
+    # The entrypoints.yaml file text as written (comments preserved) — what the
+    # in-place editor round-trips; empty = no file.
+    entrypoints_raw: str = ""
     error: str | None = None
 
     def crons(self) -> list[str]:
@@ -91,14 +94,15 @@ class AgentStore:
         agent_md = md.read_text() if md.is_file() else ""
         try:
             raw = yaml.safe_load((d / "manifest.yaml").read_text()) or {}
-            ep = Entrypoints()
+            ep, ep_raw = Entrypoints(), ""
             ep_file = d / "entrypoints.yaml"
             if ep_file.is_file():
                 # A broken entrypoints.yaml quarantines like a broken manifest:
                 # triggers are part of the definition.
-                ep = Entrypoints(**(yaml.safe_load(ep_file.read_text()) or {}))
+                ep_raw = ep_file.read_text()
+                ep = Entrypoints(**(yaml.safe_load(ep_raw) or {}))
             return AgentInfo(name=d.name, manifest=Manifest(**raw),
-                             agent_md=agent_md, entrypoints=ep)
+                             agent_md=agent_md, entrypoints=ep, entrypoints_raw=ep_raw)
         except (OSError, yaml.YAMLError, ValidationError) as e:
             return AgentInfo(name=d.name, manifest=None, agent_md=agent_md, error=str(e))
 

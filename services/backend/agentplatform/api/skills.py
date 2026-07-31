@@ -67,6 +67,15 @@ async def skill_quick_edit(request: Request, name: str, body: SkillQuickEditIn,
     request.app.state.skill_store.reload()
     if request.app.state.skill_store.get(name) is None:
         raise HTTPException(404, "unknown skill")
+    # Validate BEFORE proposing: broken frontmatter would quarantine the skill
+    # on merge — reject at save time with the parse error.
+    from agentplatform.skills import Skill, parse_frontmatter
+    try:
+        fm, _ = parse_frontmatter(body.value)
+        fm.setdefault("name", name)
+        Skill(**fm)
+    except Exception as e:
+        raise HTTPException(422, f"invalid SKILL.md frontmatter: {e}")
     return await _apply_files(
         request, {f"skills/{name}/SKILL.md": body.value},
         message=f"{principal}: quick-edit skill {name}",

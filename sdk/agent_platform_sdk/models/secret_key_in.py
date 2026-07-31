@@ -7,91 +7,54 @@ from attrs import define as _attrs_define
 from attrs import field as _attrs_field
 from typing_extensions import Self
 
-T = TypeVar("T", bound="SecretStatus")
+from ..types import UNSET, Unset
+
+T = TypeVar("T", bound="SecretKeyIn")
 
 
 @_attrs_define
-class SecretStatus:
+class SecretKeyIn:
     """
     Attributes:
-        declared (bool):
-        hint (str):
-        key (str):
         name (str):
-        probeable (bool):
-        required (bool):
-        status (str):
+        hint (str | Unset):  Default: ''.
     """
 
-    declared: bool
-    hint: str
-    key: str
     name: str
-    probeable: bool
-    required: bool
-    status: str
+    hint: str | Unset = ""
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
-        declared = self.declared
-
-        hint = self.hint
-
-        key = self.key
-
         name = self.name
 
-        probeable = self.probeable
-
-        required = self.required
-
-        status = self.status
+        hint = self.hint
 
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
             {
-                "declared": declared,
-                "hint": hint,
-                "key": key,
                 "name": name,
-                "probeable": probeable,
-                "required": required,
-                "status": status,
             }
         )
+        if hint is not UNSET:
+            field_dict["hint"] = hint
 
         return field_dict
 
     @classmethod
     def from_dict(cls, src_dict: Mapping[str, Any]) -> Self:
         d = dict(src_dict)
-        declared = d.pop("declared")
-
-        hint = d.pop("hint")
-
-        key = d.pop("key")
-
         name = d.pop("name")
 
-        probeable = d.pop("probeable")
+        hint = d.pop("hint", UNSET)
 
-        required = d.pop("required")
-
-        status = d.pop("status")
-
-        secret_status = cls(
-            declared=declared,
-            hint=hint,
-            key=key,
+        secret_key_in = cls(
             name=name,
-            probeable=probeable,
-            required=required,
-            status=status,
+            hint=hint,
         )
 
-        secret_status.additional_properties = d
-        return secret_status
+        secret_key_in.additional_properties = d
+        return secret_key_in
 
     @property
     def additional_keys(self) -> list[str]:

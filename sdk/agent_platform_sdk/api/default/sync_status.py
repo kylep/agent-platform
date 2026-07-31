@@ -1,25 +1,19 @@
 from http import HTTPStatus
 from typing import Any
-from urllib.parse import quote
 
 import httpx
 
 from ... import errors
 from ...client import AuthenticatedClient, Client
-from ...models.http_validation_error import HTTPValidationError
-from ...models.merge_result import MergeResult
+from ...models.sync_status import SyncStatus
 from ...types import Response
 
 
-def _get_kwargs(
-    number: int,
-) -> dict[str, Any]:
+def _get_kwargs() -> dict[str, Any]:
 
     _kwargs: dict[str, Any] = {
-        "method": "post",
-        "url": "/api/pull-requests/{number}/merge".format(
-            number=quote(str(number), safe=""),
-        ),
+        "method": "get",
+        "url": "/api/sync-status",
     }
 
     return _kwargs
@@ -27,16 +21,11 @@ def _get_kwargs(
 
 def _parse_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> HTTPValidationError | MergeResult | None:
+) -> SyncStatus | None:
     if response.status_code == 200:
-        response_200 = MergeResult.from_dict(response.json())
+        response_200 = SyncStatus.from_dict(response.json())
 
         return response_200
-
-    if response.status_code == 422:
-        response_422 = HTTPValidationError.from_dict(response.json())
-
-        return response_422
 
     if client.raise_on_unexpected_status:
         raise errors.UnexpectedStatus(response.status_code, response.content)
@@ -46,7 +35,7 @@ def _parse_response(
 
 def _build_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> Response[HTTPValidationError | MergeResult]:
+) -> Response[SyncStatus]:
     return Response(
         status_code=HTTPStatus(response.status_code),
         content=response.content,
@@ -56,29 +45,24 @@ def _build_response(
 
 
 def sync_detailed(
-    number: int,
     *,
     client: AuthenticatedClient | Client,
-) -> Response[HTTPValidationError | MergeResult]:
-    """Merge Pull Request
+) -> Response[SyncStatus]:
+    """Sync Status
 
-     Accept a change. Returns the merge commit sha so the UI can track it
-    through /api/sync-status until the cluster is running it (Live).
-
-    Args:
-        number (int):
+     Where the live checkout is. The agents/skills/secrets the platform runs
+    come from this sha; after accepting a change, it becomes visible here
+    within one agents-sync interval.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[HTTPValidationError | MergeResult]
+        Response[SyncStatus]
     """
 
-    kwargs = _get_kwargs(
-        number=number,
-    )
+    kwargs = _get_kwargs()
 
     response = client.get_httpx_client().request(
         **kwargs,
@@ -88,56 +72,47 @@ def sync_detailed(
 
 
 def sync(
-    number: int,
     *,
     client: AuthenticatedClient | Client,
-) -> HTTPValidationError | MergeResult | None:
-    """Merge Pull Request
+) -> SyncStatus | None:
+    """Sync Status
 
-     Accept a change. Returns the merge commit sha so the UI can track it
-    through /api/sync-status until the cluster is running it (Live).
-
-    Args:
-        number (int):
+     Where the live checkout is. The agents/skills/secrets the platform runs
+    come from this sha; after accepting a change, it becomes visible here
+    within one agents-sync interval.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        HTTPValidationError | MergeResult
+        SyncStatus
     """
 
     return sync_detailed(
-        number=number,
         client=client,
     ).parsed
 
 
 async def asyncio_detailed(
-    number: int,
     *,
     client: AuthenticatedClient | Client,
-) -> Response[HTTPValidationError | MergeResult]:
-    """Merge Pull Request
+) -> Response[SyncStatus]:
+    """Sync Status
 
-     Accept a change. Returns the merge commit sha so the UI can track it
-    through /api/sync-status until the cluster is running it (Live).
-
-    Args:
-        number (int):
+     Where the live checkout is. The agents/skills/secrets the platform runs
+    come from this sha; after accepting a change, it becomes visible here
+    within one agents-sync interval.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[HTTPValidationError | MergeResult]
+        Response[SyncStatus]
     """
 
-    kwargs = _get_kwargs(
-        number=number,
-    )
+    kwargs = _get_kwargs()
 
     response = await client.get_async_httpx_client().request(**kwargs)
 
@@ -145,29 +120,25 @@ async def asyncio_detailed(
 
 
 async def asyncio(
-    number: int,
     *,
     client: AuthenticatedClient | Client,
-) -> HTTPValidationError | MergeResult | None:
-    """Merge Pull Request
+) -> SyncStatus | None:
+    """Sync Status
 
-     Accept a change. Returns the merge commit sha so the UI can track it
-    through /api/sync-status until the cluster is running it (Live).
-
-    Args:
-        number (int):
+     Where the live checkout is. The agents/skills/secrets the platform runs
+    come from this sha; after accepting a change, it becomes visible here
+    within one agents-sync interval.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        HTTPValidationError | MergeResult
+        SyncStatus
     """
 
     return (
         await asyncio_detailed(
-            number=number,
             client=client,
         )
     ).parsed

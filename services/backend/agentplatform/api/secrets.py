@@ -1,11 +1,13 @@
+import yaml
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 from sqlalchemy import select
 
 from agentplatform import secretverify
+from agentplatform.agentspec import validate_agent_name
 from agentplatform.api.auth import require_admin
 from agentplatform.db import SecretMeta
-from agentplatform.secretregistry import SecretInfo
+from agentplatform.secretregistry import SecretInfo, SecretSpec
 
 from agentplatform.api import schemas as S
 router = APIRouter()
@@ -63,7 +65,9 @@ async def secret_listing(request: Request) -> list[dict]:
             # mode writes the k8s Secret directly, bypassing the API): the
             # store is the truth for existence, meta only tracks probe status.
             status = "unprobed"
-        out.append({"name": n, "status": status, **_hints(reg.get(n))})
+        info = reg.get(n)
+        out.append({"name": n, "status": status,
+                    "declared": bool(info and info.spec), **_hints(info)})
     return out
 
 
@@ -89,6 +93,113 @@ async def verify_secret(request: Request, name: str):
         s.add(meta); await s.commit()
     return {"name": name, "status": result.status, "code": result.code,
             "detail": result.detail}
+
+
+# --- declarations (secrets as code — the git side) ---------------------------
+
+class SecretKeyIn(BaseModel):
+    name: str
+    hint: str = ""
+
+
+class ProbeIn(BaseModel):
+    url: str
+    headers: dict[str, str] = {}
+
+
+class SecretDeclareIn(BaseModel):
+    name: str
+    description: str = ""
+    hint: str = ""
+    required: bool = False
+    keys: list[SecretKeyIn] = []
+    probe: ProbeIn | None = None
+
+
+def _render_secret_yaml(body: SecretDeclareIn) -> str:
+    """Deterministic secret.yaml scaffold from the declare form. Data-only —
+    no coding agent involved; verify scripts stay a hand-written escape hatch."""
+    doc: dict = {"name": body.name}
+    if body.description:
+        doc["description"] = body.description
+    if body.required:
+        doc["required"] = True
+    if body.hint:
+        doc["hint"] = body.hint
+    if body.keys:
+        doc["keys"] = [{"name": k.name, **({"hint": k.hint} if k.hint else {})}
+                       for k in body.keys]
+    if body.probe is not None:
+        doc["verify"] = {"probe": {"url": body.probe.url,
+                                   **({"headers": body.probe.headers} if body.probe.headers else {})}}
+    return yaml.safe_dump(doc, sort_keys=False, allow_unicode=True, width=88)
+
+
+@router.post("/api/secrets/declare", response_model=S.EditResult, dependencies=[Depends(require_admin)])
+async def declare_secret(request: Request, body: SecretDeclareIn,
+                         principal: str = Depends(require_admin)):
+    """Declare a new secret: scaffold `secrets/<name>/secret.yaml` from the
+    form and open a pull request on `coder/secret-<name>` — the standard
+    change loop. The value is set separately (Secrets page) once the
+    declaration is live."""
+    try:
+        validate_agent_name(body.name)
+    except ValueError as e:
+        raise HTTPException(422, str(e))
+    if _registry(request).get(body.name) is not None:
+        raise HTTPException(409, "a secret with this name is already declared")
+    text = _render_secret_yaml(body)
+    # Round-trip guard: what we scaffold must load as a valid SecretSpec.
+    SecretSpec(**(yaml.safe_load(text) or {}))
+    from agentplatform.api.agents import _apply_files
+    return await _apply_files(
+        request, {f"secrets/{body.name}/secret.yaml": text},
+        message=f"{principal}: declare secret {body.name}",
+        branch=f"coder/secret-{body.name}",
+        pr_title=f"Declare secret: {body.name}",
+        pr_body="Secret declaration scaffolded from the Secrets page.",
+        force_review=True)
+
+
+@router.get("/api/secrets/{name}/declaration", response_model=S.SecretDeclaration, dependencies=[Depends(require_admin)])
+async def secret_declaration(request: Request, name: str):
+    """The secret's declaration file as written (comments preserved) — what
+    the in-place editor round-trips."""
+    info = _registry(request).get(name)
+    if info is None:
+        raise HTTPException(404, "unknown secret declaration")
+    try:
+        raw = (info.dir / "secret.yaml").read_text()
+    except OSError:
+        raise HTTPException(404, "declaration file unreadable")
+    return {"name": name, "raw": raw, "error": info.error}
+
+
+class SecretQuickEditIn(BaseModel):
+    value: str            # the full secret.yaml text
+
+
+@router.post("/api/secrets/{name}/quick-edit", response_model=S.EditResult, dependencies=[Depends(require_admin)])
+async def secret_quick_edit(request: Request, name: str, body: SecretQuickEditIn,
+                            principal: str = Depends(require_admin)):
+    """Deterministic edit of a secret's declaration (never its value): writes
+    the exact secret.yaml supplied and opens a PR on `coder/secret-<name>`,
+    with validation up front so a broken declaration can't be proposed."""
+    if _registry(request).get(name) is None:
+        raise HTTPException(404, "unknown secret declaration")
+    try:
+        raw = yaml.safe_load(body.value) or {}
+        raw.setdefault("name", name)
+        SecretSpec(**raw)
+    except Exception as e:
+        raise HTTPException(422, f"invalid secret.yaml: {e}")
+    from agentplatform.api.agents import _apply_files
+    return await _apply_files(
+        request, {f"secrets/{name}/secret.yaml": body.value},
+        message=f"{principal}: quick-edit secret {name}",
+        branch=f"coder/secret-{name}", pr_title=f"Edit secret declaration: {name}",
+        pr_body=f"Direct secret.yaml edit for `{name}` from the Secrets page.",
+        force_review=True)
 
 
 @router.put("/api/secrets/{name}", response_model=S.Ok, dependencies=[Depends(require_admin)])

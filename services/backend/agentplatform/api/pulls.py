@@ -1,5 +1,6 @@
 import asyncio
 import urllib.error
+from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 
@@ -7,11 +8,46 @@ from agentplatform.api.agents import _github_app_token
 from agentplatform.api.auth import require_admin
 from agentplatform.github import GitHubClient
 
-# Platform-authored PRs live on coder/* branches.
+# Platform-authored PRs live on coder/* branches — one branch per building
+# block: coder/agent-<name>, coder/skill-<name>, coder/secret-<name>.
 CODER_BRANCH_PREFIX = "coder/"
 
 from agentplatform.api import schemas as S
 router = APIRouter(dependencies=[Depends(require_admin)])
+
+
+def synced_head(checkout: Path) -> str | None:
+    """The commit sha the synced git checkout is at, resolved by reading the
+    .git files directly (no git binary in the backend image). This is what the
+    cluster is actually running — the UI polls it after an accept to show
+    Deploying… → Live."""
+    git = checkout / ".git"
+    try:
+        head = (git / "HEAD").read_text().strip()
+    except OSError:
+        return None
+    if not head.startswith("ref: "):
+        return head or None          # detached HEAD is already a sha
+    ref = head[5:].strip()
+    loose = git / ref
+    if loose.is_file():
+        return loose.read_text().strip() or None
+    packed = git / "packed-refs"
+    if packed.is_file():
+        for line in packed.read_text().splitlines():
+            parts = line.split()
+            if len(parts) == 2 and not line.startswith(("#", "^")) and parts[1] == ref:
+                return parts[0]
+    return None
+
+
+@router.get("/api/sync-status", response_model=S.SyncStatus)
+async def sync_status(request: Request):
+    """Where the live checkout is. The agents/skills/secrets the platform runs
+    come from this sha; after accepting a change, it becomes visible here
+    within one agents-sync interval."""
+    root = Path(request.app.state.settings.agents_root).parent
+    return {"sha": synced_head(root)}
 
 
 async def _client(request: Request) -> GitHubClient:
@@ -47,14 +83,17 @@ async def pull_request_files(request: Request, number: int):
              "patch": f.get("patch", "")} for f in files]
 
 
-@router.post("/api/pull-requests/{number}/merge")
+@router.post("/api/pull-requests/{number}/merge", response_model=S.MergeResult)
 async def merge_pull_request(request: Request, number: int):
+    """Accept a change. Returns the merge commit sha so the UI can track it
+    through /api/sync-status until the cluster is running it (Live)."""
     gh = await _client(request)
     try:
-        return await asyncio.to_thread(gh.merge_pull_request, number)
+        r = await asyncio.to_thread(gh.merge_pull_request, number)
     except urllib.error.HTTPError as e:
         # e.g. 405 not mergeable / 409 conflict — surface GitHub's reason.
         raise HTTPException(e.code, e.read().decode()[:300])
+    return {"merged": bool(r.get("merged")), "sha": r.get("sha")}
 
 
 @router.post("/api/pull-requests/{number}/close")

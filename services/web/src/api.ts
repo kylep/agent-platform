@@ -1,4 +1,4 @@
-export type SecretStatus = { name: string; status: string; required: boolean; hint?: string; key?: string; probeable?: boolean };
+export type SecretStatus = { name: string; status: string; declared: boolean; required: boolean; hint?: string; key?: string; probeable?: boolean };
 export type SetupState = { needs_admin: boolean; secrets: SecretStatus[] };
 
 export type AgentSummary = {
@@ -39,8 +39,11 @@ export type AgentDetail = {
   name: string;
   manifest: AgentManifest;
   agent_md: string;
+  entrypoints_raw: string;
   error: string | null;
 };
+
+export type SyncStatus = { sha: string | null };
 
 export type RunSummary = {
   id: string;

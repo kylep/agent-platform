@@ -313,6 +313,16 @@ class PullRequestFile(BaseModel):
     patch: str | None
 
 
+class MergeResult(BaseModel):
+    merged: bool
+    sha: str | None
+
+
+class SyncStatus(BaseModel):
+    # The synced checkout's HEAD — what the cluster is actually running.
+    sha: str | None
+
+
 # --- schedules ---------------------------------------------------------------
 
 class ScheduleRow(BaseModel):
@@ -333,6 +343,9 @@ class ScheduleToggle(BaseModel):
 class SecretStatus(BaseModel):
     name: str
     status: str
+    # Has a secrets/<name>/secret.yaml declaration (first-class); undeclared
+    # rows are bare values the registry knows nothing about.
+    declared: bool
     required: bool
     hint: str
     key: str
@@ -344,6 +357,12 @@ class SecretVerify(BaseModel):
     status: str
     code: int | None
     detail: str
+
+
+class SecretDeclaration(BaseModel):
+    name: str
+    raw: str              # secret.yaml as written (comments preserved)
+    error: str | None
 
 
 # --- skills ------------------------------------------------------------------

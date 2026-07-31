@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
-import { api, type AgentDetail as AgentDetailData, type AgentMetrics, type AgentSummary, type EditResult, type ModelUsage, type PullRequest } from "../api";
+import { api, type AgentDetail as AgentDetailData, type AgentMetrics, type AgentSummary, type EditResult, type ModelUsage } from "../api";
 import { SkillPicker, ToolPicker, useCapabilities } from "../components/CapabilityPickers";
+import { ChangePhaseBanner, PendingChangeBanner, useChangeLoop } from "../components/ChangeFlow";
 import AgentChat from "../components/AgentChat";
 import AgentMemories from "../components/AgentMemories";
 import AgentSchedules from "../components/AgentSchedules";
@@ -180,6 +181,66 @@ function DefinitionEditor({ agent, locked, onSaved }: {
   );
 }
 
+// The agent's durable triggers (entrypoints.yaml) — same save→PR contract as
+// the definition editor, on the same coder/agent-<name> branch and lock.
+function EntrypointsEditor({ agent, locked, onSaved }: {
+  agent: AgentDetailData; locked: boolean; onSaved: (r: EditResult) => void;
+}) {
+  const [yamlText, setYamlText] = useState(agent.entrypoints_raw);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [noop, setNoop] = useState(false);
+  useEffect(() => setYamlText(agent.entrypoints_raw), [agent.entrypoints_raw]);
+  const dirty = yamlText !== agent.entrypoints_raw;
+
+  async function save() {
+    setSaving(true); setError(null); setNoop(false);
+    try {
+      const r = await api<EditResult>(`/api/agents/${encodeURIComponent(agent.name)}/quick-edit`, {
+        method: "POST",
+        body: JSON.stringify({ field: "entrypoints", value: yamlText }),
+      });
+      if (r.tier === 0) setNoop(true);
+      else onSaved(r);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to save.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <>
+      <h2>Entrypoints</h2>
+      <p className="muted">
+        The agent's durable triggers (<code>entrypoints.yaml</code>): <code>cron</code> list,
+        declared <code>webhooks</code> paths, <code>kafka</code> (reserved). Invalid YAML is
+        rejected at save time. Emptying the editor removes the file. Ad-hoc schedules belong
+        in <Link to={`/agents/${encodeURIComponent(agent.name)}?tab=schedules`}>Jobs</Link> instead.
+      </p>
+      <textarea
+        className="agent-md-editor"
+        value={yamlText}
+        onChange={(e) => setYamlText(e.target.value)}
+        readOnly={locked}
+        spellCheck={false}
+        placeholder={'cron: ["0 9 * * *"]\nwebhooks:\n  - path: my-hook\n'}
+        rows={Math.min(14, Math.max(5, yamlText.split("\n").length + 2))}
+      />
+      {noop && <div className="banner">No changes — the entrypoints already match.</div>}
+      {error && <div className="error">{error}</div>}
+      <div className="row-actions" style={{ marginTop: 8 }}>
+        <button onClick={save} disabled={saving || locked || !dirty}>
+          {saving ? "Saving…" : "Save entrypoints (opens PR)"}
+        </button>
+        {dirty && !locked && (
+          <button className="secondary" onClick={() => setYamlText(agent.entrypoints_raw)}>Discard edits</button>
+        )}
+      </div>
+    </>
+  );
+}
+
 type Tab = "config" | "conversations" | "memories" | "schedules" | "report";
 
 export default function AgentDetail() {
@@ -193,7 +254,6 @@ export default function AgentDetail() {
   const [instruction, setInstruction] = useState("");
   const [editing, setEditing] = useState(false);
   const [editError, setEditError] = useState<string | null>(null);
-  const [pending, setPending] = useState<PullRequest | null>(null);
   const [summary, setSummary] = useState<AgentSummary | null>(null);
 
   function setTab(t: Tab) {
@@ -204,19 +264,8 @@ export default function AgentDetail() {
     setParams(p);
   }
 
-  // Is there an open platform PR for this agent's deterministic branch? While
-  // one exists, every editor on this page is locked — accept or delete the
-  // pending change first (one change in flight at a time, no branch clobber).
-  function loadPending() {
+  function loadContent() {
     if (!name) return;
-    api<PullRequest[]>("/api/pull-requests")
-      .then((prs) => setPending(prs.find((p) => p.branch === `coder/agent-${name}`) ?? null))
-      .catch(() => setPending(null)); // PR listing unavailable → don't lock
-  }
-
-  useEffect(() => {
-    if (!name) return;
-    setLoading(true);
     api<AgentDetailData>(`/api/agents/${encodeURIComponent(name)}`)
       .then(setAgent)
       .catch((err) => setLoadError(err instanceof Error ? err.message : "Failed to load agent."))
@@ -225,13 +274,22 @@ export default function AgentDetail() {
     api<AgentSummary[]>("/api/agents")
       .then((all) => setSummary(all.find((a) => a.name === name) ?? null))
       .catch(() => setSummary(null));
-    loadPending();
+  }
+
+  // The change loop: while a PR is open on this agent's branch every editor is
+  // locked; when it resolves we wait for the cluster sync, refetch, and flash.
+  const { pr: pending, phase, adopt } = useChangeLoop(`coder/agent-${name}`, loadContent);
+
+  useEffect(() => {
+    if (!name) return;
+    setLoading(true);
+    loadContent();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [name]);
 
   function onSaved(r: EditResult) {
     // A save opened (or updated) the PR — reflect the lock immediately.
-    setPending({
+    adopt({
       number: r.pr?.number ?? 0,
       title: `Pending change for ${name}`,
       url: r.pr?.url ?? "",
@@ -239,7 +297,6 @@ export default function AgentDetail() {
       author: "you",
       created_at: new Date().toISOString(),
     });
-    loadPending(); // fill in real PR metadata
   }
 
   async function editAgent() {
@@ -273,12 +330,8 @@ export default function AgentDetail() {
           Runs are rejected until the secret is healthy.
         </div>
       )}
-      {pending && (
-        <div className="banner">
-          This agent has a pending change{pending.number ? <> (<a href={pending.url} target="_blank" rel="noreferrer">PR #{pending.number}</a>)</> : null} —
-          accept or delete it under <Link to="/changes">Changes</Link>. Editing is locked until then.
-        </div>
-      )}
+      {pending && <PendingChangeBanner pr={pending} what="agent" />}
+      <ChangePhaseBanner phase={phase} what="definition" />
 
       <div className="tabs">
         <button className={tab === "config" ? "tab active" : "tab"} onClick={() => setTab("config")}>Config</button>
@@ -307,6 +360,8 @@ export default function AgentDetail() {
       </dl>
 
       <DefinitionEditor agent={agent} locked={pending !== null} onSaved={onSaved} />
+
+      <EntrypointsEditor agent={agent} locked={pending !== null} onSaved={onSaved} />
 
       <CapabilityEditor agent={agent} locked={pending !== null} onSaved={onSaved} />
 

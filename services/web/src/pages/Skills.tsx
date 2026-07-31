@@ -1,24 +1,27 @@
 import { Fragment, useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { api, type EditResult, type PullRequest, type Skill, type SkillDetail } from "../api";
+import { ChangePhaseBanner, PendingChangeBanner, useChangeLoop } from "../components/ChangeFlow";
 
 // The raw SKILL.md editor: deterministic save — exactly what you type becomes
 // the pending change (a PR on `coder/skill-{name}`), same contract as the
-// agent definition editor.
-function SkillEditor({ name, pending, onSaved }: {
-  name: string; pending: PullRequest | null; onSaved: () => void;
-}) {
+// agent definition editor. Rides the standard change loop: locked while its
+// PR is open, auto-refreshes + flashes when the accepted change goes live.
+function SkillEditor({ name }: { name: string }) {
   const [detail, setDetail] = useState<SkillDetail | null>(null);
   const [md, setMd] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [noop, setNoop] = useState(false);
 
-  useEffect(() => {
+  function load() {
     api<SkillDetail>(`/api/skills/${encodeURIComponent(name)}`)
       .then((d) => { setDetail(d); setMd(d.raw); })
       .catch((err) => setError(err instanceof Error ? err.message : "Failed to load skill."));
-  }, [name]);
+  }
+  useEffect(load, [name]);
+
+  const { pr: pending, phase, adopt } = useChangeLoop(`coder/skill-${name}`, load);
 
   if (error && !detail) return <div className="error">{error}</div>;
   if (!detail) return <p className="muted">Loading…</p>;
@@ -32,7 +35,11 @@ function SkillEditor({ name, pending, onSaved }: {
         method: "POST", body: JSON.stringify({ value: md }),
       });
       if (r.tier === 0) setNoop(true);
-      else onSaved();
+      else adopt({
+        number: r.pr?.number ?? 0, title: `Edit skill: ${name}`, url: r.pr?.url ?? "",
+        branch: r.branch ?? `coder/skill-${name}`, author: "you",
+        created_at: new Date().toISOString(),
+      } as PullRequest);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to save.");
     } finally {
@@ -42,12 +49,8 @@ function SkillEditor({ name, pending, onSaved }: {
 
   return (
     <div>
-      {locked && (
-        <div className="banner">
-          This skill has a pending change{pending?.number ? <> (<a href={pending.url} target="_blank" rel="noreferrer">PR #{pending.number}</a>)</> : null} —
-          accept or delete it under <Link to="/changes">Changes</Link>. Editing is locked until then.
-        </div>
-      )}
+      {pending && <PendingChangeBanner pr={pending} what="skill" />}
+      <ChangePhaseBanner phase={phase} what="skill" />
       <textarea
         className="agent-md-editor"
         value={md}
@@ -214,7 +217,7 @@ export default function Skills() {
                 </tr>
                 {open === s.name && (
                   <tr><td colSpan={5}>
-                    <SkillEditor name={s.name} pending={pendingFor(s.name)} onSaved={load} />
+                    <SkillEditor name={s.name} />
                   </td></tr>
                 )}
               </Fragment>

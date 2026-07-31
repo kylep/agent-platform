@@ -1,63 +1,44 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import Any, TypeVar
+from typing import Any, TypeVar, cast
 
 from attrs import define as _attrs_define
 from attrs import field as _attrs_field
 from typing_extensions import Self
 
-T = TypeVar("T", bound="SecretStatus")
+T = TypeVar("T", bound="SecretDeclaration")
 
 
 @_attrs_define
-class SecretStatus:
+class SecretDeclaration:
     """
     Attributes:
-        declared (bool):
-        hint (str):
-        key (str):
+        error (None | str):
         name (str):
-        probeable (bool):
-        required (bool):
-        status (str):
+        raw (str):
     """
 
-    declared: bool
-    hint: str
-    key: str
+    error: None | str
     name: str
-    probeable: bool
-    required: bool
-    status: str
+    raw: str
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
-        declared = self.declared
-
-        hint = self.hint
-
-        key = self.key
+        error: None | str
+        error = self.error
 
         name = self.name
 
-        probeable = self.probeable
-
-        required = self.required
-
-        status = self.status
+        raw = self.raw
 
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
             {
-                "declared": declared,
-                "hint": hint,
-                "key": key,
+                "error": error,
                 "name": name,
-                "probeable": probeable,
-                "required": required,
-                "status": status,
+                "raw": raw,
             }
         )
 
@@ -66,32 +47,26 @@ class SecretStatus:
     @classmethod
     def from_dict(cls, src_dict: Mapping[str, Any]) -> Self:
         d = dict(src_dict)
-        declared = d.pop("declared")
 
-        hint = d.pop("hint")
+        def _parse_error(data: object) -> None | str:
+            if data is None:
+                return data
+            return cast(None | str, data)
 
-        key = d.pop("key")
+        error = _parse_error(d.pop("error"))
 
         name = d.pop("name")
 
-        probeable = d.pop("probeable")
+        raw = d.pop("raw")
 
-        required = d.pop("required")
-
-        status = d.pop("status")
-
-        secret_status = cls(
-            declared=declared,
-            hint=hint,
-            key=key,
+        secret_declaration = cls(
+            error=error,
             name=name,
-            probeable=probeable,
-            required=required,
-            status=status,
+            raw=raw,
         )
 
-        secret_status.additional_properties = d
-        return secret_status
+        secret_declaration.additional_properties = d
+        return secret_declaration
 
     @property
     def additional_keys(self) -> list[str]:

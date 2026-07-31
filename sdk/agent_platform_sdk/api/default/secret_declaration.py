@@ -7,18 +7,18 @@ import httpx
 from ... import errors
 from ...client import AuthenticatedClient, Client
 from ...models.http_validation_error import HTTPValidationError
-from ...models.merge_result import MergeResult
+from ...models.secret_declaration import SecretDeclaration
 from ...types import Response
 
 
 def _get_kwargs(
-    number: int,
+    name: str,
 ) -> dict[str, Any]:
 
     _kwargs: dict[str, Any] = {
-        "method": "post",
-        "url": "/api/pull-requests/{number}/merge".format(
-            number=quote(str(number), safe=""),
+        "method": "get",
+        "url": "/api/secrets/{name}/declaration".format(
+            name=quote(str(name), safe=""),
         ),
     }
 
@@ -27,9 +27,9 @@ def _get_kwargs(
 
 def _parse_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> HTTPValidationError | MergeResult | None:
+) -> HTTPValidationError | SecretDeclaration | None:
     if response.status_code == 200:
-        response_200 = MergeResult.from_dict(response.json())
+        response_200 = SecretDeclaration.from_dict(response.json())
 
         return response_200
 
@@ -46,7 +46,7 @@ def _parse_response(
 
 def _build_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> Response[HTTPValidationError | MergeResult]:
+) -> Response[HTTPValidationError | SecretDeclaration]:
     return Response(
         status_code=HTTPStatus(response.status_code),
         content=response.content,
@@ -56,28 +56,28 @@ def _build_response(
 
 
 def sync_detailed(
-    number: int,
+    name: str,
     *,
     client: AuthenticatedClient | Client,
-) -> Response[HTTPValidationError | MergeResult]:
-    """Merge Pull Request
+) -> Response[HTTPValidationError | SecretDeclaration]:
+    """Secret Declaration
 
-     Accept a change. Returns the merge commit sha so the UI can track it
-    through /api/sync-status until the cluster is running it (Live).
+     The secret's declaration file as written (comments preserved) — what
+    the in-place editor round-trips.
 
     Args:
-        number (int):
+        name (str):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[HTTPValidationError | MergeResult]
+        Response[HTTPValidationError | SecretDeclaration]
     """
 
     kwargs = _get_kwargs(
-        number=number,
+        name=name,
     )
 
     response = client.get_httpx_client().request(
@@ -88,55 +88,55 @@ def sync_detailed(
 
 
 def sync(
-    number: int,
+    name: str,
     *,
     client: AuthenticatedClient | Client,
-) -> HTTPValidationError | MergeResult | None:
-    """Merge Pull Request
+) -> HTTPValidationError | SecretDeclaration | None:
+    """Secret Declaration
 
-     Accept a change. Returns the merge commit sha so the UI can track it
-    through /api/sync-status until the cluster is running it (Live).
+     The secret's declaration file as written (comments preserved) — what
+    the in-place editor round-trips.
 
     Args:
-        number (int):
+        name (str):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        HTTPValidationError | MergeResult
+        HTTPValidationError | SecretDeclaration
     """
 
     return sync_detailed(
-        number=number,
+        name=name,
         client=client,
     ).parsed
 
 
 async def asyncio_detailed(
-    number: int,
+    name: str,
     *,
     client: AuthenticatedClient | Client,
-) -> Response[HTTPValidationError | MergeResult]:
-    """Merge Pull Request
+) -> Response[HTTPValidationError | SecretDeclaration]:
+    """Secret Declaration
 
-     Accept a change. Returns the merge commit sha so the UI can track it
-    through /api/sync-status until the cluster is running it (Live).
+     The secret's declaration file as written (comments preserved) — what
+    the in-place editor round-trips.
 
     Args:
-        number (int):
+        name (str):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[HTTPValidationError | MergeResult]
+        Response[HTTPValidationError | SecretDeclaration]
     """
 
     kwargs = _get_kwargs(
-        number=number,
+        name=name,
     )
 
     response = await client.get_async_httpx_client().request(**kwargs)
@@ -145,29 +145,29 @@ async def asyncio_detailed(
 
 
 async def asyncio(
-    number: int,
+    name: str,
     *,
     client: AuthenticatedClient | Client,
-) -> HTTPValidationError | MergeResult | None:
-    """Merge Pull Request
+) -> HTTPValidationError | SecretDeclaration | None:
+    """Secret Declaration
 
-     Accept a change. Returns the merge commit sha so the UI can track it
-    through /api/sync-status until the cluster is running it (Live).
+     The secret's declaration file as written (comments preserved) — what
+    the in-place editor round-trips.
 
     Args:
-        number (int):
+        name (str):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        HTTPValidationError | MergeResult
+        HTTPValidationError | SecretDeclaration
     """
 
     return (
         await asyncio_detailed(
-            number=number,
+            name=name,
             client=client,
         )
     ).parsed
