@@ -18,18 +18,18 @@ async def test_secret_lifecycle(admin_client, secret_store):
 
 
 async def test_verify_secret(admin_client, secret_store, monkeypatch):
-    import agentplatform.api.secrets as secrets_api
+    import agentplatform.secretverify as sv
     # not set → 404
     assert (await admin_client.post("/api/secrets/discord-bot/verify")).status_code == 404
     await secret_store.set("discord-bot", {"token": "abc"})
-    # a non-probeable secret → 422
+    # a run-verified secret (claude) has nothing the API can run → 422
     await secret_store.set("claude-credentials", {"token": "x"})
     assert (await admin_client.post("/api/secrets/claude-credentials/verify")).status_code == 422
     # stub the HTTP probe → valid (200), then invalid (401 surfaced)
-    monkeypatch.setattr(secrets_api, "_http_probe", lambda url, headers: (200, "ok"))
+    monkeypatch.setattr(sv, "http_probe", lambda url, headers: (200, "ok"))
     r = await admin_client.post("/api/secrets/discord-bot/verify")
     assert r.status_code == 200 and r.json()["status"] == "valid" and r.json()["code"] == 200
-    monkeypatch.setattr(secrets_api, "_http_probe", lambda url, headers: (401, "Unauthorized"))
+    monkeypatch.setattr(sv, "http_probe", lambda url, headers: (401, "Unauthorized"))
     r = await admin_client.post("/api/secrets/discord-bot/verify")
     assert r.json()["status"] == "invalid" and r.json()["code"] == 401
 

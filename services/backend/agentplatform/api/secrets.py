@@ -1,35 +1,19 @@
-import asyncio
-import urllib.error
-import urllib.request
-
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 from sqlalchemy import select
+
+from agentplatform import secretverify
 from agentplatform.api.auth import require_admin
 from agentplatform.db import SecretMeta
-from agentplatform.secrets import (PROBEABLE_SECRETS, REQUIRED_SECRETS, SECRET_HINTS,
-                                   secret_probe_target)
+from agentplatform.secretregistry import SecretInfo
 
 from agentplatform.api import schemas as S
 router = APIRouter()
 
 
-def _http_probe(url: str, headers: dict) -> tuple[int | None, str]:
-    """GET the url; return (http_status, detail). status is None on a network
-    error (couldn't reach the host at all)."""
-    try:
-        req = urllib.request.Request(url, headers=headers)
-        with urllib.request.urlopen(req, timeout=8) as r:
-            return r.status, "ok"
-    except urllib.error.HTTPError as e:
-        return e.code, (e.reason or "")
-    except urllib.error.URLError as e:
-        return None, f"unreachable: {e.reason}"
-    except Exception as e:
-        return None, f"error: {e}"
-
 class SecretIn(BaseModel):
     data: dict[str, str]
+
 
 def _declared_secrets(request: Request) -> set[str]:
     """Secrets the platform's components declare they need: skill `secrets:` and
@@ -45,10 +29,32 @@ def _declared_secrets(request: Request) -> set[str]:
     return declared
 
 
+def _registry(request: Request):
+    reg = request.app.state.secret_registry
+    # The synced checkout changes underneath us (agents-sync pulls git).
+    reg.reload()
+    return reg
+
+
+def _hints(info: SecretInfo | None) -> dict:
+    """Flatten a registry spec into the UI's hint fields. Single-key secrets
+    suggest their key (it becomes the env var a skill reads); multi-key or
+    flexible-key secrets leave `key` blank for the editor heuristic."""
+    spec = info.spec if info else None
+    if spec is None:
+        return {"required": False, "hint": "", "key": "", "probeable": False}
+    single = spec.keys[0] if len(spec.keys) == 1 else None
+    return {"required": spec.required,
+            "hint": spec.hint or (single.hint if single else spec.description),
+            "key": single.name if single else "",
+            "probeable": spec.verifiable}
+
+
 async def secret_listing(request: Request) -> list[dict]:
+    reg = _registry(request)
     async with request.app.state.session_factory() as s:
         rows = {m.name: m.status for m in (await s.execute(select(SecretMeta))).scalars()}
-    names = sorted(set(REQUIRED_SECRETS) | set(rows) | _declared_secrets(request))
+    names = sorted({i.name for i in reg.list()} | set(rows) | _declared_secrets(request))
     out = []
     for n in names:
         status = rows.get(n, "missing")
@@ -57,32 +63,32 @@ async def secret_listing(request: Request) -> list[dict]:
             # mode writes the k8s Secret directly, bypassing the API): the
             # store is the truth for existence, meta only tracks probe status.
             status = "unprobed"
-        hint = SECRET_HINTS.get(n, {})
-        out.append({"name": n, "status": status, "required": n in REQUIRED_SECRETS,
-                    "hint": hint.get("hint", ""), "key": hint.get("key", ""),
-                    "probeable": n in PROBEABLE_SECRETS})
+        out.append({"name": n, "status": status, **_hints(reg.get(n))})
     return out
+
 
 @router.get("/api/secrets", response_model=list[S.SecretStatus], dependencies=[Depends(require_admin)])
 async def list_secrets(request: Request):
     return await secret_listing(request)
 
+
 @router.post("/api/secrets/{name}/verify", response_model=S.SecretVerify, dependencies=[Depends(require_admin)])
 async def verify_secret(request: Request, name: str):
-    """Validate a secret with a read-only API call and record the result."""
+    """Run the secret's declared verification (probe or sandboxed script) and
+    record the result."""
     data = await request.app.state.secret_store.get(name)
     if data is None:
         raise HTTPException(404, "secret is not set")
-    target = secret_probe_target(name, data)
-    if target is None:
-        raise HTTPException(422, "this secret has no probe")
-    code, detail = await asyncio.to_thread(_http_probe, target[0], target[1])
-    status = "valid" if (code is not None and 200 <= code < 300) else "invalid"
+    info = _registry(request).get(name)
+    result = await secretverify.verify_secret(info, data) if info else None
+    if result is None:
+        raise HTTPException(422, "this secret has no verify")
     async with request.app.state.session_factory() as s:
         meta = await s.get(SecretMeta, name) or SecretMeta(name=name)
-        meta.status = status
+        meta.status = result.status
         s.add(meta); await s.commit()
-    return {"name": name, "status": status, "code": code, "detail": detail}
+    return {"name": name, "status": result.status, "code": result.code,
+            "detail": result.detail}
 
 
 @router.put("/api/secrets/{name}", response_model=S.Ok, dependencies=[Depends(require_admin)])

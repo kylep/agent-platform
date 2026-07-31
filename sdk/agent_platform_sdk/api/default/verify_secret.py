@@ -62,7 +62,8 @@ def sync_detailed(
 ) -> Response[HTTPValidationError | SecretVerify]:
     """Verify Secret
 
-     Validate a secret with a read-only API call and record the result.
+     Run the secret's declared verification (probe or sandboxed script) and
+    record the result.
 
     Args:
         name (str):
@@ -93,7 +94,8 @@ def sync(
 ) -> HTTPValidationError | SecretVerify | None:
     """Verify Secret
 
-     Validate a secret with a read-only API call and record the result.
+     Run the secret's declared verification (probe or sandboxed script) and
+    record the result.
 
     Args:
         name (str):
@@ -119,7 +121,8 @@ async def asyncio_detailed(
 ) -> Response[HTTPValidationError | SecretVerify]:
     """Verify Secret
 
-     Validate a secret with a read-only API call and record the result.
+     Run the secret's declared verification (probe or sandboxed script) and
+    record the result.
 
     Args:
         name (str):
@@ -148,7 +151,8 @@ async def asyncio(
 ) -> HTTPValidationError | SecretVerify | None:
     """Verify Secret
 
-     Validate a secret with a read-only API call and record the result.
+     Run the secret's declared verification (probe or sandboxed script) and
+    record the result.
 
     Args:
         name (str):

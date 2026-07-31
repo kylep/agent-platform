@@ -1,5 +1,11 @@
+from pathlib import Path
+
 import pytest, httpx
 from agentplatform.agents import AgentStore
+
+# The real repo secrets/ registry — tests run against the shipped secret.yaml
+# files so the declarations themselves are under test.
+REPO_SECRETS = Path(__file__).resolve().parents[3] / "secrets"
 from agentplatform.config import Settings
 from agentplatform.db import make_engine, make_session_factory, init_db
 from agentplatform.events import FakeProducer
@@ -35,7 +41,8 @@ def agent_store(tmp_agents):
 
 @pytest.fixture
 async def client(sf, producer, secret_store, agent_store):
-    app = create_app(Settings(agents_root=str(agent_store.root)), sf, producer,
+    app = create_app(Settings(agents_root=str(agent_store.root),
+                              secrets_root=str(REPO_SECRETS)), sf, producer,
                       secret_store=secret_store, agent_store=agent_store)
     async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://t") as c:
         yield c

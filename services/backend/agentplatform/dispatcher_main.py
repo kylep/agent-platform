@@ -17,7 +17,10 @@ from agentplatform.ingest import Ingestor
 from agentplatform.joblauncher import JobWatcher, K8sJobLauncher
 from agentplatform.pruning import TranscriptPruner
 from agentplatform.scheduler import Scheduler
+from agentplatform.secretregistry import SecretRegistry
+from agentplatform.secrets import K8sSecretStore
 from agentplatform.skills import SkillStore
+from agentplatform.verifierloop import SecretVerifier
 
 log = logging.getLogger("dispatcher_main")
 
@@ -50,7 +53,8 @@ async def main() -> None:
 
     _load_k8s_config()
     batch = k8s.BatchV1Api()
-    github_app = _load_github_app(k8s.CoreV1Api(), settings.k8s_namespace)
+    core = k8s.CoreV1Api()
+    github_app = _load_github_app(core, settings.k8s_namespace)
     log.info("self-edit %s", "enabled (github-app loaded)" if github_app else "disabled")
 
     engine = make_engine(settings.db_url)
@@ -77,12 +81,16 @@ async def main() -> None:
     pruner = TranscriptPruner(session_factory, agent_store, settings)
     ingestor = Ingestor(settings, session_factory, producer)
     conv_ingestor = ConversationIngestor(settings, session_factory, producer)
+    verifier = SecretVerifier(SecretRegistry(settings.secrets_root),
+                              K8sSecretStore(core, settings.k8s_namespace),
+                              session_factory,
+                              settings.secret_verify_interval_seconds)
 
     try:
         await asyncio.gather(dispatcher.run_forever(), watcher.run_forever(),
                              dispatcher.sweep_forever(), scheduler.run_forever(),
                              pruner.run_forever(), ingestor.run_forever(),
-                             conv_ingestor.run_forever())
+                             conv_ingestor.run_forever(), verifier.run_forever())
     finally:
         await producer.stop()
         await engine.dispose()

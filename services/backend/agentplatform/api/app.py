@@ -113,6 +113,8 @@ def create_app(settings, session_factory, producer, secret_store=None, agent_sto
     st.secret_store, st.agent_store = secret_store, agent_store
     from agentplatform.skills import SkillStore
     st.skill_store = SkillStore(Path(settings.skills_root))
+    from agentplatform.secretregistry import SecretRegistry
+    st.secret_registry = SecretRegistry(Path(settings.secrets_root))
 
     app.include_router(auth.router)
     app.include_router(apikeys_api.router)

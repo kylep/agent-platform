@@ -9,6 +9,7 @@ class Settings(BaseSettings):
     runner_image: str = "agent-platform-runner:dev"
     agents_root: str = "./agents"
     skills_root: str = "./skills"
+    secrets_root: str = "./secrets"
     agents_volume_claim: str = "agent-definitions"
     session_secret: str = "dev-insecure"
     global_concurrency: int = 3
@@ -25,6 +26,10 @@ class Settings(BaseSettings):
     # circuit-breaker half-open probe), so a fixed token self-heals. <= 0
     # disables the gate (runs always dispatch).
     credential_recheck_seconds: int = 300
+    # Secret-validation heartbeat (docs/design/10): the dispatcher re-runs each
+    # verifiable secret's probe/script this often and records the status, so
+    # `valid` can't go stale-green. <= 0 disables the heartbeat.
+    secret_verify_interval_seconds: int = 600
     # Default transcript retention: prune run_transcript_events older than this
     # many days (Run metadata/summary is kept). Per-agent manifest override wins;
     # <= 0 disables pruning (keep forever).
