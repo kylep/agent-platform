@@ -25,7 +25,7 @@ def _declared_secrets(request: Request) -> set[str]:
         store.reload()
         for info in store.list():
             if info.skill:
-                declared |= set(info.skill.secrets)
+                declared |= set(info.skill.secret_names)
     return declared
 
 

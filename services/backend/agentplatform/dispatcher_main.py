@@ -75,16 +75,17 @@ async def main() -> None:
     launcher = K8sJobLauncher(batch, settings, github_app=github_app,
                               session_factory=session_factory, skill_store=skill_store)
 
-    dispatcher = Dispatcher(settings, session_factory, producer, agent_store, launcher)
+    verifier = SecretVerifier(SecretRegistry(settings.secrets_root),
+                              K8sSecretStore(core, settings.k8s_namespace),
+                              session_factory,
+                              settings.secret_verify_interval_seconds)
+    dispatcher = Dispatcher(settings, session_factory, producer, agent_store, launcher,
+                            skill_store=skill_store, verifier=verifier)
     watcher = JobWatcher(batch, settings, session_factory, producer)
     scheduler = Scheduler(session_factory, agent_store, producer)
     pruner = TranscriptPruner(session_factory, agent_store, settings)
     ingestor = Ingestor(settings, session_factory, producer)
     conv_ingestor = ConversationIngestor(settings, session_factory, producer)
-    verifier = SecretVerifier(SecretRegistry(settings.secrets_root),
-                              K8sSecretStore(core, settings.k8s_namespace),
-                              session_factory,
-                              settings.secret_verify_interval_seconds)
 
     try:
         await asyncio.gather(dispatcher.run_forever(), watcher.run_forever(),

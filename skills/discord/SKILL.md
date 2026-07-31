@@ -3,7 +3,9 @@ name: discord
 description: Post a message to a Discord channel via an incoming webhook. Use when an agent should notify a human channel — a run finished, something needs attention, or a summary is ready.
 icon: 💬
 secrets:
-  - discord-webhook
+  - name: discord-webhook
+    state: verified      # the URL is the credential; GETting it proves it
+    severity: required   # posting is the skill's whole purpose
 ---
 # discord
 

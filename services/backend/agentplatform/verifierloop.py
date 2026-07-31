@@ -18,36 +18,49 @@ class SecretVerifier:
         self.registry, self.store, self.sf = registry, secret_store, session_factory
         self.interval = interval_seconds
 
+    async def verify_one(self, name: str) -> str | None:
+        """Verify one secret now and record the result. Returns the fresh
+        status, or None when nothing can be checked: the secret isn't
+        verifiable (`verify: run`, unknown) — the recorded status stands —
+        or the check itself errored (infra problem, not the secret's;
+        flapping the status would lie)."""
+        from agentplatform.secretverify import verify_secret
+        info = self.registry.get(name)
+        if info is None or info.spec is None or not info.spec.verifiable:
+            return None
+        try:
+            data = await self.store.get(name)
+            if data is None:
+                status, detail = "missing", "not set"
+            else:
+                r = await verify_secret(info, data)
+                status, detail = r.status, r.detail
+        except Exception:
+            log.exception("verify pass failed for %s", name)
+            return None
+        async with self.sf() as s:
+            meta = await s.get(SecretMeta, name) or SecretMeta(name=name)
+            if meta.status != status:
+                log.info("secret %s: %s -> %s (%s)", name, meta.status, status, detail)
+            meta.status = status
+            s.add(meta)
+            await s.commit()
+        return status
+
+    async def exists(self, name: str) -> bool:
+        return await self.store.exists(name)
+
     async def verify_all(self) -> dict[str, str]:
         """One heartbeat pass; returns {secret: status} for what it checked."""
-        from agentplatform.secretverify import verify_secret
         # The synced checkout changes underneath us (agents-sync pulls git).
         self.registry.reload()
         results: dict[str, str] = {}
         for info in self.registry.list():
             if info.spec is None or not info.spec.verifiable:
                 continue
-            try:
-                data = await self.store.get(info.name)
-                if data is None:
-                    status, detail = "missing", "not set"
-                else:
-                    r = await verify_secret(info, data)
-                    status, detail = r.status, r.detail
-            except Exception:
-                # Infra error (store unreachable, …): keep the recorded status
-                # rather than flapping it on a problem that isn't the secret's.
-                log.exception("verify pass failed for %s", info.name)
-                continue
-            results[info.name] = status
-            async with self.sf() as s:
-                meta = await s.get(SecretMeta, info.name) or SecretMeta(name=info.name)
-                if meta.status != status:
-                    log.info("secret %s: %s -> %s (%s)", info.name,
-                             meta.status, status, detail)
-                meta.status = status
-                s.add(meta)
-                await s.commit()
+            status = await self.verify_one(info.name)
+            if status is not None:
+                results[info.name] = status
         return results
 
     async def run_forever(self) -> None:

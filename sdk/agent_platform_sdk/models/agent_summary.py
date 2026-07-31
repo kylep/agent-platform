@@ -14,6 +14,8 @@ T = TypeVar("T", bound="AgentSummary")
 class AgentSummary:
     """
     Attributes:
+        blocked (bool):
+        blocked_reason (None | str):
         description (str):
         error (None | str):
         name (str):
@@ -22,6 +24,8 @@ class AgentSummary:
         system (bool):
     """
 
+    blocked: bool
+    blocked_reason: None | str
     description: str
     error: None | str
     name: str
@@ -31,6 +35,11 @@ class AgentSummary:
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
+        blocked = self.blocked
+
+        blocked_reason: None | str
+        blocked_reason = self.blocked_reason
+
         description = self.description
 
         error: None | str
@@ -48,6 +57,8 @@ class AgentSummary:
         field_dict.update(self.additional_properties)
         field_dict.update(
             {
+                "blocked": blocked,
+                "blocked_reason": blocked_reason,
                 "description": description,
                 "error": error,
                 "name": name,
@@ -62,6 +73,15 @@ class AgentSummary:
     @classmethod
     def from_dict(cls, src_dict: Mapping[str, Any]) -> Self:
         d = dict(src_dict)
+        blocked = d.pop("blocked")
+
+        def _parse_blocked_reason(data: object) -> None | str:
+            if data is None:
+                return data
+            return cast(None | str, data)
+
+        blocked_reason = _parse_blocked_reason(d.pop("blocked_reason"))
+
         description = d.pop("description")
 
         def _parse_error(data: object) -> None | str:
@@ -80,6 +100,8 @@ class AgentSummary:
         system = d.pop("system")
 
         agent_summary = cls(
+            blocked=blocked,
+            blocked_reason=blocked_reason,
             description=description,
             error=error,
             name=name,

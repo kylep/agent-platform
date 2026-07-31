@@ -23,7 +23,7 @@ async def list_skills(request: Request):
     return [{"name": s.name,
              "description": s.skill.description if s.skill else "",
              "icon": s.skill.icon if s.skill else "",
-             "secrets": s.skill.secrets if s.skill else [],
+             "secrets": s.skill.secret_names if s.skill else [],
              "error": s.error,
              "used_by": _agents_using(request, s.name)}
             for s in request.app.state.skill_store.list()]
@@ -37,7 +37,7 @@ async def get_skill(request: Request, name: str):
     return {"name": s.name,
             "description": s.skill.description if s.skill else "",
             "icon": s.skill.icon if s.skill else "",
-            "secrets": s.skill.secrets if s.skill else [],
+            "secrets": s.skill.secret_names if s.skill else [],
             "error": s.error,
             "body": s.body,
             "used_by": _agents_using(request, s.name)}

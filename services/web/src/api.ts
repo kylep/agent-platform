@@ -6,6 +6,10 @@ export type AgentSummary = {
   description: string;
   quarantined: boolean;
   error: string | null;
+  // Blocked = unmet required secret dependency (fix the secret);
+  // quarantined = broken definition (fix the agent).
+  blocked: boolean;
+  blocked_reason: string | null;
   system: boolean;
   schedule: string;
 };

@@ -10,9 +10,20 @@ into the pod and the pod is granted the union of those skills' secrets."""
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Literal
 
 import yaml
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel, ValidationError, field_validator
+
+
+class SkillSecret(BaseModel):
+    """A secret a skill needs, with the strictness the skill demands of it
+    (docs/design/10): `state` is what must be true of the secret, `severity`
+    is what happens to an agent using the skill when it isn't — `required`
+    blocks the agent's runs, `optional` lets them proceed degraded."""
+    name: str
+    state: Literal["present", "verified"] = "present"
+    severity: Literal["required", "optional"] = "optional"
 
 
 class Skill(BaseModel):
@@ -21,7 +32,18 @@ class Skill(BaseModel):
     # An optional emoji shown next to the skill in the UI (frontmatter `icon:`).
     icon: str = ""
     # Secrets this skill needs; an agent using the skill gets these bound.
-    secrets: list[str] = []
+    # Frontmatter accepts a bare name (defaults: present/optional) or a mapping
+    # with state/severity.
+    secrets: list[SkillSecret] = []
+
+    @field_validator("secrets", mode="before")
+    @classmethod
+    def _coerce_names(cls, v):
+        return [{"name": s} if isinstance(s, str) else s for s in (v or [])]
+
+    @property
+    def secret_names(self) -> list[str]:
+        return [s.name for s in self.secrets]
 
 
 class SkillInfo(BaseModel):
@@ -83,7 +105,7 @@ class SkillStore:
         for n in skill_names:
             info = self._cache.get(n)
             if info and info.skill:
-                for s in info.skill.secrets:
+                for s in info.skill.secret_names:
                     if s not in out:
                         out.append(s)
         return out

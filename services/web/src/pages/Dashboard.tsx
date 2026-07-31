@@ -83,7 +83,13 @@ export default function Dashboard() {
     attention.push({ key: `quar-${a.name}`, sev: "bad", to: `/agents/${encodeURIComponent(a.name)}`,
       text: `${a.name} is quarantined${a.error ? ` (${a.error})` : ""}` });
   }
-  for (const s of secrets.filter((x) => x.required && (x.status === "missing" || x.status === "invalid"))) {
+  for (const a of agents.filter((x) => x.blocked)) {
+    attention.push({ key: `blocked-${a.name}`, sev: "bad", to: `/agents/${encodeURIComponent(a.name)}`,
+      text: `${a.name} ${a.blocked_reason ?? "blocked — unmet secret requirement"}` });
+  }
+  // A failing verification matters even on an "optional" secret — some skill
+  // declared it; missing only alarms when the platform requires the secret.
+  for (const s of secrets.filter((x) => x.status === "invalid" || (x.required && x.status === "missing"))) {
     attention.push({ key: `sec-${s.name}`, sev: "bad", to: "/secrets",
       text: `${s.name}: ${s.status}` });
   }

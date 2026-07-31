@@ -27,11 +27,44 @@ log = logging.getLogger("agents-api")
 router = APIRouter()
 
 
+async def _blocked_reasons(request: Request) -> dict[str, str]:
+    """agent -> blocking reason, for agents whose derived secret dependencies
+    (manifest secrets + skills' secrets) have an unmet REQUIRED one. Distinct
+    from quarantined: blocked is fixed by fixing the secret, quarantined by
+    fixing the agent."""
+    from sqlalchemy import select
+    from agentplatform import readiness
+    from agentplatform.db import SecretMeta
+    skills = request.app.state.skill_store
+    skills.reload()
+    agents = [a for a in request.app.state.agent_store.list() if a.manifest]
+    dep_names = {d.secret for a in agents
+                 for d in readiness.deps_for(a.manifest, skills)}
+    if not dep_names:
+        return {}
+    async with request.app.state.session_factory() as s:
+        rows = (await s.execute(select(SecretMeta)
+                .where(SecretMeta.name.in_(dep_names)))).scalars()
+        statuses = {m.name: m.status for m in rows}
+    for n in dep_names - set(statuses):
+        # No meta row yet — the store is the truth for existence (out-of-band set).
+        if await request.app.state.secret_store.exists(n):
+            statuses[n] = "unprobed"
+    out = {}
+    for a in agents:
+        reason = readiness.blocking_reason(a.manifest, skills, statuses)
+        if reason:
+            out[a.name] = reason
+    return out
+
+
 @router.get("/api/agents", response_model=list[AgentSummary], dependencies=[Depends(require_role(*READ_ROLES))])
 async def list_agents(request: Request):
     request.app.state.agent_store.reload()
+    blocked = await _blocked_reasons(request)
     return [{"name": a.name, "description": a.manifest.description if a.manifest else "",
              "quarantined": a.error is not None, "error": a.error,
+             "blocked": a.name in blocked, "blocked_reason": blocked.get(a.name),
              "system": bool(a.manifest and a.manifest.system),
              "schedule": a.manifest.schedule if a.manifest else ""}
             for a in request.app.state.agent_store.list()]

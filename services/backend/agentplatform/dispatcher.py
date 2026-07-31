@@ -1,5 +1,6 @@
 import asyncio, json, logging, time
 from sqlalchemy import func, select
+from agentplatform import readiness
 from agentplatform.agents import AgentStore, Manifest
 from agentplatform.apikeys import revoke_run_keys
 from agentplatform.db import ACTIVE_STATES, Run, RunState, SecretMeta, utcnow
@@ -24,9 +25,14 @@ class FakeLauncher(Launcher):
     async def cancel(self, run_id): self.cancelled.append(run_id)
 
 class Dispatcher:
-    def __init__(self, settings, session_factory, producer, agent_store: AgentStore, launcher: Launcher):
+    def __init__(self, settings, session_factory, producer, agent_store: AgentStore, launcher: Launcher,
+                 skill_store=None, verifier=None):
         self.settings, self.sf, self.producer = settings, session_factory, producer
         self.agents, self.launcher = agent_store, launcher
+        # Readiness gate inputs (docs/design/10): the skill store derives an
+        # agent's secret dependencies; the verifier re-checks a failing secret
+        # once before blocking (try-before-block). Either may be None in tests.
+        self.skills, self.verifier = skill_store, verifier
         # Circuit breaker for the Claude credential: monotonic time at/after
         # which one run may probe a known-bad token (half-open). 0 = probe now.
         self._cred_probe_at = 0.0
@@ -54,6 +60,38 @@ class Dispatcher:
         return ("Claude credential is invalid (a recent run failed to "
                 "authenticate). Update it in Settings → Secrets; runs resume "
                 "automatically once a token works.")
+
+    async def _dep_statuses(self, names: set[str]) -> dict[str, str]:
+        async with self.sf() as s:
+            rows = (await s.execute(select(SecretMeta)
+                    .where(SecretMeta.name.in_(names)))).scalars()
+            return {m.name: m.status for m in rows}
+
+    async def _readiness_blocks(self, manifest: Manifest) -> str | None:
+        """The readiness gate (docs/design/10): an unmet REQUIRED secret
+        dependency (derived from the manifest's secrets + its skills') rejects
+        the run before a pod launches, with the exact reason. Try-before-block:
+        each offending secret is re-verified once first, so a transiently-failed
+        or just-fixed secret recovers on its own."""
+        if self.skills is None:
+            return None
+        self.skills.reload()
+        deps = readiness.deps_for(manifest, self.skills)
+        if not deps:
+            return None
+        statuses = await self._dep_statuses({d.secret for d in deps})
+        bad = readiness.unmet_required(manifest, self.skills, statuses)
+        if not bad or self.verifier is None:
+            return readiness.reason(*bad[0]) if bad else None
+        for dep, status in bad:
+            fresh = await self.verifier.verify_one(dep.secret)
+            if fresh is not None:
+                statuses[dep.secret] = fresh
+            elif status == "missing" and await self.verifier.exists(dep.secret):
+                # Set out-of-band (kubectl) with nothing runnable to verify:
+                # the store is the truth for existence.
+                statuses[dep.secret] = "unprobed"
+        return readiness.blocking_reason(manifest, self.skills, statuses)
 
     async def _event(self, run_id: str, state: str, detail: str = "") -> None:
         await self.producer.publish(TOPIC_RUN_EVENTS, run_id,
@@ -95,6 +133,10 @@ class Dispatcher:
             await self._set_state(run, RunState.REJECTED, blocked)
             return
         manifest = info.manifest
+        blocked = await self._readiness_blocks(manifest)
+        if blocked is not None:
+            await self._set_state(run, RunState.REJECTED, blocked)
+            return
         async with self.sf() as s:
             busy = (await s.execute(select(func.count()).select_from(Run)
                     .where(Run.state.in_([RunState.DISPATCHED, RunState.RUNNING])))).scalar_one()

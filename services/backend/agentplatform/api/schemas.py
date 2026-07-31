@@ -46,6 +46,10 @@ class AgentSummary(BaseModel):
     description: str
     quarantined: bool
     error: str | None
+    # Blocked — unmet required secret dependency (docs/design/10). Recoverable
+    # by fixing the SECRET; quarantined is recoverable by fixing the agent.
+    blocked: bool
+    blocked_reason: str | None
     system: bool
     schedule: str
 

@@ -17,6 +17,8 @@ function AgentTable({ agents }: { agents: AgentSummary[] }) {
             <td>
               {a.quarantined
                 ? <span className="chip chip-invalid" title={a.error ?? "Quarantined"}>quarantined</span>
+                : a.blocked
+                ? <span className="chip chip-invalid" title={a.blocked_reason ?? "Blocked"}>blocked</span>
                 : <span className="chip chip-ok">ok</span>}
             </td>
           </tr>

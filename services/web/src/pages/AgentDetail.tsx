@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
-import { api, type AgentDetail as AgentDetailData, type AgentMetrics, type EditResult, type ModelUsage, type PullRequest } from "../api";
+import { api, type AgentDetail as AgentDetailData, type AgentMetrics, type AgentSummary, type EditResult, type ModelUsage, type PullRequest } from "../api";
 import { SkillPicker, ToolPicker, useCapabilities } from "../components/CapabilityPickers";
 import AgentChat from "../components/AgentChat";
 import AgentMemories from "../components/AgentMemories";
@@ -194,6 +194,7 @@ export default function AgentDetail() {
   const [editing, setEditing] = useState(false);
   const [editError, setEditError] = useState<string | null>(null);
   const [pending, setPending] = useState<PullRequest | null>(null);
+  const [summary, setSummary] = useState<AgentSummary | null>(null);
 
   function setTab(t: Tab) {
     const p = new URLSearchParams(params);
@@ -220,6 +221,10 @@ export default function AgentDetail() {
       .then(setAgent)
       .catch((err) => setLoadError(err instanceof Error ? err.message : "Failed to load agent."))
       .finally(() => setLoading(false));
+    // The listing carries readiness (blocked + reason) — the detail view doesn't.
+    api<AgentSummary[]>("/api/agents")
+      .then((all) => setSummary(all.find((a) => a.name === name) ?? null))
+      .catch(() => setSummary(null));
     loadPending();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [name]);
@@ -262,6 +267,12 @@ export default function AgentDetail() {
     <div className={tab === "conversations" ? "page page-chat" : "page"}>
       <h1>{agent.name}</h1>
       {agent.error && <div className="banner">{agent.error}</div>}
+      {summary?.blocked && (
+        <div className="banner">
+          {summary.blocked_reason} — fix it under <Link to="/secrets">Settings → Secrets</Link>.
+          Runs are rejected until the secret is healthy.
+        </div>
+      )}
       {pending && (
         <div className="banner">
           This agent has a pending change{pending.number ? <> (<a href={pending.url} target="_blank" rel="noreferrer">PR #{pending.number}</a>)</> : null} —
