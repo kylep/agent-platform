@@ -48,12 +48,16 @@ function Summary({ number }: { number: number }) {
   useEffect(() => {
     if (!runId) return;
     let stop = false;
+    let grace = 0;
     const id = setInterval(async () => {
       try {
         const r = await api<RunDetailData>(`/api/runs/${runId}`);
         if (stop) return;
         setRun(r);
-        if (!["queued", "dispatched", "running"].includes(r.state)) clearInterval(id);
+        const active = ["queued", "dispatched", "running"].includes(r.state);
+        // The k8s Job flips terminal slightly before the recorder persists the
+        // result frame — grace-poll a few beats for the text to land.
+        if (!active && (r.state !== "succeeded" || r.result || ++grace > 5)) clearInterval(id);
       } catch { /* transient */ }
     }, 3000);
     return () => { stop = true; clearInterval(id); };
@@ -67,7 +71,8 @@ function Summary({ number }: { number: number }) {
       </div>
     );
   }
-  const running = !run || ["queued", "dispatched", "running"].includes(run.state);
+  const running = !run || ["queued", "dispatched", "running"].includes(run.state)
+    || (run.state === "succeeded" && !run.result);
   if (running) {
     return <p className="muted">Summarizing… (<Link to={`/runs/${runId}`}>watch the run</Link>)</p>;
   }
