@@ -50,6 +50,9 @@ class SkillInfo(BaseModel):
     name: str
     skill: Skill | None
     body: str
+    # The full SKILL.md text (frontmatter + body) — what the in-place editor
+    # round-trips; `body` alone drops the frontmatter.
+    raw: str = ""
     error: str | None = None
 
 
@@ -87,9 +90,9 @@ class SkillStore:
             fm, body = parse_frontmatter(body_full)
             # Frontmatter name wins; fall back to the directory name.
             fm.setdefault("name", d.name)
-            return SkillInfo(name=fm["name"], skill=Skill(**fm), body=body)
+            return SkillInfo(name=fm["name"], skill=Skill(**fm), body=body, raw=body_full)
         except (yaml.YAMLError, ValidationError) as e:
-            return SkillInfo(name=d.name, skill=None, body=body_full, error=str(e))
+            return SkillInfo(name=d.name, skill=None, body=body_full, raw=body_full, error=str(e))
 
     def list(self) -> list[SkillInfo]:
         return list(self._cache.values())

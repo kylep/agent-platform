@@ -68,7 +68,10 @@ from .secret_status import SecretStatus
 from .secret_verify import SecretVerify
 from .setup_state import SetupState
 from .skill_detail import SkillDetail
+from .skill_quick_edit_in import SkillQuickEditIn
 from .skill_view import SkillView
+from .skill_wizard_in import SkillWizardIn
+from .skill_wizard_secret import SkillWizardSecret
 from .validation_error import ValidationError
 from .validation_error_context import ValidationErrorContext
 from .webhook_entry import WebhookEntry
@@ -142,7 +145,10 @@ __all__ = (
     "SecretVerify",
     "SetupState",
     "SkillDetail",
+    "SkillQuickEditIn",
     "SkillView",
+    "SkillWizardIn",
+    "SkillWizardSecret",
     "ValidationError",
     "ValidationErrorContext",
     "WebhookEntry",

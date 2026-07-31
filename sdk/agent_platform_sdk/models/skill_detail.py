@@ -19,6 +19,7 @@ class SkillDetail:
         error (None | str):
         icon (str):
         name (str):
+        raw (str):
         secrets (list[str]):
         used_by (list[str]):
     """
@@ -28,6 +29,7 @@ class SkillDetail:
     error: None | str
     icon: str
     name: str
+    raw: str
     secrets: list[str]
     used_by: list[str]
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
@@ -44,6 +46,8 @@ class SkillDetail:
 
         name = self.name
 
+        raw = self.raw
+
         secrets = self.secrets
 
         used_by = self.used_by
@@ -57,6 +61,7 @@ class SkillDetail:
                 "error": error,
                 "icon": icon,
                 "name": name,
+                "raw": raw,
                 "secrets": secrets,
                 "used_by": used_by,
             }
@@ -82,6 +87,8 @@ class SkillDetail:
 
         name = d.pop("name")
 
+        raw = d.pop("raw")
+
         secrets = cast(list[str], d.pop("secrets"))
 
         used_by = cast(list[str], d.pop("used_by"))
@@ -92,6 +99,7 @@ class SkillDetail:
             error=error,
             icon=icon,
             name=name,
+            raw=raw,
             secrets=secrets,
             used_by=used_by,
         )

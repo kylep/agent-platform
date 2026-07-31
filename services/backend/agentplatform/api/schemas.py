@@ -359,6 +359,7 @@ class SkillView(BaseModel):
 
 class SkillDetail(SkillView):
     body: str
+    raw: str    # full SKILL.md (frontmatter + body) — what the editor edits
 
 
 # --- setup -------------------------------------------------------------------

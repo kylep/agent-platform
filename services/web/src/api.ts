@@ -155,7 +155,7 @@ export type Skill = {
   used_by: string[];
 };
 
-export type SkillDetail = Skill & { body: string };
+export type SkillDetail = Skill & { body: string; raw: string };
 
 export type MetricsOverview = {
   total: number;
