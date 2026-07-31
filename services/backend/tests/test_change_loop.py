@@ -58,6 +58,35 @@ async def test_skill_quick_edit_validates_frontmatter(admin_client):
     assert r.status_code == 422 and "frontmatter" in r.json()["detail"]
 
 
+# --- impact digest -----------------------------------------------------------
+
+def test_classify_change_path():
+    from agentplatform.api.pulls import classify_change_path as c
+    assert c("agents/news/agent.md") == ("agent: news", "definition")
+    assert c("agents/news/entrypoints.yaml") == ("agent: news", "entrypoints")
+    assert c("skills/git/SKILL.md") == ("skill: git", "SKILL.md")
+    assert c("secrets/github-app/secret.yaml") == ("secret: github-app", "declaration")
+    assert c("secrets/github-app/verify_github_app.py") == ("secret: github-app", "verify script")
+    assert c("services/backend/agentplatform/db.py") == (None, "services/backend/agentplatform/db.py")
+
+
+def test_notable_lines_config_files_only():
+    from agentplatform.api.pulls import _notable_lines
+    patch = ("@@ -1,3 +1,4 @@\n context\n+cron: [\"0 9 * * *\"]\n"
+             "+  - name: discord-bot\n+    severity: required\n-model: opus\n+prose line\n")
+    notable = _notable_lines("agents/x/entrypoints.yaml", patch)
+    assert '+cron: ["0 9 * * *"]' in notable and "-model: opus" in notable
+    assert "+    severity: required" in notable and "+prose line" not in notable
+    # prose files contribute nothing
+    assert _notable_lines("agents/x/agent.md", patch) == []
+
+
+async def test_summarize_requires_agent(admin_client):
+    # no change-summarizer in the fixture store → clear 409 (no GH call made)
+    r = await admin_client.post("/api/pull-requests/1/summarize")
+    assert r.status_code == 409
+
+
 # --- secret declarations -----------------------------------------------------
 
 async def test_secret_declaration_read(admin_client):

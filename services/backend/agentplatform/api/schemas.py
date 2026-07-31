@@ -318,6 +318,21 @@ class MergeResult(BaseModel):
     sha: str | None
 
 
+class ChangeImpactItem(BaseModel):
+    file: str
+    block: str | None      # "agent: news" … ; None = outside the building blocks
+    area: str              # definition | manifest | entrypoints | SKILL.md | declaration | path
+    status: str
+    additions: int
+    deletions: int
+    notable: list[str]     # config-meaningful +/- diff lines
+
+
+class ChangeImpact(BaseModel):
+    items: list[ChangeImpactItem]
+    warnings: list[str]
+
+
 class SyncStatus(BaseModel):
     # The synced checkout's HEAD — what the cluster is actually running.
     sha: str | None

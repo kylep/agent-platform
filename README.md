@@ -90,6 +90,40 @@ docs in [docs/building-blocks/](docs/building-blocks/):
   config mutation becomes a commit or PR; deterministic editors lock on their
   pending change; nothing an agent writes goes live unreviewed.
 
+## Repo map
+
+```
+agent-platform/
+├── agents/                    # building block: WHO runs — one folder per agent
+│   └── <name>/
+│       ├── agent.md           #   portable Claude Code definition (`claude --agent` works bare)
+│       ├── manifest.yaml      #   platform layer: role, skills, secrets, model, limits
+│       └── entrypoints.yaml   #   durable triggers: cron list, webhook paths, kafka (reserved)
+├── skills/                    # building block: WHAT agents can do (mounted via manifest `skills:`)
+│   └── <name>/SKILL.md        #   frontmatter (secrets + strictness) + usage instructions
+├── secrets/                   # building block: WHAT they may touch — shape only, values live in k8s
+│   └── <name>/
+│       ├── secret.yaml        #   keys→env-vars, hints, required, verify (probe | script | run)
+│       └── verify_*.py        #   sandboxed verify escape hatch (e.g. github-app signs a JWT)
+├── services/
+│   ├── backend/               # one image, three processes: api, dispatcher (+scheduler,
+│   │                          #   verifier heartbeat, ingest), recorder — FastAPI/SQLAlchemy/Kafka
+│   ├── runner/                # the agent pod: wraps `claude`, streams every event to Kafka
+│   ├── web/                   # React SPA (Vite)
+│   ├── mcp-broker/            # platform API as mcp__platform__* tools over streamable HTTP
+│   ├── connector-discord/     # Discord threads ↔ Conversations
+│   └── connector-slack/       # placeholder (not implemented)
+├── charts/agent-platform/     # the Helm chart: all Deployments incl. agents-sync (git→cluster
+│                              #   pull loop) and claude-proxy (token-holding egress proxy)
+├── sdk/                       # typed Python client generated from the OpenAPI spec (CI drift-checks)
+├── docs/
+│   ├── building-blocks/       # one concise doc per first-class citizen + the change loop
+│   └── design/                # numbered design notes, one per milestone/feature
+├── bin/                       # operator helpers (secret provisioning, the never-commit filename guard)
+└── exports.sh.sample          # dev-only: how the operator hands Claude secret values to set via
+                               #   the API while building — the platform never reads it
+```
+
 ## Architecture
 
 | Component | Role |

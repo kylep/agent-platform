@@ -1,30 +1,129 @@
 import { Fragment, useEffect, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
-import { api, type PullRequest, type PullRequestFile } from "../api";
+import { api, type PullRequest, type PullRequestFile, type RunDetailData } from "../api";
 import { blockPath, DeployTracker, parseBranch } from "../components/ChangeFlow";
 
 type Busy = { [n: number]: "merge" | "close" | undefined };
 type Accepted = { number: number; title: string; sha: string | null; branch: string };
+type Impact = {
+  items: { file: string; block: string | null; area: string; status: string;
+           additions: number; deletions: number; notable: string[] }[];
+  warnings: string[];
+};
 
-function Diff({ number }: { number: number }) {
+function lineClass(line: string): string {
+  if (line.startsWith("+")) return "diff-line diff-line-add";
+  if (line.startsWith("-")) return "diff-line diff-line-del";
+  if (line.startsWith("@@")) return "diff-line diff-line-hunk";
+  return "diff-line";
+}
+
+function ColoredPatch({ patch }: { patch: string }) {
+  return (
+    <pre className="diff-patch">
+      {patch.split("\n").map((l, i) => (
+        <div key={i} className={lineClass(l)}>{l || " "}</div>
+      ))}
+    </pre>
+  );
+}
+
+// The on-demand AI reviewer summary: one button → one change-summarizer run →
+// the run's result rendered inline.
+function Summary({ number }: { number: number }) {
+  const [runId, setRunId] = useState<string | null>(null);
+  const [run, setRun] = useState<RunDetailData | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  async function start() {
+    setError(null);
+    try {
+      const r = await api<{ id: string }>(`/api/pull-requests/${number}/summarize`, { method: "POST" });
+      setRunId(r.id);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to start the summary.");
+    }
+  }
+
+  useEffect(() => {
+    if (!runId) return;
+    let stop = false;
+    const id = setInterval(async () => {
+      try {
+        const r = await api<RunDetailData>(`/api/runs/${runId}`);
+        if (stop) return;
+        setRun(r);
+        if (!["queued", "dispatched", "running"].includes(r.state)) clearInterval(id);
+      } catch { /* transient */ }
+    }, 3000);
+    return () => { stop = true; clearInterval(id); };
+  }, [runId]);
+
+  if (!runId) {
+    return (
+      <div className="row-actions" style={{ marginTop: 6 }}>
+        <button className="secondary" onClick={start}>Summarize with AI</button>
+        {error && <span className="error">{error}</span>}
+      </div>
+    );
+  }
+  const running = !run || ["queued", "dispatched", "running"].includes(run.state);
+  if (running) {
+    return <p className="muted">Summarizing… (<Link to={`/runs/${runId}`}>watch the run</Link>)</p>;
+  }
+  if (run.state === "succeeded" && run.result) {
+    return (
+      <div className="banner">
+        <b>AI summary:</b> {run.result}
+        <span className="muted"> — <Link to={`/runs/${runId}`}>run</Link></span>
+      </div>
+    );
+  }
+  return (
+    <div className="error">
+      Summary run {run.state}{run.error ? `: ${run.error}` : ""} — <Link to={`/runs/${runId}`}>details</Link>
+    </div>
+  );
+}
+
+function Review({ number }: { number: number }) {
   const [files, setFiles] = useState<PullRequestFile[] | null>(null);
+  const [impact, setImpact] = useState<Impact | null>(null);
   const [error, setError] = useState<string | null>(null);
   useEffect(() => {
     api<PullRequestFile[]>(`/api/pull-requests/${number}/files`)
       .then(setFiles)
       .catch((err) => setError(err instanceof Error ? err.message : "Failed to load diff."));
+    api<Impact>(`/api/pull-requests/${number}/impact`).then(setImpact).catch(() => {});
   }, [number]);
   if (error) return <div className="error">{error}</div>;
   if (!files) return <p className="muted">Loading diff…</p>;
   if (files.length === 0) return <p className="muted">No file changes.</p>;
   return (
     <div>
+      {impact && impact.warnings.map((w, i) => (
+        <div key={i} className="banner">⚠ {w}</div>
+      ))}
+      {impact && (
+        <div className="impact-panel">
+          {impact.items.map((it) => (
+            <div key={it.file} className="impact-item">
+              <span className={`chip ${it.block ? "" : "chip-invalid"}`}>{it.block ?? "platform code"}</span>
+              <span className="muted"> {it.area} · {it.status} · +{it.additions} −{it.deletions}</span>
+              {it.notable.length > 0 && (
+                <pre className="impact-notable">{it.notable.join("\n")}</pre>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+      <Summary number={number} />
       {files.map((f) => (
         <div key={f.filename} className="diff-file">
           <div className="diff-file-head">
             {f.filename} <span className="muted">+{f.additions} −{f.deletions} ({f.status})</span>
           </div>
-          <pre className="diff-patch">{f.patch || "(no textual diff)"}</pre>
+          {f.patch ? <ColoredPatch patch={f.patch} /> : <pre className="diff-patch">(no textual diff)</pre>}
         </div>
       ))}
     </div>
@@ -53,7 +152,11 @@ export default function Changes() {
 
   function load() {
     api<PullRequest[]>("/api/pull-requests")
-      .then(setPrs)
+      .then((rows) => {
+        setPrs(rows);
+        // one pending change → open it for review straight away
+        setOpen((o) => (o === null && rows.length === 1 ? rows[0].number : o));
+      })
       .catch((err) => setError(err instanceof Error ? err.message : "Failed to load changes."))
       .finally(() => setLoading(false));
   }
@@ -154,7 +257,7 @@ export default function Changes() {
                 </tr>
                 {open === pr.number && (
                   <tr>
-                    <td colSpan={5}><Diff number={pr.number} /></td>
+                    <td colSpan={5}><Review number={pr.number} /></td>
                   </tr>
                 )}
               </Fragment>
@@ -168,7 +271,7 @@ export default function Changes() {
           <div className="modal" onClick={(e) => e.stopPropagation()}>
             <h2>Discard change #{confirmDiscard.number}?</h2>
             <p className="muted">
-              "{confirmDiscard.title}" will be closed and its edits dropped. The block it touches
+              "{confirmDiscard.title}" will be closed and its branch deleted. The block it touches
               unlocks for new edits. This can't be undone from here.
             </p>
             <div className="row-actions">

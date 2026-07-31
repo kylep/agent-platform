@@ -11,6 +11,8 @@ from .api_key_created import ApiKeyCreated
 from .api_key_in import ApiKeyIn
 from .api_key_view import ApiKeyView
 from .backlog import Backlog
+from .change_impact import ChangeImpact
+from .change_impact_item import ChangeImpactItem
 from .config_edit_in import ConfigEditIn
 from .connector import Connector
 from .conversation_detail import ConversationDetail
@@ -96,6 +98,8 @@ __all__ = (
     "ApiKeyIn",
     "ApiKeyView",
     "Backlog",
+    "ChangeImpact",
+    "ChangeImpactItem",
     "ConfigEditIn",
     "Connector",
     "ConversationDetail",

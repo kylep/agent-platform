@@ -59,6 +59,7 @@ export type RunDetailData = RunSummary & {
   prompt: string;
   exit_code: number | null;
   error: string | null;
+  result: string | null;
   tokens_in: number | null;
   tokens_out: number | null;
   tool_calls: number | null;

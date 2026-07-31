@@ -403,6 +403,28 @@ button.tag:hover {
   font-size: 13px;
   margin-bottom: 4px;
 }
+.diff-line { padding: 0 4px; }
+.diff-line-add { background: rgba(46, 160, 67, 0.18); }
+.diff-line-del { background: rgba(248, 81, 73, 0.15); }
+.diff-line-hunk { color: var(--muted); background: rgba(110, 118, 129, 0.12); }
+
+.impact-panel {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px 10px;
+  margin-bottom: 8px;
+}
+.impact-item { margin: 4px 0; }
+.impact-notable {
+  margin: 4px 0 4px 12px;
+  padding: 4px 8px;
+  background: var(--bg);
+  border-left: 3px solid var(--border);
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 12px;
+  overflow-x: auto;
+}
+
 .diff-patch {
   background: var(--bg);
   border: 1px solid var(--border);
