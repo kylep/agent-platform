@@ -2,6 +2,13 @@
 # is tracked. Source it before running the workstation deploy/verify helpers.
 #
 #   source exports.sh
+#
+# WHAT THIS IS (and isn't): a DEVELOPMENT convenience — the channel the
+# operator uses to hand secret values to Claude so Claude can set them via the
+# platform API while building. The running platform NEVER reads this file; its
+# secret *contracts* come from secrets/<name>/secret.yaml in git and its
+# *values* from k8s Secrets set through the API/UI.
+# See docs/building-blocks/secrets.md.
 
 # --- Platform admin ---
 # agent-platform admin UI password (http://pai:8090), set at first-launch

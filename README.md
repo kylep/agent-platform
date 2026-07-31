@@ -54,6 +54,42 @@ audited, and denied tool calls are recorded and surfaced on the run page.
 token rather than holding credentials. Platform agents use it instead of a
 shell; external MCP clients can use it too.
 
+## Building blocks
+
+Configuration lives in **git** as self-describing folders; runtime state lives
+in **Postgres**; secret *values* live in **k8s** and never enter git. Losing
+the database costs history, never configuration. One paragraph each — full
+docs in [docs/building-blocks/](docs/building-blocks/):
+
+- **[Agents](docs/building-blocks/agents.md)** — `agents/<name>/`: a portable
+  `agent.md` plus a `manifest.yaml` (role, skills, secrets, model, limits).
+  Readiness is *derived*: an unmet required secret dependency blocks the
+  agent's runs before dispatch, with the exact reason recorded.
+- **[Entrypoints](docs/building-blocks/entrypoints.md)** —
+  `agents/<name>/entrypoints.yaml`: the agent's durable triggers (cron list,
+  declared webhook paths, kafka reserved). Undeclared webhook paths don't
+  exist.
+- **[Skills](docs/building-blocks/skills.md)** — `skills/<name>/SKILL.md`:
+  reusable capabilities agents opt into; each declares its secrets with
+  strictness (`state`/`severity`). Authored by a wizard-driven coding agent or
+  edited in place — both land as PRs.
+- **[Secrets](docs/building-blocks/secrets.md)** — `secrets/<name>/secret.yaml`
+  declares the *shape* (keys, hints, verify: declarative probe or sandboxed
+  script); values live only in k8s. A heartbeat re-verifies every secret so
+  status can't go stale-green.
+- **[Jobs](docs/building-blocks/jobs.md)** — ad-hoc "agent + prompt + cron"
+  experiments in the DB; history, not config. Durable triggers graduate to
+  entrypoints.
+- **[Runs](docs/building-blocks/runs.md)** — every execution: live-tailed
+  transcript, metrics, terminal state; rejections carry the reason.
+- **[Conversations](docs/building-blocks/conversations.md)** — typed threads
+  (web = continuable in the UI, discord = bridged read-only), each turn a run.
+- **[Memories](docs/building-blocks/memories.md)** — per-agent namespaced
+  notes with full-text search, editable in the UI.
+- **[Changes](docs/building-blocks/changes.md)** — the self-edit loop: every
+  config mutation becomes a commit or PR; deterministic editors lock on their
+  pending change; nothing an agent writes goes live unreviewed.
+
 ## Architecture
 
 | Component | Role |
