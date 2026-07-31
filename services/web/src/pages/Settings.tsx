@@ -8,6 +8,7 @@ import { Table, TD, TH } from "../ui/table";
 
 const ROLE_DESC: Record<string, string> = {
   reader: "Read-only: view agents, runs, schedules, and changes.",
+  annotator: "Reader + annotate runs and write memories (system agents).",
   operator: "Reader + trigger runs and fire webhooks.",
   coder: "Operator + edit agents (self-edit / open PRs).",
   admin: "Full control: secrets, API keys, merges, and settings.",
@@ -61,6 +62,7 @@ function ApiKeysSection() {
   const [name, setName] = useState("");
   const [role, setRole] = useState("operator");
   const [minted, setMinted] = useState<ApiKeyMinted | null>(null);
+  const [showRevoked, setShowRevoked] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   function load() {
@@ -112,7 +114,7 @@ function ApiKeysSection() {
           <tr><TH>Name</TH><TH>Role</TH><TH>Prefix</TH><TH>Status</TH><TH></TH></tr>
         </thead>
         <tbody>
-          {keys.map((k) => (
+          {keys.filter((k) => showRevoked || !k.revoked_at).map((k) => (
             <tr key={k.id}>
               <TD>{k.name}</TD>
               <TD>{k.role}</TD>
@@ -124,8 +126,16 @@ function ApiKeysSection() {
                 <Button variant="secondary" size="sm" onClick={() => revoke(k.id)}>Revoke</Button>}</TD>
             </tr>
           ))}
+          {keys.filter((k) => !k.revoked_at).length === 0 && (
+            <tr><TD colSpan={5} className="text-muted">No active keys.</TD></tr>
+          )}
         </tbody>
       </Table>
+      {keys.some((k) => k.revoked_at) && (
+        <Button variant="link" className="text-muted mt-2" onClick={() => setShowRevoked(!showRevoked)}>
+          {showRevoked ? "Hide" : "Show"} {keys.filter((k) => k.revoked_at).length} revoked keys
+        </Button>
+      )}
     </section>
   );
 }

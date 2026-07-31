@@ -13,6 +13,9 @@ from ...types import UNSET, Response, Unset
 def _get_kwargs(
     *,
     limit: int | Unset = 50,
+    offset: int | Unset = 0,
+    agent: None | str | Unset = UNSET,
+    state: None | str | Unset = UNSET,
     tag: None | str | Unset = UNSET,
     needs_summary: bool | Unset = False,
 ) -> dict[str, Any]:
@@ -20,6 +23,22 @@ def _get_kwargs(
     params: dict[str, Any] = {}
 
     params["limit"] = limit
+
+    params["offset"] = offset
+
+    json_agent: None | str | Unset
+    if isinstance(agent, Unset):
+        json_agent = UNSET
+    else:
+        json_agent = agent
+    params["agent"] = json_agent
+
+    json_state: None | str | Unset
+    if isinstance(state, Unset):
+        json_state = UNSET
+    else:
+        json_state = state
+    params["state"] = json_state
 
     json_tag: None | str | Unset
     if isinstance(tag, Unset):
@@ -80,13 +99,24 @@ def sync_detailed(
     *,
     client: AuthenticatedClient | Client,
     limit: int | Unset = 50,
+    offset: int | Unset = 0,
+    agent: None | str | Unset = UNSET,
+    state: None | str | Unset = UNSET,
     tag: None | str | Unset = UNSET,
     needs_summary: bool | Unset = False,
 ) -> Response[HTTPValidationError | list[RunSummary]]:
     """List Runs
 
+     Run history with paging (`offset`) and agent/state filters pushed to
+    SQL — the full history stays reachable, not just the newest window. The
+    tag/needs_summary filters stay Python-side over a bounded recent window
+    (JSON membership isn't portable across sqlite/postgres).
+
     Args:
         limit (int | Unset):  Default: 50.
+        offset (int | Unset):  Default: 0.
+        agent (None | str | Unset):
+        state (None | str | Unset):
         tag (None | str | Unset):
         needs_summary (bool | Unset):  Default: False.
 
@@ -100,6 +130,9 @@ def sync_detailed(
 
     kwargs = _get_kwargs(
         limit=limit,
+        offset=offset,
+        agent=agent,
+        state=state,
         tag=tag,
         needs_summary=needs_summary,
     )
@@ -115,13 +148,24 @@ def sync(
     *,
     client: AuthenticatedClient | Client,
     limit: int | Unset = 50,
+    offset: int | Unset = 0,
+    agent: None | str | Unset = UNSET,
+    state: None | str | Unset = UNSET,
     tag: None | str | Unset = UNSET,
     needs_summary: bool | Unset = False,
 ) -> HTTPValidationError | list[RunSummary] | None:
     """List Runs
 
+     Run history with paging (`offset`) and agent/state filters pushed to
+    SQL — the full history stays reachable, not just the newest window. The
+    tag/needs_summary filters stay Python-side over a bounded recent window
+    (JSON membership isn't portable across sqlite/postgres).
+
     Args:
         limit (int | Unset):  Default: 50.
+        offset (int | Unset):  Default: 0.
+        agent (None | str | Unset):
+        state (None | str | Unset):
         tag (None | str | Unset):
         needs_summary (bool | Unset):  Default: False.
 
@@ -136,6 +180,9 @@ def sync(
     return sync_detailed(
         client=client,
         limit=limit,
+        offset=offset,
+        agent=agent,
+        state=state,
         tag=tag,
         needs_summary=needs_summary,
     ).parsed
@@ -145,13 +192,24 @@ async def asyncio_detailed(
     *,
     client: AuthenticatedClient | Client,
     limit: int | Unset = 50,
+    offset: int | Unset = 0,
+    agent: None | str | Unset = UNSET,
+    state: None | str | Unset = UNSET,
     tag: None | str | Unset = UNSET,
     needs_summary: bool | Unset = False,
 ) -> Response[HTTPValidationError | list[RunSummary]]:
     """List Runs
 
+     Run history with paging (`offset`) and agent/state filters pushed to
+    SQL — the full history stays reachable, not just the newest window. The
+    tag/needs_summary filters stay Python-side over a bounded recent window
+    (JSON membership isn't portable across sqlite/postgres).
+
     Args:
         limit (int | Unset):  Default: 50.
+        offset (int | Unset):  Default: 0.
+        agent (None | str | Unset):
+        state (None | str | Unset):
         tag (None | str | Unset):
         needs_summary (bool | Unset):  Default: False.
 
@@ -165,6 +223,9 @@ async def asyncio_detailed(
 
     kwargs = _get_kwargs(
         limit=limit,
+        offset=offset,
+        agent=agent,
+        state=state,
         tag=tag,
         needs_summary=needs_summary,
     )
@@ -178,13 +239,24 @@ async def asyncio(
     *,
     client: AuthenticatedClient | Client,
     limit: int | Unset = 50,
+    offset: int | Unset = 0,
+    agent: None | str | Unset = UNSET,
+    state: None | str | Unset = UNSET,
     tag: None | str | Unset = UNSET,
     needs_summary: bool | Unset = False,
 ) -> HTTPValidationError | list[RunSummary] | None:
     """List Runs
 
+     Run history with paging (`offset`) and agent/state filters pushed to
+    SQL — the full history stays reachable, not just the newest window. The
+    tag/needs_summary filters stay Python-side over a bounded recent window
+    (JSON membership isn't portable across sqlite/postgres).
+
     Args:
         limit (int | Unset):  Default: 50.
+        offset (int | Unset):  Default: 0.
+        agent (None | str | Unset):
+        state (None | str | Unset):
         tag (None | str | Unset):
         needs_summary (bool | Unset):  Default: False.
 
@@ -200,6 +272,9 @@ async def asyncio(
         await asyncio_detailed(
             client=client,
             limit=limit,
+            offset=offset,
+            agent=agent,
+            state=state,
             tag=tag,
             needs_summary=needs_summary,
         )

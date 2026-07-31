@@ -63,17 +63,32 @@ async def create_run(request: Request, body: RunIn,
 
 @router.get("/api/runs", response_model=list[S.RunSummary], dependencies=[Depends(require_role(*READ_ROLES))])
 async def list_runs(request: Request, limit: int = Query(50, ge=1, le=500),
+                    offset: int = Query(0, ge=0),
+                    agent: str | None = None, state: str | None = None,
                     tag: str | None = None, needs_summary: bool = False):
+    """Run history with paging (`offset`) and agent/state filters pushed to
+    SQL — the full history stays reachable, not just the newest window. The
+    tag/needs_summary filters stay Python-side over a bounded recent window
+    (JSON membership isn't portable across sqlite/postgres)."""
+    stmt = select(Run).order_by(Run.created_at.desc())
+    if agent:
+        stmt = stmt.where(Run.agent == agent)
+    if state:
+        stmt = stmt.where(Run.state == state)
+    python_filtered = bool(tag) or needs_summary
+    if not python_filtered:
+        stmt = stmt.offset(offset).limit(limit)
+    else:
+        stmt = stmt.limit(500 + offset)
     async with request.app.state.session_factory() as s:
-        # Over-fetch then filter in Python (JSON tag membership isn't portable
-        # across sqlite/postgres); fine at this scale.
-        rows = list((await s.execute(
-            select(Run).order_by(Run.created_at.desc()).limit(500))).scalars())
+        rows = list((await s.execute(stmt)).scalars())
     if needs_summary:
         rows = [r for r in rows if not r.summary]
     if tag:
         rows = [r for r in rows if tag in (r.tags or [])]
-    return [_summary(r) for r in rows[:limit]]
+    if python_filtered:
+        rows = rows[offset:offset + limit]
+    return [_summary(r) for r in rows]
 
 @router.get("/api/tags", response_model=list[str], dependencies=[Depends(require_role(*READ_ROLES))])
 async def list_tags(request: Request):

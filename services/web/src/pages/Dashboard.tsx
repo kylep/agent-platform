@@ -8,6 +8,7 @@ import {
 import { Chip, StatusChip } from "../ui/chip";
 import { Stat, StatRow } from "../ui/stat";
 import { Table, TD, TH } from "../ui/table";
+import { cronEnglish } from "../lib/cron";
 
 // One actionable item in the "Needs attention" panel.
 type Attn = { key: string; text: string; to: string; sev: "warn" | "bad" };
@@ -39,7 +40,7 @@ export default function Dashboard() {
     ]).then(([jobs, scheds]) => {
       const rows = [
         ...jobs.filter((j) => j.enabled).map((j) => ({ agent: j.agent, name: j.name, next: j.next_fire, cron: j.cron })),
-        ...scheds.filter((s) => s.enabled).map((s) => ({ agent: s.agent, name: "(declared)", next: s.next_fire, cron: s.cron })),
+        ...scheds.filter((s) => s.enabled).map((s) => ({ agent: s.agent, name: `cron ${s.cron}`, next: s.next_fire, cron: s.cron })),
       ].filter((r) => r.next).sort((a, b) => (a.next ?? "").localeCompare(b.next ?? "")).slice(0, 5);
       setUpcoming(rows);
     }).finally(() => setLoaded(true));
@@ -129,7 +130,7 @@ export default function Dashboard() {
         <Stat label="runs · 24h" value={ov?.runs_24h ?? "—"} to="/runs" />
         <Stat label="success rate" value={pct(ov?.success_rate ?? null)}
               warn={ov?.success_rate != null && ov.success_rate < 0.8} to="/reporting" />
-        <Stat label="tokens in/out" value={ov ? `${ov.tokens_in}/${ov.tokens_out}` : "—"} to="/reporting" />
+        <Stat label="tokens in/out" value={ov ? `${ov.tokens_in.toLocaleString()} / ${ov.tokens_out.toLocaleString()}` : "—"} to="/reporting" />
       </StatRow>
 
       <div className="dash-cols">
@@ -159,7 +160,7 @@ export default function Dashboard() {
               {upcoming.map((u, i) => (
                 <tr key={`${u.agent}-${u.name}-${i}`}>
                   <TD><Link to={`/agents/${encodeURIComponent(u.agent)}?tab=schedules`}>{u.agent}</Link></TD>
-                  <TD>{u.name}</TD>
+                  <TD className="cron" title={cronEnglish(u.cron)}>{u.name}</TD>
                   <TD className="text-muted" title={u.cron}>{u.next ? new Date(u.next).toLocaleString() : "—"}</TD>
                 </tr>
               ))}

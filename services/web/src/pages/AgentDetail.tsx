@@ -35,9 +35,9 @@ function AgentReport({ name }: { name: string }) {
         <Stat label="success" value={pct(m.success_rate)} warn={m.success_rate !== null && m.success_rate < 0.8} />
         <Stat label="fail streak" value={m.failure_streak} warn={m.failure_streak > 0} />
         <Stat label="avg duration" value={dur(m.avg_duration_seconds)} />
-        <Stat label="tokens in/out" value={`${m.tokens_in}/${m.tokens_out}`} />
+        <Stat label="tokens in/out · recent window" value={`${m.tokens_in.toLocaleString()} / ${m.tokens_out.toLocaleString()}`} />
       </StatRow>
-      <h2>Tokens by model</h2>
+      <h2>Tokens by model <span className="muted text-sm font-normal">(all time)</span></h2>
       <Table>
         <thead><tr><TH>Model</TH><TH>Runs</TH><TH>Tokens in</TH><TH>Tokens out</TH></tr></thead>
         <tbody>
@@ -318,7 +318,23 @@ export default function AgentDetail() {
   }
 
   if (loading) return <div className="page"><p className="muted">Loading…</p></div>;
-  if (loadError) return <div className="page"><div className="error">{loadError}</div></div>;
+  if (loadError) {
+    const gone = loadError.startsWith("404");
+    return (
+      <div className="page">
+        <h1>{name}</h1>
+        {gone ? (
+          <p className="muted">
+            No agent named <code>{name}</code> exists (it may have been deleted). Its run
+            history is still in <Link to={`/runs?agent=${encodeURIComponent(name ?? "")}`}>Runs</Link> and{" "}
+            <Link to="/reporting">Reporting</Link>.
+          </p>
+        ) : (
+          <div className="error">{loadError}</div>
+        )}
+      </div>
+    );
+  }
   if (!agent) return null;
 
   return (

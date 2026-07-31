@@ -1,5 +1,6 @@
 import { BrowserRouter, Route, Routes } from "react-router-dom";
 import Gate from "./Gate";
+import NotFound from "./pages/NotFound";
 import Layout from "./Layout";
 import Setup from "./pages/Setup";
 import Login from "./pages/Login";
@@ -42,6 +43,7 @@ export default function App() {
             <Route path="/schedules" element={<Schedules />} />
             <Route path="/secrets" element={<Secrets />} />
             <Route path="/settings" element={<Settings />} />
+            <Route path="*" element={<NotFound />} />
           </Route>
         </Route>
       </Routes>

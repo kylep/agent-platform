@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { api, type AgentMetrics, type Integration, type KafkaHealth, type MetricsOverview, type ModelUsage, type Retention } from "../api";
+import { api, type AgentMetrics, type AgentSummary, type Integration, type KafkaHealth, type MetricsOverview, type ModelUsage, type Retention } from "../api";
 import DurationChart from "../components/DurationChart";
 import { Button } from "../ui/button";
 import { Chip, chipStatusVariant } from "../ui/chip";
@@ -22,6 +22,7 @@ function dur(x: number | null): string {
 export default function Reporting() {
   const [ov, setOv] = useState<MetricsOverview | null>(null);
   const [agents, setAgents] = useState<AgentMetrics[]>([]);
+  const [liveAgents, setLiveAgents] = useState<Set<string>>(new Set());
   const [kafka, setKafka] = useState<KafkaHealth | null>(null);
   const [retention, setRetention] = useState<Retention | null>(null);
   const [integrations, setIntegrations] = useState<Integration[]>([]);
@@ -41,6 +42,9 @@ export default function Reporting() {
     api<KafkaHealth>("/api/health/kafka").then(setKafka).catch(() => setKafka(null));
     api<Retention>("/api/maintenance/retention").then(setRetention).catch(() => setRetention(null));
     api<Integration[]>("/api/integrations").then(setIntegrations).catch(() => setIntegrations([]));
+    api<AgentSummary[]>("/api/agents")
+      .then((a) => setLiveAgents(new Set(a.map((x) => x.name))))
+      .catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -99,7 +103,7 @@ export default function Reporting() {
           <Stat label="runs · 7d" value={ov.runs_7d} />
           <Stat label="total" value={ov.total} />
           <Stat label="avg duration" value={dur(ov.avg_duration_seconds)} />
-          <Stat label="tokens in/out" value={`${ov.tokens_in}/${ov.tokens_out}`} />
+          <Stat label={`tokens in/out · last ${ov.window} runs`} value={`${ov.tokens_in.toLocaleString()} / ${ov.tokens_out.toLocaleString()}`} />
         </StatRow>
       )}
 
@@ -114,7 +118,11 @@ export default function Reporting() {
         <tbody>
           {agents.map((a) => (
             <tr key={a.agent}>
-              <TD><Link to={`/agents/${a.agent}`}>{a.agent}</Link></TD>
+              <TD className="whitespace-nowrap">
+                {liveAgents.has(a.agent)
+                  ? <Link to={`/agents/${a.agent}`}>{a.agent}</Link>
+                  : <span className="text-muted" title="This agent no longer exists; its history remains.">{a.agent} <Chip>deleted</Chip></span>}
+              </TD>
               <TD>{a.total}</TD>
               <TD>{pct(a.success_rate)}</TD>
               <TD>{a.failure_streak > 0 ? <Chip variant="danger">{a.failure_streak}</Chip> : "0"}</TD>
@@ -127,7 +135,7 @@ export default function Reporting() {
         </tbody>
       </Table>
 
-      <h2>Tokens by model</h2>
+      <h2>Tokens by model <span className="muted text-sm font-normal">(all time)</span></h2>
       <div className="row-actions" style={{ marginBottom: 8 }}>
         <label className="muted" htmlFor="model-agent-filter">Agent:</label>
         <Select id="model-agent-filter" aria-label="Filter models by agent" value={modelAgent}

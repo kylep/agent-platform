@@ -4,6 +4,7 @@ import { api, type RunDetailData, type RunEvent } from "../api";
 import { Banner } from "../ui/banner";
 import { Button } from "../ui/button";
 import { StatusChip } from "../ui/chip";
+import { Markdown } from "../ui/markdown";
 import { isActiveState } from "./Runs";
 
 type ContentBlock = {
@@ -70,7 +71,7 @@ function FinalResult({ frame }: { frame: RunEvent }) {
   return (
     <div className={`final${err ? " final-err" : ""}`}>
       <div className="final-label">{err ? "Ended with error" : "Final reply"}</div>
-      {text ? <div className="final-text">{text}</div> : <div className="muted">(no reply text)</div>}
+      {text ? <Markdown className="final-text" text={text} /> : <div className="muted">(no reply text)</div>}
       <div className="final-meta muted">
         {[dur && `${dur}`, usage.input_tokens != null && `${usage.input_tokens}/${usage.output_tokens} tok`, cost,
           typeof frame.num_turns === "number" && `${frame.num_turns} turns`].filter(Boolean).join(" · ")}
@@ -93,6 +94,10 @@ function ReadableTranscript({ events }: { events: RunEvent[] }) {
     }
   }
 
+  // The final assistant message and the terminal `result` frame carry the
+  // same text — render it once, in the labeled Final reply card.
+  const finalText = String(events.find((f) => f.type === "result")?.result ?? "").trim();
+
   const rendered: React.ReactNode[] = [];
   let noise = 0;
   events.forEach((f, i) => {
@@ -100,8 +105,8 @@ function ReadableTranscript({ events }: { events: RunEvent[] }) {
       const content = (f.message as { content?: ContentBlock[] } | undefined)?.content;
       if (!Array.isArray(content)) return;
       content.forEach((b, j) => {
-        if (b.type === "text" && b.text?.trim()) {
-          rendered.push(<p key={`${i}-${j}`} className="transcript-text">{b.text}</p>);
+        if (b.type === "text" && b.text?.trim() && b.text.trim() !== finalText) {
+          rendered.push(<Markdown key={`${i}-${j}`} className="transcript-text" text={b.text} />);
         } else if (b.type === "tool_use" && b.name) {
           rendered.push(<ToolCall key={`${i}-${j}`} name={b.name} input={b.input}
             result={b.id ? results.get(b.id) : undefined} />);
@@ -198,9 +203,11 @@ export default function RunDetail() {
         <Banner variant="danger">
           ⛔ {run.permission_denials.length} blocked tool call
           {run.permission_denials.length > 1 ? "s" : ""}:{" "}
-          {run.permission_denials
-            .map((d) => String(d.tool_name ?? d.tool ?? "tool"))
-            .join(", ")}{" "}
+          {Object.entries(run.permission_denials.reduce<Record<string, number>>((acc, d) => {
+            const t = String(d.tool_name ?? d.tool ?? "tool");
+            acc[t] = (acc[t] ?? 0) + 1;
+            return acc;
+          }, {})).map(([t, n]) => (n > 1 ? `${t} ×${n}` : t)).join(", ")}{" "}
           — the agent tried a tool outside its allow-list.
         </Banner>
       )}
@@ -227,7 +234,7 @@ export default function RunDetail() {
         <dt>Finished</dt>
         <dd>{run.finished_at ? new Date(run.finished_at).toLocaleString() : "—"}</dd>
         <dt>Tokens in / out</dt>
-        <dd>{run.tokens_in ?? "—"} / {run.tokens_out ?? "—"}</dd>
+        <dd>{run.tokens_in?.toLocaleString() ?? "—"} / {run.tokens_out?.toLocaleString() ?? "—"}</dd>
         <dt>Tool calls</dt>
         <dd>{run.tool_calls ?? "—"}</dd>
         {run.secrets_granted && run.secrets_granted.length > 0 && (

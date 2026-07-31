@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { api, type AgentSummary } from "../api";
+import { cronEnglish } from "../lib/cron";
 import { cn } from "../lib/cn";
 import { buttonVariants } from "../ui/button";
 import { Chip } from "../ui/chip";
@@ -16,8 +17,8 @@ function AgentTable({ agents }: { agents: AgentSummary[] }) {
         {agents.map((a) => (
           <tr key={a.name}>
             <TD><Link to={`/agents/${encodeURIComponent(a.name)}`}>{a.name}</Link></TD>
-            <TD className="text-muted">{a.description}</TD>
-            <TD className="text-muted">{a.schedule ? <code>{a.schedule}</code> : "—"}</TD>
+            <TD className="text-muted"><span className="line-clamp-1" title={a.description}>{a.description}</span></TD>
+            <TD className="text-muted whitespace-nowrap">{a.schedule ? <code className="cron" title={cronEnglish(a.schedule)}>{a.schedule}</code> : "—"}</TD>
             <TD>
               {a.quarantined
                 ? <Chip variant="danger" title={a.error ?? "Quarantined"}>quarantined</Chip>

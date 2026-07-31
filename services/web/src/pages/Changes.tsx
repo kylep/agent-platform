@@ -6,6 +6,7 @@ import { Banner } from "../ui/banner";
 import { Button } from "../ui/button";
 import { Chip } from "../ui/chip";
 import { ConfirmDialog } from "../ui/dialog";
+import { Markdown } from "../ui/markdown";
 import { Table, TD, TH } from "../ui/table";
 
 type Busy = { [n: number]: "merge" | "close" | undefined };
@@ -84,8 +85,9 @@ function Summary({ number }: { number: number }) {
   if (run.state === "succeeded" && run.result) {
     return (
       <Banner>
-        <b>AI summary:</b> {run.result}
-        <span className="muted"> — <Link to={`/runs/${runId}`}>run</Link></span>
+        <b>AI summary:</b>
+        <Markdown text={run.result} />
+        <span className="muted"><Link to={`/runs/${runId}`}>summary run</Link></span>
       </Banner>
     );
   }
@@ -238,9 +240,9 @@ export default function Changes() {
         <p className="muted">No pending changes.</p>
       )}
       {!loading && prs.length > 0 && (
-        <Table>
+        <Table className="table-fixed">
           <thead>
-            <tr><TH>#</TH><TH>Title</TH><TH>Building block</TH><TH>Author</TH><TH></TH></tr>
+            <tr><TH className="w-14">#</TH><TH>Title</TH><TH className="w-44">Building block</TH><TH className="w-32">Author</TH><TH className="w-44"></TH></tr>
           </thead>
           <tbody>
             {prs.map((pr) => (

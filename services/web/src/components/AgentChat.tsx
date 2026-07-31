@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
+import { Markdown } from "../ui/markdown";
 import { api, type Conversation, type ConversationDetail } from "../api";
 import { Button } from "../ui/button";
 import { ConfirmDialog } from "../ui/dialog";
@@ -213,7 +214,9 @@ export default function AgentChat({ agent }: { agent: string }) {
                       </div>
                     )}
                     <div className="convo-agent">
-                      {t.result ?? (ACTIVE.has(t.state) ? <span className="muted">…thinking</span> : <span className="muted">({t.state})</span>)}
+                      {t.result != null
+                        ? <Markdown text={t.result} />
+                        : (ACTIVE.has(t.state) ? <span className="muted">…thinking</span> : <span className="muted">({t.state})</span>)}
                     </div>
                   </div>
                 ))}

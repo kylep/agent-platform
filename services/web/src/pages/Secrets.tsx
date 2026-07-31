@@ -304,7 +304,9 @@ export default function Secrets() {
                         </Button>
                       )}
                       <Button size="sm"
-                              variant={openEditor === `value:${s.name}` ? "secondary" : "primary"}
+                              // primary emphasis only where action is needed: a
+                              // missing secret wants its value; the rest are quiet
+                              variant={openEditor === `value:${s.name}` || s.status !== "missing" ? "secondary" : "primary"}
                               onClick={() => setOpenEditor(openEditor === `value:${s.name}` ? null : `value:${s.name}`)}>
                         {openEditor === `value:${s.name}` ? "Close" : "Set value"}
                       </Button>
