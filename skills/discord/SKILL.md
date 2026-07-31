@@ -5,7 +5,7 @@ icon: 💬
 secrets:
   - name: discord-webhook
     state: verified      # the URL is the credential; GETting it proves it
-    severity: required   # posting is the skill's whole purpose
+    severity: optional   # posting is the skill's whole purpose
 ---
 # discord
 
