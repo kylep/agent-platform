@@ -61,3 +61,21 @@ class TranscriptPruner:
             except Exception:
                 log.exception("prune_once failed")
             await asyncio.sleep(interval_seconds)
+
+
+async def sweep_orphaned_keys_forever(session_factory, interval_seconds: int = 900) -> None:
+    """Containment: revoke per-run API keys whose run already terminated but
+    whose terminal-frame revocation never happened (crashed pod, lost frame).
+    Cheap join, 15-minute cadence — an orphaned operator key stays live for
+    minutes, not forever."""
+    from agentplatform.apikeys import revoke_orphaned_run_keys
+    while True:
+        try:
+            async with session_factory() as s:
+                n = await revoke_orphaned_run_keys(s)
+                await s.commit()
+            if n:
+                log.info("revoked %d orphaned per-run api keys", n)
+        except Exception:
+            log.exception("orphaned-key sweep failed")
+        await asyncio.sleep(interval_seconds)
