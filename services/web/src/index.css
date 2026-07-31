@@ -746,3 +746,21 @@ button.danger-ghost:hover { border-color: var(--danger); }
 
 /* denial warning banner on the run page */
 .banner-warn { border-color: var(--err, #f87171); background: rgba(248, 113, 113, 0.08); }
+.banner-ok { border-color: var(--ok); background: rgba(74, 222, 128, 0.1); color: var(--ok); }
+
+/* Dashboard: attention queue + two-column body */
+.attention-list { list-style: none; margin: 0 0 20px; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.attention-item {
+  background: var(--bg-alt); border: 1px solid var(--border); border-left-width: 3px;
+  border-radius: 6px; padding: 8px 12px; font-size: 14px;
+}
+.attention-item a { color: var(--fg); text-decoration: none; display: block; }
+.attention-item a:hover { color: var(--accent); }
+.attention-warn { border-left-color: var(--warn); }
+.attention-bad { border-left-color: var(--danger); }
+.stat-link { text-decoration: none; }
+.stat-link .stat { transition: border-color 0.12s ease; }
+.stat-link:hover .stat { border-color: var(--accent); }
+.dash-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; align-items: start; }
+.dash-cols section { min-width: 0; }
+@media (max-width: 900px) { .dash-cols { grid-template-columns: 1fr; } }
