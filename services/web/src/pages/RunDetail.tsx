@@ -1,7 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { api, type RunDetailData, type RunEvent } from "../api";
-import { isActiveState, stateChipClass } from "./Runs";
+import { Banner } from "../ui/banner";
+import { Button } from "../ui/button";
+import { StatusChip } from "../ui/chip";
+import { isActiveState } from "./Runs";
 
 type ContentBlock = {
   type?: string;
@@ -192,14 +195,14 @@ export default function RunDetail() {
       <h1>Run {run.id.slice(0, 8)}</h1>
 
       {run.permission_denials && run.permission_denials.length > 0 && (
-        <div className="banner banner-warn">
+        <Banner variant="danger">
           ⛔ {run.permission_denials.length} blocked tool call
           {run.permission_denials.length > 1 ? "s" : ""}:{" "}
           {run.permission_denials
             .map((d) => String(d.tool_name ?? d.tool ?? "tool"))
             .join(", ")}{" "}
           — the agent tried a tool outside its allow-list.
-        </div>
+        </Banner>
       )}
 
       <dl className="def-list">
@@ -207,7 +210,7 @@ export default function RunDetail() {
         <dd><Link to={`/agents/${encodeURIComponent(run.agent)}`}>{run.agent}</Link></dd>
         <dt>State</dt>
         <dd>
-          <span className={`chip ${stateChipClass(run.state)}`}>{run.state}</span>
+          <StatusChip status={run.state} />
           {live && <span className="muted"> · streaming…</span>}
         </dd>
         <dt>Trigger</dt>
@@ -238,8 +241,8 @@ export default function RunDetail() {
         {run.error && (<><dt>Error</dt><dd className="error">{run.error}</dd></>)}
       </dl>
 
-      <div className="secret-row-footer">
-        <button onClick={kill} disabled={!active || killing}>{killing ? "Killing…" : "Kill"}</button>
+      <div className="row-actions" style={{ marginTop: 8 }}>
+        <Button variant="danger" onClick={kill} disabled={!active || killing}>{killing ? "Killing…" : "Kill"}</Button>
         {killError && <span className="error">{killError}</span>}
       </div>
 
@@ -248,9 +251,9 @@ export default function RunDetail() {
 
       <div className="page-header">
         <h2>Transcript</h2>
-        <button className="secondary" onClick={() => setRaw((v) => !v)}>
+        <Button variant="secondary" size="sm" onClick={() => setRaw((v) => !v)}>
           {raw ? "Readable view" : "Raw JSON"}
-        </button>
+        </Button>
       </div>
       {raw ? <RawTranscript events={events} /> : <ReadableTranscript events={events} />}
     </div>

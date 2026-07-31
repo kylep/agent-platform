@@ -2,6 +2,9 @@ import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { api, type EditResult, type ModelOption } from "../api";
 import { SkillPicker, ToolPicker, useCapabilities } from "../components/CapabilityPickers";
+import { Banner } from "../ui/banner";
+import { Button } from "../ui/button";
+import { Input, Textarea } from "../ui/field";
 
 const NAME_RE = /^[a-z0-9][a-z0-9-]{0,62}$/;
 
@@ -61,16 +64,16 @@ export default function NewAgent() {
     return (
       <div className="page">
         <h1>Agent “{name}” proposed</h1>
-        <div className="banner">
+        <Banner>
           Created on branch <code>{result.branch}</code> as a pull request for review.
           {result.pr && <> — <a href={result.pr.url} target="_blank" rel="noreferrer">PR #{result.pr.number}</a></>}
-        </div>
+        </Banner>
         <p className="muted">
           The agent goes live once you merge it under <Link to="/changes">Changes</Link>.
         </p>
         <div className="row-actions">
-          <button onClick={() => navigate("/changes")}>Go to Changes</button>
-          <button className="secondary" onClick={() => navigate("/agents")}>Back to Agents</button>
+          <Button onClick={() => navigate("/changes")}>Go to Changes</Button>
+          <Button variant="secondary" onClick={() => navigate("/agents")}>Back to Agents</Button>
         </div>
       </div>
     );
@@ -85,16 +88,16 @@ export default function NewAgent() {
       </p>
 
       <label className="field-label">Name</label>
-      <input placeholder="lowercase-with-hyphens" value={name}
+      <Input placeholder="lowercase-with-hyphens" value={name}
              onChange={(e) => setName(e.target.value.trim())} />
       {name && !nameOk && <div className="error">Lowercase letters, digits and hyphens only (1–63 chars).</div>}
 
       <label className="field-label">Description</label>
-      <input placeholder="What does this agent do?" value={description}
+      <Input placeholder="What does this agent do?" value={description}
              onChange={(e) => setDescription(e.target.value)} />
 
       <label className="field-label">Model <span className="muted">(optional)</span></label>
-      <input list="model-options" placeholder="blank uses the platform default — click or type to search"
+      <Input list="model-options" placeholder="blank uses the platform default — click or type to search"
              value={model} onChange={(e) => setModel(e.target.value.trim())} />
       <datalist id="model-options">
         {models.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}
@@ -108,15 +111,15 @@ export default function NewAgent() {
       <ToolPicker tools={tools} selected={pickedTools} onChange={setPickedTools} />
 
       <label className="field-label">System prompt</label>
-      <textarea placeholder="You are…" value={prompt} rows={6}
+      <Textarea placeholder="You are…" value={prompt} rows={6}
                 onChange={(e) => setPrompt(e.target.value)} />
 
       {error && <div className="error">{error}</div>}
       <div className="row-actions" style={{ marginTop: 12 }}>
-        <button onClick={create} disabled={saving || !nameOk}>
+        <Button onClick={create} disabled={saving || !nameOk}>
           {saving ? "Creating…" : "Create agent (opens PR)"}
-        </button>
-        <button className="secondary" onClick={() => navigate("/agents")}>Cancel</button>
+        </Button>
+        <Button variant="secondary" onClick={() => navigate("/agents")}>Cancel</Button>
       </div>
     </div>
   );

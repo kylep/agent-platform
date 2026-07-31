@@ -2,10 +2,14 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { api, type AgentMetrics, type Integration, type KafkaHealth, type MetricsOverview, type ModelUsage, type Retention } from "../api";
 import DurationChart from "../components/DurationChart";
+import { Button } from "../ui/button";
+import { Chip, chipStatusVariant } from "../ui/chip";
+import { Select } from "../ui/field";
+import { Stat, StatRow } from "../ui/stat";
+import { Table, TD, TH } from "../ui/table";
 
 function IntegrationChip({ status }: { status: string }) {
-  const cls = status === "working" ? "chip-ok" : status === "missing" ? "chip-invalid" : "chip-unprobed";
-  return <span className={`chip ${cls}`}>{status}</span>;
+  return <Chip variant={status === "missing" ? "danger" : chipStatusVariant(status)}>{status}</Chip>;
 }
 
 function pct(x: number | null): string {
@@ -13,15 +17,6 @@ function pct(x: number | null): string {
 }
 function dur(x: number | null): string {
   return x === null ? "—" : x >= 60 ? `${(x / 60).toFixed(1)}m` : `${x.toFixed(1)}s`;
-}
-
-function Stat({ label, value, warn }: { label: string; value: string | number; warn?: boolean }) {
-  return (
-    <div className={warn ? "stat stat-warn" : "stat"}>
-      <div className="stat-value">{value}</div>
-      <div className="stat-label">{label}</div>
-    </div>
-  );
 }
 
 export default function Reporting() {
@@ -73,87 +68,88 @@ export default function Reporting() {
       {error && <div className="error">{error}</div>}
 
       <h2>Health</h2>
-      <div className="stat-row">
+      <StatRow>
         <Stat label="broker" value={kafka ? (kafka.reachable ? "up" : "down") : "…"} warn={kafka ? !kafka.reachable : false} />
         <Stat label="dispatcher lag" value={kafka?.lag ?? "—"} warn={(kafka?.lag ?? 0) > 50} />
         <Stat label="active runs" value={ov?.active ?? "—"} />
         <Stat label="dlq depth" value={ov?.dlq ?? "—"} warn={(ov?.dlq ?? 0) > 0} />
-      </div>
+      </StatRow>
 
       <h2>Integrations</h2>
-      <table className="table">
-        <thead><tr><th>Integration</th><th>Status</th><th>Secret</th><th>Detail</th></tr></thead>
+      <Table>
+        <thead><tr><TH>Integration</TH><TH>Status</TH><TH>Secret</TH><TH>Detail</TH></tr></thead>
         <tbody>
           {integrations.map((i) => (
             <tr key={i.name}>
-              <td>{i.name}</td>
-              <td><IntegrationChip status={i.status} /></td>
-              <td className="muted">{i.secrets.join(", ") || "—"}</td>
-              <td className="muted">{i.detail}</td>
+              <TD>{i.name}</TD>
+              <TD><IntegrationChip status={i.status} /></TD>
+              <TD className="text-muted">{i.secrets.join(", ") || "—"}</TD>
+              <TD className="text-muted">{i.detail}</TD>
             </tr>
           ))}
-          {integrations.length === 0 && <tr><td colSpan={4} className="muted">No integrations.</td></tr>}
+          {integrations.length === 0 && <tr><TD colSpan={4} className="text-muted">No integrations.</TD></tr>}
         </tbody>
-      </table>
+      </Table>
 
       <h2>Runs</h2>
       {ov && (
-        <div className="stat-row">
+        <StatRow>
           <Stat label="success rate" value={pct(ov.success_rate)} warn={ov.success_rate !== null && ov.success_rate < 0.8} />
           <Stat label="runs · 24h" value={ov.runs_24h} />
           <Stat label="runs · 7d" value={ov.runs_7d} />
           <Stat label="total" value={ov.total} />
           <Stat label="avg duration" value={dur(ov.avg_duration_seconds)} />
           <Stat label="tokens in/out" value={`${ov.tokens_in}/${ov.tokens_out}`} />
-        </div>
+        </StatRow>
       )}
 
       <h2>Seconds per run</h2>
       <DurationChart />
 
       <h2>Per agent</h2>
-      <table className="table">
+      <Table>
         <thead>
-          <tr><th>Agent</th><th>Runs</th><th>Success</th><th>Fail streak</th><th>Avg dur</th><th>Tokens (in/out)</th><th>Last run</th></tr>
+          <tr><TH>Agent</TH><TH>Runs</TH><TH>Success</TH><TH>Fail streak</TH><TH>Avg dur</TH><TH>Tokens (in/out)</TH><TH>Last run</TH></tr>
         </thead>
         <tbody>
           {agents.map((a) => (
             <tr key={a.agent}>
-              <td><Link to={`/agents/${a.agent}`}>{a.agent}</Link></td>
-              <td>{a.total}</td>
-              <td>{pct(a.success_rate)}</td>
-              <td>{a.failure_streak > 0 ? <span className="chip chip-invalid">{a.failure_streak}</span> : "0"}</td>
-              <td>{dur(a.avg_duration_seconds)}</td>
-              <td className="muted">{a.tokens_in}/{a.tokens_out}</td>
-              <td className="muted">{a.last_run_at ? new Date(a.last_run_at).toLocaleString() : "—"}</td>
+              <TD><Link to={`/agents/${a.agent}`}>{a.agent}</Link></TD>
+              <TD>{a.total}</TD>
+              <TD>{pct(a.success_rate)}</TD>
+              <TD>{a.failure_streak > 0 ? <Chip variant="danger">{a.failure_streak}</Chip> : "0"}</TD>
+              <TD>{dur(a.avg_duration_seconds)}</TD>
+              <TD className="text-muted">{a.tokens_in}/{a.tokens_out}</TD>
+              <TD className="text-muted">{a.last_run_at ? new Date(a.last_run_at).toLocaleString() : "—"}</TD>
             </tr>
           ))}
-          {agents.length === 0 && <tr><td colSpan={7} className="muted">No runs yet.</td></tr>}
+          {agents.length === 0 && <tr><TD colSpan={7} className="text-muted">No runs yet.</TD></tr>}
         </tbody>
-      </table>
+      </Table>
 
       <h2>Tokens by model</h2>
       <div className="row-actions" style={{ marginBottom: 8 }}>
-        <label className="muted">Agent:</label>
-        <select aria-label="Filter models by agent" value={modelAgent} onChange={(e) => setModelAgent(e.target.value)}>
+        <label className="muted" htmlFor="model-agent-filter">Agent:</label>
+        <Select id="model-agent-filter" aria-label="Filter models by agent" value={modelAgent}
+                onChange={(e) => setModelAgent(e.target.value)}>
           <option value="">All agents</option>
           {agents.map((a) => <option key={a.agent} value={a.agent}>{a.agent}</option>)}
-        </select>
+        </Select>
       </div>
-      <table className="table">
-        <thead><tr><th>Model</th><th>Runs</th><th>Tokens in</th><th>Tokens out</th></tr></thead>
+      <Table>
+        <thead><tr><TH>Model</TH><TH>Runs</TH><TH>Tokens in</TH><TH>Tokens out</TH></tr></thead>
         <tbody>
           {models.map((m) => (
             <tr key={m.model}>
-              <td>{m.model}</td>
-              <td>{m.runs}</td>
-              <td className="muted">{m.tokens_in.toLocaleString()}</td>
-              <td className="muted">{m.tokens_out.toLocaleString()}</td>
+              <TD>{m.model}</TD>
+              <TD>{m.runs}</TD>
+              <TD className="text-muted">{m.tokens_in.toLocaleString()}</TD>
+              <TD className="text-muted">{m.tokens_out.toLocaleString()}</TD>
             </tr>
           ))}
-          {models.length === 0 && <tr><td colSpan={4} className="muted">No model usage recorded yet.</td></tr>}
+          {models.length === 0 && <tr><TD colSpan={4} className="text-muted">No model usage recorded yet.</TD></tr>}
         </tbody>
-      </table>
+      </Table>
 
       <h2>Transcript retention</h2>
       <p className="muted">
@@ -162,7 +158,7 @@ export default function Reporting() {
         daily; you can also run it now.
       </p>
       <div className="row-actions">
-        <button onClick={prune} disabled={pruning}>{pruning ? "Pruning…" : "Prune transcripts now"}</button>
+        <Button onClick={prune} disabled={pruning}>{pruning ? "Pruning…" : "Prune transcripts now"}</Button>
         {pruneMsg && <span className="muted">{pruneMsg}</span>}
       </div>
     </div>

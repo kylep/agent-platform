@@ -2,12 +2,13 @@ import { Fragment, useEffect, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { api, type EditResult, type PullRequest, type SecretStatus } from "../api";
 import { ChangePhaseBanner, PendingChangeBanner, useChangeLoop } from "../components/ChangeFlow";
+import { Banner } from "../ui/banner";
+import { Button } from "../ui/button";
+import { Chip, StatusChip } from "../ui/chip";
+import { CodeEditor, Input, Textarea } from "../ui/field";
+import { Table, TD, TH } from "../ui/table";
 
 type SaveState = "idle" | "saving" | "error";
-
-function StatusChip({ status }: { status: string }) {
-  return <span className={`chip chip-${status}`}>{status}</span>;
-}
 
 // Build the secret's key/value. An explicit key wins; otherwise use the
 // heuristic (pasted JSON → credentials.json file, anything else → `token`).
@@ -46,19 +47,21 @@ function ValueEditor({ name, isNew, hint, suggestedKey, onSaved, onCancel }: {
   return (
     <div className="secret-editor">
       {isNew && (
-        <input placeholder="secret name (e.g. discord-bot)" value={secretName}
+        <Input placeholder="secret name (e.g. discord-bot)" value={secretName}
                onChange={(e) => setSecretName(e.target.value)} />
       )}
       {hint && <div className="muted secret-hint">{hint}</div>}
-      <textarea placeholder={hint || "Paste the secret value…"} value={value} rows={3}
+      <Textarea placeholder={hint || "Paste the secret value…"} value={value} rows={3}
+                aria-label="Secret value"
                 onChange={(e) => { setValue(e.target.value); setState("idle"); }} autoFocus />
       <div className="row-actions">
-        <input className="secret-key" placeholder="key (default: token)" value={keyName}
+        <Input className="secret-key" placeholder="key (default: token)" value={keyName}
+               aria-label="Secret data key"
                onChange={(e) => setKeyName(e.target.value)} />
-        <button onClick={save} disabled={state === "saving" || !value.trim() || (isNew && !secretName.trim())}>
+        <Button onClick={save} disabled={state === "saving" || !value.trim() || (isNew && !secretName.trim())}>
           {state === "saving" ? "Saving…" : "Save value"}
-        </button>
-        <button className="secondary" onClick={onCancel}>Cancel</button>
+        </Button>
+        <Button variant="secondary" onClick={onCancel}>Cancel</Button>
         {state === "error" && <span className="error">Save failed.</span>}
       </div>
     </div>
@@ -115,23 +118,21 @@ function DeclarationEditor({ name }: { name: string }) {
         The declaration (<code>secrets/{name}/secret.yaml</code>) — keys, hints, and how the
         platform verifies this secret. The <b>value</b> is set separately and never enters git.
       </p>
-      <textarea
-        className="agent-md-editor"
+      <CodeEditor
         aria-label="Secret declaration (secret.yaml)"
         value={yamlText}
         onChange={(e) => setYamlText(e.target.value)}
         readOnly={locked}
-        spellCheck={false}
         rows={Math.min(20, Math.max(6, yamlText.split("\n").length + 2))}
       />
-      {noop && <div className="banner">No changes — the declaration already matches.</div>}
+      {noop && <Banner>No changes — the declaration already matches.</Banner>}
       {error && <div className="error">{error}</div>}
       <div className="row-actions" style={{ marginTop: 8 }}>
-        <button onClick={save} disabled={saving || locked || !dirty}>
+        <Button onClick={save} disabled={saving || locked || !dirty}>
           {saving ? "Saving…" : "Save declaration (opens PR)"}
-        </button>
+        </Button>
         {dirty && !locked && (
-          <button className="secondary" onClick={() => setYamlText(raw)}>Discard edits</button>
+          <Button variant="secondary" onClick={() => setYamlText(raw)}>Discard edits</Button>
         )}
       </div>
     </div>
@@ -179,11 +180,11 @@ function DeclareWizard({ initialName, onCancel }: { initialName?: string; onCanc
 
   if (opened) {
     return (
-      <div className="banner banner-ok">
+      <Banner variant="ok">
         Declaration proposed{opened.number ? <> — <Link to={`/changes?open=${opened.number}`}>review &amp; accept PR #{opened.number} under Changes</Link></> : <> — review it under <Link to="/changes">Changes</Link></>}.
         Once accepted and synced, the secret appears here with its hints; then set its value.
-        {" "}<button className="linkish" onClick={onCancel}>Done</button>
-      </div>
+        {" "}<Button variant="link" onClick={onCancel}>Done</Button>
+      </Banner>
     );
   }
 
@@ -197,32 +198,35 @@ function DeclareWizard({ initialName, onCancel }: { initialName?: string; onCanc
         hand or let the New-Skill wizard scaffold it.
       </p>
       <label className="muted">Name (lowercase-with-hyphens)</label>
-      <input placeholder="e.g. notion-token" value={name} onChange={(e) => setName(e.target.value)} autoFocus />
+      <Input placeholder="e.g. notion-token" value={name} onChange={(e) => setName(e.target.value)} autoFocus />
       <label className="muted">What is it?</label>
-      <input placeholder="e.g. Notion internal integration token" value={description}
+      <Input placeholder="e.g. Notion internal integration token" value={description}
              onChange={(e) => setDescription(e.target.value)} />
       <label className="muted">Key (the env var a skill reads) + where to get the value</label>
       <div className="row-actions">
-        <input placeholder="e.g. NOTION_TOKEN" value={keyName} onChange={(e) => setKeyName(e.target.value)} />
-        <input placeholder="hint: e.g. notion.so/my-integrations → New integration" value={keyHint}
+        <Input placeholder="e.g. NOTION_TOKEN" value={keyName} onChange={(e) => setKeyName(e.target.value)} />
+        <Input placeholder="hint: e.g. notion.so/my-integrations → New integration" value={keyHint}
                onChange={(e) => setKeyHint(e.target.value)} style={{ flex: 1 }} />
       </div>
       <label className="muted">Verification probe (optional): a read-only URL that 2xxes when the credential works.
         Use <code>{"{KEY}"}</code> placeholders for the secret's data.</label>
-      <input placeholder="e.g. https://api.notion.com/v1/users/me" value={probeUrl}
+      <Input placeholder="e.g. https://api.notion.com/v1/users/me" value={probeUrl}
+             aria-label="Probe URL"
              onChange={(e) => setProbeUrl(e.target.value)} />
-      <textarea placeholder={"headers, one per line:\nAuthorization: Bearer {NOTION_TOKEN}\nNotion-Version: 2022-06-28"}
-                rows={2} value={probeHeaders} onChange={(e) => setProbeHeaders(e.target.value)} />
+      <Textarea placeholder={"headers, one per line:\nAuthorization: Bearer {NOTION_TOKEN}\nNotion-Version: 2022-06-28"}
+                rows={2} value={probeHeaders} aria-label="Probe headers"
+                onChange={(e) => setProbeHeaders(e.target.value)} />
       <label>
-        <input type="checkbox" checked={required} onChange={(e) => setRequired(e.target.checked)} />
+        <input type="checkbox" className="accent-accent" checked={required}
+               onChange={(e) => setRequired(e.target.checked)} />
         {" "}The platform can't operate without it (required)
       </label>
       {error && <div className="error">{error}</div>}
       <div className="row-actions">
-        <button onClick={submit} disabled={!name.trim() || submitting}>
+        <Button onClick={submit} disabled={!name.trim() || submitting}>
           {submitting ? "Proposing…" : "Declare (opens PR)"}
-        </button>
-        <button className="secondary" onClick={onCancel}>Cancel</button>
+        </Button>
+        <Button variant="secondary" onClick={onCancel}>Cancel</Button>
       </div>
     </div>
   );
@@ -265,80 +269,81 @@ export default function Secrets() {
         cluster. The <b>declaration</b> is the reviewable shape; the <b>value</b> is pasted here
         and lives only in k8s. A heartbeat re-verifies every declared secret continuously.
       </p>
-      {banner && <div className="banner">{banner}</div>}
+      {banner && <Banner>{banner}</Banner>}
       {loading && <p className="muted">Loading…</p>}
       {!loading && (
-        <table className="table">
+        <Table>
           <thead>
-            <tr><th>Name</th><th>Status</th><th></th></tr>
+            <tr><TH>Name</TH><TH>Status</TH><TH></TH></tr>
           </thead>
           <tbody>
             {secrets.map((s) => (
               <Fragment key={s.name}>
                 <tr>
-                  <td>
+                  <TD>
                     <span className="secret-name">{s.name}</span>
                     {!s.declared && (
-                      <span className="chip chip-unprobed" title="No secrets/<name>/secret.yaml — the platform can't verify or describe this secret.">undeclared</span>
+                      <Chip variant="warn" className="ml-2" title="No secrets/<name>/secret.yaml — the platform can't verify or describe this secret.">undeclared</Chip>
                     )}
-                  </td>
-                  <td>
-                    {s.required && <span className="chip chip-required">required</span>}{" "}
+                  </TD>
+                  <TD>
+                    {s.required && <Chip variant="accent">required</Chip>}{" "}
                     <StatusChip status={s.status} />
                     {verifyResult[s.name] && (
                       <span className="muted secret-verify-note">
                         {" "}({verifyResult[s.name].code ?? verifyResult[s.name].detail})
                       </span>
                     )}
-                  </td>
-                  <td>
+                  </TD>
+                  <TD>
                     <div className="row-actions">
                       {s.probeable && (
-                        <button className="secondary" onClick={() => verify(s.name)}
+                        <Button variant="secondary" size="sm" onClick={() => verify(s.name)}
                                 disabled={verifying === s.name || s.status === "missing"}>
                           {verifying === s.name ? "Verifying…" : "Verify"}
-                        </button>
+                        </Button>
                       )}
-                      <button className={openEditor === `value:${s.name}` ? "secondary" : ""}
+                      <Button size="sm"
+                              variant={openEditor === `value:${s.name}` ? "secondary" : "primary"}
                               onClick={() => setOpenEditor(openEditor === `value:${s.name}` ? null : `value:${s.name}`)}>
                         {openEditor === `value:${s.name}` ? "Close" : "Set value"}
-                      </button>
+                      </Button>
                       {s.declared ? (
-                        <button className="secondary"
+                        <Button variant="secondary" size="sm"
                                 onClick={() => setOpenEditor(openEditor === `decl:${s.name}` ? null : `decl:${s.name}`)}>
                           {openEditor === `decl:${s.name}` ? "Close" : "Declaration"}
-                        </button>
+                        </Button>
                       ) : (
-                        <button className="secondary" onClick={() => setOpenEditor(`declare:${s.name}`)}>
+                        <Button variant="secondary" size="sm" onClick={() => setOpenEditor(`declare:${s.name}`)}>
                           Declare
-                        </button>
+                        </Button>
                       )}
                     </div>
-                  </td>
+                  </TD>
                 </tr>
                 {openEditor === `value:${s.name}` && (
-                  <tr><td colSpan={3}>
+                  <tr><TD colSpan={3}>
                     <ValueEditor name={s.name} hint={s.hint} suggestedKey={s.key}
                                  onSaved={done} onCancel={() => setOpenEditor(null)} />
-                  </td></tr>
+                  </TD></tr>
                 )}
                 {openEditor === `decl:${s.name}` && (
-                  <tr><td colSpan={3}><DeclarationEditor name={s.name} /></td></tr>
+                  <tr><TD colSpan={3}><DeclarationEditor name={s.name} /></TD></tr>
                 )}
                 {openEditor === `declare:${s.name}` && (
-                  <tr><td colSpan={3}>
+                  <tr><TD colSpan={3}>
                     <DeclareWizard initialName={s.name} onCancel={done} />
-                  </td></tr>
+                  </TD></tr>
                 )}
               </Fragment>
             ))}
           </tbody>
-        </table>
+        </Table>
       )}
       {!loading && openEditor === null && (
         <div className="row-actions" style={{ marginTop: 12 }}>
-          <button onClick={() => setOpenEditor("declare")}>Declare a secret</button>
-          <button className="secondary" onClick={() => setOpenEditor("value-new")}>Set a bare value</button>
+          <Button onClick={() => setOpenEditor("declare")}>Declare a secret</Button>
+          <Button variant="secondary" onClick={() => setOpenEditor("value-new")}>Set a bare value</Button>
         </div>
       )}
       {openEditor === "declare" && <DeclareWizard onCancel={done} />}

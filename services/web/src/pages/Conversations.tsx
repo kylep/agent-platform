@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { api, type Connector, type Conversation } from "../api";
+import { Chip } from "../ui/chip";
+import { Table, TD, TH } from "../ui/table";
 
 /** Index of every conversation across agents. Clicking a row opens it in the
  * agent's Conversations tab (the chat view), which is also where new
@@ -31,35 +33,35 @@ export default function Conversations() {
         agent's <em>Conversations</em> tab (or mention the bot on a connected channel like Discord).
       </p>
 
-      <table className="table">
+      <Table>
         <thead>
-          <tr><th>Title</th><th>Agent</th><th>Type</th><th>Updated</th></tr>
+          <tr><TH>Title</TH><TH>Agent</TH><TH>Type</TH><TH>Updated</TH></tr>
         </thead>
         <tbody>
           {list.map((c) => (
             <tr key={c.id} className="clickable-row" onClick={() => open(c)}>
-              <td>{c.title}</td>
-              <td>
+              <TD>{c.title}</TD>
+              <TD>
                 <Link to={`/agents/${encodeURIComponent(c.agent)}`} onClick={(e) => e.stopPropagation()}>
                   {c.agent}
                 </Link>
-              </td>
-              <td><span className={`convo-type convo-type-${c.connector}`}>{c.connector}</span></td>
-              <td className="muted">{when(c.updated_at)}</td>
+              </TD>
+              <TD><span className={`convo-type convo-type-${c.connector}`}>{c.connector}</span></TD>
+              <TD className="text-muted">{when(c.updated_at)}</TD>
             </tr>
           ))}
           {loaded && list.length === 0 && (
-            <tr><td colSpan={4} className="muted">No conversations yet — open an agent and start one.</td></tr>
+            <tr><TD colSpan={4} className="text-muted">No conversations yet — open an agent and start one.</TD></tr>
           )}
         </tbody>
-      </table>
+      </Table>
 
       <h2>Connectors</h2>
       <div className="chip-row">
         {connectors.map((c) => (
-          <span key={c.name} className={c.implemented ? "chip chip-ok" : "chip"} title={c.description}>
+          <Chip key={c.name} variant={c.implemented ? "ok" : "neutral"} title={c.description}>
             {c.name}{c.implemented ? "" : " — NYI"}
-          </span>
+          </Chip>
         ))}
       </div>
     </div>

@@ -1,0 +1,141 @@
+/*
+ * Design system — Tailwind v4 entry + token source of truth.
+ * Visual direction: Terminal (dark-default, developer-native) — lifted from
+ * the pericak.com v4 design system and adapted for the platform console.
+ *
+ * Token tiers:
+ *   1. Primitives  — raw palette/scales in @theme (generate utilities + vars)
+ *   2. Semantic    — themable aliases (--color-canvas, --color-default, ...)
+ *      mapped via @theme inline to --ds-* vars in :root / [data-theme=light],
+ *      so dark<->light is a pure variable swap with no component changes.
+ *
+ * Rules: components use ONLY semantic utilities (bg-canvas, text-muted,
+ * border-border, text-accent, ...). No raw hex outside this file — enforced
+ * by bin/check-no-raw-hex.mjs.
+ */
+@import "tailwindcss";
+
+/* 1. Primitives ---------------------------------------------------------- */
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system,
+    "Helvetica Neue", Arial, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo,
+    Consolas, monospace;
+
+  /* neutrals (ink) — dark-forward ramp */
+  --color-ink-950: #0b0e14;
+  --color-ink-900: #11151f;
+  --color-ink-850: #161b27;
+  --color-ink-800: #1c2230;
+  --color-ink-700: #222a38;
+  --color-ink-600: #2d3748;
+  --color-ink-500: #4a5568;
+  --color-ink-400: #6b7688;
+  --color-ink-300: #9aa4b2;
+  --color-ink-200: #c3cad6;
+  --color-ink-100: #e6e9ef;
+  --color-ink-50: #f4f6fa;
+
+  /* accent — terminal cyan */
+  --color-cyan-300: #6ff0db;
+  --color-cyan-400: #36e2c4;
+  --color-cyan-500: #1fc7ab;
+  --color-cyan-700: #0d9488;
+
+  /* status */
+  --color-amber-400: #f5a623;
+  --color-red-400: #f87171;
+  --color-red-600: #dc2626;
+  --color-green-400: #4ade80;
+  --color-green-600: #16a34a;
+  --color-blue-600: #2563eb;
+
+  /* radius — tight, terminal */
+  --radius-sm: 2px;
+  --radius-md: 4px;
+  --radius-lg: 8px;
+}
+
+/* 2. Semantic aliases — themable; utilities like bg-canvas/text-default
+ *    resolve to these and switch at runtime via the var swap below.        */
+@theme inline {
+  --color-canvas: var(--ds-canvas);
+  --color-surface: var(--ds-surface);
+  --color-raised: var(--ds-raised);
+  --color-border: var(--ds-border);
+  --color-default: var(--ds-text);
+  --color-muted: var(--ds-text-muted);
+  --color-subtle: var(--ds-text-subtle);
+  --color-accent: var(--ds-accent);
+  --color-accent-hover: var(--ds-accent-hover);
+  --color-on-accent: var(--ds-on-accent);
+  --color-warning: var(--ds-warning);
+  --color-danger: var(--ds-danger);
+  --color-success: var(--ds-success);
+  --color-link: var(--ds-link);
+}
+
+/* Dark = default (Terminal) */
+:root {
+  --ds-canvas: var(--color-ink-950);
+  --ds-surface: var(--color-ink-900);
+  --ds-raised: var(--color-ink-800);
+  --ds-border: var(--color-ink-700);
+  --ds-text: var(--color-ink-100);
+  --ds-text-muted: var(--color-ink-300);
+  --ds-text-subtle: #8a94a4; /* lightened for WCAG AA on the dark canvas */
+  --ds-accent: var(--color-cyan-400);
+  --ds-accent-hover: var(--color-cyan-300);
+  --ds-on-accent: var(--color-ink-950);
+  --ds-warning: var(--color-amber-400);
+  --ds-danger: var(--color-red-400);
+  --ds-success: var(--color-green-400);
+  --ds-link: var(--color-cyan-400);
+
+  /* data-viz series (DurationChart etc.) — AA as text on the dark canvas */
+  --ds-chart-1: #6ea8fe;
+  --ds-chart-2: #4ade80;
+  --ds-chart-3: #fbbf24;
+  --ds-chart-4: #f87171;
+  --ds-chart-5: #b794f6;
+  --ds-chart-6: #3ddbe8;
+  --ds-chart-7: #ef8bb9;
+  --ds-chart-8: #9aa4b2;
+}
+
+/* Light = secondary theme */
+[data-theme="light"] {
+  --ds-canvas: #ffffff;
+  --ds-surface: var(--color-ink-50);
+  --ds-raised: #ffffff;
+  --ds-border: #d8dee9;
+  --ds-text: #18181b;
+  --ds-text-muted: #52606d;
+  --ds-text-subtle: #5e6b79; /* darkened for WCAG AA on white */
+  --ds-accent: #0f766e; /* darker teal — AA contrast on white */
+  --ds-accent-hover: #0a5d56;
+  --ds-on-accent: #ffffff;
+  --ds-warning: #b45309;
+  --ds-danger: var(--color-red-600);
+  --ds-success: var(--color-green-600);
+  --ds-link: var(--color-blue-600);
+
+  --ds-chart-1: #2563eb;
+  --ds-chart-2: #16a34a;
+  --ds-chart-3: #b45309;
+  --ds-chart-4: #dc2626;
+  --ds-chart-5: #7c3aed;
+  --ds-chart-6: #0d9488;
+  --ds-chart-7: #be185d;
+  --ds-chart-8: #52606d;
+}
+
+/* App base */
+html, body, #root { height: 100%; }
+body {
+  background: var(--ds-canvas);
+  color: var(--ds-text);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  -webkit-font-smoothing: antialiased;
+}

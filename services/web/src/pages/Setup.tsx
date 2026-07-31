@@ -1,6 +1,8 @@
 import { useState, type FormEvent } from "react";
 import { useNavigate } from "react-router-dom";
 import { api } from "../api";
+import { Button } from "../ui/button";
+import { Input } from "../ui/field";
 
 export default function Setup() {
   const navigate = useNavigate();
@@ -38,7 +40,7 @@ export default function Setup() {
         <h1>Set the admin password</h1>
         <p className="muted">No admin account exists yet. Choose a password to finish setup.</p>
         <label htmlFor="password">Password</label>
-        <input
+        <Input
           id="password"
           type="password"
           autoFocus
@@ -46,14 +48,14 @@ export default function Setup() {
           onChange={(e) => setPassword(e.target.value)}
         />
         <label htmlFor="confirm">Confirm password</label>
-        <input
+        <Input
           id="confirm"
           type="password"
           value={confirm}
           onChange={(e) => setConfirm(e.target.value)}
         />
         {error && <div className="error">{error}</div>}
-        <button type="submit" disabled={busy}>{busy ? "Setting up…" : "Finish setup"}</button>
+        <Button type="submit" disabled={busy}>{busy ? "Setting up…" : "Finish setup"}</Button>
       </form>
     </div>
   );

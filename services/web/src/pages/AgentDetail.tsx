@@ -6,6 +6,11 @@ import { ChangePhaseBanner, PendingChangeBanner, useChangeLoop } from "../compon
 import AgentChat from "../components/AgentChat";
 import AgentMemories from "../components/AgentMemories";
 import AgentSchedules from "../components/AgentSchedules";
+import { Banner } from "../ui/banner";
+import { Button } from "../ui/button";
+import { CodeEditor, Textarea } from "../ui/field";
+import { Stat, StatRow } from "../ui/stat";
+import { Table, TD, TH } from "../ui/table";
 
 function AgentReport({ name }: { name: string }) {
   const [m, setM] = useState<AgentMetrics | null>(null);
@@ -25,29 +30,27 @@ function AgentReport({ name }: { name: string }) {
   if (!m) return <p className="muted">Loading…</p>;
   return (
     <>
-      <div className="stat-row">
-        <div className="stat"><div className="stat-value">{m.total}</div><div className="stat-label">runs</div></div>
-        <div className={m.success_rate !== null && m.success_rate < 0.8 ? "stat stat-warn" : "stat"}>
-          <div className="stat-value">{pct(m.success_rate)}</div><div className="stat-label">success</div></div>
-        <div className={m.failure_streak > 0 ? "stat stat-warn" : "stat"}>
-          <div className="stat-value">{m.failure_streak}</div><div className="stat-label">fail streak</div></div>
-        <div className="stat"><div className="stat-value">{dur(m.avg_duration_seconds)}</div><div className="stat-label">avg duration</div></div>
-        <div className="stat"><div className="stat-value">{m.tokens_in}/{m.tokens_out}</div><div className="stat-label">tokens in/out</div></div>
-      </div>
+      <StatRow>
+        <Stat label="runs" value={m.total} />
+        <Stat label="success" value={pct(m.success_rate)} warn={m.success_rate !== null && m.success_rate < 0.8} />
+        <Stat label="fail streak" value={m.failure_streak} warn={m.failure_streak > 0} />
+        <Stat label="avg duration" value={dur(m.avg_duration_seconds)} />
+        <Stat label="tokens in/out" value={`${m.tokens_in}/${m.tokens_out}`} />
+      </StatRow>
       <h2>Tokens by model</h2>
-      <table className="table">
-        <thead><tr><th>Model</th><th>Runs</th><th>Tokens in</th><th>Tokens out</th></tr></thead>
+      <Table>
+        <thead><tr><TH>Model</TH><TH>Runs</TH><TH>Tokens in</TH><TH>Tokens out</TH></tr></thead>
         <tbody>
           {models.map((mu) => (
             <tr key={mu.model}>
-              <td>{mu.model}</td><td>{mu.runs}</td>
-              <td className="muted">{mu.tokens_in.toLocaleString()}</td>
-              <td className="muted">{mu.tokens_out.toLocaleString()}</td>
+              <TD>{mu.model}</TD><TD>{mu.runs}</TD>
+              <TD className="text-muted">{mu.tokens_in.toLocaleString()}</TD>
+              <TD className="text-muted">{mu.tokens_out.toLocaleString()}</TD>
             </tr>
           ))}
-          {models.length === 0 && <tr><td colSpan={4} className="muted">No model usage recorded yet.</td></tr>}
+          {models.length === 0 && <tr><TD colSpan={4} className="text-muted">No model usage recorded yet.</TD></tr>}
         </tbody>
-      </table>
+      </Table>
       <p className="muted">Last run: {m.last_run_at ? new Date(m.last_run_at).toLocaleString() : "—"}</p>
     </>
   );
@@ -109,12 +112,12 @@ function CapabilityEditor({ agent, locked, onSaved }: {
       <h2>Tools</h2>
       <ToolPicker tools={tools} selected={pickedTools} onChange={setPickedTools} />
 
-      {noop && <div className="banner">No changes — the agent already matches this configuration.</div>}
+      {noop && <Banner>No changes — the agent already matches this configuration.</Banner>}
       {error && <div className="error">{error}</div>}
       <div className="row-actions" style={{ marginTop: 12 }}>
-        <button onClick={save} disabled={saving || !ready || locked}>
+        <Button onClick={save} disabled={saving || !ready || locked}>
           {saving ? "Saving…" : "Save skills & tools (opens PR)"}
-        </button>
+        </Button>
       </div>
       <p className="muted check-note">
         Changing skills or tools is review-gated: it always opens a pull request rather than editing <code>main</code> directly.
@@ -159,23 +162,21 @@ function DefinitionEditor({ agent, locked, onSaved }: {
         The live definition, synced from <code>main</code> — this is exactly what runs. Edit it and
         save: your exact text becomes a pending change to review under <Link to="/changes">Changes</Link>.
       </p>
-      <textarea
-        className="agent-md-editor"
+      <CodeEditor
         aria-label="Agent definition (agent.md)"
         value={md}
         onChange={(e) => setMd(e.target.value)}
         readOnly={locked}
-        spellCheck={false}
         rows={Math.min(30, Math.max(12, md.split("\n").length + 2))}
       />
-      {noop && <div className="banner">No changes — the definition already matches.</div>}
+      {noop && <Banner>No changes — the definition already matches.</Banner>}
       {error && <div className="error">{error}</div>}
       <div className="row-actions" style={{ marginTop: 8 }}>
-        <button onClick={save} disabled={saving || locked || !dirty}>
+        <Button onClick={save} disabled={saving || locked || !dirty}>
           {saving ? "Saving…" : "Save definition (opens PR)"}
-        </button>
+        </Button>
         {dirty && !locked && (
-          <button className="secondary" onClick={() => setMd(agent.agent_md)}>Discard edits</button>
+          <Button variant="secondary" onClick={() => setMd(agent.agent_md)}>Discard edits</Button>
         )}
       </div>
     </>
@@ -219,24 +220,22 @@ function EntrypointsEditor({ agent, locked, onSaved }: {
         rejected at save time. Emptying the editor removes the file. Ad-hoc schedules belong
         in <Link to={`/agents/${encodeURIComponent(agent.name)}?tab=schedules`}>Jobs</Link> instead.
       </p>
-      <textarea
-        className="agent-md-editor"
+      <CodeEditor
         aria-label="Entrypoints (entrypoints.yaml)"
         value={yamlText}
         onChange={(e) => setYamlText(e.target.value)}
         readOnly={locked}
-        spellCheck={false}
         placeholder={'cron: ["0 9 * * *"]\nwebhooks:\n  - path: my-hook\n'}
         rows={Math.min(14, Math.max(5, yamlText.split("\n").length + 2))}
       />
-      {noop && <div className="banner">No changes — the entrypoints already match.</div>}
+      {noop && <Banner>No changes — the entrypoints already match.</Banner>}
       {error && <div className="error">{error}</div>}
       <div className="row-actions" style={{ marginTop: 8 }}>
-        <button onClick={save} disabled={saving || locked || !dirty}>
+        <Button onClick={save} disabled={saving || locked || !dirty}>
           {saving ? "Saving…" : "Save entrypoints (opens PR)"}
-        </button>
+        </Button>
         {dirty && !locked && (
-          <button className="secondary" onClick={() => setYamlText(agent.entrypoints_raw)}>Discard edits</button>
+          <Button variant="secondary" onClick={() => setYamlText(agent.entrypoints_raw)}>Discard edits</Button>
         )}
       </div>
     </>
@@ -325,12 +324,12 @@ export default function AgentDetail() {
   return (
     <div className={tab === "conversations" ? "page page-chat" : "page"}>
       <h1>{agent.name}</h1>
-      {agent.error && <div className="banner">{agent.error}</div>}
+      {agent.error && <Banner variant="danger">{agent.error}</Banner>}
       {summary?.blocked && (
-        <div className="banner">
+        <Banner variant="danger">
           {summary.blocked_reason} — fix it under <Link to="/secrets">Settings → Secrets</Link>.
           Runs are rejected until the secret is healthy.
-        </div>
+        </Banner>
       )}
       {pending && <PendingChangeBanner pr={pending} what="agent" />}
       <ChangePhaseBanner phase={phase} what="definition" />
@@ -373,18 +372,19 @@ export default function AgentDetail() {
         pull request (one per agent) that you review and merge under <Link to="/changes">Changes</Link>.
         It does not change anything until you merge.
       </p>
-      <textarea
+      <Textarea
         placeholder="e.g. Add a line telling the agent to always reply in English."
+        aria-label="Instruction for platform-coder"
         value={instruction}
         onChange={(e) => setInstruction(e.target.value)}
         rows={3}
         readOnly={pending !== null}
       />
       {editError && <div className="error">{editError}</div>}
-      <div className="secret-row-footer">
-        <button onClick={editAgent} disabled={editing || pending !== null || instruction.trim() === ""}>
+      <div className="row-actions" style={{ marginTop: 8 }}>
+        <Button onClick={editAgent} disabled={editing || pending !== null || instruction.trim() === ""}>
           {editing ? "Dispatching…" : "Edit with platform-coder"}
-        </button>
+        </Button>
       </div>
       </>)}
     </div>

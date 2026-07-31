@@ -1,6 +1,8 @@
 import { useState, type FormEvent } from "react";
 import { useNavigate } from "react-router-dom";
 import { api } from "../api";
+import { Button } from "../ui/button";
+import { Input } from "../ui/field";
 
 export default function Login() {
   const navigate = useNavigate();
@@ -27,7 +29,7 @@ export default function Login() {
       <form className="auth-form" onSubmit={onSubmit}>
         <h1>Log in</h1>
         <label htmlFor="password">Password</label>
-        <input
+        <Input
           id="password"
           type="password"
           autoFocus
@@ -35,7 +37,7 @@ export default function Login() {
           onChange={(e) => setPassword(e.target.value)}
         />
         {error && <div className="error">{error}</div>}
-        <button type="submit" disabled={busy}>{busy ? "Logging in…" : "Log in"}</button>
+        <Button type="submit" disabled={busy}>{busy ? "Logging in…" : "Log in"}</Button>
       </form>
     </div>
   );

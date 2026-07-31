@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { NavLink, Outlet, useLocation } from "react-router-dom";
 import { api, type PullRequest } from "./api";
+import { Button } from "./ui/button";
 
 // A nav entry is either a plain link or a group: a parent link with children
 // that collapse/expand (GCP-style). Children are indented under the parent.
@@ -33,9 +34,21 @@ function groupPaths(g: Group): string[] {
   return [g.to, ...g.children.map((c) => c.to)];
 }
 
+// Theme: dark is the default (Terminal); the choice persists per browser.
+function useTheme() {
+  const [theme, setTheme] = useState<"dark" | "light">(
+    () => (localStorage.getItem("theme") === "light" ? "light" : "dark"));
+  useEffect(() => {
+    document.documentElement.dataset.theme = theme;
+    localStorage.setItem("theme", theme);
+  }, [theme]);
+  return { theme, toggle: () => setTheme((t) => (t === "dark" ? "light" : "dark")) };
+}
+
 export default function Layout() {
   const [pendingChanges, setPendingChanges] = useState(0);
   const location = useLocation();
+  const { theme, toggle } = useTheme();
 
   // Which groups are expanded. A group opens automatically when the current
   // route is the parent or one of its children; the user can also toggle it.
@@ -102,6 +115,12 @@ export default function Layout() {
             </div>
           );
         })}
+        <div className="nav-foot">
+          <Button variant="secondary" size="sm" onClick={toggle}
+                  aria-label={`Switch to ${theme === "dark" ? "light" : "dark"} theme`}>
+            {theme === "dark" ? "☀ light" : "◐ dark"}
+          </Button>
+        </div>
       </nav>
       <main className="main">
         <Outlet />

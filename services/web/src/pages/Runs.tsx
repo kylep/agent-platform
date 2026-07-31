@@ -1,17 +1,13 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { api, type RunSummary } from "../api";
+import { ChipButton, StatusChip } from "../ui/chip";
+import { Select } from "../ui/field";
+import { Table, TD, TH } from "../ui/table";
 
 const REFRESH_MS = 5000;
 
 const ACTIVE_STATES = new Set(["queued", "dispatched", "running"]);
-const OK_STATES = new Set(["succeeded"]);
-
-export function stateChipClass(state: string): string {
-  if (OK_STATES.has(state)) return "chip-ok";
-  if (ACTIVE_STATES.has(state)) return "chip-unprobed";
-  return "chip-invalid";
-}
 
 export function isActiveState(state: string): boolean {
   return ACTIVE_STATES.has(state);
@@ -45,43 +41,47 @@ export default function Runs() {
       <h1>Runs</h1>
       <div className="form-row">
         <label className="muted">Filter by tag:{" "}
-          <select aria-label="Filter runs by tag" value={tag} onChange={(e) => setTag(e.target.value)}>
+          <Select aria-label="Filter runs by tag" value={tag} onChange={(e) => setTag(e.target.value)}>
             <option value="">all</option>
             {tags.map((t) => <option key={t} value={t}>{t}</option>)}
-          </select>
+          </Select>
         </label>
       </div>
       {loading && <p className="muted">Loading…</p>}
       {error && <div className="error">{error}</div>}
       {!loading && !error && (
-        <table className="table">
+        <Table>
           <thead>
             <tr>
-              <th>ID</th>
-              <th>Agent</th>
-              <th>State</th>
-              <th>Summary</th>
-              <th>Tags</th>
-              <th>Created</th>
+              <TH>ID</TH>
+              <TH>Agent</TH>
+              <TH>State</TH>
+              <TH>Summary</TH>
+              <TH>Tags</TH>
+              <TH>Created</TH>
             </tr>
           </thead>
           <tbody>
             {runs.map((r) => (
               <tr key={r.id}>
-                <td><Link to={`/runs/${r.id}`}>{r.id.slice(0, 8)}</Link></td>
-                <td>{r.agent}</td>
-                <td><span className={`chip ${stateChipClass(r.state)}`}>{r.state}</span></td>
-                <td className="muted" title={r.summary ?? ""}>
+                <TD><Link to={`/runs/${r.id}`}>{r.id.slice(0, 8)}</Link></TD>
+                <TD>{r.agent}</TD>
+                <TD><StatusChip status={r.state} /></TD>
+                <TD className="text-muted" title={r.summary ?? ""}>
                   {r.summary ? (r.summary.length > 70 ? r.summary.slice(0, 70) + "…" : r.summary) : "—"}
-                </td>
-                <td>{(r.tags ?? []).map((t) => (
-                  <button key={t} className="tag" onClick={() => setTag(t)}>{t}</button>
-                ))}</td>
-                <td className="muted">{new Date(r.created_at).toLocaleString()}</td>
+                </TD>
+                <TD>
+                  <span className="flex flex-wrap gap-1">
+                    {(r.tags ?? []).map((t) => (
+                      <ChipButton key={t} className="normal-case" onClick={() => setTag(t)}>{t}</ChipButton>
+                    ))}
+                  </span>
+                </TD>
+                <TD className="text-muted">{new Date(r.created_at).toLocaleString()}</TD>
               </tr>
             ))}
           </tbody>
-        </table>
+        </Table>
       )}
     </div>
   );

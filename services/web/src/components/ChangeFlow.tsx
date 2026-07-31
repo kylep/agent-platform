@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { api, type PullRequest, type SyncStatus } from "../api";
+import { Banner } from "../ui/banner";
+import { Chip } from "../ui/chip";
 
 // The standardized change loop (docs/building-blocks/changes.md):
 //   Propose → Review → Accept → Deploying → Live   (or Discard)
@@ -95,22 +97,22 @@ export function useChangeLoop(branch: string, onLive?: () => void) {
 // "This <what> has a pending change — review it under Changes."
 export function PendingChangeBanner({ pr, what }: { pr: PullRequest; what: string }) {
   return (
-    <div className="banner">
+    <Banner>
       This {what} has a pending change
       {pr.number ? <> (<a href={pr.url} target="_blank" rel="noreferrer">PR #{pr.number}</a>)</> : null} —{" "}
       <Link to={`/changes?open=${pr.number}`}>review &amp; accept it under Changes</Link>.
       Editing is locked until it's accepted or discarded.
-    </div>
+    </Banner>
   );
 }
 
 // Post-resolve feedback shared by every editor page.
 export function ChangePhaseBanner({ phase, what }: { phase: ChangePhase; what: string }) {
   if (phase === "deploying") {
-    return <div className="banner">Change resolved — syncing to the cluster…</div>;
+    return <Banner>Change resolved — syncing to the cluster…</Banner>;
   }
   if (phase === "live") {
-    return <div className="banner banner-ok">✓ Live — showing the current {what}.</div>;
+    return <Banner variant="ok">✓ Live — showing the current {what}.</Banner>;
   }
   return null;
 }
@@ -144,7 +146,7 @@ export function DeployTracker({ sha, onLive }: { sha: string | null; onLive?: ()
     return () => { stop = true; };
   }, [sha]);
 
-  if (state === "live") return <span className="chip chip-ok">live ✓</span>;
-  if (state === "unconfirmed") return <span className="chip chip-unprobed" title="The checkout moved but its head isn't this exact sha (another commit may have landed after). Almost certainly live.">live (unconfirmed)</span>;
-  return <span className="chip chip-unprobed">deploying…</span>;
+  if (state === "live") return <Chip variant="ok">live ✓</Chip>;
+  if (state === "unconfirmed") return <Chip variant="warn" title="The checkout moved but its head isn't this exact sha (another commit may have landed after). Almost certainly live.">live (unconfirmed)</Chip>;
+  return <Chip variant="warn">deploying…</Chip>;
 }

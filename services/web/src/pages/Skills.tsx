@@ -2,6 +2,11 @@ import { Fragment, useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { api, type EditResult, type PullRequest, type Skill, type SkillDetail } from "../api";
 import { ChangePhaseBanner, PendingChangeBanner, useChangeLoop } from "../components/ChangeFlow";
+import { Banner } from "../ui/banner";
+import { Button } from "../ui/button";
+import { Chip } from "../ui/chip";
+import { CodeEditor, Input, Textarea } from "../ui/field";
+import { Table, TD, TH } from "../ui/table";
 
 // The raw SKILL.md editor: deterministic save — exactly what you type becomes
 // the pending change (a PR on `coder/skill-{name}`), same contract as the
@@ -51,23 +56,21 @@ function SkillEditor({ name }: { name: string }) {
     <div>
       {pending && <PendingChangeBanner pr={pending} what="skill" />}
       <ChangePhaseBanner phase={phase} what="skill" />
-      <textarea
-        className="agent-md-editor"
+      <CodeEditor
         aria-label="Skill definition (SKILL.md)"
         value={md}
         onChange={(e) => setMd(e.target.value)}
         readOnly={locked}
-        spellCheck={false}
         rows={Math.min(30, Math.max(10, md.split("\n").length + 2))}
       />
-      {noop && <div className="banner">No changes — the skill already matches.</div>}
+      {noop && <Banner>No changes — the skill already matches.</Banner>}
       {error && <div className="error">{error}</div>}
       <div className="row-actions" style={{ marginTop: 8 }}>
-        <button onClick={save} disabled={saving || locked || !dirty}>
+        <Button onClick={save} disabled={saving || locked || !dirty}>
           {saving ? "Saving…" : "Save SKILL.md (opens PR)"}
-        </button>
+        </Button>
         {dirty && !locked && (
-          <button className="secondary" onClick={() => setMd(detail.raw)}>Discard edits</button>
+          <Button variant="secondary" onClick={() => setMd(detail.raw)}>Discard edits</Button>
         )}
       </div>
     </div>
@@ -121,35 +124,37 @@ function SkillWizard({ onCancel }: { onCancel: () => void }) {
         under <Link to="/changes">Changes</Link> — nothing goes live until you accept it.
       </p>
       <label className="muted">Name (lowercase-with-hyphens)</label>
-      <input placeholder="e.g. notion" value={name} onChange={(e) => setName(e.target.value)} autoFocus />
+      <Input placeholder="e.g. notion" value={name} onChange={(e) => setName(e.target.value)} autoFocus />
       <label className="muted">What should it do?</label>
-      <textarea rows={3} placeholder="e.g. Create and update pages in a Notion workspace…"
+      <Textarea rows={3} placeholder="e.g. Create and update pages in a Notion workspace…"
                 value={purpose} onChange={(e) => setPurpose(e.target.value)} />
       <label className="muted">When should an agent reach for it? (optional)</label>
-      <textarea rows={2} placeholder="e.g. When asked to file notes or publish a summary to Notion."
+      <Textarea rows={2} placeholder="e.g. When asked to file notes or publish a summary to Notion."
                 value={whenToUse} onChange={(e) => setWhenToUse(e.target.value)} />
       <label>
-        <input type="checkbox" checked={needsSecret} onChange={(e) => setNeedsSecret(e.target.checked)} />
+        <input type="checkbox" className="accent-accent" checked={needsSecret}
+               onChange={(e) => setNeedsSecret(e.target.checked)} />
         {" "}It needs a credential (API token, webhook URL, …)
       </label>
       {needsSecret && (
         <div className="secret-editor">
-          <input placeholder="secret name (e.g. notion-token)" value={secretName}
+          <Input placeholder="secret name (e.g. notion-token)" value={secretName}
                  onChange={(e) => setSecretName(e.target.value)} />
-          <input placeholder="env var the skill reads (e.g. NOTION_TOKEN)" value={secretEnv}
+          <Input placeholder="env var the skill reads (e.g. NOTION_TOKEN)" value={secretEnv}
                  onChange={(e) => setSecretEnv(e.target.value)} />
-          <input placeholder="what it is / where to get it" value={secretDesc}
+          <Input placeholder="what it is / where to get it" value={secretDesc}
                  onChange={(e) => setSecretDesc(e.target.value)} />
         </div>
       )}
       <label className="muted">Anything else the author should know? (optional)</label>
-      <textarea rows={2} value={notes} onChange={(e) => setNotes(e.target.value)} />
+      <Textarea rows={2} value={notes} onChange={(e) => setNotes(e.target.value)}
+                aria-label="Additional notes for the skill author" />
       {error && <div className="error">{error}</div>}
       <div className="row-actions">
-        <button onClick={submit} disabled={!ready || submitting}>
+        <Button onClick={submit} disabled={!ready || submitting}>
           {submitting ? "Dispatching…" : "Author skill (opens PR)"}
-        </button>
-        <button className="secondary" onClick={onCancel}>Cancel</button>
+        </Button>
+        <Button variant="secondary" onClick={onCancel}>Cancel</Button>
       </div>
     </div>
   );
@@ -187,25 +192,26 @@ export default function Skills() {
       {error && <div className="error">{error}</div>}
       {!loading && !error && skills.length === 0 && <p className="muted">No skills defined.</p>}
       {!loading && skills.length > 0 && (
-        <table className="table">
+        <Table>
           <thead>
-            <tr><th></th><th>Name</th><th>Description</th><th>Secrets</th><th>Used by</th></tr>
+            <tr><TH></TH><TH>Name</TH><TH>Description</TH><TH>Secrets</TH><TH>Used by</TH></tr>
           </thead>
           <tbody>
             {skills.map((s) => (
               <Fragment key={s.name}>
                 <tr>
-                  <td className="skill-icon">{s.icon || "🧩"}</td>
-                  <td>
-                    <button className="linkish" onClick={() => setOpen(open === s.name ? null : s.name)}>
+                  <TD className="skill-icon">{s.icon || "🧩"}</TD>
+                  <TD>
+                    <Button variant="link" className="text-default no-underline hover:text-accent hover:no-underline"
+                            onClick={() => setOpen(open === s.name ? null : s.name)}>
                       {open === s.name ? "▾ " : "▸ "}{s.name}
-                    </button>
-                    {pendingFor(s.name) && <span className="chip chip-unprobed" title="Pending change">PR</span>}
+                    </Button>
+                    {pendingFor(s.name) && <Chip variant="warn" className="ml-2" title="Pending change">PR</Chip>}
                     {s.error && <div className="error">{s.error}</div>}
-                  </td>
-                  <td>{s.description || "—"}</td>
-                  <td className="muted">{s.secrets.length ? s.secrets.join(", ") : "—"}</td>
-                  <td className="muted">
+                  </TD>
+                  <TD>{s.description || "—"}</TD>
+                  <TD className="text-muted">{s.secrets.length ? s.secrets.join(", ") : "—"}</TD>
+                  <TD className="text-muted">
                     {s.used_by.length
                       ? s.used_by.map((a, i) => (
                           <Fragment key={a}>
@@ -214,20 +220,20 @@ export default function Skills() {
                           </Fragment>
                         ))
                       : "—"}
-                  </td>
+                  </TD>
                 </tr>
                 {open === s.name && (
-                  <tr><td colSpan={5}>
+                  <tr><TD colSpan={5}>
                     <SkillEditor name={s.name} />
-                  </td></tr>
+                  </TD></tr>
                 )}
               </Fragment>
             ))}
           </tbody>
-        </table>
+        </Table>
       )}
       {!loading && !wizard && (
-        <button style={{ marginTop: 12 }} onClick={() => setWizard(true)}>New skill</button>
+        <Button style={{ marginTop: 12 }} onClick={() => setWizard(true)}>New skill</Button>
       )}
       {wizard && <SkillWizard onCancel={() => setWizard(false)} />}
     </div>

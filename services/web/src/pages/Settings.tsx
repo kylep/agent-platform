@@ -1,5 +1,10 @@
 import { useEffect, useState } from "react";
 import { api, type ApiKey, type ApiKeyMinted } from "../api";
+import { Banner } from "../ui/banner";
+import { Button } from "../ui/button";
+import { Chip } from "../ui/chip";
+import { Input, Select } from "../ui/field";
+import { Table, TD, TH } from "../ui/table";
 
 const ROLE_DESC: Record<string, string> = {
   reader: "Read-only: view agents, runs, schedules, and changes.",
@@ -35,16 +40,16 @@ function PasswordSection() {
     <section>
       <h2>Change admin password</h2>
       <div className="form-col">
-        <input type="password" placeholder="Current password" value={oldPw}
+        <Input type="password" placeholder="Current password" value={oldPw}
                onChange={(e) => { setOldPw(e.target.value); setState("idle"); }} />
-        <input type="password" placeholder="New password (min 8 chars)" value={newPw}
+        <Input type="password" placeholder="New password (min 8 chars)" value={newPw}
                onChange={(e) => { setNewPw(e.target.value); setState("idle"); }} />
       </div>
       {error && <div className="error">{error}</div>}
-      <div className="secret-row-footer">
-        <button onClick={change} disabled={state === "saving" || oldPw === "" || newPw.length < 8}>
+      <div className="row-actions" style={{ marginTop: 8 }}>
+        <Button onClick={change} disabled={state === "saving" || oldPw === "" || newPw.length < 8}>
           {state === "saving" ? "Saving…" : "Change password"}
-        </button>
+        </Button>
         {state === "saved" && <span className="muted">Password changed.</span>}
       </div>
     </section>
@@ -88,39 +93,39 @@ function ApiKeysSection() {
       <h2>API keys</h2>
       <p className="muted">Bearer tokens for non-interactive access. The token is shown once, at creation.</p>
       {minted && (
-        <div className="banner">
+        <Banner>
           New key <strong>{minted.name}</strong> ({minted.role}) — copy it now, it won't be shown again:
           <pre className="agent-md">{minted.token}</pre>
-        </div>
+        </Banner>
       )}
       <div className="form-row">
-        <input placeholder="Key name" value={name} onChange={(e) => setName(e.target.value)} />
-        <select aria-label="API key role" value={role} onChange={(e) => setRole(e.target.value)}>
+        <Input placeholder="Key name" value={name} onChange={(e) => setName(e.target.value)} />
+        <Select aria-label="API key role" value={role} onChange={(e) => setRole(e.target.value)}>
           {ROLES.map((r) => <option key={r} value={r} title={ROLE_DESC[r]}>{r}</option>)}
-        </select>
-        <button onClick={mint} disabled={name.trim() === ""}>Create key</button>
+        </Select>
+        <Button onClick={mint} disabled={name.trim() === ""}>Create key</Button>
       </div>
       <p className="muted"><strong>{role}</strong> — {ROLE_DESC[role]}</p>
       {error && <div className="error">{error}</div>}
-      <table className="table">
+      <Table>
         <thead>
-          <tr><th>Name</th><th>Role</th><th>Prefix</th><th>Status</th><th></th></tr>
+          <tr><TH>Name</TH><TH>Role</TH><TH>Prefix</TH><TH>Status</TH><TH></TH></tr>
         </thead>
         <tbody>
           {keys.map((k) => (
             <tr key={k.id}>
-              <td>{k.name}</td>
-              <td>{k.role}</td>
-              <td className="muted">{k.prefix}…</td>
-              <td>{k.revoked_at
-                ? <span className="chip chip-invalid">revoked</span>
-                : <span className="chip chip-ok">active</span>}</td>
-              <td>{!k.revoked_at &&
-                <button className="secondary" onClick={() => revoke(k.id)}>Revoke</button>}</td>
+              <TD>{k.name}</TD>
+              <TD>{k.role}</TD>
+              <TD className="text-muted">{k.prefix}…</TD>
+              <TD>{k.revoked_at
+                ? <Chip variant="danger">revoked</Chip>
+                : <Chip variant="ok">active</Chip>}</TD>
+              <TD>{!k.revoked_at &&
+                <Button variant="secondary" size="sm" onClick={() => revoke(k.id)}>Revoke</Button>}</TD>
             </tr>
           ))}
         </tbody>
-      </table>
+      </Table>
     </section>
   );
 }

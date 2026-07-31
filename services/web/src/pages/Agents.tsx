@@ -1,30 +1,34 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { api, type AgentSummary } from "../api";
+import { cn } from "../lib/cn";
+import { buttonVariants } from "../ui/button";
+import { Chip } from "../ui/chip";
+import { Table, TD, TH } from "../ui/table";
 
 function AgentTable({ agents }: { agents: AgentSummary[] }) {
   return (
-    <table className="table">
+    <Table>
       <thead>
-        <tr><th>Name</th><th>Description</th><th>Schedule</th><th>Status</th></tr>
+        <tr><TH>Name</TH><TH>Description</TH><TH>Schedule</TH><TH>Status</TH></tr>
       </thead>
       <tbody>
         {agents.map((a) => (
           <tr key={a.name}>
-            <td><Link to={`/agents/${encodeURIComponent(a.name)}`}>{a.name}</Link></td>
-            <td className="muted">{a.description}</td>
-            <td className="muted">{a.schedule ? <code>{a.schedule}</code> : "—"}</td>
-            <td>
+            <TD><Link to={`/agents/${encodeURIComponent(a.name)}`}>{a.name}</Link></TD>
+            <TD className="text-muted">{a.description}</TD>
+            <TD className="text-muted">{a.schedule ? <code>{a.schedule}</code> : "—"}</TD>
+            <TD>
               {a.quarantined
-                ? <span className="chip chip-invalid" title={a.error ?? "Quarantined"}>quarantined</span>
+                ? <Chip variant="danger" title={a.error ?? "Quarantined"}>quarantined</Chip>
                 : a.blocked
-                ? <span className="chip chip-invalid" title={a.blocked_reason ?? "Blocked"}>blocked</span>
-                : <span className="chip chip-ok">ok</span>}
-            </td>
+                ? <Chip variant="danger" title={a.blocked_reason ?? "Blocked"}>blocked</Chip>
+                : <Chip variant="ok">ok</Chip>}
+            </TD>
           </tr>
         ))}
       </tbody>
-    </table>
+    </Table>
   );
 }
 
@@ -47,7 +51,10 @@ export default function Agents() {
     <div className="page">
       <div className="page-header">
         <h1>Agents</h1>
-        <Link to="/agents/new" className="button-link">+ New Agent</Link>
+        <Link to="/agents/new"
+              className={cn(buttonVariants({ variant: "primary", size: "sm" }), "no-underline hover:no-underline")}>
+          + New Agent
+        </Link>
       </div>
       {loading && <p className="muted">Loading…</p>}
       {error && <div className="error">{error}</div>}

@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { api, type DlqEntry } from "../api";
+import { Button } from "../ui/button";
+import { Table, TD, TH } from "../ui/table";
 
 type Busy = { [id: string]: "retry" | "discard" | undefined };
 
@@ -43,31 +45,31 @@ export default function Dlq() {
       {error && <div className="error">{error}</div>}
       {!loading && !error && rows.length === 0 && <p className="muted">Dead-letter queue is empty.</p>}
       {!loading && rows.length > 0 && (
-        <table className="table">
+        <Table>
           <thead>
-            <tr><th>ID</th><th>Agent</th><th>Error</th><th>Failed</th><th></th></tr>
+            <tr><TH>ID</TH><TH>Agent</TH><TH>Error</TH><TH>Failed</TH><TH></TH></tr>
           </thead>
           <tbody>
             {rows.map((r) => (
               <tr key={r.id}>
-                <td><Link to={`/runs/${r.id}`}>{r.id.slice(0, 8)}</Link></td>
-                <td>{r.agent}</td>
-                <td className="error">{r.error || "—"}</td>
-                <td className="muted">{r.finished_at ? new Date(r.finished_at).toLocaleString() : "—"}</td>
-                <td>
+                <TD><Link to={`/runs/${r.id}`}>{r.id.slice(0, 8)}</Link></TD>
+                <TD>{r.agent}</TD>
+                <TD className="error">{r.error || "—"}</TD>
+                <TD className="text-muted">{r.finished_at ? new Date(r.finished_at).toLocaleString() : "—"}</TD>
+                <TD>
                   <div className="row-actions">
-                    <button onClick={() => act(r.id, "retry")} disabled={!!busy[r.id]}>
+                    <Button size="sm" onClick={() => act(r.id, "retry")} disabled={!!busy[r.id]}>
                       {busy[r.id] === "retry" ? "Retrying…" : "Retry"}
-                    </button>
-                    <button className="secondary" onClick={() => act(r.id, "discard")} disabled={!!busy[r.id]}>
+                    </Button>
+                    <Button variant="secondary" size="sm" onClick={() => act(r.id, "discard")} disabled={!!busy[r.id]}>
                       {busy[r.id] === "discard" ? "Discarding…" : "Discard"}
-                    </button>
+                    </Button>
                   </div>
-                </td>
+                </TD>
               </tr>
             ))}
           </tbody>
-        </table>
+        </Table>
       )}
     </div>
   );

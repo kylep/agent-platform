@@ -2,6 +2,9 @@ import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import cronstrue from "cronstrue";
 import { api, type Job, type ScheduleEntry } from "../api";
+import { Chip } from "../ui/chip";
+import { Select } from "../ui/field";
+import { Table, TD, TH } from "../ui/table";
 
 const when = (ts: string | null) => (ts ? new Date(ts).toLocaleString() : "—");
 
@@ -60,34 +63,34 @@ export default function Schedules() {
       </p>
 
       <div className="row-actions" style={{ marginBottom: 12 }}>
-        <select aria-label="Filter schedules by agent" value={agentFilter} onChange={(e) => setAgentFilter(e.target.value)}>
+        <Select aria-label="Filter schedules by agent" value={agentFilter} onChange={(e) => setAgentFilter(e.target.value)}>
           <option value="">All agents</option>
           {agents.map((a) => <option key={a} value={a}>{a}</option>)}
-        </select>
+        </Select>
       </div>
 
       {loading && <p className="muted">Loading…</p>}
       {error && <div className="error">{error}</div>}
       {!loading && !error && shown.length === 0 && <p className="muted">No schedules yet.</p>}
       {!loading && shown.length > 0 && (
-        <table className="table">
+        <Table>
           <thead>
-            <tr><th>Agent</th><th>Name</th><th>Type</th><th>Cron</th><th>Next fire</th><th>Status</th></tr>
+            <tr><TH>Agent</TH><TH>Name</TH><TH>Type</TH><TH>Cron</TH><TH>Next fire</TH><TH>Status</TH></tr>
           </thead>
           <tbody>
             {shown.map((r, i) => (
               <tr key={`${r.agent}-${r.name}-${i}`} className="clickable-row"
                   onClick={() => navigate(`/agents/${encodeURIComponent(r.agent)}?tab=schedules`)}>
-                <td>{r.agent}</td>
-                <td>{r.name}</td>
-                <td className="muted">{r.kind}</td>
-                <td><Cron cron={r.cron} /></td>
-                <td className="muted">{when(r.next_fire)}</td>
-                <td>{r.enabled ? <span className="chip chip-ok">enabled</span> : <span className="chip chip-invalid">disabled</span>}</td>
+                <TD>{r.agent}</TD>
+                <TD>{r.name}</TD>
+                <TD className="text-muted">{r.kind}</TD>
+                <TD><Cron cron={r.cron} /></TD>
+                <TD className="text-muted">{when(r.next_fire)}</TD>
+                <TD>{r.enabled ? <Chip variant="ok">enabled</Chip> : <Chip variant="danger">disabled</Chip>}</TD>
               </tr>
             ))}
           </tbody>
-        </table>
+        </Table>
       )}
     </div>
   );

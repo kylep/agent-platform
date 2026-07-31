@@ -1,6 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { api, type Conversation, type ConversationDetail } from "../api";
+import { Button } from "../ui/button";
+import { ConfirmDialog } from "../ui/dialog";
+import { Input, Textarea } from "../ui/field";
 
 const ACTIVE = new Set(["queued", "dispatched", "running"]);
 
@@ -137,7 +140,8 @@ export default function AgentChat({ agent }: { agent: string }) {
       {error && <div className="error">{error}</div>}
       <div className="chat-layout">
         <div className="chat-rail">
-          <button className="chat-new" onClick={create}>+ New conversation</button>
+          <Button variant="secondary" className="mb-1.5 justify-start border-dashed text-accent"
+                  onClick={create}>+ New conversation</Button>
           {list.map((c) => (
             <button
               key={c.id}
@@ -165,8 +169,9 @@ export default function AgentChat({ agent }: { agent: string }) {
               <div className="convo-head">
                 {renaming ? (
                   <span className="convo-rename">
-                    <input
+                    <Input
                       value={nameDraft}
+                      aria-label="Conversation title"
                       onChange={(e) => setNameDraft(e.target.value)}
                       onKeyDown={(e) => {
                         if (e.key === "Enter") { e.preventDefault(); rename(detail.id); }
@@ -174,20 +179,22 @@ export default function AgentChat({ agent }: { agent: string }) {
                       }}
                       autoFocus
                     />
-                    <button onClick={() => rename(detail.id)} disabled={!nameDraft.trim()}>Save</button>
-                    <button className="secondary" onClick={() => setRenaming(false)}>Cancel</button>
+                    <Button size="sm" onClick={() => rename(detail.id)} disabled={!nameDraft.trim()}>Save</Button>
+                    <Button size="sm" variant="secondary" onClick={() => setRenaming(false)}>Cancel</Button>
                   </span>
                 ) : (
                   <>
                     <strong>{detail.title}</strong> <TypeBadge connector={detail.connector} />
-                    <button className="linkish convo-rename-btn"
+                    <Button variant="link"
+                            className="px-1.5 text-default no-underline opacity-60 hover:text-accent hover:no-underline hover:opacity-100"
                             onClick={() => { setNameDraft(detail.title); setRenaming(true); }}
-                            title="Rename conversation">✎</button>
+                            title="Rename conversation">✎</Button>
                   </>
                 )}
                 {web && !renaming && (
                   <span className="convo-head-actions">
-                    <button className="danger-ghost" onClick={() => setConfirmDelete(true)}>Delete</button>
+                    <Button variant="link" className="text-danger no-underline hover:underline"
+                            onClick={() => setConfirmDelete(true)}>Delete</Button>
                   </span>
                 )}
               </div>
@@ -214,14 +221,15 @@ export default function AgentChat({ agent }: { agent: string }) {
               </div>
               {web && (
                 <div className="convo-compose">
-                  <textarea
+                  <Textarea
                     value={text}
+                    aria-label="Message"
                     onChange={(e) => setText(e.target.value)}
                     onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } }}
                     placeholder={thinking ? "Waiting for the agent…" : "Message… (Enter to send, Shift+Enter for a new line)"}
                     rows={2}
                   />
-                  <button onClick={send} disabled={busy || thinking || !text.trim()}>Send</button>
+                  <Button onClick={send} disabled={busy || thinking || !text.trim()}>Send</Button>
                 </div>
               )}
             </>
@@ -229,22 +237,17 @@ export default function AgentChat({ agent }: { agent: string }) {
         </div>
       </div>
 
-      {confirmDelete && detail && (
-        <div className="modal-backdrop" onClick={() => setConfirmDelete(false)}>
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <h2>Delete this conversation?</h2>
-            <p className="muted">
-              “{detail.title}” and its {detail.turns.length} turn{detail.turns.length === 1 ? "" : "s"} will be
-              permanently removed. The underlying run history is kept. This can't be undone.
-            </p>
-            <div className="row-actions" style={{ justifyContent: "flex-end" }}>
-              <button className="secondary" onClick={() => setConfirmDelete(false)}>Cancel</button>
-              <button className="danger" onClick={() => remove(detail.id)} disabled={busy}>
-                {busy ? "Deleting…" : "Delete permanently"}
-              </button>
-            </div>
-          </div>
-        </div>
+      {detail && (
+        <ConfirmDialog
+          open={confirmDelete}
+          title="Delete this conversation?"
+          confirmLabel={busy ? "Deleting…" : "Delete permanently"}
+          onConfirm={() => remove(detail.id)}
+          onCancel={() => setConfirmDelete(false)}
+        >
+          “{detail.title}” and its {detail.turns.length} turn{detail.turns.length === 1 ? "" : "s"} will be
+          permanently removed. The underlying run history is kept. This can't be undone.
+        </ConfirmDialog>
       )}
     </>
   );

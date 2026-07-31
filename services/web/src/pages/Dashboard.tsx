@@ -5,26 +5,14 @@ import {
   type MetricsOverview, type PullRequest, type RunSummary, type ScheduleEntry,
   type SecretStatus,
 } from "../api";
-import { stateChipClass } from "./Runs";
+import { Chip, StatusChip } from "../ui/chip";
+import { Stat, StatRow } from "../ui/stat";
+import { Table, TD, TH } from "../ui/table";
 
 // One actionable item in the "Needs attention" panel.
 type Attn = { key: string; text: string; to: string; sev: "warn" | "bad" };
 
 function pct(x: number | null): string { return x === null ? "—" : `${(x * 100).toFixed(0)}%`; }
-
-function Stat({ label, value, warn, to }: { label: string; value: string | number; warn?: boolean; to?: string }) {
-  const inner = (
-    <div className={warn ? "stat stat-warn" : "stat"}>
-      <div className="stat-value">{value}</div>
-      <div className="stat-label">{label}</div>
-    </div>
-  );
-  return to ? <Link to={to} className="stat-link">{inner}</Link> : inner;
-}
-
-function StatusPill({ label, value, bad }: { label: string; value: string; bad: boolean }) {
-  return <span className={`chip ${bad ? "chip-invalid" : "chip-ok"}`}>{label}: {value}</span>;
-}
 
 export default function Dashboard() {
   const [ov, setOv] = useState<MetricsOverview | null>(null);
@@ -51,7 +39,7 @@ export default function Dashboard() {
     ]).then(([jobs, scheds]) => {
       const rows = [
         ...jobs.filter((j) => j.enabled).map((j) => ({ agent: j.agent, name: j.name, next: j.next_fire, cron: j.cron })),
-        ...scheds.filter((s) => s.enabled).map((s) => ({ agent: s.agent, name: "(manifest)", next: s.next_fire, cron: s.cron })),
+        ...scheds.filter((s) => s.enabled).map((s) => ({ agent: s.agent, name: "(declared)", next: s.next_fire, cron: s.cron })),
       ].filter((r) => r.next).sort((a, b) => (a.next ?? "").localeCompare(b.next ?? "")).slice(0, 5);
       setUpcoming(rows);
     }).finally(() => setLoaded(true));
@@ -103,18 +91,26 @@ export default function Dashboard() {
       <h1>Dashboard</h1>
 
       {/* System status: is the platform able to work right now? */}
-      <div className="chip-row" style={{ marginBottom: 8 }}>
-        <StatusPill label="broker" value={kafka ? (kafka.reachable ? "up" : "down") : "…"} bad={!!kafka && !kafka.reachable} />
-        <StatusPill label="claude token" value={claude?.status ?? "…"} bad={claude?.status === "invalid" || claude?.status === "missing"} />
-        <span className="chip">active runs: {ov?.active ?? "…"}</span>
-        {(ov?.dlq ?? 0) > 0 && <Link to="/dlq" className="chip chip-invalid">dlq: {ov?.dlq}</Link>}
+      <div className="chip-row mb-2">
+        <Chip variant={kafka && !kafka.reachable ? "danger" : "ok"}>
+          broker: {kafka ? (kafka.reachable ? "up" : "down") : "…"}
+        </Chip>
+        <Chip variant={claude?.status === "valid" ? "ok" : "danger"}>
+          claude token: {claude?.status ?? "…"}
+        </Chip>
+        <Chip>active runs: {ov?.active ?? "…"}</Chip>
+        {(ov?.dlq ?? 0) > 0 && (
+          <Link to="/dlq" className="no-underline"><Chip variant="danger">dlq: {ov?.dlq}</Chip></Link>
+        )}
       </div>
 
       {/* Needs attention: the triage queue */}
       <h2>Needs attention</h2>
       {!loaded && <p className="muted">Loading…</p>}
       {loaded && attention.length === 0 && (
-        <div className="banner banner-ok">✓ All clear — nothing needs your attention.</div>
+        <div className="rounded-md border border-success/40 px-3 py-2 text-sm text-success">
+          ✓ All clear — nothing needs your attention.
+        </div>
       )}
       {attention.length > 0 && (
         <ul className="attention-list">
@@ -128,48 +124,48 @@ export default function Dashboard() {
 
       {/* Activity glance */}
       <h2>Activity</h2>
-      <div className="stat-row">
+      <StatRow>
         <Stat label="active" value={ov?.active ?? "—"} to="/runs" />
         <Stat label="runs · 24h" value={ov?.runs_24h ?? "—"} to="/runs" />
         <Stat label="success rate" value={pct(ov?.success_rate ?? null)}
               warn={ov?.success_rate != null && ov.success_rate < 0.8} to="/reporting" />
         <Stat label="tokens in/out" value={ov ? `${ov.tokens_in}/${ov.tokens_out}` : "—"} to="/reporting" />
-      </div>
+      </StatRow>
 
       <div className="dash-cols">
         <section>
           <h2>Recent runs</h2>
-          <table className="table">
-            <thead><tr><th>ID</th><th>Agent</th><th>State</th><th>Created</th></tr></thead>
+          <Table>
+            <thead><tr><TH>ID</TH><TH>Agent</TH><TH>State</TH><TH>Created</TH></tr></thead>
             <tbody>
               {runs.map((r) => (
                 <tr key={r.id}>
-                  <td><Link to={`/runs/${r.id}`}>{r.id.slice(0, 8)}</Link></td>
-                  <td><Link to={`/agents/${encodeURIComponent(r.agent)}`}>{r.agent}</Link></td>
-                  <td><span className={`chip ${stateChipClass(r.state)}`}>{r.state}</span></td>
-                  <td className="muted">{new Date(r.created_at).toLocaleString()}</td>
+                  <TD><Link to={`/runs/${r.id}`}>{r.id.slice(0, 8)}</Link></TD>
+                  <TD><Link to={`/agents/${encodeURIComponent(r.agent)}`}>{r.agent}</Link></TD>
+                  <TD><StatusChip status={r.state} /></TD>
+                  <TD className="text-muted">{new Date(r.created_at).toLocaleString()}</TD>
                 </tr>
               ))}
-              {loaded && runs.length === 0 && <tr><td colSpan={4} className="muted">No runs yet.</td></tr>}
+              {loaded && runs.length === 0 && <tr><TD colSpan={4} className="text-muted">No runs yet.</TD></tr>}
             </tbody>
-          </table>
+          </Table>
         </section>
 
         <section>
           <h2>Upcoming</h2>
-          <table className="table">
-            <thead><tr><th>Agent</th><th>Job</th><th>Next fire</th></tr></thead>
+          <Table>
+            <thead><tr><TH>Agent</TH><TH>Job</TH><TH>Next fire</TH></tr></thead>
             <tbody>
               {upcoming.map((u, i) => (
                 <tr key={`${u.agent}-${u.name}-${i}`}>
-                  <td><Link to={`/agents/${encodeURIComponent(u.agent)}?tab=schedules`}>{u.agent}</Link></td>
-                  <td>{u.name}</td>
-                  <td className="muted" title={u.cron}>{u.next ? new Date(u.next).toLocaleString() : "—"}</td>
+                  <TD><Link to={`/agents/${encodeURIComponent(u.agent)}?tab=schedules`}>{u.agent}</Link></TD>
+                  <TD>{u.name}</TD>
+                  <TD className="text-muted" title={u.cron}>{u.next ? new Date(u.next).toLocaleString() : "—"}</TD>
                 </tr>
               ))}
-              {loaded && upcoming.length === 0 && <tr><td colSpan={3} className="muted">Nothing scheduled.</td></tr>}
+              {loaded && upcoming.length === 0 && <tr><TD colSpan={3} className="text-muted">Nothing scheduled.</TD></tr>}
             </tbody>
-          </table>
+          </Table>
         </section>
       </div>
     </div>

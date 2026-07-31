@@ -1,6 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { api, type Memory } from "../api";
+import { Button } from "../ui/button";
+import { Chip } from "../ui/chip";
+import { Input, Select } from "../ui/field";
+import { Table, TD, TH } from "../ui/table";
 
 /** Global memories: one table across all agents, newest first, filterable by
  * agent and searchable across every namespace. A row opens the full memory in
@@ -41,39 +45,40 @@ export default function Memories() {
       </p>
 
       <div className="row-actions" style={{ marginBottom: 12 }}>
-        <input placeholder="Search all memories…" value={q} style={{ flex: 1 }}
+        <Input placeholder="Search all memories…" value={q} style={{ flex: 1 }}
+               aria-label="Search all memories"
                onChange={(e) => setQ(e.target.value)}
                onKeyDown={(e) => { if (e.key === "Enter") load(); }} />
-        <button onClick={() => load()}>Search</button>
-        <select aria-label="Filter memories by agent" value={agentFilter} onChange={(e) => setAgentFilter(e.target.value)}>
+        <Button onClick={() => load()}>Search</Button>
+        <Select aria-label="Filter memories by agent" value={agentFilter} onChange={(e) => setAgentFilter(e.target.value)}>
           <option value="">All agents</option>
           {agents.map((a) => <option key={a} value={a}>{a}</option>)}
-        </select>
+        </Select>
       </div>
 
       {loading && <p className="muted">Loading…</p>}
       {error && <div className="error">{error}</div>}
       {!loading && !error && shown.length === 0 && <p className="muted">No memories.</p>}
       {!loading && shown.length > 0 && (
-        <table className="table mem-table">
+        <Table className="mem-table">
           <thead>
-            <tr><th style={{ width: 140 }}>Agent</th><th>Memory</th><th style={{ width: 170 }}>Updated</th></tr>
+            <tr><TH style={{ width: 140 }}>Agent</TH><TH>Memory</TH><TH style={{ width: 170 }}>Updated</TH></tr>
           </thead>
           <tbody>
             {shown.map((m) => (
               <tr key={m.id} className="clickable-row" onClick={() => open(m)}>
-                <td>{m.agent}</td>
-                <td>
+                <TD>{m.agent}</TD>
+                <TD>
                   <div className="mem-cell">
-                    {m.key && <span className="chip memory-key">{m.key}</span>}
+                    {m.key && <Chip className="memory-key">{m.key}</Chip>}
                     <span className="memory-content one-line">{m.content}</span>
                   </div>
-                </td>
-                <td className="muted">{stamp(m.updated_at)}</td>
+                </TD>
+                <TD className="text-muted">{stamp(m.updated_at)}</TD>
               </tr>
             ))}
           </tbody>
-        </table>
+        </Table>
       )}
     </div>
   );

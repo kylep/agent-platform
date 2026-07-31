@@ -4,3 +4,5 @@
 FROM nginx:1.29-alpine
 COPY nginx.conf /etc/nginx/conf.d/default.conf
 COPY dist /usr/share/nginx/html
+# The design-system workshop ships with the site (see src/design-system/README.md).
+COPY storybook-static /usr/share/nginx/html/storybook

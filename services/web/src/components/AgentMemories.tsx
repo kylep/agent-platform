@@ -1,6 +1,10 @@
 import { useEffect, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { api, type Memory } from "../api";
+import { Button } from "../ui/button";
+import { Chip } from "../ui/chip";
+import { Input, Textarea } from "../ui/field";
+import { Table, TD, TH } from "../ui/table";
 
 /** Agent-scoped memory browser (Memories tab on the agent page): search within
  * this agent, add/edit/delete, and a selected memory (?memory=id) deep-links
@@ -66,11 +70,11 @@ export default function AgentMemories({ agent }: { agent: string }) {
   return (
     <>
       <div className="row-actions" style={{ marginBottom: 12 }}>
-        <input placeholder={`Search ${agent}'s memory…`} value={q}
+        <Input placeholder={`Search ${agent}'s memory…`} aria-label="Search memories" value={q}
                onChange={(e) => setQ(e.target.value)}
-               onKeyDown={(e) => { if (e.key === "Enter") load(); }} style={{ flex: 1 }} />
-        <button onClick={() => load()}>Search</button>
-        <button className="secondary" onClick={startNew}>+ New memory</button>
+               onKeyDown={(e) => { if (e.key === "Enter") load(); }} className="flex-1" />
+        <Button onClick={() => load()}>Search</Button>
+        <Button variant="secondary" onClick={startNew}>+ New memory</Button>
       </div>
       <p className="muted" style={{ marginTop: -4 }}>
         What this agent remembers. A memory with a <em>key</em> is overwritten in place when the agent
@@ -80,16 +84,16 @@ export default function AgentMemories({ agent }: { agent: string }) {
       {editing === "new" && (
         <div className="secret-editor">
           <label className="field-label">Key <span className="muted">(optional — for overwrite-in-place state)</span></label>
-          <input placeholder="e.g. alert-state (leave blank for a note)" value={draftKey}
+          <Input placeholder="e.g. alert-state (leave blank for a note)" aria-label="Memory key" value={draftKey}
                  onChange={(e) => setDraftKey(e.target.value)} />
           <label className="field-label">Content</label>
-          <textarea value={draft} onChange={(e) => setDraft(e.target.value)} rows={4} autoFocus />
+          <Textarea value={draft} aria-label="Memory content" onChange={(e) => setDraft(e.target.value)} rows={4} autoFocus />
           {error && <div className="error">{error}</div>}
           <div className="row-actions" style={{ marginTop: 8 }}>
-            <button onClick={save} disabled={busy === "new" || !draft.trim()}>
+            <Button onClick={save} disabled={busy === "new" || !draft.trim()}>
               {busy === "new" ? "Saving…" : "Add memory"}
-            </button>
-            <button className="secondary" onClick={() => setEditing(null)}>Cancel</button>
+            </Button>
+            <Button variant="secondary" onClick={() => setEditing(null)}>Cancel</Button>
           </div>
         </div>
       )}
@@ -98,51 +102,51 @@ export default function AgentMemories({ agent }: { agent: string }) {
       {error && editing !== "new" && <div className="error">{error}</div>}
       {!loading && rows.length === 0 && editing !== "new" && <p className="muted">No memories.</p>}
       {!loading && rows.length > 0 && (
-        <table className="table mem-table">
-          <thead><tr><th>Memory</th><th style={{ width: 150 }}>Updated</th><th style={{ width: 150 }}></th></tr></thead>
+        <Table className="mem-table">
+          <thead><tr><TH>Memory</TH><TH style={{ width: 150 }}>Updated</TH><TH style={{ width: 150 }}></TH></tr></thead>
           <tbody>
             {rows.map((m) => {
               const open = selected === m.id;
               const isEditing = editing === m.id;
               return (
                 <tr key={m.id} className={open ? "row-open" : ""}>
-                  <td onClick={() => !isEditing && select(open ? null : m.id)} style={{ cursor: isEditing ? "default" : "pointer" }}>
+                  <TD onClick={() => !isEditing && select(open ? null : m.id)} style={{ cursor: isEditing ? "default" : "pointer" }}>
                     {isEditing ? (
-                      <textarea className="memory-edit" value={draft} onChange={(e) => setDraft(e.target.value)}
+                      <Textarea className="memory-edit" aria-label="Memory content" value={draft} onChange={(e) => setDraft(e.target.value)}
                                 rows={Math.min(12, Math.max(3, draft.split("\n").length + 1))} autoFocus />
                     ) : open ? (
                       <>
-                        {m.key && <span className="chip memory-key">{m.key}</span>}
+                        {m.key && <Chip className="memory-key">{m.key}</Chip>}
                         <div className="memory-content">{m.content}</div>
                       </>
                     ) : (
                       <div className="mem-cell">
-                        {m.key && <span className="chip memory-key">{m.key}</span>}
+                        {m.key && <Chip className="memory-key">{m.key}</Chip>}
                         <span className="memory-content one-line">{m.content}</span>
                       </div>
                     )}
-                  </td>
-                  <td className="muted">{stamp(m.updated_at)}</td>
-                  <td>
+                  </TD>
+                  <TD className="text-muted">{stamp(m.updated_at)}</TD>
+                  <TD>
                     {isEditing ? (
                       <div className="row-actions">
-                        <button onClick={save} disabled={busy === m.id}>{busy === m.id ? "Saving…" : "Save"}</button>
-                        <button className="secondary" onClick={() => setEditing(null)}>Cancel</button>
+                        <Button size="sm" onClick={save} disabled={busy === m.id}>{busy === m.id ? "Saving…" : "Save"}</Button>
+                        <Button size="sm" variant="secondary" onClick={() => setEditing(null)}>Cancel</Button>
                       </div>
                     ) : (
                       <div className="row-actions">
-                        <button className="secondary" onClick={() => startEdit(m)}>Edit</button>
-                        <button className="secondary" onClick={() => remove(m.id)} disabled={busy === m.id}>
+                        <Button size="sm" variant="secondary" onClick={() => startEdit(m)}>Edit</Button>
+                        <Button size="sm" variant="secondary" onClick={() => remove(m.id)} disabled={busy === m.id}>
                           {busy === m.id ? "…" : "Delete"}
-                        </button>
+                        </Button>
                       </div>
                     )}
-                  </td>
+                  </TD>
                 </tr>
               );
             })}
           </tbody>
-        </table>
+        </Table>
       )}
     </>
   );

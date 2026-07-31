@@ -2,6 +2,11 @@ import { Fragment, useEffect, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { api, type PullRequest, type PullRequestFile, type RunDetailData } from "../api";
 import { blockPath, DeployTracker, parseBranch } from "../components/ChangeFlow";
+import { Banner } from "../ui/banner";
+import { Button } from "../ui/button";
+import { Chip } from "../ui/chip";
+import { ConfirmDialog } from "../ui/dialog";
+import { Table, TD, TH } from "../ui/table";
 
 type Busy = { [n: number]: "merge" | "close" | undefined };
 type Accepted = { number: number; title: string; sha: string | null; branch: string };
@@ -66,7 +71,7 @@ function Summary({ number }: { number: number }) {
   if (!runId) {
     return (
       <div className="row-actions" style={{ marginTop: 6 }}>
-        <button className="secondary" onClick={start}>Summarize with AI</button>
+        <Button variant="secondary" size="sm" onClick={start}>Summarize with AI</Button>
         {error && <span className="error">{error}</span>}
       </div>
     );
@@ -78,10 +83,10 @@ function Summary({ number }: { number: number }) {
   }
   if (run.state === "succeeded" && run.result) {
     return (
-      <div className="banner">
+      <Banner>
         <b>AI summary:</b> {run.result}
         <span className="muted"> — <Link to={`/runs/${runId}`}>run</Link></span>
-      </div>
+      </Banner>
     );
   }
   return (
@@ -107,13 +112,13 @@ function Review({ number }: { number: number }) {
   return (
     <div>
       {impact && impact.warnings.map((w, i) => (
-        <div key={i} className="banner">⚠ {w}</div>
+        <Banner key={i} variant="danger">⚠ {w}</Banner>
       ))}
       {impact && (
         <div className="impact-panel">
           {impact.items.map((it) => (
             <div key={it.file} className="impact-item">
-              <span className={`chip ${it.block ? "" : "chip-invalid"}`}>{it.block ?? "platform code"}</span>
+              <Chip variant={it.block ? "neutral" : "danger"}>{it.block ?? "platform code"}</Chip>
               <span className="muted"> {it.area} · {it.status} · +{it.additions} −{it.deletions}</span>
               {it.notable.length > 0 && (
                 <pre className="impact-notable">{it.notable.join("\n")}</pre>
@@ -140,7 +145,9 @@ function BlockChip({ branch }: { branch: string }) {
   const ref = parseBranch(branch);
   if (!ref) return <span className="muted">{branch}</span>;
   return (
-    <Link to={blockPath(ref)} className="chip">{ref.kind}: {ref.name}</Link>
+    <Link to={blockPath(ref)} className="no-underline">
+      <Chip variant="neutral">{ref.kind}: {ref.name}</Chip>
+    </Link>
   );
 }
 
@@ -212,15 +219,15 @@ export default function Changes() {
       {accepted.length > 0 && (
         <div style={{ marginBottom: 12 }}>
           {accepted.map((a) => (
-            <div key={a.number} className="banner banner-ok" style={{ display: "flex", gap: 8, alignItems: "center" }}>
+            <Banner key={a.number} variant="ok" className="flex items-center gap-2">
               <span>Accepted #{a.number} — {a.title}</span>
               <DeployTracker sha={a.sha} />
               <BlockChip branch={a.branch} />
-              <button className="linkish muted" style={{ marginLeft: "auto" }}
+              <Button variant="link" className="ml-auto text-muted"
                       onClick={() => setAccepted((l) => l.filter((x) => x.number !== a.number))}>
                 dismiss
-              </button>
-            </div>
+              </Button>
+            </Banner>
           ))}
         </div>
       )}
@@ -231,61 +238,56 @@ export default function Changes() {
         <p className="muted">No pending changes.</p>
       )}
       {!loading && prs.length > 0 && (
-        <table className="table">
+        <Table>
           <thead>
-            <tr><th>#</th><th>Title</th><th>Building block</th><th>Author</th><th></th></tr>
+            <tr><TH>#</TH><TH>Title</TH><TH>Building block</TH><TH>Author</TH><TH></TH></tr>
           </thead>
           <tbody>
             {prs.map((pr) => (
               <Fragment key={pr.number}>
                 <tr>
-                  <td>
+                  <TD>
                     <a href={pr.url} target="_blank" rel="noreferrer">#{pr.number}</a>
-                  </td>
-                  <td>
-                    <button className="linkish" onClick={() => setOpen(open === pr.number ? null : pr.number)}>
+                  </TD>
+                  <TD>
+                    <Button variant="link" className="text-default no-underline hover:text-accent hover:no-underline"
+                            onClick={() => setOpen(open === pr.number ? null : pr.number)}>
                       {open === pr.number ? "▾ " : "▸ "}{pr.title}
-                    </button>
-                  </td>
-                  <td><BlockChip branch={pr.branch} /></td>
-                  <td className="muted">{pr.author}</td>
-                  <td>
+                    </Button>
+                  </TD>
+                  <TD><BlockChip branch={pr.branch} /></TD>
+                  <TD className="text-muted">{pr.author}</TD>
+                  <TD>
                     <div className="row-actions">
-                      <button onClick={() => accept(pr)} disabled={!!busy[pr.number]}>
+                      <Button size="sm" onClick={() => accept(pr)} disabled={!!busy[pr.number]}>
                         {busy[pr.number] === "merge" ? "Accepting…" : "Accept"}
-                      </button>
-                      <button className="secondary" onClick={() => setConfirmDiscard(pr)} disabled={!!busy[pr.number]}>
+                      </Button>
+                      <Button variant="secondary" size="sm" onClick={() => setConfirmDiscard(pr)} disabled={!!busy[pr.number]}>
                         {busy[pr.number] === "close" ? "Discarding…" : "Discard"}
-                      </button>
+                      </Button>
                     </div>
-                  </td>
+                  </TD>
                 </tr>
                 {open === pr.number && (
                   <tr>
-                    <td colSpan={5}><Review number={pr.number} /></td>
+                    <TD colSpan={5}><Review number={pr.number} /></TD>
                   </tr>
                 )}
               </Fragment>
             ))}
           </tbody>
-        </table>
+        </Table>
       )}
 
-      {confirmDiscard && (
-        <div className="modal-backdrop" onClick={() => setConfirmDiscard(null)}>
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <h2>Discard change #{confirmDiscard.number}?</h2>
-            <p className="muted">
-              "{confirmDiscard.title}" will be closed and its branch deleted. The block it touches
-              unlocks for new edits. This can't be undone from here.
-            </p>
-            <div className="row-actions">
-              <button onClick={() => discard(confirmDiscard)}>Discard it</button>
-              <button className="secondary" onClick={() => setConfirmDiscard(null)}>Keep it</button>
-            </div>
-          </div>
-        </div>
-      )}
+      <ConfirmDialog
+        open={confirmDiscard !== null}
+        title={`Discard change #${confirmDiscard?.number}?`}
+        confirmLabel="Discard it"
+        onConfirm={() => confirmDiscard && discard(confirmDiscard)}
+        onCancel={() => setConfirmDiscard(null)}>
+        "{confirmDiscard?.title}" will be closed and its branch deleted. The block it touches
+        unlocks for new edits. This can't be undone from here.
+      </ConfirmDialog>
     </div>
   );
 }

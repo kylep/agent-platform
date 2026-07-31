@@ -2,6 +2,10 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import cronstrue from "cronstrue";
 import { api, type Job, type ScheduleEntry } from "../api";
+import { Button } from "../ui/button";
+import { Chip } from "../ui/chip";
+import { Input, Textarea } from "../ui/field";
+import { Table, TD, TH } from "../ui/table";
 
 const when = (ts: string | null) => (ts ? new Date(ts).toLocaleString() : "—");
 
@@ -41,21 +45,21 @@ function JobForm({ agent, job, onDone, onCancel }: {
   return (
     <div className="secret-editor">
       <label className="field-label">Name</label>
-      <input placeholder="e.g. morning-news" value={name} onChange={(e) => setName(e.target.value)} />
+      <Input placeholder="e.g. morning-news" aria-label="Job name" value={name} onChange={(e) => setName(e.target.value)} />
       <label className="field-label">Cron (UTC)</label>
-      <input placeholder="e.g. 0 11 * * *" value={cron} onChange={(e) => setCron(e.target.value)} />
+      <Input placeholder="e.g. 0 11 * * *" aria-label="Cron expression" value={cron} onChange={(e) => setCron(e.target.value)} />
       <div className={cron.trim() === "" || cronOk ? "muted check-note" : "error"}>
         {cron.trim() === "" ? "5-field cron, evaluated in UTC." : cronOk ? `→ ${preview}` : "Unrecognized cron expression."}
       </div>
       <label className="field-label">Prompt</label>
-      <textarea placeholder="What the agent should do each run…" value={prompt} rows={4}
+      <Textarea placeholder="What the agent should do each run…" aria-label="Job prompt" value={prompt} rows={4}
                 onChange={(e) => setPrompt(e.target.value)} />
       {error && <div className="error">{error}</div>}
       <div className="row-actions" style={{ marginTop: 8 }}>
-        <button onClick={save} disabled={busy || !name.trim() || !cronOk || !prompt.trim()}>
+        <Button onClick={save} disabled={busy || !name.trim() || !cronOk || !prompt.trim()}>
           {busy ? "Saving…" : job ? "Save" : "Create job"}
-        </button>
-        <button className="secondary" onClick={onCancel}>Cancel</button>
+        </Button>
+        <Button variant="secondary" onClick={onCancel}>Cancel</Button>
       </div>
     </div>
   );
@@ -111,7 +115,7 @@ export default function AgentSchedules({ agent }: { agent: string }) {
     <>
       <div className="page-header">
         <h2>Jobs</h2>
-        {editing !== "new" && <button onClick={() => setEditing("new")}>+ New Job</button>}
+        {editing !== "new" && <Button onClick={() => setEditing("new")}>+ New Job</Button>}
       </div>
       <p className="muted">A job runs {agent} on a cron with its own prompt. One agent can back many jobs.</p>
       {editing === "new" && <JobForm agent={agent} onDone={done} onCancel={() => setEditing(null)} />}
@@ -119,33 +123,33 @@ export default function AgentSchedules({ agent }: { agent: string }) {
       {loading && <p className="muted">Loading…</p>}
       {!loading && jobs.length === 0 && editing !== "new" && <p className="muted">No jobs for this agent.</p>}
       {!loading && jobs.length > 0 && (
-        <table className="table">
-          <thead><tr><th>Name</th><th>Cron</th><th>Next fire</th><th>Status</th><th></th></tr></thead>
+        <Table>
+          <thead><tr><TH>Name</TH><TH>Cron</TH><TH>Next fire</TH><TH>Status</TH><TH></TH></tr></thead>
           <tbody>
             {jobs.map((j) => (
               <tr key={j.id}>
-                <td>{j.name}</td>
-                <td><Cron cron={j.cron} /></td>
-                <td className="muted">{when(j.next_fire)}</td>
-                <td>{j.enabled ? <span className="chip chip-ok">enabled</span> : <span className="chip chip-invalid">disabled</span>}</td>
-                <td>
+                <TD>{j.name}</TD>
+                <TD><Cron cron={j.cron} /></TD>
+                <TD className="text-muted">{when(j.next_fire)}</TD>
+                <TD>{j.enabled ? <Chip variant="ok">enabled</Chip> : <Chip variant="danger">disabled</Chip>}</TD>
+                <TD>
                   <div className="row-actions">
-                    <button className="secondary" onClick={() => runJob(j)} disabled={busy === j.id}>Run now</button>
-                    <button className="secondary" onClick={() => setEditing(editing === j.id ? null : j.id)}>
+                    <Button size="sm" variant="secondary" onClick={() => runJob(j)} disabled={busy === j.id}>Run now</Button>
+                    <Button size="sm" variant="secondary" onClick={() => setEditing(editing === j.id ? null : j.id)}>
                       {editing === j.id ? "Close" : "Edit"}
-                    </button>
-                    <button className="secondary" disabled={busy === j.id} onClick={() =>
+                    </Button>
+                    <Button size="sm" variant="secondary" disabled={busy === j.id} onClick={() =>
                       act(j.id, () => api(`/api/jobs/${j.id}`, { method: "PATCH", body: JSON.stringify({ enabled: !j.enabled }) }))
-                    }>{j.enabled ? "Disable" : "Enable"}</button>
-                    <button className="secondary" disabled={busy === j.id} onClick={() => {
+                    }>{j.enabled ? "Disable" : "Enable"}</Button>
+                    <Button size="sm" variant="secondary" disabled={busy === j.id} onClick={() => {
                       if (confirm(`Delete job "${j.name}"?`)) act(j.id, () => api(`/api/jobs/${j.id}`, { method: "DELETE" }));
-                    }}>Delete</button>
+                    }}>Delete</Button>
                   </div>
-                </td>
+                </TD>
               </tr>
             ))}
           </tbody>
-        </table>
+        </Table>
       )}
       {editing && editing !== "new" && (() => {
         const j = jobs.find((x) => x.id === editing);
@@ -156,25 +160,25 @@ export default function AgentSchedules({ agent }: { agent: string }) {
         <section style={{ marginTop: 20 }}>
           <h2>Manifest schedule</h2>
           <p className="muted">Declared in this agent's manifest (<code>schedule:</code>). Edit the cron in the manifest.</p>
-          <table className="table">
-            <thead><tr><th>Cron</th><th>Next fire</th><th>Last fire</th><th>Status</th><th></th></tr></thead>
+          <Table>
+            <thead><tr><TH>Cron</TH><TH>Next fire</TH><TH>Last fire</TH><TH>Status</TH><TH></TH></tr></thead>
             <tbody>
               <tr>
-                <td><Cron cron={schedule.cron} /></td>
-                <td className="muted">{when(schedule.next_fire)}</td>
-                <td className="muted">{when(schedule.last_fire)}</td>
-                <td>{schedule.enabled ? <span className="chip chip-ok">enabled</span> : <span className="chip chip-invalid">disabled</span>}</td>
-                <td>
+                <TD><Cron cron={schedule.cron} /></TD>
+                <TD className="text-muted">{when(schedule.next_fire)}</TD>
+                <TD className="text-muted">{when(schedule.last_fire)}</TD>
+                <TD>{schedule.enabled ? <Chip variant="ok">enabled</Chip> : <Chip variant="danger">disabled</Chip>}</TD>
+                <TD>
                   <div className="row-actions">
-                    <button className="secondary" onClick={runSchedule} disabled={busy === "schedule"}>Run now</button>
-                    <button className="secondary" disabled={busy === "schedule"} onClick={() =>
+                    <Button size="sm" variant="secondary" onClick={runSchedule} disabled={busy === "schedule"}>Run now</Button>
+                    <Button size="sm" variant="secondary" disabled={busy === "schedule"} onClick={() =>
                       act("schedule", () => api(`/api/schedules/${encodeURIComponent(agent)}/${schedule.enabled ? "disable" : "enable"}`, { method: "POST" }))
-                    }>{schedule.enabled ? "Disable" : "Enable"}</button>
+                    }>{schedule.enabled ? "Disable" : "Enable"}</Button>
                   </div>
-                </td>
+                </TD>
               </tr>
             </tbody>
-          </table>
+          </Table>
         </section>
       )}
     </>

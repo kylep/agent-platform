@@ -109,7 +109,10 @@ agent-platform/
 │   ├── backend/               # one image, three processes: api, dispatcher (+scheduler,
 │   │                          #   verifier heartbeat, ingest), recorder — FastAPI/SQLAlchemy/Kafka
 │   ├── runner/                # the agent pod: wraps `claude`, streams every event to Kafka
-│   ├── web/                   # React SPA (Vite)
+│   ├── web/                   # React SPA (Vite + Tailwind v4); design system in
+│   │                          #   src/design-system (tokens) + src/ui (primitives);
+│   │                          #   Storybook workshop ships with the site at /storybook/
+│   │                          #   Playwright smoke+axe gate in tests/ (runs in CI)
 │   ├── mcp-broker/            # platform API as mcp__platform__* tools over streamable HTTP
 │   ├── connector-discord/     # Discord threads ↔ Conversations
 │   └── connector-slack/       # placeholder (not implemented)
