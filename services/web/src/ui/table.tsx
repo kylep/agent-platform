@@ -4,9 +4,13 @@ import { cn } from "../lib/cn";
 // The console's data table. Compose <Table><thead>… — TH/TD carry the cell
 // styling so markup stays plain HTML where that reads better.
 export function Table({ className, ...props }: HTMLAttributes<HTMLTableElement>) {
+  // The scroll container keeps a wide table from pushing the whole page
+  // sideways — overflow stays inside the table, never on the document.
   return (
-    <table className={cn("w-full border-collapse text-sm [&_tbody_tr]:border-t [&_tbody_tr]:border-border", className)}
-           {...props} />
+    <div className="overflow-x-auto">
+      <table className={cn("w-full border-collapse text-sm [&_tbody_tr]:border-t [&_tbody_tr]:border-border", className)}
+             {...props} />
+    </div>
   );
 }
 

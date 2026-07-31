@@ -127,7 +127,7 @@ export default function Reporting() {
               <TD>{pct(a.success_rate)}</TD>
               <TD>{a.failure_streak > 0 ? <Chip variant="danger">{a.failure_streak}</Chip> : "0"}</TD>
               <TD>{dur(a.avg_duration_seconds)}</TD>
-              <TD className="text-muted">{a.tokens_in}/{a.tokens_out}</TD>
+              <TD className="text-muted">{a.tokens_in.toLocaleString()}/{a.tokens_out.toLocaleString()}</TD>
               <TD className="text-muted">{a.last_run_at ? new Date(a.last_run_at).toLocaleString() : "—"}</TD>
             </tr>
           ))}

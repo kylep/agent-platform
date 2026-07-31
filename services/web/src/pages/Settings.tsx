@@ -111,7 +111,7 @@ function ApiKeysSection() {
       {error && <div className="error">{error}</div>}
       <Table>
         <thead>
-          <tr><TH>Name</TH><TH>Role</TH><TH>Prefix</TH><TH>Status</TH><TH></TH></tr>
+          <tr><TH>Name</TH><TH>Role</TH><TH>Prefix</TH><TH>Created</TH><TH>Status</TH><TH></TH></tr>
         </thead>
         <tbody>
           {keys.filter((k) => showRevoked || !k.revoked_at).map((k) => (
@@ -119,6 +119,7 @@ function ApiKeysSection() {
               <TD>{k.name}</TD>
               <TD>{k.role}</TD>
               <TD className="text-muted">{k.prefix}…</TD>
+              <TD className="text-muted whitespace-nowrap">{k.created_at ? new Date(k.created_at).toLocaleString() : "—"}</TD>
               <TD>{k.revoked_at
                 ? <Chip variant="danger">revoked</Chip>
                 : <Chip variant="ok">active</Chip>}</TD>
@@ -127,7 +128,7 @@ function ApiKeysSection() {
             </tr>
           ))}
           {keys.filter((k) => !k.revoked_at).length === 0 && (
-            <tr><TD colSpan={5} className="text-muted">No active keys.</TD></tr>
+            <tr><TD colSpan={6} className="text-muted">No active keys.</TD></tr>
           )}
         </tbody>
       </Table>

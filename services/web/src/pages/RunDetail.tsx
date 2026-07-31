@@ -73,7 +73,7 @@ function FinalResult({ frame }: { frame: RunEvent }) {
       <div className="final-label">{err ? "Ended with error" : "Final reply"}</div>
       {text ? <Markdown className="final-text" text={text} /> : <div className="muted">(no reply text)</div>}
       <div className="final-meta muted">
-        {[dur && `${dur}`, usage.input_tokens != null && `${usage.input_tokens}/${usage.output_tokens} tok`, cost,
+        {[dur && `${dur}`, usage.input_tokens != null && `${usage.input_tokens.toLocaleString()} / ${(usage.output_tokens ?? 0).toLocaleString()} tok`, cost,
           typeof frame.num_turns === "number" && `${frame.num_turns} turns`].filter(Boolean).join(" · ")}
       </div>
     </div>
@@ -190,7 +190,21 @@ export default function RunDetail() {
     }
   }
 
-  if (loadError && !run) return <div className="page"><div className="error">{loadError}</div></div>;
+  if (loadError && !run) {
+    return (
+      <div className="page">
+        <h1>Run {id?.slice(0, 8)}</h1>
+        {loadError.startsWith("404") ? (
+          <p className="muted">
+            No run with this id — it may never have existed, or the link is stale.
+            See <Link to="/runs">Runs</Link> for history.
+          </p>
+        ) : (
+          <div className="error">{loadError}</div>
+        )}
+      </div>
+    );
+  }
   if (!run) return <div className="page"><p className="muted">Loading…</p></div>;
 
   const active = isActiveState(run.state);
@@ -208,7 +222,7 @@ export default function RunDetail() {
             acc[t] = (acc[t] ?? 0) + 1;
             return acc;
           }, {})).map(([t, n]) => (n > 1 ? `${t} ×${n}` : t)).join(", ")}{" "}
-          — the agent tried a tool outside its allow-list.
+          — denied by the agent's permission policy (outside its allow-list, or approval-gated in a headless run).
         </Banner>
       )}
 
