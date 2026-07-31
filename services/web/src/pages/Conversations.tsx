@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
+import { convoTitle } from "../lib/convo";
 import { api, type Connector, type Conversation } from "../api";
 import { Chip } from "../ui/chip";
 import { Table, TD, TH } from "../ui/table";
@@ -40,7 +41,12 @@ export default function Conversations() {
         <tbody>
           {list.map((c) => (
             <tr key={c.id} className="clickable-row" onClick={() => open(c)}>
-              <TD>{c.title}</TD>
+              <TD>
+                <Link to={`/agents/${encodeURIComponent(c.agent)}?tab=conversations&conversation=${encodeURIComponent(c.id)}`}
+                      className="text-default" onClick={(e) => e.stopPropagation()}>
+                  {convoTitle(c)}
+                </Link>
+              </TD>
               <TD>
                 <Link to={`/agents/${encodeURIComponent(c.agent)}`} onClick={(e) => e.stopPropagation()}>
                   {c.agent}

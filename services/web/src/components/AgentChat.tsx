@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
+import { convoTitle } from "../lib/convo";
 import { Markdown } from "../ui/markdown";
 import { api, type Conversation, type ConversationDetail } from "../api";
 import { Button } from "../ui/button";
@@ -149,7 +150,7 @@ export default function AgentChat({ agent }: { agent: string }) {
               className={selected === c.id ? "convo-item active" : "convo-item"}
               onClick={() => select(c.id)}
             >
-              <div className="convo-item-title">{c.title}</div>
+              <div className="convo-item-title">{convoTitle(c)}</div>
               <div className="convo-item-meta">
                 <TypeBadge connector={c.connector} />
                 <span className="convo-item-ts">{stamp(c.updated_at)}</span>

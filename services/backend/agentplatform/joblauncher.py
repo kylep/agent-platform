@@ -32,6 +32,16 @@ class K8sJobLauncher(Launcher):
         if agent not in self._system_tokens:
             token = generate_token()
             async with self.sf() as s:
+                # Single-owner: this process's token REPLACES any predecessor.
+                # The cache is in-memory, so every dispatcher restart re-mints;
+                # without this, each restart left another live key behind.
+                from sqlalchemy import select
+                from agentplatform.db import utcnow
+                stale = (await s.execute(select(ApiKey).where(
+                    ApiKey.name == f"system:{agent}", ApiKey.run_id.is_(None),
+                    ApiKey.revoked_at.is_(None)))).scalars().all()
+                for k in stale:
+                    k.revoked_at = utcnow()
                 # `annotator`: narrow scope (read runs + annotate) so a
                 # prompt-injected system agent can't trigger/kill runs or touch
                 # anything else.

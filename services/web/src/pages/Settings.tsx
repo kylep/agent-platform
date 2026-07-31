@@ -40,12 +40,14 @@ function PasswordSection() {
   return (
     <section>
       <h2>Change admin password</h2>
-      <div className="form-col">
-        <Input type="password" placeholder="Current password" value={oldPw}
+      <form className="form-col" onSubmit={(e) => e.preventDefault()}>
+        <Input type="password" autoComplete="current-password" placeholder="Current password"
+               aria-label="Current password" value={oldPw}
                onChange={(e) => { setOldPw(e.target.value); setState("idle"); }} />
-        <Input type="password" placeholder="New password (min 8 chars)" value={newPw}
+        <Input type="password" autoComplete="new-password" placeholder="New password (min 8 chars)"
+               aria-label="New password" value={newPw}
                onChange={(e) => { setNewPw(e.target.value); setState("idle"); }} />
-      </div>
+      </form>
       {error && <div className="error">{error}</div>}
       <div className="row-actions" style={{ marginTop: 8 }}>
         <Button onClick={change} disabled={state === "saving" || oldPw === "" || newPw.length < 8}>

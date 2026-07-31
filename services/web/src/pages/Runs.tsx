@@ -22,6 +22,7 @@ export default function Runs() {
   const [runs, setRuns] = useState<RunSummary[]>([]);
   const [tags, setTags] = useState<string[]>([]);
   const [agents, setAgents] = useState<string[]>([]);
+  const [systemAgents, setSystemAgents] = useState<Set<string>>(new Set());
   const [count, setCount] = useState(PAGE);       // how many rows are shown
   const [atEnd, setAtEnd] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -42,7 +43,10 @@ export default function Runs() {
   useEffect(() => { api<string[]>("/api/tags").then(setTags).catch(() => {}); }, [runs.length]);
   useEffect(() => {
     api<AgentSummary[]>("/api/agents")
-      .then((a) => setAgents(a.map((x) => x.name)))
+      .then((a) => {
+        setAgents(a.map((x) => x.name));
+        setSystemAgents(new Set(a.filter((x) => x.system).map((x) => x.name)));
+      })
       .catch(() => {});
   }, []);
 
@@ -119,7 +123,7 @@ export default function Runs() {
                   <TD className="whitespace-nowrap">{r.agent}</TD>
                   <TD><StatusChip status={r.state} /></TD>
                   <TD className="text-muted" title={r.summary ?? ""}>
-                    {r.summary ? (r.summary.length > 90 ? r.summary.slice(0, 90) + "…" : r.summary) : "—"}
+                    {r.summary ? (r.summary.length > 90 ? r.summary.slice(0, 90) + "…" : r.summary) : systemAgents.has(r.agent) ? "(system sweep)" : "—"}
                   </TD>
                   <TD>
                     <span className="flex flex-wrap gap-1">

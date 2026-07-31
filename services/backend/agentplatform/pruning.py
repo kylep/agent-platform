@@ -64,18 +64,28 @@ class TranscriptPruner:
 
 
 async def sweep_orphaned_keys_forever(session_factory, interval_seconds: int = 900) -> None:
-    """Containment: revoke per-run API keys whose run already terminated but
-    whose terminal-frame revocation never happened (crashed pod, lost frame).
-    Cheap join, 15-minute cadence — an orphaned operator key stays live for
-    minutes, not forever."""
+    """Containment + hygiene: revoke per-run API keys whose run already
+    terminated but whose terminal-frame revocation never happened (crashed
+    pod, lost frame), and drop long-revoked rows so the table doesn't grow
+    ~dozens/day forever (a revoked hash has no audit value — secret access
+    has its own audit trail)."""
+    from datetime import timedelta
+
+    from sqlalchemy import delete
+
     from agentplatform.apikeys import revoke_orphaned_run_keys
+    from agentplatform.db import ApiKey, utcnow
     while True:
         try:
             async with session_factory() as s:
                 n = await revoke_orphaned_run_keys(s)
+                res = await s.execute(delete(ApiKey).where(
+                    ApiKey.revoked_at.isnot(None),
+                    ApiKey.revoked_at < utcnow() - timedelta(days=30)))
                 await s.commit()
-            if n:
-                log.info("revoked %d orphaned per-run api keys", n)
+            if n or (res.rowcount or 0):
+                log.info("api-key sweep: revoked %d orphaned, deleted %d long-revoked",
+                         n, res.rowcount or 0)
         except Exception:
-            log.exception("orphaned-key sweep failed")
+            log.exception("api-key sweep failed")
         await asyncio.sleep(interval_seconds)

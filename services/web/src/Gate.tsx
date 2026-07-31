@@ -13,20 +13,30 @@ export default function Gate() {
   const location = useLocation();
   const [state, setState] = useState<SetupState | null>(null);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
     api<SetupState>("/api/setup-state")
-      .then((s) => { if (!cancelled) { setState(s); setError(false); } })
-      .catch(() => { if (!cancelled) setError(true); })
+      .then((s) => { if (!cancelled) setState(s); })
+      .catch(() => {})
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
   }, [location.pathname]);
 
-  if (loading) return <div className="page-loading">Loading…</div>;
-  if (error || !state) return <div className="page-loading">Unable to reach the API.</div>;
+  // Block only on the FIRST load — later route changes revalidate in the
+  // background against the stale state, so navigation never blanks the app.
+  if (loading && !state) {
+    return (
+      <div className="auth-page">
+        <div className="text-center">
+          <div className="mb-2 text-lg font-semibold">Agent Platform</div>
+          <div className="muted">connecting…</div>
+        </div>
+      </div>
+    );
+  }
+  if (!state) return <div className="page-loading">Unable to reach the API.</div>;
 
   if (state.needs_admin && location.pathname !== "/setup") {
     return <Navigate to="/setup" replace />;
