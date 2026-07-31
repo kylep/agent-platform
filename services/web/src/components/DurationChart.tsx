@@ -28,6 +28,9 @@ export default function DurationChart() {
   const [points, setPoints] = useState<DurationPoint[]>([]);
   const [hidden, setHidden] = useState<Set<string>>(new Set());
   const [loaded, setLoaded] = useState(false);
+  // Log scale by default: the dense every-15-min band lives at 5–20s while
+  // outliers reach minutes — linear squashes the band into the axis.
+  const [log, setLog] = useState(true);
 
   useEffect(() => {
     api<DurationPoint[]>(`/api/metrics/durations?days=${days}`)
@@ -44,7 +47,15 @@ export default function DurationChart() {
   const t0 = now - days * 86400_000;
   const yMax = niceMax(Math.max(10, ...visible.map((p) => p.seconds)));
   const x = (t: number) => PAD_L + ((t - t0) / (now - t0)) * (W - PAD_L - PAD_R);
-  const y = (s: number) => H - PAD_B - (s / yMax) * (H - PAD_T - PAD_B);
+  const frac = (s: number) => log
+    ? Math.log10(Math.max(1, s)) / Math.log10(yMax)
+    : s / yMax;
+  const y = (s: number) => H - PAD_B - frac(s) * (H - PAD_T - PAD_B);
+  // grid values: powers of 10 (log) or quarters (linear)
+  const gridVals = log
+    ? Array.from({ length: Math.floor(Math.log10(yMax)) + 1 }, (_, i) => 10 ** i)
+        .concat([yMax]).filter((v, i, a) => a.indexOf(v) === i)
+    : [0, 0.25, 0.5, 0.75, 1].map((f) => yMax * f);
 
   // per-agent daily average polyline
   const avgLines = useMemo(() => {
@@ -80,6 +91,9 @@ export default function DurationChart() {
           <button key={d} className={d === days ? "chip chip-ok" : "chip"}
                   style={{ cursor: "pointer" }} onClick={() => setDays(d)}>{d}d</button>
         ))}
+        <button className="chip" style={{ cursor: "pointer" }} onClick={() => setLog(!log)}>
+          {log ? "log" : "linear"} ⇄
+        </button>
         <span style={{ width: 12 }} />
         {agents.map((a) => (
           <button key={a} className="chip" style={{
@@ -94,13 +108,13 @@ export default function DurationChart() {
       </div>
       <svg viewBox={`0 0 ${W} ${H}`} style={{ width: "100%", maxWidth: W, display: "block" }}>
         {/* y grid + labels */}
-        {[0, 0.25, 0.5, 0.75, 1].map((f) => (
-          <g key={f}>
-            <line x1={PAD_L} x2={W - PAD_R} y1={y(yMax * f)} y2={y(yMax * f)}
+        {gridVals.map((v) => (
+          <g key={v}>
+            <line x1={PAD_L} x2={W - PAD_R} y1={y(v)} y2={y(v)}
                   stroke="currentColor" opacity={0.12} />
-            <text x={PAD_L - 6} y={y(yMax * f) + 4} textAnchor="end"
+            <text x={PAD_L - 6} y={y(v) + 4} textAnchor="end"
                   fontSize={11} fill="currentColor" opacity={0.6}>
-              {Math.round(yMax * f)}s
+              {Math.round(v)}s
             </text>
           </g>
         ))}
