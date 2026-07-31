@@ -60,7 +60,7 @@ export default function Conversations() {
       <div className="chip-row">
         {connectors.map((c) => (
           <Chip key={c.name} variant={c.implemented ? "ok" : "neutral"} title={c.description}>
-            {c.name}{c.implemented ? "" : " — NYI"}
+            {c.name}{c.implemented ? "" : " — not yet implemented"}
           </Chip>
         ))}
       </div>

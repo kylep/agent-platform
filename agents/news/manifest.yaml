@@ -1,4 +1,4 @@
-description: Gathers the day's notable news and emits a structured digest (the platform posts it to #news).
+description: "Gathers the day's notable news and emits a structured digest (the platform posts it to #news)."
 role: operator
 # Sonnet is plenty for curation and cheap for a daily job.
 model: sonnet

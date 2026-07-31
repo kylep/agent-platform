@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import cronstrue from "cronstrue";
+import { cronEnglish } from "../lib/cron";
 import { api, type Job, type ScheduleEntry } from "../api";
 import { Chip } from "../ui/chip";
 import { Select } from "../ui/field";
@@ -9,8 +9,7 @@ import { Table, TD, TH } from "../ui/table";
 const when = (ts: string | null) => (ts ? new Date(ts).toLocaleString() : "—");
 
 function cronText(cron: string): string | null {
-  try { return cronstrue.toString(cron, { throwExceptionOnParseError: true }); }
-  catch { return null; }
+  return cronEnglish(cron);
 }
 
 function Cron({ cron }: { cron: string }) {
