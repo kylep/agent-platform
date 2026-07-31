@@ -117,6 +117,7 @@ function DeclarationEditor({ name }: { name: string }) {
       </p>
       <textarea
         className="agent-md-editor"
+        aria-label="Secret declaration (secret.yaml)"
         value={yamlText}
         onChange={(e) => setYamlText(e.target.value)}
         readOnly={locked}

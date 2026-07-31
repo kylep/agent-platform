@@ -53,6 +53,13 @@ jobs:
           node-version: "22"
       - name: Install and build web
         run: cd services/web && npm ci && npm run build
+      - name: Install Playwright browser
+        run: cd services/web && npx playwright install --with-deps chromium
+      - name: UI gate — smoke + axe over every page (mocked API)
+        # The UI's backpressure: each page must render the production build
+        # with zero console errors, zero unfixtured API calls, and no
+        # serious/critical axe violations. See services/web/tests/.
+        run: cd services/web && npx playwright test
 
   helm:
     runs-on: ubuntu-latest

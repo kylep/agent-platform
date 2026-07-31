@@ -10,8 +10,10 @@ export type DurationPoint = {
   run_id: string; agent: string; state: string; finished_at: string; seconds: number;
 };
 
-const PALETTE = ["#4f8ef7", "#2ea043", "#d29922", "#f85149", "#a371f7",
-                 "#39c5cf", "#db61a2", "#8b949e"];
+// Series colors chosen to pass WCAG AA as text on the dark chip/canvas
+// (the legend renders them as text, so contrast gates them like any copy).
+const PALETTE = ["#6ea8fe", "#4ade80", "#fbbf24", "#f87171", "#b794f6",
+                 "#3ddbe8", "#ef8bb9", "#9aa4b2"];
 
 const W = 860, H = 260, PAD_L = 48, PAD_R = 12, PAD_T = 10, PAD_B = 28;
 
@@ -113,7 +115,7 @@ export default function DurationChart() {
             <line x1={PAD_L} x2={W - PAD_R} y1={y(v)} y2={y(v)}
                   stroke="currentColor" opacity={0.12} />
             <text x={PAD_L - 6} y={y(v) + 4} textAnchor="end"
-                  fontSize={11} fill="currentColor" opacity={0.6}>
+                  fontSize={11} fill="currentColor" opacity={0.8}>
               {Math.round(v)}s
             </text>
           </g>
@@ -121,7 +123,7 @@ export default function DurationChart() {
         {/* x labels */}
         {xticks.map((t, i) => (
           <text key={i} x={x(t)} y={H - 8} textAnchor="middle"
-                fontSize={11} fill="currentColor" opacity={0.6}>
+                fontSize={11} fill="currentColor" opacity={0.8}>
             {new Date(t).toLocaleDateString(undefined, { month: "numeric", day: "numeric" })}
           </text>
         ))}

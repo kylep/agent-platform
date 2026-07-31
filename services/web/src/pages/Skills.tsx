@@ -53,6 +53,7 @@ function SkillEditor({ name }: { name: string }) {
       <ChangePhaseBanner phase={phase} what="skill" />
       <textarea
         className="agent-md-editor"
+        aria-label="Skill definition (SKILL.md)"
         value={md}
         onChange={(e) => setMd(e.target.value)}
         readOnly={locked}

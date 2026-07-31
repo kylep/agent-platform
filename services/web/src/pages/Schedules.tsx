@@ -60,7 +60,7 @@ export default function Schedules() {
       </p>
 
       <div className="row-actions" style={{ marginBottom: 12 }}>
-        <select value={agentFilter} onChange={(e) => setAgentFilter(e.target.value)}>
+        <select aria-label="Filter schedules by agent" value={agentFilter} onChange={(e) => setAgentFilter(e.target.value)}>
           <option value="">All agents</option>
           {agents.map((a) => <option key={a} value={a}>{a}</option>)}
         </select>

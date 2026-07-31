@@ -45,7 +45,7 @@ export default function Memories() {
                onChange={(e) => setQ(e.target.value)}
                onKeyDown={(e) => { if (e.key === "Enter") load(); }} />
         <button onClick={() => load()}>Search</button>
-        <select value={agentFilter} onChange={(e) => setAgentFilter(e.target.value)}>
+        <select aria-label="Filter memories by agent" value={agentFilter} onChange={(e) => setAgentFilter(e.target.value)}>
           <option value="">All agents</option>
           {agents.map((a) => <option key={a} value={a}>{a}</option>)}
         </select>

@@ -161,6 +161,7 @@ function DefinitionEditor({ agent, locked, onSaved }: {
       </p>
       <textarea
         className="agent-md-editor"
+        aria-label="Agent definition (agent.md)"
         value={md}
         onChange={(e) => setMd(e.target.value)}
         readOnly={locked}
@@ -220,6 +221,7 @@ function EntrypointsEditor({ agent, locked, onSaved }: {
       </p>
       <textarea
         className="agent-md-editor"
+        aria-label="Entrypoints (entrypoints.yaml)"
         value={yamlText}
         onChange={(e) => setYamlText(e.target.value)}
         readOnly={locked}

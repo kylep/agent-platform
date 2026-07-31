@@ -503,6 +503,11 @@ select {
   padding: 2px 8px;
   border: 1px solid var(--border);
   color: var(--muted);
+  /* chips render on <span>, <a>, and <button>: kill the UA button chrome so a
+     button-chip doesn't get the light ButtonFace background under dark text */
+  appearance: none;
+  background: transparent;
+  font-family: inherit;
 }
 
 .chip-ok {

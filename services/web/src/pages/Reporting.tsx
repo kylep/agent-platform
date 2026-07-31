@@ -135,7 +135,7 @@ export default function Reporting() {
       <h2>Tokens by model</h2>
       <div className="row-actions" style={{ marginBottom: 8 }}>
         <label className="muted">Agent:</label>
-        <select value={modelAgent} onChange={(e) => setModelAgent(e.target.value)}>
+        <select aria-label="Filter models by agent" value={modelAgent} onChange={(e) => setModelAgent(e.target.value)}>
           <option value="">All agents</option>
           {agents.map((a) => <option key={a.agent} value={a.agent}>{a.agent}</option>)}
         </select>

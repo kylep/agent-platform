@@ -1,0 +1,57 @@
+import { expect, test } from "@playwright/test";
+import { mockApi } from "./mock-api";
+
+// Every page renders against the mocked API with zero console errors and its
+// key content present. This is the UI's backpressure: an agent (or human)
+// shipping a page that crashes, blanks, or calls a missing endpoint fails CI
+// instead of being discovered by clicking around production.
+
+const PAGES: { path: string; heading: string; probe?: RegExp }[] = [
+  { path: "/", heading: "Dashboard", probe: /news blocked|blocked: skill/ },
+  { path: "/agents", heading: "Agents", probe: /blocked/ },
+  { path: "/agents/health-monitor", heading: "health-monitor", probe: /Entrypoints/ },
+  { path: "/runs", heading: "Runs" },
+  { path: "/conversations", heading: "Conversations", probe: /hello there/ },
+  { path: "/memories", heading: "Memories", probe: /Kyle likes terminals/ },
+  { path: "/changes", heading: "Pending Changes", probe: /agent: news/ },
+  { path: "/schedules", heading: "Schedules", probe: /health-monitor/ },
+  { path: "/skills", heading: "Skills", probe: /discord/ },
+  { path: "/secrets", heading: "Secrets", probe: /undeclared/ },
+  { path: "/dlq", heading: "Dead-letter queue" },
+  { path: "/reporting", heading: "Reporting", probe: /Seconds per run/ },
+  { path: "/settings", heading: "Settings" },
+];
+
+for (const { path, heading, probe } of PAGES) {
+  test(`${path} renders clean`, async ({ page }) => {
+    const errors: string[] = [];
+    page.on("console", (m) => { if (m.type() === "error") errors.push(m.text()); });
+    page.on("pageerror", (e) => errors.push(String(e)));
+    const unmatched = await mockApi(page);
+
+    await page.goto(path);
+    await expect(page.getByRole("heading", { level: 1, name: new RegExp(heading, "i") }))
+      .toBeVisible();
+    if (probe) await expect(page.locator("body")).toContainText(probe);
+
+    expect(errors, `console errors on ${path}`).toEqual([]);
+    expect(unmatched, `unfixtured API calls on ${path}`).toEqual([]);
+  });
+}
+
+test("sidebar navigation reaches grouped pages", async ({ page }) => {
+  await mockApi(page);
+  await page.goto("/");
+  await page.getByRole("link", { name: "Agents", exact: true }).click();
+  await expect(page.getByRole("heading", { level: 1, name: "Agents" })).toBeVisible();
+  // being inside the group auto-expands it; take a child link
+  await page.getByRole("link", { name: "Memories" }).click();
+  await expect(page.getByRole("heading", { level: 1, name: "Memories" })).toBeVisible();
+});
+
+test("run detail renders from a run row", async ({ page }) => {
+  await mockApi(page);
+  await page.goto("/runs");
+  await page.getByRole("link", { name: /a1a1a1a1/ }).first().click();
+  await expect(page.locator("body")).toContainText(/health-monitor/);
+});

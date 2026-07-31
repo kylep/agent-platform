@@ -45,7 +45,7 @@ export default function Runs() {
       <h1>Runs</h1>
       <div className="form-row">
         <label className="muted">Filter by tag:{" "}
-          <select value={tag} onChange={(e) => setTag(e.target.value)}>
+          <select aria-label="Filter runs by tag" value={tag} onChange={(e) => setTag(e.target.value)}>
             <option value="">all</option>
             {tags.map((t) => <option key={t} value={t}>{t}</option>)}
           </select>

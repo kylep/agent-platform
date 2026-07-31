@@ -95,8 +95,7 @@ function ApiKeysSection() {
       )}
       <div className="form-row">
         <input placeholder="Key name" value={name} onChange={(e) => setName(e.target.value)} />
-        <select value={role} onChange={(e) => setRole(e.target.value)}
-                title={ROLE_DESC[role]}>
+        <select aria-label="API key role" value={role} onChange={(e) => setRole(e.target.value)}>
           {ROLES.map((r) => <option key={r} value={r} title={ROLE_DESC[r]}>{r}</option>)}
         </select>
         <button onClick={mint} disabled={name.trim() === ""}>Create key</button>
