@@ -103,7 +103,7 @@ export default function Reporting() {
           <Stat label="runs · 7d" value={ov.runs_7d} />
           <Stat label="total" value={ov.total} />
           <Stat label="avg duration" value={dur(ov.avg_duration_seconds)} />
-          <Stat label={`tokens in/out · last ${ov.window} runs`} value={`${ov.tokens_in.toLocaleString()} / ${ov.tokens_out.toLocaleString()}`} />
+          <Stat label={`tokens in/out (uncached) · last ${ov.window} runs`} value={`${ov.tokens_in.toLocaleString()} / ${ov.tokens_out.toLocaleString()}`} />
         </StatRow>
       )}
 
@@ -135,7 +135,7 @@ export default function Reporting() {
         </tbody>
       </Table>
 
-      <h2>Tokens by model <span className="muted text-sm font-normal">(all time)</span></h2>
+      <h2>Tokens by model <span className="muted text-sm font-normal">(all time, incl. cache reads)</span></h2>
       <div className="row-actions" style={{ marginBottom: 8 }}>
         <label className="muted" htmlFor="model-agent-filter">Agent:</label>
         <Select id="model-agent-filter" aria-label="Filter models by agent" value={modelAgent}

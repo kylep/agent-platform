@@ -130,7 +130,7 @@ export default function Dashboard() {
         <Stat label="runs · 24h" value={ov?.runs_24h ?? "—"} to="/runs" />
         <Stat label="success rate" value={pct(ov?.success_rate ?? null)}
               warn={ov?.success_rate != null && ov.success_rate < 0.8} to="/reporting" />
-        <Stat label={ov ? `tokens in/out · last ${ov.window} runs` : "tokens in/out"} value={ov ? `${ov.tokens_in.toLocaleString()} / ${ov.tokens_out.toLocaleString()}` : "—"} to="/reporting" />
+        <Stat label={ov ? `tokens in/out (uncached) · last ${ov.window} runs` : "tokens in/out"} value={ov ? `${ov.tokens_in.toLocaleString()} / ${ov.tokens_out.toLocaleString()}` : "—"} to="/reporting" />
       </StatRow>
 
       <div className="dash-cols">

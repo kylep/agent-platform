@@ -35,9 +35,9 @@ function AgentReport({ name }: { name: string }) {
         <Stat label="success" value={pct(m.success_rate)} warn={m.success_rate !== null && m.success_rate < 0.8} />
         <Stat label="fail streak" value={m.failure_streak} warn={m.failure_streak > 0} />
         <Stat label="avg duration" value={dur(m.avg_duration_seconds)} />
-        <Stat label="tokens in/out · last 5000 runs" value={`${m.tokens_in.toLocaleString()} / ${m.tokens_out.toLocaleString()}`} />
+        <Stat label="tokens in/out (uncached) · last 5000 runs" value={`${m.tokens_in.toLocaleString()} / ${m.tokens_out.toLocaleString()}`} />
       </StatRow>
-      <h2>Tokens by model <span className="muted text-sm font-normal">(all time)</span></h2>
+      <h2>Tokens by model <span className="muted text-sm font-normal">(all time, incl. cache reads)</span></h2>
       <Table>
         <thead><tr><TH>Model</TH><TH>Runs</TH><TH>Tokens in</TH><TH>Tokens out</TH></tr></thead>
         <tbody>
