@@ -99,6 +99,34 @@ async def by_model(request: Request, agent: str | None = None):
     return out
 
 
+@router.get("/api/metrics/durations", response_model=list[S.RunDurationPoint], dependencies=[Depends(require_role(*READ_ROLES))])
+async def durations(request: Request, days: int = 14, agent: str | None = None):
+    """Individual run durations over time — the seconds-per-run chart's data.
+    Raw points rather than pre-bucketed averages: at this platform's volume a
+    scatter of real runs is more informative, and the client can average.
+    Bounded by a day window (clamped 1–90) and a hard row cap."""
+    days = max(1, min(days, 90))
+    cutoff = utcnow() - timedelta(days=days)
+    stmt = (select(Run)
+            .where(Run.finished_at.isnot(None), Run.started_at.isnot(None),
+                   Run.finished_at >= cutoff)
+            .order_by(Run.finished_at.desc()).limit(2000))
+    if agent:
+        stmt = stmt.where(Run.agent == agent)
+    async with request.app.state.session_factory() as s:
+        runs = list((await s.execute(stmt)).scalars())
+    out = []
+    for r in runs:
+        d = _duration(r)
+        if d is None:
+            continue
+        out.append({"run_id": r.id, "agent": r.agent, "state": r.state,
+                    "finished_at": as_utc(r.finished_at).isoformat(),
+                    "seconds": round(d, 2)})
+    out.reverse()   # chronological for plotting
+    return out
+
+
 @router.get("/api/metrics/agents", response_model=list[S.AgentMetrics], dependencies=[Depends(require_role(*READ_ROLES))])
 async def per_agent(request: Request):
     runs = await _recent_runs(request)

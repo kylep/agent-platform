@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { api, type AgentMetrics, type Integration, type KafkaHealth, type MetricsOverview, type ModelUsage, type Retention } from "../api";
+import DurationChart from "../components/DurationChart";
 
 function IntegrationChip({ status }: { status: string }) {
   const cls = status === "working" ? "chip-ok" : status === "missing" ? "chip-invalid" : "chip-unprobed";
@@ -106,6 +107,9 @@ export default function Reporting() {
           <Stat label="tokens in/out" value={`${ov.tokens_in}/${ov.tokens_out}`} />
         </div>
       )}
+
+      <h2>Seconds per run</h2>
+      <DurationChart />
 
       <h2>Per agent</h2>
       <table className="table">

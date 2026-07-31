@@ -62,6 +62,7 @@ from .retention_per_agent_days import RetentionPerAgentDays
 from .run_accepted import RunAccepted
 from .run_detail import RunDetail
 from .run_detail_permission_denials_item import RunDetailPermissionDenialsItem
+from .run_duration_point import RunDurationPoint
 from .run_in import RunIn
 from .run_summary import RunSummary
 from .schedule_row import ScheduleRow
@@ -149,6 +150,7 @@ __all__ = (
     "RunAccepted",
     "RunDetail",
     "RunDetailPermissionDenialsItem",
+    "RunDurationPoint",
     "RunIn",
     "RunSummary",
     "ScheduleRow",

@@ -287,6 +287,14 @@ class AgentMetrics(_Agg):
     failure_streak: int
 
 
+class RunDurationPoint(BaseModel):
+    run_id: str
+    agent: str
+    state: str
+    finished_at: str
+    seconds: float
+
+
 class ModelUsage(BaseModel):
     model: str
     runs: int
