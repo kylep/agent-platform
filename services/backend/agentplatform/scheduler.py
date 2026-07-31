@@ -42,10 +42,13 @@ class Scheduler:
 
     async def tick(self, now: datetime) -> None:
         self.agents.reload()
-        # Manifest-declared schedules (1:1, e.g. the health-monitor system agent).
+        # Declared schedules: entrypoints.yaml cron list (plus the deprecated
+        # manifest `schedule:`), e.g. the health-monitor system agent.
         for info in self.agents.list():
-            if info.error is None and info.manifest and is_valid_cron(info.manifest.schedule):
-                await self._tick_agent(info.name, info.manifest.schedule, now)
+            if info.error is None:
+                crons = info.crons()
+                if crons:
+                    await self._tick_agent(info.name, crons, now)
         # First-class Scheduled Jobs (1:many — one agent, many cron+prompt jobs).
         async with self.sf() as s:
             jobs = (await s.execute(select(ScheduledJob))).scalars().all()
@@ -53,8 +56,11 @@ class Scheduler:
             if is_valid_cron(job.cron):
                 await self._tick_job(job.id, now)
 
-    async def _tick_agent(self, name: str, cron: str, now: datetime) -> None:
+    async def _tick_agent(self, name: str, crons: list[str], now: datetime) -> None:
+        """One agent may declare several cron triggers (entrypoints.yaml); the
+        Schedule row tracks the EARLIEST upcoming fire across all of them."""
         run_id = None
+        soonest = min(next_fire(c, now) for c in crons)
         async with self.sf() as s:
             sched = await s.get(Schedule, name)
             if sched is None:
@@ -63,14 +69,14 @@ class Scheduler:
             if sched.next_fire is None:
                 # Newly seen (or armed by the API): set the next fire, don't
                 # fire this tick.
-                sched.next_fire = next_fire(cron, now)
+                sched.next_fire = soonest
                 await s.commit()
                 return
             if not sched.enabled or now < as_utc(sched.next_fire):
                 return
             run_id = uuid.uuid4().hex
             sched.last_fire = now
-            sched.next_fire = next_fire(cron, now)  # from now → skip any missed fires
+            sched.next_fire = soonest  # from now → skip any missed fires
             await s.commit()
         # Event-sourced: emit a run.requested event; the ingest consumer
         # materializes the run.

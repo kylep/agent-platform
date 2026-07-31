@@ -12,13 +12,13 @@ from ...types import Response
 
 
 def _get_kwargs(
-    agent: str,
+    path: str,
 ) -> dict[str, Any]:
 
     _kwargs: dict[str, Any] = {
         "method": "post",
-        "url": "/api/webhooks/{agent}".format(
-            agent=quote(str(agent), safe=""),
+        "url": "/api/webhooks/{path}".format(
+            path=quote(str(path), safe=""),
         ),
     }
 
@@ -56,20 +56,22 @@ def _build_response(
 
 
 def sync_detailed(
-    agent: str,
+    path: str,
     *,
     client: AuthenticatedClient | Client,
 ) -> Response[HTTPValidationError | RunAccepted]:
     """Webhook
 
-     External async trigger: an operator+ caller fires `{agent}` with the
-    request body as prompt context. This is **event-sourced** — we validate the
-    command, then produce a `run.requested` event to `run.inbound`; the ingest
-    consumer materializes the run. The pre-assigned id is returned so the caller
-    can follow the run once it lands.
+     External async trigger: an operator+ caller fires the agent that
+    DECLARES `{path}` in its entrypoints.yaml `webhooks:` list (docs/design/10)
+    — an undeclared path doesn't exist, so an agent can't be webhook-fired
+    unless its definition opted in. The request body becomes prompt context.
+    Event-sourced: we validate the command, then produce a `run.requested`
+    event to `run.inbound`; the ingest consumer materializes the run. The
+    pre-assigned id is returned so the caller can follow the run.
 
     Args:
-        agent (str):
+        path (str):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -80,7 +82,7 @@ def sync_detailed(
     """
 
     kwargs = _get_kwargs(
-        agent=agent,
+        path=path,
     )
 
     response = client.get_httpx_client().request(
@@ -91,20 +93,22 @@ def sync_detailed(
 
 
 def sync(
-    agent: str,
+    path: str,
     *,
     client: AuthenticatedClient | Client,
 ) -> HTTPValidationError | RunAccepted | None:
     """Webhook
 
-     External async trigger: an operator+ caller fires `{agent}` with the
-    request body as prompt context. This is **event-sourced** — we validate the
-    command, then produce a `run.requested` event to `run.inbound`; the ingest
-    consumer materializes the run. The pre-assigned id is returned so the caller
-    can follow the run once it lands.
+     External async trigger: an operator+ caller fires the agent that
+    DECLARES `{path}` in its entrypoints.yaml `webhooks:` list (docs/design/10)
+    — an undeclared path doesn't exist, so an agent can't be webhook-fired
+    unless its definition opted in. The request body becomes prompt context.
+    Event-sourced: we validate the command, then produce a `run.requested`
+    event to `run.inbound`; the ingest consumer materializes the run. The
+    pre-assigned id is returned so the caller can follow the run.
 
     Args:
-        agent (str):
+        path (str):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -115,26 +119,28 @@ def sync(
     """
 
     return sync_detailed(
-        agent=agent,
+        path=path,
         client=client,
     ).parsed
 
 
 async def asyncio_detailed(
-    agent: str,
+    path: str,
     *,
     client: AuthenticatedClient | Client,
 ) -> Response[HTTPValidationError | RunAccepted]:
     """Webhook
 
-     External async trigger: an operator+ caller fires `{agent}` with the
-    request body as prompt context. This is **event-sourced** — we validate the
-    command, then produce a `run.requested` event to `run.inbound`; the ingest
-    consumer materializes the run. The pre-assigned id is returned so the caller
-    can follow the run once it lands.
+     External async trigger: an operator+ caller fires the agent that
+    DECLARES `{path}` in its entrypoints.yaml `webhooks:` list (docs/design/10)
+    — an undeclared path doesn't exist, so an agent can't be webhook-fired
+    unless its definition opted in. The request body becomes prompt context.
+    Event-sourced: we validate the command, then produce a `run.requested`
+    event to `run.inbound`; the ingest consumer materializes the run. The
+    pre-assigned id is returned so the caller can follow the run.
 
     Args:
-        agent (str):
+        path (str):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -145,7 +151,7 @@ async def asyncio_detailed(
     """
 
     kwargs = _get_kwargs(
-        agent=agent,
+        path=path,
     )
 
     response = await client.get_async_httpx_client().request(**kwargs)
@@ -154,20 +160,22 @@ async def asyncio_detailed(
 
 
 async def asyncio(
-    agent: str,
+    path: str,
     *,
     client: AuthenticatedClient | Client,
 ) -> HTTPValidationError | RunAccepted | None:
     """Webhook
 
-     External async trigger: an operator+ caller fires `{agent}` with the
-    request body as prompt context. This is **event-sourced** — we validate the
-    command, then produce a `run.requested` event to `run.inbound`; the ingest
-    consumer materializes the run. The pre-assigned id is returned so the caller
-    can follow the run once it lands.
+     External async trigger: an operator+ caller fires the agent that
+    DECLARES `{path}` in its entrypoints.yaml `webhooks:` list (docs/design/10)
+    — an undeclared path doesn't exist, so an agent can't be webhook-fired
+    unless its definition opted in. The request body becomes prompt context.
+    Event-sourced: we validate the command, then produce a `run.requested`
+    event to `run.inbound`; the ingest consumer materializes the run. The
+    pre-assigned id is returned so the caller can follow the run.
 
     Args:
-        agent (str):
+        path (str):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -179,7 +187,7 @@ async def asyncio(
 
     return (
         await asyncio_detailed(
-            agent=agent,
+            path=path,
             client=client,
         )
     ).parsed

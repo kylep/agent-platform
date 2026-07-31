@@ -1,0 +1,2 @@
+# Durable triggers (docs/design/10). Ad-hoc experiments belong in UI Jobs.
+cron: ["*/15 * * * *"]

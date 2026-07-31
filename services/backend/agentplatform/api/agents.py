@@ -66,7 +66,7 @@ async def list_agents(request: Request):
              "quarantined": a.error is not None, "error": a.error,
              "blocked": a.name in blocked, "blocked_reason": blocked.get(a.name),
              "system": bool(a.manifest and a.manifest.system),
-             "schedule": a.manifest.schedule if a.manifest else ""}
+             "schedule": ", ".join(a.crons())}
             for a in request.app.state.agent_store.list()]
 
 @router.get("/api/agents/{name}", response_model=AgentInfo, dependencies=[Depends(require_role(*READ_ROLES))])

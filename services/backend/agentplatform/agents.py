@@ -1,6 +1,6 @@
 from pathlib import Path
 import yaml
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel, ValidationError, field_validator
 
 class Manifest(BaseModel):
     role: str = "operator"
@@ -9,7 +9,8 @@ class Manifest(BaseModel):
     skills: list[str] = []
     secrets: list[str] = []
     description: str = ""
-    # Optional 5-field cron expression; when set the scheduler fires the agent.
+    # DEPRECATED — declare cron triggers in entrypoints.yaml instead. Still
+    # honored (unioned into AgentInfo.crons()) so old manifests keep firing.
     schedule: str = ""
     # Optional claude model override (e.g. "sonnet" for cheap background work);
     # empty = the CLI default.
@@ -28,11 +29,49 @@ class Manifest(BaseModel):
     # default; <= 0 = keep this agent's transcripts forever.
     transcript_retention_days: int | None = None
 
+class WebhookEntry(BaseModel):
+    path: str
+
+
+class Entrypoints(BaseModel):
+    """agents/<name>/entrypoints.yaml — the agent's durable, defining triggers
+    (docs/design/10): cron fires, inbound webhook paths (POST
+    /api/webhooks/<path> only works for a declared path), and kafka topic
+    subscriptions (reserved). Distinct from DB Jobs, which are ad-hoc UI
+    experiments — history, not config."""
+    cron: list[str] = []
+    webhooks: list[WebhookEntry] = []
+    kafka: list[str] = []
+
+    @field_validator("cron")
+    @classmethod
+    def _valid_cron(cls, v):
+        from croniter import croniter
+        for expr in v:
+            if not croniter.is_valid(expr):
+                raise ValueError(f"invalid cron expression: {expr!r}")
+        return v
+
+
 class AgentInfo(BaseModel):
     name: str
     manifest: Manifest | None
     agent_md: str
+    entrypoints: Entrypoints = Entrypoints()
     error: str | None = None
+
+    def crons(self) -> list[str]:
+        """Effective cron triggers: entrypoints.yaml plus the deprecated
+        manifest `schedule:`, valid expressions only, deduplicated."""
+        from croniter import croniter
+        out = list(self.entrypoints.cron)
+        legacy = self.manifest.schedule if self.manifest else ""
+        if legacy and legacy not in out and croniter.is_valid(legacy):
+            out.append(legacy)
+        return out
+
+    def webhook_paths(self) -> list[str]:
+        return [w.path for w in self.entrypoints.webhooks]
 
 class AgentStore:
     def __init__(self, root: Path):
@@ -52,7 +91,14 @@ class AgentStore:
         agent_md = md.read_text() if md.is_file() else ""
         try:
             raw = yaml.safe_load((d / "manifest.yaml").read_text()) or {}
-            return AgentInfo(name=d.name, manifest=Manifest(**raw), agent_md=agent_md)
+            ep = Entrypoints()
+            ep_file = d / "entrypoints.yaml"
+            if ep_file.is_file():
+                # A broken entrypoints.yaml quarantines like a broken manifest:
+                # triggers are part of the definition.
+                ep = Entrypoints(**(yaml.safe_load(ep_file.read_text()) or {}))
+            return AgentInfo(name=d.name, manifest=Manifest(**raw),
+                             agent_md=agent_md, entrypoints=ep)
         except (OSError, yaml.YAMLError, ValidationError) as e:
             return AgentInfo(name=d.name, manifest=None, agent_md=agent_md, error=str(e))
 

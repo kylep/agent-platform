@@ -23,6 +23,7 @@ from .creds import Creds
 from .dlq_entry import DlqEntry
 from .edit_dispatch import EditDispatch
 from .edit_result import EditResult
+from .entrypoints import Entrypoints
 from .freeform_edit_in import FreeformEditIn
 from .http_validation_error import HTTPValidationError
 from .integration import Integration
@@ -70,6 +71,7 @@ from .skill_detail import SkillDetail
 from .skill_view import SkillView
 from .validation_error import ValidationError
 from .validation_error_context import ValidationErrorContext
+from .webhook_entry import WebhookEntry
 
 __all__ = (
     "AgentInfo",
@@ -95,6 +97,7 @@ __all__ = (
     "DlqEntry",
     "EditDispatch",
     "EditResult",
+    "Entrypoints",
     "FreeformEditIn",
     "HTTPValidationError",
     "Integration",
@@ -142,4 +145,5 @@ __all__ = (
     "SkillView",
     "ValidationError",
     "ValidationErrorContext",
+    "WebhookEntry",
 )

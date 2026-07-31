@@ -13,19 +13,23 @@ from agentplatform.api import schemas as S
 router = APIRouter()
 
 
-@router.post("/api/webhooks/{agent}", status_code=202, response_model=S.RunAccepted)
-async def webhook(request: Request, agent: str, principal: str = Depends(require_role("operator"))):
-    """External async trigger: an operator+ caller fires `{agent}` with the
-    request body as prompt context. This is **event-sourced** — we validate the
-    command, then produce a `run.requested` event to `run.inbound`; the ingest
-    consumer materializes the run. The pre-assigned id is returned so the caller
-    can follow the run once it lands."""
+@router.post("/api/webhooks/{path}", status_code=202, response_model=S.RunAccepted)
+async def webhook(request: Request, path: str, principal: str = Depends(require_role("operator"))):
+    """External async trigger: an operator+ caller fires the agent that
+    DECLARES `{path}` in its entrypoints.yaml `webhooks:` list (docs/design/10)
+    — an undeclared path doesn't exist, so an agent can't be webhook-fired
+    unless its definition opted in. The request body becomes prompt context.
+    Event-sourced: we validate the command, then produce a `run.requested`
+    event to `run.inbound`; the ingest consumer materializes the run. The
+    pre-assigned id is returned so the caller can follow the run."""
     st = request.app.state
-    info = st.agent_store.get(agent)
+    st.agent_store.reload()   # a just-synced entrypoints.yaml must count
+    info = next((a for a in st.agent_store.list() if path in a.webhook_paths()), None)
     if info is None:
-        raise HTTPException(404, "unknown agent")
+        raise HTTPException(404, "no agent declares this webhook path")
     if info.error is not None:
         raise HTTPException(409, "agent quarantined")
+    agent = info.name
     try:
         payload = await request.json()
     except Exception:

@@ -2,6 +2,5 @@ description: System agent that summarizes and tags recent runs.
 role: operator
 concurrency: 1
 timeout_seconds: 300
-schedule: "0 * * * *"
 model: sonnet
 system: true

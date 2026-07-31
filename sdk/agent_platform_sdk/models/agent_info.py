@@ -10,6 +10,7 @@ from typing_extensions import Self
 from ..types import UNSET, Unset
 
 if TYPE_CHECKING:
+    from ..models.entrypoints import Entrypoints
     from ..models.manifest import Manifest
 
 
@@ -23,12 +24,18 @@ class AgentInfo:
         agent_md (str):
         manifest (Manifest | None):
         name (str):
+        entrypoints (Entrypoints | Unset): agents/<name>/entrypoints.yaml — the agent's durable, defining triggers
+            (docs/design/10): cron fires, inbound webhook paths (POST
+            /api/webhooks/<path> only works for a declared path), and kafka topic
+            subscriptions (reserved). Distinct from DB Jobs, which are ad-hoc UI
+            experiments — history, not config.
         error (None | str | Unset):
     """
 
     agent_md: str
     manifest: Manifest | None
     name: str
+    entrypoints: Entrypoints | Unset = UNSET
     error: None | str | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
@@ -45,6 +52,10 @@ class AgentInfo:
 
         name = self.name
 
+        entrypoints: dict[str, Any] | Unset = UNSET
+        if not isinstance(self.entrypoints, Unset):
+            entrypoints = self.entrypoints.to_dict()
+
         error: None | str | Unset
         if isinstance(self.error, Unset):
             error = UNSET
@@ -60,6 +71,8 @@ class AgentInfo:
                 "name": name,
             }
         )
+        if entrypoints is not UNSET:
+            field_dict["entrypoints"] = entrypoints
         if error is not UNSET:
             field_dict["error"] = error
 
@@ -67,6 +80,7 @@ class AgentInfo:
 
     @classmethod
     def from_dict(cls, src_dict: Mapping[str, Any]) -> Self:
+        from ..models.entrypoints import Entrypoints
         from ..models.manifest import Manifest
 
         d = dict(src_dict)
@@ -89,6 +103,13 @@ class AgentInfo:
 
         name = d.pop("name")
 
+        _entrypoints = d.pop("entrypoints", UNSET)
+        entrypoints: Entrypoints | Unset
+        if isinstance(_entrypoints, Unset):
+            entrypoints = UNSET
+        else:
+            entrypoints = Entrypoints.from_dict(_entrypoints)
+
         def _parse_error(data: object) -> None | str | Unset:
             if data is None:
                 return data
@@ -102,6 +123,7 @@ class AgentInfo:
             agent_md=agent_md,
             manifest=manifest,
             name=name,
+            entrypoints=entrypoints,
             error=error,
         )
 
