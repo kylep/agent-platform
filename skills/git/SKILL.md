@@ -50,3 +50,5 @@ git push origin +HEAD:my-branch          # force-update the branch
 - Pin host keys (`StrictHostKeyChecking=yes` with a known_hosts file) if you use
   SSH instead of the HTTPS+token path above.
 - Keep commit messages short and specific; they are read in review.
+
+<!-- editor-verify -->
