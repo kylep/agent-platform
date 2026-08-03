@@ -7,8 +7,6 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 
 from agentplatform.api.agents import _github_app_token
 from agentplatform.api.auth import require_admin
-from agentplatform.db import Run
-from agentplatform.events import TOPIC_RUN_REQUESTS
 from agentplatform.github import GitHubClient
 
 # Platform-authored PRs live on coder/* branches — one branch per building
@@ -149,42 +147,27 @@ async def pull_request_impact(request: Request, number: int):
     return {"items": items, "warnings": warnings}
 
 
-# --- AI reviewer summary (on demand) ----------------------------------------
+# --- AI reviewer summary (automatic) -----------------------------------------
+# The dispatcher's PrSummarizer loop summarizes every open coder/* PR and
+# posts the result as a PR COMMENT (marker + head sha). This endpoint just
+# reads that comment back for the UI.
 
-@router.post("/api/pull-requests/{number}/summarize", response_model=S.RunAccepted, status_code=202)
-async def summarize_pull_request(request: Request, number: int,
-                                 principal: str = Depends(require_admin)):
-    """Dispatch the change-summarizer system agent over this change's diff.
-    On-demand (a button, not automatic — a run per PR is real money). The
-    summary is the run's `result`; the UI polls the run and renders it."""
-    st = request.app.state
-    st.agent_store.reload()
-    agent = st.agent_store.get("change-summarizer")
-    if agent is None or agent.error is not None:
-        raise HTTPException(409, "change-summarizer agent is unavailable")
+@router.get("/api/pull-requests/{number}/summary", response_model=S.PrSummary)
+async def pull_request_summary(request: Request, number: int):
+    """The auto-generated reviewer summary for a change: `ready` with the text
+    once the summarizer's comment lands, `pending` while the loop works (a
+    fresh push resets to pending until the new head is summarized)."""
+    from agentplatform.prsummarizer import parse_marker
     gh = await _client(request)
     pr = await asyncio.to_thread(gh.pull_request, number)
-    files = await asyncio.to_thread(gh.pull_request_files, number)
-    parts = []
-    for f in files:
-        parts.append(f"--- {f['filename']} ({f['status']}, +{f['additions']} −{f['deletions']})\n"
-                     + (f.get("patch") or "(no textual diff)"))
-    diff = "\n\n".join(parts)
-    if len(diff) > 60_000:   # keep the prompt bounded on huge changes
-        diff = diff[:60_000] + "\n\n[diff truncated for length]"
-    prompt = (f"Summarize pending change #{number} — \"{pr['title']}\" "
-              f"(branch `{pr['head']['ref']}`) for its reviewer.\n\n"
-              f"Unified diff:\n\n{diff}")
-    run = Run(agent="change-summarizer", trigger="manual",
-              requested_by=principal, prompt=prompt)
-    async with st.session_factory() as s:
-        s.add(run); await s.commit()
-    try:
-        await st.producer.publish(TOPIC_RUN_REQUESTS, run.id,
-                                  {"type": "run", "run_id": run.id}, type="run.request")
-    except Exception:
-        pass  # the dispatcher sweep drains it
-    return {"id": run.id, "state": run.state}
+    sha = pr.get("head", {}).get("sha", "")
+    comments = await asyncio.to_thread(gh.list_issue_comments, number)
+    for c in reversed(comments):
+        body = c.get("body", "")
+        if parse_marker(body) == sha:
+            text = body.split("-->", 1)[1].replace("**AI reviewer summary**", "", 1).strip()
+            return {"state": "ready", "summary": text, "sha": sha}
+    return {"state": "pending", "summary": None, "sha": sha}
 
 
 async def _cleanup_branch(gh: GitHubClient, number: int) -> None:

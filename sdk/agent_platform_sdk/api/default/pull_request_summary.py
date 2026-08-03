@@ -7,7 +7,7 @@ import httpx
 from ... import errors
 from ...client import AuthenticatedClient, Client
 from ...models.http_validation_error import HTTPValidationError
-from ...models.run_accepted import RunAccepted
+from ...models.pr_summary import PrSummary
 from ...types import Response
 
 
@@ -16,8 +16,8 @@ def _get_kwargs(
 ) -> dict[str, Any]:
 
     _kwargs: dict[str, Any] = {
-        "method": "post",
-        "url": "/api/pull-requests/{number}/summarize".format(
+        "method": "get",
+        "url": "/api/pull-requests/{number}/summary".format(
             number=quote(str(number), safe=""),
         ),
     }
@@ -27,11 +27,11 @@ def _get_kwargs(
 
 def _parse_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> HTTPValidationError | RunAccepted | None:
-    if response.status_code == 202:
-        response_202 = RunAccepted.from_dict(response.json())
+) -> HTTPValidationError | PrSummary | None:
+    if response.status_code == 200:
+        response_200 = PrSummary.from_dict(response.json())
 
-        return response_202
+        return response_200
 
     if response.status_code == 422:
         response_422 = HTTPValidationError.from_dict(response.json())
@@ -46,7 +46,7 @@ def _parse_response(
 
 def _build_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> Response[HTTPValidationError | RunAccepted]:
+) -> Response[HTTPValidationError | PrSummary]:
     return Response(
         status_code=HTTPStatus(response.status_code),
         content=response.content,
@@ -59,12 +59,12 @@ def sync_detailed(
     number: int,
     *,
     client: AuthenticatedClient | Client,
-) -> Response[HTTPValidationError | RunAccepted]:
-    """Summarize Pull Request
+) -> Response[HTTPValidationError | PrSummary]:
+    """Pull Request Summary
 
-     Dispatch the change-summarizer system agent over this change's diff.
-    On-demand (a button, not automatic — a run per PR is real money). The
-    summary is the run's `result`; the UI polls the run and renders it.
+     The auto-generated reviewer summary for a change: `ready` with the text
+    once the summarizer's comment lands, `pending` while the loop works (a
+    fresh push resets to pending until the new head is summarized).
 
     Args:
         number (int):
@@ -74,7 +74,7 @@ def sync_detailed(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[HTTPValidationError | RunAccepted]
+        Response[HTTPValidationError | PrSummary]
     """
 
     kwargs = _get_kwargs(
@@ -92,12 +92,12 @@ def sync(
     number: int,
     *,
     client: AuthenticatedClient | Client,
-) -> HTTPValidationError | RunAccepted | None:
-    """Summarize Pull Request
+) -> HTTPValidationError | PrSummary | None:
+    """Pull Request Summary
 
-     Dispatch the change-summarizer system agent over this change's diff.
-    On-demand (a button, not automatic — a run per PR is real money). The
-    summary is the run's `result`; the UI polls the run and renders it.
+     The auto-generated reviewer summary for a change: `ready` with the text
+    once the summarizer's comment lands, `pending` while the loop works (a
+    fresh push resets to pending until the new head is summarized).
 
     Args:
         number (int):
@@ -107,7 +107,7 @@ def sync(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        HTTPValidationError | RunAccepted
+        HTTPValidationError | PrSummary
     """
 
     return sync_detailed(
@@ -120,12 +120,12 @@ async def asyncio_detailed(
     number: int,
     *,
     client: AuthenticatedClient | Client,
-) -> Response[HTTPValidationError | RunAccepted]:
-    """Summarize Pull Request
+) -> Response[HTTPValidationError | PrSummary]:
+    """Pull Request Summary
 
-     Dispatch the change-summarizer system agent over this change's diff.
-    On-demand (a button, not automatic — a run per PR is real money). The
-    summary is the run's `result`; the UI polls the run and renders it.
+     The auto-generated reviewer summary for a change: `ready` with the text
+    once the summarizer's comment lands, `pending` while the loop works (a
+    fresh push resets to pending until the new head is summarized).
 
     Args:
         number (int):
@@ -135,7 +135,7 @@ async def asyncio_detailed(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[HTTPValidationError | RunAccepted]
+        Response[HTTPValidationError | PrSummary]
     """
 
     kwargs = _get_kwargs(
@@ -151,12 +151,12 @@ async def asyncio(
     number: int,
     *,
     client: AuthenticatedClient | Client,
-) -> HTTPValidationError | RunAccepted | None:
-    """Summarize Pull Request
+) -> HTTPValidationError | PrSummary | None:
+    """Pull Request Summary
 
-     Dispatch the change-summarizer system agent over this change's diff.
-    On-demand (a button, not automatic — a run per PR is real money). The
-    summary is the run's `result`; the UI polls the run and renders it.
+     The auto-generated reviewer summary for a change: `ready` with the text
+    once the summarizer's comment lands, `pending` while the loop works (a
+    fresh push resets to pending until the new head is summarized).
 
     Args:
         number (int):
@@ -166,7 +166,7 @@ async def asyncio(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        HTTPValidationError | RunAccepted
+        HTTPValidationError | PrSummary
     """
 
     return (

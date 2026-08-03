@@ -81,9 +81,9 @@ def test_notable_lines_config_files_only():
     assert _notable_lines("agents/x/agent.md", patch) == []
 
 
-async def test_summarize_requires_agent(admin_client):
-    # no change-summarizer in the fixture store → clear 409 (no GH call made)
-    r = await admin_client.post("/api/pull-requests/1/summarize")
+async def test_summary_endpoint_needs_github(admin_client):
+    # no github app configured in tests → clear 409, like the other PR routes
+    r = await admin_client.get("/api/pull-requests/1/summary")
     assert r.status_code == 409
 
 

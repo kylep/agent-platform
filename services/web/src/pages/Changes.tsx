@@ -1,6 +1,6 @@
 import { Fragment, useEffect, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
-import { api, type PullRequest, type PullRequestFile, type RunDetailData } from "../api";
+import { api, type PullRequest, type PullRequestFile } from "../api";
 import { blockPath, DeployTracker, parseBranch } from "../components/ChangeFlow";
 import { Banner } from "../ui/banner";
 import { Button } from "../ui/button";
@@ -34,67 +34,41 @@ function ColoredPatch({ patch }: { patch: string }) {
   );
 }
 
-// The on-demand AI reviewer summary: one button → one change-summarizer run →
-// the run's result rendered inline.
+// The AI reviewer summary — generated automatically by the platform (the
+// dispatcher summarizes every open change and posts it as a PR comment; this
+// just renders that comment). Polls while the summary is still being written.
 function Summary({ number }: { number: number }) {
-  const [runId, setRunId] = useState<string | null>(null);
-  const [run, setRun] = useState<RunDetailData | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  async function start() {
-    setError(null);
-    try {
-      const r = await api<{ id: string }>(`/api/pull-requests/${number}/summarize`, { method: "POST" });
-      setRunId(r.id);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to start the summary.");
-    }
-  }
+  const [state, setState] = useState<{ state: string; summary: string | null } | null>(null);
 
   useEffect(() => {
-    if (!runId) return;
     let stop = false;
-    let grace = 0;
-    const id = setInterval(async () => {
+    let timer: ReturnType<typeof setInterval> | null = null;
+    async function load() {
       try {
-        const r = await api<RunDetailData>(`/api/runs/${runId}`);
+        const r = await api<{ state: string; summary: string | null }>(
+          `/api/pull-requests/${number}/summary`);
         if (stop) return;
-        setRun(r);
-        const active = ["queued", "dispatched", "running"].includes(r.state);
-        // The k8s Job flips terminal slightly before the recorder persists the
-        // result frame — grace-poll a few beats for the text to land.
-        if (!active && (r.state !== "succeeded" || r.result || ++grace > 5)) clearInterval(id);
-      } catch { /* transient */ }
-    }, 3000);
-    return () => { stop = true; clearInterval(id); };
-  }, [runId]);
+        setState(r);
+        if (r.state === "ready" && timer) clearInterval(timer);
+      } catch {
+        if (!stop) setState({ state: "unavailable", summary: null });
+        if (timer) clearInterval(timer);
+      }
+    }
+    load();
+    timer = setInterval(load, 10_000);
+    return () => { stop = true; if (timer) clearInterval(timer); };
+  }, [number]);
 
-  if (!runId) {
-    return (
-      <div className="row-actions" style={{ marginTop: 6 }}>
-        <Button variant="secondary" size="sm" onClick={start}>Summarize with AI</Button>
-        {error && <span className="error">{error}</span>}
-      </div>
-    );
-  }
-  const running = !run || ["queued", "dispatched", "running"].includes(run.state)
-    || (run.state === "succeeded" && !run.result);
-  if (running) {
-    return <p className="muted">Summarizing… (<Link to={`/runs/${runId}`}>watch the run</Link>)</p>;
-  }
-  if (run.state === "succeeded" && run.result) {
-    return (
-      <Banner>
-        <b>AI summary:</b>
-        <Markdown text={run.result} />
-        <span className="muted"><Link to={`/runs/${runId}`}>summary run</Link></span>
-      </Banner>
-    );
+  if (!state || state.state === "unavailable") return null;
+  if (state.state !== "ready") {
+    return <p className="muted">AI summary is being written — it lands here and as a PR comment.</p>;
   }
   return (
-    <div className="error">
-      Summary run {run.state}{run.error ? `: ${run.error}` : ""} — <Link to={`/runs/${runId}`}>details</Link>
-    </div>
+    <Banner>
+      <b>AI reviewer summary</b>
+      <Markdown text={state.summary ?? ""} />
+    </Banner>
   );
 }
 
@@ -113,6 +87,7 @@ function Review({ number }: { number: number }) {
   if (files.length === 0) return <p className="muted">No file changes.</p>;
   return (
     <div>
+      <Summary number={number} />
       {impact && impact.warnings.map((w, i) => (
         <Banner key={i} variant="danger">⚠ {w}</Banner>
       ))}
@@ -122,22 +97,42 @@ function Review({ number }: { number: number }) {
             <div key={it.file} className="impact-item">
               <Chip variant={it.block ? "neutral" : "danger"}>{it.block ?? "platform code"}</Chip>
               <span className="muted"> {it.area} · {it.status} · +{it.additions} −{it.deletions}</span>
-              {it.notable.length > 0 && (
-                <pre className="impact-notable">{it.notable.join("\n")}</pre>
-              )}
             </div>
           ))}
         </div>
       )}
-      <Summary number={number} />
-      {files.map((f) => (
-        <div key={f.filename} className="diff-file">
-          <div className="diff-file-head">
-            {f.filename} <span className="muted">+{f.additions} −{f.deletions} ({f.status})</span>
-          </div>
-          {f.patch ? <ColoredPatch patch={f.patch} /> : <pre className="diff-patch">(no textual diff)</pre>}
-        </div>
-      ))}
+      {files.map((f) => <FileView key={f.filename} f={f} />)}
+    </div>
+  );
+}
+
+// A brand-new file is CONTENT, not a wall of +prefixed diff lines: render
+// markdown files properly and everything else as a plain code block. Edits
+// and deletions keep the colored diff, scrolling with the page (no nested
+// scroll trap).
+function addedContent(patch: string): string {
+  return patch.split("\n")
+    .filter((l) => l.startsWith("+") && !l.startsWith("+++"))
+    .map((l) => l.slice(1))
+    .join("\n");
+}
+
+function FileView({ f }: { f: PullRequestFile }) {
+  const isNew = f.status === "added" && !!f.patch;
+  return (
+    <div className="diff-file">
+      <div className="diff-file-head">
+        {f.filename} <span className="muted">+{f.additions} −{f.deletions} ({f.status})</span>
+      </div>
+      {isNew && f.filename.endsWith(".md") && (
+        <div className="file-panel"><Markdown text={addedContent(f.patch!)} /></div>
+      )}
+      {isNew && !f.filename.endsWith(".md") && (
+        <pre className="diff-patch">{addedContent(f.patch!)}</pre>
+      )}
+      {!isNew && (f.patch
+        ? <ColoredPatch patch={f.patch} />
+        : <pre className="diff-patch">(no textual diff)</pre>)}
     </div>
   );
 }
@@ -257,7 +252,7 @@ export default function Changes() {
                       {open === pr.number ? "▾ " : "▸ "}{pr.title}
                     </Button>
                   </TD>
-                  <TD><BlockChip branch={pr.branch} /></TD>
+                  <TD className="pr-4"><BlockChip branch={pr.branch} /></TD>
                   <TD className="text-muted">{pr.author}</TD>
                   <TD>
                     <div className="row-actions">

@@ -95,6 +95,10 @@ const FIXTURES: Record<string, unknown> = {
     { filename: "agents/news/agent.md", status: "modified", additions: 2, deletions: 1,
       patch: "@@ -1,2 +1,3 @@\n-old line\n+new line\n+another" },
   ],
+  "/api/pull-requests/12/summary": {
+    state: "ready", sha: "abc123",
+    summary: "Changes the news agent's definition: adds one instruction line. Low risk — no secrets, triggers, or permissions change.",
+  },
   "/api/pull-requests/12/impact": {
     items: [{ file: "agents/news/agent.md", block: "agent: news", area: "definition",
               status: "modified", additions: 2, deletions: 1, notable: [] }],

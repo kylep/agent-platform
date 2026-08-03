@@ -57,6 +57,13 @@ class GitHubClient:
     def pull_request(self, number: int) -> dict:
         return self._send(self.build_request("GET", f"/pulls/{number}"))
 
+    def list_issue_comments(self, number: int) -> list:
+        return self._send(self.build_request("GET", f"/issues/{number}/comments"))
+
+    def create_issue_comment(self, number: int, body: str) -> dict:
+        return self._send(self.build_request("POST", f"/issues/{number}/comments",
+                                             {"body": body}))
+
     def delete_branch(self, branch: str) -> None:
         """Delete a head branch (no clutter after merge/discard). 422 = already
         gone — fine; per-block branches are recreated fresh on the next propose

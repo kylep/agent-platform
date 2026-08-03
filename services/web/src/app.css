@@ -116,7 +116,11 @@
 .diff-patch {
   background: var(--ds-canvas); border: 1px solid var(--ds-border); border-radius: var(--radius-md);
   padding: 8px 10px; font-family: var(--font-mono); font-size: 12px; line-height: 1.45;
-  overflow-x: auto; white-space: pre; max-height: 360px;
+  overflow-x: auto; white-space: pre;
+}
+.file-panel {
+  background: var(--ds-surface); border: 1px solid var(--ds-border);
+  border-radius: var(--radius-md); padding: 12px 14px; font-size: 13px;
 }
 .diff-line { padding: 0 4px; }
 .diff-line-add { background: color-mix(in srgb, var(--ds-success) 16%, transparent); }

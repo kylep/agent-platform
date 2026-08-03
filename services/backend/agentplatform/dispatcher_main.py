@@ -15,7 +15,9 @@ from agentplatform.githubapp import GitHubApp
 from agentplatform.conversation_ingest import ConversationIngestor
 from agentplatform.ingest import Ingestor
 from agentplatform.joblauncher import JobWatcher, K8sJobLauncher
+from agentplatform.github import GitHubClient
 from agentplatform.pruning import TranscriptPruner, sweep_orphaned_keys_forever
+from agentplatform.prsummarizer import PrSummarizer
 from agentplatform.scheduler import Scheduler
 from agentplatform.secretregistry import SecretRegistry
 from agentplatform.secrets import K8sSecretStore
@@ -87,12 +89,22 @@ async def main() -> None:
     ingestor = Ingestor(settings, session_factory, producer)
     conv_ingestor = ConversationIngestor(settings, session_factory, producer)
 
+    # Auto AI summaries on pending changes: needs the GitHub App (comments)
+    # and only makes sense when self-edit is configured.
+    def _gh_client():
+        if github_app is None or not settings.github_repo:
+            return None
+        return GitHubClient(github_app.installation_token(), settings.github_repo)
+
+    pr_summarizer = PrSummarizer(_gh_client, session_factory, producer, agent_store)
+
     try:
         await asyncio.gather(dispatcher.run_forever(), watcher.run_forever(),
                              dispatcher.sweep_forever(), scheduler.run_forever(),
                              pruner.run_forever(), ingestor.run_forever(),
                              conv_ingestor.run_forever(), verifier.run_forever(),
-                             sweep_orphaned_keys_forever(session_factory))
+                             sweep_orphaned_keys_forever(session_factory),
+                             pr_summarizer.run_forever())
     finally:
         await producer.stop()
         await engine.dispose()

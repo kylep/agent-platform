@@ -341,6 +341,12 @@ class ChangeImpact(BaseModel):
     warnings: list[str]
 
 
+class PrSummary(BaseModel):
+    state: str            # ready | pending
+    summary: str | None
+    sha: str
+
+
 class SyncStatus(BaseModel):
     # The synced checkout's HEAD — what the cluster is actually running.
     sha: str | None

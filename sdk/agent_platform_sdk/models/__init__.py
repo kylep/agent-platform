@@ -51,6 +51,7 @@ from .ok_id import OkId
 from .ok_id_state import OkIdState
 from .password_change import PasswordChange
 from .pr_ref import PrRef
+from .pr_summary import PrSummary
 from .probe_in import ProbeIn
 from .probe_in_headers import ProbeInHeaders
 from .prune_result import PruneResult
@@ -139,6 +140,7 @@ __all__ = (
     "OkIdState",
     "PasswordChange",
     "PrRef",
+    "PrSummary",
     "ProbeIn",
     "ProbeInHeaders",
     "PruneResult",
