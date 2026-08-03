@@ -13,6 +13,8 @@ never configuration.
 | [Entrypoints](entrypoints.md) | git `agents/<name>/entrypoints.yaml` | when they run |
 | [Skills](skills.md) | git `skills/` | what they can do |
 | [Secrets](secrets.md) | git `secrets/` (shape) + k8s (values) | what they may touch |
+| [Reports](reports.md) | git `reports/` (types) + Postgres (artifacts) | what they produce for humans |
+| [Apps](apps.md) | `apps/` (code + manifest — NOT change-loop) | full applications built on agents |
 | [Jobs](jobs.md) | Postgres | ad-hoc scheduled experiments |
 | [Runs](runs.md) | Postgres | every execution, forever |
 | [Conversations](conversations.md) | Postgres | threaded chat with agents |

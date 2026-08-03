@@ -242,25 +242,37 @@ topics: id, slug (ai, business, …), label, color_token
   from the archive only. The news app UI gets an "Ask the librarian" button
   that deep-links to a conversation with it.
 
-### The coupled flow
+### The coupled flow (AS BUILT — improved over the sketch above)
 
 ```
-cron → news gatherer (untrusted web) ──news-db skill──▶ POST items (tagged)
-                                                            │ kafka: item.ingested
-projector (reads app db, trusted) ──reports skill──▶ POST /api/reports (daily-news)
-                                   └─────────────▶ discord post (existing, + report link)
+cron → news gatherer (untrusted web, ZERO credentials) → run result (digest JSON)
+     → recorder publishes to app.news.inbound      (generic: manifest result_topic)
+     → NEWS APP (trusted deterministic code): parse → dedup (items table) → tag
+         ├─ kafka app.news.item.ingested (per new story)
+         ├─ discord.channel.post (new stories only → connector)
+         └─ daily-news report (deterministic report-kit HTML + sparkline,
+            saved via /api/reports with its app:news key)
 ```
 
-- **Two skills, two key scopes** (privilege separation): `news-ingest`
-  (gatherer: POST items only) and `news-lookup` (librarian + anyone: read
-  queries only). The gatherer tags at ingest — it already reads the untrusted
-  content, so tagging adds no new exposure; its key cannot read or delete.
-- The projector renders the **daily-news report** with report-kit (topic
-  sections, stat row, a 14-day volume sparkline via the chart endpoint) and
-  keeps the Discord post (now linking the report).
-- Injection posture unchanged: gatherer writes *data* to the app API (its
-  key can ONLY ingest items); the projector, which holds report/discord
-  reach, consumes structured rows, never raw pages.
+Build-time discoveries that reshaped the sketch:
+
+- The old "projector" was news-specific code inside the platform recorder
+  (`newsprojector.py`). It moved INTO the app wholesale (parse/sanitize/
+  URL-canonicalization), and the platform gained one GENERIC mechanism
+  instead: manifest `result_topic:` — the recorder publishes any agent's
+  successful result to its declared app topic. Platform sheds all
+  news-specific code; the separation boundary is exactly Kafka.
+- **No `news-ingest` skill and no gatherer credential at all** — strictly
+  better privilege separation than the sketch: ingestion rides the result
+  topic, so the gatherer holds nothing, not even a narrow key.
+- The **daily-news report is rendered deterministically by the app** from
+  its own sanitized rows (not by an agent) — injected digests can only
+  produce rows that render as text. `generator: app:news` in report.yaml is
+  the write ACL (the reports API matches app keys by principal name).
+- `news-lookup` (read queries) remains the one skill, held by the
+  **news-librarian** chat agent (sonnet, archive-only, no web tools) living
+  in the existing conversations surface; the app UI's "Ask the librarian"
+  deep-links to its chat tab.
 
 ## Phasing (each phase ships + live-verifies before the next)
 

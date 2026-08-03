@@ -77,6 +77,14 @@ docs in [docs/building-blocks/](docs/building-blocks/):
   declares the *shape* (keys, hints, verify: declarative probe or sandboxed
   script); values live only in k8s. A heartbeat re-verifies every secret so
   status can't go stale-green.
+- **[Reports](docs/building-blocks/reports.md)** — `reports/<name>/report.yaml`
+  declares a class of dated HTML artifacts (generator = the write ACL,
+  cadence, retention); instances are sanitized report-kit fragments in
+  Postgres, browsed on a calendar and rendered in a script-free sandbox.
+- **[Apps](docs/building-blocks/apps.md)** — `apps/<name>/`: full applications
+  (own API/UI/schema/topics) built on agent output; declared by `app.yaml`,
+  provisioned automatically, served at `/apps/<name>/` behind the platform
+  session. Code, not change-loop config.
 - **[Jobs](docs/building-blocks/jobs.md)** — ad-hoc "agent + prompt + cron"
   experiments in the DB; history, not config. Durable triggers graduate to
   entrypoints.
@@ -105,14 +113,25 @@ agent-platform/
 │   └── <name>/
 │       ├── secret.yaml        #   keys→env-vars, hints, required, verify (probe | script | run)
 │       └── verify_*.py        #   sandboxed verify escape hatch (e.g. github-app signs a JWT)
+├── reports/                   # building block: report TYPES (dated HTML artifacts agents produce)
+│   └── <name>/report.yaml     #   generator (write ACL), cadence, retention — instances live in pg
+├── apps/                      # full applications built on the platform (code, not change-loop config;
+│   └── news/                  #   separable — depends only on the HTTP API/SDK, Kafka, and @ap/ui)
+│       ├── app.yaml           #   the contract: ui/api, needs (pg schema, kafka topics), key role
+│       ├── backend/           #   FastAPI + its own models; consumes app.news.inbound, owns dedup,
+│       │                      #     posts the Discord digest, writes the daily-news report
+│       └── frontend/          #   vite + @ap/ui browser (topic × date) served at /apps/news/
+├── packages/
+│   └── ui/                    # @ap/ui — THE design system: tokens.css (only legal hex),
+│                              #   report-kit.css, shadcn-style primitives + their stories
 ├── services/
 │   ├── backend/               # one image, three processes: api, dispatcher (+scheduler,
 │   │                          #   verifier heartbeat, ingest), recorder — FastAPI/SQLAlchemy/Kafka
 │   ├── runner/                # the agent pod: wraps `claude`, streams every event to Kafka
-│   ├── web/                   # React SPA (Vite + Tailwind v4); design system in
-│   │                          #   src/design-system (tokens) + src/ui (primitives);
-│   │                          #   Storybook workshop ships with the site at /storybook/
-│   │                          #   Playwright smoke+axe gate in tests/ (runs in CI)
+│   ├── web/                   # React SPA (Vite + Tailwind v4) consuming @ap/ui;
+│   │                          #   Storybook workshop ships with the site at /storybook/;
+│   │                          #   Playwright smoke+axe gate in tests/ (runs in CI);
+│   │                          #   nginx also session-guards /apps/<name>/ (auth_request)
 │   ├── mcp-broker/            # platform API as mcp__platform__* tools over streamable HTTP
 │   ├── connector-discord/     # Discord threads ↔ Conversations
 │   └── connector-slack/       # placeholder (not implemented)

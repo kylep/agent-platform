@@ -2,7 +2,8 @@
 
 **What:** the ONE way configuration changes land. Every edit to a **building
 block** — the platform's collective name for its git-declared citizens
-(agents, skills, secret declarations, entrypoints) — rides the same rails:
+(agents, skills, secret declarations, report types, entrypoints) — rides the
+same rails:
 
 ```
 Propose  →  Review  →  Accept  →  Deploying  →  Live
@@ -15,7 +16,8 @@ Propose  →  Review  →  Accept  →  Deploying  →  Live
 
 1. **Propose.** An editor save, a wizard, or a platform-coder run opens a PR
    on the block's **deterministic branch**: `coder/agent-<name>`,
-   `coder/skill-<name>`, `coder/secret-<name>`. Deterministic editors validate
+   `coder/skill-<name>`, `coder/secret-<name>`, `coder/report-<name>`.
+   Deterministic editors validate
    *before* proposing (broken YAML/frontmatter is rejected at save time with
    the parse error — a change that would quarantine its block can't be
    proposed). The UI confirms immediately with a link to the review.
@@ -51,9 +53,10 @@ Propose  →  Review  →  Accept  →  Deploying  →  Live
 | Secret declare wizard / secret.yaml editor | `coder/secret-<name>` | deterministic |
 
 Coding-agent runs derive the branch from the paths they touched (precedence
-agent > skill > secret when one change spans kinds — a new skill plus the
-secret it declares lands on the *skill's* branch). Edits outside the blocks
-fall back to the authoring agent's own `coder/agent-<agent>` branch.
+agent > skill > secret > report when one change spans kinds — a new skill
+plus the secret it declares lands on the *skill's* branch). Edits outside the
+blocks fall back to the authoring agent's own `coder/agent-<agent>` branch.
+Report types are currently hand-written or coder-authored (no wizard yet).
 
 Secret **values** are deliberately outside the loop: they're set immediately
 via the API into k8s (nothing to review — values never enter git).
