@@ -21,6 +21,7 @@ class Manifest:
         description (str | Unset):  Default: ''.
         memory (bool | Unset):  Default: False.
         model (str | Unset):  Default: ''.
+        result_topic (str | Unset):  Default: ''.
         role (str | Unset):  Default: 'operator'.
         schedule (str | Unset):  Default: ''.
         secrets (list[str] | Unset):
@@ -35,6 +36,7 @@ class Manifest:
     description: str | Unset = ""
     memory: bool | Unset = False
     model: str | Unset = ""
+    result_topic: str | Unset = ""
     role: str | Unset = "operator"
     schedule: str | Unset = ""
     secrets: list[str] | Unset = UNSET
@@ -54,6 +56,8 @@ class Manifest:
         memory = self.memory
 
         model = self.model
+
+        result_topic = self.result_topic
 
         role = self.role
 
@@ -90,6 +94,8 @@ class Manifest:
             field_dict["memory"] = memory
         if model is not UNSET:
             field_dict["model"] = model
+        if result_topic is not UNSET:
+            field_dict["result_topic"] = result_topic
         if role is not UNSET:
             field_dict["role"] = role
         if schedule is not UNSET:
@@ -120,6 +126,8 @@ class Manifest:
 
         model = d.pop("model", UNSET)
 
+        result_topic = d.pop("result_topic", UNSET)
+
         role = d.pop("role", UNSET)
 
         schedule = d.pop("schedule", UNSET)
@@ -149,6 +157,7 @@ class Manifest:
             description=description,
             memory=memory,
             model=model,
+            result_topic=result_topic,
             role=role,
             schedule=schedule,
             secrets=secrets,

@@ -67,10 +67,11 @@ def sync_detailed(
 ) -> Response[HTTPValidationError | ReportSaved]:
     """Save Report
 
-     Save (or idempotently replace) a report instance. Agent-scoped keys may
-    only write types that name their agent as `generator` — the declaration is
-    the ACL. HTML is sanitized through the report-kit allow-list; what you
-    store is what the viewer shows.
+     Save (or idempotently replace) a report instance. The declared
+    `generator` is the write ACL for machine keys: it may name an agent (the
+    key's agent scope must match) or an app key by principal name (e.g.
+    `app:news`). Admin sessions always may. HTML is sanitized through the
+    report-kit allow-list; what you store is what the viewer shows.
 
     Args:
         body (ReportIn):
@@ -101,10 +102,11 @@ def sync(
 ) -> HTTPValidationError | ReportSaved | None:
     """Save Report
 
-     Save (or idempotently replace) a report instance. Agent-scoped keys may
-    only write types that name their agent as `generator` — the declaration is
-    the ACL. HTML is sanitized through the report-kit allow-list; what you
-    store is what the viewer shows.
+     Save (or idempotently replace) a report instance. The declared
+    `generator` is the write ACL for machine keys: it may name an agent (the
+    key's agent scope must match) or an app key by principal name (e.g.
+    `app:news`). Admin sessions always may. HTML is sanitized through the
+    report-kit allow-list; what you store is what the viewer shows.
 
     Args:
         body (ReportIn):
@@ -130,10 +132,11 @@ async def asyncio_detailed(
 ) -> Response[HTTPValidationError | ReportSaved]:
     """Save Report
 
-     Save (or idempotently replace) a report instance. Agent-scoped keys may
-    only write types that name their agent as `generator` — the declaration is
-    the ACL. HTML is sanitized through the report-kit allow-list; what you
-    store is what the viewer shows.
+     Save (or idempotently replace) a report instance. The declared
+    `generator` is the write ACL for machine keys: it may name an agent (the
+    key's agent scope must match) or an app key by principal name (e.g.
+    `app:news`). Admin sessions always may. HTML is sanitized through the
+    report-kit allow-list; what you store is what the viewer shows.
 
     Args:
         body (ReportIn):
@@ -162,10 +165,11 @@ async def asyncio(
 ) -> HTTPValidationError | ReportSaved | None:
     """Save Report
 
-     Save (or idempotently replace) a report instance. Agent-scoped keys may
-    only write types that name their agent as `generator` — the declaration is
-    the ACL. HTML is sanitized through the report-kit allow-list; what you
-    store is what the viewer shows.
+     Save (or idempotently replace) a report instance. The declared
+    `generator` is the write ACL for machine keys: it may name an agent (the
+    key's agent scope must match) or an app key by principal name (e.g.
+    `app:news`). Admin sessions always may. HTML is sanitized through the
+    report-kit allow-list; what you store is what the viewer shows.
 
     Args:
         body (ReportIn):
