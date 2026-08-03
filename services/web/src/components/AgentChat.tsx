@@ -1,11 +1,11 @@
 import { useEffect, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { convoTitle } from "../lib/convo";
-import { Markdown } from "../ui/markdown";
+import { Markdown } from "@ap/ui/markdown";
 import { api, type Conversation, type ConversationDetail } from "../api";
-import { Button } from "../ui/button";
-import { ConfirmDialog } from "../ui/dialog";
-import { Input, Textarea } from "../ui/field";
+import { Button } from "@ap/ui/button";
+import { ConfirmDialog } from "@ap/ui/dialog";
+import { Input, Textarea } from "@ap/ui/field";
 
 const ACTIVE = new Set(["queued", "dispatched", "running"]);
 

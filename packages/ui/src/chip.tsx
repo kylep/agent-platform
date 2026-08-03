@@ -1,6 +1,6 @@
 import { cva, type VariantProps } from "class-variance-authority";
 import type { ButtonHTMLAttributes, HTMLAttributes } from "react";
-import { cn } from "../lib/cn";
+import { cn } from "./cn";
 
 // The platform's status vocabulary: small uppercase pills. Statuses map 1:1
 // to semantic tokens; `status()` converts an API status string to a variant.

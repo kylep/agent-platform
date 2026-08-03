@@ -2,10 +2,10 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { cronEnglish } from "../lib/cron";
 import { api, type Job, type ScheduleEntry } from "../api";
-import { Button } from "../ui/button";
-import { Chip } from "../ui/chip";
-import { Input, Textarea } from "../ui/field";
-import { Table, TD, TH } from "../ui/table";
+import { Button } from "@ap/ui/button";
+import { Chip } from "@ap/ui/chip";
+import { Input, Textarea } from "@ap/ui/field";
+import { Table, TD, TH } from "@ap/ui/table";
 
 const when = (ts: string | null) => (ts ? new Date(ts).toLocaleString() : "—");
 

@@ -1,5 +1,5 @@
 import { forwardRef, type InputHTMLAttributes, type SelectHTMLAttributes, type TextareaHTMLAttributes } from "react";
-import { cn } from "../lib/cn";
+import { cn } from "./cn";
 
 const fieldBase =
   "rounded-md border border-border bg-surface px-2.5 py-1.5 text-sm text-default " +

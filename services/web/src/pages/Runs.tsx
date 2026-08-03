@@ -1,10 +1,10 @@
 import { useEffect, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { api, type AgentSummary, type RunSummary } from "../api";
-import { Button } from "../ui/button";
-import { ChipButton, StatusChip } from "../ui/chip";
-import { Select } from "../ui/field";
-import { Table, TD, TH } from "../ui/table";
+import { Button } from "@ap/ui/button";
+import { ChipButton, StatusChip } from "@ap/ui/chip";
+import { Select } from "@ap/ui/field";
+import { Table, TD, TH } from "@ap/ui/table";
 
 const REFRESH_MS = 5000;
 const PAGE = 50;

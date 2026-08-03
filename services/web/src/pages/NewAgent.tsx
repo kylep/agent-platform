@@ -2,9 +2,9 @@ import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { api, type EditResult, type ModelOption } from "../api";
 import { SkillPicker, ToolPicker, useCapabilities } from "../components/CapabilityPickers";
-import { Banner } from "../ui/banner";
-import { Button } from "../ui/button";
-import { Input, Textarea } from "../ui/field";
+import { Banner } from "@ap/ui/banner";
+import { Button } from "@ap/ui/button";
+import { Input, Textarea } from "@ap/ui/field";
 
 const NAME_RE = /^[a-z0-9][a-z0-9-]{0,62}$/;
 

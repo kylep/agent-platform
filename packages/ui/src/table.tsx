@@ -1,5 +1,5 @@
 import type { HTMLAttributes, TdHTMLAttributes, ThHTMLAttributes } from "react";
-import { cn } from "../lib/cn";
+import { cn } from "./cn";
 
 // The console's data table. Compose <Table><thead>… — TH/TD carry the cell
 // styling so markup stays plain HTML where that reads better.

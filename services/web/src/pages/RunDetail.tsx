@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { api, type RunDetailData, type RunEvent } from "../api";
-import { Banner } from "../ui/banner";
-import { Button } from "../ui/button";
-import { StatusChip } from "../ui/chip";
-import { Markdown } from "../ui/markdown";
+import { Banner } from "@ap/ui/banner";
+import { Button } from "@ap/ui/button";
+import { StatusChip } from "@ap/ui/chip";
+import { Markdown } from "@ap/ui/markdown";
 import { isActiveState } from "./Runs";
 
 type ContentBlock = {

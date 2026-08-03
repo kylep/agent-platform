@@ -1,0 +1,10 @@
+{
+  "name": "agent-platform",
+  "private": true,
+  "description": "npm workspaces: the platform web UI, the shared design system (@ap/ui), and app frontends (apps/*/frontend — docs/design/11).",
+  "workspaces": [
+    "packages/ui",
+    "services/web",
+    "apps/*/frontend"
+  ]
+}

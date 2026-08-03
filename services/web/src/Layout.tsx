@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { NavLink, Outlet, useLocation } from "react-router-dom";
 import { api, type PullRequest } from "./api";
-import { Button } from "./ui/button";
+import { Button } from "@ap/ui/button";
 
 // A nav entry is either a plain link or a group: a parent link with children
 // that collapse/expand (GCP-style). Children are indented under the parent.

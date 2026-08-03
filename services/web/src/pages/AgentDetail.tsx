@@ -6,11 +6,11 @@ import { ChangePhaseBanner, PendingChangeBanner, useChangeLoop } from "../compon
 import AgentChat from "../components/AgentChat";
 import AgentMemories from "../components/AgentMemories";
 import AgentSchedules from "../components/AgentSchedules";
-import { Banner } from "../ui/banner";
-import { Button } from "../ui/button";
-import { CodeEditor, Textarea } from "../ui/field";
-import { Stat, StatRow } from "../ui/stat";
-import { Table, TD, TH } from "../ui/table";
+import { Banner } from "@ap/ui/banner";
+import { Button } from "@ap/ui/button";
+import { CodeEditor, Textarea } from "@ap/ui/field";
+import { Stat, StatRow } from "@ap/ui/stat";
+import { Table, TD, TH } from "@ap/ui/table";
 
 function AgentReport({ name }: { name: string }) {
   const [m, setM] = useState<AgentMetrics | null>(null);

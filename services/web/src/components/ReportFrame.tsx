@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import reportKitCss from "../design-system/report-kit.css?raw";
+import reportKitCss from "@ap/ui/report-kit.css?raw";
 
 // The report viewer surface: a SANDBOXED, script-free iframe (report HTML is
 // agent-generated from untrusted inputs — the backend sanitizes at ingest,

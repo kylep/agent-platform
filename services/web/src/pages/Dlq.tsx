@@ -1,8 +1,8 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { api, type DlqEntry } from "../api";
-import { Button } from "../ui/button";
-import { Table, TD, TH } from "../ui/table";
+import { Button } from "@ap/ui/button";
+import { Table, TD, TH } from "@ap/ui/table";
 
 type Busy = { [id: string]: "retry" | "discard" | undefined };
 

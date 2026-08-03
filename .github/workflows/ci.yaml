@@ -51,10 +51,12 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
-      - name: Install and build web
-        run: cd services/web && npm ci && npm run build
+      - name: Install workspaces and build web
+        # npm workspaces: the root install links @ap/ui (packages/ui) into
+        # services/web and any apps/*/frontend.
+        run: npm ci && cd services/web && npm run build
       - name: Design-system token gate
-        # No raw hex outside design-system/tokens.css — see src/design-system/README.md
+        # No raw hex outside packages/ui/src/tokens.css — see packages/ui/README.md
         run: cd services/web && npm run check:tokens
       - name: Storybook builds
         run: cd services/web && npm run build:storybook

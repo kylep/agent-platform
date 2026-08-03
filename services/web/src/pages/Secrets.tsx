@@ -2,11 +2,11 @@ import { Fragment, useEffect, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { api, type EditResult, type PullRequest, type SecretStatus } from "../api";
 import { ChangePhaseBanner, PendingChangeBanner, useChangeLoop } from "../components/ChangeFlow";
-import { Banner } from "../ui/banner";
-import { Button } from "../ui/button";
-import { Chip, StatusChip } from "../ui/chip";
-import { CodeEditor, Input, Textarea } from "../ui/field";
-import { Table, TD, TH } from "../ui/table";
+import { Banner } from "@ap/ui/banner";
+import { Button } from "@ap/ui/button";
+import { Chip, StatusChip } from "@ap/ui/chip";
+import { CodeEditor, Input, Textarea } from "@ap/ui/field";
+import { Table, TD, TH } from "@ap/ui/table";
 
 type SaveState = "idle" | "saving" | "error";
 

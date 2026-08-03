@@ -22,3 +22,4 @@ __pycache__/
 charts/*/charts/*.tgz
 .playwright-mcp/
 run-*.png
+node_modules/

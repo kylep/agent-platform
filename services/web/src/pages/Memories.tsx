@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { api, type Memory } from "../api";
-import { Button } from "../ui/button";
-import { Chip } from "../ui/chip";
-import { Input, Select } from "../ui/field";
-import { Table, TD, TH } from "../ui/table";
+import { Button } from "@ap/ui/button";
+import { Chip } from "@ap/ui/chip";
+import { Input, Select } from "@ap/ui/field";
+import { Table, TD, TH } from "@ap/ui/table";
 
 /** Global memories: one table across all agents, newest first, filterable by
  * agent and searchable across every namespace. A row opens the full memory in

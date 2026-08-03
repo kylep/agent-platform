@@ -1,7 +1,7 @@
 import type { Preview } from "@storybook/react-vite";
 import React from "react";
 import { MemoryRouter } from "react-router-dom";
-import "../src/design-system/tokens.css";
+import "@ap/ui/tokens.css";
 import "../src/app.css";
 
 // Render stories on the real canvas token, inside a router (primitives like

@@ -2,8 +2,8 @@ import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { convoTitle } from "../lib/convo";
 import { api, type Connector, type Conversation } from "../api";
-import { Chip } from "../ui/chip";
-import { Table, TD, TH } from "../ui/table";
+import { Chip } from "@ap/ui/chip";
+import { Table, TD, TH } from "@ap/ui/table";
 
 /** Index of every conversation across agents. Clicking a row opens it in the
  * agent's Conversations tab (the chat view), which is also where new

@@ -2,12 +2,12 @@ import { Fragment, useEffect, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { api, type PullRequest, type PullRequestFile } from "../api";
 import { blockPath, DeployTracker, parseBranch } from "../components/ChangeFlow";
-import { Banner } from "../ui/banner";
-import { Button } from "../ui/button";
-import { Chip } from "../ui/chip";
-import { ConfirmDialog } from "../ui/dialog";
-import { Markdown } from "../ui/markdown";
-import { Table, TD, TH } from "../ui/table";
+import { Banner } from "@ap/ui/banner";
+import { Button } from "@ap/ui/button";
+import { Chip } from "@ap/ui/chip";
+import { ConfirmDialog } from "@ap/ui/dialog";
+import { Markdown } from "@ap/ui/markdown";
+import { Table, TD, TH } from "@ap/ui/table";
 
 type Busy = { [n: number]: "merge" | "close" | undefined };
 type Accepted = { number: number; title: string; sha: string | null; branch: string };

@@ -5,9 +5,9 @@ import {
   type MetricsOverview, type PullRequest, type RunSummary, type ScheduleEntry,
   type SecretStatus,
 } from "../api";
-import { Chip, StatusChip } from "../ui/chip";
-import { Stat, StatRow } from "../ui/stat";
-import { Table, TD, TH } from "../ui/table";
+import { Chip, StatusChip } from "@ap/ui/chip";
+import { Stat, StatRow } from "@ap/ui/stat";
+import { Table, TD, TH } from "@ap/ui/table";
 import { cronEnglish } from "../lib/cron";
 
 // One actionable item in the "Needs attention" panel.

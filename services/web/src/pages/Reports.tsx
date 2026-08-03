@@ -2,8 +2,8 @@ import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { api, type ReportDetail, type ReportMeta, type ReportType } from "../api";
 import ReportFrame from "../components/ReportFrame";
-import { Button } from "../ui/button";
-import { Chip } from "../ui/chip";
+import { Button } from "@ap/ui/button";
+import { Chip } from "@ap/ui/chip";
 
 // Reports: dated HTML artifacts of git-declared report types
 // (docs/design/11). Three views on one route family:

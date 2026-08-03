@@ -1,5 +1,5 @@
 import { Link } from "react-router-dom";
-import { cn } from "../lib/cn";
+import { cn } from "./cn";
 
 // The dashboard/reporting stat card.
 export function Stat({ label, value, warn, to }: {

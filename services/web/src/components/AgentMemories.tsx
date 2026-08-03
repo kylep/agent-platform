@@ -1,10 +1,10 @@
 import { useEffect, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { api, type Memory } from "../api";
-import { Button } from "../ui/button";
-import { Chip } from "../ui/chip";
-import { Input, Textarea } from "../ui/field";
-import { Table, TD, TH } from "../ui/table";
+import { Button } from "@ap/ui/button";
+import { Chip } from "@ap/ui/chip";
+import { Input, Textarea } from "@ap/ui/field";
+import { Table, TD, TH } from "@ap/ui/table";
 
 /** Agent-scoped memory browser (Memories tab on the agent page): search within
  * this agent, add/edit/delete, and a selected memory (?memory=id) deep-links

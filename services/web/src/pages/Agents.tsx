@@ -2,10 +2,10 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { api, type AgentSummary, type Job } from "../api";
 import { cronEnglish } from "../lib/cron";
-import { cn } from "../lib/cn";
-import { buttonVariants } from "../ui/button";
-import { Chip } from "../ui/chip";
-import { Table, TD, TH } from "../ui/table";
+import { cn } from "@ap/ui/cn";
+import { buttonVariants } from "@ap/ui/button";
+import { Chip } from "@ap/ui/chip";
+import { Table, TD, TH } from "@ap/ui/table";
 
 function AgentTable({ agents, jobs }: { agents: AgentSummary[]; jobs: Map<string, number> }) {
   return (

@@ -2,11 +2,11 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { api, type AgentMetrics, type AgentSummary, type Integration, type KafkaHealth, type MetricsOverview, type ModelUsage, type Retention } from "../api";
 import DurationChart from "../components/DurationChart";
-import { Button } from "../ui/button";
-import { Chip, chipStatusVariant } from "../ui/chip";
-import { Select } from "../ui/field";
-import { Stat, StatRow } from "../ui/stat";
-import { Table, TD, TH } from "../ui/table";
+import { Button } from "@ap/ui/button";
+import { Chip, chipStatusVariant } from "@ap/ui/chip";
+import { Select } from "@ap/ui/field";
+import { Stat, StatRow } from "@ap/ui/stat";
+import { Table, TD, TH } from "@ap/ui/table";
 
 function IntegrationChip({ status }: { status: string }) {
   return <Chip variant={status === "missing" ? "danger" : chipStatusVariant(status)}>{status}</Chip>;

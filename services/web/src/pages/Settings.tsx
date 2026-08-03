@@ -1,10 +1,10 @@
 import { useEffect, useState } from "react";
 import { api, type ApiKey, type ApiKeyMinted } from "../api";
-import { Banner } from "../ui/banner";
-import { Button } from "../ui/button";
-import { Chip } from "../ui/chip";
-import { Input, Select } from "../ui/field";
-import { Table, TD, TH } from "../ui/table";
+import { Banner } from "@ap/ui/banner";
+import { Button } from "@ap/ui/button";
+import { Chip } from "@ap/ui/chip";
+import { Input, Select } from "@ap/ui/field";
+import { Table, TD, TH } from "@ap/ui/table";
 
 const ROLE_DESC: Record<string, string> = {
   reader: "Read-only: view agents, runs, schedules, and changes.",

@@ -14,17 +14,12 @@
     "check:tokens": "node bin/check-no-raw-hex.mjs"
   },
   "dependencies": {
-    "@radix-ui/react-dialog": "^1.1.23",
+    "@ap/ui": "0.1.0",
     "@tailwindcss/vite": "^4.3.3",
-    "class-variance-authority": "^0.7.1",
-    "clsx": "^2.1.1",
     "cronstrue": "^2.59.0",
-    "dompurify": "^3.4.12",
-    "marked": "^18.0.7",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
     "react-router-dom": "^7.18.1",
-    "tailwind-merge": "^3.6.0",
     "tailwindcss": "^4.3.3"
   },
   "devDependencies": {

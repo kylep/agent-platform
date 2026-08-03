@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { api } from "../api";
-import { ChipButton } from "../ui/chip";
+import { ChipButton } from "@ap/ui/chip";
 
 // Seconds-per-run over time, per agent. Hand-rolled SVG — no chart dependency:
 // a scatter of individual runs (click one to open it) with a per-agent daily

@@ -1,7 +1,7 @@
 import DOMPurify from "dompurify";
 import { marked } from "marked";
 import { useMemo } from "react";
-import { cn } from "../lib/cn";
+import { cn } from "./cn";
 
 // Agent output is markdown — render it (sanitized) instead of showing raw
 // asterisks and heading hashes. Used by chat bubbles, the run final reply,

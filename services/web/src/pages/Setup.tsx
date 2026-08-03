@@ -1,8 +1,8 @@
 import { useState, type FormEvent } from "react";
 import { useNavigate } from "react-router-dom";
 import { api } from "../api";
-import { Button } from "../ui/button";
-import { Input } from "../ui/field";
+import { Button } from "@ap/ui/button";
+import { Input } from "@ap/ui/field";
 
 export default function Setup() {
   const navigate = useNavigate();

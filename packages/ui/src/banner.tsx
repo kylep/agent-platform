@@ -1,6 +1,6 @@
 import { cva, type VariantProps } from "class-variance-authority";
 import type { HTMLAttributes } from "react";
-import { cn } from "../lib/cn";
+import { cn } from "./cn";
 
 // Inline callouts: info (default), success, danger. Replaces the legacy
 // .banner / .banner-ok / .error trio.

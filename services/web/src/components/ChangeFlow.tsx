@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { api, type PullRequest, type SyncStatus } from "../api";
-import { Banner } from "../ui/banner";
-import { Chip } from "../ui/chip";
+import { Banner } from "@ap/ui/banner";
+import { Chip } from "@ap/ui/chip";
 
 // The standardized change loop (docs/building-blocks/changes.md):
 //   Propose → Review → Accept → Deploying → Live   (or Discard)
