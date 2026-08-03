@@ -77,3 +77,9 @@ connectors:
   discord:
     enabled: true
     agent: pai
+
+# Apps (docs/design/11): the news app owns the archive, the Discord digest,
+# and the daily-news report. Its schema/key/topics are provisioned from
+# apps/news/app.yaml by the dispatcher before the Deployment first starts.
+apps:
+  enabled: [news]

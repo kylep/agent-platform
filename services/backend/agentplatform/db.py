@@ -181,16 +181,9 @@ class ScheduledJob(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
 
-class SharedNews(Base):
-    """Server-owned dedup record of news stories already posted to the channel.
-    Written by the news projector (trusted code) — never by an agent — so the
-    credential-less gatherer needs no memory/token to avoid repeats."""
-    __tablename__ = "shared_news"
-    url: Mapped[str] = mapped_column(String(512), primary_key=True)
-    title: Mapped[str] = mapped_column(String(512), default="")
-    section: Mapped[str] = mapped_column(String(64), default="")
-    posted_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
-
+# (shared_news is gone: the news APP's items table is the dedup authority now
+# — docs/design/11. The old table is backfilled into app_news.items at deploy
+# and then dropped manually; create_all never drops.)
 
 class ApiKey(Base):
     __tablename__ = "api_keys"

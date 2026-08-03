@@ -44,6 +44,20 @@ jobs:
       - name: Run runner tests
         run: cd services/runner && python -m pytest test_runner.py
 
+  apps:
+    # App backends (docs/design/11) — separable from platform code, tested
+    # separately. One step per app.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: news app backend tests
+        run: |
+          pip install -q -r apps/news/backend/requirements.txt aiosqlite pytest pytest-asyncio
+          cd apps/news/backend && python -m pytest -q
+
   web:
     runs-on: ubuntu-latest
     steps:
@@ -55,6 +69,8 @@ jobs:
         # npm workspaces: the root install links @ap/ui (packages/ui) into
         # services/web and any apps/*/frontend.
         run: npm ci && cd services/web && npm run build
+      - name: Build app frontends
+        run: npm run build -w news-frontend
       - name: Design-system token gate
         # No raw hex outside packages/ui/src/tokens.css — see packages/ui/README.md
         run: cd services/web && npm run check:tokens

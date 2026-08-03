@@ -178,3 +178,32 @@ async def test_sweep_ignores_already_published(sf, producer):
         await s.commit()
     assert await rec.reconcile_replies(60) == 0
     assert len(_replies(producer)) == 1
+
+
+async def test_result_topic_publishes_agent_result(sf, producer, tmp_path):
+    """A manifest-declared result_topic feeds the agent's successful result to
+    its consuming app (docs/design/11) — errors and topic-less agents don't."""
+    from agentplatform.agents import AgentStore
+    d = tmp_path / "news"; d.mkdir()
+    (d / "agent.md").write_text("# news\nGather.")
+    (d / "manifest.yaml").write_text("description: n\nresult_topic: app.news.inbound\n")
+    store = AgentStore(tmp_path)
+    rec = Recorder(sf, producer, agent_store=store)
+    async with sf() as s:
+        run = Run(agent="news", trigger="schedule", requested_by="t",
+                  prompt="x", state=RunState.RUNNING)
+        other = Run(agent="hello-world", trigger="manual", requested_by="t",
+                    prompt="x", state=RunState.RUNNING)
+        s.add(run); s.add(other); await s.commit()
+        rid, oid = run.id, other.id
+    await rec.handle(TOPIC_RUN_TRANSCRIPT, rid, {"seq": 1, "type": "result",
+                                                 "result": '{"items": []}'})
+    feed = [(t, d) for t, _, d in producer.published if t == "app.news.inbound"]
+    assert feed == [("app.news.inbound",
+                     {"run_id": rid, "agent": "news", "result": '{"items": []}'})]
+    # an erroring result is NOT fed; an agent without result_topic is NOT fed
+    await rec.handle(TOPIC_RUN_TRANSCRIPT, rid, {"seq": 2, "type": "result",
+                                                 "result": "boom", "is_error": True})
+    await rec.handle(TOPIC_RUN_TRANSCRIPT, oid, {"seq": 1, "type": "result",
+                                                 "result": "hi"})
+    assert len([1 for t, _, _ in producer.published if t == "app.news.inbound"]) == 1

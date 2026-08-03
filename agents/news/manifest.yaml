@@ -1,4 +1,4 @@
-description: "Gathers the day's notable news and emits a structured digest (the platform posts it to #news)."
+description: "Gathers the day's notable news and emits a structured digest (the news app ingests, dedups, posts to #news, and writes the daily report)."
 role: operator
 # Sonnet is plenty for curation and cheap for a daily job.
 model: sonnet
@@ -6,5 +6,7 @@ model: sonnet
 timeout_seconds: 600
 # Deliberately credential-less: NO memory, NO skills, NO bound secrets. It only
 # has WebSearch/WebFetch (agent.md frontmatter) and emits a JSON digest as its
-# result — the platform's news projector dedups/sanitizes and the connector
-# posts. This keeps the untrusted-input agent free of anything worth stealing.
+# result. The recorder publishes that result here and the NEWS APP (trusted,
+# deterministic code) does the rest: dedup, tagging, Discord post, daily
+# report. This keeps the untrusted-input agent free of anything worth stealing.
+result_topic: app.news.inbound

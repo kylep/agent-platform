@@ -52,6 +52,39 @@ spec:
       ports:
         - port: 8000
           protocol: TCP
+    # apps call the platform API with their provisioned app:<name> keys
+    # (reports, run triggering — docs/design/11).
+    - from:
+        - podSelector:
+            matchLabels:
+              agent-platform.io/role: app
+      ports:
+        - port: 8000
+          protocol: TCP
+---
+# apps (docs/design/11): only web's nginx reaches an app pod — /apps/<name>/
+# is the sole doorway, so the auth_request session guard can't be bypassed
+# from inside the cluster either.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ .Release.Name }}-allow-apps
+  labels:
+    {{- include "agent-platform.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      agent-platform.io/role: app
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchExpressions:
+              - {key: app.kubernetes.io/name, operator: In, values: [agent-platform]}
+              - {key: app.kubernetes.io/component, operator: In, values: [web]}
+      ports:
+        - port: 8000
+          protocol: TCP
 ---
 # mcp-broker: runner pods (token-bearing agents) reach it on 8000 for MCP.
 apiVersion: networking.k8s.io/v1
@@ -118,6 +151,10 @@ spec:
             matchExpressions:
               - {key: app.kubernetes.io/name, operator: In, values: [agent-platform]}
               - {key: app.kubernetes.io/component, operator: In, values: [api, dispatcher, recorder]}
+        # apps own a schema in the same server (role-confined — design/11)
+        - podSelector:
+            matchLabels:
+              agent-platform.io/role: app
       ports:
         - port: 5432
           protocol: TCP

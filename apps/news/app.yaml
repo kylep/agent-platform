@@ -1,0 +1,17 @@
+# The news app (docs/design/11): the platform's first full application.
+# Owns the news archive (schema app_news), consumes the gatherer's digests
+# from Kafka (the news agent's manifest declares result_topic:
+# app.news.inbound), dedups + tags + stores items, posts the Discord digest,
+# and writes the daily-news report. Browse UI at /apps/news/.
+name: news
+description: Browse gathered news by calendar and topic; owns dedup, the Discord digest, and the daily report.
+icon: 🗞️
+ui: true
+api: true
+needs:
+  postgres: true
+  kafka_topics:
+    - app.news.inbound          # gatherer digests (published by the recorder)
+    - app.news.item.ingested    # one event per accepted item
+agent_key:
+  role: operator                # saves the daily-news report; can trigger runs

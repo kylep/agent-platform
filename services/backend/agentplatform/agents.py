@@ -28,6 +28,11 @@ class Manifest(BaseModel):
     # Per-agent transcript retention override (days). None = use the platform
     # default; <= 0 = keep this agent's transcripts forever.
     transcript_retention_days: int | None = None
+    # When set, the recorder publishes each successful run's result text to
+    # this Kafka topic ({run_id, agent, result}). This is how an agent's
+    # output feeds an app (docs/design/11) — topics are app-namespaced
+    # (app.<name>.*) so the consuming app is explicit in the declaration.
+    result_topic: str = ""
 
 class WebhookEntry(BaseModel):
     path: str

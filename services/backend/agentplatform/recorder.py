@@ -7,27 +7,20 @@ from sqlalchemy.exc import IntegrityError
 from agentplatform.apikeys import revoke_run_keys
 from agentplatform.db import (ACTIVE_STATES, Conversation, Run, RunModelUsage,
                               RunState, SecretMeta, TranscriptEvent, utcnow)
-from agentplatform.events import (TOPIC_CHANNEL_POST, TOPIC_CONVERSATION_OUTBOUND,
+from agentplatform.events import (TOPIC_CONVERSATION_OUTBOUND,
                                   TOPIC_RUN_DLQ, TOPIC_RUN_EVENTS, TOPIC_RUN_TRANSCRIPT)
-from agentplatform.newsprojector import project as project_news
 from agentplatform.secrets import CLAUDE_CREDENTIAL
 
 log = logging.getLogger("recorder")
 
 
 class Recorder:
-    def __init__(self, session_factory, producer=None, *,
-                 news_gatherer_agent: str = "", news_channel: str = "news",
-                 news_days: int = 14):
+    def __init__(self, session_factory, producer=None, *, agent_store=None):
         self.sf = session_factory
-        # Optional: publishes conversation.outbound when a conversation run ends.
+        # Optional: publishes conversation.outbound when a conversation run ends,
+        # and per-manifest result_topic events (agent output → app, design/11).
         self.producer = producer
-        # News pipeline: a successful result frame from the gatherer is projected
-        # (deduped against shared_news + sanitized) and posted straight to
-        # news_channel via the connector — deterministic code, no human gate.
-        self.news_gatherer_agent = news_gatherer_agent
-        self.news_channel = news_channel
-        self.news_days = news_days
+        self.agent_store = agent_store
 
     async def _probe_credential(self, s, status: str) -> None:
         """Record the observed validity of the Claude credential. This is the
@@ -71,7 +64,7 @@ class Recorder:
                 )
             # The terminal `result` frame carries the final assistant reply and
             # the per-model token breakdown.
-            news_result = None
+            result_event = None
             outbound = None
             if value.get("type") == "result":
                 if value.get("result"):
@@ -100,12 +93,18 @@ class Recorder:
                              if isinstance(d, dict)]
                     log.warning("run %s (agent %s): %d permission denial(s): %s",
                                 run_id, run.agent, len(denials), tools)
-                # Project a successful gatherer result into a channel post. Done
-                # here (on the result frame) so the digest text is in hand — no
-                # dependency on the separate run.events ordering.
-                if (self.news_gatherer_agent and run.agent == self.news_gatherer_agent
-                        and value.get("is_error") is not True and value.get("result")):
-                    news_result = value.get("result")
+                # Manifest-declared result feed: a successful result is
+                # published to the agent's `result_topic` so the consuming app
+                # can act on it (docs/design/11 — e.g. the news app ingests
+                # the gatherer's digest). Done here, on the result frame, so
+                # the text is in hand with no cross-topic ordering dependency.
+                if (self.agent_store is not None and value.get("is_error") is not True
+                        and value.get("result")):
+                    info = self.agent_store.get(run.agent)
+                    topic = info.manifest.result_topic if info and info.manifest else ""
+                    if topic:
+                        result_event = (topic, {"run_id": run_id, "agent": run.agent,
+                                                "result": value.get("result")})
             usage = value.get("usage", {})
             run.tokens_in += usage.get("input_tokens", 0)
             run.tokens_out += usage.get("output_tokens", 0)
@@ -118,16 +117,10 @@ class Recorder:
         if outbound is not None:
             await self.producer.publish(TOPIC_CONVERSATION_OUTBOUND, outbound["conversation_id"],
                                         outbound, type="conversation.reply")
-        # News projection runs in its own session (trusted, deterministic):
-        # dedup against shared_news, sanitize, record what's posted, and publish
-        # discord.channel.post — the connector delivers it. No human gate.
-        if news_result is not None and self.producer is not None:
-            async with self.sf() as s2:
-                text = await project_news(s2, news_result, days=self.news_days)
-            if text:
-                await self.producer.publish(TOPIC_CHANNEL_POST, self.news_channel,
-                                            {"channel": self.news_channel, "text": text},
-                                            type="channel.post")
+        if result_event is not None and self.producer is not None:
+            topic, payload = result_event
+            await self.producer.publish(topic, payload["run_id"], payload,
+                                        type="agent.result")
 
     async def _claim_reply(self, s, run_id: str) -> bool:
         """Claim the right to publish this run's conversation reply, returning

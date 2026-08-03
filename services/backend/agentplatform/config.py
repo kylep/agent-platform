@@ -56,15 +56,11 @@ class Settings(BaseSettings):
     # token lives only in the claude-proxy pod, which injects the Authorization
     # header on the way out. Empty = legacy direct mount.
     claude_proxy_url: str = ""
-    # News pipeline: a terminal run of `news_gatherer_agent` whose result is a
-    # digest JSON is projected (deduped/sanitized) and posted to `news_channel`
-    # via the connector. Kept credential-free — see the news-pipeline spec.
     # MCP broker service URL injected into token-bearing runs (the runner points
     # claude at it so agents get brokered API tools instead of a shell).
     mcp_broker_url: str = "http://agent-platform-mcp-broker:8000/mcp"
-    news_gatherer_agent: str = "news"
-    news_channel: str = "news"
-    news_retention_days: int = 14
+    # (The news pipeline settings are gone: news presentation lives in the news
+    # APP now — the recorder just honors each manifest's `result_topic`.)
 
 @lru_cache
 def get_settings() -> Settings:

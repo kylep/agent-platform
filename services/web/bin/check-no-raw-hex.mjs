@@ -6,12 +6,18 @@
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 
-// Scans the web app AND the shared design-system package (and any app
-// frontends that exist) — the token file is the single place hex is legal.
+// Scans the web app, the shared design-system package, AND every app
+// frontend (apps/*/frontend/src) — the token file is the single place hex
+// is legal.
+const REPO = new URL("../../..", import.meta.url).pathname;
 const ROOTS = [
   new URL("../src", import.meta.url).pathname,
-  new URL("../../../packages/ui/src", import.meta.url).pathname,
+  join(REPO, "packages/ui/src"),
 ];
+for (const app of (() => { try { return readdirSync(join(REPO, "apps")); } catch { return []; } })()) {
+  const p = join(REPO, "apps", app, "frontend", "src");
+  try { statSync(p); ROOTS.push(p); } catch { /* app has no frontend */ }
+}
 const ALLOW = /packages\/ui\/src\/tokens\.css$/;
 const HEX = /#[0-9a-fA-F]{3,8}\b/;
 

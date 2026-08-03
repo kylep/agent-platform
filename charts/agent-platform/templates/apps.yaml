@@ -22,6 +22,9 @@ spec:
     metadata:
       labels:
         {{- include "agent-platform.selectorLabels" (dict "Release" $.Release "Chart" $.Chart "component" (printf "app-%s" .)) | nindent 8 }}
+        # Common role label — the NetworkPolicies address all apps with it
+        # (component is per-app and selectors can't prefix-match).
+        agent-platform.io/role: app
     spec:
       automountServiceAccountToken: false
       securityContext:
