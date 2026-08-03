@@ -1,7 +1,15 @@
 # 11 — Apps & Reports: the agentic application platform
 
-**Status: PROPOSED — talking through with Kyle before execution.** This doc is
-the execution reference; the conversation happens at a higher level.
+**Status: APPROVED 2026-08-03 (Kyle) — executing.** Decisions from the
+talk-through: ① pg blob storage confirmed; ② apps are code but **kept
+separable from platform code** — Kyle intends to eventually split the
+platform repo from its workloads repo, so `apps/` (like `agents/`, `skills/`)
+must depend only on public contracts (SDK + HTTP APIs + packages/ui), never
+import platform internals — a future split should be a `git mv`; ③
+`packages/ui` extraction confirmed in scope (my call); ④ no RSS — browse by
+topic and by date with a nice UX, plus a **news-librarian chat agent** that
+looks up past news quickly through the existing conversations/agent-chat
+interface.
 
 The platform today runs agents. This milestone extends it into an **agentic
 application platform**: agents produce durable, browsable artifacts
@@ -32,8 +40,8 @@ Reports are *artifacts* (immutable, dated, rendered). Apps are *services*
 
 ## Decision: where report HTML lives
 
-**Postgres blobs, behind a `ReportStore` interface.** (Judgment call — debate
-welcome.)
+**Postgres blobs, behind a `ReportStore` interface.** (Approved by Kyle
+2026-08-03.)
 
 - ① **Postgres (chosen).** Reports are small HTML text fragments (10s–100s of
   KB, compresses ~5:1 with pg's TOAST). Metadata and content stay
@@ -216,9 +224,23 @@ topics: id, slug (ai, business, …), label, color_token
   dedup authority (one-time backfill migration, then drop).
 - Emits `app.news.item.ingested` to Kafka per accepted item — the event spine
   later consumers (connector, report trigger, whatever) hang off.
-- **Browser UI**: month calendar × topic chips; a day×topic drill-down lists
-  items (title→source link, summary); topics manageable in-app; links out to
-  that day's `daily-news` report and to the gathering run.
+- **Browser UI** (topic × date are the two axes, both first-class):
+  - *Home*: "today so far" feed + topic tiles (item counts, 14-day sparkline
+    per topic) + a month mini-calendar heatmapped by volume.
+  - *By date*: month calendar → day view, items grouped under topic headers;
+    prev/next day paging.
+  - *By topic*: topic landing = reverse-chron feed of that topic with a date
+    scrubber (jump to month/day); topic chips everywhere cross-link.
+  - Quick keyword search over titles/summaries (pg `ILIKE`/tsvector — cheap,
+    local). Every view links to that day's `daily-news` report and the
+    gathering run. No RSS (Kyle).
+- **news-librarian chat**: a new agent wired into the EXISTING
+  conversations/agent-chat surface (web connector — no new chat UI). It holds
+  a `news-lookup` skill (query API: by topic, date range, keyword; compact
+  JSON results) and a read-only app key, so "what happened with AI last week?"
+  is a fast structured lookup, not a web crawl. No web tools — it answers
+  from the archive only. The news app UI gets an "Ask the librarian" button
+  that deep-links to a conversation with it.
 
 ### The coupled flow
 
@@ -229,10 +251,10 @@ projector (reads app db, trusted) ──reports skill──▶ POST /api/reports
                                    └─────────────▶ discord post (existing, + report link)
 ```
 
-- **`news-db` skill**: teaches agents the ingestion API (endpoint, item shape,
-  topic slugs, "tag every item; propose a new topic rather than forcing a bad
-  fit"). The gatherer tags at ingest — it already reads the untrusted
-  content, so tagging adds no new exposure.
+- **Two skills, two key scopes** (privilege separation): `news-ingest`
+  (gatherer: POST items only) and `news-lookup` (librarian + anyone: read
+  queries only). The gatherer tags at ingest — it already reads the untrusted
+  content, so tagging adds no new exposure; its key cannot read or delete.
 - The projector renders the **daily-news report** with report-kit (topic
   sections, stat row, a 14-day volume sparkline via the chart endpoint) and
   keeps the Discord post (now linking the report).
@@ -253,8 +275,9 @@ projector (reads app db, trusted) ──reports skill──▶ POST /api/reports
 3. **News app** — apps/news backend (schema, migrations, ingestion+browse
    APIs, kafka emit), frontend (calendar × topics), shared_news backfill +
    retirement, deploy.
-4. **Coupling** — `news-db` skill, gatherer tags+posts items, projector
-   writes the daily-news report, discord post links it, first real report
+4. **Coupling** — `news-ingest` + `news-lookup` skills, gatherer tags+posts
+   items, projector writes the daily-news report, discord post links it,
+   **news-librarian agent** live in the chat surface, first real report
    generated on schedule.
 5. **Docs + memory** — building-blocks docs gain reports.md + apps.md,
    README map, memory files.
