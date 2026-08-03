@@ -10,7 +10,9 @@ import { Table, TD, TH } from "../ui/table";
  * this agent, add/edit/delete, and a selected memory (?memory=id) deep-links
  * from the global Memories table. */
 export default function AgentMemories({ agent }: { agent: string }) {
-  const [params, setParams] = useSearchParams();
+  // "[]"/"{}"/blank are agents' empty-state writes — show them as such.
+const emptyish = (t: string) => !t.trim() || ["[]", "{}"].includes(t.trim());
+const [params, setParams] = useSearchParams();
   const selected = params.get("memory");
   const [rows, setRows] = useState<Memory[]>([]);
   const [q, setQ] = useState("");
@@ -117,12 +119,12 @@ export default function AgentMemories({ agent }: { agent: string }) {
                     ) : open ? (
                       <>
                         {m.key && <Chip className="memory-key">{m.key}</Chip>}
-                        <div className="memory-content">{m.content}</div>
+                        <div className="memory-content">{emptyish(m.content) ? "(empty)" : m.content}</div>
                       </>
                     ) : (
                       <div className="mem-cell">
                         {m.key && <Chip className="memory-key">{m.key}</Chip>}
-                        <span className="memory-content one-line">{m.content}</span>
+                        <span className="memory-content one-line">{emptyish(m.content) ? "(empty)" : m.content}</span>
                       </div>
                     )}
                   </TD>

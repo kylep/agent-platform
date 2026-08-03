@@ -10,7 +10,9 @@ import { Table, TD, TH } from "../ui/table";
  * agent and searchable across every namespace. A row opens the full memory in
  * its agent's Memories tab. */
 export default function Memories() {
-  const navigate = useNavigate();
+  // "[]"/"{}"/blank are agents' empty-state writes — show them as such.
+const emptyish = (t: string) => !t.trim() || ["[]", "{}"].includes(t.trim());
+const navigate = useNavigate();
   const [rows, setRows] = useState<Memory[]>([]);
   const [q, setQ] = useState("");
   const [agentFilter, setAgentFilter] = useState("");
@@ -71,7 +73,7 @@ export default function Memories() {
                 <TD>
                   <div className="mem-cell">
                     {m.key && <Chip className="memory-key">{m.key}</Chip>}
-                    <span className="memory-content one-line">{m.content}</span>
+                    <span className="memory-content one-line">{emptyish(m.content) ? "(empty)" : m.content}</span>
                   </div>
                 </TD>
                 <TD className="text-muted">{stamp(m.updated_at)}</TD>

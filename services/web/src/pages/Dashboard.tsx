@@ -40,7 +40,7 @@ export default function Dashboard() {
     ]).then(([jobs, scheds]) => {
       const rows = [
         ...jobs.filter((j) => j.enabled).map((j) => ({ agent: j.agent, name: j.name, next: j.next_fire, cron: j.cron })),
-        ...scheds.filter((s) => s.enabled).map((s) => ({ agent: s.agent, name: `cron ${s.cron}`, next: s.next_fire, cron: s.cron })),
+        ...scheds.filter((s) => s.enabled).map((s) => ({ agent: s.agent, name: cronEnglish(s.cron).replace(" (UTC)", ""), next: s.next_fire, cron: s.cron })),
       ].filter((r) => r.next).sort((a, b) => (a.next ?? "").localeCompare(b.next ?? "")).slice(0, 5);
       setUpcoming(rows);
     }).finally(() => setLoaded(true));
