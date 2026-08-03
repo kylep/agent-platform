@@ -88,9 +88,20 @@ def bare_and_clone(tmp_path):
     return bare, clone
 
 
-def test_target_agent_from_status():
-    assert runner._target_agent(" M agents/demo/agent.md\n?? other.txt") == "demo"
-    assert runner._target_agent(" M services/x.py") is None
+def test_target_block_from_status():
+    assert runner._target_block(" M agents/demo/agent.md\n?? other.txt") == ("agent", "demo")
+    assert runner._target_block("?? skills/linear/SKILL.md") == ("skill", "linear")
+    assert runner._target_block("?? secrets/linear-api-key/secret.yaml") == ("secret", "linear-api-key")
+    # skill + its secret (the New-Skill wizard) → the SKILL's branch, even
+    # though git status lists secrets/ first alphabetically
+    assert runner._target_block(
+        "?? secrets/linear-api-key/secret.yaml\n?? skills/linear/SKILL.md"
+    ) == ("skill", "linear")
+    # an agent edit outranks both
+    assert runner._target_block(
+        "?? secrets/x/secret.yaml\n M agents/demo/agent.md\n?? skills/y/SKILL.md"
+    ) == ("agent", "demo")
+    assert runner._target_block(" M services/x.py") is None
 
 
 def test_self_edit_publish_uses_per_agent_branch(bare_and_clone, monkeypatch):
@@ -109,6 +120,23 @@ def test_self_edit_publish_uses_per_agent_branch(bare_and_clone, monkeypatch):
     out = subprocess.run(["git", "-C", str(bare), "branch", "--format=%(refname:short)"],
                          capture_output=True, text=True, check=True).stdout
     assert "coder/agent-demo" in out.split()
+
+
+def test_self_edit_publish_wizard_skill_lands_on_skill_branch(bare_and_clone, monkeypatch):
+    # The New-Skill wizard's coder run touches skills/<name>/ + secrets/<name>/ —
+    # the PR must land on coder/skill-<name>, not the authoring agent's branch.
+    bare, clone = bare_and_clone
+    monkeypatch.setenv("AP_GITHUB_TOKEN", "ghs_x")
+    monkeypatch.setenv("AP_GITHUB_REPO", "o/r")
+    monkeypatch.setattr(runner, "_open_or_find_pr",
+                        lambda branch, run_id, prompt: {"number": 8, "url": "u"})
+    (clone / "skills" / "linear").mkdir(parents=True)
+    (clone / "skills" / "linear" / "SKILL.md").write_text("linear\n")
+    (clone / "secrets" / "linear-api-key").mkdir(parents=True)
+    (clone / "secrets" / "linear-api-key" / "secret.yaml").write_text("name: linear-api-key\n")
+    res = runner.self_edit_publish(clone, {**os.environ}, "abcd1234efgh",
+                                   "platform-coder", "Create a new skill `linear`")
+    assert res["changed"] and res["branch"] == "coder/skill-linear" and res["target"] == "linear"
 
 
 def test_self_edit_publish_noop_when_no_change(bare_and_clone, monkeypatch):

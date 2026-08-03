@@ -161,5 +161,5 @@ hardening milestone.
 | [04](04-memory-skills-sdk.md) | Memory, skills, SDK | Memory API/UI, shipped skills, OpenAPI→SDK+skill |
 | [05](05-observability.md) | Observability & health | Metrics rollups, lag monitoring, reporting |
 | [06](06-hardening.md) | Hardening | NetworkPolicies, securityContext, rotation, exposure |
-| [07](07-pai-migration.md) | Conversations & Kafka foundation | Event-sourced ingress, Conversation entity, Discord connector. **Reframed** — the original pai-migration scope is still open; see the doc. |
+| [07](07-pai-migration.md) | Conversations & Kafka foundation | Event-sourced ingress, Conversation entity, Discord connector. **Reframed**; the original pai-migration scope closed 2026-08-03 (v1 archived to multi-sandbox — see the doc). |
 | [08](08-news-and-injection-hardening.md) | News & injection hardening | Privilege separation, scoped tool allow-lists, no bypassed permissions |

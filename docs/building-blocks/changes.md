@@ -50,6 +50,11 @@ Propose  →  Review  →  Accept  →  Deploying  →  Live
 | New Skill wizard | `coder/skill-<name>` (+ may touch `secrets/`) | coding agent |
 | Secret declare wizard / secret.yaml editor | `coder/secret-<name>` | deterministic |
 
+Coding-agent runs derive the branch from the paths they touched (precedence
+agent > skill > secret when one change spans kinds — a new skill plus the
+secret it declares lands on the *skill's* branch). Edits outside the blocks
+fall back to the authoring agent's own `coder/agent-<agent>` branch.
+
 Secret **values** are deliberately outside the loop: they're set immediately
 via the API into k8s (nothing to review — values never enter git).
 

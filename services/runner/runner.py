@@ -191,26 +191,41 @@ def _open_or_find_pr(branch: str, run_id: str, prompt: str) -> dict:
         d = found[0]
     return {"number": d["number"], "url": d["html_url"]}
 
-def _target_agent(status: str) -> str | None:
-    """The edited agent's name, from the first changed agents/<name>/ path."""
+_BLOCK_KINDS = {"agents": "agent", "skills": "skill", "secrets": "secret"}
+
+
+def _target_block(status: str) -> tuple[str, str] | None:
+    """(kind, name) of the building block the change targets, from the changed
+    paths. A change spanning kinds (a new skill + the secret it declares)
+    belongs to the highest-precedence kind — agent > skill > secret — NOT the
+    first path in the status, which git sorts alphabetically (secrets/ would
+    beat skills/)."""
+    found: dict[str, str] = {}
     for line in status.splitlines():
         parts = line[3:].strip().split("/")
-        if len(parts) >= 2 and parts[0] == "agents":
-            return parts[1]
+        if len(parts) >= 2 and parts[0] in _BLOCK_KINDS and parts[1]:
+            found.setdefault(_BLOCK_KINDS[parts[0]], parts[1])
+    for kind in ("agent", "skill", "secret"):
+        if kind in found:
+            return kind, found[kind]
     return None
 
 def self_edit_publish(repo_dir: Path, env: dict, run_id: str, agent: str, prompt: str) -> dict:
-    """Commit the agent's edits to the target agent's deterministic branch,
-    force-push, and open (or update) its PR. Freeform edits always go through a
-    PR; one open PR per agent."""
+    """Commit the agent's edits to the target block's deterministic branch
+    (coder/agent-<name>, coder/skill-<name>, coder/secret-<name>), force-push,
+    and open (or update) its PR. Freeform edits always go through a PR; one
+    open PR per block. Edits outside the blocks fall back to the running
+    agent's own branch."""
     def git(*a):
         return subprocess.run(["git", "-C", str(repo_dir), *a],
                               check=True, env=env, capture_output=True, text=True).stdout
-    status = git("status", "--porcelain")
+    # -uall lists untracked FILES; the default collapses a brand-new directory
+    # to `?? skills/`, hiding the block name the branch is derived from.
+    status = git("status", "--porcelain", "-uall")
     if not status.strip():
         return {"changed": False}
-    target = _target_agent(status) or agent
-    branch = f"coder/agent-{target}"
+    kind, target = _target_block(status) or ("agent", agent)
+    branch = f"coder/{kind}-{target}"
     git("checkout", "-b", branch)
     git("add", "-A")
     git("-c", "user.name=platform-coder", "-c",

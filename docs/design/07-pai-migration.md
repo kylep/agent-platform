@@ -25,9 +25,16 @@ never finished or formally descoped. Recorded here so it stops being invisible.
       shows as a greyed "NYI" chip; `services/connector-slack/README.md` records
       the exact two-topic contract a future connector implements.
 
-## Original scope (pai migration) — STILL OPEN
+## Original scope (pai migration) — CLOSED 2026-08-03
 
-Verified 2026-07-29:
+**Archived (Kyle's call: "archive the pai migration, its done").** The v1
+stack's copy is committed to `multi-sandbox` (4487f43) and multi PR #556
+removes it from `multi` — Kyle merges that PR (branch protection requires his
+approval; automation can't self-approve). Nothing else remains: the six
+dropped workloads are written down below, `news` and `pai` are the ported
+survivors.
+
+State as verified 2026-07-29:
 
 - The v1 code still sits at `multi/infra/ai-agents`, last touched 2026-07-04
   (a dependency-vulnerability sweep — no feature work since).
@@ -61,6 +68,6 @@ resolves) is being archived to `multi-sandbox` per the repo-roles policy
 ## Done when
 
 ~~Either every v1 workload is running, or the dropped ones are written down and
-`multi/infra/ai-agents` is archived.~~ **Met:** workloads formally dropped
-(above); the archival to multi-sandbox lands via a PR against `multi` (Kyle's
-merge = the final step).
+`multi/infra/ai-agents` is archived.~~ **Met (2026-08-03):** workloads formally
+dropped (above); the archive copy is in `multi-sandbox`; multi PR #556 deletes
+the tree from `multi` on Kyle's merge.
