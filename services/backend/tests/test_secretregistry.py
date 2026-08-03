@@ -12,10 +12,12 @@ from tests.conftest import REPO_SECRETS
 def test_repo_registry_loads_all_platform_secrets():
     reg = SecretRegistry(REPO_SECRETS)
     names = {i.name for i in reg.list()}
-    assert names == {"claude-credentials", "github-app", "github-token",
+    # Core platform secrets must exist; wizard-declared ones (linear-api-key…)
+    # may accumulate — declaring a new secret must NOT break this test.
+    assert names >= {"claude-credentials", "github-app", "github-token",
                      "discord-bot", "discord-webhook"}
     assert all(i.spec is not None and i.error is None for i in reg.list())
-    assert reg.required() == ["claude-credentials"]
+    assert "claude-credentials" in reg.required()
     # claude is run-verified (no runnable check); github-app verifies by script
     assert not reg.get("claude-credentials").spec.verifiable
     assert reg.get("github-app").spec.verify.script == "verify_github_app.py"
