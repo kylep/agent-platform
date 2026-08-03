@@ -23,3 +23,5 @@ charts/*/charts/*.tgz
 .playwright-mcp/
 run-*.png
 node_modules/
+dist/
+*.tsbuildinfo
