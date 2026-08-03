@@ -21,9 +21,14 @@ Propose  →  Review  →  Accept  →  Deploying  →  Live
    proposed). The UI confirms immediately with a link to the review.
 2. **Review.** One pending change per block, and the block's editors **lock**
    while it exists — no branch clobbering, no stacked edits. The Changes page
-   shows each pending change with a *building block chip* (what it touches,
-   deep-linked), the rendered diff, and Accept/Discard. Editors link straight
-   to their change via `/changes?open=<pr>`.
+   shows each pending change with an **automatic AI reviewer summary** (a
+   dispatcher loop runs change-summarizer over every open change and posts the
+   result as a PR comment, keyed to the head sha — a push re-summarizes; the
+   UI renders the comment at the top of the review), a *building block chip*
+   (what it touches, deep-linked), a deterministic impact digest, and the
+   change itself — brand-new files render as readable content (SKILL.md as
+   real markdown), edits as a colored diff. Accept/Discard beside it; editors
+   link straight to their change via `/changes?open=<pr>`.
 3. **Accept** merges to `main`. **Discard** (confirmation modal — it's a
    one-way door) closes the PR and unlocks the block.
 4. **Deploying.** agents-sync pulls `main` into the cluster within its sync
@@ -68,3 +73,6 @@ via the API into k8s (nothing to review — values never enter git).
   output.
 - **"Set a bare value" stays** (secondary button): a value with no declaration
   is legal but chipped `undeclared` and can't be verified or hinted.
+- **AI summaries are automatic** (Kyle's call, reversing the earlier
+  button-not-automatic default): every open change costs one summarizer run;
+  the PR comment doubles as the state store and the GitHub-side record.
