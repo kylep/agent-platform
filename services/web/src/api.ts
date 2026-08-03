@@ -273,6 +273,21 @@ export type ReportMeta = {
 
 export type ReportDetail = ReportMeta & { html: string };
 
+export type AppView = {
+  name: string;
+  description: string;
+  icon: string;
+  ui: boolean;
+  api: boolean;
+  postgres: boolean;
+  kafka_topics: string[];
+  redis: boolean;
+  agent_key_role: string | null;
+  error: string | null;
+  ready: boolean | null;      // null = not deployed / unknown
+  ready_replicas: number;
+};
+
 export async function api<T>(path: string, opts: RequestInit = {}): Promise<T> {
   const res = await fetch(path, {
     credentials: "include",

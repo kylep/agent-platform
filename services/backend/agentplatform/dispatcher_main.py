@@ -7,6 +7,8 @@ from kubernetes import config as k8s_config
 from kubernetes.client.rest import ApiException
 
 from agentplatform.agents import AgentStore
+from agentplatform.appprovisioner import AppProvisioner
+from agentplatform.appregistry import AppRegistry
 from agentplatform.config import get_settings
 from agentplatform.db import init_db, make_engine, make_session_factory
 from agentplatform.dispatcher import Dispatcher
@@ -88,6 +90,10 @@ async def main() -> None:
     scheduler = Scheduler(session_factory, agent_store, producer)
     pruner = TranscriptPruner(session_factory, agent_store, settings)
     report_pruner = ReportPruner(session_factory, ReportTypeRegistry(settings.reports_root))
+    app_provisioner = AppProvisioner(AppRegistry(settings.apps_root), engine,
+                                     session_factory,
+                                     K8sSecretStore(core, settings.k8s_namespace),
+                                     settings)
     ingestor = Ingestor(settings, session_factory, producer)
     conv_ingestor = ConversationIngestor(settings, session_factory, producer)
 
@@ -104,7 +110,7 @@ async def main() -> None:
         await asyncio.gather(dispatcher.run_forever(), watcher.run_forever(),
                              dispatcher.sweep_forever(), scheduler.run_forever(),
                              pruner.run_forever(), report_pruner.run_forever(),
-                             ingestor.run_forever(),
+                             app_provisioner.run_forever(), ingestor.run_forever(),
                              conv_ingestor.run_forever(), verifier.run_forever(),
                              sweep_orphaned_keys_forever(session_factory),
                              pr_summarizer.run_forever())

@@ -8,6 +8,7 @@ from fastapi import FastAPI
 from agentplatform.agents import AgentStore
 from agentplatform.api import agents as agents_api
 from agentplatform.api import apikeys as apikeys_api
+from agentplatform.api import apps as apps_api
 from agentplatform.api import audit as audit_api
 from agentplatform.api import auth
 from agentplatform.api import conversations as conversations_api
@@ -118,8 +119,11 @@ def create_app(settings, session_factory, producer, secret_store=None, agent_sto
     st.secret_registry = SecretRegistry(Path(settings.secrets_root))
     from agentplatform.reportregistry import ReportTypeRegistry
     st.report_registry = ReportTypeRegistry(Path(settings.reports_root))
+    from agentplatform.appregistry import AppRegistry
+    st.app_registry = AppRegistry(Path(settings.apps_root))
 
     app.include_router(auth.router)
+    app.include_router(apps_api.router)
     app.include_router(apikeys_api.router)
     app.include_router(audit_api.router)
     app.include_router(conversations_api.router)

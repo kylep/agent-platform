@@ -135,6 +135,24 @@ class ApiKeyCreated(ApiKeyView):
     token: str
 
 
+# --- apps --------------------------------------------------------------------
+
+class AppView(BaseModel):
+    name: str
+    description: str
+    icon: str
+    ui: bool
+    api: bool
+    postgres: bool
+    kafka_topics: list[str]
+    redis: bool
+    agent_key_role: str | None
+    error: str | None
+    # Deployment ap-app-<name> readiness; None = unknown (no k8s / not deployed)
+    ready: bool | None
+    ready_replicas: int
+
+
 # --- audit -------------------------------------------------------------------
 
 class SecretAccessView(BaseModel):

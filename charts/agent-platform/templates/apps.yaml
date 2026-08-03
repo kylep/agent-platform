@@ -1,0 +1,78 @@
+{{- /*
+Generic per-app Deployment + Service (docs/design/11). An app ships like any
+platform service: its image is built from apps/<name>/ and enabled here by
+listing the name in .Values.apps.enabled. The provisioner (dispatcher) has
+already materialized whatever the app.yaml declares — the db/key secrets
+referenced below exist before the app is enabled. Web nginx routes
+/apps/<name>/ to the Service with auth_request session guarding.
+*/ -}}
+{{- range .Values.apps.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $.Release.Name }}-app-{{ . }}
+  labels:
+    {{- include "agent-platform.selectorLabels" (dict "Release" $.Release "Chart" $.Chart "component" (printf "app-%s" .)) | nindent 4 }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "agent-platform.selectorLabels" (dict "Release" $.Release "Chart" $.Chart "component" (printf "app-%s" .)) | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "agent-platform.selectorLabels" (dict "Release" $.Release "Chart" $.Chart "component" (printf "app-%s" .)) | nindent 8 }}
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
+        runAsNonRoot: true
+        runAsUser: 10001
+      containers:
+        - name: app
+          image: "agent-platform-app-{{ . }}:{{ $.Values.apps.tag }}"
+          imagePullPolicy: {{ $.Values.apps.pullPolicy | default "IfNotPresent" }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: { drop: ["ALL"] }
+            readOnlyRootFilesystem: true
+          env:
+            - name: AP_API_URL
+              value: "http://agent-platform-api:8000"
+            - name: AP_KAFKA_BOOTSTRAP
+              value: "{{ $.Release.Name }}-kafka:9092"
+            - name: APP_NAME
+              value: {{ . | quote }}
+          envFrom:
+            # Provisioned by the app-provisioner from app.yaml `needs` —
+            # optional so an app without postgres or a key still deploys.
+            - secretRef:
+                name: app-{{ . }}-db
+                optional: true
+            - secretRef:
+                name: app-{{ . }}-key
+                optional: true
+          ports:
+            - name: http
+              containerPort: 8000
+          resources:
+            {{- toYaml $.Values.apps.resources | nindent 12 }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  # Full-name style like agent-platform-api: nginx routes /apps/<name>/ here
+  # by constructing this name from the URL.
+  name: agent-platform-app-{{ . }}
+  labels:
+    {{- include "agent-platform.selectorLabels" (dict "Release" $.Release "Chart" $.Chart "component" (printf "app-%s" .)) | nindent 4 }}
+spec:
+  selector:
+    {{- include "agent-platform.selectorLabels" (dict "Release" $.Release "Chart" $.Chart "component" (printf "app-%s" .)) | nindent 4 }}
+  ports:
+    - name: http
+      port: 8000
+      targetPort: 8000
+---
+{{- end }}

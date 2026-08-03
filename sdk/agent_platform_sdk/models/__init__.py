@@ -10,6 +10,7 @@ from .annotate_in import AnnotateIn
 from .api_key_created import ApiKeyCreated
 from .api_key_in import ApiKeyIn
 from .api_key_view import ApiKeyView
+from .app_view import AppView
 from .backlog import Backlog
 from .change_impact import ChangeImpact
 from .change_impact_item import ChangeImpactItem
@@ -110,6 +111,7 @@ __all__ = (
     "ApiKeyCreated",
     "ApiKeyIn",
     "ApiKeyView",
+    "AppView",
     "Backlog",
     "ChangeImpact",
     "ChangeImpactItem",

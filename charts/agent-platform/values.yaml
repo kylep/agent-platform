@@ -71,6 +71,22 @@ web:
     port: 8090
     targetPort: 8080
 
+# Apps (docs/design/11): full web-server workloads under apps/<name>/ in the
+# repo. List a name here to deploy its image (agent-platform-app-<name>:tag);
+# the dispatcher's provisioner has already created whatever its app.yaml
+# declares (schema/role/db secret, platform key secret, kafka topics). Web
+# nginx serves each at /apps/<name>/ behind session auth.
+apps:
+  enabled: []
+  tag: dev
+  pullPolicy: IfNotPresent
+  resources:
+    requests:
+      memory: 128Mi
+      cpu: 50m
+    limits:
+      memory: 256Mi
+
 # Default-deny-ingress + per-component allowlists (see templates/networkpolicy.yaml).
 # k3s enforces NetworkPolicy via its embedded controller. `egress` adds a
 # default-deny-egress stage (DNS + intra-namespace + external :443 allowlists).

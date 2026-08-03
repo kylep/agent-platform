@@ -363,3 +363,13 @@
 .report-time-chip.active { color: var(--ds-accent); border-color: var(--ds-accent); }
 .report-provenance { font-size: 12px; margin-top: 8px; }
 .report-nav-buttons { display: flex; gap: 8px; }
+
+/* apps registry */
+.app-card {
+  background: var(--ds-surface); border: 1px solid var(--ds-border);
+  border-radius: var(--radius-lg); padding: 14px;
+  display: flex; flex-direction: column; gap: 4px;
+}
+.app-resources { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 12px; }
+.app-error { font-size: 11px; white-space: pre-wrap; margin: 0; }
+.app-open { margin-top: 6px; font-weight: 600; }

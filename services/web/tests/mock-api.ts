@@ -147,6 +147,14 @@ const FIXTURES: Record<string, unknown> = {
     { name: "web", kind: "web", implemented: true, secrets: [], description: "Web UI." },
   ],
   "/api/api-keys": [],
+  "/api/apps": [
+    { name: "news", description: "Browse gathered news by calendar and topic.", icon: "🗞️",
+      ui: true, api: true, postgres: true, kafka_topics: ["app.news.item.ingested"],
+      redis: false, agent_key_role: "operator", error: null, ready: true, ready_replicas: 1 },
+    { name: "scratch", description: "A declared-but-undeployed app.", icon: "🧩",
+      ui: false, api: true, postgres: false, kafka_topics: [], redis: false,
+      agent_key_role: null, error: null, ready: null, ready_replicas: 0 },
+  ],
   "/api/report-types": [
     { name: "daily-news", description: "Morning digest of gathered news.", icon: "📰",
       generator: "news", cadence: "daily", retention_days: 365, error: null,

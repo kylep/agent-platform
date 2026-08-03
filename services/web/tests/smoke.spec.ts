@@ -20,6 +20,7 @@ const PAGES: { path: string; heading: string; probe?: RegExp }[] = [
   { path: "/dlq", heading: "Dead-letter queue" },
   { path: "/reporting", heading: "Reporting", probe: /Seconds per run/ },
   { path: "/reports", heading: "Reports", probe: /daily-news/ },
+  { path: "/apps", heading: "Apps", probe: /running|not deployed/ },
   { path: "/reports/daily-news", heading: "daily-news", probe: /Open latest/ },
   { path: "/settings", heading: "Settings" },
 ];
