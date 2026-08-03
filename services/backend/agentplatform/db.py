@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime, timezone
 from enum import StrEnum
-from sqlalchemy import JSON, DateTime, Index, Integer, String, Text, text
+from sqlalchemy import JSON, DateTime, Index, Integer, String, Text, UniqueConstraint, text
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
@@ -108,6 +108,27 @@ class Memory(Base):
     key: Mapped[str | None] = mapped_column(String(128), nullable=True)
     content: Mapped[str] = mapped_column(Text)
     tags: Mapped[list] = mapped_column(JSON, default=list)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+
+class Report(Base):
+    """A report instance: one dated HTML artifact of a git-declared report
+    type (reports/<type>/report.yaml — see reportregistry). Identity is
+    type/YYYY-MM-DD[/HH-MM]; a re-run of the same identity replaces the html
+    (idempotent upsert). The html column stores the SANITIZED body fragment
+    only — the viewer wraps it in the report-kit shell at render time.
+    ISO date/time strings keep range queries lexicographic and sidestep
+    NULL-in-unique-constraint semantics (time "" = a daily report)."""
+    __tablename__ = "reports"
+    __table_args__ = (UniqueConstraint("type", "date", "time", name="uq_reports_identity"),)
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=lambda: uuid.uuid4().hex)
+    type: Mapped[str] = mapped_column(String(128), index=True)
+    date: Mapped[str] = mapped_column(String(10), index=True)   # YYYY-MM-DD
+    time: Mapped[str] = mapped_column(String(5), default="")    # HH-MM or ""
+    title: Mapped[str] = mapped_column(String(256), default="")
+    meta: Mapped[dict] = mapped_column(JSON, default=dict)
+    html: Mapped[str] = mapped_column(Text)
+    run_id: Mapped[str | None] = mapped_column(String(32), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
 

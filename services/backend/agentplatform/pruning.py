@@ -63,6 +63,45 @@ class TranscriptPruner:
             await asyncio.sleep(interval_seconds)
 
 
+class ReportPruner:
+    """Report retention (docs/design/11): each report type declares
+    `retention_days` in its report.yaml (0 = keep forever); instances whose
+    date falls outside the window are deleted. Dates are ISO strings, so the
+    cutoff compare is lexicographic."""
+
+    def __init__(self, session_factory, registry):
+        self.sf = session_factory
+        self.registry = registry
+
+    async def prune_once(self, now=None) -> int:
+        from datetime import timedelta
+
+        from agentplatform.db import Report
+        now = now or utcnow()
+        self.registry.reload()
+        deleted = 0
+        async with self.sf() as s:
+            for info in self.registry.list():
+                if not info.spec or info.spec.retention_days <= 0:
+                    continue
+                cutoff = (now - timedelta(days=info.spec.retention_days)).date().isoformat()
+                res = await s.execute(delete(Report).where(
+                    Report.type == info.name, Report.date < cutoff))
+                deleted += res.rowcount or 0
+            await s.commit()
+        if deleted:
+            log.info("pruned %d reports", deleted)
+        return deleted
+
+    async def run_forever(self, interval_seconds: int = 86400) -> None:
+        while True:
+            try:
+                await self.prune_once()
+            except Exception:
+                log.exception("report prune failed")
+            await asyncio.sleep(interval_seconds)
+
+
 async def sweep_orphaned_keys_forever(session_factory, interval_seconds: int = 900) -> None:
     """Containment + hygiene: revoke per-run API keys whose run already
     terminated but whose terminal-frame revocation never happened (crashed

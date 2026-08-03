@@ -19,6 +19,8 @@ const PAGES: { path: string; heading: string; probe?: RegExp }[] = [
   { path: "/secrets", heading: "Secrets", probe: /undeclared/ },
   { path: "/dlq", heading: "Dead-letter queue" },
   { path: "/reporting", heading: "Reporting", probe: /Seconds per run/ },
+  { path: "/reports", heading: "Reports", probe: /daily-news/ },
+  { path: "/reports/daily-news", heading: "daily-news", probe: /Open latest/ },
   { path: "/settings", heading: "Settings" },
 ];
 
@@ -38,6 +40,19 @@ for (const { path, heading, probe } of PAGES) {
     expect(unmatched, `unfixtured API calls on ${path}`).toEqual([]);
   });
 }
+
+test("report viewer renders the sanitized fragment in a sandboxed frame", async ({ page }) => {
+  const unmatched = await mockApi(page);
+  await page.goto("/reports/daily-news");
+  // the calendar marks today's report; clicking it opens the viewer
+  await page.locator(".cal-has").first().click();
+  const frame = page.locator("iframe.report-frame");
+  await expect(frame).toBeVisible();
+  await expect(frame).toHaveAttribute("sandbox", "");
+  await expect(frame.contentFrame().locator(".rk-title")).toContainText("Daily news");
+  await expect(page.locator("body")).toContainText(/generated/);
+  expect(unmatched).toEqual([]);
+});
 
 test("sidebar navigation reaches grouped pages", async ({ page }) => {
   await mockApi(page);

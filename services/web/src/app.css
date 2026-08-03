@@ -305,3 +305,61 @@
 .tool-list { display: flex; flex-wrap: wrap; gap: 6px 16px; margin-bottom: 8px; }
 .tool { color: var(--ds-text-muted); font-family: var(--font-mono); font-size: 13px; }
 .tool-on { color: var(--ds-text); }
+
+/* reports (docs/design/11) */
+/* crumbs sit inside heading text — underline so the link isn't color-only */
+.crumb { color: var(--ds-text-muted); text-decoration: underline; text-underline-offset: 4px; }
+.crumb:hover { color: var(--ds-text); }
+.report-type-grid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 12px; margin-top: 16px;
+}
+.report-type-card {
+  display: block; background: var(--ds-surface); border: 1px solid var(--ds-border);
+  border-radius: var(--radius-lg); padding: 14px; color: var(--ds-text);
+  text-decoration: none; transition: border-color 120ms;
+}
+.report-type-card:hover { border-color: var(--ds-accent); text-decoration: none; }
+.report-type-head { display: flex; align-items: center; gap: 8px; }
+.report-type-icon { font-size: 20px; }
+.report-type-name { font-family: var(--font-mono); font-weight: 600; }
+.report-type-desc { margin: 6px 0 10px; font-size: 13px; }
+.report-type-foot { display: flex; gap: 12px; font-size: 12px; }
+.cal-nav { display: flex; align-items: center; gap: 8px; margin: 16px 0 8px; }
+.cal-month { font-weight: 600; min-width: 150px; text-align: center; }
+.cal-grid {
+  display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px;
+  max-width: 560px;
+}
+.cal-head {
+  color: var(--ds-text-subtle); font-size: 11px; text-transform: uppercase;
+  letter-spacing: 0.04em; text-align: center; padding: 4px 0;
+}
+.cal-cell {
+  position: relative; aspect-ratio: 1.15; border: 1px solid var(--ds-border);
+  border-radius: var(--radius-md); background: var(--ds-surface);
+  color: var(--ds-text-muted); font: inherit; font-size: 12px;
+  display: flex; flex-direction: column; align-items: flex-start;
+  padding: 4px 6px; cursor: default;
+}
+.cal-pad { visibility: hidden; }
+.cal-has { cursor: pointer; color: var(--ds-text); border-color: var(--ds-accent); }
+.cal-has:hover { background: var(--ds-raised); }
+.cal-dot {
+  position: absolute; right: 5px; bottom: 4px; min-width: 8px; height: 8px;
+  border-radius: 999px; background: var(--ds-accent); color: var(--ds-on-accent);
+  font-size: 9px; line-height: 8px; padding: 0 2px; text-align: center;
+}
+.report-frame {
+  width: 100%; min-height: 70vh; border: 1px solid var(--ds-border);
+  border-radius: var(--radius-lg); background: var(--ds-canvas); margin-top: 8px;
+}
+.report-times { display: flex; gap: 6px; margin: 8px 0; }
+.report-time-chip {
+  border: 1px solid var(--ds-border); border-radius: 999px; padding: 2px 10px;
+  background: var(--ds-surface); color: var(--ds-text-muted); font: inherit;
+  font-size: 12px; cursor: pointer;
+}
+.report-time-chip.active { color: var(--ds-accent); border-color: var(--ds-accent); }
+.report-provenance { font-size: 12px; margin-top: 8px; }
+.report-nav-buttons { display: flex; gap: 8px; }

@@ -1,0 +1,9 @@
+# The morning news digest — the first real report type (docs/design/11).
+# Generated once per day by the news flow after gathering; browsable on
+# /reports and linked from the news app's calendar.
+name: daily-news
+description: Morning digest of gathered news, grouped by topic, with volume trends.
+icon: 📰
+generator: news
+cadence: daily
+retention_days: 365

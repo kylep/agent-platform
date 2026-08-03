@@ -68,6 +68,19 @@ const agg = {
   avg_duration_seconds: 18.3, max_duration_seconds: 120, last_run_at: new Date().toISOString(),
 };
 
+const today = new Date().toISOString().slice(0, 10);
+const reportHtml =
+  '<header class="rk-header"><h1 class="rk-title">Daily news</h1>' +
+  '<p class="rk-meta">23 items · 4 topics</p></header>' +
+  '<section class="rk-section"><h2>AI</h2><div class="rk-item">' +
+  '<span class="rk-item-title">Model X ships</span>' +
+  '<p class="rk-item-sum">A release happened.</p></div></section>';
+const reports = [
+  { id: "r1".padEnd(32, "0"), type: "daily-news", date: today, time: "",
+    title: "Daily news", meta: {}, run_id: runs[0].id,
+    created_at: new Date().toISOString(), updated_at: new Date().toISOString() },
+];
+
 const FIXTURES: Record<string, unknown> = {
   "/api/setup-state": { needs_admin: false, secrets },
   "/api/agents": agents,
@@ -134,6 +147,13 @@ const FIXTURES: Record<string, unknown> = {
     { name: "web", kind: "web", implemented: true, secrets: [], description: "Web UI." },
   ],
   "/api/api-keys": [],
+  "/api/report-types": [
+    { name: "daily-news", description: "Morning digest of gathered news.", icon: "📰",
+      generator: "news", cadence: "daily", retention_days: 365, error: null,
+      count: 1, latest_date: today },
+  ],
+  "/api/reports": reports,
+  [`/api/reports/${reports[0].id}`]: { ...reports[0], html: reportHtml },
 };
 
 export async function mockApi(page: Page): Promise<string[]> {

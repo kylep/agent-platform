@@ -1,0 +1,149 @@
+/*
+ * Report-kit — the blessed styling surface for report fragments
+ * (docs/design/11). Reports are sanitized, script-free HTML rendered inside
+ * a sandboxed iframe; this file is the ONLY stylesheet they get.
+ *
+ * Contract:
+ *  - Pure var() consumers — every color is a --ds-* token. The viewer
+ *    snapshots the live token values from the parent document into the
+ *    iframe, so reports follow the platform theme (and restyle
+ *    retroactively when the kit evolves).
+ *  - Every rk-* class here has a Storybook story under ReportKit/ and is
+ *    documented in the `reports` skill. The backend sanitizer strips any
+ *    class that isn't rk-*/ds-* — if the element you need is missing, add
+ *    it HERE (and its story) first.
+ */
+
+.rk-page {
+  max-width: 760px;
+  margin: 0 auto;
+  padding: 24px 20px 40px;
+  font-family: "Inter", ui-sans-serif, system-ui, sans-serif;
+  font-size: 14px;
+  line-height: 1.55;
+  color: var(--ds-text);
+}
+
+/* Element defaults inside a report — fragments use plain h2/p/ul/table. */
+.rk-page h1, .rk-page h2, .rk-page h3, .rk-page h4 {
+  color: var(--ds-text);
+  line-height: 1.25;
+  margin: 0 0 8px;
+}
+.rk-page h1 { font-size: 22px; letter-spacing: -0.01em; }
+.rk-page h2 { font-size: 16px; margin-top: 28px; }
+.rk-page h3 { font-size: 14px; margin-top: 18px; }
+.rk-page p { margin: 0 0 10px; }
+.rk-page a { color: var(--ds-link); text-decoration: none; }
+.rk-page a:hover { text-decoration: underline; }
+.rk-page ul, .rk-page ol { margin: 0 0 10px; padding-left: 22px; }
+.rk-page li { margin: 2px 0; }
+.rk-page hr { border: 0; border-top: 1px solid var(--ds-border); margin: 20px 0; }
+.rk-page code {
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: 12px;
+  background: var(--ds-raised);
+  border-radius: 4px;
+  padding: 1px 5px;
+}
+.rk-page blockquote {
+  margin: 0 0 10px;
+  padding: 2px 0 2px 12px;
+  border-left: 2px solid var(--ds-border);
+  color: var(--ds-text-muted);
+}
+.rk-page table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 0 0 12px;
+  font-size: 13px;
+}
+.rk-page th {
+  text-align: left;
+  color: var(--ds-text-muted);
+  font-weight: 600;
+  border-bottom: 1px solid var(--ds-border);
+  padding: 6px 8px;
+}
+.rk-page td { border-bottom: 1px solid var(--ds-border); padding: 6px 8px; }
+.rk-page img { max-width: 100%; }
+
+/* Header block: title + dateline. */
+.rk-header { margin-bottom: 16px; }
+.rk-title { font-size: 22px; font-weight: 700; margin: 0; }
+.rk-meta { color: var(--ds-text-subtle); font-size: 12px; margin-top: 2px; }
+
+/* Section: a titled slice of the report. */
+.rk-section { margin-top: 24px; }
+.rk-section + .rk-section { border-top: 1px solid var(--ds-border); padding-top: 16px; }
+
+/* Stat row: headline numbers. */
+.rk-stat-row { display: flex; flex-wrap: wrap; gap: 12px; margin: 12px 0; }
+.rk-stat {
+  flex: 1 1 120px;
+  background: var(--ds-surface);
+  border: 1px solid var(--ds-border);
+  border-radius: 8px;
+  padding: 10px 12px;
+}
+.rk-stat-value {
+  font-size: 20px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  display: block;
+}
+.rk-stat-label {
+  color: var(--ds-text-subtle);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+/* Chip: inline label (topics, sources, states). */
+.rk-chip {
+  display: inline-block;
+  border: 1px solid var(--ds-border);
+  border-radius: 999px;
+  padding: 1px 8px;
+  font-size: 11px;
+  color: var(--ds-text-muted);
+  background: var(--ds-surface);
+  vertical-align: middle;
+}
+.rk-chip-accent { color: var(--ds-accent); border-color: var(--ds-accent); }
+
+/* Callout: something the reader shouldn't miss. */
+.rk-callout {
+  border: 1px solid var(--ds-border);
+  border-left: 3px solid var(--ds-accent);
+  border-radius: 6px;
+  background: var(--ds-surface);
+  padding: 10px 12px;
+  margin: 12px 0;
+}
+.rk-callout-warning { border-left-color: var(--ds-warning); }
+.rk-callout-danger { border-left-color: var(--ds-danger); }
+.rk-callout-success { border-left-color: var(--ds-success); }
+
+/* Item: a linked entry with source + summary (news items, run links…). */
+.rk-item { padding: 8px 0; border-bottom: 1px solid var(--ds-border); }
+.rk-item:last-child { border-bottom: 0; }
+.rk-item-title { font-weight: 600; }
+.rk-item-src { color: var(--ds-text-subtle); font-size: 12px; margin-left: 6px; }
+.rk-item-sum { color: var(--ds-text-muted); font-size: 13px; margin: 2px 0 0; }
+
+/* Layout helpers. */
+.rk-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; }
+
+/* Charts (server-rendered SVG from /api/report-kit/chart). */
+.rk-chart { display: block; margin: 8px 0 12px; max-width: 100%; height: auto; }
+.rk-sparkline { display: inline-block; vertical-align: middle; }
+
+/* Footer: provenance line. */
+.rk-footer {
+  margin-top: 28px;
+  padding-top: 10px;
+  border-top: 1px solid var(--ds-border);
+  color: var(--ds-text-subtle);
+  font-size: 12px;
+}

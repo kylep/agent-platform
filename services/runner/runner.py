@@ -191,21 +191,22 @@ def _open_or_find_pr(branch: str, run_id: str, prompt: str) -> dict:
         d = found[0]
     return {"number": d["number"], "url": d["html_url"]}
 
-_BLOCK_KINDS = {"agents": "agent", "skills": "skill", "secrets": "secret"}
+_BLOCK_KINDS = {"agents": "agent", "skills": "skill", "secrets": "secret",
+                "reports": "report"}
 
 
 def _target_block(status: str) -> tuple[str, str] | None:
     """(kind, name) of the building block the change targets, from the changed
     paths. A change spanning kinds (a new skill + the secret it declares)
-    belongs to the highest-precedence kind — agent > skill > secret — NOT the
-    first path in the status, which git sorts alphabetically (secrets/ would
-    beat skills/)."""
+    belongs to the highest-precedence kind — agent > skill > secret > report —
+    NOT the first path in the status, which git sorts alphabetically (secrets/
+    would beat skills/)."""
     found: dict[str, str] = {}
     for line in status.splitlines():
         parts = line[3:].strip().split("/")
         if len(parts) >= 2 and parts[0] in _BLOCK_KINDS and parts[1]:
             found.setdefault(_BLOCK_KINDS[parts[0]], parts[1])
-    for kind in ("agent", "skill", "secret"):
+    for kind in ("agent", "skill", "secret", "report"):
         if kind in found:
             return kind, found[kind]
     return None

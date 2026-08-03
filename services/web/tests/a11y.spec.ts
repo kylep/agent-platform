@@ -8,7 +8,7 @@ import { mockApi } from "./mock-api";
 
 const PAGES = ["/", "/agents", "/agents/health-monitor", "/runs", "/conversations",
                "/memories", "/changes", "/schedules", "/skills", "/secrets",
-               "/dlq", "/reporting", "/settings"];
+               "/dlq", "/reporting", "/reports", "/reports/daily-news", "/settings"];
 
 for (const path of PAGES) {
   test(`${path} passes axe`, async ({ page }) => {

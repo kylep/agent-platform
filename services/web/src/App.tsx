@@ -16,6 +16,7 @@ import Conversations from "./pages/Conversations";
 import Dlq from "./pages/Dlq";
 import Memories from "./pages/Memories";
 import Reporting from "./pages/Reporting";
+import Reports from "./pages/Reports";
 import Schedules from "./pages/Schedules";
 import Skills from "./pages/Skills";
 import Settings from "./pages/Settings";
@@ -38,6 +39,9 @@ export default function App() {
             <Route path="/changes" element={<Changes />} />
             <Route path="/dlq" element={<Dlq />} />
             <Route path="/reporting" element={<Reporting />} />
+            <Route path="/reports" element={<Reports />} />
+            <Route path="/reports/:type" element={<Reports />} />
+            <Route path="/reports/:type/:date" element={<Reports />} />
             <Route path="/memories" element={<Memories />} />
             <Route path="/skills" element={<Skills />} />
             <Route path="/schedules" element={<Schedules />} />

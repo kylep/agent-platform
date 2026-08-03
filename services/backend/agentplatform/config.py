@@ -10,6 +10,7 @@ class Settings(BaseSettings):
     agents_root: str = "./agents"
     skills_root: str = "./skills"
     secrets_root: str = "./secrets"
+    reports_root: str = "./reports"
     agents_volume_claim: str = "agent-definitions"
     session_secret: str = "dev-insecure"
     global_concurrency: int = 3

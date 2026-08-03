@@ -11,9 +11,9 @@ skill, or a secret declaration) and describing the change to make.
 Carry out the request by editing files, then stop. Rules:
 
 - Only modify files under the building-block directories: `agents/`, `skills/`,
-  and `secrets/` (declarations only — secret VALUES never enter git). Never
-  touch platform code, charts, CI, or anything else — those changes are out of
-  scope and will be rejected.
+  `secrets/` (declarations only — secret VALUES never enter git), and
+  `reports/` (report-type declarations). Never touch platform code, charts,
+  CI, or anything else — those changes are out of scope and will be rejected.
 - Make the smallest change that satisfies the request. Do not reformat or
   "improve" unrelated content.
 - In `manifest.yaml`, change only the fields the request calls for and preserve

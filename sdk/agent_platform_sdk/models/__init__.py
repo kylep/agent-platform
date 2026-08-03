@@ -13,6 +13,9 @@ from .api_key_view import ApiKeyView
 from .backlog import Backlog
 from .change_impact import ChangeImpact
 from .change_impact_item import ChangeImpactItem
+from .chart_series import ChartSeries
+from .chart_spec import ChartSpec
+from .chart_svg import ChartSvg
 from .config_edit_in import ConfigEditIn
 from .connector import Connector
 from .conversation_detail import ConversationDetail
@@ -58,6 +61,14 @@ from .prune_result import PruneResult
 from .pull_request import PullRequest
 from .pull_request_file import PullRequestFile
 from .quick_edit_in import QuickEditIn
+from .report_detail import ReportDetail
+from .report_detail_meta import ReportDetailMeta
+from .report_in import ReportIn
+from .report_in_meta import ReportInMeta
+from .report_meta import ReportMeta
+from .report_meta_meta import ReportMetaMeta
+from .report_saved import ReportSaved
+from .report_type_view import ReportTypeView
 from .retention import Retention
 from .retention_per_agent_days import RetentionPerAgentDays
 from .run_accepted import RunAccepted
@@ -102,6 +113,9 @@ __all__ = (
     "Backlog",
     "ChangeImpact",
     "ChangeImpactItem",
+    "ChartSeries",
+    "ChartSpec",
+    "ChartSvg",
     "ConfigEditIn",
     "Connector",
     "ConversationDetail",
@@ -147,6 +161,14 @@ __all__ = (
     "PullRequest",
     "PullRequestFile",
     "QuickEditIn",
+    "ReportDetail",
+    "ReportDetailMeta",
+    "ReportIn",
+    "ReportInMeta",
+    "ReportMeta",
+    "ReportMetaMeta",
+    "ReportSaved",
+    "ReportTypeView",
     "Retention",
     "RetentionPerAgentDays",
     "RunAccepted",

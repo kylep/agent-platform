@@ -247,6 +247,32 @@ export type ConversationTurn = {
 
 export type ConversationDetail = Conversation & { turns: ConversationTurn[] };
 
+export type ReportType = {
+  name: string;
+  description: string;
+  icon: string;
+  generator: string;
+  cadence: string;          // daily | intraday | adhoc
+  retention_days: number;
+  error: string | null;
+  count: number;
+  latest_date: string | null;
+};
+
+export type ReportMeta = {
+  id: string;
+  type: string;
+  date: string;             // YYYY-MM-DD
+  time: string;             // HH-MM, "" for daily
+  title: string;
+  meta: Record<string, unknown>;
+  run_id: string | null;
+  created_at: string | null;
+  updated_at: string | null;
+};
+
+export type ReportDetail = ReportMeta & { html: string };
+
 export async function api<T>(path: string, opts: RequestInit = {}): Promise<T> {
   const res = await fetch(path, {
     credentials: "include",

@@ -3,11 +3,12 @@ from pathlib import Path
 import pytest, httpx
 from agentplatform.agents import AgentStore
 
-# The real repo secrets/ + skills/ trees — tests run against the shipped
-# declarations so the files themselves are under test.
+# The real repo secrets/ + skills/ + reports/ trees — tests run against the
+# shipped declarations so the files themselves are under test.
 REPO_ROOT = Path(__file__).resolve().parents[3]
 REPO_SECRETS = REPO_ROOT / "secrets"
 REPO_SKILLS = REPO_ROOT / "skills"
+REPO_REPORTS = REPO_ROOT / "reports"
 from agentplatform.config import Settings
 from agentplatform.db import make_engine, make_session_factory, init_db
 from agentplatform.events import FakeProducer
@@ -45,7 +46,8 @@ def agent_store(tmp_agents):
 async def client(sf, producer, secret_store, agent_store):
     app = create_app(Settings(agents_root=str(agent_store.root),
                               secrets_root=str(REPO_SECRETS),
-                              skills_root=str(REPO_SKILLS)), sf, producer,
+                              skills_root=str(REPO_SKILLS),
+                              reports_root=str(REPO_REPORTS)), sf, producer,
                       secret_store=secret_store, agent_store=agent_store)
     async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://t") as c:
         yield c

@@ -90,21 +90,22 @@ async def pull_request_files(request: Request, number: int):
 
 _BLOCK_AREAS = {"agent.md": "definition", "manifest.yaml": "manifest",
                 "entrypoints.yaml": "entrypoints", "SKILL.md": "SKILL.md",
-                "secret.yaml": "declaration"}
+                "secret.yaml": "declaration", "report.yaml": "declaration"}
 # yaml keys whose add/remove a reviewer should notice at a glance
 _NOTABLE = re.compile(
     r"^(cron|webhooks|kafka|secrets|skills|schedule|model|role|required|state|"
     r"severity|verify|system|can_invoke|memory|concurrency|timeout_seconds|"
-    r"url|path|name)\s*:|^- ")
+    r"url|path|name|generator|cadence|retention_days)\s*:|^- ")
 
 
 def classify_change_path(path: str) -> tuple[str | None, str]:
     """(building-block label, area) for a changed path; block None = platform
     code outside the blocks (worth a loud warning in review)."""
-    m = re.match(r"(agents|skills|secrets)/([^/]+)/(.+)$", path)
+    m = re.match(r"(agents|skills|secrets|reports)/([^/]+)/(.+)$", path)
     if not m:
         return None, path
-    kind = {"agents": "agent", "skills": "skill", "secrets": "secret"}[m.group(1)]
+    kind = {"agents": "agent", "skills": "skill", "secrets": "secret",
+            "reports": "report"}[m.group(1)]
     fname = m.group(3)
     area = _BLOCK_AREAS.get(fname, fname)
     if kind == "secret" and fname.startswith("verify_"):

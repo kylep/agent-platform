@@ -352,6 +352,48 @@ class SyncStatus(BaseModel):
     sha: str | None
 
 
+# --- reports -----------------------------------------------------------------
+
+class ReportTypeView(BaseModel):
+    name: str
+    description: str
+    icon: str
+    generator: str
+    cadence: str
+    retention_days: int
+    error: str | None
+    count: int
+    latest_date: str | None
+
+
+class ReportMeta(BaseModel):
+    id: str
+    type: str
+    date: str             # YYYY-MM-DD
+    time: str             # HH-MM, or "" for daily reports
+    title: str
+    meta: dict
+    run_id: str | None
+    created_at: str | None
+    updated_at: str | None
+
+
+class ReportDetail(ReportMeta):
+    html: str             # the sanitized body fragment
+
+
+class ReportSaved(BaseModel):
+    id: str
+    type: str
+    date: str
+    time: str
+    replaced: bool        # true when this save updated an existing identity
+
+
+class ChartSvg(BaseModel):
+    svg: str
+
+
 # --- schedules ---------------------------------------------------------------
 
 class ScheduleRow(BaseModel):

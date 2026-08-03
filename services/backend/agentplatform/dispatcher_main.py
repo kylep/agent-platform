@@ -16,8 +16,9 @@ from agentplatform.conversation_ingest import ConversationIngestor
 from agentplatform.ingest import Ingestor
 from agentplatform.joblauncher import JobWatcher, K8sJobLauncher
 from agentplatform.github import GitHubClient
-from agentplatform.pruning import TranscriptPruner, sweep_orphaned_keys_forever
+from agentplatform.pruning import ReportPruner, TranscriptPruner, sweep_orphaned_keys_forever
 from agentplatform.prsummarizer import PrSummarizer
+from agentplatform.reportregistry import ReportTypeRegistry
 from agentplatform.scheduler import Scheduler
 from agentplatform.secretregistry import SecretRegistry
 from agentplatform.secrets import K8sSecretStore
@@ -86,6 +87,7 @@ async def main() -> None:
     watcher = JobWatcher(batch, settings, session_factory, producer)
     scheduler = Scheduler(session_factory, agent_store, producer)
     pruner = TranscriptPruner(session_factory, agent_store, settings)
+    report_pruner = ReportPruner(session_factory, ReportTypeRegistry(settings.reports_root))
     ingestor = Ingestor(settings, session_factory, producer)
     conv_ingestor = ConversationIngestor(settings, session_factory, producer)
 
@@ -101,7 +103,8 @@ async def main() -> None:
     try:
         await asyncio.gather(dispatcher.run_forever(), watcher.run_forever(),
                              dispatcher.sweep_forever(), scheduler.run_forever(),
-                             pruner.run_forever(), ingestor.run_forever(),
+                             pruner.run_forever(), report_pruner.run_forever(),
+                             ingestor.run_forever(),
                              conv_ingestor.run_forever(), verifier.run_forever(),
                              sweep_orphaned_keys_forever(session_factory),
                              pr_summarizer.run_forever())
