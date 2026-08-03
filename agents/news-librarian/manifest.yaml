@@ -1,0 +1,11 @@
+description: Chat agent that answers questions from the news archive (the news app) — topics, dates, past coverage.
+role: operator
+# Sonnet: lookups are structured, not creative — snappy and cheap.
+model: sonnet
+# Chat turns should be fast.
+timeout_seconds: 180
+skills:
+  - news-lookup
+# memory:true injects the per-run annotator token the skill authenticates
+# with at the web gateway (and lets it remember reader preferences).
+memory: true

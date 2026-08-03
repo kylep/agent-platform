@@ -19,6 +19,9 @@ function Shell({ children }: { children: React.ReactNode }) {
       <header className="news-top">
         <Link to="/" className="news-brand">🗞️ News</Link>
         <SearchBox />
+        <a className="news-ask" href="/agents/news-librarian?tab=conversations">
+          💬 Ask the librarian
+        </a>
         <a className="news-back" href="/">← platform</a>
       </header>
       <main className="news-main">{children}</main>

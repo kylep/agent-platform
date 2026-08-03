@@ -23,7 +23,12 @@
 .news-brand { font-weight: 700; font-size: 16px; color: var(--ds-text); }
 .news-search { flex: 1; max-width: 360px; }
 .news-search input { width: 100%; }
-.news-back { margin-left: auto; color: var(--ds-text-muted); font-size: 13px; }
+.news-ask {
+  margin-left: auto; font-size: 13px; color: var(--ds-accent);
+  border: 1px solid var(--ds-accent); border-radius: 999px; padding: 3px 12px;
+}
+.news-ask:hover { background: color-mix(in srgb, var(--ds-accent) 12%, transparent); text-decoration: none; }
+.news-back { color: var(--ds-text-muted); font-size: 13px; }
 
 .news-stats { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 8px; }
 .news-stat {
