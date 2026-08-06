@@ -30,7 +30,9 @@ spec:
         - port: 8080
           protocol: TCP
 ---
-# api: from web (UI proxy) and runner pods (system/memory agents call the API).
+# api: from web (UI proxy), runner pods (system/memory agents call the API),
+# and the mcp-broker (it forwards every brokered tool call here with the
+# caller's own token).
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -48,7 +50,7 @@ spec:
         - podSelector:
             matchExpressions:
               - {key: app.kubernetes.io/name, operator: In, values: [agent-platform]}
-              - {key: app.kubernetes.io/component, operator: In, values: [web, runner]}
+              - {key: app.kubernetes.io/component, operator: In, values: [web, runner, mcp-broker]}
       ports:
         - port: 8000
           protocol: TCP
