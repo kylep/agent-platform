@@ -64,6 +64,8 @@ Env vars shared by the api/dispatcher/recorder backend Deployments.
   value: "/agents/secrets"
 - name: AP_REPORTS_ROOT
   value: "/agents/reports"
+- name: AP_APPS_ROOT
+  value: "/agents/apps"
 - name: AP_AGENTS_VOLUME_CLAIM
   value: {{ .Values.env.AP_AGENTS_VOLUME_CLAIM | quote }}
 - name: AP_GLOBAL_CONCURRENCY
