@@ -33,5 +33,15 @@ spec:
               drop: ["ALL"]
           env:
             {{- include "agent-platform.backendEnv" . | nindent 12 }}
+          # The synced checkout: the recorder reads agent manifests to honor
+          # `result_topic` (agent output → app feed, docs/design/11).
+          volumeMounts:
+            - name: agent-definitions
+              mountPath: /agents
+              readOnly: true
           resources:
             {{- toYaml .Values.resources.recorder | nindent 12 }}
+      volumes:
+        - name: agent-definitions
+          persistentVolumeClaim:
+            claimName: {{ .Values.env.AP_AGENTS_VOLUME_CLAIM }}
