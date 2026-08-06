@@ -82,9 +82,12 @@ class AppProvisioner:
             role = (await conn.execute(text(
                 "SELECT 1 FROM pg_roles WHERE rolname = :r"), {"r": ident})).scalar()
             if not role:
-                # identifiers can't be bound parameters; ident is regex-safe.
+                # DDL takes no bound parameters (pg: syntax error at $1) —
+                # inline both. ident is regex-safe; the password is
+                # token_urlsafe output, quote-escaped defensively anyway.
+                pw = password.replace("'", "''")
                 await conn.execute(text(
-                    f'CREATE ROLE "{ident}" LOGIN PASSWORD :pw'), {"pw": password})
+                    f"CREATE ROLE \"{ident}\" LOGIN PASSWORD '{pw}'"))
                 actions.append(f"role {ident}")
             schema = (await conn.execute(text(
                 "SELECT 1 FROM information_schema.schemata WHERE schema_name = :s"),
