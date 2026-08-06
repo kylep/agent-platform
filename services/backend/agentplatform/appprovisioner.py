@@ -76,19 +76,25 @@ class AppProvisioner:
         ident = pg_ident(app)
         secret_name = f"app-{app}-db"
         existing = await self.secrets.get(secret_name)
-        password = (existing or {}).get("password") or pysecrets.token_urlsafe(24)
+        password = (existing or {}).get("APP_DB_PASSWORD") or pysecrets.token_urlsafe(24)
         actions = []
         async with self.engine.begin() as conn:
             role = (await conn.execute(text(
                 "SELECT 1 FROM pg_roles WHERE rolname = :r"), {"r": ident})).scalar()
+            # DDL takes no bound parameters (pg: syntax error at $1) — inline
+            # both. ident is regex-safe; the password is token_urlsafe output,
+            # quote-escaped defensively anyway.
+            pw = password.replace("'", "''")
             if not role:
-                # DDL takes no bound parameters (pg: syntax error at $1) —
-                # inline both. ident is regex-safe; the password is
-                # token_urlsafe output, quote-escaped defensively anyway.
-                pw = password.replace("'", "''")
                 await conn.execute(text(
                     f"CREATE ROLE \"{ident}\" LOGIN PASSWORD '{pw}'"))
                 actions.append(f"role {ident}")
+            elif existing is None:
+                # Secret lost but role present: re-key the role so the fresh
+                # secret and the role agree.
+                await conn.execute(text(
+                    f"ALTER ROLE \"{ident}\" PASSWORD '{pw}'"))
+                actions.append(f"re-keyed role {ident}")
             schema = (await conn.execute(text(
                 "SELECT 1 FROM information_schema.schemata WHERE schema_name = :s"),
                 {"s": ident})).scalar()
@@ -97,14 +103,15 @@ class AppProvisioner:
                 actions.append(f"schema {ident}")
         if existing is None:
             # The app connects to the same server/database the platform uses,
-            # as its own role, confined to its own schema.
+            # as its own role, confined to its own schema. Keys are env-var
+            # style: the chart envFrom's this secret straight into the pod.
             from sqlalchemy.engine.url import make_url
             u = make_url(self.settings.db_url)
             host, port, db = u.host or "localhost", u.port or 5432, u.database or "postgres"
             await self.secrets.set(secret_name, {
-                "username": ident, "password": password,
-                "database": db, "host": host, "port": str(port),
-                "url": f"postgresql+asyncpg://{ident}:{password}@{host}:{port}/{db}",
+                "APP_DB_USER": ident, "APP_DB_PASSWORD": password,
+                "APP_DB_NAME": db, "APP_DB_HOST": host, "APP_DB_PORT": str(port),
+                "APP_DB_URL": f"postgresql+asyncpg://{ident}:{password}@{host}:{port}/{db}",
             })
             actions.append(f"secret {secret_name}")
         return actions
