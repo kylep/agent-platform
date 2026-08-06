@@ -97,3 +97,15 @@ async def test_auth_check_gates(client):
     r = await client.get("/api/auth-check")
     assert r.status_code == 204
     assert r.headers["x-ap-user"] == "admin" and r.headers["x-ap-role"] == "admin"
+
+
+async def test_query_app_rejects_traversal(admin_client):
+    for bad in ("..%2Fsecrets", "..", "a/../../b", "a\\b"):
+        r = await admin_client.get(f"/api/apps/news/query/{bad}")
+        assert r.status_code in (400, 404), bad
+    # (httpx normalizes `a/../b` client-side to `b` before the server sees it,
+    # so that shape can't be exercised here; the raw-`..` cases above cover the
+    # server-side gate. Direct unit check of the validation predicate:)
+    from agentplatform.api.apps import _path_ok
+    assert not _path_ok("a/../b") and not _path_ok("/abs") and not _path_ok("a\x00b")
+    assert _path_ok("items") and _path_ok("calendar")

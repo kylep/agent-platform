@@ -60,6 +60,12 @@ async def list_apps(request: Request):
     return out
 
 
+def _path_ok(path: str) -> bool:
+    return bool(path) and not (path.startswith("/") or "\\" in path
+                               or ".." in path.split("/")
+                               or any(ord(ch) < 0x20 for ch in path))
+
+
 @router.get("/api/apps/{name}/query/{path:path}")
 async def query_app(request: Request, name: str, path: str,
                     principal: str = Depends(require_role(*READ_ROLES))):
@@ -67,6 +73,11 @@ async def query_app(request: Request, name: str, path: str,
     shell: the MCP broker exposes this as a tool, the caller's own token
     authenticates it, and the app receives the same trusted identity headers
     nginx would send. GETs only — mutations stay with the app's own flows."""
+    # The path is caller-controlled: refuse anything that could step outside
+    # /apps/<name>/api/ once normalized upstream (traversal, absolute paths,
+    # backslashes, control chars).
+    if not _path_ok(path):
+        raise HTTPException(400, "invalid path")
     reg = request.app.state.app_registry
     reg.reload()
     info = reg.get(name)
