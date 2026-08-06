@@ -81,7 +81,9 @@ spec:
         - podSelector:
             matchExpressions:
               - {key: app.kubernetes.io/name, operator: In, values: [agent-platform]}
-              - {key: app.kubernetes.io/component, operator: In, values: [web]}
+              # web = the session-guarded /apps/<name>/ route; api = the
+              # read-only /api/apps/<name>/query proxy for shell-less agents.
+              - {key: app.kubernetes.io/component, operator: In, values: [web, api]}
       ports:
         - port: 8000
           protocol: TCP

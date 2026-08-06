@@ -2,7 +2,9 @@
 (apps/<name>/app.yaml in the synced checkout), what each needs, and whether
 its Deployment is live. Apps serve their own UI/API behind /apps/<name>/ —
 this router also provides the nginx auth_request endpoint that session-guards
-those routes without the app ever seeing credentials."""
+those routes without the app ever seeing credentials, and a read-only proxy
+so shell-less agents can query app APIs through the MCP broker."""
+import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 
 from agentplatform.api import schemas as S
@@ -56,6 +58,33 @@ async def list_apps(request: Request):
             "ready_replicas": replicas,
         })
     return out
+
+
+@router.get("/api/apps/{name}/query/{path:path}")
+async def query_app(request: Request, name: str, path: str,
+                    principal: str = Depends(require_role(*READ_ROLES))):
+    """Read-only proxy into an app's API, for agents that (correctly) have no
+    shell: the MCP broker exposes this as a tool, the caller's own token
+    authenticates it, and the app receives the same trusted identity headers
+    nginx would send. GETs only — mutations stay with the app's own flows."""
+    reg = request.app.state.app_registry
+    reg.reload()
+    info = reg.get(name)
+    if info is None or info.spec is None or not info.spec.api:
+        raise HTTPException(404, "unknown app (or it serves no API)")
+    upstream = getattr(request.app.state, "app_proxy_base", None) \
+        or f"http://agent-platform-app-{name}:8000"
+    role = "reader"
+    agent = getattr(request.state, "api_key_agent", None)
+    try:
+        async with httpx.AsyncClient(base_url=upstream, timeout=20) as c:
+            r = await c.get(f"/apps/{name}/api/{path}",
+                            params=dict(request.query_params),
+                            headers={"X-AP-User": agent or principal, "X-AP-Role": role})
+    except httpx.HTTPError as e:
+        raise HTTPException(502, f"app `{name}` unreachable: {e}")
+    return Response(content=r.content, status_code=r.status_code,
+                    media_type=r.headers.get("content-type", "application/json"))
 
 
 @router.get("/api/auth-check", include_in_schema=False)

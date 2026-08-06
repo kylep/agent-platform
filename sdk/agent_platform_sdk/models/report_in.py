@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import TYPE_CHECKING, Any, TypeVar
+from typing import TYPE_CHECKING, Any, TypeVar, cast
 
 from attrs import define as _attrs_define
 from attrs import field as _attrs_field
@@ -24,6 +24,7 @@ class ReportIn:
         html (str):
         type_ (str):
         meta (ReportInMeta | Unset):
+        run_id (None | str | Unset):
         time (str | Unset):  Default: ''.
         title (str | Unset):  Default: ''.
     """
@@ -32,6 +33,7 @@ class ReportIn:
     html: str
     type_: str
     meta: ReportInMeta | Unset = UNSET
+    run_id: None | str | Unset = UNSET
     time: str | Unset = ""
     title: str | Unset = ""
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
@@ -46,6 +48,12 @@ class ReportIn:
         meta: dict[str, Any] | Unset = UNSET
         if not isinstance(self.meta, Unset):
             meta = self.meta.to_dict()
+
+        run_id: None | str | Unset
+        if isinstance(self.run_id, Unset):
+            run_id = UNSET
+        else:
+            run_id = self.run_id
 
         time = self.time
 
@@ -62,6 +70,8 @@ class ReportIn:
         )
         if meta is not UNSET:
             field_dict["meta"] = meta
+        if run_id is not UNSET:
+            field_dict["run_id"] = run_id
         if time is not UNSET:
             field_dict["time"] = time
         if title is not UNSET:
@@ -87,6 +97,15 @@ class ReportIn:
         else:
             meta = ReportInMeta.from_dict(_meta)
 
+        def _parse_run_id(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        run_id = _parse_run_id(d.pop("run_id", UNSET))
+
         time = d.pop("time", UNSET)
 
         title = d.pop("title", UNSET)
@@ -96,6 +115,7 @@ class ReportIn:
             html=html,
             type_=type_,
             meta=meta,
+            run_id=run_id,
             time=time,
             title=title,
         )

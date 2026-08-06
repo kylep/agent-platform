@@ -59,6 +59,10 @@ class ReportIn(BaseModel):
     title: str = ""
     meta: dict = Field(default_factory=dict)
     html: str                       # body fragment; sanitized on ingest
+    # Provenance: the run whose output this report renders. Per-run keys
+    # override this with their own bound run; app keys (no run binding) may
+    # claim the upstream run they consumed (e.g. the news gather).
+    run_id: str | None = None
 
 
 @router.post("/api/reports", response_model=S.ReportSaved, status_code=201)
@@ -93,7 +97,7 @@ async def save_report(request: Request, body: ReportIn,
     if len(body.html) > _MAX_HTML:
         raise HTTPException(413, "report html exceeds 2MB")
     clean = sanitize_report_html(body.html)
-    run_id = getattr(request.state, "api_key_run_id", None)
+    run_id = getattr(request.state, "api_key_run_id", None) or body.run_id
     async with request.app.state.session_factory() as s:
         existing = (await s.execute(select(Report).where(
             Report.type == body.type, Report.date == body.date,

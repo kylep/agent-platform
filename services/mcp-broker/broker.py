@@ -91,5 +91,14 @@ async def post_message(channel: str, text: str) -> str:
     return await _call("POST", "/api/notify", json={"channel": channel, "text": text})
 
 
+# --- apps (news-librarian etc.) ----------------------------------------------
+@mcp.tool
+async def app_api(app: str, path: str, params: dict | None = None) -> str:
+    """Read an app's API (GET only) through the platform's app proxy.
+    e.g. app='news', path='items', params={'topic': 'ai-industry',
+    'day_from': '2026-08-01'} — see the app's skill for its endpoints."""
+    return await _call("GET", f"/api/apps/{app}/query/{path}", params or {})
+
+
 if __name__ == "__main__":
     mcp.run(transport="http", host="0.0.0.0", port=8000, path="/mcp")

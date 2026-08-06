@@ -41,6 +41,9 @@ async def render_daily(sf, day: str, client: httpx.AsyncClient, headers: dict) -
         rows = (await s.execute(
             select(Item, Topic).join(Topic, Item.topic_id == Topic.id)
             .where(Item.day == day).order_by(Topic.slug, Item.ingested_at))).all()
+        gather_run = (await s.execute(
+            select(Item.run_id).where(Item.day == day, Item.run_id.isnot(None))
+            .order_by(Item.ingested_at.desc()).limit(1))).scalar()
         start = (date_cls.fromisoformat(day) - timedelta(days=13)).isoformat()
         trend = dict((await s.execute(
             select(Item.day, func.count()).where(Item.day >= start, Item.day <= day)
@@ -83,7 +86,8 @@ async def render_daily(sf, day: str, client: httpx.AsyncClient, headers: dict) -
                 + "</div>")
         parts.append("</section>")
     parts.append(f'<footer class="rk-footer">news app · daily-news · {_esc(day)}</footer>')
-    return "".join(parts), {"items": len(rows), "topics": len(by_topic)}
+    return "".join(parts), {"items": len(rows), "topics": len(by_topic),
+                            "run_id": gather_run}
 
 
 async def write_daily_report(sf, day: str) -> None:
@@ -99,7 +103,8 @@ async def write_daily_report(sf, day: str) -> None:
         body, meta = await render_daily(sf, day, client, headers)
         r = await client.post("/api/reports", headers=headers, json={
             "type": "daily-news", "date": day,
-            "title": f"Daily news — {day}", "meta": meta, "html": body})
+            "title": f"Daily news — {day}", "meta": meta, "html": body,
+            "run_id": meta.pop("run_id", None)})
         r.raise_for_status()
         log.info("daily-news report saved for %s (replaced=%s)",
                  day, r.json().get("replaced"))

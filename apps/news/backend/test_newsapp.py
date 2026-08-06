@@ -120,7 +120,7 @@ async def test_api_browse_axes(sf, client):
 # --- report ------------------------------------------------------------------
 
 async def test_render_daily_report_is_kit_markup(sf):
-    await ingest_digest(sf, DIGEST)
+    await ingest_digest(sf, DIGEST, run_id="r1")
 
     async def fake_chart(request):
         return httpx.Response(200, json={"svg": "<svg>spark</svg>"})
@@ -128,7 +128,7 @@ async def test_render_daily_report_is_kit_markup(sf):
                                base_url="http://api")
     body, meta = await render_daily(sf, "2026-08-03", client, {})
     await client.aclose()
-    assert meta == {"items": 2, "topics": 2}
+    assert meta == {"items": 2, "topics": 2, "run_id": "r1"}
     assert 'class="rk-title"' in body and "Model X ships" in body
     assert "<svg>spark</svg>" in body
     # data renders as text, never markup
