@@ -1,7 +1,7 @@
 # Apps
 
 **What:** full applications built ON the platform — their own APIs and web
-UIs, their own data, driven by agents (docs/design/11). The news app is the
+UIs, their own data, driven by agents (`docs/design/11-apps-and-reports.md`). The news app is the
 reference: it consumes the news agent's digests, owns the archive + dedup,
 posts the Discord digest, writes the daily-news report, and serves a browser
 at `/apps/news/`.

@@ -1,14 +1,21 @@
 # Tools
 
-**What:** the executable capability block (docs/design/12). A tool is
-PR-reviewed code the MCP broker serves to agents as an `mcp__platform__*`
-tool and the tool-executor runs in a locked-down subprocess. Skills carry
-*knowledge*; tools carry *execution* — an agent picks arguments, never code,
-which is why agents can trigger real work without ever holding a shell.
-`stocks`, `discord_chat`, `linear`, and `memory` are the shipped references.
+**What:** the executable capability block
+(`docs/design/12-executable-capabilities.md`). A tool is reviewed code that the
+**mcp-broker** offers to agents as an `mcp__platform__*` tool over MCP — the
+protocol Claude Code uses to call tools hosted outside its own process — and
+that the **tool-executor** runs in a locked-down subprocess. Both are platform
+services; see the [Glossary](glossary.md).
 
-**Lives in:** `tools/<name>/` in the synced checkout, behind the standard
-change loop (wizard or raw editor → PR on `coder/tool-<name>`):
+[Skills](skills.md) carry *knowledge*; tools carry *execution* — an agent picks
+arguments, never code, which is why agents can trigger real work without ever
+holding a shell or a credential. `stocks`, `discord_chat`, `linear`, and
+`memory` are the shipped references.
+
+**Lives in:** `tools/<name>/` in the synced checkout — the platform's live
+clone of this repository — and edits go through the standard
+[change loop](changes.md) (wizard or raw editor → pull request on
+`coder/tool-<name>`):
 
 ```
 tools/<name>/
@@ -38,13 +45,16 @@ timeout_seconds: 45       # wall clock; 1–120
 ## How a call flows
 
 1. An agent that declares the tool (a checkbox on its page / `tools:` in
-   agent.md) calls it via the MCP broker. Declaring any platform tool makes
-   the run token-bearing: core tools earn an annotator per-run token, custom
-   tools alone earn the whoami-only `tools` role — a credential-free agent
-   declaring only `stocks` gains zero platform-API surface.
-2. The broker verifies the caller's token via `/api/whoami` and checks the
-   agent's definition actually declares the tool. The token is **never
-   forwarded outward** — only the verified identity.
+   `agent.md`) calls it via the mcp-broker. Declaring any platform tool makes
+   the run *identity-bearing*: what identity depends on what was declared.
+   Core tools (which act on the platform) earn a per-run token with the
+   `annotator` role; declaring only custom tools earns the `tools` role, which
+   can do nothing but identify itself — a credential-free agent declaring only
+   `stocks` gains zero platform-API surface.
+2. The broker verifies the caller's token against the API (`/api/whoami`) and
+   checks that the agent's definition really does declare the tool. The
+   caller's token is **never forwarded outward** — only the verified identity
+   travels onward. [security.md](security.md) walks the whole path.
 3. The executor validates the args against `params`, then runs `run.py` with
    a **minimal env**: the declared secrets' keys (fetched from k8s at call
    time — never baked into any pod), `TOOL_DB_URL` when `database: true`,
@@ -53,10 +63,12 @@ timeout_seconds: 45       # wall clock; 1–120
 
 ## Declarative provisioning
 
-The dispatcher's heartbeat converges `infra`: `database: true` gets a pg
-role + schema `tool_<name>` and secret `tool-<name>-db` (re-keyed if the
-secret is lost). Declared secrets must exist as secret blocks. Idempotent;
-never tears down.
+The dispatcher runs a reconciliation heartbeat that converges whatever `infra`
+declares: `database: true` gets a Postgres role plus a schema named
+`tool_<name>` and a k8s Secret `tool-<name>-db` holding its connection string
+(re-keyed if that secret is ever lost). Declared secrets must exist as
+[secret blocks](secrets.md). The convergence is idempotent and never tears
+anything down.
 
 ## Rules of the game
 
@@ -65,8 +77,10 @@ never tears down.
 - `run.py` must never assume `os.environ` carries anything undeclared.
 - Exit non-zero with a stderr message to signal failure honestly — the model
   reads it verbatim.
-- New pip dependency ⇒ executor image rebuild; tool.yaml/run.py edits are
-  live on the next checkout sync.
-- A tool name cannot shadow a core broker tool (`runs_read`, `runs_write`,
-  `metrics`, `query_app`), and a tool without `run.py` is a surfaced error,
-  not a silently dead capability.
+- New pip dependency ⇒ the executor image must be rebuilt (its dependencies
+  are baked in); `tool.yaml` / `run.py` edits are live on the next sync of the
+  checkout, with no deploy.
+- A tool name cannot shadow one of the broker's built-in core tools —
+  `runs_read`, `runs_write`, `metrics`, `query_app` — and a tool folder
+  without a `run.py` is surfaced as an error rather than becoming a silently
+  dead capability.

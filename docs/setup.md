@@ -1,12 +1,33 @@
 # Agent Platform Setup
 
+How to get an agent-platform install running on a Kubernetes cluster from
+nothing. Concepts referenced here (dispatcher, runner, synced checkout…) are
+defined in `docs/building-blocks/glossary.md`.
+
+**The reference deployment.** These instructions were written against the one
+install that exists: a single-node k3s cluster on a home Intel NUC named `pai`,
+Helm release `ap`, namespace `agent-platform`, UI on `http://pai:8090`. Where a
+command mentions `pai` or `values-pai-nuc.yaml`, that's the reference — a
+different cluster needs its own host name and its own values file. Nothing in
+the chart is NUC-specific except the values.
+
 ## Prerequisites
 
-Before installing agent-platform, ensure you have:
+- **Helm 3.0+** and **kubectl**, with kubectl pointed at the target cluster
+  (`kubectl cluster-info` should answer). If you keep several clusters, set
+  `KUBECONFIG` explicitly for every command below rather than trusting the
+  current context — mixing up a local cluster (Rancher Desktop, kind) with the
+  real one is the classic mistake here.
+- A cluster with a **default StorageClass** (Postgres and Kafka both want
+  volumes); k3s ships the local-path provisioner.
+- A **Claude Pro/Max subscription** — agents run Claude Code, so the platform
+  needs a credential to run anything.
+- The repository itself, since the chart and the agent definitions live in it:
 
-- **Helm 3.0+** installed locally
-- **kubectl** configured with context for the target cluster
-- Verify with `kubectl cluster-info`
+```bash
+git clone https://github.com/kylep/agent-platform.git
+cd agent-platform
+```
 
 ## Installation
 
@@ -25,8 +46,9 @@ This will:
 - Create the `agent-platform` namespace
 - Deploy PostgreSQL and Kafka from bitnami Helm charts
 - Create Kafka topics via the topics job
-- Sync agent definitions from the `agents/` directory
-- Start the API server and dispatcher
+- Start the platform services, including `agents-sync`, which clones this
+  repository into a shared volume so the platform can read the agent, skill,
+  and tool definitions in `agents/`, `skills/`, and `tools/`
 
 ### 2. Verify the deployment
 
@@ -39,17 +61,27 @@ kubectl rollout status deployment/ap-dispatcher -n agent-platform
 
 All pods should reach `Running` state.
 
+### 3. Reach the UI
+
+The web service is a `LoadBalancer` on port **8090**, forwarding to the UI's
+8080 (`web.service` in `charts/agent-platform/values.yaml`). On k3s, the
+built-in ServiceLB publishes that on the node itself, which is why the
+reference install is reachable at `http://pai:8090`. Use your own node's name
+or address; with no load balancer at all, `kubectl -n agent-platform port-forward
+svc/ap-web 8090:8090` works just as well.
+
 ## First Launch
 
 ### 1. Create admin credentials
 
-Navigate to **http://pai:8090** in your browser.
-
-At the auth gate, create your admin credentials (email and password).
+Open the UI. The platform has no users yet, so it shows a first-launch setup
+page: choose the admin email and password there. Until that's done — and after
+that, until you log in — every page is gated.
 
 ### 2. Set Claude credentials
 
-You will see a secrets gate asking for Claude subscription credentials.
+Next you'll hit a secrets gate asking for Claude subscription credentials.
+Nothing can run without them.
 
 #### Option A (recommended): setup-token via UI
 
@@ -62,16 +94,17 @@ invalidated as soon as the machine that exported it refreshes again.
 
 #### Option B: Use the install script
 
-If you prefer, run the install script instead. It uses your current kubectl
-context — set `KUBECONFIG` explicitly so it targets the right cluster (easy
-trap if you also run a local cluster like Rancher Desktop):
+`bin/set-claude-token.sh` reads local Claude Code credentials and writes them
+into the cluster as the `claude-credentials` secret. It takes the kubectl
+command to use and the target namespace:
 
 ```bash
 KUBECONFIG=~/.kube/pai-nuc.yaml bin/set-claude-token.sh kubectl agent-platform
 ```
 
-On macOS, Claude Code stores credentials in the Keychain rather than a
-file; export them first:
+It reads `~/.claude/.credentials.json` by default. On macOS, Claude Code stores
+those credentials in the Keychain rather than a file, so export them first and
+point the script at the export:
 
 ```bash
 security find-generic-password -s "Claude Code-credentials" -w > /tmp/claude-creds.json
@@ -80,22 +113,24 @@ KUBECONFIG=~/.kube/pai-nuc.yaml CLAUDE_CREDENTIALS_FILE=/tmp/claude-creds.json \
 rm /tmp/claude-creds.json
 ```
 
-This reads `~/.claude/.credentials.json` (or the path in `CLAUDE_CREDENTIALS_FILE`)
-and creates the `claude-credentials` secret in the cluster.
-
 After running, refresh the browser to clear the gate.
 
 ## Smoke Test
 
-Once the secrets gate is satisfied:
+Once the secrets gate is satisfied, run any agent once — `pai`, the
+conversational assistant, is the simplest:
 
 1. In the UI, navigate to **Agents**
-2. Click **hello-world** (the seed agent)
-3. In the prompt field, enter: `Say OK`
+2. Click **pai**
+3. In the prompt field, enter: `Say OK and nothing else`
 4. Click **Run now**
-5. Watch the live transcript as the agent executes and replies with exactly `OK`
+5. Watch the live transcript as the run starts, the agent replies, and the run
+   finishes as `succeeded`
 
-This confirms the entire platform loop is working: UI → API → dispatcher → Kafka → agent task → result collection → live feed.
+That confirms the whole loop: UI → API → Kafka → dispatcher → a Kubernetes Job
+running the agent → transcript events back through Kafka → recorder → the live
+feed. If the run is instead `rejected`, the message says why (usually a secret
+the agent's skills require); see `docs/building-blocks/runs.md`.
 
 ## Teardown
 
@@ -154,7 +189,8 @@ If missing, install one appropriate for your cluster (e.g., local-path provision
 
 **Symptom:** Agent runs show as `Queued` but never transition to `Running`.
 
-**Cause:** Dispatcher is not consuming tasks, or Kafka topics are not created.
+**Cause:** The dispatcher is not consuming run commands, or the Kafka topics
+were never created.
 
 **Fix:**
 
@@ -169,18 +205,18 @@ If missing, install one appropriate for your cluster (e.g., local-path provision
      kafka-topics.sh --list --bootstrap-server localhost:9092
    ```
 
-   You should see `run.requests`, `run.events`, `run.transcript`, and `run.dlq`.
+   You should see the run topics (`run.inbound`, `run.requests`, `run.events`,
+   `run.transcript`, `run.dlq`) among the others the chart declares in
+   `topics.specs`.
 
 3. If topics are missing, the topics job may have failed. Re-run the Helm install to trigger a fresh job.
 
 ### Reset the admin password
 
-**Symptom:** Admin password lost, or you want to change it. There is no
-change-password UI yet (planned for milestone 02); the password exists only
-as an argon2 hash in postgres.
-
-**Fix:** Delete the admin principal, then reload the UI — the first-launch
-setup page returns and lets you choose a new password:
+The UI can change the password under **Settings** when you know the current
+one. If it's lost, delete the admin principal and reload the UI — the
+first-launch setup page returns and lets you choose a new one. The password
+exists only as an argon2 hash in Postgres, so there is nothing to recover:
 
 ```bash
 kubectl -n agent-platform exec ap-postgresql-0 -- \

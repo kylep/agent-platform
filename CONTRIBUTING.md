@@ -1,5 +1,16 @@
 # Contributing
 
+The agent-platform is a personal project with a single maintainer; there is no
+review rota or CLA. Almost everything worth knowing about *how* to change it
+lives elsewhere: `README.md` for what the platform is, `docs/setup.md` for
+getting an install running, `docs/deployment.md` for how a change reaches the
+cluster, and `docs/building-blocks/` for the concepts (start with the
+Glossary). Configuration changes — agents, skills, tools, secret shapes — are
+made through the UI or by editing git, and always land as pull requests.
+
+The one thing this file exists to enforce is below, and it applies to every
+clone.
+
 ## One-time setup: secret-leak prevention
 
 This repo is public, so a committed secret is exposed the instant it's pushed —

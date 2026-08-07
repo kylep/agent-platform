@@ -1,8 +1,9 @@
 # Memories
 
 **What:** what an agent remembers across runs — small keyed notes with tags.
-An agent declares the `memory` TOOL (docs/design/12) and reads/writes **only
-its own namespace** — the namespace is the broker-verified caller identity,
+An agent declares the `memory` TOOL (`docs/design/12-executable-capabilities.md`) and reads/writes **only
+its own namespace** — the namespace is the caller identity the mcp-broker
+verified (see the [Glossary](glossary.md)),
 never something the model chooses. Reading and writing are one tool because
 namespacing makes read-only memory meaningless. (The old `memory: true`
 manifest flag is retired; declaring the tool is the grant.)

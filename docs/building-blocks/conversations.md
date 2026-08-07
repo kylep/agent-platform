@@ -6,7 +6,8 @@ where they came from:
 
 - **web** — started and continued from the UI (an agent's Conversations tab,
   or the global Conversations table). Deletable (with confirmation), renamable.
-- **discord** — a Discord thread bridged by the connector. Read-only in the UI
+- **discord** — a Discord thread bridged by the connector-discord service
+  (see the [Glossary](glossary.md)). Read-only in the UI
   (the thread lives in Discord; each turn shows who sent it), renamable.
 
 **Lives in:** Postgres (`conversations` + turn linkage on runs), with Kafka

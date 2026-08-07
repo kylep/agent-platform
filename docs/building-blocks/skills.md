@@ -1,8 +1,16 @@
 # Skills
 
 **What:** reusable capabilities an agent opts into via its manifest `skills:`
-list. The runner mounts each referenced skill into the pod (`~/.claude/skills`)
-and the pod is granted the union of those skills' secrets — and nothing more.
+list. The runner — the pod one agent run happens in, see the
+[Glossary](glossary.md) — mounts each referenced skill into the pod
+(`~/.claude/skills`), and the pod is granted the union of those skills'
+secrets and nothing more.
+
+A skill is *knowledge*: instructions (and optional helper scripts) the agent
+reads and follows itself, so using one means the agent needs the underlying
+access. A [tool](tools.md) is *execution* by the platform on the agent's
+behalf. When a capability needs a credential the agent should never hold,
+it wants to be a tool, not a skill.
 
 **Lives in:** git, one folder per skill:
 
@@ -12,14 +20,14 @@ skills/<name>/
   *.sh, *.py    # optional helper scripts the instructions reference
 ```
 
-**Frontmatter shape:**
+**Frontmatter shape** (this is the shipped `git` skill):
 
 ```yaml
-name: discord
-description: Post a message to a Discord channel… (written as a when-to-use trigger)
-icon: 💬
+name: git
+description: Clone, branch, commit, and push over HTTPS… (written as a when-to-use trigger)
+icon: 🔀
 secrets:
-  - name: discord-webhook
+  - name: github-token
     state: verified      # present | verified   — what must be true of the secret
     severity: required   # required | optional  — required blocks the agent, optional degrades
 ```

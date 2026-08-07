@@ -12,15 +12,18 @@ chat messages. Anything it reads can try to talk it into misbehaving
 things an attacker needs all at once: untrusted input, a credential worth
 stealing, and a way to send data out. Shell and file tools (Bash, Read,
 Write, Edit) are hard-denied for every agent except the platform-coder,
-whose workspace is a throwaway clone with no secrets in it.
+the agent that writes the platform's own pull requests, whose workspace is a
+throwaway clone with no secrets in it. (Unfamiliar component names —
+broker, executor, runner — are defined in the [Glossary](glossary.md).)
 
 ## So how does an agent DO anything? MCP tools.
 
-MCP tools are the platform's answer: instead of a shell, an agent gets a
+MCP (Model Context Protocol) is the standard way Claude Code calls tools that
+live outside its own process, and it is the platform's answer here: instead of a shell, an agent gets a
 menu of specific, named actions — `stocks`, `discord_chat`, `memory`,
 `runs_read`, and so on. When the agent uses one, this happens:
 
-1. **The call goes to the MCP broker**, a small service that owns no
+1. **The call goes to the mcp-broker**, a small platform service that owns no
    credentials of its own. The agent's request carries proof of identity
    (below), never a password or API key.
 2. **The broker checks who is calling** — it asks the platform API to
@@ -65,8 +68,9 @@ started.
 - **Anthropic key:** never in agent pods — a proxy injects it
   per-request, so agents literally have nothing to leak.
 - **Everything is reviewed:** agents, skills, tools, and secret
-  *declarations* live in git behind the change loop. Secret *values*
-  live only in Kubernetes.
+  *declarations* live in git behind the [change loop](changes.md). Secret
+  *values* live only in Kubernetes.
 
 The full engineering version — threat model, the five-layer identity
-roadmap, and what's live vs planned — is `docs/security.md` in the repo.
+roadmap, and what's live vs planned — is `docs/security.md` in the
+repository.
