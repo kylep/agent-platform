@@ -13,6 +13,19 @@ class Settings(BaseSettings):
     reports_root: str = "./reports"
     apps_root: str = "./apps"
     tools_root: str = "./tools"
+    # SPIRE mTLS (docs/design/13 B). When enabled, run pods that talk to the
+    # MCP broker get a ghostunnel-client native sidecar carrying the pod's
+    # SVID, and AP_MCP_URL points at its localhost listener instead of the
+    # broker service. Flipping this off (helm --set spire.enabled=false) is
+    # the break-glass: everything reverts to plain in-cluster HTTP + netpol.
+    spire_enabled: bool = False
+    ghostunnel_image: str = "docker.io/ghostunnel/ghostunnel:v1.11.2"
+    spiffe_trust_domain: str = "pai"
+    spiffe_workload_socket: str = "unix:///spiffe-workload-api/spire-agent.sock"
+    # The broker's ServiceAccount (release-name prefixed) — what run-pod
+    # tunnels pin as the expected server identity.
+    broker_service_account: str = "ap-mcp-broker"
+    mcp_broker_mtls_target: str = "agent-platform-mcp-broker:8443"
     agents_volume_claim: str = "agent-definitions"
     session_secret: str = "dev-insecure"
     global_concurrency: int = 3

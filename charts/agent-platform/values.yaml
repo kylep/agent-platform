@@ -95,6 +95,17 @@ apps:
     limits:
       memory: 256Mi
 
+# SPIRE mTLS (docs/design/13 B). Requires the spiffe/spire chart installed
+# (see charts/spire/values-pai.yaml). When enabled: broker + executor bind
+# localhost behind ghostunnel-server sidecars (8443, SVID-authenticated), and
+# the dispatcher gives MCP-talking run pods a ghostunnel-client native
+# sidecar. Setting this false is the break-glass — plain HTTP + netpol.
+spire:
+  enabled: false
+  ghostunnelImage: docker.io/ghostunnel/ghostunnel:v1.11.2
+  trustDomain: pai
+  workloadApiSocket: unix:///spiffe-workload-api/spire-agent.sock
+
 # Default-deny-ingress + per-component allowlists (see templates/networkpolicy.yaml).
 # k3s enforces NetworkPolicy via its embedded controller. `egress` adds a
 # default-deny-egress stage (DNS + intra-namespace + external :443 allowlists).

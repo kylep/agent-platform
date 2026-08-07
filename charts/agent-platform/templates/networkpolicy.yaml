@@ -113,6 +113,8 @@ spec:
       ports:
         - port: 8000
           protocol: TCP
+        - port: 8443
+          protocol: TCP
 ---
 # mcp-broker: runner pods (token-bearing agents) reach it on 8000 for MCP.
 apiVersion: networking.k8s.io/v1
@@ -135,6 +137,8 @@ spec:
               - {key: app.kubernetes.io/component, operator: In, values: [runner]}
       ports:
         - port: 8000
+          protocol: TCP
+        - port: 8443
           protocol: TCP
 ---
 # claude-proxy: runner pods reach it on 8000; it holds the Claude token and

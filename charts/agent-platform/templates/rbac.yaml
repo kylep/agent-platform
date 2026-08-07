@@ -138,3 +138,12 @@ roleRef:
   kind: ClusterRole
   name: system:auth-delegator
   apiGroup: rbac.authorization.k8s.io
+---
+# Identity-only SA for the MCP broker (design/13 B): zero RBAC, exists so
+# SPIRE can attest the pod to spiffe://<td>/ns/<ns>/sa/<release>-mcp-broker.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ .Release.Name }}-mcp-broker
+  labels:
+    {{- include "agent-platform.labels" . | nindent 4 }}

@@ -234,3 +234,40 @@ async def test_tool_audit_ingest_and_surfaces(client, sf, producer):
     rows = (await client.get("/api/audit/tools?decision=deny")).json()
     assert len(rows) == 1 and rows[0]["tool"] == "linear"
     assert rows[0]["initiated_by"] == "admin" and rows[0]["args_digest"] == "d" * 64
+
+
+# --- SPIRE mTLS sidecar (docs/design/13 B) -----------------------------------
+
+def test_spire_enabled_adds_mcp_tunnel_sidecar():
+    from agentplatform.agents import Manifest
+    from agentplatform.db import Run
+    launcher = K8sJobLauncher(batch=None, settings=Settings(
+        runner_image="r:1", k8s_namespace="agent-platform", spire_enabled=True))
+    job = launcher.build_job(Run(id="r" * 32, agent="pai", prompt="p"),
+                             Manifest(description="d"), sa_identity="agent-pai",
+                             pod_sa="agent-pai")
+    spec = job.spec.template.spec
+    tunnel = spec.init_containers[0]
+    assert tunnel.name == "mcp-tunnel" and tunnel.restart_policy == "Always"
+    assert "--verify-uri" in tunnel.args
+    assert "spiffe://pai/ns/agent-platform/sa/ap-mcp-broker" in tunnel.args
+    env = {e.name: e.value for e in spec.containers[0].env}
+    assert env["AP_MCP_URL"] == "http://127.0.0.1:8300/mcp"
+    assert any(v.name == "spiffe-workload-api" and v.csi.driver == "csi.spiffe.io"
+               for v in spec.volumes)
+    # The RUNNER container must not see the workload API socket.
+    assert all(m.name != "spiffe-workload-api"
+               for m in spec.containers[0].volume_mounts)
+
+
+def test_spire_disabled_keeps_plain_path():
+    from agentplatform.agents import Manifest
+    from agentplatform.db import Run
+    launcher = K8sJobLauncher(batch=None, settings=Settings(
+        runner_image="r:1", k8s_namespace="agent-platform"))
+    job = launcher.build_job(Run(id="r" * 32, agent="pai", prompt="p"),
+                             Manifest(description="d"), sa_identity="agent-pai")
+    spec = job.spec.template.spec
+    assert spec.init_containers is None
+    env = {e.name: e.value for e in spec.containers[0].env}
+    assert env["AP_MCP_URL"].startswith("http://agent-platform-mcp-broker")

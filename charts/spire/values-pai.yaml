@@ -1,0 +1,9 @@
+# SPIRE (design/13 B) — values for the spiffe/spire hardened chart, release
+# `spire` in namespace spire-system. Trust domain `pai`; the chart's default
+# ClusterSPIFFEID templates every pod's identity as
+#   spiffe://pai/ns/<namespace>/sa/<serviceaccount>
+# which is exactly what the ghostunnel allow-lists match on.
+global:
+  spire:
+    trustDomain: pai
+    clusterName: pai

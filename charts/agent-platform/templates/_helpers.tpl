@@ -68,6 +68,18 @@ Env vars shared by the api/dispatcher/recorder backend Deployments.
   value: "/agents/apps"
 - name: AP_TOOLS_ROOT
   value: "/agents/tools"
+{{- if .Values.spire.enabled }}
+- name: AP_SPIRE_ENABLED
+  value: "true"
+- name: AP_GHOSTUNNEL_IMAGE
+  value: {{ .Values.spire.ghostunnelImage | quote }}
+- name: AP_SPIFFE_TRUST_DOMAIN
+  value: {{ .Values.spire.trustDomain | quote }}
+- name: AP_SPIFFE_WORKLOAD_SOCKET
+  value: {{ .Values.spire.workloadApiSocket | quote }}
+- name: AP_BROKER_SERVICE_ACCOUNT
+  value: "{{ .Release.Name }}-mcp-broker"
+{{- end }}
 - name: AP_AGENTS_VOLUME_CLAIM
   value: {{ .Values.env.AP_AGENTS_VOLUME_CLAIM | quote }}
 - name: AP_GLOBAL_CONCURRENCY

@@ -169,7 +169,7 @@ class K8sJobLauncher(Launcher):
 
     def build_job(self, run: Run, manifest: Manifest, self_edit_token: str | None = None,
                   api_token: str | None = None, sa_identity: str | None = None,
-                  run_token: str | None = None) -> k8s.V1Job:
+                  run_token: str | None = None, pod_sa: str | None = None) -> k8s.V1Job:
         name = f"run-{run.id[:12]}"
         env = [
             k8s.V1EnvVar(name="AP_RUN_ID", value=run.id),
@@ -188,6 +188,12 @@ class K8sJobLauncher(Launcher):
             # The runner copies each named skill from the synced /agents/skills
             # tree into ~/.claude/skills so `claude` can use it.
             env.append(k8s.V1EnvVar(name="AP_SKILLS", value=",".join(manifest.skills)))
+        talks_mcp = bool(api_token or sa_identity)
+        # design/13 B: with SPIRE on, the pod's MCP traffic goes through a
+        # local ghostunnel client that wraps it in SVID mTLS; claude itself
+        # keeps speaking plain HTTP to localhost.
+        mcp_url = ("http://127.0.0.1:8300/mcp" if self.settings.spire_enabled
+                   else self.settings.mcp_broker_url)
         if api_token:
             env += [
                 k8s.V1EnvVar(name="AP_API_URL", value=self.settings.api_internal_url),
@@ -195,7 +201,7 @@ class K8sJobLauncher(Launcher):
                 # The MCP broker URL: the runner points claude at it (with the
                 # token above as the auth header) so the agent gets brokered API
                 # tools instead of a shell.
-                k8s.V1EnvVar(name="AP_MCP_URL", value=self.settings.mcp_broker_url),
+                k8s.V1EnvVar(name="AP_MCP_URL", value=mcp_url),
             ]
         elif sa_identity:
             # Workload identity (design/13): no secret in the env — the runner
@@ -203,7 +209,7 @@ class K8sJobLauncher(Launcher):
             env += [
                 k8s.V1EnvVar(name="AP_API_URL", value=self.settings.api_internal_url),
                 k8s.V1EnvVar(name="AP_API_TOKEN_FILE", value="/var/run/ap-identity/token"),
-                k8s.V1EnvVar(name="AP_MCP_URL", value=self.settings.mcp_broker_url),
+                k8s.V1EnvVar(name="AP_MCP_URL", value=mcp_url),
             ]
             if run_token:
                 # Sender-constrained run JWT (design/13 C): proves WHICH run
@@ -297,10 +303,47 @@ class K8sJobLauncher(Launcher):
                             audience=self.IDENTITY_AUDIENCE,
                             expiration_seconds=7200,
                             path="token"))])))
+        init_containers = None
+        if self.settings.spire_enabled and talks_mcp:
+            # design/13 B: NATIVE sidecar (initContainer, restartPolicy Always
+            # — terminates with the main container, so Jobs still complete).
+            # It fetches the pod's SVID from the SPIRE agent socket and wraps
+            # localhost MCP traffic in mTLS pinned to the broker's identity.
+            # The runner container itself never sees a cert or the socket.
+            td, ns = self.settings.spiffe_trust_domain, self.settings.k8s_namespace
+            volumes.append(k8s.V1Volume(
+                name="spiffe-workload-api",
+                csi=k8s.V1CSIVolumeSource(driver="csi.spiffe.io", read_only=True)))
+            init_containers = [k8s.V1Container(
+                name="mcp-tunnel",
+                image=self.settings.ghostunnel_image,
+                restart_policy="Always",
+                args=["client",
+                      "--listen", "127.0.0.1:8300",
+                      "--target", self.settings.mcp_broker_mtls_target,
+                      "--use-workload-api-addr", self.settings.spiffe_workload_socket,
+                      "--verify-uri",
+                      f"spiffe://{td}/ns/{ns}/sa/{self.settings.broker_service_account}"],
+                volume_mounts=[k8s.V1VolumeMount(
+                    name="spiffe-workload-api",
+                    mount_path="/spiffe-workload-api", read_only=True)],
+                security_context=k8s.V1SecurityContext(
+                    allow_privilege_escalation=False,
+                    run_as_non_root=True, run_as_user=1001, run_as_group=1001,
+                    read_only_root_filesystem=True,
+                    capabilities=k8s.V1Capabilities(drop=["ALL"])),
+                resources=k8s.V1ResourceRequirements(
+                    requests={"memory": "32Mi", "cpu": "10m"},
+                    limits={"memory": "64Mi"}),
+            )]
         pod_spec = k8s.V1PodSpec(
             containers=[container],
+            init_containers=init_containers,
             volumes=volumes,
-            service_account_name=sa_identity,
+            # Every run pod carries its agent's ServiceAccount so SPIRE can
+            # attest it (identity = the SA); sa_identity separately controls
+            # whether platform AUTH rides the projected token vs an API key.
+            service_account_name=pod_sa or sa_identity,
             restart_policy="Never",
             # The runner never calls the k8s API — don't mount a ServiceAccount
             # token into the pod that runs agent code (removes that credential
@@ -370,6 +413,9 @@ class K8sJobLauncher(Launcher):
                             self._ensure_service_account, run.agent)
                     else:
                         api_token = await self._invoke_token(run, role=role)
+        pod_sa = None
+        if self.core is not None:
+            pod_sa = await asyncio.to_thread(self._ensure_service_account, run.agent)
         run_token = None
         if sa_identity:
             key = await self._runjwt_key()
@@ -382,7 +428,7 @@ class K8sJobLauncher(Launcher):
                     timeout_seconds=manifest.timeout_seconds
                         or self.settings.run_timeout_seconds)
         job = self.build_job(run, manifest, self_edit_token=token, api_token=api_token,
-                             sa_identity=sa_identity, run_token=run_token)
+                             sa_identity=sa_identity, run_token=run_token, pod_sa=pod_sa)
         await self._audit_secret_access(run, manifest)
         await asyncio.to_thread(self.batch.create_namespaced_job, self.settings.k8s_namespace, job)
 

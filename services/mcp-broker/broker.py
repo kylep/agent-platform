@@ -294,4 +294,7 @@ if __name__ == "__main__":
     refresh_custom_tools()
     import threading
     threading.Thread(target=_refresh_forever, daemon=True).start()
-    mcp.run(transport="http", host="0.0.0.0", port=8000, path="/mcp")
+    # design/13 B: with SPIRE mTLS on, bind localhost — the ghostunnel server
+    # sidecar (8443) is the only way in, and it requires a client SVID.
+    mcp.run(transport="http", host=os.environ.get("AP_BIND_HOST", "0.0.0.0"),
+            port=8000, path="/mcp")

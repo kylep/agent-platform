@@ -14,7 +14,10 @@ spec:
       labels:
         {{- include "agent-platform.selectorLabels" (dict "Release" .Release "Chart" .Chart "component" "mcp-broker") | nindent 8 }}
     spec:
-      # This pod never calls the k8s API — don't mount a ServiceAccount token.
+      # Identity-only ServiceAccount (zero RBAC): SPIRE attests the pod by its
+      # SA, giving it spiffe://<td>/ns/<ns>/sa/<release>-mcp-broker. The token
+      # itself stays unmounted — this pod never calls the k8s API.
+      serviceAccountName: {{ .Release.Name }}-mcp-broker
       automountServiceAccountToken: false
       securityContext:
         seccompProfile:
@@ -43,10 +46,25 @@ spec:
             # .Values.env (which never carried this key).
             - name: AP_KAFKA_BOOTSTRAP
               value: "{{ .Release.Name }}-kafka:9092"
+            {{- if .Values.spire.enabled }}
+            # mTLS mode (design/13 B): only the ghostunnel sidecars can reach
+            # this process; the executor hop goes out through the local client
+            # tunnel below.
+            - name: AP_BIND_HOST
+              value: "127.0.0.1"
+            - name: AP_EXECUTOR_URL
+              value: "http://127.0.0.1:8301"
+            {{- end }}
           ports:
             - containerPort: 8000
           readinessProbe:
+            {{- if .Values.spire.enabled }}
+            # localhost bind — probe from inside the netns, not the pod IP.
+            exec:
+              command: ["python", "-c", "import socket; socket.create_connection(('127.0.0.1', 8000), 2)"]
+            {{- else }}
             tcpSocket: {port: 8000}
+            {{- end }}
             initialDelaySeconds: 3
             periodSeconds: 10
           volumeMounts:
@@ -58,10 +76,68 @@ spec:
           resources:
             requests: {memory: 128Mi, cpu: 50m}
             limits: {memory: 256Mi}
+        {{- if .Values.spire.enabled }}
+        # mTLS front door: terminates SVID-authenticated TLS from run pods and
+        # forwards to the localhost-bound broker. Only agent SAs may connect.
+        - name: mtls-server
+          image: {{ .Values.spire.ghostunnelImage | quote }}
+          args:
+            - server
+            - --listen=0.0.0.0:8443
+            - --target=127.0.0.1:8000
+            - --use-workload-api-addr={{ .Values.spire.workloadApiSocket }}
+            - --allow-uri=spiffe://{{ .Values.spire.trustDomain }}/ns/{{ .Release.Namespace }}/sa/agent-*
+          ports:
+            - containerPort: 8443
+          securityContext:
+            allowPrivilegeEscalation: false
+            runAsNonRoot: true
+            runAsUser: 1001
+            runAsGroup: 1001
+            readOnlyRootFilesystem: true
+            capabilities: {drop: ["ALL"]}
+          volumeMounts:
+            - name: spiffe-workload-api
+              mountPath: /spiffe-workload-api
+              readOnly: true
+          resources:
+            requests: {memory: 32Mi, cpu: 10m}
+            limits: {memory: 64Mi}
+        # Egress tunnel to the executor: broker code talks plain HTTP to
+        # localhost:8301; this wraps it in mTLS pinned to the executor's SVID.
+        - name: executor-tunnel
+          image: {{ .Values.spire.ghostunnelImage | quote }}
+          args:
+            - client
+            - --listen=127.0.0.1:8301
+            - --target=agent-platform-tool-executor:8443
+            - --use-workload-api-addr={{ .Values.spire.workloadApiSocket }}
+            - --verify-uri=spiffe://{{ .Values.spire.trustDomain }}/ns/{{ .Release.Namespace }}/sa/{{ .Release.Name }}-tool-executor
+          securityContext:
+            allowPrivilegeEscalation: false
+            runAsNonRoot: true
+            runAsUser: 1001
+            runAsGroup: 1001
+            readOnlyRootFilesystem: true
+            capabilities: {drop: ["ALL"]}
+          volumeMounts:
+            - name: spiffe-workload-api
+              mountPath: /spiffe-workload-api
+              readOnly: true
+          resources:
+            requests: {memory: 32Mi, cpu: 10m}
+            limits: {memory: 64Mi}
+        {{- end }}
       volumes:
         - name: agent-definitions
           persistentVolumeClaim:
             claimName: {{ .Values.env.AP_AGENTS_VOLUME_CLAIM }}
+        {{- if .Values.spire.enabled }}
+        - name: spiffe-workload-api
+          csi:
+            driver: csi.spiffe.io
+            readOnly: true
+        {{- end }}
 ---
 apiVersion: v1
 kind: Service
@@ -75,5 +151,11 @@ spec:
   selector:
     {{- include "agent-platform.selectorLabels" (dict "Release" .Release "Chart" .Chart "component" "mcp-broker") | nindent 4 }}
   ports:
+    {{- if .Values.spire.enabled }}
+    # mTLS mode: the ghostunnel sidecar is the only listener on the pod IP.
+    - port: 8443
+      targetPort: 8443
+    {{- else }}
     - port: 8000
       targetPort: 8000
+    {{- end }}

@@ -160,4 +160,6 @@ async def run_tool(body: RunIn):
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    # design/13 B: with SPIRE mTLS on, bind localhost behind the ghostunnel
+    # server sidecar (8443, broker-SVID clients only).
+    uvicorn.run(app, host=os.environ.get("AP_BIND_HOST", "0.0.0.0"), port=8000)
