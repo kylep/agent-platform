@@ -4,7 +4,7 @@ description: Create, query, and update issues, projects, and comments in Linear 
 icon: 📋
 secrets:
   - name: linear-api-key
-    state: present        # no read-only GET endpoint exists to verify against
+    state: verified       # script-verified (GraphQL viewer query)
     severity: required    # Linear IS this skill's whole purpose
 ---
 # linear
