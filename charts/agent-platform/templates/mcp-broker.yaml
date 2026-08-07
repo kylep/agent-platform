@@ -38,9 +38,11 @@ spec:
               value: "http://agent-platform-tool-executor:8000"
             - name: AP_TOOLS_ROOT
               value: "/agents/tools"
-            # Audit events (design/13 E) ride Kafka; the recorder writes them.
+            # Audit events (design/13 E) ride Kafka; the dispatcher-side
+            # consumer writes them. Computed like backendEnv's, NOT from
+            # .Values.env (which never carried this key).
             - name: AP_KAFKA_BOOTSTRAP
-              value: {{ .Values.env.AP_KAFKA_BOOTSTRAP | quote }}
+              value: "{{ .Release.Name }}-kafka:9092"
           ports:
             - containerPort: 8000
           readinessProbe:
