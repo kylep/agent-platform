@@ -1,0 +1,38 @@
+/* The platform shell: sidebar + main column. Shared by the console AND app
+   frontends (docs/design/11) so apps keep the platform chrome. Tokens only. */
+
+.layout { display: flex; min-height: 100vh; }
+.main { flex: 1; padding: 24px 32px; min-width: 0; }
+
+.nav {
+  width: 200px; flex-shrink: 0; border-right: 1px solid var(--ds-border);
+  background: var(--ds-surface); padding: 16px 12px;
+  display: flex; flex-direction: column; gap: 4px;
+}
+.nav-brand { font-weight: 600; padding: 0 8px 16px; }
+.nav-link {
+  color: var(--ds-text-muted); text-decoration: none; padding: 8px;
+  border-radius: var(--radius-md); font-size: 14px;
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+}
+.nav-link:hover { background: color-mix(in srgb, var(--ds-text) 5%, transparent); color: var(--ds-text); text-decoration: none; }
+.nav-link.active { background: color-mix(in srgb, var(--ds-accent) 12%, transparent); color: var(--ds-accent); }
+.nav-group { display: flex; flex-direction: column; gap: 4px; }
+.nav-group-head { display: flex; align-items: center; }
+.nav-parent { flex: 1; display: flex; }
+.nav-parent .nav-link { flex: 1; }
+.nav-chevron {
+  appearance: none; background: transparent; border: none; color: var(--ds-text-muted);
+  font-size: 16px; line-height: 1; padding: 6px 8px; cursor: pointer;
+  transition: transform 0.15s ease; transform: rotate(0deg); font-family: inherit;
+}
+.nav-chevron:hover { color: var(--ds-text); }
+.nav-chevron.open { transform: rotate(90deg); }
+.nav-child { padding-left: 22px; font-size: 13px; }
+.nav-badge {
+  display: inline-flex; align-items: center; justify-content: center;
+  min-width: 19px; height: 19px; padding: 0 6px;
+  font-size: 11px; font-weight: 700; line-height: 1; border-radius: 999px;
+  background: var(--ds-accent); color: var(--ds-on-accent);
+}
+.nav-foot { margin-top: auto; padding: 8px; }

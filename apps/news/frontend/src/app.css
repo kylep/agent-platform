@@ -15,7 +15,8 @@
 .muted { color: var(--ds-text-muted); }
 .error { color: var(--ds-danger); }
 
-.news-shell { max-width: 1100px; margin: 0 auto; padding: 0 20px 48px; }
+/* Sits inside the shared platform shell's .main column (@ap/ui/sidenav). */
+.news-shell { max-width: 1100px; margin: 0 auto; padding-bottom: 48px; }
 .news-top {
   display: flex; align-items: center; gap: 16px; padding: 14px 0;
   border-bottom: 1px solid var(--ds-border); margin-bottom: 20px;
@@ -28,7 +29,6 @@
   border: 1px solid var(--ds-accent); border-radius: 999px; padding: 3px 12px;
 }
 .news-ask:hover { background: color-mix(in srgb, var(--ds-accent) 12%, transparent); text-decoration: none; }
-.news-back { color: var(--ds-text-muted); font-size: 13px; }
 
 .news-stats { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 8px; }
 .news-stat {

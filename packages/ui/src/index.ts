@@ -6,6 +6,8 @@ export { Chip, ChipButton, chipStatusVariant, chipVariants, StatusChip } from ".
 export { ConfirmDialog } from "./dialog";
 export { CodeEditor, Input, Select, Textarea } from "./field";
 export { Markdown } from "./markdown";
+export { buildPlatformNav, SideNav, ThemeToggle, useTheme,
+         type AppNavInfo, type NavEntry, type NavItem } from "./sidenav";
 export { Stat, StatRow } from "./stat";
 export { Table, TD, TH } from "./table";
 export { cn } from "./cn";

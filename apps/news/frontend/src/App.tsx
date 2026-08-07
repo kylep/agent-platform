@@ -6,6 +6,7 @@ import { ItemList, Sparkline, TopicChip, VolumeCalendar, monthLabel, shiftMonth,
          ym } from "./components";
 import { Button } from "@ap/ui/button";
 import { Input } from "@ap/ui/field";
+import { buildPlatformNav, SideNav, type AppNavInfo } from "@ap/ui/sidenav";
 
 // The news browser (docs/design/11): topic × date are the two axes.
 //   /            home — today so far, topic tiles, volume calendar
@@ -14,17 +15,32 @@ import { Input } from "@ap/ui/field";
 // Search rides ?q= on the home route.
 
 function Shell({ children }: { children: React.ReactNode }) {
+  // The shared platform sidebar (from @ap/ui) wraps the app — same chrome as
+  // the console, with this app active under the Apps accordion. Platform
+  // links are plain anchors (leaving the app is a full page load by design).
+  const [apps, setApps] = useState<AppNavInfo[]>([{ name: "news", icon: "🗞️" }]);
+  useEffect(() => {
+    fetch("/api/apps", { credentials: "include" })
+      .then((r) => (r.ok ? r.json() : []))
+      .then((all: { name: string; icon: string; ui: boolean; ready: boolean | null }[]) =>
+        setApps(all.filter((a) => a.ui && a.ready)))
+      .catch(() => {});
+  }, []);
   return (
-    <div className="news-shell">
-      <header className="news-top">
-        <Link to="/" className="news-brand">🗞️ News</Link>
-        <SearchBox />
-        <a className="news-ask" href="/agents/news-librarian?tab=conversations">
-          💬 Ask the librarian
-        </a>
-        <a className="news-back" href="/">← platform</a>
-      </header>
-      <main className="news-main">{children}</main>
+    <div className="layout">
+      <SideNav entries={buildPlatformNav(apps)} activePath="/apps/news/" />
+      <main className="main">
+        <div className="news-shell">
+          <header className="news-top">
+            <Link to="/" className="news-brand">🗞️ News</Link>
+            <SearchBox />
+            <a className="news-ask" href="/agents/news-librarian?tab=conversations">
+              💬 Ask the librarian
+            </a>
+          </header>
+          <main className="news-main">{children}</main>
+        </div>
+      </main>
     </div>
   );
 }

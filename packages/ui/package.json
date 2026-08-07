@@ -15,6 +15,7 @@
     "./dialog": "./src/dialog.tsx",
     "./field": "./src/field.tsx",
     "./markdown": "./src/markdown.tsx",
+    "./sidenav": "./src/sidenav.tsx",
     "./stat": "./src/stat.tsx",
     "./table": "./src/table.tsx"
   },
