@@ -15,6 +15,14 @@
  */
 @import "tailwindcss";
 
+/* The css entry lives in this package, so Tailwind's automatic source
+ * detection would scan ONLY packages/ui — utilities used by consumers
+ * (services/web pages, app frontends) would silently vanish from the build
+ * (that exact regression shipped once: spacing utilities disappeared
+ * platform-wide). Declare the monorepo root explicitly; gitignored trees
+ * (node_modules, dist) are excluded automatically. */
+@source "../../..";
+
 /* 1. Primitives ---------------------------------------------------------- */
 @theme {
   --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system,
