@@ -239,3 +239,23 @@ async def test_system_token_minted_cached_and_injected(sf):
     run = Run(agent="run-summarizer", trigger="schedule", requested_by="scheduler", prompt="go"); run.id = "d" * 32
     env = {e.name: e.value for e in launcher.build_job(run, Manifest(system=True), api_token=t1).spec.template.spec.containers[0].env}
     assert env["AP_API_TOKEN"] == t1 and env["AP_API_URL"].startswith("http://agent-platform-api")
+
+
+def test_declares_platform_tools_reads_agent_md(tmp_path):
+    """Tools-token trigger (docs/design/12): explicit mcp__platform__* in the
+    tools line → True; no tools line or claude-only tools → False."""
+    from agentplatform.agents import AgentStore
+    for name, line in [("stocky", "tools: mcp__platform__stocks\n"),
+                       ("shelly", "tools: WebFetch\n"),
+                       ("openy", "")]:
+        d = tmp_path / name
+        d.mkdir()
+        fm = f"---\nname: {name}\n{line}---\nbody" if line else "body"
+        (d / "agent.md").write_text(fm)
+        (d / "manifest.yaml").write_text("description: t\n")
+    launcher = K8sJobLauncher(batch=None, settings=Settings(runner_image="r:1", k8s_namespace="ap"),
+                              agent_store=AgentStore(tmp_path))
+    assert launcher._declares_platform_tools("stocky") is True
+    assert launcher._declares_platform_tools("shelly") is False
+    assert launcher._declares_platform_tools("openy") is False
+    assert launcher._declares_platform_tools("ghost") is False

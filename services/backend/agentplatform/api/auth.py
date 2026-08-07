@@ -4,6 +4,7 @@ from fastapi import APIRouter, HTTPException, Request, Response, Depends
 from itsdangerous import BadSignature, URLSafeSerializer
 from pydantic import BaseModel
 from sqlalchemy import select
+from agentplatform.agentspec import PLATFORM_MCP_TOOLS, parse_agent_tools
 from agentplatform.apikeys import hash_token
 from agentplatform.db import ApiKey, Principal
 
@@ -42,7 +43,10 @@ def validate_session_cookie(app, cookie: str | None) -> str | None:
 # prompt-injected system agent can't mint runs or mutate unrelated state.
 # admin is a superset of every scope. NOTE: role checks are an explicit
 # allow-list per endpoint (not hierarchical) — list every role that may access.
-ROLES = ("reader", "annotator", "operator", "coder", "admin")
+# `tools` (docs/design/12) is the narrowest machine role: it satisfies NO
+# endpoint allow-list except /api/whoami — it exists purely so the MCP broker
+# can verify a caller and serve its declared custom tools.
+ROLES = ("reader", "annotator", "operator", "coder", "admin", "tools")
 READ_ROLES = ("reader", "annotator", "operator", "coder")
 ANNOTATE_ROLES = ("annotator", "operator", "coder")
 # Who may request a run (POST /api/runs) — humans (operator+) and agents whose
@@ -116,6 +120,36 @@ def require_role(*allowed: str):
 
 
 require_admin = require_role("admin")
+
+
+@router.get("/api/whoami", response_model=S.WhoAmI)
+async def whoami(request: Request):
+    """Verified caller identity (docs/design/12): the MCP broker calls this
+    with a forwarded bearer to resolve WHO is invoking a custom tool — agent,
+    run, and the mcp__platform__* tools that agent's definition declares. The
+    broker enforces tool grants from this answer, so identity is derived from
+    the token, never from anything the model says. Accepts every authenticated
+    role including `tools` (whose keys can reach nothing else)."""
+    ident = await authenticate(request)
+    if ident is None:
+        raise HTTPException(401)
+    name, role = ident
+    agent = getattr(request.state, "api_key_agent", None)
+    run_id = getattr(request.state, "api_key_run_id", None)
+    tools: list[str] | None = None
+    if agent:
+        st = request.app.state
+        st.agent_store.reload()
+        info = st.agent_store.get(agent)
+        declared = parse_agent_tools(info.agent_md) if info else []
+        # No tools: line = unrestricted; surface that as every grantable
+        # platform tool so the broker's grant check stays a plain membership test.
+        if declared is None:
+            st.tool_registry.reload()
+            declared = [t for t in PLATFORM_MCP_TOOLS] + st.tool_registry.mcp_names()
+        tools = [t for t in declared if t.startswith("mcp__platform__")]
+    return {"principal": name, "role": role, "agent": agent,
+            "run_id": run_id, "tools": tools}
 
 @router.get("/api/setup-state", response_model=S.SetupState)
 async def setup_state(request: Request):

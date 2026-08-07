@@ -107,6 +107,7 @@ from .tool_view import ToolView
 from .validation_error import ValidationError
 from .validation_error_context import ValidationErrorContext
 from .webhook_entry import WebhookEntry
+from .who_am_i import WhoAmI
 
 __all__ = (
     "AgentInfo",
@@ -216,4 +217,5 @@ __all__ = (
     "ValidationError",
     "ValidationErrorContext",
     "WebhookEntry",
+    "WhoAmI",
 )

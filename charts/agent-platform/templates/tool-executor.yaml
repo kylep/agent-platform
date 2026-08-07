@@ -1,0 +1,72 @@
+# Tool executor (docs/design/12): the ONLY place custom platform tools run.
+# The mcp-broker is its only permitted client (netpol) and forwards verified
+# caller identity, never credentials. It reads tools/ from the synced checkout
+# volume, so tool edits are live without touching this image — only new pip
+# deps require a rebuild (they're baked in by the Dockerfile).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}-tool-executor
+  labels:
+    {{- include "agent-platform.selectorLabels" (dict "Release" .Release "Chart" .Chart "component" "tool-executor") | nindent 4 }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "agent-platform.selectorLabels" (dict "Release" .Release "Chart" .Chart "component" "tool-executor") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "agent-platform.selectorLabels" (dict "Release" .Release "Chart" .Chart "component" "tool-executor") | nindent 8 }}
+    spec:
+      # Needs the k8s API: it fetches a tool's declared secrets at call time
+      # (nothing is baked into this pod's env — see rbac.yaml).
+      serviceAccountName: {{ .Release.Name }}-tool-executor
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: tool-executor
+          image: "{{ .Values.toolExecutor.image.repository }}:{{ .Values.toolExecutor.image.tag }}"
+          imagePullPolicy: {{ .Values.toolExecutor.image.pullPolicy | default "IfNotPresent" }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            runAsNonRoot: true
+            runAsUser: 1001
+            runAsGroup: 1001
+            capabilities:
+              drop: ["ALL"]
+          env:
+            - name: AP_TOOLS_ROOT
+              value: "/agents/tools"
+          ports:
+            - containerPort: 8000
+          readinessProbe:
+            httpGet: {path: /healthz, port: 8000}
+            initialDelaySeconds: 3
+            periodSeconds: 10
+          volumeMounts:
+            - name: agent-definitions
+              mountPath: /agents
+              readOnly: true
+          resources:
+            requests: {memory: 128Mi, cpu: 50m}
+            limits: {memory: 512Mi}
+      volumes:
+        - name: agent-definitions
+          persistentVolumeClaim:
+            claimName: {{ .Values.env.AP_AGENTS_VOLUME_CLAIM }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  # Hardcoded to match the broker's default AP_EXECUTOR_URL.
+  name: agent-platform-tool-executor
+  labels:
+    {{- include "agent-platform.selectorLabels" (dict "Release" .Release "Chart" .Chart "component" "tool-executor") | nindent 4 }}
+spec:
+  selector:
+    {{- include "agent-platform.selectorLabels" (dict "Release" .Release "Chart" .Chart "component" "tool-executor") | nindent 4 }}
+  ports:
+    - port: 8000
+      targetPort: 8000

@@ -12,7 +12,8 @@ log = logging.getLogger("joblauncher")
 
 
 class K8sJobLauncher(Launcher):
-    def __init__(self, batch, settings, github_app=None, session_factory=None, skill_store=None):
+    def __init__(self, batch, settings, github_app=None, session_factory=None, skill_store=None,
+                 agent_store=None):
         self.batch = batch
         self.settings = settings
         # When set, coder-role runs are launched as self-edits: the runner
@@ -24,6 +25,10 @@ class K8sJobLauncher(Launcher):
         # pod gets exactly the union of its manifest + skill secrets (and the
         # base claude credential), nothing else.
         self.skill_store = skill_store
+        # Lets launch() read the agent.md `tools:` line: declaring ANY
+        # mcp__platform__* tool makes the run token-bearing (docs/design/12) —
+        # a tools-scoped token when nothing broader applies.
+        self.agent_store = agent_store
         # One operator API key per system agent, cached for the process
         # lifetime (plaintext isn't recoverable from the stored hash).
         self._system_tokens: dict[str, str] = {}
@@ -57,7 +62,7 @@ class K8sJobLauncher(Launcher):
         derived authoritatively. Tied to run.id and revoked when the run
         terminates (revoke_run_keys)."""
         token = generate_token()
-        label = "invoke" if role == "operator" else "memory"
+        label = {"operator": "invoke", "annotator": "memory"}.get(role, role)
         async with self.sf() as s:
             s.add(ApiKey(name=f"{label}:{run.agent}", role=role, agent=run.agent,
                          run_id=run.id, key_hash=hash_token(token), prefix=token_prefix(token)))
@@ -67,6 +72,24 @@ class K8sJobLauncher(Launcher):
     def _is_self_edit(self, manifest: Manifest) -> bool:
         return (manifest.role == "coder" and self.github_app is not None
                 and bool(self.settings.git_remote_url) and bool(self.settings.github_repo))
+
+    def _declares_platform_tools(self, agent: str) -> bool:
+        """True when the agent.md `tools:` line names any mcp__platform__*
+        tool. Absent line = unrestricted, which includes the platform tools."""
+        if self.agent_store is None:
+            return False
+        from agentplatform.agentspec import parse_agent_tools
+        self.agent_store.reload()
+        info = self.agent_store.get(agent)
+        if info is None:
+            return False
+        declared = parse_agent_tools(info.agent_md)
+        # Absent tools line = "all tools", but auto-minting a token for every
+        # unrestricted agent would silently make ALL of them token-bearing.
+        # Tokens follow EXPLICIT declaration only — conservative by design.
+        if declared is None:
+            return False
+        return any(t.startswith("mcp__platform__") for t in declared)
 
     def bound_secrets(self, manifest: Manifest) -> list[str]:
         """The de-duplicated union of secret names an agent's pod may receive:
@@ -238,6 +261,13 @@ class K8sJobLauncher(Launcher):
             elif manifest.system:
                 # Narrow annotator token: read runs + annotate only.
                 api_token = await self._system_token(run.agent)
+            elif self._declares_platform_tools(run.agent):
+                # Tools-only token (docs/design/12): the role grants NOTHING on
+                # the platform API beyond /api/whoami — it exists so the MCP
+                # broker can verify the caller and serve its declared custom
+                # tools. A credential-free agent that declares only `stocks`
+                # gains no platform read/write surface.
+                api_token = await self._invoke_token(run, role="tools")
         job = self.build_job(run, manifest, self_edit_token=token, api_token=api_token)
         await self._audit_secret_access(run, manifest)
         await asyncio.to_thread(self.batch.create_namespaced_job, self.settings.k8s_namespace, job)

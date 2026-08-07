@@ -58,6 +58,30 @@ jobs:
           pip install -q -r apps/news/backend/requirements.txt aiosqlite pytest pytest-asyncio
           cd apps/news/backend && python -m pytest -q
 
+  tools:
+    # Custom platform tools (docs/design/12): executor invariants + every
+    # tool's own tests, run against the union of tool requirements exactly as
+    # the executor image bakes them.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Executor tests
+        run: |
+          pip install -q -r services/tool-executor/requirements.txt pytest
+          cd services/tool-executor && python -m pytest -q
+      - name: Tool requirements install cleanly (the image bake)
+        run: |
+          find tools -name requirements.txt -exec pip install -q -r {} \;
+      - name: Per-tool tests
+        run: |
+          shopt -s nullglob
+          for t in tools/*/test_run.py; do
+            echo "== $t"; (cd "$(dirname "$t")" && python -m pytest -q test_run.py)
+          done
+
   web:
     runs-on: ubuntu-latest
     steps:

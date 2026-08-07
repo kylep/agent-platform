@@ -18,7 +18,7 @@ def test_role_allows(role, allowed, ok):
 
 
 def test_roles_declared():
-    assert set(ROLES) == {"reader", "annotator", "operator", "coder", "admin"}
+    assert set(ROLES) == {"reader", "annotator", "operator", "coder", "admin", "tools"}
 
 
 async def test_require_admin_still_gates(admin_client):

@@ -34,15 +34,29 @@ spec:
             # The api Service is hardcoded agent-platform-api (not release-named).
             - name: AP_API_URL
               value: "http://agent-platform-api:8000"
+            - name: AP_EXECUTOR_URL
+              value: "http://agent-platform-tool-executor:8000"
+            - name: AP_TOOLS_ROOT
+              value: "/agents/tools"
           ports:
             - containerPort: 8000
           readinessProbe:
             tcpSocket: {port: 8000}
             initialDelaySeconds: 3
             periodSeconds: 10
+          volumeMounts:
+            # Custom tools (docs/design/12): the broker reads tools/*/tool.yaml
+            # from the synced checkout to register them dynamically.
+            - name: agent-definitions
+              mountPath: /agents
+              readOnly: true
           resources:
             requests: {memory: 128Mi, cpu: 50m}
             limits: {memory: 256Mi}
+      volumes:
+        - name: agent-definitions
+          persistentVolumeClaim:
+            claimName: {{ .Values.env.AP_AGENTS_VOLUME_CLAIM }}
 ---
 apiVersion: v1
 kind: Service

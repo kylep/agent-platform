@@ -29,7 +29,7 @@ def _view(request: Request, t) -> dict:
     m = t.manifest
     return {"name": t.name,
             "description": m.description if m else "",
-            "secrets": [s.name for s in m.infra.secrets] if m else [],
+            "secrets": list(m.infra.secrets) if m else [],
             "database": m.infra.database if m else False,
             "has_requirements": t.has_requirements,
             "timeout_seconds": m.timeout_seconds if m else 0,

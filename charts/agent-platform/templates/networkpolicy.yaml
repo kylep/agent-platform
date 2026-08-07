@@ -90,6 +90,30 @@ spec:
         - port: 8000
           protocol: TCP
 ---
+# tool-executor: the mcp-broker is its ONLY client — every custom tool call
+# is identity-verified at the broker before it gets here (docs/design/12).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ .Release.Name }}-allow-tool-executor
+  labels:
+    {{- include "agent-platform.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: agent-platform
+      app.kubernetes.io/component: tool-executor
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchExpressions:
+              - {key: app.kubernetes.io/name, operator: In, values: [agent-platform]}
+              - {key: app.kubernetes.io/component, operator: In, values: [mcp-broker]}
+      ports:
+        - port: 8000
+          protocol: TCP
+---
 # mcp-broker: runner pods (token-bearing agents) reach it on 8000 for MCP.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy

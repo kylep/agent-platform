@@ -38,26 +38,20 @@ CORE_TOOL_SUFFIXES = frozenset({
 })
 
 
-class ToolSecretBinding(BaseModel):
-    """A secret injected into the tool's subprocess env at call time (never
-    into any pod env). `name` references a secret building block."""
-    name: str
-    env: str
-
-    @field_validator("env")
-    @classmethod
-    def _env_style(cls, v: str) -> str:
-        if not _ENV.match(v):
-            raise ValueError(f"env must be UPPER_SNAKE_CASE, got {v!r}")
-        return v
-
-
 class ToolInfra(BaseModel):
     """Infrastructure the tool declares (docs/design/12): bound secrets and an
     optionally provisioned private pg schema (`tool_<name>`, creds delivered
-    to the subprocess as TOOL_DB_URL)."""
-    secrets: list[ToolSecretBinding] = []
+    to the subprocess as TOOL_DB_URL). Secrets bind by BLOCK NAME, same as
+    skills: the block's keys are already env-var style, and the executor
+    injects them into the subprocess env at call time (never into a pod)."""
+    secrets: list[str] = []
     database: bool = False
+
+    @field_validator("secrets", mode="before")
+    @classmethod
+    def _coerce_names(cls, v):
+        # Accept a bare name or a {name: ...} mapping (skill-frontmatter style).
+        return [s["name"] if isinstance(s, dict) else s for s in (v or [])]
 
 
 class ToolManifest(BaseModel):

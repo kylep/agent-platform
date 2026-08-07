@@ -496,6 +496,17 @@ class SkillDetail(SkillView):
     raw: str    # full SKILL.md (frontmatter + body) — what the editor edits
 
 
+class WhoAmI(BaseModel):
+    """Verified caller identity for the MCP broker's grant checks."""
+    principal: str
+    role: str
+    agent: str | None      # set for agent-scoped API keys
+    run_id: str | None     # set for per-run keys
+    # The mcp__platform__* tools the caller's agent definition declares
+    # (None for non-agent callers, e.g. the admin session).
+    tools: list[str] | None
+
+
 # --- custom tools (docs/design/12) -------------------------------------------
 
 class ToolView(BaseModel):

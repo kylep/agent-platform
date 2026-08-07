@@ -91,15 +91,15 @@ def test_manifest_rejects_bad_names_and_bounds():
     with pytest.raises(ValueError, match="type: object"):
         ToolManifest(name="ok_tool", description="A perfectly valid description here.",
                      params={"type": "string"})
-    with pytest.raises(ValueError, match="UPPER_SNAKE"):
-        ToolManifest(name="ok_tool", description="A perfectly valid description here.",
-                     infra={"secrets": [{"name": "k", "env": "lower"}]})
 
 
-def test_manifest_infra_defaults():
+def test_manifest_infra_defaults_and_secret_coercion():
     m = ToolManifest(name="ok_tool", description="A perfectly valid description here.")
     assert m.infra.database is False and m.infra.secrets == []
     assert m.mcp_name == "mcp__platform__ok_tool"
+    m = ToolManifest(name="ok_tool", description="A perfectly valid description here.",
+                     infra={"secrets": ["linear-api-key", {"name": "discord-bot"}]})
+    assert m.infra.secrets == ["linear-api-key", "discord-bot"]
 
 
 # --- API surface -------------------------------------------------------------
@@ -165,3 +165,48 @@ async def test_agent_edit_rejects_unknown_but_not_custom_tools(tool_client):
     r = await tool_client.patch("/api/agents/echo-user/config",
                                 json={"tools": ["mcp__platform__echo"]})
     assert r.status_code != 422, r.text
+
+
+# --- whoami + tools-role scoping (docs/design/12) ----------------------------
+
+from agentplatform.apikeys import generate_token, hash_token, token_prefix
+from agentplatform.db import ApiKey
+
+
+async def _tools_key(sf, agent="echo-user", role="tools", run_id="run-1") -> str:
+    token = generate_token()
+    async with sf() as s:
+        s.add(ApiKey(name=f"{role}:{agent}", role=role, agent=agent, run_id=run_id,
+                     key_hash=hash_token(token), prefix=token_prefix(token)))
+        await s.commit()
+    return token
+
+
+async def test_whoami_resolves_agent_and_declared_tools(tool_client, sf):
+    token = await _tools_key(sf)
+    tool_client.cookies.clear()  # session cookie outranks the bearer in authenticate()
+    r = await tool_client.get("/api/whoami", headers={"Authorization": f"Bearer {token}"})
+    assert r.status_code == 200
+    d = r.json()
+    assert d["agent"] == "echo-user" and d["run_id"] == "run-1" and d["role"] == "tools"
+    assert d["tools"] == ["mcp__platform__echo"]
+
+
+async def test_whoami_admin_session_has_no_agent(tool_client):
+    d = (await tool_client.get("/api/whoami")).json()
+    assert d["principal"] == "admin" and d["agent"] is None and d["tools"] is None
+
+
+async def test_tools_role_reaches_nothing_else(tool_client, sf):
+    """The tools role is whoami-only: every data surface 403s."""
+    token = await _tools_key(sf)
+    tool_client.cookies.clear()
+    h = {"Authorization": f"Bearer {token}"}
+    for path in ("/api/runs", "/api/memories", "/api/metrics/overview",
+                 "/api/agents", "/api/tools"):
+        r = await tool_client.get(path, headers=h)
+        assert r.status_code == 403, f"{path} → {r.status_code}"
+
+
+async def test_whoami_requires_auth(client):
+    assert (await client.get("/api/whoami")).status_code == 401

@@ -1,0 +1,7 @@
+# Service deps. Tool deps (the union of tools/*/requirements.txt) are baked
+# in by the Dockerfile build step — see the CI tools job.
+fastapi>=0.115,<1
+uvicorn>=0.30,<1
+httpx>=0.27,<1
+jsonschema>=4,<5
+pyyaml>=6,<7

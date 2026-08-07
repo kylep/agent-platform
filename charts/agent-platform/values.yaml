@@ -21,6 +21,14 @@ mcpBroker:
     tag: dev
     pullPolicy: IfNotPresent
 
+# The tool executor runs custom platform tools (docs/design/12): trusted
+# run.py scripts from the synced checkout, in subprocesses with a minimal env.
+toolExecutor:
+  image:
+    repository: agent-platform-tool-executor
+    tag: dev
+    pullPolicy: IfNotPresent
+
 # Auth-injecting egress proxy for the Claude API (docs/design/09): the only pod
 # holding the Claude subscription token. Runner pods get a placeholder
 # credential + ANTHROPIC_BASE_URL pointed here, and never mount the
