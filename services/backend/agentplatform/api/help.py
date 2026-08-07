@@ -53,7 +53,14 @@ async def get_help_topic(request: Request, slug: str):
 
 
 @router.get("/api/help/tools", response_model=list[S.ToolHelp])
-async def list_tool_help():
+async def list_tool_help(request: Request):
     """Every grantable tool with what enabling it actually does (incl. which
-    ones the runner denies for normal agents regardless of declaration)."""
-    return [{"sensitive": False, **t} for t in TOOL_HELP]
+    ones the runner denies for normal agents regardless of declaration).
+    Custom tools (docs/design/12) document themselves via their manifest
+    description — the registry IS the help, so nothing can go stale."""
+    out = [{"sensitive": False, **t} for t in TOOL_HELP]
+    registry = request.app.state.tool_registry
+    registry.reload()
+    out += [{"name": m.mcp_name, "kind": "platform", "sensitive": False,
+             "description": m.description} for m in registry.valid()]
+    return out

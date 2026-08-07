@@ -229,11 +229,11 @@ async def freeform_edit(request: Request, name: str, body: FreeformEditIn,
 # --- structured create / config edit (New-Agent wizard + checkbox editor) ----
 
 @router.get("/api/agent-tools", response_model=AgentTools, dependencies=[Depends(require_role(*READ_ROLES))])
-async def agent_tools():
+async def agent_tools(request: Request):
     """The canonical tool list the UI renders as checkboxes (one source of truth
-    with the validation below)."""
+    with the validation below). Includes registry-defined custom tools."""
     labels = {t["name"]: t["display_name"] for t in TOOL_HELP if t.get("display_name")}
-    return {"tools": AVAILABLE_TOOLS, "labels": labels}
+    return {"tools": _grantable_tools(request), "labels": labels}
 
 
 @router.get("/api/agent-models", response_model=AgentModels, dependencies=[Depends(require_role(*READ_ROLES))])
@@ -248,13 +248,22 @@ def _known_skill_names(request: Request) -> set[str]:
     return {s.name for s in request.app.state.skill_store.list()}
 
 
+def _grantable_tools(request: Request) -> list[str]:
+    """The canonical checkbox list: static core tools + registry-defined
+    custom tools (docs/design/12), fresh from the synced checkout."""
+    registry = request.app.state.tool_registry
+    registry.reload()
+    return AVAILABLE_TOOLS + registry.mcp_names()
+
+
 def _validate_selection(request: Request, skills: list[str], tools: list[str]) -> None:
     """Reject unknown skills or tools before writing anything (422)."""
     known = _known_skill_names(request)
     bad_skills = [s for s in skills if s not in known]
     if bad_skills:
         raise HTTPException(422, f"unknown skill(s): {', '.join(bad_skills)}")
-    bad_tools = [t for t in tools if t not in AVAILABLE_TOOLS]
+    grantable = set(_grantable_tools(request))
+    bad_tools = [t for t in tools if t not in grantable]
     if bad_tools:
         raise HTTPException(422, f"unknown tool(s): {', '.join(bad_tools)}")
 

@@ -496,6 +496,24 @@ class SkillDetail(SkillView):
     raw: str    # full SKILL.md (frontmatter + body) — what the editor edits
 
 
+# --- custom tools (docs/design/12) -------------------------------------------
+
+class ToolView(BaseModel):
+    name: str
+    description: str
+    secrets: list[str]        # secret block names the executor injects per-call
+    database: bool            # owns a provisioned tool_<name> pg schema
+    has_requirements: bool    # pip deps baked into the executor image by CI
+    timeout_seconds: int
+    error: str | None
+    used_by: list[str]
+
+
+class ToolDetail(ToolView):
+    params: dict              # JSON Schema for the tool's arguments
+    files: dict[str, str]     # tool.yaml / run.py / requirements.txt / test_run.py
+
+
 # --- setup -------------------------------------------------------------------
 
 class SetupState(BaseModel):

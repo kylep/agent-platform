@@ -28,6 +28,7 @@ from agentplatform.api import webhooks as webhooks_api
 from agentplatform.api import runs as runs_api
 from agentplatform.api import secrets as secrets_api
 from agentplatform.api import skills as skills_api
+from agentplatform.api import tools as tools_api
 from agentplatform.api import tail as tail_api
 from agentplatform.db import make_engine, make_session_factory, init_db
 from agentplatform.secrets import InMemorySecretStore
@@ -122,6 +123,8 @@ def create_app(settings, session_factory, producer, secret_store=None, agent_sto
     st.report_registry = ReportTypeRegistry(Path(settings.reports_root))
     from agentplatform.appregistry import AppRegistry
     st.app_registry = AppRegistry(Path(settings.apps_root))
+    from agentplatform.toolregistry import ToolRegistry
+    st.tool_registry = ToolRegistry(Path(settings.tools_root))
 
     app.include_router(auth.router)
     app.include_router(apps_api.router)
@@ -145,5 +148,6 @@ def create_app(settings, session_factory, producer, secret_store=None, agent_sto
     app.include_router(agents_api.router)
     app.include_router(runs_api.router)
     app.include_router(skills_api.router)
+    app.include_router(tools_api.router)
     app.include_router(tail_api.router)
     return app

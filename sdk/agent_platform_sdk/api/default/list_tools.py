@@ -5,7 +5,7 @@ import httpx
 
 from ... import errors
 from ...client import AuthenticatedClient, Client
-from ...models.agent_tools import AgentTools
+from ...models.tool_view import ToolView
 from ...types import Response
 
 
@@ -13,7 +13,7 @@ def _get_kwargs() -> dict[str, Any]:
 
     _kwargs: dict[str, Any] = {
         "method": "get",
-        "url": "/api/agent-tools",
+        "url": "/api/tools",
     }
 
     return _kwargs
@@ -21,9 +21,14 @@ def _get_kwargs() -> dict[str, Any]:
 
 def _parse_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> AgentTools | None:
+) -> list[ToolView] | None:
     if response.status_code == 200:
-        response_200 = AgentTools.from_dict(response.json())
+        response_200 = []
+        _response_200 = response.json()
+        for response_200_item_data in _response_200:
+            response_200_item = ToolView.from_dict(response_200_item_data)
+
+            response_200.append(response_200_item)
 
         return response_200
 
@@ -35,7 +40,7 @@ def _parse_response(
 
 def _build_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> Response[AgentTools]:
+) -> Response[list[ToolView]]:
     return Response(
         status_code=HTTPStatus(response.status_code),
         content=response.content,
@@ -47,18 +52,15 @@ def _build_response(
 def sync_detailed(
     *,
     client: AuthenticatedClient | Client,
-) -> Response[AgentTools]:
-    """Agent Tools
-
-     The canonical tool list the UI renders as checkboxes (one source of truth
-    with the validation below). Includes registry-defined custom tools.
+) -> Response[list[ToolView]]:
+    """List Tools
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[AgentTools]
+        Response[list[ToolView]]
     """
 
     kwargs = _get_kwargs()
@@ -73,18 +75,15 @@ def sync_detailed(
 def sync(
     *,
     client: AuthenticatedClient | Client,
-) -> AgentTools | None:
-    """Agent Tools
-
-     The canonical tool list the UI renders as checkboxes (one source of truth
-    with the validation below). Includes registry-defined custom tools.
+) -> list[ToolView] | None:
+    """List Tools
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        AgentTools
+        list[ToolView]
     """
 
     return sync_detailed(
@@ -95,18 +94,15 @@ def sync(
 async def asyncio_detailed(
     *,
     client: AuthenticatedClient | Client,
-) -> Response[AgentTools]:
-    """Agent Tools
-
-     The canonical tool list the UI renders as checkboxes (one source of truth
-    with the validation below). Includes registry-defined custom tools.
+) -> Response[list[ToolView]]:
+    """List Tools
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[AgentTools]
+        Response[list[ToolView]]
     """
 
     kwargs = _get_kwargs()
@@ -119,18 +115,15 @@ async def asyncio_detailed(
 async def asyncio(
     *,
     client: AuthenticatedClient | Client,
-) -> AgentTools | None:
-    """Agent Tools
-
-     The canonical tool list the UI renders as checkboxes (one source of truth
-    with the validation below). Includes registry-defined custom tools.
+) -> list[ToolView] | None:
+    """List Tools
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        AgentTools
+        list[ToolView]
     """
 
     return (

@@ -12,6 +12,7 @@ class Settings(BaseSettings):
     secrets_root: str = "./secrets"
     reports_root: str = "./reports"
     apps_root: str = "./apps"
+    tools_root: str = "./tools"
     agents_volume_claim: str = "agent-definitions"
     session_secret: str = "dev-insecure"
     global_concurrency: int = 3

@@ -99,7 +99,11 @@ from .skill_view import SkillView
 from .skill_wizard_in import SkillWizardIn
 from .skill_wizard_secret import SkillWizardSecret
 from .sync_status import SyncStatus
+from .tool_detail import ToolDetail
+from .tool_detail_files import ToolDetailFiles
+from .tool_detail_params import ToolDetailParams
 from .tool_help import ToolHelp
+from .tool_view import ToolView
 from .validation_error import ValidationError
 from .validation_error_context import ValidationErrorContext
 from .webhook_entry import WebhookEntry
@@ -204,7 +208,11 @@ __all__ = (
     "SkillWizardIn",
     "SkillWizardSecret",
     "SyncStatus",
+    "ToolDetail",
+    "ToolDetailFiles",
+    "ToolDetailParams",
     "ToolHelp",
+    "ToolView",
     "ValidationError",
     "ValidationErrorContext",
     "WebhookEntry",

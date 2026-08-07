@@ -57,6 +57,8 @@ def sync_detailed(
 
      Every grantable tool with what enabling it actually does (incl. which
     ones the runner denies for normal agents regardless of declaration).
+    Custom tools (docs/design/12) document themselves via their manifest
+    description — the registry IS the help, so nothing can go stale.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -83,6 +85,8 @@ def sync(
 
      Every grantable tool with what enabling it actually does (incl. which
     ones the runner denies for normal agents regardless of declaration).
+    Custom tools (docs/design/12) document themselves via their manifest
+    description — the registry IS the help, so nothing can go stale.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -105,6 +109,8 @@ async def asyncio_detailed(
 
      Every grantable tool with what enabling it actually does (incl. which
     ones the runner denies for normal agents regardless of declaration).
+    Custom tools (docs/design/12) document themselves via their manifest
+    description — the registry IS the help, so nothing can go stale.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -129,6 +135,8 @@ async def asyncio(
 
      Every grantable tool with what enabling it actually does (incl. which
     ones the runner denies for normal agents regardless of declaration).
+    Custom tools (docs/design/12) document themselves via their manifest
+    description — the registry IS the help, so nothing can go stale.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
