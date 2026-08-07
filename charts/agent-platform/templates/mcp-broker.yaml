@@ -37,8 +37,10 @@ spec:
             # The api Service is hardcoded agent-platform-api (not release-named).
             - name: AP_API_URL
               value: "http://agent-platform-api:8000"
+            {{- if not .Values.spire.enabled }}
             - name: AP_EXECUTOR_URL
               value: "http://agent-platform-tool-executor:8000"
+            {{- end }}
             - name: AP_TOOLS_ROOT
               value: "/agents/tools"
             # Audit events (design/13 E) ride Kafka; the dispatcher-side
@@ -85,10 +87,19 @@ spec:
             - server
             - --listen=0.0.0.0:8443
             - --target=127.0.0.1:8000
+            - --status=http://127.0.0.1:8302
             - --use-workload-api-addr={{ .Values.spire.workloadApiSocket }}
-            - --allow-uri=spiffe://{{ .Values.spire.trustDomain }}/ns/{{ .Release.Namespace }}/sa/agent-*
+            # ghostunnel wildcards must span full path segments (sa/agent-*
+            # is rejected), so the tunnel gate is "attested workload in this
+            # namespace"; WHICH agent is enforced at the token layer (SA token
+            # + run JWT), which was always the real per-agent boundary.
+            - --allow-uri=spiffe://{{ .Values.spire.trustDomain }}/ns/{{ .Release.Namespace }}/sa/*
           ports:
             - containerPort: 8443
+          readinessProbe:
+            httpGet: {path: /_status, port: 8302}
+            initialDelaySeconds: 2
+            periodSeconds: 5
           securityContext:
             allowPrivilegeEscalation: false
             runAsNonRoot: true

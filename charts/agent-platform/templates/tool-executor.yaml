@@ -70,10 +70,15 @@ spec:
             - server
             - --listen=0.0.0.0:8443
             - --target=127.0.0.1:8000
+            - --status=http://127.0.0.1:8302
             - --use-workload-api-addr={{ .Values.spire.workloadApiSocket }}
             - --allow-uri=spiffe://{{ .Values.spire.trustDomain }}/ns/{{ .Release.Namespace }}/sa/{{ .Release.Name }}-mcp-broker
           ports:
             - containerPort: 8443
+          readinessProbe:
+            httpGet: {path: /_status, port: 8302}
+            initialDelaySeconds: 2
+            periodSeconds: 5
           securityContext:
             allowPrivilegeEscalation: false
             runAsNonRoot: true

@@ -323,7 +323,17 @@ class K8sJobLauncher(Launcher):
                       "--target", self.settings.mcp_broker_mtls_target,
                       "--use-workload-api-addr", self.settings.spiffe_workload_socket,
                       "--verify-uri",
-                      f"spiffe://{td}/ns/{ns}/sa/{self.settings.broker_service_account}"],
+                      f"spiffe://{td}/ns/{ns}/sa/{self.settings.broker_service_account}",
+                      "--status", "http://127.0.0.1:8302"],
+                # SPIRE registers entries per-pod, and a fresh run pod can beat
+                # the entry propagation — the tunnel would be up but SVID-less
+                # and claude would silently see zero MCP tools. Native-sidecar
+                # semantics gate the runner on this probe, and client-mode
+                # /_status only passes once a FULL TLS connection to the broker
+                # succeeds (SVID in hand, server cert verified).
+                startup_probe=k8s.V1Probe(
+                    http_get=k8s.V1HTTPGetAction(path="/_status", port=8302),
+                    period_seconds=2, failure_threshold=60),
                 volume_mounts=[k8s.V1VolumeMount(
                     name="spiffe-workload-api",
                     mount_path="/spiffe-workload-api", read_only=True)],
