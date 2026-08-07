@@ -324,7 +324,7 @@ class K8sJobLauncher(Launcher):
                       "--use-workload-api-addr", self.settings.spiffe_workload_socket,
                       "--verify-uri",
                       f"spiffe://{td}/ns/{ns}/sa/{self.settings.broker_service_account}",
-                      "--status", "http://127.0.0.1:8302"],
+                      "--status", "http://0.0.0.0:8302"],
                 # SPIRE registers entries per-pod, and a fresh run pod can beat
                 # the entry propagation — the tunnel would be up but SVID-less
                 # and claude would silently see zero MCP tools. Native-sidecar

@@ -87,7 +87,7 @@ spec:
             - server
             - --listen=0.0.0.0:8443
             - --target=127.0.0.1:8000
-            - --status=http://127.0.0.1:8302
+            - --status=http://0.0.0.0:8302
             - --use-workload-api-addr={{ .Values.spire.workloadApiSocket }}
             # ghostunnel wildcards must span full path segments (sa/agent-*
             # is rejected), so the tunnel gate is "attested workload in this

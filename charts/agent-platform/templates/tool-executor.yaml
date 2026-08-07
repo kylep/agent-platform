@@ -70,7 +70,7 @@ spec:
             - server
             - --listen=0.0.0.0:8443
             - --target=127.0.0.1:8000
-            - --status=http://127.0.0.1:8302
+            - --status=http://0.0.0.0:8302
             - --use-workload-api-addr={{ .Values.spire.workloadApiSocket }}
             - --allow-uri=spiffe://{{ .Values.spire.trustDomain }}/ns/{{ .Release.Namespace }}/sa/{{ .Release.Name }}-mcp-broker
           ports:
