@@ -95,13 +95,66 @@ async def authenticate(request: Request) -> tuple[str, str] | None:
     header = request.headers.get("authorization", "")
     if header.startswith("Bearer "):
         token = header[len("Bearer "):].strip()
-        if token:
+        if token.startswith("ap_"):
             k = await _lookup_api_key(request, token)
             if k is not None:
                 request.state.api_key_run_id = k.run_id
                 request.state.api_key_agent = k.agent
                 return (k.name, k.role)
+        elif token.count(".") == 2:
+            # Workload identity (docs/design/13 A): a kubelet-projected,
+            # audience-bound ServiceAccount JWT instead of a minted secret.
+            ident = await _validate_sa_token(request, token)
+            if ident is not None:
+                agent, role = ident
+                request.state.api_key_run_id = None
+                request.state.api_key_agent = agent
+                return (f"sa:{agent}", role)
     return None
+
+
+# Short-lived cache of validated SA tokens: TokenReview is an apiserver round
+# trip, and a chatty agent run makes many broker calls with the same token.
+# Lives on app.state (not module-global) so each app instance is isolated.
+_SA_CACHE_TTL = 60.0
+
+
+async def _validate_sa_token(request: Request, token: str) -> tuple[str, str] | None:
+    """Resolve a projected SA token to (agent, ladder_role) via TokenReview.
+    The role is recomputed from the agent's CURRENT declared tools — identity
+    comes from the cluster, authorization from the definition in git."""
+    import time
+    from agentplatform.apikeys import hash_token
+    if not hasattr(request.app.state, "_sa_cache"):
+        request.app.state._sa_cache = {}
+    cache: dict = request.app.state._sa_cache
+    h = hash_token(token)
+    hit = cache.get(h)
+    if hit and hit[0] > time.monotonic():
+        return hit[1]
+    validator = getattr(request.app.state, "sa_validator", None)
+    if validator is None:
+        return None
+    username = await validator(token)   # e.g. system:serviceaccount:ns:agent-pai
+    if not username:
+        return None
+    sa_name = username.rsplit(":", 1)[-1]
+    if not sa_name.startswith("agent-"):
+        return None
+    agent = sa_name[len("agent-"):]
+    st = request.app.state
+    st.agent_store.reload()
+    info = st.agent_store.get(agent)
+    if info is None:
+        return None
+    declared = parse_agent_tools(info.agent_md) or []
+    platform = [t for t in declared if t.startswith("mcp__platform__")]
+    if not platform:
+        return None
+    role = "annotator" if any(t in PLATFORM_MCP_TOOLS for t in platform) else "tools"
+    out = (agent, role)
+    cache[h] = (time.monotonic() + _SA_CACHE_TTL, out)
+    return out
 
 
 def require_role(*allowed: str):

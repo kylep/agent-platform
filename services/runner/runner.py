@@ -37,16 +37,34 @@ def _permission_args(self_edit: bool, has_api_token: bool, agent: str) -> list[s
     return out
 
 
+def _identity_token() -> str:
+    """This run's platform identity: a dispatcher-minted API key (AP_API_TOKEN,
+    system/can_invoke agents) or a kubelet-projected, audience-bound
+    ServiceAccount token (AP_API_TOKEN_FILE — design/13: identity, not
+    secrets; auto-rotated, useless off-cluster, never minted or stored)."""
+    tok = os.environ.get("AP_API_TOKEN", "")
+    if tok:
+        return tok
+    path = os.environ.get("AP_API_TOKEN_FILE", "")
+    if path:
+        try:
+            return Path(path).read_text().strip()
+        except OSError:
+            return ""
+    return ""
+
+
 def _write_mcp_config() -> str:
     """Write a claude --mcp-config pointing at the platform MCP broker (an HTTP
-    service), carrying this run's API token as the auth header the broker
-    forwards. Returns the config path, or "" if no broker URL is configured."""
+    service), carrying this run's identity as the auth header the broker
+    forwards/verifies. Returns the config path, or "" if no broker URL is
+    configured."""
     url = os.environ.get("AP_MCP_URL")
     if not url:
         return ""
     cfg = {"mcpServers": {"platform": {
         "type": "http", "url": url,
-        "headers": {"Authorization": f"Bearer {os.environ.get('AP_API_TOKEN', '')}"}}}}
+        "headers": {"Authorization": f"Bearer {_identity_token()}"}}}}
     fd, path = tempfile.mkstemp(prefix="mcp-", suffix=".json")
     os.write(fd, json.dumps(cfg).encode())
     os.close(fd)
@@ -267,7 +285,7 @@ async def _run(producer, run_id: str, agent: str, prompt: str) -> int:
     # Broker the platform API as MCP tools (mcp__platform__*) for token-bearing
     # agents, so they can read/annotate runs, check health, use memory and post
     # notifications WITHOUT a shell. The agent opts in by declaring the tools.
-    if os.environ.get("AP_API_TOKEN"):
+    if _identity_token():
         mcp_cfg = _write_mcp_config()
         if mcp_cfg:
             args += ["--mcp-config", mcp_cfg]

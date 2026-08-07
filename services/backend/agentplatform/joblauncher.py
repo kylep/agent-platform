@@ -12,9 +12,15 @@ log = logging.getLogger("joblauncher")
 
 
 class K8sJobLauncher(Launcher):
+    # Audience for projected ServiceAccount tokens (design/13): bound to the
+    # platform, NOT the k8s apiserver — a leaked token authenticates nowhere
+    # but our own broker/API, and the kubelet rotates it automatically.
+    IDENTITY_AUDIENCE = "agent-platform"
+
     def __init__(self, batch, settings, github_app=None, session_factory=None, skill_store=None,
-                 agent_store=None):
+                 agent_store=None, core=None):
         self.batch = batch
+        self.core = core
         self.settings = settings
         # When set, coder-role runs are launched as self-edits: the runner
         # clones the repo, lets the agent edit it, and opens a PR using a
@@ -32,6 +38,7 @@ class K8sJobLauncher(Launcher):
         # One operator API key per system agent, cached for the process
         # lifetime (plaintext isn't recoverable from the stored hash).
         self._system_tokens: dict[str, str] = {}
+        self._sa_ready: set[str] = set()
 
     async def _system_token(self, agent: str) -> str:
         if agent not in self._system_tokens:
@@ -95,6 +102,34 @@ class K8sJobLauncher(Launcher):
             return None
         return "annotator" if any(t in PLATFORM_MCP_TOOLS for t in platform) else "tools"
 
+    def _ensure_service_account(self, agent: str) -> str:
+        """Idempotently create the agent's ServiceAccount (`agent-<name>`) so
+        the run pod can mount a projected identity token. Lazy at launch time —
+        no provisioner ordering race for brand-new agents. The SA has ZERO
+        RBAC: it exists purely as an attested identity."""
+        name = f"agent-{agent}"
+        if name in self._sa_ready:
+            return name
+        from kubernetes import client as k8s_client
+        try:
+            self.core.read_namespaced_service_account(name, self.settings.k8s_namespace)
+        except ApiException as e:
+            if e.status != 404:
+                raise
+            try:
+                self.core.create_namespaced_service_account(
+                    self.settings.k8s_namespace,
+                    k8s_client.V1ServiceAccount(
+                        metadata=k8s_client.V1ObjectMeta(
+                            name=name,
+                            labels={"app.kubernetes.io/name": "agent-platform",
+                                    "agent-platform.io/agent": agent})))
+            except ApiException as e2:
+                if e2.status != 409:   # lost a create race — fine
+                    raise
+        self._sa_ready.add(name)
+        return name
+
     def bound_secrets(self, manifest: Manifest) -> list[str]:
         """The de-duplicated union of secret names an agent's pod may receive:
         its manifest `secrets` plus the secrets required by its skills. This is
@@ -107,7 +142,7 @@ class K8sJobLauncher(Launcher):
         return names
 
     def build_job(self, run: Run, manifest: Manifest, self_edit_token: str | None = None,
-                  api_token: str | None = None) -> k8s.V1Job:
+                  api_token: str | None = None, sa_identity: str | None = None) -> k8s.V1Job:
         name = f"run-{run.id[:12]}"
         env = [
             k8s.V1EnvVar(name="AP_RUN_ID", value=run.id),
@@ -133,6 +168,14 @@ class K8sJobLauncher(Launcher):
                 # The MCP broker URL: the runner points claude at it (with the
                 # token above as the auth header) so the agent gets brokered API
                 # tools instead of a shell.
+                k8s.V1EnvVar(name="AP_MCP_URL", value=self.settings.mcp_broker_url),
+            ]
+        elif sa_identity:
+            # Workload identity (design/13): no secret in the env — the runner
+            # reads the kubelet-rotated projected token from the file.
+            env += [
+                k8s.V1EnvVar(name="AP_API_URL", value=self.settings.api_internal_url),
+                k8s.V1EnvVar(name="AP_API_TOKEN_FILE", value="/var/run/ap-identity/token"),
                 k8s.V1EnvVar(name="AP_MCP_URL", value=self.settings.mcp_broker_url),
             ]
         if self_edit_token:
@@ -208,9 +251,25 @@ class K8sJobLauncher(Launcher):
                 name="claude-credentials",
                 secret=k8s.V1SecretVolumeSource(secret_name="claude-credentials"),
             ))
+        if sa_identity:
+            # Audience-bound projected token: valid ONLY against the platform
+            # (not the k8s apiserver), TTL covers the longest run, kubelet
+            # keeps it fresh. automount stays False — this explicit projection
+            # is the pod's entire identity surface.
+            volume_mounts.append(k8s.V1VolumeMount(
+                name="ap-identity", mount_path="/var/run/ap-identity", read_only=True))
+            volumes.append(k8s.V1Volume(
+                name="ap-identity",
+                projected=k8s.V1ProjectedVolumeSource(sources=[
+                    k8s.V1VolumeProjection(
+                        service_account_token=k8s.V1ServiceAccountTokenProjection(
+                            audience=self.IDENTITY_AUDIENCE,
+                            expiration_seconds=7200,
+                            path="token"))])))
         pod_spec = k8s.V1PodSpec(
             containers=[container],
             volumes=volumes,
+            service_account_name=sa_identity,
             restart_policy="Never",
             # The runner never calls the k8s API — don't mount a ServiceAccount
             # token into the pod that runs agent code (removes that credential
@@ -254,6 +313,7 @@ class K8sJobLauncher(Launcher):
         if self._is_self_edit(manifest):
             token = await asyncio.to_thread(self.github_app.installation_token)
         api_token = None
+        sa_identity = None
         if self.sf:
             if manifest.can_invoke:
                 # Operator-scoped, per-run token: can invoke other agents (and,
@@ -269,10 +329,18 @@ class K8sJobLauncher(Launcher):
                 # credential-free agent declaring just `stocks` gains no
                 # platform read/write surface. (The legacy `memory: true`
                 # flag is retired; the memory tool declaration replaces it.)
+                # docs/design/13 A: these agents carry IDENTITY, not a secret —
+                # a projected SA token the API resolves back to the same role
+                # ladder. Falls back to a minted key without a core client.
                 role = self._platform_token_role(run.agent)
                 if role is not None:
-                    api_token = await self._invoke_token(run, role=role)
-        job = self.build_job(run, manifest, self_edit_token=token, api_token=api_token)
+                    if self.core is not None:
+                        sa_identity = await asyncio.to_thread(
+                            self._ensure_service_account, run.agent)
+                    else:
+                        api_token = await self._invoke_token(run, role=role)
+        job = self.build_job(run, manifest, self_edit_token=token, api_token=api_token,
+                             sa_identity=sa_identity)
         await self._audit_secret_access(run, manifest)
         await asyncio.to_thread(self.batch.create_namespaced_job, self.settings.k8s_namespace, job)
 

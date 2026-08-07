@@ -19,6 +19,12 @@ rules:
   - apiGroups: [""]
     resources: ["pods"]
     verbs: ["get", "list"]
+  # Workload identity (docs/design/13 A): the launcher lazily creates one
+  # zero-RBAC ServiceAccount per agent so run pods can mount a projected,
+  # audience-bound identity token.
+  - apiGroups: [""]
+    resources: ["serviceaccounts"]
+    verbs: ["get", "create"]
   # Read the github-app secret to mint installation tokens for self-edit runs;
   # create/update the app-<name>-db / app-<name>-key secrets the app
   # provisioner materializes from apps/<name>/app.yaml (docs/design/11).
@@ -114,4 +120,21 @@ subjects:
 roleRef:
   kind: Role
   name: {{ .Release.Name }}-tool-executor
+  apiGroup: rbac.authorization.k8s.io
+---
+# Workload identity (docs/design/13 A): the api validates projected SA tokens
+# via TokenReview, which needs the cluster-scoped auth-delegator role.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ .Release.Name }}-api-auth-delegator
+  labels:
+    {{- include "agent-platform.labels" . | nindent 4 }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ .Release.Name }}-api
+    namespace: {{ .Release.Namespace }}
+roleRef:
+  kind: ClusterRole
+  name: system:auth-delegator
   apiGroup: rbac.authorization.k8s.io
