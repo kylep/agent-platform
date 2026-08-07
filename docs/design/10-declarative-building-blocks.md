@@ -1,7 +1,9 @@
 # Design note — declarative building blocks: secrets as code + readiness
 
-Status: **proposed (spec for review).** Turns the platform's ad-hoc state
-model into one coherent shape: every *configuration* building block is a
+Status: **SHIPPED 2026-07-30** — all five phases live-verified. Written as a
+spec for review, so the plan-tense body below is the original proposal.
+
+Turns the platform's ad-hoc state model into one coherent shape: every *configuration* building block is a
 self-describing folder in git; the database holds only runtime/derived state;
 secret **values** are the sole exception and live in k8s (never git). Adds a
 readiness contract so a missing/broken dependency blocks an agent visibly

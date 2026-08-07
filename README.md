@@ -70,9 +70,14 @@ docs in [docs/building-blocks/](docs/building-blocks/):
   declared webhook paths, kafka reserved). Undeclared webhook paths don't
   exist.
 - **[Skills](docs/building-blocks/skills.md)** — `skills/<name>/SKILL.md`:
-  reusable capabilities agents opt into; each declares its secrets with
+  reusable *knowledge* agents opt into; each declares its secrets with
   strictness (`state`/`severity`). Authored by a wizard-driven coding agent or
   edited in place — both land as PRs.
+- **[Tools](docs/building-blocks/tools.md)** — `tools/<name>/`: reusable
+  *execution*. Reviewed code (`tool.yaml` + `run.py`) the MCP broker offers to
+  agents that declare it and the tool-executor runs in a locked-down
+  subprocess, with declared secrets injected per call. The model picks
+  arguments, never code.
 - **[Secrets](docs/building-blocks/secrets.md)** — `secrets/<name>/secret.yaml`
   declares the *shape* (keys, hints, verify: declarative probe or sandboxed
   script); values live only in k8s. A heartbeat re-verifies every secret so
@@ -98,6 +103,12 @@ docs in [docs/building-blocks/](docs/building-blocks/):
   config mutation becomes a commit or PR; deterministic editors lock on their
   pending change; nothing an agent writes goes live unreviewed.
 
+Two more pages describe the platform itself:
+[Glossary](docs/building-blocks/glossary.md) (the components and vocabulary
+everything else assumes) and [Security](docs/building-blocks/security.md) (how
+a tool call is authorized, in plain language — the engineering version is
+[docs/security.md](docs/security.md)).
+
 ## Repo map
 
 ```
@@ -109,6 +120,10 @@ agent-platform/
 │       └── entrypoints.yaml   #   durable triggers: cron list, webhook paths, kafka (reserved)
 ├── skills/                    # building block: WHAT agents can do (mounted via manifest `skills:`)
 │   └── <name>/SKILL.md        #   frontmatter (secrets + strictness) + usage instructions
+├── tools/                     # building block: WHAT agents can EXECUTE (run by the tool-executor)
+│   └── <name>/
+│       ├── tool.yaml          #   manifest: description, JSON-schema params, infra (secrets, db)
+│       └── run.py             #   the code: JSON args on stdin, result on stdout
 ├── secrets/                   # building block: WHAT they may touch — shape only, values live in k8s
 │   └── <name>/
 │       ├── secret.yaml        #   keys→env-vars, hints, required, verify (probe | script | run)
@@ -132,7 +147,8 @@ agent-platform/
 │   │                          #   Storybook workshop ships with the site at /storybook/;
 │   │                          #   Playwright smoke+axe gate in tests/ (runs in CI);
 │   │                          #   nginx also session-guards /apps/<name>/ (auth_request)
-│   ├── mcp-broker/            # platform API as mcp__platform__* tools over streamable HTTP
+│   ├── mcp-broker/            # platform API + custom tools as mcp__platform__* over streamable HTTP
+│   ├── tool-executor/         # runs tools/<name>/run.py in a minimal env; the single egress point
 │   ├── connector-discord/     # Discord threads ↔ Conversations
 │   └── connector-slack/       # placeholder (not implemented)
 ├── charts/agent-platform/     # the Helm chart: all Deployments incl. agents-sync (git→cluster
@@ -155,7 +171,10 @@ agent-platform/
 | **runner** | The agent pod. Wraps `claude` and streams every event to Kafka. |
 | **recorder** | Consumes events; writes transcripts, metrics, and state. |
 | **web** | React SPA — dashboard, agents, runs, schedules, changes, skills, secrets, reporting. |
-| **mcp-broker** | Exposes the platform API as MCP tools. |
+| **mcp-broker** | Exposes the platform API and every custom tool as MCP tools; verifies who is calling and that the caller declared the tool. |
+| **tool-executor** | Runs custom tools' reviewed code with call-time secrets; the platform's only third-party egress. |
+| **claude-proxy** | Holds the Claude credential and injects it per request, so runner pods never carry it. |
+| **agents-sync** | Pulls this repo into the shared volume every service reads definitions from. |
 | **connector-discord** | Bridges Discord threads to Conversations. |
 | **postgres / kafka** | Runtime state, and the event spine. |
 

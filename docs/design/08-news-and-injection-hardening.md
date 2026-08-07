@@ -1,5 +1,13 @@
 # 08 — Daily news & prompt-injection hardening
 
+Status: **shipped 2026-07-29/30**, including the approval gate that was added and removed the same day.
+
+One of the numbered design records under `docs/design/` — written before
+the work and annotated during it, kept in its original voice. The series
+index is `docs/design/00-overview.md`; component names are defined in
+`docs/building-blocks/glossary.md`, and Kyle is the project owner, whose
+decisions the quotes here record.
+
 Ports multi's daily "journalist" onto the platform as a scheduled job, and — the
 substantive part — does it **without handing an untrusted-input agent the keys
 to the platform**. The design generalizes into a reusable pattern for any agent
@@ -59,7 +67,11 @@ API token — can search/fetch but literally cannot Bash or read files. Trusted
 agents (an injected `AP_API_TOKEN` → `can_invoke`/`memory`/`system`) still get
 `bypassPermissions`; self-edit still gets `acceptEdits`.
 
-## Projector (`agentplatform/newsprojector.py`, wired in `recorder.py`)
+## Projector (was `agentplatform/newsprojector.py`, wired in `recorder.py`)
+
+*Since `docs/design/11-apps-and-reports.md` this code lives inside the news
+app (`apps/news/`) rather than in the platform backend; the design below is
+the original.*
 
 Runs when a run of `settings.news_gatherer_agent` produces a successful `result`
 frame. `parse_digest` extracts the JSON (tolerating fences/prose; unparseable →

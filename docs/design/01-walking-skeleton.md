@@ -1,5 +1,13 @@
 # Milestone 01 — Walking Skeleton
 
+Status: **shipped 2026-07-20**, with later re-verification noted inline.
+
+One of the numbered design records under `docs/design/` — written before
+the work and annotated during it, kept in its original voice. The series
+index is `docs/design/00-overview.md`; component names are defined in
+`docs/building-blocks/glossary.md`, and Kyle is the project owner, whose
+decisions the quotes here record.
+
 One `helm install` brings up the platform; a hello-world agent runs end to
 end from a UI click; the live transcript streams in the browser.
 Proves the spine: dispatch → runner → subscription auth → stream capture →

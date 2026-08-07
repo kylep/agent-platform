@@ -1,6 +1,7 @@
 # 11 — Apps & Reports: the agentic application platform
 
-**Status: APPROVED 2026-08-03 (Kyle) — executing.** Decisions from the
+**Status: SHIPPED 2026-08-06, live-verified** (approved 2026-08-03 by Kyle,
+the project owner). Decisions from the
 talk-through: ① pg blob storage confirmed; ② apps are code but **kept
 separable from platform code** — Kyle intends to eventually split the
 platform repo from its workloads repo, so `apps/` (like `agents/`, `skills/`)
@@ -72,6 +73,7 @@ name: daily-news
 description: Morning digest of gathered news, grouped by topic.
 icon: 📰
 generator: news            # the agent expected to produce it
+                           # (AS BUILT: app-generated types use `app:news`)
 cadence: daily             # daily | intraday | adhoc — display + validation hint
 retention_days: 365        # pruning window (0 = keep forever)
 ```

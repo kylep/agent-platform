@@ -1,5 +1,13 @@
 # Milestone 02 — Self-Hosting Loop (MVP)
 
+Status: **shipped 2026-07-20** ("done when" essentially met — see the note at the end).
+
+One of the numbered design records under `docs/design/` — written before
+the work and annotated during it, kept in its original voice. The series
+index is `docs/design/00-overview.md`; component names are defined in
+`docs/building-blocks/glossary.md`, and Kyle is the project owner, whose
+decisions the quotes here record.
+
 The platform edits itself: clicking "edit agent" in the UI dispatches the
 platform-coder agent, whose change lands via the tiered git write path and
 appears in the Pending Changes view. This is the reason the project

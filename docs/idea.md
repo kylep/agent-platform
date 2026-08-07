@@ -1,5 +1,16 @@
 # High level idea
 
+> **Historical document.** This is the founding brain-dump that started the
+> agent-platform, written by Kyle Pericak (the project owner) in July 2026
+> before any code existed. It is kept as the record of the original intent,
+> in his own first-person voice — it is *not* a description of the platform as
+> it stands, and where the two disagree, the built thing wins.
+>
+> For what actually exists: `README.md` for the overview,
+> `docs/building-blocks/` for the concepts (start with the Glossary), and
+> `docs/design/00-overview.md` for the numbered design documents that
+> superseded the wish-list below, most of which is now shipped.
+
 I want agent-platform to be my full end-to-end agent wrangler. It will live on my home
 nuc as is described in https://github.com/kylep/multi/blob/main/apps/blog/blog/markdown/wiki/devops/pai-nuc-k3s.md.
 It should be generic though enough that i can run it on just about any k8s env, within reason.

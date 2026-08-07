@@ -1,5 +1,13 @@
 # Milestone 03 — Scheduling & Triggers
 
+Status: **shipped 2026-07-20**.
+
+One of the numbered design records under `docs/design/` — written before
+the work and annotated during it, kept in its original voice. The series
+index is `docs/design/00-overview.md`; component names are defined in
+`docs/building-blocks/glossary.md`, and Kyle is the project owner, whose
+decisions the quotes here record.
+
 Every way a run starts besides a button: cron, webhooks, agents invoking
 agents, and the DLQ story for when triggers misbehave.
 

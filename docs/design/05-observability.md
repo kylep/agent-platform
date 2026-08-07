@@ -1,5 +1,13 @@
 # Milestone 05 — Observability & Health
 
+Status: **shipped 2026-07-20**.
+
+One of the numbered design records under `docs/design/` — written before
+the work and annotated during it, kept in its original voice. The series
+index is `docs/design/00-overview.md`; component names are defined in
+`docs/building-blocks/glossary.md`, and Kyle is the project owner, whose
+decisions the quotes here record.
+
 From "it works" to "I can see it working": metrics, trends, and one page
 that answers "is everything okay?"
 

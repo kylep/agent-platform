@@ -1,12 +1,21 @@
 # Agent Platform — Design Overview
 
+**What this is:** the index and founding architecture of the design record.
+Each numbered doc under `docs/design/` records one milestone — why it was
+built and how. They are historical documents, kept in their original voice;
+this overview is maintained. For what the platform *is* today, read
+`docs/building-blocks/` (start with the Glossary); for how to run it,
+`docs/setup.md`.
+
 End-to-end agent wrangler: define Claude Code agents as code, run them as
 k8s pods, control everything from a web UI whose own edit mechanism is
-dispatching a coding agent. Lives on the pai NUC
-([setup](https://github.com/kylep/multi/blob/main/apps/blog/blog/markdown/wiki/devops/pai-nuc-k3s.md))
-but installs on any k8s via one Helm chart.
+dispatching a coding agent. The reference deployment is the pai NUC — a
+single-node k3s cluster, Helm release `ap`
+([host setup](https://github.com/kylep/multi/blob/main/apps/blog/blog/markdown/wiki/devops/pai-nuc-k3s.md))
+— but it installs on any k8s via one Helm chart.
 
-Successor to `multi/infra/ai-agents` (v2, clean slate, inspiration only).
+Successor to `multi/infra/ai-agents` (v2 of Kyle's earlier agent runner in
+the `kylep/multi` repo; clean slate, inspiration only).
 
 ## Hard constraints
 
@@ -22,7 +31,9 @@ Successor to `multi/infra/ai-agents` (v2, clean slate, inspiration only).
 
 ## Architecture
 
-Nine deployables:
+The deployables (the last four arrived after this doc was first written;
+`docs/building-blocks/glossary.md` has the maintained list with build
+contexts):
 
 | Component | Role |
 |-----------|------|
@@ -34,7 +45,11 @@ Nine deployables:
 | **mcp-broker** (FastMCP) | Exposes the platform API as `mcp__platform__*` tools over streamable HTTP. Holds no credentials — forwards each caller's bearer token, so a run's scope is preserved. Lets agents act without a shell, and lets external MCP clients drive the platform. |
 | **connector-discord** | Bridges Discord to the platform: a mention opens a thread, which is a Conversation; consumes `discord.channel.post` to speak. Sole holder of the bot token. |
 | **postgres** | Runtime state: runs, transcripts, schedules, jobs, principals, memories, conversations, secret metadata. |
-| **kafka** (single-node KRaft) | Topics: `run.requests`, `run.events`, `run.transcript`, `run.dlq`, `webhooks.in`, `conversation.*`, `discord.channel.post`, `dead.letter`. |
+| **kafka** (single-node KRaft) | Topics: `run.inbound`, `run.requests`, `run.events`, `run.transcript`, `run.dlq`, `conversation.*`, `discord.channel.post`, `platform.tool.audit`, `dead.letter` (the chart's `topics.specs` is authoritative). |
+| **tool-executor** (`docs/design/12-executable-capabilities.md`) | Runs custom tools' reviewed code in a locked-down subprocess with call-time secrets. The broker is its only client; it is the platform's single third-party-egress point. |
+| **claude-proxy** (`docs/design/09-token-brokering.md`) | Holds the Claude credential and injects it per-request, so runner pods never carry it. |
+| **agents-sync** | Keeps the synced checkout of this repository current; every service reads definitions from it. |
+| **app pods** (`docs/design/11-apps-and-reports.md`) | Full applications built on the platform, one per `apps/<name>/`. |
 
 Run flow: trigger (UI / cron / webhook / agent / API) → api writes `runs`
 row → publishes to `run.requests` → dispatcher validates and creates Job →
@@ -50,9 +65,12 @@ records, and guardrails as every other trigger.
 agents/<name>/agent.md        # pure Claude Code agent definition (portable)
 agents/<name>/manifest.yaml   # platform layer: rbac role, skills[], secrets[],
                               # triggers[], schedule, concurrency
-skills/<name>/                # Claude Code skill format; git/ and discord/ ship at launch
+skills/<name>/                # Claude Code skill format (knowledge an agent reads)
+tools/<name>/                 # executable capabilities run by the tool-executor (design 12)
+apps/<name>/                  # full applications built on agents (design 11)
+packages/ui/                  # @ap/ui — the shared design system, consumed as source
 services/backend/              # api + dispatcher + recorder (one image, three entrypoints)
-services/{runner,web,mcp-broker,connector-discord}/
+services/{runner,web,mcp-broker,tool-executor,connector-discord}/
 charts/agent-platform/        # umbrella chart + postgres/kafka dependencies
 sdk/                          # hand-written, dependency-free python; CI asserts
                               # every path it calls exists in the live OpenAPI
@@ -74,8 +92,9 @@ secrets plus its own.
 - `schedules` — cron expr, enabled flag; runtime state, toggleable without
   a commit.
 - `principals` / `api_keys` — admin + per-agent keys, role, scopes, hashed.
-- `memories` — agent-namespaced rows, postgres FTS, reviewable in the UI,
-  exposed to agents through a memory skill hitting the API.
+- `memories` — agent-namespaced rows, postgres FTS, reviewable in the UI.
+  (Since design 12 this lives in the memory *tool's* own schema,
+  `tool_memory`, and agents reach it by declaring the tool.)
 - `secrets_meta` — names, bindings, rotation timestamps. Values live in
   k8s Secrets only.
 
@@ -163,3 +182,8 @@ hardening milestone.
 | [06](06-hardening.md) | Hardening | NetworkPolicies, securityContext, rotation, exposure |
 | [07](07-pai-migration.md) | Conversations & Kafka foundation | Event-sourced ingress, Conversation entity, Discord connector. **Reframed**; the original pai-migration scope closed 2026-08-03 (v1 archived to multi-sandbox — see the doc). |
 | [08](08-news-and-injection-hardening.md) | News & injection hardening | Privilege separation, scoped tool allow-lists, no bypassed permissions |
+| [09](09-token-brokering.md) | Token brokering | The Claude credential leaves runner pods entirely |
+| [10](10-declarative-building-blocks.md) | Declarative building blocks | Secrets-as-code, readiness gate, entrypoints, wizards |
+| [11](11-apps-and-reports.md) | Apps & reports | Reports as a block; full apps (news) built on agents |
+| [12](12-executable-capabilities.md) | Executable capabilities | Tools as a building block: reviewed code, no shell, declared infra |
+| [13](13-workload-identity.md) | Workload identity | Projected SA tokens, SPIRE mTLS, run JWTs, principals, tool audit |

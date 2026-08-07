@@ -1,5 +1,13 @@
 # Milestone 06 — Hardening
 
+Status: **shipped 2026-07-20** for the in-scope items; external exposure and backup/DR were explicitly descoped (see inline).
+
+One of the numbered design records under `docs/design/` — written before
+the work and annotated during it, kept in its original voice. The series
+index is `docs/design/00-overview.md`; component names are defined in
+`docs/building-blocks/glossary.md`, and Kyle is the project owner, whose
+decisions the quotes here record.
+
 The deferred cage-tightening: prove-it-works came first, now lock it
 down.
 
@@ -10,16 +18,22 @@ down.
   read-only root filesystems where possible.
 - **Network policy:** default-deny with explicit ingress + egress allowlists;
   runner egress restricted to what its skills justify.
-- **Secret rotation:** rotation workflows in the secrets UI, token
-  steward finalized from 01's findings, audit log of secret access by
-  run.
+- **Secret rotation:** rotation workflows in the secrets UI, a decision on
+  the "token steward" (a process to keep the Claude credential fresh, left
+  open by milestone 01), and an audit log of secret access by run. (Resolved
+  later: `claude setup-token` yields a year-long credential that nothing
+  rotates, so no steward was ever needed —
+  `docs/design/09-token-brokering.md`.)
 - **Git write credential → GitHub App for PR support:** M2 self-edit uses a
   repo-scoped **deploy key** (`github-deploy-key` secret, ssh, push-only) —
-  limited and good for the tier-1 direct-commit path. Deploy keys can't use
-  the REST API, so tier-2 **pull requests** (the freeform platform-coder
-  flow) need a token. Wire the **PericakAI GitHub App** (installation tokens)
+  limited and good for the *tier-1* path (small, safe edits the API commits
+  directly — see the tiered git write path in
+  `docs/design/00-overview.md`). Deploy keys can't use the REST API, so
+  *tier-2* changes, which must arrive as **pull requests**, need a token. Wire the **PericakAI GitHub App** (installation tokens)
   for that: store App ID + private key + install id, mint tokens on demand.
-  Private key already exists at `~/gh/multi/secrets/pericakai.private-key.pem`.
+  The App's private key exists only on Kyle's workstation, outside any
+  repository, and is loaded into the cluster as a secret — it is never
+  committed anywhere.
   (A personal `gh` token was used briefly during bring-up and removed; it
   appeared once in an api pod log before the deploy-key switch — rotate if
   paranoid, though that pod is gone.)
@@ -61,7 +75,8 @@ Done + verified live:
       dispatcher/recorder run non-root (numeric uid/gid 65534), drop ALL caps,
       no-priv-escalation, seccomp; web/nginx gets no-priv-escalation + seccomp
       (caps kept — nginx needs SETUID/SETGID/CHOWN). Applied via `helm upgrade`
-      (release rev 4), ending the imperative `kubectl set env` drift — **helm is
+      (helm release revision 4 at the time), ending the imperative
+      `kubectl set env` drift — **helm is
       now the source of truth**; all config/infra changes go through the chart.
 - [x] **Secret-access audit log** — `secret_access` table records the k8s
       secrets each run's pod is granted at launch; `GET /api/audit/secret-access`
@@ -76,7 +91,8 @@ Done + verified live:
       intra-namespace (postgres/kafka/api), and external :443/:6443 only for
       api/dispatcher/runner/agents-sync (k8s API + Anthropic + github) — so a
       compromised runner can reach only kafka, the api, and outbound HTTPS.
-      Applied via helm (rev 6); verified live end-to-end: login, dispatch, a run
+      Applied via helm (release revision 6 at the time); verified live
+      end-to-end: login, dispatch, a run
       (runner→kafka+anthropic), an API-calling agent (runner→api), and
       agents-sync (github). Runner Jobs are labeled `component=runner` so
       policies can select them.

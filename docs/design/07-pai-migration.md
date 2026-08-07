@@ -1,5 +1,14 @@
 # Milestone 07 — Conversations & Kafka Foundation (reframed from pai Migration)
 
+Status: **shipped 2026-08-03** — the conversations work is live; the original
+pai-migration scope was formally closed (workloads dropped and archived).
+
+One of the numbered design records under `docs/design/` — written before
+the work and annotated during it, kept in its original voice. The series
+index is `docs/design/00-overview.md`; component names are defined in
+`docs/building-blocks/glossary.md`, and Kyle is the project owner, whose
+decisions the quotes here record.
+
 **This milestone was reframed mid-flight and the doc did not keep up.** Read
 this section before trusting anything below it.
 
@@ -55,7 +64,7 @@ State as verified 2026-07-29:
 | autolearn | Not ported |
 
 **DECIDED 2026-07-30 (Kyle): descope + archive, don't port.** "archive them,
-i'll make something new if needed." The six remaining v1 workloads
+i'll make something new if needed." The remaining v1 workloads
 (`seoBot`, `paiSelfImprover`, `paiMemoryBackup`, the three RSS crossposters,
 `paiWeeklyHoroscopes`, `autolearn`) are **dropped**, not ported. The entire dead
 pai-m1 stack (`multi/infra/ai-agents` — agent workloads + its cluster infra:

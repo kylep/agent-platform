@@ -1,5 +1,13 @@
 # Milestone 04 — Memory, Skills, SDK
 
+Status: **shipped 2026-07-20**; the CI-generated SDK was deliberately deferred (see inline).
+
+One of the numbered design records under `docs/design/` — written before
+the work and annotated during it, kept in its original voice. The series
+index is `docs/design/00-overview.md`; component names are defined in
+`docs/building-blocks/glossary.md`, and Kyle is the project owner, whose
+decisions the quotes here record.
+
 Agents remember, skills become first-class, and the platform becomes
 programmable from outside.
 
@@ -28,7 +36,9 @@ programmable from outside.
       boundary: an agent key (its `agent` set) is locked to its own namespace —
       a mismatched target is 403, another namespace's memory reads as 404.
       Manifest `memory: true` injects an annotator-scoped, per-run token
-      (revoked on terminal); demo `notetaker` agent remembers across runs.
+      (revoked on terminal); a demo `notetaker` agent remembered across runs
+      (that agent has since been deleted, and memory itself moved into the
+      `memory` tool in `docs/design/12-executable-capabilities.md`).
       `MEMORY_ROLES` gate the API. **Memories** UI page (pick agent, search,
       delete).
 - [x] **SDK + platform skill** — hand-written, dependency-free Python SDK in
@@ -52,7 +62,8 @@ programmable from outside.
       malformed `/api/memories` input (NUL bytes, over-length namespace) now
       422s at the edge instead of a DB-level 500.
 - [x] **SDK + platform-skill exercised in CI** (2026-07-30) —
-      `tests/test_sdk_integration.py` drives the real `agent_platform_sdk.Client`
+      `services/backend/tests/test_sdk_integration.py` drives the real
+      `agent_platform_sdk.Client`
       against the real ASGI app over httpx with a genuine `ap_` key: list agents
       → trigger a run → fetch it → list runs → health, plus RBAC (a reader key is
       refused a run trigger, 401 on a bad key) and namespaced memory round-trips.
