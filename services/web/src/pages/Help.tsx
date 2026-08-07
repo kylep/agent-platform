@@ -47,10 +47,12 @@ function ToolsPage() {
       <h2>Platform tools (MCP broker)</h2>
       <p className="muted">
         Act on the platform without a shell: each call goes through the MCP
-        broker carrying the agent's own short-lived token, so its exact role
-        scope applies and no credential ever enters the pod. They only
-        function for agents that receive a token (system agents, or
-        <code> memory</code>/<code>can_invoke</code> in the manifest).
+        broker, which verifies the caller's identity and that its definition
+        declares the tool; custom tools then run as reviewed code in the
+        tool-executor, with any secrets injected per-call — never into the
+        agent's pod. Declaring a platform tool is what makes a run
+        identity-bearing. The full plain-language story is on the{" "}
+        <NavLink to="/help/security">Security</NavLink> page.
       </p>
       <div className="help-tools">{platform.map(row)}</div>
     </>
