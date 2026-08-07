@@ -35,6 +35,7 @@ PLATFORM_MCP_TOOLS: list[str] = [
     "mcp__platform__kafka_health",
     "mcp__platform__recall_memory", "mcp__platform__remember",
     "mcp__platform__post_message",
+    "mcp__platform__app_api",
 ]
 
 AVAILABLE_TOOLS: list[str] = CLAUDE_TOOLS + PLATFORM_MCP_TOOLS
