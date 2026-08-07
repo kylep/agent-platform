@@ -358,7 +358,26 @@
 .help-link:hover { color: var(--ds-text); text-decoration: none; }
 .help-link.active { background: color-mix(in srgb, var(--ds-accent) 12%, transparent); color: var(--ds-accent); }
 .help-content { flex: 1; min-width: 0; }
-.help-doc { max-width: 680px; font-size: 14px; }
+
+/* Doc-scale typography for rendered concept pages: the base .md styles are
+   chat-bubble scale (tiny headings, tight margins) — docs need a real ramp
+   and room to breathe. Defined after .md so equal-specificity rules win. */
+.help-doc { max-width: 700px; font-size: 14px; line-height: 1.65; }
+.help-doc h1 { font-size: 22px; font-weight: 650; margin: 0 0 14px; letter-spacing: -0.01em; }
+.help-doc h2 {
+  font-size: 17px; font-weight: 600; margin: 30px 0 10px;
+  padding-bottom: 6px; border-bottom: 1px solid var(--ds-border);
+}
+.help-doc h3 { font-size: 14.5px; font-weight: 600; margin: 22px 0 6px; }
+.help-doc p { margin: 10px 0; }
+.help-doc ul, .help-doc ol { margin: 10px 0; padding-left: 26px; }
+.help-doc li { margin: 5px 0; }
+.help-doc li > ul, .help-doc li > ol { margin: 4px 0; }
+.help-doc pre { margin: 14px 0; padding: 12px 14px; font-size: 12.5px; line-height: 1.5; }
+.help-doc table { width: 100%; margin: 14px 0; }
+.help-doc th, .help-doc td { padding: 7px 10px; font-size: 13px; vertical-align: top; }
+.help-doc blockquote { margin: 12px 0; padding: 4px 14px; }
+.help-doc hr { margin: 22px 0; }
 .help-tools { display: flex; flex-direction: column; gap: 10px; margin: 12px 0 24px; }
 .help-tool {
   background: var(--ds-surface); border: 1px solid var(--ds-border);

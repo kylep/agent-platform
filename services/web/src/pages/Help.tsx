@@ -67,7 +67,7 @@ function TopicPage({ slug }: { slug: string }) {
   }, [slug]);
   if (error) return <div className="error">{error}</div>;
   if (!topic) return <p className="muted">Loading…</p>;
-  return <Markdown text={topic.markdown} className="md help-doc" />;
+  return <Markdown flow text={topic.markdown} className="help-doc" />;
 }
 
 function Overview() {
