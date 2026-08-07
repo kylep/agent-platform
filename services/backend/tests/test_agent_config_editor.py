@@ -103,7 +103,7 @@ def test_mcp_broker_tools_are_selectable():
     real config of the agents that already declare them (health-monitor,
     run-summarizer) — making those agents uneditable."""
     assert "mcp__platform__runs_read" in AVAILABLE_TOOLS
-    assert "mcp__platform__post_message" in AVAILABLE_TOOLS
+    assert "mcp__platform__query_app" in AVAILABLE_TOOLS
 
 
 def test_mutate_agent_md_keeps_unknown_tools():
@@ -192,7 +192,13 @@ def _show(bare, ref, path):
 async def test_agent_tools_lists_canonical(sh_client):
     c, _ = sh_client
     r = await c.get("/api/agent-tools")
-    assert r.status_code == 200 and r.json()["tools"] == AVAILABLE_TOOLS
+    assert r.status_code == 200
+    tools = r.json()["tools"]
+    # Static core first, registry-defined customs appended (docs/design/12) —
+    # the repo's real tools/ tree is under test here, so just require order +
+    # the custom prefix rather than an exact frozen list.
+    assert tools[:len(AVAILABLE_TOOLS)] == AVAILABLE_TOOLS
+    assert all(t.startswith("mcp__platform__") for t in tools[len(AVAILABLE_TOOLS):])
 
 
 async def test_create_agent_opens_pr_branch(sh_client):

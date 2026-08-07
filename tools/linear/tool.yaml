@@ -1,0 +1,43 @@
+name: linear
+description: >-
+  Work with Linear issues via its GraphQL API. Actions: "teams" lists teams
+  with their workflow states (get ids here first — mutations take ids, not
+  names); "search" finds issues by text (optional team_key filter);
+  "create" makes an issue (needs team_key, title; optional description);
+  "update" changes an issue's state/title/description (issue = "ENG-123"
+  identifier, state by name, e.g. "Done"); "comment" adds a comment to an
+  issue; "raw_graphql" runs an arbitrary query/mutation (query + variables)
+  when the canned actions don't fit. Responses are Linear's JSON. A 200 can
+  still carry an errors array — it is surfaced verbatim, read it.
+params:
+  type: object
+  properties:
+    action:
+      type: string
+      enum: [teams, search, create, update, comment, raw_graphql]
+    query:
+      type: string
+      description: "search: text to find · raw_graphql: the GraphQL document"
+    team_key:
+      type: string
+      description: "Team key like ENG (search filter; required for create)"
+    title: {type: string}
+    description: {type: string}
+    issue:
+      type: string
+      description: "Issue identifier like ENG-123 (update/comment)"
+    state:
+      type: string
+      description: "Workflow state NAME to move the issue to (update)"
+    body:
+      type: string
+      description: "Comment text (comment)"
+    variables:
+      type: object
+      description: "raw_graphql variables"
+    limit: {type: integer, default: 20}
+  required: [action]
+infra:
+  secrets:
+    - linear-api-key
+timeout_seconds: 30

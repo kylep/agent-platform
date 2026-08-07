@@ -1,0 +1,22 @@
+name: discord_chat
+description: >-
+  Post a message to a Discord channel by name (e.g. "alerts", "general").
+  Finds the first text channel with that name across the guilds the bot is
+  in and posts there. Long messages are split into <=1900-character chunks;
+  @everyone/@here and role pings are always defanged. Use for notifications
+  and reports; conversational replies in threads happen via the platform
+  connector, not this tool. Returns the posted message id(s).
+params:
+  type: object
+  properties:
+    channel:
+      type: string
+      description: "Channel name without the # (e.g. alerts)"
+    text:
+      type: string
+      description: "Message text (Discord markdown ok)"
+  required: [channel, text]
+infra:
+  secrets:
+    - discord-bot
+timeout_seconds: 30

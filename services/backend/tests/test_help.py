@@ -16,7 +16,10 @@ async def test_help_tools_endpoint(admin_client):
     r = await admin_client.get("/api/help/tools")
     assert r.status_code == 200
     tools = r.json()
-    assert len(tools) == len(AVAILABLE_TOOLS)
+    # Every static tool documented, plus one entry per valid registry tool
+    # (their manifests self-document — see api/help.py).
+    assert {t["name"] for t in tools} >= set(AVAILABLE_TOOLS)
+    assert all(t["description"] for t in tools)
     bash = next(t for t in tools if t["name"] == "Bash")
     assert bash["sensitive"] is True and bash["kind"] == "claude"
 

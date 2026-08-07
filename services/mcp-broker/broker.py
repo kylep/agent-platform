@@ -101,12 +101,6 @@ async def save_memory(content: str, key: str | None = None, tags: list[str] | No
     return await _call("POST", "/api/memories", json={"key": key, "content": content, "tags": tags or []})
 
 
-@mcp.tool
-async def post_message(channel: str, text: str) -> str:
-    """Post a message to a Discord channel by name (via the platform connector)."""
-    return await _call("POST", "/api/notify", json={"channel": channel, "text": text})
-
-
 # --- apps (news-librarian etc.) ----------------------------------------------
 @mcp.tool
 async def query_app(app: str, path: str, params: dict | None = None) -> str:

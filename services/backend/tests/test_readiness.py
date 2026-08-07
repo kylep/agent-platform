@@ -45,8 +45,8 @@ def test_shipped_skills_declare_strictness():
     store = SkillStore(REPO_SKILLS)
     git = store.get("git").skill.secrets[0]
     assert (git.name, git.state, git.severity) == ("github-token", "verified", "required")
-    discord = store.get("discord").skill.secrets[0]
-    assert (discord.name, discord.state, discord.severity) == ("discord-webhook", "verified", "required")
+    # (discord/linear became TOOLS in design/12 — their credentials now bind
+    # per-call in the executor, not via skill strictness.)
 
 
 # --- block-before-dispatch ---------------------------------------------------

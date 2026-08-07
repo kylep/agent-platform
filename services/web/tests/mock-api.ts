@@ -170,8 +170,8 @@ const FIXTURES: Record<string, unknown> = {
       description: "Search the public web." },
     { name: "TodoWrite", kind: "claude", sensitive: false, display_name: "Todo",
       description: "Keep an internal working task list during a run." },
-    { name: "mcp__platform__post_message", kind: "platform", sensitive: false,
-      description: "Post to a Discord channel by name, via the connector." },
+    { name: "mcp__platform__query_app", kind: "platform", sensitive: false,
+      description: "Call a read-only API endpoint of an installed platform app." },
   ],
   "/api/report-types": [
     { name: "daily-news", description: "Morning digest of gathered news.", icon: "📰",

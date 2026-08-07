@@ -34,7 +34,7 @@ _ENV = re.compile(r"^[A-Z][A-Z0-9_]*$")
 # PLATFORM_MCP_TOOLS derives from the same set via a lockstep test.
 CORE_TOOL_SUFFIXES = frozenset({
     "runs_read", "runs_write", "metrics",
-    "read_memory", "save_memory", "post_message", "query_app",
+    "read_memory", "save_memory", "query_app",
 })
 
 
