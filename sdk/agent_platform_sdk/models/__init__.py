@@ -31,6 +31,8 @@ from .edit_dispatch import EditDispatch
 from .edit_result import EditResult
 from .entrypoints import Entrypoints
 from .freeform_edit_in import FreeformEditIn
+from .help_topic import HelpTopic
+from .help_topic_detail import HelpTopicDetail
 from .http_validation_error import HTTPValidationError
 from .integration import Integration
 from .job_in import JobIn
@@ -96,6 +98,7 @@ from .skill_view import SkillView
 from .skill_wizard_in import SkillWizardIn
 from .skill_wizard_secret import SkillWizardSecret
 from .sync_status import SyncStatus
+from .tool_help import ToolHelp
 from .validation_error import ValidationError
 from .validation_error_context import ValidationErrorContext
 from .webhook_entry import WebhookEntry
@@ -133,6 +136,8 @@ __all__ = (
     "Entrypoints",
     "FreeformEditIn",
     "HTTPValidationError",
+    "HelpTopic",
+    "HelpTopicDetail",
     "Integration",
     "JobIn",
     "JobPatch",
@@ -197,6 +202,7 @@ __all__ = (
     "SkillWizardIn",
     "SkillWizardSecret",
     "SyncStatus",
+    "ToolHelp",
     "ValidationError",
     "ValidationErrorContext",
     "WebhookEntry",

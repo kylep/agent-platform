@@ -155,6 +155,22 @@ const FIXTURES: Record<string, unknown> = {
       ui: false, api: true, postgres: false, kafka_topics: [], redis: false,
       agent_key_role: null, error: null, ready: null, ready_replicas: 0 },
   ],
+  "/api/help/topics": [
+    { slug: "agents", title: "Agents" },
+    { slug: "changes", title: "Changes — the change loop" },
+  ],
+  "/api/help/topics/agents": {
+    slug: "agents", title: "Agents",
+    markdown: "# Agents\n\n**What:** who runs — one folder per agent.",
+  },
+  "/api/help/tools": [
+    { name: "Bash", kind: "claude", sensitive: true,
+      description: "Run shell commands inside the agent's pod." },
+    { name: "WebSearch", kind: "claude", sensitive: false,
+      description: "Search the public web." },
+    { name: "mcp__platform__post_message", kind: "platform", sensitive: false,
+      description: "Post to a Discord channel by name, via the connector." },
+  ],
   "/api/report-types": [
     { name: "daily-news", description: "Morning digest of gathered news.", icon: "📰",
       generator: "news", cadence: "daily", retention_days: 365, error: null,

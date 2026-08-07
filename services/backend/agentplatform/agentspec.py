@@ -33,12 +33,81 @@ PLATFORM_MCP_TOOLS: list[str] = [
     "mcp__platform__list_tags", "mcp__platform__annotate_run",
     "mcp__platform__metrics_overview", "mcp__platform__metrics_agents",
     "mcp__platform__kafka_health",
-    "mcp__platform__recall_memory", "mcp__platform__remember",
+    "mcp__platform__read_memory", "mcp__platform__save_memory",
     "mcp__platform__post_message",
     "mcp__platform__app_api",
 ]
 
 AVAILABLE_TOOLS: list[str] = CLAUDE_TOOLS + PLATFORM_MCP_TOOLS
+
+# Help text for every grantable tool (the /help/tools page + picker docs).
+# A test asserts this covers AVAILABLE_TOOLS exactly — a tool cannot be added
+# without explaining what turning it on actually does. `sensitive: True`
+# marks the runner's always-denied set: declaring those does NOTHING for a
+# normal agent (they are self-edit only — the trifecta break, design/08).
+TOOL_HELP: list[dict] = [
+    {"name": "Bash", "kind": "claude", "sensitive": True,
+     "description": "Run shell commands inside the agent's pod."},
+    {"name": "Read", "kind": "claude", "sensitive": True,
+     "description": "Read any file in the pod's filesystem."},
+    {"name": "Write", "kind": "claude", "sensitive": True,
+     "description": "Create or overwrite files in the pod."},
+    {"name": "Edit", "kind": "claude", "sensitive": True,
+     "description": "Make targeted edits to files in the pod."},
+    {"name": "Glob", "kind": "claude",
+     "description": "Find files by name pattern (read-only discovery)."},
+    {"name": "Grep", "kind": "claude",
+     "description": "Search file contents by regex (read-only discovery)."},
+    {"name": "WebSearch", "kind": "claude",
+     "description": "Search the public web. This is an UNTRUSTED-INPUT "
+                    "channel: anything the agent reads can try to steer it, "
+                    "so keep web-reading agents credential-free."},
+    {"name": "WebFetch", "kind": "claude",
+     "description": "Fetch a URL and read the page. Same untrusted-input "
+                    "caution as WebSearch."},
+    {"name": "Task", "kind": "claude",
+     "description": "Spawn subagents to work on subtasks in parallel."},
+    {"name": "TodoWrite", "kind": "claude",
+     "description": "Keep an internal working task list during a run "
+                    "(harmless bookkeeping; helps long runs stay on track)."},
+    {"name": "NotebookEdit", "kind": "claude", "sensitive": True,
+     "description": "Edit Jupyter notebook cells."},
+    {"name": "mcp__platform__list_runs", "kind": "platform",
+     "description": "List recent runs (optionally just those missing a "
+                    "summary). Read-only."},
+    {"name": "mcp__platform__get_run", "kind": "platform",
+     "description": "Read one run's full detail: agent, trigger, state, "
+                    "prompt, metrics. Read-only."},
+    {"name": "mcp__platform__list_tags", "kind": "platform",
+     "description": "List the run tags that already exist (so taggers reuse "
+                    "instead of inventing). Read-only."},
+    {"name": "mcp__platform__annotate_run", "kind": "platform",
+     "description": "Write a run's one-line summary and tags — how "
+                    "run-summarizer files history for skimming."},
+    {"name": "mcp__platform__metrics_overview", "kind": "platform",
+     "description": "Platform-wide run metrics (volumes, success rate, "
+                    "tokens). Read-only."},
+    {"name": "mcp__platform__metrics_agents", "kind": "platform",
+     "description": "Per-agent metrics including failure streaks — what "
+                    "health-monitor watches. Read-only."},
+    {"name": "mcp__platform__kafka_health", "kind": "platform",
+     "description": "Event-bus health: reachability, lag, DLQ backlog. "
+                    "Read-only."},
+    {"name": "mcp__platform__read_memory", "kind": "platform",
+     "description": "Search the agent's OWN memory namespace (it can never "
+                    "read another agent's)."},
+    {"name": "mcp__platform__save_memory", "kind": "platform",
+     "description": "Save a memory in the agent's own namespace — durable "
+                    "notes across runs (the write half of read_memory)."},
+    {"name": "mcp__platform__post_message", "kind": "platform",
+     "description": "Post to a Discord channel by name, via the connector. "
+                    "The agent never holds a Discord credential; text is "
+                    "length-capped and mass-pings are defanged."},
+    {"name": "mcp__platform__app_api", "kind": "platform",
+     "description": "Read an app's API (GET only) through the platform "
+                    "proxy — e.g. query the news archive. Traversal-guarded; "
+                    "mutations stay with the app's own flows."},
+]
 
 # Models the UI offers for an agent's `model:` (runner passes it to
 # `claude --model`). ADVISORY, not an allow-list: the server accepts any value,

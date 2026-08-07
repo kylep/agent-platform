@@ -229,6 +229,26 @@ class KafkaHealth(BaseModel):
     backlog: Backlog
 
 
+# --- help --------------------------------------------------------------------
+
+class HelpTopic(BaseModel):
+    slug: str
+    title: str
+
+
+class HelpTopicDetail(HelpTopic):
+    markdown: str     # the docs/building-blocks page, verbatim
+
+
+class ToolHelp(BaseModel):
+    name: str
+    kind: str         # claude | platform
+    description: str
+    # Always denied by the runner for non-self-edit agents (trifecta break) —
+    # checking it on a normal agent does nothing.
+    sensitive: bool
+
+
 # --- integrations ------------------------------------------------------------
 
 class Integration(BaseModel):

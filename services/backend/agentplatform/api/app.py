@@ -14,6 +14,7 @@ from agentplatform.api import auth
 from agentplatform.api import conversations as conversations_api
 from agentplatform.api import dlq as dlq_api
 from agentplatform.api import health as health_api
+from agentplatform.api import help as help_api
 from agentplatform.api import integrations as integrations_api
 from agentplatform.api import maintenance as maintenance_api
 from agentplatform.api import memory as memory_api
@@ -129,6 +130,7 @@ def create_app(settings, session_factory, producer, secret_store=None, agent_sto
     app.include_router(conversations_api.router)
     app.include_router(dlq_api.router)
     app.include_router(health_api.router)
+    app.include_router(help_api.router)
     app.include_router(integrations_api.router)
     app.include_router(maintenance_api.router)
     app.include_router(memory_api.router)

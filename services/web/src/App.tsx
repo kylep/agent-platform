@@ -18,6 +18,7 @@ import Memories from "./pages/Memories";
 import Reporting from "./pages/Reporting";
 import Reports from "./pages/Reports";
 import Apps from "./pages/Apps";
+import Help from "./pages/Help";
 import Schedules from "./pages/Schedules";
 import Skills from "./pages/Skills";
 import Settings from "./pages/Settings";
@@ -44,6 +45,8 @@ export default function App() {
             <Route path="/reports/:type" element={<Reports />} />
             <Route path="/reports/:type/:date" element={<Reports />} />
             <Route path="/apps" element={<Apps />} />
+            <Route path="/help" element={<Help />} />
+            <Route path="/help/:slug" element={<Help />} />
             <Route path="/memories" element={<Memories />} />
             <Route path="/skills" element={<Skills />} />
             <Route path="/schedules" element={<Schedules />} />

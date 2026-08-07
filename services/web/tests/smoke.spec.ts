@@ -21,6 +21,9 @@ const PAGES: { path: string; heading: string; probe?: RegExp }[] = [
   { path: "/reporting", heading: "Reporting", probe: /Seconds per run/ },
   { path: "/reports", heading: "Reports", probe: /daily-news/ },
   { path: "/apps", heading: "Apps", probe: /running|not deployed/ },
+  { path: "/help", heading: "Help", probe: /building blocks|configuration lives in git/i },
+  { path: "/help/tools", heading: "Tools", probe: /self-edit only/ },
+  { path: "/help/agents", heading: "Agents", probe: /who runs/ },
   { path: "/reports/daily-news", heading: "daily-news", probe: /Open latest/ },
   { path: "/settings", heading: "Settings" },
 ];

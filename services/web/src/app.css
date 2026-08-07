@@ -340,3 +340,30 @@
 .app-resources { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 12px; }
 .app-error { font-size: 11px; white-space: pre-wrap; margin: 0; }
 .app-open { margin-top: 6px; font-weight: 600; }
+
+/* help */
+.help-layout { display: flex; gap: 32px; max-width: 1000px; }
+.help-subnav {
+  width: 190px; flex-shrink: 0; display: flex; flex-direction: column; gap: 2px;
+  position: sticky; top: 24px; align-self: flex-start;
+}
+.help-subnav-label {
+  color: var(--ds-text-subtle); font-size: 11px; text-transform: uppercase;
+  letter-spacing: 0.06em; margin: 12px 0 4px; padding: 0 8px;
+}
+.help-link {
+  color: var(--ds-text-muted); padding: 6px 8px; border-radius: var(--radius-md);
+  font-size: 13.5px; text-decoration: none;
+}
+.help-link:hover { color: var(--ds-text); text-decoration: none; }
+.help-link.active { background: color-mix(in srgb, var(--ds-accent) 12%, transparent); color: var(--ds-accent); }
+.help-content { flex: 1; min-width: 0; }
+.help-doc { max-width: 680px; font-size: 14px; }
+.help-tools { display: flex; flex-direction: column; gap: 10px; margin: 12px 0 24px; }
+.help-tool {
+  background: var(--ds-surface); border: 1px solid var(--ds-border);
+  border-radius: var(--radius-lg); padding: 10px 14px;
+}
+.help-tool-head { display: flex; align-items: center; gap: 10px; }
+.help-tool-head code { font-weight: 600; }
+.help-tool p { margin: 4px 0 0; font-size: 13px; }

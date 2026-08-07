@@ -72,13 +72,13 @@ async def kafka_health() -> str:
 
 
 @mcp.tool
-async def recall_memory(q: str = "") -> str:
+async def read_memory(q: str = "") -> str:
     """Search your own agent memory (JSON). Empty q lists all."""
     return await _call("GET", "/api/memories", {"q": q or None})
 
 
 @mcp.tool
-async def remember(content: str, key: str | None = None, tags: list[str] | None = None) -> str:
+async def save_memory(content: str, key: str | None = None, tags: list[str] | None = None) -> str:
     """Save a memory in your namespace. Give a key ONLY for state you overwrite
     in place (reusing a key replaces that memory); omit it for plain notes —
     don't invent meaningless keys."""
