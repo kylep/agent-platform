@@ -29,13 +29,11 @@ CLAUDE_TOOLS: list[str] = [
 # act on the platform declare these instead of Bash, so they get a token-scoped
 # API call rather than a shell. Keep in sync with broker.py's @mcp.tool set.
 PLATFORM_MCP_TOOLS: list[str] = [
-    "mcp__platform__list_runs", "mcp__platform__get_run",
-    "mcp__platform__list_tags", "mcp__platform__annotate_run",
-    "mcp__platform__metrics_overview", "mcp__platform__metrics_agents",
-    "mcp__platform__kafka_health",
+    "mcp__platform__runs_read", "mcp__platform__runs_write",
+    "mcp__platform__metrics",
     "mcp__platform__read_memory", "mcp__platform__save_memory",
     "mcp__platform__post_message",
-    "mcp__platform__app_api",
+    "mcp__platform__query_app",
 ]
 
 AVAILABLE_TOOLS: list[str] = CLAUDE_TOOLS + PLATFORM_MCP_TOOLS
@@ -67,32 +65,23 @@ TOOL_HELP: list[dict] = [
                     "caution as WebSearch."},
     {"name": "Task", "kind": "claude",
      "description": "Spawn subagents to work on subtasks in parallel."},
-    {"name": "TodoWrite", "kind": "claude",
+    {"name": "TodoWrite", "kind": "claude", "display_name": "Todo",
      "description": "Keep an internal working task list during a run "
                     "(harmless bookkeeping; helps long runs stay on track)."},
     {"name": "NotebookEdit", "kind": "claude", "sensitive": True,
      "description": "Edit Jupyter notebook cells."},
-    {"name": "mcp__platform__list_runs", "kind": "platform",
-     "description": "List recent runs (optionally just those missing a "
-                    "summary). Read-only."},
-    {"name": "mcp__platform__get_run", "kind": "platform",
-     "description": "Read one run's full detail: agent, trigger, state, "
-                    "prompt, metrics. Read-only."},
-    {"name": "mcp__platform__list_tags", "kind": "platform",
-     "description": "List the run tags that already exist (so taggers reuse "
-                    "instead of inventing). Read-only."},
-    {"name": "mcp__platform__annotate_run", "kind": "platform",
-     "description": "Write a run's one-line summary and tags — how "
-                    "run-summarizer files history for skimming."},
-    {"name": "mcp__platform__metrics_overview", "kind": "platform",
-     "description": "Platform-wide run metrics (volumes, success rate, "
-                    "tokens). Read-only."},
-    {"name": "mcp__platform__metrics_agents", "kind": "platform",
-     "description": "Per-agent metrics including failure streaks — what "
-                    "health-monitor watches. Read-only."},
-    {"name": "mcp__platform__kafka_health", "kind": "platform",
-     "description": "Event-bus health: reachability, lag, DLQ backlog. "
-                    "Read-only."},
+    {"name": "mcp__platform__runs_read", "kind": "platform",
+     "description": "Read run history: list recent runs (optionally just "
+                    "those missing a summary), fetch one run's full detail, "
+                    "or list existing run tags. Read-only."},
+    {"name": "mcp__platform__runs_write", "kind": "platform",
+     "description": "Annotate a run with a one-line summary and tags — how "
+                    "run-summarizer files history for skimming. The only "
+                    "run mutation."},
+    {"name": "mcp__platform__metrics", "kind": "platform",
+     "description": "Platform health metrics: run volumes/success/tokens "
+                    "(overview), per-agent metrics incl. failure streaks, or "
+                    "event-bus health (lag, DLQ backlog). Read-only."},
     {"name": "mcp__platform__read_memory", "kind": "platform",
      "description": "Search the agent's OWN memory namespace (it can never "
                     "read another agent's)."},
@@ -103,10 +92,12 @@ TOOL_HELP: list[dict] = [
      "description": "Post to a Discord channel by name, via the connector. "
                     "The agent never holds a Discord credential; text is "
                     "length-capped and mass-pings are defanged."},
-    {"name": "mcp__platform__app_api", "kind": "platform",
-     "description": "Read an app's API (GET only) through the platform "
-                    "proxy — e.g. query the news archive. Traversal-guarded; "
-                    "mutations stay with the app's own flows."},
+    {"name": "mcp__platform__query_app", "kind": "platform",
+     "description": "Call a read-only API endpoint of an installed platform "
+                    "app through the traversal-guarded proxy — e.g. query "
+                    "the news archive by day/topic/keyword. GET only; "
+                    "mutations stay with the app's own flows. Each app's "
+                    "companion skill documents its endpoints."},
 ]
 
 # Models the UI offers for an agent's `model:` (runner passes it to

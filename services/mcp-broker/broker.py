@@ -28,47 +28,46 @@ async def _call(method: str, path: str, params: dict | None = None, json: dict |
 
 
 # --- runs (run-summarizer) ---------------------------------------------------
+# Consolidation convention (design/12): 1-2 tools per domain with an action/
+# scope discriminator, split read/write where grants should differ.
 @mcp.tool
-async def list_runs(needs_summary: bool = False, limit: int = 10) -> str:
-    """Recent runs as JSON. needs_summary=true returns only runs lacking a summary."""
-    return await _call("GET", "/api/runs", {"needs_summary": str(needs_summary).lower(), "limit": limit})
+async def runs_read(action: str = "list", run_id: str | None = None,
+                    needs_summary: bool = False, limit: int = 10) -> str:
+    """Read run history (JSON). action='list' → recent runs (needs_summary=true
+    filters to runs still lacking a summary; limit caps the page);
+    action='get' → one run's full detail (requires run_id);
+    action='tags' → the run tags that already exist (reuse instead of inventing)."""
+    if action == "get":
+        if not run_id:
+            return "error: action='get' requires run_id"
+        return await _call("GET", f"/api/runs/{run_id}")
+    if action == "tags":
+        return await _call("GET", "/api/tags")
+    if action == "list":
+        return await _call("GET", "/api/runs",
+                           {"needs_summary": str(needs_summary).lower(), "limit": limit})
+    return "error: action must be one of list|get|tags"
 
 
 @mcp.tool
-async def get_run(run_id: str) -> str:
-    """Full detail of one run (agent, trigger, state, prompt, …) as JSON."""
-    return await _call("GET", f"/api/runs/{run_id}")
-
-
-@mcp.tool
-async def list_tags() -> str:
-    """Existing run tags as a JSON array (reuse these when annotating)."""
-    return await _call("GET", "/api/tags")
-
-
-@mcp.tool
-async def annotate_run(run_id: str, summary: str, tags: list[str] | None = None) -> str:
-    """Set a run's one-line summary and tags."""
+async def runs_write(run_id: str, summary: str, tags: list[str] | None = None) -> str:
+    """Annotate a run: set its one-line summary and tags (the only run mutation)."""
     return await _call("POST", f"/api/runs/{run_id}/annotate", json={"summary": summary, "tags": tags or []})
 
 
-# --- health + memory + notify (health-monitor) -------------------------------
+# --- health/metrics (health-monitor) -----------------------------------------
 @mcp.tool
-async def metrics_overview() -> str:
-    """Platform run-metrics overview (JSON)."""
-    return await _call("GET", "/api/metrics/overview")
-
-
-@mcp.tool
-async def metrics_agents() -> str:
-    """Per-agent metrics incl. failure_streak (JSON)."""
-    return await _call("GET", "/api/metrics/agents")
-
-
-@mcp.tool
-async def kafka_health() -> str:
-    """Kafka health incl. reachability, lag, backlog (JSON)."""
-    return await _call("GET", "/api/health/kafka")
+async def metrics(scope: str = "overview") -> str:
+    """Platform health metrics (JSON). scope='overview' → run volumes, success
+    rate, token spend; scope='agents' → per-agent metrics incl. failure_streak;
+    scope='kafka' → event-bus health (reachability, consumer lag, DLQ backlog)."""
+    if scope == "agents":
+        return await _call("GET", "/api/metrics/agents")
+    if scope == "kafka":
+        return await _call("GET", "/api/health/kafka")
+    if scope == "overview":
+        return await _call("GET", "/api/metrics/overview")
+    return "error: scope must be one of overview|agents|kafka"
 
 
 @mcp.tool
@@ -93,10 +92,13 @@ async def post_message(channel: str, text: str) -> str:
 
 # --- apps (news-librarian etc.) ----------------------------------------------
 @mcp.tool
-async def app_api(app: str, path: str, params: dict | None = None) -> str:
-    """Read an app's API (GET only) through the platform's app proxy.
-    e.g. app='news', path='items', params={'topic': 'ai-industry',
-    'day_from': '2026-08-01'} — see the app's skill for its endpoints."""
+async def query_app(app: str, path: str, params: dict | None = None) -> str:
+    """Call a read-only API endpoint of an installed platform app (GET only,
+    through the platform's traversal-guarded proxy — mutations stay with the
+    app's own flows). `app` is the app's name from /apps, `path` the endpoint
+    within its API, `params` the query string. The app's companion skill
+    documents its endpoints. e.g. query_app(app='news', path='items',
+    params={'topic': 'ai-industry', 'day_from': '2026-08-01'})."""
     return await _call("GET", f"/api/apps/{app}/query/{path}", params or {})
 
 

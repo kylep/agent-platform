@@ -11,7 +11,7 @@ import { Markdown } from "@ap/ui/markdown";
 
 type Topic = { slug: string; title: string };
 type TopicDetail = Topic & { markdown: string };
-type ToolHelp = { name: string; kind: string; description: string; sensitive: boolean };
+type ToolHelp = { name: string; kind: string; description: string; sensitive: boolean; display_name?: string | null };
 
 function ToolsPage() {
   const [tools, setTools] = useState<ToolHelp[] | null>(null);
@@ -22,7 +22,7 @@ function ToolsPage() {
   const row = (t: ToolHelp) => (
     <div key={t.name} className="help-tool">
       <div className="help-tool-head">
-        <code>{t.name.replace("mcp__platform__", "")}</code>
+        <code>{t.display_name ?? t.name.replace("mcp__platform__", "")}</code>
         {t.sensitive && <Chip variant="warn">self-edit only</Chip>}
       </div>
       <p className="muted">{t.description}</p>

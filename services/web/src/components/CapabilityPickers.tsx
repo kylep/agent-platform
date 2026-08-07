@@ -7,14 +7,16 @@ import { api, type Skill } from "../api";
 export function useCapabilities() {
   const [skills, setSkills] = useState<Skill[]>([]);
   const [tools, setTools] = useState<string[]>([]);
+  const [labels, setLabels] = useState<Record<string, string>>({});
   const [ready, setReady] = useState(false);
   useEffect(() => {
     Promise.all([
       api<Skill[]>("/api/skills").catch(() => []),
-      api<{ tools: string[] }>("/api/agent-tools").then((r) => r.tools).catch(() => []),
-    ]).then(([sk, tl]) => { setSkills(sk); setTools(tl); setReady(true); });
+      api<{ tools: string[]; labels?: Record<string, string> }>("/api/agent-tools")
+        .catch(() => ({ tools: [] as string[], labels: {} })),
+    ]).then(([sk, tl]) => { setSkills(sk); setTools(tl.tools); setLabels(tl.labels ?? {}); setReady(true); });
   }, []);
-  return { skills, tools, ready };
+  return { skills, tools, labels, ready };
 }
 
 function toggle(set: Set<string>, name: string): Set<string> {
@@ -46,8 +48,8 @@ export function SkillPicker({ skills, selected, onChange }: {
 // group heading already says which server it came from.
 const mcpLabel = (t: string) => t.split("__").slice(2).join("__") || t;
 
-export function ToolPicker({ tools, selected, onChange }: {
-  tools: string[]; selected: Set<string>; onChange: (s: Set<string>) => void;
+export function ToolPicker({ tools, labels = {}, selected, onChange }: {
+  tools: string[]; labels?: Record<string, string>; selected: Set<string>; onChange: (s: Set<string>) => void;
 }) {
   const allOn = tools.length > 0 && tools.every((t) => selected.has(t));
   const builtin = tools.filter((t) => !t.startsWith("mcp__"));
@@ -61,14 +63,14 @@ export function ToolPicker({ tools, selected, onChange }: {
   );
   return (
     <>
-      <div className="check-grid">{builtin.map((t) => box(t, t))}</div>
+      <div className="check-grid">{builtin.map((t) => box(t, labels[t] ?? t))}</div>
       {brokered.length > 0 && (
         <>
           <p className="muted check-note">
             Platform tools, via the MCP broker — an agent that has these can act
             on the platform without a shell.
           </p>
-          <div className="check-grid">{brokered.map((t) => box(t, mcpLabel(t)))}</div>
+          <div className="check-grid">{brokered.map((t) => box(t, labels[t] ?? mcpLabel(t)))}</div>
         </>
       )}
       <p className="muted check-note">

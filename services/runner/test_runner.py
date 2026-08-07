@@ -170,11 +170,11 @@ def test_permission_args_credential_less_agent_is_least_privilege(tmp_path, monk
 def test_permission_args_no_agent_bypass_even_with_token(tmp_path, monkeypatch):
     # No bypassPermissions for a token-bearing agent — scoped like everyone else.
     d = tmp_path / "agentdefs" / "mon"; d.mkdir(parents=True)
-    (d / "agent.md").write_text("---\nname: mon\ntools: mcp__platform__list_runs\n---\nbody")
+    (d / "agent.md").write_text("---\nname: mon\ntools: mcp__platform__runs_read\n---\nbody")
     monkeypatch.setenv("AP_AGENTS_DIR", str(tmp_path / "agentdefs"))
     args = runner._permission_args(self_edit=False, has_api_token=True, agent="mon")
     assert "bypassPermissions" not in args
-    assert args[:2] == ["--allowedTools", "mcp__platform__list_runs"]
+    assert args[:2] == ["--allowedTools", "mcp__platform__runs_read"]
     assert "--disallowedTools" in args and "Bash" in args and "Read" in args
 
 

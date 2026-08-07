@@ -102,7 +102,7 @@ def test_mcp_broker_tools_are_selectable():
     """The broker's tools must be in the registry, or the editor 422s on the
     real config of the agents that already declare them (health-monitor,
     run-summarizer) — making those agents uneditable."""
-    assert "mcp__platform__list_runs" in AVAILABLE_TOOLS
+    assert "mcp__platform__runs_read" in AVAILABLE_TOOLS
     assert "mcp__platform__post_message" in AVAILABLE_TOOLS
 
 
@@ -110,9 +110,9 @@ def test_mutate_agent_md_keeps_unknown_tools():
     """An unrecognized tool survives an edit it wasn't part of. Dropping it
     would widen access: lose them all and the line vanishes = unrestricted."""
     md = ("---\nname: bob\ndescription: d\n"
-          "tools: mcp__platform__list_runs, mcp__future__whatever\n---\nbody\n")
+          "tools: mcp__platform__runs_read, mcp__future__whatever\n---\nbody\n")
     out = mutate_agent_md(md, description="new")
-    assert parse_agent_tools(out) == ["mcp__platform__list_runs",
+    assert parse_agent_tools(out) == ["mcp__platform__runs_read",
                                       "mcp__future__whatever"]
 
 

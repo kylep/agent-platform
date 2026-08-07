@@ -6,7 +6,7 @@ from pathlib import Path
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 
-from agentplatform.agentspec import (AVAILABLE_TOOLS, KNOWN_MODELS,
+from agentplatform.agentspec import (AVAILABLE_TOOLS, KNOWN_MODELS, TOOL_HELP,
                                      mutate_agent_md, mutate_manifest_yaml,
                                      render_agent_md, render_manifest,
                                      validate_agent_name)
@@ -232,7 +232,8 @@ async def freeform_edit(request: Request, name: str, body: FreeformEditIn,
 async def agent_tools():
     """The canonical tool list the UI renders as checkboxes (one source of truth
     with the validation below)."""
-    return {"tools": AVAILABLE_TOOLS}
+    labels = {t["name"]: t["display_name"] for t in TOOL_HELP if t.get("display_name")}
+    return {"tools": AVAILABLE_TOOLS, "labels": labels}
 
 
 @router.get("/api/agent-models", response_model=AgentModels, dependencies=[Depends(require_role(*READ_ROLES))])

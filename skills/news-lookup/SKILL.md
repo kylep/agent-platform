@@ -1,6 +1,6 @@
 ---
 name: news-lookup
-description: Query the news app's archive (topics, dates, keyword search) with the mcp__platform__app_api tool. Use when asked what was in the news, to find past stories, or to summarize coverage of a topic or period — instead of searching the web.
+description: Query the news app's archive (topics, dates, keyword search) with the mcp__platform__query_app tool. Use when asked what was in the news, to find past stories, or to summarize coverage of a topic or period — instead of searching the web.
 icon: 🗞️
 ---
 # news-lookup
@@ -10,8 +10,8 @@ every story the news agent has gathered, tagged by topic and dated). Answer
 "what happened with X?" questions from HERE, not from the web: it's instant,
 deduplicated, and already curated.
 
-You have **no shell**. Query with your `mcp__platform__app_api` tool:
-`app_api(app="news", path=<endpoint>, params={...})`. Endpoints:
+You have **no shell**. Query with your `mcp__platform__query_app` tool:
+`query_app(app="news", path=<endpoint>, params={...})`. Endpoints:
 
 | path | params | returns |
 |---|---|---|
@@ -22,9 +22,9 @@ You have **no shell**. Query with your `mcp__platform__app_api` tool:
 
 Examples:
 
-- One day: `app_api(app="news", path="items", params={"day": "2026-08-06"})`
-- A topic over a range: `app_api(app="news", path="items", params={"topic": "ai-industry", "day_from": "2026-07-30", "day_to": "2026-08-06"})`
-- Keyword search: `app_api(app="news", path="items", params={"q": "kubernetes", "limit": 50})`
+- One day: `query_app(app="news", path="items", params={"day": "2026-08-06"})`
+- A topic over a range: `query_app(app="news", path="items", params={"topic": "ai-industry", "day_from": "2026-07-30", "day_to": "2026-08-06"})`
+- Keyword search: `query_app(app="news", path="items", params={"q": "kubernetes", "limit": 50})`
 
 ## Answering style
 

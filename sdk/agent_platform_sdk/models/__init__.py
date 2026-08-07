@@ -6,6 +6,7 @@ from .agent_metrics_by_state import AgentMetricsByState
 from .agent_models import AgentModels
 from .agent_summary import AgentSummary
 from .agent_tools import AgentTools
+from .agent_tools_labels import AgentToolsLabels
 from .annotate_in import AnnotateIn
 from .api_key_created import ApiKeyCreated
 from .api_key_in import ApiKeyIn
@@ -110,6 +111,7 @@ __all__ = (
     "AgentModels",
     "AgentSummary",
     "AgentTools",
+    "AgentToolsLabels",
     "AnnotateIn",
     "ApiKeyCreated",
     "ApiKeyIn",

@@ -10,7 +10,7 @@ const NAME_RE = /^[a-z0-9][a-z0-9-]{0,62}$/;
 
 export default function NewAgent() {
   const navigate = useNavigate();
-  const { skills, tools, ready } = useCapabilities();
+  const { skills, tools, labels, ready } = useCapabilities();
 
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
@@ -108,7 +108,7 @@ export default function NewAgent() {
       <SkillPicker skills={skills} selected={pickedSkills} onChange={setPickedSkills} />
 
       <h2>Tools</h2>
-      <ToolPicker tools={tools} selected={pickedTools} onChange={setPickedTools} />
+      <ToolPicker tools={tools} labels={labels} selected={pickedTools} onChange={setPickedTools} />
 
       <label className="field-label">System prompt</label>
       <Textarea placeholder="You are…" value={prompt} rows={6}

@@ -56,6 +56,9 @@ class AgentSummary(BaseModel):
 
 class AgentTools(BaseModel):
     tools: list[str]
+    # Presentation labels for awkward harness-fixed ids (TodoWrite → "Todo");
+    # keys are tool names, manifests always declare the real id.
+    labels: dict[str, str] = {}
 
 
 class ModelOption(BaseModel):
@@ -247,6 +250,9 @@ class ToolHelp(BaseModel):
     # Always denied by the runner for non-self-edit agents (trifecta break) —
     # checking it on a normal agent does nothing.
     sensitive: bool
+    # Friendlier label for pickers/Help when the harness-fixed id is awkward
+    # (e.g. TodoWrite → "Todo"). The id in `name` is what manifests declare.
+    display_name: str | None = None
 
 
 # --- integrations ------------------------------------------------------------

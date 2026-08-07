@@ -69,7 +69,7 @@ function parseTools(md: string): string[] | null {
 function CapabilityEditor({ agent, locked, onSaved }: {
   agent: AgentDetailData; locked: boolean; onSaved: (r: EditResult) => void;
 }) {
-  const { skills, tools, ready } = useCapabilities();
+  const { skills, tools, labels, ready } = useCapabilities();
   const [pickedSkills, setPickedSkills] = useState<Set<string>>(new Set(agent.manifest.skills));
   const [pickedTools, setPickedTools] = useState<Set<string>>(new Set());
   const [seeded, setSeeded] = useState(false);
@@ -110,7 +110,7 @@ function CapabilityEditor({ agent, locked, onSaved }: {
       <SkillPicker skills={skills} selected={pickedSkills} onChange={setPickedSkills} />
 
       <h2>Tools</h2>
-      <ToolPicker tools={tools} selected={pickedTools} onChange={setPickedTools} />
+      <ToolPicker tools={tools} labels={labels} selected={pickedTools} onChange={setPickedTools} />
 
       {noop && <Banner>No changes — the agent already matches this configuration.</Banner>}
       {error && <div className="error">{error}</div>}
