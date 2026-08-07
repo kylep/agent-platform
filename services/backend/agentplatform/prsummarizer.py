@@ -73,7 +73,7 @@ class PrSummarizer:
 
     async def _dispatch(self, number: int, sha: str, prompt: str) -> None:
         run = Run(agent=SUMMARIZER_AGENT, trigger="pr-summary",
-                  requested_by="pr-summarizer", prompt=prompt,
+                  requested_by="pr-summarizer", initiated_by="admin", prompt=prompt,
                   tags=run_tags(number, sha))
         async with self.sf() as s:
             s.add(run)

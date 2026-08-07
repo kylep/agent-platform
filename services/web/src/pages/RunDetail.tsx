@@ -241,6 +241,8 @@ export default function RunDetail() {
             <> · invoked by <Link to={`/runs/${run.parent_run_id}`}>{run.parent_run_id.slice(0, 8)}</Link> (depth {run.depth})</>
           )}
         </dd>
+        <dt>Initiated by</dt>
+        <dd>{run.initiated_by ?? "—"}{run.requested_by && run.requested_by !== run.initiated_by ? ` (via ${run.requested_by})` : ""}</dd>
         <dt>Created</dt>
         <dd>{new Date(run.created_at).toLocaleString()}</dd>
         <dt>Started</dt>

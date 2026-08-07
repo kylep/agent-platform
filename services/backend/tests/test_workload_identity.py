@@ -121,3 +121,34 @@ def test_build_job_without_identity_has_no_projection():
     spec = job.spec.template.spec
     assert spec.service_account_name is None
     assert all(v.name != "ap-identity" for v in spec.volumes)
+
+
+# --- principal stub (docs/design/13 D) ---------------------------------------
+
+async def test_initiated_by_set_and_chained(client, sf):
+    """Admin-started runs record the principal; an agent-invoked child
+    inherits the ROOT initiator, not the intermediate agent."""
+    from sqlalchemy import select
+    from agentplatform.apikeys import generate_token, hash_token, token_prefix
+    from agentplatform.db import ApiKey, Run
+    await client.post("/api/setup", json={"password": "pw12345678"})
+    await client.post("/api/login", json={"password": "pw12345678"})
+    r = await client.post("/api/runs", json={"agent": "hello-world", "prompt": "hi"})
+    root_id = r.json()["id"]
+    async with sf() as s:
+        root = await s.get(Run, root_id)
+        assert root.initiated_by == "admin" and root.requested_by == "admin"
+        # Mint an operator per-run key as if hello-world can invoke.
+        token = generate_token()
+        s.add(ApiKey(name="invoke:hello-world", role="operator", agent="hello-world",
+                     run_id=root_id, key_hash=hash_token(token), prefix=token_prefix(token)))
+        await s.commit()
+    client.cookies.clear()
+    r = await client.post("/api/runs", json={"agent": "hello-world", "prompt": "child"},
+                          headers={"Authorization": f"Bearer {token}"})
+    assert r.status_code == 200, r.text
+    async with sf() as s:
+        child = await s.get(Run, r.json()["id"])
+    assert child.trigger == "agent" and child.parent_run_id == root_id
+    assert child.initiated_by == "admin"          # root principal survives the chain
+    assert child.requested_by == "invoke:hello-world"

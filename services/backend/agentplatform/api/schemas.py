@@ -113,6 +113,7 @@ class RunDetail(RunSummary):
     parent_run_id: str | None
     depth: int
     requested_by: str
+    initiated_by: str | None = None
     started_at: str | None
     finished_at: str | None
 

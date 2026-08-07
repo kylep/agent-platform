@@ -215,7 +215,8 @@ async def freeform_edit(request: Request, name: str, body: FreeformEditIn,
     # Instruction first so the runner derives a clean PR title from line 1.
     prompt = (f"{body.instruction}\n\nContext: edit the agent `{name}` in this "
               f"repository; only modify files under `agents/{name}/`.")
-    run = Run(agent="platform-coder", trigger="self-edit", requested_by=principal, prompt=prompt)
+    run = Run(agent="platform-coder", trigger="self-edit", requested_by=principal,
+              initiated_by=principal, prompt=prompt)
     async with st.session_factory() as s:
         s.add(run); await s.commit()
     try:

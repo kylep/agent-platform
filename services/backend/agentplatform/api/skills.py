@@ -145,7 +145,8 @@ async def skill_wizard(request: Request, body: SkillWizardIn,
         "secrets with state/severity) followed by concise, imperative usage "
         "instructions an agent can follow without guessing. Match the style of "
         f"the existing skills under `skills/`. Only create/modify files under {scope}.")
-    run = Run(agent="platform-coder", trigger="self-edit", requested_by=principal, prompt=prompt)
+    run = Run(agent="platform-coder", trigger="self-edit", requested_by=principal,
+              initiated_by=principal, prompt=prompt)
     async with st.session_factory() as s:
         s.add(run); await s.commit()
     try:

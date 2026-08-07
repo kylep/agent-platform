@@ -108,5 +108,6 @@ async def run_job_now(request: Request, job_id: str, principal: str = Depends(re
     await materialize_run(request.app.state.session_factory, request.app.state.producer, {
         "run_id": run_id, "agent": agent, "prompt": prompt,
         "trigger": "manual", "requested_by": f"{principal} (job:{job_id})",
+        "initiated_by": principal,
     })
     return {"id": run_id, "agent": agent}

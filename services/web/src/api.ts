@@ -68,6 +68,7 @@ export type RunDetailData = RunSummary & {
   parent_run_id: string | null;
   depth: number;
   requested_by: string;
+  initiated_by?: string | null;
   secrets_granted: string[];
   permission_denials?: Array<Record<string, unknown>>;
 };

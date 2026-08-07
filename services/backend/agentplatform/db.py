@@ -23,6 +23,13 @@ class Run(Base):
     agent: Mapped[str] = mapped_column(String(128))
     trigger: Mapped[str] = mapped_column(String(32))
     requested_by: Mapped[str] = mapped_column(String(128))
+    # docs/design/13 D: the PRINCIPAL at the root of the chain — who this work
+    # is ultimately being done for. requested_by is the immediate requester
+    # (an agent, the scheduler, a job); initiated_by survives chaining: an
+    # agent-invoked child inherits its parent's. Single-operator today, so
+    # this is almost always "admin" — but the claim, the column, and the
+    # audit trail are real from day one (family access is additive later).
+    initiated_by: Mapped[str | None] = mapped_column(String(128), nullable=True)
     # Run-chain provenance for agent-invokes-agent. parent_run_id is the run
     # whose API token requested this one (null for human/schedule/webhook
     # triggers); depth is the chain length, used as a loop guard.

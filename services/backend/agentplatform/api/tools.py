@@ -173,7 +173,8 @@ async def tool_wizard(request: Request, body: ToolWizardIn,
         f"{('Notes: ' + body.notes) if body.notes else ''}")
     from agentplatform.db import Run
     from agentplatform.events import TOPIC_RUN_REQUESTS
-    run = Run(agent="platform-coder", trigger="self-edit", requested_by=principal, prompt=prompt)
+    run = Run(agent="platform-coder", trigger="self-edit", requested_by=principal,
+              initiated_by=principal, prompt=prompt)
     async with st.session_factory() as s:
         s.add(run)
         await s.commit()

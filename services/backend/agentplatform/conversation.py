@@ -65,6 +65,8 @@ async def continue_conversation(session_factory, producer, conversation_id: str,
     await materialize_run(session_factory, producer, {
         "run_id": run_id, "agent": agent, "prompt": build_prompt(history, message),
         "trigger": "conversation", "requested_by": requested_by,
+        # The external user who spoke IS the root principal of this chain.
+        "initiated_by": requested_by,
         "conversation_id": conversation_id, "user_message": message,
     })
     return run_id

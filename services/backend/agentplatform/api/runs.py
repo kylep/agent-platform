@@ -44,11 +44,15 @@ async def create_run(request: Request, body: RunIn,
     # can't reset its own depth to dodge the loop guard.
     parent_run_id = getattr(request.state, "api_key_run_id", None)
     trigger, depth = "manual", 0
+    initiated_by = principal if not getattr(request.state, "api_key_agent", None) else None
     if parent_run_id:
         async with request.app.state.session_factory() as s:
             parent = await s.get(Run, parent_run_id)
         if parent is not None:
             trigger, depth = "agent", (parent.depth or 0) + 1
+            # The chain keeps its ROOT principal: an agent-invoked child is
+            # still being done for whoever started the ancestor (design/13 D).
+            initiated_by = parent.initiated_by
             if depth > request.app.state.settings.max_run_chain_depth:
                 raise HTTPException(429, "run-chain depth limit exceeded")
     # Synchronous command: materialize the run now (DB-first) and return its id.
@@ -57,6 +61,7 @@ async def create_run(request: Request, body: RunIn,
     await materialize_run(request.app.state.session_factory, request.app.state.producer, {
         "run_id": run_id, "agent": body.agent, "prompt": body.prompt,
         "trigger": trigger, "requested_by": principal,
+        "initiated_by": initiated_by,
         "parent_run_id": parent_run_id if trigger == "agent" else None, "depth": depth,
     })
     return {"id": run_id, "state": "queued"}
@@ -113,6 +118,7 @@ async def get_run(request: Request, run_id: str):
                   "permission_denials": run.permission_denials or [],
                   "parent_run_id": run.parent_run_id, "depth": run.depth or 0,
                   "requested_by": run.requested_by,
+                  "initiated_by": run.initiated_by,
                   "started_at": run.started_at.isoformat() if run.started_at else None,
                   "finished_at": run.finished_at.isoformat() if run.finished_at else None})
         return d

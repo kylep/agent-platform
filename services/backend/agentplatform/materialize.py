@@ -22,7 +22,9 @@ async def materialize_run(session_factory, producer, spec: dict,
                           publish_timeout: float = PUBLISH_TIMEOUT_SECONDS) -> str:
     """Create the Run (idempotent on spec['run_id']) and publish run.requests.
     `spec` keys: run_id, agent, prompt, trigger, requested_by, and optional
-    parent_run_id, depth, conversation_id. Returns the run id.
+    initiated_by (root principal, defaults to "admin" — the single-operator
+    stub of docs/design/13 D), parent_run_id, depth, conversation_id.
+    Returns the run id.
 
     Postgres-first: the row is committed before the publish, and a failed/slow
     publish is swallowed — the run is `queued` and the dispatcher's queued-run
@@ -33,6 +35,7 @@ async def materialize_run(session_factory, producer, spec: dict,
             s.add(Run(
                 id=run_id, agent=spec["agent"], prompt=spec["prompt"],
                 trigger=spec["trigger"], requested_by=spec["requested_by"],
+                initiated_by=spec.get("initiated_by") or "admin",
                 parent_run_id=spec.get("parent_run_id"), depth=spec.get("depth", 0),
                 conversation_id=spec.get("conversation_id"),
                 user_message=spec.get("user_message"),

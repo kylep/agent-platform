@@ -7,6 +7,8 @@ from attrs import define as _attrs_define
 from attrs import field as _attrs_field
 from typing_extensions import Self
 
+from ..types import UNSET, Unset
+
 if TYPE_CHECKING:
     from ..models.run_detail_permission_denials_item import (
         RunDetailPermissionDenialsItem,
@@ -40,6 +42,7 @@ class RunDetail:
         tokens_out (int):
         tool_calls (int):
         trigger (str):
+        initiated_by (None | str | Unset):
     """
 
     agent: str
@@ -62,6 +65,7 @@ class RunDetail:
     tokens_out: int
     tool_calls: int
     trigger: str
+    initiated_by: None | str | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -115,6 +119,12 @@ class RunDetail:
 
         trigger = self.trigger
 
+        initiated_by: None | str | Unset
+        if isinstance(self.initiated_by, Unset):
+            initiated_by = UNSET
+        else:
+            initiated_by = self.initiated_by
+
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
@@ -141,6 +151,8 @@ class RunDetail:
                 "trigger": trigger,
             }
         )
+        if initiated_by is not UNSET:
+            field_dict["initiated_by"] = initiated_by
 
         return field_dict
 
@@ -233,6 +245,15 @@ class RunDetail:
 
         trigger = d.pop("trigger")
 
+        def _parse_initiated_by(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        initiated_by = _parse_initiated_by(d.pop("initiated_by", UNSET))
+
         run_detail = cls(
             agent=agent,
             created_at=created_at,
@@ -254,6 +275,7 @@ class RunDetail:
             tokens_out=tokens_out,
             tool_calls=tool_calls,
             trigger=trigger,
+            initiated_by=initiated_by,
         )
 
         run_detail.additional_properties = d
