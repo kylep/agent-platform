@@ -42,6 +42,19 @@ for (const { path, heading, probe } of PAGES) {
   });
 }
 
+test("tailwind utilities are actually generated (source-detection canary)", async ({ page }) => {
+  // Regression guard: after the @ap/ui extraction, Tailwind's automatic
+  // source detection scanned only the package and every utility used by the
+  // PAGES silently vanished — content intact, spacing gone, all tests green.
+  // Assert a page-level utility (Dashboard's `mb-2`) produces real CSS.
+  await mockApi(page);
+  await page.goto("/");
+  const mb = await page.locator(".mb-2").first().evaluate(
+    (el) => getComputedStyle(el).marginBottom);
+  expect(mb, "mb-2 must resolve to a nonzero margin — if this fails, check " +
+             "the @source declaration in packages/ui/src/tokens.css").not.toBe("0px");
+});
+
 test("report viewer renders the sanitized fragment in a sandboxed frame", async ({ page }) => {
   const unmatched = await mockApi(page);
   await page.goto("/reports/daily-news");
