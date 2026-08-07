@@ -141,3 +141,27 @@ async def per_agent(request: Request):
         rows.append(row)
     rows.sort(key=lambda r: r["total"], reverse=True)
     return rows
+
+
+@router.get("/api/metrics/tools", response_model=list[S.ToolMetrics], dependencies=[Depends(require_role(*READ_ROLES))])
+async def metrics_tools(request: Request, hours: int = 24):
+    """Per-tool call aggregates from the audit trail (docs/design/13 E):
+    volumes, denials, errors, latency — what health-monitor watches for
+    denial spikes and what the Reporting page charts."""
+    from sqlalchemy import case, func
+    from agentplatform.db import ToolAudit
+    hours = max(1, min(int(hours), 24 * 14))
+    cutoff = utcnow() - timedelta(hours=hours)
+    stmt = (select(ToolAudit.tool,
+                   func.count().label("calls"),
+                   func.sum(case((ToolAudit.decision.like("deny%"), 1), else_=0)).label("denials"),
+                   func.sum(case((ToolAudit.decision.like("error%"), 1), else_=0)).label("errors"),
+                   func.avg(ToolAudit.latency_ms).label("avg_latency_ms"))
+            .where(ToolAudit.ts >= cutoff).group_by(ToolAudit.tool)
+            .order_by(func.count().desc()))
+    async with request.app.state.session_factory() as s:
+        rows = (await s.execute(stmt)).all()
+    return [{"tool": r.tool, "calls": int(r.calls or 0),
+             "denials": int(r.denials or 0), "errors": int(r.errors or 0),
+             "avg_latency_ms": round(float(r.avg_latency_ms or 0), 1)}
+            for r in rows]

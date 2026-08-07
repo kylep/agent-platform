@@ -99,10 +99,12 @@ from .skill_view import SkillView
 from .skill_wizard_in import SkillWizardIn
 from .skill_wizard_secret import SkillWizardSecret
 from .sync_status import SyncStatus
+from .tool_audit_view import ToolAuditView
 from .tool_detail import ToolDetail
 from .tool_detail_files import ToolDetailFiles
 from .tool_detail_params import ToolDetailParams
 from .tool_help import ToolHelp
+from .tool_metrics import ToolMetrics
 from .tool_quick_edit_in import ToolQuickEditIn
 from .tool_quick_edit_in_files import ToolQuickEditInFiles
 from .tool_view import ToolView
@@ -213,10 +215,12 @@ __all__ = (
     "SkillWizardIn",
     "SkillWizardSecret",
     "SyncStatus",
+    "ToolAuditView",
     "ToolDetail",
     "ToolDetailFiles",
     "ToolDetailParams",
     "ToolHelp",
+    "ToolMetrics",
     "ToolQuickEditIn",
     "ToolQuickEditInFiles",
     "ToolView",

@@ -88,14 +88,17 @@ async def runs_write(run_id: str, summary: str, tags: list[str] | None = None) -
 async def metrics(scope: str = "overview") -> str:
     """Platform health metrics (JSON). scope='overview' → run volumes, success
     rate, token spend; scope='agents' → per-agent metrics incl. failure_streak;
-    scope='kafka' → event-bus health (reachability, consumer lag, DLQ backlog)."""
+    scope='kafka' → event-bus health (reachability, consumer lag, DLQ backlog);
+    scope='tools' → per-tool call/denial/error counts from the audit trail."""
     if scope == "agents":
         return await _call("GET", "/api/metrics/agents")
     if scope == "kafka":
         return await _call("GET", "/api/health/kafka")
+    if scope == "tools":
+        return await _call("GET", "/api/metrics/tools")
     if scope == "overview":
         return await _call("GET", "/api/metrics/overview")
-    return "error: scope must be one of overview|agents|kafka"
+    return "error: scope must be one of overview|agents|kafka|tools"
 
 
 # --- apps (news-librarian etc.) ----------------------------------------------
@@ -108,6 +111,71 @@ async def query_app(app: str, path: str, params: dict | None = None) -> str:
     documents its endpoints. e.g. query_app(app='news', path='items',
     params={'topic': 'ai-industry', 'day_from': '2026-08-01'})."""
     return await _call("GET", f"/api/apps/{app}/query/{path}", params or {})
+
+
+# --- audit + rate limits (docs/design/13 E) ----------------------------------
+# The broker is the single chokepoint for custom-tool calls, so it carries the
+# audit log (published to Kafka — the recorder side writes the table; this
+# service stays credential-free) and per-identity rate limits.
+
+import hashlib as _hashlib
+import json as _json
+import time as _time
+import uuid as _uuid
+from collections import defaultdict
+from datetime import datetime, timezone
+
+_KAFKA = os.environ.get("AP_KAFKA_BOOTSTRAP", "")
+_TOPIC_AUDIT = "platform.tool.audit"
+_audit_producer = None
+
+# Token bucket per (agent, tool): burst 30, ~30 calls/minute refill.
+_RATE_CAPACITY = 30.0
+_RATE_REFILL_PER_S = 0.5
+_buckets: dict[tuple[str, str], list[float]] = defaultdict(
+    lambda: [_RATE_CAPACITY, _time.monotonic()])
+
+
+def _rate_ok(agent: str, tool: str) -> bool:
+    b = _buckets[(agent, tool)]
+    now = _time.monotonic()
+    b[0] = min(_RATE_CAPACITY, b[0] + (now - b[1]) * _RATE_REFILL_PER_S)
+    b[1] = now
+    if b[0] < 1.0:
+        return False
+    b[0] -= 1.0
+    return True
+
+
+def _args_digest(arguments: dict) -> str:
+    # A digest, never the raw args — they may embed sensitive content.
+    return _hashlib.sha256(
+        _json.dumps(arguments, sort_keys=True, default=str).encode()).hexdigest()
+
+
+async def _audit(agent: str, run_id: str, initiated_by: str, tool: str,
+                 arguments: dict, decision: str, t0: float, result_bytes: int = 0) -> None:
+    """Fire-and-forget audit event; auditing must never break a tool call."""
+    global _audit_producer
+    if not _KAFKA:
+        return
+    try:
+        if _audit_producer is None:
+            from aiokafka import AIOKafkaProducer
+            _audit_producer = AIOKafkaProducer(bootstrap_servers=_KAFKA)
+            await _audit_producer.start()
+        env = {"type": "tool.audit", "schema_version": 1, "id": _uuid.uuid4().hex,
+               "ts": datetime.now(timezone.utc).isoformat(), "key": agent,
+               "source": "mcp-broker",
+               "data": {"agent": agent, "run_id": run_id or None,
+                        "initiated_by": initiated_by or None, "tool": tool,
+                        "args_digest": _args_digest(arguments), "decision": decision,
+                        "latency_ms": int((_time.monotonic() - t0) * 1000),
+                        "result_bytes": result_bytes}}
+        await _audit_producer.send_and_wait(
+            _TOPIC_AUDIT, _json.dumps(env).encode(), key=agent.encode() or b"unknown")
+    except Exception:
+        log.exception("tool audit publish failed (call unaffected)")
 
 
 # --- custom tools (docs/design/12) -------------------------------------------
@@ -128,26 +196,40 @@ class CustomTool(Tool):
     broker and platform API — the executor gets identity, never credentials."""
 
     async def run(self, arguments: dict) -> ToolResult:
+        t0 = _time.monotonic()
         ident = await _whoami()
         if ident is None:
+            await _audit("", "", "", self.name, arguments, "deny:unauthenticated", t0)
             return ToolResult(content="error: unauthenticated (no valid platform token)")
+        agent = ident.get("agent") or ident.get("principal") or ""
+        run_id = ident.get("run_id") or ""
+        initiated_by = ident.get("initiated_by") or ""
         declared = ident.get("tools")
         if declared is not None and f"mcp__platform__{self.name}" not in declared:
+            await _audit(agent, run_id, initiated_by, self.name, arguments, "deny:undeclared", t0)
             return ToolResult(content=f"error: your agent does not declare the {self.name} tool")
-        caller = {"agent": ident.get("agent") or ident.get("principal") or "",
-                  "run_id": ident.get("run_id") or ""}
+        if not _rate_ok(agent, self.name):
+            await _audit(agent, run_id, initiated_by, self.name, arguments, "deny:rate-limit", t0)
+            return ToolResult(content="error: rate limit exceeded for this tool — slow down and retry shortly")
+        caller = {"agent": agent, "run_id": run_id}
         try:
             async with httpx.AsyncClient(base_url=_EXECUTOR, timeout=150) as c:
                 r = await c.post("/run", json={"tool": self.name, "args": arguments,
                                                "caller": caller})
         except httpx.HTTPError as e:
+            await _audit(agent, run_id, initiated_by, self.name, arguments, "error:executor-unreachable", t0)
             return ToolResult(content=f"error: tool-executor unreachable ({e})")
         if r.status_code != 200:
+            await _audit(agent, run_id, initiated_by, self.name, arguments, f"error:http-{r.status_code}", t0)
             return ToolResult(content=f"error: tool-executor returned {r.status_code}: {r.text[:500]}")
         body = r.json()
         if not body.get("ok"):
+            await _audit(agent, run_id, initiated_by, self.name, arguments, "error:tool", t0)
             return ToolResult(content=f"error: {body.get('error', 'unknown tool failure')}")
-        return ToolResult(content=body.get("output", ""))
+        output = body.get("output", "")
+        await _audit(agent, run_id, initiated_by, self.name, arguments, "allow", t0,
+                     result_bytes=len(output))
+        return ToolResult(content=output)
 
 
 def _scan_custom_tools() -> dict[str, dict]:

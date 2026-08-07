@@ -65,6 +65,24 @@ class Run(Base):
     reply_published_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True)
 
+class ToolAudit(Base):
+    """Append-only audit of custom-tool calls at the broker chokepoint
+    (docs/design/13 E). args_digest is a sha256 of the canonical arguments —
+    never the raw args, which may embed sensitive content. `decision` is
+    allow | deny:<reason> | error:<kind>."""
+    __tablename__ = "tool_audit"
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=lambda: uuid.uuid4().hex)
+    ts: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
+    run_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    agent: Mapped[str] = mapped_column(String(128), index=True)
+    initiated_by: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    tool: Mapped[str] = mapped_column(String(64), index=True)
+    args_digest: Mapped[str] = mapped_column(String(64), default="")
+    decision: Mapped[str] = mapped_column(String(64))
+    latency_ms: Mapped[int] = mapped_column(Integer, default=0)
+    result_bytes: Mapped[int] = mapped_column(Integer, default=0)
+
+
 class RunModelUsage(Base):
     """Per-(run, model) token usage, captured by the recorder from the run's
     terminal `modelUsage` frame. A run can use several models (main + subagents),

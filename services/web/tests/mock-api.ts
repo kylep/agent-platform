@@ -176,6 +176,9 @@ const FIXTURES: Record<string, unknown> = {
       ui: false, api: true, postgres: false, kafka_topics: [], redis: false,
       agent_key_role: null, error: null, ready: null, ready_replicas: 0 },
   ],
+  "/api/metrics/tools": [
+    { tool: "stocks", calls: 12, denials: 0, errors: 1, avg_latency_ms: 900.5 },
+  ],
   "/api/help/topics": [
     { slug: "agents", title: "Agents" },
     { slug: "changes", title: "Changes — the change loop" },

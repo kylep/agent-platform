@@ -214,3 +214,23 @@ async def test_invalid_run_token_rejects_entirely(tool_client, secret_store):
     assert r.status_code == 401
     r = await tool_client.get("/api/whoami", headers={**_auth(), "X-AP-Run-Token": "garbage"})
     assert r.status_code == 401
+
+
+# --- audit trail (docs/design/13 E) ------------------------------------------
+
+async def test_tool_audit_ingest_and_surfaces(client, sf, producer):
+    from agentplatform.ingest import ToolAuditIngestor
+    ing = ToolAuditIngestor(None, sf, producer)
+    for decision, tool in [("allow", "stocks"), ("allow", "stocks"),
+                           ("deny:undeclared", "linear"), ("error:tool", "stocks")]:
+        await ing._record({"agent": "pai", "run_id": "r1", "initiated_by": "admin",
+                           "tool": tool, "args_digest": "d" * 64,
+                           "decision": decision, "latency_ms": 120, "result_bytes": 10})
+    await client.post("/api/setup", json={"password": "pw12345678"})
+    await client.post("/api/login", json={"password": "pw12345678"})
+    m = {r["tool"]: r for r in (await client.get("/api/metrics/tools")).json()}
+    assert m["stocks"]["calls"] == 3 and m["stocks"]["errors"] == 1 and m["stocks"]["denials"] == 0
+    assert m["linear"]["denials"] == 1
+    rows = (await client.get("/api/audit/tools?decision=deny")).json()
+    assert len(rows) == 1 and rows[0]["tool"] == "linear"
+    assert rows[0]["initiated_by"] == "admin" and rows[0]["args_digest"] == "d" * 64

@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { api, type AgentMetrics, type AgentSummary, type Integration, type KafkaHealth, type MetricsOverview, type ModelUsage, type Retention } from "../api";
+import { api, type AgentMetrics, type AgentSummary, type Integration, type KafkaHealth, type MetricsOverview, type ModelUsage, type Retention, type ToolMetrics } from "../api";
 import DurationChart from "../components/DurationChart";
 import { Button } from "@ap/ui/button";
 import { Chip, chipStatusVariant } from "@ap/ui/chip";
@@ -21,6 +21,7 @@ function dur(x: number | null): string {
 
 export default function Reporting() {
   const [ov, setOv] = useState<MetricsOverview | null>(null);
+  const [toolStats, setToolStats] = useState<ToolMetrics[]>([]);
   const [agents, setAgents] = useState<AgentMetrics[]>([]);
   const [liveAgents, setLiveAgents] = useState<Set<string>>(new Set());
   const [kafka, setKafka] = useState<KafkaHealth | null>(null);
@@ -40,6 +41,7 @@ export default function Reporting() {
       .then(([o, a]) => { setOv(o); setAgents(a); })
       .catch((err) => setError(err instanceof Error ? err.message : "Failed to load metrics."));
     api<KafkaHealth>("/api/health/kafka").then(setKafka).catch(() => setKafka(null));
+    api<ToolMetrics[]>("/api/metrics/tools").then(setToolStats).catch(() => setToolStats([]));
     api<Retention>("/api/maintenance/retention").then(setRetention).catch(() => setRetention(null));
     api<Integration[]>("/api/integrations").then(setIntegrations).catch(() => setIntegrations([]));
     api<AgentSummary[]>("/api/agents")
@@ -132,6 +134,25 @@ export default function Reporting() {
             </tr>
           ))}
           {agents.length === 0 && <tr><TD colSpan={7} className="text-muted">No runs yet.</TD></tr>}
+        </tbody>
+      </Table>
+
+      <h2>Tool calls <span className="muted text-sm font-normal">(24h, from the broker audit trail)</span></h2>
+      <Table>
+        <thead>
+          <tr><TH>Tool</TH><TH>Calls</TH><TH>Denied</TH><TH>Errors</TH><TH>Avg latency</TH></tr>
+        </thead>
+        <tbody>
+          {toolStats.map((tm) => (
+            <tr key={tm.tool}>
+              <TD className="whitespace-nowrap"><code>{tm.tool}</code></TD>
+              <TD>{tm.calls}</TD>
+              <TD>{tm.denials > 0 ? <Chip variant="danger">{tm.denials}</Chip> : "0"}</TD>
+              <TD>{tm.errors > 0 ? <Chip variant="warn">{tm.errors}</Chip> : "0"}</TD>
+              <TD className="text-muted">{tm.avg_latency_ms} ms</TD>
+            </tr>
+          ))}
+          {toolStats.length === 0 && <tr><TD colSpan={5} className="text-muted">No tool calls in the last 24h.</TD></tr>}
         </tbody>
       </Table>
 

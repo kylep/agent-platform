@@ -175,6 +175,14 @@ export type Tool = {
 
 export type ToolDetail = Tool & { params: Record<string, unknown>; files: Record<string, string> };
 
+export type ToolMetrics = {
+  tool: string;
+  calls: number;
+  denials: number;
+  errors: number;
+  avg_latency_ms: number;
+};
+
 export type MetricsOverview = {
   total: number;
   by_state: Record<string, number>;

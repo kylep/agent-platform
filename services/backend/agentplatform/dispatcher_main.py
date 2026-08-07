@@ -16,7 +16,7 @@ from agentplatform.dispatcher import Dispatcher
 from agentplatform.events import Producer
 from agentplatform.githubapp import GitHubApp
 from agentplatform.conversation_ingest import ConversationIngestor
-from agentplatform.ingest import Ingestor
+from agentplatform.ingest import Ingestor, ToolAuditIngestor
 from agentplatform.joblauncher import JobWatcher, K8sJobLauncher
 from agentplatform.github import GitHubClient
 from agentplatform.pruning import ReportPruner, TranscriptPruner, sweep_orphaned_keys_forever
@@ -101,6 +101,7 @@ async def main() -> None:
                                        K8sSecretStore(core, settings.k8s_namespace),
                                        settings)
     ingestor = Ingestor(settings, session_factory, producer)
+    audit_ingestor = ToolAuditIngestor(settings, session_factory, producer)
     conv_ingestor = ConversationIngestor(settings, session_factory, producer)
 
     # Auto AI summaries on pending changes: needs the GitHub App (comments)
@@ -117,7 +118,7 @@ async def main() -> None:
                              dispatcher.sweep_forever(), scheduler.run_forever(),
                              pruner.run_forever(), report_pruner.run_forever(),
                              app_provisioner.run_forever(), tool_provisioner.run_forever(),
-                             ingestor.run_forever(),
+                             ingestor.run_forever(), audit_ingestor.run_forever(),
                              conv_ingestor.run_forever(), verifier.run_forever(),
                              sweep_orphaned_keys_forever(session_factory),
                              pr_summarizer.run_forever())

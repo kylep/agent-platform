@@ -233,6 +233,27 @@ class KafkaHealth(BaseModel):
     backlog: Backlog
 
 
+class ToolAuditView(BaseModel):
+    id: str
+    ts: str | None
+    run_id: str | None
+    agent: str
+    initiated_by: str | None
+    tool: str
+    args_digest: str
+    decision: str
+    latency_ms: int
+    result_bytes: int
+
+
+class ToolMetrics(BaseModel):
+    tool: str
+    calls: int
+    denials: int
+    errors: int
+    avg_latency_ms: float
+
+
 # --- help --------------------------------------------------------------------
 
 class HelpTopic(BaseModel):
@@ -503,6 +524,8 @@ class WhoAmI(BaseModel):
     role: str
     agent: str | None      # set for agent-scoped API keys
     run_id: str | None     # set for per-run keys
+    # Root principal from the run JWT's frozen claims (design/13 C/D).
+    initiated_by: str | None = None
     # The mcp__platform__* tools the caller's agent definition declares
     # (None for non-agent callers, e.g. the admin session).
     tools: list[str] | None

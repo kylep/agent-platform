@@ -7,6 +7,8 @@ from attrs import define as _attrs_define
 from attrs import field as _attrs_field
 from typing_extensions import Self
 
+from ..types import UNSET, Unset
+
 T = TypeVar("T", bound="WhoAmI")
 
 
@@ -20,6 +22,7 @@ class WhoAmI:
         role (str):
         run_id (None | str):
         tools (list[str] | None):
+        initiated_by (None | str | Unset):
     """
 
     agent: None | str
@@ -27,6 +30,7 @@ class WhoAmI:
     role: str
     run_id: None | str
     tools: list[str] | None
+    initiated_by: None | str | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -47,6 +51,12 @@ class WhoAmI:
         else:
             tools = self.tools
 
+        initiated_by: None | str | Unset
+        if isinstance(self.initiated_by, Unset):
+            initiated_by = UNSET
+        else:
+            initiated_by = self.initiated_by
+
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
@@ -58,6 +68,8 @@ class WhoAmI:
                 "tools": tools,
             }
         )
+        if initiated_by is not UNSET:
+            field_dict["initiated_by"] = initiated_by
 
         return field_dict
 
@@ -98,12 +110,22 @@ class WhoAmI:
 
         tools = _parse_tools(d.pop("tools"))
 
+        def _parse_initiated_by(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        initiated_by = _parse_initiated_by(d.pop("initiated_by", UNSET))
+
         who_am_i = cls(
             agent=agent,
             principal=principal,
             role=role,
             run_id=run_id,
             tools=tools,
+            initiated_by=initiated_by,
         )
 
         who_am_i.additional_properties = d

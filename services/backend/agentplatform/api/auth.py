@@ -117,6 +117,7 @@ async def authenticate(request: Request) -> tuple[str, str] | None:
                     if claims is None:
                         return None
                     run_id = claims.get("run_id")
+                    request.state.initiated_by = claims.get("initiated_by")
                     frozen = [t for t in (claims.get("tools") or [])
                               if isinstance(t, str)]
                     role = ("annotator" if any(t in PLATFORM_MCP_TOOLS for t in frozen)
@@ -225,7 +226,8 @@ async def whoami(request: Request):
         # design/13 C: the grant set was FROZEN into the run JWT at launch —
         # a mid-run manifest edit cannot widen (or shrink) a live run.
         return {"principal": name, "role": role, "agent": agent,
-                "run_id": run_id, "tools": frozen}
+                "run_id": run_id, "tools": frozen,
+                "initiated_by": getattr(request.state, "initiated_by", None)}
     if agent:
         st = request.app.state
         st.agent_store.reload()

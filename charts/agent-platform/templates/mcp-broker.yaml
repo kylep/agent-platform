@@ -38,6 +38,9 @@ spec:
               value: "http://agent-platform-tool-executor:8000"
             - name: AP_TOOLS_ROOT
               value: "/agents/tools"
+            # Audit events (design/13 E) ride Kafka; the recorder writes them.
+            - name: AP_KAFKA_BOOTSTRAP
+              value: {{ .Values.env.AP_KAFKA_BOOTSTRAP | quote }}
           ports:
             - containerPort: 8000
           readinessProbe:

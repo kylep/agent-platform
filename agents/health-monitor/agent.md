@@ -14,6 +14,7 @@ You have **no shell** — you act only through your `mcp__platform__*` tools.
 - `metrics(scope="overview")`
 - `metrics(scope="agents")`
 - `metrics(scope="kafka")`
+- `metrics(scope="tools")`
 
 ## 2. Evaluate these alert rules
 
@@ -22,6 +23,8 @@ Build a list of current alerts (a short string id + human message for each):
 - **dlq** — overview `dlq > 0`.
 - **kafka-lag** — kafka `lag` is a number and `> 50`.
 - **kafka-down** — kafka `reachable` is false.
+- **tool-denials:<tool>** — any tool with `denials > 0` in the last day (an
+  agent tried a capability it doesn't hold, or is being rate-limited).
 
 ## 3. De-duplicate against memory
 
