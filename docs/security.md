@@ -56,7 +56,7 @@ Weakness: it is a **bearer secret in an env var** — replayable if it
 ever leaks, and owned by anything that executes in the pod. The target
 is *identity, not secrets*: five layers, additive.
 
-### Layer 1 — Projected ServiceAccount tokens [PLANNED-13]
+### Layer 1 — Projected ServiceAccount tokens [LIVE]
 
 One ServiceAccount per agent; run pods mount a **projected, bound SA
 token** (TokenRequest API): audience=`ap-broker`, TTL ~10 min,
@@ -65,7 +65,7 @@ The broker validates via TokenReview/OIDC and derives the caller
 identity from `system:serviceaccount:<ns>:agent-<name>`. Kills secret
 distribution entirely; audience-binding blocks cross-service replay.
 
-### Layer 2 — Attested mTLS via SPIFFE/SPIRE [PLANNED-13]
+### Layer 2 — Attested mTLS via SPIFFE/SPIRE [PLANNED-13 B — the one remaining layer]
 
 SPIRE attests pods from node+pod properties and issues short-lived
 X.509 SVIDs (`spiffe://pai/agent/<name>`); the broker requires mTLS and
@@ -73,14 +73,14 @@ authorizes by peer identity. No bearer anything: the credential is a
 rotating private key that never leaves the pod, and identity is bound
 to the connection itself.
 
-### Layer 3 — Sender-constrained run tokens [PLANNED-13]
+### Layer 3 — Sender-constrained run tokens [LIVE]
 
 Workload identity says *which agent*; a short-lived **run JWT** says
 *which run* (scope, TTL, audit correlation) and is bound to the pod's
 key via a `cnf` claim (RFC 8705 style). The broker checks both. Even a
 full transcript + env disclosure yields nothing replayable off-pod.
 
-### Layer 4 — User identity propagation (on-behalf-of) [PLANNED-13, stubbed]
+### Layer 4 — User identity propagation (on-behalf-of) [LIVE, admin-stubbed]
 
 Every run records the **initiating principal**; broker/API decisions
 use the intersection of agent capability and user entitlement (an agent
@@ -91,7 +91,7 @@ the run token, entitlement checks trivially passing for admin. The
 family-access roadmap is then additive: more user rows, per-user web
 sessions, per-user entitlements — no re-architecture.
 
-### Layer 5 — Central authorization + audit at the broker [PLANNED-12/13]
+### Layer 5 — Central authorization + audit at the broker [LIVE]
 
 The broker is the single chokepoint, so it carries: per-tool
 authorization from the agent's *declared* tool grants (manifest as

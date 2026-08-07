@@ -1,6 +1,13 @@
 # Design 13 — Workload identity: broker auth without bearer secrets
 
-Status: DRAFT (talking through with Kyle)
+Status: A/D/C/E SHIPPED + LIVE-VERIFIED 2026-08-07. B (SPIRE) remains —
+deliberately last; do it in a session with Kyle near the NUC (its unattended
+boot needs the F10 ritual, and SPIRE is the one phase that could wedge node
+networking). AS-BUILT deltas: role ladder (annotator for core tools / tools
+role for custom-only) instead of a single tools role; audit rides Kafka
+(platform.tool.audit → tool_audit) so the broker stays credential-free;
+rate limits are broker-local token buckets; broker AP_KAFKA_BOOTSTRAP must
+be computed in the chart, not read from .Values.env.
 
 Companion: `docs/security.md` (the model + status), design/12 (tools —
 whose scoped tokens are the authz substrate this design authenticates).
