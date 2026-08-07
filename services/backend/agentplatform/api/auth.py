@@ -107,10 +107,40 @@ async def authenticate(request: Request) -> tuple[str, str] | None:
             ident = await _validate_sa_token(request, token)
             if ident is not None:
                 agent, role = ident
-                request.state.api_key_run_id = None
+                run_id, frozen = None, None
+                run_token = request.headers.get("x-ap-run-token", "")
+                if run_token:
+                    # Sender-constrained run JWT (design/13 C): must match
+                    # the workload that presented it. A PRESENT-but-invalid
+                    # token is a red flag, not a fallback — reject outright.
+                    claims = await _verify_run_token(request, run_token, agent)
+                    if claims is None:
+                        return None
+                    run_id = claims.get("run_id")
+                    frozen = [t for t in (claims.get("tools") or [])
+                              if isinstance(t, str)]
+                    role = ("annotator" if any(t in PLATFORM_MCP_TOOLS for t in frozen)
+                            else "tools")
+                request.state.api_key_run_id = run_id
                 request.state.api_key_agent = agent
+                request.state.frozen_tools = frozen
                 return (f"sa:{agent}", role)
     return None
+
+
+async def _verify_run_token(request: Request, token: str, agent: str) -> dict | None:
+    """Verify a run JWT against the dispatcher's public key, cnf-bound to the
+    presenting workload's ServiceAccount."""
+    from agentplatform import runjwt
+    st = request.app.state
+    pub = getattr(st, "_runjwt_pub", None)
+    if pub is None:
+        creds = await st.secret_store.get(runjwt.SECRET_NAME)
+        pub = (creds or {}).get("public_key")
+        if not pub:
+            return None
+        st._runjwt_pub = pub
+    return runjwt.verify(pub, token, expected_sa=f"agent-{agent}")
 
 
 # Short-lived cache of validated SA tokens: TokenReview is an apiserver round
@@ -190,6 +220,12 @@ async def whoami(request: Request):
     agent = getattr(request.state, "api_key_agent", None)
     run_id = getattr(request.state, "api_key_run_id", None)
     tools: list[str] | None = None
+    frozen = getattr(request.state, "frozen_tools", None)
+    if frozen is not None:
+        # design/13 C: the grant set was FROZEN into the run JWT at launch —
+        # a mid-run manifest edit cannot widen (or shrink) a live run.
+        return {"principal": name, "role": role, "agent": agent,
+                "run_id": run_id, "tools": frozen}
     if agent:
         st = request.app.state
         st.agent_store.reload()

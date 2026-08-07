@@ -62,9 +62,13 @@ def _write_mcp_config() -> str:
     url = os.environ.get("AP_MCP_URL")
     if not url:
         return ""
+    headers = {"Authorization": f"Bearer {_identity_token()}"}
+    if os.environ.get("AP_RUN_TOKEN"):
+        # Sender-constrained run JWT (design/13 C) — the API requires it to
+        # match the workload identity above.
+        headers["X-AP-Run-Token"] = os.environ["AP_RUN_TOKEN"]
     cfg = {"mcpServers": {"platform": {
-        "type": "http", "url": url,
-        "headers": {"Authorization": f"Bearer {_identity_token()}"}}}}
+        "type": "http", "url": url, "headers": headers}}}
     fd, path = tempfile.mkstemp(prefix="mcp-", suffix=".json")
     os.write(fd, json.dumps(cfg).encode())
     os.close(fd)

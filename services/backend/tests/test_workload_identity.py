@@ -152,3 +152,65 @@ async def test_initiated_by_set_and_chained(client, sf):
     assert child.trigger == "agent" and child.parent_run_id == root_id
     assert child.initiated_by == "admin"          # root principal survives the chain
     assert child.requested_by == "invoke:hello-world"
+
+
+# --- run JWTs (docs/design/13 C) ---------------------------------------------
+
+from agentplatform import runjwt
+
+
+def test_runjwt_roundtrip_and_cnf_binding():
+    keys = runjwt.generate_keypair()
+    tok = runjwt.mint(keys["private_key"], run_id="r1", agent="pai",
+                      initiated_by="admin", tools=["mcp__platform__stocks"],
+                      sa_name="agent-pai", timeout_seconds=60)
+    claims = runjwt.verify(keys["public_key"], tok, expected_sa="agent-pai")
+    assert claims["run_id"] == "r1" and claims["tools"] == ["mcp__platform__stocks"]
+    assert claims["initiated_by"] == "admin"
+    # cnf mismatch: the same token presented by a different workload dies.
+    assert runjwt.verify(keys["public_key"], tok, expected_sa="agent-evil") is None
+    # wrong key dies.
+    other = runjwt.generate_keypair()
+    assert runjwt.verify(other["public_key"], tok, expected_sa="agent-pai") is None
+
+
+def test_runjwt_expiry():
+    keys = runjwt.generate_keypair()
+    tok = runjwt.mint(keys["private_key"], run_id="r1", agent="pai",
+                      initiated_by="admin", tools=[], sa_name="agent-pai",
+                      timeout_seconds=-(runjwt.EXP_SLACK_SECONDS + 120))
+    assert runjwt.verify(keys["public_key"], tok, expected_sa="agent-pai") is None
+
+
+async def test_run_token_freezes_grants_and_carries_run_id(tool_client, secret_store):
+    keys = runjwt.generate_keypair()
+    await secret_store.set(runjwt.SECRET_NAME, keys)
+    app_state = tool_client._transport.app.state
+    app_state.sa_validator = _fake_validator("system:serviceaccount:ap:agent-echo-user")
+    tool_client.cookies.clear()
+    tok = runjwt.mint(keys["private_key"], run_id="run-42", agent="echo-user",
+                      initiated_by="admin", tools=["mcp__platform__frozen_tool"],
+                      sa_name="agent-echo-user", timeout_seconds=300)
+    r = await tool_client.get("/api/whoami", headers={
+        **_auth(), "X-AP-Run-Token": tok})
+    assert r.status_code == 200, r.text
+    d = r.json()
+    # Frozen set wins over the live agent.md (which declares echo, not frozen_tool).
+    assert d["tools"] == ["mcp__platform__frozen_tool"]
+    assert d["run_id"] == "run-42" and d["role"] == "tools"
+
+
+async def test_invalid_run_token_rejects_entirely(tool_client, secret_store):
+    keys = runjwt.generate_keypair()
+    await secret_store.set(runjwt.SECRET_NAME, keys)
+    app_state = tool_client._transport.app.state
+    app_state.sa_validator = _fake_validator("system:serviceaccount:ap:agent-echo-user")
+    tool_client.cookies.clear()
+    # cnf bound to a DIFFERENT agent's SA → presenting it here must 401.
+    tok = runjwt.mint(keys["private_key"], run_id="run-42", agent="other",
+                      initiated_by="admin", tools=[], sa_name="agent-other",
+                      timeout_seconds=300)
+    r = await tool_client.get("/api/whoami", headers={**_auth(), "X-AP-Run-Token": tok})
+    assert r.status_code == 401
+    r = await tool_client.get("/api/whoami", headers={**_auth(), "X-AP-Run-Token": "garbage"})
+    assert r.status_code == 401

@@ -80,7 +80,8 @@ async def main() -> None:
     skill_store = SkillStore(settings.skills_root)
     launcher = K8sJobLauncher(batch, settings, github_app=github_app,
                               session_factory=session_factory, skill_store=skill_store,
-                              agent_store=agent_store, core=core)
+                              agent_store=agent_store, core=core,
+                              secret_store=K8sSecretStore(core, settings.k8s_namespace))
 
     verifier = SecretVerifier(SecretRegistry(settings.secrets_root),
                               K8sSecretStore(core, settings.k8s_namespace),

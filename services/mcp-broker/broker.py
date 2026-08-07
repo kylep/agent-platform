@@ -34,10 +34,21 @@ _REFRESH_SECONDS = int(os.environ.get("AP_TOOLS_REFRESH_SECONDS", "60"))
 mcp = FastMCP("platform")
 
 
+def _caller_headers() -> dict:
+    """The caller's identity headers, forwarded verbatim: bearer (SA token or
+    API key) plus the sender-constrained run JWT when present (design/13 C)."""
+    req = get_http_request()
+    headers = {}
+    if req.headers.get("authorization"):
+        headers["Authorization"] = req.headers["authorization"]
+    if req.headers.get("x-ap-run-token"):
+        headers["X-AP-Run-Token"] = req.headers["x-ap-run-token"]
+    return headers
+
+
 async def _call(method: str, path: str, params: dict | None = None, json: dict | None = None) -> str:
-    # Forward the caller's bearer token — the broker never substitutes its own.
-    auth = get_http_request().headers.get("authorization", "")
-    headers = {"Authorization": auth} if auth else {}
+    # Forward the caller's identity — the broker never substitutes its own.
+    headers = _caller_headers()
     clean = {k: v for k, v in (params or {}).items() if v is not None}
     async with httpx.AsyncClient(base_url=_API, timeout=20) as c:
         r = await c.request(method, path, params=clean or None, json=json, headers=headers)
@@ -101,12 +112,13 @@ async def query_app(app: str, path: str, params: dict | None = None) -> str:
 
 # --- custom tools (docs/design/12) -------------------------------------------
 
-async def _whoami(auth: str) -> dict | None:
-    """Resolve the caller's token to a verified identity (or None)."""
-    if not auth:
+async def _whoami() -> dict | None:
+    """Resolve the caller's identity headers to a verified identity (or None)."""
+    headers = _caller_headers()
+    if not headers.get("Authorization"):
         return None
     async with httpx.AsyncClient(base_url=_API, timeout=10) as c:
-        r = await c.get("/api/whoami", headers={"Authorization": auth})
+        r = await c.get("/api/whoami", headers=headers)
     return r.json() if r.status_code == 200 else None
 
 
@@ -116,8 +128,7 @@ class CustomTool(Tool):
     broker and platform API — the executor gets identity, never credentials."""
 
     async def run(self, arguments: dict) -> ToolResult:
-        auth = get_http_request().headers.get("authorization", "")
-        ident = await _whoami(auth)
+        ident = await _whoami()
         if ident is None:
             return ToolResult(content="error: unauthenticated (no valid platform token)")
         declared = ident.get("tools")

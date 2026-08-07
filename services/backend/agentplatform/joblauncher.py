@@ -18,10 +18,13 @@ class K8sJobLauncher(Launcher):
     IDENTITY_AUDIENCE = "agent-platform"
 
     def __init__(self, batch, settings, github_app=None, session_factory=None, skill_store=None,
-                 agent_store=None, core=None):
+                 agent_store=None, core=None, secret_store=None):
         self.batch = batch
         self.core = core
         self.settings = settings
+        # For the run-JWT signing key (design/13 C); generated on first use.
+        self.secret_store = secret_store
+        self._runjwt_private: str | None = None
         # When set, coder-role runs are launched as self-edits: the runner
         # clones the repo, lets the agent edit it, and opens a PR using a
         # freshly minted App installation token.
@@ -130,6 +133,29 @@ class K8sJobLauncher(Launcher):
         self._sa_ready.add(name)
         return name
 
+    async def _runjwt_key(self) -> str | None:
+        """The ES256 private key for run JWTs, generated into the
+        `run-jwt-key` secret on first use (design/13 C)."""
+        if self._runjwt_private is not None:
+            return self._runjwt_private
+        if self.secret_store is None:
+            return None
+        from agentplatform import runjwt
+        creds = await self.secret_store.get(runjwt.SECRET_NAME)
+        if not (creds and creds.get("private_key")):
+            creds = runjwt.generate_keypair()
+            await self.secret_store.set(runjwt.SECRET_NAME, creds)
+            log.info("generated run-jwt signing keypair")
+        self._runjwt_private = creds["private_key"]
+        return self._runjwt_private
+
+    def _frozen_tools(self, agent: str) -> list[str]:
+        """The mcp__platform__* grant set to freeze into a run JWT."""
+        from agentplatform.agentspec import parse_agent_tools
+        info = self.agent_store.get(agent) if self.agent_store else None
+        declared = parse_agent_tools(info.agent_md) if info else None
+        return [t for t in (declared or []) if t.startswith("mcp__platform__")]
+
     def bound_secrets(self, manifest: Manifest) -> list[str]:
         """The de-duplicated union of secret names an agent's pod may receive:
         its manifest `secrets` plus the secrets required by its skills. This is
@@ -142,7 +168,8 @@ class K8sJobLauncher(Launcher):
         return names
 
     def build_job(self, run: Run, manifest: Manifest, self_edit_token: str | None = None,
-                  api_token: str | None = None, sa_identity: str | None = None) -> k8s.V1Job:
+                  api_token: str | None = None, sa_identity: str | None = None,
+                  run_token: str | None = None) -> k8s.V1Job:
         name = f"run-{run.id[:12]}"
         env = [
             k8s.V1EnvVar(name="AP_RUN_ID", value=run.id),
@@ -178,6 +205,10 @@ class K8sJobLauncher(Launcher):
                 k8s.V1EnvVar(name="AP_API_TOKEN_FILE", value="/var/run/ap-identity/token"),
                 k8s.V1EnvVar(name="AP_MCP_URL", value=self.settings.mcp_broker_url),
             ]
+            if run_token:
+                # Sender-constrained run JWT (design/13 C): proves WHICH run
+                # with a frozen grant set, useless without this pod's SA.
+                env.append(k8s.V1EnvVar(name="AP_RUN_TOKEN", value=run_token))
         if self_edit_token:
             env += [
                 k8s.V1EnvVar(name="AP_SELF_EDIT", value="1"),
@@ -339,8 +370,19 @@ class K8sJobLauncher(Launcher):
                             self._ensure_service_account, run.agent)
                     else:
                         api_token = await self._invoke_token(run, role=role)
+        run_token = None
+        if sa_identity:
+            key = await self._runjwt_key()
+            if key:
+                from agentplatform import runjwt
+                run_token = runjwt.mint(
+                    key, run_id=run.id, agent=run.agent,
+                    initiated_by=run.initiated_by or "admin",
+                    tools=self._frozen_tools(run.agent), sa_name=sa_identity,
+                    timeout_seconds=manifest.timeout_seconds
+                        or self.settings.run_timeout_seconds)
         job = self.build_job(run, manifest, self_edit_token=token, api_token=api_token,
-                             sa_identity=sa_identity)
+                             sa_identity=sa_identity, run_token=run_token)
         await self._audit_secret_access(run, manifest)
         await asyncio.to_thread(self.batch.create_namespaced_job, self.settings.k8s_namespace, job)
 
