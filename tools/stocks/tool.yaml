@@ -1,0 +1,23 @@
+name: stocks
+description: >-
+  Look up a stock, ETF, or index fund by ticker symbol via Yahoo Finance:
+  daily price history over a chosen range plus a computed summary (window
+  return %, high/low, latest close, average volume). Use for questions like
+  "how is AAPL doing", "compare NVDA's last month to its last year", or
+  "what did XIU.TO close at". Short ranges (5d, 1mo) include full OHLCV per
+  day; longer ranges return daily closes only. Symbols follow Yahoo
+  conventions (TSX tickers end in .TO). No API key involved; data is
+  ~15-minute delayed and auto-adjusted for splits/dividends.
+params:
+  type: object
+  properties:
+    symbol:
+      type: string
+      description: "Ticker, e.g. AAPL, SPY, XIU.TO"
+    range:
+      type: string
+      enum: [5d, 1mo, 6mo, 1y, 5y]
+      default: 1mo
+      description: "How far back to fetch (default 1mo)"
+  required: [symbol]
+timeout_seconds: 45
