@@ -1,9 +1,16 @@
 # Design 13 — Workload identity: broker auth without bearer secrets
 
-Status: A/D/C/E SHIPPED + LIVE-VERIFIED 2026-08-07. B (SPIRE) remains —
-deliberately last; do it in a session with Kyle near the NUC (its unattended
-boot needs the F10 ritual, and SPIRE is the one phase that could wedge node
-networking). AS-BUILT deltas: role ladder (annotator for core tools / tools
+Status: ALL FIVE PHASES SHIPPED + LIVE-VERIFIED 2026-08-07 (Kyle: "do the
+whole thing"). Phase B as built: spiffe/spire hardened chart 0.30.0
+(charts/spire/values-pai.yaml, ns spire-system, trust domain pai), default
+ClusterSPIFFEID identities spiffe://pai/ns/<ns>/sa/<sa>, ghostunnel v1.11.2
+sidecars carry the mTLS (app code TLS-ignorant), run pods use NATIVE
+sidecars gated by a /_status startupProbe (full TLS dial) because SPIRE
+entries are per-pod and propagation races short-lived pods. ghostunnel
+wildcards span full path segments only → the broker tunnel admits
+namespace workloads and per-agent enforcement stays at the token layer.
+Status listeners must bind 0.0.0.0 (kubelet probes the pod IP).
+AS-BUILT deltas from earlier phases: role ladder (annotator for core tools / tools
 role for custom-only) instead of a single tools role; audit rides Kafka
 (platform.tool.audit → tool_audit) so the broker stays credential-free;
 rate limits are broker-local token buckets; broker AP_KAFKA_BOOTSTRAP must

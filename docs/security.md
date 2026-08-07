@@ -65,13 +65,19 @@ The broker validates via TokenReview/OIDC and derives the caller
 identity from `system:serviceaccount:<ns>:agent-<name>`. Kills secret
 distribution entirely; audience-binding blocks cross-service replay.
 
-### Layer 2 — Attested mTLS via SPIFFE/SPIRE [PLANNED-13 B — the one remaining layer]
+### Layer 2 — Attested mTLS via SPIFFE/SPIRE [LIVE]
 
-SPIRE attests pods from node+pod properties and issues short-lived
-X.509 SVIDs (`spiffe://pai/agent/<name>`); the broker requires mTLS and
-authorizes by peer identity. No bearer anything: the credential is a
-rotating private key that never leaves the pod, and identity is bound
-to the connection itself.
+SPIRE (spiffe/spire chart, trust domain `pai`) attests every pod by its
+ServiceAccount and issues rotating X.509 SVIDs
+(`spiffe://pai/ns/<ns>/sa/<sa>`). ghostunnel sidecars carry the mTLS so
+app code stays TLS-ignorant: broker + executor bind localhost with an
+SVID-authenticated front door on 8443 (namespace workloads → broker;
+ONLY the broker's identity → executor), and MCP-talking run pods get a
+native-sidecar client tunnel whose startupProbe (a full TLS dial) gates
+the runner until the pod's identity works. The run JWT + SA token remain
+required — layers, not alternatives. `spire.enabled=false` is the
+break-glass helm flip. broker→API stays netpol+token by choice (the API
+also serves the web UI).
 
 ### Layer 3 — Sender-constrained run tokens [LIVE]
 
