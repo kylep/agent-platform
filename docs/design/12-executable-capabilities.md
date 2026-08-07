@@ -1,6 +1,30 @@
 # Design 12 — Tools: executable capabilities as a building block
 
-Status: DRAFT (talking through with Kyle)
+Status: SHIPPED 2026-08-07 (all 7 phases live-verified on the NUC)
+
+## AS BUILT (deltas from the design below)
+
+- Tool secrets bind by **block name** (like skills), not per-key env
+  mappings — secret blocks already declare env-style keys.
+- Memory kept the admin ORM surface: the memories table lives in the
+  tool's `tool_memory` schema via a per-dialect `schema_translate_map`
+  (postgres → tool_memory, sqlite tests → default), so /api/memories and
+  the UI needed zero changes while the storage became tool infra. Old
+  rows migrated; `public.memories` renamed `memories_pre_d12` as backup.
+- Role ladder instead of a single tools-role: core broker tools forward
+  the caller token to our API so they earn an **annotator** per-run
+  token; custom-only declarations earn the whoami-only **tools** role.
+  `memory: true` and the memory/can_invoke flag special-casing for
+  tokens are retired (system/can_invoke flags remain).
+- `linear` = one tool with canned actions + `raw_graphql` escape hatch;
+  `discord_chat` posts via REST with API-side mention suppression
+  (allowed_mentions parse:[]) instead of text munging.
+- The executor fetches secrets with a namespace-wide read Role
+  (resourceNames tightening deferred to design/13 E).
+- Live bugs caught by verification: the executor was missing from the
+  HTTPS egress allow-list (first pai stocks call failed honestly —
+  never-pretend held), and the deploy image name is
+  `agent-platform-backend`, not `-api`.
 
 ## Problem
 

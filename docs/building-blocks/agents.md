@@ -22,7 +22,7 @@ model: sonnet           # claude model override; empty = CLI default
 concurrency: 1
 timeout_seconds: 1800
 system: true            # platform-internal; protected from UI deletion
-memory: true            # per-run token for the namespaced memory API
+# (memory: true is retired — declare the `memory` tool instead; design/12)
 can_invoke: true        # may trigger other agents (depth-guarded)
 ```
 

@@ -161,6 +161,19 @@ export type Skill = {
 
 export type SkillDetail = Skill & { body: string; raw: string };
 
+export type Tool = {
+  name: string;
+  description: string;
+  secrets: string[];
+  database: boolean;
+  has_requirements: boolean;
+  timeout_seconds: number;
+  error: string | null;
+  used_by: string[];
+};
+
+export type ToolDetail = Tool & { params: Record<string, unknown>; files: Record<string, string> };
+
 export type MetricsOverview = {
   total: number;
   by_state: Record<string, number>;

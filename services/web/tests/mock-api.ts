@@ -120,13 +120,34 @@ const FIXTURES: Record<string, unknown> = {
   "/api/sync-status": { sha: "abc123" },
   "/api/dlq": [],
   "/api/skills": [
-    { name: "discord", description: "Post to Discord.", icon: "💬",
-      secrets: ["discord-webhook"], error: null, used_by: [] },
+    { name: "news-lookup", description: "Query the news archive.", icon: "🗞️",
+      secrets: [], error: null, used_by: ["news-librarian"] },
   ],
-  "/api/skills/discord": {
-    name: "discord", description: "Post to Discord.", icon: "💬",
-    secrets: ["discord-webhook"], error: null, used_by: [],
-    body: "Post a message.", raw: "---\nname: discord\n---\nPost a message.",
+  "/api/skills/news-lookup": {
+    name: "news-lookup", description: "Query the news archive.", icon: "🗞️",
+    secrets: [], error: null, used_by: ["news-librarian"],
+    body: "Query it.", raw: "---\nname: news-lookup\n---\nQuery it.",
+  },
+  "/api/tools": [
+    { name: "stocks", description: "Yahoo Finance daily history + summary for a ticker.",
+      secrets: [], database: false, has_requirements: true, timeout_seconds: 45,
+      error: null, used_by: ["pai"] },
+    { name: "memory", description: "Persistent namespaced agent memory (read/save).",
+      secrets: [], database: true, has_requirements: true, timeout_seconds: 20,
+      error: null, used_by: ["health-monitor"] },
+  ],
+  "/api/tools/stocks": {
+    name: "stocks", description: "Yahoo Finance daily history + summary for a ticker.",
+    secrets: [], database: false, has_requirements: true, timeout_seconds: 45,
+    error: null, used_by: ["pai"], params: { type: "object" },
+    files: { "tool.yaml": "name: stocks\n", "run.py": "print('hi')\n",
+             "requirements.txt": "yfinance\n" },
+  },
+  "/api/tools/memory": {
+    name: "memory", description: "Persistent namespaced agent memory (read/save).",
+    secrets: [], database: true, has_requirements: true, timeout_seconds: 20,
+    error: null, used_by: ["health-monitor"], params: { type: "object" },
+    files: { "tool.yaml": "name: memory\n", "run.py": "print('hi')\n" },
   },
   "/api/schedules": [
     { agent: "health-monitor", cron: "*/15 * * * *", enabled: true,

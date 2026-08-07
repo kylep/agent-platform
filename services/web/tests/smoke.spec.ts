@@ -15,7 +15,7 @@ const PAGES: { path: string; heading: string; probe?: RegExp }[] = [
   { path: "/memories", heading: "Memories", probe: /Kyle likes terminals/ },
   { path: "/changes", heading: "Pending Changes", probe: /agent: news/ },
   { path: "/schedules", heading: "Schedules", probe: /health-monitor/ },
-  { path: "/skills", heading: "Skills", probe: /discord/ },
+  { path: "/skills", heading: "Skills & Tools", probe: /stocks/ },
   { path: "/secrets", heading: "Secrets", probe: /undeclared/ },
   { path: "/dlq", heading: "Dead-letter queue" },
   { path: "/reporting", heading: "Reporting", probe: /Seconds per run/ },

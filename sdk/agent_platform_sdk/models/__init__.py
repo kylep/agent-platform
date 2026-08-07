@@ -103,7 +103,11 @@ from .tool_detail import ToolDetail
 from .tool_detail_files import ToolDetailFiles
 from .tool_detail_params import ToolDetailParams
 from .tool_help import ToolHelp
+from .tool_quick_edit_in import ToolQuickEditIn
+from .tool_quick_edit_in_files import ToolQuickEditInFiles
 from .tool_view import ToolView
+from .tool_wizard_in import ToolWizardIn
+from .tool_wizard_secret import ToolWizardSecret
 from .validation_error import ValidationError
 from .validation_error_context import ValidationErrorContext
 from .webhook_entry import WebhookEntry
@@ -213,7 +217,11 @@ __all__ = (
     "ToolDetailFiles",
     "ToolDetailParams",
     "ToolHelp",
+    "ToolQuickEditIn",
+    "ToolQuickEditInFiles",
     "ToolView",
+    "ToolWizardIn",
+    "ToolWizardSecret",
     "ValidationError",
     "ValidationErrorContext",
     "WebhookEntry",

@@ -210,3 +210,25 @@ async def test_tools_role_reaches_nothing_else(tool_client, sf):
 
 async def test_whoami_requires_auth(client):
     assert (await client.get("/api/whoami")).status_code == 401
+
+
+# --- quick-edit + wizard validation (docs/design/12 P7) ----------------------
+
+async def test_tool_quick_edit_validates_manifest(tool_client):
+    r = await tool_client.post("/api/tools/echo/quick-edit", json={
+        "files": {"tool.yaml": "name: echo\ndescription: short\n"}})
+    assert r.status_code == 422 and "invalid tool.yaml" in r.text
+    r = await tool_client.post("/api/tools/echo/quick-edit", json={
+        "files": {"../evil.py": "x"}})
+    assert r.status_code == 422 and "not editable" in r.text
+    r = await tool_client.post("/api/tools/echo/quick-edit", json={"files": {}})
+    assert r.status_code == 422
+    assert (await tool_client.post("/api/tools/nope/quick-edit",
+                                   json={"files": {"run.py": "x"}})).status_code == 404
+
+
+async def test_tool_wizard_validates(tool_client):
+    r = await tool_client.post("/api/tools/new", json={"name": "Bad Name!", "purpose": "x"})
+    assert r.status_code == 422
+    r = await tool_client.post("/api/tools/new", json={"name": "echo", "purpose": "dup"})
+    assert r.status_code == 409

@@ -192,7 +192,7 @@ def _open_or_find_pr(branch: str, run_id: str, prompt: str) -> dict:
     return {"number": d["number"], "url": d["html_url"]}
 
 _BLOCK_KINDS = {"agents": "agent", "skills": "skill", "secrets": "secret",
-                "reports": "report"}
+                "reports": "report", "tools": "tool"}
 
 
 def _target_block(status: str) -> tuple[str, str] | None:
@@ -206,14 +206,14 @@ def _target_block(status: str) -> tuple[str, str] | None:
         parts = line[3:].strip().split("/")
         if len(parts) >= 2 and parts[0] in _BLOCK_KINDS and parts[1]:
             found.setdefault(_BLOCK_KINDS[parts[0]], parts[1])
-    for kind in ("agent", "skill", "secret", "report"):
+    for kind in ("agent", "skill", "tool", "secret", "report"):
         if kind in found:
             return kind, found[kind]
     return None
 
 def self_edit_publish(repo_dir: Path, env: dict, run_id: str, agent: str, prompt: str) -> dict:
     """Commit the agent's edits to the target block's deterministic branch
-    (coder/agent-<name>, coder/skill-<name>, coder/secret-<name>), force-push,
+    (coder/agent-<name>, coder/skill-<name>, coder/tool-<name>, …), force-push,
     and open (or update) its PR. Freeform edits always go through a PR; one
     open PR per block. Edits outside the blocks fall back to the running
     agent's own branch."""
