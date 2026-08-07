@@ -95,10 +95,16 @@ class Memory(Base):
     # concurrent saves of the same key would otherwise both insert and the
     # namespace silently holds duplicates. Partial unique (keyless memories are
     # append-only notes and may repeat). init_db backfills this on live DBs.
+    # docs/design/12: the memory TOOL owns this data — on postgres the table
+    # lives in the tool's provisioned schema (tool_memory). "memory_store" is a
+    # sentinel translated per-dialect by make_engine (postgres → tool_memory,
+    # sqlite → default), so the admin API/ORM and the sqlite test suite both
+    # keep working while the storage is genuinely the tool's.
     __table_args__ = (
         Index("uq_memories_agent_key", "agent", "key", unique=True,
               postgresql_where=text("key IS NOT NULL"),
               sqlite_where=text("key IS NOT NULL")),
+        {"schema": "memory_store"},
     )
     id: Mapped[str] = mapped_column(String(32), primary_key=True, default=lambda: uuid.uuid4().hex)
     # Namespace: memories are private to one agent. All access is scoped to the
@@ -203,8 +209,22 @@ class ApiKey(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
+MEMORY_SCHEMA = "tool_memory"
+
+
 def make_engine(db_url: str) -> AsyncEngine:
-    return create_async_engine(db_url)
+    engine = create_async_engine(db_url)
+    # Resolve the Memory model's sentinel schema (see Memory.__table_args__).
+    real = MEMORY_SCHEMA if engine.dialect.name == "postgresql" else None
+    return engine.execution_options(schema_translate_map={"memory_store": real})
+
+
+def _schema_of(conn, table) -> str | None:
+    """The PHYSICAL schema of a model table on this connection (the inspector
+    does not apply schema_translate_map, so raw-SQL helpers resolve it here)."""
+    if table.schema == "memory_store":
+        return MEMORY_SCHEMA if conn.dialect.name == "postgresql" else None
+    return table.schema
 
 def make_session_factory(engine: AsyncEngine) -> async_sessionmaker:
     return async_sessionmaker(engine, expire_on_commit=False)
@@ -216,13 +236,15 @@ def _ensure_columns(conn) -> None:
     from sqlalchemy import inspect as sa_inspect
     insp = sa_inspect(conn)
     for table in Base.metadata.sorted_tables:
-        if not insp.has_table(table.name):
+        schema = _schema_of(conn, table)
+        if not insp.has_table(table.name, schema=schema):
             continue
-        existing = {c["name"] for c in insp.get_columns(table.name)}
+        existing = {c["name"] for c in insp.get_columns(table.name, schema=schema)}
         for col in table.columns:
             if col.name not in existing:
                 ddl = col.type.compile(dialect=conn.dialect)
-                conn.exec_driver_sql(f'ALTER TABLE {table.name} ADD COLUMN {col.name} {ddl}')
+                qualified = f'{schema}.{table.name}' if schema else table.name
+                conn.exec_driver_sql(f'ALTER TABLE {qualified} ADD COLUMN {col.name} {ddl}')
 
 
 def _ensure_memory_key_index(conn) -> None:
@@ -232,25 +254,33 @@ def _ensure_memory_key_index(conn) -> None:
     Idempotent via IF NOT EXISTS (supported by both sqlite and postgres)."""
     from sqlalchemy import inspect as sa_inspect
     insp = sa_inspect(conn)
-    if not insp.has_table("memories"):
+    schema = _schema_of(conn, Memory.__table__)
+    tbl = f"{schema}.memories" if schema else "memories"
+    if not insp.has_table("memories", schema=schema):
         return
-    if any(ix["name"] == "uq_memories_agent_key" for ix in insp.get_indexes("memories")):
+    if any(ix["name"] == "uq_memories_agent_key"
+           for ix in insp.get_indexes("memories", schema=schema)):
         return
     dupes = conn.execute(text(
-        "SELECT agent, key FROM memories WHERE key IS NOT NULL "
+        f"SELECT agent, key FROM {tbl} WHERE key IS NOT NULL "
         "GROUP BY agent, key HAVING count(*) > 1")).fetchall()
     for agent, key in dupes:
         ids = [r[0] for r in conn.execute(text(
-            "SELECT id FROM memories WHERE agent = :a AND key = :k "
+            f"SELECT id FROM {tbl} WHERE agent = :a AND key = :k "
             "ORDER BY updated_at DESC, id DESC"), {"a": agent, "k": key}).fetchall()]
         for stale in ids[1:]:
-            conn.execute(text("DELETE FROM memories WHERE id = :i"), {"i": stale})
+            conn.execute(text(f"DELETE FROM {tbl} WHERE id = :i"), {"i": stale})
     conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uq_memories_agent_key "
-                      "ON memories (agent, key) WHERE key IS NOT NULL"))
+                      f"ON {tbl} (agent, key) WHERE key IS NOT NULL"))
 
 
 async def init_db(engine: AsyncEngine) -> None:
     async with engine.begin() as conn:
+        if conn.dialect.name == "postgresql":
+            # The memory tool's schema must exist before create_all places the
+            # memories table in it (the ToolProvisioner later grants the tool
+            # role its privileges — creation order is API-first-safe).
+            await conn.execute(text(f'CREATE SCHEMA IF NOT EXISTS "{MEMORY_SCHEMA}"'))
         await conn.run_sync(Base.metadata.create_all)
         await conn.run_sync(_ensure_columns)
         await conn.run_sync(_ensure_memory_key_index)

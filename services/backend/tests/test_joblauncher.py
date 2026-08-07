@@ -241,11 +241,13 @@ async def test_system_token_minted_cached_and_injected(sf):
     assert env["AP_API_TOKEN"] == t1 and env["AP_API_URL"].startswith("http://agent-platform-api")
 
 
-def test_declares_platform_tools_reads_agent_md(tmp_path):
-    """Tools-token trigger (docs/design/12): explicit mcp__platform__* in the
-    tools line → True; no tools line or claude-only tools → False."""
+def test_platform_token_role_ladder(tmp_path):
+    """Role ladder (docs/design/12): custom-only tools → whoami-only `tools`
+    role; any CORE broker tool → annotator (it forwards the token to our API);
+    claude-only tools / no tools line / unknown agent → no token."""
     from agentplatform.agents import AgentStore
     for name, line in [("stocky", "tools: mcp__platform__stocks\n"),
+                       ("libby", "tools: mcp__platform__query_app, mcp__platform__memory\n"),
                        ("shelly", "tools: WebFetch\n"),
                        ("openy", "")]:
         d = tmp_path / name
@@ -255,7 +257,8 @@ def test_declares_platform_tools_reads_agent_md(tmp_path):
         (d / "manifest.yaml").write_text("description: t\n")
     launcher = K8sJobLauncher(batch=None, settings=Settings(runner_image="r:1", k8s_namespace="ap"),
                               agent_store=AgentStore(tmp_path))
-    assert launcher._declares_platform_tools("stocky") is True
-    assert launcher._declares_platform_tools("shelly") is False
-    assert launcher._declares_platform_tools("openy") is False
-    assert launcher._declares_platform_tools("ghost") is False
+    assert launcher._platform_token_role("stocky") == "tools"
+    assert launcher._platform_token_role("libby") == "annotator"
+    assert launcher._platform_token_role("shelly") is None
+    assert launcher._platform_token_role("openy") is None
+    assert launcher._platform_token_role("ghost") is None

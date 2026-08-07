@@ -33,8 +33,7 @@ _ENV = re.compile(r"^[A-Z][A-Z0-9_]*$")
 # be ambiguous). Kept here, next to the validation that uses it; agentspec's
 # PLATFORM_MCP_TOOLS derives from the same set via a lockstep test.
 CORE_TOOL_SUFFIXES = frozenset({
-    "runs_read", "runs_write", "metrics",
-    "read_memory", "save_memory", "query_app",
+    "runs_read", "runs_write", "metrics", "query_app",
 })
 
 

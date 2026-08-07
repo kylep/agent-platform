@@ -166,3 +166,92 @@ class AppProvisioner:
             except Exception:
                 log.exception("provision loop failed")
             await asyncio.sleep(self.interval)
+
+
+class ToolProvisioner:
+    """Tool infra (docs/design/12): a tool with `infra.database: true` gets a
+    dedicated pg role + schema `tool_<name>` and a k8s secret
+    `tool-<name>-db` whose TOOL_DB_URL the executor injects into the tool's
+    subprocess at call time. Same discipline as apps: idempotent convergence,
+    never tears down.
+
+    The memory tool's schema is special-cased only in ownership: the platform
+    creates its table there (init_db — the admin UI reads it via the ORM), so
+    the grant runs both ways instead of CREATE SCHEMA AUTHORIZATION."""
+
+    def __init__(self, registry, engine, secret_store, settings,
+                 interval_seconds: int = 300):
+        self.registry = registry
+        self.engine = engine
+        self.secrets = secret_store
+        self.settings = settings
+        self.interval = interval_seconds
+
+    async def provision_once(self) -> dict[str, list[str]]:
+        self.registry.reload()
+        out: dict[str, list[str]] = {}
+        for m in self.registry.valid():
+            if not m.infra.database:
+                continue
+            try:
+                actions = await self._ensure_database(m.name)
+            except Exception:
+                log.exception("tool provisioning %s failed", m.name)
+                continue
+            if actions:
+                log.info("provisioned tool %s: %s", m.name, ", ".join(actions))
+            out[m.name] = actions
+        return out
+
+    async def _ensure_database(self, tool: str) -> list[str]:
+        ident = "tool_" + tool.replace("-", "_")
+        secret_name = f"tool-{tool}-db"
+        existing = await self.secrets.get(secret_name)
+        password = (existing or {}).get("TOOL_DB_PASSWORD") or pysecrets.token_urlsafe(24)
+        actions = []
+        async with self.engine.begin() as conn:
+            role = (await conn.execute(text(
+                "SELECT 1 FROM pg_roles WHERE rolname = :r"), {"r": ident})).scalar()
+            pw = password.replace("'", "''")   # DDL takes no bound params
+            if not role:
+                await conn.execute(text(f"CREATE ROLE \"{ident}\" LOGIN PASSWORD '{pw}'"))
+                actions.append(f"role {ident}")
+            elif existing is None:
+                await conn.execute(text(f"ALTER ROLE \"{ident}\" PASSWORD '{pw}'"))
+                actions.append(f"re-keyed role {ident}")
+            schema = (await conn.execute(text(
+                "SELECT 1 FROM information_schema.schemata WHERE schema_name = :s"),
+                {"s": ident})).scalar()
+            if not schema:
+                await conn.execute(text(f'CREATE SCHEMA "{ident}" AUTHORIZATION "{ident}"'))
+                actions.append(f"schema {ident}")
+            else:
+                # Schema pre-exists (memory: init_db made it, platform-owned).
+                # Converge grants so the tool role can use everything in it,
+                # including platform-created tables, now and in the future.
+                await conn.execute(text(f'GRANT USAGE ON SCHEMA "{ident}" TO "{ident}"'))
+                await conn.execute(text(
+                    f'GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA "{ident}" TO "{ident}"'))
+                await conn.execute(text(
+                    f'ALTER DEFAULT PRIVILEGES IN SCHEMA "{ident}" '
+                    f'GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO "{ident}"'))
+        if existing is None:
+            from sqlalchemy.engine.url import make_url
+            u = make_url(self.settings.db_url)
+            host, port, db = u.host or "localhost", u.port or 5432, u.database or "postgres"
+            await self.secrets.set(secret_name, {
+                "TOOL_DB_USER": ident, "TOOL_DB_PASSWORD": password,
+                "TOOL_DB_NAME": db, "TOOL_DB_HOST": host, "TOOL_DB_PORT": str(port),
+                # psycopg (sync) URL — tool run.py is a plain subprocess.
+                "TOOL_DB_URL": f"postgresql://{ident}:{password}@{host}:{port}/{db}",
+            })
+            actions.append(f"secret {secret_name}")
+        return actions
+
+    async def run_forever(self) -> None:
+        while True:
+            try:
+                await self.provision_once()
+            except Exception:
+                log.exception("tool provision loop failed")
+            await asyncio.sleep(self.interval)

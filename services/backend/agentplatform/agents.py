@@ -22,8 +22,9 @@ class Manifest(BaseModel):
     # it can invoke other agents (agent-invokes-agent). Without it a system
     # agent only gets the narrow `annotator` token (read runs + annotate).
     can_invoke: bool = False
-    # When set, the agent gets an annotator-scoped, per-run API token so it can
-    # save/recall memories in its own namespace across runs.
+    # DEPRECATED (docs/design/12): declaring the `memory` tool is the grant
+    # now — the launcher's role ladder replaced this flag. Parsed for backward
+    # compat with old manifests; no longer consulted anywhere.
     memory: bool = False
     # Per-agent transcript retention override (days). None = use the platform
     # default; <= 0 = keep this agent's transcripts forever.

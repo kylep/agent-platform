@@ -31,7 +31,6 @@ CLAUDE_TOOLS: list[str] = [
 PLATFORM_MCP_TOOLS: list[str] = [
     "mcp__platform__runs_read", "mcp__platform__runs_write",
     "mcp__platform__metrics",
-    "mcp__platform__read_memory", "mcp__platform__save_memory",
     "mcp__platform__query_app",
 ]
 
@@ -81,12 +80,6 @@ TOOL_HELP: list[dict] = [
      "description": "Platform health metrics: run volumes/success/tokens "
                     "(overview), per-agent metrics incl. failure streaks, or "
                     "event-bus health (lag, DLQ backlog). Read-only."},
-    {"name": "mcp__platform__read_memory", "kind": "platform",
-     "description": "Search the agent's OWN memory namespace (it can never "
-                    "read another agent's)."},
-    {"name": "mcp__platform__save_memory", "kind": "platform",
-     "description": "Save a memory in the agent's own namespace — durable "
-                    "notes across runs (the write half of read_memory)."},
     {"name": "mcp__platform__query_app", "kind": "platform",
      "description": "Call a read-only API endpoint of an installed platform "
                     "app through the traversal-guarded proxy — e.g. query "

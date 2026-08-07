@@ -87,20 +87,6 @@ async def metrics(scope: str = "overview") -> str:
     return "error: scope must be one of overview|agents|kafka"
 
 
-@mcp.tool
-async def read_memory(q: str = "") -> str:
-    """Search your own agent memory (JSON). Empty q lists all."""
-    return await _call("GET", "/api/memories", {"q": q or None})
-
-
-@mcp.tool
-async def save_memory(content: str, key: str | None = None, tags: list[str] | None = None) -> str:
-    """Save a memory in your namespace. Give a key ONLY for state you overwrite
-    in place (reusing a key replaces that memory); omit it for plain notes —
-    don't invent meaningless keys."""
-    return await _call("POST", "/api/memories", json={"key": key, "content": content, "tags": tags or []})
-
-
 # --- apps (news-librarian etc.) ----------------------------------------------
 @mcp.tool
 async def query_app(app: str, path: str, params: dict | None = None) -> str:

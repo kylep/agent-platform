@@ -1,0 +1,32 @@
+name: memory
+description: >-
+  Your persistent memory across runs — reading and writing are one tool
+  because your namespace is private (you can never see another agent's
+  memories). action="read" searches your namespace: q is split into terms
+  and a memory matches when every term appears in its content or key; empty
+  q lists the newest. action="save" stores content; pass key ONLY for state
+  you overwrite in place (reusing a key replaces that memory) — omit it for
+  plain notes, don't invent meaningless keys. Optional tags on save.
+params:
+  type: object
+  properties:
+    action:
+      type: string
+      enum: [read, save]
+    q:
+      type: string
+      description: "read: search terms (all must match); empty lists newest"
+    content:
+      type: string
+      description: "save: the memory text"
+    key:
+      type: string
+      description: "save: stable label for overwrite-in-place state only"
+    tags:
+      type: array
+      items: {type: string}
+    limit: {type: integer, default: 50}
+  required: [action]
+infra:
+  database: true
+timeout_seconds: 20

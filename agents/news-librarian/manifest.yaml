@@ -6,6 +6,5 @@ model: sonnet
 timeout_seconds: 180
 skills:
   - news-lookup
-# memory:true injects the per-run annotator token the skill authenticates
-# with at the web gateway (and lets it remember reader preferences).
-memory: true
+# Its declared query_app tool earns the per-run annotator token
+# (docs/design/12 role ladder) — no flag needed.

@@ -4,7 +4,5 @@ concurrency: 1
 timeout_seconds: 300
 model: sonnet
 system: true
-# Remembers what it has already alerted on (dedup) across runs. Also injects the
-# per-run AP_API_TOKEN the platform MCP server uses to broker its API access, so
-# this agent needs no shell — it acts only through mcp__platform__* tools.
-memory: true
+# system:true injects its token; alert-dedup state lives in the memory TOOL
+# (mcp__platform__memory) — this agent needs no shell.
