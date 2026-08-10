@@ -1,0 +1,10 @@
+# The weekday market brief (docs/design/11). Rendered deterministically by the
+# STOCKMARKET APP after each brief ingest (generator = the app's key,
+# app:stockmarket); the app also posts the same unified summary to #news.
+# Browsable on /reports and linked from the app's brief card.
+name: daily-market
+description: Weekday brief on QQQ, SPY and XIU.TO — the moves, the biggest weighted movers, and the day's drivers.
+icon: 📈
+generator: app:stockmarket
+cadence: daily
+retention_days: 365

@@ -15,6 +15,7 @@ from datetime import datetime, timezone
 
 from stockmarketapp import brief as bf
 from stockmarketapp.db import Brief
+from stockmarketapp.report import write_daily_market_report
 
 log = logging.getLogger("stockmarket-ingest")
 
@@ -87,6 +88,12 @@ class IngestLoop:
         await producer.send_and_wait(
             TOPIC_CHANNEL_POST, _envelope("channel.post", self.channel, {
                 "channel": self.channel, "text": bf.format_post(stored)}))
+        # The unified summary also becomes a browsable daily report (design-11).
+        # Best-effort: a report-API hiccup must not drop the ingest.
+        try:
+            await write_daily_market_report(self.sf, stored["day"])
+        except Exception:
+            log.exception("daily-market report write failed for %s", stored["day"])
 
     async def run_forever(self) -> None:
         from aiokafka import AIOKafkaConsumer, AIOKafkaProducer

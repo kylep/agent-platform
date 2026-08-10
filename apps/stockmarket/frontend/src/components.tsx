@@ -67,17 +67,21 @@ export function BriefCard({ brief }: { brief: BriefView }) {
         <h2>Market brief</h2>
         <span className="muted">{brief.day}</span>
       </header>
+      {/* One row per index — its own move and its own driver. The unified
+          summary (brief.body) lives in the daily report + #news, linked below. */}
       {brief.indexes.length > 0 && (
-        <div className="sm-brief-moves">
+        <ul className="sm-index-rows">
           {brief.indexes.map((i) => (
-            <span key={i.symbol} className="sm-brief-move">
-              <b>{i.symbol}</b>
-              <span className={dir(i.return_pct)}>{pct(i.return_pct)}</span>
-            </span>
+            <li key={i.symbol}>
+              <span className="sm-index-head">
+                <b>{i.symbol}</b>
+                <span className={dir(i.return_pct)}>{pct(i.return_pct)}</span>
+              </span>
+              {i.note && <span className="sm-index-note"> — {i.note}</span>}
+            </li>
           ))}
-        </div>
+        </ul>
       )}
-      <p className="sm-brief-body">{brief.body}</p>
       {brief.movers.length > 0 && (
         <ul className="sm-movers">
           {brief.movers.map((m) => (
@@ -97,6 +101,9 @@ export function BriefCard({ brief }: { brief: BriefView }) {
       {brief.tags.length > 0 && (
         <div className="sm-tags">{brief.tags.map((t) => <TagChip key={t} tag={t} />)}</div>
       )}
+      <a className="sm-brief-report" href={`/reports/daily-market/${brief.day}`}>
+        Full daily report →
+      </a>
     </article>
   );
 }

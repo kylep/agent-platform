@@ -20,6 +20,8 @@ import type { SeriesView } from "./api";
 
 const W = 900, H = 320, PAD_L = 52, PAD_R = 16, PAD_T = 14, PAD_B = 30;
 const CHART_SERIES = 8;
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
+                "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
 export const seriesColor = (i: number) =>
   `var(--ds-chart-${(i % CHART_SERIES) + 1})`;
@@ -90,6 +92,24 @@ export function IndexChart({ series, hidden, onToggle, colorIndex }: {
     PAD_T + ((hi - v) * (H - PAD_T - PAD_B)) / Math.max(hi - lo, 0.0001);
   const ticks = niceTicks(lo, hi);
 
+  // Evenly spaced date ticks across the x axis. The count scales to the plot
+  // width (~one per 130px) and the label format follows the range — day for
+  // short spans, month + 2-digit year out to a year, bare year beyond.
+  const spanDays = days.length > 1
+    ? (Date.parse(days[days.length - 1]) - Date.parse(days[0])) / 86_400_000
+    : 0;
+  const fmtDate = (iso: string) => {
+    const [yr, mo, dy] = iso.split("-");
+    const mon = MONTHS[parseInt(mo, 10) - 1];
+    if (spanDays <= 70) return `${mon} ${parseInt(dy, 10)}`;
+    if (spanDays <= 800) return `${mon} '${yr.slice(2)}`;
+    return yr;
+  };
+  const tickCount = Math.max(2, Math.min(days.length,
+    Math.floor((W - PAD_L - PAD_R) / 130) + 1));
+  const xTicks = [...new Set(Array.from({ length: tickCount }, (_, k) =>
+    Math.round((k * (days.length - 1)) / (tickCount - 1))))];
+
   function onMove(e: React.MouseEvent<SVGSVGElement>) {
     const box = e.currentTarget.getBoundingClientRect();
     const px = ((e.clientX - box.left) / box.width) * W;
@@ -121,10 +141,21 @@ export function IndexChart({ series, hidden, onToggle, colorIndex }: {
             </text>
           </g>
         ))}
-        <text x={PAD_L} y={H - 8} className="sm-axis">{days[0]}</text>
-        <text x={W - PAD_R} y={H - 8} className="sm-axis" textAnchor="end">
-          {days[days.length - 1]}
-        </text>
+        {xTicks.map((idx) => {
+          const first = idx === 0, last = idx === days.length - 1;
+          return (
+            <g key={idx}>
+              {!first && !last && (
+                <line x1={x(idx)} x2={x(idx)} y1={PAD_T} y2={H - PAD_B}
+                      className="sm-grid" />
+              )}
+              <text x={x(idx)} y={H - 8} className="sm-axis"
+                    textAnchor={first ? "start" : last ? "end" : "middle"}>
+                {fmtDate(days[idx])}
+              </text>
+            </g>
+          );
+        })}
         {cursor !== null && (
           <>
             <line x1={x(cursor)} x2={x(cursor)} y1={PAD_T} y2={H - PAD_B}
@@ -145,6 +176,13 @@ export function IndexChart({ series, hidden, onToggle, colorIndex }: {
           const off = hidden.has(s.symbol);
           const n = normalized.find((x2) => x2.symbol === s.symbol);
           const value = n ? readout(n) : null;
+          // Annualized (CAGR) alongside the cumulative return, but only for
+          // spans of ~a year or more — annualizing a one-month move implies a
+          // precision that isn't there. Suppressed while hovering (the value
+          // then shows the cursor's point-in-time change, not the full range).
+          const cagr = (!off && n && cursor === null && n.first > 0
+                        && spanDays >= 300)
+            ? (Math.pow(n.last / n.first, 365.25 / spanDays) - 1) * 100 : null;
           return (
             <li key={s.symbol}>
               <button type="button" onClick={() => onToggle(s.symbol)}
@@ -157,6 +195,11 @@ export function IndexChart({ series, hidden, onToggle, colorIndex }: {
                   {off || value === null ? "—"
                     : `${value > 0 ? "+" : ""}${value.toFixed(2)}%`}
                 </span>
+                {cagr !== null && (
+                  <span className="sm-legend-cagr">
+                    {cagr > 0 ? "+" : ""}{cagr.toFixed(1)}%/yr
+                  </span>
+                )}
               </button>
             </li>
           );

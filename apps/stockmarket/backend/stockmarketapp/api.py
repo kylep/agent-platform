@@ -21,7 +21,7 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from pydantic import BaseModel
 from sqlalchemy import delete, func, select
 
-from stockmarketapp.brief import SYMBOL_RE, TAGS
+from stockmarketapp.brief import _DAY_RE, SYMBOL_RE, TAGS
 from stockmarketapp.db import Bar, Brief, Symbol, Watch
 
 log = logging.getLogger("stockmarket-api")
@@ -182,14 +182,29 @@ async def summary(request: Request, user: str = Depends(require_gateway)):
 
 @router.get("/series", response_model=list[SeriesView],
             dependencies=[Depends(require_gateway)])
-async def series(request: Request, symbols: str, range: str = "1M"):
-    """Closing prices per symbol over a range. Absolute closes, not percent
+async def series(request: Request, symbols: str, range: str = "1M",
+                 day_from: str | None = None, day_to: str | None = None):
+    """Closing prices per symbol over a window. Absolute closes, not percent
     changes — the client normalizes for the overlay (three indexes priced
     $38 to $560 cannot share a linear axis) but wants the real number for
-    tooltips."""
-    rng = range.upper()
-    if rng not in RANGES:
-        raise HTTPException(422, f"range must be one of {', '.join(RANGES)}")
+    tooltips.
+
+    The window is either a named `range` (5D…5Y) or an explicit `day_from`..
+    `day_to` pair (a custom From→To range). When both custom bounds are given
+    they win; the chart renders whatever it's handed, so no client math cares
+    which path produced the points.
+    """
+    custom = bool(day_from and day_to)
+    if custom:
+        for d in (day_from, day_to):
+            if not _DAY_RE.match(d):
+                raise HTTPException(422, "day_from/day_to must be YYYY-MM-DD")
+        if day_from > day_to:
+            raise HTTPException(422, "day_from must be on or before day_to")
+    else:
+        rng = range.upper()
+        if rng not in RANGES:
+            raise HTTPException(422, f"range must be one of {', '.join(RANGES)}")
     wanted = [s.strip().upper() for s in symbols.split(",") if s.strip()]
     wanted = [s for s in dict.fromkeys(wanted) if SYMBOL_RE.match(s)][:25]
     if not wanted:
@@ -199,10 +214,14 @@ async def series(request: Request, symbols: str, range: str = "1M"):
             select(func.max(Bar.day)).where(Bar.symbol.in_(wanted)))).scalar()
         if not anchor:
             return []
-        start = window_start(anchor, rng)
+        # Preset ranges anchor on the archive's newest day; a custom window uses
+        # its own explicit bounds (clamped to the anchor so a future `day_to`
+        # doesn't matter).
+        start, end = (day_from, min(day_to, anchor)) if custom \
+            else (window_start(anchor, rng), anchor)
         rows = (await s.execute(
             select(Bar.symbol, Bar.day, Bar.close)
-            .where(Bar.symbol.in_(wanted), Bar.day >= start)
+            .where(Bar.symbol.in_(wanted), Bar.day >= start, Bar.day <= end)
             .order_by(Bar.symbol, Bar.day))).all()
     per: dict[str, list] = {s: [] for s in wanted}
     for sym, day, close in rows:

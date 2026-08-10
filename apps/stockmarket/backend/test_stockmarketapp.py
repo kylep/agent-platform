@@ -199,6 +199,42 @@ async def test_series_returns_closes_within_the_range(sf, client):
             ).status_code == 422
 
 
+async def test_series_custom_from_to_window(sf, client):
+    # Bars 2026-08-04 .. 2026-08-08; a custom window clips to a sub-range.
+    await _bars(sf, "QQQ", [100.0, 101.0, 102.0, 103.0, 104.0])
+    rows = (await client.get(
+        "/apps/stockmarket/api/series?symbols=QQQ&day_from=2026-08-05&day_to=2026-08-07")).json()
+    assert [d for d, _ in rows[0]["points"]] == ["2026-08-05", "2026-08-06", "2026-08-07"]
+    # Reversed bounds are rejected.
+    assert (await client.get(
+        "/apps/stockmarket/api/series?symbols=QQQ&day_from=2026-08-07&day_to=2026-08-05")
+        ).status_code == 422
+    # Malformed date is rejected.
+    assert (await client.get(
+        "/apps/stockmarket/api/series?symbols=QQQ&day_from=nonsense&day_to=2026-08-07")
+        ).status_code == 422
+
+
+def test_render_daily_market_html():
+    from stockmarketapp.report import render_daily_market
+    b = Brief(day="2026-08-10", body="US indexes were quiet; XIU bucked the trend.",
+              tags=["earnings", "geopolitics"],
+              indexes=[{"symbol": "QQQ", "return_pct": -0.2, "note": "Slipped on chip weakness."},
+                       {"symbol": "XIU.TO", "return_pct": 0.37, "note": "Energy pop in CNQ."}],
+              movers=[{"symbol": "NVDA", "index": "QQQ", "contrib_bps": -18.4,
+                       "note": "Fell 2.3% in profit-taking."}],
+              run_id="r1")
+    html, meta = render_daily_market(b)
+    assert meta == {"indexes": 2, "movers": 1, "run_id": "r1"}
+    assert "Market brief — 2026-08-10" in html
+    assert "<h2>Summary</h2>" in html and "XIU bucked the trend" in html
+    assert "<h2>By index</h2>" in html and "Energy pop in CNQ." in html
+    assert "<h2>Movers</h2>" in html and "-18bp" in html
+    assert "+0.37%" in html and "-0.20%" in html
+    # The report uses only report-kit classes and escapes text (no raw markup).
+    assert "class=\"rk-" in html and "style=" not in html
+
+
 async def test_series_ignores_junk_symbols(sf, client):
     await _bars(sf, "QQQ", [100.0, 101.0])
     rows = (await client.get(

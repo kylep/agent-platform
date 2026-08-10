@@ -41,6 +41,8 @@ export default function App() {
   const [series, setSeries] = useState<SeriesView[]>([]);
   const [brief, setBrief] = useState<BriefView | null>(null);
   const [range, setRange] = useState<Range>("1M");
+  // A custom From→To window overrides the preset when both dates are set.
+  const [custom, setCustom] = useState<{ from: string; to: string } | null>(null);
   const [hidden, setHidden] = useState<Set<string>>(new Set());
   const [error, setError] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
@@ -75,10 +77,13 @@ export default function App() {
 
   useEffect(() => {
     if (!symbolKey) { setSeries([]); return; }
-    api<SeriesView[]>(`/series?symbols=${encodeURIComponent(symbolKey)}&range=${range}`)
+    const q = new URLSearchParams({ symbols: symbolKey });
+    if (custom) { q.set("day_from", custom.from); q.set("day_to", custom.to); }
+    else { q.set("range", range); }
+    api<SeriesView[]>(`/series?${q}`)
       .then(setSeries)
       .catch((e) => setError(e instanceof Error ? e.message : "Failed to load prices."));
-  }, [symbolKey, range]);
+  }, [symbolKey, range, custom]);
 
   function toggle(symbol: string) {
     setHidden((prev) => {
@@ -136,11 +141,31 @@ export default function App() {
       <section className="sm-chart-section" aria-label="Price history">
         <div className="sm-ranges" role="group" aria-label="Date range">
           {RANGES.map((r) => (
-            <ChipButton key={r} variant={r === range ? "ok" : "neutral"}
-                        aria-pressed={r === range} onClick={() => setRange(r)}>
+            <ChipButton key={r} variant={r === range && !custom ? "ok" : "neutral"}
+                        aria-pressed={r === range && !custom}
+                        onClick={() => { setRange(r); setCustom(null); }}>
               {r}
             </ChipButton>
           ))}
+          <label className="sm-range-custom">
+            <input type="date" aria-label="From date" max={summary?.latest_day ?? undefined}
+                   value={custom?.from ?? ""}
+                   onChange={(e) => {
+                     const from = e.target.value;
+                     setCustom(from && custom?.to ? { from, to: custom.to } : from ? { from, to: summary?.latest_day ?? from } : null);
+                   }} />
+            <span>→</span>
+            <input type="date" aria-label="To date" max={summary?.latest_day ?? undefined}
+                   value={custom?.to ?? ""}
+                   onChange={(e) => {
+                     const to = e.target.value;
+                     setCustom(to && custom?.from ? { from: custom.from, to } : to ? { from: to, to } : null);
+                   }} />
+            {custom && (
+              <button type="button" aria-label="Clear custom range"
+                      onClick={() => setCustom(null)}>✕</button>
+            )}
+          </label>
         </div>
         <IndexChart series={series} hidden={hidden} onToggle={toggle}
                     colorIndex={colorIndex} />
@@ -154,8 +179,13 @@ export default function App() {
         <div>
           {brief
             ? <BriefCard brief={brief} />
-            : loaded && <p className="muted">No brief yet — the first one lands
-                on the next weekday run.</p>}
+            : loaded && (
+                <div className="sm-brief sm-brief-empty">
+                  <h2>Market brief</h2>
+                  <p className="muted">No brief yet — the first one lands on the
+                    next weekday run (weekdays, 9:35 ET).</p>
+                </div>
+              )}
         </div>
         <aside className="sm-side">
           <h2>Watchlist</h2>

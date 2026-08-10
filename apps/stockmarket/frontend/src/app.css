@@ -66,7 +66,7 @@
   background: var(--ds-surface); border: 1px solid var(--ds-border);
   border-radius: var(--radius-lg); padding: 14px 16px; margin-bottom: 24px;
 }
-.sm-ranges { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 10px; }
+.sm-ranges { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; margin-bottom: 10px; }
 .sm-chart-svg { width: 100%; max-width: 900px; display: block; }
 .sm-chart-empty { padding: 40px 0; text-align: center; }
 
@@ -89,6 +89,27 @@
 .sm-legend-item.off { opacity: 0.4; }
 .sm-legend-sym { font-weight: 600; }
 .sm-legend-val { font-variant-numeric: tabular-nums; color: var(--ds-text-muted); }
+/* Annualized return, shown only for long ranges — subtler than the cumulative. */
+.sm-legend-cagr {
+  font-variant-numeric: tabular-nums; color: var(--ds-text-subtle);
+  font-size: 11px;
+}
+
+/* Custom From→To picker, sitting after the preset range chips. */
+.sm-range-custom {
+  display: inline-flex; align-items: center; gap: 6px; margin-left: auto;
+  font-size: 12px; color: var(--ds-text-subtle);
+}
+.sm-range-custom input {
+  background: var(--ds-surface); color: var(--ds-text);
+  border: 1px solid var(--ds-border); border-radius: var(--radius-md);
+  padding: 2px 6px; font: inherit; color-scheme: dark light;
+}
+.sm-range-custom button {
+  background: none; border: 0; color: var(--ds-text-subtle);
+  cursor: pointer; font: inherit; padding: 2px 4px;
+}
+.sm-range-custom button:hover { color: var(--ds-text); }
 
 /* --- brief + watchlist -------------------------------------------------- */
 .sm-cols { display: grid; grid-template-columns: 1fr 320px; gap: 32px; }
@@ -100,12 +121,24 @@
 }
 .sm-brief-head { display: flex; align-items: baseline; gap: 10px; }
 .sm-brief-head h2 { margin: 0; }
-.sm-brief-moves { display: flex; gap: 14px; flex-wrap: wrap; margin: 10px 0 4px; }
-.sm-brief-move {
-  display: inline-flex; gap: 6px; font-size: 13px;
+/* One row per index: the move, then its own driver sentence. */
+.sm-index-rows { list-style: none; padding: 0; margin: 12px 0 0; }
+.sm-index-rows li {
+  padding: 8px 0; line-height: 1.5;
+  border-top: 1px solid var(--ds-border);
+}
+.sm-index-rows li:first-child { border-top: 0; padding-top: 2px; }
+.sm-index-head {
+  display: inline-flex; gap: 8px; align-items: baseline;
   font-variant-numeric: tabular-nums;
 }
-.sm-brief-body { margin: 8px 0 0; line-height: 1.55; }
+.sm-index-head b { font-size: 14px; }
+.sm-index-note { color: var(--ds-text); }
+
+.sm-brief-report {
+  display: inline-block; margin-top: 14px; font-size: 13px;
+  color: var(--ds-accent);
+}
 
 .sm-movers { list-style: none; padding: 0; margin: 12px 0 0; }
 .sm-movers li {
@@ -124,6 +157,15 @@
   color: var(--ds-text-muted);
 }
 
+/* Card, like the chart and stat tiles — anchors the column instead of floating
+   loose text. align-self:start so the grid doesn't stretch it to row height. */
+.sm-side {
+  background: var(--ds-surface); border: 1px solid var(--ds-border);
+  border-radius: var(--radius-lg); padding: 14px 16px; align-self: start;
+}
 .sm-side h2 { margin-top: 0; }
-.sm-add { display: flex; gap: 8px; align-items: center; margin-bottom: 10px; }
-.sm-add input { min-width: 0; }
+.sm-add { display: flex; gap: 8px; align-items: center; margin: 10px 0; }
+.sm-add input { flex: 1; min-width: 0; }
+
+/* Empty-brief placeholder reuses the brief card so both columns read as cards. */
+.sm-brief-empty h2 { margin-top: 0; }

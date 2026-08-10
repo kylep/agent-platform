@@ -52,14 +52,21 @@ after, no code fence:
 - `day` — the session you are describing. Take it from `index_movers`; it is
   the last *completed* session, which on a Monday means Friday.
 - `indexes` — all three, in the order QQQ, SPY, XIU.TO. `return_pct` copied
-  from the tool, not recomputed.
+  from the tool, not recomputed. Each `note` is **required** and must stand on
+  its own: one sentence explaining *that index's* move and its main driver, so
+  it reads correctly with no other context ("Slipped as NVDA and AAPL gave back
+  last week's gains" for QQQ; "Bucked the US tape, lifted by an energy pop in
+  CNQ as crude climbed" for XIU.TO). These per-index notes are shown as
+  separate rows — do not fold all three indexes into a single note.
 - `movers` — 2 to 5 of the names that actually mattered, most influential
   first. `contrib_bps` copied from the tool. Omit entirely (`[]`) on a broad
   day with no real single-name story.
-- `body` — the brief itself. Two to four sentences, plain text, no markdown.
-  Lead with the moves, then the why. Mention weight when you name a mover
-  ("NVDA, ~7% of the fund, fell 3.1%") — that is what makes the claim
-  meaningful rather than trivia.
+- `body` — the **unified summary** across all three indexes: two to four
+  sentences, plain text, no markdown. This is the one that goes to the daily
+  report and to Discord, so it must read as a complete standalone brief. Lead
+  with the moves, then the why. Mention weight when you name a mover ("NVDA,
+  ~7% of the fund, fell 3.1%") — that is what makes the claim meaningful rather
+  than trivia.
 - `tags` — 1 to 3 from exactly this list: `earnings`, `macro`,
   `central-bank`, `rates`, `geopolitics`, `commodities`, `sector-rotation`,
   `broad-market`.
