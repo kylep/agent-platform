@@ -6,13 +6,49 @@ from sqlalchemy import select
 from agentplatform.agents import AgentInfo, Manifest
 from agentplatform.db import Run, Schedule
 from agentplatform.events import FakeProducer, TOPIC_RUN_INBOUND
-from agentplatform.scheduler import Scheduler, as_utc, is_valid_cron, next_fire
+from agentplatform.scheduler import (Scheduler, as_utc, is_valid_cron,
+                                     is_valid_timezone, next_fire)
 
 
 def test_cron_helpers():
     assert is_valid_cron("*/5 * * * *") and not is_valid_cron("nonsense") and not is_valid_cron("")
     base = datetime(2026, 7, 20, 10, 2, tzinfo=timezone.utc)
     assert next_fire("*/5 * * * *", base) == datetime(2026, 7, 20, 10, 5, tzinfo=timezone.utc)
+
+
+def test_timezone_validation():
+    assert is_valid_timezone("") and is_valid_timezone(None)
+    assert is_valid_timezone("America/Toronto") and is_valid_timezone("UTC")
+    assert not is_valid_timezone("Mars/Olympus") and not is_valid_timezone("EST5")
+
+
+def test_next_fire_holds_wall_clock_across_daylight_saving():
+    """9:35 on a weekday in Toronto is a different UTC instant in summer and
+    winter. Pinning the zone is the whole point: without it a market-open job
+    silently slides an hour every November."""
+    summer = datetime(2026, 7, 20, 0, 0, tzinfo=timezone.utc)
+    winter = datetime(2026, 12, 14, 0, 0, tzinfo=timezone.utc)
+    tz = "America/Toronto"
+    assert next_fire("35 9 * * 1-5", summer, tz) == \
+        datetime(2026, 7, 20, 13, 35, tzinfo=timezone.utc)      # EDT, UTC-4
+    assert next_fire("35 9 * * 1-5", winter, tz) == \
+        datetime(2026, 12, 14, 14, 35, tzinfo=timezone.utc)     # EST, UTC-5
+
+
+def test_next_fire_defaults_to_utc():
+    base = datetime(2026, 7, 20, 0, 0, tzinfo=timezone.utc)
+    expected = datetime(2026, 7, 20, 9, 35, tzinfo=timezone.utc)
+    assert next_fire("35 9 * * 1-5", base) == expected
+    assert next_fire("35 9 * * 1-5", base, "") == expected
+    # An unknown zone must not wedge the loop over one bad row.
+    assert next_fire("35 9 * * 1-5", base, "Mars/Olympus") == expected
+
+
+def test_next_fire_returns_utc_for_a_naive_input():
+    naive = datetime(2026, 7, 20, 0, 0)
+    got = next_fire("35 9 * * 1-5", naive, "America/Toronto")
+    assert got.tzinfo == timezone.utc
+    assert got == datetime(2026, 7, 20, 13, 35, tzinfo=timezone.utc)
 
 
 class FakeStore:

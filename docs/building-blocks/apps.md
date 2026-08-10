@@ -4,7 +4,16 @@
 UIs, their own data, driven by agents (`docs/design/11-apps-and-reports.md`). The news app is the
 reference: it consumes the news agent's digests, owns the archive + dedup,
 posts the Discord digest, writes the daily-news report, and serves a browser
-at `/apps/news/`.
+at `/apps/news/`. The **stockmarket** app is the second: it owns the price
+archive, charts the indexes and your watchlist at `/apps/stockmarket/`, and
+ingests the weekday market brief the same way.
+
+Stockmarket also shows the shape an app takes when it needs *third-party*
+data. App pods hold no outbound internet egress — the tool-executor is the
+platform's single egress point — so the app never fetches a price. Its
+`prices` tool binds the app's own DB secret and writes bars directly, the
+loader agent calls that tool, and a watchlist add spends the app's operator
+key on a run rather than reaching for the network itself.
 
 **Lives in:** `apps/<name>/` — CODE (a backend, optionally a frontend, a
 Dockerfile) plus an `app.yaml` manifest. Apps are **not** change-loop blocks:

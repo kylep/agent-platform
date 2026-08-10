@@ -1,0 +1,32 @@
+name: prices
+description: >-
+  Load daily price bars into the stockmarket app's archive. Give it a list of
+  tickers and how far back to go; it fetches from Yahoo Finance and upserts
+  the bars, returning only counts — the price data itself never comes back
+  through your context, so a five-year backfill costs you nothing to read.
+  Omit `symbols` to sync every symbol the app tracks (the three indexes plus
+  everyone's watchlist), which is what the daily sync does. Symbols the app
+  has never loaded are always backfilled in full regardless of `range`.
+  Use range=5y for a backfill, range=5d for a routine top-up (the overlap is
+  harmless — bars upsert by day, so holidays and missed runs self-heal).
+params:
+  type: object
+  properties:
+    symbols:
+      type: array
+      description: "Tickers (Yahoo conventions; TSX ends in .TO). Omit to sync all tracked symbols."
+      items: {type: string}
+      minItems: 1
+      maxItems: 25
+    range:
+      type: string
+      enum: [5d, 1mo, 6mo, 1y, 5y, max]
+      default: 5d
+      description: "How far back to fetch for symbols already loaded (default 5d)"
+infra:
+  # The app's provisioned DB secret: this tool writes bars straight into
+  # app_stockmarket rather than relaying thousands of rows through an agent's
+  # context. The executor envs APP_DB_* from the secret the AppProvisioner
+  # made for the app (docs/design/11).
+  secrets: [app-stockmarket-db]
+timeout_seconds: 120

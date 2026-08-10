@@ -46,6 +46,10 @@ class Entrypoints(BaseModel):
     subscriptions (reserved). Distinct from DB Jobs, which are ad-hoc UI
     experiments — history, not config."""
     cron: list[str] = []
+    # IANA zone the cron expressions are read in (empty = UTC). One zone for
+    # the whole file: an agent's triggers belong to one rhythm, and per-entry
+    # zones would buy nothing but a list-of-objects schema.
+    timezone: str = ""
     webhooks: list[WebhookEntry] = []
     kafka: list[str] = []
 
@@ -56,6 +60,14 @@ class Entrypoints(BaseModel):
         for expr in v:
             if not croniter.is_valid(expr):
                 raise ValueError(f"invalid cron expression: {expr!r}")
+        return v
+
+    @field_validator("timezone")
+    @classmethod
+    def _valid_timezone(cls, v):
+        from agentplatform.scheduler import is_valid_timezone
+        if not is_valid_timezone(v):
+            raise ValueError(f"unknown timezone: {v!r}")
         return v
 
 

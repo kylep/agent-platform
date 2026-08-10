@@ -34,6 +34,17 @@ async def test_job_rejects_bad_cron_and_unknown_agent(admin_client):
     assert (await _mk(admin_client, agent="ghost")).status_code == 422
 
 
+async def test_job_timezone_defaults_to_utc_and_is_validated(admin_client):
+    assert (await _mk(admin_client)).json()["timezone"] == ""
+    job = (await _mk(admin_client, timezone="America/Toronto")).json()
+    assert job["timezone"] == "America/Toronto"
+    assert (await _mk(admin_client, timezone="Mars/Olympus")).status_code == 422
+    # Editing the zone re-arms next_fire: same wall clock, different instant.
+    r = await admin_client.patch(f"/api/jobs/{job['id']}", json={"timezone": "UTC"})
+    assert r.status_code == 200 and r.json()["timezone"] == "UTC"
+    assert r.json()["next_fire"] is None
+
+
 async def test_run_now_materializes_a_run(admin_client):
     job = (await _mk(admin_client)).json()
     r = await admin_client.post(f"/api/jobs/{job['id']}/run")

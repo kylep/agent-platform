@@ -1,0 +1,18 @@
+# The stockmarket app: daily index tracking and the weekday market brief.
+# Owns the price archive (schema app_stockmarket) — bars written by the
+# `prices` tool, everything else by this app. The `stockmarket` agent's brief
+# arrives over Kafka (its manifest declares result_topic:
+# app.stockmarket.inbound); the app parses, tags, stores and posts it. Charts
+# and the watchlist live at /apps/stockmarket/.
+name: stockmarket
+description: Overlaid index charts, a watchlist, and the weekday brief on what moved and why.
+icon: 📈
+ui: true
+api: true
+needs:
+  postgres: true
+  kafka_topics:
+    - app.stockmarket.inbound        # the agent's brief (published by the recorder)
+    - app.stockmarket.brief.posted   # one event per stored brief
+agent_key:
+  role: operator                     # triggers a backfill run when a ticker is watchlisted

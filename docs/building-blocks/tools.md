@@ -9,8 +9,16 @@ services; see the [Glossary](glossary.md).
 
 [Skills](skills.md) carry *knowledge*; tools carry *execution* — an agent picks
 arguments, never code, which is why agents can trigger real work without ever
-holding a shell or a credential. `stocks`, `discord_chat`, `linear`, and
-`memory` are the shipped references.
+holding a shell or a credential. `stocks`, `discord_chat`, `linear`, `memory`,
+`prices` and `index_movers` are the shipped references.
+
+Two of those show patterns worth copying. `prices` binds an **app's** DB secret
+(`infra.secrets: [app-stockmarket-db]`) and writes rows itself, returning only
+counts — a five-year backfill is ~3,800 rows, which is nothing for Postgres and
+ruinous for a model's context. `index_movers` keeps arithmetic out of the
+model: it computes each index holding's contribution in basis points and hands
+back a ranking, because a model asked to multiply ten weights by ten returns
+produces confident wrong numbers, and those numbers are the whole claim.
 
 **Lives in:** `tools/<name>/` in the synced checkout — the platform's live
 clone of this repository — and edits go through the standard

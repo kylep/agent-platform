@@ -13,9 +13,26 @@ function cronText(cron: string): string | null {
   return cronEnglish(cron);
 }
 
-function Cron({ cron }: { cron: string }) {
+function Cron({ cron, timezone }: { cron: string; timezone?: string }) {
   const text = cronText(cron);
-  return <code className="cron" title={text ?? "unrecognized cron expression"}>{cron}{!text && " ⚠"}</code>;
+  const zone = timezone || "UTC";
+  return (
+    <code className="cron" title={text ? `${text} (${zone})` : "unrecognized cron expression"}>
+      {cron}{!text && " ⚠"}
+      {timezone && <span className="text-muted"> {timezone}</span>}
+    </code>
+  );
+}
+
+// IANA zones the browser knows, for the timezone field's datalist. Guarded:
+// Intl.supportedValuesOf is recent enough that an empty list is a fine
+// degradation — the input still accepts a typed zone and the API validates it.
+function zoneOptions(): string[] {
+  try {
+    return Intl.supportedValuesOf("timeZone");
+  } catch {
+    return [];
+  }
 }
 
 // Create/edit a job. The agent is fixed to this page's agent.
@@ -24,16 +41,19 @@ function JobForm({ agent, job, onDone, onCancel }: {
 }) {
   const [name, setName] = useState(job?.name ?? "");
   const [cron, setCron] = useState(job?.cron ?? "");
+  const [timezone, setTimezone] = useState(job?.timezone ?? "");
   const [prompt, setPrompt] = useState(job?.prompt ?? "");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const preview = cron.trim() ? cronText(cron) : null;
   const cronOk = cron.trim() !== "" && preview !== null;
+  const zones = zoneOptions();
+  const zoneOk = timezone.trim() === "" || zones.length === 0 || zones.includes(timezone.trim());
 
   async function save() {
     setBusy(true); setError(null);
     try {
-      const body = { name, agent, cron, prompt };
+      const body = { name, agent, cron, timezone: timezone.trim(), prompt };
       if (job) await api(`/api/jobs/${job.id}`, { method: "PATCH", body: JSON.stringify(body) });
       else await api("/api/jobs", { method: "POST", body: JSON.stringify(body) });
       onDone();
@@ -45,17 +65,26 @@ function JobForm({ agent, job, onDone, onCancel }: {
     <div className="secret-editor">
       <label className="field-label">Name</label>
       <Input placeholder="e.g. morning-news" aria-label="Job name" value={name} onChange={(e) => setName(e.target.value)} />
-      <label className="field-label">Cron (UTC)</label>
+      <label className="field-label">Cron</label>
       <Input placeholder="e.g. 0 11 * * *" aria-label="Cron expression" value={cron} onChange={(e) => setCron(e.target.value)} />
       <div className={cron.trim() === "" || cronOk ? "muted check-note" : "error"}>
-        {cron.trim() === "" ? "5-field cron, evaluated in UTC." : cronOk ? `→ ${preview}` : "Unrecognized cron expression."}
+        {cron.trim() === "" ? "5-field cron." : cronOk ? `→ ${preview} (${timezone.trim() || "UTC"})` : "Unrecognized cron expression."}
+      </div>
+      <label className="field-label">Timezone</label>
+      <Input placeholder="UTC" aria-label="Timezone" list="tz-options" value={timezone}
+             onChange={(e) => setTimezone(e.target.value)} />
+      <datalist id="tz-options">{zones.map((z) => <option key={z} value={z} />)}</datalist>
+      <div className={zoneOk ? "muted check-note" : "error"}>
+        {zoneOk
+          ? "Blank means UTC. Set an IANA zone (e.g. America/Toronto) to pin a job to wall-clock time across daylight saving."
+          : "Unknown timezone — use an IANA name like America/Toronto."}
       </div>
       <label className="field-label">Prompt</label>
       <Textarea placeholder="What the agent should do each run…" aria-label="Job prompt" value={prompt} rows={4}
                 onChange={(e) => setPrompt(e.target.value)} />
       {error && <div className="error">{error}</div>}
       <div className="row-actions" style={{ marginTop: 8 }}>
-        <Button onClick={save} disabled={busy || !name.trim() || !cronOk || !prompt.trim()}>
+        <Button onClick={save} disabled={busy || !name.trim() || !cronOk || !zoneOk || !prompt.trim()}>
           {busy ? "Saving…" : job ? "Save" : "Create job"}
         </Button>
         <Button variant="secondary" onClick={onCancel}>Cancel</Button>
@@ -128,7 +157,7 @@ export default function AgentSchedules({ agent }: { agent: string }) {
             {jobs.map((j) => (
               <tr key={j.id}>
                 <TD>{j.name}</TD>
-                <TD><Cron cron={j.cron} /></TD>
+                <TD><Cron cron={j.cron} timezone={j.timezone} /></TD>
                 <TD className="text-muted">{when(j.next_fire)}</TD>
                 <TD>{j.enabled ? <Chip variant="ok">enabled</Chip> : <Chip variant="danger">disabled</Chip>}</TD>
                 <TD>

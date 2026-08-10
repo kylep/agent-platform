@@ -295,6 +295,7 @@ class JobView(BaseModel):
     name: str
     agent: str
     cron: str
+    timezone: str = ""          # IANA zone the cron is read in; empty = UTC
     prompt: str
     enabled: bool
     last_fire: str | None

@@ -1,0 +1,20 @@
+name: index_movers
+description: >-
+  Explain an index ETF's last completed session: its own move, its top-10
+  holdings with each one's weight, return, and contribution to the move in
+  basis points, and the fund's sector weightings. Contributions are computed
+  for you (weight x return) and ranked, so you can say which names drove the
+  index instead of estimating. Compare `explained_bps` against `actual_bps`:
+  close together means a few names did it and you should name them; far apart
+  means the move was broad and you should reach for a sector or macro
+  explanation instead. Works on ETFs (QQQ, SPY, XIU.TO), not single stocks.
+  Holdings data is Yahoo's and is occasionally unavailable — you may get an
+  empty holdings list with a note, which is not an error.
+params:
+  type: object
+  properties:
+    index:
+      type: string
+      description: "Index ETF ticker, e.g. QQQ, SPY, XIU.TO"
+  required: [index]
+timeout_seconds: 90

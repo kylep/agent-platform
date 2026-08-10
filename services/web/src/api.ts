@@ -135,6 +135,7 @@ export type Job = {
   name: string;
   agent: string;
   cron: string;
+  timezone: string;       // IANA zone the cron is read in; "" = UTC
   prompt: string;
   enabled: boolean;
   last_fire: string | null;

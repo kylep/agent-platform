@@ -13,7 +13,7 @@ from sqlalchemy import select
 from agentplatform.api.auth import require_admin
 from agentplatform.db import ScheduledJob
 from agentplatform.materialize import materialize_run
-from agentplatform.scheduler import is_valid_cron
+from agentplatform.scheduler import is_valid_cron, is_valid_timezone
 
 from agentplatform.api import schemas as S
 router = APIRouter(dependencies=[Depends(require_admin)])
@@ -21,7 +21,7 @@ router = APIRouter(dependencies=[Depends(require_admin)])
 
 def _view(j: ScheduledJob) -> dict:
     return {"id": j.id, "name": j.name, "agent": j.agent, "cron": j.cron,
-            "prompt": j.prompt, "enabled": j.enabled,
+            "timezone": j.timezone or "", "prompt": j.prompt, "enabled": j.enabled,
             "last_fire": j.last_fire.isoformat() if j.last_fire else None,
             "next_fire": j.next_fire.isoformat() if j.next_fire else None}
 
@@ -31,19 +31,25 @@ class JobIn(BaseModel):
     agent: str
     cron: str
     prompt: str
+    timezone: str = ""          # IANA zone; empty = UTC
 
 
 class JobPatch(BaseModel):
     name: str | None = None
     agent: str | None = None
     cron: str | None = None
+    timezone: str | None = None
     prompt: str | None = None
     enabled: bool | None = None
 
 
-def _check(request: Request, *, cron: str | None, agent: str | None) -> None:
+def _check(request: Request, *, cron: str | None, agent: str | None,
+           timezone: str | None = None) -> None:
     if cron is not None and not is_valid_cron(cron):
         raise HTTPException(422, "invalid cron expression (5 fields)")
+    if timezone is not None and not is_valid_timezone(timezone):
+        raise HTTPException(422, f"unknown timezone: {timezone!r} "
+                                 f"(IANA name, e.g. America/Toronto)")
     if agent is not None:
         request.app.state.agent_store.reload()
         info = request.app.state.agent_store.get(agent)
@@ -60,9 +66,10 @@ async def list_jobs(request: Request):
 
 @router.post("/api/jobs", status_code=201, response_model=S.JobView)
 async def create_job(request: Request, body: JobIn):
-    _check(request, cron=body.cron, agent=body.agent)
+    _check(request, cron=body.cron, agent=body.agent, timezone=body.timezone)
     async with request.app.state.session_factory() as s:
-        job = ScheduledJob(name=body.name, agent=body.agent, cron=body.cron, prompt=body.prompt)
+        job = ScheduledJob(name=body.name, agent=body.agent, cron=body.cron,
+                           timezone=body.timezone, prompt=body.prompt)
         s.add(job)
         await s.commit()
         return _view(job)
@@ -70,17 +77,18 @@ async def create_job(request: Request, body: JobIn):
 
 @router.patch("/api/jobs/{job_id}", response_model=S.JobView)
 async def edit_job(request: Request, job_id: str, body: JobPatch):
-    _check(request, cron=body.cron, agent=body.agent)
+    _check(request, cron=body.cron, agent=body.agent, timezone=body.timezone)
     async with request.app.state.session_factory() as s:
         job = await s.get(ScheduledJob, job_id)
         if job is None:
             raise HTTPException(404, "unknown job")
-        for field in ("name", "agent", "cron", "prompt", "enabled"):
+        for field in ("name", "agent", "cron", "timezone", "prompt", "enabled"):
             val = getattr(body, field)
             if val is not None:
                 setattr(job, field, val)
-        # A changed cron re-arms next_fire from the scheduler's next tick.
-        if body.cron is not None:
+        # A changed cron (or zone — same wall clock, different instant)
+        # re-arms next_fire from the scheduler's next tick.
+        if body.cron is not None or body.timezone is not None:
             job.next_fire = None
         await s.commit()
         return _view(job)

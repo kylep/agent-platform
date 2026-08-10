@@ -205,6 +205,10 @@ class ScheduledJob(Base):
     name: Mapped[str] = mapped_column(String(128))
     agent: Mapped[str] = mapped_column(String(128), index=True)
     cron: Mapped[str] = mapped_column(String(128))
+    # IANA zone the cron is read in; empty = UTC. Stored times stay UTC — this
+    # only decides which UTC instant a wall-clock expression means, so a job
+    # pinned to market open doesn't drift an hour across daylight saving.
+    timezone: Mapped[str] = mapped_column(String(64), default="", server_default="")
     prompt: Mapped[str] = mapped_column(Text)
     enabled: Mapped[bool] = mapped_column(default=True)
     last_fire: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

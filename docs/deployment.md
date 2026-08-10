@@ -55,6 +55,11 @@ namespace are invisible to kubelet.
 | `agent-platform-tool-executor` | **the repository root** (it bakes the union of `tools/*/requirements.txt`) | `deploy/ap-tool-executor` |
 | `agent-platform-connector-discord` | `services/connector-discord` | `deploy/ap-connector-discord` |
 | `agent-platform-app-news` | `apps/news` | `deploy/ap-app-news` |
+| `agent-platform-app-stockmarket` | `apps/stockmarket` | `deploy/ap-app-stockmarket` |
+
+App images build from the **repository root** with `-f apps/<name>/Dockerfile .`
+and expect the frontend prebuilt on the host first
+(`npm run build -w <name>-frontend`) — there is no node toolchain in the image.
 
 Two more deployments run stock upstream images and are never built here:
 `ap-agents-sync` (`alpine/git`) and `ap-claude-proxy` (nginx plus a config from
