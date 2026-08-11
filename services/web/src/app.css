@@ -268,6 +268,10 @@
   border-radius: var(--radius-lg); padding: 12px;
 }
 .secret-editor textarea, .secret-editor > input { width: 100%; box-sizing: border-box; }
+.secret-field { display: flex; flex-direction: column; gap: 3px; }
+.secret-field textarea { width: 100%; box-sizing: border-box; }
+.secret-key-label { font-size: 12px; color: var(--ds-text); }
+.secret-key-label code { font-size: 12px; }
 .secret-verify-note { font-size: 12px; }
 .tool-list { display: flex; flex-wrap: wrap; gap: 6px 16px; margin-bottom: 8px; }
 .tool { color: var(--ds-text-muted); font-family: var(--font-mono); font-size: 13px; }

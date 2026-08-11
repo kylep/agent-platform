@@ -1,6 +1,6 @@
 import { Fragment, useEffect, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
-import { api, type EditResult, type PullRequest, type SecretStatus } from "../api";
+import { api, type EditResult, type PullRequest, type SecretKeyField, type SecretStatus } from "../api";
 import { ChangePhaseBanner, PendingChangeBanner, useChangeLoop } from "../components/ChangeFlow";
 import { Banner } from "@ap/ui/banner";
 import { Button } from "@ap/ui/button";
@@ -20,23 +20,39 @@ function toData(value: string, key: string): Record<string, string> {
 
 // Set a secret's VALUE (k8s side — immediate, no PR). The declaration
 // (git side) is edited separately below.
-function ValueEditor({ name, isNew, hint, suggestedKey, onSaved, onCancel }: {
+//
+// A declared secret renders one field per declared key (a multi-key secret
+// like `strava` needs all its keys, and the backend merges on save). An
+// undeclared/bare secret has no known keys, so it falls back to a single
+// value box plus an explicit key name.
+function ValueEditor({ name, isNew, hint, suggestedKey, keys, onSaved, onCancel }: {
   name?: string; isNew?: boolean; hint?: string; suggestedKey?: string;
-  onSaved: () => void; onCancel: () => void;
+  keys?: SecretKeyField[]; onSaved: () => void; onCancel: () => void;
 }) {
   const [secretName, setSecretName] = useState(name ?? "");
   const [keyName, setKeyName] = useState(suggestedKey ?? "");
   const [value, setValue] = useState("");
+  // Per-key values, when the secret declares its keys.
+  const [fields, setFields] = useState<Record<string, string>>({});
   const [state, setState] = useState<SaveState>("idle");
+
+  const declaredKeys = keys ?? [];
+  const perKey = declaredKeys.length > 0;
+  // Only send the fields the admin actually filled — the backend merges, so a
+  // blank field leaves that key untouched rather than clobbering it.
+  const filled = declaredKeys.filter((k) => (fields[k.name] ?? "").trim());
+  const canSave = perKey ? filled.length > 0 : Boolean(value.trim());
 
   async function save() {
     const n = secretName.trim();
-    if (!n || !value.trim()) return;
+    if (!n || !canSave) return;
     setState("saving");
+    const data = perKey
+      ? Object.fromEntries(filled.map((k) => [k.name, fields[k.name].trim()]))
+      : toData(value, keyName);
     try {
       await api(`/api/secrets/${encodeURIComponent(n)}`, {
-        method: "PUT",
-        body: JSON.stringify({ data: toData(value, keyName) }),
+        method: "PUT", body: JSON.stringify({ data }),
       });
       onSaved();
     } catch {
@@ -50,15 +66,43 @@ function ValueEditor({ name, isNew, hint, suggestedKey, onSaved, onCancel }: {
         <Input placeholder="secret name (e.g. discord-bot)" value={secretName}
                onChange={(e) => setSecretName(e.target.value)} />
       )}
-      {hint && <div className="muted secret-hint">{hint}</div>}
-      <Textarea placeholder={hint || "Paste the secret value…"} value={value} rows={3}
-                aria-label="Secret value"
-                onChange={(e) => { setValue(e.target.value); setState("idle"); }} autoFocus />
+      {perKey ? (
+        <>
+          {declaredKeys.length > 1 && (
+            <div className="muted secret-hint">
+              This secret has {declaredKeys.length} keys — fill each one, then Save.
+              Blank fields are left unchanged.
+            </div>
+          )}
+          {declaredKeys.map((k) => (
+            <div key={k.name} className="secret-field">
+              <label className="secret-key-label"><code>{k.name}</code></label>
+              {k.hint && <div className="muted secret-hint">{k.hint}</div>}
+              <Textarea value={fields[k.name] ?? ""} rows={2}
+                        aria-label={`Value for ${k.name}`}
+                        placeholder={`Paste ${k.name}…`}
+                        onChange={(e) => {
+                          setFields((f) => ({ ...f, [k.name]: e.target.value }));
+                          setState("idle");
+                        }} />
+            </div>
+          ))}
+        </>
+      ) : (
+        <>
+          {hint && <div className="muted secret-hint">{hint}</div>}
+          <Textarea placeholder={hint || "Paste the secret value…"} value={value} rows={3}
+                    aria-label="Secret value"
+                    onChange={(e) => { setValue(e.target.value); setState("idle"); }} autoFocus />
+        </>
+      )}
       <div className="row-actions">
-        <Input className="secret-key" placeholder="key (default: token)" value={keyName}
-               aria-label="Secret data key"
-               onChange={(e) => setKeyName(e.target.value)} />
-        <Button onClick={save} disabled={state === "saving" || !value.trim() || (isNew && !secretName.trim())}>
+        {!perKey && (
+          <Input className="secret-key" placeholder="key (default: token)" value={keyName}
+                 aria-label="Secret data key"
+                 onChange={(e) => setKeyName(e.target.value)} />
+        )}
+        <Button onClick={save} disabled={state === "saving" || !canSave || (isNew && !secretName.trim())}>
           {state === "saving" ? "Saving…" : "Save value"}
         </Button>
         <Button variant="secondary" onClick={onCancel}>Cancel</Button>
@@ -326,6 +370,7 @@ export default function Secrets() {
                 {openEditor === `value:${s.name}` && (
                   <tr><TD colSpan={3}>
                     <ValueEditor name={s.name} hint={s.hint} suggestedKey={s.key}
+                                 keys={s.keys}
                                  onSaved={done} onCancel={() => setOpenEditor(null)} />
                   </TD></tr>
                 )}

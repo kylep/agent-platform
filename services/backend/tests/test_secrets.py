@@ -39,6 +39,16 @@ async def test_can_add_arbitrary_secret_via_api(admin_client, secret_store):
     assert r.status_code == 200
     assert await secret_store.get("discord-bot") == {"token": "abc123"}
 
+
+async def test_put_merges_keys_not_replaces(admin_client, secret_store):
+    # A multi-key secret filled one key at a time must accumulate, not clobber.
+    await admin_client.put("/api/secrets/multi", json={"data": {"A": "1"}})
+    await admin_client.put("/api/secrets/multi", json={"data": {"B": "2"}})
+    assert await secret_store.get("multi") == {"A": "1", "B": "2"}
+    # Re-setting one key rotates it and leaves the rest intact.
+    await admin_client.put("/api/secrets/multi", json={"data": {"A": "9"}})
+    assert await secret_store.get("multi") == {"A": "9", "B": "2"}
+
 async def test_setup_state_includes_secrets(client):
     assert client is not None
     r = await client.get("/api/setup-state")

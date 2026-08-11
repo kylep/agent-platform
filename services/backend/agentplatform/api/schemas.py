@@ -478,6 +478,11 @@ class ScheduleToggle(BaseModel):
 
 # --- secrets -----------------------------------------------------------------
 
+class SecretKeyField(BaseModel):
+    name: str
+    hint: str = ""
+
+
 class SecretStatus(BaseModel):
     name: str
     status: str
@@ -488,6 +493,10 @@ class SecretStatus(BaseModel):
     hint: str
     key: str
     probeable: bool
+    # Every declared data key (name + where-to-get-it hint), so the value
+    # editor can render one field per key and set a multi-key secret in one go.
+    # Empty for undeclared/bare secrets (the editor falls back to a single box).
+    keys: list[SecretKeyField] = []
 
 
 class SecretVerify(BaseModel):

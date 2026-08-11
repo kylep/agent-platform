@@ -49,7 +49,8 @@ def _hints(info: SecretInfo | None) -> dict:
     return {"required": spec.required,
             "hint": spec.hint or (single.hint if single else spec.description),
             "key": single.name if single else "",
-            "probeable": spec.verifiable}
+            "probeable": spec.verifiable,
+            "keys": [{"name": k.name, "hint": k.hint} for k in spec.keys]}
 
 
 async def secret_listing(request: Request) -> list[dict]:
@@ -204,7 +205,14 @@ async def secret_quick_edit(request: Request, name: str, body: SecretQuickEditIn
 
 @router.put("/api/secrets/{name}", response_model=S.Ok, dependencies=[Depends(require_admin)])
 async def put_secret(request: Request, name: str, body: SecretIn):
-    await request.app.state.secret_store.set(name, body.data)
+    # Merge into whatever is already stored rather than replacing wholesale, so
+    # a multi-key secret can be filled one field (or one save) at a time and
+    # rotating a single key never silently drops the others. The k8s store
+    # replaces the whole Secret object, so the merge has to happen here.
+    store = request.app.state.secret_store
+    existing = await store.get(name) or {}
+    merged = {**existing, **{k: v for k, v in body.data.items() if v is not None}}
+    await store.set(name, merged)
     async with request.app.state.session_factory() as s:
         meta = await s.get(SecretMeta, name) or SecretMeta(name=name)
         meta.status = "unprobed"
