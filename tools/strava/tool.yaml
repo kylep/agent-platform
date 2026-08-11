@@ -1,0 +1,35 @@
+name: strava
+description: >-
+  Read Kyle's Strava data (read-only). action="athlete" is his profile;
+  "stats" is his run/ride totals (recent 4 weeks, year-to-date, all-time);
+  "activities" lists recent activities newest-first (optional after/before as
+  YYYY-MM-DD, and per_page up to 50) — use it for "how far did I run this
+  week", "my last runs"; "activity" is one activity's detail by id (from an
+  activities listing) including splits and heart rate; "gear" is a shoe/bike's
+  mileage by gear id. Distances come back in km, durations as H:MM:SS, pace as
+  min/km. No writes — this never posts, kudos, or edits anything on Strava.
+params:
+  type: object
+  properties:
+    action:
+      type: string
+      enum: [athlete, stats, activities, activity, gear]
+    id:
+      type: string
+      description: "activity id (action=activity) or gear id (action=gear)"
+    after:
+      type: string
+      description: "activities: only those on/after this YYYY-MM-DD"
+    before:
+      type: string
+      description: "activities: only those on/before this YYYY-MM-DD"
+    per_page:
+      type: integer
+      default: 30
+      description: "activities: how many to return (1-50)"
+  required: [action]
+infra:
+  secrets:
+    - strava
+  database: true
+timeout_seconds: 45

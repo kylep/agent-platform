@@ -1,0 +1,4 @@
+# psycopg for the token cache in the tool's own pg schema. Already baked into
+# the executor image by the memory tool — declared here so the dependency is
+# explicit and survives if that tool ever changes.
+psycopg[binary]>=3.1,<4
