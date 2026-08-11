@@ -25,17 +25,29 @@ def main() -> int:
         print(f"missing: {', '.join(missing)}")
         return 1
     token = os.environ["STRAVA_ACCESS_TOKEN"].strip()
+    # Probe the ACTIVITIES endpoint, not /athlete — that's the scope the tool
+    # actually needs (activity:read_all). /athlete needs only `read`, so it
+    # would pass even for a token that can't read a single run (exactly the trap
+    # that let a scope-less token look valid).
     req = urllib.request.Request(
-        "https://www.strava.com/api/v3/athlete",
+        "https://www.strava.com/api/v3/athlete/activities?per_page=1",
         headers={"Authorization": f"Bearer {token}",
                  "User-Agent": "agent-platform"})
     try:
         with urllib.request.urlopen(req, timeout=8) as r:
-            import json
-            who = json.load(r)
+            r.read()
     except urllib.error.HTTPError as e:
         if e.code == 401:
-            # Seed access token aged out — expected; the tool refreshes on use.
+            body = e.read().decode("utf-8", "replace")
+            if "activity:read" in body or "read_permission" in body:
+                # Token authenticates but was granted without the activity scope
+                # — refreshing can't fix it. This is a real failure, not staleness.
+                print("MISSING activity scope — re-authorize the Strava app with "
+                      "scope read,activity:read_all,profile:read_all (keep every "
+                      "box checked) and paste the new access + refresh tokens")
+                return 1
+            # No scope complaint → the seed access token has just aged out, which
+            # is expected: the tool refreshes on first use.
             print("ok — all four keys present; seed access token expired "
                   "(normal, the tool refreshes on first use)")
             return 0
@@ -44,8 +56,7 @@ def main() -> int:
     except urllib.error.URLError as e:
         print(f"unreachable: {e.reason}")
         return 1
-    name = f"{who.get('firstname', '')} {who.get('lastname', '')}".strip()
-    print(f"ok — authenticated as {name or who.get('id', 'athlete')}")
+    print("ok — authenticated and the activity scope is present")
     return 0
 
 

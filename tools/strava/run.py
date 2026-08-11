@@ -19,7 +19,7 @@ import json
 import os
 import sys
 import time
-from urllib.error import HTTPError
+from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
@@ -50,41 +50,56 @@ def _connect():
             "  access_token text NOT NULL,"
             "  refresh_token text NOT NULL,"
             "  expires_at bigint NOT NULL DEFAULT 0,"
+            "  seed_refresh text NOT NULL DEFAULT '',"
             "  updated_at timestamptz NOT NULL DEFAULT now(),"
             "  CONSTRAINT oauth_token_singleton CHECK (id = 1))")
+        # Migrate a table created before seed_refresh existed.
+        cur.execute("ALTER TABLE oauth_token "
+                    "ADD COLUMN IF NOT EXISTS seed_refresh text NOT NULL DEFAULT ''")
     conn.commit()
     return conn
 
 
 def _load_tokens(conn) -> dict:
     """The cached tokens, or a seed from the secret env (marked expired so the
-    first call refreshes once and takes ownership of the rotating token)."""
+    first call refreshes once and takes ownership of the rotating token).
+
+    The cache is trusted ONLY while it was seeded from the current secret. If
+    the secret's refresh token changes — Kyle re-authorized, e.g. to add the
+    activity scope — the stored `seed_refresh` no longer matches the env, so the
+    cache is stale (wrong scope / a spent token) and we re-seed from the new
+    secret. Without this, a fixed secret would never take effect because the DB
+    row would keep serving the old token forever."""
+    env_seed = os.environ.get("STRAVA_REFRESH_TOKEN", "").strip()
     with conn.cursor() as cur:
-        cur.execute("SELECT access_token, refresh_token, expires_at "
+        cur.execute("SELECT access_token, refresh_token, expires_at, seed_refresh "
                     "FROM oauth_token WHERE id = 1")
         row = cur.fetchone()
-    if row:
+    if row and env_seed and row[3] == env_seed:
         return {"access_token": row[0], "refresh_token": row[1],
                 "expires_at": row[2]}
     for k in ("STRAVA_ACCESS_TOKEN", "STRAVA_REFRESH_TOKEN"):
         if not os.environ.get(k, "").strip():
-            print(f"{k} is not set and no cached token exists — the strava "
-                  "secret must be configured", file=sys.stderr)
+            print(f"{k} is not set and no usable cached token exists — the "
+                  "strava secret must be configured", file=sys.stderr)
             raise SystemExit(2)
     return {"access_token": os.environ["STRAVA_ACCESS_TOKEN"].strip(),
-            "refresh_token": os.environ["STRAVA_REFRESH_TOKEN"].strip(),
-            "expires_at": 0}
+            "refresh_token": env_seed, "expires_at": 0}
 
 
 def _save_tokens(conn, tok: dict) -> None:
+    # Stamp the row with the seed it came from (the current secret's refresh
+    # token), so a later secret change is detected and the cache re-seeds.
+    seed = os.environ.get("STRAVA_REFRESH_TOKEN", "").strip()
     with conn.cursor() as cur:
         cur.execute(
             "INSERT INTO oauth_token (id, access_token, refresh_token, "
-            "  expires_at, updated_at) VALUES (1, %s, %s, %s, now()) "
+            "  expires_at, seed_refresh, updated_at) VALUES (1, %s, %s, %s, %s, now()) "
             "ON CONFLICT (id) DO UPDATE SET access_token = EXCLUDED.access_token, "
             "  refresh_token = EXCLUDED.refresh_token, "
-            "  expires_at = EXCLUDED.expires_at, updated_at = now()",
-            (tok["access_token"], tok["refresh_token"], tok["expires_at"]))
+            "  expires_at = EXCLUDED.expires_at, seed_refresh = EXCLUDED.seed_refresh, "
+            "  updated_at = now()",
+            (tok["access_token"], tok["refresh_token"], tok["expires_at"], seed))
     conn.commit()
 
 
@@ -142,19 +157,44 @@ def _get(conn, path: str, params: dict | None = None):
         with urlopen(req, timeout=30) as resp:
             return json.loads(resp.read().decode())
 
-    token = _access_token(conn)
     try:
-        return _once(token)
+        return _once(_access_token(conn))
     except HTTPError as e:
+        # A first 401 may just be an expired access token — refresh once and
+        # retry. A SECOND 401 is not about expiry: the token is valid but lacks
+        # the scope the endpoint needs (Strava says so in the body).
         if e.code == 401:
-            return _once(_access_token(conn, force=True))
-        if e.code == 429:
-            print("strava rate limit hit (HTTP 429) — 200 req/15min, "
-                  "2000/day. Wait and retry.", file=sys.stderr)
-            raise SystemExit(2)
-        detail = e.read().decode("utf-8", "replace")[:200]
-        print(f"strava API error {e.code}: {detail}", file=sys.stderr)
+            try:
+                return _once(_access_token(conn, force=True))
+            except HTTPError as e2:
+                _fail(e2, path)
+        _fail(e, path)
+    except URLError as e:
+        print(f"strava unreachable: {getattr(e, 'reason', e)}", file=sys.stderr)
         raise SystemExit(2)
+
+
+def _fail(e: HTTPError, path: str):
+    """Turn a Strava HTTPError into a clean, actionable stderr message + exit —
+    never a traceback the model then has to interpret."""
+    body = e.read().decode("utf-8", "replace")
+    if e.code == 401:
+        hint = ""
+        if "activity:read" in body or "read_permission" in body:
+            hint = (" The token is missing the ACTIVITY scope — refreshing can't "
+                    "add it. Re-authorize the Strava app with "
+                    "scope 'read,activity:read_all,profile:read_all' (keep every "
+                    "box checked on the authorize page), then update the strava "
+                    "secret's STRAVA_ACCESS_TOKEN and STRAVA_REFRESH_TOKEN.")
+        print(f"strava 401 Unauthorized for {path}.{hint} [{body[:180]}]",
+              file=sys.stderr)
+        raise SystemExit(2)
+    if e.code == 429:
+        print("strava rate limit hit (HTTP 429) — 200 req/15min, 2000/day. "
+              "Wait and retry.", file=sys.stderr)
+        raise SystemExit(2)
+    print(f"strava API error {e.code}: {body[:200]}", file=sys.stderr)
+    raise SystemExit(2)
 
 
 # --------------------------------------------------------------------------
