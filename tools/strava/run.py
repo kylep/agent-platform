@@ -196,6 +196,11 @@ def _activity_row(a: dict) -> dict:
     moving = a.get("moving_time")
     is_foot = (a.get("type") or a.get("sport_type") or "").lower() in (
         "run", "trailrun", "walk", "hike", "virtualrun")
+    def _int(v):
+        try:
+            return int(round(float(v)))
+        except (TypeError, ValueError):
+            return None
     return {
         "id": a.get("id"),
         "date": (a.get("start_date_local") or "")[:10],
@@ -207,6 +212,10 @@ def _activity_row(a: dict) -> dict:
         "elevation_m": a.get("total_elevation_gain"),
         "avg_hr": a.get("average_heartrate"),
         "max_hr": a.get("max_heartrate"),
+        # Raw numerics: unambiguous for a downstream store to transcribe and do
+        # math on (the friendly fields above are for humans / chat).
+        "distance_m": _int(dist),
+        "moving_time_s": _int(moving),
     }
 
 

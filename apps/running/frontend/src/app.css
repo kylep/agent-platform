@@ -1,0 +1,126 @@
+/* Running app composites — design tokens only (no raw hex; the platform gate
+   scans app frontends too). Generic vocabulary comes from @ap/ui. */
+
+@layer base {
+  h1 { font-size: 20px; font-weight: 600; margin: 0 0 12px; }
+  h2 { font-size: 15px; font-weight: 600; margin: 0; }
+  a { color: var(--ds-link); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  a:focus-visible, button:focus-visible {
+    outline: 2px solid var(--ds-accent);
+    outline-offset: 2px;
+  }
+}
+
+.muted { color: var(--ds-text-muted); }
+.error { color: var(--ds-danger); }
+
+.rn-shell { max-width: 1100px; margin: 0 auto; padding-bottom: 48px; }
+.rn-top {
+  display: flex; align-items: center; gap: 16px; padding: 14px 0;
+  border-bottom: 1px solid var(--ds-border); margin-bottom: 20px;
+}
+.rn-brand { font-weight: 700; font-size: 16px; color: var(--ds-text); }
+
+.rn-card {
+  background: var(--ds-surface); border: 1px solid var(--ds-border);
+  border-radius: var(--radius-lg); padding: 16px 18px; margin-bottom: 16px;
+}
+.rn-card-head {
+  display: flex; align-items: baseline; justify-content: space-between;
+  gap: 12px; margin-bottom: 12px;
+}
+.rn-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+@media (max-width: 820px) { .rn-cols { grid-template-columns: 1fr; } }
+
+.rn-empty h2 { margin-bottom: 8px; }
+.rn-empty code, .rn-brief-body code { font-family: var(--font-mono, monospace); }
+
+/* --- totals hero ------------------------------------------------------- */
+.rn-totals-hero { display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap; }
+.rn-totals-km {
+  font-size: 34px; font-weight: 700; color: var(--ds-text);
+  font-variant-numeric: tabular-nums; line-height: 1;
+}
+.rn-totals-cmp { color: var(--ds-accent); font-size: 14px; }
+.rn-totals-row { display: flex; gap: 26px; flex-wrap: wrap; margin-top: 14px; }
+.rn-totals-row div { display: flex; flex-direction: column; }
+.rn-totals-row b { font-size: 17px; color: var(--ds-text); font-variant-numeric: tabular-nums; }
+.rn-totals-row span { font-size: 11px; color: var(--ds-text-subtle);
+  text-transform: uppercase; letter-spacing: .04em; }
+
+/* --- calendar heatmap -------------------------------------------------- */
+.rn-heat-scroll { overflow-x: auto; }
+.rn-heat-grid { display: flex; gap: 6px; }
+.rn-heat-dow {
+  display: grid; grid-template-rows: repeat(7, 1fr); gap: 3px;
+  padding-top: 16px; font-size: 9px; color: var(--ds-text-subtle);
+}
+.rn-heat-dow span { height: 12px; line-height: 12px; }
+.rn-heat-months {
+  display: flex; height: 13px; font-size: 9px; color: var(--ds-text-subtle);
+}
+.rn-heat-months span { width: 15px; overflow: visible; white-space: nowrap; }
+.rn-heat-weeks { display: flex; gap: 3px; }
+.rn-heat-col { display: grid; grid-template-rows: repeat(7, 1fr); gap: 3px; }
+.rn-cell { width: 12px; height: 12px; border-radius: 2px; display: inline-block; }
+.rn-cell-empty { background: transparent; }
+/* Intensity via opacity on the accent token — one hue, five steps, theme-safe. */
+.rn-l0 { background: var(--ds-border); }
+.rn-l1 { background: var(--ds-accent); opacity: 0.35; }
+.rn-l2 { background: var(--ds-accent); opacity: 0.55; }
+.rn-l3 { background: var(--ds-accent); opacity: 0.78; }
+.rn-l4 { background: var(--ds-accent); opacity: 1; }
+.rn-heat-legend {
+  display: flex; align-items: center; gap: 4px; margin-top: 12px;
+  font-size: 11px;
+}
+.rn-heat-legend .rn-cell { width: 11px; height: 11px; }
+
+/* --- weekly bars ------------------------------------------------------- */
+.rn-bars { width: 100%; max-width: 720px; display: block; }
+.rn-grid { stroke: var(--ds-border); stroke-width: 1; }
+.rn-avg { stroke: var(--ds-text-subtle); stroke-width: 1; stroke-dasharray: 3 3; }
+.rn-axis { fill: var(--ds-text-subtle); font-size: 9px; }
+.rn-bar { fill: var(--ds-chart-1); }
+
+/* --- PR board ---------------------------------------------------------- */
+.rn-pr-grid {
+  display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px;
+}
+@media (max-width: 520px) { .rn-pr-grid { grid-template-columns: repeat(2, 1fr); } }
+.rn-pr {
+  display: flex; flex-direction: column; gap: 2px; padding: 10px 12px;
+  background: var(--ds-surface-raised, var(--ds-bg)); border: 1px solid var(--ds-border);
+  border-radius: var(--radius-md);
+}
+.rn-pr-label { font-size: 11px; color: var(--ds-text-subtle);
+  text-transform: uppercase; letter-spacing: .04em; }
+.rn-pr-value { font-size: 18px; font-weight: 700; color: var(--ds-text);
+  font-variant-numeric: tabular-nums; }
+.rn-pr-sub { font-size: 11px; }
+
+/* --- brief ------------------------------------------------------------- */
+.rn-brief-stat { margin: 0 0 8px; font-variant-numeric: tabular-nums; }
+.rn-brief-stat b { color: var(--ds-text); }
+.rn-brief-body { margin: 0 0 10px; line-height: 1.5; }
+.rn-brief-highlights { margin: 0 0 10px; padding-left: 18px; }
+.rn-brief-highlights li { margin: 2px 0; }
+.rn-brief-report { font-size: 13px; color: var(--ds-accent); }
+.rn-tags { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 10px; }
+.rn-tag {
+  border: 1px solid var(--ds-border); border-radius: 999px; padding: 1px 9px;
+  font-size: 11px; color: var(--ds-text-muted);
+}
+
+/* --- recent activities ------------------------------------------------- */
+.rn-acts { list-style: none; margin: 0; padding: 0; }
+.rn-acts li {
+  display: grid; grid-template-columns: 44px 1fr auto auto; gap: 10px;
+  align-items: baseline; padding: 6px 0; border-top: 1px solid var(--ds-border);
+  font-size: 13px;
+}
+.rn-acts li:first-child { border-top: 0; }
+.rn-act-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ds-text); }
+.rn-act-dist { font-variant-numeric: tabular-nums; color: var(--ds-text); }
+.rn-act-pace { font-variant-numeric: tabular-nums; }

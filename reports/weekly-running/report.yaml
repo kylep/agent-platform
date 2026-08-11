@@ -1,0 +1,12 @@
+# The weekly running recap (docs/design/11). Rendered deterministically by the
+# RUNNING APP the first time each ISO week's brief is ingested (generator = the
+# app's key, app:running); the app also posts the same recap to #running.
+# Browsable on /reports and linked from the app's coach's-brief card.
+name: weekly-running
+description: Weekly running recap — distance, runs, the week's standout efforts, and the coach's note.
+icon: 🏃
+generator: app:running
+# One instance per ISO week, keyed by the week's Monday (a bare date, no time).
+# "weekly" isn't a cadence the registry knows; adhoc accepts a date-only key.
+cadence: adhoc
+retention_days: 730

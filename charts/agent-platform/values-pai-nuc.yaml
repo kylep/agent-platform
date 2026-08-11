@@ -84,4 +84,4 @@ connectors:
 # provisioned from apps/<name>/app.yaml by the dispatcher before the
 # Deployment first starts.
 apps:
-  enabled: [news, stockmarket]
+  enabled: [news, stockmarket, running]
