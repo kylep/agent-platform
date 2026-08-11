@@ -334,8 +334,14 @@ export default function Secrets() {
                     {s.required && <Chip variant="accent">required</Chip>}{" "}
                     <StatusChip status={s.status} />
                     {verifyResult[s.name] && (
-                      <span className="muted secret-verify-note">
-                        {" "}({verifyResult[s.name].code ?? verifyResult[s.name].detail})
+                      // Detail can be a full sentence — keep a compact trigger
+                      // and hand the text to a native title tooltip (renders in
+                      // the browser overlay, so the table's overflow can't clip
+                      // it the way an absolutely-positioned popover would).
+                      <span className="muted secret-verify-note"
+                            title={verifyResult[s.name].detail || verifyResult[s.name].status}>
+                        {" "}{verifyResult[s.name].code != null
+                          ? `(${verifyResult[s.name].code})` : "details"}
                       </span>
                     )}
                   </TD>
