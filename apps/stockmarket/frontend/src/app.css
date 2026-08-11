@@ -68,6 +68,7 @@
 }
 .sm-ranges { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; margin-bottom: 10px; }
 .sm-chart-svg { width: 100%; max-width: 900px; display: block; }
+.sm-chart-brushable { cursor: crosshair; touch-action: none; }
 .sm-chart-empty { padding: 40px 0; text-align: center; }
 
 .sm-grid { stroke: var(--ds-border); stroke-width: 1; }
@@ -75,6 +76,9 @@
 .sm-cursor { stroke: var(--ds-text-subtle); stroke-width: 1; stroke-dasharray: 2 3; }
 .sm-axis { fill: var(--ds-text-subtle); font-size: 10px; }
 .sm-cursor-label { fill: var(--ds-text); }
+.sm-brush-band { fill: var(--ds-accent); opacity: 0.14; }
+.sm-brush-edge { stroke: var(--ds-accent); stroke-width: 1; }
+.sm-brush-label { fill: var(--ds-text); font-variant-numeric: tabular-nums; }
 .sm-line { stroke-linejoin: round; stroke-linecap: round; }
 
 .sm-legend {
@@ -166,6 +170,19 @@
 .sm-side h2 { margin-top: 0; }
 .sm-add { display: flex; gap: 8px; align-items: center; margin: 10px 0; }
 .sm-add input { flex: 1; min-width: 0; }
+
+.sm-watch-list { list-style: none; margin: 4px 0 0; padding: 0; }
+.sm-watch-list li {
+  display: flex; align-items: center; gap: 8px; padding: 6px 0;
+  border-top: 1px solid var(--ds-border);
+}
+.sm-watch-sym { font-weight: 600; color: var(--ds-text); }
+.sm-watch-state { margin-left: auto; font-variant-numeric: tabular-nums; font-size: 12px; }
+.sm-watch-x {
+  background: none; border: 0; color: var(--ds-text-subtle);
+  font-size: 15px; cursor: pointer; line-height: 1; padding: 0 2px;
+}
+.sm-watch-x:hover { color: var(--ds-danger); }
 
 /* Empty-brief placeholder reuses the brief card so both columns read as cards. */
 .sm-brief-empty h2 { margin-top: 0; }

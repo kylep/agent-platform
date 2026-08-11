@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { api, RANGES, type BriefView, type Range, type SeriesView,
          type Summary } from "./api";
 import { IndexChart } from "./chart";
-import { AddSymbol, BriefCard, StatTile } from "./components";
+import { AddSymbol, BriefCard, StatTile, pct } from "./components";
 import { ChipButton } from "@ap/ui/chip";
 import { buildPlatformNav, SideNav, type AppNavInfo } from "@ap/ui/sidenav";
 
@@ -168,7 +168,8 @@ export default function App() {
           </label>
         </div>
         <IndexChart series={series} hidden={hidden} onToggle={toggle}
-                    colorIndex={colorIndex} />
+                    colorIndex={colorIndex}
+                    onBrush={(from, to) => setCustom({ from, to })} />
         <p className="muted sm-note">
           Each line is percent change from the start of the range, so symbols at
           very different prices stay comparable.
@@ -190,11 +191,31 @@ export default function App() {
         <aside className="sm-side">
           <h2>Watchlist</h2>
           <AddSymbol onAdd={add} busy={adding} full={watching.length >= 20} />
-          {watching.length === 0 && (
+          {watching.length === 0 ? (
             <p className="muted">
               Nothing watched yet. Added tickers are backfilled with five years
               of daily closes.
             </p>
+          ) : (
+            // The watched tickers, right where they were added — the top stat
+            // tiles are the same symbols, but this list is the feedback that
+            // the Add actually took, without hunting up the page.
+            <ul className="sm-watch-list">
+              {watching.map((s) => (
+                <li key={s.symbol}>
+                  <span className="sm-watch-sym">{s.symbol}</span>
+                  <span className={`sm-watch-state${
+                    s.status === "invalid" ? " error" : " muted"}`}>
+                    {s.status === "pending" ? "backfilling…"
+                      : s.status === "invalid" ? "unknown ticker"
+                      : pct(s.change_pct)}
+                  </span>
+                  <button type="button" className="sm-watch-x"
+                          onClick={() => remove(s.symbol)}
+                          aria-label={`Remove ${s.symbol} from watchlist`}>×</button>
+                </li>
+              ))}
+            </ul>
           )}
         </aside>
       </section>

@@ -47,15 +47,21 @@ function niceTicks(lo: number, hi: number, count = 5): number[] {
   return out;
 }
 
-export function IndexChart({ series, hidden, onToggle, colorIndex }: {
+export function IndexChart({ series, hidden, onToggle, colorIndex, onBrush }: {
   series: SeriesView[];
   hidden: Set<string>;
   onToggle: (symbol: string) => void;
   /** Palette slot for a symbol. Supplied by the page so a line and its stat
    * tile always agree, even when a pending symbol has a tile but no series. */
   colorIndex: (symbol: string) => number;
+  /** Called on release of a click-drag across the plot with the two ISO
+   * session dates (oldest first). The page turns it into a custom range. */
+  onBrush?: (from: string, to: string) => void;
 }) {
   const [cursor, setCursor] = useState<number | null>(null);
+  // A drag in progress: the session index where it started (`a`) and where the
+  // pointer is now (`b`). Either order — normalized on release.
+  const [drag, setDrag] = useState<{ a: number; b: number } | null>(null);
 
   const { days, normalized, lo, hi } = useMemo(() => {
     const shown = series.filter((s) => !hidden.has(s.symbol) && s.points.length > 0);
@@ -110,12 +116,37 @@ export function IndexChart({ series, hidden, onToggle, colorIndex }: {
   const xTicks = [...new Set(Array.from({ length: tickCount }, (_, k) =>
     Math.round((k * (days.length - 1)) / (tickCount - 1))))];
 
-  function onMove(e: React.MouseEvent<SVGSVGElement>) {
+  // Pointer x → nearest session index, clamped to the plot so a drag that
+  // runs off either edge still selects the first/last session.
+  function idxAt(e: React.PointerEvent<SVGSVGElement>): number {
     const box = e.currentTarget.getBoundingClientRect();
     const px = ((e.clientX - box.left) / box.width) * W;
     const i = Math.round(
       ((px - PAD_L) / Math.max(W - PAD_L - PAD_R, 1)) * Math.max(days.length - 1, 1));
-    setCursor(i >= 0 && i < days.length ? i : null);
+    return Math.max(0, Math.min(days.length - 1, i));
+  }
+
+  function onPointerDown(e: React.PointerEvent<SVGSVGElement>) {
+    if (!onBrush || e.button !== 0) return;
+    // Capture so the drag keeps tracking even when the pointer leaves the SVG.
+    e.currentTarget.setPointerCapture(e.pointerId);
+    const i = idxAt(e);
+    setDrag({ a: i, b: i });
+  }
+
+  function onPointerMove(e: React.PointerEvent<SVGSVGElement>) {
+    const i = idxAt(e);
+    setCursor(i);
+    setDrag((d) => (d ? { a: d.a, b: i } : d));
+  }
+
+  function onPointerUp() {
+    if (drag) {
+      const from = Math.min(drag.a, drag.b), to = Math.max(drag.a, drag.b);
+      // Ignore a plain click (no span) — that's a hover, not a selection.
+      if (to > from && onBrush) onBrush(days[from], days[to]);
+      setDrag(null);
+    }
   }
 
   const readout = (n: Normalized) => {
@@ -128,10 +159,14 @@ export function IndexChart({ series, hidden, onToggle, colorIndex }: {
 
   return (
     <div className="sm-chart">
-      <svg viewBox={`0 0 ${W} ${H}`} className="sm-chart-svg" role="img"
+      <svg viewBox={`0 0 ${W} ${H}`}
+           className={`sm-chart-svg${onBrush ? " sm-chart-brushable" : ""}`}
+           role="img"
            aria-label={`Percent change over the selected range for ${
              normalized.map((n) => n.symbol).join(", ")}`}
-           onMouseMove={onMove} onMouseLeave={() => setCursor(null)}>
+           onPointerDown={onPointerDown} onPointerMove={onPointerMove}
+           onPointerUp={onPointerUp}
+           onPointerLeave={() => { if (!drag) setCursor(null); }}>
         {ticks.map((t) => (
           <g key={t}>
             <line x1={PAD_L} x2={W - PAD_R} y1={y(t)} y2={y(t)}
@@ -156,7 +191,24 @@ export function IndexChart({ series, hidden, onToggle, colorIndex }: {
             </g>
           );
         })}
-        {cursor !== null && (
+        {drag && drag.a !== drag.b && (() => {
+          const from = Math.min(drag.a, drag.b), to = Math.max(drag.a, drag.b);
+          return (
+            <g className="sm-brush">
+              <rect x={x(from)} y={PAD_T} width={x(to) - x(from)}
+                    height={H - PAD_T - PAD_B} className="sm-brush-band" />
+              <line x1={x(from)} x2={x(from)} y1={PAD_T} y2={H - PAD_B}
+                    className="sm-brush-edge" />
+              <line x1={x(to)} x2={x(to)} y1={PAD_T} y2={H - PAD_B}
+                    className="sm-brush-edge" />
+              <text x={x(from) + 4} y={PAD_T + 12} className="sm-axis sm-brush-label"
+                    textAnchor="start">{days[from]}</text>
+              <text x={x(to) - 4} y={PAD_T + 12} className="sm-axis sm-brush-label"
+                    textAnchor="end">{days[to]}</text>
+            </g>
+          );
+        })()}
+        {cursor !== null && !drag && (
           <>
             <line x1={x(cursor)} x2={x(cursor)} y1={PAD_T} y2={H - PAD_B}
                   className="sm-cursor" />
