@@ -1,3 +1,4 @@
+import base64
 import logging
 import uuid
 
@@ -6,7 +7,7 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from agentplatform.api.auth import (ANNOTATE_ROLES, INVOKE_ROLES, READ_ROLES,
                                      require_admin, require_role)
-from agentplatform.db import ACTIVE_STATES, Run, SecretAccess, TranscriptEvent
+from agentplatform.db import ACTIVE_STATES, Conversation, Run, SecretAccess, TranscriptEvent
 from agentplatform.events import TOPIC_RUN_REQUESTS
 from agentplatform.materialize import materialize_run
 
@@ -143,6 +144,57 @@ async def run_events(request: Request, run_id: str):
         rows = (await s.execute(select(TranscriptEvent)
                 .where(TranscriptEvent.run_id == run_id).order_by(TranscriptEvent.seq))).scalars()
         return [e.payload for e in rows]
+
+
+def _own_run_or_403(request: Request, run_id: str) -> None:
+    """Per-run session tokens may only touch their own run; admins (session
+    cookie, no api_key_run_id) may debug any."""
+    key_run = getattr(request.state, "api_key_run_id", None)
+    if key_run is not None and key_run != run_id:
+        raise HTTPException(status_code=403, detail="not this run's token")
+
+
+@router.get("/api/runs/{run_id}/session",
+            dependencies=[Depends(require_role("session", "admin"))])
+async def get_session(run_id: str, request: Request):
+    """Fetch a conversation's Claude session blob (docs/design/14) for the
+    runner to restore before `claude --resume`. Nulls when absent or oversized
+    (the runner then uses the text-replay fallback)."""
+    _own_run_or_403(request, run_id)
+    async with request.app.state.session_factory() as s:
+        run = await s.get(Run, run_id)
+        if run is None or not run.conversation_id:
+            raise HTTPException(status_code=404, detail="no conversation")
+        conv = await s.get(Conversation, run.conversation_id)
+        cap = request.app.state.settings.session_blob_max_bytes
+        if conv is None or not conv.session_blob or len(conv.session_blob) > cap:
+            return {"session_id": None, "blob_b64": None}
+        return {"session_id": conv.claude_session_id,
+                "blob_b64": base64.b64encode(conv.session_blob).decode()}
+
+
+@router.put("/api/runs/{run_id}/session",
+            dependencies=[Depends(require_role("session", "admin"))])
+async def put_session(run_id: str, body: S.SessionBlob, request: Request):
+    """Store the updated session blob after a turn. An oversized blob CLEARS
+    the stored session (a stale blob would resume a session missing recent
+    turns — worse than a clean reset to the fallback)."""
+    _own_run_or_403(request, run_id)
+    blob = base64.b64decode(body.blob_b64)
+    async with request.app.state.session_factory() as s:
+        run = await s.get(Run, run_id)
+        if run is None or not run.conversation_id:
+            raise HTTPException(status_code=404, detail="no conversation")
+        conv = await s.get(Conversation, run.conversation_id)
+        if conv is None:
+            raise HTTPException(status_code=404, detail="no conversation")
+        if len(blob) > request.app.state.settings.session_blob_max_bytes:
+            conv.claude_session_id, conv.session_blob = "", None
+            await s.commit()
+            return {"ok": True, "reset": True}
+        conv.claude_session_id, conv.session_blob = body.session_id, blob
+        await s.commit()
+    return {"ok": True, "reset": False}
 
 @router.post("/api/runs/{run_id}/kill", response_model=S.Ok, dependencies=[Depends(require_admin)])
 async def kill_run(request: Request, run_id: str):

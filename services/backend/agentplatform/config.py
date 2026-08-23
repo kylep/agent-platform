@@ -50,6 +50,10 @@ class Settings(BaseSettings):
     # many days (Run metadata/summary is kept). Per-agent manifest override wins;
     # <= 0 disables pruning (keep forever).
     transcript_retention_days: int = 30
+    # Max size of a stored Claude session blob (docs/design/14). A PUT above
+    # this clears the blob instead of keeping it: a stale/oversized session is
+    # worse than a clean reset to the text-replay fallback.
+    session_blob_max_bytes: int = 8_000_000
     # A conversation turn's reply text and its terminal state arrive on separate
     # Kafka topics. If a finished turn still has no published reply this long
     # after finishing, the recorder's sweep publishes with what it has, so a lost

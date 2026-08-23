@@ -373,6 +373,11 @@ class ModelUsage(BaseModel):
     tokens_cache_creation: int
 
 
+class SessionBlob(BaseModel):
+    session_id: str
+    blob_b64: str
+
+
 # --- pull requests -----------------------------------------------------------
 
 class PullRequest(BaseModel):
