@@ -10,7 +10,16 @@ from sqlalchemy import select
 from agentplatform.db import ACTIVE_STATES, Conversation, Run, utcnow
 from agentplatform.materialize import materialize_run
 
-_HISTORY_TURNS = 20
+# Fallback text-replay budget (docs/design/14): the flattened history is bounded
+# by estimated tokens, not an arbitrary turn count. Only used when session
+# resume is unavailable; resume itself carries the full session. ~4 chars/token
+# is close enough for a guardrail. (Session resume is the primary path — this
+# keeps a degraded turn from replaying an unbounded transcript.)
+_HISTORY_TOKEN_BUDGET = 30_000
+
+
+def _est_tokens(user: str, reply: str) -> int:
+    return (len(user) + len(reply)) // 4 + 1
 
 
 async def _history(session, conversation_id: str) -> list[tuple[str, str]]:
@@ -22,7 +31,17 @@ async def _history(session, conversation_id: str) -> list[tuple[str, str]]:
         user = r.user_message or ""
         if user or r.result:
             out.append((user, r.result or ""))
-    return out[-_HISTORY_TURNS:]
+    # Keep the newest turns that fit the budget (oldest dropped first); always
+    # keep at least the newest turn even if it alone exceeds the budget.
+    kept, budget = [], _HISTORY_TOKEN_BUDGET
+    for user, reply in reversed(out):
+        cost = _est_tokens(user, reply)
+        if kept and cost > budget:
+            break
+        kept.append((user, reply))
+        budget -= cost
+    kept.reverse()
+    return kept
 
 
 def build_prompt(history: list[tuple[str, str]], message: str) -> str:

@@ -1,8 +1,10 @@
 """Conversations: CRUD, continue-turn prompt building, connector ingest, and the
 recorder's outbound projector."""
+from datetime import timedelta
+
 from sqlalchemy import select
 
-from agentplatform.conversation import build_prompt
+from agentplatform.conversation import _history, build_prompt
 from agentplatform.conversation_ingest import ConversationIngestor
 from agentplatform.config import Settings
 from agentplatform.db import Conversation, Run, RunState, utcnow
@@ -77,6 +79,31 @@ async def test_turn_sender_surfaced(admin_client, sf):
 async def test_unimplemented_connector_422(admin_client):
     r = await admin_client.post("/api/conversations", json={"connector": "slack", "agent": "hello-world"})
     assert r.status_code == 422
+
+
+async def test_history_token_budget(sf):
+    # 100 turns of ~1.5k estimated tokens each: only the newest ~20 fit the 30k
+    # budget. The NEWEST must survive and the OLDEST fall off (not the reverse).
+    async with sf() as s:
+        conv = Conversation(connector="web", agent="hello-world", title="t")
+        s.add(conv); await s.flush(); cid = conv.id
+        base = utcnow()
+        for i in range(100):
+            s.add(Run(agent="hello-world", trigger="conversation", requested_by="t",
+                      prompt="x", state=RunState.SUCCEEDED, conversation_id=cid,
+                      created_at=base + timedelta(seconds=i),
+                      user_message=f"m{i} " + "x" * 3000, result="r" * 3000))
+        await s.commit()
+    hist = await _history_of(sf, cid)
+    assert hist[-1][0].startswith("m99")           # newest kept
+    assert not any(u.startswith("m0 ") for u, _ in hist)   # oldest dropped
+    assert sum(len(u) + len(r) for u, r in hist) // 4 <= 30_000
+    assert 0 < len(hist) < 100
+
+
+async def _history_of(sf, cid):
+    async with sf() as s:
+        return await _history(s, cid)
 
 
 async def test_continue_creates_turn_with_history(admin_client, sf, producer):
