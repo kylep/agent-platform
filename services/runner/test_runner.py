@@ -196,3 +196,97 @@ def test_permission_args_declared_bash_is_stripped_for_non_selfedit(tmp_path, mo
 
 def test_permission_args_selfedit():
     assert runner._permission_args(True, False, "x") == ["--permission-mode", "acceptEdits"]
+
+
+# --- conversation session resume (docs/design/14) --------------------------
+
+def _session_env(monkeypatch, tmp_path, fake_body):
+    """Common setup for a conversation-resume run: fake claude, creds, agent,
+    and the session env. Returns the FakeProducer after running."""
+    fake = tmp_path / "claude"; fake.write_text(fake_body)
+    fake.chmod(fake.stat().st_mode | stat.S_IEXEC)
+    creds = tmp_path / "secrets"; creds.mkdir()
+    (creds / "credentials.json").write_text("{}")
+    agents = tmp_path / "agentdefs" / "hello-world"; agents.mkdir(parents=True)
+    (agents / "agent.md").write_text("# hello-world")
+    monkeypatch.setenv("AP_RUN_ID", "RID"); monkeypatch.setenv("AP_AGENT", "hello-world")
+    monkeypatch.setenv("AP_PROMPT", "flattened fallback prompt")
+    monkeypatch.setenv("CLAUDE_BIN", str(fake))
+    monkeypatch.setenv("AP_SECRETS_DIR", str(creds))
+    monkeypatch.setenv("AP_AGENTS_DIR", str(tmp_path / "agentdefs"))
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("AP_USER_MESSAGE", "continue please")
+    monkeypatch.setenv("AP_SESSION_TOKEN", "ap_sess")
+    monkeypatch.setenv("AP_API_URL", "http://api:8090")
+
+
+def test_project_dir_slug(tmp_path, monkeypatch):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    d = runner._project_dir("/workspace/some.dir_x")
+    assert d == tmp_path / ".claude" / "projects" / "-workspace-some-dir-x"
+
+
+def test_restore_session_writes_blob(tmp_path, monkeypatch):
+    import base64
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("AP_API_URL", "http://api")
+    monkeypatch.setenv("AP_SESSION_TOKEN", "ap_x")
+    monkeypatch.setenv("AP_RUN_ID", "r1")
+    monkeypatch.setattr(runner, "_api_req", lambda m, p, body=None: {
+        "session_id": "sid-1", "blob_b64": base64.b64encode(b"{}").decode()})
+    assert runner._restore_session("/workspace") == "sid-1"
+    assert (tmp_path / ".claude/projects/-workspace/sid-1.jsonl").read_bytes() == b"{}"
+
+
+def test_restore_session_absent_env(monkeypatch):
+    monkeypatch.delenv("AP_SESSION_TOKEN", raising=False)
+    assert runner._restore_session("/workspace") is None
+
+
+def test_restore_session_null_blob(monkeypatch):
+    monkeypatch.setenv("AP_API_URL", "http://api")
+    monkeypatch.setenv("AP_SESSION_TOKEN", "ap_x")
+    monkeypatch.setenv("AP_RUN_ID", "r1")
+    monkeypatch.setattr(runner, "_api_req", lambda m, p, body=None: {
+        "session_id": None, "blob_b64": None})
+    assert runner._restore_session("/workspace") is None
+
+
+def test_resume_invocation_and_upload(tmp_path, monkeypatch):
+    """A restorable session -> claude runs with --resume + just the user message;
+    the updated session is uploaded after a clean exit."""
+    _session_env(monkeypatch, tmp_path,
+                 '#!/bin/sh\necho \'{"type":"result","session_id":"sid-9","result":"ok"}\'\nexit 0\n')
+    monkeypatch.setattr(runner, "_restore_session", lambda cwd: "sid-9")
+    uploaded = {}
+    monkeypatch.setattr(runner, "_upload_session",
+                        lambda cwd, run_id, sid: uploaded.update(run_id=run_id, sid=sid))
+    seen_args = {}
+    real_popen = runner.subprocess.Popen
+    def spy(args, **kw):
+        seen_args["args"] = args
+        return real_popen(args, **kw)
+    monkeypatch.setattr(runner.subprocess, "Popen", spy)
+    p = FakeProducer()
+    rc = runner.run(producer=p)
+    assert rc == 0
+    assert "--resume" in seen_args["args"] and "sid-9" in seen_args["args"]
+    assert "continue please" in seen_args["args"]
+    assert "flattened fallback prompt" not in seen_args["args"]   # resume path skips the flattened prompt
+    assert uploaded == {"run_id": "RID", "sid": "sid-9"}
+
+
+def test_resume_failure_falls_back(tmp_path, monkeypatch):
+    """A corrupt/incompatible session (resume exits non-zero) must not kill the
+    turn: the runner retries once with the flattened fallback prompt."""
+    _session_env(monkeypatch, tmp_path,
+                 '#!/bin/sh\ncase "$*" in *--resume*) exit 1;; esac\n'
+                 'echo \'{"type":"result","session_id":"sid-new","result":"ok"}\'\nexit 0\n')
+    monkeypatch.setattr(runner, "_restore_session", lambda cwd: "sid-old")
+    monkeypatch.setattr(runner, "_upload_session", lambda cwd, run_id, sid: None)
+    p = FakeProducer()
+    rc = runner.run(producer=p)
+    assert rc == 0
+    types = [v.get("type") for _, _, v in p.published]
+    assert "session_fallback" in types
+    assert p.published[-1][2]["terminal"] is True and p.published[-1][2]["state"] == "succeeded"

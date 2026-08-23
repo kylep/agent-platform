@@ -1,4 +1,4 @@
-import asyncio, json, os, re, shutil, stat, subprocess, sys, tempfile, uuid
+import asyncio, base64, json, os, re, shutil, stat, subprocess, sys, tempfile, uuid
 import urllib.error
 import urllib.request
 from datetime import datetime, timezone
@@ -260,6 +260,54 @@ def self_edit_publish(repo_dir: Path, env: dict, run_id: str, agent: str, prompt
 
 # -------------------------------------------------------------------------
 
+# --- conversation session resume (docs/design/14) --------------------------
+# A conversation turn restores the Claude CLI session blob from the platform,
+# resumes it (full fidelity + prompt-cache hits), and uploads the updated blob.
+# Everything degrades to the flattened text-replay prompt (AP_PROMPT) on any
+# failure, so a corrupt or version-incompatible session never kills a turn.
+
+def _api_req(method: str, path: str, body: dict | None = None) -> dict:
+    url = os.environ["AP_API_URL"].rstrip("/") + path
+    req = urllib.request.Request(
+        url, method=method,
+        headers={"Authorization": "Bearer " + os.environ["AP_SESSION_TOKEN"],
+                 "Content-Type": "application/json"},
+        data=json.dumps(body).encode() if body is not None else None)
+    with urllib.request.urlopen(req, timeout=30) as r:
+        return json.loads(r.read().decode())
+
+def _project_dir(cwd: str) -> Path:
+    # Mirror the CLI's project slug (non-alphanumerics -> '-') so the session
+    # file lands exactly where `claude --resume` looks for it.
+    return Path.home() / ".claude" / "projects" / re.sub(r"[^A-Za-z0-9]", "-", cwd)
+
+def _restore_session(cwd: str) -> str | None:
+    """Fetch this conversation's session blob and place it for --resume.
+    Returns the session id, or None -> the caller uses the text-replay fallback."""
+    if not (os.environ.get("AP_SESSION_TOKEN") and os.environ.get("AP_API_URL")):
+        return None
+    try:
+        data = _api_req("GET", f"/api/runs/{os.environ['AP_RUN_ID']}/session")
+    except Exception as e:
+        print(f"session restore failed, falling back: {e}", flush=True)
+        return None
+    sid, blob = data.get("session_id"), data.get("blob_b64")
+    if not sid or not blob:
+        return None
+    d = _project_dir(cwd)
+    d.mkdir(parents=True, exist_ok=True)
+    (d / f"{sid}.jsonl").write_bytes(base64.b64decode(blob))
+    return sid
+
+def _upload_session(cwd: str, run_id: str, session_id: str) -> None:
+    p = _project_dir(cwd) / f"{session_id}.jsonl"
+    if not p.exists():
+        return
+    _api_req("PUT", f"/api/runs/{run_id}/session",
+             {"session_id": session_id,
+              "blob_b64": base64.b64encode(p.read_bytes()).decode()})
+
+
 def run(producer=None) -> int:
     run_id, agent = os.environ["AP_RUN_ID"], os.environ["AP_AGENT"]
     prompt = os.environ["AP_PROMPT"]
@@ -282,40 +330,70 @@ async def _run(producer, run_id: str, agent: str, prompt: str) -> int:
         cwd = str(repo_dir)
 
     claude = os.environ.get("CLAUDE_BIN", "claude")
-    args = [claude, "--agent", agent, "-p", prompt, "--output-format", "stream-json", "--verbose"]
+    common = ["--output-format", "stream-json", "--verbose"]
     if os.environ.get("AP_MODEL"):
-        args += ["--model", os.environ["AP_MODEL"]]
-    args += _permission_args(self_edit, bool(os.environ.get("AP_API_TOKEN")), agent)
+        common += ["--model", os.environ["AP_MODEL"]]
+    common += _permission_args(self_edit, bool(os.environ.get("AP_API_TOKEN")), agent)
     # Broker the platform API as MCP tools (mcp__platform__*) for token-bearing
     # agents, so they can read/annotate runs, check health, use memory and post
     # notifications WITHOUT a shell. The agent opts in by declaring the tools.
     if _identity_token():
         mcp_cfg = _write_mcp_config()
         if mcp_cfg:
-            args += ["--mcp-config", mcp_cfg]
+            common += ["--mcp-config", mcp_cfg]
             # Load the broker's MCP tools UPFRONT into the model's context.
             # Default tool-search defers them behind a search tool, so an agent
             # that calls a tool by name (e.g. run-summarizer → runs_read) never
             # sees it and emits the call as plain text. Upfront loading fixes it.
             os.environ["ENABLE_TOOL_SEARCH"] = "false"
-    proc = subprocess.Popen(
-        args, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, cwd=cwd,
-        env={**os.environ, **extra_env})
+
+    # Conversation session resume (docs/design/14): with a restorable session
+    # the prompt is JUST the new user message (prior turns live in the resumed
+    # session); otherwise fall back to the flattened text-replay prompt.
+    claude_cwd = cwd or os.getcwd()
+    user_message = os.environ.get("AP_USER_MESSAGE", "")
+    resume_sid = _restore_session(claude_cwd) if user_message else None
+
+    def _args(resume: str | None) -> list[str]:
+        if resume:
+            return [claude, "--agent", agent, "--resume", resume, "-p", user_message, *common]
+        return [claude, "--agent", agent, "-p", prompt, *common]
+
     seq = 0
-    while True:
-        line = await asyncio.to_thread(proc.stdout.readline)
-        if line == "":
-            break
-        line = line.strip()
-        if not line: continue
+    final_sid = None
+
+    async def _invoke(args: list[str]) -> int:
+        nonlocal seq, final_sid
+        proc = subprocess.Popen(
+            args, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, cwd=cwd,
+            env={**os.environ, **extra_env})
+        while True:
+            line = await asyncio.to_thread(proc.stdout.readline)
+            if line == "":
+                break
+            line = line.strip()
+            if not line: continue
+            seq += 1
+            try:
+                payload = json.loads(line)
+            except json.JSONDecodeError:
+                payload = {"type": "raw", "text": line}
+            payload["seq"] = seq
+            if payload.get("type") == "result" and payload.get("session_id"):
+                final_sid = payload["session_id"]
+            await producer.publish(TOPIC_TRANSCRIPT, run_id, payload)
+        return await asyncio.to_thread(proc.wait)
+
+    rc = await _invoke(_args(resume_sid))
+    if rc != 0 and resume_sid:
+        # A corrupt or version-incompatible session must not kill the turn:
+        # retry once with the replayed-history fallback and a fresh session.
         seq += 1
-        try:
-            payload = json.loads(line)
-        except json.JSONDecodeError:
-            payload = {"type": "raw", "text": line}
-        payload["seq"] = seq
-        await producer.publish(TOPIC_TRANSCRIPT, run_id, payload)
-    rc = await asyncio.to_thread(proc.wait)
+        await producer.publish(TOPIC_TRANSCRIPT, run_id,
+                               {"seq": seq, "type": "session_fallback",
+                                "detail": "resume failed; retrying with replayed history"})
+        final_sid = None
+        rc = await _invoke(_args(None))
     state = "succeeded" if rc == 0 else "failed"
 
     # On a successful self-edit run, open a PR for whatever the agent changed.
@@ -330,6 +408,14 @@ async def _run(producer, run_id: str, agent: str, prompt: str) -> int:
             await producer.publish(TOPIC_TRANSCRIPT, run_id,
                                    {"seq": seq, "type": "self_edit", "error": str(e)})
             state = "failed"
+
+    # Persist the (possibly new) session so the next turn can resume it. Best
+    # effort — an upload failure just means the next turn uses the fallback.
+    if rc == 0 and final_sid and os.environ.get("AP_SESSION_TOKEN"):
+        try:
+            await asyncio.to_thread(_upload_session, claude_cwd, run_id, final_sid)
+        except Exception as e:
+            print(f"session upload failed (non-fatal): {e}", flush=True)
 
     await producer.publish(TOPIC_TRANSCRIPT, run_id,
                            {"seq": seq + 1, "type": "lifecycle", "terminal": True, "state": state})
