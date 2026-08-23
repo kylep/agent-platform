@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime, timezone
 from enum import StrEnum
-from sqlalchemy import JSON, DateTime, Index, Integer, String, Text, UniqueConstraint, text
+from sqlalchemy import JSON, DateTime, Index, Integer, LargeBinary, String, Text, UniqueConstraint, text
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
@@ -48,6 +48,11 @@ class Run(Base):
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
     tokens_in: Mapped[int] = mapped_column(Integer, default=0)
     tokens_out: Mapped[int] = mapped_column(Integer, default=0)
+    # Prompt-cache tokens (docs/design/14): read = served from Anthropic's
+    # prefix cache at ~10% price; creation = written to it this run. Previously
+    # dropped by the recorder; now captured so cache health is observable.
+    tokens_cache_read: Mapped[int] = mapped_column(Integer, default=0)
+    tokens_cache_creation: Mapped[int] = mapped_column(Integer, default=0)
     tool_calls: Mapped[int] = mapped_column(Integer, default=0)
     # Post-hoc metadata, set by the run-summarizer system agent (or an admin).
     summary: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -93,6 +98,8 @@ class RunModelUsage(Base):
     agent: Mapped[str] = mapped_column(String(128), index=True)
     tokens_in: Mapped[int] = mapped_column(Integer, default=0)
     tokens_out: Mapped[int] = mapped_column(Integer, default=0)
+    tokens_cache_read: Mapped[int] = mapped_column(Integer, default=0)
+    tokens_cache_creation: Mapped[int] = mapped_column(Integer, default=0)
 
 class TranscriptEvent(Base):
     __tablename__ = "run_transcript_events"
@@ -111,6 +118,12 @@ class Conversation(Base):
     agent: Mapped[str] = mapped_column(String(128))
     title: Mapped[str] = mapped_column(String(256), default="")
     status: Mapped[str] = mapped_column(String(16), default="active")  # active | closed
+    # Claude CLI session resume (docs/design/14): the id + raw bytes of the
+    # CLI's session .jsonl, stored OPAQUELY — never parsed or generated here.
+    # Restored into the run pod so `claude --resume` continues the real session
+    # (full fidelity + prompt-cache hits); empty/null = text-replay fallback.
+    claude_session_id: Mapped[str] = mapped_column(String(64), default="")
+    session_blob: Mapped[bytes | None] = mapped_column(LargeBinary, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
 
