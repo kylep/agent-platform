@@ -83,7 +83,9 @@ class Recorder:
                     # merge = idempotent upsert on (run_id, model) for redelivery.
                     await s.merge(RunModelUsage(
                         run_id=run_id, model=model, agent=run.agent,
-                        tokens_in=u.get("inputTokens", 0), tokens_out=u.get("outputTokens", 0)))
+                        tokens_in=u.get("inputTokens", 0), tokens_out=u.get("outputTokens", 0),
+                        tokens_cache_read=u.get("cacheReadInputTokens", 0),
+                        tokens_cache_creation=u.get("cacheCreationInputTokens", 0)))
                 # Blocked tool calls: a signal a least-privilege agent tried
                 # something outside its allow-list (e.g. an injected agent).
                 denials = value.get("permission_denials") or []
@@ -108,6 +110,11 @@ class Recorder:
             usage = value.get("usage", {})
             run.tokens_in += usage.get("input_tokens", 0)
             run.tokens_out += usage.get("output_tokens", 0)
+            # `or 0`: pre-migration rows carry NULL until first written.
+            run.tokens_cache_read = ((run.tokens_cache_read or 0)
+                                     + usage.get("cache_read_input_tokens", 0))
+            run.tokens_cache_creation = ((run.tokens_cache_creation or 0)
+                                         + usage.get("cache_creation_input_tokens", 0))
             # A 401 / authentication_failed frame proves the stored token is
             # bad, regardless of how the run ultimately terminates.
             if value.get("error") == "authentication_failed" or value.get("error_status") == 401:

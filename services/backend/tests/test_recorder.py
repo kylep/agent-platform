@@ -1,7 +1,7 @@
 from datetime import timedelta
 
-from agentplatform.db import (Conversation, Run, RunState, SecretMeta, TranscriptEvent,
-                             utcnow)
+from agentplatform.db import (Conversation, Run, RunModelUsage, RunState, SecretMeta,
+                             TranscriptEvent, utcnow)
 from agentplatform.events import (TOPIC_CONVERSATION_OUTBOUND, TOPIC_RUN_EVENTS,
                                   TOPIC_RUN_TRANSCRIPT)
 from agentplatform.recorder import Recorder
@@ -33,11 +33,21 @@ async def test_transcript_and_metrics(sf):
                      {"seq": 3, "type": "assistant",
                       "message": {"content": [{"type": "text", "text": "OK"}]}})
     await rec.handle(TOPIC_RUN_TRANSCRIPT, rid,
-                     {"seq": 4, "type": "result", "usage": {"input_tokens": 10, "output_tokens": 5}})
+                     {"seq": 4, "type": "result",
+                      "usage": {"input_tokens": 10, "output_tokens": 5,
+                                "cache_read_input_tokens": 2277,
+                                "cache_creation_input_tokens": 193},
+                      "modelUsage": {"claude-opus-4-8": {
+                          "inputTokens": 10, "outputTokens": 5,
+                          "cacheReadInputTokens": 2277,
+                          "cacheCreationInputTokens": 193}}})
     async with sf() as s:
         assert len((await s.execute(select(TranscriptEvent))).scalars().all()) == 4
         run = await s.get(Run, rid)
         assert run.tool_calls == 3 and run.tokens_in == 10 and run.tokens_out == 5
+        assert run.tokens_cache_read == 2277 and run.tokens_cache_creation == 193
+        mu = (await s.execute(select(RunModelUsage))).scalars().one()
+        assert mu.tokens_cache_read == 2277 and mu.tokens_cache_creation == 193
 
 async def test_state_event_terminal(sf):
     rid = await seed(sf); rec = Recorder(sf)
