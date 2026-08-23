@@ -169,7 +169,8 @@ class K8sJobLauncher(Launcher):
 
     def build_job(self, run: Run, manifest: Manifest, self_edit_token: str | None = None,
                   api_token: str | None = None, sa_identity: str | None = None,
-                  run_token: str | None = None, pod_sa: str | None = None) -> k8s.V1Job:
+                  run_token: str | None = None, pod_sa: str | None = None,
+                  session_token: str | None = None) -> k8s.V1Job:
         name = f"run-{run.id[:12]}"
         env = [
             k8s.V1EnvVar(name="AP_RUN_ID", value=run.id),
@@ -223,6 +224,15 @@ class K8sJobLauncher(Launcher):
                 k8s.V1EnvVar(name="AP_DEFAULT_BRANCH", value=self.settings.default_branch),
                 k8s.V1EnvVar(name="AP_GITHUB_TOKEN", value=self_edit_token),
             ]
+        # Conversation session resume (docs/design/14): the run pod restores the
+        # session blob (via AP_SESSION_TOKEN) and resumes the CLI session with
+        # AP_USER_MESSAGE as the new turn. AP_API_URL may already be set by a
+        # token-bearing agent above — dedupe so the runner reads a single value.
+        if session_token:
+            env += [k8s.V1EnvVar(name="AP_SESSION_TOKEN", value=session_token),
+                    k8s.V1EnvVar(name="AP_USER_MESSAGE", value=run.user_message or "")]
+            if not any(e.name == "AP_API_URL" for e in env):
+                env.append(k8s.V1EnvVar(name="AP_API_URL", value=self.settings.api_internal_url))
         # Secret-binding: inject each bound secret's key/values as env vars via
         # envFrom. `optional` so a not-yet-configured secret doesn't wedge the
         # pod; the agent simply runs without it (the skill degrades). Unbound
@@ -423,6 +433,12 @@ class K8sJobLauncher(Launcher):
                             self._ensure_service_account, run.agent)
                     else:
                         api_token = await self._invoke_token(run, role=role)
+        session_token = None
+        if self.sf and run.conversation_id:
+            # Conversation turns get a narrow `session`-role per-run token for
+            # the session-blob endpoints (docs/design/14), regardless of the
+            # agent's tool grants — resume works even for shell-less agents.
+            session_token = await self._invoke_token(run, role="session")
         pod_sa = None
         if self.core is not None:
             pod_sa = await asyncio.to_thread(self._ensure_service_account, run.agent)
@@ -438,7 +454,8 @@ class K8sJobLauncher(Launcher):
                     timeout_seconds=manifest.timeout_seconds
                         or self.settings.run_timeout_seconds)
         job = self.build_job(run, manifest, self_edit_token=token, api_token=api_token,
-                             sa_identity=sa_identity, run_token=run_token, pod_sa=pod_sa)
+                             sa_identity=sa_identity, run_token=run_token, pod_sa=pod_sa,
+                             session_token=session_token)
         await self._audit_secret_access(run, manifest)
         await asyncio.to_thread(self.batch.create_namespaced_job, self.settings.k8s_namespace, job)
 

@@ -43,6 +43,73 @@ def test_build_job_hardens_security_context():
     assert limits["cpu"] == "2" and limits["memory"] == "3Gi"
 
 
+def test_build_job_session_env_wiring():
+    """A conversation run (session_token passed) gets the resume env, with
+    exactly one AP_API_URL even when a platform api_token is also present."""
+    launcher = K8sJobLauncher(batch=None, settings=Settings(
+        runner_image="r:1", k8s_namespace="ap", api_internal_url="http://api:8090"))
+    run = Run(agent="hello-world", trigger="conversation", requested_by="t",
+              prompt="built ctx", conversation_id="c1", user_message="hi again")
+    run.id = "a" * 32
+    env = {e.name: e.value for e in launcher.build_job(
+        run, Manifest(), session_token="ap_sess", api_token="ap_api").spec
+        .template.spec.containers[0].env}
+    assert env["AP_SESSION_TOKEN"] == "ap_sess"
+    assert env["AP_USER_MESSAGE"] == "hi again"
+    assert env["AP_API_URL"] == "http://api:8090"
+    urls = [e for e in launcher.build_job(
+        run, Manifest(), session_token="ap_sess", api_token="ap_api").spec
+        .template.spec.containers[0].env if e.name == "AP_API_URL"]
+    assert len(urls) == 1
+
+
+def test_build_job_no_session_env_without_token():
+    launcher = K8sJobLauncher(batch=None, settings=Settings(runner_image="r:1", k8s_namespace="ap"))
+    run = Run(agent="hello-world", trigger="manual", requested_by="t", prompt="x")
+    run.id = "a" * 32
+    names = {e.name for e in launcher.build_job(run, Manifest()).spec.template.spec.containers[0].env}
+    assert "AP_SESSION_TOKEN" not in names and "AP_USER_MESSAGE" not in names
+
+
+async def test_launch_mints_session_token_for_conversation(sf):
+    """launch() mints a `session`-role per-run token for conversation runs and
+    threads it (plus AP_USER_MESSAGE) into the pod; non-conversation runs don't."""
+    from agentplatform.db import ApiKey
+    from sqlalchemy import select
+
+    class _FakeBatch:
+        def __init__(self): self.job = None
+        def create_namespaced_job(self, ns, job): self.job = job
+
+    async def _launch(run):
+        batch = _FakeBatch()
+        launcher = K8sJobLauncher(batch=batch, settings=Settings(
+            runner_image="r:1", k8s_namespace="ap", api_internal_url="http://api:8090"),
+            session_factory=sf)
+        await launcher.launch(run, Manifest())
+        return batch.job
+
+    async with sf() as s:
+        conv_run = Run(agent="hello-world", trigger="conversation", requested_by="t",
+                       prompt="ctx", conversation_id="c1", user_message="continue please")
+        plain_run = Run(agent="hello-world", trigger="manual", requested_by="t", prompt="x")
+        s.add(conv_run); s.add(plain_run); await s.commit()
+        conv_id, plain_id = conv_run.id, plain_run.id
+
+    async with sf() as s:
+        conv_run = await s.get(Run, conv_id)
+    env = {e.name: e.value for e in (await _launch(conv_run)).spec.template.spec.containers[0].env}
+    assert env["AP_SESSION_TOKEN"] and env["AP_USER_MESSAGE"] == "continue please"
+    async with sf() as s:
+        keys = (await s.execute(select(ApiKey).where(ApiKey.run_id == conv_id))).scalars().all()
+        assert any(k.role == "session" for k in keys)
+
+    async with sf() as s:
+        plain_run = await s.get(Run, plain_id)
+    names = {e.name for e in (await _launch(plain_run)).spec.template.spec.containers[0].env}
+    assert "AP_SESSION_TOKEN" not in names
+
+
 def test_claude_proxy_removes_token_from_pod():
     """Token brokering (docs/design/09): with a claude-proxy configured the pod
     gets the proxy URL and never mounts the claude-credentials secret."""
