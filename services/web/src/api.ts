@@ -193,6 +193,8 @@ export type MetricsOverview = {
   success_rate: number | null;
   tokens_in: number;
   tokens_out: number;
+  tokens_cache_read: number;
+  tokens_cache_creation: number;
   tool_calls: number;
   avg_duration_seconds: number | null;
   max_duration_seconds: number | null;
@@ -235,6 +237,8 @@ export type ModelUsage = {
   runs: number;
   tokens_in: number;
   tokens_out: number;
+  tokens_cache_read: number;
+  tokens_cache_creation: number;
 };
 
 export type ModelOption = {

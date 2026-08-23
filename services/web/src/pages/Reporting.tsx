@@ -106,6 +106,7 @@ export default function Reporting() {
           <Stat label="total" value={ov.total} />
           <Stat label="avg duration" value={dur(ov.avg_duration_seconds)} />
           <Stat label={`tokens in/out (uncached) · last ${ov.window} runs`} value={`${ov.tokens_in.toLocaleString()} / ${ov.tokens_out.toLocaleString()}`} />
+          <Stat label={`cache read/write · last ${ov.window} runs`} value={`${ov.tokens_cache_read.toLocaleString()} / ${ov.tokens_cache_creation.toLocaleString()}`} />
         </StatRow>
       )}
 
@@ -156,7 +157,7 @@ export default function Reporting() {
         </tbody>
       </Table>
 
-      <h2>Tokens by model <span className="muted text-sm font-normal">(all time, incl. cache reads)</span></h2>
+      <h2>Tokens by model <span className="muted text-sm font-normal">(all time)</span></h2>
       <div className="row-actions" style={{ marginBottom: 8 }}>
         <label className="muted" htmlFor="model-agent-filter">Agent:</label>
         <Select id="model-agent-filter" aria-label="Filter models by agent" value={modelAgent}
@@ -166,7 +167,7 @@ export default function Reporting() {
         </Select>
       </div>
       <Table>
-        <thead><tr><TH>Model</TH><TH>Runs</TH><TH>Tokens in</TH><TH>Tokens out</TH></tr></thead>
+        <thead><tr><TH>Model</TH><TH>Runs</TH><TH>Tokens in</TH><TH>Tokens out</TH><TH>Cached</TH><TH>Hit %</TH></tr></thead>
         <tbody>
           {models.map((m) => (
             <tr key={m.model}>
@@ -174,9 +175,13 @@ export default function Reporting() {
               <TD>{m.runs}</TD>
               <TD className="text-muted">{m.tokens_in.toLocaleString()}</TD>
               <TD className="text-muted">{m.tokens_out.toLocaleString()}</TD>
+              <TD className="text-muted">{m.tokens_cache_read.toLocaleString()}</TD>
+              <TD className="text-muted">{(m.tokens_cache_read + m.tokens_in) > 0
+                ? `${Math.round(100 * m.tokens_cache_read / (m.tokens_cache_read + m.tokens_in))}%`
+                : "—"}</TD>
             </tr>
           ))}
-          {models.length === 0 && <tr><TD colSpan={4} className="text-muted">No model usage recorded yet.</TD></tr>}
+          {models.length === 0 && <tr><TD colSpan={6} className="text-muted">No model usage recorded yet.</TD></tr>}
         </tbody>
       </Table>
 
