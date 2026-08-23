@@ -336,6 +336,8 @@ class _Agg(BaseModel):
     success_rate: float | None
     tokens_in: int
     tokens_out: int
+    tokens_cache_read: int
+    tokens_cache_creation: int
     tool_calls: int
     avg_duration_seconds: float | None
     max_duration_seconds: float | None
@@ -367,6 +369,8 @@ class ModelUsage(BaseModel):
     runs: int
     tokens_in: int
     tokens_out: int
+    tokens_cache_read: int
+    tokens_cache_creation: int
 
 
 # --- pull requests -----------------------------------------------------------

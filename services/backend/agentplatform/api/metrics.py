@@ -40,6 +40,8 @@ def _agg(runs: list[Run]) -> dict:
         "success_rate": round(succeeded / len(terminal), 4) if terminal else None,
         "tokens_in": sum(r.tokens_in or 0 for r in runs),
         "tokens_out": sum(r.tokens_out or 0 for r in runs),
+        "tokens_cache_read": sum(r.tokens_cache_read or 0 for r in runs),
+        "tokens_cache_creation": sum(r.tokens_cache_creation or 0 for r in runs),
         "tool_calls": sum(r.tool_calls or 0 for r in runs),
         "avg_duration_seconds": round(sum(durations) / len(durations), 2) if durations else None,
         "max_duration_seconds": round(max(durations), 2) if durations else None,
@@ -87,14 +89,17 @@ async def by_model(request: Request, agent: str | None = None):
     from sqlalchemy import func
     stmt = (select(RunModelUsage.model,
                    func.count(func.distinct(RunModelUsage.run_id)),
-                   func.sum(RunModelUsage.tokens_in), func.sum(RunModelUsage.tokens_out))
+                   func.sum(RunModelUsage.tokens_in), func.sum(RunModelUsage.tokens_out),
+                   func.sum(RunModelUsage.tokens_cache_read),
+                   func.sum(RunModelUsage.tokens_cache_creation))
             .group_by(RunModelUsage.model))
     if agent:
         stmt = stmt.where(RunModelUsage.agent == agent)
     async with request.app.state.session_factory() as s:
         rows = (await s.execute(stmt)).all()
-    out = [{"model": m, "runs": runs, "tokens_in": ti or 0, "tokens_out": to or 0}
-           for m, runs, ti, to in rows]
+    out = [{"model": m, "runs": runs, "tokens_in": ti or 0, "tokens_out": to or 0,
+            "tokens_cache_read": cr or 0, "tokens_cache_creation": cc or 0}
+           for m, runs, ti, to, cr, cc in rows]
     out.sort(key=lambda r: r["tokens_in"] + r["tokens_out"], reverse=True)
     return out
 

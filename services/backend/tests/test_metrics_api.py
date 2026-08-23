@@ -21,13 +21,18 @@ async def test_recorder_captures_per_model_usage(sf):
 
 async def test_metrics_by_model_and_agent_filter(admin_client, sf):
     async with sf() as s:
-        s.add(RunModelUsage(run_id="r1", model="claude-sonnet-5", agent="echo", tokens_in=10, tokens_out=20))
+        s.add(RunModelUsage(run_id="r1", model="claude-sonnet-5", agent="echo", tokens_in=10, tokens_out=20,
+                            tokens_cache_read=1000, tokens_cache_creation=50))
         s.add(RunModelUsage(run_id="r1", model="claude-haiku-4-5", agent="echo", tokens_in=5, tokens_out=2))
-        s.add(RunModelUsage(run_id="r2", model="claude-sonnet-5", agent="hello", tokens_in=100, tokens_out=200))
+        s.add(RunModelUsage(run_id="r2", model="claude-sonnet-5", agent="hello", tokens_in=100, tokens_out=200,
+                            tokens_cache_read=7000, tokens_cache_creation=0))
         await s.commit()
     rows = (await admin_client.get("/api/metrics/models")).json()
     by = {r["model"]: r for r in rows}
     assert by["claude-sonnet-5"]["tokens_in"] == 110 and by["claude-sonnet-5"]["runs"] == 2
+    assert by["claude-sonnet-5"]["tokens_cache_read"] == 8000
+    assert by["claude-sonnet-5"]["tokens_cache_creation"] == 50
+    assert by["claude-haiku-4-5"]["tokens_cache_read"] == 0
     assert rows[0]["model"] == "claude-sonnet-5"   # sorted by total tokens desc
     # agent filter
     echo = {r["model"]: r for r in (await admin_client.get("/api/metrics/models?agent=echo")).json()}
@@ -35,11 +40,12 @@ async def test_metrics_by_model_and_agent_filter(admin_client, sf):
     assert "claude-sonnet-5" in echo and len(echo) == 2
 
 
-async def _mk(sf, agent, state, *, tokens=(0, 0), tool_calls=0, dur=None, created=None):
+async def _mk(sf, agent, state, *, tokens=(0, 0), cache=(0, 0), tool_calls=0, dur=None, created=None):
     async with sf() as s:
         r = Run(agent=agent, trigger="manual", requested_by="t", prompt="x", state=state,
-                tokens_in=tokens[0], tokens_out=tokens[1], tool_calls=tool_calls,
-                created_at=created or utcnow())
+                tokens_in=tokens[0], tokens_out=tokens[1],
+                tokens_cache_read=cache[0], tokens_cache_creation=cache[1],
+                tool_calls=tool_calls, created_at=created or utcnow())
         if dur is not None:
             r.started_at = r.created_at
             r.finished_at = r.created_at + timedelta(seconds=dur)
@@ -49,7 +55,7 @@ async def _mk(sf, agent, state, *, tokens=(0, 0), tool_calls=0, dur=None, create
 
 
 async def test_overview_aggregates(admin_client, sf):
-    await _mk(sf, "echo", RunState.SUCCEEDED, tokens=(10, 20), tool_calls=2, dur=4)
+    await _mk(sf, "echo", RunState.SUCCEEDED, tokens=(10, 20), cache=(2277, 193), tool_calls=2, dur=4)
     await _mk(sf, "echo", RunState.FAILED, dur=10)
     await _mk(sf, "echo", RunState.RUNNING)
     o = (await admin_client.get("/api/metrics/overview")).json()
@@ -59,6 +65,7 @@ async def test_overview_aggregates(admin_client, sf):
     # success_rate over terminal runs only (1 succeeded of 2 terminal)
     assert o["success_rate"] == 0.5
     assert o["tokens_in"] == 10 and o["tokens_out"] == 20 and o["tool_calls"] == 2
+    assert o["tokens_cache_read"] == 2277 and o["tokens_cache_creation"] == 193
     assert o["avg_duration_seconds"] == 7.0 and o["max_duration_seconds"] == 10.0
 
 
