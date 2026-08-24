@@ -602,6 +602,21 @@ class ChartSvg(BaseModel):
 
 # --- schedules ---------------------------------------------------------------
 
+class CronPreview(BaseModel):
+    """What a cron expression means and when it will next fire.
+
+    A validation feed, not a request that can fail: an expression the operator
+    is still typing is answered 200 with `error` set, because a 4xx per
+    keystroke is noise in the console and in the network log. `english` and
+    `next` are empty exactly when `error` is set.
+    """
+    english: str = ""
+    # UTC instants, from the scheduler's own next_fire — the times that will
+    # actually fire, not a second opinion about them.
+    next: list[datetime] = []
+    error: str | None = None
+
+
 class ScheduleRow(BaseModel):
     agent: str
     cron: str

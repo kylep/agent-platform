@@ -71,6 +71,24 @@ def next_fire(expr: str, after: datetime, tz: str | None = None) -> datetime:
     return croniter(expr, local).get_next(datetime).astimezone(timezone.utc)
 
 
+def next_fires(expr: str, after: datetime, tz: str | None = None,
+               count: int = 3) -> list[datetime]:
+    """The next `count` firing instants, in UTC — each computed from the one
+    before it through `next_fire`.
+
+    This is what the schedule preview (`/api/cron/preview`) shows, and it goes
+    through the same function the scheduler fires on precisely so the preview
+    cannot promise a time the scheduler would not pick: same zone handling,
+    same daylight-saving behaviour, one implementation.
+    """
+    out: list[datetime] = []
+    cursor = after
+    for _ in range(max(0, count)):
+        cursor = next_fire(expr, cursor, tz)
+        out.append(cursor)
+    return out
+
+
 def prev_fire(expr: str, at: datetime, tz: str | None = None) -> datetime:
     """The most recent firing instant AT OR BEFORE `at`, in UTC. The mirror of
     `next_fire`, and the way we tell which of an agent's crons just came due.

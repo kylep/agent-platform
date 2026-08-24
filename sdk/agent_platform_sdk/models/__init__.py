@@ -32,6 +32,7 @@ from .conversation_turn import ConversationTurn
 from .conversation_view import ConversationView
 from .creds import Creds
 from .cron_entry_in import CronEntryIn
+from .cron_preview import CronPreview
 from .dlq_entry import DlqEntry
 from .edit_dispatch import EditDispatch
 from .edit_result import EditResult
@@ -155,6 +156,7 @@ __all__ = (
     "ConversationView",
     "Creds",
     "CronEntryIn",
+    "CronPreview",
     "DlqEntry",
     "EditDispatch",
     "EditResult",
