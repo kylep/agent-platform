@@ -112,6 +112,13 @@ async def run_job_now(request: Request, job_id: str, principal: str = Depends(re
         if job is None:
             raise HTTPException(404, "unknown job")
         agent, prompt = job.agent, job.prompt
+    # The soft off-switch (docs/design/15) applies to every way a run starts,
+    # and Run Now is one of them — a disabled agent gets no work queued in its
+    # name, whatever its jobs say.
+    await request.app.state.agent_store.reload()
+    info = request.app.state.agent_store.get(agent)
+    if info is not None and not info.enabled:
+        raise HTTPException(409, "agent is disabled")
     run_id = uuid.uuid4().hex
     await materialize_run(request.app.state.session_factory, request.app.state.producer, {
         "run_id": run_id, "agent": agent, "prompt": prompt,

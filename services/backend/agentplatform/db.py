@@ -205,7 +205,10 @@ class AgentVersion(Base):
     # The VERIFIED principal (session name, api-key name, or the run's agent) —
     # never self-reported by the request payload.
     changed_by: Mapped[str] = mapped_column(String(128), default="")
-    # admin | tool:agents_edit | tool:agents_grant | import | rollback
+    # admin | tool:agents_edit | tool:agents_grant | import | rollback, and
+    # `delete:<one of those>` for the tombstone a deletion files — the snapshot
+    # is the definition as it stood, so the log alone can say who removed an
+    # agent and recreate it.
     changed_via: Mapped[str] = mapped_column(String(32), default="admin")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
 

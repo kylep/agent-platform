@@ -29,6 +29,10 @@ async def webhook(request: Request, path: str, principal: str = Depends(require_
         raise HTTPException(404, "no agent declares this webhook path")
     if info.error is not None:
         raise HTTPException(409, "agent quarantined")
+    if not info.enabled:
+        # Declaring the path still means the path exists (404 would be a lie
+        # about the definition) — the agent is just switched off.
+        raise HTTPException(409, "agent is disabled")
     agent = info.name
     try:
         payload = await request.json()
