@@ -75,11 +75,19 @@ def _write_mcp_config() -> str:
     return path
 
 
+def _agent_path(agent: str) -> Path:
+    # `claude --agent <name>` resolves agents from ~/.claude/agents/.
+    return Path.home() / ".claude" / "agents" / f"{agent}.md"
+
+
 def _agent_tools(agent: str) -> list[str]:
-    """The tools an agent.md frontmatter declares (its `tools:` line), or []."""
-    src = Path(os.environ.get("AP_AGENTS_DIR", "/agents/agents")) / agent / "agent.md"
+    """The tools the INSTALLED definition declares (its `tools:` line), or [].
+
+    Reads what `_install_agent` just wrote, not the source it came from, so the
+    permission flags describe the definition `claude` is actually about to run
+    — identical whether it arrived from the API or the /agents mount."""
     try:
-        text = src.read_text()
+        text = _agent_path(agent).read_text()
     except OSError:
         return []
     if not text.startswith("---"):
@@ -140,12 +148,66 @@ def _install_credentials() -> dict:
     shutil.copy(src, dst)  # copy: never write back to the mount
     return {}
 
+# --- the platform API, as this run --------------------------------------
+# AP_SESSION_TOKEN is a per-run key that reaches exactly two run-scoped
+# endpoints: this run's agent definition (docs/design/15) and, for conversation
+# turns, its session blob (docs/design/14). It authorizes nothing else.
+
+def _api_req(method: str, path: str, body: dict | None = None) -> dict:
+    url = os.environ["AP_API_URL"].rstrip("/") + path
+    req = urllib.request.Request(
+        url, method=method,
+        headers={"Authorization": "Bearer " + os.environ["AP_SESSION_TOKEN"],
+                 "Content-Type": "application/json"},
+        data=json.dumps(body).encode() if body is not None else None)
+    with urllib.request.urlopen(req, timeout=30) as r:
+        return json.loads(r.read().decode())
+
+
+def _agentdef() -> dict | None:
+    """This run's agent definition from the platform, or None when the pod has
+    no session token/API URL or the fetch fails — the caller then falls back to
+    the mount."""
+    if not (os.environ.get("AP_SESSION_TOKEN") and os.environ.get("AP_API_URL")):
+        return None
+    try:
+        return _api_req("GET", f"/api/runs/{os.environ['AP_RUN_ID']}/agentdef")
+    except Exception as e:
+        print(f"agentdef fetch failed, falling back to the mount: {e}", flush=True)
+        return None
+
+
+def _render_agent_md(d: dict) -> str:
+    """A fetched definition as the file `claude --agent` reads: frontmatter
+    naming the agent and its granted tools, then the prompt as the body.
+
+    The `tools:` line is deliberately the SAME shape the git-synced agent.md
+    carried, because `_agent_tools` parses it back out for --allowedTools — the
+    delivery channel changed, the contract didn't. With nothing granted there is
+    no line at all, which reads back as [] and pre-approves nothing; the
+    sensitive set stays denied either way."""
+    tools = [*(d.get("harness_tools") or []), *(d.get("platform_tools") or [])]
+    front = [f"name: {d['name']}"]
+    if tools:
+        front.append("tools: " + ", ".join(tools))
+    return "---\n" + "\n".join(front) + "\n---\n\n" + (d.get("prompt") or "")
+
+
 def _install_agent(agent: str) -> None:
-    # `claude --agent <name>` resolves agents from ~/.claude/agents/, so the
-    # synced definition is copied there under the agent's name.
-    src = Path(os.environ.get("AP_AGENTS_DIR", "/agents/agents")) / agent / "agent.md"
-    dst = Path.home() / ".claude" / "agents" / f"{agent}.md"
+    """Put this run's definition where `claude --agent <name>` finds it.
+
+    Preferred (docs/design/15): fetch it from the platform — definitions are
+    rows, and the pod gets exactly the one it is running, as of launch.
+    Fallback: copy the git-synced /agents tree, kept for one release so a pod
+    launched by an older dispatcher (no session token) or one whose API call
+    fails still runs."""
+    dst = _agent_path(agent)
     dst.parent.mkdir(parents=True, exist_ok=True)
+    definition = _agentdef()
+    if definition is not None:
+        dst.write_text(_render_agent_md(definition))
+        return
+    src = Path(os.environ.get("AP_AGENTS_DIR", "/agents/agents")) / agent / "agent.md"
     shutil.copy(src, dst)
 
 def _install_skills() -> None:
@@ -265,16 +327,8 @@ def self_edit_publish(repo_dir: Path, env: dict, run_id: str, agent: str, prompt
 # resumes it (full fidelity + prompt-cache hits), and uploads the updated blob.
 # Everything degrades to the flattened text-replay prompt (AP_PROMPT) on any
 # failure, so a corrupt or version-incompatible session never kills a turn.
-
-def _api_req(method: str, path: str, body: dict | None = None) -> dict:
-    url = os.environ["AP_API_URL"].rstrip("/") + path
-    req = urllib.request.Request(
-        url, method=method,
-        headers={"Authorization": "Bearer " + os.environ["AP_SESSION_TOKEN"],
-                 "Content-Type": "application/json"},
-        data=json.dumps(body).encode() if body is not None else None)
-    with urllib.request.urlopen(req, timeout=30) as r:
-        return json.loads(r.read().decode())
+# (`_api_req` — the run-scoped platform call — lives up with the definition
+# fetch that also uses it.)
 
 def _project_dir(cwd: str) -> Path:
     # Mirror the CLI's project slug (non-alphanumerics -> '-') so the session

@@ -225,13 +225,19 @@ class K8sJobLauncher(Launcher):
                 k8s.V1EnvVar(name="AP_DEFAULT_BRANCH", value=self.settings.default_branch),
                 k8s.V1EnvVar(name="AP_GITHUB_TOKEN", value=self_edit_token),
             ]
-        # Conversation session resume (docs/design/14): the run pod restores the
-        # session blob (via AP_SESSION_TOKEN) and resumes the CLI session with
-        # AP_USER_MESSAGE as the new turn. AP_API_URL may already be set by a
-        # token-bearing agent above — dedupe so the runner reads a single value.
+        # The run-scoped session token (docs/design/14, widened by design/15):
+        # it unlocks this run's own endpoints and nothing else — the agent
+        # DEFINITION the pod materializes, and, for a conversation turn, the
+        # session blob it resumes with AP_USER_MESSAGE as the new turn.
+        # AP_API_URL may already be set by a token-bearing agent above — dedupe
+        # so the runner reads a single value.
         if session_token:
-            env += [k8s.V1EnvVar(name="AP_SESSION_TOKEN", value=session_token),
-                    k8s.V1EnvVar(name="AP_USER_MESSAGE", value=run.user_message or "")]
+            env.append(k8s.V1EnvVar(name="AP_SESSION_TOKEN", value=session_token))
+            if run.conversation_id:
+                # Conversation-only: a non-empty AP_USER_MESSAGE is what makes
+                # the runner try to resume, so a plain run must not carry one.
+                env.append(k8s.V1EnvVar(name="AP_USER_MESSAGE",
+                                        value=run.user_message or ""))
             if not any(e.name == "AP_API_URL" for e in env):
                 env.append(k8s.V1EnvVar(name="AP_API_URL", value=self.settings.api_internal_url))
         # Secret-binding: inject each bound secret's key/values as env vars via
@@ -435,10 +441,14 @@ class K8sJobLauncher(Launcher):
                     else:
                         api_token = await self._invoke_token(run, role=role)
         session_token = None
-        if self.sf and run.conversation_id:
-            # Conversation turns get a narrow `session`-role per-run token for
-            # the session-blob endpoints (docs/design/14), regardless of the
-            # agent's tool grants — resume works even for shell-less agents.
+        if self.sf:
+            # EVERY run gets the narrow `session`-role per-run token, regardless
+            # of the agent's tool grants. It reaches exactly two run-scoped
+            # endpoints: the agent definition the pod materializes into
+            # ~/.claude/agents (docs/design/15 — definitions are rows, not files
+            # on the mount) and, for conversation turns, the session blob
+            # (docs/design/14). Widening it from conversations to all runs grants
+            # no new surface: both endpoints refuse any run but this one.
             session_token = await self._invoke_token(run, role="session")
         pod_sa = None
         if self.core is not None:

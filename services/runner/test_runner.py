@@ -1,4 +1,5 @@
 import json, os, stat
+import urllib.error
 from pathlib import Path
 import runner
 
@@ -146,20 +147,30 @@ def test_self_edit_publish_noop_when_no_change(bare_and_clone, monkeypatch):
     assert res == {"changed": False}
 
 
-def test_agent_tools_parses_frontmatter(tmp_path, monkeypatch):
-    d = tmp_path / "agentdefs" / "news"; d.mkdir(parents=True)
-    (d / "agent.md").write_text("---\nname: news\ntools: WebSearch, WebFetch\n---\nbody")
+def _install_from_mount(tmp_path, monkeypatch, name, agent_md, home=None):
+    """Install an agent the OLD way: a git-synced /agents tree, no session
+    token. Returns after `_install_agent` has taken the fallback path."""
+    d = tmp_path / "agentdefs" / name
+    d.mkdir(parents=True, exist_ok=True)
+    (d / "agent.md").write_text(agent_md)
     monkeypatch.setenv("AP_AGENTS_DIR", str(tmp_path / "agentdefs"))
+    monkeypatch.setenv("HOME", str(home or tmp_path))
+    monkeypatch.delenv("AP_SESSION_TOKEN", raising=False)
+    runner._install_agent(name)
+
+
+def test_agent_tools_parses_the_installed_definition(tmp_path, monkeypatch):
+    _install_from_mount(tmp_path, monkeypatch, "news",
+                        "---\nname: news\ntools: WebSearch, WebFetch\n---\nbody")
     assert runner._agent_tools("news") == ["WebSearch", "WebFetch"]
-    # No tools line → empty.
-    (d / "agent.md").write_text("---\nname: news\n---\nbody")
+    # No tools line → empty (fail-closed; nothing is pre-approved).
+    _install_from_mount(tmp_path, monkeypatch, "news", "---\nname: news\n---\nbody")
     assert runner._agent_tools("news") == []
 
 
 def test_permission_args_credential_less_agent_is_least_privilege(tmp_path, monkeypatch):
-    d = tmp_path / "agentdefs" / "news"; d.mkdir(parents=True)
-    (d / "agent.md").write_text("---\nname: news\ntools: WebSearch, WebFetch\n---\nbody")
-    monkeypatch.setenv("AP_AGENTS_DIR", str(tmp_path / "agentdefs"))
+    _install_from_mount(tmp_path, monkeypatch, "news",
+                        "---\nname: news\ntools: WebSearch, WebFetch\n---\nbody")
     args = runner._permission_args(self_edit=False, has_api_token=False, agent="news")
     # Web tools pre-approved; Bash/Read/etc stripped from context; no bypass.
     assert "--allowedTools" in args and "WebSearch" in args and "WebFetch" in args
@@ -169,9 +180,8 @@ def test_permission_args_credential_less_agent_is_least_privilege(tmp_path, monk
 
 def test_permission_args_no_agent_bypass_even_with_token(tmp_path, monkeypatch):
     # No bypassPermissions for a token-bearing agent — scoped like everyone else.
-    d = tmp_path / "agentdefs" / "mon"; d.mkdir(parents=True)
-    (d / "agent.md").write_text("---\nname: mon\ntools: mcp__platform__runs_read\n---\nbody")
-    monkeypatch.setenv("AP_AGENTS_DIR", str(tmp_path / "agentdefs"))
+    _install_from_mount(tmp_path, monkeypatch, "mon",
+                        "---\nname: mon\ntools: mcp__platform__runs_read\n---\nbody")
     args = runner._permission_args(self_edit=False, has_api_token=True, agent="mon")
     assert "bypassPermissions" not in args
     assert args[:2] == ["--allowedTools", "mcp__platform__runs_read"]
@@ -181,11 +191,10 @@ def test_permission_args_no_agent_bypass_even_with_token(tmp_path, monkeypatch):
 def test_permission_args_declared_bash_is_stripped_for_non_selfedit(tmp_path, monkeypatch):
     """The trifecta-break is enforced, not merely conventional: a non-self-edit
     agent that DECLARES a token-reading tool still doesn't get it. Otherwise a
-    mis-declared (or injection-altered) manifest could hand a web agent Bash and
-    let it read the mounted Claude token."""
-    d = tmp_path / "agentdefs" / "sneaky"; d.mkdir(parents=True)
-    (d / "agent.md").write_text("---\nname: sneaky\ntools: WebFetch, Bash, Read\n---\nbody")
-    monkeypatch.setenv("AP_AGENTS_DIR", str(tmp_path / "agentdefs"))
+    mis-declared (or injection-altered) definition could hand a web agent Bash
+    and let it read the mounted Claude token."""
+    _install_from_mount(tmp_path, monkeypatch, "sneaky",
+                        "---\nname: sneaky\ntools: WebFetch, Bash, Read\n---\nbody")
     args = runner._permission_args(self_edit=False, has_api_token=False, agent="sneaky")
     allowed = args[args.index("--allowedTools") + 1:args.index("--disallowedTools")]
     assert "WebFetch" in allowed
@@ -196,6 +205,99 @@ def test_permission_args_declared_bash_is_stripped_for_non_selfedit(tmp_path, mo
 
 def test_permission_args_selfedit():
     assert runner._permission_args(True, False, "x") == ["--permission-mode", "acceptEdits"]
+
+
+# --- DB-first definition delivery (docs/design/15) -------------------------
+
+def _fetch_env(monkeypatch, tmp_path):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("AP_RUN_ID", "RID")
+    monkeypatch.setenv("AP_SESSION_TOKEN", "ap_sess")
+    monkeypatch.setenv("AP_API_URL", "http://api:8090")
+
+
+def _payload(**over):
+    d = {"name": "newsy", "prompt": "You are newsy.\n",
+         "harness_tools": ["WebSearch", "WebFetch"],
+         "platform_tools": ["mcp__platform__memory"], "skills": [], "model": ""}
+    d.update(over)
+    return d
+
+
+def test_install_agent_writes_the_fetched_definition(tmp_path, monkeypatch):
+    """The pod materializes ~/.claude/agents/<name>.md from the API: frontmatter
+    naming the agent and its granted tools, body = the prompt."""
+    _fetch_env(monkeypatch, tmp_path)
+    seen = {}
+    monkeypatch.setattr(runner, "_api_req", lambda m, p, body=None:
+                        seen.update(method=m, path=p) or _payload())
+    runner._install_agent("newsy")
+    assert seen == {"method": "GET", "path": "/api/runs/RID/agentdef"}
+    assert (tmp_path / ".claude" / "agents" / "newsy.md").read_text() == (
+        "---\nname: newsy\n"
+        "tools: WebSearch, WebFetch, mcp__platform__memory\n"
+        "---\n\nYou are newsy.\n")
+    assert runner._agent_tools("newsy") == ["WebSearch", "WebFetch",
+                                            "mcp__platform__memory"]
+
+
+def test_install_agent_omits_the_tools_line_when_nothing_is_granted(tmp_path, monkeypatch):
+    """Empty grants are explicit, not a mistake — and they must not become
+    --allowedTools entries."""
+    _fetch_env(monkeypatch, tmp_path)
+    monkeypatch.setattr(runner, "_api_req", lambda m, p, body=None:
+                        _payload(harness_tools=[], platform_tools=[]))
+    runner._install_agent("newsy")
+    text = (tmp_path / ".claude" / "agents" / "newsy.md").read_text()
+    assert "tools:" not in text
+    assert runner._agent_tools("newsy") == []
+    args = runner._permission_args(self_edit=False, has_api_token=False, agent="newsy")
+    assert "--allowedTools" not in args
+    assert args[0] == "--disallowedTools" and "Bash" in args     # still hard-denied
+
+
+def test_install_agent_falls_back_to_the_mount_on_a_failed_fetch(tmp_path, monkeypatch):
+    """Transition safety: an unreachable API (or an older dispatcher that minted
+    no session token) must not wedge a run — the git-synced tree still works."""
+    _fetch_env(monkeypatch, tmp_path)
+    d = tmp_path / "agentdefs" / "newsy"; d.mkdir(parents=True)
+    (d / "agent.md").write_text("---\nname: newsy\ntools: WebFetch\n---\nfrom the mount")
+    monkeypatch.setenv("AP_AGENTS_DIR", str(tmp_path / "agentdefs"))
+
+    def boom(*a, **k):
+        raise urllib.error.URLError("connection refused")
+    monkeypatch.setattr(runner, "_api_req", boom)
+    runner._install_agent("newsy")
+    assert (tmp_path / ".claude" / "agents" / "newsy.md").read_text().endswith("from the mount")
+    assert runner._agent_tools("newsy") == ["WebFetch"]
+
+
+def test_install_agent_falls_back_when_the_env_is_absent(tmp_path, monkeypatch):
+    monkeypatch.setattr(runner, "_api_req",
+                        lambda *a, **k: pytest.fail("must not call the API without a token"))
+    _install_from_mount(tmp_path, monkeypatch, "newsy",
+                        "---\nname: newsy\ntools: WebFetch\n---\nfrom the mount")
+    assert runner._agent_tools("newsy") == ["WebFetch"]
+
+
+def test_db_granted_agent_gets_the_same_flags_as_its_file_based_self(tmp_path, monkeypatch):
+    """Parity, the whole point of the frontmatter shape: swapping the delivery
+    channel must not change one character of --allowedTools/--disallowedTools."""
+    tools = ["WebFetch", "Bash", "mcp__platform__runs_read"]
+    _install_from_mount(tmp_path, monkeypatch, "twin",
+                        "---\nname: twin\ntools: " + ", ".join(tools) + "\n---\nbody",
+                        home=tmp_path / "file-home")
+    from_file = runner._permission_args(self_edit=False, has_api_token=True, agent="twin")
+
+    _fetch_env(monkeypatch, tmp_path / "db-home")
+    monkeypatch.setattr(runner, "_api_req", lambda m, p, body=None: _payload(
+        name="twin", prompt="body", harness_tools=["WebFetch", "Bash"],
+        platform_tools=["mcp__platform__runs_read"]))
+    runner._install_agent("twin")
+    from_db = runner._permission_args(self_edit=False, has_api_token=True, agent="twin")
+
+    assert from_db == from_file
+    assert "Bash" not in from_db[:from_db.index("--disallowedTools")]  # denied both ways
 
 
 # --- conversation session resume (docs/design/14) --------------------------
@@ -218,6 +320,9 @@ def _session_env(monkeypatch, tmp_path, fake_body):
     monkeypatch.setenv("AP_USER_MESSAGE", "continue please")
     monkeypatch.setenv("AP_SESSION_TOKEN", "ap_sess")
     monkeypatch.setenv("AP_API_URL", "http://api:8090")
+    # These tests are about resume; keep definition delivery on the mount copy
+    # above (and off the network) so only one thing is under test.
+    monkeypatch.setattr(runner, "_agentdef", lambda: None)
 
 
 def test_project_dir_slug(tmp_path, monkeypatch):

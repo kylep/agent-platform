@@ -24,6 +24,20 @@ class AnnotateIn(BaseModel):
     summary: str | None = None
     tags: list[str] | None = None
 
+class RunAgentDef(BaseModel):
+    """An agent definition as the RUN POD needs it (docs/design/15).
+
+    Not the full row: only what the pod materializes into
+    `~/.claude/agents/<name>.md` and derives its permission flags from. The two
+    grant lists are EXPLICIT — an empty list means no tools, never "everything"
+    — because the runner turns them straight into the file's `tools:` line."""
+    name: str
+    prompt: str
+    harness_tools: list[str] = []
+    platform_tools: list[str] = []
+    skills: list[str] = []
+    model: str = ""
+
 def _summary(r: Run) -> dict:
     return {"id": r.id, "agent": r.agent, "state": r.state, "trigger": r.trigger,
             "created_at": r.created_at.isoformat() if r.created_at else None,
@@ -175,6 +189,35 @@ async def get_session(run_id: str, request: Request):
             return {"session_id": None, "blob_b64": None}
         return {"session_id": conv.claude_session_id,
                 "blob_b64": base64.b64encode(conv.session_blob).decode()}
+
+
+@router.get("/api/runs/{run_id}/agentdef", response_model=RunAgentDef,
+            dependencies=[Depends(require_role("session", "admin"))])
+async def get_agentdef(run_id: str, request: Request):
+    """The definition this run is executing (docs/design/15). Identity lives in
+    `agent_defs`, so the pod no longer reads it off the git-synced /agents
+    mount — it asks for exactly its own agent, with the same run-scoped
+    `session` token the conversation endpoints use."""
+    _own_run_or_403(request, run_id)
+    async with request.app.state.session_factory() as s:
+        run = await s.get(Run, run_id)
+    if run is None:
+        raise HTTPException(status_code=404, detail="unknown run")
+    store = request.app.state.agent_store
+    info = store.get(run.agent)
+    if info is None:
+        await store.reload()   # created moments ago — not in the cache yet
+        info = store.get(run.agent)
+    if info is None:
+        raise HTTPException(status_code=404, detail="unknown agent")
+    # A quarantined row has no manifest; the dispatcher rejects its runs before
+    # a pod exists, so this is belt-and-braces rather than a live path.
+    m = info.manifest
+    return RunAgentDef(name=info.name, prompt=info.agent_md,
+                       harness_tools=info.harness_tools,
+                       platform_tools=info.platform_tools,
+                       skills=list(m.skills) if m else [],
+                       model=m.model if m else "")
 
 
 @router.put("/api/runs/{run_id}/session",

@@ -44,8 +44,8 @@ def test_build_job_hardens_security_context():
 
 
 def test_build_job_session_env_wiring():
-    """A conversation run (session_token passed) gets the resume env, with
-    exactly one AP_API_URL even when a platform api_token is also present."""
+    """A conversation run gets the resume env, with exactly one AP_API_URL even
+    when a platform api_token is also present."""
     launcher = K8sJobLauncher(batch=None, settings=Settings(
         runner_image="r:1", k8s_namespace="ap", api_internal_url="http://api:8090"))
     run = Run(agent="hello-world", trigger="conversation", requested_by="t",
@@ -63,6 +63,21 @@ def test_build_job_session_env_wiring():
     assert len(urls) == 1
 
 
+def test_build_job_session_token_without_a_conversation_has_no_user_message():
+    """Every run carries a session token now (it fetches the agent definition),
+    but AP_USER_MESSAGE stays conversation-only — an empty one would make the
+    runner attempt a resume for a run that has no conversation to resume."""
+    launcher = K8sJobLauncher(batch=None, settings=Settings(
+        runner_image="r:1", k8s_namespace="ap", api_internal_url="http://api:8090"))
+    run = Run(agent="hello-world", trigger="manual", requested_by="t", prompt="x")
+    run.id = "a" * 32
+    env = {e.name: e.value for e in launcher.build_job(
+        run, Manifest(), session_token="ap_sess").spec.template.spec.containers[0].env}
+    assert env["AP_SESSION_TOKEN"] == "ap_sess"
+    assert env["AP_API_URL"] == "http://api:8090"
+    assert "AP_USER_MESSAGE" not in env
+
+
 def test_build_job_no_session_env_without_token():
     launcher = K8sJobLauncher(batch=None, settings=Settings(runner_image="r:1", k8s_namespace="ap"))
     run = Run(agent="hello-world", trigger="manual", requested_by="t", prompt="x")
@@ -71,9 +86,10 @@ def test_build_job_no_session_env_without_token():
     assert "AP_SESSION_TOKEN" not in names and "AP_USER_MESSAGE" not in names
 
 
-async def test_launch_mints_session_token_for_conversation(sf):
-    """launch() mints a `session`-role per-run token for conversation runs and
-    threads it (plus AP_USER_MESSAGE) into the pod; non-conversation runs don't."""
+async def test_launch_mints_a_session_token_for_every_run(sf):
+    """docs/design/15: the session token is how a pod fetches its own agent
+    definition, so EVERY run gets one (design/14 minted it only for
+    conversations). AP_USER_MESSAGE stays conversation-only."""
     from agentplatform.db import ApiKey
     from sqlalchemy import select
 
@@ -100,14 +116,17 @@ async def test_launch_mints_session_token_for_conversation(sf):
         conv_run = await s.get(Run, conv_id)
     env = {e.name: e.value for e in (await _launch(conv_run)).spec.template.spec.containers[0].env}
     assert env["AP_SESSION_TOKEN"] and env["AP_USER_MESSAGE"] == "continue please"
-    async with sf() as s:
-        keys = (await s.execute(select(ApiKey).where(ApiKey.run_id == conv_id))).scalars().all()
-        assert any(k.role == "session" for k in keys)
 
     async with sf() as s:
         plain_run = await s.get(Run, plain_id)
-    names = {e.name for e in (await _launch(plain_run)).spec.template.spec.containers[0].env}
-    assert "AP_SESSION_TOKEN" not in names
+    env = {e.name: e.value for e in (await _launch(plain_run)).spec.template.spec.containers[0].env}
+    assert env["AP_SESSION_TOKEN"] and env["AP_API_URL"] == "http://api:8090"
+    assert "AP_USER_MESSAGE" not in env
+
+    async with sf() as s:
+        for rid in (conv_id, plain_id):
+            keys = (await s.execute(select(ApiKey).where(ApiKey.run_id == rid))).scalars().all()
+            assert [k.role for k in keys] == ["session"]
 
 
 def test_claude_proxy_removes_token_from_pod():
