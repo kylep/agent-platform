@@ -290,6 +290,13 @@ def test_db_granted_agent_gets_the_same_flags_as_its_file_based_self(tmp_path, m
     from_file = runner._permission_args(self_edit=False, has_api_token=True, agent="twin")
 
     _fetch_env(monkeypatch, tmp_path / "db-home")
+    # A DECOY mount declaring different tools. Without it this test proves
+    # nothing: the DB half would inherit AP_AGENTS_DIR from the file half, so a
+    # `_agent_tools` that regressed to reading the mount would read an identical
+    # fixture and still pass. The decoy makes that regression fail loudly.
+    decoy = tmp_path / "decoy" / "twin"; decoy.mkdir(parents=True)
+    (decoy / "agent.md").write_text("---\nname: twin\ntools: Glob\n---\ndecoy")
+    monkeypatch.setenv("AP_AGENTS_DIR", str(tmp_path / "decoy"))
     monkeypatch.setattr(runner, "_api_req", lambda m, p, body=None: _payload(
         name="twin", prompt="body", harness_tools=["WebFetch", "Bash"],
         platform_tools=["mcp__platform__runs_read"]))
@@ -297,7 +304,37 @@ def test_db_granted_agent_gets_the_same_flags_as_its_file_based_self(tmp_path, m
     from_db = runner._permission_args(self_edit=False, has_api_token=True, agent="twin")
 
     assert from_db == from_file
+    assert "Glob" not in from_db                                     # not the decoy's
     assert "Bash" not in from_db[:from_db.index("--disallowedTools")]  # denied both ways
+
+
+def test_install_agent_falls_back_on_a_malformed_200(tmp_path, monkeypatch):
+    """A 200 whose body isn't a definition (a proxy error page, a truncated
+    body) must take the same road as a failed fetch. Rendering it outside the
+    protected path would KeyError on `name` and kill the run."""
+    _fetch_env(monkeypatch, tmp_path)
+    d = tmp_path / "agentdefs" / "newsy"; d.mkdir(parents=True)
+    (d / "agent.md").write_text("---\nname: newsy\ntools: WebFetch\n---\nfrom the mount")
+    monkeypatch.setenv("AP_AGENTS_DIR", str(tmp_path / "agentdefs"))
+    monkeypatch.setattr(runner, "_api_req", lambda m, p, body=None: {})
+    runner._install_agent("newsy")
+    assert (tmp_path / ".claude" / "agents" / "newsy.md").read_text().endswith("from the mount")
+
+
+def test_install_agent_drops_grant_tokens_that_arent_tool_names(tmp_path, monkeypatch):
+    """Defense in depth behind validate_def: only bare tool names reach the
+    frontmatter. A permission SPECIFIER (`Bash(...)`) is the sharp case — it
+    would slip past _permission_args' exact-match strip of the sensitive set and
+    land in --allowedTools."""
+    _fetch_env(monkeypatch, tmp_path)
+    monkeypatch.setattr(runner, "_api_req", lambda m, p, body=None: _payload(
+        harness_tools=["WebFetch", "Bash(rm -rf /)", "Read; echo pwned", "", 42],
+        platform_tools=["mcp__platform__memory", "mcp__x__y --flag"]))
+    runner._install_agent("newsy")
+    assert runner._agent_tools("newsy") == ["WebFetch", "mcp__platform__memory"]
+    args = runner._permission_args(self_edit=False, has_api_token=False, agent="newsy")
+    allowed = args[args.index("--allowedTools") + 1:args.index("--disallowedTools")]
+    assert allowed == ["WebFetch", "mcp__platform__memory"]
 
 
 # --- conversation session resume (docs/design/14) --------------------------
@@ -379,6 +416,22 @@ def test_resume_invocation_and_upload(tmp_path, monkeypatch):
     assert "continue please" in seen_args["args"]
     assert "flattened fallback prompt" not in seen_args["args"]   # resume path skips the flattened prompt
     assert uploaded == {"run_id": "RID", "sid": "sid-9"}
+
+
+def test_a_plain_run_does_not_upload_a_session(tmp_path, monkeypatch):
+    """Every run carries a session token now (docs/design/15), but only a
+    conversation turn has a blob worth PUTting. Gating the upload on the token
+    would make every plain run base64 its whole session jsonl for the API to
+    decode and then 404 — wasted work, and a "session upload failed" line in
+    every pod log that hides the real conversation failures."""
+    _session_env(monkeypatch, tmp_path,
+                 '#!/bin/sh\necho \'{"type":"result","session_id":"sid-9","result":"ok"}\'\nexit 0\n')
+    monkeypatch.delenv("AP_USER_MESSAGE", raising=False)   # not a conversation turn
+    monkeypatch.setattr(runner, "_upload_session",
+                        lambda *a, **k: pytest.fail("a plain run must not upload a session"))
+    p = FakeProducer()
+    assert runner.run(producer=p) == 0
+    assert p.published[-1][2]["state"] == "succeeded"
 
 
 def test_resume_failure_falls_back(tmp_path, monkeypatch):

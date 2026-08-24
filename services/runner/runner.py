@@ -166,15 +166,25 @@ def _api_req(method: str, path: str, body: dict | None = None) -> dict:
 
 def _agentdef() -> dict | None:
     """This run's agent definition from the platform, or None when the pod has
-    no session token/API URL or the fetch fails — the caller then falls back to
-    the mount."""
+    no session token/API URL, the fetch fails, or the body isn't a definition —
+    the caller then falls back to the mount.
+
+    The shape check is part of the fallback, not decoration: a 200 carrying
+    something else (a proxy's error page, a truncated body) would otherwise
+    reach the renderer and kill the run on a missing key, which is exactly the
+    case the fallback exists for."""
     if not (os.environ.get("AP_SESSION_TOKEN") and os.environ.get("AP_API_URL")):
         return None
     try:
-        return _api_req("GET", f"/api/runs/{os.environ['AP_RUN_ID']}/agentdef")
+        d = _api_req("GET", f"/api/runs/{os.environ['AP_RUN_ID']}/agentdef")
     except Exception as e:
         print(f"agentdef fetch failed, falling back to the mount: {e}", flush=True)
         return None
+    if not isinstance(d, dict) or not isinstance(d.get("name"), str) or not d["name"]:
+        print("agentdef response is not a definition, falling back to the mount",
+              flush=True)
+        return None
+    return d
 
 
 def _render_agent_md(d: dict) -> str:
@@ -185,8 +195,16 @@ def _render_agent_md(d: dict) -> str:
     carried, because `_agent_tools` parses it back out for --allowedTools — the
     delivery channel changed, the contract didn't. With nothing granted there is
     no line at all, which reads back as [] and pre-approves nothing; the
-    sensitive set stays denied either way."""
-    tools = [*(d.get("harness_tools") or []), *(d.get("platform_tools") or [])]
+    sensitive set stays denied either way.
+
+    Only bare tool names get written. The API validates grants against the
+    registries, so this is defense in depth — but it is the layer that matters
+    for a permission SPECIFIER like `Bash(cat /secrets/...)`, which
+    `_permission_args` strips the sensitive set by EXACT match and would
+    therefore wave through into --allowedTools."""
+    tools = [t for t in (*(d.get("harness_tools") or []),
+                         *(d.get("platform_tools") or []))
+             if isinstance(t, str) and re.fullmatch(r"[A-Za-z0-9_]+", t)]
     front = [f"name: {d['name']}"]
     if tools:
         front.append("tools: " + ", ".join(tools))
@@ -465,7 +483,11 @@ async def _run(producer, run_id: str, agent: str, prompt: str) -> int:
 
     # Persist the (possibly new) session so the next turn can resume it. Best
     # effort — an upload failure just means the next turn uses the fallback.
-    if rc == 0 and final_sid and os.environ.get("AP_SESSION_TOKEN"):
+    # Gated on the CONVERSATION (`user_message`), not on the session token: the
+    # token is universal now (docs/design/15), and a plain run has no
+    # conversation to store a blob against — it would base64 its whole jsonl
+    # for the API to decode and 404, once per pod, drowning the real failures.
+    if rc == 0 and final_sid and user_message:
         try:
             await asyncio.to_thread(_upload_session, claude_cwd, run_id, final_sid)
         except Exception as e:
