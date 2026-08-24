@@ -20,11 +20,11 @@ it has. That is what lets long-lived processes (recorder, dispatcher, API) pick
 up a UI edit without a restart, without turning every read into an `await`.
 
 **Grants are fields, not frontmatter.** `AgentInfo.platform_tools` /
-`.harness_tools` carry what `agentspec.parse_agent_tools` used to dig out of an
-agent.md. Anything deriving privilege from an agent's tools — the launcher's
-role ladder, `/api/whoami` — MUST read those fields: `agent_md` is synthesized
-from the prompt and has no frontmatter, so parsing it would come back "no
-tools: line" and read as UNRESTRICTED.
+`.harness_tools` carry what an agent.md's `tools:` line used to declare.
+Anything deriving privilege from an agent's tools — the launcher's role ladder,
+`/api/whoami` — MUST read those fields: `agent_md` is synthesized from the
+prompt and has no frontmatter, so any attempt to parse tools back out of it
+would come back "no tools: line", which the file rules read as UNRESTRICTED.
 """
 from __future__ import annotations
 
@@ -168,6 +168,7 @@ class AgentStore:
         # the first refresh, so a store nobody explicitly reloaded still fills.
         self._loaded_at: float | None = None
         self._refresh: asyncio.Task | None = None
+        self._lock = asyncio.Lock()
 
     async def reload(self) -> None:
         """Re-read every definition. Awaited wherever the caller needs to see a
@@ -175,11 +176,20 @@ class AgentStore:
         if self.session_factory is None:
             return
         from sqlalchemy import select
-        async with self.session_factory() as s:
-            rows = (await s.execute(
-                select(AgentDef).order_by(AgentDef.name))).scalars().all()
-            self._cache = {r.name: info_of(r) for r in rows}
-        self._loaded_at = time.monotonic()
+        # Serialized, query INCLUDED. A background TTL refresh and an explicit
+        # reload overlap routinely, and whichever finishes last wins the cache.
+        # Unsynchronized, a refresh that read the OLD rows can land after a
+        # reload that read the new ones and resurrect them for a full TTL —
+        # long enough for `_frozen_tools` to mint a run JWT from a grant set an
+        # operator just narrowed. Holding the lock across the read makes cache
+        # writes happen in read order, so the last writer is always the one
+        # that looked most recently.
+        async with self._lock:
+            async with self.session_factory() as s:
+                rows = (await s.execute(
+                    select(AgentDef).order_by(AgentDef.name))).scalars().all()
+                self._cache = {r.name: info_of(r) for r in rows}
+            self._loaded_at = time.monotonic()
 
     def list(self) -> list[AgentInfo]:
         self._tick()

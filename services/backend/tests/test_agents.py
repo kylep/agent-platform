@@ -56,9 +56,11 @@ async def test_grants_come_from_the_row_not_frontmatter(sf, seed_agent):
     info = store.get("granted")
     assert info.platform_tools == ["mcp__platform__runs_read"]
     assert info.harness_tools == ["WebFetch"]
-    # Nothing may re-derive grants by parsing the prompt: it has no frontmatter.
-    from agentplatform.agentspec import parse_agent_tools
-    assert parse_agent_tools(info.agent_md) is None
+    # The prompt carries no frontmatter, so nothing can re-derive grants from
+    # it — a reader that tried would see "no tools declared" and, under the old
+    # file rules, read that as unrestricted.
+    assert not info.agent_md.lstrip().startswith("---")
+    assert "tools:" not in info.agent_md
 
 
 async def test_unknown_agent_is_none(sf):
@@ -92,6 +94,68 @@ async def test_stale_read_schedules_a_refresh(sf, seed_agent):
     assert store.get("newcomer") is None       # stale read: schedules, serves cache
     await store._refresh                       # the refresh that read scheduled
     assert store.get("newcomer") is not None
+
+
+class _GatingFactory:
+    """A session factory that can park ONE query between reading the rows and
+    the store caching them — the exact window a slow refresh needs to overwrite
+    a newer one."""
+
+    def __init__(self, sf):
+        self._sf = sf
+        self.arm = False                # park the next query
+        self.read = asyncio.Event()     # the parked query has read
+        self.go = asyncio.Event()       # …and may now return
+
+    def __call__(self):
+        parked, self.arm = self.arm, False
+        return _GatingSession(self._sf(), self, parked)
+
+
+class _GatingSession:
+    def __init__(self, cm, owner, parked):
+        self._cm, self._owner, self._parked = cm, owner, parked
+
+    async def __aenter__(self):
+        self._s = await self._cm.__aenter__()
+        return self
+
+    async def __aexit__(self, *exc):
+        return await self._cm.__aexit__(*exc)
+
+    async def execute(self, *a, **k):
+        result = await self._s.execute(*a, **k)
+        if self._parked:
+            self._owner.read.set()
+            await self._owner.go.wait()
+        return result
+
+
+async def test_slow_refresh_cannot_clobber_a_newer_reload(sf, seed_agent):
+    """The reload lock. A background refresh that read the OLD grants must not
+    land after an explicit reload that read the narrowed ones — resurrecting a
+    revoked grant for a whole TTL is how a run JWT gets minted too wide."""
+    await seed_agent("granted", platform_tools=["mcp__platform__runs_read",
+                                                "mcp__platform__runs_write"])
+    factory = _GatingFactory(sf)
+    store = AgentStore(factory, ttl_seconds=0.01)
+    await store.reload()
+    await asyncio.sleep(0.02)                 # cache goes stale
+    factory.arm = True
+    store.get("granted")                      # …so this read schedules the refresh
+    await factory.read.wait()                 # it has read the WIDE grants, parked
+
+    async with sf() as s:                     # an operator narrows the grants
+        row = await s.get(AgentDef, "granted")
+        row.platform_tools = ["mcp__platform__runs_read"]
+        await s.commit()
+
+    explicit = asyncio.create_task(store.reload())
+    await asyncio.sleep(0.05)                 # unlocked, this would land first…
+    factory.go.set()                          # …and the parked refresh would win
+    await explicit
+    await store._refresh
+    assert store.get("granted").platform_tools == ["mcp__platform__runs_read"]
 
 
 async def test_fresh_read_does_not_hit_the_db(sf, seed_agent):
