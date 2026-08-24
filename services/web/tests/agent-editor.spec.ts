@@ -120,3 +120,42 @@ test("the wizard POSTs a full definition — no PR flow", async ({ page }) => {
   expect(body.role).toBe("operator");
   expect(body.enabled).toBe(true);
 });
+
+test("a row whose entrypoints blob is warped still lists and still opens", async ({ page }) => {
+  // The server stopped validating `entrypoints` on the way out so a row whose
+  // JSON blob went wrong stays readable — reading it is how you fix it. That
+  // only helps if the UI holds the same line: the listing must not blank out,
+  // and the editor must open so the blob can be overwritten.
+  const errors: string[] = [];
+  page.on("console", (m) => { if (m.type() === "error") errors.push(m.text()); });
+  page.on("pageerror", (e) => errors.push(String(e)));
+  await mockApi(page);
+
+  const warped = {
+    name: "warped", prompt: "You are warped.", description: "A damaged row.",
+    model: "", role: "operator", system: false, can_invoke: false, concurrency: 1,
+    timeout_seconds: 1800, result_topic: "", transcript_retention_days: null,
+    harness_tools: [], platform_tools: [], skills: [], secrets: [], enabled: true,
+    // Not the four-key shape at all: crons is a bare string, webhooks holds a
+    // number, topics is an object, and there is a key nothing knows about.
+    entrypoints: { crons: "0 9 * * *", webhooks: [7], topics: {}, surprise: true },
+  };
+  await page.route("**/api/agents", (r) =>
+    r.fulfill({ json: [{ ...warped, quarantined: true, error: "entrypoints: not a mapping",
+                         blocked: false, blocked_reason: null }] }));
+  await page.route("**/api/agents/warped", (r) => r.fulfill({ json: warped }));
+  await page.route("**/api/agents/warped/versions", (r) => r.fulfill({ json: [] }));
+
+  await page.goto("/agents");
+  await expect(page.getByRole("link", { name: "warped" })).toBeVisible();
+  await expect(page.getByText("quarantined").first()).toBeVisible();
+
+  await page.getByRole("link", { name: "warped" }).click();
+  await expect(page.getByLabel("Description")).toHaveValue("A damaged row.");
+  await expect(page.getByLabel("Agent prompt")).toHaveValue("You are warped.");
+  // The warped triggers render as none — an empty editor you can save over,
+  // not a crash and not a form full of `undefined`.
+  await expect(page.getByRole("button", { name: "+ Add cron" })).toBeVisible();
+  await expect(page.getByLabel("Entrypoints timezone")).toHaveValue("");
+  expect(errors).toEqual([]);
+});

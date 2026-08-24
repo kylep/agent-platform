@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from "react";
-import type { AgentDef, AgentEntrypoints, CronEntry } from "../api";
+import { asList, type AgentDef, type AgentEntrypoints, type CronEntry } from "../api";
 import { cronEnglish, zoneOptions } from "../lib/cron";
 import { SecretPicker, SkillPicker, ToolGrantPicker, type GrantCatalog } from "./CapabilityPickers";
 import { Button } from "@ap/ui/button";
@@ -29,22 +29,27 @@ export function emptyDef(): AgentDef {
 }
 
 // Fill in anything the API left out, so one trimmed field can't blank the form
-// (or send `undefined` back on save).
+// (or send `undefined` back on save). `asList` because the entrypoints blob
+// comes back unvalidated (see api.ts): the editor is what stands between a
+// warped row and a blank page, and saving over it is the repair.
 export function toDraft(def: Partial<AgentDef> & { name: string }): AgentDef {
-  const e = def.entrypoints;
+  const e = def.entrypoints as Partial<AgentEntrypoints> | undefined;
   return {
     ...emptyDef(),
     ...def,
     entrypoints: {
-      crons: e?.crons ?? [],
-      webhooks: e?.webhooks ?? [],
-      topics: e?.topics ?? [],
-      timezone: e?.timezone ?? "",
+      // Non-object entries are dropped, not rendered: a cron that is a bare
+      // string would give the row's inputs an undefined value apiece.
+      crons: asList<CronEntry>(e?.crons).filter((c) => c && typeof c === "object"),
+      webhooks: asList<AgentEntrypoints["webhooks"][number]>(e?.webhooks)
+        .filter((w) => w && typeof w === "object"),
+      topics: asList<string>(e?.topics).filter((t) => typeof t === "string"),
+      timezone: typeof e?.timezone === "string" ? e.timezone : "",
     },
-    harness_tools: def.harness_tools ?? [],
-    platform_tools: def.platform_tools ?? [],
-    skills: def.skills ?? [],
-    secrets: def.secrets ?? [],
+    harness_tools: asList<string>(def.harness_tools),
+    platform_tools: asList<string>(def.platform_tools),
+    skills: asList<string>(def.skills),
+    secrets: asList<string>(def.secrets),
   };
 }
 

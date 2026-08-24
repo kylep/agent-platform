@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { api, type AgentSummary, type Job } from "../api";
+import { api, asList, type AgentSummary, type CronEntry, type Job } from "../api";
 import { cronEnglish } from "../lib/cron";
 import { cn } from "@ap/ui/cn";
 import { buttonVariants } from "@ap/ui/button";
@@ -9,9 +9,12 @@ import { Table, TD, TH } from "@ap/ui/table";
 
 // The cron summary: the API may pre-render one, else it's the agent's own
 // cron entrypoints (its row is the source of truth — docs/design/15).
+// `asList` because the entrypoints blob comes back unvalidated — a warped row
+// must cost this agent its schedule cell, not the whole listing.
 function scheduleOf(a: AgentSummary): string {
   if (a.schedule) return a.schedule;
-  return (a.entrypoints?.crons ?? []).map((c) => c.schedule).filter(Boolean).join(", ");
+  return asList<CronEntry>(a.entrypoints?.crons)
+    .map((c) => c?.schedule).filter(Boolean).join(", ");
 }
 
 function AgentTable({ agents, jobs }: { agents: AgentSummary[]; jobs: Map<string, number> }) {

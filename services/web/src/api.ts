@@ -17,6 +17,16 @@ export type AgentEntrypoints = {
   timezone: string;      // IANA zone the crons are read in; "" = UTC
 };
 
+// `entrypoints` is a JSON column the API returns VERBATIM: it deliberately
+// stopped validating the blob on the way out so a row whose shape went wrong
+// (raw SQL, a restore, a bad migration) can still be read and repaired. The
+// type above is what a well-formed row holds, not a guarantee — so anything
+// walking a list out of that blob checks first. A warped agent costs itself a
+// schedule cell, never the whole page.
+export function asList<T>(v: unknown): T[] {
+  return Array.isArray(v) ? (v as T[]) : [];
+}
+
 export type AgentDef = {
   name: string;
   prompt: string;               // the agent's context/personality (former agent.md body)
