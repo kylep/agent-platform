@@ -16,7 +16,8 @@ market-open job that quietly slides an hour every November is a bug.
 import asyncio
 import logging
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
+from typing import TYPE_CHECKING
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from croniter import croniter
@@ -24,6 +25,9 @@ from sqlalchemy import select
 
 from agentplatform.db import Schedule, ScheduledJob, utcnow
 from agentplatform.events import TOPIC_RUN_INBOUND
+
+if TYPE_CHECKING:   # `agentdefs` imports this module (lazily) for its validators
+    from agentplatform.agentdefs import CronEntry
 
 log = logging.getLogger("scheduler")
 
@@ -67,6 +71,38 @@ def next_fire(expr: str, after: datetime, tz: str | None = None) -> datetime:
     return croniter(expr, local).get_next(datetime).astimezone(timezone.utc)
 
 
+def prev_fire(expr: str, at: datetime, tz: str | None = None) -> datetime:
+    """The most recent firing instant AT OR BEFORE `at`, in UTC. The mirror of
+    `next_fire`, and the way we tell which of an agent's crons just came due.
+
+    croniter's `get_prev` is strictly-before, so `at` itself would not count —
+    and a tick landing exactly on the second a cron fires is precisely the case
+    that must resolve to that cron. Hence the microsecond nudge."""
+    zone = timezone.utc
+    if tz:
+        try:
+            zone = ZoneInfo(tz)
+        except (ZoneInfoNotFoundError, ValueError):
+            log.warning("unknown timezone %r; falling back to UTC", tz)
+    local = as_utc(at).astimezone(zone) + timedelta(microseconds=1)
+    return croniter(expr, local).get_prev(datetime).astimezone(timezone.utc)
+
+
+# What a cron fire asks for when its entry declares nothing.
+GENERIC_PROMPT = "Scheduled run."
+
+
+def _due_prompt(crons: list["CronEntry"], now: datetime, tz: str = "") -> str:
+    """The prompt for the fire that just came due.
+
+    Each cron entry carries its own ask (docs/design/15), so an agent with two
+    rhythms says two different things — a morning brief is not an evening wrap.
+    The entry that fired is the one whose most recent occurrence is latest;
+    ties (the same expression twice) go to the first declared."""
+    due = max(crons, key=lambda c: prev_fire(c.schedule, now, tz))
+    return due.prompt.strip() or GENERIC_PROMPT
+
+
 class Scheduler:
     def __init__(self, session_factory, agent_store, producer):
         self.sf = session_factory
@@ -78,11 +114,9 @@ class Scheduler:
         # Declared schedules: the crons on the agent's row, e.g. the
         # health-monitor system agent.
         for info in self.agents.list():
-            if info.error is None:
-                crons = info.crons()
-                if crons:
-                    await self._tick_agent(info.name, crons, now,
-                                           info.entrypoints.timezone)
+            if info.error is None and info.entrypoints.crons:
+                await self._tick_agent(info.name, info.entrypoints.crons, now,
+                                       info.entrypoints.timezone)
         # First-class Scheduled Jobs (1:many — one agent, many cron+prompt jobs).
         async with self.sf() as s:
             jobs = (await s.execute(select(ScheduledJob))).scalars().all()
@@ -90,12 +124,13 @@ class Scheduler:
             if is_valid_cron(job.cron):
                 await self._tick_job(job.id, now)
 
-    async def _tick_agent(self, name: str, crons: list[str], now: datetime,
+    async def _tick_agent(self, name: str, crons: list["CronEntry"], now: datetime,
                           tz: str = "") -> None:
-        """One agent may declare several cron triggers; the Schedule row
-        tracks the EARLIEST upcoming fire across all of them."""
-        run_id = None
-        soonest = min(next_fire(c, now, tz) for c in crons)
+        """One agent may declare several cron triggers (`entrypoints.crons`);
+        the Schedule row tracks the EARLIEST upcoming fire across all of them,
+        and the run carries the prompt of whichever one came due."""
+        run_id = prompt = None
+        soonest = min(next_fire(c.schedule, now, tz) for c in crons)
         async with self.sf() as s:
             sched = await s.get(Schedule, name)
             if sched is None:
@@ -110,6 +145,7 @@ class Scheduler:
             if not sched.enabled or now < as_utc(sched.next_fire):
                 return
             run_id = uuid.uuid4().hex
+            prompt = _due_prompt(crons, now, tz)
             sched.last_fire = now
             sched.next_fire = soonest  # from now → skip any missed fires
             await s.commit()
@@ -117,7 +153,7 @@ class Scheduler:
         # materializes the run.
         try:
             await self.producer.publish(TOPIC_RUN_INBOUND, run_id, {
-                "run_id": run_id, "agent": name, "prompt": "Scheduled run.",
+                "run_id": run_id, "agent": name, "prompt": prompt,
                 "trigger": "schedule", "requested_by": "scheduler",
             }, type="run.requested")
         except Exception:

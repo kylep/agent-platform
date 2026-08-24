@@ -57,9 +57,9 @@ class FakeStore:
     def list(self): return self._infos
 
 
-def _agent(name, cron, error=None):
+def _agent(name, cron, error=None, prompt=""):
     return AgentInfo(name=name, manifest=Manifest(), agent_md="", error=error,
-                     entrypoints={"crons": [{"schedule": cron}]})
+                     entrypoints={"crons": [{"schedule": cron, "prompt": prompt}]})
 
 
 @pytest.fixture
@@ -112,6 +112,45 @@ async def test_missed_fires_are_skipped_not_backfilled(sf, now):
     inbound = [v for t, _, v in producer.published if t == TOPIC_RUN_INBOUND]
     assert len(inbound) == 1                               # exactly one, not ~18
     assert as_utc(row.next_fire) == next_fire("*/10 * * * *", way_later)   # advanced past the gap
+
+
+async def test_cron_prompt_is_used_when_declared(sf, now):
+    """A cron entry carries its own ask (docs/design/15); the fired run uses it
+    instead of the generic prompt."""
+    producer = FakeProducer()
+    sch = Scheduler(sf, FakeStore([_agent("cronbot", "*/10 * * * *",
+                                          prompt="  Summarize yesterday's runs.  ")]),
+                    producer)
+    await sch.tick(now)                                    # arm
+    await sch.tick(next_fire("*/10 * * * *", now) + timedelta(seconds=1))
+    inbound = [v for t, _, v in producer.published if t == TOPIC_RUN_INBOUND]
+    assert inbound[0]["prompt"] == "Summarize yesterday's runs."
+
+
+async def test_cron_without_a_prompt_falls_back_to_the_generic_one(sf, now):
+    producer = FakeProducer()
+    sch = Scheduler(sf, FakeStore([_agent("cronbot", "*/10 * * * *")]), producer)
+    await sch.tick(now)
+    await sch.tick(next_fire("*/10 * * * *", now) + timedelta(seconds=1))
+    inbound = [v for t, _, v in producer.published if t == TOPIC_RUN_INBOUND]
+    assert inbound[0]["prompt"] == "Scheduled run."
+
+
+async def test_the_prompt_belongs_to_the_cron_that_actually_fired(sf):
+    """Two rhythms with different asks is the whole reason a cron entry carries
+    a prompt: each fire must say what ITS trigger asked for, not whichever was
+    declared first."""
+    producer = FakeProducer()
+    two = AgentInfo(name="two", manifest=Manifest(), agent_md="", entrypoints={"crons": [
+        {"schedule": "0 9 * * *", "prompt": "Morning brief."},
+        {"schedule": "0 17 * * *", "prompt": "Evening wrap."}]})
+    sch = Scheduler(sf, FakeStore([two]), producer)
+    day = datetime(2026, 7, 20, tzinfo=timezone.utc)
+    await sch.tick(day + timedelta(hours=8))                       # arm → 09:00
+    await sch.tick(day + timedelta(hours=9, seconds=1))            # the morning cron
+    await sch.tick(day + timedelta(hours=17, seconds=1))           # the evening cron
+    prompts = [v["prompt"] for t, _, v in producer.published if t == TOPIC_RUN_INBOUND]
+    assert prompts == ["Morning brief.", "Evening wrap."]
 
 
 async def test_cronless_and_quarantined_agents_not_scheduled(sf, now):

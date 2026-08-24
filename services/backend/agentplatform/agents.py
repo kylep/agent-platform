@@ -93,10 +93,11 @@ class AgentInfo(BaseModel):
 
     def crons(self) -> list[str]:
         """The cron expressions this agent fires on, in declaration order,
-        deduplicated. Simplified from the file era: the deprecated manifest
-        `schedule:` is gone with the files, so a row's entrypoints are the only
-        source. Per-cron prompts live on `entrypoints.crons`; the scheduler
-        still fires one generic run per agent."""
+        deduplicated — for DISPLAY and for the schedules API. Simplified from
+        the file era: the deprecated manifest `schedule:` is gone with the
+        files, so a row's entrypoints are the only source. The scheduler reads
+        `entrypoints.crons` directly instead, because a fire needs its entry's
+        prompt, which this projection drops."""
         out: list[str] = []
         for entry in self.entrypoints.crons:
             if entry.schedule not in out:
