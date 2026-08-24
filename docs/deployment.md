@@ -65,6 +65,7 @@ namespace are invisible to kubelet.
 | `agent-platform-runner` | `services/runner` | no deployment — the dispatcher launches it as a Job per run, so a new image applies to the *next* run with no restart |
 | `agent-platform-web` | `services/web`, using `Dockerfile.prebuilt` after `npm run build -w web` | `deploy/ap-web` |
 | `agent-platform-mcp-broker` | `services/mcp-broker` | `deploy/ap-mcp-broker` |
+| `agent-platform-mcp-facade` | `services/mcp-facade` | `deploy/ap-mcp-facade` — **also restart it after every `ap-api` deploy** (see below) |
 | `agent-platform-tool-executor` | **the repository root** (it bakes the union of `tools/*/requirements.txt`) | `deploy/ap-tool-executor` |
 | `agent-platform-connector-discord` | `services/connector-discord` | `deploy/ap-connector-discord` |
 | `agent-platform-app-news` | `apps/news` | `deploy/ap-app-news` |
@@ -77,6 +78,30 @@ and expect the frontend prebuilt on the host first
 Two more deployments run stock upstream images and are never built here:
 `ap-agents-sync` (`alpine/git`) and `ap-claude-proxy` (nginx plus a config from
 the chart).
+
+### The facade follows the API
+
+`ap-mcp-facade` ([design/17](design/17-external-mcp-facade.md)) builds its MCP
+tool surface from the OpenAPI document it fetches from `ap-api` **at startup**
+— nothing is baked into its image. A backend deploy that adds, renames, or
+removes an endpoint therefore leaves the facade serving the old tool list until
+it restarts:
+
+```sh
+kubectl -n agent-platform rollout restart deploy/ap-mcp-facade   # after ap-api
+```
+
+An external client attaches to it with a platform API key:
+
+```sh
+claude mcp add --transport http ap http://pai:8090/mcp \
+  --header "Authorization: Bearer ap_<key>"
+```
+
+Rebuilding the facade image itself is only needed when `services/mcp-facade/`
+changes. Ordering during a full deploy needs no care: if the facade starts
+before `ap-api` is ready it retries the spec fetch and only opens its port —
+and so passes readiness — once it has a spec.
 
 ## Chart changes
 

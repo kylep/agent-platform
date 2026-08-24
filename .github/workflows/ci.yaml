@@ -44,6 +44,22 @@ jobs:
       - name: Run runner tests
         run: cd services/runner && python -m pytest test_runner.py
 
+  mcp-facade:
+    # The external MCP facade (docs/design/17) generates its tools from the
+    # API's own OpenAPI document, so its tests need BOTH the backend (to build
+    # the real spec) and fastmcp. Same spec the SDK drift check uses: an API
+    # change that would newly expose an excluded endpoint fails here.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install backend + facade deps
+        run: pip install -q -e services/backend -r services/mcp-facade/requirements.txt pytest
+      - name: Facade tests
+        run: cd services/mcp-facade && python -m pytest -q
+
   apps:
     # App backends (docs/design/11) — separable from platform code, tested
     # separately. One step per app.

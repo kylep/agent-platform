@@ -1,0 +1,68 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}-mcp-facade
+  labels:
+    {{- include "agent-platform.selectorLabels" (dict "Release" .Release "Chart" .Chart "component" "mcp-facade") | nindent 4 }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "agent-platform.selectorLabels" (dict "Release" .Release "Chart" .Chart "component" "mcp-facade") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "agent-platform.selectorLabels" (dict "Release" .Release "Chart" .Chart "component" "mcp-facade") | nindent 8 }}
+    spec:
+      # Holds no credential and never calls the k8s API: no SA token. (No SPIRE
+      # identity either — its callers are external clients with platform API
+      # keys, not attested in-cluster workloads. See docs/design/17.)
+      automountServiceAccountToken: false
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: mcp-facade
+          image: "{{ .Values.images.mcpFacade.repository }}:{{ .Values.images.mcpFacade.tag }}"
+          imagePullPolicy: {{ .Values.images.mcpFacade.pullPolicy | default "IfNotPresent" }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            runAsNonRoot: true
+            runAsUser: 1001
+            runAsGroup: 1001
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          env:
+            # The api Service is hardcoded agent-platform-api (not release-named).
+            # The OpenAPI document is fetched from here at startup, never baked
+            # into the image — restart this after an API deploy to pick up new
+            # endpoints (docs/deployment.md).
+            - name: AP_API_URL
+              value: "http://agent-platform-api:8000"
+          ports:
+            - containerPort: 8000
+          readinessProbe:
+            # The port opens only after the spec fetch succeeds, so this also
+            # gates on ap-api being up — exactly the intent.
+            tcpSocket: {port: 8000}
+            initialDelaySeconds: 3
+            periodSeconds: 10
+          resources:
+            requests: {memory: 128Mi, cpu: 50m}
+            limits: {memory: 256Mi}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  # Hardcoded (like agent-platform-api): services/web/nginx.conf is a static
+  # file in the web image and names this upstream literally.
+  name: agent-platform-mcp-facade
+  labels:
+    {{- include "agent-platform.selectorLabels" (dict "Release" .Release "Chart" .Chart "component" "mcp-facade") | nindent 4 }}
+spec:
+  selector:
+    {{- include "agent-platform.selectorLabels" (dict "Release" .Release "Chart" .Chart "component" "mcp-facade") | nindent 4 }}
+  ports:
+    - port: 8000
+      targetPort: 8000

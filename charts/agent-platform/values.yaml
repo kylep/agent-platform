@@ -12,6 +12,12 @@ images:
     repository: agent-platform-web
     tag: dev
     pullPolicy: IfNotPresent
+  # The external MCP facade (docs/design/17): the platform API generated into
+  # MCP tools for outside clients, proxied at /mcp by web's nginx.
+  mcpFacade:
+    repository: agent-platform-mcp-facade
+    tag: dev
+    pullPolicy: IfNotPresent
 
 # The MCP broker exposes the platform API as MCP tools over HTTP so token-
 # bearing agents can act without a shell (see docs/design/08).

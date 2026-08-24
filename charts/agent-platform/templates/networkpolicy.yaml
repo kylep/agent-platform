@@ -31,8 +31,8 @@ spec:
           protocol: TCP
 ---
 # api: from web (UI proxy), runner pods (system/memory agents call the API),
-# and the mcp-broker (it forwards every brokered tool call here with the
-# caller's own token).
+# the mcp-broker (it forwards every brokered tool call here with the caller's
+# own token), and the mcp-facade (same, for external clients — design/17).
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -50,7 +50,7 @@ spec:
         - podSelector:
             matchExpressions:
               - {key: app.kubernetes.io/name, operator: In, values: [agent-platform]}
-              - {key: app.kubernetes.io/component, operator: In, values: [web, runner, mcp-broker]}
+              - {key: app.kubernetes.io/component, operator: In, values: [web, runner, mcp-broker, mcp-facade]}
       ports:
         - port: 8000
           protocol: TCP
@@ -139,6 +139,31 @@ spec:
         - port: 8000
           protocol: TCP
         - port: 8443
+          protocol: TCP
+---
+# mcp-facade (design/17): web's nginx is its ONLY client — /mcp is the single
+# doorway for external MCP clients, so nothing in-cluster can bypass the
+# ingress path either. It authenticates nobody; the API does, on every hop.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ .Release.Name }}-allow-mcp-facade
+  labels:
+    {{- include "agent-platform.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: agent-platform
+      app.kubernetes.io/component: mcp-facade
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchExpressions:
+              - {key: app.kubernetes.io/name, operator: In, values: [agent-platform]}
+              - {key: app.kubernetes.io/component, operator: In, values: [web]}
+      ports:
+        - port: 8000
           protocol: TCP
 ---
 # claude-proxy: runner pods reach it on 8000; it holds the Claude token and

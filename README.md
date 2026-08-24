@@ -168,6 +168,7 @@ agent-platform/
 │   │                          #   Playwright smoke+axe gate in tests/ (runs in CI);
 │   │                          #   nginx also session-guards /apps/<name>/ (auth_request)
 │   ├── mcp-broker/            # platform API + custom tools as mcp__platform__* over streamable HTTP
+│   ├── mcp-facade/            # the API's OpenAPI generated into MCP tools for EXTERNAL clients (/mcp)
 │   ├── tool-executor/         # runs tools/<name>/run.py in a minimal env; the single egress point
 │   ├── connector-discord/     # Discord threads ↔ Conversations
 │   └── connector-slack/       # placeholder (not implemented)
@@ -192,6 +193,7 @@ agent-platform/
 | **recorder** | Consumes events; writes transcripts, metrics, and state. |
 | **web** | React SPA — dashboard, agents, runs, schedules, changes, skills, secrets, reporting. |
 | **mcp-broker** | Exposes the platform API and every custom tool as MCP tools; verifies who is calling and that the caller declared the tool. |
+| **mcp-facade** | The same API as MCP tools for clients outside the cluster, generated from its OpenAPI spec; forwards the caller's API key verbatim and holds no credential ([design/17](docs/design/17-external-mcp-facade.md)). |
 | **tool-executor** | Runs custom tools' reviewed code with call-time secrets; the platform's only third-party egress. |
 | **claude-proxy** | Holds the Claude credential and injects it per request, so runner pods never carry it. |
 | **agents-sync** | Pulls this repo into the shared volume every service reads skills/tools/secrets/reports/docs from (agent definitions live in Postgres, not this volume). |

@@ -43,7 +43,8 @@ stealing, and (c) an exfiltration channel.
   have nothing to leak.
 - **Default-deny NetworkPolicy:** agent pods have no internet egress; the
   tool-executor is the single third-party-egress point; the API accepts
-  ingress only from web/runner/mcp-broker; app pods only from web/api.
+  ingress only from web/runner/mcp-broker/mcp-facade; app pods only from
+  web/api; the mcp-facade only from web, so `/mcp` is its single doorway.
 - **Secrets:** values live only in Kubernetes Secrets — never in git, never
   in Postgres. Declarative secret blocks describe and verify them (a probe or
   a sandboxed verify script). Skills bind secrets into the pods of agents
