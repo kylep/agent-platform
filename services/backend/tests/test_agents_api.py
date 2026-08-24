@@ -226,17 +226,47 @@ async def test_put_rejects_unknown_grants(admin_client):
 
 # --- delete ------------------------------------------------------------------
 
-async def test_delete_removes_the_row_and_keeps_the_log(admin_client, sf, seed_agent,
-                                                        agent_store):
+async def test_delete_removes_the_row_and_files_a_tombstone(admin_client, sf, seed_agent,
+                                                            agent_store):
     await seed_agent("temp")
     await agent_store.reload()
     await admin_client.put("/api/agents/temp", json=a_def("temp", description="v2"))
     assert (await admin_client.delete("/api/agents/temp")).status_code == 200
     async with sf() as s:
         assert await s.get(AgentDef, "temp") is None
-    # The change log is append-only: it outlives the definition.
-    assert [v.version for v in await versions_of(sf, "temp")] == [1]
+    # The change log is append-only: it outlives the definition, and deleting
+    # is a write, so it logs one — a tombstone carrying the last living
+    # definition, enough to say who removed the agent and to recreate it.
+    log = await versions_of(sf, "temp")
+    assert [(v.version, v.changed_via) for v in log] == [(1, "admin"), (2, "delete:admin")]
+    assert log[1].changed_by == "admin"
+    assert log[1].snapshot["description"] == "v2"
     assert (await admin_client.delete("/api/agents/temp")).status_code == 404
+
+
+async def test_the_tombstone_renders_in_the_versions_listing(admin_client, seed_agent,
+                                                             agent_store):
+    await seed_agent("temp")
+    await agent_store.reload()
+    await admin_client.delete("/api/agents/temp")
+    rows = (await admin_client.get("/api/agents/temp/versions")).json()
+    assert [r["changed_via"] for r in rows] == ["delete:admin"]
+    assert rows[0]["changed_by"] == "admin" and rows[0]["version"] == 1
+    # …and the snapshot is still fetchable, so a deleted agent is recoverable.
+    snap = (await admin_client.get("/api/agents/temp/versions/1")).json()["snapshot"]
+    assert snap["name"] == "temp"
+
+
+async def test_a_tool_deletion_is_attributed_to_the_tool(client, sf, seed_agent,
+                                                         agent_store):
+    await seed_agent("editor", platform_tools=[AGENTS_EDIT])
+    await seed_agent("doomed")
+    await agent_store.reload()
+    h = await bearer(sf, "editor")
+    assert (await client.delete("/api/agents/doomed", headers=h)).status_code == 200
+    log = await versions_of(sf, "doomed")
+    assert log[-1].changed_via == "delete:tool:agents_edit"
+    assert log[-1].changed_by.endswith("editor")
 
 
 async def test_delete_refuses_a_system_agent(admin_client, seed_agent, agent_store, sf):
@@ -400,6 +430,46 @@ async def test_a_mixed_change_needs_both_tools(client, sf, seed_agent, agent_sto
     assert (await versions_of(sf, "hello-world"))[-1].changed_via == "tool:agents_grant"
 
 
+async def test_agents_edit_may_not_promote_an_agent_to_coder(client, sf, seed_agent,
+                                                             agent_store):
+    """The sharpest edge of the split. `role: "coder"` is the self-edit rung:
+    the launcher hands that run the GitHub App token and the runner drops its
+    --disallowedTools guard, so Bash/Read (and the mounted Claude token) come
+    with it. An agents_edit-only caller that could set it — and it may already
+    set a cron entrypoint — would break the trifecta on itself."""
+    await seed_agent("editor", platform_tools=[AGENTS_EDIT])
+    await seed_agent("granter", platform_tools=[AGENTS_GRANT])
+    await agent_store.reload()
+    promote = a_def("hello-world", description="test", role="coder")
+
+    r = await client.put("/api/agents/hello-world", json=promote,
+                         headers=await bearer(sf, "editor"))
+    assert r.status_code == 403 and "role" in r.json()["detail"]
+    async with sf() as s:
+        assert (await s.get(AgentDef, "hello-world")).role == "operator"
+
+    r = await client.put("/api/agents/hello-world", json=promote,
+                         headers=await bearer(sf, "granter"))
+    assert r.status_code == 200, r.text
+    async with sf() as s:
+        assert (await s.get(AgentDef, "hello-world")).role == "coder"
+    assert (await versions_of(sf, "hello-world"))[-1].changed_via == "tool:agents_grant"
+
+
+async def test_agents_edit_may_still_create_an_ordinary_agent(client, sf, seed_agent,
+                                                              agent_store):
+    """`role` being a grant must not make every create a grant: the DEFAULT
+    role is not something the caller handed anyone."""
+    await seed_agent("editor", platform_tools=[AGENTS_EDIT])
+    await agent_store.reload()
+    h = await bearer(sf, "editor")
+    assert (await client.post("/api/agents", json=a_def("ordinary"),
+                              headers=h)).status_code == 201
+    r = await client.post("/api/agents", json=a_def("privileged", role="coder"),
+                          headers=h)
+    assert r.status_code == 403 and "role" in r.json()["detail"]
+
+
 async def test_an_agent_may_not_flip_the_system_flag(client, sf, seed_agent, agent_store):
     """`system` protects an agent from deletion and gets it platform
     credentials injected — it is not something a tool may hand itself."""
@@ -457,6 +527,73 @@ async def test_a_frozen_run_token_cannot_be_widened_mid_run(client, sf, seed_age
     assert r.status_code == 403
 
 
+# --- lost write races are conflicts, not crashes -----------------------------
+
+def test_conflict_detail_tells_the_two_races_apart():
+    """`next_version` is a read-then-write and creates race on the primary key;
+    both surface as an IntegrityError, and the caller deserves to know which
+    one it lost. Constraint wording differs by backend, so both dialects are
+    pinned here."""
+    from sqlalchemy.exc import IntegrityError
+    from agentplatform.api.agents import _conflict_detail
+    dup = "an agent with that name already exists"
+
+    def err(text):
+        return IntegrityError("stmt", {}, Exception(text))
+
+    assert _conflict_detail(err("UNIQUE constraint failed: agent_defs.name"), dup) == dup
+    assert _conflict_detail(err('duplicate key value violates unique constraint '
+                                '"agent_defs_pkey"'), dup) == dup
+    for versions in ("UNIQUE constraint failed: agent_versions.agent, "
+                     "agent_versions.version",
+                     'duplicate key value violates unique constraint '
+                     '"uq_agent_versions_agent_version"'):
+        assert _conflict_detail(err(versions), dup) == "conflicting concurrent write, retry"
+    # No duplicate meaning offered (update/rollback/import) → always generic.
+    assert _conflict_detail(err("UNIQUE constraint failed: agent_defs.name"),
+                            None) == "conflicting concurrent write, retry"
+
+
+async def test_a_version_number_collision_is_a_409(admin_client, monkeypatch):
+    """Two writers that both computed version N: the loser gets a retryable
+    conflict, not a 500."""
+    from agentplatform.api import agents as agents_api
+    await admin_client.put("/api/agents/hello-world",
+                           json=a_def("hello-world", description="v1"))
+
+    async def _stuck_at_one(session, agent):
+        return 1                      # the number the other writer just took
+
+    monkeypatch.setattr(agents_api, "next_version", _stuck_at_one)
+    r = await admin_client.put("/api/agents/hello-world",
+                               json=a_def("hello-world", description="v2"))
+    assert r.status_code == 409 and r.json()["detail"] == ("conflicting concurrent "
+                                                           "write, retry")
+    # …and the losing write did not half-land.
+    assert (await admin_client.get("/api/agents/hello-world")).json()["description"] == "v1"
+
+
+async def test_a_create_that_loses_the_name_race_is_a_409(admin_client, sf, monkeypatch):
+    """The existence pre-check is not a lock: another writer can insert the
+    same name in the window before our own insert, and the loser sees the
+    constraint, not a 500. Staged by raising what that insert raises — a real
+    interleave is not reachable from one test coroutine against one sqlite
+    connection."""
+    from sqlalchemy.exc import IntegrityError
+    from agentplatform.api import agents as agents_api
+
+    async def _lost_the_race(session, row, **kw):
+        raise IntegrityError("INSERT INTO agent_defs", {},
+                             Exception("UNIQUE constraint failed: agent_defs.name"))
+
+    monkeypatch.setattr(agents_api, "_log_version", _lost_the_race)
+    r = await admin_client.post("/api/agents", json=a_def("twin"))
+    assert r.status_code == 409
+    assert r.json()["detail"] == "an agent with that name already exists"
+    async with sf() as s:
+        assert await s.get(AgentDef, "twin") is None      # nothing half-landed
+
+
 # --- the `enabled` switch is enforced ----------------------------------------
 
 async def test_a_disabled_agent_refuses_runs_and_conversations(admin_client, sf,
@@ -468,6 +605,36 @@ async def test_a_disabled_agent_refuses_runs_and_conversations(admin_client, sf,
     r = await admin_client.post("/api/conversations",
                                 json={"connector": "web", "agent": "napping"})
     assert r.status_code == 409 and "disabled" in r.json()["detail"]
+
+
+async def test_a_disabled_agent_refuses_run_now_and_webhooks(admin_client, sf,
+                                                             seed_agent, agent_store):
+    """Every API entry point that starts a run honours the switch — otherwise
+    "disabled" means "disabled unless you know another door"."""
+    await seed_agent("napping", enabled=False,
+                     entrypoints={"crons": [], "topics": [], "timezone": "",
+                                  "webhooks": [{"path": "wake-up"}]})
+    await agent_store.reload()
+    job = (await admin_client.post("/api/jobs", json={
+        "name": "nap job", "agent": "napping", "cron": "0 9 * * *",
+        "prompt": "go"})).json()
+    r = await admin_client.post(f"/api/jobs/{job['id']}/run")
+    assert r.status_code == 409 and "disabled" in r.json()["detail"]
+    r = await admin_client.post("/api/webhooks/wake-up", json={"x": 1})
+    assert r.status_code == 409 and "disabled" in r.json()["detail"]
+
+
+async def test_an_enabled_agent_still_takes_run_now_and_webhooks(admin_client, sf,
+                                                                 seed_agent, agent_store):
+    """The negative half: the new refusals must not have broken the paths."""
+    await seed_agent("awake", entrypoints={"crons": [], "topics": [], "timezone": "",
+                                           "webhooks": [{"path": "ping"}]})
+    await agent_store.reload()
+    job = (await admin_client.post("/api/jobs", json={
+        "name": "awake job", "agent": "awake", "cron": "0 9 * * *",
+        "prompt": "go"})).json()
+    assert (await admin_client.post(f"/api/jobs/{job['id']}/run")).status_code == 200
+    assert (await admin_client.post("/api/webhooks/ping", json={})).status_code == 202
 
 
 async def test_disabling_an_agent_stops_its_in_flight_conversation(admin_client, sf,

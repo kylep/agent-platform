@@ -20,11 +20,13 @@ ship is rejected at save time instead of failing at pod launch.
 from __future__ import annotations
 
 import logging
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, ValidationError
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 
 from agentplatform.agentdefs import (DEF_FIELDS, AgentDefModel, apply_snapshot,
                                      model_of, next_version, snapshot_of,
@@ -51,13 +53,23 @@ TOOL_AGENTS_GRANT = "mcp__platform__agents_grant"
 # one is an authorization decision (`agents_grant`); changing anything else is
 # an editorial one (`agents_edit`).
 #
-# `can_invoke` is in here even though design/15 lists only the four name lists.
-# It is not a config knob: it is what makes the launcher mint an OPERATOR-scoped
-# run token instead of the narrow annotator one, i.e. the grant of "may start
-# other agents' runs". Leaving it on the editorial side would hand `agents_edit`
-# exactly the escalation the split exists to prevent.
+# Two of these are wider than design/15's four name lists, because privilege in
+# this platform is not carried only by name lists:
+#
+#   `role`       — "coder" is the self-edit rung. The launcher hands a self-edit
+#                  run the GitHub App token, and the runner drops the
+#                  --disallowedTools guard entirely for it (acceptEdits, Bash
+#                  and Read included). Writing `role` is therefore writing the
+#                  trifecta break: an agents_edit-only caller that could set it,
+#                  plus a cron entrypoint it may already set, owns the cluster.
+#   `can_invoke` — makes the launcher mint an OPERATOR-scoped run token instead
+#                  of the narrow annotator one, i.e. the grant of "may start
+#                  other agents' runs".
+#
+# Both are the escalation the edit/grant split exists to prevent, so both need
+# `agents_grant`.
 GRANT_FIELDS: tuple[str, ...] = ("harness_tools", "platform_tools", "skills",
-                                 "secrets", "can_invoke")
+                                 "secrets", "can_invoke", "role")
 # Everything the definition holds except its identity — the two halves the
 # authorization split is drawn between, and the comparison surface for "did
 # this write actually change anything".
@@ -215,6 +227,35 @@ async def _log_version(session, row: AgentDef, *, changed_by: str, changed_via: 
                              changed_by=changed_by, changed_via=changed_via))
 
 
+def _conflict_detail(exc: Exception, duplicate: str | None) -> str:
+    """Which conflict a lost race was. Best effort by constraint text — the
+    wording differs between sqlite ("UNIQUE constraint failed: agent_defs.name")
+    and postgres ("...unique constraint \"agent_defs_pkey\"") but both name the
+    table, and the change log's constraint names `agent_versions` instead. An
+    unrecognized one falls back to the generic conflict rather than guessing."""
+    if duplicate and "agent_defs" in str(getattr(exc, "orig", None) or exc):
+        return duplicate
+    return "conflicting concurrent write, retry"
+
+
+@asynccontextmanager
+async def _conflict_as_409(session, *, duplicate: str | None = None):
+    """Turn a lost write race into a 409 instead of a 500.
+
+    Two writers can collide on the agent's primary key (simultaneous creates)
+    or on the change log's (agent, version) unique constraint — `next_version`
+    is a read-then-write, and Task 1 added that constraint precisely so the
+    loser fails loudly rather than filing two snapshots under one version.
+    Loudly should still mean "someone got there first, try again", not a
+    server fault.
+    """
+    try:
+        yield
+    except IntegrityError as e:
+        await session.rollback()
+        raise HTTPException(409, _conflict_detail(e, duplicate)) from e
+
+
 def _changed_fields(row: AgentDef, model: AgentDefModel, fields) -> list[str]:
     """Which of `fields` this definition would actually change.
 
@@ -323,9 +364,11 @@ async def create_agent(request: Request, body: AgentCreateIn,
     st = request.app.state
     scope.require_edit("creating an agent")
     model = _model(request, body.model_dump(), body.name, _registries(request))
-    # A grant the new agent is born with is still a grant.
-    scope.authorize(grant_fields=[f for f in GRANT_FIELDS if getattr(model, f)],
-                    edit_fields=[])
+    # A grant the new agent is BORN with is still a grant. "Born with" means
+    # beyond the defaults, which is what a blank row reads as — so the same
+    # diff that authorizes an update authorizes a create.
+    grants = _changed_fields(AgentDef(name=model.name), model, GRANT_FIELDS)
+    scope.authorize(grant_fields=grants, edit_fields=[])
     if model.system and not scope.admin:
         raise HTTPException(403, "only an admin may create a system agent")
     async with st.session_factory() as s:
@@ -333,12 +376,13 @@ async def create_agent(request: Request, body: AgentCreateIn,
             raise HTTPException(409, "an agent with that name already exists")
         row = AgentDef(name=model.name)
         _apply(row, model)
-        s.add(row)
-        await s.flush()
-        await _log_version(s, row, changed_by=scope.principal,
-                           changed_via=scope.changed_via(
-                               grants=any(getattr(model, f) for f in GRANT_FIELDS)))
-        await s.commit()
+        async with _conflict_as_409(s, duplicate="an agent with that name "
+                                                 "already exists"):
+            s.add(row)
+            await s.flush()
+            await _log_version(s, row, changed_by=scope.principal,
+                               changed_via=scope.changed_via(grants=bool(grants)))
+            await s.commit()
         out = _payload(row)
     await st.agent_store.reload()
     return out
@@ -369,10 +413,11 @@ async def update_agent(request: Request, name: str, body: AgentDefIn,
         if not (grants or edits):
             return _payload(row)
         _apply(row, model)
-        await s.flush()
-        await _log_version(s, row, changed_by=scope.principal,
-                           changed_via=scope.changed_via(grants=bool(grants)))
-        await s.commit()
+        async with _conflict_as_409(s):
+            await s.flush()
+            await _log_version(s, row, changed_by=scope.principal,
+                               changed_via=scope.changed_via(grants=bool(grants)))
+            await s.commit()
         out = _payload(row)
     await st.agent_store.reload()
     return out
@@ -381,10 +426,16 @@ async def update_agent(request: Request, name: str, body: AgentDefIn,
 @router.delete("/api/agents/{name}", response_model=AgentDefOut)
 async def delete_agent(request: Request, name: str,
                        scope: WriteScope = Depends(agent_write_scope)):
-    """Delete an agent's definition. Its runs, memories and change log survive
-    (the log is append-only and outlives the row, so a deleted agent can still
-    be read back from its last snapshot). System agents are platform-internal
-    and refuse deletion."""
+    """Delete an agent's definition. Its runs, memories and change log survive.
+
+    Deleting is a write, so it logs one: a TOMBSTONE version whose snapshot is
+    the definition as it stood at the moment of deletion, and whose
+    `changed_via` is the normal label prefixed `delete:` (`delete:admin`,
+    `delete:tool:agents_edit`). The prefix is the whole marker — snapshots stay
+    uniformly parseable as definitions, with no synthetic keys inside them — and
+    it means the log alone is enough to say who removed an agent and to
+    recreate it. System agents are platform-internal and refuse deletion.
+    """
     st = request.app.state
     scope.require_edit("deleting an agent")
     async with st.session_factory() as s:
@@ -395,8 +446,11 @@ async def delete_agent(request: Request, name: str,
             raise HTTPException(409, "system agents are platform-internal and "
                                      "cannot be deleted")
         out = _payload(row)
-        await s.delete(row)
-        await s.commit()
+        async with _conflict_as_409(s):
+            await _log_version(s, row, changed_by=scope.principal,
+                               changed_via=f"delete:{scope.changed_via(grants=False)}")
+            await s.delete(row)
+            await s.commit()
     await st.agent_store.reload()
     return out
 
@@ -463,9 +517,10 @@ async def rollback_agent(request: Request, name: str, version: int,
         if problems:
             raise HTTPException(422, f"version {version} references things the "
                                      f"repo no longer ships: {'; '.join(problems)}")
-        await s.flush()
-        await _log_version(s, row, changed_by=principal, changed_via="rollback")
-        await s.commit()
+        async with _conflict_as_409(s):
+            await s.flush()
+            await _log_version(s, row, changed_by=principal, changed_via="rollback")
+            await s.commit()
         out = _payload(row)
     await st.agent_store.reload()
     return out
@@ -488,20 +543,21 @@ async def import_agents(request: Request, body: list[AgentCreateIn],
     models = [_model(request, d.model_dump(), d.name, registries) for d in body]
     results = []
     async with request.app.state.session_factory() as s:
-        for model in models:
-            row = await s.get(AgentDef, model.name)
-            if row is None:
-                row, status = AgentDef(name=model.name), "created"
-                s.add(row)
-            elif _changed_fields(row, model, MUTABLE_FIELDS):
-                status = "updated"
-            else:
-                results.append({"name": model.name, "status": "unchanged"})
-                continue
-            _apply(row, model)
-            await s.flush()
-            await _log_version(s, row, changed_by=principal, changed_via="import")
-            results.append({"name": model.name, "status": status})
-        await s.commit()
+        async with _conflict_as_409(s):
+            for model in models:
+                row = await s.get(AgentDef, model.name)
+                if row is None:
+                    row, status = AgentDef(name=model.name), "created"
+                    s.add(row)
+                elif _changed_fields(row, model, MUTABLE_FIELDS):
+                    status = "updated"
+                else:
+                    results.append({"name": model.name, "status": "unchanged"})
+                    continue
+                _apply(row, model)
+                await s.flush()
+                await _log_version(s, row, changed_by=principal, changed_via="import")
+                results.append({"name": model.name, "status": status})
+            await s.commit()
     await request.app.state.agent_store.reload()
     return results
