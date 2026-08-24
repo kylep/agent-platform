@@ -37,11 +37,10 @@ async def test_sa_token_resolves_agent_and_ladder_role(tool_client):
     assert d["tools"] == ["mcp__platform__echo"]
 
 
-async def test_sa_token_core_tools_earn_annotator(tool_client, agent_store):
-    d = agent_store.root / "corey"
-    d.mkdir()
-    (d / "agent.md").write_text("---\nname: corey\ntools: mcp__platform__runs_read\n---\nbody")
-    (d / "manifest.yaml").write_text("description: t\n")
+async def test_sa_token_core_tools_earn_annotator(tool_client, agent_store, seed_agent):
+    await seed_agent("corey", description="t",
+                     platform_tools=["mcp__platform__runs_read"])
+    await agent_store.reload()
     app_state = tool_client._transport.app.state
     app_state.sa_validator = _fake_validator("system:serviceaccount:ap:agent-corey")
     tool_client.cookies.clear()

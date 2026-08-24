@@ -8,7 +8,7 @@ import logging
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 
-from agentplatform.agentspec import parse_agent_tools, validate_agent_name
+from agentplatform.agentspec import validate_agent_name
 from agentplatform.api import schemas as S
 from agentplatform.api.auth import READ_ROLES, require_admin, require_role
 
@@ -20,13 +20,9 @@ _read = Depends(require_role(*READ_ROLES))
 
 
 def _agents_using(request: Request, mcp_name: str) -> list[str]:
-    """Names of agents whose agent.md declares this tool."""
-    out = []
-    for a in request.app.state.agent_store.list():
-        declared = parse_agent_tools(a.agent_md) or []
-        if mcp_name in declared:
-            out.append(a.name)
-    return out
+    """Names of agents GRANTED this tool (design/15: the row's platform_tools)."""
+    return [a.name for a in request.app.state.agent_store.list()
+            if mcp_name in a.platform_tools]
 
 
 def _view(request: Request, t) -> dict:
@@ -44,7 +40,7 @@ def _view(request: Request, t) -> dict:
 @router.get("/api/tools", response_model=list[S.ToolView], dependencies=[_read])
 async def list_tools(request: Request):
     request.app.state.tool_registry.reload()
-    request.app.state.agent_store.reload()
+    await request.app.state.agent_store.reload()
     return [_view(request, t) for t in request.app.state.tool_registry.list()]
 
 
@@ -137,7 +133,7 @@ async def tool_wizard(request: Request, body: ToolWizardIn,
     st.tool_registry.reload()
     if st.tool_registry.get(name) is not None:
         raise HTTPException(409, "a tool with this name already exists")
-    st.agent_store.reload()
+    await st.agent_store.reload()
     coder = st.agent_store.get("platform-coder")
     if coder is None or coder.error is not None:
         raise HTTPException(409, "platform-coder agent is unavailable")

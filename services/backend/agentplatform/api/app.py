@@ -73,6 +73,17 @@ def create_app(settings, session_factory, producer, secret_store=None, agent_sto
             engine = make_engine(settings.db_url)
             await init_db(engine)
             st.session_factory = make_session_factory(engine)
+        # Agent definitions are rows (docs/design/15): prime the cache once the
+        # session factory exists, so the first request reads real agents rather
+        # than an empty store waiting on its TTL refresh.
+        if st.agent_store.session_factory is None:
+            st.agent_store.session_factory = st.session_factory
+        try:
+            await st.agent_store.reload()
+        except Exception:
+            logging.getLogger("api").warning(
+                "initial agent definition load failed; the store will retry",
+                exc_info=True)
         # Kafka being down must not take the API down: runs are recorded in
         # postgres first and the dispatcher sweep drains them once Kafka
         # returns, so the producer connects in the background with retries.
@@ -113,7 +124,7 @@ def create_app(settings, session_factory, producer, secret_store=None, agent_sto
     st.settings, st.session_factory, st.producer = settings, session_factory, producer
     st.consumer_factory = consumer_factory
     secret_store = secret_store or InMemorySecretStore()
-    agent_store = agent_store or AgentStore(Path(settings.agents_root))
+    agent_store = agent_store or AgentStore(session_factory)
     st.secret_store, st.agent_store = secret_store, agent_store
     from agentplatform.skills import SkillStore
     st.skill_store = SkillStore(Path(settings.skills_root))

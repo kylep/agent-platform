@@ -165,14 +165,21 @@ def validate_def(model: AgentDefModel, *, skill_names: set[str],
     return problems
 
 
+def model_of(row: AgentDef) -> AgentDefModel:
+    """The validating model for a row — what every reader of a definition goes
+    through, so a row is understood the same way whether it came from a write
+    payload or the table. Nones are dropped so an UNFLUSHED row (column
+    defaults not applied yet) still reads as a complete definition rather than
+    a bag of Nones. Raises ValidationError on a row that is no longer a valid
+    definition; callers decide whether that quarantines or rejects."""
+    values = {f: getattr(row, f, None) for f in DEF_FIELDS}
+    return AgentDefModel(**{k: v for k, v in values.items() if v is not None})
+
+
 def snapshot_of(row: AgentDef) -> dict:
     """The full definition of a row as a JSON-safe dict — the `snapshot`
-    column of an AgentVersion, and the payload the import endpoint speaks.
-    Routed through the model so an unflushed row (column defaults not applied
-    yet) still snapshots as a complete definition rather than a bag of Nones."""
-    values = {f: getattr(row, f, None) for f in DEF_FIELDS}
-    return AgentDefModel(**{k: v for k, v in values.items()
-                            if v is not None}).model_dump(mode="json")
+    column of an AgentVersion, and the payload the import endpoint speaks."""
+    return model_of(row).model_dump(mode="json")
 
 
 def apply_snapshot(row: AgentDef, snapshot: dict) -> None:

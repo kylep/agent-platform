@@ -24,8 +24,11 @@ async def main() -> None:
     producer = Producer(settings.kafka_bootstrap, source="recorder")
     await producer.start()
     from agentplatform.agents import AgentStore
-    recorder = Recorder(session_factory, producer,
-                        agent_store=AgentStore(settings.agents_root))
+    agent_store = AgentStore(session_factory)
+    # Prime it: the recorder only ever reads (result_topic), so without a first
+    # load its TTL refresh would land one frame too late.
+    await agent_store.reload()
+    recorder = Recorder(session_factory, producer, agent_store=agent_store)
 
     consumer = AIOKafkaConsumer(
         TOPIC_RUN_EVENTS, TOPIC_RUN_TRANSCRIPT, TOPIC_RUN_DLQ,

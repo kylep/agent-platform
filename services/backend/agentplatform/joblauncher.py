@@ -34,7 +34,7 @@ class K8sJobLauncher(Launcher):
         # pod gets exactly the union of its manifest + skill secrets (and the
         # base claude credential), nothing else.
         self.skill_store = skill_store
-        # Lets launch() read the agent.md `tools:` line: declaring ANY
+        # Lets launch() read the agent's tool grants: holding ANY
         # mcp__platform__* tool makes the run token-bearing (docs/design/12) —
         # a tools-scoped token when nothing broader applies.
         self.agent_store = agent_store
@@ -83,24 +83,24 @@ class K8sJobLauncher(Launcher):
         return (manifest.role == "coder" and self.github_app is not None
                 and bool(self.settings.git_remote_url) and bool(self.settings.github_repo))
 
-    def _platform_token_role(self, agent: str) -> str | None:
-        """The per-run token role an agent's `tools:` declaration earns, or
-        None for no token. Core broker tools forward the token to the platform
-        API, so they need a data role (annotator); custom tools only need the
-        whoami-only `tools` role. Absent tools line = "all tools", but tokens
-        follow EXPLICIT declaration only — auto-minting for every unrestricted
-        agent would silently make ALL of them token-bearing."""
+    async def _platform_token_role(self, agent: str) -> str | None:
+        """The per-run token role an agent's PLATFORM-TOOL GRANTS earn, or None
+        for no token. Core broker tools forward the token to the platform API,
+        so they need a data role (annotator); custom tools only need the
+        whoami-only `tools` role. No platform grant, no token — a token follows
+        an explicit grant, never an agent merely existing.
+
+        docs/design/15: the grants are `agent_defs.platform_tools`. The
+        launcher no longer parses agent.md frontmatter, which a DB-sourced
+        definition does not have."""
         if self.agent_store is None:
             return None
-        from agentplatform.agentspec import PLATFORM_MCP_TOOLS, parse_agent_tools
-        self.agent_store.reload()
+        from agentplatform.agentspec import PLATFORM_MCP_TOOLS
+        await self.agent_store.reload()
         info = self.agent_store.get(agent)
         if info is None:
             return None
-        declared = parse_agent_tools(info.agent_md)
-        if declared is None:
-            return None
-        platform = [t for t in declared if t.startswith("mcp__platform__")]
+        platform = [t for t in info.platform_tools if t.startswith("mcp__platform__")]
         if not platform:
             return None
         return "annotator" if any(t in PLATFORM_MCP_TOOLS for t in platform) else "tools"
@@ -150,11 +150,12 @@ class K8sJobLauncher(Launcher):
         return self._runjwt_private
 
     def _frozen_tools(self, agent: str) -> list[str]:
-        """The mcp__platform__* grant set to freeze into a run JWT."""
-        from agentplatform.agentspec import parse_agent_tools
+        """The mcp__platform__* grant set to freeze into a run JWT (design/13
+        C), read off the agent's row — a grant added mid-run cannot widen a
+        live run. Reads the cache `_platform_token_role` just refreshed."""
         info = self.agent_store.get(agent) if self.agent_store else None
-        declared = parse_agent_tools(info.agent_md) if info else None
-        return [t for t in (declared or []) if t.startswith("mcp__platform__")]
+        granted = info.platform_tools if info else []
+        return [t for t in granted if t.startswith("mcp__platform__")]
 
     def bound_secrets(self, manifest: Manifest) -> list[str]:
         """The de-duplicated union of secret names an agent's pod may receive:
@@ -426,7 +427,7 @@ class K8sJobLauncher(Launcher):
                 # docs/design/13 A: these agents carry IDENTITY, not a secret —
                 # a projected SA token the API resolves back to the same role
                 # ladder. Falls back to a minted key without a core client.
-                role = self._platform_token_role(run.agent)
+                role = await self._platform_token_role(run.agent)
                 if role is not None:
                     if self.core is not None:
                         sa_identity = await asyncio.to_thread(

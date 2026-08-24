@@ -123,7 +123,7 @@ class Dispatcher:
         if run.state != RunState.QUEUED: return  # idempotency
         # The synced checkout changes underneath us (agents-sync pulls git);
         # re-scan so agents added after boot are dispatchable.
-        self.agents.reload()
+        await self.agents.reload()
         info = self.agents.get(run.agent)
         if info is None or info.error is not None:
             await self._set_state(run, RunState.REJECTED, "unknown or quarantined agent")

@@ -62,14 +62,15 @@ class StubVerifier:
         return self.present
 
 
-async def _mk_dispatcher(sf, producer, skills, verifier, tmp_path):
+async def _mk_dispatcher(sf, producer, skills, verifier):
     from agentplatform.agents import AgentStore
     from agentplatform.config import Settings
+    from agentplatform.db import AgentDef
     from agentplatform.dispatcher import Dispatcher, FakeLauncher
-    d = tmp_path / "agents" / "hooked"; d.mkdir(parents=True)
-    (d / "agent.md").write_text("# hooked")
-    (d / "manifest.yaml").write_text("skills: [poster]\n")
-    store = AgentStore(tmp_path / "agents")
+    async with sf() as s:
+        s.add(AgentDef(name="hooked", skills=["poster"]))
+        await s.commit()
+    store = AgentStore(sf)
     launcher = FakeLauncher()
     disp = Dispatcher(Settings(), sf, producer, store, launcher,
                       skill_store=skills, verifier=verifier)
@@ -85,10 +86,10 @@ async def _queue_run(sf, agent="hooked"):
         return run.id
 
 
-async def test_dispatch_blocked_records_failed_run_with_reason(sf, producer, skills, tmp_path):
+async def test_dispatch_blocked_records_failed_run_with_reason(sf, producer, skills):
     from agentplatform.db import Run, RunState
     verifier = StubVerifier(fresh="missing")
-    disp, launcher = await _mk_dispatcher(sf, producer, skills, verifier, tmp_path)
+    disp, launcher = await _mk_dispatcher(sf, producer, skills, verifier)
     run_id = await _queue_run(sf)
     await disp.handle({"type": "run", "run_id": run_id})
     async with sf() as s:
@@ -100,13 +101,13 @@ async def test_dispatch_blocked_records_failed_run_with_reason(sf, producer, ski
     assert verifier.calls == ["hook-url"]
 
 
-async def test_try_before_block_recovers_transient_failure(sf, producer, skills, tmp_path):
+async def test_try_before_block_recovers_transient_failure(sf, producer, skills):
     from agentplatform.db import Run, RunState, SecretMeta
     # recorded status says invalid, but the on-demand re-verify passes now
     async with sf() as s:
         s.add(SecretMeta(name="hook-url", status="invalid")); await s.commit()
     verifier = StubVerifier(fresh="valid")
-    disp, launcher = await _mk_dispatcher(sf, producer, skills, verifier, tmp_path)
+    disp, launcher = await _mk_dispatcher(sf, producer, skills, verifier)
     run_id = await _queue_run(sf)
     await disp.handle({"type": "run", "run_id": run_id})
     async with sf() as s:
@@ -114,9 +115,9 @@ async def test_try_before_block_recovers_transient_failure(sf, producer, skills,
     assert run.state == RunState.DISPATCHED and launcher.launched == [run_id]
 
 
-async def test_no_gate_without_skill_store(sf, producer, tmp_path):
+async def test_no_gate_without_skill_store(sf, producer):
     from agentplatform.db import Run, RunState
-    disp, launcher = await _mk_dispatcher(sf, producer, None, None, tmp_path)
+    disp, launcher = await _mk_dispatcher(sf, producer, None, None)
     disp.skills = None
     run_id = await _queue_run(sf)
     await disp.handle({"type": "run", "run_id": run_id})
@@ -127,11 +128,10 @@ async def test_no_gate_without_skill_store(sf, producer, tmp_path):
 
 # --- API surface -------------------------------------------------------------
 
-async def test_agents_listing_shows_blocked(admin_client, tmp_agents):
+async def test_agents_listing_shows_blocked(admin_client, seed_agent):
     # the fixture agent uses the repo's real git skill (github-token
     # verified/required); no secret is set → the listing shows blocked
-    (tmp_agents / "hello-world" / "manifest.yaml").write_text(
-        "description: test\nskills: [git]\n")
+    await seed_agent("hello-world", description="test", skills=["git"])
     r = await admin_client.get("/api/agents")
     row = {a["name"]: a for a in r.json()}["hello-world"]
     assert row["blocked"] is True

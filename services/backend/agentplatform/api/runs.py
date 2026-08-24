@@ -35,7 +35,7 @@ async def create_run(request: Request, body: RunIn,
     store = request.app.state.agent_store
     info = store.get(body.agent)
     if info is None:
-        store.reload()   # a just-synced agent isn't in the cache yet — refresh
+        await store.reload()   # a just-synced agent isn't in the cache yet — refresh
         info = store.get(body.agent)
     if info is None: raise HTTPException(404, "unknown agent")
     if info.error is not None: raise HTTPException(409, "agent quarantined")

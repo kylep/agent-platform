@@ -105,16 +105,21 @@ def test_manifest_infra_defaults_and_secret_coercion():
 # --- API surface -------------------------------------------------------------
 
 @pytest.fixture
-async def tool_client(sf, producer, secret_store, agent_store, tmp_path):
+async def tool_client(sf, producer, secret_store, agent_store, seed_agent, tmp_path):
     tools_root = tmp_path / "tools"
     make_tool(tools_root, requirements=True)
     make_tool(tools_root, name="broken", yaml_text="name: broken\ndescription: x\n")
-    # An agent that declares the custom tool, for used_by.
-    d = agent_store.root / "echo-user"
-    d.mkdir()
+    # An agent GRANTED the custom tool, for used_by.
+    await seed_agent("echo-user", description="t",
+                     platform_tools=["mcp__platform__echo"])
+    await agent_store.reload()
+    # …and its files in the synced checkout, which the file-based config-edit
+    # endpoint still rewrites into a pull request.
+    d = tmp_path / "agents" / "echo-user"
+    d.mkdir(parents=True)
     (d / "agent.md").write_text("---\nname: echo-user\ntools: mcp__platform__echo\n---\nbody")
     (d / "manifest.yaml").write_text("description: t\n")
-    app = create_app(Settings(agents_root=str(agent_store.root),
+    app = create_app(Settings(agents_root=str(tmp_path / "agents"),
                               secrets_root=str(REPO_SECRETS),
                               skills_root=str(REPO_SKILLS),
                               reports_root=str(REPO_REPORTS),

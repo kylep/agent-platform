@@ -74,7 +74,7 @@ class Scheduler:
         self.producer = producer
 
     async def tick(self, now: datetime) -> None:
-        self.agents.reload()
+        await self.agents.reload()
         # Declared schedules: entrypoints.yaml cron list (plus the deprecated
         # manifest `schedule:`), e.g. the health-monitor system agent.
         for info in self.agents.list():

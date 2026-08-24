@@ -22,7 +22,9 @@ def build_app():
         None,
         producer,
         secret_store=store,
-        agent_store=AgentStore(settings.agents_root),
+        # The session factory is built by the lifespan (db_url only resolves in
+        # the pod); it hands the store the real one before priming it.
+        agent_store=AgentStore(None),
         consumer_factory=kafka_consumer_factory(settings),
     )
     app.state.sa_validator = _make_sa_validator()

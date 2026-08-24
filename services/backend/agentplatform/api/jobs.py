@@ -43,15 +43,15 @@ class JobPatch(BaseModel):
     enabled: bool | None = None
 
 
-def _check(request: Request, *, cron: str | None, agent: str | None,
-           timezone: str | None = None) -> None:
+async def _check(request: Request, *, cron: str | None, agent: str | None,
+                 timezone: str | None = None) -> None:
     if cron is not None and not is_valid_cron(cron):
         raise HTTPException(422, "invalid cron expression (5 fields)")
     if timezone is not None and not is_valid_timezone(timezone):
         raise HTTPException(422, f"unknown timezone: {timezone!r} "
                                  f"(IANA name, e.g. America/Toronto)")
     if agent is not None:
-        request.app.state.agent_store.reload()
+        await request.app.state.agent_store.reload()
         info = request.app.state.agent_store.get(agent)
         if info is None:
             raise HTTPException(422, f"unknown agent: {agent}")
@@ -66,7 +66,7 @@ async def list_jobs(request: Request):
 
 @router.post("/api/jobs", status_code=201, response_model=S.JobView)
 async def create_job(request: Request, body: JobIn):
-    _check(request, cron=body.cron, agent=body.agent, timezone=body.timezone)
+    await _check(request, cron=body.cron, agent=body.agent, timezone=body.timezone)
     async with request.app.state.session_factory() as s:
         job = ScheduledJob(name=body.name, agent=body.agent, cron=body.cron,
                            timezone=body.timezone, prompt=body.prompt)
@@ -77,7 +77,7 @@ async def create_job(request: Request, body: JobIn):
 
 @router.patch("/api/jobs/{job_id}", response_model=S.JobView)
 async def edit_job(request: Request, job_id: str, body: JobPatch):
-    _check(request, cron=body.cron, agent=body.agent, timezone=body.timezone)
+    await _check(request, cron=body.cron, agent=body.agent, timezone=body.timezone)
     async with request.app.state.session_factory() as s:
         job = await s.get(ScheduledJob, job_id)
         if job is None:

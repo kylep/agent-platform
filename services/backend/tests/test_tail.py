@@ -5,15 +5,14 @@ from agentplatform.config import Settings
 from agentplatform.api.app import create_app
 
 
-def test_tail_requires_admin_session(producer, agent_store):
+def test_tail_requires_admin_session(producer):
     async def fake_consumer():
         yield ("RUNID", {"type": "assistant", "seq": 1, "text": "hi"})
 
     app = create_app(
-        Settings(agents_root=str(agent_store.root)),
+        Settings(),
         None,
         producer,
-        agent_store=agent_store,
         consumer_factory=fake_consumer,
     )
     with TestClient(app) as tc:
@@ -23,16 +22,15 @@ def test_tail_requires_admin_session(producer, agent_store):
         assert exc_info.value.code == 4401
 
 
-def test_tail_replays_then_streams(producer, agent_store):
+def test_tail_replays_then_streams(producer):
     async def fake_consumer():
         yield ("RUNID", {"type": "assistant", "seq": 1, "text": "hi"})
         yield ("RUNID", {"type": "lifecycle", "terminal": True, "state": "succeeded"})
 
     app = create_app(
-        Settings(agents_root=str(agent_store.root)),
+        Settings(),
         None,
         producer,
-        agent_store=agent_store,
         consumer_factory=fake_consumer,
     )
     with TestClient(app) as tc:

@@ -13,7 +13,7 @@ async def list_schedules(request: Request):
     """Agents with declared cron triggers (entrypoints.yaml or the deprecated
     manifest `schedule:`), joined with their runtime state."""
     store = request.app.state.agent_store
-    store.reload()
+    await store.reload()
     async with request.app.state.session_factory() as s:
         rows = {r.agent: r for r in (await s.execute(select(Schedule))).scalars()}
     out = []
@@ -34,7 +34,7 @@ async def set_enabled(request: Request, agent: str, action: str):
     if action not in ("enable", "disable"):
         raise HTTPException(404, "unknown action")
     store = request.app.state.agent_store
-    store.reload()
+    await store.reload()
     info = store.get(agent)
     if info is None or not info.crons():
         raise HTTPException(404, "agent has no schedule")

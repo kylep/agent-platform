@@ -1,17 +1,57 @@
-from pathlib import Path
-import yaml
+"""Reading agent definitions (docs/design/15).
+
+Identity is rows now: `agent_defs` holds one row per agent — prompt, grants,
+entrypoints, config — and this module is the read side of that table. It keeps
+the surface the rest of the platform already speaks (`get(name)`, `list()`,
+`AgentInfo.manifest`, `.crons()`, `.webhook_paths()`), so the dispatcher,
+launcher, recorder, scheduler and API kept their call sites when the source
+moved out of `agents/<name>/{agent.md,manifest.yaml,entrypoints.yaml}`.
+
+**`reload()` is async; `get()`/`list()` stay sync.** The store is a cache over
+an async database, and every caller already runs inside an event loop, where a
+blocking facade has no honest implementation: `asyncio.run` refuses to nest,
+and a worker-thread loop would drive the engine's pooled connections from the
+wrong loop (an asyncpg failure waiting to happen). So the refresh is awaited at
+the sites that already reloaded, and the cheap reads stay synchronous.
+
+Reads are TTL-guarded instead: reading a cache older than `ttl_seconds`
+(default 5) SCHEDULES a background refresh on the running loop and returns what
+it has. That is what lets long-lived processes (recorder, dispatcher, API) pick
+up a UI edit without a restart, without turning every read into an `await`.
+
+**Grants are fields, not frontmatter.** `AgentInfo.platform_tools` /
+`.harness_tools` carry what `agentspec.parse_agent_tools` used to dig out of an
+agent.md. Anything deriving privilege from an agent's tools — the launcher's
+role ladder, `/api/whoami` — MUST read those fields: `agent_md` is synthesized
+from the prompt and has no frontmatter, so parsing it would come back "no
+tools: line" and read as UNRESTRICTED.
+"""
+from __future__ import annotations
+
+import asyncio
+import logging
+import time
+
 from pydantic import BaseModel, ValidationError, field_validator
 
+from agentplatform.agentdefs import EntrypointsModel, WebhookEntry, model_of
+from agentplatform.db import AgentDef
+
+log = logging.getLogger("agents")
+
+
 class Manifest(BaseModel):
+    """An agent's runtime config as the dispatcher, launcher and readiness gate
+    consume it. A strict projection of the row — every field here is a column
+    of the same name (`_manifest_of` relies on that) — kept as its own model
+    because `Launcher.launch(run, manifest)` is the contract those components
+    were built against."""
     role: str = "operator"
     concurrency: int = 1
     timeout_seconds: int = 1800
     skills: list[str] = []
     secrets: list[str] = []
     description: str = ""
-    # DEPRECATED — declare cron triggers in entrypoints.yaml instead. Still
-    # honored (unioned into AgentInfo.crons()) so old manifests keep firing.
-    schedule: str = ""
     # Optional claude model override (e.g. "sonnet" for cheap background work);
     # empty = the CLI default.
     model: str = ""
@@ -22,10 +62,6 @@ class Manifest(BaseModel):
     # it can invoke other agents (agent-invokes-agent). Without it a system
     # agent only gets the narrow `annotator` token (read runs + annotate).
     can_invoke: bool = False
-    # DEPRECATED (docs/design/12): declaring the `memory` tool is the grant
-    # now — the launcher's role ladder replaced this flag. Parsed for backward
-    # compat with old manifests; no longer consulted anywhere.
-    memory: bool = False
     # Per-agent transcript retention override (days). None = use the platform
     # default; <= 0 = keep this agent's transcripts forever.
     transcript_retention_days: int | None = None
@@ -35,20 +71,13 @@ class Manifest(BaseModel):
     # (app.<name>.*) so the consuming app is explicit in the declaration.
     result_topic: str = ""
 
-class WebhookEntry(BaseModel):
-    path: str
-
 
 class Entrypoints(BaseModel):
-    """agents/<name>/entrypoints.yaml — the agent's durable, defining triggers
-    (docs/design/10): cron fires, inbound webhook paths (POST
-    /api/webhooks/<path> only works for a declared path), and kafka topic
-    subscriptions (reserved). Distinct from DB Jobs, which are ad-hoc UI
-    experiments — history, not config."""
+    """LEGACY — the shape of an `agents/<name>/entrypoints.yaml` FILE. The
+    store no longer reads it (a row's `entrypoints` JSON is the truth); it
+    survives only so the file-based quick-edit endpoint can still reject a
+    broken YAML before proposing it, and goes away with that endpoint."""
     cron: list[str] = []
-    # IANA zone the cron expressions are read in (empty = UTC). One zone for
-    # the whole file: an agent's triggers belong to one rhythm, and per-entry
-    # zones would buy nothing but a list-of-objects schema.
     timezone: str = ""
     webhooks: list[WebhookEntry] = []
     kafka: list[str] = []
@@ -72,60 +101,125 @@ class Entrypoints(BaseModel):
 
 
 class AgentInfo(BaseModel):
+    """One agent as the platform reads it. Also the `GET /api/agents/{name}`
+    response model (re-exported by api.schemas)."""
     name: str
     manifest: Manifest | None
+    # The agent's prompt — the body of what used to be agent.md. Deliberately
+    # frontmatter-free: name, description and tools are fields now, and a
+    # reader that needs them must read the fields (see the module docstring).
     agent_md: str
-    entrypoints: Entrypoints = Entrypoints()
-    # The entrypoints.yaml file text as written (comments preserved) — what the
-    # in-place editor round-trips; empty = no file.
+    entrypoints: EntrypointsModel = EntrypointsModel()
+    # Tool grants straight off the row. `platform_tools` is the mcp__platform__*
+    # set the launcher's role ladder and the broker's grant check read.
+    harness_tools: list[str] = []
+    platform_tools: list[str] = []
+    enabled: bool = True
+    # LEGACY: the entrypoints.yaml text the file editor round-tripped. Always
+    # empty now — kept until the UI stops asking for it.
     entrypoints_raw: str = ""
     error: str | None = None
 
     def crons(self) -> list[str]:
-        """Effective cron triggers: entrypoints.yaml plus the deprecated
-        manifest `schedule:`, valid expressions only, deduplicated."""
-        from croniter import croniter
-        out = list(self.entrypoints.cron)
-        legacy = self.manifest.schedule if self.manifest else ""
-        if legacy and legacy not in out and croniter.is_valid(legacy):
-            out.append(legacy)
+        """The cron expressions this agent fires on, in declaration order,
+        deduplicated. Simplified from the file era: the deprecated manifest
+        `schedule:` is gone with the files, so a row's entrypoints are the only
+        source. Per-cron prompts live on `entrypoints.crons`; the scheduler
+        still fires one generic run per agent."""
+        out: list[str] = []
+        for entry in self.entrypoints.crons:
+            if entry.schedule not in out:
+                out.append(entry.schedule)
         return out
 
     def webhook_paths(self) -> list[str]:
         return [w.path for w in self.entrypoints.webhooks]
 
+
+def _manifest_of(model) -> Manifest:
+    # Name-matched projection: Manifest's fields are all AgentDefModel fields,
+    # so adding a column to both models is enough — nothing to keep in sync
+    # here, and a rename fails loudly instead of silently dropping a value.
+    return Manifest(**{f: getattr(model, f) for f in Manifest.model_fields})
+
+
+def info_of(row: AgentDef) -> AgentInfo:
+    """One row → the read model. A row that no longer validates (an unknown
+    role, a cron expression that stopped parsing) is QUARANTINED exactly as a
+    broken manifest.yaml was — manifest None and `error` set — so the
+    dispatcher rejects its runs instead of launching a half-understood agent."""
+    try:
+        model = model_of(row)
+    except ValidationError as e:
+        return AgentInfo(name=row.name, manifest=None,
+                         agent_md=row.prompt or "", error=str(e))
+    return AgentInfo(name=model.name, manifest=_manifest_of(model),
+                     agent_md=model.prompt, entrypoints=model.entrypoints,
+                     harness_tools=model.harness_tools,
+                     platform_tools=model.platform_tools, enabled=model.enabled)
+
+
 class AgentStore:
-    def __init__(self, root: Path):
-        self.root = Path(root)
+    """A cached view of `agent_defs`. One instance per process is shared by
+    everything that reads definitions, so a single refresh serves them all."""
+
+    def __init__(self, session_factory, *, ttl_seconds: float = 5.0):
+        self.session_factory = session_factory
+        self.ttl_seconds = ttl_seconds
         self._cache: dict[str, AgentInfo] = {}
-        self.reload()
+        # None = never loaded. Reads work regardless (empty), but they schedule
+        # the first refresh, so a store nobody explicitly reloaded still fills.
+        self._loaded_at: float | None = None
+        self._refresh: asyncio.Task | None = None
 
-    def reload(self) -> None:
-        found: dict[str, AgentInfo] = {}
-        if self.root.is_dir():
-            for d in sorted(p for p in self.root.iterdir() if p.is_dir()):
-                found[d.name] = self._load(d)
-        self._cache = found
-
-    def _load(self, d: Path) -> AgentInfo:
-        md = d / "agent.md"
-        agent_md = md.read_text() if md.is_file() else ""
-        try:
-            raw = yaml.safe_load((d / "manifest.yaml").read_text()) or {}
-            ep, ep_raw = Entrypoints(), ""
-            ep_file = d / "entrypoints.yaml"
-            if ep_file.is_file():
-                # A broken entrypoints.yaml quarantines like a broken manifest:
-                # triggers are part of the definition.
-                ep_raw = ep_file.read_text()
-                ep = Entrypoints(**(yaml.safe_load(ep_raw) or {}))
-            return AgentInfo(name=d.name, manifest=Manifest(**raw),
-                             agent_md=agent_md, entrypoints=ep, entrypoints_raw=ep_raw)
-        except (OSError, yaml.YAMLError, ValidationError) as e:
-            return AgentInfo(name=d.name, manifest=None, agent_md=agent_md, error=str(e))
+    async def reload(self) -> None:
+        """Re-read every definition. Awaited wherever the caller needs to see a
+        write that just happened (its own, or a UI edit it is reacting to)."""
+        if self.session_factory is None:
+            return
+        from sqlalchemy import select
+        async with self.session_factory() as s:
+            rows = (await s.execute(
+                select(AgentDef).order_by(AgentDef.name))).scalars().all()
+            self._cache = {r.name: info_of(r) for r in rows}
+        self._loaded_at = time.monotonic()
 
     def list(self) -> list[AgentInfo]:
+        self._tick()
         return list(self._cache.values())
 
     def get(self, name: str) -> AgentInfo | None:
+        self._tick()
         return self._cache.get(name)
+
+    def _tick(self) -> None:
+        """TTL refresh. A stale read kicks a background reload and returns the
+        cache it has: the caller is sync, so the choice is between at most
+        `ttl_seconds` of staleness and no refresh at all. Outside a running
+        loop (or with no session factory) it does nothing — only an explicit
+        `reload()` refreshes there."""
+        if self.session_factory is None or self.ttl_seconds <= 0:
+            return
+        if self._loaded_at is not None and time.monotonic() - self._loaded_at < self.ttl_seconds:
+            return
+        if self._refresh is not None and not self._refresh.done():
+            return
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            return
+        # Arm the clock BEFORE the task runs: without it every read in the same
+        # tick would queue another refresh.
+        self._loaded_at = time.monotonic()
+        self._refresh = loop.create_task(self._refresh_quietly())
+
+    async def _refresh_quietly(self) -> None:
+        try:
+            await self.reload()
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            # A background refresh is an optimization; a DB blip must not
+            # surface as an error in whatever request happened to trigger it.
+            log.warning("agent definition refresh failed; serving the cached "
+                        "definitions", exc_info=True)

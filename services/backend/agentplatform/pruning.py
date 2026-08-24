@@ -33,7 +33,7 @@ class TranscriptPruner:
         """Delete transcript events for runs past their agent's retention.
         Returns the number of event rows deleted."""
         now = now or utcnow()
-        self.agents.reload()
+        await self.agents.reload()
         deleted = 0
         async with self.sf() as s:
             agents = (await s.execute(select(Run.agent).distinct())).scalars().all()

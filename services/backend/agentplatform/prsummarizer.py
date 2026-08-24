@@ -92,7 +92,7 @@ class PrSummarizer:
         gh = await asyncio.to_thread(self.gh_factory)
         if gh is None:
             return
-        self.agents.reload()
+        await self.agents.reload()
         info = self.agents.get(SUMMARIZER_AGENT)
         if info is None or info.error is not None:
             return

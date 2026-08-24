@@ -52,6 +52,8 @@ async def list_connectors():
 async def create_conversation(request: Request, body: ConversationIn):
     if body.connector not in IMPLEMENTED:
         raise HTTPException(422, f"connector '{body.connector}' is not implemented")
+    # Reload first: an agent created moments ago in the UI must be startable.
+    await request.app.state.agent_store.reload()
     info = request.app.state.agent_store.get(body.agent)
     if info is None:
         raise HTTPException(404, "unknown agent")

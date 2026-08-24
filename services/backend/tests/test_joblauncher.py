@@ -308,24 +308,25 @@ async def test_system_token_minted_cached_and_injected(sf):
     assert env["AP_API_TOKEN"] == t1 and env["AP_API_URL"].startswith("http://agent-platform-api")
 
 
-def test_platform_token_role_ladder(tmp_path):
-    """Role ladder (docs/design/12): custom-only tools → whoami-only `tools`
+async def test_platform_token_role_ladder(sf, seed_agent):
+    """Role ladder (docs/design/12): custom-only grants → whoami-only `tools`
     role; any CORE broker tool → annotator (it forwards the token to our API);
-    claude-only tools / no tools line / unknown agent → no token."""
+    harness-only grants / no platform grant / unknown agent → no token. The
+    grants are ROWS now (docs/design/15), not agent.md frontmatter."""
     from agentplatform.agents import AgentStore
-    for name, line in [("stocky", "tools: mcp__platform__stocks\n"),
-                       ("libby", "tools: mcp__platform__query_app, mcp__platform__memory\n"),
-                       ("shelly", "tools: WebFetch\n"),
-                       ("openy", "")]:
-        d = tmp_path / name
-        d.mkdir()
-        fm = f"---\nname: {name}\n{line}---\nbody" if line else "body"
-        (d / "agent.md").write_text(fm)
-        (d / "manifest.yaml").write_text("description: t\n")
+    await seed_agent("stocky", platform_tools=["mcp__platform__stocks"])
+    await seed_agent("libby", platform_tools=["mcp__platform__query_app",
+                                              "mcp__platform__memory"])
+    await seed_agent("shelly", harness_tools=["WebFetch"])
+    await seed_agent("openy")
     launcher = K8sJobLauncher(batch=None, settings=Settings(runner_image="r:1", k8s_namespace="ap"),
-                              agent_store=AgentStore(tmp_path))
-    assert launcher._platform_token_role("stocky") == "tools"
-    assert launcher._platform_token_role("libby") == "annotator"
-    assert launcher._platform_token_role("shelly") is None
-    assert launcher._platform_token_role("openy") is None
-    assert launcher._platform_token_role("ghost") is None
+                              agent_store=AgentStore(sf))
+    assert await launcher._platform_token_role("stocky") == "tools"
+    assert await launcher._platform_token_role("libby") == "annotator"
+    assert await launcher._platform_token_role("shelly") is None
+    assert await launcher._platform_token_role("openy") is None
+    assert await launcher._platform_token_role("ghost") is None
+    # The frozen JWT grant set comes off the same rows.
+    assert launcher._frozen_tools("libby") == ["mcp__platform__query_app",
+                                               "mcp__platform__memory"]
+    assert launcher._frozen_tools("shelly") == []

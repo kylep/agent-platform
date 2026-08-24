@@ -27,7 +27,7 @@ def _agents_using(request: Request, skill_name: str) -> list[str]:
 async def list_skills(request: Request):
     request.app.state.skill_store.reload()
     # Reload agents too so `used_by` reflects the latest synced manifests.
-    request.app.state.agent_store.reload()
+    await request.app.state.agent_store.reload()
     return [{"name": s.name,
              "description": s.skill.description if s.skill else "",
              "icon": s.skill.icon if s.skill else "",
@@ -113,7 +113,7 @@ async def skill_wizard(request: Request, body: SkillWizardIn,
     st.skill_store.reload()
     if st.skill_store.get(body.name) is not None:
         raise HTTPException(409, "a skill with this name already exists")
-    st.agent_store.reload()   # platform-coder may have synced after boot
+    await st.agent_store.reload()   # platform-coder may have synced after boot
     coder = st.agent_store.get("platform-coder")
     if coder is None or coder.error is not None:
         raise HTTPException(409, "platform-coder agent is unavailable")

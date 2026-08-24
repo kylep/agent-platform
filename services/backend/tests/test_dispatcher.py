@@ -96,12 +96,9 @@ async def test_sweep_ignores_fresh_queued_runs(sf, disp):
     assert disp.launcher.launched == []
 
 
-async def test_agent_added_after_boot_is_dispatchable(sf, disp, tmp_path):
-    # Store starts pointing at the (empty-of-this-agent) dir; agent lands later.
-    late = disp.agents.root / "late-agent"
-    late.mkdir(parents=True)
-    (late / "agent.md").write_text("# late-agent")
-    (late / "manifest.yaml").write_text("description: late\n")
+async def test_agent_added_after_boot_is_dispatchable(sf, disp, seed_agent):
+    # The store was loaded before this agent existed; handle() reloads first.
+    await seed_agent("late-agent", description="late")
     rid = await make_run(sf, agent="late-agent")
     await disp.handle({"type": "run", "run_id": rid})
     assert disp.launcher.launched == [rid]

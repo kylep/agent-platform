@@ -171,13 +171,18 @@ def selfhost(tmp_path):
 
 
 @pytest.fixture
-async def sh_client(sf, selfhost):
+async def sh_client(sf, selfhost, seed_agent):
+    # The definition is a row (design/15); the FILES in the checkout are what
+    # these endpoints still propose as a pull request.
+    await seed_agent("demo", description="demo",
+                     prompt="You are demo.\n", harness_tools=["Bash"])
+    store = AgentStore(sf)
+    await store.reload()
     settings = Settings(agents_root=str(selfhost["agents_root"]),
                         skills_root=str(selfhost["skills_root"]),
                         git_remote_url=str(selfhost["bare"]), default_branch="main")
     app = create_app(settings, sf, FakeProducer(),
-                     secret_store=InMemorySecretStore(),
-                     agent_store=AgentStore(selfhost["agents_root"]))
+                     secret_store=InMemorySecretStore(), agent_store=store)
     async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://t") as c:
         await c.post("/api/setup", json={"password": "pw12345678"})
         await c.post("/api/login", json={"password": "pw12345678"})

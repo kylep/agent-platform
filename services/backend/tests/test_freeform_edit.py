@@ -22,19 +22,14 @@ async def test_freeform_without_platform_coder_409(admin_client):
 
 
 @pytest.fixture
-def coder_agents(tmp_path):
+async def coder_client(sf, seed_agent):
     for n, role in [("hello-world", "operator"), ("platform-coder", "coder")]:
-        d = tmp_path / n; d.mkdir()
-        (d / "agent.md").write_text(f"# {n}")
-        (d / "manifest.yaml").write_text(f"role: {role}\n")
-    return tmp_path
-
-
-@pytest.fixture
-async def coder_client(sf, coder_agents):
+        await seed_agent(n, role=role)
+    store = AgentStore(sf)
+    await store.reload()
     producer = FakeProducer()
-    app = create_app(Settings(agents_root=str(coder_agents)), sf, producer,
-                     secret_store=InMemorySecretStore(), agent_store=AgentStore(coder_agents))
+    app = create_app(Settings(), sf, producer,
+                     secret_store=InMemorySecretStore(), agent_store=store)
     async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://t") as c:
         await c.post("/api/setup", json={"password": "pw12345678"})
         await c.post("/api/login", json={"password": "pw12345678"})

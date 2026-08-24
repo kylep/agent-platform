@@ -16,7 +16,7 @@ def _pruner(request: Request) -> TranscriptPruner:
 async def retention(request: Request):
     """The effective transcript-retention window (days) per agent, and the
     platform default. <= 0 means keep forever."""
-    request.app.state.agent_store.reload()
+    await request.app.state.agent_store.reload()
     p = _pruner(request)
     agents = {a.name: p.retention_days(a.name) for a in request.app.state.agent_store.list()}
     return {"default_days": request.app.state.settings.transcript_retention_days,

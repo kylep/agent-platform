@@ -32,7 +32,7 @@ class FakeAgents:
     def __init__(self, available=True):
         self.available = available
 
-    def reload(self):
+    async def reload(self):
         pass
 
     def get(self, name):

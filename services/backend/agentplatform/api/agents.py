@@ -60,7 +60,7 @@ async def _blocked_reasons(request: Request) -> dict[str, str]:
 
 @router.get("/api/agents", response_model=list[AgentSummary], dependencies=[Depends(require_role(*READ_ROLES))])
 async def list_agents(request: Request):
-    request.app.state.agent_store.reload()
+    await request.app.state.agent_store.reload()
     blocked = await _blocked_reasons(request)
     return [{"name": a.name, "description": a.manifest.description if a.manifest else "",
              "quarantined": a.error is not None, "error": a.error,
@@ -74,7 +74,7 @@ async def get_agent(request: Request, name: str):
     store = request.app.state.agent_store
     a = store.get(name)
     if a is None:
-        store.reload()   # a just-synced agent isn't in the cache yet — refresh
+        await store.reload()   # a just-synced agent isn't in the cache yet — refresh
         a = store.get(name)
     if a is None:
         raise HTTPException(404)
@@ -291,7 +291,7 @@ async def create_agent(request: Request, body: CreateAgentIn,
         name = validate_agent_name(body.name)
     except ValueError as e:
         raise HTTPException(422, str(e))
-    st.agent_store.reload()
+    await st.agent_store.reload()
     if st.agent_store.get(name) is not None:
         raise HTTPException(409, "an agent with that name already exists")
     _validate_selection(request, body.skills, body.tools)
@@ -326,13 +326,16 @@ async def edit_agent_config(request: Request, name: str, body: ConfigEditIn,
     """Apply a structured config edit (skills / tools / description) to an
     existing agent and open a PR. A no-op edit returns tier 0."""
     st = request.app.state
-    st.agent_store.reload()
+    await st.agent_store.reload()
     info = st.agent_store.get(name)
     if info is None:
         raise HTTPException(404, "unknown agent")
     _validate_selection(request, body.skills or [], body.tools or [])
 
-    root = Path(st.agent_store.root) / name
+    # The store is DB-backed now (design/15), so BOTH files this endpoint
+    # rewrites come from the synced checkout — a row's prompt carries no
+    # frontmatter to mutate. The whole file flow goes away in the API rewrite.
+    root = Path(st.settings.agents_root) / name
     files: dict[str, str | None] = {}
     if body.skills is not None or body.description is not None:
         manifest_text = (root / "manifest.yaml").read_text()
@@ -340,7 +343,8 @@ async def edit_agent_config(request: Request, name: str, body: ConfigEditIn,
             manifest_text, skills=body.skills, description=body.description)
     if body.tools is not None or body.description is not None:
         files[f"agents/{name}/agent.md"] = mutate_agent_md(
-            info.agent_md, tools=body.tools, description=body.description)
+            (root / "agent.md").read_text(), tools=body.tools,
+            description=body.description)
     if not files:
         raise HTTPException(422, "nothing to change")
     return await _apply_files(

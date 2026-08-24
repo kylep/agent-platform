@@ -76,7 +76,8 @@ async def main() -> None:
             log.warning("kafka unreachable; retrying producer start in 5s")
             await asyncio.sleep(5)
 
-    agent_store = AgentStore(settings.agents_root)
+    agent_store = AgentStore(session_factory)
+    await agent_store.reload()
     skill_store = SkillStore(settings.skills_root)
     launcher = K8sJobLauncher(batch, settings, github_app=github_app,
                               session_factory=session_factory, skill_store=skill_store,

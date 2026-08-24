@@ -20,11 +20,9 @@ async def test_skill_quick_edit_unconfigured_409(admin_client):
     assert r.status_code == 409
 
 
-async def test_wizard_validates_and_dispatches(admin_client, tmp_agents, producer):
+async def test_wizard_validates_and_dispatches(admin_client, seed_agent, producer):
     # platform-coder must exist for the wizard to dispatch
-    d = tmp_agents / "platform-coder"; d.mkdir()
-    (d / "agent.md").write_text("# coder")
-    (d / "manifest.yaml").write_text("role: coder\n")
+    await seed_agent("platform-coder", role="coder")
 
     r = await admin_client.post("/api/skills/new", json={"name": "Bad Name", "purpose": "x"})
     assert r.status_code == 422

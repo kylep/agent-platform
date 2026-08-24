@@ -5,11 +5,11 @@ import pytest
 
 
 @pytest.fixture(autouse=True)
-def declare_webhook(tmp_agents):
-    # Webhook paths must be declared in entrypoints.yaml (docs/design/10);
-    # hello-world opts in with a path matching its name.
-    (tmp_agents / "hello-world" / "entrypoints.yaml").write_text(
-        "webhooks:\n  - path: hello-world\n")
+async def declare_webhook(seed_agent):
+    # Webhook paths must be DECLARED (docs/design/10); hello-world opts in with
+    # a path matching its name.
+    await seed_agent("hello-world",
+                     entrypoints={"webhooks": [{"path": "hello-world"}]})
 
 
 async def _mint(client, role):
@@ -52,17 +52,16 @@ async def test_webhook_unknown_agent_404(admin_client):
     assert r.status_code == 404
 
 
-async def test_webhook_undeclared_path_404(admin_client, tmp_agents):
+async def test_webhook_undeclared_path_404(admin_client, seed_agent):
     # the agent exists, but stops declaring the path -> the endpoint vanishes
-    (tmp_agents / "hello-world" / "entrypoints.yaml").write_text("webhooks: []\n")
+    await seed_agent("hello-world", entrypoints={"webhooks": []})
     r = await admin_client.post("/api/webhooks/hello-world", json={})
     assert r.status_code == 404
 
 
-async def test_webhook_decoupled_path_routes_to_declaring_agent(admin_client, tmp_agents, producer):
+async def test_webhook_decoupled_path_routes_to_declaring_agent(admin_client, seed_agent, producer):
     from agentplatform.events import TOPIC_RUN_INBOUND
-    (tmp_agents / "hello-world" / "entrypoints.yaml").write_text(
-        "webhooks:\n  - path: newsflash\n")
+    await seed_agent("hello-world", entrypoints={"webhooks": [{"path": "newsflash"}]})
     r = await admin_client.post("/api/webhooks/newsflash", json={"k": 1})
     assert r.status_code == 202
     inbound = [p for p in producer.published if p[0] == TOPIC_RUN_INBOUND]

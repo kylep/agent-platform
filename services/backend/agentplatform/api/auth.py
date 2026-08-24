@@ -4,7 +4,7 @@ from fastapi import APIRouter, HTTPException, Request, Response, Depends
 from itsdangerous import BadSignature, URLSafeSerializer
 from pydantic import BaseModel
 from sqlalchemy import select
-from agentplatform.agentspec import PLATFORM_MCP_TOOLS, parse_agent_tools
+from agentplatform.agentspec import PLATFORM_MCP_TOOLS
 from agentplatform.apikeys import hash_token
 from agentplatform.db import ApiKey, Principal
 
@@ -174,12 +174,11 @@ async def _validate_sa_token(request: Request, token: str) -> tuple[str, str] | 
         return None
     agent = sa_name[len("agent-"):]
     st = request.app.state
-    st.agent_store.reload()
+    await st.agent_store.reload()
     info = st.agent_store.get(agent)
     if info is None:
         return None
-    declared = parse_agent_tools(info.agent_md) or []
-    platform = [t for t in declared if t.startswith("mcp__platform__")]
+    platform = [t for t in info.platform_tools if t.startswith("mcp__platform__")]
     if not platform:
         return None
     role = "annotator" if any(t in PLATFORM_MCP_TOOLS for t in platform) else "tools"
@@ -224,21 +223,20 @@ async def whoami(request: Request):
     frozen = getattr(request.state, "frozen_tools", None)
     if frozen is not None:
         # design/13 C: the grant set was FROZEN into the run JWT at launch —
-        # a mid-run manifest edit cannot widen (or shrink) a live run.
+        # a mid-run grant edit cannot widen (or shrink) a live run.
         return {"principal": name, "role": role, "agent": agent,
                 "run_id": run_id, "tools": frozen,
                 "initiated_by": getattr(request.state, "initiated_by", None)}
     if agent:
         st = request.app.state
-        st.agent_store.reload()
+        await st.agent_store.reload()
         info = st.agent_store.get(agent)
-        declared = parse_agent_tools(info.agent_md) if info else []
-        # No tools: line = unrestricted; surface that as every grantable
-        # platform tool so the broker's grant check stays a plain membership test.
-        if declared is None:
-            st.tool_registry.reload()
-            declared = [t for t in PLATFORM_MCP_TOOLS] + st.tool_registry.mcp_names()
-        tools = [t for t in declared if t.startswith("mcp__platform__")]
+        # design/15: the grant set is the row's `platform_tools`. An agent with
+        # no platform grant gets [], NOT everything — the file era's "no
+        # `tools:` line means unrestricted" default went away with the file,
+        # and the broker's grant check stays a plain membership test.
+        granted = info.platform_tools if info else []
+        tools = [t for t in granted if t.startswith("mcp__platform__")]
     return {"principal": name, "role": role, "agent": agent,
             "run_id": run_id, "tools": tools}
 

@@ -49,7 +49,7 @@ def _sdk(app, token: str) -> AuthenticatedClient:
 async def app(sf, producer, secret_store, agent_store):
     from agentplatform.api.app import create_app
     from agentplatform.config import Settings
-    return create_app(Settings(agents_root=str(agent_store.root)), sf, producer,
+    return create_app(Settings(), sf, producer,
                       secret_store=secret_store, agent_store=agent_store)
 
 

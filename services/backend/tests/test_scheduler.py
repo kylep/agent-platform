@@ -53,12 +53,13 @@ def test_next_fire_returns_utc_for_a_naive_input():
 
 class FakeStore:
     def __init__(self, infos): self._infos = infos
-    def reload(self): pass
+    async def reload(self): pass
     def list(self): return self._infos
 
 
 def _agent(name, cron, error=None):
-    return AgentInfo(name=name, manifest=Manifest(schedule=cron), agent_md="", error=error)
+    return AgentInfo(name=name, manifest=Manifest(), agent_md="", error=error,
+                     entrypoints={"crons": [{"schedule": cron}]})
 
 
 @pytest.fixture
@@ -113,8 +114,13 @@ async def test_missed_fires_are_skipped_not_backfilled(sf, now):
     assert as_utc(row.next_fire) == next_fire("*/10 * * * *", way_later)   # advanced past the gap
 
 
-async def test_invalid_cron_agent_not_scheduled(sf, now):
-    sch = Scheduler(sf, FakeStore([_agent("bad", "not-a-cron"), _agent("q", "* * * * *", error="boom")]), FakeProducer())
+async def test_cronless_and_quarantined_agents_not_scheduled(sf, now):
+    """Two non-starters: an agent that declares no cron, and one whose
+    definition is quarantined. (An invalid cron expression can no longer reach
+    the scheduler at all — the store rejects it into quarantine, which is the
+    second case here.)"""
+    cronless = AgentInfo(name="bad", manifest=Manifest(), agent_md="")
+    sch = Scheduler(sf, FakeStore([cronless, _agent("q", "* * * * *", error="boom")]), FakeProducer())
     await sch.tick(now)
     async with sf() as s:
         assert (await s.execute(select(Schedule))).scalars().all() == []

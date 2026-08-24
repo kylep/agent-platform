@@ -23,7 +23,7 @@ async def webhook(request: Request, path: str, principal: str = Depends(require_
     event to `run.inbound`; the ingest consumer materializes the run. The
     pre-assigned id is returned so the caller can follow the run."""
     st = request.app.state
-    st.agent_store.reload()   # a just-synced entrypoints.yaml must count
+    await st.agent_store.reload()   # a just-synced entrypoints.yaml must count
     info = next((a for a in st.agent_store.list() if path in a.webhook_paths()), None)
     if info is None:
         raise HTTPException(404, "no agent declares this webhook path")

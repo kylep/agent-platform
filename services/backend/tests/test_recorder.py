@@ -190,14 +190,17 @@ async def test_sweep_ignores_already_published(sf, producer):
     assert len(_replies(producer)) == 1
 
 
-async def test_result_topic_publishes_agent_result(sf, producer, tmp_path):
-    """A manifest-declared result_topic feeds the agent's successful result to
-    its consuming app (docs/design/11) — errors and topic-less agents don't."""
+async def test_result_topic_publishes_agent_result(sf, producer):
+    """A declared result_topic feeds the agent's successful result to its
+    consuming app (docs/design/11) — errors and topic-less agents don't."""
     from agentplatform.agents import AgentStore
-    d = tmp_path / "news"; d.mkdir()
-    (d / "agent.md").write_text("# news\nGather.")
-    (d / "manifest.yaml").write_text("description: n\nresult_topic: app.news.inbound\n")
-    store = AgentStore(tmp_path)
+    from agentplatform.db import AgentDef
+    async with sf() as s:
+        s.add(AgentDef(name="news", description="n", result_topic="app.news.inbound"))
+        s.add(AgentDef(name="hello-world"))
+        await s.commit()
+    store = AgentStore(sf)
+    await store.reload()
     rec = Recorder(sf, producer, agent_store=store)
     async with sf() as s:
         run = Run(agent="news", trigger="schedule", requested_by="t",
