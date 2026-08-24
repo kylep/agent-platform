@@ -1,7 +1,7 @@
 """Custom platform tools (docs/design/12): registry parsing/validation and the
 /api/tools surface. Tools are trusted code + model-controlled args; these tests
 guard the registry-side invariants (a tool cannot shadow a core tool, cannot
-exist without an entrypoint, and self-documents into help/agent-tools)."""
+exist without an entrypoint, and self-documents into /api/help/tools)."""
 from pathlib import Path
 
 import httpx
@@ -113,12 +113,7 @@ async def tool_client(sf, producer, secret_store, agent_store, seed_agent, tmp_p
     await seed_agent("echo-user", description="t",
                      platform_tools=["mcp__platform__echo"])
     await agent_store.reload()
-    # …and its files in the synced checkout, which the file-based config-edit
-    # endpoint still rewrites into a pull request.
-    d = tmp_path / "agents" / "echo-user"
-    d.mkdir(parents=True)
-    (d / "agent.md").write_text("---\nname: echo-user\ntools: mcp__platform__echo\n---\nbody")
-    (d / "manifest.yaml").write_text("description: t\n")
+    (tmp_path / "agents").mkdir()          # the synced checkout's root
     app = create_app(Settings(agents_root=str(tmp_path / "agents"),
                               secrets_root=str(REPO_SECRETS),
                               skills_root=str(REPO_SKILLS),
@@ -152,24 +147,24 @@ async def test_get_tool_returns_files(tool_client):
 
 
 async def test_custom_tool_is_grantable_and_documented(tool_client):
-    tools = (await tool_client.get("/api/agent-tools")).json()["tools"]
-    assert "mcp__platform__echo" in tools
+    """The grant catalog the UI renders is /api/help/tools — a valid custom
+    tool self-documents into it, a broken one never appears."""
     help_names = {t["name"]: t for t in (await tool_client.get("/api/help/tools")).json()}
     assert "mcp__platform__echo" in help_names
     assert "Echo the given text" in help_names["mcp__platform__echo"]["description"]
-    # Broken tools are not grantable.
-    assert "mcp__platform__broken" not in tools
+    assert "mcp__platform__broken" not in help_names
 
 
-async def test_agent_edit_rejects_unknown_but_not_custom_tools(tool_client):
-    """Validation must know registry tools: an unknown name 422s, a declared
-    custom tool passes validation (whatever the git layer then does)."""
-    r = await tool_client.patch("/api/agents/echo-user/config",
-                                json={"tools": ["mcp__platform__not_a_tool"]})
+async def test_agent_write_rejects_unknown_but_not_custom_tools(tool_client):
+    """Validation-on-write must know registry tools: an unknown name 422s, a
+    declared custom tool is a legitimate grant."""
+    current = (await tool_client.get("/api/agents/echo-user")).json()
+    r = await tool_client.put("/api/agents/echo-user",
+                              json={**current, "platform_tools": ["mcp__platform__not_a_tool"]})
     assert r.status_code == 422
-    r = await tool_client.patch("/api/agents/echo-user/config",
-                                json={"tools": ["mcp__platform__echo"]})
-    assert r.status_code != 422, r.text
+    r = await tool_client.put("/api/agents/echo-user",
+                              json={**current, "platform_tools": ["mcp__platform__echo"]})
+    assert r.status_code == 200, r.text
 
 
 # --- whoami + tools-role scoping (docs/design/12) ----------------------------

@@ -174,33 +174,4 @@ async def test_store_without_a_session_factory_is_inert(sf):
     assert store.list() == [] and store.get("x") is None
 
 
-async def test_agents_api(admin_client):
-    r = await admin_client.get("/api/agents")
-    assert r.status_code == 200
-    assert [a["name"] for a in r.json()] == ["hello-world"]
-
-
-async def test_get_agent_returns_the_row(admin_client):
-    r = await admin_client.get("/api/agents/hello-world")
-    assert r.status_code == 200
-    body = r.json()
-    assert body["agent_md"].endswith("You are hello-world.")
-    assert body["manifest"]["description"] == "test"
-    assert body["platform_tools"] == [] and body["enabled"] is True
-
-
-async def test_non_admin_key_can_list_agents(client, sf):
-    # A reader+ key (here: operator) may list/inspect agents — needed for the
-    # SDK / platform skill — but the router's edit routes stay admin-only.
-    from agentplatform.apikeys import generate_token, hash_token, token_prefix
-    from agentplatform.db import ApiKey
-    token = generate_token()
-    async with sf() as s:
-        s.add(ApiKey(name="op", role="operator", key_hash=hash_token(token),
-                     prefix=token_prefix(token)))
-        await s.commit()
-    h = {"Authorization": f"Bearer {token}"}
-    assert (await client.get("/api/agents", headers=h)).status_code == 200
-    # edits remain admin-only
-    assert (await client.post("/api/agents/x/quick-edit",
-                              json={"field": "prompt", "value": "y"}, headers=h)).status_code == 403
+# The API over this store lives in tests/test_agents_api.py.

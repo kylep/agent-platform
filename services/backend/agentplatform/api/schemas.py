@@ -15,9 +15,9 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
-from agentplatform.agents import AgentInfo  # re-exported as the get_agent model
+from agentplatform import agentdefs
 
 
 # --- shared action results ---------------------------------------------------
@@ -39,26 +39,136 @@ class PruneResult(Ok):
     deleted: int
 
 
-# --- agents ------------------------------------------------------------------
+# --- agents (docs/design/15) --------------------------------------------------
+# An agent definition is a row, and these are its shapes at the API edge. They
+# mirror `agentdefs.DEF_FIELDS` field for field (a test pins that) instead of
+# reusing `AgentDefModel`, because the edge needs two things the domain model
+# must not have:
+#
+#   INPUTS reject unknown fields — a typo'd field has to 422, not silently
+#   no-op on a full-replacement PUT;
+#   OUTPUTS carry no validators — a QUARANTINED row (one that stopped
+#   validating) must still render, because reading it is how you fix it.
+#
+# The nested entrypoint shapes are the exception: the input ones subclass the
+# domain models so the cron/timezone validation is written once, while the
+# output ones are plain mirrors for the same
+# a-broken-row-must-still-be-readable reason.
 
-class AgentSummary(BaseModel):
+class CronEntryIn(agentdefs.CronEntry):
+    model_config = ConfigDict(extra="forbid")
+
+
+class WebhookEntryIn(agentdefs.WebhookEntry):
+    model_config = ConfigDict(extra="forbid")
+
+
+class EntrypointsIn(agentdefs.EntrypointsModel):
+    model_config = ConfigDict(extra="forbid")
+    crons: list[CronEntryIn] = []
+    webhooks: list[WebhookEntryIn] = []
+
+
+class CronEntryOut(BaseModel):
+    schedule: str = ""
+    prompt: str = ""
+
+
+class WebhookEntryOut(BaseModel):
+    path: str = ""
+
+
+class EntrypointsOut(BaseModel):
+    crons: list[CronEntryOut] = []
+    webhooks: list[WebhookEntryOut] = []
+    topics: list[str] = []
+    timezone: str = ""
+
+
+class AgentDefIn(BaseModel):
+    """A complete agent definition on the wire. PUT replaces the whole
+    definition, so an omitted field RESETS to the default shown here rather
+    than keeping whatever the row had."""
+    model_config = ConfigDict(extra="forbid")
+    # Ignored on update: the path identifies the agent, so a payload can never
+    # rename or retarget one.
+    name: str = ""
+    prompt: str = ""
+    description: str = ""
+    model: str = ""
+    role: str = "operator"
+    system: bool = False
+    can_invoke: bool = False
+    concurrency: int = 1
+    timeout_seconds: int = 1800
+    result_topic: str = ""
+    transcript_retention_days: int | None = None
+    harness_tools: list[str] = []
+    platform_tools: list[str] = []
+    skills: list[str] = []
+    secrets: list[str] = []
+    entrypoints: EntrypointsIn = EntrypointsIn()
+    enabled: bool = True
+
+
+class AgentCreateIn(AgentDefIn):
+    """Create/import payload — same definition, but the name is the one thing
+    that cannot be defaulted."""
     name: str
-    description: str
-    quarantined: bool
-    error: str | None
+
+
+class AgentDefOut(BaseModel):
+    """An agent definition as the API returns it."""
+    name: str
+    prompt: str = ""
+    description: str = ""
+    model: str = ""
+    role: str = "operator"
+    system: bool = False
+    can_invoke: bool = False
+    concurrency: int = 1
+    timeout_seconds: int = 1800
+    result_topic: str = ""
+    transcript_retention_days: int | None = None
+    harness_tools: list[str] = []
+    platform_tools: list[str] = []
+    skills: list[str] = []
+    secrets: list[str] = []
+    entrypoints: EntrypointsOut = EntrypointsOut()
+    enabled: bool = True
+
+
+class AgentSummary(AgentDefOut):
+    """A listing row: the stored definition plus the readiness only the
+    platform can derive — deliberately not columns, because they are computed
+    from secrets and validation, not declared."""
+    quarantined: bool = False
+    error: str | None = None
     # Blocked — unmet required secret dependency (docs/design/10). Recoverable
     # by fixing the SECRET; quarantined is recoverable by fixing the agent.
-    blocked: bool
-    blocked_reason: str | None
-    system: bool
-    schedule: str
+    blocked: bool = False
+    blocked_reason: str | None = None
+    # Pre-rendered cron summary for the listing (the entrypoints carry the raw
+    # expressions).
+    schedule: str = ""
 
 
-class AgentTools(BaseModel):
-    tools: list[str]
-    # Presentation labels for awkward harness-fixed ids (TodoWrite → "Todo");
-    # keys are tool names, manifests always declare the real id.
-    labels: dict[str, str] = {}
+class AgentVersionRow(BaseModel):
+    """One entry of the append-only change log, without its snapshot."""
+    version: int
+    changed_by: str
+    changed_via: str
+    created_at: str | None
+
+
+class AgentVersionDetail(AgentVersionRow):
+    # The whole definition as it stood — what a rollback re-applies.
+    snapshot: dict
+
+
+class AgentImportResult(BaseModel):
+    name: str
+    status: str          # created | updated | unchanged
 
 
 class ModelOption(BaseModel):
@@ -575,4 +685,4 @@ class SetupState(BaseModel):
     secrets: list[SecretStatus]
 
 
-__all__ = [n for n in dir() if n[0].isupper()] + ["AgentInfo"]
+__all__ = [n for n in dir() if n[0].isupper()]

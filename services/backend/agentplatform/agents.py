@@ -32,9 +32,9 @@ import asyncio
 import logging
 import time
 
-from pydantic import BaseModel, ValidationError, field_validator
+from pydantic import BaseModel, ValidationError
 
-from agentplatform.agentdefs import EntrypointsModel, WebhookEntry, model_of
+from agentplatform.agentdefs import EntrypointsModel, model_of
 from agentplatform.db import AgentDef
 
 log = logging.getLogger("agents")
@@ -72,37 +72,11 @@ class Manifest(BaseModel):
     result_topic: str = ""
 
 
-class Entrypoints(BaseModel):
-    """LEGACY — the shape of an `agents/<name>/entrypoints.yaml` FILE. The
-    store no longer reads it (a row's `entrypoints` JSON is the truth); it
-    survives only so the file-based quick-edit endpoint can still reject a
-    broken YAML before proposing it, and goes away with that endpoint."""
-    cron: list[str] = []
-    timezone: str = ""
-    webhooks: list[WebhookEntry] = []
-    kafka: list[str] = []
-
-    @field_validator("cron")
-    @classmethod
-    def _valid_cron(cls, v):
-        from croniter import croniter
-        for expr in v:
-            if not croniter.is_valid(expr):
-                raise ValueError(f"invalid cron expression: {expr!r}")
-        return v
-
-    @field_validator("timezone")
-    @classmethod
-    def _valid_timezone(cls, v):
-        from agentplatform.scheduler import is_valid_timezone
-        if not is_valid_timezone(v):
-            raise ValueError(f"unknown timezone: {v!r}")
-        return v
-
-
 class AgentInfo(BaseModel):
-    """One agent as the platform reads it. Also the `GET /api/agents/{name}`
-    response model (re-exported by api.schemas)."""
+    """One agent as the PLATFORM reads it — the dispatcher, launcher, scheduler
+    and readiness gate. Not an API shape: the agents API serves the row itself
+    (`schemas.AgentDefOut`), so a definition on the wire is the definition as
+    stored, not this derived view of it."""
     name: str
     manifest: Manifest | None
     # The agent's prompt — the body of what used to be agent.md. Deliberately

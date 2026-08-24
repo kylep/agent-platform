@@ -41,17 +41,6 @@ async def test_sync_status_endpoint(admin_client, tmp_agents):
 
 # --- validation before propose ----------------------------------------------
 
-async def test_entrypoints_quick_edit_validates(admin_client):
-    r = await admin_client.post("/api/agents/hello-world/quick-edit",
-                                json={"field": "entrypoints", "value": 'cron: ["bogus"]'})
-    assert r.status_code == 422 and "invalid entrypoints.yaml" in r.json()["detail"]
-    # valid yaml reaches the git layer, which 409s in tests (no remote) —
-    # proving validation passed
-    r = await admin_client.post("/api/agents/hello-world/quick-edit",
-                                json={"field": "entrypoints", "value": 'cron: ["0 9 * * *"]'})
-    assert r.status_code == 409
-
-
 async def test_skill_quick_edit_validates_frontmatter(admin_client):
     r = await admin_client.post("/api/skills/git/quick-edit",
                                 json={"value": "---\nsecrets: [unclosed\n---\nbody"})

@@ -26,7 +26,7 @@ List agents:
 curl -s -H "Authorization: Bearer $AP_API_TOKEN" "$AP_API_URL/api/agents"
 ```
 
-Inspect one agent (manifest + definition):
+Inspect one agent (its whole definition — prompt, config, grants, entrypoints):
 ```bash
 curl -s -H "Authorization: Bearer $AP_API_TOKEN" "$AP_API_URL/api/agents/<name>"
 ```

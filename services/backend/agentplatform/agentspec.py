@@ -1,25 +1,22 @@
-"""Render and surgically edit an agent's on-disk definition.
+"""The fixed vocabulary an agent definition is written in.
 
-An agent is two files under `agents/<name>/`:
-  - `manifest.yaml` — the platform Manifest (role, skills, secrets, …)
-  - `agent.md` — YAML frontmatter (name, description, tools) + prompt body
+What an agent IS lives in `agent_defs` (docs/design/15) and is validated by
+`agentdefs`; what it may be *made of* is code, and this module is the part of
+that vocabulary the platform hard-codes: the grantable harness/platform tool
+names, the help text that explains each one, the models the picker offers, and
+the slug rule every agent name obeys.
 
-These helpers turn structured edits (from the UI) into file *content*, which the
-deterministic git path (`EditService`) then commits or opens as a PR. Edits are
-surgical: unrelated manifest fields and frontmatter keys are preserved so a
-checkbox change produces a minimal, reviewable diff.
+It used to also render `agents/<name>/{agent.md,manifest.yaml}` for the PR-based
+editor. Definitions are rows now — nothing writes those files — so the renderers
+went with the flow they served.
 """
 from __future__ import annotations
 
 import re
 
-import yaml
-
-from agentplatform.skills import parse_frontmatter
-
-# The Claude Code tools an agent may be granted via `agent.md` frontmatter
-# `tools:`. Omitting the line entirely means "all tools" (the CLI default), so
-# the editor treats a fully-checked list as unrestricted and drops the line.
+# The Claude Code tools an agent may be granted. Historically these were an
+# `agent.md` frontmatter `tools:` line, where omitting the line meant "all
+# tools"; a row's `harness_tools` is explicit, and empty means empty.
 CLAUDE_TOOLS: list[str] = [
     "Bash", "Read", "Write", "Edit", "Glob", "Grep",
     "WebSearch", "WebFetch", "Task", "TodoWrite", "NotebookEdit",
@@ -116,85 +113,3 @@ def validate_agent_name(name: str) -> str:
         raise ValueError("name must be lowercase letters, digits, and hyphens "
                          "(1–63 chars, not starting with a hyphen)")
     return name
-
-
-def _tools_line(tools: list[str]) -> str | None:
-    """The frontmatter `tools:` value for a selection, or None to omit the line
-    (which the CLI reads as 'all tools'). All-selected → unrestricted → omit.
-
-    A tool this build doesn't know about is preserved verbatim rather than
-    dropped: silently forgetting an entry would *widen* the agent's access (drop
-    enough of them and the line vanishes, which means unrestricted), so an
-    unrecognized name must survive an edit it wasn't part of."""
-    selected = set(tools)
-    chosen = [t for t in AVAILABLE_TOOLS if t in selected]
-    chosen += [t for t in dict.fromkeys(tools) if t not in set(AVAILABLE_TOOLS)]
-    if not chosen or selected >= set(AVAILABLE_TOOLS):
-        return None
-    return ", ".join(chosen)
-
-
-def render_agent_md(name: str, description: str, tools: list[str], body: str) -> str:
-    """Compose an `agent.md` from its parts. Frontmatter carries name,
-    description, and (only when restricted) tools; then the prompt body."""
-    fm: dict[str, str] = {"name": name, "description": description}
-    line = _tools_line(tools)
-    if line is not None:
-        fm["tools"] = line
-    front = yaml.safe_dump(fm, sort_keys=False, default_flow_style=False).strip()
-    return f"---\n{front}\n---\n{body.strip()}\n"
-
-
-def render_manifest(fields: dict) -> str:
-    """Dump a manifest dict, dropping empty/None values so the file stays lean
-    (defaults are supplied by the Manifest model at load time)."""
-    clean = {k: v for k, v in fields.items()
-             if v not in (None, "", [], {})}
-    return yaml.safe_dump(clean, sort_keys=False, default_flow_style=False)
-
-
-def mutate_manifest_yaml(text: str, *, skills: list[str] | None = None,
-                         description: str | None = None) -> str:
-    """Parse an existing manifest, apply only the given changes, re-dump.
-    Preserves unrelated fields (concurrency, secrets, can_invoke, …). Comments
-    are not preserved on a real edit — a structured edit normalizes the file,
-    and the PR diff is the review surface. A *semantic* no-op returns the
-    original text verbatim (so it never produces a spurious, comment-stripping
-    diff that would sneak straight to main)."""
-    before = yaml.safe_load(text) or {}
-    data = dict(before)
-    if description is not None:
-        data["description"] = description
-    if skills is not None:
-        if skills:
-            data["skills"] = skills
-        else:
-            data.pop("skills", None)   # empty list → omit the key
-    if data == before:
-        return text
-    return yaml.safe_dump(data, sort_keys=False, default_flow_style=False)
-
-
-def mutate_agent_md(text: str, *, tools: list[str] | None = None,
-                    description: str | None = None) -> str:
-    """Update an `agent.md`'s frontmatter (tools/description) in place, keeping
-    its name and prompt body. A semantic no-op (frontmatter unchanged) returns
-    the original text verbatim so it never emits a spurious diff."""
-    fm, body = parse_frontmatter(text)
-    before = dict(fm)
-    if description is not None:
-        fm["description"] = description
-    if tools is not None:
-        line = _tools_line(tools)
-        if line is not None:
-            fm["tools"] = line
-        else:
-            fm.pop("tools", None)      # all/none → unrestricted → omit
-    if fm == before:
-        return text
-    # Preserve a stable key order: name, description, tools, then anything else.
-    order = ["name", "description", "tools"]
-    ordered = {k: fm[k] for k in order if k in fm}
-    ordered.update({k: v for k, v in fm.items() if k not in order})
-    front = yaml.safe_dump(ordered, sort_keys=False, default_flow_style=False).strip()
-    return f"---\n{front}\n---\n{body.strip()}\n"

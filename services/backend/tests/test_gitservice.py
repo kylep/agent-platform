@@ -75,6 +75,18 @@ def test_clean_tree_has_no_changes(repo):
     assert classify_tier(compute_changes(repo)) == TIER_DIRECT
 
 
+def test_compute_changes_flags_frontmatter(repo):
+    p = repo / "agents" / "hello-world" / "agent.md"
+    p.write_text("---\nname: hello-world\ntools: Bash\n---\nYou are hello-world.\n")
+    git(repo, "add", "-A"); git(repo, "commit", "-qm", "frontmatter")
+    # Body-only edit: not a frontmatter change.
+    p.write_text("---\nname: hello-world\ntools: Bash\n---\nYou are hello-world. Better.\n")
+    assert compute_changes(repo)[0].frontmatter_changed is False
+    # Widen tools: a frontmatter change.
+    p.write_text("---\nname: hello-world\ntools: Bash, Read\n---\nYou are hello-world. Better.\n")
+    assert compute_changes(repo)[0].frontmatter_changed is True
+
+
 @pytest.fixture
 def bare_remote(tmp_path):
     """A bare origin with one commit on main, plus a seeded working clone."""

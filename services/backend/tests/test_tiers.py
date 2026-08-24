@@ -60,6 +60,13 @@ def test_nested_path_in_agent_dir_forces_pr():
     assert classify_tier([mod("agents/x/sub/agent.md")]) == TIER_PR
 
 
+def test_agent_md_frontmatter_change_is_tier2():
+    body_only = [FileChange("agents/x/agent.md", "modified", frontmatter_changed=False)]
+    fm_change = [FileChange("agents/x/agent.md", "modified", frontmatter_changed=True)]
+    assert classify_tier(body_only) == TIER_DIRECT
+    assert classify_tier(fm_change) == TIER_PR
+
+
 def test_any_tier2_change_taints_the_whole_set():
     assert classify_tier([
         mod("agents/x/agent.md"),                 # tier 1 alone
