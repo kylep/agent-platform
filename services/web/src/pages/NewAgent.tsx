@@ -4,7 +4,8 @@ import { api, type AgentDef } from "../api";
 import { useGrantCatalog } from "../components/CapabilityPickers";
 import { emptyDef, EntrypointsFields, GrantsFields, IdentityFields, PromptField } from "../components/AgentForm";
 import {
-  pendingSecretWrites, shortSecretPaths, useWebhookSecrets, WEBHOOK_SECRET_MIN, writeWebhookSecrets,
+  invalidSecretPaths, pendingSecretWrites, useWebhookSecrets,
+  WEBHOOK_SECRET_MAX, WEBHOOK_SECRET_MIN, writeWebhookSecrets,
 } from "../lib/webhook-secrets";
 import { Button } from "@ap/ui/button";
 import { Input } from "@ap/ui/field";
@@ -23,19 +24,34 @@ export default function NewAgent() {
 
   const patch = (p: Partial<AgentDef>) => setDraft((d) => ({ ...d, ...p }));
   const nameOk = NAME_RE.test(draft.name);
-  const shortSecrets = shortSecretPaths(draft.entrypoints.webhooks, secrets.values);
+  const badSecrets = invalidSecretPaths(draft.entrypoints.webhooks, secrets.values);
 
   async function create() {
     setSaving(true);
     setError(null);
+    const detail = `/agents/${encodeURIComponent(draft.name)}`;
     try {
       await api<AgentDef>("/api/agents", { method: "POST", body: JSON.stringify(draft) });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to create agent.");
+      setSaving(false);
+      return;
+    }
+    // Past this line the agent EXISTS, so a failed secret write must not leave
+    // the operator on a form whose next click collides with the row it just
+    // made. Hand them the editor instead: the secret field, the fail-closed
+    // state and the retry all live there. The failure text deliberately does
+    // not travel — it is API error text, and the request that produced it
+    // carried the secret.
+    try {
       // Second and alone: the secret endpoint 404s until the path is declared,
       // which it only is once the agent exists.
       await writeWebhookSecrets(draft.name, pendingSecretWrites(draft.entrypoints.webhooks, secrets.values));
-      navigate(`/agents/${encodeURIComponent(draft.name)}`);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to create agent.");
+      navigate(detail);
+    } catch {
+      navigate(detail, { state: { notice:
+        `${draft.name} was created, but its webhook secret could not be set. A webhook in Secret ` +
+        "mode rejects every caller until one is stored — set it below and save." } });
     } finally {
       setSaving(false);
     }
@@ -63,11 +79,13 @@ export default function NewAgent() {
       <GrantsFields draft={draft} patch={patch} catalog={catalog} />
 
       {error && <div className="error">{error}</div>}
-      {shortSecrets.length > 0 && (
-        <div className="error">A webhook secret must be at least {WEBHOOK_SECRET_MIN} characters.</div>
+      {badSecrets.length > 0 && (
+        <div className="error">
+          A webhook secret must be {WEBHOOK_SECRET_MIN}–{WEBHOOK_SECRET_MAX} characters.
+        </div>
       )}
       <div className="row-actions" style={{ marginTop: 12 }}>
-        <Button onClick={create} disabled={saving || !nameOk || shortSecrets.length > 0}>
+        <Button onClick={create} disabled={saving || !nameOk || badSecrets.length > 0}>
           {saving ? "Creating…" : "Create agent"}
         </Button>
         <Button variant="secondary" onClick={() => navigate("/agents")}>Cancel</Button>

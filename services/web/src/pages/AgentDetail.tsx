@@ -1,11 +1,11 @@
 import { useEffect, useState } from "react";
-import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
+import { Link, useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { api, type AgentDef, type AgentMetrics, type AgentSummary, type ModelUsage } from "../api";
 import { useGrantCatalog } from "../components/CapabilityPickers";
 import { EntrypointsFields, GrantsFields, IdentityFields, PromptField, toDraft } from "../components/AgentForm";
 import {
-  markSecretsSet, pendingSecretWrites, shortSecretPaths, useWebhookSecrets,
-  WEBHOOK_SECRET_MIN, writeWebhookSecrets,
+  invalidSecretPaths, markSecretsSet, pendingSecretWrites, useWebhookSecrets,
+  WEBHOOK_SECRET_MAX, WEBHOOK_SECRET_MIN, writeWebhookSecrets,
 } from "../lib/webhook-secrets";
 import AgentVersions from "../components/AgentVersions";
 import AgentChat from "../components/AgentChat";
@@ -80,11 +80,11 @@ function AgentConfig({ agent, onSaved }: { agent: AgentDef; onSaved: (next: Agen
 
   const webhooks = draft.entrypoints.webhooks;
   const pendingSecrets = pendingSecretWrites(webhooks, secrets.values);
-  const shortSecrets = shortSecretPaths(webhooks, secrets.values);
+  const badSecrets = invalidSecretPaths(webhooks, secrets.values);
   const dirty = JSON.stringify(draft) !== JSON.stringify(original);
   // A rotated secret is a save with no change to the row: it has to enable the
   // button on its own, or the only way to send it would be to dirty the def.
-  const savable = (dirty || pendingSecrets.length > 0) && shortSecrets.length === 0;
+  const savable = (dirty || pendingSecrets.length > 0) && badSecrets.length === 0;
   const patch = (p: Partial<AgentDef>) => { setDraft((d) => ({ ...d, ...p })); setSaved(false); };
 
   async function save() {
@@ -135,8 +135,10 @@ function AgentConfig({ agent, onSaved }: { agent: AgentDef; onSaved: (next: Agen
   const actions = (
     <>
       {error && <div className="error">{error}</div>}
-      {shortSecrets.length > 0 && (
-        <div className="error">A webhook secret must be at least {WEBHOOK_SECRET_MIN} characters.</div>
+      {badSecrets.length > 0 && (
+        <div className="error">
+          A webhook secret must be {WEBHOOK_SECRET_MIN}–{WEBHOOK_SECRET_MAX} characters.
+        </div>
       )}
       <div className="row-actions" style={{ marginTop: 10 }}>
         <Button onClick={save} disabled={saving || !savable}>{saving ? "Saving…" : "Save changes"}</Button>
@@ -204,6 +206,10 @@ export default function AgentDetail() {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [summary, setSummary] = useState<AgentSummary | null>(null);
+  // Handed over by whoever navigated here — the New-Agent wizard says so when
+  // it created the agent but couldn't store its webhook secret, which is a
+  // fail-closed webhook the operator has to finish here.
+  const notice = (useLocation().state as { notice?: string } | null)?.notice ?? null;
   // Remounts the editor so its field-local state re-seeds from a fresh load
   // (after a save or a rollback) instead of holding stale text.
   const [formKey, setFormKey] = useState(0);
@@ -265,6 +271,7 @@ export default function AgentDetail() {
           {summary?.quarantined && <Chip variant="danger">quarantined</Chip>}
         </div>
       </div>
+      {notice && <Banner variant="danger">{notice}</Banner>}
       {summary?.error && <Banner variant="danger">{summary.error}</Banner>}
       {summary?.blocked && (
         <Banner variant="danger">

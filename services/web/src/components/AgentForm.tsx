@@ -1,7 +1,8 @@
 import { useState, type ReactNode } from "react";
 import { asList, type AgentDef, type AgentEntrypoints, type CronEntry, type WebhookAuth, type WebhookEntry } from "../api";
 import {
-  generateWebhookSecret, WEBHOOK_SECRET_HEADER, WEBHOOK_SECRET_MIN, type WebhookSecrets,
+  generateWebhookSecret, secretLengthError, WEBHOOK_SECRET_HEADER, WEBHOOK_SECRET_MIN,
+  type WebhookSecrets,
 } from "../lib/webhook-secrets";
 import { cronEnglish, zoneOptions } from "../lib/cron";
 import { SecretPicker, SkillPicker, ToolGrantPicker, type GrantCatalog } from "./CapabilityPickers";
@@ -242,7 +243,7 @@ function WebhookRow({ entry, secrets, onChange, onRemove }: {
   // the draft, and it resets with the row.
   const [shown, setShown] = useState(false);
   const typed = secrets.values[entry.path] ?? "";
-  const tooShort = typed !== "" && typed.length < WEBHOOK_SECRET_MIN;
+  const lengthError = secretLengthError(typed);
   // A set secret is unreadable, so the field only comes back when the operator
   // asks to rotate it. Until one is set, there is nothing else to show.
   const entering = entry.auth === "secret" && (!entry.secret_set || secrets.rotating[entry.path]);
@@ -279,11 +280,9 @@ function WebhookRow({ entry, secrets, onChange, onRemove }: {
             <Input className="w-full" type={shown ? "text" : "password"} aria-label="Webhook secret"
                    autoComplete="off" value={typed} placeholder={`at least ${WEBHOOK_SECRET_MIN} characters`}
                    onChange={(e) => secrets.set(entry.path, e.target.value)} />
-            <p className={tooShort ? "error" : "muted check-note"}>
-              {tooShort
-                ? `At least ${WEBHOOK_SECRET_MIN} characters.`
-                : <>Callers send <code>{WEBHOOK_SECRET_HEADER}</code>. Stored write-only — copy it now,
-                   it is never shown again.</>}
+            <p className={lengthError ? "error" : "muted check-note"}>
+              {lengthError ?? <>Callers send <code>{WEBHOOK_SECRET_HEADER}</code>. Stored write-only —
+                copy it now, it is never shown again.</>}
             </p>
           </div>
           <Button variant="secondary" size="sm" aria-label={shown ? "Hide secret" : "Show secret"}

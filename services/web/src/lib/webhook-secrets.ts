@@ -12,9 +12,22 @@ import { api, type AgentDef, type WebhookEntry } from "../api";
 // row's tooltip so there is nothing to guess or mistype.
 export const WEBHOOK_SECRET_HEADER = "X-AP-Webhook-Secret: <your secret>";
 
-// Mirrors webhooksecrets.MIN_SECRET_LENGTH. Client-side so the field says so
-// before the round trip; the server rejects a short one either way.
+// Mirrors webhooksecrets.MIN_SECRET_LENGTH / MAX_SECRET_LENGTH. Client-side so
+// the field says so before the round trip; the server bounds it either way.
+// The ceiling is enforced here for a second reason: the server's rejection is
+// a pydantic 422 whose body quotes the offending input, and this page renders
+// API error text — so an overlong secret must never make that round trip.
 export const WEBHOOK_SECRET_MIN = 16;
+export const WEBHOOK_SECRET_MAX = 512;
+
+// What is wrong with a typed secret's length, in the row's own words. Empty
+// is not an error: it means "no new secret", which is a valid save.
+export function secretLengthError(value: string): string | null {
+  if (value === "") return null;
+  if (value.length < WEBHOOK_SECRET_MIN) return `At least ${WEBHOOK_SECRET_MIN} characters.`;
+  if (value.length > WEBHOOK_SECRET_MAX) return `At most ${WEBHOOK_SECRET_MAX} characters.`;
+  return null;
+}
 
 // 192 bits of CSPRNG, base64url — 32 characters, no padding. Offered because a
 // typed secret is the weak case: the stored digest is a salted single-round
@@ -74,20 +87,21 @@ export type WebhookSecrets = ReturnType<typeof useWebhookSecrets>;
 // not rotated has nothing pending — the value it holds is unreadable by design.
 export function pendingSecretWrites(webhooks: WebhookEntry[], values: Record<string, string>) {
   return webhooks
-    .filter((w) => w.path && w.auth === "secret" && (values[w.path] ?? "").length >= WEBHOOK_SECRET_MIN)
+    .filter((w) => {
+      const v = values[w.path] ?? "";
+      return w.path && w.auth === "secret" && v !== "" && secretLengthError(v) === null;
+    })
     .map((w) => ({ path: w.path, secret: values[w.path] }));
 }
 
-// Rows the operator started typing a secret into but hasn't finished. Saving
-// is blocked while any exists, so a too-short value can't be silently dropped.
-export function shortSecretPaths(webhooks: WebhookEntry[], values: Record<string, string>): string[] {
+// Rows holding a secret that is out of bounds. Saving is blocked while any
+// exists, so a half-typed or overlong value can't be silently dropped — or,
+// worse, sent to a server that quotes it back.
+export function invalidSecretPaths(webhooks: WebhookEntry[], values: Record<string, string>): string[] {
   return webhooks
     .filter((w) => w.auth === "secret")
     .map((w) => w.path)
-    .filter((p) => {
-      const v = values[p] ?? "";
-      return v !== "" && v.length < WEBHOOK_SECRET_MIN;
-    });
+    .filter((p) => secretLengthError(values[p] ?? "") !== null);
 }
 
 // Written AFTER the definition, one call per path: the endpoint 404s until the

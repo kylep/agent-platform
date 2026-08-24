@@ -79,7 +79,8 @@ test("choosing Secret reveals a masked field the eye unmasks", async ({ page }) 
   expect(generated.length).toBeGreaterThanOrEqual(32);
 });
 
-test("a too-short secret blocks the save client-side", async ({ page }) => {
+test("an out-of-bounds secret blocks the save client-side", async ({ page }) => {
+  const writes = captureWrites(page);
   await mockApi(page);
   await page.goto("/agents/health-monitor");
 
@@ -91,8 +92,17 @@ test("a too-short secret blocks the save client-side", async ({ page }) => {
   await expect(page.getByText("At least 16 characters.", { exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "Save changes" }).first()).toBeDisabled();
 
+  // The ceiling is enforced here too, and for a sharper reason: the server's
+  // rejection is a pydantic 422 that quotes the offending input back, and this
+  // page renders API error text. An overlong secret must not make that trip.
+  await page.getByLabel("Webhook secret").fill("x".repeat(513));
+  await expect(page.getByText("At most 512 characters.", { exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Save changes" }).first()).toBeDisabled();
+
   await page.getByLabel("Webhook secret").fill(SECRET);
   await expect(page.getByRole("button", { name: "Save changes" }).first()).toBeEnabled();
+  // Nothing was ever sent while the value was out of bounds.
+  expect(writes).toEqual([]);
 });
 
 test("saving PUTs the definition first, then the secret on its own call", async ({ page }) => {
@@ -178,6 +188,45 @@ test("rotate re-reveals an empty field and sends only the new secret", async ({ 
   expect(JSON.parse(writes[0].postData() ?? "{}")).toEqual({ secret: SECRET });
   await expect(page.getByLabel("Webhook secret")).toHaveCount(0);
   await expect(page.getByText("secret set")).toBeVisible();
+});
+
+test("a create whose secret write fails hands over the editor, not a dead form", async ({ page }) => {
+  await mockApi(page);
+  const created = {
+    name: "scratch-agent", prompt: "You are scratch.", description: "A scratch agent.", model: "",
+    role: "operator", system: false, can_invoke: false, concurrency: 1, timeout_seconds: 1800,
+    result_topic: "", transcript_retention_days: null, harness_tools: [], platform_tools: [],
+    skills: [], secrets: [], enabled: true,
+    // Declared, and fail-closed: the mode is stored, the secret is not.
+    entrypoints: { crons: [], topics: [], timezone: "",
+                   webhooks: [{ path: "deploy-done", auth: "secret", secret_set: false }] },
+  };
+  await page.route("**/api/agents", async (route) => {
+    if (route.request().method() === "GET") { await route.fallback(); return; }
+    await route.fulfill({ status: 201, json: created });
+  });
+  await page.route("**/api/agents/scratch-agent", (r) => r.fulfill({ json: created }));
+  await page.route("**/api/agents/scratch-agent/webhooks/*/secret",
+                   (r) => r.fulfill({ status: 500, json: { detail: "storage is down" } }));
+
+  await page.goto("/agents/new");
+  await page.getByLabel("Name").fill("scratch-agent");
+  await page.getByRole("button", { name: "+ Add webhook" }).click();
+  await page.getByLabel("Webhook path").fill("deploy-done");
+  await page.getByLabel("Webhook auth").selectOption("secret");
+  await page.getByLabel("Webhook secret").fill(SECRET);
+  await page.getByRole("button", { name: "Create agent" }).click();
+
+  // The agent exists, so the wizard must not be where the operator is left:
+  // clicking Create again would collide with the row it just made.
+  await expect(page).toHaveURL(/\/agents\/scratch-agent$/);
+  await expect(page.getByRole("heading", { level: 1, name: "scratch-agent" })).toBeVisible();
+  await expect(page.getByText(/was created, but its webhook secret could not be set/)).toBeVisible();
+
+  // And the editor is a real recovery: the field is here, empty, on a webhook
+  // the API reports as having no secret.
+  await expect(page.getByLabel("Webhook secret")).toHaveValue("");
+  expect(await page.locator("body").innerHTML()).not.toContain(SECRET);
 });
 
 test("the agents listing marks who has a webhook", async ({ page }) => {
