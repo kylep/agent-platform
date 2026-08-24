@@ -22,7 +22,9 @@ the chart is NUC-specific except the values.
   volumes); k3s ships the local-path provisioner.
 - A **Claude Pro/Max subscription** — agents run Claude Code, so the platform
   needs a credential to run anything.
-- The repository itself, since the chart and the agent definitions live in it:
+- The repository itself, since the chart and the skill/tool/secret
+  definitions live in it (agent definitions live in Postgres, seeded through
+  the UI once the cluster is up — see `docs/design/15-db-first-agents.md`):
 
 ```bash
 git clone https://github.com/kylep/agent-platform.git
@@ -47,8 +49,9 @@ This will:
 - Deploy PostgreSQL and Kafka from bitnami Helm charts
 - Create Kafka topics via the topics job
 - Start the platform services, including `agents-sync`, which clones this
-  repository into a shared volume so the platform can read the agent, skill,
-  and tool definitions in `agents/`, `skills/`, and `tools/`
+  repository into a shared volume so the platform can read the skill and
+  tool definitions in `skills/` and `tools/` (agent definitions live in
+  Postgres, not this checkout — see `docs/design/15-db-first-agents.md`)
 
 ### 2. Verify the deployment
 

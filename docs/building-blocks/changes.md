@@ -1,9 +1,15 @@
 # Changes — the change loop
 
-**What:** the ONE way configuration changes land. Every edit to a **building
-block** — the platform's collective name for its git-declared citizens
-(agents, skills, secret declarations, report types, entrypoints) — rides the
-same rails:
+**What:** the way *capability* changes land. Every edit to a **building
+block** that is code — the platform's collective name for its git-declared
+citizens (skills, tools, secret declarations, report types) — rides the same
+rails:
+
+Agent *definitions* (prompt, config, grants, entrypoints) are the one
+exception: since [design-15](../design/15-db-first-agents.md) they are
+Postgres rows, edited immediately with no PR, and get their own append-only
+record instead — the **change log** (`agent_versions`), visible on each
+agent's History tab. See [Agents](agents.md).
 
 ```
 Propose  →  Review  →  Accept  →  Deploying  →  Live
@@ -15,8 +21,8 @@ Propose  →  Review  →  Accept  →  Deploying  →  Live
 ## The loop, stage by stage
 
 1. **Propose.** An editor save, a wizard, or a platform-coder run opens a PR
-   on the block's **deterministic branch**: `coder/agent-<name>`,
-   `coder/skill-<name>`, `coder/secret-<name>`, `coder/report-<name>`.
+   on the block's **deterministic branch**: `coder/skill-<name>`,
+   `coder/secret-<name>`, `coder/tool-<name>`, `coder/report-<name>`.
    Deterministic editors validate
    *before* proposing (broken YAML/frontmatter is rejected at save time with
    the parse error — a change that would quarantine its block can't be
@@ -38,7 +44,7 @@ Propose  →  Review  →  Accept  →  Deploying  →  Live
    against `GET /api/sync-status` (the synced checkout's HEAD, read from the
    shared volume): the Changes page shows **deploying… → live ✓** per accepted
    change.
-5. **Live.** Pages watching a block (agent page, skill editor, secrets page)
+5. **Live.** Pages watching a block (skill editor, tool editor, secrets page)
    notice their pending change resolved, wait for the sync, **auto-refresh the
    content, and flash** "✓ Live". No hand-refresh, no guessing.
 
@@ -46,17 +52,17 @@ Propose  →  Review  →  Accept  →  Deploying  →  Live
 
 | Surface | Branch | Author |
 |---|---|---|
-| Agent definition / entrypoints editors, capability checkboxes, New Agent wizard | `coder/agent-<name>` | deterministic |
-| "Edit with platform-coder" freeform instruction | `coder/agent-<name>` | coding agent |
 | SKILL.md editor | `coder/skill-<name>` | deterministic |
 | New Skill wizard | `coder/skill-<name>` (+ may touch `secrets/`) | coding agent |
+| Tool editor / New Tool wizard | `coder/tool-<name>` | deterministic / coding agent |
 | Secret declare wizard / secret.yaml editor | `coder/secret-<name>` | deterministic |
 
 Coding-agent runs derive the branch from the paths they touched (precedence
-agent > skill > secret > report when one change spans kinds — a new skill
-plus the secret it declares lands on the *skill's* branch). Edits outside the
-blocks fall back to the authoring agent's own `coder/agent-<agent>` branch.
-Report types are currently hand-written or coder-authored (no wizard yet).
+skill > secret > tool > report when one change spans kinds — a new skill plus
+the secret it declares lands on the *skill's* branch). Report types are
+currently hand-written or coder-authored (no wizard yet). Agent definitions
+never appear here — they aren't a change-loop block; see the note at the top
+of this page.
 
 Secret **values** are deliberately outside the loop: they're set immediately
 via the API into k8s (nothing to review — values never enter git).
@@ -74,8 +80,6 @@ via the API into k8s (nothing to review — values never enter git).
 - **Discard ≠ delete branch.** The branch survives on GitHub (closed PR);
   the lock only tracks open PRs, so the block unlocks. Re-proposing reuses the
   branch.
-- **Emptying the entrypoints editor deletes the file** (no durable triggers)
-  rather than committing an empty file.
 - **The declare wizard covers probe-verified secrets only**; script-verified
   ones (rare — JWT signing etc.) are hand-written folders or New-Skill-wizard
   output.

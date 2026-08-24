@@ -10,8 +10,8 @@ the [Glossary](glossary.md).
 
 **Lives in:** Postgres. Run metadata (state, timings, tokens, summary, error)
 is kept forever; transcript *events* are pruned after
-`transcript_retention_days` (per-agent override in `manifest.yaml`, see
-[agents.md](agents.md)).
+`transcript_retention_days` (a per-agent override on the agent's definition,
+see [agents.md](agents.md)).
 
 **States worth knowing:**
 

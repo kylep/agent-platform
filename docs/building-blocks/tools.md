@@ -10,7 +10,20 @@ services; see the [Glossary](glossary.md).
 [Skills](skills.md) carry *knowledge*; tools carry *execution* — an agent picks
 arguments, never code, which is why agents can trigger real work without ever
 holding a shell or a credential. `stocks`, `discord_chat`, `linear`, `memory`,
-`prices` and `index_movers` are the shipped references.
+`prices` and `index_movers` are the shipped custom-tool references.
+
+Two tools are **core** — built into the broker rather than living under
+`tools/` — because they write to the platform's own definitions table and
+must be attributed to the calling agent, not to a shared executor key:
+`agents_edit` and `agents_grant`, the RBAC split behind
+[agent definitions](agents.md) (`docs/design/15-db-first-agents.md`). They are
+grantable exactly like any other platform tool (`PLATFORM_MCP_AGENT_TOOLS`,
+folded into `GRANTABLE_PLATFORM_TOOLS` alongside the older core reads below),
+but holding one does **not** promote an agent to the `annotator` rung of the
+role ladder — only membership in `PLATFORM_MCP_TOOLS` (the platform-API-facing
+core tools) does that. An `agents_edit`/`agents_grant` holder sits on the same
+`tools` rung a custom-tool-only agent does: it earns a per-run token scoped to
+exactly those two tools and nothing else on `/api/*`.
 
 Two of those show patterns worth copying. `prices` binds an **app's** DB secret
 (`infra.secrets: [app-stockmarket-db]`) and writes rows itself, returning only
@@ -52,8 +65,9 @@ timeout_seconds: 45       # wall clock; 1–120
 
 ## How a call flows
 
-1. An agent that declares the tool (a checkbox on its page / `tools:` in
-   `agent.md`) calls it via the mcp-broker. Declaring any platform tool makes
+1. An agent that declares the tool (a checkbox on its page, or a grant on its
+   `platform_tools`/`harness_tools` list — see [Agents](agents.md)) calls it
+   via the mcp-broker. Declaring any platform tool makes
    the run *identity-bearing*: what identity depends on what was declared.
    Core tools (which act on the platform) earn a per-run token with the
    `annotator` role; declaring only custom tools earns the `tools` role, which
@@ -89,6 +103,8 @@ anything down.
   are baked in); `tool.yaml` / `run.py` edits are live on the next sync of the
   checkout, with no deploy.
 - A tool name cannot shadow one of the broker's built-in core tools —
-  `runs_read`, `runs_write`, `metrics`, `query_app` — and a tool folder
-  without a `run.py` is surfaced as an error rather than becoming a silently
-  dead capability.
+  `runs_read`, `runs_write`, `metrics`, `query_app`, `agents_edit`,
+  `agents_grant` — a `tools/agents_edit/` directory is refused at the
+  registry, loudly, rather than silently losing to (or fighting) the broker's
+  own tool of the same name. A tool folder without a `run.py` is likewise
+  surfaced as an error rather than becoming a silently dead capability.

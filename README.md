@@ -4,8 +4,11 @@ Define Claude Code agents as code, run them on Kubernetes, and drive the whole
 thing from a web UI — whose own edit button is itself a coding agent opening a
 pull request against this repo.
 
-Git is the source of truth for agent definitions. The database holds runtime
-state only. Agents authenticate with a Claude subscription token; there are no
+Git is the source of truth for capability — tools, skills, secret
+declarations. Agent *identity* (prompt, grants, entrypoints, config) is a
+Postgres row instead, mutable immediately with its own append-only change
+log — see [docs/design/15-db-first-agents.md](docs/design/15-db-first-agents.md).
+Agents authenticate with a Claude subscription token; there are no
 Anthropic API keys anywhere, and CI greps to keep it that way.
 
 ```
@@ -16,23 +19,27 @@ trigger (UI · cron · webhook · Discord · agent · API)
 
 ## What it can do
 
-**Run agents.** An agent is a directory: `agents/<name>/agent.md` (a portable
-Claude Code definition, still runnable with bare `claude --agent`) plus
-`manifest.yaml` (the platform layer — role, skills, secrets, schedule,
-concurrency). Every run gets a live-tailing transcript, a kill button,
-per-agent and global concurrency caps, and a wall-clock timeout.
+**Run agents.** An agent is a Postgres row (`agent_defs`): a prompt (the
+agent's context/personality), plus the platform layer — role, skills,
+secrets, harness/platform-tool grants, schedule, concurrency. Every run gets
+a live-tailing transcript, a kill button, per-agent and global concurrency
+caps, and a wall-clock timeout.
 
 **Trigger them however.** Run-now from the UI, cron via first-class Scheduled
 Jobs (many jobs per agent, each with its own prompt, plus "Run Now" and
-plain-English cron tooltips), inbound webhooks, the REST API, another agent
+plain-English cron tooltips), durable entrypoints (cron/webhooks/topics
+stored on the row), inbound webhooks, the REST API, another agent
 (depth-guarded), or a Discord mention.
 
-**Edit itself.** Ask the UI to change an agent and a coding agent does it, with
-writes tiered by the resulting diff: safe single-file edits commit straight to
-`main`, anything structural opens a PR. A Pending Changes page lists the
-platform's own open branches with rendered diffs. There's also a New Agent
-wizard and a checkbox editor for skills and tools — both of which just produce
-ordinary commits and PRs.
+**Edit itself.** The agent editor writes the row directly and immediately —
+no PR, no branch, no lock — with every change captured in an append-only
+version log (view, diff, roll back from the agent's History tab). Two
+platform tools split the write authority the same way a human editor is
+bound by RBAC: `agents_edit` can rewrite an agent's prose and config;
+`agents_grant` is the one that can touch tool/skill/secret grants. Skills,
+tools, and secrets are a different story: those still go through the change
+loop — a New Skill/Tool wizard or a raw editor opens a PR, reviewed on the
+Changes page, live after the next sync.
 
 **Remember things.** A per-agent namespaced memory API backed by Postgres
 full-text search, reviewable and editable in the UI.
@@ -56,19 +63,25 @@ shell; external MCP clients can use it too.
 
 ## Building blocks
 
-Configuration lives in **git** as self-describing folders; runtime state lives
-in **Postgres**; secret *values* live in **k8s** and never enter git. Losing
-the database costs history, never configuration. One paragraph each — full
-docs in [docs/building-blocks/](docs/building-blocks/):
+Capability (skills, tools, secret declarations, reports, apps) lives in
+**git** as self-describing folders; agent *identity* and all runtime state
+live in **Postgres**; secret *values* live in **k8s** and never enter git.
+Losing the database now costs agent identity too, not just history — a
+Postgres backup CronJob is the recovery story for that (see
+[docs/deployment.md](docs/deployment.md)). One paragraph each — full docs in
+[docs/building-blocks/](docs/building-blocks/):
 
-- **[Agents](docs/building-blocks/agents.md)** — `agents/<name>/`: a portable
-  `agent.md` plus a `manifest.yaml` (role, skills, secrets, model, limits).
-  Readiness is *derived*: an unmet required secret dependency blocks the
-  agent's runs before dispatch, with the exact reason recorded.
-- **[Entrypoints](docs/building-blocks/entrypoints.md)** —
-  `agents/<name>/entrypoints.yaml`: the agent's durable triggers (cron list,
-  declared webhook paths, kafka reserved). Undeclared webhook paths don't
-  exist.
+- **[Agents](docs/building-blocks/agents.md)** — a Postgres row (`agent_defs`):
+  prompt, role, skills, secrets, harness/platform-tool grants, model, limits.
+  No PR — edits apply immediately, through the UI/API or the `agents_edit`/
+  `agents_grant` platform tools, with every change appended to a version log
+  (`agent_versions`). Readiness is still *derived*: an unmet required secret
+  dependency blocks the agent's runs before dispatch, with the exact reason
+  recorded.
+- **[Entrypoints](docs/building-blocks/entrypoints.md)** — part of the agent
+  row: the agent's durable triggers (cron list, each with its own optional
+  prompt; declared webhook paths; kafka reserved). Undeclared webhook paths
+  don't exist.
 - **[Skills](docs/building-blocks/skills.md)** — `skills/<name>/SKILL.md`:
   reusable *knowledge* agents opt into; each declares its secrets with
   strictness (`state`/`severity`). Authored by a wizard-driven coding agent or
@@ -99,9 +112,11 @@ docs in [docs/building-blocks/](docs/building-blocks/):
   (web = continuable in the UI, discord = bridged read-only), each turn a run.
 - **[Memories](docs/building-blocks/memories.md)** — per-agent namespaced
   notes with full-text search, editable in the UI.
-- **[Changes](docs/building-blocks/changes.md)** — the self-edit loop: every
-  config mutation becomes a commit or PR; deterministic editors lock on their
-  pending change; nothing an agent writes goes live unreviewed.
+- **[Changes](docs/building-blocks/changes.md)** — the self-edit loop for
+  *capability*: every skill/tool/secret mutation becomes a commit or PR;
+  deterministic editors lock on their pending change; nothing an agent writes
+  goes live unreviewed. Agent definitions don't use this loop — see
+  [Agents](docs/building-blocks/agents.md)'s change log instead.
 
 Two more pages describe the platform itself:
 [Glossary](docs/building-blocks/glossary.md) (the components and vocabulary
@@ -111,14 +126,19 @@ a tool call is authorized, in plain language — the engineering version is
 
 ## Repo map
 
+Agent identity (WHO runs — prompt, grants, entrypoints, config) is not part of
+this tree: it lives in Postgres as a row per agent (`agent_defs`), edited
+through the UI/API or the `agents_edit`/`agents_grant` platform tools, with an
+append-only version log standing in for git history. See
+[docs/building-blocks/agents.md](docs/building-blocks/agents.md) and
+[docs/design/15-db-first-agents.md](docs/design/15-db-first-agents.md). There
+used to be an `agents/<name>/{agent.md,manifest.yaml,entrypoints.yaml}` tree
+here; it was removed from the repo once the one-time import into Postgres
+succeeded.
+
 ```
 agent-platform/
-├── agents/                    # building block: WHO runs — one folder per agent
-│   └── <name>/
-│       ├── agent.md           #   portable Claude Code definition (`claude --agent` works bare)
-│       ├── manifest.yaml      #   platform layer: role, skills, secrets, model, limits
-│       └── entrypoints.yaml   #   durable triggers: cron list, webhook paths, kafka (reserved)
-├── skills/                    # building block: WHAT agents can do (mounted via manifest `skills:`)
+├── skills/                    # building block: WHAT agents can do (granted via an agent's `skills:` list)
 │   └── <name>/SKILL.md        #   frontmatter (secrets + strictness) + usage instructions
 ├── tools/                     # building block: WHAT agents can EXECUTE (run by the tool-executor)
 │   └── <name>/
@@ -174,7 +194,7 @@ agent-platform/
 | **mcp-broker** | Exposes the platform API and every custom tool as MCP tools; verifies who is calling and that the caller declared the tool. |
 | **tool-executor** | Runs custom tools' reviewed code with call-time secrets; the platform's only third-party egress. |
 | **claude-proxy** | Holds the Claude credential and injects it per request, so runner pods never carry it. |
-| **agents-sync** | Pulls this repo into the shared volume every service reads definitions from. |
+| **agents-sync** | Pulls this repo into the shared volume every service reads skills/tools/secrets/reports/docs from (agent definitions live in Postgres, not this volume). |
 | **connector-discord** | Bridges Discord threads to Conversations. |
 | **postgres / kafka** | Runtime state, and the event spine. |
 

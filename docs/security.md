@@ -77,7 +77,9 @@ minted or stored by the dispatcher, read by the runner from
 `AP_API_TOKEN_FILE`. The API validates it via the Kubernetes TokenReview API
 (which needs the `system:auth-delegator` ClusterRole) and derives the caller
 identity from `system:serviceaccount:<ns>:agent-<name>`; the role comes from
-what the agent declares in git. Kills secret distribution entirely, and the
+what the agent's own definition declares — a Postgres row since
+[design-15](design/15-db-first-agents.md), formerly git. Kills secret
+distribution entirely, and the
 audience binding makes the token useless anywhere else — including at the
 Kubernetes API itself.
 
@@ -118,20 +120,27 @@ sessions, per-user entitlements — no re-architecture.
 ### Layer 5 — Central authorization + audit at the broker [LIVE]
 
 The broker is the single chokepoint, so it carries: per-tool
-authorization from the agent's *declared* tool grants (the manifest in git
-is the policy; the tools-only scoped tokens from
+authorization from the agent's *declared* tool grants (the agent's own
+row — `agent_defs.platform_tools`/`harness_tools`, design-15 — is the
+policy; the tools-only scoped tokens from
 `docs/design/12-executable-capabilities.md` are the substrate), an
 append-only audit log of every tool call (verified identity, tool,
 args digest, decision, latency), per-identity rate limits, and alerting
-on denials/anomalies (health-monitor reads the audit stream).
+on denials/anomalies (health-monitor reads the audit stream). Two of the
+core tools — `agents_edit`/`agents_grant` — write that policy itself; see
+the RBAC split and its accepted indirect-escalation caveat in
+[design-15](design/15-db-first-agents.md).
 
 ## Change control [LIVE]
 
-All configuration (agents, skills, tools, secrets-as-code, report types,
-apps) lives in git behind the pull-request change loop
-(`docs/building-blocks/changes.md`) — nothing goes live unreviewed. CI scans
-for vulnerabilities and secret hygiene; `git add -A` is banned in this
-repository to keep secret values out of history.
+Capability (skills, tools, secrets-as-code, report types, apps) lives in git
+behind the pull-request change loop (`docs/building-blocks/changes.md`) —
+nothing there goes live unreviewed. Agent *definitions* are the one
+exception since design-15: they are Postgres rows, editable immediately by
+whoever holds `agents_edit`/`agents_grant`, with an append-only,
+fully-attributed change log (`agent_versions`) instead of pre-merge review.
+CI scans for vulnerabilities and secret hygiene; `git add -A` is banned in
+this repository to keep secret values out of history.
 
 ## Operational invariants
 

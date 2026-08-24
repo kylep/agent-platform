@@ -27,8 +27,9 @@ menu of specific, named actions — `stocks`, `discord_chat`, `memory`,
    credentials of its own. The agent's request carries proof of identity
    (below), never a password or API key.
 2. **The broker checks who is calling** — it asks the platform API to
-   verify the identity, then checks the agent's own definition in git
-   actually lists that tool. Not declared = not allowed, no exceptions.
+   verify the identity, then checks the agent's own definition (a database
+   row an admin, or an agent holding `agents_grant`, controls) actually
+   lists that tool. Not declared = not allowed, no exceptions.
 3. **The tool-executor runs the tool's code** — code a human reviewed and
    merged through a pull request. The model only ever picks the
    *arguments* (which ticker, which channel, what text). It can never
@@ -67,9 +68,11 @@ started.
   from the specific services that need them.
 - **Anthropic key:** never in agent pods — a proxy injects it
   per-request, so agents literally have nothing to leak.
-- **Everything is reviewed:** agents, skills, tools, and secret
-  *declarations* live in git behind the [change loop](changes.md). Secret
-  *values* live only in Kubernetes.
+- **Everything is reviewed or logged:** skills, tools, and secret
+  *declarations* live in git behind the [change loop](changes.md). Agent
+  *definitions* are database rows instead — edits apply immediately, but
+  every one is attributed and append-only in the agent's change log (see
+  [Agents](agents.md)). Secret *values* live only in Kubernetes.
 
 The full engineering version — threat model, the five-layer identity
 roadmap, and what's live vs planned — is `docs/security.md` in the

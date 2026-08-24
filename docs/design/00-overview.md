@@ -22,8 +22,12 @@ the `kylep/multi` repo; clean slate, inspiration only).
 - **Claude subscription auth only.** Agents authenticate with the
   subscription OAuth token, stored as a platform secret. No Anthropic API
   keys anywhere; CI greps enforce it.
-- **Git is the source of truth** for agent definitions and skills. The
-  database holds runtime state only.
+- **Git is the source of truth for capability** — skills, tools, secret
+  declarations, apps, the platform services themselves. Agent *identity*
+  (prompt, grants, entrypoints, config) is the one exception: since
+  [15](15-db-first-agents.md) it lives in Postgres as a row, with its own
+  append-only change log standing in for the PR record. The database
+  otherwise holds runtime state only.
 - **Postgres for data, no vector store.** Memory search uses postgres FTS.
 - **Kafka is the spine**, kept honest: postgres-first writes, idempotent
   consumers, DLQ surfaced in the UI, dispatch swappable to
@@ -62,9 +66,6 @@ records, and guardrails as every other trigger.
 ## Repo layout
 
 ```
-agents/<name>/agent.md        # pure Claude Code agent definition (portable)
-agents/<name>/manifest.yaml   # platform layer: rbac role, skills[], secrets[],
-                              # triggers[], schedule, concurrency
 skills/<name>/                # Claude Code skill format (knowledge an agent reads)
 tools/<name>/                 # executable capabilities run by the tool-executor (design 12)
 apps/<name>/                  # full applications built on agents (design 11)
@@ -78,14 +79,25 @@ docs/design/                  # this doc + numbered milestone docs
 bin/                          # set-claude-token.sh and friends
 ```
 
-`agent.md` stays runnable with bare `claude --agent`. The sync process
-pulls main into a shared volume and schema-validates manifests; a broken
-manifest quarantines that agent in the UI without stopping sync. Secret
-bindings are declared on skills; an agent gets the union of its skills'
-secrets plus its own.
+Agent identity is not part of this tree ([15](15-db-first-agents.md)): each
+agent is a row in `agent_defs` (prompt, grants, entrypoints, config),
+edited through the API/UI or the `agents_edit`/`agents_grant` platform tools,
+with an append-only version log instead of a git history. There used to be an
+`agents/<name>/{agent.md,manifest.yaml}` tree here; it was deleted from the
+repo once the one-time import into Postgres succeeded (`docs/deployment.md`
+has the migration note). The sync process still pulls main into a shared
+volume for everything above — skills, tools, secret declarations, reports,
+apps, these docs — and schema-validates as it goes; a broken skill/tool
+quarantines just that block without stopping sync. Secret bindings are
+declared on skills and tools; an agent gets the union of its skills' secrets
+plus its own row-level grants.
 
 ## Data model
 
+- `agent_defs` / `agent_versions` — an agent's identity as a row (prompt,
+  grants, entrypoints, config) plus its append-only change log (agent,
+  version, full snapshot, changed_by, changed_via, timestamp). Since
+  [15](15-db-first-agents.md); see `docs/building-blocks/agents.md`.
 - `runs` — agent, trigger, requested_by, state, timestamps, cost/duration.
 - `run_transcript_events` — append-only stream-json events by run + seq;
   feeds both the transcript view and metrics (tool calls, tokens).
@@ -110,19 +122,27 @@ Roles: `admin` (Kyle), `operator` (trigger runs, toggle schedules),
 `coder` (operator + git writes; the platform-coder agent), `reader`.
 The API enforces scopes; the dispatcher re-checks at dispatch time.
 
-Git writes are tiered by the *diff*, not the request:
+Git writes are tiered by the *diff*, not the request — this now applies to
+**capability** (skills, secrets, tools, reports, apps), not agent definitions:
 
-- **Tier 1 — direct commit:** single-file edits to an existing agent's
-  `agent.md` body or safe manifest fields (schedule, prompt,
-  description). Applied deterministically by the API's git service.
-- **Tier 2 — PR required:** new/deleted agents, role changes, secret
-  bindings, skill changes, anything under `services/` or `charts/`.
-  The coding agent works on a branch; nothing syncs until merge.
+- **Tier 1 — direct commit:** single-file edits, e.g. a SKILL.md body or safe
+  fields. Applied deterministically by the API's git service.
+- **Tier 2 — PR required:** new/deleted blocks, secret bindings, anything
+  under `services/` or `charts/`. The coding agent works on a branch; nothing
+  syncs until merge.
 
 A Pending Changes page lists platform-authored branches/PRs with rendered
-diffs; affected agents get an "unmerged changes" badge. The platform
+diffs; affected blocks get an "unmerged changes" badge. The platform
 authenticates to git as a GitHub App (installation tokens, which can push and
 open PRs), with a `github-token` PAT as the fallback.
+
+Agent definitions used to be tiered the same way (`agent.md` body / manifest
+fields tier-1, new/deleted agents and role changes tier-2). Since
+[15](15-db-first-agents.md) they are not git writes at all: every agent edit
+— prose or grant — applies immediately to the `agent_defs` row, gated instead
+by which of the two RBAC platform tools (`agents_edit`/`agents_grant`) the
+caller holds, with the append-only `agent_versions` log standing in for the
+PR record.
 
 ## Auth
 
@@ -141,7 +161,7 @@ and redirects to Settings → Secrets. Headless alternative:
 ## Runtime posture
 
 Runner pods are caged on several sides at once: a scoped ServiceAccount, only
-the secrets the manifest earns, a default-deny NetworkPolicy, a non-root
+the secrets the agent's definition earns, a default-deny NetworkPolicy, a non-root
 securityContext with capabilities dropped, and a **scoped tool allow-list
 derived from the agent's own declaration** — no agent runs with permissions
 bypassed (see [08](08-news-and-injection-hardening.md)). Denied tool calls are
@@ -187,3 +207,5 @@ hardening milestone.
 | [11](11-apps-and-reports.md) | Apps & reports | Reports as a block; full apps (news) built on agents |
 | [12](12-executable-capabilities.md) | Executable capabilities | Tools as a building block: reviewed code, no shell, declared infra |
 | [13](13-workload-identity.md) | Workload identity | Projected SA tokens, SPIRE mTLS, run JWTs, principals, tool audit |
+| [14](14-conversation-session-resume.md) | Conversation session resume | Stateful session resume instead of stateless full-transcript replay |
+| [15](15-db-first-agents.md) | DB-first agents | Agent identity moves from git to Postgres rows; `agents_edit`/`agents_grant` RBAC tools; per-agent change log replaces the PR record |

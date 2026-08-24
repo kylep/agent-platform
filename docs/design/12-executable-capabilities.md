@@ -25,6 +25,19 @@ Status: SHIPPED 2026-08-07 (all 7 phases live-verified on the NUC)
   HTTPS egress allow-list (first pai stocks call failed honestly —
   never-pretend held), and the deploy image name is
   `agent-platform-backend`, not `-api`.
+- **Design-15 (2026-08-23) added two more core brokered tools:**
+  `agents_edit`/`agents_grant` (agent-definition RBAC — see
+  `docs/design/15-db-first-agents.md`). They join the "Core brokered tools"
+  table below. They needed a *third* list alongside `PLATFORM_MCP_TOOLS`
+  (the original core tools, which forward the caller's token and promote the
+  holder to the `annotator` role ladder rung) and the custom-tool registry:
+  `PLATFORM_MCP_AGENT_TOOLS`, whose holders stay on the `tools` rung — they
+  earn a per-run token scoped to exactly those two tools, same as a
+  custom-tool-only agent, deliberately not promoted to `annotator`.
+  `GRANTABLE_PLATFORM_TOOLS` is the union used for validation/Help. A
+  `tools/agents_edit/` custom-tool directory is refused at the registry as a
+  name collision with these core tools, same as any other core-tool-shadow
+  attempt.
 
 ## Problem
 
@@ -89,6 +102,8 @@ shell-bearing agent could ever follow.
 | `runs_write(run_id, summary, tags)` | annotate_run | the only run mutation today; more actions later |
 | `metrics(scope)` | metrics_overview, metrics_agents, kafka_health | scope: `overview` \| `agents` \| `kafka` |
 | `query_app(app, path, params)` | app_api | renamed + rewritten description: "Call a read-only API endpoint of an installed platform app (see the app's skill for endpoints), e.g. the news archive. GET only, traversal-guarded." |
+| `agents_edit(action, name?, definition?)` *(design-15)* | — (new) | create/update/delete an agent's prose/config; no grant fields. `PLATFORM_MCP_AGENT_TOOLS`, not `PLATFORM_MCP_TOOLS` — see the AS BUILT note above. |
+| `agents_grant(action, name, field?, values?, …)` *(design-15)* | — (new) | assign/revoke an agent's harness/platform tool, skill, secret, `can_invoke`, or `role` grants. Same list as `agents_edit`. |
 
 ### Custom tools (tools/ blocks; run in the executor)
 
