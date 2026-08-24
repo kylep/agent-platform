@@ -55,8 +55,8 @@ def sync_detailed(
 ) -> Response[list[ScheduleRow]]:
     """List Schedules
 
-     Agents with declared cron triggers (entrypoints.yaml or the deprecated
-    manifest `schedule:`), joined with their runtime state.
+     Agents with cron triggers declared in their entrypoints, joined with
+    their runtime state.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -81,8 +81,8 @@ def sync(
 ) -> list[ScheduleRow] | None:
     """List Schedules
 
-     Agents with declared cron triggers (entrypoints.yaml or the deprecated
-    manifest `schedule:`), joined with their runtime state.
+     Agents with cron triggers declared in their entrypoints, joined with
+    their runtime state.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -103,8 +103,8 @@ async def asyncio_detailed(
 ) -> Response[list[ScheduleRow]]:
     """List Schedules
 
-     Agents with declared cron triggers (entrypoints.yaml or the deprecated
-    manifest `schedule:`), joined with their runtime state.
+     Agents with cron triggers declared in their entrypoints, joined with
+    their runtime state.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -127,8 +127,8 @@ async def asyncio(
 ) -> list[ScheduleRow] | None:
     """List Schedules
 
-     Agents with declared cron triggers (entrypoints.yaml or the deprecated
-    manifest `schedule:`), joined with their runtime state.
+     Agents with cron triggers declared in their entrypoints, joined with
+    their runtime state.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.

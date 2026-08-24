@@ -63,8 +63,8 @@ def sync_detailed(
     """Webhook
 
      External async trigger: an operator+ caller fires the agent that
-    DECLARES `{path}` in its entrypoints.yaml `webhooks:` list (docs/design/10)
-    — an undeclared path doesn't exist, so an agent can't be webhook-fired
+    DECLARES `{path}` in its entrypoints' `webhooks:` list (docs/design/10) —
+    an undeclared path doesn't exist, so an agent can't be webhook-fired
     unless its definition opted in. The request body becomes prompt context.
     Event-sourced: we validate the command, then produce a `run.requested`
     event to `run.inbound`; the ingest consumer materializes the run. The
@@ -100,8 +100,8 @@ def sync(
     """Webhook
 
      External async trigger: an operator+ caller fires the agent that
-    DECLARES `{path}` in its entrypoints.yaml `webhooks:` list (docs/design/10)
-    — an undeclared path doesn't exist, so an agent can't be webhook-fired
+    DECLARES `{path}` in its entrypoints' `webhooks:` list (docs/design/10) —
+    an undeclared path doesn't exist, so an agent can't be webhook-fired
     unless its definition opted in. The request body becomes prompt context.
     Event-sourced: we validate the command, then produce a `run.requested`
     event to `run.inbound`; the ingest consumer materializes the run. The
@@ -132,8 +132,8 @@ async def asyncio_detailed(
     """Webhook
 
      External async trigger: an operator+ caller fires the agent that
-    DECLARES `{path}` in its entrypoints.yaml `webhooks:` list (docs/design/10)
-    — an undeclared path doesn't exist, so an agent can't be webhook-fired
+    DECLARES `{path}` in its entrypoints' `webhooks:` list (docs/design/10) —
+    an undeclared path doesn't exist, so an agent can't be webhook-fired
     unless its definition opted in. The request body becomes prompt context.
     Event-sourced: we validate the command, then produce a `run.requested`
     event to `run.inbound`; the ingest consumer materializes the run. The
@@ -167,8 +167,8 @@ async def asyncio(
     """Webhook
 
      External async trigger: an operator+ caller fires the agent that
-    DECLARES `{path}` in its entrypoints.yaml `webhooks:` list (docs/design/10)
-    — an undeclared path doesn't exist, so an agent can't be webhook-fired
+    DECLARES `{path}` in its entrypoints' `webhooks:` list (docs/design/10) —
+    an undeclared path doesn't exist, so an agent can't be webhook-fired
     unless its definition opted in. The request body becomes prompt context.
     Event-sourced: we validate the command, then produce a `run.requested`
     event to `run.inbound`; the ingest consumer materializes the run. The

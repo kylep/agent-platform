@@ -1,8 +1,8 @@
 """Scheduled Jobs API — first-class recurring tasks (1:many with agents).
 
 A job binds an agent to a cron + prompt; the scheduler fires it when due. Unlike
-the manifest `schedule:` field (1:1, read-only here), jobs are created and tuned
-from the UI. `Run Now` materializes a run immediately from the job's agent+prompt.
+an agent's own declared entrypoint crons (part of its definition, read-only
+here), jobs are created and tuned from the UI. `Run Now` materializes a run immediately from the job's agent+prompt.
 """
 import uuid
 

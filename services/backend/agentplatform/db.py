@@ -294,8 +294,8 @@ class Schedule(Base):
 class ScheduledJob(Base):
     """A recurring task: run `agent` with `prompt` on a cron. Decouples the
     schedule from the agent (1:many — one agent can back many jobs, each with
-    its own cron + prompt), unlike the manifest `schedule:` field. Created and
-    managed from the UI; the scheduler fires it when due."""
+    its own cron + prompt), unlike an agent's own declared entrypoint crons.
+    Created and managed from the UI; the scheduler fires it when due."""
     __tablename__ = "scheduled_jobs"
     id: Mapped[str] = mapped_column(String(32), primary_key=True, default=lambda: uuid.uuid4().hex)
     name: Mapped[str] = mapped_column(String(128))

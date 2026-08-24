@@ -1,7 +1,7 @@
 """Cron scheduler for agents.
 
-Agents declare a 5-field cron `schedule` in their manifest. The scheduler
-tracks each in the `schedules` table (runtime enable/disable + last/next
+Agents declare 5-field crons in their `entrypoints` (an `agent_defs` column —
+docs/design/15). The scheduler tracks each agent in the `schedules` table (runtime enable/disable + last/next
 fire) and, when a schedule comes due, creates a `trigger="schedule"` run.
 Missed fires are skipped, never backfilled: on each fire the next fire is
 computed from *now*, so a scheduler outage never floods a burst of catch-up
@@ -75,8 +75,8 @@ class Scheduler:
 
     async def tick(self, now: datetime) -> None:
         await self.agents.reload()
-        # Declared schedules: entrypoints.yaml cron list (plus the deprecated
-        # manifest `schedule:`), e.g. the health-monitor system agent.
+        # Declared schedules: the crons on the agent's row, e.g. the
+        # health-monitor system agent.
         for info in self.agents.list():
             if info.error is None:
                 crons = info.crons()
@@ -92,8 +92,8 @@ class Scheduler:
 
     async def _tick_agent(self, name: str, crons: list[str], now: datetime,
                           tz: str = "") -> None:
-        """One agent may declare several cron triggers (entrypoints.yaml); the
-        Schedule row tracks the EARLIEST upcoming fire across all of them."""
+        """One agent may declare several cron triggers; the Schedule row
+        tracks the EARLIEST upcoming fire across all of them."""
         run_id = None
         soonest = min(next_fire(c, now, tz) for c in crons)
         async with self.sf() as s:

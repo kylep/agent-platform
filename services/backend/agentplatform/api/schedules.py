@@ -10,8 +10,8 @@ router = APIRouter(dependencies=[Depends(require_admin)])
 
 @router.get("/api/schedules", response_model=list[S.ScheduleRow])
 async def list_schedules(request: Request):
-    """Agents with declared cron triggers (entrypoints.yaml or the deprecated
-    manifest `schedule:`), joined with their runtime state."""
+    """Agents with cron triggers declared in their entrypoints, joined with
+    their runtime state."""
     store = request.app.state.agent_store
     await store.reload()
     async with request.app.state.session_factory() as s:
