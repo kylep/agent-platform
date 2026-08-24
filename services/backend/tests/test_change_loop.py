@@ -30,11 +30,11 @@ def test_synced_head_loose_packed_detached_missing(tmp_path):
     assert synced_head(tmp_path / "nope") is None
 
 
-async def test_sync_status_endpoint(admin_client, tmp_agents):
-    # the test app's agents_root is tmp_agents; its parent has no .git → null
+async def test_sync_status_endpoint(admin_client, tmp_checkout):
+    # the test app's checkout_root is tmp_checkout, which has no .git → null
     r = await admin_client.get("/api/sync-status")
     assert r.status_code == 200 and r.json() == {"sha": None}
-    _mk_git(tmp_agents.parent, "d" * 40)
+    _mk_git(tmp_checkout, "d" * 40)
     r = await admin_client.get("/api/sync-status")
     assert r.json() == {"sha": "d" * 40}
 

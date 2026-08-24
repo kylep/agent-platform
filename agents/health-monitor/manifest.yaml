@@ -1,8 +1,0 @@
-description: System agent that watches platform health and pings Discord on threshold breaches.
-role: operator
-concurrency: 1
-timeout_seconds: 300
-model: sonnet
-system: true
-# system:true injects its token; alert-dedup state lives in the memory TOOL
-# (mcp__platform__memory) — this agent needs no shell.

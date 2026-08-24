@@ -50,9 +50,10 @@ def sync_detailed(
 ) -> Response[SyncStatus]:
     """Sync Status
 
-     Where the live checkout is. The agents/skills/secrets the platform runs
+     Where the live checkout is. The skills/secrets/tools the platform runs
     come from this sha; after accepting a change, it becomes visible here
-    within one agents-sync interval.
+    within one agents-sync interval. (Agent definitions do NOT — they are rows,
+    and a definition edit is live immediately.)
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -77,9 +78,10 @@ def sync(
 ) -> SyncStatus | None:
     """Sync Status
 
-     Where the live checkout is. The agents/skills/secrets the platform runs
+     Where the live checkout is. The skills/secrets/tools the platform runs
     come from this sha; after accepting a change, it becomes visible here
-    within one agents-sync interval.
+    within one agents-sync interval. (Agent definitions do NOT — they are rows,
+    and a definition edit is live immediately.)
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -100,9 +102,10 @@ async def asyncio_detailed(
 ) -> Response[SyncStatus]:
     """Sync Status
 
-     Where the live checkout is. The agents/skills/secrets the platform runs
+     Where the live checkout is. The skills/secrets/tools the platform runs
     come from this sha; after accepting a change, it becomes visible here
-    within one agents-sync interval.
+    within one agents-sync interval. (Agent definitions do NOT — they are rows,
+    and a definition edit is live immediately.)
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -125,9 +128,10 @@ async def asyncio(
 ) -> SyncStatus | None:
     """Sync Status
 
-     Where the live checkout is. The agents/skills/secrets the platform runs
+     Where the live checkout is. The skills/secrets/tools the platform runs
     come from this sha; after accepting a change, it becomes visible here
-    within one agents-sync interval.
+    within one agents-sync interval. (Agent definitions do NOT — they are rows,
+    and a definition edit is live immediately.)
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.

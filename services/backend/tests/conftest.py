@@ -33,12 +33,13 @@ def secret_store():
     return InMemorySecretStore()
 
 @pytest.fixture
-def tmp_agents(tmp_path):
-    """The synced checkout's `agents/` directory. Definitions do NOT live here
-    any more (docs/design/15) — it stands in for the checkout root that the
-    sync-status and help endpoints derive from `agents_root`, and that the
-    remaining file-based PR-edit endpoints still write into."""
-    d = tmp_path / "agents"
+def tmp_checkout(tmp_path):
+    """Stands in for the synced git checkout (`/agents` in the cluster). What
+    the platform still reads from it is capability-as-code — skills, secret
+    declarations, tools, reports, apps — plus the docs the Help pages serve and
+    the `.git` that /api/sync-status reports. Agent definitions are rows
+    (docs/design/15) and the `agents/` directory is gone."""
+    d = tmp_path / "checkout"
     d.mkdir()
     return d
 
@@ -69,8 +70,8 @@ async def agent_store(sf, seed_agent):
     return store
 
 @pytest.fixture
-async def client(sf, producer, secret_store, agent_store, tmp_agents):
-    app = create_app(Settings(agents_root=str(tmp_agents),
+async def client(sf, producer, secret_store, agent_store, tmp_checkout):
+    app = create_app(Settings(checkout_root=str(tmp_checkout),
                               secrets_root=str(REPO_SECRETS),
                               skills_root=str(REPO_SKILLS),
                               reports_root=str(REPO_REPORTS),

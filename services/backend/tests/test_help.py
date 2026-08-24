@@ -24,8 +24,8 @@ async def test_help_tools_endpoint(admin_client):
     assert bash["sensitive"] is True and bash["kind"] == "claude"
 
 
-async def test_help_topics_from_synced_docs(admin_client, tmp_agents):
-    docs = tmp_agents.parent / "docs" / "building-blocks"
+async def test_help_topics_from_synced_docs(admin_client, tmp_checkout):
+    docs = tmp_checkout / "docs" / "building-blocks"
     docs.mkdir(parents=True)
     (docs / "agents.md").write_text("# Agents\n\nWho runs.")
     (docs / "README.md").write_text("# index — not a topic")

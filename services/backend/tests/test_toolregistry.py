@@ -117,8 +117,8 @@ async def tool_client(sf, producer, secret_store, agent_store, seed_agent, tmp_p
     await seed_agent("echo-user", description="t",
                      platform_tools=["mcp__platform__echo"])
     await agent_store.reload()
-    (tmp_path / "agents").mkdir()          # the synced checkout's root
-    app = create_app(Settings(agents_root=str(tmp_path / "agents"),
+    (tmp_path / "checkout").mkdir()        # the synced checkout's root
+    app = create_app(Settings(checkout_root=str(tmp_path / "checkout"),
                               secrets_root=str(REPO_SECRETS),
                               skills_root=str(REPO_SKILLS),
                               reports_root=str(REPO_REPORTS),

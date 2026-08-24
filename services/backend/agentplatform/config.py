@@ -7,7 +7,12 @@ class Settings(BaseSettings):
     kafka_bootstrap: str = "localhost:9092"
     k8s_namespace: str = "agent-platform"
     runner_image: str = "agent-platform-runner:dev"
-    agents_root: str = "./agents"
+    # The synced git checkout itself (docs/design/10's building blocks live in
+    # subdirectories of it). Agents used to be one of them and gave this
+    # setting its old name, `agents_root`; definitions are rows now
+    # (docs/design/15), and what is left needing the checkout is the docs the
+    # Help pages serve and the sha /api/sync-status reports.
+    checkout_root: str = "."
     skills_root: str = "./skills"
     secrets_root: str = "./secrets"
     reports_root: str = "./reports"

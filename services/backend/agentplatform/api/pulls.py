@@ -44,11 +44,11 @@ def synced_head(checkout: Path) -> str | None:
 
 @router.get("/api/sync-status", response_model=S.SyncStatus)
 async def sync_status(request: Request):
-    """Where the live checkout is. The agents/skills/secrets the platform runs
+    """Where the live checkout is. The skills/secrets/tools the platform runs
     come from this sha; after accepting a change, it becomes visible here
-    within one agents-sync interval."""
-    root = Path(request.app.state.settings.agents_root).parent
-    return {"sha": synced_head(root)}
+    within one agents-sync interval. (Agent definitions do NOT — they are rows,
+    and a definition edit is live immediately.)"""
+    return {"sha": synced_head(Path(request.app.state.settings.checkout_root))}
 
 
 async def _client(request: Request) -> GitHubClient:

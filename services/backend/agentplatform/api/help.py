@@ -18,7 +18,7 @@ _SLUG = re.compile(r"^[a-z0-9-]+$")
 
 
 def _docs_root(request: Request) -> Path:
-    return Path(request.app.state.settings.agents_root).parent / "docs" / "building-blocks"
+    return Path(request.app.state.settings.checkout_root) / "docs" / "building-blocks"
 
 
 def _title(md: str, fallback: str) -> str:

@@ -1,4 +1,0 @@
-description: Edits the platform's building blocks (agents, skills, secret declarations) in its own repository.
-role: coder
-concurrency: 1
-timeout_seconds: 600

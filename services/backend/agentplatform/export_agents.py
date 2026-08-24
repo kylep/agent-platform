@@ -1,19 +1,21 @@
 """Export the git-synced `agents/` tree as the definitions API's import payload.
 
-Definitions are ROWS now (docs/design/15). This is the one-shot bridge between
+Definitions are ROWS now (docs/design/15). This was the one-shot bridge between
 the two eras: it reads the file tree the platform used to boot from — an
 `agent.md` (YAML frontmatter + prompt body), a `manifest.yaml`, an optional
 `entrypoints.yaml` — and emits exactly the JSON list `POST /api/agents/import`
-accepts, so a live cluster is seeded from the last git state before the tree is
-deleted.
+accepts.
 
-Deliberately a SCRIPT, not a library the platform reads at runtime: nothing may
-grow a dependency on the file layout again. Once the migration has run and the
-tree is gone, its only remaining use is reading an old checkout.
+**That migration has run, and `agents/` is deleted.** So this now reads an OLD
+checkout — a commit from before the deletion, or a restored backup — and
+pointing it at this repo correctly reports that there is nothing to export. It
+is kept as the audited path from the file era to a row, not as anything the
+platform reads at runtime: nothing may grow a dependency on the file layout
+again.
 
-Usage:
-    python -m agentplatform.export_agents --out /tmp/agents.json
-    python -m agentplatform.export_agents --check      # parse + validate only
+Usage (`--root` is now effectively required — this checkout has no tree):
+    python -m agentplatform.export_agents --root <old-checkout> --out /tmp/agents.json
+    python -m agentplatform.export_agents --root <old-checkout> --check
 
 Both modes are STRICT and all-or-nothing, matching the import endpoint: a
 directory that fails to parse, names a grant the repo does not ship, or carries
@@ -247,7 +249,7 @@ def export_tree(root: Path) -> tuple[list[dict], list[str]]:
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--root", type=Path, default=REPO_ROOT,
-                    help="checkout root holding agents/, skills/, secrets/, "
+                    help="OLD checkout root holding agents/, skills/, secrets/, "
                          "tools/ (default: this checkout)")
     ap.add_argument("--out", type=Path,
                     help="write the payload here instead of stdout")

@@ -1,7 +1,0 @@
-description: System agent that writes short reviewer summaries of pending changes.
-role: operator
-# Cheap and fast — a summary is a single short completion over a bounded diff.
-model: sonnet
-timeout_seconds: 180
-concurrency: 2
-system: true

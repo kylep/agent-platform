@@ -1,9 +1,0 @@
-# Once a day, early. A daily pull keeps the calendar and mileage fresh; the
-# app itself throttles the weekly recap — it posts to Discord and writes the
-# report only the FIRST run of each ISO week (Monday), so a daily agent yields
-# a Monday-morning wrap without the agent needing to know the weekday.
-#
-# Pinned to Toronto rather than UTC so "early morning" doesn't drift an hour
-# across DST, same as the stockmarket jobs.
-cron: ["10 7 * * *"]
-timezone: America/Toronto

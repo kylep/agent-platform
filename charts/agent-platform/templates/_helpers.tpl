@@ -56,8 +56,8 @@ Env vars shared by the api/dispatcher/recorder backend Deployments.
   value: {{ .Values.env.AP_K8S_NAMESPACE | default .Release.Namespace | quote }}
 - name: AP_RUNNER_IMAGE
   value: "{{ .Values.images.runner.repository }}:{{ .Values.images.runner.tag }}"
-- name: AP_AGENTS_ROOT
-  value: "/agents/agents"
+- name: AP_CHECKOUT_ROOT
+  value: "/agents"
 - name: AP_SKILLS_ROOT
   value: "/agents/skills"
 - name: AP_SECRETS_ROOT

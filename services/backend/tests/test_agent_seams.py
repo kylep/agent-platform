@@ -41,9 +41,9 @@ def app_over(sf, producer, secret_store, store, tmp_path):
     request as admin — quietly turning a tool-authority test into a test of the
     admin path."""
     from agentplatform.api.app import create_app
-    agents_root = tmp_path / "checkout-agents"
-    agents_root.mkdir(exist_ok=True)
-    return create_app(Settings(agents_root=str(agents_root),
+    checkout_root = tmp_path / "checkout"
+    checkout_root.mkdir(exist_ok=True)
+    return create_app(Settings(checkout_root=str(checkout_root),
                                secrets_root=str(REPO_SECRETS),
                                skills_root=str(REPO_SKILLS),
                                reports_root=str(REPO_REPORTS),

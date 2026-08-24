@@ -113,18 +113,13 @@ def test_the_broker_copy_of_the_field_split_matches_the_api():
 
 # --- seed state ---------------------------------------------------------------
 
-def test_no_shipped_agent_holds_either_tool():
-    """design/15's seed state: the tools exist, and nobody has them. Granting
-    them is a deliberate act, never something the platform ships switched on."""
-    offenders = []
-    for md in sorted((REPO_ROOT / "agents").glob("*/agent.md")):
-        text = md.read_text()
-        if "agents_edit" in text or "agents_grant" in text:
-            offenders.append(md.parent.name)
-    assert offenders == []
-
-
 async def test_a_fresh_environment_has_no_holder(client, sf):
+    """design/15's seed state: the tools exist, and nobody has them. Granting
+    them is a deliberate act, never something the platform ships switched on.
+
+    Its file-globbing twin (over `agents/*/agent.md`) went out with the tree —
+    an empty glob would have kept passing for the wrong reason. Definitions are
+    rows, so the rows are where the seed state has to be checked."""
     async with sf() as s:
         rows = (await s.execute(select(AgentDef))).scalars().all()
     assert rows, "the fixture seeds at least one agent"

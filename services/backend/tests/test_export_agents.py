@@ -1,11 +1,14 @@
 """The `agents/` tree → import payload exporter (docs/design/15, plan task 9).
 
-These run against the REAL repo tree on purpose. The export is a one-shot
-migration of ten specific agents into a live cluster, so "does it work on a
-fixture" is not the question anyone needs answered — "does it carry THESE
-agents across, exactly" is. Synthetic trees are used only for the shapes the
-repo does not contain (a missing `tools:` line, a deprecated `schedule:`, a
-file that will not parse).
+The tree these once ran against is GONE — the migration ran, was verified live,
+and task 9 part B deleted it. So the exporter is now an OLD-CHECKOUT tool (git
+history, a restored backup) and its tests build the trees they read. What they
+still hold is every mapping rule the live import depended on, so a future
+re-import from an old checkout produces the same rows the cluster is running.
+
+The one assertion that had to change shape rather than move: "the repo's ten
+agents export" is now "the repo has no agents directory, and the exporter says
+so instead of quietly emitting nothing".
 """
 import json
 import subprocess
@@ -20,114 +23,6 @@ from agentplatform.api.schemas import AgentCreateIn
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 
-# The agents the tree ships. Spelled out rather than globbed: the point of the
-# count is to notice an agent that silently stopped exporting, and a glob of
-# the same directory would move with it.
-SHIPPED = ["change-summarizer", "health-monitor", "news", "news-librarian",
-           "pai", "platform-coder", "run-summarizer", "running",
-           "stockmarket", "stockmarket-data"]
-
-
-@pytest.fixture(scope="module")
-def exported():
-    payloads, problems = export_agents.export_tree(REPO_ROOT)
-    assert problems == []          # the tree must be clean before anything else
-    return {p["name"]: p for p in payloads}
-
-
-def test_the_whole_shipped_tree_exports_and_validates(exported):
-    assert sorted(exported) == SHIPPED
-    assert len(exported) == 10
-
-
-def test_every_payload_is_a_body_the_import_endpoint_accepts(exported):
-    """`AgentCreateIn` forbids extra fields, so this fails loudly if the export
-    grows a key the endpoint would 422 on — the failure mode that would only
-    show up mid-migration otherwise."""
-    for name, payload in exported.items():
-        assert AgentCreateIn(**payload).name == name
-
-
-async def test_the_real_export_imports_into_a_fresh_platform(admin_client, exported):
-    """The migration itself, end to end: the exporter's own output through the
-    real endpoint, against the real skills/secrets/tools registries (the test
-    client points at the repo trees). This is what Task 11 runs live."""
-    payloads = [exported[n] for n in SHIPPED]
-    r = await admin_client.post("/api/agents/import", json=payloads)
-    assert r.status_code == 200, r.text
-    assert r.json() == [{"name": n, "status": "created"} for n in SHIPPED]
-    # Idempotent: re-running the same payload changes nothing, which is what
-    # makes a re-run safe if the first attempt half-lands.
-    again = await admin_client.post("/api/agents/import", json=payloads)
-    assert again.json() == [{"name": n, "status": "unchanged"} for n in SHIPPED]
-
-    got = (await admin_client.get("/api/agents/pai")).json()
-    assert got["harness_tools"] == ["WebSearch", "WebFetch"]
-    assert got["model"] == "opus" and got["timeout_seconds"] == 180
-
-
-def test_pais_tools_line_splits_across_the_two_grant_lists(exported):
-    """The one agent whose `tools:` mixes both kinds. The split is by prefix,
-    and the row's two lists are what the launcher's role ladder reads."""
-    pai = exported["pai"]
-    assert pai["harness_tools"] == ["WebSearch", "WebFetch"]
-    assert pai["platform_tools"] == ["mcp__platform__stocks",
-                                     "mcp__platform__strava"]
-    assert pai["role"] == "operator" and pai["system"] is False
-    assert pai["model"] == "opus" and pai["timeout_seconds"] == 180
-    # The prompt is the BODY: no frontmatter comes across.
-    assert pai["prompt"].startswith("You are **pai**")
-    assert "tools:" not in pai["prompt"]
-
-
-def test_a_market_pinned_agent_keeps_its_cron_and_its_zone(exported):
-    """stockmarket's whole point is a cron that must not drift across DST, so
-    the timezone travelling with the expression is load-bearing."""
-    sm = exported["stockmarket"]
-    assert sm["entrypoints"] == {
-        "crons": [{"schedule": "35 9 * * 1-5", "prompt": ""}],
-        "webhooks": [], "topics": [], "timezone": "America/Toronto"}
-    assert sm["result_topic"] == "app.stockmarket.inbound"
-    assert sm["platform_tools"] == ["mcp__platform__index_movers"]
-
-
-def test_a_system_agent_keeps_the_flag_that_injects_its_token(exported):
-    """`system: true` is the difference between an agent that gets an API token
-    injected and one that does not — losing it in the migration would silently
-    break the summarizer's hourly run."""
-    rs = exported["run-summarizer"]
-    assert rs["system"] is True
-    assert rs["entrypoints"]["crons"] == [{"schedule": "0 * * * *", "prompt": ""}]
-    assert rs["entrypoints"]["timezone"] == ""      # UTC, unlike the market ones
-    assert rs["platform_tools"] == ["mcp__platform__runs_read",
-                                    "mcp__platform__runs_write"]
-    assert rs["harness_tools"] == []
-
-
-def test_the_manifest_description_wins_over_the_frontmatters(exported):
-    """Two files carried a description and a row has one column. The manifest's
-    is the one the platform read (`Manifest.description`), so it wins;
-    change-summarizer is the agent where the two actually differ."""
-    assert exported["change-summarizer"]["description"] == (
-        "System agent that writes short reviewer summaries of pending changes.")
-
-
-def test_declared_skills_and_result_topics_survive(exported):
-    assert exported["news-librarian"]["skills"] == ["news-lookup"]
-    assert exported["news"]["result_topic"] == "app.news.inbound"
-    assert exported["news"]["secrets"] == []       # deliberately credential-less
-
-
-def test_the_export_is_deterministic(exported):
-    """Reruns must diff clean, or nobody can tell a real change from noise."""
-    first, _ = export_agents.export_tree(REPO_ROOT)
-    second, _ = export_agents.export_tree(REPO_ROOT)
-    assert (json.dumps(first, indent=2, sort_keys=True)
-            == json.dumps(second, indent=2, sort_keys=True))
-    assert [p["name"] for p in first] == sorted(p["name"] for p in first)
-
-
-# --- shapes the repo does not contain --------------------------------------
 
 def _tree(root: Path, name: str, agent_md: str, manifest: str = "role: operator\n",
           entrypoints: str | None = None) -> Path:
@@ -139,6 +34,135 @@ def _tree(root: Path, name: str, agent_md: str, manifest: str = "role: operator\
         (d / "entrypoints.yaml").write_text(entrypoints)
     return root
 
+
+# --- the tree is gone -------------------------------------------------------
+
+def test_the_deleted_tree_is_reported_not_silently_empty(capsys):
+    """Part B deleted `agents/`. An exporter that answered "0 agents, no
+    problems" would let a future re-import wipe the platform with an empty
+    payload; it has to fail instead."""
+    payloads, problems = export_agents.export_tree(REPO_ROOT)
+    assert payloads == []
+    assert problems == [f"no agents directory at {REPO_ROOT / 'agents'}"]
+    assert export_agents.main([]) == 1
+    assert "no agents directory" in capsys.readouterr().err
+
+
+# --- a full migration, end to end -------------------------------------------
+
+def _migration_tree(root: Path) -> Path:
+    """Three agents reproducing the shapes the real migration carried: a mixed
+    `tools:` line (both grant lists), a DST-pinned cron with a result topic,
+    and a system agent with a plain UTC cron. Grants are code-defined broker
+    tools, so they validate against both the synthetic root's registries and
+    the API's real ones."""
+    _tree(root, "chatty",
+          "---\nname: chatty\ndescription: from the frontmatter\n"
+          "tools: WebSearch, WebFetch, mcp__platform__query_app\n---\n"
+          "You are **chatty**.\n",
+          manifest="description: Conversational assistant.\nrole: operator\n"
+                   "model: opus\ntimeout_seconds: 180\n")
+    _tree(root, "briefer",
+          "---\nname: briefer\ntools: WebSearch, mcp__platform__query_app\n---\n"
+          "You write the brief.\n",
+          manifest='description: "Weekday brief."\nrole: operator\nmodel: sonnet\n'
+                   "timeout_seconds: 600\nresult_topic: app.demo.inbound\n",
+          entrypoints="cron: ['35 9 * * 1-5']\ntimezone: America/Toronto\n")
+    _tree(root, "keeper",
+          "---\nname: keeper\ntools: mcp__platform__runs_read, mcp__platform__runs_write\n---\n"
+          "You file the history.\n",
+          manifest="description: System agent.\nrole: operator\nmodel: sonnet\n"
+                   "system: true\nconcurrency: 1\ntimeout_seconds: 300\n",
+          entrypoints="cron: ['0 * * * *']\n")
+    return root
+
+
+@pytest.fixture
+def migrated(tmp_path):
+    payloads, problems = export_agents.export_tree(_migration_tree(tmp_path))
+    assert problems == []
+    return {p["name"]: p for p in payloads}
+
+
+def test_every_payload_is_a_body_the_import_endpoint_accepts(migrated):
+    """`AgentCreateIn` forbids extra fields, so this fails loudly if the export
+    grows a key the endpoint would 422 on — the failure mode that would only
+    show up mid-migration otherwise."""
+    for name, payload in migrated.items():
+        assert AgentCreateIn(**payload).name == name
+
+
+async def test_an_exported_tree_imports_into_a_fresh_platform(admin_client, migrated):
+    """The migration itself: the exporter's own output through the real
+    endpoint, against the real skill/secret/tool registries (the test client
+    points at the repo trees). This is what task 11 ran live."""
+    names = sorted(migrated)
+    payloads = [migrated[n] for n in names]
+    r = await admin_client.post("/api/agents/import", json=payloads)
+    assert r.status_code == 200, r.text
+    assert r.json() == [{"name": n, "status": "created"} for n in names]
+    # Idempotent: re-running the same payload changes nothing, which is what
+    # makes a re-run safe if the first attempt half-lands.
+    again = await admin_client.post("/api/agents/import", json=payloads)
+    assert again.json() == [{"name": n, "status": "unchanged"} for n in names]
+
+    got = (await admin_client.get("/api/agents/chatty")).json()
+    assert got["harness_tools"] == ["WebSearch", "WebFetch"]
+    assert got["platform_tools"] == ["mcp__platform__query_app"]
+    assert got["model"] == "opus" and got["timeout_seconds"] == 180
+
+
+def test_a_mixed_tools_line_splits_across_the_two_grant_lists(migrated):
+    """The split is by prefix, and the row's two lists are what the launcher's
+    role ladder reads."""
+    chatty = migrated["chatty"]
+    assert chatty["harness_tools"] == ["WebSearch", "WebFetch"]
+    assert chatty["platform_tools"] == ["mcp__platform__query_app"]
+    assert chatty["role"] == "operator" and chatty["system"] is False
+    assert chatty["model"] == "opus" and chatty["timeout_seconds"] == 180
+    # The prompt is the BODY: no frontmatter comes across.
+    assert chatty["prompt"] == "You are **chatty**.\n"
+
+
+def test_a_market_pinned_agent_keeps_its_cron_and_its_zone(migrated):
+    """A cron that must not drift across DST is why the timezone travels with
+    the expression rather than being assumed UTC."""
+    b = migrated["briefer"]
+    assert b["entrypoints"] == {
+        "crons": [{"schedule": "35 9 * * 1-5", "prompt": ""}],
+        "webhooks": [], "topics": [], "timezone": "America/Toronto"}
+    assert b["result_topic"] == "app.demo.inbound"
+
+
+def test_a_system_agent_keeps_the_flag_that_injects_its_token(migrated):
+    """`system: true` is the difference between an agent that gets an API token
+    injected and one that does not — losing it would silently break its run."""
+    k = migrated["keeper"]
+    assert k["system"] is True
+    assert k["entrypoints"]["crons"] == [{"schedule": "0 * * * *", "prompt": ""}]
+    assert k["entrypoints"]["timezone"] == ""       # UTC, unlike the market one
+    assert k["harness_tools"] == []
+    assert k["platform_tools"] == ["mcp__platform__runs_read",
+                                   "mcp__platform__runs_write"]
+
+
+def test_the_manifest_description_wins_over_the_frontmatters(migrated):
+    """Two files carried a description and a row has one column. The manifest's
+    is the one the platform read (`Manifest.description`), so it wins."""
+    assert migrated["chatty"]["description"] == "Conversational assistant."
+
+
+def test_the_export_is_deterministic(tmp_path):
+    """Reruns must diff clean, or nobody can tell a real change from noise."""
+    root = _migration_tree(tmp_path)
+    first, _ = export_agents.export_tree(root)
+    second, _ = export_agents.export_tree(root)
+    assert (json.dumps(first, indent=2, sort_keys=True)
+            == json.dumps(second, indent=2, sort_keys=True))
+    assert [p["name"] for p in first] == sorted(p["name"] for p in first)
+
+
+# --- the mapping rules ------------------------------------------------------
 
 def test_no_tools_line_materializes_the_effective_set(tmp_path):
     """A missing `tools:` line meant "all tools" in the file era. What such an
@@ -258,10 +282,13 @@ def test_a_role_the_platform_does_not_have_fails_validation(tmp_path):
 
 # --- the CLI ---------------------------------------------------------------
 
-def test_check_mode_is_green_on_the_real_tree_and_writes_nothing(tmp_path, capsys):
+def test_check_mode_is_green_on_a_good_tree_and_writes_nothing(tmp_path, capsys):
+    _migration_tree(tmp_path)
     out = tmp_path / "should-not-exist.json"
-    assert export_agents.main(["--check", "--out", str(out)]) == 0
+    assert export_agents.main(["--check", "--root", str(tmp_path),
+                               "--out", str(out)]) == 0
     assert not out.exists()
+    assert "3 agent(s) OK" in capsys.readouterr().err
 
 
 def test_check_mode_exits_nonzero_on_a_broken_tree(tmp_path, capsys):
@@ -272,10 +299,11 @@ def test_check_mode_exits_nonzero_on_a_broken_tree(tmp_path, capsys):
 
 
 def test_out_writes_the_payload_and_a_broken_tree_writes_nothing(tmp_path):
+    _migration_tree(tmp_path)
     out = tmp_path / "agents.json"
-    assert export_agents.main(["--out", str(out)]) == 0
+    assert export_agents.main(["--root", str(tmp_path), "--out", str(out)]) == 0
     payload = json.loads(out.read_text())
-    assert [a["name"] for a in payload] == SHIPPED
+    assert [a["name"] for a in payload] == ["briefer", "chatty", "keeper"]
     assert out.read_text().endswith("}\n]\n")     # trailing newline, diff-clean
 
     bad = tmp_path / "bad"
@@ -285,11 +313,12 @@ def test_out_writes_the_payload_and_a_broken_tree_writes_nothing(tmp_path):
     assert not missed.exists()
 
 
-def test_the_module_runs_as_a_script():
-    """`python -m agentplatform.export_agents` is how Task 11 invokes it — the
-    entrypoint is part of the deliverable, not just the functions."""
+def test_the_module_runs_as_a_script(tmp_path):
+    """`python -m agentplatform.export_agents` is how the migration invoked it —
+    the entrypoint is part of the deliverable, not just the functions."""
+    _migration_tree(tmp_path)
     r = subprocess.run([sys.executable, "-m", "agentplatform.export_agents",
-                        "--check"], capture_output=True, text=True,
-                       cwd=str(REPO_ROOT))
+                        "--check", "--root", str(tmp_path)],
+                       capture_output=True, text=True, cwd=str(REPO_ROOT))
     assert r.returncode == 0, r.stderr
-    assert "10 agent(s) OK" in r.stderr
+    assert "3 agent(s) OK" in r.stderr

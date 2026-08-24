@@ -1,6 +1,0 @@
-# Weekday sync, ten minutes before the opening bell, so the archive is current
-# before the brief agent reads it at 9:35. Its scheduled run carries the
-# generic "Scheduled run." prompt — agent.md defines what that means here
-# (sync every tracked symbol over a 5d window).
-cron: ["20 9 * * 1-5"]
-timezone: America/Toronto

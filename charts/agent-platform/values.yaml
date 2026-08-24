@@ -130,8 +130,10 @@ connectors:
 # chart) can read agent definitions from a shared volume.
 agents:
   gitRepo: "https://github.com/kylep/agent-platform.git"
-  # Branch (or tag) the sync tracks. Agent definitions live in git; this is
-  # which line of history the cluster follows.
+  # Branch (or tag) the sync tracks. The checkout serves the capability-as-code
+  # building blocks — skills, secret declarations, tools, reports, apps — and
+  # the docs the Help pages render. Agent DEFINITIONS are not among them: they
+  # are rows (docs/design/15), edited through the API, live immediately.
   gitRef: "main"
   syncIntervalSeconds: 60
   storage: 1Gi
@@ -144,7 +146,7 @@ agents:
 
 # Env vars applied to the api/dispatcher/recorder Deployments (AP_ prefix,
 # see services/backend/agentplatform/config.py). AP_DB_URL, AP_KAFKA_BOOTSTRAP,
-# AP_RUNNER_IMAGE and AP_AGENTS_ROOT are computed in the templates from other
+# AP_RUNNER_IMAGE and AP_CHECKOUT_ROOT are computed in the templates from other
 # values and are not set here. AP_SESSION_SECRET has intentionally no default
 # below -- the templates use `required` and installs fail without one, e.g.
 #   --set env.AP_SESSION_SECRET=... or -f a values file that sets it.
