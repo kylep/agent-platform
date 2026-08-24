@@ -72,6 +72,11 @@ def sync_detailed(
     it means the log alone is enough to say who removed an agent and to
     recreate it. System agents are platform-internal and refuse deletion.
 
+    Its webhook secrets do NOT survive: they are credentials for paths that no
+    longer exist, and the change log's tombstone snapshot deliberately doesn't
+    carry them, so leaving the rows behind would only mean a recreated agent
+    silently inheriting a secret nobody can see (docs/design/16).
+
     Args:
         name (str):
 
@@ -111,6 +116,11 @@ def sync(
     it means the log alone is enough to say who removed an agent and to
     recreate it. System agents are platform-internal and refuse deletion.
 
+    Its webhook secrets do NOT survive: they are credentials for paths that no
+    longer exist, and the change log's tombstone snapshot deliberately doesn't
+    carry them, so leaving the rows behind would only mean a recreated agent
+    silently inheriting a secret nobody can see (docs/design/16).
+
     Args:
         name (str):
 
@@ -144,6 +154,11 @@ async def asyncio_detailed(
     uniformly parseable as definitions, with no synthetic keys inside them — and
     it means the log alone is enough to say who removed an agent and to
     recreate it. System agents are platform-internal and refuse deletion.
+
+    Its webhook secrets do NOT survive: they are credentials for paths that no
+    longer exist, and the change log's tombstone snapshot deliberately doesn't
+    carry them, so leaving the rows behind would only mean a recreated agent
+    silently inheriting a secret nobody can see (docs/design/16).
 
     Args:
         name (str):
@@ -181,6 +196,11 @@ async def asyncio(
     uniformly parseable as definitions, with no synthetic keys inside them — and
     it means the log alone is enough to say who removed an agent and to
     recreate it. System agents are platform-internal and refuse deletion.
+
+    Its webhook secrets do NOT survive: they are credentials for paths that no
+    longer exist, and the change log's tombstone snapshot deliberately doesn't
+    carry them, so leaving the rows behind would only mean a recreated agent
+    silently inheriting a secret nobody can see (docs/design/16).
 
     Args:
         name (str):

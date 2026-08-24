@@ -5,8 +5,8 @@ import uuid
 from fastapi import APIRouter, HTTPException, Request
 
 from agentplatform import webhooksecrets
-from agentplatform.agents import AgentInfo
 from agentplatform.agentdefs import WebhookEntry
+from agentplatform.agents import AgentInfo
 from agentplatform.api.auth import authenticate, role_allows
 from agentplatform.events import TOPIC_RUN_INBOUND
 
@@ -82,10 +82,19 @@ async def _authorize(request: Request, path: str) -> tuple[AgentInfo, str]:
 @router.post("/api/webhooks/{path}", status_code=202, response_model=S.RunAccepted)
 async def webhook(request: Request, path: str):
     """External async trigger: fires the agent that DECLARES `{path}` in its
-    entrypoints' `webhooks:` list. The request body becomes prompt context.
-    Event-sourced: we validate the command, then produce a `run.requested`
-    event to `run.inbound`; the ingest consumer materializes the run. The
-    pre-assigned id is returned so the caller can follow the run."""
+    entrypoints' `webhooks:` list (docs/design/10) — an undeclared path doesn't
+    exist, so an agent can't be webhook-fired unless its definition opted in.
+
+    Two ways to authenticate (docs/design/16): a platform API key with the
+    operator role, which works on every declared path; or, on a path whose
+    entry declares `auth: "secret"`, the shared secret in the
+    `X-AP-Webhook-Secret` header — the door for callers that cannot hold a
+    platform key.
+
+    The request body becomes prompt context. Event-sourced: we validate the
+    command, then produce a `run.requested` event to `run.inbound`; the ingest
+    consumer materializes the run. The pre-assigned id is returned so the
+    caller can follow the run."""
     st = request.app.state
     info, principal = await _authorize(request, path)
     # State checks come AFTER auth: whether an agent is quarantined or switched

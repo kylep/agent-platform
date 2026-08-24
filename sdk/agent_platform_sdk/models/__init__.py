@@ -118,6 +118,8 @@ from .tool_wizard_secret import ToolWizardSecret
 from .validation_error import ValidationError
 from .validation_error_context import ValidationErrorContext
 from .webhook_entry_in import WebhookEntryIn
+from .webhook_secret_in import WebhookSecretIn
+from .webhook_secret_state import WebhookSecretState
 from .who_am_i import WhoAmI
 
 __all__ = (
@@ -239,5 +241,7 @@ __all__ = (
     "ValidationError",
     "ValidationErrorContext",
     "WebhookEntryIn",
+    "WebhookSecretIn",
+    "WebhookSecretState",
     "WhoAmI",
 )

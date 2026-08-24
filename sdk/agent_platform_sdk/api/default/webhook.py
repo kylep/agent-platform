@@ -60,15 +60,22 @@ def sync_detailed(
     *,
     client: AuthenticatedClient | Client,
 ) -> Response[HTTPValidationError | RunAccepted]:
-    """Webhook
+    r"""Webhook
 
-     External async trigger: an operator+ caller fires the agent that
-    DECLARES `{path}` in its entrypoints' `webhooks:` list (docs/design/10) —
-    an undeclared path doesn't exist, so an agent can't be webhook-fired
-    unless its definition opted in. The request body becomes prompt context.
-    Event-sourced: we validate the command, then produce a `run.requested`
-    event to `run.inbound`; the ingest consumer materializes the run. The
-    pre-assigned id is returned so the caller can follow the run.
+     External async trigger: fires the agent that DECLARES `{path}` in its
+    entrypoints' `webhooks:` list (docs/design/10) — an undeclared path doesn't
+    exist, so an agent can't be webhook-fired unless its definition opted in.
+
+    Two ways to authenticate (docs/design/16): a platform API key with the
+    operator role, which works on every declared path; or, on a path whose
+    entry declares `auth: \"secret\"`, the shared secret in the
+    `X-AP-Webhook-Secret` header — the door for callers that cannot hold a
+    platform key.
+
+    The request body becomes prompt context. Event-sourced: we validate the
+    command, then produce a `run.requested` event to `run.inbound`; the ingest
+    consumer materializes the run. The pre-assigned id is returned so the
+    caller can follow the run.
 
     Args:
         path (str):
@@ -97,15 +104,22 @@ def sync(
     *,
     client: AuthenticatedClient | Client,
 ) -> HTTPValidationError | RunAccepted | None:
-    """Webhook
+    r"""Webhook
 
-     External async trigger: an operator+ caller fires the agent that
-    DECLARES `{path}` in its entrypoints' `webhooks:` list (docs/design/10) —
-    an undeclared path doesn't exist, so an agent can't be webhook-fired
-    unless its definition opted in. The request body becomes prompt context.
-    Event-sourced: we validate the command, then produce a `run.requested`
-    event to `run.inbound`; the ingest consumer materializes the run. The
-    pre-assigned id is returned so the caller can follow the run.
+     External async trigger: fires the agent that DECLARES `{path}` in its
+    entrypoints' `webhooks:` list (docs/design/10) — an undeclared path doesn't
+    exist, so an agent can't be webhook-fired unless its definition opted in.
+
+    Two ways to authenticate (docs/design/16): a platform API key with the
+    operator role, which works on every declared path; or, on a path whose
+    entry declares `auth: \"secret\"`, the shared secret in the
+    `X-AP-Webhook-Secret` header — the door for callers that cannot hold a
+    platform key.
+
+    The request body becomes prompt context. Event-sourced: we validate the
+    command, then produce a `run.requested` event to `run.inbound`; the ingest
+    consumer materializes the run. The pre-assigned id is returned so the
+    caller can follow the run.
 
     Args:
         path (str):
@@ -129,15 +143,22 @@ async def asyncio_detailed(
     *,
     client: AuthenticatedClient | Client,
 ) -> Response[HTTPValidationError | RunAccepted]:
-    """Webhook
+    r"""Webhook
 
-     External async trigger: an operator+ caller fires the agent that
-    DECLARES `{path}` in its entrypoints' `webhooks:` list (docs/design/10) —
-    an undeclared path doesn't exist, so an agent can't be webhook-fired
-    unless its definition opted in. The request body becomes prompt context.
-    Event-sourced: we validate the command, then produce a `run.requested`
-    event to `run.inbound`; the ingest consumer materializes the run. The
-    pre-assigned id is returned so the caller can follow the run.
+     External async trigger: fires the agent that DECLARES `{path}` in its
+    entrypoints' `webhooks:` list (docs/design/10) — an undeclared path doesn't
+    exist, so an agent can't be webhook-fired unless its definition opted in.
+
+    Two ways to authenticate (docs/design/16): a platform API key with the
+    operator role, which works on every declared path; or, on a path whose
+    entry declares `auth: \"secret\"`, the shared secret in the
+    `X-AP-Webhook-Secret` header — the door for callers that cannot hold a
+    platform key.
+
+    The request body becomes prompt context. Event-sourced: we validate the
+    command, then produce a `run.requested` event to `run.inbound`; the ingest
+    consumer materializes the run. The pre-assigned id is returned so the
+    caller can follow the run.
 
     Args:
         path (str):
@@ -164,15 +185,22 @@ async def asyncio(
     *,
     client: AuthenticatedClient | Client,
 ) -> HTTPValidationError | RunAccepted | None:
-    """Webhook
+    r"""Webhook
 
-     External async trigger: an operator+ caller fires the agent that
-    DECLARES `{path}` in its entrypoints' `webhooks:` list (docs/design/10) —
-    an undeclared path doesn't exist, so an agent can't be webhook-fired
-    unless its definition opted in. The request body becomes prompt context.
-    Event-sourced: we validate the command, then produce a `run.requested`
-    event to `run.inbound`; the ingest consumer materializes the run. The
-    pre-assigned id is returned so the caller can follow the run.
+     External async trigger: fires the agent that DECLARES `{path}` in its
+    entrypoints' `webhooks:` list (docs/design/10) — an undeclared path doesn't
+    exist, so an agent can't be webhook-fired unless its definition opted in.
+
+    Two ways to authenticate (docs/design/16): a platform API key with the
+    operator role, which works on every declared path; or, on a path whose
+    entry declares `auth: \"secret\"`, the shared secret in the
+    `X-AP-Webhook-Secret` header — the door for callers that cannot hold a
+    platform key.
+
+    The request body becomes prompt context. Event-sourced: we validate the
+    command, then produce a `run.requested` event to `run.inbound`; the ingest
+    consumer materializes the run. The pre-assigned id is returned so the
+    caller can follow the run.
 
     Args:
         path (str):
