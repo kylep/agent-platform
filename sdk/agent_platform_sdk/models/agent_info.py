@@ -31,7 +31,6 @@ class AgentInfo:
                 inbound webhook paths (POST /api/webhooks/<path> only works for a declared
                 path), and kafka topic subscriptions. Distinct from DB Jobs, which are
                 ad-hoc UI experiments — history, not config.
-            entrypoints_raw (str | Unset):  Default: ''.
             error (None | str | Unset):
             harness_tools (list[str] | Unset):
             platform_tools (list[str] | Unset):
@@ -42,7 +41,6 @@ class AgentInfo:
     name: str
     enabled: bool | Unset = True
     entrypoints: EntrypointsModel | Unset = UNSET
-    entrypoints_raw: str | Unset = ""
     error: None | str | Unset = UNSET
     harness_tools: list[str] | Unset = UNSET
     platform_tools: list[str] | Unset = UNSET
@@ -66,8 +64,6 @@ class AgentInfo:
         entrypoints: dict[str, Any] | Unset = UNSET
         if not isinstance(self.entrypoints, Unset):
             entrypoints = self.entrypoints.to_dict()
-
-        entrypoints_raw = self.entrypoints_raw
 
         error: None | str | Unset
         if isinstance(self.error, Unset):
@@ -96,8 +92,6 @@ class AgentInfo:
             field_dict["enabled"] = enabled
         if entrypoints is not UNSET:
             field_dict["entrypoints"] = entrypoints
-        if entrypoints_raw is not UNSET:
-            field_dict["entrypoints_raw"] = entrypoints_raw
         if error is not UNSET:
             field_dict["error"] = error
         if harness_tools is not UNSET:
@@ -141,8 +135,6 @@ class AgentInfo:
         else:
             entrypoints = EntrypointsModel.from_dict(_entrypoints)
 
-        entrypoints_raw = d.pop("entrypoints_raw", UNSET)
-
         def _parse_error(data: object) -> None | str | Unset:
             if data is None:
                 return data
@@ -162,7 +154,6 @@ class AgentInfo:
             name=name,
             enabled=enabled,
             entrypoints=entrypoints,
-            entrypoints_raw=entrypoints_raw,
             error=error,
             harness_tools=harness_tools,
             platform_tools=platform_tools,

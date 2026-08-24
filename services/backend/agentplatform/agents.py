@@ -115,9 +115,6 @@ class AgentInfo(BaseModel):
     harness_tools: list[str] = []
     platform_tools: list[str] = []
     enabled: bool = True
-    # LEGACY: the entrypoints.yaml text the file editor round-tripped. Always
-    # empty now — kept until the UI stops asking for it.
-    entrypoints_raw: str = ""
     error: str | None = None
 
     def crons(self) -> list[str]:
