@@ -15,13 +15,14 @@ def test_relays_stream_and_terminal(tmp_path, monkeypatch):
     fake.chmod(fake.stat().st_mode | stat.S_IEXEC)
     creds = tmp_path / "secrets"; creds.mkdir()
     (creds / "credentials.json").write_text("{}")
-    agents = tmp_path / "agentdefs" / "hello-world"; agents.mkdir(parents=True)
-    (agents / "agent.md").write_text("# hello-world")
     monkeypatch.setenv("AP_RUN_ID", "RID"); monkeypatch.setenv("AP_AGENT", "hello-world")
     monkeypatch.setenv("AP_PROMPT", "hi"); monkeypatch.setenv("CLAUDE_BIN", str(fake))
     monkeypatch.setenv("AP_SECRETS_DIR", str(creds))
-    monkeypatch.setenv("AP_AGENTS_DIR", str(tmp_path / "agentdefs"))
     monkeypatch.setenv("HOME", str(tmp_path))
+    # The definition arrives as a row (docs/design/15); this test is about the
+    # stream, so the fetch is stubbed rather than served.
+    monkeypatch.setattr(runner, "_agentdef", lambda: (
+        {"name": "hello-world", "description": "Says hi.", "prompt": "hi"}, ""))
     p = FakeProducer()
     rc = runner.run(producer=p)
     assert rc == 0
@@ -147,30 +148,27 @@ def test_self_edit_publish_noop_when_no_change(bare_and_clone, monkeypatch):
     assert res == {"changed": False}
 
 
-def _install_from_mount(tmp_path, monkeypatch, name, agent_md, home=None):
-    """Install an agent the OLD way: a git-synced /agents tree, no session
-    token. Returns after `_install_agent` has taken the fallback path."""
-    d = tmp_path / "agentdefs" / name
-    d.mkdir(parents=True, exist_ok=True)
-    (d / "agent.md").write_text(agent_md)
-    monkeypatch.setenv("AP_AGENTS_DIR", str(tmp_path / "agentdefs"))
+def _installed(tmp_path, monkeypatch, name, agent_md, home=None):
+    """Put an already-rendered definition where `_install_agent` would have
+    written it, so the flag tests exercise the parser/permission seam alone."""
     monkeypatch.setenv("HOME", str(home or tmp_path))
-    monkeypatch.delenv("AP_SESSION_TOKEN", raising=False)
-    runner._install_agent(name)
+    dst = runner._agent_path(name)
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    dst.write_text(agent_md)
 
 
 def test_agent_tools_parses_the_installed_definition(tmp_path, monkeypatch):
-    _install_from_mount(tmp_path, monkeypatch, "news",
-                        "---\nname: news\ntools: WebSearch, WebFetch\n---\nbody")
+    _installed(tmp_path, monkeypatch, "news",
+               "---\nname: news\ntools: WebSearch, WebFetch\n---\nbody")
     assert runner._agent_tools("news") == ["WebSearch", "WebFetch"]
     # No tools line → empty (fail-closed; nothing is pre-approved).
-    _install_from_mount(tmp_path, monkeypatch, "news", "---\nname: news\n---\nbody")
+    _installed(tmp_path, monkeypatch, "news", "---\nname: news\n---\nbody")
     assert runner._agent_tools("news") == []
 
 
 def test_permission_args_credential_less_agent_is_least_privilege(tmp_path, monkeypatch):
-    _install_from_mount(tmp_path, monkeypatch, "news",
-                        "---\nname: news\ntools: WebSearch, WebFetch\n---\nbody")
+    _installed(tmp_path, monkeypatch, "news",
+               "---\nname: news\ntools: WebSearch, WebFetch\n---\nbody")
     args = runner._permission_args(self_edit=False, has_api_token=False, agent="news")
     # Web tools pre-approved; Bash/Read/etc stripped from context; no bypass.
     assert "--allowedTools" in args and "WebSearch" in args and "WebFetch" in args
@@ -180,8 +178,8 @@ def test_permission_args_credential_less_agent_is_least_privilege(tmp_path, monk
 
 def test_permission_args_no_agent_bypass_even_with_token(tmp_path, monkeypatch):
     # No bypassPermissions for a token-bearing agent — scoped like everyone else.
-    _install_from_mount(tmp_path, monkeypatch, "mon",
-                        "---\nname: mon\ntools: mcp__platform__runs_read\n---\nbody")
+    _installed(tmp_path, monkeypatch, "mon",
+               "---\nname: mon\ntools: mcp__platform__runs_read\n---\nbody")
     args = runner._permission_args(self_edit=False, has_api_token=True, agent="mon")
     assert "bypassPermissions" not in args
     assert args[:2] == ["--allowedTools", "mcp__platform__runs_read"]
@@ -193,8 +191,8 @@ def test_permission_args_declared_bash_is_stripped_for_non_selfedit(tmp_path, mo
     agent that DECLARES a token-reading tool still doesn't get it. Otherwise a
     mis-declared (or injection-altered) definition could hand a web agent Bash
     and let it read the mounted Claude token."""
-    _install_from_mount(tmp_path, monkeypatch, "sneaky",
-                        "---\nname: sneaky\ntools: WebFetch, Bash, Read\n---\nbody")
+    _installed(tmp_path, monkeypatch, "sneaky",
+               "---\nname: sneaky\ntools: WebFetch, Bash, Read\n---\nbody")
     args = runner._permission_args(self_edit=False, has_api_token=False, agent="sneaky")
     allowed = args[args.index("--allowedTools") + 1:args.index("--disallowedTools")]
     assert "WebFetch" in allowed
@@ -302,79 +300,30 @@ def test_install_agent_omits_the_tools_line_when_nothing_is_granted(tmp_path, mo
     assert args[0] == "--disallowedTools" and "Bash" in args     # still hard-denied
 
 
-def test_install_agent_falls_back_to_the_mount_on_a_failed_fetch(tmp_path, monkeypatch):
-    """Transition safety: an unreachable API (or an older dispatcher that minted
-    no session token) must not wedge a run — the git-synced tree still works."""
+def test_a_fetched_grant_is_filtered_the_same_way_a_file_one_was(tmp_path, monkeypatch):
+    """The frontmatter shape is a contract with `_agent_tools`, not decoration:
+    tools that arrive as rows are parsed back out and filtered exactly like the
+    ones that used to arrive as files — a granted `Bash` is still denied."""
     _fetch_env(monkeypatch, tmp_path)
-    d = tmp_path / "agentdefs" / "newsy"; d.mkdir(parents=True)
-    (d / "agent.md").write_text("---\nname: newsy\ntools: WebFetch\n---\nfrom the mount")
-    monkeypatch.setenv("AP_AGENTS_DIR", str(tmp_path / "agentdefs"))
-
-    def boom(*a, **k):
-        raise urllib.error.URLError("connection refused")
-    monkeypatch.setattr(runner, "_api_req", boom)
-    runner._install_agent("newsy")
-    assert (tmp_path / ".claude" / "agents" / "newsy.md").read_text().endswith("from the mount")
-    assert runner._agent_tools("newsy") == ["WebFetch"]
-
-
-def test_install_agent_falls_back_when_the_env_is_absent(tmp_path, monkeypatch):
-    monkeypatch.setattr(runner, "_api_req",
-                        lambda *a, **k: pytest.fail("must not call the API without a token"))
-    _install_from_mount(tmp_path, monkeypatch, "newsy",
-                        "---\nname: newsy\ntools: WebFetch\n---\nfrom the mount")
-    assert runner._agent_tools("newsy") == ["WebFetch"]
-
-
-def test_db_granted_agent_gets_the_same_flags_as_its_file_based_self(tmp_path, monkeypatch):
-    """Parity, the whole point of the frontmatter shape: swapping the delivery
-    channel must not change one character of --allowedTools/--disallowedTools."""
-    tools = ["WebFetch", "Bash", "mcp__platform__runs_read"]
-    _install_from_mount(tmp_path, monkeypatch, "twin",
-                        "---\nname: twin\ntools: " + ", ".join(tools) + "\n---\nbody",
-                        home=tmp_path / "file-home")
-    from_file = runner._permission_args(self_edit=False, has_api_token=True, agent="twin")
-
-    _fetch_env(monkeypatch, tmp_path / "db-home")
-    # A DECOY mount declaring different tools. Without it this test proves
-    # nothing: the DB half would inherit AP_AGENTS_DIR from the file half, so a
-    # `_agent_tools` that regressed to reading the mount would read an identical
-    # fixture and still pass. The decoy makes that regression fail loudly.
-    decoy = tmp_path / "decoy" / "twin"; decoy.mkdir(parents=True)
-    (decoy / "agent.md").write_text("---\nname: twin\ntools: Glob\n---\ndecoy")
-    monkeypatch.setenv("AP_AGENTS_DIR", str(tmp_path / "decoy"))
     monkeypatch.setattr(runner, "_api_req", lambda m, p, body=None: _payload(
         name="twin", prompt="body", harness_tools=["WebFetch", "Bash"],
         platform_tools=["mcp__platform__runs_read"]))
     runner._install_agent("twin")
-    from_db = runner._permission_args(self_edit=False, has_api_token=True, agent="twin")
+    assert runner._agent_tools("twin") == ["WebFetch", "Bash",
+                                           "mcp__platform__runs_read"]
+    args = runner._permission_args(self_edit=False, has_api_token=True, agent="twin")
+    allowed = args[args.index("--allowedTools") + 1:args.index("--disallowedTools")]
+    assert allowed == ["WebFetch", "mcp__platform__runs_read"]
+    assert "Bash" in args[args.index("--disallowedTools") + 1:]
 
-    assert from_db == from_file
-    assert "Glob" not in from_db                                     # not the decoy's
-    assert "Bash" not in from_db[:from_db.index("--disallowedTools")]  # denied both ways
 
-
-def test_install_agent_falls_back_on_a_malformed_200(tmp_path, monkeypatch):
-    """A 200 whose body isn't a definition (a proxy error page, a truncated
-    body) must take the same road as a failed fetch. Rendering it outside the
-    protected path would KeyError on `name` and kill the run."""
+def test_a_failed_fetch_aborts_naming_the_api_error(tmp_path, monkeypatch):
+    """The fetch is the ONLY delivery path (docs/design/15), so a failed one is
+    the case with no definition to run. It must be reported in words: an
+    uncaught exception here kills the pod before the producer exists, so the run
+    lands with an EMPTY error — the exact signature of Claude quota exhaustion.
+    That misreading costs the first hour of the investigation."""
     _fetch_env(monkeypatch, tmp_path)
-    d = tmp_path / "agentdefs" / "newsy"; d.mkdir(parents=True)
-    (d / "agent.md").write_text("---\nname: newsy\ntools: WebFetch\n---\nfrom the mount")
-    monkeypatch.setenv("AP_AGENTS_DIR", str(tmp_path / "agentdefs"))
-    monkeypatch.setattr(runner, "_api_req", lambda m, p, body=None: {})
-    runner._install_agent("newsy")
-    assert (tmp_path / ".claude" / "agents" / "newsy.md").read_text().endswith("from the mount")
-
-
-def test_a_double_failure_names_both_causes(tmp_path, monkeypatch):
-    """Both delivery paths down is the one case with no definition to run. It
-    must be reported in words: the alternative — an uncaught FileNotFoundError
-    out of `shutil.copy` — kills the pod before the producer exists, so the run
-    lands with an EMPTY error, which is the exact signature of Claude quota
-    exhaustion. That misreading costs the first hour of the investigation."""
-    _fetch_env(monkeypatch, tmp_path)
-    monkeypatch.setenv("AP_AGENTS_DIR", str(tmp_path / "no-such-mount"))
 
     def boom(*a, **k):
         raise urllib.error.URLError("connection refused")
@@ -383,8 +332,32 @@ def test_a_double_failure_names_both_causes(tmp_path, monkeypatch):
         runner._install_agent("newsy")
     msg = str(e.value)
     assert msg.startswith("agent definition unavailable:")
-    assert "api=" in msg and "connection refused" in msg     # why the API path failed
-    assert "mount=" in msg and "newsy/agent.md" in msg       # and why the mount did
+    assert "api=" in msg and "connection refused" in msg     # why the fetch failed
+    assert not (tmp_path / ".claude" / "agents" / "newsy.md").exists()
+
+
+def test_a_malformed_200_aborts_rather_than_rendering(tmp_path, monkeypatch):
+    """A 200 whose body isn't a definition (a proxy error page, a truncated
+    body) takes the same road as a failed fetch. Rendering it would KeyError on
+    `name` outside the reporting path and kill the run mutely."""
+    _fetch_env(monkeypatch, tmp_path)
+    monkeypatch.setattr(runner, "_api_req", lambda m, p, body=None: {})
+    with pytest.raises(runner.AgentUnavailable) as e:
+        runner._install_agent("newsy")
+    assert "not a definition" in str(e.value)
+    assert not (tmp_path / ".claude" / "agents" / "newsy.md").exists()
+
+
+def test_no_session_token_aborts_without_calling_the_api(tmp_path, monkeypatch):
+    """A pod launched without the run-scoped token has nothing to fetch WITH.
+    It says so instead of dialing an endpoint that would 401."""
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.delenv("AP_SESSION_TOKEN", raising=False)
+    monkeypatch.setattr(runner, "_api_req",
+                        lambda *a, **k: pytest.fail("must not call the API without a token"))
+    with pytest.raises(runner.AgentUnavailable) as e:
+        runner._install_agent("newsy")
+    assert "not attempted" in str(e.value)
 
 
 def test_a_run_with_no_definition_fails_loudly_and_terminally(tmp_path, monkeypatch):
@@ -399,7 +372,6 @@ def test_a_run_with_no_definition_fails_loudly_and_terminally(tmp_path, monkeypa
     monkeypatch.setenv("AP_AGENT", "newsy"); monkeypatch.setenv("AP_PROMPT", "hi")
     monkeypatch.setenv("CLAUDE_BIN", str(tmp_path / "no-claude-here"))
     _fetch_env(monkeypatch, tmp_path)
-    monkeypatch.setenv("AP_AGENTS_DIR", str(tmp_path / "no-such-mount"))
     monkeypatch.setattr(runner, "_api_req", lambda *a, **k: {})   # a malformed 200
 
     p = FakeProducer()
@@ -440,20 +412,18 @@ def _session_env(monkeypatch, tmp_path, fake_body):
     fake.chmod(fake.stat().st_mode | stat.S_IEXEC)
     creds = tmp_path / "secrets"; creds.mkdir()
     (creds / "credentials.json").write_text("{}")
-    agents = tmp_path / "agentdefs" / "hello-world"; agents.mkdir(parents=True)
-    (agents / "agent.md").write_text("# hello-world")
     monkeypatch.setenv("AP_RUN_ID", "RID"); monkeypatch.setenv("AP_AGENT", "hello-world")
     monkeypatch.setenv("AP_PROMPT", "flattened fallback prompt")
     monkeypatch.setenv("CLAUDE_BIN", str(fake))
     monkeypatch.setenv("AP_SECRETS_DIR", str(creds))
-    monkeypatch.setenv("AP_AGENTS_DIR", str(tmp_path / "agentdefs"))
     monkeypatch.setenv("HOME", str(tmp_path))
     monkeypatch.setenv("AP_USER_MESSAGE", "continue please")
     monkeypatch.setenv("AP_SESSION_TOKEN", "ap_sess")
     monkeypatch.setenv("AP_API_URL", "http://api:8090")
-    # These tests are about resume; keep definition delivery on the mount copy
-    # above (and off the network) so only one thing is under test.
-    monkeypatch.setattr(runner, "_agentdef", lambda: (None, "off in this test"))
+    # These tests are about resume; the definition fetch is stubbed (and kept
+    # off the network) so only one thing is under test.
+    monkeypatch.setattr(runner, "_agentdef", lambda: (
+        {"name": "hello-world", "description": "Says hi.", "prompt": "hi"}, ""))
 
 
 def test_project_dir_slug(tmp_path, monkeypatch):

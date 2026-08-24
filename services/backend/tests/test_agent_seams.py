@@ -249,9 +249,6 @@ async def test_a_rows_grants_survive_the_launcher_the_api_and_the_runner(
     monkeypatch.setenv("HOME", str(tmp_path / "pod-home"))
     for k, v in env.items():
         monkeypatch.setenv(k, v)
-    # Nothing on the mount: a fallback copy would raise rather than quietly
-    # standing in for the fetch this test is about.
-    monkeypatch.setenv("AP_AGENTS_DIR", str(tmp_path / "no-mount"))
 
     loop = asyncio.get_running_loop()
 

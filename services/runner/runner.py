@@ -83,9 +83,9 @@ def _agent_path(agent: str) -> Path:
 def _agent_tools(agent: str) -> list[str]:
     """The tools the INSTALLED definition declares (its `tools:` line), or [].
 
-    Reads what `_install_agent` just wrote, not the source it came from, so the
-    permission flags describe the definition `claude` is actually about to run
-    — identical whether it arrived from the API or the /agents mount."""
+    Reads what `_install_agent` just wrote, not the payload it came from, so
+    the permission flags describe the definition `claude` is actually about to
+    run."""
     try:
         text = _agent_path(agent).read_text()
     except OSError:
@@ -165,7 +165,7 @@ def _api_req(method: str, path: str, body: dict | None = None) -> dict:
 
 
 class AgentUnavailable(RuntimeError):
-    """Neither delivery path produced a definition, so there is nothing to run.
+    """The platform produced no definition, so there is nothing to run.
 
     Its own type because it is the one startup failure that must be REPORTED
     rather than merely raised: an uncaught traceback here kills the pod before
@@ -176,27 +176,25 @@ class AgentUnavailable(RuntimeError):
 def _agentdef() -> tuple[dict | None, str]:
     """This run's agent definition from the platform, plus the reason there
     isn't one: (definition, "") on success, (None, why) when the pod has no
-    session token/API URL, the fetch fails, or the body isn't a definition —
-    the caller then falls back to the mount.
+    session token/API URL, the fetch fails, or the body isn't a definition.
 
     The reason is returned rather than only logged because the caller needs it:
-    when the mount fails too, "why did the API path fail" is half the error
-    message, and a stdout line in a dead pod is not an error message.
+    it is the whole error message the run reports, and a stdout line in a dead
+    pod is not an error message.
 
-    The shape check is part of the fallback, not decoration: a 200 carrying
-    something else (a proxy's error page, a truncated body) would otherwise
-    reach the renderer and kill the run on a missing key, which is exactly the
-    case the fallback exists for."""
+    The shape check is not decoration: a 200 carrying something else (a proxy's
+    error page, a truncated body) would otherwise reach the renderer and kill
+    the run on a missing key — an uncaught traceback instead of a reported
+    failure."""
     if not (os.environ.get("AP_SESSION_TOKEN") and os.environ.get("AP_API_URL")):
         return None, "not attempted (no AP_SESSION_TOKEN/AP_API_URL)"
     try:
         d = _api_req("GET", f"/api/runs/{os.environ['AP_RUN_ID']}/agentdef")
     except Exception as e:
-        print(f"agentdef fetch failed, falling back to the mount: {e}", flush=True)
+        print(f"agentdef fetch failed: {e}", flush=True)
         return None, str(e) or repr(e)
     if not isinstance(d, dict) or not isinstance(d.get("name"), str) or not d["name"]:
-        print("agentdef response is not a definition, falling back to the mount",
-              flush=True)
+        print("agentdef response is not a definition", flush=True)
         return None, "the response was not a definition"
     return d, ""
 
@@ -257,28 +255,19 @@ def _render_agent_md(d: dict) -> str:
 def _install_agent(agent: str) -> None:
     """Put this run's definition where `claude --agent <name>` finds it.
 
-    Preferred (docs/design/15): fetch it from the platform — definitions are
+    One path (docs/design/15): fetch it from the platform — definitions are
     rows, and the pod gets exactly the one it is running, as of launch.
-    Fallback: copy the git-synced /agents tree, kept for one release so a pod
-    launched by an older dispatcher (no session token) or one whose API call
-    fails still runs.
 
-    Raises AgentUnavailable when BOTH fail, naming both causes. Running anyway
-    is not an option — `claude --agent <name>` with no such file is a different
-    agent's idea of the job — so the only question is whether the run dies
-    mutely or explains itself."""
+    Raises AgentUnavailable when the fetch doesn't produce one, naming why.
+    Running anyway is not an option — `claude --agent <name>` with no such file
+    is a different agent's idea of the job — so the only question is whether the
+    run dies mutely or explains itself."""
+    definition, api_error = _agentdef()
+    if definition is None:
+        raise AgentUnavailable(f"agent definition unavailable: api={api_error}")
     dst = _agent_path(agent)
     dst.parent.mkdir(parents=True, exist_ok=True)
-    definition, api_error = _agentdef()
-    if definition is not None:
-        dst.write_text(_render_agent_md(definition))
-        return
-    src = Path(os.environ.get("AP_AGENTS_DIR", "/agents/agents")) / agent / "agent.md"
-    try:
-        shutil.copy(src, dst)
-    except OSError as e:
-        raise AgentUnavailable(
-            f"agent definition unavailable: api={api_error} mount={e}") from e
+    dst.write_text(_render_agent_md(definition))
 
 def _install_skills() -> None:
     # `claude` resolves skills from ~/.claude/skills/<name>/SKILL.md. Copy each
