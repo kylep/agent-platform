@@ -128,6 +128,16 @@ a cron or a webhook that fires it. The edit/grant split guards *direct* grant
 writes only; it says nothing about steering what an already-privileged agent
 is told to do or when it runs.
 
+Prompt and entrypoints are the headline case but not the whole surface —
+`EDIT_FIELDS` also carries: `result_topic`, which can redirect any agent's
+output into any app's inbound topic (docs/design/11), letting `agents_edit`
+feed a privileged agent's runs into wherever it wants without touching a grant
+field at all; `transcript_retention_days`, which lets it retroactively shorten
+another agent's retention and have the pruner destroy transcripts out from
+under an in-flight investigation; and `enabled`, plus deletion of any
+non-system agent, either of which soft-kills an agent (or, combined with
+recreating it, replaces it) without ever needing `agents_grant`.
+
 Practically: an agent holding only `agents_edit` cannot grant itself
 `agents_grant`, but it *can* edit the prompt of an agent that already holds
 `agents_grant` and schedule it to run — at which point that more-privileged

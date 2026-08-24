@@ -117,9 +117,11 @@ the whole database daily:
 - **Network path** — the backup pod is not named in the chart's own
   `allow-postgres` NetworkPolicy component allowlist. It reaches Postgres
   anyway because the bitnami `postgresql` subchart renders its **own**
-  NetworkPolicy on the `ap-postgresql` pod with an ingress rule that has no
-  `from:` selector — any pod in the namespace can reach port 5432. This is a
-  low-margin coincidence, not a designed grant: if `postgresql.networkPolicy`
+  NetworkPolicy on the `ap-postgresql` pod, and its default
+  `primary.networkPolicy.allowExternal: true` means that policy's ingress rule
+  carries no `from:` selector at all — it permits ingress from ANY source, not
+  just a pod in this namespace. This is a low-margin coincidence, not a
+  designed grant: if `postgresql.networkPolicy`
   is ever disabled, or if `allow-postgres` is tightened to a `from:`-scoped
   rule that doesn't list the backup pod, the CronJob will silently start
   failing on network denial rather than a visible config error.

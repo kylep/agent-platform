@@ -125,9 +125,13 @@ connectors:
       tag: dev
       pullPolicy: IfNotPresent
 
-# agents-sync keeps a PVC of the agent-definitions git repo up to date so the
-# api (read-only) and runner Jobs (spawned by the dispatcher, not by this
-# chart) can read agent definitions from a shared volume.
+# agents-sync keeps a PVC of the repo checkout up to date so the api
+# (read-only) and runner Jobs (spawned by the dispatcher, not by this chart)
+# can serve the capability-as-code building blocks off a shared volume —
+# skills, secret declarations, tools, reports, apps, and the docs the Help
+# pages render. Agent DEFINITIONS are NOT among them: they are DB rows
+# (docs/design/15), read from Postgres and edited through the API, not files
+# on this volume.
 agents:
   gitRepo: "https://github.com/kylep/agent-platform.git"
   # Branch (or tag) the sync tracks. The checkout serves the capability-as-code
@@ -204,13 +208,18 @@ backup:
   # Empty = cluster default StorageClass (as with `agents.storageClass`).
   storageClass: ""
   image:
-    # Hand-pinned to match the image the postgresql subchart's own default
-    # (charts/postgresql-18.8.0.tgz values.yaml `image:`) resolves to, so
-    # pg_dump's version always matches the server it's dumping. Unlike kafka
-    # (see topics.image comment), bitnami/postgresql's `latest` tag is still
-    # served from docker.io/bitnami — no bitnamilegacy/ redirect needed today.
-    # If `postgresql.image` is ever overridden above to pin a specific
-    # version, update this block to match.
+    # Matches — not pins — the image the postgresql subchart's own default
+    # (charts/postgresql-18.8.0.tgz values.yaml `image:`) resolves to, and
+    # verified against the rendered manifest (`helm template`, primary
+    # StatefulSet): both are registry-1.docker.io/bitnami/postgresql:latest.
+    # Neither this block nor `postgresql:` above overrides the subchart's
+    # `image.tag`, so the tag genuinely floats on both sides — pg_dump's
+    # version tracks whatever the server happens to be running, not a fixed
+    # release. Unlike kafka (see topics.image comment), bitnami/postgresql's
+    # `latest` tag is still served from docker.io/bitnami — no bitnamilegacy/
+    # redirect needed today. If `postgresql.image` is ever overridden above to
+    # pin a specific version, update this block to match — that would turn
+    # this into a real pin instead of a floating match.
     registry: registry-1.docker.io
     repository: bitnami/postgresql
     tag: latest

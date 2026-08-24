@@ -118,7 +118,11 @@ TOOL_HELP: list[dict] = [
                     "prompt or add a cron entrypoint to an agent far more "
                     "privileged than itself. Grant it only where you would "
                     "accept that, and read the change log (every write is "
-                    "attributed to the calling agent)."},
+                    "attributed to the calling agent). Also reachable without "
+                    "touching a grant field: redirecting result_topic into any "
+                    "app, shortening transcript_retention_days so the pruner "
+                    "destroys history early, and disabling or deleting any "
+                    "non-system agent."},
     {"name": "mcp__platform__agents_grant", "kind": "platform",
      "description": "GRANTS-EDITING — HANDLE WITH CARE. Changes what an agent "
                     "may DO: its harness tools, platform tools, skills, "
