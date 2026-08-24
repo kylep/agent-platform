@@ -78,6 +78,7 @@ from .report_type_view import ReportTypeView
 from .retention import Retention
 from .retention_per_agent_days import RetentionPerAgentDays
 from .run_accepted import RunAccepted
+from .run_agent_def import RunAgentDef
 from .run_detail import RunDetail
 from .run_detail_permission_denials_item import RunDetailPermissionDenialsItem
 from .run_duration_point import RunDurationPoint
@@ -199,6 +200,7 @@ __all__ = (
     "Retention",
     "RetentionPerAgentDays",
     "RunAccepted",
+    "RunAgentDef",
     "RunDetail",
     "RunDetailPermissionDenialsItem",
     "RunDurationPoint",
