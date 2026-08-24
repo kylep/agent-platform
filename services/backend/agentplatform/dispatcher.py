@@ -128,6 +128,14 @@ class Dispatcher:
         if info is None or info.error is not None:
             await self._set_state(run, RunState.REJECTED, "unknown or quarantined agent")
             return
+        if not info.enabled:
+            # The soft off-switch (docs/design/15): definition and history stay,
+            # the agent takes no work. POST /api/runs refuses one up front, but
+            # the async triggers — schedule, webhook, kafka, connector —
+            # materialize runs without passing through it, so this is where they
+            # actually stop.
+            await self._set_state(run, RunState.REJECTED, "agent is disabled")
+            return
         blocked = await self._credential_blocks()
         if blocked is not None:
             await self._set_state(run, RunState.REJECTED, blocked)

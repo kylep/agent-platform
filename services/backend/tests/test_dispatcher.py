@@ -31,6 +31,19 @@ async def test_rejects_unknown_agent(sf, disp):
     async with sf() as s:
         assert (await s.get(Run, rid)).state == RunState.REJECTED
 
+async def test_rejects_a_disabled_agent(sf, disp, seed_agent):
+    """`enabled` is the soft off-switch (docs/design/15). POST /api/runs refuses
+    one, but schedules, webhooks and kafka triggers materialize runs without
+    going through it — the dispatcher is where those stop."""
+    await seed_agent("napping", enabled=False)
+    await disp.agents.reload()
+    rid = await make_run(sf, agent="napping")
+    await disp.handle({"type": "run", "run_id": rid})
+    assert disp.launcher.launched == []
+    async with sf() as s:
+        run = await s.get(Run, rid)
+    assert run.state == RunState.REJECTED and run.error == "agent is disabled"
+
 async def test_launch_failure_goes_dlq(sf, disp):
     disp.launcher.fail_next = True
     rid = await make_run(sf)
