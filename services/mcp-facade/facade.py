@@ -176,7 +176,7 @@ def caller_auth_headers(request) -> dict:
 # its own — a denylist that strips `authorization` (hence this hook) but NOT
 # `cookie`, and the API's authenticate() tries the session cookie BEFORE the
 # bearer. A reader-scoped key plus a stray browser `ap_session` cookie would
-# therefore have been admin on all 91 tools. So this is an ALLOWLIST: the
+# therefore have been admin on every tool. So this is an ALLOWLIST: the
 # bearer is forwarded, everything else the caller sent is deleted, and only the
 # transport headers httpx/the body need survive.
 FORWARDED_HEADERS = frozenset({"authorization"})
