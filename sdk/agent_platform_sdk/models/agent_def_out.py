@@ -10,7 +10,7 @@ from typing_extensions import Self
 from ..types import UNSET, Unset
 
 if TYPE_CHECKING:
-    from ..models.entrypoints_out import EntrypointsOut
+    from ..models.agent_def_out_entrypoints import AgentDefOutEntrypoints
 
 
 T = TypeVar("T", bound="AgentDefOut")
@@ -26,7 +26,7 @@ class AgentDefOut:
         concurrency (int | Unset):  Default: 1.
         description (str | Unset):  Default: ''.
         enabled (bool | Unset):  Default: True.
-        entrypoints (EntrypointsOut | Unset):
+        entrypoints (AgentDefOutEntrypoints | Unset):
         harness_tools (list[str] | Unset):
         model (str | Unset):  Default: ''.
         platform_tools (list[str] | Unset):
@@ -45,7 +45,7 @@ class AgentDefOut:
     concurrency: int | Unset = 1
     description: str | Unset = ""
     enabled: bool | Unset = True
-    entrypoints: EntrypointsOut | Unset = UNSET
+    entrypoints: AgentDefOutEntrypoints | Unset = UNSET
     harness_tools: list[str] | Unset = UNSET
     model: str | Unset = ""
     platform_tools: list[str] | Unset = UNSET
@@ -152,7 +152,7 @@ class AgentDefOut:
 
     @classmethod
     def from_dict(cls, src_dict: Mapping[str, Any]) -> Self:
-        from ..models.entrypoints_out import EntrypointsOut
+        from ..models.agent_def_out_entrypoints import AgentDefOutEntrypoints
 
         d = dict(src_dict)
         name = d.pop("name")
@@ -166,11 +166,11 @@ class AgentDefOut:
         enabled = d.pop("enabled", UNSET)
 
         _entrypoints = d.pop("entrypoints", UNSET)
-        entrypoints: EntrypointsOut | Unset
+        entrypoints: AgentDefOutEntrypoints | Unset
         if isinstance(_entrypoints, Unset):
             entrypoints = UNSET
         else:
-            entrypoints = EntrypointsOut.from_dict(_entrypoints)
+            entrypoints = AgentDefOutEntrypoints.from_dict(_entrypoints)
 
         harness_tools = cast(list[str], d.pop("harness_tools", UNSET))
 

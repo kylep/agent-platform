@@ -7,52 +7,29 @@ from attrs import define as _attrs_define
 from attrs import field as _attrs_field
 from typing_extensions import Self
 
-from ..types import UNSET, Unset
-
-T = TypeVar("T", bound="CronEntryOut")
+T = TypeVar("T", bound="AgentSummaryEntrypoints")
 
 
 @_attrs_define
-class CronEntryOut:
-    """
-    Attributes:
-        prompt (str | Unset):  Default: ''.
-        schedule (str | Unset):  Default: ''.
-    """
+class AgentSummaryEntrypoints:
+    """ """
 
-    prompt: str | Unset = ""
-    schedule: str | Unset = ""
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
-        prompt = self.prompt
-
-        schedule = self.schedule
 
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
-        field_dict.update({})
-        if prompt is not UNSET:
-            field_dict["prompt"] = prompt
-        if schedule is not UNSET:
-            field_dict["schedule"] = schedule
 
         return field_dict
 
     @classmethod
     def from_dict(cls, src_dict: Mapping[str, Any]) -> Self:
         d = dict(src_dict)
-        prompt = d.pop("prompt", UNSET)
+        agent_summary_entrypoints = cls()
 
-        schedule = d.pop("schedule", UNSET)
-
-        cron_entry_out = cls(
-            prompt=prompt,
-            schedule=schedule,
-        )
-
-        cron_entry_out.additional_properties = d
-        return cron_entry_out
+        agent_summary_entrypoints.additional_properties = d
+        return agent_summary_entrypoints
 
     @property
     def additional_keys(self) -> list[str]:

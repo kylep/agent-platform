@@ -69,22 +69,6 @@ class EntrypointsIn(agentdefs.EntrypointsModel):
     webhooks: list[WebhookEntryIn] = []
 
 
-class CronEntryOut(BaseModel):
-    schedule: str = ""
-    prompt: str = ""
-
-
-class WebhookEntryOut(BaseModel):
-    path: str = ""
-
-
-class EntrypointsOut(BaseModel):
-    crons: list[CronEntryOut] = []
-    webhooks: list[WebhookEntryOut] = []
-    topics: list[str] = []
-    timezone: str = ""
-
-
 class AgentDefIn(BaseModel):
     """A complete agent definition on the wire. PUT replaces the whole
     definition, so an omitted field RESETS to the default shown here rather
@@ -134,7 +118,13 @@ class AgentDefOut(BaseModel):
     platform_tools: list[str] = []
     skills: list[str] = []
     secrets: list[str] = []
-    entrypoints: EntrypointsOut = EntrypointsOut()
+    # The column verbatim, NOT a typed mirror. Tolerance on the way out is only
+    # worth anything if it goes all the way down: a row whose entrypoints blob
+    # has the wrong SHAPE (raw SQL, a foreign dump, a bad migration) would 500
+    # the very GET you need to see the damage, and the editor's PUT — which
+    # replaces the blob wholesale — is exactly the repair. The write side is
+    # still strict: `AgentDefIn.entrypoints` is the validated shape.
+    entrypoints: dict = {}
     enabled: bool = True
 
 

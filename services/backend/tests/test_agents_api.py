@@ -108,6 +108,39 @@ async def test_list_still_renders_a_quarantined_row(admin_client, sf, agent_stor
     assert detail.status_code == 200 and detail.json()["role"] == "superuser"
 
 
+async def test_a_shape_broken_entrypoints_row_still_renders(admin_client, sf, agent_store):
+    """The same rule one level down. `entrypoints` is a JSON blob, so a bad
+    WRITE is not the only way it goes wrong — a hand-run UPDATE, a restore from
+    a foreign dump, or a future migration can leave a row whose blob is not the
+    four-key shape at all. If the response model validated it, the GET that
+    shows you the damage would 500 and the only repair left would be more raw
+    SQL. So `AgentDefOut.entrypoints` is a plain dict: whatever is in the
+    column comes back verbatim, and the editor can overwrite it."""
+    async with sf() as s:
+        s.add(AgentDef(name="warped", entrypoints={"crons": "0 9 * * *",
+                                                   "webhooks": [{"path": 7}],
+                                                   "surprise": True}))
+        await s.commit()
+    await agent_store.reload()
+    detail = await admin_client.get("/api/agents/warped")
+    assert detail.status_code == 200
+    assert detail.json()["entrypoints"] == {"crons": "0 9 * * *",
+                                            "webhooks": [{"path": 7}],
+                                            "surprise": True}
+    rows = {a["name"]: a for a in (await admin_client.get("/api/agents")).json()}
+    assert rows["warped"]["quarantined"] is True
+    assert rows["warped"]["entrypoints"]["surprise"] is True
+    # And the repair works: a well-formed PUT replaces the blob wholesale.
+    fixed = await admin_client.put("/api/agents/warped", json=a_def(
+        "warped", prompt="", entrypoints={"crons": [{"schedule": "0 9 * * *",
+                                                     "prompt": ""}],
+                                          "webhooks": [], "topics": [],
+                                          "timezone": ""}))
+    assert fixed.status_code == 200
+    assert fixed.json()["entrypoints"]["crons"] == [{"schedule": "0 9 * * *",
+                                                     "prompt": ""}]
+
+
 async def test_get_returns_the_definition(admin_client):
     r = await admin_client.get("/api/agents/hello-world")
     assert r.status_code == 200

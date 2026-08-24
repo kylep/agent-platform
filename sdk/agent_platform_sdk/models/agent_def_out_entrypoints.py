@@ -7,43 +7,29 @@ from attrs import define as _attrs_define
 from attrs import field as _attrs_field
 from typing_extensions import Self
 
-from ..types import UNSET, Unset
-
-T = TypeVar("T", bound="WebhookEntryOut")
+T = TypeVar("T", bound="AgentDefOutEntrypoints")
 
 
 @_attrs_define
-class WebhookEntryOut:
-    """
-    Attributes:
-        path (str | Unset):  Default: ''.
-    """
+class AgentDefOutEntrypoints:
+    """ """
 
-    path: str | Unset = ""
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
-        path = self.path
 
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
-        field_dict.update({})
-        if path is not UNSET:
-            field_dict["path"] = path
 
         return field_dict
 
     @classmethod
     def from_dict(cls, src_dict: Mapping[str, Any]) -> Self:
         d = dict(src_dict)
-        path = d.pop("path", UNSET)
+        agent_def_out_entrypoints = cls()
 
-        webhook_entry_out = cls(
-            path=path,
-        )
-
-        webhook_entry_out.additional_properties = d
-        return webhook_entry_out
+        agent_def_out_entrypoints.additional_properties = d
+        return agent_def_out_entrypoints
 
     @property
     def additional_keys(self) -> list[str]:

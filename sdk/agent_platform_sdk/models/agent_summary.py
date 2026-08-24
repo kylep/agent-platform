@@ -10,7 +10,7 @@ from typing_extensions import Self
 from ..types import UNSET, Unset
 
 if TYPE_CHECKING:
-    from ..models.entrypoints_out import EntrypointsOut
+    from ..models.agent_summary_entrypoints import AgentSummaryEntrypoints
 
 
 T = TypeVar("T", bound="AgentSummary")
@@ -30,7 +30,7 @@ class AgentSummary:
             concurrency (int | Unset):  Default: 1.
             description (str | Unset):  Default: ''.
             enabled (bool | Unset):  Default: True.
-            entrypoints (EntrypointsOut | Unset):
+            entrypoints (AgentSummaryEntrypoints | Unset):
             error (None | str | Unset):
             harness_tools (list[str] | Unset):
             model (str | Unset):  Default: ''.
@@ -54,7 +54,7 @@ class AgentSummary:
     concurrency: int | Unset = 1
     description: str | Unset = ""
     enabled: bool | Unset = True
-    entrypoints: EntrypointsOut | Unset = UNSET
+    entrypoints: AgentSummaryEntrypoints | Unset = UNSET
     error: None | str | Unset = UNSET
     harness_tools: list[str] | Unset = UNSET
     model: str | Unset = ""
@@ -192,7 +192,7 @@ class AgentSummary:
 
     @classmethod
     def from_dict(cls, src_dict: Mapping[str, Any]) -> Self:
-        from ..models.entrypoints_out import EntrypointsOut
+        from ..models.agent_summary_entrypoints import AgentSummaryEntrypoints
 
         d = dict(src_dict)
         name = d.pop("name")
@@ -217,11 +217,11 @@ class AgentSummary:
         enabled = d.pop("enabled", UNSET)
 
         _entrypoints = d.pop("entrypoints", UNSET)
-        entrypoints: EntrypointsOut | Unset
+        entrypoints: AgentSummaryEntrypoints | Unset
         if isinstance(_entrypoints, Unset):
             entrypoints = UNSET
         else:
-            entrypoints = EntrypointsOut.from_dict(_entrypoints)
+            entrypoints = AgentSummaryEntrypoints.from_dict(_entrypoints)
 
         def _parse_error(data: object) -> None | str | Unset:
             if data is None:
