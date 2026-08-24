@@ -198,15 +198,3 @@ def mutate_agent_md(text: str, *, tools: list[str] | None = None,
     ordered.update({k: v for k, v in fm.items() if k not in order})
     front = yaml.safe_dump(ordered, sort_keys=False, default_flow_style=False).strip()
     return f"---\n{front}\n---\n{body.strip()}\n"
-
-
-def parse_agent_tools(text: str) -> list[str] | None:
-    """The tools an `agent.md` declares, or None when it has no `tools:` line
-    (meaning: all tools). A present-but-empty line yields []."""
-    fm, _ = parse_frontmatter(text)
-    if "tools" not in fm:
-        return None
-    raw = fm["tools"]
-    if isinstance(raw, list):
-        return [str(t).strip() for t in raw if str(t).strip()]
-    return [t.strip() for t in str(raw).split(",") if t.strip()]

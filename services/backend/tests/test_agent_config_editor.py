@@ -6,15 +6,27 @@ import yaml
 
 from agentplatform.agents import AgentStore
 from agentplatform.agentspec import (AVAILABLE_TOOLS, mutate_agent_md,
-                                     mutate_manifest_yaml, parse_agent_tools,
-                                     render_agent_md, render_manifest,
-                                     validate_agent_name)
+                                     mutate_manifest_yaml, render_agent_md,
+                                     render_manifest, validate_agent_name)
 from agentplatform.api.app import create_app
 from agentplatform.config import Settings
 from agentplatform.events import FakeProducer
 from agentplatform.secrets import InMemorySecretStore
 from agentplatform.skills import SkillStore
 from agentplatform.tiers import (TIER_DIRECT, TIER_PR, FileChange, classify_tier)
+
+
+def _tools_line(md: str) -> list[str] | None:
+    """The `tools:` names a rendered agent.md carries, or None when it has no
+    such line (the file convention for "all tools"). Local to these renderer
+    tests: the PLATFORM no longer reads tools out of an agent.md — grants are
+    agent_defs columns (docs/design/15) — so this read-back belongs with the
+    file-shape helpers under test, not in agentspec."""
+    from agentplatform.skills import parse_frontmatter
+    fm, _ = parse_frontmatter(md)
+    if "tools" not in fm:
+        return None
+    return [t.strip() for t in str(fm["tools"]).split(",") if t.strip()]
 
 
 def git(cwd, *args):
@@ -40,7 +52,7 @@ def test_render_agent_md_all_tools_omits_line():
 
 def test_render_agent_md_subset_writes_list():
     md = render_agent_md("bob", "d", ["Bash", "Read"], "body")
-    assert parse_agent_tools(md) == ["Bash", "Read"]
+    assert _tools_line(md) == ["Bash", "Read"]
 
 
 def test_render_agent_md_empty_selection_is_unrestricted():
@@ -83,7 +95,7 @@ def test_mutate_agent_md_semantic_noop_returns_original_verbatim():
 def test_mutate_agent_md_updates_tools_keeps_body():
     md = "---\nname: bob\ndescription: d\ntools: Bash\n---\nYou are bob.\n"
     out = mutate_agent_md(md, tools=["Bash", "Read"])
-    assert parse_agent_tools(out) == ["Bash", "Read"]
+    assert _tools_line(out) == ["Bash", "Read"]
     assert "You are bob." in out
     fm = yaml.safe_load(out.split("---")[1])
     assert fm["name"] == "bob"                      # name preserved
@@ -91,11 +103,7 @@ def test_mutate_agent_md_updates_tools_keeps_body():
 
 def test_mutate_agent_md_all_tools_removes_line():
     md = "---\nname: bob\ndescription: d\ntools: Bash\n---\nbody\n"
-    assert parse_agent_tools(mutate_agent_md(md, tools=AVAILABLE_TOOLS)) is None
-
-
-def test_parse_agent_tools_no_line_is_none():
-    assert parse_agent_tools("---\nname: bob\n---\nbody") is None
+    assert _tools_line(mutate_agent_md(md, tools=AVAILABLE_TOOLS)) is None
 
 
 def test_mcp_broker_tools_are_selectable():
@@ -112,7 +120,7 @@ def test_mutate_agent_md_keeps_unknown_tools():
     md = ("---\nname: bob\ndescription: d\n"
           "tools: mcp__platform__runs_read, mcp__future__whatever\n---\nbody\n")
     out = mutate_agent_md(md, description="new")
-    assert parse_agent_tools(out) == ["mcp__platform__runs_read",
+    assert _tools_line(out) == ["mcp__platform__runs_read",
                                       "mcp__future__whatever"]
 
 
@@ -120,7 +128,7 @@ def test_tools_line_never_silently_widens_to_unrestricted():
     """A selection of only-unknown tools must still restrict, not omit."""
     md = "---\nname: bob\ndescription: d\ntools: Bash\n---\nbody\n"
     out = mutate_agent_md(md, tools=["mcp__future__whatever"])
-    assert parse_agent_tools(out) == ["mcp__future__whatever"]
+    assert _tools_line(out) == ["mcp__future__whatever"]
 
 
 # --- tier classification ----------------------------------------------------
@@ -215,7 +223,7 @@ async def test_create_agent_opens_pr_branch(sh_client):
     body = r.json()
     assert body["tier"] == TIER_PR and body["branch"] == "coder/agent-newbie"
     md = _show(sh["bare"], "coder/agent-newbie", "agents/newbie/agent.md")
-    assert parse_agent_tools(md) == ["Bash", "Read"]
+    assert _tools_line(md) == ["Bash", "Read"]
     manifest = yaml.safe_load(_show(sh["bare"], "coder/agent-newbie", "agents/newbie/manifest.yaml"))
     assert manifest["skills"] == ["git"] and manifest["description"] == "a new one"
 
@@ -246,7 +254,7 @@ async def test_edit_config_opens_pr(sh_client):
     manifest = yaml.safe_load(_show(sh["bare"], "coder/agent-demo", "agents/demo/manifest.yaml"))
     assert manifest["skills"] == ["git"]
     md = _show(sh["bare"], "coder/agent-demo", "agents/demo/agent.md")
-    assert set(parse_agent_tools(md)) == {"Bash", "Read", "Edit"}
+    assert set(_tools_line(md)) == {"Bash", "Read", "Edit"}
 
 
 async def test_edit_config_noop_is_tier0(sh_client):
