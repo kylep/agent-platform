@@ -7,43 +7,52 @@ from attrs import define as _attrs_define
 from attrs import field as _attrs_field
 from typing_extensions import Self
 
-T = TypeVar("T", bound="WebhookEntry")
+from ..types import UNSET, Unset
+
+T = TypeVar("T", bound="CronEntryOut")
 
 
 @_attrs_define
-class WebhookEntry:
+class CronEntryOut:
     """
     Attributes:
-        path (str):
+        prompt (str | Unset):  Default: ''.
+        schedule (str | Unset):  Default: ''.
     """
 
-    path: str
+    prompt: str | Unset = ""
+    schedule: str | Unset = ""
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
-        path = self.path
+        prompt = self.prompt
+
+        schedule = self.schedule
 
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
-        field_dict.update(
-            {
-                "path": path,
-            }
-        )
+        field_dict.update({})
+        if prompt is not UNSET:
+            field_dict["prompt"] = prompt
+        if schedule is not UNSET:
+            field_dict["schedule"] = schedule
 
         return field_dict
 
     @classmethod
     def from_dict(cls, src_dict: Mapping[str, Any]) -> Self:
         d = dict(src_dict)
-        path = d.pop("path")
+        prompt = d.pop("prompt", UNSET)
 
-        webhook_entry = cls(
-            path=path,
+        schedule = d.pop("schedule", UNSET)
+
+        cron_entry_out = cls(
+            prompt=prompt,
+            schedule=schedule,
         )
 
-        webhook_entry.additional_properties = d
-        return webhook_entry
+        cron_entry_out.additional_properties = d
+        return cron_entry_out
 
     @property
     def additional_keys(self) -> list[str]:

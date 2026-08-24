@@ -5,15 +5,15 @@ import httpx
 
 from ... import errors
 from ...client import AuthenticatedClient, Client
-from ...models.create_agent_in import CreateAgentIn
-from ...models.edit_result import EditResult
+from ...models.agent_create_in import AgentCreateIn
+from ...models.agent_def_out import AgentDefOut
 from ...models.http_validation_error import HTTPValidationError
 from ...types import Response
 
 
 def _get_kwargs(
     *,
-    body: CreateAgentIn,
+    body: AgentCreateIn,
 ) -> dict[str, Any]:
     headers: dict[str, Any] = {}
 
@@ -32,9 +32,9 @@ def _get_kwargs(
 
 def _parse_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> EditResult | HTTPValidationError | None:
+) -> AgentDefOut | HTTPValidationError | None:
     if response.status_code == 201:
-        response_201 = EditResult.from_dict(response.json())
+        response_201 = AgentDefOut.from_dict(response.json())
 
         return response_201
 
@@ -51,7 +51,7 @@ def _parse_response(
 
 def _build_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> Response[EditResult | HTTPValidationError]:
+) -> Response[AgentDefOut | HTTPValidationError]:
     return Response(
         status_code=HTTPStatus(response.status_code),
         content=response.content,
@@ -63,22 +63,28 @@ def _build_response(
 def sync_detailed(
     *,
     client: AuthenticatedClient | Client,
-    body: CreateAgentIn,
-) -> Response[EditResult | HTTPValidationError]:
+    body: AgentCreateIn,
+) -> Response[AgentDefOut | HTTPValidationError]:
     """Create Agent
 
-     Create a new agent from the wizard: render its manifest.yaml + agent.md
-    and open a pull request (new files are always Tier 2 / review-gated).
+     Create an agent. It exists — and runs, if the definition declares an
+    entrypoint — the moment this returns; there is no merge to wait for.
+
+    Creating WITH grants needs `agents_grant` for the same reason editing them
+    does: otherwise `agents_edit` escalates through the side door by minting a
+    new agent that already holds the keys.
 
     Args:
-        body (CreateAgentIn):
+        body (AgentCreateIn): Create/import payload — same definition, but the name is the one
+            thing
+            that cannot be defaulted.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[EditResult | HTTPValidationError]
+        Response[AgentDefOut | HTTPValidationError]
     """
 
     kwargs = _get_kwargs(
@@ -95,22 +101,28 @@ def sync_detailed(
 def sync(
     *,
     client: AuthenticatedClient | Client,
-    body: CreateAgentIn,
-) -> EditResult | HTTPValidationError | None:
+    body: AgentCreateIn,
+) -> AgentDefOut | HTTPValidationError | None:
     """Create Agent
 
-     Create a new agent from the wizard: render its manifest.yaml + agent.md
-    and open a pull request (new files are always Tier 2 / review-gated).
+     Create an agent. It exists — and runs, if the definition declares an
+    entrypoint — the moment this returns; there is no merge to wait for.
+
+    Creating WITH grants needs `agents_grant` for the same reason editing them
+    does: otherwise `agents_edit` escalates through the side door by minting a
+    new agent that already holds the keys.
 
     Args:
-        body (CreateAgentIn):
+        body (AgentCreateIn): Create/import payload — same definition, but the name is the one
+            thing
+            that cannot be defaulted.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        EditResult | HTTPValidationError
+        AgentDefOut | HTTPValidationError
     """
 
     return sync_detailed(
@@ -122,22 +134,28 @@ def sync(
 async def asyncio_detailed(
     *,
     client: AuthenticatedClient | Client,
-    body: CreateAgentIn,
-) -> Response[EditResult | HTTPValidationError]:
+    body: AgentCreateIn,
+) -> Response[AgentDefOut | HTTPValidationError]:
     """Create Agent
 
-     Create a new agent from the wizard: render its manifest.yaml + agent.md
-    and open a pull request (new files are always Tier 2 / review-gated).
+     Create an agent. It exists — and runs, if the definition declares an
+    entrypoint — the moment this returns; there is no merge to wait for.
+
+    Creating WITH grants needs `agents_grant` for the same reason editing them
+    does: otherwise `agents_edit` escalates through the side door by minting a
+    new agent that already holds the keys.
 
     Args:
-        body (CreateAgentIn):
+        body (AgentCreateIn): Create/import payload — same definition, but the name is the one
+            thing
+            that cannot be defaulted.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[EditResult | HTTPValidationError]
+        Response[AgentDefOut | HTTPValidationError]
     """
 
     kwargs = _get_kwargs(
@@ -152,22 +170,28 @@ async def asyncio_detailed(
 async def asyncio(
     *,
     client: AuthenticatedClient | Client,
-    body: CreateAgentIn,
-) -> EditResult | HTTPValidationError | None:
+    body: AgentCreateIn,
+) -> AgentDefOut | HTTPValidationError | None:
     """Create Agent
 
-     Create a new agent from the wizard: render its manifest.yaml + agent.md
-    and open a pull request (new files are always Tier 2 / review-gated).
+     Create an agent. It exists — and runs, if the definition declares an
+    entrypoint — the moment this returns; there is no merge to wait for.
+
+    Creating WITH grants needs `agents_grant` for the same reason editing them
+    does: otherwise `agents_edit` escalates through the side door by minting a
+    new agent that already holds the keys.
 
     Args:
-        body (CreateAgentIn):
+        body (AgentCreateIn): Create/import payload — same definition, but the name is the one
+            thing
+            that cannot be defaulted.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        EditResult | HTTPValidationError
+        AgentDefOut | HTTPValidationError
     """
 
     return (

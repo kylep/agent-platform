@@ -16,7 +16,7 @@ def _get_kwargs(
 ) -> dict[str, Any]:
 
     _kwargs: dict[str, Any] = {
-        "method": "get",
+        "method": "delete",
         "url": "/api/agents/{name}".format(
             name=quote(str(name), safe=""),
         ),
@@ -60,7 +60,12 @@ def sync_detailed(
     *,
     client: AuthenticatedClient | Client,
 ) -> Response[AgentDefOut | HTTPValidationError]:
-    """Get Agent
+    """Delete Agent
+
+     Delete an agent's definition. Its runs, memories and change log survive
+    (the log is append-only and outlives the row, so a deleted agent can still
+    be read back from its last snapshot). System agents are platform-internal
+    and refuse deletion.
 
     Args:
         name (str):
@@ -89,7 +94,12 @@ def sync(
     *,
     client: AuthenticatedClient | Client,
 ) -> AgentDefOut | HTTPValidationError | None:
-    """Get Agent
+    """Delete Agent
+
+     Delete an agent's definition. Its runs, memories and change log survive
+    (the log is append-only and outlives the row, so a deleted agent can still
+    be read back from its last snapshot). System agents are platform-internal
+    and refuse deletion.
 
     Args:
         name (str):
@@ -113,7 +123,12 @@ async def asyncio_detailed(
     *,
     client: AuthenticatedClient | Client,
 ) -> Response[AgentDefOut | HTTPValidationError]:
-    """Get Agent
+    """Delete Agent
+
+     Delete an agent's definition. Its runs, memories and change log survive
+    (the log is append-only and outlives the row, so a deleted agent can still
+    be read back from its last snapshot). System agents are platform-internal
+    and refuse deletion.
 
     Args:
         name (str):
@@ -140,7 +155,12 @@ async def asyncio(
     *,
     client: AuthenticatedClient | Client,
 ) -> AgentDefOut | HTTPValidationError | None:
-    """Get Agent
+    """Delete Agent
+
+     Delete an agent's definition. Its runs, memories and change log survive
+    (the log is append-only and outlives the row, so a deleted agent can still
+    be read back from its last snapshot). System agents are platform-internal
+    and refuse deletion.
 
     Args:
         name (str):

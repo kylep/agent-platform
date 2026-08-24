@@ -1,30 +1,36 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import Any, TypeVar, cast
+from typing import TYPE_CHECKING, Any, TypeVar, cast
 
 from attrs import define as _attrs_define
-from attrs import field as _attrs_field
 from typing_extensions import Self
 
 from ..types import UNSET, Unset
 
-T = TypeVar("T", bound="Manifest")
+if TYPE_CHECKING:
+    from ..models.entrypoints_in import EntrypointsIn
+
+
+T = TypeVar("T", bound="AgentCreateIn")
 
 
 @_attrs_define
-class Manifest:
-    """An agent's runtime config as the dispatcher, launcher and readiness gate
-    consume it. A strict projection of the row — every field here is a column
-    of the same name (`_manifest_of` relies on that) — kept as its own model
-    because `Launcher.launch(run, manifest)` is the contract those components
-    were built against.
+class AgentCreateIn:
+    """Create/import payload — same definition, but the name is the one thing
+    that cannot be defaulted.
 
         Attributes:
+            name (str):
             can_invoke (bool | Unset):  Default: False.
             concurrency (int | Unset):  Default: 1.
             description (str | Unset):  Default: ''.
+            enabled (bool | Unset):  Default: True.
+            entrypoints (EntrypointsIn | Unset):
+            harness_tools (list[str] | Unset):
             model (str | Unset):  Default: ''.
+            platform_tools (list[str] | Unset):
+            prompt (str | Unset):  Default: ''.
             result_topic (str | Unset):  Default: ''.
             role (str | Unset):  Default: 'operator'.
             secrets (list[str] | Unset):
@@ -34,10 +40,16 @@ class Manifest:
             transcript_retention_days (int | None | Unset):
     """
 
+    name: str
     can_invoke: bool | Unset = False
     concurrency: int | Unset = 1
     description: str | Unset = ""
+    enabled: bool | Unset = True
+    entrypoints: EntrypointsIn | Unset = UNSET
+    harness_tools: list[str] | Unset = UNSET
     model: str | Unset = ""
+    platform_tools: list[str] | Unset = UNSET
+    prompt: str | Unset = ""
     result_topic: str | Unset = ""
     role: str | Unset = "operator"
     secrets: list[str] | Unset = UNSET
@@ -45,16 +57,33 @@ class Manifest:
     system: bool | Unset = False
     timeout_seconds: int | Unset = 1800
     transcript_retention_days: int | None | Unset = UNSET
-    additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
+        name = self.name
+
         can_invoke = self.can_invoke
 
         concurrency = self.concurrency
 
         description = self.description
 
+        enabled = self.enabled
+
+        entrypoints: dict[str, Any] | Unset = UNSET
+        if not isinstance(self.entrypoints, Unset):
+            entrypoints = self.entrypoints.to_dict()
+
+        harness_tools: list[str] | Unset = UNSET
+        if not isinstance(self.harness_tools, Unset):
+            harness_tools = self.harness_tools
+
         model = self.model
+
+        platform_tools: list[str] | Unset = UNSET
+        if not isinstance(self.platform_tools, Unset):
+            platform_tools = self.platform_tools
+
+        prompt = self.prompt
 
         result_topic = self.result_topic
 
@@ -79,16 +108,30 @@ class Manifest:
             transcript_retention_days = self.transcript_retention_days
 
         field_dict: dict[str, Any] = {}
-        field_dict.update(self.additional_properties)
-        field_dict.update({})
+
+        field_dict.update(
+            {
+                "name": name,
+            }
+        )
         if can_invoke is not UNSET:
             field_dict["can_invoke"] = can_invoke
         if concurrency is not UNSET:
             field_dict["concurrency"] = concurrency
         if description is not UNSET:
             field_dict["description"] = description
+        if enabled is not UNSET:
+            field_dict["enabled"] = enabled
+        if entrypoints is not UNSET:
+            field_dict["entrypoints"] = entrypoints
+        if harness_tools is not UNSET:
+            field_dict["harness_tools"] = harness_tools
         if model is not UNSET:
             field_dict["model"] = model
+        if platform_tools is not UNSET:
+            field_dict["platform_tools"] = platform_tools
+        if prompt is not UNSET:
+            field_dict["prompt"] = prompt
         if result_topic is not UNSET:
             field_dict["result_topic"] = result_topic
         if role is not UNSET:
@@ -108,14 +151,33 @@ class Manifest:
 
     @classmethod
     def from_dict(cls, src_dict: Mapping[str, Any]) -> Self:
+        from ..models.entrypoints_in import EntrypointsIn
+
         d = dict(src_dict)
+        name = d.pop("name")
+
         can_invoke = d.pop("can_invoke", UNSET)
 
         concurrency = d.pop("concurrency", UNSET)
 
         description = d.pop("description", UNSET)
 
+        enabled = d.pop("enabled", UNSET)
+
+        _entrypoints = d.pop("entrypoints", UNSET)
+        entrypoints: EntrypointsIn | Unset
+        if isinstance(_entrypoints, Unset):
+            entrypoints = UNSET
+        else:
+            entrypoints = EntrypointsIn.from_dict(_entrypoints)
+
+        harness_tools = cast(list[str], d.pop("harness_tools", UNSET))
+
         model = d.pop("model", UNSET)
+
+        platform_tools = cast(list[str], d.pop("platform_tools", UNSET))
+
+        prompt = d.pop("prompt", UNSET)
 
         result_topic = d.pop("result_topic", UNSET)
 
@@ -140,11 +202,17 @@ class Manifest:
             d.pop("transcript_retention_days", UNSET)
         )
 
-        manifest = cls(
+        agent_create_in = cls(
+            name=name,
             can_invoke=can_invoke,
             concurrency=concurrency,
             description=description,
+            enabled=enabled,
+            entrypoints=entrypoints,
+            harness_tools=harness_tools,
             model=model,
+            platform_tools=platform_tools,
+            prompt=prompt,
             result_topic=result_topic,
             role=role,
             secrets=secrets,
@@ -154,21 +222,4 @@ class Manifest:
             transcript_retention_days=transcript_retention_days,
         )
 
-        manifest.additional_properties = d
-        return manifest
-
-    @property
-    def additional_keys(self) -> list[str]:
-        return list(self.additional_properties.keys())
-
-    def __getitem__(self, key: str) -> Any:
-        return self.additional_properties[key]
-
-    def __setitem__(self, key: str, value: Any) -> None:
-        self.additional_properties[key] = value
-
-    def __delitem__(self, key: str) -> None:
-        del self.additional_properties[key]
-
-    def __contains__(self, key: str) -> bool:
-        return key in self.additional_properties
+        return agent_create_in

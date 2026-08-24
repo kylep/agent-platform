@@ -7,51 +7,29 @@ from attrs import define as _attrs_define
 from attrs import field as _attrs_field
 from typing_extensions import Self
 
-T = TypeVar("T", bound="QuickEditIn")
+T = TypeVar("T", bound="AgentVersionDetailSnapshot")
 
 
 @_attrs_define
-class QuickEditIn:
-    """
-    Attributes:
-        field (str):
-        value (str):
-    """
+class AgentVersionDetailSnapshot:
+    """ """
 
-    field: str
-    value: str
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
-        field = self.field
-
-        value = self.value
 
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
-        field_dict.update(
-            {
-                "field": field,
-                "value": value,
-            }
-        )
 
         return field_dict
 
     @classmethod
     def from_dict(cls, src_dict: Mapping[str, Any]) -> Self:
         d = dict(src_dict)
-        field = d.pop("field")
+        agent_version_detail_snapshot = cls()
 
-        value = d.pop("value")
-
-        quick_edit_in = cls(
-            field=field,
-            value=value,
-        )
-
-        quick_edit_in.additional_properties = d
-        return quick_edit_in
+        agent_version_detail_snapshot.additional_properties = d
+        return agent_version_detail_snapshot
 
     @property
     def additional_keys(self) -> list[str]:

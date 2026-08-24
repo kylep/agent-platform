@@ -6,8 +6,8 @@ import httpx
 
 from ... import errors
 from ...client import AuthenticatedClient, Client
-from ...models.edit_dispatch import EditDispatch
-from ...models.freeform_edit_in import FreeformEditIn
+from ...models.agent_def_in import AgentDefIn
+from ...models.agent_def_out import AgentDefOut
 from ...models.http_validation_error import HTTPValidationError
 from ...types import Response
 
@@ -15,13 +15,13 @@ from ...types import Response
 def _get_kwargs(
     name: str,
     *,
-    body: FreeformEditIn,
+    body: AgentDefIn,
 ) -> dict[str, Any]:
     headers: dict[str, Any] = {}
 
     _kwargs: dict[str, Any] = {
-        "method": "post",
-        "url": "/api/agents/{name}/edit".format(
+        "method": "put",
+        "url": "/api/agents/{name}".format(
             name=quote(str(name), safe=""),
         ),
     }
@@ -36,11 +36,11 @@ def _get_kwargs(
 
 def _parse_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> EditDispatch | HTTPValidationError | None:
-    if response.status_code == 202:
-        response_202 = EditDispatch.from_dict(response.json())
+) -> AgentDefOut | HTTPValidationError | None:
+    if response.status_code == 200:
+        response_200 = AgentDefOut.from_dict(response.json())
 
-        return response_202
+        return response_200
 
     if response.status_code == 422:
         response_422 = HTTPValidationError.from_dict(response.json())
@@ -55,7 +55,7 @@ def _parse_response(
 
 def _build_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> Response[EditDispatch | HTTPValidationError]:
+) -> Response[AgentDefOut | HTTPValidationError]:
     return Response(
         status_code=HTTPStatus(response.status_code),
         content=response.content,
@@ -68,24 +68,29 @@ def sync_detailed(
     name: str,
     *,
     client: AuthenticatedClient | Client,
-    body: FreeformEditIn,
-) -> Response[EditDispatch | HTTPValidationError]:
-    """Freeform Edit
+    body: AgentDefIn,
+) -> Response[AgentDefOut | HTTPValidationError]:
+    """Update Agent
 
-     Dispatch platform-coder to edit agent `{name}` per a freeform
-    instruction; its changes land as a pull request (see the run's transcript
-    for the PR link). The run flows through the normal dispatcher/runner path.
+     Replace an agent's definition. The body is the WHOLE definition — an
+    omitted field resets to its default — and any `name` in it is ignored: the
+    path identifies the agent, so a payload can never rename or retarget one.
+
+    A save that changes nothing is a no-op: it returns the row and appends no
+    version, because the change log records changes, not visits.
 
     Args:
         name (str):
-        body (FreeformEditIn):
+        body (AgentDefIn): A complete agent definition on the wire. PUT replaces the whole
+            definition, so an omitted field RESETS to the default shown here rather
+            than keeping whatever the row had.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[EditDispatch | HTTPValidationError]
+        Response[AgentDefOut | HTTPValidationError]
     """
 
     kwargs = _get_kwargs(
@@ -104,24 +109,29 @@ def sync(
     name: str,
     *,
     client: AuthenticatedClient | Client,
-    body: FreeformEditIn,
-) -> EditDispatch | HTTPValidationError | None:
-    """Freeform Edit
+    body: AgentDefIn,
+) -> AgentDefOut | HTTPValidationError | None:
+    """Update Agent
 
-     Dispatch platform-coder to edit agent `{name}` per a freeform
-    instruction; its changes land as a pull request (see the run's transcript
-    for the PR link). The run flows through the normal dispatcher/runner path.
+     Replace an agent's definition. The body is the WHOLE definition — an
+    omitted field resets to its default — and any `name` in it is ignored: the
+    path identifies the agent, so a payload can never rename or retarget one.
+
+    A save that changes nothing is a no-op: it returns the row and appends no
+    version, because the change log records changes, not visits.
 
     Args:
         name (str):
-        body (FreeformEditIn):
+        body (AgentDefIn): A complete agent definition on the wire. PUT replaces the whole
+            definition, so an omitted field RESETS to the default shown here rather
+            than keeping whatever the row had.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        EditDispatch | HTTPValidationError
+        AgentDefOut | HTTPValidationError
     """
 
     return sync_detailed(
@@ -135,24 +145,29 @@ async def asyncio_detailed(
     name: str,
     *,
     client: AuthenticatedClient | Client,
-    body: FreeformEditIn,
-) -> Response[EditDispatch | HTTPValidationError]:
-    """Freeform Edit
+    body: AgentDefIn,
+) -> Response[AgentDefOut | HTTPValidationError]:
+    """Update Agent
 
-     Dispatch platform-coder to edit agent `{name}` per a freeform
-    instruction; its changes land as a pull request (see the run's transcript
-    for the PR link). The run flows through the normal dispatcher/runner path.
+     Replace an agent's definition. The body is the WHOLE definition — an
+    omitted field resets to its default — and any `name` in it is ignored: the
+    path identifies the agent, so a payload can never rename or retarget one.
+
+    A save that changes nothing is a no-op: it returns the row and appends no
+    version, because the change log records changes, not visits.
 
     Args:
         name (str):
-        body (FreeformEditIn):
+        body (AgentDefIn): A complete agent definition on the wire. PUT replaces the whole
+            definition, so an omitted field RESETS to the default shown here rather
+            than keeping whatever the row had.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[EditDispatch | HTTPValidationError]
+        Response[AgentDefOut | HTTPValidationError]
     """
 
     kwargs = _get_kwargs(
@@ -169,24 +184,29 @@ async def asyncio(
     name: str,
     *,
     client: AuthenticatedClient | Client,
-    body: FreeformEditIn,
-) -> EditDispatch | HTTPValidationError | None:
-    """Freeform Edit
+    body: AgentDefIn,
+) -> AgentDefOut | HTTPValidationError | None:
+    """Update Agent
 
-     Dispatch platform-coder to edit agent `{name}` per a freeform
-    instruction; its changes land as a pull request (see the run's transcript
-    for the PR link). The run flows through the normal dispatcher/runner path.
+     Replace an agent's definition. The body is the WHOLE definition — an
+    omitted field resets to its default — and any `name` in it is ignored: the
+    path identifies the agent, so a payload can never rename or retarget one.
+
+    A save that changes nothing is a no-op: it returns the row and appends no
+    version, because the change log records changes, not visits.
 
     Args:
         name (str):
-        body (FreeformEditIn):
+        body (AgentDefIn): A complete agent definition on the wire. PUT replaces the whole
+            definition, so an omitted field RESETS to the default shown here rather
+            than keeping whatever the row had.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        EditDispatch | HTTPValidationError
+        AgentDefOut | HTTPValidationError
     """
 
     return (

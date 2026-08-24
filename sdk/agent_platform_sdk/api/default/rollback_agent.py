@@ -6,39 +6,32 @@ import httpx
 
 from ... import errors
 from ...client import AuthenticatedClient, Client
-from ...models.edit_result import EditResult
+from ...models.agent_def_out import AgentDefOut
 from ...models.http_validation_error import HTTPValidationError
-from ...models.quick_edit_in import QuickEditIn
 from ...types import Response
 
 
 def _get_kwargs(
     name: str,
-    *,
-    body: QuickEditIn,
+    version: int,
 ) -> dict[str, Any]:
-    headers: dict[str, Any] = {}
 
     _kwargs: dict[str, Any] = {
         "method": "post",
-        "url": "/api/agents/{name}/quick-edit".format(
+        "url": "/api/agents/{name}/rollback/{version}".format(
             name=quote(str(name), safe=""),
+            version=quote(str(version), safe=""),
         ),
     }
 
-    _kwargs["json"] = body.to_dict()
-
-    headers["Content-Type"] = "application/json"
-
-    _kwargs["headers"] = headers
     return _kwargs
 
 
 def _parse_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> EditResult | HTTPValidationError | None:
+) -> AgentDefOut | HTTPValidationError | None:
     if response.status_code == 200:
-        response_200 = EditResult.from_dict(response.json())
+        response_200 = AgentDefOut.from_dict(response.json())
 
         return response_200
 
@@ -55,7 +48,7 @@ def _parse_response(
 
 def _build_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> Response[EditResult | HTTPValidationError]:
+) -> Response[AgentDefOut | HTTPValidationError]:
     return Response(
         status_code=HTTPStatus(response.status_code),
         content=response.content,
@@ -66,33 +59,35 @@ def _build_response(
 
 def sync_detailed(
     name: str,
+    version: int,
     *,
     client: AuthenticatedClient | Client,
-    body: QuickEditIn,
-) -> Response[EditResult | HTTPValidationError]:
-    """Quick Edit
+) -> Response[AgentDefOut | HTTPValidationError]:
+    """Rollback Agent
 
-     Deterministic edit that skips the agent: writes the exact agent.md the
-    caller supplies into a fresh clone and ALWAYS opens a pull request — every
-    save is a reviewable pending change on the agent's deterministic branch
-    (`coder/agent-{name}`), accepted or discarded under Changes. (A no-op save
-    still returns tier 0.)
+     Re-apply a logged snapshot as a NEW version. Rollback is a write like
+    any other — the log is append-only, so undoing is recorded rather than
+    erased, and it stays admin-only because it can restore any past grant set.
+
+    The restored definition is re-validated: a snapshot naming a skill or tool
+    the repo has since dropped is a dead grant now, and re-applying it would
+    just quarantine the agent later.
 
     Args:
         name (str):
-        body (QuickEditIn):
+        version (int):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[EditResult | HTTPValidationError]
+        Response[AgentDefOut | HTTPValidationError]
     """
 
     kwargs = _get_kwargs(
         name=name,
-        body=body,
+        version=version,
     )
 
     response = client.get_httpx_client().request(
@@ -104,66 +99,70 @@ def sync_detailed(
 
 def sync(
     name: str,
+    version: int,
     *,
     client: AuthenticatedClient | Client,
-    body: QuickEditIn,
-) -> EditResult | HTTPValidationError | None:
-    """Quick Edit
+) -> AgentDefOut | HTTPValidationError | None:
+    """Rollback Agent
 
-     Deterministic edit that skips the agent: writes the exact agent.md the
-    caller supplies into a fresh clone and ALWAYS opens a pull request — every
-    save is a reviewable pending change on the agent's deterministic branch
-    (`coder/agent-{name}`), accepted or discarded under Changes. (A no-op save
-    still returns tier 0.)
+     Re-apply a logged snapshot as a NEW version. Rollback is a write like
+    any other — the log is append-only, so undoing is recorded rather than
+    erased, and it stays admin-only because it can restore any past grant set.
+
+    The restored definition is re-validated: a snapshot naming a skill or tool
+    the repo has since dropped is a dead grant now, and re-applying it would
+    just quarantine the agent later.
 
     Args:
         name (str):
-        body (QuickEditIn):
+        version (int):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        EditResult | HTTPValidationError
+        AgentDefOut | HTTPValidationError
     """
 
     return sync_detailed(
         name=name,
+        version=version,
         client=client,
-        body=body,
     ).parsed
 
 
 async def asyncio_detailed(
     name: str,
+    version: int,
     *,
     client: AuthenticatedClient | Client,
-    body: QuickEditIn,
-) -> Response[EditResult | HTTPValidationError]:
-    """Quick Edit
+) -> Response[AgentDefOut | HTTPValidationError]:
+    """Rollback Agent
 
-     Deterministic edit that skips the agent: writes the exact agent.md the
-    caller supplies into a fresh clone and ALWAYS opens a pull request — every
-    save is a reviewable pending change on the agent's deterministic branch
-    (`coder/agent-{name}`), accepted or discarded under Changes. (A no-op save
-    still returns tier 0.)
+     Re-apply a logged snapshot as a NEW version. Rollback is a write like
+    any other — the log is append-only, so undoing is recorded rather than
+    erased, and it stays admin-only because it can restore any past grant set.
+
+    The restored definition is re-validated: a snapshot naming a skill or tool
+    the repo has since dropped is a dead grant now, and re-applying it would
+    just quarantine the agent later.
 
     Args:
         name (str):
-        body (QuickEditIn):
+        version (int):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[EditResult | HTTPValidationError]
+        Response[AgentDefOut | HTTPValidationError]
     """
 
     kwargs = _get_kwargs(
         name=name,
-        body=body,
+        version=version,
     )
 
     response = await client.get_async_httpx_client().request(**kwargs)
@@ -173,34 +172,36 @@ async def asyncio_detailed(
 
 async def asyncio(
     name: str,
+    version: int,
     *,
     client: AuthenticatedClient | Client,
-    body: QuickEditIn,
-) -> EditResult | HTTPValidationError | None:
-    """Quick Edit
+) -> AgentDefOut | HTTPValidationError | None:
+    """Rollback Agent
 
-     Deterministic edit that skips the agent: writes the exact agent.md the
-    caller supplies into a fresh clone and ALWAYS opens a pull request — every
-    save is a reviewable pending change on the agent's deterministic branch
-    (`coder/agent-{name}`), accepted or discarded under Changes. (A no-op save
-    still returns tier 0.)
+     Re-apply a logged snapshot as a NEW version. Rollback is a write like
+    any other — the log is append-only, so undoing is recorded rather than
+    erased, and it stays admin-only because it can restore any past grant set.
+
+    The restored definition is re-validated: a snapshot naming a skill or tool
+    the repo has since dropped is a dead grant now, and re-applying it would
+    just quarantine the agent later.
 
     Args:
         name (str):
-        body (QuickEditIn):
+        version (int):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        EditResult | HTTPValidationError
+        AgentDefOut | HTTPValidationError
     """
 
     return (
         await asyncio_detailed(
             name=name,
+            version=version,
             client=client,
-            body=body,
         )
     ).parsed

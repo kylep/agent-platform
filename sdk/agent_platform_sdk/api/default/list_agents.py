@@ -55,6 +55,11 @@ def sync_detailed(
 ) -> Response[list[AgentSummary]]:
     """List Agents
 
+     Every agent's full definition plus server-derived readiness. The
+    definition comes from the rows; `quarantined`/`error`/`blocked`/`schedule`
+    are things only the platform knows, so they ride alongside rather than
+    pretending to be columns.
+
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
         httpx.TimeoutException: If the request takes longer than Client.timeout.
@@ -78,6 +83,11 @@ def sync(
 ) -> list[AgentSummary] | None:
     """List Agents
 
+     Every agent's full definition plus server-derived readiness. The
+    definition comes from the rows; `quarantined`/`error`/`blocked`/`schedule`
+    are things only the platform knows, so they ride alongside rather than
+    pretending to be columns.
+
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
         httpx.TimeoutException: If the request takes longer than Client.timeout.
@@ -96,6 +106,11 @@ async def asyncio_detailed(
     client: AuthenticatedClient | Client,
 ) -> Response[list[AgentSummary]]:
     """List Agents
+
+     Every agent's full definition plus server-derived readiness. The
+    definition comes from the rows; `quarantined`/`error`/`blocked`/`schedule`
+    are things only the platform knows, so they ride alongside rather than
+    pretending to be columns.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -117,6 +132,11 @@ async def asyncio(
     client: AuthenticatedClient | Client,
 ) -> list[AgentSummary] | None:
     """List Agents
+
+     Every agent's full definition plus server-derived readiness. The
+    definition comes from the rows; `quarantined`/`error`/`blocked`/`schedule`
+    are things only the platform knows, so they ride alongside rather than
+    pretending to be columns.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.

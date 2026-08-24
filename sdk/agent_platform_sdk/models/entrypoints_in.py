@@ -4,38 +4,32 @@ from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any, TypeVar, cast
 
 from attrs import define as _attrs_define
-from attrs import field as _attrs_field
 from typing_extensions import Self
 
 from ..types import UNSET, Unset
 
 if TYPE_CHECKING:
-    from ..models.cron_entry import CronEntry
-    from ..models.webhook_entry import WebhookEntry
+    from ..models.cron_entry_in import CronEntryIn
+    from ..models.webhook_entry_in import WebhookEntryIn
 
 
-T = TypeVar("T", bound="EntrypointsModel")
+T = TypeVar("T", bound="EntrypointsIn")
 
 
 @_attrs_define
-class EntrypointsModel:
-    """The agent's defining triggers (formerly entrypoints.yaml): cron fires,
-    inbound webhook paths (POST /api/webhooks/<path> only works for a declared
-    path), and kafka topic subscriptions. Distinct from DB Jobs, which are
-    ad-hoc UI experiments — history, not config.
-
-        Attributes:
-            crons (list[CronEntry] | Unset):
-            timezone (str | Unset):  Default: ''.
-            topics (list[str] | Unset):
-            webhooks (list[WebhookEntry] | Unset):
+class EntrypointsIn:
+    """
+    Attributes:
+        crons (list[CronEntryIn] | Unset):
+        timezone (str | Unset):  Default: ''.
+        topics (list[str] | Unset):
+        webhooks (list[WebhookEntryIn] | Unset):
     """
 
-    crons: list[CronEntry] | Unset = UNSET
+    crons: list[CronEntryIn] | Unset = UNSET
     timezone: str | Unset = ""
     topics: list[str] | Unset = UNSET
-    webhooks: list[WebhookEntry] | Unset = UNSET
-    additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
+    webhooks: list[WebhookEntryIn] | Unset = UNSET
 
     def to_dict(self) -> dict[str, Any]:
         crons: list[dict[str, Any]] | Unset = UNSET
@@ -59,7 +53,7 @@ class EntrypointsModel:
                 webhooks.append(webhooks_item)
 
         field_dict: dict[str, Any] = {}
-        field_dict.update(self.additional_properties)
+
         field_dict.update({})
         if crons is not UNSET:
             field_dict["crons"] = crons
@@ -74,16 +68,16 @@ class EntrypointsModel:
 
     @classmethod
     def from_dict(cls, src_dict: Mapping[str, Any]) -> Self:
-        from ..models.cron_entry import CronEntry
-        from ..models.webhook_entry import WebhookEntry
+        from ..models.cron_entry_in import CronEntryIn
+        from ..models.webhook_entry_in import WebhookEntryIn
 
         d = dict(src_dict)
         _crons = d.pop("crons", UNSET)
-        crons: list[CronEntry] | Unset = UNSET
+        crons: list[CronEntryIn] | Unset = UNSET
         if _crons is not UNSET:
             crons = []
             for crons_item_data in _crons:
-                crons_item = CronEntry.from_dict(crons_item_data)
+                crons_item = CronEntryIn.from_dict(crons_item_data)
 
                 crons.append(crons_item)
 
@@ -92,36 +86,19 @@ class EntrypointsModel:
         topics = cast(list[str], d.pop("topics", UNSET))
 
         _webhooks = d.pop("webhooks", UNSET)
-        webhooks: list[WebhookEntry] | Unset = UNSET
+        webhooks: list[WebhookEntryIn] | Unset = UNSET
         if _webhooks is not UNSET:
             webhooks = []
             for webhooks_item_data in _webhooks:
-                webhooks_item = WebhookEntry.from_dict(webhooks_item_data)
+                webhooks_item = WebhookEntryIn.from_dict(webhooks_item_data)
 
                 webhooks.append(webhooks_item)
 
-        entrypoints_model = cls(
+        entrypoints_in = cls(
             crons=crons,
             timezone=timezone,
             topics=topics,
             webhooks=webhooks,
         )
 
-        entrypoints_model.additional_properties = d
-        return entrypoints_model
-
-    @property
-    def additional_keys(self) -> list[str]:
-        return list(self.additional_properties.keys())
-
-    def __getitem__(self, key: str) -> Any:
-        return self.additional_properties[key]
-
-    def __setitem__(self, key: str, value: Any) -> None:
-        self.additional_properties[key] = value
-
-    def __delitem__(self, key: str) -> None:
-        del self.additional_properties[key]
-
-    def __contains__(self, key: str) -> bool:
-        return key in self.additional_properties
+        return entrypoints_in

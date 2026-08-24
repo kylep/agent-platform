@@ -6,39 +6,32 @@ import httpx
 
 from ... import errors
 from ...client import AuthenticatedClient, Client
-from ...models.config_edit_in import ConfigEditIn
-from ...models.edit_result import EditResult
+from ...models.agent_version_detail import AgentVersionDetail
 from ...models.http_validation_error import HTTPValidationError
 from ...types import Response
 
 
 def _get_kwargs(
     name: str,
-    *,
-    body: ConfigEditIn,
+    version: int,
 ) -> dict[str, Any]:
-    headers: dict[str, Any] = {}
 
     _kwargs: dict[str, Any] = {
-        "method": "patch",
-        "url": "/api/agents/{name}/config".format(
+        "method": "get",
+        "url": "/api/agents/{name}/versions/{version}".format(
             name=quote(str(name), safe=""),
+            version=quote(str(version), safe=""),
         ),
     }
 
-    _kwargs["json"] = body.to_dict()
-
-    headers["Content-Type"] = "application/json"
-
-    _kwargs["headers"] = headers
     return _kwargs
 
 
 def _parse_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> EditResult | HTTPValidationError | None:
+) -> AgentVersionDetail | HTTPValidationError | None:
     if response.status_code == 200:
-        response_200 = EditResult.from_dict(response.json())
+        response_200 = AgentVersionDetail.from_dict(response.json())
 
         return response_200
 
@@ -55,7 +48,7 @@ def _parse_response(
 
 def _build_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> Response[EditResult | HTTPValidationError]:
+) -> Response[AgentVersionDetail | HTTPValidationError]:
     return Response(
         status_code=HTTPStatus(response.status_code),
         content=response.content,
@@ -66,30 +59,30 @@ def _build_response(
 
 def sync_detailed(
     name: str,
+    version: int,
     *,
     client: AuthenticatedClient | Client,
-    body: ConfigEditIn,
-) -> Response[EditResult | HTTPValidationError]:
-    """Edit Agent Config
+) -> Response[AgentVersionDetail | HTTPValidationError]:
+    """Get Agent Version
 
-     Apply a structured config edit (skills / tools / description) to an
-    existing agent and open a PR. A no-op edit returns tier 0.
+     One logged version, snapshot included — what the history view diffs
+    against and what a rollback would re-apply.
 
     Args:
         name (str):
-        body (ConfigEditIn):
+        version (int):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[EditResult | HTTPValidationError]
+        Response[AgentVersionDetail | HTTPValidationError]
     """
 
     kwargs = _get_kwargs(
         name=name,
-        body=body,
+        version=version,
     )
 
     response = client.get_httpx_client().request(
@@ -101,60 +94,60 @@ def sync_detailed(
 
 def sync(
     name: str,
+    version: int,
     *,
     client: AuthenticatedClient | Client,
-    body: ConfigEditIn,
-) -> EditResult | HTTPValidationError | None:
-    """Edit Agent Config
+) -> AgentVersionDetail | HTTPValidationError | None:
+    """Get Agent Version
 
-     Apply a structured config edit (skills / tools / description) to an
-    existing agent and open a PR. A no-op edit returns tier 0.
+     One logged version, snapshot included — what the history view diffs
+    against and what a rollback would re-apply.
 
     Args:
         name (str):
-        body (ConfigEditIn):
+        version (int):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        EditResult | HTTPValidationError
+        AgentVersionDetail | HTTPValidationError
     """
 
     return sync_detailed(
         name=name,
+        version=version,
         client=client,
-        body=body,
     ).parsed
 
 
 async def asyncio_detailed(
     name: str,
+    version: int,
     *,
     client: AuthenticatedClient | Client,
-    body: ConfigEditIn,
-) -> Response[EditResult | HTTPValidationError]:
-    """Edit Agent Config
+) -> Response[AgentVersionDetail | HTTPValidationError]:
+    """Get Agent Version
 
-     Apply a structured config edit (skills / tools / description) to an
-    existing agent and open a PR. A no-op edit returns tier 0.
+     One logged version, snapshot included — what the history view diffs
+    against and what a rollback would re-apply.
 
     Args:
         name (str):
-        body (ConfigEditIn):
+        version (int):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[EditResult | HTTPValidationError]
+        Response[AgentVersionDetail | HTTPValidationError]
     """
 
     kwargs = _get_kwargs(
         name=name,
-        body=body,
+        version=version,
     )
 
     response = await client.get_async_httpx_client().request(**kwargs)
@@ -164,31 +157,31 @@ async def asyncio_detailed(
 
 async def asyncio(
     name: str,
+    version: int,
     *,
     client: AuthenticatedClient | Client,
-    body: ConfigEditIn,
-) -> EditResult | HTTPValidationError | None:
-    """Edit Agent Config
+) -> AgentVersionDetail | HTTPValidationError | None:
+    """Get Agent Version
 
-     Apply a structured config edit (skills / tools / description) to an
-    existing agent and open a PR. A no-op edit returns tier 0.
+     One logged version, snapshot included — what the history view diffs
+    against and what a rollback would re-apply.
 
     Args:
         name (str):
-        body (ConfigEditIn):
+        version (int):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        EditResult | HTTPValidationError
+        AgentVersionDetail | HTTPValidationError
     """
 
     return (
         await asyncio_detailed(
             name=name,
+            version=version,
             client=client,
-            body=body,
         )
     ).parsed

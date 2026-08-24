@@ -7,43 +7,43 @@ from attrs import define as _attrs_define
 from attrs import field as _attrs_field
 from typing_extensions import Self
 
-T = TypeVar("T", bound="FreeformEditIn")
+from ..types import UNSET, Unset
+
+T = TypeVar("T", bound="WebhookEntryOut")
 
 
 @_attrs_define
-class FreeformEditIn:
+class WebhookEntryOut:
     """
     Attributes:
-        instruction (str):
+        path (str | Unset):  Default: ''.
     """
 
-    instruction: str
+    path: str | Unset = ""
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
-        instruction = self.instruction
+        path = self.path
 
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
-        field_dict.update(
-            {
-                "instruction": instruction,
-            }
-        )
+        field_dict.update({})
+        if path is not UNSET:
+            field_dict["path"] = path
 
         return field_dict
 
     @classmethod
     def from_dict(cls, src_dict: Mapping[str, Any]) -> Self:
         d = dict(src_dict)
-        instruction = d.pop("instruction")
+        path = d.pop("path", UNSET)
 
-        freeform_edit_in = cls(
-            instruction=instruction,
+        webhook_entry_out = cls(
+            path=path,
         )
 
-        freeform_edit_in.additional_properties = d
-        return freeform_edit_in
+        webhook_entry_out.additional_properties = d
+        return webhook_entry_out
 
     @property
     def additional_keys(self) -> list[str]:
