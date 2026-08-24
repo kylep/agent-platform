@@ -74,6 +74,27 @@ async def test_next_version_starts_at_one_and_is_per_agent(sf):
         assert await next_version(s, "news") == 3
 
 
+async def test_duplicate_agent_version_rejected(sf):
+    """next_version is an unlocked read-then-write: two concurrent writers can
+    both pick the same number. The constraint must make the loser fail rather
+    than leave two different snapshots claiming one version."""
+    from sqlalchemy.exc import IntegrityError
+    async with sf() as s:
+        s.add(AgentVersion(agent="news", version=1, snapshot={"prompt": "a"},
+                           changed_by="admin", changed_via="admin"))
+        await s.commit()
+    async with sf() as s:
+        s.add(AgentVersion(agent="news", version=1, snapshot={"prompt": "b"},
+                           changed_by="pai", changed_via="tool:agents_edit"))
+        with pytest.raises(IntegrityError):
+            await s.commit()
+    # Same version number on a DIFFERENT agent is fine — the log is per agent.
+    async with sf() as s:
+        s.add(AgentVersion(agent="pai", version=1, snapshot={},
+                           changed_by="admin", changed_via="admin"))
+        await s.commit()
+
+
 def _model(**over) -> AgentDefModel:
     return AgentDefModel(name="news", **over)
 

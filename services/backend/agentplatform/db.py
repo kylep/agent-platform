@@ -189,6 +189,13 @@ class AgentVersion(Base):
     pending/approval state: edits apply immediately and rollback is re-applying
     an old snapshot (which itself logs a new version)."""
     __tablename__ = "agent_versions"
+    # next_version() is an unlocked read-then-write, so two concurrent writers
+    # on the same agent (a UI save and an agents_edit tool call) would both
+    # read max=4 and both insert 5 — two different snapshots wearing the same
+    # version, and "roll back to 5" quietly stops meaning anything. The
+    # constraint makes the loser fail loudly instead.
+    __table_args__ = (UniqueConstraint("agent", "version",
+                                       name="uq_agent_versions_agent_version"),)
     id: Mapped[str] = mapped_column(String(32), primary_key=True, default=lambda: uuid.uuid4().hex)
     agent: Mapped[str] = mapped_column(String(128), index=True)
     # Monotonic per agent, app-enforced (agentdefs.next_version). Not a DB
