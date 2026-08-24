@@ -1,0 +1,105 @@
+{{- if .Values.backup.enabled }}
+# Postgres backup (docs/design/15): "backups are the recovery story". Nightly
+# pg_dump of the bitnami postgres to a dedicated PVC, pruned to the newest
+# `backup.keep` dumps. Set backup.enabled=false to render neither this
+# CronJob nor its PVC (e.g. a throwaway/dev install).
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ .Release.Name }}-pg-backups
+  labels:
+    {{- include "agent-platform.labels" . | nindent 4 }}
+spec:
+  accessModes:
+    - ReadWriteOnce
+  {{- if .Values.backup.storageClass }}
+  storageClassName: {{ .Values.backup.storageClass }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.backup.storage }}
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ .Release.Name }}-pg-backup
+  labels:
+    {{- include "agent-platform.labels" . | nindent 4 }}
+spec:
+  schedule: {{ .Values.backup.schedule | quote }}
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      template:
+        metadata:
+          labels:
+            {{- include "agent-platform.selectorLabels" (dict "Release" .Release "Chart" .Chart "component" "pg-backup") | nindent 12 }}
+        spec:
+          restartPolicy: Never
+          # This job never calls the k8s API — don't mount a ServiceAccount token.
+          automountServiceAccountToken: false
+          securityContext:
+            seccompProfile:
+              type: RuntimeDefault
+            # bitnami images write as uid/gid 1001; the PVC needs to be
+            # group-writable by that gid on first mount.
+            fsGroup: 1001
+          containers:
+            - name: pg-backup
+              # Same image the postgresql subchart itself runs (values.yaml
+              # `backup.image`, hand-pinned to match `charts/postgresql-*.tgz`'s
+              # default — see that block's comment) so pg_dump's version always
+              # matches the server it's dumping.
+              image: "{{ .Values.backup.image.registry }}/{{ .Values.backup.image.repository }}:{{ .Values.backup.image.tag }}"
+              imagePullPolicy: {{ .Values.backup.image.pullPolicy | default "IfNotPresent" }}
+              command: ["/bin/bash", "-c"]
+              args:
+                - |
+                  set -euo pipefail
+                  TS="$(date -u +%Y%m%dT%H%M%SZ)"
+                  OUT="/backups/{{ .Release.Name }}-${TS}.sql.gz"
+                  TMP="${OUT}.tmp"
+                  echo "pg_dump ${PGDATABASE}@${PGHOST} -> ${OUT}"
+                  pg_dump | gzip > "${TMP}"
+                  mv "${TMP}" "${OUT}"
+                  echo "dump ok: $(du -h "${OUT}" | cut -f1)"
+                  echo "retention: keeping newest ${BACKUP_KEEP} dump(s)"
+                  cd /backups
+                  ls -1t {{ .Release.Name }}-*.sql.gz 2>/dev/null | tail -n "+$((BACKUP_KEEP + 1))" | while IFS= read -r f; do
+                    echo "removing old dump: ${f}"
+                    rm -f -- "${f}"
+                  done
+              env:
+                - name: PGHOST
+                  value: "{{ .Release.Name }}-postgresql"
+                - name: PGPORT
+                  value: "5432"
+                - name: PGUSER
+                  value: "postgres"
+                - name: PGDATABASE
+                  value: {{ .Values.postgresql.auth.database | quote }}
+                - name: PGPASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ .Release.Name }}-postgresql
+                      key: postgres-password
+                - name: BACKUP_KEEP
+                  value: {{ .Values.backup.keep | quote }}
+              securityContext:
+                allowPrivilegeEscalation: false
+                runAsNonRoot: true
+                runAsUser: 1001
+                runAsGroup: 1001
+                capabilities:
+                  drop: ["ALL"]
+              volumeMounts:
+                - name: pg-backups
+                  mountPath: /backups
+          volumes:
+            - name: pg-backups
+              persistentVolumeClaim:
+                claimName: {{ .Release.Name }}-pg-backups
+{{- end }}

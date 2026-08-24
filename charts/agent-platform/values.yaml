@@ -190,6 +190,30 @@ topics:
     repository: bitnamilegacy/kafka
     tag: 4.0.0-debian-12-r10
 
+# Postgres backup CronJob (docs/design/15 — "backups are the recovery story").
+# pg_dump -> gzip -> a dedicated ap-pg-backups PVC, pruned to the newest
+# `keep` dumps after each successful run (templates/pg-backup.yaml).
+backup:
+  enabled: true
+  # 08:00 UTC ~= overnight in US/Eastern (EDT, UTC-4).
+  schedule: "0 8 * * *"
+  keep: 14
+  storage: 5Gi
+  # Empty = cluster default StorageClass (as with `agents.storageClass`).
+  storageClass: ""
+  image:
+    # Hand-pinned to match the image the postgresql subchart's own default
+    # (charts/postgresql-18.8.0.tgz values.yaml `image:`) resolves to, so
+    # pg_dump's version always matches the server it's dumping. Unlike kafka
+    # (see topics.image comment), bitnami/postgresql's `latest` tag is still
+    # served from docker.io/bitnami — no bitnamilegacy/ redirect needed today.
+    # If `postgresql.image` is ever overridden above to pin a specific
+    # version, update this block to match.
+    registry: registry-1.docker.io
+    repository: bitnami/postgresql
+    tag: latest
+    pullPolicy: IfNotPresent
+
 # --- Subchart values (bitnami/postgresql, bitnami/kafka) ---
 
 postgresql:
