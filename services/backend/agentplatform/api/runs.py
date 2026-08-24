@@ -39,6 +39,10 @@ async def create_run(request: Request, body: RunIn,
         info = store.get(body.agent)
     if info is None: raise HTTPException(404, "unknown agent")
     if info.error is not None: raise HTTPException(409, "agent quarantined")
+    # `enabled` is the soft off-switch (docs/design/15): the definition and its
+    # history stay, but the agent takes no work. Refused here as well as in the
+    # dispatcher so a disabled agent never even gets a queued run to explain.
+    if not info.enabled: raise HTTPException(409, "agent is disabled")
     # Agent-invokes-agent: when the caller authenticated with a per-run token,
     # this run is a child in that run's chain. Depth is derived from the parent
     # run (looked up by the token's run_id), not the request body, so an agent

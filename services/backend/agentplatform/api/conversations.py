@@ -59,6 +59,8 @@ async def create_conversation(request: Request, body: ConversationIn):
         raise HTTPException(404, "unknown agent")
     if info.error is not None:
         raise HTTPException(409, "agent quarantined")
+    if not info.enabled:
+        raise HTTPException(409, "agent is disabled")
     conv = Conversation(connector=body.connector, agent=body.agent,
                         title=body.title or f"Conversation with {body.agent}")
     async with request.app.state.session_factory() as s:
@@ -138,6 +140,16 @@ async def post_message(request: Request, conversation_id: str, body: MessageIn,
                        principal: str = Depends(require_role(*INVOKE_ROLES))):
     """Continue the conversation: create the next turn (a run). Returns the run
     id; stream it via /api/runs/{id}/tail or poll the conversation."""
+    # A turn is a run, so the soft off-switch applies to it too — disabling an
+    # agent mid-thread stops the thread rather than queueing work nothing will
+    # pick up. The conversation itself stays readable.
+    async with request.app.state.session_factory() as s:
+        conv = await s.get(Conversation, conversation_id)
+    if conv is not None:
+        await request.app.state.agent_store.reload()
+        info = request.app.state.agent_store.get(conv.agent)
+        if info is not None and not info.enabled:
+            raise HTTPException(409, "agent is disabled")
     run_id = await continue_conversation(
         request.app.state.session_factory, request.app.state.producer,
         conversation_id, body.text, principal)
