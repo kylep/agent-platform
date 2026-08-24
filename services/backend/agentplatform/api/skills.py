@@ -63,7 +63,7 @@ async def skill_quick_edit(request: Request, name: str, body: SkillQuickEditIn,
     caller supplies and ALWAYS opens a pull request on the skill's
     deterministic branch (`coder/skill-{name}`) — the same
     save→pending-change→review contract as the agent definition editor."""
-    from agentplatform.api.agents import _apply_files
+    from agentplatform.api.gitedit import _apply_files
     request.app.state.skill_store.reload()
     if request.app.state.skill_store.get(name) is None:
         raise HTTPException(404, "unknown skill")

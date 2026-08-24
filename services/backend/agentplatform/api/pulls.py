@@ -5,7 +5,7 @@ from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 
-from agentplatform.api.agents import _github_app_token
+from agentplatform.api.gitedit import _github_app_token
 from agentplatform.api.auth import require_admin
 from agentplatform.github import GitHubClient
 

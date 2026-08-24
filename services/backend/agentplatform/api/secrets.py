@@ -152,7 +152,7 @@ async def declare_secret(request: Request, body: SecretDeclareIn,
     text = _render_secret_yaml(body)
     # Round-trip guard: what we scaffold must load as a valid SecretSpec.
     SecretSpec(**(yaml.safe_load(text) or {}))
-    from agentplatform.api.agents import _apply_files
+    from agentplatform.api.gitedit import _apply_files
     return await _apply_files(
         request, {f"secrets/{body.name}/secret.yaml": text},
         message=f"{principal}: declare secret {body.name}",
@@ -194,7 +194,7 @@ async def secret_quick_edit(request: Request, name: str, body: SecretQuickEditIn
         SecretSpec(**raw)
     except Exception as e:
         raise HTTPException(422, f"invalid secret.yaml: {e}")
-    from agentplatform.api.agents import _apply_files
+    from agentplatform.api.gitedit import _apply_files
     return await _apply_files(
         request, {f"secrets/{name}/secret.yaml": body.value},
         message=f"{principal}: quick-edit secret {name}",

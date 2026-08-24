@@ -75,7 +75,7 @@ async def tool_quick_edit(request: Request, name: str, body: ToolQuickEditIn,
     save→pending-change→review contract as the skill editor. tool.yaml is
     validated before proposing (a broken manifest would silently unregister
     the tool on merge)."""
-    from agentplatform.api.agents import _apply_files
+    from agentplatform.api.gitedit import _apply_files
     registry = request.app.state.tool_registry
     registry.reload()
     if registry.get(name) is None:
