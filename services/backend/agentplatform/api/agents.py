@@ -224,6 +224,40 @@ def _model(request: Request, payload: dict, name: str,
     return model
 
 
+async def _check_webhook_conflicts(session, models: list[AgentDefModel]) -> None:
+    """422 if any model's `entrypoints.webhooks` path is already declared by an
+    agent NOT part of this write.
+
+    `webhooks.py` (api/webhooks.py:27) routes an inbound POST to the first
+    alphabetical declarer of a path — two agents declaring the same path
+    silently collide, with the second one just never firing. `validate_def` is
+    IO-free (agentdefs.py's module docstring), so this lives here instead,
+    where the store/DB is reachable.
+
+    Checked against every OTHER agent's stored definition, plus — for a
+    multi-definition import — every other definition in the same batch. The
+    names being written in this call are excluded from "other", so an agent
+    re-declaring its own path always passes."""
+    names = {m.name for m in models}
+    rows = (await session.execute(select(AgentDef.name, AgentDef.entrypoints))).all()
+    owners: dict[str, str] = {}
+    for name, entrypoints in rows:
+        if name in names:
+            continue  # this row is being overwritten by the current write
+        for w in (entrypoints or {}).get("webhooks") or []:
+            path = w.get("path")
+            if path:
+                owners.setdefault(path, name)
+    for model in models:
+        for w in model.entrypoints.webhooks:
+            owner = owners.get(w.path)
+            if owner is not None:
+                raise HTTPException(422,
+                    f"webhook path {w.path!r} is already declared by agent "
+                    f"{owner!r} (conflicts with {model.name!r})")
+            owners[w.path] = model.name
+
+
 # --- row <-> wire ------------------------------------------------------------
 
 def _payload(row: AgentDef) -> dict:
@@ -404,6 +438,7 @@ async def create_agent(request: Request, body: AgentCreateIn,
     if model.system and not scope.admin:
         raise HTTPException(403, "only an admin may create a system agent")
     async with st.session_factory() as s:
+        await _check_webhook_conflicts(s, [model])
         if await s.get(AgentDef, model.name) is not None:
             raise HTTPException(409, "an agent with that name already exists")
         row = AgentDef(name=model.name)
@@ -435,6 +470,7 @@ async def update_agent(request: Request, name: str, body: AgentDefIn,
         if row is None:
             raise HTTPException(404, "unknown agent")
         model = _model(request, body.model_dump(), name, _registries(request))
+        await _check_webhook_conflicts(s, [model])
         grants = _changed_fields(row, model, GRANT_FIELDS)
         edits = _changed_fields(row, model, EDIT_FIELDS)
         scope.authorize(grant_fields=grants, edit_fields=edits)
@@ -575,6 +611,7 @@ async def import_agents(request: Request, body: list[AgentCreateIn],
     models = [_model(request, d.model_dump(), d.name, registries) for d in body]
     results = []
     async with request.app.state.session_factory() as s:
+        await _check_webhook_conflicts(s, models)
         async with _conflict_as_409(s):
             for model in models:
                 row = await s.get(AgentDef, model.name)

@@ -391,6 +391,74 @@ async def test_import_is_admin_only(client, sf, seed_agent, agent_store):
     assert r.status_code == 403
 
 
+# --- webhook path cross-agent uniqueness -------------------------------------
+# api/webhooks.py:27 routes an inbound POST to the first alphabetical declarer
+# of a path — two agents declaring the same path silently collide, with the
+# second one just never firing. These pin the validation-on-write fix for that.
+
+async def test_a_webhook_path_another_agent_already_declared_422s_on_update(
+        admin_client, sf):
+    r = await admin_client.post("/api/agents", json=a_def(
+        "alerts", entrypoints={"crons": [], "webhooks": [{"path": "wake-up"}],
+                               "topics": [], "timezone": ""}))
+    assert r.status_code == 201, r.text
+    r = await admin_client.put("/api/agents/hello-world", json=a_def(
+        "hello-world", entrypoints={"crons": [], "webhooks": [{"path": "wake-up"}],
+                                    "topics": [], "timezone": ""}))
+    assert r.status_code == 422
+    assert "wake-up" in r.json()["detail"]
+    assert "alerts" in r.json()["detail"] and "hello-world" in r.json()["detail"]
+    # rejected — the first declarer's row is untouched
+    got = (await admin_client.get("/api/agents/hello-world")).json()
+    assert not got["entrypoints"].get("webhooks")
+
+
+async def test_an_agent_may_redeclare_its_own_webhook_path(admin_client, sf):
+    r = await admin_client.post("/api/agents", json=a_def(
+        "alerts", entrypoints={"crons": [], "webhooks": [{"path": "wake-up"}],
+                               "topics": [], "timezone": ""}))
+    assert r.status_code == 201, r.text
+    # same agent, same path, plus an unrelated change — not a conflict with itself
+    r = await admin_client.put("/api/agents/alerts", json=a_def(
+        "alerts", description="now with a description",
+        entrypoints={"crons": [], "webhooks": [{"path": "wake-up"}],
+                    "topics": [], "timezone": ""}))
+    assert r.status_code == 200, r.text
+    assert r.json()["description"] == "now with a description"
+
+
+async def test_import_of_conflict_free_webhooks_still_passes(admin_client, sf):
+    payload = [
+        a_def("newsy", entrypoints={"crons": [], "webhooks": [{"path": "news-in"}],
+                                    "topics": [], "timezone": ""}),
+        a_def("sporty", entrypoints={"crons": [], "webhooks": [{"path": "sport-in"}],
+                                     "topics": [], "timezone": ""}),
+    ]
+    r = await admin_client.post("/api/agents/import", json=payload)
+    assert r.status_code == 200, r.text
+    assert r.json() == [{"name": "newsy", "status": "created"},
+                        {"name": "sporty", "status": "created"}]
+    # re-running the same conflict-free payload stays a no-op
+    again = await admin_client.post("/api/agents/import", json=payload)
+    assert again.json() == [{"name": "newsy", "status": "unchanged"},
+                            {"name": "sporty", "status": "unchanged"}]
+
+
+async def test_import_rejects_two_definitions_declaring_the_same_webhook_path(
+        admin_client, sf):
+    payload = [
+        a_def("newsy", entrypoints={"crons": [], "webhooks": [{"path": "shared"}],
+                                    "topics": [], "timezone": ""}),
+        a_def("sporty", entrypoints={"crons": [], "webhooks": [{"path": "shared"}],
+                                     "topics": [], "timezone": ""}),
+    ]
+    r = await admin_client.post("/api/agents/import", json=payload)
+    assert r.status_code == 422
+    assert "shared" in r.json()["detail"]
+    async with sf() as s:
+        assert await s.get(AgentDef, "newsy") is None      # all-or-nothing
+
+
 # --- RBAC: agents_edit vs agents_grant ---------------------------------------
 
 async def test_an_agent_with_neither_tool_cannot_write(client, sf, seed_agent, agent_store):
