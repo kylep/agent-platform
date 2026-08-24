@@ -17,6 +17,18 @@ function TypeBadge({ connector }: { connector: string }) {
   return <span className={`convo-type convo-type-${connector}`}>{connector}</span>;
 }
 
+// A turn that is nothing but a JSON blob — an agent answering with structured
+// data instead of prose — is still markdown as far as the renderer knows, so it
+// comes out as one giant wrapped paragraph with the URLs inside its strings
+// auto-linked. Fence it and it renders as the data it is.
+function fenceJson(result: string): string {
+  const t = result.trim();
+  const close = t.startsWith("{") ? "}" : t.startsWith("[") ? "]" : "";
+  if (!close || !t.endsWith(close)) return result;
+  try { JSON.parse(t); } catch { return result; }
+  return "```json\n" + t + "\n```";
+}
+
 // Last-activity stamp as local yyyy-mm-dd hh:mm.
 function stamp(iso: string | null): string {
   if (!iso) return "";
@@ -216,7 +228,7 @@ export default function AgentChat({ agent }: { agent: string }) {
                     )}
                     <div className="convo-agent">
                       {t.result != null
-                        ? <Markdown text={t.result} />
+                        ? <Markdown text={fenceJson(t.result)} />
                         : (ACTIVE.has(t.state) ? <span className="muted">…thinking</span> : <span className="muted">({t.state})</span>)}
                     </div>
                   </div>

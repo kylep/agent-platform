@@ -42,7 +42,7 @@ export default function NewAgent() {
   }
 
   return (
-    <div className="page">
+    <div className="page agent-form">
       <h1>New Agent</h1>
       <p className="muted">
         An agent is a row: this form writes it directly. It exists — and runs, if you give it an

@@ -253,7 +253,28 @@
 .check-item.on { border-color: var(--ds-accent); background: color-mix(in srgb, var(--ds-accent) 10%, transparent); }
 .check-item input { accent-color: var(--ds-accent); cursor: pointer; }
 .check-icon { font-size: 16px; }
+/* Mono because every label in a grant picker is a literal identifier (Bash,
+   query_app, agent-platform) — it is code, and it reads as code. */
 .check-name { font-family: var(--font-mono); }
+
+/* Section rhythm on the agent form (editor + New-Agent wizard). Prompt,
+   Entrypoints, Grants and Delete are a screen apart on a form that scrolls for
+   pages, and a 22px→16px text step isn't a strong enough break to navigate by.
+   A rule plus real space above each heading turns them into landmarks — the
+   same divider the report kit gives its sections. */
+.agent-form h2 {
+  margin-top: 32px;
+  padding-top: 20px;
+  border-top: 1px solid var(--ds-border);
+}
+
+/* Plain-English toggles (enabled, can invoke agents) borrow the check-item box
+   but not its identifier typography: their labels are prose, so they keep the
+   body font and hug their content instead of stretching to a 180px grid cell,
+   which puts them in the same visual register as the Input/Select row above. */
+.toggle-row { display: flex; flex-wrap: wrap; gap: 8px; margin: 4px 0 6px; }
+.toggle-row .check-item { padding: 6px 10px; }
+.toggle-name { font-size: 13px; }
 .check-note { font-size: 12px; margin-top: 2px; }
 .skill-icon { font-size: 18px; text-align: center; width: 36px; }
 
@@ -325,8 +346,12 @@
   border-radius: 999px; background: var(--ds-accent); color: var(--ds-on-accent);
   font-size: 9px; line-height: 8px; padding: 0 2px; text-align: center;
 }
+/* Height is set inline by ReportFrame once it has measured the report; the
+   70vh here is only the fallback for the frame it hasn't measured yet (or
+   can't), so a report never collapses to a sliver. */
 .report-frame {
-  width: 100%; min-height: 70vh; border: 1px solid var(--ds-border);
+  display: block; width: 100%; height: 70vh; min-height: 120px;
+  border: 1px solid var(--ds-border);
   border-radius: var(--radius-lg); background: var(--ds-canvas); margin-top: 8px;
 }
 .report-times { display: flex; gap: 6px; margin: 8px 0; }

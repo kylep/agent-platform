@@ -106,6 +106,20 @@ function CsvField({ label, value, onChange, placeholder }: {
   );
 }
 
+// A boolean the agent carries, written as words. The grants pickers' checkbox
+// chips look almost the same on purpose — same box, same accent-on-when-checked
+// — but their labels are code names and stay mono; these are sentences.
+function Toggle({ label, checked, title, onChange }: {
+  label: string; checked: boolean; title: string; onChange: (v: boolean) => void;
+}) {
+  return (
+    <label className={checked ? "check-item on" : "check-item"} title={title}>
+      <input type="checkbox" checked={checked} onChange={(e) => onChange(e.target.checked)} />
+      <span className="toggle-name">{label}</span>
+    </label>
+  );
+}
+
 function Field({ label, hint, children }: { label: string; hint?: string; children: ReactNode }) {
   return (
     <div>
@@ -163,19 +177,15 @@ export function IdentityFields({ draft, patch, catalog }: {
         </Field>
       </div>
 
-      <div className="check-grid" style={{ marginTop: 12 }}>
-        <label className={draft.enabled ? "check-item on" : "check-item"}
-               title="Disabled agents keep their definition but reject runs.">
-          <input type="checkbox" checked={draft.enabled}
-                 onChange={(e) => patch({ enabled: e.target.checked })} />
-          <span className="check-name">enabled</span>
-        </label>
-        <label className={draft.can_invoke ? "check-item on" : "check-item"}
-               title="May dispatch runs of other agents (depth-guarded).">
-          <input type="checkbox" checked={draft.can_invoke}
-                 onChange={(e) => patch({ can_invoke: e.target.checked })} />
-          <span className="check-name">can invoke agents</span>
-        </label>
+      {/* `.toggle-row`, not the grants pickers' `.check-grid`: these two labels
+          are prose, not grant identifiers, so they stay in the body font. */}
+      <div className="toggle-row" style={{ marginTop: 12 }}>
+        <Toggle label="Enabled" checked={draft.enabled}
+                title="Disabled agents keep their definition but reject runs."
+                onChange={(enabled) => patch({ enabled })} />
+        <Toggle label="Can invoke agents" checked={draft.can_invoke}
+                title="May dispatch runs of other agents (depth-guarded)."
+                onChange={(can_invoke) => patch({ can_invoke })} />
       </div>
     </>
   );

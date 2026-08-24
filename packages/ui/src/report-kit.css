@@ -10,8 +10,13 @@
  *    retroactively when the kit evolves).
  *  - Every rk-* class here has a Storybook story under ReportKit/ and is
  *    documented in the `reports` skill. The backend sanitizer strips any
- *    class that isn't rk-*/ds-* — if the element you need is missing, add
- *    it HERE (and its story) first.
+ *    class that isn't rk-… or ds-… — if the element you need is missing,
+ *    add it HERE (and its story) first.
+ *
+ *  Never write a bare star-slash inside these comments: CSS closes a comment
+ *  at the FIRST one, so the rest of the header would parse as a selector and
+ *  swallow the rule that follows it (that cost every report its base styling
+ *  once already).
  */
 
 .rk-page {
@@ -87,6 +92,9 @@
   padding: 10px 12px;
 }
 .rk-stat-value {
+  /* Explicit rather than inherited from .rk-page: these two carry the report's
+     loudest text, and inheriting left them pure black when .rk-page dropped. */
+  color: var(--ds-text);
   font-size: 20px;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
@@ -128,7 +136,7 @@
 /* Item: a linked entry with source + summary (news items, run links…). */
 .rk-item { padding: 8px 0; border-bottom: 1px solid var(--ds-border); }
 .rk-item:last-child { border-bottom: 0; }
-.rk-item-title { font-weight: 600; }
+.rk-item-title { color: var(--ds-text); font-weight: 600; }
 .rk-item-src { color: var(--ds-text-subtle); font-size: 12px; margin-left: 6px; }
 .rk-item-sum { color: var(--ds-text-muted); font-size: 13px; margin: 2px 0 0; }
 

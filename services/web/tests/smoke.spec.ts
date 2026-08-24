@@ -67,10 +67,50 @@ test("report viewer renders the sanitized fragment in a sandboxed frame", async 
   await page.locator(".cal-has").first().click();
   const frame = page.locator("iframe.report-frame");
   await expect(frame).toBeVisible();
-  await expect(frame).toHaveAttribute("sandbox", "");
+  // The sandbox invariant: same-origin so the parent can measure the report,
+  // and NEVER allow-scripts alongside it — the two together would let
+  // agent-generated HTML script itself into this origin.
+  await expect(frame).toHaveAttribute("sandbox", "allow-same-origin");
   await expect(frame.contentFrame().locator(".rk-title")).toContainText("Daily news");
   await expect(page.locator("body")).toContainText(/generated/);
   expect(unmatched).toEqual([]);
+});
+
+test("the report kit's base rule survives — reports are not serif and full-bleed", async ({ page }) => {
+  // Regression guard: a literal `*/` inside report-kit.css's header comment
+  // once closed it early, so the `.rk-page` rule after it parsed as garbage and
+  // was dropped — every report rendered in Times, full width, with black text
+  // on the dark canvas. Computed styles are the only place that shows up.
+  await mockApi(page);
+  await page.goto("/reports/daily-news");
+  await page.locator(".cal-has").first().click();
+  const rkPage = page.locator("iframe.report-frame").contentFrame().locator(".rk-page");
+  await expect(rkPage).toBeVisible();
+  const style = await rkPage.evaluate((el) => {
+    const cs = getComputedStyle(el);
+    return { maxWidth: cs.maxWidth, fontFamily: cs.fontFamily, padding: cs.paddingTop };
+  });
+  expect(style.maxWidth).toBe("760px");
+  expect(style.fontFamily).toContain("Inter");
+  expect(style.padding).not.toBe("0px");
+});
+
+test("the report frame is sized to its content, not to a fixed guess", async ({ page }) => {
+  // A static height either strands dead space under a short report or clips the
+  // tail of a tall one; the frame measures its own body instead.
+  await mockApi(page);
+  await page.goto("/reports/daily-news");
+  await page.locator(".cal-has").first().click();
+  const frame = page.locator("iframe.report-frame");
+  await expect(frame).toBeVisible();
+  const bodyHeight = await frame.contentFrame().locator("body")
+    .evaluate((el) => el.getBoundingClientRect().height);
+  await expect.poll(async () => Math.round((await frame.boundingBox())!.height))
+    .toBeGreaterThanOrEqual(Math.round(bodyHeight) - 2);
+  const frameHeight = Math.round((await frame.boundingBox())!.height);
+  // 120px is the collapse floor; anything much above the content height would
+  // be the old 70vh guess coming back.
+  expect(frameHeight).toBeLessThanOrEqual(Math.max(Math.round(bodyHeight), 120) + 4);
 });
 
 test("sidebar navigation reaches grouped pages", async ({ page }) => {
@@ -81,6 +121,20 @@ test("sidebar navigation reaches grouped pages", async ({ page }) => {
   // being inside the group auto-expands it; take a child link
   await page.getByRole("link", { name: "Memories" }).click();
   await expect(page.getByRole("heading", { level: 1, name: "Memories" })).toBeVisible();
+});
+
+test("a table that overflows shows which edge has more behind it", async ({ page }) => {
+  // Without the cue, a column scrolled past the container edge (the runs
+  // list's CREATED timestamp on a narrow window) reads as clipped data.
+  await mockApi(page);
+  await page.setViewportSize({ width: 620, height: 700 });
+  await page.goto("/runs");
+  const scroller = page.locator(".ui-table-scroll").first();
+  await expect(scroller).toHaveAttribute("data-overflow", "end");
+  await scroller.evaluate((el) => { el.scrollLeft = el.scrollWidth; });
+  await expect(scroller).toHaveAttribute("data-overflow", "start");
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await expect(scroller).toHaveAttribute("data-overflow", "");
 });
 
 test("run detail renders from a run row", async ({ page }) => {

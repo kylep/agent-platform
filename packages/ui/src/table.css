@@ -1,0 +1,48 @@
+/*
+ * The table scroll affordance, in the primitive so every table on the platform
+ * gets it at once.
+ *
+ * A wide table scrolls inside its own container rather than pushing the page
+ * sideways — right for the layout, but macOS-style overlay scrollbars only
+ * paint mid-gesture, so a column running past the container edge (the runs
+ * list's CREATED timestamp at ~900px) reads as clipped data instead of "there
+ * is more here". Two cues:
+ *
+ *   1. an edge fade on whichever side has content off-screen — Table sets
+ *      data-overflow, since no pure-CSS query can ask "is this overflowing?";
+ *   2. a thin styled scrollbar, so there is something to grab as well as
+ *      something to notice.
+ *
+ * The fade is a mask rather than a painted-on gradient: these tables sit on the
+ * canvas in some places and on surface cards in others, and a mask fades the
+ * content itself instead of guessing the background behind it. `black` here is
+ * mask alpha, not a color — the mask's own hue never renders.
+ */
+.ui-table-scroll[data-overflow="end"] {
+  mask-image: linear-gradient(to right, black calc(100% - 32px), transparent);
+}
+.ui-table-scroll[data-overflow="start"] {
+  mask-image: linear-gradient(to left, black calc(100% - 32px), transparent);
+}
+.ui-table-scroll[data-overflow="both"] {
+  mask-image: linear-gradient(to right, transparent, black 32px,
+                              black calc(100% - 32px), transparent);
+}
+
+.ui-table-scroll::-webkit-scrollbar { height: 8px; }
+.ui-table-scroll::-webkit-scrollbar-track { background: transparent; }
+.ui-table-scroll::-webkit-scrollbar-thumb {
+  background: var(--ds-border);
+  border-radius: 999px;
+}
+.ui-table-scroll:hover::-webkit-scrollbar-thumb { background: var(--ds-text-subtle); }
+
+/* Firefox has no ::-webkit-scrollbar; its standard properties do the same job.
+   They live behind @supports because setting them in Chromium switches it back
+   to the overlay scrollbar and throws the rules above away. */
+@supports not selector(::-webkit-scrollbar) {
+  .ui-table-scroll {
+    scrollbar-width: thin;
+    scrollbar-color: var(--ds-border) transparent;
+  }
+}

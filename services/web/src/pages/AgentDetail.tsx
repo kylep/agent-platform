@@ -154,7 +154,9 @@ function AgentConfig({ agent, onSaved }: { agent: AgentDef; onSaved: (next: Agen
   );
 
   return (
-    <>
+    // `agent-form` gives the section headings their divider rhythm (app.css):
+    // this form scrolls for pages, and the h2s are its only landmarks.
+    <div className="agent-form">
       <IdentityFields draft={draft} patch={patch} catalog={catalog} />
       <PromptField draft={draft} patch={patch} />
       {actions}
@@ -188,7 +190,7 @@ function AgentConfig({ agent, onSaved }: { agent: AgentDef; onSaved: (next: Agen
         The agent stops existing immediately: schedules and webhooks pointing at it stop firing.
         Its change log goes with it — this is not undoable from the UI.
       </ConfirmDialog>
-    </>
+    </div>
   );
 }
 

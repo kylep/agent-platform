@@ -61,8 +61,12 @@ agents › {name} › config › webhooks › {path}: auth dropdown [None, Secre
 Choosing Secret reveals a password field with an eye toggle; saving stores the
 secret (separate write-only call after the def save) and the row shows
 "secret set · rotate". A tooltip on the row prints the exact requirement:
-`X-AP-Webhook-Secret: <your secret>`. The /agents listing gains a Webhook
-column — a checkmark for any agent with ≥1 declared webhook.
+`X-AP-Webhook-Secret: <your secret>`. Beside the field, a Generate button fills
+in a fresh 24-byte URL-safe random secret and unmasks it — a secret the operator
+can't read is one they can't hand to the caller, and it is never shown again
+after the save. The /agents listing gains a Webhook column — a checkmark for any
+agent with ≥1 declared webhook, em-dash otherwise, in both the active and
+system tables; its tooltip lists the declared `POST /api/webhooks/<path>` lines.
 
 ## Explicitly not now
 
