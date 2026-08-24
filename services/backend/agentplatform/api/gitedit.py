@@ -73,10 +73,10 @@ def _build_writer(settings, token_creds: dict | None):
 
 async def _apply_files(request: Request, files: dict[str, str | None], *,
                        message: str, branch: str, pr_title: str,
-                       pr_body: str = "", force_review: bool = False) -> dict:
-    """Write an edit set into a fresh clone and let the tiered git path commit
-    it (tier 1) or open a PR (tier 2). Picks the git credential the same way for
-    every structured edit: a GitHub App token first, else a PAT."""
+                       pr_body: str = "") -> dict:
+    """Write an edit set into a fresh clone and open it as a pending change.
+    Picks the git credential the same way for every structured edit: a GitHub
+    App token first, else a PAT."""
     st = request.app.state
     settings = st.settings
     if not (settings.git_remote_url or settings.github_repo):
@@ -94,5 +94,4 @@ async def _apply_files(request: Request, files: dict[str, str | None], *,
             writer, pr_client = built
         svc = EditService(writer, pr_client=pr_client)
         return svc.apply(tmpp / "ws", files, message=message, branch=branch,
-                         pr_title=pr_title, pr_body=pr_body,
-                         force_review=force_review)
+                         pr_title=pr_title, pr_body=pr_body)

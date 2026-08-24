@@ -80,8 +80,7 @@ async def skill_quick_edit(request: Request, name: str, body: SkillQuickEditIn,
         request, {f"skills/{name}/SKILL.md": body.value},
         message=f"{principal}: quick-edit skill {name}",
         branch=f"coder/skill-{name}", pr_title=f"Edit skill: {name}",
-        pr_body=f"Direct SKILL.md edit for `{name}` from the skills editor.",
-        force_review=True)
+        pr_body=f"Direct SKILL.md edit for `{name}` from the skills editor.")
 
 
 class SkillWizardSecret(BaseModel):

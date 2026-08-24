@@ -1,22 +1,31 @@
 """Git-side of the self-hosting loop.
 
 `compute_changes` inspects a workspace checkout (where an edit — by the
-platform-coder agent or a deterministic quick-edit — has already been
-written) and returns the structured change set that `tiers.classify_tier`
-consumes. The actual commit / branch / push / PR steps live in
-`GitWriter` and require a repo write credential (supplied as a secret,
-like claude-credentials); they are intentionally separated so tier
-classification is testable without any GitHub access.
+platform-coder agent or a deterministic quick-edit — has already been written)
+and reports what it touched. The actual commit / branch / push / PR steps live
+in `GitWriter` and require a repo write credential (supplied as a secret, like
+claude-credentials); they are intentionally separated so the change computation
+is testable without any GitHub access.
+
+Every edit that reaches here is now CAPABILITY-AS-CODE — a skill, a secret
+declaration, a tool — and every one of them goes through a pull request. The
+tier classifier that used to wave through an agent's own prompt edit went out
+with the `agents/` tree (docs/design/15): definitions are rows, edited through
+the API and logged in `agent_versions`, so nothing left in this path is a
+low-risk in-place edit.
 """
 import os
 import stat
 import subprocess
 import tempfile
+from dataclasses import dataclass
 from pathlib import Path
 
-import yaml
 
-from agentplatform.tiers import TIER_DIRECT, FileChange, classify_tier
+@dataclass(frozen=True)
+class FileChange:
+    path: str                                   # repo-relative, e.g. skills/git/SKILL.md
+    kind: str                                   # "added" | "modified" | "deleted"
 
 
 def _git(repo: Path, *args: str) -> str:
@@ -33,43 +42,10 @@ def _kind_from_status(xy: str) -> str:
     return "modified"
 
 
-def _manifest_field_changes(repo: Path, path: str) -> frozenset[str]:
-    """Keys whose values differ between HEAD and the working manifest."""
-    try:
-        old = yaml.safe_load(_git(repo, "show", f"HEAD:{path}")) or {}
-    except subprocess.CalledProcessError:
-        old = {}
-    new = yaml.safe_load((repo / path).read_text()) or {}
-    return frozenset(k for k in set(old) | set(new) if old.get(k) != new.get(k))
-
-
-def _frontmatter(text: str) -> dict:
-    """The YAML frontmatter of an agent.md ({} if none/unparseable)."""
-    if not text.startswith("---"):
-        return {}
-    parts = text.split("---", 2)
-    if len(parts) != 3:
-        return {}
-    try:
-        return yaml.safe_load(parts[1]) or {}
-    except yaml.YAMLError:
-        return {}
-
-
-def _agent_md_frontmatter_changed(repo: Path, path: str) -> bool:
-    """True when an agent.md's frontmatter differs between HEAD and the working
-    tree (a body-only prompt edit returns False)."""
-    try:
-        old = _git(repo, "show", f"HEAD:{path}")
-    except subprocess.CalledProcessError:
-        old = ""
-    new = (repo / path).read_text()
-    return _frontmatter(old) != _frontmatter(new)
-
-
 def compute_changes(repo: Path) -> list[FileChange]:
-    """Structured diff of the working tree vs HEAD (staged, unstaged, and
-    untracked), ready for tier classification."""
+    """What the working tree changed vs HEAD (staged, unstaged, and untracked).
+    Drives the commit message's file list and the "did anything change at all"
+    check."""
     repo = Path(repo)
     out = _git(repo, "status", "--porcelain=v1", "--untracked-files=all")
     changes: list[FileChange] = []
@@ -77,15 +53,7 @@ def compute_changes(repo: Path) -> list[FileChange]:
         if not line.strip():
             continue
         xy, path = line[:2], line[3:]
-        kind = _kind_from_status(xy)
-        fields: frozenset[str] = frozenset()
-        fm_changed = False
-        if path.endswith("manifest.yaml") and kind == "modified":
-            fields = _manifest_field_changes(repo, path)
-        elif path.endswith("agent.md") and kind == "modified":
-            fm_changed = _agent_md_frontmatter_changed(repo, path)
-        changes.append(FileChange(path=path, kind=kind, manifest_fields=fields,
-                                  frontmatter_changed=fm_changed))
+        changes.append(FileChange(path=path, kind=_kind_from_status(xy)))
     return changes
 
 
@@ -161,10 +129,14 @@ def _write_files(repo: Path, files: dict[str, str | None]) -> None:
 
 
 class EditService:
-    """Orchestrates a self-edit end to end: clone, apply the edit, classify the
-    tier, then either commit straight to the default branch (tier 1) or push a
-    branch and open a pull request (tier 2). The PR client is optional so the
-    git path is exercisable without any GitHub access."""
+    """Orchestrates a self-edit end to end: clone, apply the edit, push a
+    branch and open a pull request. The PR client is optional so the git path
+    is exercisable without any GitHub access.
+
+    There is no direct-to-main path any more. Everything this service still
+    edits is capability-as-code, which is reviewable by definition, and the one
+    thing that used to qualify for a silent commit — an agent's own prompt —
+    is a row now."""
 
     def __init__(self, writer: "GitWriter", pr_client=None):
         self.writer = writer
@@ -172,11 +144,10 @@ class EditService:
 
     def apply(self, workspace: Path, files: dict[str, str | None], *,
               message: str, branch: str, pr_title: str | None = None,
-              pr_body: str = "", force_review: bool = False) -> dict:
-        """force_review=True skips the tier-1 fast path: even a change that
-        classifies as direct-committable goes through a PR. Used by the UI's
-        raw definition editor so every save lands as a reviewable pending
-        change (one deterministic flow, no silent commits to main)."""
+              pr_body: str = "") -> dict:
+        """Returns the standard edit result. `tier` survives as the wire's
+        outcome code — 0 = the edit was a no-op, 2 = it is a pending change —
+        because that is what the web reads to tell a save from a nothing."""
         repo = self.writer.clone(workspace)
         _write_files(repo, files)
         changes = compute_changes(repo)
@@ -185,11 +156,6 @@ class EditService:
             # The edit matches what's already committed — nothing to do (a
             # bare `git commit` would fail with "nothing to commit").
             return {"tier": 0, "branch": None, "sha": None, "changes": [], "pr": None}
-        if not force_review and classify_tier(changes) == TIER_DIRECT:
-            sha = self.writer.commit(repo, message)
-            self.writer.push(repo, self.writer.default_branch)
-            return {"tier": 1, "branch": self.writer.default_branch, "sha": sha,
-                    "changes": paths, "pr": None}
         self.writer.create_branch(repo, branch)
         sha = self.writer.commit(repo, message)
         self.writer.push(repo, branch, force=True)  # deterministic branch → overwrite

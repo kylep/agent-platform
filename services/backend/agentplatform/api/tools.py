@@ -100,8 +100,7 @@ async def tool_quick_edit(request: Request, name: str, body: ToolQuickEditIn,
         request, {f"tools/{name}/{f}": content for f, content in body.files.items()},
         message=f"{principal}: quick-edit tool {name}",
         branch=f"coder/tool-{name}", pr_title=f"Edit tool: {name}",
-        pr_body=f"Direct edit of `tools/{name}/` from the tools editor.",
-        force_review=True)
+        pr_body=f"Direct edit of `tools/{name}/` from the tools editor.")
 
 
 class ToolWizardSecret(BaseModel):

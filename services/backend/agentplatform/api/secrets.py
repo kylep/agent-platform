@@ -158,8 +158,7 @@ async def declare_secret(request: Request, body: SecretDeclareIn,
         message=f"{principal}: declare secret {body.name}",
         branch=f"coder/secret-{body.name}",
         pr_title=f"Declare secret: {body.name}",
-        pr_body="Secret declaration scaffolded from the Secrets page.",
-        force_review=True)
+        pr_body="Secret declaration scaffolded from the Secrets page.")
 
 
 @router.get("/api/secrets/{name}/declaration", response_model=S.SecretDeclaration, dependencies=[Depends(require_admin)])
@@ -199,8 +198,7 @@ async def secret_quick_edit(request: Request, name: str, body: SecretQuickEditIn
         request, {f"secrets/{name}/secret.yaml": body.value},
         message=f"{principal}: quick-edit secret {name}",
         branch=f"coder/secret-{name}", pr_title=f"Edit secret declaration: {name}",
-        pr_body=f"Direct secret.yaml edit for `{name}` from the Secrets page.",
-        force_review=True)
+        pr_body=f"Direct secret.yaml edit for `{name}` from the Secrets page.")
 
 
 @router.put("/api/secrets/{name}", response_model=S.Ok, dependencies=[Depends(require_admin)])

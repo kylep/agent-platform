@@ -3,7 +3,6 @@ import subprocess
 import pytest
 
 from agentplatform.gitservice import compute_changes
-from agentplatform.tiers import TIER_DIRECT, TIER_PR, classify_tier
 
 
 def git(repo, *args):
@@ -13,13 +12,17 @@ def git(repo, *args):
 
 @pytest.fixture
 def repo(tmp_path):
+    """A checkout holding the blocks the self-edit path still writes: skills,
+    secret declarations, tools. `agents/` is gone (docs/design/15)."""
     git(tmp_path, "init", "-q")
     git(tmp_path, "config", "user.email", "t@t")
     git(tmp_path, "config", "user.name", "t")
-    d = tmp_path / "agents" / "hello-world"
+    d = tmp_path / "skills" / "git"
     d.mkdir(parents=True)
-    (d / "agent.md").write_text("You are hello-world.\n")
-    (d / "manifest.yaml").write_text("description: greet\nconcurrency: 1\n")
+    (d / "SKILL.md").write_text("---\nname: git\n---\nUse git.\n")
+    (tmp_path / "secrets" / "linear-api-key").mkdir(parents=True)
+    (tmp_path / "secrets" / "linear-api-key" / "secret.yaml").write_text(
+        "name: linear-api-key\n")
     git(tmp_path, "add", "-A")
     git(tmp_path, "commit", "-qm", "init")
     return tmp_path
@@ -29,62 +32,30 @@ def _by_path(changes):
     return {c.path: c for c in changes}
 
 
-def test_modified_body_is_direct(repo):
-    (repo / "agents/hello-world/agent.md").write_text("You are hello-world. Be nice.\n")
-    changes = compute_changes(repo)
-    assert _by_path(changes)["agents/hello-world/agent.md"].kind == "modified"
-    assert classify_tier(changes) == TIER_DIRECT
+def test_an_edited_file_is_modified(repo):
+    (repo / "skills/git/SKILL.md").write_text("---\nname: git\n---\nUse git well.\n")
+    assert _by_path(compute_changes(repo))["skills/git/SKILL.md"].kind == "modified"
 
 
-def test_safe_manifest_field_change_is_direct(repo):
-    (repo / "agents/hello-world/manifest.yaml").write_text("description: greet warmly\nconcurrency: 1\n")
-    changes = compute_changes(repo)
-    c = _by_path(changes)["agents/hello-world/manifest.yaml"]
-    assert c.manifest_fields == frozenset({"description"})
-    assert classify_tier(changes) == TIER_DIRECT
-
-
-def test_sensitive_manifest_field_change_is_pr(repo):
-    (repo / "agents/hello-world/manifest.yaml").write_text("description: greet\nconcurrency: 5\n")
-    changes = compute_changes(repo)
-    c = _by_path(changes)["agents/hello-world/manifest.yaml"]
-    assert c.manifest_fields == frozenset({"concurrency"})
-    assert classify_tier(changes) == TIER_PR
-
-
-def test_new_agent_is_added_and_pr(repo):
-    d = repo / "agents" / "brandnew"
+def test_a_new_file_is_added_even_untracked(repo):
+    """Untracked files count: a wizard scaffolding a brand-new skill writes
+    files git has never seen, and `--untracked-files=all` is what makes them
+    show up as changes instead of an empty diff."""
+    d = repo / "skills" / "brandnew"
     d.mkdir()
-    (d / "agent.md").write_text("You are new.\n")
-    (d / "manifest.yaml").write_text("description: new\n")
-    changes = compute_changes(repo)
-    kinds = {c.path: c.kind for c in changes}
-    assert kinds["agents/brandnew/agent.md"] == "added"
-    assert classify_tier(changes) == TIER_PR
+    (d / "SKILL.md").write_text("---\nname: brandnew\n---\nNew.\n")
+    assert _by_path(compute_changes(repo))["skills/brandnew/SKILL.md"].kind == "added"
 
 
-def test_deleted_file_is_pr(repo):
-    (repo / "agents/hello-world/agent.md").unlink()
-    changes = compute_changes(repo)
-    assert _by_path(changes)["agents/hello-world/agent.md"].kind == "deleted"
-    assert classify_tier(changes) == TIER_PR
+def test_a_removed_file_is_deleted(repo):
+    (repo / "skills/git/SKILL.md").unlink()
+    assert _by_path(compute_changes(repo))["skills/git/SKILL.md"].kind == "deleted"
 
 
-def test_clean_tree_has_no_changes(repo):
+def test_a_clean_tree_has_no_changes(repo):
+    """The empty case is load-bearing: it is what EditService turns into the
+    no-op result instead of a `git commit` that fails with nothing to commit."""
     assert compute_changes(repo) == []
-    assert classify_tier(compute_changes(repo)) == TIER_DIRECT
-
-
-def test_compute_changes_flags_frontmatter(repo):
-    p = repo / "agents" / "hello-world" / "agent.md"
-    p.write_text("---\nname: hello-world\ntools: Bash\n---\nYou are hello-world.\n")
-    git(repo, "add", "-A"); git(repo, "commit", "-qm", "frontmatter")
-    # Body-only edit: not a frontmatter change.
-    p.write_text("---\nname: hello-world\ntools: Bash\n---\nYou are hello-world. Better.\n")
-    assert compute_changes(repo)[0].frontmatter_changed is False
-    # Widen tools: a frontmatter change.
-    p.write_text("---\nname: hello-world\ntools: Bash, Read\n---\nYou are hello-world. Better.\n")
-    assert compute_changes(repo)[0].frontmatter_changed is True
 
 
 @pytest.fixture
@@ -96,12 +67,10 @@ def bare_remote(tmp_path):
     seed = tmp_path / "seed"
     git(tmp_path, "clone", "-q", str(bare), str(seed))
     git(seed, "config", "user.email", "s@s"); git(seed, "config", "user.name", "s")
-    (seed / "agents").mkdir()
-    (seed / "agents" / "x.txt").write_text("hi\n")
-    hw = seed / "agents" / "hello-world"
-    hw.mkdir()
-    (hw / "agent.md").write_text("You are hello-world.\n")
-    (hw / "manifest.yaml").write_text("description: greet\nconcurrency: 1\n")
+    (seed / "skills" / "git").mkdir(parents=True)
+    (seed / "skills" / "git" / "SKILL.md").write_text("---\nname: git\n---\nUse git.\n")
+    (seed / "secrets" / "linear-api-key").mkdir(parents=True)
+    (seed / "secrets" / "linear-api-key" / "secret.yaml").write_text("name: linear-api-key\n")
     git(seed, "add", "-A"); git(seed, "commit", "-qm", "init")
     git(seed, "branch", "-M", "main"); git(seed, "push", "-q", "origin", "main")
     return bare
@@ -113,12 +82,14 @@ def _remote_branches(bare):
     return set(out.split())
 
 
-def test_gitwriter_tier1_commit_and_push_to_main(bare_remote, tmp_path):
+def test_gitwriter_commits_and_pushes_a_branch_to_the_remote(bare_remote, tmp_path):
+    """GitWriter's primitives are separable from EditService's policy, so this
+    exercises the plumbing directly: clone, edit, commit, push."""
     from agentplatform.gitservice import GitWriter
     w = GitWriter(str(bare_remote))
     repo = w.clone(tmp_path / "ws")
-    (repo / "agents" / "x.txt").write_text("edited\n")
-    sha = w.commit(repo, "tier-1 edit")
+    (repo / "skills" / "git" / "SKILL.md").write_text("---\nname: git\n---\nEdited.\n")
+    sha = w.commit(repo, "edit the git skill")
     w.push(repo, "main")
     # The bare remote's main now points at our new commit.
     remote_head = subprocess.run(["git", "-C", str(bare_remote), "rev-parse", "main"],
@@ -126,13 +97,13 @@ def test_gitwriter_tier1_commit_and_push_to_main(bare_remote, tmp_path):
     assert remote_head == sha
 
 
-def test_gitwriter_tier2_branch_push(bare_remote, tmp_path):
+def test_gitwriter_branch_push_leaves_main_alone(bare_remote, tmp_path):
     from agentplatform.gitservice import GitWriter
     w = GitWriter(str(bare_remote))
     repo = w.clone(tmp_path / "ws2")
     w.create_branch(repo, "coder/edit-1")
-    (repo / "agents" / "x.txt").write_text("proposed\n")
-    w.commit(repo, "tier-2 proposal")
+    (repo / "skills" / "git" / "SKILL.md").write_text("---\nname: git\n---\nProposed.\n")
+    w.commit(repo, "proposal")
     w.push(repo, "coder/edit-1")
     assert "coder/edit-1" in _remote_branches(bare_remote)
     # main is untouched on the remote.
@@ -147,44 +118,48 @@ class FakePRClient:
         return {"number": 42, "html_url": "https://github.com/o/r/pull/42"}
 
 
-def test_editservice_tier1_commits_to_main(bare_remote, tmp_path):
+def test_editservice_never_commits_to_main(bare_remote, tmp_path):
+    """The tier-1 fast path is gone with the `agents/` tree (docs/design/15).
+    Everything this service still edits is capability-as-code, so even a
+    one-word edit lands as a pending change and main is untouched."""
     from agentplatform.gitservice import EditService, GitWriter
     pr = FakePRClient()
     svc = EditService(GitWriter(str(bare_remote)), pr_client=pr)
-    res = svc.apply(tmp_path / "ws", {"agents/hello-world/agent.md": "You are hw. Nicer.\n"},
-                    message="tweak prompt", branch="coder/should-not-be-used")
-    assert res["tier"] == 1 and res["branch"] == "main" and res["pr"] is None
-    assert pr.calls == []  # tier-1 never opens a PR
-    remote_head = subprocess.run(["git", "-C", str(bare_remote), "rev-parse", "main"],
-                                 capture_output=True, text=True, check=True).stdout.strip()
-    assert remote_head == res["sha"]
-
-
-def test_editservice_tier2_opens_pr(bare_remote, tmp_path):
-    from agentplatform.gitservice import EditService, GitWriter
-    pr = FakePRClient()
-    svc = EditService(GitWriter(str(bare_remote)), pr_client=pr)
-    # New agent dir → tier 2.
+    before = subprocess.run(["git", "-C", str(bare_remote), "rev-parse", "main"],
+                            capture_output=True, text=True, check=True).stdout.strip()
     res = svc.apply(tmp_path / "ws",
-                    {"agents/newbot/agent.md": "You are newbot.\n",
-                     "agents/newbot/manifest.yaml": "description: new\n"},
-                    message="add newbot", branch="coder/add-newbot",
-                    pr_title="Add newbot agent")
-    assert res["tier"] == 2 and res["branch"] == "coder/add-newbot"
-    assert "coder/add-newbot" in _remote_branches(bare_remote)
+                    {"skills/git/SKILL.md": "---\nname: git\n---\nUse git nicely.\n"},
+                    message="tweak the git skill", branch="coder/skill-git")
+    assert res["tier"] == 2 and res["branch"] == "coder/skill-git"
+    assert len(pr.calls) == 1                       # it is a reviewable change
+    after = subprocess.run(["git", "-C", str(bare_remote), "rev-parse", "main"],
+                           capture_output=True, text=True, check=True).stdout.strip()
+    assert after == before                          # main never moved
+
+
+def test_editservice_opens_a_pr(bare_remote, tmp_path):
+    from agentplatform.gitservice import EditService, GitWriter
+    pr = FakePRClient()
+    svc = EditService(GitWriter(str(bare_remote)), pr_client=pr)
+    res = svc.apply(tmp_path / "ws",
+                    {"skills/newskill/SKILL.md": "---\nname: newskill\n---\nNew.\n"},
+                    message="add newskill", branch="coder/skill-newskill",
+                    pr_title="Add newskill skill")
+    assert res["tier"] == 2 and res["branch"] == "coder/skill-newskill"
+    assert "coder/skill-newskill" in _remote_branches(bare_remote)
     assert len(pr.calls) == 1
     call = pr.calls[0]
-    assert call["head"] == "coder/add-newbot" and call["base"] == "main"
-    assert call["title"] == "Add newbot agent"
+    assert call["head"] == "coder/skill-newskill" and call["base"] == "main"
+    assert call["title"] == "Add newskill skill"
     assert res["pr"]["number"] == 42
 
 
-def test_editservice_tier2_without_pr_client_still_pushes(bare_remote, tmp_path):
+def test_editservice_without_pr_client_still_pushes(bare_remote, tmp_path):
     from agentplatform.gitservice import EditService, GitWriter
     svc = EditService(GitWriter(str(bare_remote)))  # no PR client (no token yet)
     res = svc.apply(tmp_path / "ws",
-                    {"agents/hello-world/manifest.yaml": "description: greet\nconcurrency: 9\n"},
-                    message="bump concurrency", branch="coder/bump")
+                    {"secrets/linear-api-key/secret.yaml": "name: linear-api-key\nseverity: required\n"},
+                    message="declare severity", branch="coder/bump")
     assert res["tier"] == 2 and res["pr"] is None
     assert "coder/bump" in _remote_branches(bare_remote)
 
@@ -194,6 +169,6 @@ def test_editservice_noop_when_no_change(bare_remote, tmp_path):
     svc = EditService(GitWriter(str(bare_remote)))
     # Write the identical content that already exists -> no diff.
     res = svc.apply(tmp_path / "ws",
-                    {"agents/hello-world/agent.md": "You are hello-world.\n"},
+                    {"skills/git/SKILL.md": "---\nname: git\n---\nUse git.\n"},
                     message="noop", branch="coder/noop")
     assert res["tier"] == 0 and res["sha"] is None and res["changes"] == []
