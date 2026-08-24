@@ -8,7 +8,17 @@ export type SetupState = { needs_admin: boolean; secrets: SecretStatus[] };
 // a snapshot to the change log below.
 
 export type CronEntry = { schedule: string; prompt: string };
-export type WebhookEntry = { path: string };
+
+// How a declared webhook path authenticates callers (docs/design/16).
+// `none` = a platform operator key, as before; `secret` additionally accepts
+// the shared secret in the `X-AP-Webhook-Secret` header.
+export type WebhookAuth = "none" | "secret";
+
+// The entry carries the MODE only — the secret VALUE lives in its own
+// write-only endpoint and never on the definition, which is snapshotted into
+// the change log on every write. `secret_set` is derived by the API on GET;
+// the editor echoes it back on PUT, where the server accepts and drops it.
+export type WebhookEntry = { path: string; auth: WebhookAuth; secret_set?: boolean };
 
 export type AgentEntrypoints = {
   crons: CronEntry[];

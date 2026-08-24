@@ -3,6 +3,10 @@ import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom"
 import { api, type AgentDef, type AgentMetrics, type AgentSummary, type ModelUsage } from "../api";
 import { useGrantCatalog } from "../components/CapabilityPickers";
 import { EntrypointsFields, GrantsFields, IdentityFields, PromptField, toDraft } from "../components/AgentForm";
+import {
+  markSecretsSet, pendingSecretWrites, shortSecretPaths, useWebhookSecrets,
+  WEBHOOK_SECRET_MIN, writeWebhookSecrets,
+} from "../lib/webhook-secrets";
 import AgentVersions from "../components/AgentVersions";
 import AgentChat from "../components/AgentChat";
 import AgentMemories from "../components/AgentMemories";
@@ -71,8 +75,16 @@ function AgentConfig({ agent, onSaved }: { agent: AgentDef; onSaved: (next: Agen
   const [saved, setSaved] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  // Typed webhook secrets — held apart from the draft on purpose (design/16).
+  const secrets = useWebhookSecrets();
 
+  const webhooks = draft.entrypoints.webhooks;
+  const pendingSecrets = pendingSecretWrites(webhooks, secrets.values);
+  const shortSecrets = shortSecretPaths(webhooks, secrets.values);
   const dirty = JSON.stringify(draft) !== JSON.stringify(original);
+  // A rotated secret is a save with no change to the row: it has to enable the
+  // button on its own, or the only way to send it would be to dirty the def.
+  const savable = (dirty || pendingSecrets.length > 0) && shortSecrets.length === 0;
   const patch = (p: Partial<AgentDef>) => { setDraft((d) => ({ ...d, ...p })); setSaved(false); };
 
   async function save() {
@@ -80,14 +92,23 @@ function AgentConfig({ agent, onSaved }: { agent: AgentDef; onSaved: (next: Agen
     try {
       // The full definition goes on the wire: the server's field-level guard
       // decides what a caller may change, and an admin session may change all
-      // of it. Sending everything also survives a replace-style PUT.
-      const next = await api<AgentDef>(`/api/agents/${encodeURIComponent(agent.name)}`, {
-        method: "PUT",
-        body: JSON.stringify(draft),
-      });
+      // of it. Sending everything also survives a replace-style PUT. Skipped
+      // when nothing in the row moved, so rotating a secret doesn't append a
+      // no-op snapshot to the change log.
+      const next = dirty
+        ? await api<AgentDef>(`/api/agents/${encodeURIComponent(agent.name)}`, {
+            method: "PUT",
+            body: JSON.stringify(draft),
+          })
+        : null;
       // Adopt the row the server actually stored (it may normalize fields), so
       // the editor stops claiming unsaved changes it no longer has.
-      const canonical = next && next.name ? toDraft(next) : draft;
+      let canonical = next && next.name ? toDraft(next) : draft;
+      // Secrets go second and alone: the endpoint 404s until the path is
+      // declared, and the value never rides along with the definition.
+      await writeWebhookSecrets(agent.name, pendingSecrets);
+      canonical = markSecretsSet(canonical, pendingSecrets.map((p) => p.path));
+      secrets.reset();
       setDraft(canonical);
       setSaved(true);
       onSaved(canonical);
@@ -114,11 +135,19 @@ function AgentConfig({ agent, onSaved }: { agent: AgentDef; onSaved: (next: Agen
   const actions = (
     <>
       {error && <div className="error">{error}</div>}
+      {shortSecrets.length > 0 && (
+        <div className="error">A webhook secret must be at least {WEBHOOK_SECRET_MIN} characters.</div>
+      )}
       <div className="row-actions" style={{ marginTop: 10 }}>
-        <Button onClick={save} disabled={saving || !dirty}>{saving ? "Saving…" : "Save changes"}</Button>
-        {dirty && <Button variant="secondary" onClick={() => setDraft(original)}>Discard edits</Button>}
+        <Button onClick={save} disabled={saving || !savable}>{saving ? "Saving…" : "Save changes"}</Button>
+        {(dirty || pendingSecrets.length > 0) && (
+          <Button variant="secondary"
+                  onClick={() => { setDraft(original); secrets.reset(); }}>Discard edits</Button>
+        )}
         <span className="muted check-note">
-          {dirty ? "Unsaved changes." : saved ? "Saved — live now." : "Saved changes apply to the next run."}
+          {dirty || pendingSecrets.length > 0
+            ? "Unsaved changes."
+            : saved ? "Saved — live now." : "Saved changes apply to the next run."}
         </span>
       </div>
     </>
@@ -130,7 +159,7 @@ function AgentConfig({ agent, onSaved }: { agent: AgentDef; onSaved: (next: Agen
       <PromptField draft={draft} patch={patch} />
       {actions}
 
-      <EntrypointsFields draft={draft} patch={patch} />
+      <EntrypointsFields draft={draft} patch={patch} secrets={secrets} />
       <GrantsFields draft={draft} patch={patch} catalog={catalog} />
       {actions}
 

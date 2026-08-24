@@ -52,7 +52,10 @@ test("entrypoints edit round-trips into the saved definition", async ({ page }) 
 
   await page.getByRole("button", { name: "Save changes" }).first().click();
   const put = writes.find((w) => w.method() === "PUT");
-  expect(JSON.parse(put!.postData() ?? "{}").entrypoints.webhooks).toEqual([{ path: "deploy-done" }]);
+  // `auth` is the mode the definition carries; the secret itself never is
+  // (docs/design/16 — see webhook-auth.spec.ts).
+  expect(JSON.parse(put!.postData() ?? "{}").entrypoints.webhooks)
+    .toEqual([{ path: "deploy-done", auth: "none", secret_set: false }]);
 });
 
 test("version history lists the change log and rolls back after confirming", async ({ page }) => {

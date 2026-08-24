@@ -1,5 +1,8 @@
 import { useState, type ReactNode } from "react";
-import { asList, type AgentDef, type AgentEntrypoints, type CronEntry } from "../api";
+import { asList, type AgentDef, type AgentEntrypoints, type CronEntry, type WebhookAuth, type WebhookEntry } from "../api";
+import {
+  generateWebhookSecret, WEBHOOK_SECRET_HEADER, WEBHOOK_SECRET_MIN, type WebhookSecrets,
+} from "../lib/webhook-secrets";
 import { cronEnglish, zoneOptions } from "../lib/cron";
 import { SecretPicker, SkillPicker, ToolGrantPicker, type GrantCatalog } from "./CapabilityPickers";
 import { Button } from "@ap/ui/button";
@@ -41,8 +44,8 @@ export function toDraft(def: Partial<AgentDef> & { name: string }): AgentDef {
       // Non-object entries are dropped, not rendered: a cron that is a bare
       // string would give the row's inputs an undefined value apiece.
       crons: asList<CronEntry>(e?.crons).filter((c) => c && typeof c === "object"),
-      webhooks: asList<AgentEntrypoints["webhooks"][number]>(e?.webhooks)
-        .filter((w) => w && typeof w === "object"),
+      webhooks: asList<unknown>(e?.webhooks)
+        .filter((w) => w && typeof w === "object").map(toWebhook),
       topics: asList<string>(e?.topics).filter((t) => typeof t === "string"),
       timezone: typeof e?.timezone === "string" ? e.timezone : "",
     },
@@ -50,6 +53,19 @@ export function toDraft(def: Partial<AgentDef> & { name: string }): AgentDef {
     platform_tools: asList<string>(def.platform_tools),
     skills: asList<string>(def.skills),
     secrets: asList<string>(def.secrets),
+  };
+}
+
+// One webhook entry, repaired. The mode is narrowed to what the server
+// accepts — anything else reads as `none`, the safe end, so a warped blob
+// can't leave a row claiming an auth mode that isn't real — and `secret_set`
+// is forced to a boolean the row's state can be decided from.
+function toWebhook(raw: unknown): WebhookEntry {
+  const w = raw as Partial<WebhookEntry>;
+  return {
+    path: typeof w.path === "string" ? w.path : "",
+    auth: w.auth === "secret" ? "secret" : "none",
+    secret_set: w.secret_set === true,
   };
 }
 
@@ -206,7 +222,84 @@ function CronRow({ entry, zone, onChange, onRemove }: {
   );
 }
 
-export function EntrypointsFields({ draft, patch }: { draft: AgentDef; patch: Patch }) {
+const AUTH_LABELS: Record<WebhookAuth, string> = { none: "None", secret: "Secret" };
+
+function WebhookRow({ entry, secrets, onChange, onRemove }: {
+  entry: WebhookEntry; secrets: WebhookSecrets;
+  onChange: (next: WebhookEntry) => void; onRemove: () => void;
+}) {
+  // The eye is purely local: whether the field is masked says nothing about
+  // the draft, and it resets with the row.
+  const [shown, setShown] = useState(false);
+  const typed = secrets.values[entry.path] ?? "";
+  const tooShort = typed !== "" && typed.length < WEBHOOK_SECRET_MIN;
+  // A set secret is unreadable, so the field only comes back when the operator
+  // asks to rotate it. Until one is set, there is nothing else to show.
+  const entering = entry.auth === "secret" && (!entry.secret_set || secrets.rotating[entry.path]);
+
+  return (
+    <div className="grid gap-2" title={entry.auth === "secret" ? WEBHOOK_SECRET_HEADER : undefined}>
+      <div className="grid gap-2 sm:grid-cols-[1fr_9rem_auto] items-start">
+        <div>
+          <Input className="w-full" aria-label="Webhook path" value={entry.path} placeholder="my-hook"
+                 onChange={(e) => {
+                   const path = e.target.value.trim();
+                   secrets.rename(entry.path, path);
+                   onChange({ ...entry, path });
+                 }} />
+          <p className="muted check-note">
+            {entry.path ? <>POST <code>/api/webhooks/{entry.path}</code></> : "Path segment only — no slashes."}
+          </p>
+        </div>
+        <Select className="w-full" aria-label="Webhook auth" value={entry.auth}
+                onChange={(e) => onChange({ ...entry, auth: e.target.value as WebhookAuth })}>
+          {(Object.keys(AUTH_LABELS) as WebhookAuth[]).map((m) => (
+            <option key={m} value={m}>{AUTH_LABELS[m]}</option>
+          ))}
+        </Select>
+        <Button variant="secondary" size="sm" aria-label="Remove webhook"
+                onClick={() => { secrets.forget(entry.path); onRemove(); }}>
+          Remove
+        </Button>
+      </div>
+
+      {entry.auth === "secret" && (entering ? (
+        <div className="grid gap-2 sm:grid-cols-[1fr_auto_auto] items-start">
+          <div>
+            <Input className="w-full" type={shown ? "text" : "password"} aria-label="Webhook secret"
+                   autoComplete="off" value={typed} placeholder={`at least ${WEBHOOK_SECRET_MIN} characters`}
+                   onChange={(e) => secrets.set(entry.path, e.target.value)} />
+            <p className={tooShort ? "error" : "muted check-note"}>
+              {tooShort
+                ? `At least ${WEBHOOK_SECRET_MIN} characters.`
+                : <>Callers send <code>{WEBHOOK_SECRET_HEADER}</code>. Stored write-only — copy it now,
+                   it is never shown again.</>}
+            </p>
+          </div>
+          <Button variant="secondary" size="sm" aria-label={shown ? "Hide secret" : "Show secret"}
+                  onClick={() => setShown((s) => !s)}>
+            {shown ? "🙈" : "👁"}
+          </Button>
+          {/* Unmasks what it generated: a secret you can't see is one you
+              can't give to the caller. */}
+          <Button variant="secondary" size="sm"
+                  onClick={() => { secrets.set(entry.path, generateWebhookSecret()); setShown(true); }}>
+            Generate
+          </Button>
+        </div>
+      ) : (
+        <p className="muted check-note">
+          secret set ·{" "}
+          <Button variant="secondary" size="sm" onClick={() => secrets.rotate(entry.path)}>rotate</Button>
+        </p>
+      ))}
+    </div>
+  );
+}
+
+export function EntrypointsFields({ draft, patch, secrets }: {
+  draft: AgentDef; patch: Patch; secrets: WebhookSecrets;
+}) {
   const ep = draft.entrypoints;
   const set = (next: Partial<AgentEntrypoints>) => patch({ entrypoints: { ...ep, ...next } });
   const zones = zoneOptions();
@@ -246,26 +339,19 @@ export function EntrypointsFields({ draft, patch }: { draft: AgentDef; patch: Pa
       <label className="field-label">Webhooks</label>
       <div className="grid gap-2">
         {ep.webhooks.map((w, i) => (
-          <div key={i} className="grid gap-2 sm:grid-cols-[1fr_auto] items-start">
-            <div>
-              <Input className="w-full" aria-label="Webhook path" value={w.path} placeholder="my-hook"
-                     onChange={(e) => set({
-                       webhooks: ep.webhooks.map((x, j) => (j === i ? { path: e.target.value.trim() } : x)),
-                     })} />
-              <p className="muted check-note">
-                {w.path ? <>POST <code>/api/webhooks/{w.path}</code></> : "Path segment only — no slashes."}
-              </p>
-            </div>
-            <Button variant="secondary" size="sm" aria-label="Remove webhook"
-                    onClick={() => set({ webhooks: ep.webhooks.filter((_, j) => j !== i) })}>
-              Remove
-            </Button>
-          </div>
+          <WebhookRow key={i} entry={w} secrets={secrets}
+                      onChange={(next) => set({ webhooks: ep.webhooks.map((x, j) => (j === i ? next : x)) })}
+                      onRemove={() => set({ webhooks: ep.webhooks.filter((_, j) => j !== i) })} />
         ))}
       </div>
+      <p className="muted check-note">
+        Auth <strong>None</strong> keeps today's rule — the caller needs a platform operator key.
+        <strong> Secret</strong> also accepts the shared secret in a header, which is how a service
+        that can't hold a platform key (GitHub, IFTTT, a curl) reaches this webhook.
+      </p>
       <div className="row-actions" style={{ marginTop: 6 }}>
         <Button variant="secondary" size="sm"
-                onClick={() => set({ webhooks: [...ep.webhooks, { path: "" }] })}>
+                onClick={() => set({ webhooks: [...ep.webhooks, { path: "", auth: "none", secret_set: false }] })}>
           + Add webhook
         </Button>
       </div>

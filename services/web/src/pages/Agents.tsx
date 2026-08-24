@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { api, asList, type AgentSummary, type CronEntry, type Job } from "../api";
+import { api, asList, type AgentSummary, type CronEntry, type Job, type WebhookEntry } from "../api";
 import { cronEnglish } from "../lib/cron";
 import { cn } from "@ap/ui/cn";
 import { buttonVariants } from "@ap/ui/button";
@@ -17,15 +17,22 @@ function scheduleOf(a: AgentSummary): string {
     .map((c) => c?.schedule).filter(Boolean).join(", ");
 }
 
+// The declared webhook paths, same defensive read as the crons above.
+function webhooksOf(a: AgentSummary): string[] {
+  return asList<WebhookEntry>(a.entrypoints?.webhooks)
+    .map((w) => w?.path).filter((p): p is string => typeof p === "string" && p !== "");
+}
+
 function AgentTable({ agents, jobs }: { agents: AgentSummary[]; jobs: Map<string, number> }) {
   return (
     <Table>
       <thead>
-        <tr><TH>Name</TH><TH>Description</TH><TH>Schedule</TH><TH>Status</TH></tr>
+        <tr><TH>Name</TH><TH>Description</TH><TH>Schedule</TH><TH>Webhook</TH><TH>Status</TH></tr>
       </thead>
       <tbody>
         {agents.map((a) => {
           const schedule = scheduleOf(a);
+          const hooks = webhooksOf(a);
           return (
             <tr key={a.name}>
               <TD><Link to={`/agents/${encodeURIComponent(a.name)}`}>{a.name}</Link></TD>
@@ -36,6 +43,10 @@ function AgentTable({ agents, jobs }: { agents: AgentSummary[]; jobs: Map<string
                   : jobs.get(a.name)
                   ? <Link to={`/agents/${encodeURIComponent(a.name)}?tab=schedules`}>{jobs.get(a.name)} job{jobs.get(a.name)! > 1 ? "s" : ""}</Link>
                   : "—"}
+              </TD>
+              <TD className="text-muted"
+                  title={hooks.length ? hooks.map((p) => `POST /api/webhooks/${p}`).join("\n") : "No webhook entrypoint."}>
+                {hooks.length ? "✓" : "—"}
               </TD>
               <TD>
                 {a.quarantined

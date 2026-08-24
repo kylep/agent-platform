@@ -31,7 +31,11 @@ const agents = [
   { ...def({ name: "news", description: "Gathers the day's notable news.", skills: ["news-lookup"] }),
     quarantined: false, error: null, blocked: true,
     blocked_reason: "blocked: skill `discord` disabled — secret `discord-webhook` is not set" },
-  { ...def({ name: "pai", description: "Conversational assistant." }),
+  // pai is the one with a webhook entrypoint — the listing's Webhook column
+  // reads it out of the (unvalidated) entrypoints blob.
+  { ...def({ name: "pai", description: "Conversational assistant.",
+             entrypoints: { crons: [], topics: [], timezone: "",
+                            webhooks: [{ path: "pai-inbox", auth: "secret", secret_set: true }] } }),
     quarantined: false, error: null, blocked: false, blocked_reason: null },
 ];
 
