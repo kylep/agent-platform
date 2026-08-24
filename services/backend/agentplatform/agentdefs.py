@@ -81,6 +81,11 @@ class CronEntry(BaseModel):
 # next rung, and the UI dropdown already has room for it.
 WEBHOOK_AUTH_MODES: tuple[str, ...] = ("none", "secret")
 
+# Matches `db.WebhookSecret.path` — the path is that table's key, so a path it
+# cannot store is a path that cannot be secured. Enforced in `validate_def`
+# (see the note there on why not on the field).
+WEBHOOK_PATH_MAX_LENGTH = 256
+
 
 class WebhookEntry(BaseModel):
     path: str
@@ -176,6 +181,20 @@ def validate_def(model: AgentDefModel, *, skill_names: set[str],
     tool-side check and an API-side check can share one implementation.
     Shape/role/cron validity is the model's job and has already happened."""
     problems: list[str] = []
+    # A webhook path is a storage key, not just a URL segment: `webhook_secrets`
+    # keys its rows on (agent, path) in a String(256) column, so a longer path
+    # could be declared happily and then blow up on postgres the moment someone
+    # set a secret for it. Checked HERE rather than as a `max_length` on
+    # `WebhookEntry.path` because the model is also how a stored row is READ:
+    # a length rule there would quarantine an over-long row instead of letting
+    # you open it and fix it, which is the same reason `_payload` reads columns
+    # raw. Every API write runs through this function, so the bound still holds
+    # on the way in.
+    for entry in model.entrypoints.webhooks:
+        if len(entry.path) > WEBHOOK_PATH_MAX_LENGTH:
+            problems.append(f"webhook path is longer than "
+                            f"{WEBHOOK_PATH_MAX_LENGTH} characters: "
+                            f"{entry.path[:32]}...")
     for label, granted, known in (
             ("skill", model.skills, skill_names),
             ("secret", model.secrets, secret_names),

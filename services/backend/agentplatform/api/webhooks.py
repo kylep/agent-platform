@@ -46,7 +46,7 @@ async def _authorize(request: Request, path: str) -> tuple[AgentInfo, str]:
     and resolving first would otherwise turn this endpoint into a directory of
     declared webhooks for anonymous callers. So an unauthenticated caller gets
     the same 401 whether or not the path exists, and only a caller who already
-    authenticated learns the difference (404).
+    authenticated learns the difference (404, 409, 503).
     """
     st = request.app.state
     await st.agent_store.reload()   # a path declared moments ago must count
@@ -62,20 +62,34 @@ async def _authorize(request: Request, path: str) -> tuple[AgentInfo, str]:
         presented = request.headers.get(webhooksecrets.WEBHOOK_SECRET_HEADER, "")
         async with st.session_factory() as s:
             ok = await webhooksecrets.verify(s, info.name, path, presented)
-        if ok is None:
-            # Mode says `secret`, no secret is set — a rollback restored the
-            # mode, or an edit stopped half-way. Fail CLOSED and name the
-            # misconfiguration: silently falling back to key-only auth would
-            # leave an operator convinced the path was open when it was not.
-            raise HTTPException(503, "this webhook is configured for secret auth "
-                                     "but no secret is set for it")
         if ok:
             # Not a platform principal: attribute the run to the path that was
             # authenticated, never to anything the caller claims about itself.
             return info, f"webhook:{path}"
+        if ok is None:
+            # Mode says `secret`, no secret is set — a rollback restored the
+            # mode, or an edit stopped half-way. Fail CLOSED either way; the
+            # only question is who gets TOLD why.
+            #
+            # The log line is the operator's channel, and the right one: an
+            # operator/admin key never reaches here (it fired the webhook at
+            # 202 several lines up), and the config UI already shows
+            # `auth: secret` next to `secret_set: false` losslessly. Naming the
+            # misconfiguration to an ANONYMOUS caller would have bought nobody
+            # anything and cost the anti-enumeration rule this function is
+            # built around: a 503 here, where a ghost path gets 401, is exactly
+            # the declared-vs-undeclared oracle a wordlist prober wants.
+            log.warning("webhook %r on agent %r declares secret auth but has no "
+                        "secret set — rejecting callers until one is set",
+                        path, info.name)
+            if ident is not None:
+                raise HTTPException(503, "this webhook is configured for secret "
+                                         "auth but no secret is set for it")
 
     # Nothing opened either door. An authenticated caller (a reader key, say)
-    # gets the honest 403; an anonymous one gets 401 and learns nothing.
+    # gets the honest 403; an anonymous one gets 401 and learns nothing. Both
+    # are DETAIL-FREE on purpose — a body that distinguished "wrong secret"
+    # from "no such path" would leak by wording what the status code doesn't.
     raise HTTPException(403 if ident is not None else 401)
 
 

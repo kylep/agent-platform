@@ -6,11 +6,17 @@ rollbackable, safe to snapshot — and the value lives in `webhook_secrets`,
 write-only, keyed by (agent, path). Everything that reads or writes one goes
 through here so there is a single place to check that claim against.
 
-Salted SHA-256 rather than a password KDF on purpose: this guards a
-machine-to-machine header on a hot ingress path, the secret is high-entropy by
-construction (`MIN_SECRET_LENGTH`), and every comparison happens per inbound
-request. The per-row salt is what stops a stolen table from being a rainbow
-lookup or from revealing that two paths share one secret.
+Salted SHA-256 rather than a password KDF: this guards a machine-to-machine
+header on a hot ingress path, and every comparison happens per inbound request.
+Be precise about what that buys, though. The server enforces a LENGTH floor
+(`MIN_SECRET_LENGTH`), and length is not entropy — nothing stops someone typing
+sixteen guessable characters, and a fast hash makes a guessable secret cheap to
+crack offline from a stolen table. What actually makes these strong is
+GENERATING them rather than choosing them, which is a UI affordance, not a
+server guarantee; if webhook secrets ever become something people routinely
+invent by hand, this should become a KDF. The per-row salt is what stops a
+stolen table from being a rainbow lookup or from revealing that two paths share
+one secret.
 """
 from __future__ import annotations
 
@@ -26,10 +32,12 @@ from agentplatform.db import WebhookSecret
 # the UI's tooltip, and compared here — one spelling, one place.
 WEBHOOK_SECRET_HEADER = "X-AP-Webhook-Secret"
 
-# A webhook secret is generated, not chosen by a human at a login prompt, so
-# the floor is set where guessing stops being the attack rather than where
-# people stop complaining.
+# Bounds, not a strength claim (see the module docstring). The floor is set
+# where online guessing stops being the attack; the ceiling exists because an
+# unbounded body would be hashed on every inbound request, which is a free
+# CPU-burn primitive on an endpoint reachable without a platform key.
 MIN_SECRET_LENGTH = 16
+MAX_SECRET_LENGTH = 512
 
 
 def new_salt() -> str:

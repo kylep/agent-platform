@@ -497,6 +497,11 @@ async def create_agent(request: Request, body: AgentCreateIn,
                                                  "already exists"):
             s.add(row)
             await s.flush()
+            # Unreachable today — deletion already clears an agent's secrets,
+            # so a fresh name has none. Here anyway so "a secret outlives no
+            # path" is an invariant of every write that lands, not a property
+            # of three of the four.
+            await _prune_webhook_secrets(s, model)
             await _log_version(s, row, changed_by=scope.principal,
                                changed_via=scope.changed_via(grants=bool(grants)))
             await s.commit()
@@ -620,12 +625,10 @@ async def set_webhook_secret(request: Request, name: str, path: str,
     """Set or rotate one webhook path's shared secret. Write-only: the response
     reports THAT a secret is set, never what it is, and nothing reads it back.
     Rotation replaces the stored digest in place, so the previous secret stops
-    working the moment this returns."""
+    working the moment this returns. Length bounds live on `WebhookSecretIn`
+    rather than here so they reach the OpenAPI spec and the generated SDK."""
     from agentplatform import webhooksecrets
     scope.require_edit("setting a webhook secret")
-    if len(body.secret) < webhooksecrets.MIN_SECRET_LENGTH:
-        raise HTTPException(422, "the webhook secret must be at least "
-                                 f"{webhooksecrets.MIN_SECRET_LENGTH} characters")
     async with request.app.state.session_factory() as s:
         await _require_declared(s, name, path)
         await webhooksecrets.set_secret(s, name, path, body.secret)
@@ -716,6 +719,13 @@ async def rollback_agent(request: Request, name: str, version: int,
         if problems:
             raise HTTPException(422, f"version {version} references things the "
                                      f"repo no longer ships: {'; '.join(problems)}")
+        # A snapshot's webhook paths are re-checked against everyone else's
+        # CURRENT definitions, not against the world as it stood when the
+        # snapshot was taken. Since design/16 the path is the auth routing key:
+        # a rollback that resurrected a path another agent has since claimed
+        # would silently re-point that path — and with it whichever secret
+        # guards it — at the wrong agent.
+        await _check_webhook_conflicts(s, [restored])
         async with _conflict_as_409(s):
             await s.flush()
             # The MODE is restorable; the secret never was. A rolled-back

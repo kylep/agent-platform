@@ -114,12 +114,46 @@ async def test_missing_secret_header_rejected(admin_client, seed_agent):
 async def test_secret_mode_with_no_stored_secret_fails_closed(admin_client, seed_agent,
                                                               producer):
     """Mode says `secret`, nothing was ever set (a rollback, or a half-finished
-    edit): reject and NAME the misconfiguration rather than fall open."""
+    edit): reject rather than fall open. To an ANONYMOUS caller it is the plain
+    uniform 401 — telling a stranger *why* would make this the one response
+    that distinguishes a declared path from a ghost."""
     await _secret_mode(admin_client, seed_agent, set_secret=False)
     r = await admin_client.post("/api/webhooks/hello-world",
                                 headers={HEADER: SECRET}, json={})
-    assert r.status_code == 503 and "no secret" in r.text.lower()
+    assert r.status_code == 401 and "no secret" not in r.text.lower()
+    ghost = await admin_client.post("/api/webhooks/ghost",
+                                    headers={HEADER: SECRET}, json={})
+    assert (r.status_code, r.text) == (ghost.status_code, ghost.text)
     assert not [p for p in producer.published if p[0] == TOPIC_RUN_INBOUND]
+
+
+async def test_authenticated_caller_is_told_about_the_missing_secret(admin_client,
+                                                                     seed_agent):
+    """Diagnosis is for people already inside. A reader key can't fire the
+    webhook either way, so naming the misconfiguration to it costs nothing and
+    is how "why is my webhook 401ing" gets answered."""
+    token = await _mint(admin_client, "reader")
+    await _secret_mode(admin_client, seed_agent, set_secret=False)
+    r = await admin_client.post("/api/webhooks/hello-world",
+                                headers={"Authorization": f"Bearer {token}",
+                                         HEADER: SECRET}, json={})
+    assert r.status_code == 503 and "no secret" in r.text.lower()
+
+
+async def test_reader_key_cannot_enumerate_paths_either(admin_client, seed_agent):
+    """The authenticated-but-insufficient rung of the same rule: a reader gets
+    an identical 403 for a declared path and a ghost, body included, so no
+    future detail string leaks what the status code doesn't."""
+    token = await _mint(admin_client, "reader")
+    await seed_agent("hello-world",
+                     entrypoints={"webhooks": [{"path": "hello-world"}]})
+    admin_client.cookies.clear()
+    headers = {"Authorization": f"Bearer {token}"}
+    declared = await admin_client.post("/api/webhooks/hello-world",
+                                       headers=headers, json={})
+    ghost = await admin_client.post("/api/webhooks/ghost", headers=headers, json={})
+    assert declared.status_code == ghost.status_code == 403
+    assert declared.text == ghost.text
 
 
 async def test_platform_key_still_works_in_secret_mode(admin_client, seed_agent, producer):
@@ -146,24 +180,36 @@ async def test_secret_does_not_open_a_none_mode_path(admin_client, seed_agent):
 
 async def test_secret_does_not_open_another_agents_path(admin_client, seed_agent):
     """The hash is keyed by (agent, path); one agent's secret must not
-    authenticate another agent's webhook."""
+    authenticate another agent's webhook. `other` has no hash of its own, so
+    an anonymous caller gets the uniform 401 — not a 503 that would confirm
+    `other-hook` is a real path."""
     await seed_agent("other", entrypoints={"webhooks": [{"path": "other-hook",
                                                          "auth": "secret"}]})
     await _secret_mode(admin_client, seed_agent)
     r = await admin_client.post("/api/webhooks/other-hook",
                                 headers={HEADER: SECRET}, json={})
-    assert r.status_code == 503     # `other` has no hash of its own -> closed
+    ghost = await admin_client.post("/api/webhooks/ghost",
+                                    headers={HEADER: SECRET}, json={})
+    assert r.status_code == 401
+    assert (r.status_code, r.text) == (ghost.status_code, ghost.text)
 
 
-async def test_anonymous_cannot_enumerate_paths(client):
-    """An unauthenticated caller gets the same 401 whether or not the path
-    exists — resolving the path before authenticating must not turn the
-    endpoint into a directory of declared webhooks."""
-    await client.post("/api/setup", json={"password": "pw12345678"})
-    declared = await client.post("/api/webhooks/hello-world", json={})
-    ghost = await client.post("/api/webhooks/ghost", json={})
-    assert declared.status_code == ghost.status_code == 401
-    assert declared.text == ghost.text
+async def test_anonymous_cannot_enumerate_paths(admin_client, seed_agent):
+    """An unauthenticated caller gets the same 401 for EVERY shape a path can
+    have — resolving the path before authenticating must not turn the endpoint
+    into a directory of declared webhooks. All four states below are reachable
+    with a wordlist, so all four must be indistinguishable."""
+    await seed_agent("hello-world", entrypoints={"webhooks": [
+        {"path": "mode-none"},
+        {"path": "with-secret", "auth": "secret"},
+        {"path": "no-secret-yet", "auth": "secret"}]})
+    r = await admin_client.put("/api/agents/hello-world/webhooks/with-secret/secret",
+                               json={"secret": SECRET})
+    assert r.status_code == 200
+    admin_client.cookies.clear()
+    answers = {p: await admin_client.post(f"/api/webhooks/{p}", json={})
+               for p in ("mode-none", "with-secret", "no-secret-yet", "ghost")}
+    assert {(r.status_code, r.text) for r in answers.values()} == {(401, answers["ghost"].text)}
 
 
 async def test_disabled_agent_still_409s_for_a_secret_caller(admin_client, seed_agent):

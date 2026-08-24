@@ -15,9 +15,9 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
-from agentplatform import agentdefs
+from agentplatform import agentdefs, webhooksecrets
 
 
 # --- shared action results ---------------------------------------------------
@@ -176,7 +176,11 @@ class WebhookSecretIn(BaseModel):
     the definition's path through `agent_versions`. Write-only: no response
     model carries it back, and nothing reads it out again."""
     model_config = ConfigDict(extra="forbid")
-    secret: str
+    # Bounded at the edge rather than in the handler so the limits reach the
+    # OpenAPI spec, and through it the generated SDK — a caller shouldn't have
+    # to POST a bad secret to discover the range.
+    secret: str = Field(min_length=webhooksecrets.MIN_SECRET_LENGTH,
+                        max_length=webhooksecrets.MAX_SECRET_LENGTH)
 
 
 class WebhookSecretState(Ok):

@@ -78,7 +78,8 @@ def sync_detailed(
      Set or rotate one webhook path's shared secret. Write-only: the response
     reports THAT a secret is set, never what it is, and nothing reads it back.
     Rotation replaces the stored digest in place, so the previous secret stops
-    working the moment this returns.
+    working the moment this returns. Length bounds live on `WebhookSecretIn`
+    rather than here so they reach the OpenAPI spec and the generated SDK.
 
     Args:
         name (str):
@@ -122,7 +123,8 @@ def sync(
      Set or rotate one webhook path's shared secret. Write-only: the response
     reports THAT a secret is set, never what it is, and nothing reads it back.
     Rotation replaces the stored digest in place, so the previous secret stops
-    working the moment this returns.
+    working the moment this returns. Length bounds live on `WebhookSecretIn`
+    rather than here so they reach the OpenAPI spec and the generated SDK.
 
     Args:
         name (str):
@@ -161,7 +163,8 @@ async def asyncio_detailed(
      Set or rotate one webhook path's shared secret. Write-only: the response
     reports THAT a secret is set, never what it is, and nothing reads it back.
     Rotation replaces the stored digest in place, so the previous secret stops
-    working the moment this returns.
+    working the moment this returns. Length bounds live on `WebhookSecretIn`
+    rather than here so they reach the OpenAPI spec and the generated SDK.
 
     Args:
         name (str):
@@ -203,7 +206,8 @@ async def asyncio(
      Set or rotate one webhook path's shared secret. Write-only: the response
     reports THAT a secret is set, never what it is, and nothing reads it back.
     Rotation replaces the stored digest in place, so the previous secret stops
-    working the moment this returns.
+    working the moment this returns. Length bounds live on `WebhookSecretIn`
+    rather than here so they reach the OpenAPI spec and the generated SDK.
 
     Args:
         name (str):

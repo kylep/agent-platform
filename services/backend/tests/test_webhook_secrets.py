@@ -13,8 +13,8 @@ import pytest
 from sqlalchemy import select
 
 from agentplatform.db import AgentDef, AgentVersion, WebhookSecret
-from agentplatform.webhooksecrets import (MIN_SECRET_LENGTH, hash_secret,
-                                          new_salt, verify_secret)
+from agentplatform.webhooksecrets import (MAX_SECRET_LENGTH, MIN_SECRET_LENGTH,
+                                          hash_secret, new_salt, verify_secret)
 from tests.test_agents_api import a_def, bearer
 
 SECRET = "s" * MIN_SECRET_LENGTH
@@ -82,6 +82,31 @@ async def test_short_secret_rejected(admin_client, sf, hooked):
                                json={"secret": "s" * (MIN_SECRET_LENGTH - 1)})
     assert r.status_code == 422 and str(MIN_SECRET_LENGTH) in r.text
     assert await rows(sf) == []
+
+
+async def test_absurdly_long_secret_rejected(admin_client, sf, hooked):
+    """Every inbound webhook hashes what it is given; an unbounded secret would
+    be a CPU-burn primitive on an endpoint reachable without a platform key."""
+    r = await admin_client.put("/api/agents/hello-world/webhooks/hello-world/secret",
+                               json={"secret": "s" * (MAX_SECRET_LENGTH + 1)})
+    assert r.status_code == 422 and str(MAX_SECRET_LENGTH) in r.text
+    assert await rows(sf) == []
+    # The boundary itself is fine.
+    r = await admin_client.put("/api/agents/hello-world/webhooks/hello-world/secret",
+                               json={"secret": "s" * MAX_SECRET_LENGTH})
+    assert r.status_code == 200
+
+
+async def test_overlong_webhook_path_rejected(admin_client, hooked):
+    """The path is `webhook_secrets`' key, in a String(256) column: a path that
+    table cannot store is a path that cannot be secured, so it never lands."""
+    from agentplatform.agentdefs import WEBHOOK_PATH_MAX_LENGTH
+    long_path = "p" * (WEBHOOK_PATH_MAX_LENGTH + 1)
+    r = await admin_client.put("/api/agents/hello-world",
+                               json=a_def("hello-world", entrypoints=ep(long_path)))
+    assert r.status_code == 422 and str(WEBHOOK_PATH_MAX_LENGTH) in r.text
+    # A row already holding one stays READABLE — reading it is how you fix it.
+    assert (await admin_client.get("/api/agents/hello-world")).status_code == 200
 
 
 async def test_undeclared_path_404(admin_client, sf, hooked):
@@ -212,6 +237,20 @@ async def test_undeclaring_the_path_drops_its_secret(admin_client, sf, hooked):
     assert await rows(sf) == []
 
 
+async def test_creating_an_agent_starts_with_no_secrets(admin_client, sf, hooked):
+    """Pruning is an invariant of every write that LANDS, not of three of the
+    four. Unreachable through deletion (which already clears them), so this
+    plants the row behind the API's back and pins the rule directly."""
+    async with sf() as s:
+        s.add(WebhookSecret(agent="reborn", path="ghost-hook",
+                            salt=new_salt(), secret_hash="x" * 64))
+        await s.commit()
+    r = await admin_client.post("/api/agents",
+                                json=a_def("reborn", entrypoints=ep("live-hook")))
+    assert r.status_code == 201
+    assert [(w.agent, w.path) for w in await rows(sf)] == []
+
+
 async def test_deleting_the_agent_cleans_its_hashes(admin_client, sf, hooked):
     await admin_client.put("/api/agents/hello-world/webhooks/hello-world/secret",
                            json={"secret": SECRET})
@@ -238,6 +277,37 @@ async def test_rollback_restores_the_mode_only(admin_client, sf, hooked):
     assert r.json()["entrypoints"]["webhooks"][0]["auth"] == "secret"
     assert r.json()["entrypoints"]["webhooks"][0]["secret_set"] is False
     assert await rows(sf) == []
+
+
+async def test_rollback_cannot_resurrect_another_agents_path(admin_client, sf,
+                                                             seed_agent, agent_store):
+    """Since design/16 the path is the AUTH ROUTING key: whoever owns a path
+    owns which secret guards it. So a rollback gets the same cross-agent
+    uniqueness check a normal save gets — the exact sequence being A declares a
+    path, A drops it, B claims it, A rolls back."""
+    await seed_agent("hello-world", entrypoints=ep())
+    await seed_agent("rival", entrypoints=ep())
+    await agent_store.reload()
+    # v1: hello-world owns `shared`. v2: it lets go.
+    assert (await admin_client.put("/api/agents/hello-world",
+                                   json=a_def("hello-world", prompt="v1",
+                                              entrypoints=ep("shared")))).status_code == 200
+    assert (await admin_client.put("/api/agents/hello-world",
+                                   json=a_def("hello-world", prompt="v2",
+                                              entrypoints=ep()))).status_code == 200
+    # rival claims it and sets its own secret.
+    assert (await admin_client.put("/api/agents/rival",
+                                   json=a_def("rival", entrypoints=ep("shared")))).status_code == 200
+    assert (await admin_client.put("/api/agents/rival/webhooks/shared/secret",
+                                   json={"secret": SECRET})).status_code == 200
+
+    r = await admin_client.post("/api/agents/hello-world/rollback/1")
+    assert r.status_code == 422
+    assert "shared" in r.text and "rival" in r.text and "hello-world" in r.text
+    # rival still owns the path, and its secret is untouched.
+    rival = (await admin_client.get("/api/agents/rival")).json()
+    assert rival["entrypoints"]["webhooks"][0]["secret_set"] is True
+    assert [(w.agent, w.path) for w in await rows(sf)] == [("rival", "shared")]
 
 
 # --- the mode is part of the definition --------------------------------------
