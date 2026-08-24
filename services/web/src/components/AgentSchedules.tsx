@@ -32,19 +32,25 @@ function JobForm({ agent, job, onDone, onCancel }: {
   const [prompt, setPrompt] = useState(job?.prompt ?? "");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const zones = zoneOptions();
+  const zone = timezone.trim();
+  const zoneOk = zone === "" || zones.length === 0 || zones.includes(zone);
+  // A bad ZONE is reported at the timezone field, so the preview is asked in
+  // UTC rather than answering a question about the schedule with a complaint
+  // about a different field. Trimmed once, here: the builder and this hook must
+  // agree on the cache key or the same schedule is fetched twice.
+  const previewZone = zoneOk ? zone : "";
   // The builder's own preview line already says WHY an expression is bad; this
   // only decides whether Save is offered. An answer still in flight counts as
   // fine — a button that waits on a round-trip reads as broken, and the API
   // validates the write regardless.
-  const cronPreview = useCronPreview(cron, timezone);
+  const cronPreview = useCronPreview(cron, previewZone);
   const cronOk = cron.trim() !== "" && !cronPreview?.error;
-  const zones = zoneOptions();
-  const zoneOk = timezone.trim() === "" || zones.length === 0 || zones.includes(timezone.trim());
 
   async function save() {
     setBusy(true); setError(null);
     try {
-      const body = { name, agent, cron, timezone: timezone.trim(), prompt };
+      const body = { name, agent, cron, timezone: zone, prompt };
       if (job) await api(`/api/jobs/${job.id}`, { method: "PATCH", body: JSON.stringify(body) });
       else await api("/api/jobs", { method: "POST", body: JSON.stringify(body) });
       onDone();
@@ -57,7 +63,7 @@ function JobForm({ agent, job, onDone, onCancel }: {
       <label className="field-label">Name</label>
       <Input placeholder="e.g. morning-news" aria-label="Job name" value={name} onChange={(e) => setName(e.target.value)} />
       <label className="field-label">Schedule</label>
-      <CronBuilder value={cron} timezone={timezone.trim()} onChange={setCron} label="Job schedule" />
+      <CronBuilder value={cron} timezone={previewZone} onChange={setCron} label="Job schedule" />
       <label className="field-label">Timezone</label>
       <Input placeholder="UTC" aria-label="Timezone" list="tz-options" value={timezone}
              onChange={(e) => setTimezone(e.target.value)} />

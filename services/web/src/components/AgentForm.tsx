@@ -6,7 +6,7 @@ import {
 } from "../lib/webhook-secrets";
 import { zoneOptions } from "../lib/cron";
 import { SecretPicker, SkillPicker, ToolGrantPicker, type GrantCatalog } from "./CapabilityPickers";
-import { CronBuilder, DEFAULT_CRON } from "./CronBuilder";
+import { CronBuilder } from "./CronBuilder";
 import { Button } from "@ap/ui/button";
 import { CodeEditor, Input, Select } from "@ap/ui/field";
 
@@ -308,6 +308,12 @@ export function EntrypointsFields({ draft, patch, secrets }: {
   const ep = draft.entrypoints;
   const set = (next: Partial<AgentEntrypoints>) => patch({ entrypoints: { ...ep, ...next } });
   const zones = zoneOptions();
+  const zone = ep.timezone.trim();
+  const zoneOk = zone === "" || zones.length === 0 || zones.includes(zone);
+  // A zone the platform won't accept is reported at the timezone field. The
+  // cron rows are asked in UTC meanwhile, so every row under it doesn't answer
+  // "what does this schedule mean?" with a complaint about a different field.
+  const previewZone = zoneOk ? zone : "";
   return (
     <>
       <h2>Entrypoints</h2>
@@ -319,14 +325,14 @@ export function EntrypointsFields({ draft, patch, secrets }: {
       <label className="field-label">Crons</label>
       <div className="grid gap-2">
         {ep.crons.map((c, i) => (
-          <CronRow key={i} entry={c} zone={ep.timezone}
+          <CronRow key={i} entry={c} zone={previewZone}
                    onChange={(next) => set({ crons: ep.crons.map((x, j) => (j === i ? next : x)) })}
                    onRemove={() => set({ crons: ep.crons.filter((_, j) => j !== i) })} />
         ))}
       </div>
       <div className="row-actions" style={{ marginTop: 6 }}>
         <Button variant="secondary" size="sm"
-                onClick={() => set({ crons: [...ep.crons, { schedule: DEFAULT_CRON, prompt: "" }] })}>
+                onClick={() => set({ crons: [...ep.crons, { schedule: "", prompt: "" }] })}>
           + Add cron
         </Button>
       </div>
@@ -336,9 +342,11 @@ export function EntrypointsFields({ draft, patch, secrets }: {
              value={ep.timezone} placeholder="UTC"
              onChange={(e) => set({ timezone: e.target.value.trim() })} />
       <datalist id="agent-tz-options">{zones.map((z) => <option key={z} value={z} />)}</datalist>
-      <p className="muted check-note">
-        Blank means UTC. An IANA zone (e.g. America/Toronto) pins the crons to wall-clock time
-        across daylight saving.
+      <p className={zoneOk ? "muted check-note" : "error"}>
+        {zoneOk
+          ? <>Blank means UTC. An IANA zone (e.g. America/Toronto) pins the crons to wall-clock
+              time across daylight saving.</>
+          : "Unknown timezone — use an IANA name like America/Toronto. Saving this quarantines the agent."}
       </p>
 
       <label className="field-label">Webhooks</label>

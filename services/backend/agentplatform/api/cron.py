@@ -7,7 +7,7 @@ implementation. The fire times come from `scheduler.next_fires`, which is the
 function the scheduler itself uses: a preview that disagreed with the scheduler
 about a daylight-saving boundary would be worse than no preview at all.
 """
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 
 from agentplatform import cronenglish
 from agentplatform.api.auth import READ_ROLES, require_role
@@ -22,7 +22,13 @@ PREVIEW_COUNT = 3
 
 @router.get("/api/cron/preview", response_model=S.CronPreview,
             dependencies=[Depends(require_role(*READ_ROLES))])
-async def cron_preview(expr: str = "", tz: str = ""):
+async def cron_preview(
+    # A cron is a handful of characters and an IANA zone is a short name. The
+    # caps are what stops an unauthenticated-shaped mistake — a paste, a loop —
+    # from handing the parser an arbitrarily long string to walk.
+    expr: str = Query("", max_length=256),
+    tz: str = Query("", max_length=64),
+):
     """Describe a 5-field cron and list its next fires in `tz` (blank = UTC).
 
     Always 200: this is called as the operator types, and an expression that is

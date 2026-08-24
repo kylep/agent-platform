@@ -84,7 +84,21 @@ def _parse_term(part: str, lo: int, hi: int, aliases: dict[str, int], dow: bool)
         return ("all",)
     if dow and "#" in part:
         day, _, nth = part.partition("#")
-        return ("nth", _num(day, lo, hi, aliases) % 7, int(nth))
+        try:
+            which = int(nth)
+        except ValueError:
+            raise ValueError(f"{nth!r} is not an occurrence number — "
+                             f"use 1-5, as in 1#2 for the 2nd Monday") from None
+        if not 1 <= which <= 5:
+            raise ValueError(f"occurrence {which} is outside 1-5")
+        return ("nth", _num(day, lo, hi, aliases) % 7, which)
+    # Names resolve BEFORE the `L` branch, or JUL and APR-JUL read as
+    # "last-something" and a perfectly ordinary July schedule can't be saved.
+    if part.upper() in aliases:
+        return ("value", aliases[part.upper()])
+    if "-" in part[1:]:      # [1:] so a negative-looking token still errors as a number
+        a, _, b = part.partition("-")
+        return ("range", _num(a, lo, hi, aliases), _num(b, lo, hi, aliases))
     if part.upper().endswith("L"):
         head = part[:-1]
         if dow and head:
@@ -92,18 +106,28 @@ def _parse_term(part: str, lo: int, hi: int, aliases: dict[str, int], dow: bool)
         if not dow and not head:
             return ("lastdom",)
         raise ValueError(f"{part!r} is not supported")
-    if "-" in part[1:]:      # [1:] so a negative-looking token still errors as a number
-        a, _, b = part.partition("-")
-        return ("range", _num(a, lo, hi, aliases), _num(b, lo, hi, aliases))
     return ("value", _num(part, lo, hi, aliases))
 
 
-def _parse_field(raw: str, lo: int, hi: int, aliases: dict[str, int] | None = None,
-                 dow: bool = False) -> list[Term]:
-    terms = [_parse_term(p, lo, hi, aliases or {}, dow) for p in raw.split(",")]
+def _parse_field(raw: str, name: str, lo: int, hi: int,
+                 aliases: dict[str, int] | None = None, dow: bool = False) -> list[Term]:
+    try:
+        terms = [_parse_term(p, lo, hi, aliases or {}, dow) for p in raw.split(",")]
+    except ValueError as e:
+        # Which field is wrong is half the fix — "99 is outside 0-23" leaves the
+        # operator counting positions in their own expression.
+        raise ValueError(f"{name}: {e}") from None
     if dow:
-        # 7 means Sunday, same as 0 — normalize so "0,7" isn't "Sunday and Sunday".
-        terms = [("value", t[1] % 7) if t[0] == "value" else t for t in terms]
+        # 7 means Sunday, same as 0. Normalize, then drop the duplicates that
+        # normalizing creates, so `0,7` is "Sunday", not "Sunday and Sunday".
+        seen, unique = set(), []
+        for t in terms:
+            t = ("value", t[1] % 7) if t[0] == "value" else t
+            if t in seen:
+                continue
+            seen.add(t)
+            unique.append(t)
+        return unique
     return terms
 
 
@@ -140,10 +164,10 @@ def _values(terms: list[Term], limit: int = 60) -> list[int] | None:
     return sorted(set(out))
 
 
-def _join(parts: list[str]) -> str:
+def _join(parts: list[str], conjunction: str = "and") -> str:
     if len(parts) == 1:
         return parts[0]
-    return ", ".join(parts[:-1]) + " and " + parts[-1]
+    return ", ".join(parts[:-1]) + f" {conjunction} " + parts[-1]
 
 
 _ORDINAL_SUFFIX = {1: "st", 2: "nd", 3: "rd"}
@@ -163,6 +187,10 @@ def _unit_phrase(terms: list[Term], unit: str, lo: int, hi: int, fmt=str) -> str
         every = f"every {_ordinal(n)} {unit}"
         return every if (a, b) == (lo, hi) else \
             f"{every} from {fmt(a)} through {fmt(b)}"
+    # `*` anywhere in the list matches the whole field, so it absorbs the rest:
+    # `*,5` is every value, and saying so beats listing one of them.
+    if any(t[0] == "all" for t in terms):
+        return f"every {unit}"
     parts, plural = [], len(terms) > 1
     for t in terms:
         if t[0] == "value":
@@ -173,8 +201,13 @@ def _unit_phrase(terms: list[Term], unit: str, lo: int, hi: int, fmt=str) -> str
         elif t[0] == "step":
             parts.append(f"{fmt(t[1])} through {fmt(t[2])} every {_ordinal(t[3])}")
             plural = True
-        else:                                   # pragma: no cover - dow-only shapes
-            parts.append(str(t))
+        elif t[0] == "lastdom":
+            parts.append("the last")
+        else:
+            # nth/lastdow never reach here (the weekday field has its own
+            # clause), but a tuple repr must never be able to leak into a
+            # sentence an operator reads.
+            parts.append(str(t[0]))
     return f"{unit}{'s' if plural else ''} {_join(parts)}"
 
 
@@ -184,7 +217,7 @@ def _time_clause(minutes: list[Term], hours: list[Term]) -> str:
     hh = lambda h: f"{h:02d}"                                   # noqa: E731
     mm = lambda m: f"{m:02d}"                                   # noqa: E731
     min_all, hour_all = _is_all(minutes), _is_all(hours)
-    min_step, hour_step = _full_step(minutes, 0, 59), _full_step(hours, 0, 23)
+    min_step = _full_step(minutes, 0, 59)
     min_values, hour_values = _values(minutes), _values(hours)
 
     hour_phrase = _unit_phrase(hours, "hour", 0, 23, hh)
@@ -204,9 +237,10 @@ def _time_clause(minutes: list[Term], hours: list[Term]) -> str:
     if min_values is not None and hour_values is not None and \
             len(min_values) * len(hour_values) <= 6:
         return "At " + _join([f"{h:02d}:{m:02d}" for h in hour_values for m in min_values])
-    if hour_step is not None:
-        return f"At {minute_phrase} past every {_ordinal(hour_step)} hour"
-    return f"At {minute_phrase} past {hour_phrase}"
+    # "At every 2nd minute…" is not a sentence; an every-phrase leads on its own.
+    lead = (minute_phrase[0].upper() + minute_phrase[1:]
+            if minute_phrase.startswith("every ") else f"At {minute_phrase}")
+    return lead if hour_all else f"{lead} past {hour_phrase}"
 
 
 def _dom_clause(terms: list[Term]) -> str:
@@ -233,9 +267,7 @@ def _month_clause(terms: list[Term]) -> str:
     return ", in " + _unit_phrase(terms, "month", 1, 12, name)   # pragma: no cover
 
 
-def _dow_clause(terms: list[Term]) -> str:
-    if _is_all(terms):
-        return ""
+def _dow_parts(terms: list[Term]) -> list[str]:
     name = lambda d: DAY_NAMES[d % 7]                            # noqa: E731
     parts = []
     for t in terms:
@@ -249,12 +281,39 @@ def _dow_clause(terms: list[Term]) -> str:
             parts.append(f"the {_ordinal(t[2])} {name(t[1])} of the month")
         elif t[0] == "lastdow":
             parts.append(f"the last {name(t[1])} of the month")
+    return parts
+
+
+def _dow_clause(terms: list[Term]) -> str:
+    """The weekday clause when day-of-month is `*` — i.e. when the weekday is
+    the only thing narrowing which days run."""
+    if _is_all(terms):
+        return ""
+    parts = _dow_parts(terms)
     # "Monday through Friday" is a span and reads as one; "the 2nd Monday" is a
     # thing the run lands *on*; a set of separate days is a list of exceptions
     # and wants "only on".
     kind = terms[0][0] if len(terms) == 1 else "list"
     prefix = {"range": ", ", "step": ", ", "nth": ", on ", "lastdow": ", on "}
     return prefix.get(kind, ", only on ") + _join(parts)
+
+
+def _dow_or_clause(terms: list[Term]) -> str:
+    """The weekday clause when day-of-month is ALSO set.
+
+    Cron ORs those two fields: `0 0 13 * 5` fires on the 13th *and* on every
+    Friday, not on Fridays that fall on the 13th. Reading it as an AND — "on
+    day 13, only on Friday" — describes a schedule that fires a handful of
+    times a year as one that fires most weeks, which is exactly the sort of
+    quiet wrongness a preview exists to prevent."""
+    parts = _dow_parts(terms)
+    # "the 2nd Monday" is already definite; a plain weekday needs "any" or it
+    # reads as one particular Friday. When every part is a plain weekday, one
+    # "any" covers the list — "any Monday or any Friday" is a stutter.
+    definite = ("the ", "every ")
+    if not any(p.startswith(definite) for p in parts):
+        return " or on any " + _join(parts, "or")
+    return " or on " + _join([p if p.startswith(definite) else f"any {p}" for p in parts], "or")
 
 
 def describe(expr: str) -> str:
@@ -267,10 +326,14 @@ def describe(expr: str) -> str:
     if len(fields) != 5:
         raise ValueError(f"expected 5 fields, got {len(fields)}")
     minute, hour, dom, month, dow = fields
-    minutes = _parse_field(minute, 0, 59)
-    hours = _parse_field(hour, 0, 23)
-    doms = _parse_field(dom, 1, 31)
-    months = _parse_field(month, 1, 12, MONTH_ALIASES)
-    dows = _parse_field(dow, 0, 7, DAY_ALIASES, dow=True)
-    return (_time_clause(minutes, hours) + _dom_clause(doms)
-            + _month_clause(months) + _dow_clause(dows))
+    minutes = _parse_field(minute, "minute", 0, 59)
+    hours = _parse_field(hour, "hour", 0, 23)
+    doms = _parse_field(dom, "day of month", 1, 31)
+    months = _parse_field(month, "month", 1, 12, MONTH_ALIASES)
+    dows = _parse_field(dow, "day of week", 0, 7, DAY_ALIASES, dow=True)
+    # Day-of-month and day-of-week are ORed by cron when BOTH are restricted,
+    # and ANDed with everything else. The month clause therefore comes last: it
+    # narrows the whole day expression, not just the half next to it.
+    both_days = not _is_all(doms) and not _is_all(dows)
+    days = _dom_clause(doms) + (_dow_or_clause(dows) if both_days else _dow_clause(dows))
+    return _time_clause(minutes, hours) + days + _month_clause(months)

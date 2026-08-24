@@ -6,6 +6,7 @@ it. That is only worth anything if it tells the truth — so the times here are
 asserted against the same `next_fire` the scheduler runs on, daylight saving
 included, and the sentences are pinned exactly (croniter is deterministic, so
 there is nothing approximate to hedge about)."""
+import re
 from datetime import datetime, timezone
 
 import pytest
@@ -39,26 +40,67 @@ BASE = datetime(2026, 7, 20, 10, 2, tzinfo=timezone.utc)
     ("0,30 9 * * *", "At 09:00 and 09:30"),
     ("0 0 1 1 *", "At 00:00, on day 1 of the month, in January"),
     ("0 0 1 */3 *", "At 00:00, on day 1 of the month, every 3rd month"),
-    ("0 0 1 JAN-MAR MON", "At 00:00, on day 1 of the month, "
-                          "from January through March, only on Monday"),
     ("15 2 */2 * *", "At 02:15, on every 2nd day of the month"),
     ("* 9 * * *", "Every minute of hour 09"),
     ("0 9-17/2 * * *", "At minute 00 past every 2nd hour from 09 through 17"),
     ("@daily", "At 00:00"),
+    # Month names resolve as names, not as "last-something" (see the JUL test).
+    ("0 9 * JUL *", "At 09:00, in July"),
+    ("0 9 * JAN,JUL *", "At 09:00, in January and July"),
+    ("0 9 * APR-JUL *", "At 09:00, from April through July"),
+    ("0 9 * * MON", "At 09:00, only on Monday"),
+    # 7 and 0 are the same day; saying it twice is not a description.
+    ("0 9 * * 0,7", "At 09:00, only on Sunday"),
+    # Reachable shapes that used to leak a Python tuple into the sentence.
+    ("1-59/2 * * * *", "Every 2nd minute from 01 through 59"),
+    ("5-55/10 3-5 * * *", "Every 10th minute from 05 through 55 "
+                          "past hours 03 through 05"),
+    ("0 0 1,L * *", "At 00:00, on days 1 and the last of the month"),
 ])
 def test_english_is_exact(expr, english):
     assert cronenglish.describe(expr) == english
+
+
+@pytest.mark.parametrize("expr,english", [
+    # Cron ORs day-of-month against day-of-week whenever BOTH are restricted.
+    ("0 0 13 * 5", "At 00:00, on day 13 of the month or on any Friday"),
+    ("0 0 1 JAN-MAR MON", "At 00:00, on day 1 of the month or on any Monday, "
+                          "from January through March"),
+    ("0 0 15 * 1,5", "At 00:00, on day 15 of the month or on any Monday or Friday"),
+    ("0 0 1 * 1#2", "At 00:00, on day 1 of the month or on the 2nd Monday of the month"),
+])
+def test_day_of_month_and_weekday_read_as_or(expr, english):
+    assert cronenglish.describe(expr) == english
+
+
+def test_the_or_reading_matches_what_actually_fires():
+    """The reason this matters, asserted against croniter rather than against
+    my own prose: `0 0 13 * 5` is NOT "Fridays that fall on the 13th". August
+    2026 has the 13th on a Thursday, and it fires anyway."""
+    assert "or" in cronenglish.describe("0 0 13 * 5")
+    fires = next_fires("0 0 13 * 5", datetime(2026, 8, 1, tzinfo=timezone.utc), "", 6)
+    days = [(f.day, f.weekday()) for f in fires]
+    assert (13, 3) in days, days          # Thursday the 13th — the dom half
+    assert any(weekday == 4 and day != 13 for day, weekday in days), days   # a plain Friday
 
 
 @pytest.mark.parametrize("expr,why", [
     ("", "a cron expression is required"),
     ("0 9 * *", "expected 5 fields, got 4"),
     ("0 9 * * * *", "expected 5 fields, got 6"),
-    ("0 99 * * *", "99 is outside 0-23"),
-    ("0 nine * * *", "'nine' is not a number"),
+    # Which field is wrong is half the fix: an operator should not have to count
+    # positions in their own expression to act on the message.
+    ("0 99 * * *", "hour: 99 is outside 0-23"),
+    ("0 nine * * *", "hour: 'nine' is not a number"),
+    ("99 * * * *", "minute: 99 is outside 0-59"),
+    ("0 9 99 * *", "day of month: 99 is outside 1-31"),
+    ("0 9 * 99 *", "month: 99 is outside 1-12"),
+    ("0 9 * * 9", "day of week: 9 is outside 0-7"),
+    ("0 9 * * 1#x", "day of week: 'x' is not an occurrence number"),
+    ("0 9 * * 1#9", "day of week: occurrence 9 is outside 1-5"),
 ])
 def test_unreadable_expressions_say_why(expr, why):
-    with pytest.raises(ValueError, match=why.replace("(", r"\(")):
+    with pytest.raises(ValueError, match=re.escape(why)):
         cronenglish.describe(expr)
 
 
@@ -113,7 +155,7 @@ async def test_preview_endpoint_reports_an_invalid_expression_as_data(admin_clie
     # 200, not 4xx: this is called per keystroke.
     assert r.status_code == 200
     body = r.json()
-    assert body["error"] == "99 is outside 0-23"
+    assert body["error"] == "hour: 99 is outside 0-23"
     assert body["english"] == "" and body["next"] == []
 
 
@@ -132,3 +174,12 @@ async def test_preview_endpoint_wants_an_expression(admin_client):
 
 async def test_preview_endpoint_requires_a_reader(client):
     assert (await client.get("/api/cron/preview", params={"expr": "0 9 * * *"})).status_code == 401
+
+
+async def test_preview_endpoint_bounds_its_inputs(admin_client):
+    """A cron is a handful of characters; the parser is never handed an
+    arbitrarily long string to walk."""
+    assert (await admin_client.get("/api/cron/preview",
+                                   params={"expr": "0 " * 200})).status_code == 422
+    assert (await admin_client.get("/api/cron/preview",
+                                   params={"expr": "0 9 * * *", "tz": "x" * 100})).status_code == 422

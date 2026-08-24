@@ -120,6 +120,48 @@ test("an expression no preset covers opens in Custom, verbatim", async ({ page }
   expect(await savedCron(page, writes)).toBe("*/7 3-5 * * 1#2");
 });
 
+test("an untouched cron round-trips byte-identical", async ({ page }) => {
+  const writes = captureWrites(page);
+  // A weekday RANGE is the shape most at risk: the chips serialize to a list,
+  // so if merely rendering the row re-emitted the value, opening any agent and
+  // saving would silently rewrite its stored schedule.
+  await openEditorWithCron(page, "0 9 * * 1-5");
+  await expect(page.getByLabel("Cron schedule frequency")).toHaveValue("weekly");
+  await page.getByLabel("Description").fill("Untouched schedule.");
+  expect(await savedCron(page, writes)).toBe("0 9 * * 1-5");
+});
+
+test("editing a weekday range canonicalizes it to a list — deliberately", async ({ page }) => {
+  const writes = captureWrites(page);
+  // The other half of the round-trip rule: once a chip is actually clicked, the
+  // builder owns the expression and emits its canonical list form. Same firing
+  // days, different text — asserted here so it can never happen by accident
+  // without a test noticing.
+  await openEditorWithCron(page, "0 9 * * 1-5");
+  await page.getByRole("checkbox", { name: "Wednesday" }).uncheck();
+  expect(await savedCron(page, writes)).toBe("0 9 * * 1,2,4,5");
+});
+
+test("+ Add cron adds an EMPTY row — adding is not scheduling", async ({ page }) => {
+  const writes = captureWrites(page);
+  await mockApi(page);
+  await page.goto("/agents/health-monitor");
+
+  await page.getByRole("button", { name: "+ Add cron" }).click();
+  const added = page.locator(".cron-entry").last();
+  // The controls open on the commonest shape so they are usable at once...
+  await expect(added.getByLabel("Cron schedule frequency")).toHaveValue("daily");
+  // ...but nothing is committed until one is touched: an accidental Add + Save
+  // must not arm a live daily run.
+  await expect(added).toContainText("No schedule yet");
+
+  await page.getByLabel("Description").fill("Added a row by accident.");
+  await page.getByRole("button", { name: "Save changes" }).first().click();
+  const put = writes.find((w) => w.method() === "PUT");
+  const crons = JSON.parse(put!.postData() ?? "{}").entrypoints.crons;
+  expect(crons[crons.length - 1].schedule).toBe("");
+});
+
 test("switching to Custom carries the preset's expression over", async ({ page }) => {
   await openEditorWithCron(page, "0 9 * * *");
   await page.getByLabel("Cron schedule frequency").selectOption("weekly");
@@ -145,6 +187,34 @@ test("an invalid custom expression shows the reason inline", async ({ page }) =>
   await page.getByLabel("Cron expression").fill("0 9 *");
   const row = page.locator(".cron-entry").first();
   await expect(row.locator(".error")).toContainText("expected 5 fields, got 3");
+});
+
+test("an expression the preview accepts keeps the Jobs form saveable", async ({ page }) => {
+  // Guards the wiring, not the renderer: `cronOk` must follow the preview's
+  // `error`, so an expression the platform accepts — a month name, say — can
+  // never leave Create disabled with nothing on screen explaining why. (That
+  // the backend accepts `JUL` at all is pinned in test_cron_preview.py.)
+  await mockApi(page);
+  await page.goto("/agents/health-monitor?tab=schedules");
+  await page.getByRole("button", { name: "+ New Job" }).click();
+  await page.getByLabel("Job name").fill("summer-only");
+  await page.getByLabel("Job prompt").fill("Only in July.");
+  await page.getByLabel("Job schedule frequency").selectOption("custom");
+  await page.getByLabel("Cron expression").fill("0 9 * JUL *");
+  await expect(page.getByRole("button", { name: "Create job" })).toBeEnabled();
+});
+
+test("a bad timezone is reported at the timezone field, not under the schedule", async ({ page }) => {
+  await mockApi(page);
+  await page.goto("/agents/health-monitor?tab=schedules");
+  await page.getByRole("button", { name: "+ New Job" }).click();
+  await page.getByLabel("Timezone").fill("Mars/Olympus");
+
+  await expect(page.getByText("Unknown timezone — use an IANA name")).toBeVisible();
+  // The schedule keeps describing the schedule: a complaint about a different
+  // field does not belong under it, and must not disable Create either.
+  await expect(page.locator(".cron-builder .error")).toHaveCount(0);
+  await expect(page.locator(".cron-builder")).toContainText("explained");
 });
 
 test("the Jobs form edits its cron with the same builder", async ({ page }) => {

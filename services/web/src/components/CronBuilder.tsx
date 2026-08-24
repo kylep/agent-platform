@@ -52,8 +52,11 @@ const DEFAULTS: Preset = {
   freq: "custom", every: 15, minute: 0, time: "09:00", days: [1], day: 1, raw: "",
 };
 
-/** A fresh cron row starts somewhere real rather than empty — the point of the
- * builder is that you never have to know the syntax to begin. */
+/** Where a form that CREATES a schedule in one deliberate act starts — the
+ * Jobs form, which won't submit without a name and a prompt anyway. An agent's
+ * cron rows deliberately do NOT use this: "+ Add cron" adds an EMPTY row, so
+ * an accidental add followed by Save can't quietly arm a live daily run. An
+ * empty row fails validation exactly as it did before the builder existed. */
 export const DEFAULT_CRON = "0 9 * * *";
 
 const pad = (n: number) => String(n).padStart(2, "0");
@@ -86,6 +89,10 @@ function parseDays(field: string): number[] | null {
 function parseCron(cron: string): Preset {
   const raw = cron.trim();
   const custom: Preset = { ...DEFAULTS, raw };
+  // An empty row opens on the commonest shape so the controls are usable
+  // immediately — but the VALUE stays empty until a control is touched, so
+  // merely adding a row commits to no schedule at all.
+  if (!raw) return { ...DEFAULTS, freq: "daily" };
   const fields = raw.split(/\s+/);
   if (fields.length !== 5) return custom;
   const [m, h, dom, month, dow] = fields;
@@ -257,7 +264,11 @@ export function CronBuilder({ value, timezone = "", onChange, label = "Cron sche
 function CronPreviewLine({ cron, zone, preview }: {
   cron: string; zone: string; preview: ReturnType<typeof useCronPreview>;
 }) {
-  if (!cron.trim()) return <p className="muted check-note">5-field cron.</p>;
+  // The controls show a shape, but an untouched row holds no schedule — say so,
+  // or "Daily at 09:00" above an empty value reads as a schedule that is set.
+  if (!cron.trim()) {
+    return <p className="muted check-note">No schedule yet — adjust a control to set one.</p>;
+  }
   if (preview?.error) return <p className="error">{preview.error}</p>;
   if (!preview?.english) return <p className="muted check-note"><code>{cron}</code></p>;
   return (
