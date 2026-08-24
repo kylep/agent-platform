@@ -43,6 +43,11 @@ spec:
             # endpoints (docs/deployment.md).
             - name: AP_API_URL
               value: "http://agent-platform-api:8000"
+            # Sharp/admin tools (API keys, secrets, destructive ops) are hidden
+            # from the MCP surface unless this is "1". Offering-only: the API's
+            # role ladder still authorizes every call (docs/design/17 curation).
+            - name: AP_MCP_ADMIN_TOOLS
+              value: {{ .Values.mcpFacade.adminTools | default false | ternary "1" "0" | quote }}
           ports:
             - containerPort: 8000
           readinessProbe:

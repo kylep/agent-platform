@@ -2,9 +2,23 @@
 
 An MCP server GENERATED from the platform's OpenAPI document, so it cannot
 drift from the API: the same spec that generates `sdk/` generates this tool
-surface, and everything the API exposes is a tool unless it is on the exclusion
-list below. External clients (Claude Code on a laptop) reach it at
-`pai:8090/mcp` through the ap-web nginx proxy.
+surface. External clients (Claude Code on a laptop) reach it at `pai:8090/mcp`
+through the ap-web nginx proxy.
+
+The surface is CURATED into three tiers (curation 2026-08-24; see
+.superpowers/sdd/2026-08-24-facade-curation/scope.md):
+
+- **KEEP** — the day-to-day management surface (observe/operate runs,
+  conversations, jobs, schedules, agents, pending changes, memory, metrics,
+  health, reports, registries, apps, help). Always tools. 54 of them.
+- **GATE** — authorized-but-sharp: the credential/secret plane, admin audit
+  reads, and destructive/bulk ops. Offered ONLY when `AP_MCP_ADMIN_TOOLS` is
+  truthy (`admin_tools_enabled()`). 21 of them. The role ladder authorizes
+  every call regardless — the flag controls the MENU, not the kitchen.
+- **EXCLUDE** — UI form-feeders, reviewer digests the client can compute,
+  git-edit conveniences redundant with having the repo, and system-agent
+  endpoints. Never tools. 17 of them, plus the 6 design-17 session/internal
+  paths below (verify_secret makes the graded universe 92 operations).
 
 It is deliberately NOT the mcp-broker. The broker authenticates in-cluster run
 identities and scopes tools to an agent's grants (design/13, design/15); this
@@ -40,24 +54,102 @@ _SPEC_RETRY_SECONDS = float(os.environ.get("AP_SPEC_RETRY_SECONDS", "5"))
 _ALLOWED_HOSTS = [h for h in os.environ.get(
     "AP_ALLOWED_HOSTS", "agent-platform-mcp-facade").split(",") if h.strip()]
 
-# Paths the facade refuses to turn into tools (design/17). Anchored regexes,
-# matched with re.search against the OpenAPI path — `/api/setup-state` must
-# survive `/api/setup` being excluded. Pinned by a test against the real spec.
+# Route rules are (methods, pattern) pairs: `methods` is a tuple of HTTP verbs
+# or "*" (all), and `pattern` is an anchored regex matched with re.search
+# against the OpenAPI path — so `/api/setup-state` survives `/api/setup` being
+# excluded, and `{param}` braces are escaped. Every pattern is pinned by a test
+# against the real spec (a stale one fails). Method-scoping lets e.g. DELETE
+# `/api/agents/{name}` gate while GET/PUT on the same path stay KEEP.
+
+# Never tools (design/17): session auth (browser/cookie flows), run-scoped
+# internals (session-token-only, useful only to the owning runner), and webhook
+# ingress (for external services holding a webhook secret, design/16).
 EXCLUDED_PATHS = (
-    # Session auth: browser/cookie flows, meaningless to a bearer-token client.
-    r"^/api/login$",
-    r"^/api/logout$",
-    r"^/api/setup$",
-    # Run-scoped internals: authenticated by a run's session token only, and
-    # only useful to the runner that owns the run.
-    r"^/api/runs/\{run_id\}/session$",
-    r"^/api/runs/\{run_id\}/agentdef$",
-    # Webhook ingress: that surface is for external services holding a webhook
-    # secret (design/16), not for an API-key client.
-    r"^/api/webhooks/\{path\}$",
+    ("*", r"^/api/login$"),
+    ("*", r"^/api/logout$"),
+    ("*", r"^/api/setup$"),
+    ("*", r"^/api/runs/\{run_id\}/session$"),
+    ("*", r"^/api/runs/\{run_id\}/agentdef$"),
+    ("*", r"^/api/webhooks/\{path\}$"),
 )
 
-ROUTE_MAPS = [RouteMap(pattern=p, mcp_type=MCPType.EXCLUDE) for p in EXCLUDED_PATHS]
+# Curated out (curation 2026-08-24): UI plumbing, reviewer digests the client
+# can compute itself, git-edit conveniences redundant with the repo, and
+# system-agent endpoints. Never tools regardless of the admin flag.
+CURATED_OUT = (
+    (("GET",),   r"^/api/setup-state$"),
+    (("GET",),   r"^/api/connectors$"),
+    (("PATCH",), r"^/api/conversations/\{conversation_id\}$"),   # rename_conversation
+    (("GET",),   r"^/api/tags$"),
+    (("POST",),  r"^/api/runs/\{run_id\}/annotate$"),
+    (("PATCH",), r"^/api/memories/\{memory_id\}$"),              # edit_memory
+    (("GET",),   r"^/api/metrics/durations$"),
+    (("GET",),   r"^/api/maintenance/retention$"),
+    (("GET",),   r"^/api/report-types$"),
+    (("POST",),  r"^/api/reports$"),                             # save_report (GET list survives)
+    (("POST",),  r"^/api/report-kit/chart$"),
+    (("GET",),   r"^/api/pull-requests/\{number\}/impact$"),
+    (("GET",),   r"^/api/pull-requests/\{number\}/summary$"),
+    (("POST",),  r"^/api/tools/\{name\}/quick-edit$"),
+    (("POST",),  r"^/api/tools/new$"),
+    (("POST",),  r"^/api/skills/\{name\}/quick-edit$"),
+    (("POST",),  r"^/api/skills/new$"),
+)
+
+# Sharp/admin tools: OFFERED only when AP_MCP_ADMIN_TOOLS is truthy. The role
+# ladder still authorizes every call either way — this controls the menu, not
+# the kitchen. The `^/api/secrets` and `^/api/audit/` prefixes have no `$` on
+# purpose: each covers its whole domain and nothing else starts with it (the
+# stale-pattern test keeps that honest).
+GATED_ADMIN = (
+    (("POST",),   r"^/api/change-password$"),
+    ("*",         r"^/api/api-keys$"),                            # list + mint
+    (("DELETE",), r"^/api/api-keys/\{key_id\}$"),                 # revoke
+    ("*",         r"^/api/secrets"),   # list/put/verify/declare/declaration/quick-edit
+    ("*",         r"^/api/agents/\{name\}/webhooks/\{path\}/secret$"),
+    (("GET",),    r"^/api/integrations$"),
+    ("*",         r"^/api/audit/"),                               # secret-access + tools
+    (("DELETE",), r"^/api/agents/\{name\}$"),                     # delete_agent (GET/PUT survive)
+    (("POST",),   r"^/api/agents/\{name\}/rollback/\{version\}$"),
+    (("POST",),   r"^/api/agents/import$"),
+    (("POST",),   r"^/api/maintenance/prune-transcripts$"),
+    (("POST",),   r"^/api/dlq/\{run_id\}/discard$"),
+    (("DELETE",), r"^/api/reports/\{report_id\}$"),
+)
+
+# operationId -> MCP tool name. Keys are route function names (api/app.py sets
+# generate_unique_id_function=lambda route: route.name). Only the genuinely
+# ambiguous get renamed; entries for gated tools apply when the flag exposes
+# them. Every key is pinned to a real operationId by a test.
+MCP_NAMES = {
+    "overview":      "metrics_overview",           # GET /api/metrics/overview
+    "by_model":      "metrics_by_model",           # GET /api/metrics/models
+    "per_agent":     "metrics_by_agent",           # GET /api/metrics/agents
+    "metrics_tools": "metrics_by_tool",            # GET /api/metrics/tools
+    "notify":        "notify_channel",             # POST /api/notify — Discord channel post
+    "post_message":  "post_conversation_message",  # POST /api/conversations/{id}/messages
+    "set_enabled":   "set_schedule_enabled",       # POST /api/schedules/{agent}/{action}
+    "secret_access": "audit_secret_access",        # GET /api/audit/secret-access (gated)
+    "integrations":  "list_integrations",          # GET /api/integrations (gated)
+}
+
+_TRUTHY = ("1", "true", "yes", "on")
+
+
+def admin_tools_enabled() -> bool:
+    """Whether the sharp/admin tier is OFFERED (default off — a fresh facade
+    serves the 54-tool KEEP surface). Offering-only: the API's role ladder
+    authorizes every call regardless of this flag."""
+    return os.environ.get("AP_MCP_ADMIN_TOOLS", "").strip().lower() in _TRUTHY
+
+
+def route_maps(admin_tools: bool) -> list[RouteMap]:
+    """The EXCLUDE rules for one build: always the design-17 exclusions and the
+    curated-out set; the gated-admin set too unless the flag is on."""
+    rules = EXCLUDED_PATHS + CURATED_OUT + (() if admin_tools else GATED_ADMIN)
+    return [RouteMap(methods=(m if m == "*" else list(m)),
+                     pattern=p, mcp_type=MCPType.EXCLUDE)
+            for m, p in rules]
 
 
 def current_request():
@@ -132,12 +224,19 @@ def fetch_spec(base_url: str = _API, sleep=time.sleep) -> dict:
             sleep(_SPEC_RETRY_SECONDS)
 
 
-def build(spec: dict, client: httpx.AsyncClient | None = None) -> FastMCP:
-    """The MCP server for one spec: every route a tool except the exclusions.
-    (Tools only — no resources/resource-templates: one flat surface is what
-    Claude Code's tool search reads best.)"""
+def build(spec: dict, client: httpx.AsyncClient | None = None,
+          admin_tools: bool | None = None) -> FastMCP:
+    """The MCP server for one spec: the KEEP surface, plus the GATE tier when
+    `admin_tools` (None ⇒ read `AP_MCP_ADMIN_TOOLS`), minus the curated/design-17
+    exclusions. Ambiguous names are clarified via MCP_NAMES. (Tools only — no
+    resources/resource-templates: one flat surface is what Claude Code's tool
+    search reads best.)"""
+    if admin_tools is None:
+        admin_tools = admin_tools_enabled()
     return FastMCP.from_openapi(spec, client=client or make_client(),
-                                name="agent-platform", route_maps=ROUTE_MAPS)
+                                name="agent-platform",
+                                route_maps=route_maps(admin_tools),
+                                mcp_names=MCP_NAMES)
 
 
 class RequireAuthorization:
@@ -146,7 +245,7 @@ class RequireAuthorization:
 
     It does NOT validate the header (only the platform API can, and it does, on
     every actual call); it just refuses to talk to a caller who is obviously
-    not carrying a key. Without this the full 91-tool schema — every endpoint,
+    not carrying a key. Without this the full tool schema — every endpoint,
     parameter and description the platform has — is readable by anyone on the
     LAN who can open a socket. A real MCP client always sends its configured
     header on every request, so the cost is nothing.

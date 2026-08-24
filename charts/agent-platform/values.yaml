@@ -19,6 +19,14 @@ images:
     tag: dev
     pullPolicy: IfNotPresent
 
+# The external MCP facade's tool surface (docs/design/17 curation). Sharp/admin
+# tools (API keys, secrets, destructive ops) are hidden unless adminTools is
+# true — offering-only, the API's role ladder still authorizes every call.
+# Default off ⇒ the safe 54-tool KEEP surface; Kyle's deploy override sets true
+# for the full 75. Restart the facade after changing (surface is built at boot).
+mcpFacade:
+  adminTools: false
+
 # The MCP broker exposes the platform API as MCP tools over HTTP so token-
 # bearing agents can act without a shell (see docs/design/08).
 mcpBroker:

@@ -32,11 +32,28 @@ def spec():
     return create_app(Settings(), None, FakeProducer()).openapi()
 
 
+def build_tools(spec, admin_tools):
+    """The generated tool surface for one admin-flag value: the list of tools.
+    Every test passes admin_tools explicitly so ambient AP_MCP_ADMIN_TOOLS
+    never leaks in."""
+    mcp = facade.build(spec, client=httpx.AsyncClient(base_url="http://itest"),
+                       admin_tools=admin_tools)
+    return asyncio.run(mcp.list_tools())
+
+
 @pytest.fixture(scope="module")
 def tools(spec):
-    """The generated tool surface, as (name, method, path) plus the tool."""
-    mcp = facade.build(spec, client=httpx.AsyncClient(base_url="http://itest"))
-    return asyncio.run(mcp.list_tools())
+    """The DEFAULT (admin-off) tool surface — the 54-tool KEEP set."""
+    return build_tools(spec, admin_tools=False)
+
+
+@pytest.fixture(scope="module")
+def admin_tools(spec):
+    """The admin-on surface — KEEP + GATE (75 tools)."""
+    return build_tools(spec, admin_tools=True)
+
+
+ALL_RULES = facade.EXCLUDED_PATHS + facade.CURATED_OUT + facade.GATED_ADMIN
 
 
 def operations(spec):
@@ -44,13 +61,19 @@ def operations(spec):
             for m in ops if m in METHODS]
 
 
+def matches(rules, method, path):
+    """Does any (methods, pattern) rule match this (method, path)?"""
+    return any((verbs == "*" or method in verbs) and re.search(pattern, path)
+               for verbs, pattern in rules)
+
+
 def test_every_exclusion_still_matches_a_real_path(spec):
-    """A stale exclusion is worse than none: it silently stops protecting
-    anything when a path is renamed."""
+    """A stale rule is worse than none: it silently stops protecting anything
+    when a path is renamed. Holds for ALL THREE rule tuples."""
     paths = list(spec["paths"])
-    for pattern in facade.EXCLUDED_PATHS:
+    for _verbs, pattern in ALL_RULES:
         assert [p for p in paths if re.search(pattern, p)], \
-            f"exclusion {pattern} matches no path in the API — stale?"
+            f"rule {pattern} matches no path in the API — stale?"
 
 
 def test_excluded_paths_produce_no_tools(spec, tools):
@@ -64,21 +87,104 @@ def test_excluded_paths_produce_no_tools(spec, tools):
         assert path not in exposed
 
 
-def test_setup_state_is_not_caught_by_the_setup_exclusion(tools):
-    """The exclusions are anchored regexes — `/api/setup-state` is a normal
-    read and must survive `/api/setup` being excluded."""
-    assert "/api/setup-state" in {t._route.path for t in tools}
+def test_setup_state_is_not_caught_by_the_setup_exclusion():
+    """The rules are anchored regexes: the `^/api/setup$` design-17 exclusion
+    must NOT over-match `/api/setup-state` (which has its own curated-out rule
+    instead — the anchoring is what keeps the two decisions independent)."""
+    assert not matches(facade.EXCLUDED_PATHS, "GET", "/api/setup-state")
+    assert matches(facade.EXCLUDED_PATHS, "POST", "/api/setup")
 
 
 def test_everything_else_is_a_tool(spec, tools):
-    """Full API capability by construction: exactly the operations that are
-    not excluded, no hand-curated allowlist to drift."""
-    excluded = {(m, p) for m, p in operations(spec)
-                if any(re.search(x, p) for x in facade.EXCLUDED_PATHS)}
-    assert len(excluded) == 7, sorted(excluded)
-    assert len(tools) == len(operations(spec)) - len(excluded)
-    assert {(t._route.method, t._route.path) for t in tools} == \
-        set(operations(spec)) - excluded
+    """The default surface, by construction: exactly the operations that are
+    not design-17-excluded, not curated out, and not gated. Pinned at 54."""
+    hidden = {(m, p) for m, p in operations(spec) if matches(ALL_RULES, m, p)}
+    expected = set(operations(spec)) - hidden
+    assert {(t._route.method, t._route.path) for t in tools} == expected
+    assert len(tools) == len(expected) == 54, \
+        sorted({(t._route.method, t._route.path) for t in tools})
+
+
+def test_admin_flag_restores_gated(spec, admin_tools):
+    """With AP_MCP_ADMIN_TOOLS on, the gated set returns (75 total) but the
+    design-17 exclusions and CURATED_OUT never come back."""
+    still_hidden = facade.EXCLUDED_PATHS + facade.CURATED_OUT
+    hidden = {(m, p) for m, p in operations(spec)
+              if matches(still_hidden, m, p)}
+    expected = set(operations(spec)) - hidden
+    assert {(t._route.method, t._route.path) for t in admin_tools} == expected
+    assert len(admin_tools) == len(expected) == 75, \
+        sorted({(t._route.method, t._route.path) for t in admin_tools})
+    names = {t.name for t in admin_tools}
+    for gated in ("mint_api_key", "put_secret", "delete_agent", "import_agents",
+                  "prune_transcripts", "discard_dlq", "change_password"):
+        assert gated in names, f"{gated} not restored by the flag"
+    for curated in ("tool_wizard", "save_report", "setup_state"):
+        assert curated not in names, f"{curated} came back with the flag"
+
+
+def test_gated_tools_hidden_by_default(tools):
+    """Sharp tools are off the default menu; the day-to-day KEEP set is on."""
+    names = {t.name for t in tools}
+    for gated in ("mint_api_key", "revoke_api_key", "put_secret", "delete_agent",
+                  "import_agents", "prune_transcripts", "discard_dlq",
+                  "change_password"):
+        assert gated not in names, f"{gated} leaked into the default surface"
+    for kept in ("list_agents", "create_run"):
+        assert kept in names, f"{kept} missing from the default surface"
+
+
+def test_method_scoped_gates_do_not_overreach(tools):
+    """Method-scoping must not hide sibling verbs on a gated/curated path."""
+    surface = {(t._route.method, t._route.path) for t in tools}
+    # DELETE /api/agents/{name} gates; GET/PUT stay.
+    assert ("GET", "/api/agents/{name}") in surface
+    assert ("PUT", "/api/agents/{name}") in surface
+    assert ("DELETE", "/api/agents/{name}") not in surface
+    # GET /api/reports stays; POST (curated) and DELETE {id} (gated) go.
+    assert ("GET", "/api/reports") in surface
+    assert ("POST", "/api/reports") not in surface
+    assert ("DELETE", "/api/reports/{report_id}") not in surface
+    # GET+DELETE /api/memories/{id} stay; PATCH (edit_memory, curated) goes.
+    assert ("GET", "/api/memories/{memory_id}") in surface
+    assert ("DELETE", "/api/memories/{memory_id}") in surface
+    assert ("PATCH", "/api/memories/{memory_id}") not in surface
+
+
+def test_renames_applied(tools, admin_tools):
+    """The ambiguous names are clarified and the old ones are gone."""
+    default = {t.name for t in tools}
+    for new in ("metrics_overview", "metrics_by_model", "metrics_by_agent",
+                "metrics_by_tool", "notify_channel", "post_conversation_message",
+                "set_schedule_enabled"):
+        assert new in default, f"{new} not applied"
+    for old in ("overview", "by_model", "per_agent", "metrics_tools",
+                "notify", "post_message", "set_enabled"):
+        assert old not in default, f"old name {old} still present"
+    # The two gated renames apply only when the flag exposes them.
+    admin = {t.name for t in admin_tools}
+    assert "audit_secret_access" in admin and "secret_access" not in admin
+    assert "list_integrations" in admin and "integrations" not in admin
+
+
+def test_every_mcp_name_key_is_a_real_operation(spec):
+    """A rename keyed on a vanished operationId silently does nothing — pin
+    each MCP_NAMES key to a real route function name (operationId)."""
+    op_ids = {op.get("operationId") for ops in spec["paths"].values()
+              for op in ops.values() if isinstance(op, dict)}
+    for key in facade.MCP_NAMES:
+        assert key in op_ids, f"MCP_NAMES key {key!r} is not an operationId"
+
+
+def test_admin_tools_enabled_parses_env(monkeypatch):
+    """The flag is off unless explicitly truthy; whitespace/case tolerant."""
+    for raw, want in (("", False), ("0", False), ("no", False), (" ", False),
+                      ("1", True), ("true", True), ("TRUE", True),
+                      (" yes ", True), ("on", True)):
+        monkeypatch.setenv("AP_MCP_ADMIN_TOOLS", raw)
+        assert facade.admin_tools_enabled() is want, raw
+    monkeypatch.delenv("AP_MCP_ADMIN_TOOLS", raising=False)
+    assert facade.admin_tools_enabled() is False
 
 
 def test_a_sampled_tool_carries_its_json_schema(tools):
