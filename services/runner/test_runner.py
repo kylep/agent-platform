@@ -321,6 +321,54 @@ def test_install_agent_falls_back_on_a_malformed_200(tmp_path, monkeypatch):
     assert (tmp_path / ".claude" / "agents" / "newsy.md").read_text().endswith("from the mount")
 
 
+def test_a_double_failure_names_both_causes(tmp_path, monkeypatch):
+    """Both delivery paths down is the one case with no definition to run. It
+    must be reported in words: the alternative — an uncaught FileNotFoundError
+    out of `shutil.copy` — kills the pod before the producer exists, so the run
+    lands with an EMPTY error, which is the exact signature of Claude quota
+    exhaustion. That misreading costs the first hour of the investigation."""
+    _fetch_env(monkeypatch, tmp_path)
+    monkeypatch.setenv("AP_AGENTS_DIR", str(tmp_path / "no-such-mount"))
+
+    def boom(*a, **k):
+        raise urllib.error.URLError("connection refused")
+    monkeypatch.setattr(runner, "_api_req", boom)
+    with pytest.raises(runner.AgentUnavailable) as e:
+        runner._install_agent("newsy")
+    msg = str(e.value)
+    assert msg.startswith("agent definition unavailable:")
+    assert "api=" in msg and "connection refused" in msg     # why the API path failed
+    assert "mount=" in msg and "newsy/agent.md" in msg       # and why the mount did
+
+
+def test_a_run_with_no_definition_fails_loudly_and_terminally(tmp_path, monkeypatch):
+    """The double failure as the platform sees it: a nonzero exit, a transcript
+    frame naming both causes, and a terminal state event carrying it as
+    `detail` — which is what the recorder writes to `run.error`, so the run page
+    says why instead of showing the blank the quota case shows."""
+    creds = tmp_path / "secrets"; creds.mkdir()
+    (creds / "credentials.json").write_text("{}")
+    monkeypatch.setenv("AP_SECRETS_DIR", str(creds))
+    monkeypatch.delenv("AP_CLAUDE_PROXY_URL", raising=False)
+    monkeypatch.setenv("AP_AGENT", "newsy"); monkeypatch.setenv("AP_PROMPT", "hi")
+    monkeypatch.setenv("CLAUDE_BIN", str(tmp_path / "no-claude-here"))
+    _fetch_env(monkeypatch, tmp_path)
+    monkeypatch.setenv("AP_AGENTS_DIR", str(tmp_path / "no-such-mount"))
+    monkeypatch.setattr(runner, "_api_req", lambda *a, **k: {})   # a malformed 200
+
+    p = FakeProducer()
+    assert runner.run(producer=p) == 1
+    frames = [v for _, _, v in p.published]
+    detail = next(v["error"] for v in frames if v.get("type") == "agent_unavailable")
+    assert detail.startswith("agent definition unavailable:")
+    # Terminal on BOTH topics: the events one is what marks the run failed and
+    # carries the reason; the transcript one is what closes a live tail.
+    state = next(v for t, _, v in p.published if t == runner.TOPIC_EVENTS)
+    assert state["state"] == "failed" and state["terminal"] is True
+    assert state["exit_code"] == 1 and state["detail"] == detail
+    assert [v for v in frames if v.get("type") == "lifecycle"][-1]["terminal"] is True
+
+
 def test_install_agent_drops_grant_tokens_that_arent_tool_names(tmp_path, monkeypatch):
     """Defense in depth behind validate_def: only bare tool names reach the
     frontmatter. A permission SPECIFIER (`Bash(...)`) is the sharp case — it
@@ -359,7 +407,7 @@ def _session_env(monkeypatch, tmp_path, fake_body):
     monkeypatch.setenv("AP_API_URL", "http://api:8090")
     # These tests are about resume; keep definition delivery on the mount copy
     # above (and off the network) so only one thing is under test.
-    monkeypatch.setattr(runner, "_agentdef", lambda: None)
+    monkeypatch.setattr(runner, "_agentdef", lambda: (None, "off in this test"))
 
 
 def test_project_dir_slug(tmp_path, monkeypatch):
