@@ -66,3 +66,114 @@ async def test_webhook_decoupled_path_routes_to_declaring_agent(admin_client, se
     assert r.status_code == 202
     inbound = [p for p in producer.published if p[0] == TOPIC_RUN_INBOUND]
     assert inbound[-1][2]["agent"] == "hello-world"
+
+
+# --- shared-secret auth (docs/design/16) --------------------------------------
+
+SECRET = "hunter2-hunter2-hunter2"
+HEADER = "X-AP-Webhook-Secret"
+
+
+async def _secret_mode(admin_client, seed_agent, *, set_secret=True, path="hello-world"):
+    """`hello-world` declaring `path` in secret mode, optionally with a live
+    secret — then drop the admin cookie so the client is an OUTSIDE caller."""
+    await seed_agent("hello-world",
+                     entrypoints={"webhooks": [{"path": path, "auth": "secret"}]})
+    if set_secret:
+        r = await admin_client.put(
+            f"/api/agents/hello-world/webhooks/{path}/secret", json={"secret": SECRET})
+        assert r.status_code == 200
+    admin_client.cookies.clear()
+
+
+async def test_secret_header_alone_fires_the_webhook(admin_client, seed_agent, producer):
+    """The point of the whole feature: an external caller with no platform key."""
+    await _secret_mode(admin_client, seed_agent)
+    r = await admin_client.post("/api/webhooks/hello-world",
+                                headers={HEADER: SECRET}, json={"event": "push"})
+    assert r.status_code == 202
+    inbound = [p for p in producer.published if p[0] == TOPIC_RUN_INBOUND]
+    assert inbound[-1][2]["agent"] == "hello-world"
+    assert inbound[-1][2]["trigger"] == "webhook"
+    assert SECRET not in inbound[-1][2]["requested_by"]
+
+
+async def test_wrong_secret_rejected(admin_client, seed_agent, producer):
+    await _secret_mode(admin_client, seed_agent)
+    r = await admin_client.post("/api/webhooks/hello-world",
+                                headers={HEADER: "not-the-secret-at-all"}, json={})
+    assert r.status_code == 401
+    assert not [p for p in producer.published if p[0] == TOPIC_RUN_INBOUND]
+
+
+async def test_missing_secret_header_rejected(admin_client, seed_agent):
+    await _secret_mode(admin_client, seed_agent)
+    assert (await admin_client.post("/api/webhooks/hello-world", json={})).status_code == 401
+
+
+async def test_secret_mode_with_no_stored_secret_fails_closed(admin_client, seed_agent,
+                                                              producer):
+    """Mode says `secret`, nothing was ever set (a rollback, or a half-finished
+    edit): reject and NAME the misconfiguration rather than fall open."""
+    await _secret_mode(admin_client, seed_agent, set_secret=False)
+    r = await admin_client.post("/api/webhooks/hello-world",
+                                headers={HEADER: SECRET}, json={})
+    assert r.status_code == 503 and "no secret" in r.text.lower()
+    assert not [p for p in producer.published if p[0] == TOPIC_RUN_INBOUND]
+
+
+async def test_platform_key_still_works_in_secret_mode(admin_client, seed_agent, producer):
+    """A valid operator key is accepted whatever the mode says — the secret is
+    an ADDITIONAL door, not a replacement."""
+    token = await _mint(admin_client, "operator")
+    await _secret_mode(admin_client, seed_agent)
+    r = await admin_client.post("/api/webhooks/hello-world",
+                                headers={"Authorization": f"Bearer {token}"}, json={})
+    assert r.status_code == 202
+    assert [p for p in producer.published if p[0] == TOPIC_RUN_INBOUND]
+
+
+async def test_secret_does_not_open_a_none_mode_path(admin_client, seed_agent):
+    """Auth is per PATH: a secret set on a path later switched back to `none`
+    grants nothing — none means platform key, exactly as before."""
+    await _secret_mode(admin_client, seed_agent)
+    await seed_agent("hello-world",
+                     entrypoints={"webhooks": [{"path": "hello-world", "auth": "none"}]})
+    r = await admin_client.post("/api/webhooks/hello-world",
+                                headers={HEADER: SECRET}, json={})
+    assert r.status_code == 401
+
+
+async def test_secret_does_not_open_another_agents_path(admin_client, seed_agent):
+    """The hash is keyed by (agent, path); one agent's secret must not
+    authenticate another agent's webhook."""
+    await seed_agent("other", entrypoints={"webhooks": [{"path": "other-hook",
+                                                         "auth": "secret"}]})
+    await _secret_mode(admin_client, seed_agent)
+    r = await admin_client.post("/api/webhooks/other-hook",
+                                headers={HEADER: SECRET}, json={})
+    assert r.status_code == 503     # `other` has no hash of its own -> closed
+
+
+async def test_anonymous_cannot_enumerate_paths(client):
+    """An unauthenticated caller gets the same 401 whether or not the path
+    exists — resolving the path before authenticating must not turn the
+    endpoint into a directory of declared webhooks."""
+    await client.post("/api/setup", json={"password": "pw12345678"})
+    declared = await client.post("/api/webhooks/hello-world", json={})
+    ghost = await client.post("/api/webhooks/ghost", json={})
+    assert declared.status_code == ghost.status_code == 401
+    assert declared.text == ghost.text
+
+
+async def test_disabled_agent_still_409s_for_a_secret_caller(admin_client, seed_agent):
+    await seed_agent("hello-world", enabled=False,
+                     entrypoints={"webhooks": [{"path": "hello-world",
+                                                "auth": "secret"}]})
+    r = await admin_client.put("/api/agents/hello-world/webhooks/hello-world/secret",
+                               json={"secret": SECRET})
+    assert r.status_code == 200
+    admin_client.cookies.clear()
+    r = await admin_client.post("/api/webhooks/hello-world",
+                                headers={HEADER: SECRET}, json={})
+    assert r.status_code == 409

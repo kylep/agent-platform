@@ -213,6 +213,31 @@ class AgentVersion(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
 
 
+class WebhookSecret(Base):
+    """The shared secret guarding one declared webhook path (docs/design/16).
+
+    Deliberately NOT a field of the definition. `agent_versions` snapshots the
+    whole definition on every write, so a secret stored there — even hashed —
+    would be sprayed across the change log and a rollback would silently
+    resurrect a rotated one. The definition carries only the MODE
+    (`entrypoints.webhooks[].auth`), which is exactly what should be
+    versioned and rollbackable; the value lives here, write-only, and is
+    deleted with its agent.
+
+    Only a salted digest is stored, with a per-row random salt: the platform
+    never needs to read a webhook secret back, only to recognize one.
+    """
+    __tablename__ = "webhook_secrets"
+    # (agent, path) is the identity — the same pair the ingress resolves before
+    # comparing, so one agent's secret can never authenticate another's path.
+    agent: Mapped[str] = mapped_column(String(128), primary_key=True)
+    path: Mapped[str] = mapped_column(String(256), primary_key=True)
+    salt: Mapped[str] = mapped_column(String(64))
+    secret_hash: Mapped[str] = mapped_column(String(64))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+
+
 class Memory(Base):
     __tablename__ = "memories"
     # "Overwrite on same key" is only real with a constraint behind it: two

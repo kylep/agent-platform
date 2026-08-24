@@ -72,8 +72,30 @@ class CronEntry(BaseModel):
         return v
 
 
+# How a declared webhook path authenticates its callers (docs/design/16).
+# `none` is exactly the pre-design-16 behavior — a platform API key with the
+# operator role — so nothing gets less secure by default. `secret` additionally
+# accepts the shared secret in the `X-AP-Webhook-Secret` header, which is what
+# makes a webhook reachable by a service that cannot hold a platform key.
+# The list is open at the bottom on purpose: cert/mTLS-style caller auth is the
+# next rung, and the UI dropdown already has room for it.
+WEBHOOK_AUTH_MODES: tuple[str, ...] = ("none", "secret")
+
+
 class WebhookEntry(BaseModel):
     path: str
+    # The MODE only. The secret VALUE lives in `webhook_secrets` and never on
+    # the definition — see webhooksecrets.py and docs/design/16: this blob is
+    # snapshotted into `agent_versions` on every write, so anything stored here
+    # is in the change log forever and comes back on rollback.
+    auth: str = "none"
+
+    @field_validator("auth")
+    @classmethod
+    def _known_auth(cls, v: str) -> str:
+        if v not in WEBHOOK_AUTH_MODES:
+            raise ValueError(f"webhook auth must be one of {WEBHOOK_AUTH_MODES}")
+        return v
 
 
 class EntrypointsModel(BaseModel):

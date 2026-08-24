@@ -37,7 +37,8 @@ from agentplatform.api.auth import (READ_ROLES, authenticate, require_admin,
 from agentplatform.api.schemas import (AgentCreateIn, AgentDefIn, AgentDefOut,
                                        AgentImportResult, AgentModels,
                                        AgentSummary, AgentVersionDetail,
-                                       AgentVersionRow)
+                                       AgentVersionRow, WebhookSecretIn,
+                                       WebhookSecretState)
 from agentplatform.db import AgentDef, AgentVersion
 
 log = logging.getLogger("agents-api")
@@ -269,6 +270,40 @@ def _payload(row: AgentDef) -> dict:
     return {f: v for f in DEF_FIELDS if (v := getattr(row, f, None)) is not None}
 
 
+def _with_secret_state(payload: dict, secret_paths: set[str]) -> dict:
+    """Annotate a definition's webhook entries with `secret_set` (design/16).
+
+    DERIVED on the way out, never stored: the secret's existence is a fact
+    about `webhook_secrets`, not about the definition, so it must not reach
+    `entrypoints` (and through it every future `agent_versions` snapshot). The
+    payload is rebuilt rather than mutated for the same reason — the dict here
+    is the ORM row's own JSON value, and writing into it would dirty the row.
+
+    Defensive about shape for the same reason `_payload` reads columns raw: a
+    definition whose entrypoints blob is malformed must still be readable, and
+    that is what the editor's whole-blob PUT repairs. Anything that isn't a
+    recognizable webhook entry passes through untouched — there is no secret it
+    could be reporting on, and the tolerated-garbage read stays verbatim.
+    """
+    entrypoints = payload.get("entrypoints")
+    if not isinstance(entrypoints, dict):
+        return payload
+    hooks = entrypoints.get("webhooks")
+    if not isinstance(hooks, list):
+        return payload
+    annotated = [{**w, "secret_set": w["path"] in secret_paths}
+                 if isinstance(w, dict) and isinstance(w.get("path"), str) else w
+                 for w in hooks]
+    return {**payload, "entrypoints": {**entrypoints, "webhooks": annotated}}
+
+
+async def _annotated(session, row: AgentDef) -> dict:
+    """One row as the API returns it, `secret_set` included."""
+    from agentplatform import webhooksecrets
+    return _with_secret_state(_payload(row),
+                              await webhooksecrets.paths_with_secrets(session, row.name))
+
+
 def _value(model: AgentDefModel, field: str):
     """One definition field as it is stored/compared — nested models flattened
     to plain JSON, which is what the column holds."""
@@ -380,16 +415,20 @@ async def list_agents(request: Request):
     definition comes from the rows; `quarantined`/`error`/`blocked`/`schedule`
     are things only the platform knows, so they ride alongside rather than
     pretending to be columns."""
+    from agentplatform import webhooksecrets
     store = request.app.state.agent_store
     await store.reload()
     blocked = await _blocked_reasons(request)
     infos = {a.name: a for a in store.list()}
     async with request.app.state.session_factory() as s:
         rows = (await s.execute(select(AgentDef).order_by(AgentDef.name))).scalars().all()
+        # One query for the whole listing rather than one per agent.
+        secret_paths = await webhooksecrets.secrets_by_agent(s)
     out = []
     for row in rows:
         info = infos.get(row.name)
-        out.append({**_payload(row),
+        out.append({**_with_secret_state(_payload(row),
+                                         secret_paths.get(row.name, set())),
                     "quarantined": info is not None and info.error is not None,
                     "error": info.error if info else None,
                     "blocked": row.name in blocked,
@@ -405,7 +444,7 @@ async def get_agent(request: Request, name: str):
         row = await s.get(AgentDef, name)
         if row is None:
             raise HTTPException(404, "unknown agent")
-        return _payload(row)
+        return await _annotated(s, row)
 
 
 @router.get("/api/agent-models", response_model=AgentModels,
@@ -450,7 +489,7 @@ async def create_agent(request: Request, body: AgentCreateIn,
             await _log_version(s, row, changed_by=scope.principal,
                                changed_via=scope.changed_via(grants=bool(grants)))
             await s.commit()
-        out = _payload(row)
+        out = await _annotated(s, row)
     await st.agent_store.reload()
     return out
 
@@ -479,14 +518,14 @@ async def update_agent(request: Request, name: str, body: AgentDefIn,
             # it platform credentials injected — an agent must not set it.
             raise HTTPException(403, "only an admin may change the system flag")
         if not (grants or edits):
-            return _payload(row)
+            return await _annotated(s, row)
         _apply(row, model)
         async with _conflict_as_409(s):
             await s.flush()
             await _log_version(s, row, changed_by=scope.principal,
                                changed_via=scope.changed_via(grants=bool(grants)))
             await s.commit()
-        out = _payload(row)
+        out = await _annotated(s, row)
     await st.agent_store.reload()
     return out
 
@@ -503,7 +542,13 @@ async def delete_agent(request: Request, name: str,
     uniformly parseable as definitions, with no synthetic keys inside them — and
     it means the log alone is enough to say who removed an agent and to
     recreate it. System agents are platform-internal and refuse deletion.
+
+    Its webhook secrets do NOT survive: they are credentials for paths that no
+    longer exist, and the change log's tombstone snapshot deliberately doesn't
+    carry them, so leaving the rows behind would only mean a recreated agent
+    silently inheriting a secret nobody can see (docs/design/16).
     """
+    from agentplatform import webhooksecrets
     st = request.app.state
     scope.require_edit("deleting an agent")
     async with st.session_factory() as s:
@@ -513,14 +558,87 @@ async def delete_agent(request: Request, name: str,
         if row.system:
             raise HTTPException(409, "system agents are platform-internal and "
                                      "cannot be deleted")
-        out = _payload(row)
+        out = await _annotated(s, row)
         async with _conflict_as_409(s):
             await _log_version(s, row, changed_by=scope.principal,
                                changed_via=f"delete:{scope.changed_via(grants=False)}")
+            await webhooksecrets.clear_agent_secrets(s, name)
             await s.delete(row)
             await s.commit()
     await st.agent_store.reload()
     return out
+
+
+# --- webhook secrets (docs/design/16) ----------------------------------------
+#
+# Their own endpoints, deliberately outside the definition. A webhook secret is
+# a credential, and every route a definition field travels — the full-
+# replacement PUT, the `agent_versions` snapshot, rollback, import/export, the
+# GET the UI renders — is a route it must never travel. Keeping it in its own
+# table behind its own write-only endpoint is what makes "the mode is
+# versioned, the secret is not" true by construction rather than by care.
+#
+# Authority is the entrypoints-edit authority (admin or `agents_edit`): whoever
+# may declare the path may set the secret guarding it. `agents_grant` alone
+# cannot — that half of the split is about what an agent may DO.
+
+async def _declared_webhook_paths(session, name: str) -> set[str]:
+    """The webhook paths an agent declares, or 404 if there is no such agent.
+    Read off the row rather than the store cache: a path declared moments ago
+    must be settable immediately, and the row is the truth the store copies."""
+    row = await session.get(AgentDef, name)
+    if row is None:
+        raise HTTPException(404, "unknown agent")
+    entrypoints = row.entrypoints if isinstance(row.entrypoints, dict) else {}
+    hooks = entrypoints.get("webhooks")
+    return {w["path"] for w in (hooks if isinstance(hooks, list) else [])
+            if isinstance(w, dict) and w.get("path")}
+
+
+async def _require_declared(session, name: str, path: str) -> None:
+    if path not in await _declared_webhook_paths(session, name):
+        raise HTTPException(404, "this agent does not declare that webhook path")
+
+
+@router.put("/api/agents/{name}/webhooks/{path}/secret",
+            response_model=WebhookSecretState)
+async def set_webhook_secret(request: Request, name: str, path: str,
+                             body: WebhookSecretIn,
+                             scope: WriteScope = Depends(agent_write_scope)):
+    """Set or rotate one webhook path's shared secret. Write-only: the response
+    reports THAT a secret is set, never what it is, and nothing reads it back.
+    Rotation replaces the stored digest in place, so the previous secret stops
+    working the moment this returns."""
+    from agentplatform import webhooksecrets
+    scope.require_edit("setting a webhook secret")
+    if len(body.secret) < webhooksecrets.MIN_SECRET_LENGTH:
+        raise HTTPException(422, "the webhook secret must be at least "
+                                 f"{webhooksecrets.MIN_SECRET_LENGTH} characters")
+    async with request.app.state.session_factory() as s:
+        await _require_declared(s, name, path)
+        await webhooksecrets.set_secret(s, name, path, body.secret)
+        await s.commit()
+    # Attribution without the value: who rotated what, never what it became.
+    log.info("webhook secret set for %s/%s by %s", name, path, scope.principal)
+    return {"agent": name, "path": path, "secret_set": True}
+
+
+@router.delete("/api/agents/{name}/webhooks/{path}/secret",
+               response_model=WebhookSecretState)
+async def delete_webhook_secret(request: Request, name: str, path: str,
+                                scope: WriteScope = Depends(agent_write_scope)):
+    """Remove one webhook path's secret. Idempotent — the caller asked for "no
+    secret on this path", and that is the state either way. A path still in
+    `secret` mode with no secret is the fail-closed case: it rejects callers
+    rather than falling back to the platform key alone."""
+    from agentplatform import webhooksecrets
+    scope.require_edit("clearing a webhook secret")
+    async with request.app.state.session_factory() as s:
+        await _require_declared(s, name, path)
+        await webhooksecrets.clear_secret(s, name, path)
+        await s.commit()
+    log.info("webhook secret cleared for %s/%s by %s", name, path, scope.principal)
+    return {"agent": name, "path": path, "secret_set": False}
 
 
 # --- change log --------------------------------------------------------------
@@ -589,7 +707,7 @@ async def rollback_agent(request: Request, name: str, version: int,
             await s.flush()
             await _log_version(s, row, changed_by=principal, changed_via="rollback")
             await s.commit()
-        out = _payload(row)
+        out = await _annotated(s, row)
     await st.agent_store.reload()
     return out
 

@@ -61,6 +61,15 @@ class CronEntryIn(agentdefs.CronEntry):
 
 class WebhookEntryIn(agentdefs.WebhookEntry):
     model_config = ConfigDict(extra="forbid")
+    # DERIVED, and declared here only so it can be sent back. The editor works
+    # read-modify-write: it GETs a definition (whose webhook entries carry
+    # `secret_set`) and PUTs it whole, and `extra="forbid"` would 422 the
+    # round trip. `AgentDefModel` — the domain model the stored value is built
+    # from — does not have the field, so it is dropped on the way to the
+    # column: what the UI echoes back can never become part of the definition.
+    # Never an input in the real sense; the secret endpoints are the only way
+    # to change what it reports.
+    secret_set: bool = False
 
 
 class EntrypointsIn(agentdefs.EntrypointsModel):
@@ -159,6 +168,23 @@ class AgentVersionDetail(AgentVersionRow):
 class AgentImportResult(BaseModel):
     name: str
     status: str          # created | updated | unchanged
+
+
+class WebhookSecretIn(BaseModel):
+    """Setting/rotating one webhook's shared secret (docs/design/16). Its own
+    endpoint rather than a definition field, because the value must never take
+    the definition's path through `agent_versions`. Write-only: no response
+    model carries it back, and nothing reads it out again."""
+    model_config = ConfigDict(extra="forbid")
+    secret: str
+
+
+class WebhookSecretState(Ok):
+    """What a secret write reports: the path it touched and whether one is now
+    set. Never the secret."""
+    agent: str
+    path: str
+    secret_set: bool
 
 
 class ModelOption(BaseModel):
