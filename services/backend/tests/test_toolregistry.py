@@ -197,6 +197,24 @@ async def test_whoami_resolves_agent_and_declared_tools(tool_client, sf):
     assert d["tools"] == ["mcp__platform__echo"]
 
 
+async def test_whoami_reports_no_tools_for_an_ungranted_agent(tool_client, sf,
+                                                              seed_agent, agent_store):
+    """Security invariant (docs/design/15): an agent with no platform-tool
+    grant gets `[]`, never "everything". In the file era an agent.md with no
+    `tools:` line meant unrestricted, and whoami expanded it to every core +
+    registry tool; grants are rows now, and an empty grant list is empty. The
+    broker enforces tool access from this answer, so a regression here hands a
+    credential-free agent the whole platform surface."""
+    await seed_agent("ungranted", description="no grants at all")
+    await agent_store.reload()
+    token = await _tools_key(sf, agent="ungranted")
+    tool_client.cookies.clear()
+    d = (await tool_client.get("/api/whoami",
+                               headers={"Authorization": f"Bearer {token}"})).json()
+    assert d["agent"] == "ungranted"
+    assert d["tools"] == []          # NOT PLATFORM_MCP_TOOLS + the registry's
+
+
 async def test_whoami_admin_session_has_no_agent(tool_client):
     d = (await tool_client.get("/api/whoami")).json()
     assert d["principal"] == "admin" and d["agent"] is None and d["tools"] is None
