@@ -10,7 +10,7 @@ from typing_extensions import Self
 from ..types import UNSET, Unset
 
 if TYPE_CHECKING:
-    from ..models.entrypoints import Entrypoints
+    from ..models.entrypoints_model import EntrypointsModel
     from ..models.manifest import Manifest
 
 
@@ -19,26 +19,33 @@ T = TypeVar("T", bound="AgentInfo")
 
 @_attrs_define
 class AgentInfo:
-    """
-    Attributes:
-        agent_md (str):
-        manifest (Manifest | None):
-        name (str):
-        entrypoints (Entrypoints | Unset): agents/<name>/entrypoints.yaml — the agent's durable, defining triggers
-            (docs/design/10): cron fires, inbound webhook paths (POST
-            /api/webhooks/<path> only works for a declared path), and kafka topic
-            subscriptions (reserved). Distinct from DB Jobs, which are ad-hoc UI
-            experiments — history, not config.
-        entrypoints_raw (str | Unset):  Default: ''.
-        error (None | str | Unset):
+    """One agent as the platform reads it. Also the `GET /api/agents/{name}`
+    response model (re-exported by api.schemas).
+
+        Attributes:
+            agent_md (str):
+            manifest (Manifest | None):
+            name (str):
+            enabled (bool | Unset):  Default: True.
+            entrypoints (EntrypointsModel | Unset): The agent's defining triggers (formerly entrypoints.yaml): cron fires,
+                inbound webhook paths (POST /api/webhooks/<path> only works for a declared
+                path), and kafka topic subscriptions. Distinct from DB Jobs, which are
+                ad-hoc UI experiments — history, not config.
+            entrypoints_raw (str | Unset):  Default: ''.
+            error (None | str | Unset):
+            harness_tools (list[str] | Unset):
+            platform_tools (list[str] | Unset):
     """
 
     agent_md: str
     manifest: Manifest | None
     name: str
-    entrypoints: Entrypoints | Unset = UNSET
+    enabled: bool | Unset = True
+    entrypoints: EntrypointsModel | Unset = UNSET
     entrypoints_raw: str | Unset = ""
     error: None | str | Unset = UNSET
+    harness_tools: list[str] | Unset = UNSET
+    platform_tools: list[str] | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -54,6 +61,8 @@ class AgentInfo:
 
         name = self.name
 
+        enabled = self.enabled
+
         entrypoints: dict[str, Any] | Unset = UNSET
         if not isinstance(self.entrypoints, Unset):
             entrypoints = self.entrypoints.to_dict()
@@ -66,6 +75,14 @@ class AgentInfo:
         else:
             error = self.error
 
+        harness_tools: list[str] | Unset = UNSET
+        if not isinstance(self.harness_tools, Unset):
+            harness_tools = self.harness_tools
+
+        platform_tools: list[str] | Unset = UNSET
+        if not isinstance(self.platform_tools, Unset):
+            platform_tools = self.platform_tools
+
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
@@ -75,18 +92,24 @@ class AgentInfo:
                 "name": name,
             }
         )
+        if enabled is not UNSET:
+            field_dict["enabled"] = enabled
         if entrypoints is not UNSET:
             field_dict["entrypoints"] = entrypoints
         if entrypoints_raw is not UNSET:
             field_dict["entrypoints_raw"] = entrypoints_raw
         if error is not UNSET:
             field_dict["error"] = error
+        if harness_tools is not UNSET:
+            field_dict["harness_tools"] = harness_tools
+        if platform_tools is not UNSET:
+            field_dict["platform_tools"] = platform_tools
 
         return field_dict
 
     @classmethod
     def from_dict(cls, src_dict: Mapping[str, Any]) -> Self:
-        from ..models.entrypoints import Entrypoints
+        from ..models.entrypoints_model import EntrypointsModel
         from ..models.manifest import Manifest
 
         d = dict(src_dict)
@@ -109,12 +132,14 @@ class AgentInfo:
 
         name = d.pop("name")
 
+        enabled = d.pop("enabled", UNSET)
+
         _entrypoints = d.pop("entrypoints", UNSET)
-        entrypoints: Entrypoints | Unset
+        entrypoints: EntrypointsModel | Unset
         if isinstance(_entrypoints, Unset):
             entrypoints = UNSET
         else:
-            entrypoints = Entrypoints.from_dict(_entrypoints)
+            entrypoints = EntrypointsModel.from_dict(_entrypoints)
 
         entrypoints_raw = d.pop("entrypoints_raw", UNSET)
 
@@ -127,13 +152,20 @@ class AgentInfo:
 
         error = _parse_error(d.pop("error", UNSET))
 
+        harness_tools = cast(list[str], d.pop("harness_tools", UNSET))
+
+        platform_tools = cast(list[str], d.pop("platform_tools", UNSET))
+
         agent_info = cls(
             agent_md=agent_md,
             manifest=manifest,
             name=name,
+            enabled=enabled,
             entrypoints=entrypoints,
             entrypoints_raw=entrypoints_raw,
             error=error,
+            harness_tools=harness_tools,
+            platform_tools=platform_tools,
         )
 
         agent_info.additional_properties = d

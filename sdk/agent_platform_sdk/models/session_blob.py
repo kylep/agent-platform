@@ -7,78 +7,51 @@ from attrs import define as _attrs_define
 from attrs import field as _attrs_field
 from typing_extensions import Self
 
-from ..types import UNSET, Unset
-
-T = TypeVar("T", bound="JobIn")
+T = TypeVar("T", bound="SessionBlob")
 
 
 @_attrs_define
-class JobIn:
+class SessionBlob:
     """
     Attributes:
-        agent (str):
-        cron (str):
-        name (str):
-        prompt (str):
-        timezone (str | Unset):  Default: ''.
+        blob_b64 (str):
+        session_id (str):
     """
 
-    agent: str
-    cron: str
-    name: str
-    prompt: str
-    timezone: str | Unset = ""
+    blob_b64: str
+    session_id: str
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
-        agent = self.agent
+        blob_b64 = self.blob_b64
 
-        cron = self.cron
-
-        name = self.name
-
-        prompt = self.prompt
-
-        timezone = self.timezone
+        session_id = self.session_id
 
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
             {
-                "agent": agent,
-                "cron": cron,
-                "name": name,
-                "prompt": prompt,
+                "blob_b64": blob_b64,
+                "session_id": session_id,
             }
         )
-        if timezone is not UNSET:
-            field_dict["timezone"] = timezone
 
         return field_dict
 
     @classmethod
     def from_dict(cls, src_dict: Mapping[str, Any]) -> Self:
         d = dict(src_dict)
-        agent = d.pop("agent")
+        blob_b64 = d.pop("blob_b64")
 
-        cron = d.pop("cron")
+        session_id = d.pop("session_id")
 
-        name = d.pop("name")
-
-        prompt = d.pop("prompt")
-
-        timezone = d.pop("timezone", UNSET)
-
-        job_in = cls(
-            agent=agent,
-            cron=cron,
-            name=name,
-            prompt=prompt,
-            timezone=timezone,
+        session_blob = cls(
+            blob_b64=blob_b64,
+            session_id=session_id,
         )
 
-        job_in.additional_properties = d
-        return job_in
+        session_blob.additional_properties = d
+        return session_blob
 
     @property
     def additional_keys(self) -> list[str]:

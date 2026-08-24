@@ -10,39 +10,46 @@ from typing_extensions import Self
 from ..types import UNSET, Unset
 
 if TYPE_CHECKING:
+    from ..models.cron_entry import CronEntry
     from ..models.webhook_entry import WebhookEntry
 
 
-T = TypeVar("T", bound="Entrypoints")
+T = TypeVar("T", bound="EntrypointsModel")
 
 
 @_attrs_define
-class Entrypoints:
-    """agents/<name>/entrypoints.yaml — the agent's durable, defining triggers
-    (docs/design/10): cron fires, inbound webhook paths (POST
-    /api/webhooks/<path> only works for a declared path), and kafka topic
-    subscriptions (reserved). Distinct from DB Jobs, which are ad-hoc UI
-    experiments — history, not config.
+class EntrypointsModel:
+    """The agent's defining triggers (formerly entrypoints.yaml): cron fires,
+    inbound webhook paths (POST /api/webhooks/<path> only works for a declared
+    path), and kafka topic subscriptions. Distinct from DB Jobs, which are
+    ad-hoc UI experiments — history, not config.
 
         Attributes:
-            cron (list[str] | Unset):
-            kafka (list[str] | Unset):
+            crons (list[CronEntry] | Unset):
+            timezone (str | Unset):  Default: ''.
+            topics (list[str] | Unset):
             webhooks (list[WebhookEntry] | Unset):
     """
 
-    cron: list[str] | Unset = UNSET
-    kafka: list[str] | Unset = UNSET
+    crons: list[CronEntry] | Unset = UNSET
+    timezone: str | Unset = ""
+    topics: list[str] | Unset = UNSET
     webhooks: list[WebhookEntry] | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
-        cron: list[str] | Unset = UNSET
-        if not isinstance(self.cron, Unset):
-            cron = self.cron
+        crons: list[dict[str, Any]] | Unset = UNSET
+        if not isinstance(self.crons, Unset):
+            crons = []
+            for crons_item_data in self.crons:
+                crons_item = crons_item_data.to_dict()
+                crons.append(crons_item)
 
-        kafka: list[str] | Unset = UNSET
-        if not isinstance(self.kafka, Unset):
-            kafka = self.kafka
+        timezone = self.timezone
+
+        topics: list[str] | Unset = UNSET
+        if not isinstance(self.topics, Unset):
+            topics = self.topics
 
         webhooks: list[dict[str, Any]] | Unset = UNSET
         if not isinstance(self.webhooks, Unset):
@@ -54,10 +61,12 @@ class Entrypoints:
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update({})
-        if cron is not UNSET:
-            field_dict["cron"] = cron
-        if kafka is not UNSET:
-            field_dict["kafka"] = kafka
+        if crons is not UNSET:
+            field_dict["crons"] = crons
+        if timezone is not UNSET:
+            field_dict["timezone"] = timezone
+        if topics is not UNSET:
+            field_dict["topics"] = topics
         if webhooks is not UNSET:
             field_dict["webhooks"] = webhooks
 
@@ -65,12 +74,22 @@ class Entrypoints:
 
     @classmethod
     def from_dict(cls, src_dict: Mapping[str, Any]) -> Self:
+        from ..models.cron_entry import CronEntry
         from ..models.webhook_entry import WebhookEntry
 
         d = dict(src_dict)
-        cron = cast(list[str], d.pop("cron", UNSET))
+        _crons = d.pop("crons", UNSET)
+        crons: list[CronEntry] | Unset = UNSET
+        if _crons is not UNSET:
+            crons = []
+            for crons_item_data in _crons:
+                crons_item = CronEntry.from_dict(crons_item_data)
 
-        kafka = cast(list[str], d.pop("kafka", UNSET))
+                crons.append(crons_item)
+
+        timezone = d.pop("timezone", UNSET)
+
+        topics = cast(list[str], d.pop("topics", UNSET))
 
         _webhooks = d.pop("webhooks", UNSET)
         webhooks: list[WebhookEntry] | Unset = UNSET
@@ -81,14 +100,15 @@ class Entrypoints:
 
                 webhooks.append(webhooks_item)
 
-        entrypoints = cls(
-            cron=cron,
-            kafka=kafka,
+        entrypoints_model = cls(
+            crons=crons,
+            timezone=timezone,
+            topics=topics,
             webhooks=webhooks,
         )
 
-        entrypoints.additional_properties = d
-        return entrypoints
+        entrypoints_model.additional_properties = d
+        return entrypoints_model
 
     @property
     def additional_keys(self) -> list[str]:

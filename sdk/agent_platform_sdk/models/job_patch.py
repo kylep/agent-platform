@@ -21,6 +21,7 @@ class JobPatch:
         enabled (bool | None | Unset):
         name (None | str | Unset):
         prompt (None | str | Unset):
+        timezone (None | str | Unset):
     """
 
     agent: None | str | Unset = UNSET
@@ -28,6 +29,7 @@ class JobPatch:
     enabled: bool | None | Unset = UNSET
     name: None | str | Unset = UNSET
     prompt: None | str | Unset = UNSET
+    timezone: None | str | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -61,6 +63,12 @@ class JobPatch:
         else:
             prompt = self.prompt
 
+        timezone: None | str | Unset
+        if isinstance(self.timezone, Unset):
+            timezone = UNSET
+        else:
+            timezone = self.timezone
+
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update({})
@@ -74,6 +82,8 @@ class JobPatch:
             field_dict["name"] = name
         if prompt is not UNSET:
             field_dict["prompt"] = prompt
+        if timezone is not UNSET:
+            field_dict["timezone"] = timezone
 
         return field_dict
 
@@ -126,12 +136,22 @@ class JobPatch:
 
         prompt = _parse_prompt(d.pop("prompt", UNSET))
 
+        def _parse_timezone(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        timezone = _parse_timezone(d.pop("timezone", UNSET))
+
         job_patch = cls(
             agent=agent,
             cron=cron,
             enabled=enabled,
             name=name,
             prompt=prompt,
+            timezone=timezone,
         )
 
         job_patch.additional_properties = d

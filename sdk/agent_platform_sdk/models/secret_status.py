@@ -1,11 +1,17 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import Any, TypeVar
+from typing import TYPE_CHECKING, Any, TypeVar
 
 from attrs import define as _attrs_define
 from attrs import field as _attrs_field
 from typing_extensions import Self
+
+from ..types import UNSET, Unset
+
+if TYPE_CHECKING:
+    from ..models.secret_key_field import SecretKeyField
+
 
 T = TypeVar("T", bound="SecretStatus")
 
@@ -21,6 +27,7 @@ class SecretStatus:
         probeable (bool):
         required (bool):
         status (str):
+        keys (list[SecretKeyField] | Unset):
     """
 
     declared: bool
@@ -30,6 +37,7 @@ class SecretStatus:
     probeable: bool
     required: bool
     status: str
+    keys: list[SecretKeyField] | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -47,6 +55,13 @@ class SecretStatus:
 
         status = self.status
 
+        keys: list[dict[str, Any]] | Unset = UNSET
+        if not isinstance(self.keys, Unset):
+            keys = []
+            for keys_item_data in self.keys:
+                keys_item = keys_item_data.to_dict()
+                keys.append(keys_item)
+
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
@@ -60,11 +75,15 @@ class SecretStatus:
                 "status": status,
             }
         )
+        if keys is not UNSET:
+            field_dict["keys"] = keys
 
         return field_dict
 
     @classmethod
     def from_dict(cls, src_dict: Mapping[str, Any]) -> Self:
+        from ..models.secret_key_field import SecretKeyField
+
         d = dict(src_dict)
         declared = d.pop("declared")
 
@@ -80,6 +99,15 @@ class SecretStatus:
 
         status = d.pop("status")
 
+        _keys = d.pop("keys", UNSET)
+        keys: list[SecretKeyField] | Unset = UNSET
+        if _keys is not UNSET:
+            keys = []
+            for keys_item_data in _keys:
+                keys_item = SecretKeyField.from_dict(keys_item_data)
+
+                keys.append(keys_item)
+
         secret_status = cls(
             declared=declared,
             hint=hint,
@@ -88,6 +116,7 @@ class SecretStatus:
             probeable=probeable,
             required=required,
             status=status,
+            keys=keys,
         )
 
         secret_status.additional_properties = d

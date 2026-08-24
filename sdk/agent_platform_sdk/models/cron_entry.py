@@ -9,76 +9,55 @@ from typing_extensions import Self
 
 from ..types import UNSET, Unset
 
-T = TypeVar("T", bound="JobIn")
+T = TypeVar("T", bound="CronEntry")
 
 
 @_attrs_define
-class JobIn:
-    """
-    Attributes:
-        agent (str):
-        cron (str):
-        name (str):
-        prompt (str):
-        timezone (str | Unset):  Default: ''.
+class CronEntry:
+    """A durable cron trigger. Unlike the old entrypoints.yaml (bare
+    expressions), each fire carries its own prompt — the same 1:many shape as
+    ScheduledJob, so an agent can have two rhythms with different asks.
+
+        Attributes:
+            schedule (str):
+            prompt (str | Unset):  Default: ''.
     """
 
-    agent: str
-    cron: str
-    name: str
-    prompt: str
-    timezone: str | Unset = ""
+    schedule: str
+    prompt: str | Unset = ""
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
-        agent = self.agent
-
-        cron = self.cron
-
-        name = self.name
+        schedule = self.schedule
 
         prompt = self.prompt
-
-        timezone = self.timezone
 
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
             {
-                "agent": agent,
-                "cron": cron,
-                "name": name,
-                "prompt": prompt,
+                "schedule": schedule,
             }
         )
-        if timezone is not UNSET:
-            field_dict["timezone"] = timezone
+        if prompt is not UNSET:
+            field_dict["prompt"] = prompt
 
         return field_dict
 
     @classmethod
     def from_dict(cls, src_dict: Mapping[str, Any]) -> Self:
         d = dict(src_dict)
-        agent = d.pop("agent")
+        schedule = d.pop("schedule")
 
-        cron = d.pop("cron")
+        prompt = d.pop("prompt", UNSET)
 
-        name = d.pop("name")
-
-        prompt = d.pop("prompt")
-
-        timezone = d.pop("timezone", UNSET)
-
-        job_in = cls(
-            agent=agent,
-            cron=cron,
-            name=name,
+        cron_entry = cls(
+            schedule=schedule,
             prompt=prompt,
-            timezone=timezone,
         )
 
-        job_in.additional_properties = d
-        return job_in
+        cron_entry.additional_properties = d
+        return cron_entry
 
     @property
     def additional_keys(self) -> list[str]:

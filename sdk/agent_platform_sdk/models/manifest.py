@@ -14,31 +14,32 @@ T = TypeVar("T", bound="Manifest")
 
 @_attrs_define
 class Manifest:
-    """
-    Attributes:
-        can_invoke (bool | Unset):  Default: False.
-        concurrency (int | Unset):  Default: 1.
-        description (str | Unset):  Default: ''.
-        memory (bool | Unset):  Default: False.
-        model (str | Unset):  Default: ''.
-        result_topic (str | Unset):  Default: ''.
-        role (str | Unset):  Default: 'operator'.
-        schedule (str | Unset):  Default: ''.
-        secrets (list[str] | Unset):
-        skills (list[str] | Unset):
-        system (bool | Unset):  Default: False.
-        timeout_seconds (int | Unset):  Default: 1800.
-        transcript_retention_days (int | None | Unset):
+    """An agent's runtime config as the dispatcher, launcher and readiness gate
+    consume it. A strict projection of the row — every field here is a column
+    of the same name (`_manifest_of` relies on that) — kept as its own model
+    because `Launcher.launch(run, manifest)` is the contract those components
+    were built against.
+
+        Attributes:
+            can_invoke (bool | Unset):  Default: False.
+            concurrency (int | Unset):  Default: 1.
+            description (str | Unset):  Default: ''.
+            model (str | Unset):  Default: ''.
+            result_topic (str | Unset):  Default: ''.
+            role (str | Unset):  Default: 'operator'.
+            secrets (list[str] | Unset):
+            skills (list[str] | Unset):
+            system (bool | Unset):  Default: False.
+            timeout_seconds (int | Unset):  Default: 1800.
+            transcript_retention_days (int | None | Unset):
     """
 
     can_invoke: bool | Unset = False
     concurrency: int | Unset = 1
     description: str | Unset = ""
-    memory: bool | Unset = False
     model: str | Unset = ""
     result_topic: str | Unset = ""
     role: str | Unset = "operator"
-    schedule: str | Unset = ""
     secrets: list[str] | Unset = UNSET
     skills: list[str] | Unset = UNSET
     system: bool | Unset = False
@@ -53,15 +54,11 @@ class Manifest:
 
         description = self.description
 
-        memory = self.memory
-
         model = self.model
 
         result_topic = self.result_topic
 
         role = self.role
-
-        schedule = self.schedule
 
         secrets: list[str] | Unset = UNSET
         if not isinstance(self.secrets, Unset):
@@ -90,16 +87,12 @@ class Manifest:
             field_dict["concurrency"] = concurrency
         if description is not UNSET:
             field_dict["description"] = description
-        if memory is not UNSET:
-            field_dict["memory"] = memory
         if model is not UNSET:
             field_dict["model"] = model
         if result_topic is not UNSET:
             field_dict["result_topic"] = result_topic
         if role is not UNSET:
             field_dict["role"] = role
-        if schedule is not UNSET:
-            field_dict["schedule"] = schedule
         if secrets is not UNSET:
             field_dict["secrets"] = secrets
         if skills is not UNSET:
@@ -122,15 +115,11 @@ class Manifest:
 
         description = d.pop("description", UNSET)
 
-        memory = d.pop("memory", UNSET)
-
         model = d.pop("model", UNSET)
 
         result_topic = d.pop("result_topic", UNSET)
 
         role = d.pop("role", UNSET)
-
-        schedule = d.pop("schedule", UNSET)
 
         secrets = cast(list[str], d.pop("secrets", UNSET))
 
@@ -155,11 +144,9 @@ class Manifest:
             can_invoke=can_invoke,
             concurrency=concurrency,
             description=description,
-            memory=memory,
             model=model,
             result_topic=result_topic,
             role=role,
-            schedule=schedule,
             secrets=secrets,
             skills=skills,
             system=system,

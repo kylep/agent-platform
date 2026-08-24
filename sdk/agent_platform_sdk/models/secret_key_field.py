@@ -9,76 +9,52 @@ from typing_extensions import Self
 
 from ..types import UNSET, Unset
 
-T = TypeVar("T", bound="JobIn")
+T = TypeVar("T", bound="SecretKeyField")
 
 
 @_attrs_define
-class JobIn:
+class SecretKeyField:
     """
     Attributes:
-        agent (str):
-        cron (str):
         name (str):
-        prompt (str):
-        timezone (str | Unset):  Default: ''.
+        hint (str | Unset):  Default: ''.
     """
 
-    agent: str
-    cron: str
     name: str
-    prompt: str
-    timezone: str | Unset = ""
+    hint: str | Unset = ""
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
-        agent = self.agent
-
-        cron = self.cron
-
         name = self.name
 
-        prompt = self.prompt
-
-        timezone = self.timezone
+        hint = self.hint
 
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
             {
-                "agent": agent,
-                "cron": cron,
                 "name": name,
-                "prompt": prompt,
             }
         )
-        if timezone is not UNSET:
-            field_dict["timezone"] = timezone
+        if hint is not UNSET:
+            field_dict["hint"] = hint
 
         return field_dict
 
     @classmethod
     def from_dict(cls, src_dict: Mapping[str, Any]) -> Self:
         d = dict(src_dict)
-        agent = d.pop("agent")
-
-        cron = d.pop("cron")
-
         name = d.pop("name")
 
-        prompt = d.pop("prompt")
+        hint = d.pop("hint", UNSET)
 
-        timezone = d.pop("timezone", UNSET)
-
-        job_in = cls(
-            agent=agent,
-            cron=cron,
+        secret_key_field = cls(
             name=name,
-            prompt=prompt,
-            timezone=timezone,
+            hint=hint,
         )
 
-        job_in.additional_properties = d
-        return job_in
+        secret_key_field.additional_properties = d
+        return secret_key_field
 
     @property
     def additional_keys(self) -> list[str]:

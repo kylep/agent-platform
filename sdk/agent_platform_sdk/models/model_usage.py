@@ -16,12 +16,16 @@ class ModelUsage:
     Attributes:
         model (str):
         runs (int):
+        tokens_cache_creation (int):
+        tokens_cache_read (int):
         tokens_in (int):
         tokens_out (int):
     """
 
     model: str
     runs: int
+    tokens_cache_creation: int
+    tokens_cache_read: int
     tokens_in: int
     tokens_out: int
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
@@ -30,6 +34,10 @@ class ModelUsage:
         model = self.model
 
         runs = self.runs
+
+        tokens_cache_creation = self.tokens_cache_creation
+
+        tokens_cache_read = self.tokens_cache_read
 
         tokens_in = self.tokens_in
 
@@ -41,6 +49,8 @@ class ModelUsage:
             {
                 "model": model,
                 "runs": runs,
+                "tokens_cache_creation": tokens_cache_creation,
+                "tokens_cache_read": tokens_cache_read,
                 "tokens_in": tokens_in,
                 "tokens_out": tokens_out,
             }
@@ -55,6 +65,10 @@ class ModelUsage:
 
         runs = d.pop("runs")
 
+        tokens_cache_creation = d.pop("tokens_cache_creation")
+
+        tokens_cache_read = d.pop("tokens_cache_read")
+
         tokens_in = d.pop("tokens_in")
 
         tokens_out = d.pop("tokens_out")
@@ -62,6 +76,8 @@ class ModelUsage:
         model_usage = cls(
             model=model,
             runs=runs,
+            tokens_cache_creation=tokens_cache_creation,
+            tokens_cache_read=tokens_cache_read,
             tokens_in=tokens_in,
             tokens_out=tokens_out,
         )

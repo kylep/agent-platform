@@ -7,6 +7,8 @@ from attrs import define as _attrs_define
 from attrs import field as _attrs_field
 from typing_extensions import Self
 
+from ..types import UNSET, Unset
+
 T = TypeVar("T", bound="JobView")
 
 
@@ -22,6 +24,7 @@ class JobView:
         name (str):
         next_fire (None | str):
         prompt (str):
+        timezone (str | Unset):  Default: ''.
     """
 
     agent: str
@@ -32,6 +35,7 @@ class JobView:
     name: str
     next_fire: None | str
     prompt: str
+    timezone: str | Unset = ""
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -53,6 +57,8 @@ class JobView:
 
         prompt = self.prompt
 
+        timezone = self.timezone
+
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
@@ -67,6 +73,8 @@ class JobView:
                 "prompt": prompt,
             }
         )
+        if timezone is not UNSET:
+            field_dict["timezone"] = timezone
 
         return field_dict
 
@@ -99,6 +107,8 @@ class JobView:
 
         prompt = d.pop("prompt")
 
+        timezone = d.pop("timezone", UNSET)
+
         job_view = cls(
             agent=agent,
             cron=cron,
@@ -108,6 +118,7 @@ class JobView:
             name=name,
             next_fire=next_fire,
             prompt=prompt,
+            timezone=timezone,
         )
 
         job_view.additional_properties = d

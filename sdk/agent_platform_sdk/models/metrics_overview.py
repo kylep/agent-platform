@@ -28,6 +28,8 @@ class MetricsOverview:
         runs_7d (int):
         succeeded (int):
         success_rate (float | None):
+        tokens_cache_creation (int):
+        tokens_cache_read (int):
         tokens_in (int):
         tokens_out (int):
         tool_calls (int):
@@ -45,6 +47,8 @@ class MetricsOverview:
     runs_7d: int
     succeeded: int
     success_rate: float | None
+    tokens_cache_creation: int
+    tokens_cache_read: int
     tokens_in: int
     tokens_out: int
     tool_calls: int
@@ -77,6 +81,10 @@ class MetricsOverview:
         success_rate: float | None
         success_rate = self.success_rate
 
+        tokens_cache_creation = self.tokens_cache_creation
+
+        tokens_cache_read = self.tokens_cache_read
+
         tokens_in = self.tokens_in
 
         tokens_out = self.tokens_out
@@ -101,6 +109,8 @@ class MetricsOverview:
                 "runs_7d": runs_7d,
                 "succeeded": succeeded,
                 "success_rate": success_rate,
+                "tokens_cache_creation": tokens_cache_creation,
+                "tokens_cache_read": tokens_cache_read,
                 "tokens_in": tokens_in,
                 "tokens_out": tokens_out,
                 "tool_calls": tool_calls,
@@ -160,6 +170,10 @@ class MetricsOverview:
 
         success_rate = _parse_success_rate(d.pop("success_rate"))
 
+        tokens_cache_creation = d.pop("tokens_cache_creation")
+
+        tokens_cache_read = d.pop("tokens_cache_read")
+
         tokens_in = d.pop("tokens_in")
 
         tokens_out = d.pop("tokens_out")
@@ -181,6 +195,8 @@ class MetricsOverview:
             runs_7d=runs_7d,
             succeeded=succeeded,
             success_rate=success_rate,
+            tokens_cache_creation=tokens_cache_creation,
+            tokens_cache_read=tokens_cache_read,
             tokens_in=tokens_in,
             tokens_out=tokens_out,
             tool_calls=tool_calls,
