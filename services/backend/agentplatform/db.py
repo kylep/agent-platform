@@ -127,6 +127,82 @@ class Conversation(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
 
+class AgentDef(Base):
+    """An agent's IDENTITY (docs/design/15): the row that replaced
+    `agents/<name>/{agent.md,manifest.yaml,entrypoints.yaml}`. Capability stays
+    code (tools, skills, secret declarations, apps); what an agent *is* — its
+    prompt, its config, its grants, its triggers — is this row, editable
+    through the admin API/UI and the `agents_edit`/`agents_grant` tools. Every
+    write appends an AgentVersion, which is the review surface git used to be.
+    Grants are lists of names, not foreign keys: the referent lives in the repo
+    (a skill dir, a secret dir, a tool dir), so validation-on-write against the
+    code registries is the integrity check — see agentdefs.validate_def."""
+    __tablename__ = "agent_defs"
+    # The agent slug is the identity everywhere else (runs.agent, memories.agent,
+    # `claude --agent <name>`), so it is the primary key rather than a surrogate.
+    name: Mapped[str] = mapped_column(String(128), primary_key=True)
+    # The former agent.md BODY: the agent's context/personality. The runner
+    # materializes ~/.claude/agents/<name>.md from this.
+    prompt: Mapped[str] = mapped_column(Text, default="")
+    description: Mapped[str] = mapped_column(String(512), default="")
+    model: Mapped[str] = mapped_column(String(64), default="")
+    # Platform role the agent's tokens are minted at (see api.auth.ROLES);
+    # `coder` is additionally what makes a run self-edit-capable.
+    role: Mapped[str] = mapped_column(String(32), default="operator")
+    # System agents are platform-internal (run-summarizer, health-monitor):
+    # they get API access injected and are protected from deletion in the UI.
+    system: Mapped[bool] = mapped_column(default=False)
+    # Grants an operator-scoped per-run token so the agent can invoke agents.
+    can_invoke: Mapped[bool] = mapped_column(default=False)
+    concurrency: Mapped[int] = mapped_column(Integer, default=1)
+    timeout_seconds: Mapped[int] = mapped_column(Integer, default=1800)
+    # When set, the recorder publishes each successful run's result to this
+    # Kafka topic — how an agent's output feeds an app (docs/design/11).
+    result_topic: Mapped[str] = mapped_column(String(256), default="")
+    # Per-agent transcript retention override (days). NULL = platform default;
+    # <= 0 = keep forever.
+    transcript_retention_days: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # Grants. harness_tools = Claude Code's own tools (WebFetch, Glob, …); the
+    # sensitive set stays denied in the runner for non-self-edit runs no matter
+    # what is stored here. platform_tools = mcp__platform__* names, which is
+    # also what the design-12 role ladder now derives from (not frontmatter).
+    harness_tools: Mapped[list] = mapped_column(JSON, default=list)
+    platform_tools: Mapped[list] = mapped_column(JSON, default=list)
+    skills: Mapped[list] = mapped_column(JSON, default=list)
+    secrets: Mapped[list] = mapped_column(JSON, default=list)
+    # The former entrypoints.yaml: {"crons": [{"schedule", "prompt"}],
+    # "webhooks": [{"path"}], "topics": [...], "timezone": ""}. One JSON blob
+    # rather than child tables — it is read and written whole, always as part
+    # of the definition, and the snapshot log wants it inline anyway.
+    entrypoints: Mapped[dict] = mapped_column(JSON, default=dict)
+    # Soft off-switch: a disabled agent keeps its definition and history but
+    # takes no triggers. Deleting is the destructive option.
+    enabled: Mapped[bool] = mapped_column(default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+
+
+class AgentVersion(Base):
+    """Append-only change log for AgentDef (docs/design/15). Every write — API,
+    UI, or tool — lands a FULL snapshot here, so an agent is restorable from
+    its own history and every change is attributable. There is no
+    pending/approval state: edits apply immediately and rollback is re-applying
+    an old snapshot (which itself logs a new version)."""
+    __tablename__ = "agent_versions"
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=lambda: uuid.uuid4().hex)
+    agent: Mapped[str] = mapped_column(String(128), index=True)
+    # Monotonic per agent, app-enforced (agentdefs.next_version). Not a DB
+    # sequence: it is per-agent and must survive a delete/recreate of the def.
+    version: Mapped[int] = mapped_column(Integer)
+    snapshot: Mapped[dict] = mapped_column(JSON)
+    # The VERIFIED principal (session name, api-key name, or the run's agent) —
+    # never self-reported by the request payload.
+    changed_by: Mapped[str] = mapped_column(String(128), default="")
+    # admin | tool:agents_edit | tool:agents_grant | import | rollback
+    changed_via: Mapped[str] = mapped_column(String(32), default="admin")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
+
+
 class Memory(Base):
     __tablename__ = "memories"
     # "Overwrite on same key" is only real with a constraint behind it: two
