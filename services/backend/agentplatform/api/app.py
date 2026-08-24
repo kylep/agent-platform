@@ -107,6 +107,10 @@ def create_app(settings, session_factory, producer, secret_store=None, agent_sto
         finally:
             if start_task is not None:
                 start_task.cancel()
+            # The store's TTL refresh is scheduled, not awaited, so shutdown can
+            # land on top of one mid-query. Cancel it before the producer stops
+            # and the engine goes: an ordered teardown, not a destroyed task.
+            await st.agent_store.aclose()
             if st.producer is not None:
                 try:
                     await st.producer.stop()

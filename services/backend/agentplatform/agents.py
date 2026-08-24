@@ -29,6 +29,7 @@ would come back "no tools: line", which the file rules read as UNRESTRICTED.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import time
 
@@ -194,6 +195,21 @@ class AgentStore:
         # tick would queue another refresh.
         self._loaded_at = time.monotonic()
         self._refresh = loop.create_task(self._refresh_quietly())
+
+    async def aclose(self) -> None:
+        """Stop the background refresh. A TTL refresh is fire-and-forget, so at
+        shutdown one can be mid-query while the lifespan tears the engine down:
+        the pool disposes under a live connection and asyncio logs a bare "Task
+        was destroyed but it is pending" with no clue which task. Cancelling and
+        AWAITING it makes shutdown ordered — the query is either finished or
+        unwound before anything it depends on goes away. Idempotent, and safe on
+        a store that never refreshed."""
+        task, self._refresh = self._refresh, None
+        if task is None or task.done():
+            return
+        task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await task
 
     async def _refresh_quietly(self) -> None:
         try:
