@@ -112,7 +112,8 @@ TOOL_HELP: list[dict] = [
                     "create, update (prompt, description, model, entrypoints, "
                     "timeouts, enabled) and delete. It can never change grants "
                     "— tools, skills, secrets, can_invoke and role need "
-                    "agents_grant. HANDLE WITH CARE: the guard is on the KIND "
+                    "agents_grant — nor the admin-only `system` flag. "
+                    "HANDLE WITH CARE: the guard is on the KIND "
                     "of change, not on the target, so a holder may rewrite the "
                     "prompt or add a cron entrypoint to an agent far more "
                     "privileged than itself. Grant it only where you would "
@@ -125,9 +126,13 @@ TOOL_HELP: list[dict] = [
                     "grant agents_grant onward, and can hand any agent any "
                     "capability the platform ships, so it is effectively an "
                     "administrative capability; the append-only change log is "
-                    "the control. It cannot edit prompts or config (that is "
-                    "agents_edit) and cannot set an agent's role or system "
-                    "flag through this tool."},
+                    "the control. It cannot edit prompts or config — that is "
+                    "agents_edit, and the server refuses editorial fields from "
+                    "this grant. The tool does not EXPOSE `role`: that is a "
+                    "surface choice, not a boundary, because the server counts "
+                    "`role` as a grant and a holder can still set it through "
+                    "the API directly. The `system` flag IS a boundary — "
+                    "admin-only, enforced server-side."},
 ]
 
 # Models the UI offers for an agent's `model:` (runner passes it to

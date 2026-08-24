@@ -270,7 +270,19 @@ async def _guarded(tool: str, handler, args: dict) -> str:
     if not _rate_ok(agent, tool):
         await _audit(agent, run_id, initiated_by, tool, args, "deny:rate-limit", t0)
         return "error: rate limit exceeded for this tool — slow down and retry shortly"
-    out = await handler(_request, args)
+    # agenttools raises only ToolError, which it renders itself — but the API
+    # pod restarting (httpx) or answering with something unparseable would
+    # otherwise escape as a raw MCP exception, with no audit row for an attempt
+    # that was made. Same shape as CustomTool.run's error handling.
+    try:
+        out = await handler(_request, args)
+    except httpx.HTTPError as e:
+        await _audit(agent, run_id, initiated_by, tool, args, "error:api-unreachable", t0)
+        return f"error: the platform API is unreachable ({e}) — retry shortly"
+    except Exception as e:
+        log.exception("%s failed", tool)
+        await _audit(agent, run_id, initiated_by, tool, args, "error:tool", t0)
+        return f"error: {tool} failed unexpectedly: {type(e).__name__}: {e}"
     await _audit(agent, run_id, initiated_by, tool, args,
                  "error:tool" if out.startswith("error:") else "allow", t0,
                  result_bytes=len(out))
@@ -291,6 +303,7 @@ async def agents_edit(action: str, name: str | None = None,
 
     `definition` fields: prompt, description, model, entrypoints, enabled,
     concurrency, timeout_seconds, result_topic, transcript_retention_days.
+    (`system` is admin-only and refused here — no tool can set it.)
 
     It can NEVER change what an agent may DO — tools, skills, secrets,
     can_invoke, role — that is the agents_grant tool, and attempting it here is
@@ -320,10 +333,14 @@ async def agents_grant(action: str, name: str, field: str | None = None,
     `field` is harness_tools | platform_tools | skills | secrets.
 
     Use /api/help/tools names verbatim; a grant naming something the platform
-    does not ship is refused at save time. This tool does not touch prompts or
-    config (that is agents_edit), and cannot change an agent's role or system
-    flag. You can grant capabilities you do not hold yourself, including this
-    tool — the change log is the control, so make the reason obvious."""
+    does not ship is refused at save time. It does not touch prompts or config
+    (that is agents_edit, and the server refuses it from this grant). It does
+    not EXPOSE `role`, which is a choice about this tool's surface rather than
+    a boundary — the server counts `role` as a grant, so an agents_grant holder
+    can still set it through the API directly. The `system` flag is a real
+    boundary: admin-only, server-side. You can grant capabilities you do not
+    hold yourself, including this tool — the change log is the control, so make
+    the reason obvious."""
     return await _guarded("agents_grant", agenttools.agents_grant, {
         "action": action, "name": name, "field": field, "values": values,
         "harness_tools": harness_tools, "platform_tools": platform_tools,

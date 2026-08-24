@@ -47,11 +47,19 @@ import json
 GRANT_LIST_FIELDS: tuple[str, ...] = ("harness_tools", "platform_tools",
                                       "skills", "secrets")
 GRANT_FIELDS: tuple[str, ...] = GRANT_LIST_FIELDS + ("can_invoke", "role")
-EDITABLE_FIELDS: tuple[str, ...] = (
+API_EDIT_FIELDS: tuple[str, ...] = (
     "prompt", "description", "model", "system", "concurrency",
     "timeout_seconds", "result_topic", "transcript_retention_days",
     "entrypoints", "enabled",
 )
+# `system` is enforced admin-only by the API (it protects an agent from
+# deletion and gets it platform credentials injected), so no tool call can ever
+# land it. Refusing it here by name — rather than forwarding it into a 403 the
+# model did not see coming — keeps the tool's advertised surface and its real
+# surface the same thing.
+ADMIN_ONLY_FIELDS: tuple[str, ...] = ("system",)
+EDITABLE_FIELDS: tuple[str, ...] = tuple(f for f in API_EDIT_FIELDS
+                                         if f not in ADMIN_ONLY_FIELDS)
 
 # The compact projection `action="list"` returns. A listing of full definitions
 # is mostly prompts — kilobytes of context to answer "which agents exist?" —
@@ -130,23 +138,41 @@ async def _get_def(call, name: str) -> dict:
     return resp.json()
 
 
-async def _put_def(call, name: str, overlay: dict, *, what: str) -> dict:
-    """Read the definition, lay `overlay` over it, and PUT the whole thing.
+async def _put_def(call, name: str, overlay_for, *, what: str) -> tuple[dict, bool]:
+    """Read the definition, lay an overlay over it, and PUT the whole thing.
+    Returns `(definition, wrote)`.
+
+    `overlay_for(current) -> dict | None` is recomputed FROM EVERY READ, and
+    `None` means "nothing to do" (no PUT, no change-log version). Passing a
+    function rather than a finished overlay is the whole point: `add_grant` and
+    `remove_grant` derive their new list from the list they read, and a
+    derived overlay computed once and replayed is a lost update waiting to
+    happen — the retry below would PUT a list assembled before the winning
+    writer's grant existed, deleting it and logging the deletion as deliberate.
 
     A 409 is a lost write race (two writers, one version number — see the API's
-    `_conflict_as_409`), so it is retried ONCE from a fresh read: the retry has
-    to re-read, because the definition it was merging into may be the thing
-    that moved. A second 409 is reported rather than looped on.
+    `_conflict_as_409`), so it is retried ONCE from a fresh read: the retry
+    re-reads *and re-derives*, because the definition being merged into is
+    exactly the thing that moved. A second 409 is reported rather than looped
+    on.
     """
     for attempt in (1, 2):
         current = await _get_def(call, name)
-        body = {**current, **overlay}
-        resp = await call("PUT", f"/api/agents/{name}", json=body)
+        overlay = overlay_for(current)
+        if overlay is None:
+            return current, False
+        resp = await call("PUT", f"/api/agents/{name}", json={**current, **overlay})
         if resp.status_code == 409 and attempt == 1:
             continue
         _raise_for_status(resp, what)
-        return resp.json()
+        return resp.json(), True
     raise AssertionError("unreachable")
+
+
+def _constant(overlay: dict):
+    """An overlay that does not depend on what was read — the plain
+    "set these fields" write."""
+    return lambda _current: overlay
 
 
 # --- argument handling --------------------------------------------------------
@@ -173,6 +199,12 @@ def _definition(args: dict, *, action: str) -> dict:
             f"agents_edit cannot change grants ({', '.join(offered)}) — those "
             "are what an agent may DO, and changing them needs the "
             "agents_grant tool. Remove them and edit the rest.")
+    reserved = [f for f in ADMIN_ONLY_FIELDS if f in raw]
+    if reserved:
+        raise ToolError(
+            f"{', '.join(reserved)} is admin-only and no tool can set it — "
+            "the system flag protects an agent from deletion and gets it "
+            "platform credentials injected. Remove it and edit the rest.")
     unknown = [k for k in raw if k not in EDITABLE_FIELDS and k != "name"]
     if unknown:
         raise ToolError(
@@ -239,8 +271,9 @@ async def _agents_edit(call, args: dict) -> str:
         overlay = _definition(args, action=action)
         if not overlay:
             raise ToolError("definition is empty — nothing to update")
-        return json.dumps(await _put_def(call, name, overlay,
-                                         what=f"updating agent {name!r}"))
+        out, _ = await _put_def(call, name, _constant(overlay),
+                                what=f"updating agent {name!r}")
+        return json.dumps(out)
 
     if action == "delete":
         name = _need_name(args, action)
@@ -288,23 +321,27 @@ async def _agents_grant(call, args: dict) -> str:
                 "set_grants needs at least one of "
                 f"{', '.join((*GRANT_LIST_FIELDS, 'can_invoke'))}. Omitted "
                 "lists are left alone, so this is a no-op as written.")
-        return json.dumps(_grants_of(
-            await _put_def(call, name, overlay, what=f"setting grants on {name!r}")))
+        out, _ = await _put_def(call, name, _constant(overlay),
+                                what=f"setting grants on {name!r}")
+        return json.dumps(_grants_of(out))
 
     if action in ("add_grant", "remove_grant"):
         field, values = _grant_field(args), _values(args)
-        current = await _get_def(call, name)
-        have = list(current.get(field) or [])
-        if action == "add_grant":
-            # Order-preserving union: the row is a list, and churning its order
-            # would file a change-log version that changed nothing that matters.
-            merged = have + [v for v in values if v not in have]
-        else:
-            merged = [v for v in have if v not in values]
-        if merged == have:
-            return json.dumps({"name": name, field: have, "changed": False})
-        out = await _put_def(call, name, {field: merged},
-                             what=f"{action} on {name!r}")
-        return json.dumps({"name": name, field: out.get(field), "changed": True})
+
+        def overlay_for(current: dict) -> dict | None:
+            have = list(current.get(field) or [])
+            if action == "add_grant":
+                # Order-preserving union: the row is a list, and churning its
+                # order would file a version that changed nothing that matters.
+                merged = have + [v for v in values if v not in have]
+            else:
+                merged = [v for v in have if v not in values]
+            # Re-derived on the retry's read too, so a concurrent grant made
+            # between the two attempts is added to, never overwritten.
+            return None if merged == have else {field: merged}
+
+        out, wrote = await _put_def(call, name, overlay_for,
+                                    what=f"{action} on {name!r}")
+        return json.dumps({"name": name, field: out.get(field), "changed": wrote})
 
     raise ToolError(f"action must be one of {'|'.join(GRANT_ACTIONS)}")

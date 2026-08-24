@@ -102,8 +102,13 @@ def test_the_broker_copy_of_the_field_split_matches_the_api():
     """Two services, so the split is spelled out twice. Drift would either
     block legal edits or send payloads the API is bound to refuse."""
     assert set(agenttools.GRANT_FIELDS) == set(GRANT_FIELDS)
-    assert agenttools.EDITABLE_FIELDS == EDIT_FIELDS
+    assert agenttools.API_EDIT_FIELDS == EDIT_FIELDS
     assert set(agenttools.GRANT_LIST_FIELDS) < set(GRANT_FIELDS)
+    # What the tool offers is the API's editorial half minus the fields the API
+    # reserves for an admin — advertised surface == real surface.
+    assert set(agenttools.ADMIN_ONLY_FIELDS) < set(EDIT_FIELDS)
+    assert agenttools.EDITABLE_FIELDS == tuple(
+        f for f in EDIT_FIELDS if f not in agenttools.ADMIN_ONLY_FIELDS)
 
 
 # --- seed state ---------------------------------------------------------------
@@ -290,6 +295,22 @@ async def test_agents_edit_refuses_grant_fields_by_name(client, sf, seed_agent,
         assert await s.get(AgentDef, "n1") is None
 
 
+async def test_the_system_flag_is_refused_with_its_own_reason(client, sf, seed_agent,
+                                                              agent_store):
+    """`system` is admin-only server-side, so a tool call can never land it.
+    Saying so here beats forwarding it into a 403 the model did not see
+    coming — the same reasoning as the grant fields, and a different reason,
+    so the message is different too."""
+    h = await granted(sf, seed_agent, agent_store, "editor", [TOOL_AGENTS_EDIT])
+    out = await agenttools.agents_edit(api(client, h), {
+        "action": "update", "name": "hello-world",
+        "definition": {"description": "x", "system": True}})
+    assert out.startswith("error:") and "system" in out and "admin-only" in out
+    assert "agents_grant" not in out          # not a grant — a reserved field
+    async with sf() as s:
+        assert (await s.get(AgentDef, "hello-world")).system is False
+
+
 async def test_a_tool_side_bypass_still_meets_the_api(client, sf, seed_agent,
                                                       agent_store):
     """The tool-side refusal is ergonomics; `agent_write_scope` is the control.
@@ -299,7 +320,8 @@ async def test_a_tool_side_bypass_still_meets_the_api(client, sf, seed_agent,
     h = await granted(sf, seed_agent, agent_store, "editor", [TOOL_AGENTS_EDIT])
     try:
         await agenttools._put_def(api(client, h), "hello-world",
-                                  {"skills": ["git"]}, what="bypass")
+                                  agenttools._constant({"skills": ["git"]}),
+                                  what="bypass")
         raise AssertionError("the API allowed a grant change from agents_edit")
     except agenttools.ToolError as e:
         assert "403" in str(e) and "skills" in str(e)
@@ -328,20 +350,27 @@ async def test_attribution_is_never_an_argument(client, sf, seed_agent,
     assert v.changed_by.endswith("editor") and v.changed_via == "tool:agents_edit"
 
 
-async def test_a_lost_race_is_retried_once(monkeypatch):
+class Resp:
+    """A stand-in response, for the concurrency paths a single test coroutine
+    over one sqlite connection cannot interleave for real."""
+
+    def __init__(self, status, body):
+        self.status_code, self._body, self.text = status, body, json.dumps(body)
+
+    def json(self):
+        return self._body
+
+
+CONFLICT = {"detail": "conflicting concurrent write, retry"}
+
+
+async def test_a_lost_race_is_retried_once():
     """The API turns a version-number collision into a 409 (Task 3, rider 2).
     One retry from a FRESH read is right — the definition being merged into may
     be the thing that moved — and a second is not, because a 409 that survives
     a retry is contention, not a blip."""
-    class Resp:
-        def __init__(self, status, body):
-            self.status_code, self._body, self.text = status, body, json.dumps(body)
-
-        def json(self):
-            return self._body
-
     calls = []
-    puts = iter([Resp(409, {"detail": "conflicting concurrent write, retry"}),
+    puts = iter([Resp(409, CONFLICT),
                  Resp(200, {"name": "a", "description": "second try"})])
 
     async def call(method, path, params=None, json=None):
@@ -355,7 +384,7 @@ async def test_a_lost_race_is_retried_once(monkeypatch):
     assert json.loads(out)["description"] == "second try"
     assert calls == ["GET", "PUT", "GET", "PUT"]
 
-    always = Resp(409, {"detail": "conflicting concurrent write, retry"})
+    always = Resp(409, CONFLICT)
 
     async def conflicting(method, path, params=None, json=None):
         return Resp(200, {"name": "a", "skills": []}) if method == "GET" else always
@@ -363,6 +392,53 @@ async def test_a_lost_race_is_retried_once(monkeypatch):
     out = await agenttools.agents_edit(conflicting, {
         "action": "update", "name": "a", "definition": {"description": "new"}})
     assert out.startswith("error:") and "409" in out
+
+
+async def test_a_derived_grant_is_recomputed_on_the_retry():
+    """The lost-update trap in a read-modify-write that DERIVES its payload.
+
+    `add_grant` builds the new list from the list it read. If that list were
+    computed once and replayed on the retry, the retry would PUT a list
+    assembled before the winning writer's grant existed — deleting it, and
+    logging the deletion as a deliberate grant change. So the union is
+    recomputed from every read, including the retry's.
+    """
+    reads = iter([{"name": "a", "skills": []},          # nothing yet
+                  {"name": "a", "skills": ["git"]}])    # someone else won
+    puts = []
+
+    async def call(method, path, params=None, json=None):
+        if method == "GET":
+            return Resp(200, next(reads))
+        puts.append(json)
+        return Resp(409, CONFLICT) if len(puts) == 1 else Resp(200, json)
+
+    out = json.loads(await agenttools.agents_grant(call, {
+        "action": "add_grant", "name": "a", "field": "skills",
+        "values": ["reports"]}))
+    assert [p["skills"] for p in puts] == [["reports"], ["git", "reports"]]
+    assert out["skills"] == ["git", "reports"] and out["changed"] is True
+
+
+async def test_a_retry_that_finds_the_work_already_done_writes_nothing():
+    """The same recomputation, the other way round: if the concurrent writer
+    added the very grant this call wanted, the retry's overlay is empty and
+    there is nothing left to write — no second PUT, no duplicate version."""
+    reads = iter([{"name": "a", "skills": []},
+                  {"name": "a", "skills": ["reports"]}])
+    puts = []
+
+    async def call(method, path, params=None, json=None):
+        if method == "GET":
+            return Resp(200, next(reads))
+        puts.append(json)
+        return Resp(409, CONFLICT)
+
+    out = json.loads(await agenttools.agents_grant(call, {
+        "action": "add_grant", "name": "a", "field": "skills",
+        "values": ["reports"]}))
+    assert len(puts) == 1
+    assert out["skills"] == ["reports"] and out["changed"] is False
 
 
 async def test_bad_calls_get_usable_errors(client, sf, seed_agent, agent_store):
