@@ -8,10 +8,22 @@ import {
 import { Chip, StatusChip } from "@ap/ui/chip";
 import { Stat, StatRow } from "@ap/ui/stat";
 import { Table, TD, TH } from "@ap/ui/table";
-import { cronEnglish } from "../lib/cron";
+import { cronTitle, isSingleExpression, useCronPreview } from "../lib/cron";
 
 // One actionable item in the "Needs attention" panel.
 type Attn = { key: string; text: string; to: string; sev: "warn" | "bad" };
+
+// What's next. A Job has a name it was given; an agent's entrypoint cron has
+// none, so the cell says what the cron means instead — asked of the platform,
+// which is the only thing that renders a cron into English.
+function UpcomingCell({ cron, name }: { cron: string; name: string | null }) {
+  const preview = useCronPreview(isSingleExpression(cron) ? cron : "", "", 0);
+  return (
+    <TD className="cron" title={cronTitle(preview) ?? cron}>
+      {name ?? (preview?.english || cron)}
+    </TD>
+  );
+}
 
 function pct(x: number | null): string { return x === null ? "—" : `${(x * 100).toFixed(0)}%`; }
 
@@ -23,7 +35,9 @@ export default function Dashboard() {
   const [agents, setAgents] = useState<AgentSummary[]>([]);
   const [secrets, setSecrets] = useState<SecretStatus[]>([]);
   const [prs, setPrs] = useState<PullRequest[]>([]);
-  const [upcoming, setUpcoming] = useState<{ agent: string; name: string; next: string | null; cron: string }[]>([]);
+  // `name` is null for an entrypoint cron — it has no name of its own.
+  const [upcoming, setUpcoming] = useState<
+    { agent: string; name: string | null; next: string | null; cron: string }[]>([]);
   const [loaded, setLoaded] = useState(false);
 
   function refresh() {
@@ -40,7 +54,7 @@ export default function Dashboard() {
     ]).then(([jobs, scheds]) => {
       const rows = [
         ...jobs.filter((j) => j.enabled).map((j) => ({ agent: j.agent, name: j.name, next: j.next_fire, cron: j.cron })),
-        ...scheds.filter((s) => s.enabled).map((s) => ({ agent: s.agent, name: cronEnglish(s.cron).replace(" (UTC)", ""), next: s.next_fire, cron: s.cron })),
+        ...scheds.filter((s) => s.enabled).map((s) => ({ agent: s.agent, name: null, next: s.next_fire, cron: s.cron })),
       ].filter((r) => r.next).sort((a, b) => (a.next ?? "").localeCompare(b.next ?? "")).slice(0, 5);
       setUpcoming(rows);
     }).finally(() => setLoaded(true));
@@ -160,7 +174,7 @@ export default function Dashboard() {
               {upcoming.map((u, i) => (
                 <tr key={`${u.agent}-${u.name}-${i}`}>
                   <TD><Link to={`/agents/${encodeURIComponent(u.agent)}?tab=schedules`}>{u.agent}</Link></TD>
-                  <TD className="cron" title={cronEnglish(u.cron)}>{u.name}</TD>
+                  <UpcomingCell cron={u.cron} name={u.name} />
                   <TD className="text-muted" title={u.cron}>{u.next ? new Date(u.next).toLocaleString() : "—"}</TD>
                 </tr>
               ))}

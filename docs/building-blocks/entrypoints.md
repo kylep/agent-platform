@@ -41,3 +41,13 @@ conversation triggers.
 - A malformed entrypoints shape (bad cron expression, unknown timezone)
   quarantines the agent, same as any other invalid field on the row —
   triggers are part of the definition.
+
+**Editing a cron:** the Config tab gives each entry a schedule builder —
+frequency (every N minutes / hourly / daily / weekly / monthly) plus the
+controls that frequency needs, with a raw *Custom* field for anything the
+presets don't cover (`*/7 3-5 * * 1#2`). It is an input method only: the stored
+value is still the 5-field cron string above, an expression that matches a
+preset opens in it, and everything else opens in Custom verbatim. Under each
+row, `GET /api/cron/preview?expr=&tz=` describes the expression in English and
+lists its next three fires — computed with the scheduler's own `next_fire`, so
+the preview is the schedule, not a second opinion about it.

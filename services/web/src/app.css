@@ -278,6 +278,26 @@
 .check-note { font-size: 12px; margin-top: 2px; }
 .skill-icon { font-size: 18px; text-align: center; width: 36px; }
 
+/* Schedule builder. It sits INSIDE an entrypoints row, not in a modal, so the
+   controls wrap on one line and only the weekday chips get a line of their
+   own. The connecting words ("every", "at") are prose between fields, which is
+   what makes the row read as a sentence rather than as four inputs. */
+.cron-builder { display: grid; gap: 4px; }
+.cron-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.cron-word { font-size: 13px; }
+.cron-num { width: 5rem; }
+.cron-time { width: 8rem; }
+.cron-raw { width: 12rem; font-family: var(--font-mono); }
+.cron-days { margin: 0; }
+.cron-days .check-item { padding: 4px 8px; }
+/* Each cron entrypoint is a card: schedule, then the prompt that fires with
+   it. Without the box, a two-line builder and the next row's builder read as
+   one run-on block. */
+.cron-entry {
+  display: grid; gap: 8px; border: 1px solid var(--ds-border);
+  border-radius: var(--radius-lg); padding: 10px; background: var(--ds-surface);
+}
+
 /* misc */
 .cron { cursor: help; border-bottom: 1px dotted var(--ds-text-muted); }
 .secret-name { font-family: var(--font-mono); font-weight: 600; }

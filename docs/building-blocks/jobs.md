@@ -3,7 +3,10 @@
 **What:** ad-hoc scheduled runs — "run agent X with prompt Y on cron Z" —
 created and managed entirely in the UI (Schedules page), with Run Now,
 enable/disable, and plain-English cron tooltips. One agent can back many jobs,
-each with its own prompt.
+each with its own prompt. The job form uses the same schedule builder as an
+agent's [entrypoints](entrypoints.md), and every English description of a cron
+anywhere in the UI comes from `GET /api/cron/preview` — one renderer, beside
+the scheduler that fires it.
 
 **Lives in:** Postgres, on purpose. Jobs are *experiments and history, not
 identity* — like a chat transcript, you spin one up, let it run for a while,

@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { api, asList, type AgentSummary, type CronEntry, type Job, type WebhookEntry } from "../api";
-import { cronEnglish } from "../lib/cron";
+import { cronTitle, isSingleExpression, useCronPreview } from "../lib/cron";
 import { cn } from "@ap/ui/cn";
 import { buttonVariants } from "@ap/ui/button";
 import { Chip } from "@ap/ui/chip";
@@ -23,6 +23,14 @@ function webhooksOf(a: AgentSummary): string[] {
     .map((w) => w?.path).filter((p): p is string => typeof p === "string" && p !== "");
 }
 
+// The schedule cell. A hook per row, so each cell asks the platform what its
+// own cron means — the descriptions are cached by expression, so a listing of
+// agents on the same schedule costs one request, not one per row.
+function CronCell({ schedule, zone }: { schedule: string; zone?: string }) {
+  const preview = useCronPreview(isSingleExpression(schedule) ? schedule : "", zone, 0);
+  return <code className="cron" title={cronTitle(preview, zone)}>{schedule}</code>;
+}
+
 function AgentTable({ agents, jobs }: { agents: AgentSummary[]; jobs: Map<string, number> }) {
   return (
     <Table>
@@ -39,7 +47,7 @@ function AgentTable({ agents, jobs }: { agents: AgentSummary[]; jobs: Map<string
               <TD className="text-muted"><span className="line-clamp-1" title={a.description}>{a.description}</span></TD>
               <TD className="text-muted whitespace-nowrap">
                 {schedule
-                  ? <code className="cron" title={cronEnglish(schedule, a.entrypoints?.timezone)}>{schedule}</code>
+                  ? <CronCell schedule={schedule} zone={a.entrypoints?.timezone} />
                   : jobs.get(a.name)
                   ? <Link to={`/agents/${encodeURIComponent(a.name)}?tab=schedules`}>{jobs.get(a.name)} job{jobs.get(a.name)! > 1 ? "s" : ""}</Link>
                   : "—"}

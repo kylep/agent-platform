@@ -4,8 +4,9 @@ import {
   generateWebhookSecret, secretLengthError, WEBHOOK_SECRET_HEADER, WEBHOOK_SECRET_MIN,
   type WebhookSecrets,
 } from "../lib/webhook-secrets";
-import { cronEnglish, zoneOptions } from "../lib/cron";
+import { zoneOptions } from "../lib/cron";
 import { SecretPicker, SkillPicker, ToolGrantPicker, type GrantCatalog } from "./CapabilityPickers";
+import { CronBuilder, DEFAULT_CRON } from "./CronBuilder";
 import { Button } from "@ap/ui/button";
 import { CodeEditor, Input, Select } from "@ap/ui/field";
 
@@ -214,21 +215,16 @@ export function PromptField({ draft, patch }: { draft: AgentDef; patch: Patch })
 function CronRow({ entry, zone, onChange, onRemove }: {
   entry: CronEntry; zone: string; onChange: (e: CronEntry) => void; onRemove: () => void;
 }) {
-  const parsed = entry.schedule.trim() ? cronEnglish(entry.schedule, zone) : "";
-  const ok = parsed !== entry.schedule;
   return (
-    <div className="grid gap-2 sm:grid-cols-[14rem_1fr_auto] items-start">
-      <div>
-        <Input className="w-full" aria-label="Cron schedule" value={entry.schedule} placeholder="0 9 * * *"
-               onChange={(e) => onChange({ ...entry, schedule: e.target.value })} />
-        <p className={entry.schedule.trim() === "" || ok ? "muted check-note" : "error"}>
-          {entry.schedule.trim() === "" ? "5-field cron." : ok ? `→ ${parsed}` : "Unrecognized cron expression."}
-        </p>
+    <div className="cron-entry">
+      <CronBuilder value={entry.schedule} timezone={zone}
+                   onChange={(schedule) => onChange({ ...entry, schedule })} />
+      <div className="grid gap-2 sm:grid-cols-[1fr_auto] items-start">
+        <Input className="w-full" aria-label="Cron prompt" value={entry.prompt}
+               placeholder="Prompt for this scheduled run (optional)"
+               onChange={(e) => onChange({ ...entry, prompt: e.target.value })} />
+        <Button variant="secondary" size="sm" onClick={onRemove} aria-label="Remove cron">Remove</Button>
       </div>
-      <Input className="w-full" aria-label="Cron prompt" value={entry.prompt}
-             placeholder="Prompt for this scheduled run (optional)"
-             onChange={(e) => onChange({ ...entry, prompt: e.target.value })} />
-      <Button variant="secondary" size="sm" onClick={onRemove} aria-label="Remove cron">Remove</Button>
     </div>
   );
 }
@@ -330,7 +326,7 @@ export function EntrypointsFields({ draft, patch, secrets }: {
       </div>
       <div className="row-actions" style={{ marginTop: 6 }}>
         <Button variant="secondary" size="sm"
-                onClick={() => set({ crons: [...ep.crons, { schedule: "", prompt: "" }] })}>
+                onClick={() => set({ crons: [...ep.crons, { schedule: DEFAULT_CRON, prompt: "" }] })}>
           + Add cron
         </Button>
       </div>

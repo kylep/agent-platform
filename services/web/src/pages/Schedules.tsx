@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { cronEnglish } from "../lib/cron";
+import { cronTitle, isSingleExpression, useCronPreview } from "../lib/cron";
 import { api, type Job, type ScheduleEntry } from "../api";
 import { Chip } from "@ap/ui/chip";
 import { Select } from "@ap/ui/field";
@@ -8,13 +8,11 @@ import { Table, TD, TH } from "@ap/ui/table";
 
 const when = (ts: string | null) => (ts ? new Date(ts).toLocaleString() : "—");
 
-function cronText(cron: string): string | null {
-  return cronEnglish(cron);
-}
-
 function Cron({ cron }: { cron: string }) {
-  const text = cronText(cron);
-  return <code className="cron" title={text ?? "unrecognized cron expression"}>{cron}{!text && " ⚠"}</code>;
+  // An agent's entrypoint crons arrive comma-joined into one cell; only a lone
+  // expression can be described, so the rest are shown as written.
+  const preview = useCronPreview(isSingleExpression(cron) ? cron : "", "", 0);
+  return <code className="cron" title={cronTitle(preview)}>{cron}{preview?.error && " ⚠"}</code>;
 }
 
 type Row = {

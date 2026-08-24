@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { cronEnglish, zoneOptions } from "../lib/cron";
+import { cronTitle, isSingleExpression, useCronPreview, zoneOptions } from "../lib/cron";
+import { CronBuilder, DEFAULT_CRON } from "./CronBuilder";
 import { api, type Job, type ScheduleEntry } from "../api";
 import { Button } from "@ap/ui/button";
 import { Chip } from "@ap/ui/chip";
@@ -9,16 +10,13 @@ import { Table, TD, TH } from "@ap/ui/table";
 
 const when = (ts: string | null) => (ts ? new Date(ts).toLocaleString() : "—");
 
-function cronText(cron: string): string | null {
-  return cronEnglish(cron);
-}
-
 function Cron({ cron, timezone }: { cron: string; timezone?: string }) {
-  const text = cronText(cron);
-  const zone = timezone || "UTC";
+  // An agent's entrypoint crons arrive comma-joined into one cell; only a lone
+  // expression can be described, so the rest are shown as written.
+  const preview = useCronPreview(isSingleExpression(cron) ? cron : "", timezone, 0);
   return (
-    <code className="cron" title={text ? `${text} (${zone})` : "unrecognized cron expression"}>
-      {cron}{!text && " ⚠"}
+    <code className="cron" title={cronTitle(preview, timezone)}>
+      {cron}{preview?.error && " ⚠"}
       {timezone && <span className="text-muted"> {timezone}</span>}
     </code>
   );
@@ -29,13 +27,17 @@ function JobForm({ agent, job, onDone, onCancel }: {
   agent: string; job?: Job; onDone: () => void; onCancel: () => void;
 }) {
   const [name, setName] = useState(job?.name ?? "");
-  const [cron, setCron] = useState(job?.cron ?? "");
+  const [cron, setCron] = useState(job?.cron || DEFAULT_CRON);
   const [timezone, setTimezone] = useState(job?.timezone ?? "");
   const [prompt, setPrompt] = useState(job?.prompt ?? "");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const preview = cron.trim() ? cronText(cron) : null;
-  const cronOk = cron.trim() !== "" && preview !== null;
+  // The builder's own preview line already says WHY an expression is bad; this
+  // only decides whether Save is offered. An answer still in flight counts as
+  // fine — a button that waits on a round-trip reads as broken, and the API
+  // validates the write regardless.
+  const cronPreview = useCronPreview(cron, timezone);
+  const cronOk = cron.trim() !== "" && !cronPreview?.error;
   const zones = zoneOptions();
   const zoneOk = timezone.trim() === "" || zones.length === 0 || zones.includes(timezone.trim());
 
@@ -54,11 +56,8 @@ function JobForm({ agent, job, onDone, onCancel }: {
     <div className="secret-editor">
       <label className="field-label">Name</label>
       <Input placeholder="e.g. morning-news" aria-label="Job name" value={name} onChange={(e) => setName(e.target.value)} />
-      <label className="field-label">Cron</label>
-      <Input placeholder="e.g. 0 11 * * *" aria-label="Cron expression" value={cron} onChange={(e) => setCron(e.target.value)} />
-      <div className={cron.trim() === "" || cronOk ? "muted check-note" : "error"}>
-        {cron.trim() === "" ? "5-field cron." : cronOk ? `→ ${preview} (${timezone.trim() || "UTC"})` : "Unrecognized cron expression."}
-      </div>
+      <label className="field-label">Schedule</label>
+      <CronBuilder value={cron} timezone={timezone.trim()} onChange={setCron} label="Job schedule" />
       <label className="field-label">Timezone</label>
       <Input placeholder="UTC" aria-label="Timezone" list="tz-options" value={timezone}
              onChange={(e) => setTimezone(e.target.value)} />

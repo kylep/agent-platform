@@ -230,11 +230,34 @@ const FIXTURES: Record<string, unknown> = {
   [`/api/reports/${reports[0].id}`]: { ...reports[0], html: reportHtml },
 };
 
+// The cron preview is the one endpoint whose answer depends on the query, so
+// it gets a stand-in renderer rather than a fixture. The real sentences come
+// from the backend (agentplatform/cronenglish.py, tested there); what the UI
+// tests need is that a valid expression comes back described and an invalid one
+// comes back with a reason, both 200.
+const NEXT_FIRES = ["2026-08-24T09:00:00Z", "2026-08-25T09:00:00Z", "2026-08-26T09:00:00Z"];
+
+function cronPreview(expr: string) {
+  const fields = expr.trim().split(/\s+/);
+  if (expr.trim() === "") return { english: "", next: [], error: "a cron expression is required" };
+  if (fields.length !== 5) {
+    return { english: "", next: [], error: `expected 5 fields, got ${fields.length}` };
+  }
+  if (!/^[\d*,\-/#LA-Za-z]+$/.test(fields.join(""))) {
+    return { english: "", next: [], error: "not a valid cron expression" };
+  }
+  return { english: `Cron ${expr.trim()} explained`, next: NEXT_FIRES, error: null };
+}
+
 export async function mockApi(page: Page): Promise<string[]> {
   const unmatched: string[] = [];
   await page.route("**/api/**", async (route: Route) => {
     const url = new URL(route.request().url());
     const path = url.pathname;
+    if (path === "/api/cron/preview") {
+      await route.fulfill({ json: cronPreview(url.searchParams.get("expr") ?? "") });
+      return;
+    }
     const hit = FIXTURES[path];
     if (hit !== undefined) {
       await route.fulfill({ json: hit });
