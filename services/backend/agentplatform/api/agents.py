@@ -31,9 +31,9 @@ from sqlalchemy.exc import IntegrityError
 from agentplatform.agentdefs import (DEF_FIELDS, AgentDefModel, apply_snapshot,
                                      model_of, next_version, snapshot_of,
                                      validate_def)
-from agentplatform.agentspec import KNOWN_MODELS, PLATFORM_MCP_TOOLS
+from agentplatform.agentspec import GRANTABLE_PLATFORM_TOOLS, KNOWN_MODELS
 from agentplatform.api.auth import (READ_ROLES, authenticate, require_admin,
-                                    require_role)
+                                    require_role, role_allows)
 from agentplatform.api.schemas import (AgentCreateIn, AgentDefIn, AgentDefOut,
                                        AgentImportResult, AgentModels,
                                        AgentSummary, AgentVersionDetail,
@@ -161,6 +161,35 @@ async def agent_write_scope(request: Request) -> WriteScope:
     return scope
 
 
+async def agent_read_access(request: Request) -> str:
+    """Dependency for the definition READS: `READ_ROLES`, or anyone the write
+    side would accept.
+
+    If you can edit an agent, you can read it. The tools that write definitions
+    (`agents_edit` / `agents_grant`) put their holder on the design-12 `tools`
+    rung, which satisfies no role allow-list — so without this the grant would
+    be write-only, and a full-replacement PUT is unusable without a read: both
+    tools work read-modify-write, precisely so that editing prose leaves grants
+    exactly as they were and vice versa. Widening reads to the callers who may
+    already rewrite the row leaks nothing they could not have discovered by
+    writing to it.
+
+    Admin and READ_ROLES behaviour is unchanged; a `tools` agent holding
+    neither definition tool is still refused.
+    """
+    ident = await authenticate(request)
+    if ident is None:
+        raise HTTPException(401)
+    name, role = ident
+    if role_allows(role, READ_ROLES):
+        return name
+    agent = getattr(request.state, "api_key_agent", None)
+    granted = await _caller_platform_tools(request, agent) if agent else []
+    if TOOL_AGENTS_EDIT in granted or TOOL_AGENTS_GRANT in granted:
+        return name
+    raise HTTPException(403)
+
+
 # --- validation --------------------------------------------------------------
 
 def _registries(request: Request) -> dict[str, set[str]]:
@@ -173,7 +202,10 @@ def _registries(request: Request) -> dict[str, set[str]]:
     st.tool_registry.reload()
     return {"skill_names": {s.name for s in st.skill_store.list()},
             "secret_names": {s.name for s in st.secret_registry.list()},
-            "tool_names": set(PLATFORM_MCP_TOOLS) | set(st.tool_registry.mcp_names())}
+            # Every broker tool that exists is grantable — including the two
+            # definition-writing ones, which are code-defined like the rest but
+            # live on their own auth rung (see agentspec).
+            "tool_names": set(GRANTABLE_PLATFORM_TOOLS) | set(st.tool_registry.mcp_names())}
 
 
 def _model(request: Request, payload: dict, name: str,
@@ -308,7 +340,7 @@ async def _blocked_reasons(request: Request) -> dict[str, str]:
 # --- read --------------------------------------------------------------------
 
 @router.get("/api/agents", response_model=list[AgentSummary],
-            dependencies=[Depends(require_role(*READ_ROLES))])
+            dependencies=[Depends(agent_read_access)])
 async def list_agents(request: Request):
     """Every agent's full definition plus server-derived readiness. The
     definition comes from the rows; `quarantined`/`error`/`blocked`/`schedule`
@@ -333,7 +365,7 @@ async def list_agents(request: Request):
 
 
 @router.get("/api/agents/{name}", response_model=AgentDefOut,
-            dependencies=[Depends(require_role(*READ_ROLES))])
+            dependencies=[Depends(agent_read_access)])
 async def get_agent(request: Request, name: str):
     async with request.app.state.session_factory() as s:
         row = await s.get(AgentDef, name)
@@ -458,7 +490,7 @@ async def delete_agent(request: Request, name: str,
 # --- change log --------------------------------------------------------------
 
 @router.get("/api/agents/{name}/versions", response_model=list[AgentVersionRow],
-            dependencies=[Depends(require_role(*READ_ROLES))])
+            dependencies=[Depends(agent_read_access)])
 async def list_agent_versions(request: Request, name: str):
     """The agent's change log, newest first. Snapshots are omitted — they are
     whole definitions, and a busy agent's history would be megabytes."""
@@ -473,7 +505,7 @@ async def list_agent_versions(request: Request, name: str):
 
 
 @router.get("/api/agents/{name}/versions/{version}", response_model=AgentVersionDetail,
-            dependencies=[Depends(require_role(*READ_ROLES))])
+            dependencies=[Depends(agent_read_access)])
 async def get_agent_version(request: Request, name: str, version: int):
     """One logged version, snapshot included — what the history view diffs
     against and what a rollback would re-apply."""
