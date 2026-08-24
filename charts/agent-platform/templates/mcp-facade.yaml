@@ -5,6 +5,9 @@ metadata:
   labels:
     {{- include "agent-platform.selectorLabels" (dict "Release" .Release "Chart" .Chart "component" "mcp-facade") | nindent 4 }}
 spec:
+  # Exactly one: streamable-HTTP keeps MCP session state in-process, so a
+  # second replica would strand sessions on the wrong pod. Scaling this needs
+  # `sessionAffinity: ClientIP` on the Service (or stateless_http) first.
   replicas: 1
   selector:
     matchLabels:

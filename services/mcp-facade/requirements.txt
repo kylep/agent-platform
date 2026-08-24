@@ -1,2 +1,4 @@
 fastmcp>=3,<4
 httpx>=0.27,<1
+# Imported directly for the front-door middleware (fastmcp serves over it).
+starlette>=0.37

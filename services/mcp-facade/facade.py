@@ -27,6 +27,9 @@ import httpx
 from fastmcp import FastMCP
 from fastmcp.server.dependencies import get_http_request
 from fastmcp.server.providers.openapi import MCPType, RouteMap
+from starlette.datastructures import Headers
+from starlette.middleware import Middleware
+from starlette.responses import Response
 
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger("mcp-facade")
@@ -34,6 +37,8 @@ log = logging.getLogger("mcp-facade")
 _API = os.environ.get("AP_API_URL", "http://agent-platform-api:8000").rstrip("/")
 _UPSTREAM_TIMEOUT = float(os.environ.get("AP_UPSTREAM_TIMEOUT", "60"))
 _SPEC_RETRY_SECONDS = float(os.environ.get("AP_SPEC_RETRY_SECONDS", "5"))
+_ALLOWED_HOSTS = [h for h in os.environ.get(
+    "AP_ALLOWED_HOSTS", "agent-platform-mcp-facade").split(",") if h.strip()]
 
 # Paths the facade refuses to turn into tools (design/17). Anchored regexes,
 # matched with re.search against the OpenAPI path — `/api/setup-state` must
@@ -74,10 +79,30 @@ def caller_auth_headers(request) -> dict:
     return {"Authorization": value} if value else {}
 
 
+# The ONLY caller header that reaches the platform API. fastmcp copies the
+# incoming MCP request's headers onto the upstream request minus a denylist of
+# its own — a denylist that strips `authorization` (hence this hook) but NOT
+# `cookie`, and the API's authenticate() tries the session cookie BEFORE the
+# bearer. A reader-scoped key plus a stray browser `ap_session` cookie would
+# therefore have been admin on all 91 tools. So this is an ALLOWLIST: the
+# bearer is forwarded, everything else the caller sent is deleted, and only the
+# transport headers httpx/the body need survive.
+FORWARDED_HEADERS = frozenset({"authorization"})
+TRANSPORT_HEADERS = frozenset({
+    "host", "accept", "accept-encoding", "connection", "user-agent",
+    "content-type", "content-length", "mcp-protocol-version",
+})
+
+
 async def forward_caller_auth(request: httpx.Request) -> None:
-    """httpx request hook: stamp THIS call with THIS caller's bearer. The
-    client is shared across callers, so the header is set per request and
-    removed when the current caller has none — never carried over."""
+    """httpx request hook: strip the request down to transport headers, then
+    stamp THIS call with THIS caller's bearer. The hook runs after fastmcp has
+    copied the caller's headers on, so the deletions stick. The client is
+    shared across callers, so the bearer is set per request and removed when
+    the current caller has none — never carried over."""
+    for name in list(request.headers.keys()):
+        if name.lower() not in TRANSPORT_HEADERS | FORWARDED_HEADERS:
+            del request.headers[name]
     headers = caller_auth_headers(current_request())
     if "Authorization" in headers:
         request.headers["Authorization"] = headers["Authorization"]
@@ -115,7 +140,43 @@ def build(spec: dict, client: httpx.AsyncClient | None = None) -> FastMCP:
                                 name="agent-platform", route_maps=ROUTE_MAPS)
 
 
+class RequireAuthorization:
+    """Refuse every request that arrives without an `Authorization` header —
+    `initialize` and `tools/list` included.
+
+    It does NOT validate the header (only the platform API can, and it does, on
+    every actual call); it just refuses to talk to a caller who is obviously
+    not carrying a key. Without this the full 91-tool schema — every endpoint,
+    parameter and description the platform has — is readable by anyone on the
+    LAN who can open a socket. A real MCP client always sends its configured
+    header on every request, so the cost is nothing.
+    """
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] == "http" and not Headers(scope=scope).get("authorization"):
+            # Detail-free: an unauthenticated caller learns only that a key is
+            # required, never what lives here.
+            await Response(status_code=401,
+                           headers={"WWW-Authenticate": "Bearer"})(scope, receive, send)
+            return
+        await self.app(scope, receive, send)
+
+
+MIDDLEWARE = [Middleware(RequireAuthorization)]
+
+
 if __name__ == "__main__":
     mcp = build(fetch_spec())
     mcp.run(transport="http", host=os.environ.get("AP_BIND_HOST", "0.0.0.0"),
-            port=8000, path="/mcp")
+            port=8000, path="/mcp", middleware=MIDDLEWARE,
+            # DNS-rebinding protection, off by default in fastmcp. nginx does
+            # not rewrite Host, so what arrives is the upstream Service name
+            # (`agent-platform-mcp-facade:8000`; the port is normalized away).
+            # fastmcp always allows localhost/127.0.0.1 on top of this, which
+            # is what an in-pod probe or a local run uses. A browser-based MCP
+            # client is not a supported caller: with allowed_hosts explicit,
+            # any cross-origin `Origin` is refused.
+            host_origin_protection=True, allowed_hosts=_ALLOWED_HOSTS)

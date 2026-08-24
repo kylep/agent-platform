@@ -1,17 +1,19 @@
-"""The facade's two contracts (docs/design/17), against the REAL spec.
+"""The facade's three contracts (docs/design/17), against the REAL spec.
 
-The tool surface is generated, so the only things worth testing are the two
-decisions the generation makes: WHAT is excluded, and WHOSE credential the
-upstream call carries. Both are pinned here against `create_app(...).openapi()`
-— the same document `sdk/regenerate.py` generates the SDK from — so an API
-change that renames or adds an endpoint the facade must not expose fails here
-instead of quietly appearing as a tool.
+The tool surface is generated, so the only things worth testing are the
+decisions around it: WHAT is excluded, WHAT reaches the API (the caller's
+bearer, and nothing else they sent), and WHO gets through the front door. The
+first is pinned against `create_app(...).openapi()` — the same document
+`sdk/regenerate.py` generates the SDK from — so an API change that renames or
+adds an endpoint the facade must not expose fails here instead of quietly
+appearing as a tool.
 
 Run in CI (the `mcp-facade` job) with the backend importable:
     pip install -e services/backend -r services/mcp-facade/requirements.txt
     cd services/mcp-facade && python -m pytest -q
 """
 import asyncio
+import contextvars
 import re
 
 import httpx
@@ -120,6 +122,49 @@ def test_no_authorization_is_invented(monkeypatch):
     assert "Authorization" not in hooked(monkeypatch, None).headers
 
 
+def test_nothing_but_the_bearer_reaches_the_api(monkeypatch):
+    """The header allowlist, and the whole reason it is one: fastmcp copies the
+    caller's headers onto the upstream request, and the API's authenticate()
+    tries the session COOKIE before the bearer. A reader key plus a stray
+    `ap_session` cookie must not become admin."""
+    smuggled = {"cookie": "ap_session=stolen-admin-session",
+                "x-ap-run-token": "a-run-jwt", "x-forwarded-for": "10.0.0.1",
+                "x-ap-user": "admin", "authorization": "Bearer ap_reader"}
+    monkeypatch.setattr(facade, "current_request", lambda: FakeRequest(smuggled))
+    # As fastmcp hands it over: the caller's headers already copied on.
+    upstream = httpx.Request("POST", "http://api/api/agents", json={},
+                             headers={k: v for k, v in smuggled.items()
+                                      if k != "authorization"})
+    asyncio.run(facade.forward_caller_auth(upstream))
+    assert upstream.headers["Authorization"] == "Bearer ap_reader"
+    for name in ("cookie", "x-ap-run-token", "x-forwarded-for", "x-ap-user"):
+        assert name not in upstream.headers, f"{name} reached the API"
+    # The body still has to be sendable.
+    assert upstream.headers["content-type"] == "application/json"
+    assert "content-length" in upstream.headers
+
+
+def test_concurrent_callers_never_borrow_each_others_bearer(monkeypatch):
+    """The upstream client is shared and calls interleave: each in-flight
+    request must carry exactly the bearer of the caller it belongs to."""
+    ctx = contextvars.ContextVar("caller")
+    monkeypatch.setattr(facade, "current_request", lambda: ctx.get(None))
+
+    async def call(bearer):
+        ctx.set(FakeRequest({"authorization": bearer} if bearer else {}))
+        await asyncio.sleep(0)  # force the tasks to interleave
+        req = httpx.Request("GET", "http://api/api/runs")
+        await asyncio.sleep(0)
+        await facade.forward_caller_auth(req)
+        return req.headers.get("Authorization")
+
+    async def main():
+        return await asyncio.gather(call("Bearer ap_one"), call("Bearer ap_two"),
+                                    call(None))
+
+    assert asyncio.run(main()) == ["Bearer ap_one", "Bearer ap_two", None]
+
+
 def test_a_previous_callers_bearer_is_never_reused(monkeypatch):
     """The upstream client is shared; the header must be per request."""
     upstream = httpx.Request("GET", "http://api/api/runs",
@@ -143,3 +188,48 @@ def test_spec_fetch_retries_until_the_api_answers(monkeypatch):
     assert spec["openapi"] == "3.1.0"
     assert calls == ["http://api:8000/openapi.json"] * 3
     assert len(slept) == 2
+
+
+# --- the /mcp door -----------------------------------------------------------
+
+INITIALIZE = {"jsonrpc": "2.0", "id": 1, "method": "initialize",
+              "params": {"protocolVersion": "2025-06-18", "capabilities": {},
+                         "clientInfo": {"name": "t", "version": "1"}}}
+MCP_ACCEPT = "application/json, text/event-stream"
+
+
+def door(spec, headers, method="POST", json=INITIALIZE):
+    """One HTTP request at the facade's front door, through the real ASGI app
+    with the real middleware stack."""
+    mcp = facade.build(spec, client=httpx.AsyncClient(base_url="http://itest"))
+    app = mcp.http_app(path="/mcp", middleware=facade.MIDDLEWARE)
+
+    async def go():
+        async with app.router.lifespan_context(app):
+            transport = httpx.ASGITransport(app=app)
+            async with httpx.AsyncClient(transport=transport,
+                                         base_url="http://facade") as c:
+                return await c.request(method, "/mcp", json=json, headers=headers)
+    return asyncio.run(go())
+
+
+def test_the_door_is_shut_without_an_authorization_header(spec):
+    """Not validation — the API does that on every real call — but presence:
+    a keyless client must not be able to read the whole API's schema."""
+    r = door(spec, {"Accept": MCP_ACCEPT})
+    assert r.status_code == 401
+    assert r.text == ""                    # detail-free: nothing to learn here
+    assert "tool" not in r.text.lower()
+
+
+def test_the_door_is_shut_for_the_sse_stream_too(spec):
+    assert door(spec, {"Accept": "text/event-stream"}, method="GET",
+                json=None).status_code == 401
+
+
+def test_a_key_bearing_client_gets_through_the_door(spec):
+    """The gate is presence-only: an obviously-bogus key still reaches MCP,
+    where the first tool call collects the API's own 401."""
+    r = door(spec, {"Accept": MCP_ACCEPT, "Authorization": "Bearer ap_whatever"})
+    assert r.status_code != 401
+    assert "protocolVersion" in r.text

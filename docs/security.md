@@ -42,9 +42,14 @@ stealing, and (c) an exfiltration channel.
   hook that re-reads the secret each time, so rotation is instant and pods
   have nothing to leak.
 - **Default-deny NetworkPolicy:** agent pods have no internet egress; the
-  tool-executor is the single third-party-egress point; the API accepts
-  ingress only from web/runner/mcp-broker/mcp-facade; app pods only from
-  web/api; the mcp-facade only from web, so `/mcp` is its single doorway.
+  tool-executor is the single third-party-egress point. The per-component
+  allowlists are **ingress** rules: the API accepts ingress only from
+  web/runner/mcp-broker/mcp-facade, app pods only from web/api, and the
+  mcp-facade only from web — so `/mcp` is the only way *in* to the facade.
+  In-namespace *egress* is deliberately not partitioned (one chart-wide
+  `allow-egress-internal` rule lets any platform pod reach any other), so
+  "only from web" constrains who may call the facade, not what the facade may
+  call. Narrowing that is a chart-wide change, not a per-service one.
 - **Secrets:** values live only in Kubernetes Secrets — never in git, never
   in Postgres. Declarative secret blocks describe and verify them (a probe or
   a sandboxed verify script). Skills bind secrets into the pods of agents
