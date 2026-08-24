@@ -114,7 +114,10 @@ class Scheduler:
         # Declared schedules: the crons on the agent's row, e.g. the
         # health-monitor system agent.
         for info in self.agents.list():
-            if info.error is None and info.entrypoints.crons:
+            # `enabled` is honoured HERE, not just at dispatch: a disabled
+            # agent whose cron kept firing would emit one REJECTED run every
+            # period, forever (docs/design/15).
+            if info.error is None and info.enabled and info.entrypoints.crons:
                 await self._tick_agent(info.name, info.entrypoints.crons, now,
                                        info.entrypoints.timezone)
         # First-class Scheduled Jobs (1:many — one agent, many cron+prompt jobs).

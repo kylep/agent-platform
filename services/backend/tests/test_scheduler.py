@@ -57,8 +57,9 @@ class FakeStore:
     def list(self): return self._infos
 
 
-def _agent(name, cron, error=None, prompt=""):
+def _agent(name, cron, error=None, prompt="", enabled=True):
     return AgentInfo(name=name, manifest=Manifest(), agent_md="", error=error,
+                     enabled=enabled,
                      entrypoints={"crons": [{"schedule": cron, "prompt": prompt}]})
 
 
@@ -151,6 +152,20 @@ async def test_the_prompt_belongs_to_the_cron_that_actually_fired(sf):
     await sch.tick(day + timedelta(hours=17, seconds=1))           # the evening cron
     prompts = [v["prompt"] for t, _, v in producer.published if t == TOPIC_RUN_INBOUND]
     assert prompts == ["Morning brief.", "Evening wrap."]
+
+
+async def test_a_disabled_agent_never_fires(sf, now):
+    """`enabled` is the soft off-switch (docs/design/15). The dispatcher rejects
+    the run, but a cron that keeps emitting one produces a REJECTED run every
+    period, forever — the switch has to be honoured at the source too."""
+    producer = FakeProducer()
+    sch = Scheduler(sf, FakeStore([_agent("napping", "*/10 * * * *", enabled=False)]),
+                    producer)
+    await sch.tick(now)                                    # would arm
+    await sch.tick(next_fire("*/10 * * * *", now) + timedelta(seconds=1))
+    async with sf() as s:
+        assert (await s.execute(select(Schedule))).scalars().all() == []
+    assert [v for t, _, v in producer.published if t == TOPIC_RUN_INBOUND] == []
 
 
 async def test_cronless_and_quarantined_agents_not_scheduled(sf, now):
