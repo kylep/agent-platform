@@ -6,7 +6,8 @@ import { mockApi } from "./mock-api";
 // (moderate/minor are reported in the failure message when the gate trips,
 // but don't gate — tighten later if the baseline stays clean.)
 
-const PAGES = ["/", "/agents", "/agents/health-monitor", "/runs", "/conversations",
+const PAGES = ["/", "/agents", "/agents/health-monitor", "/agents/health-monitor?tab=history",
+               "/agents/new", "/runs", "/conversations",
                "/memories", "/changes", "/schedules", "/skills", "/secrets",
                "/dlq", "/reporting", "/reports", "/reports/daily-news", "/apps",
                "/help", "/help/tools", "/settings"];

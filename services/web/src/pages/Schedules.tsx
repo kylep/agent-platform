@@ -18,11 +18,11 @@ function Cron({ cron }: { cron: string }) {
 }
 
 type Row = {
-  agent: string; name: string; kind: "Job" | "Manifest";
+  agent: string; name: string; kind: "Job" | "Entrypoint";
   cron: string; next_fire: string | null; enabled: boolean;
 };
 
-/** Global schedules: every cron job and manifest schedule across all agents,
+/** Global schedules: every cron job and entrypoint cron across all agents,
  * filterable by agent. New jobs are created from the agent's Schedules tab;
  * clicking a row opens it there. */
 export default function Schedules() {
@@ -41,7 +41,7 @@ export default function Schedules() {
         agent: x.agent, name: x.name, kind: "Job", cron: x.cron,
         next_fire: x.next_fire, enabled: x.enabled }));
       const s: Row[] = scheds.map((x) => ({
-        agent: x.agent, name: "(manifest schedule)", kind: "Manifest", cron: x.cron,
+        agent: x.agent, name: "(entrypoint cron)", kind: "Entrypoint", cron: x.cron,
         next_fire: x.next_fire, enabled: x.enabled }));
       const all = [...j, ...s].sort((a, b) =>
         (a.next_fire ?? "9999").localeCompare(b.next_fire ?? "9999"));
@@ -57,7 +57,7 @@ export default function Schedules() {
     <div className="page page-wide">
       <h1>Schedules</h1>
       <p className="muted">
-        Recurring work across all agents — cron jobs and manifest schedules. Hover a cron to read it in
+        Recurring work across all agents — cron jobs and agents' own cron entrypoints. Hover a cron to read it in
         plain English. Create or edit from an agent's <em>Schedules</em> tab; click a row to open it there.
       </p>
 

@@ -7,6 +7,13 @@ import { buttonVariants } from "@ap/ui/button";
 import { Chip } from "@ap/ui/chip";
 import { Table, TD, TH } from "@ap/ui/table";
 
+// The cron summary: the API may pre-render one, else it's the agent's own
+// cron entrypoints (its row is the source of truth — docs/design/15).
+function scheduleOf(a: AgentSummary): string {
+  if (a.schedule) return a.schedule;
+  return (a.entrypoints?.crons ?? []).map((c) => c.schedule).filter(Boolean).join(", ");
+}
+
 function AgentTable({ agents, jobs }: { agents: AgentSummary[]; jobs: Map<string, number> }) {
   return (
     <Table>
@@ -14,26 +21,31 @@ function AgentTable({ agents, jobs }: { agents: AgentSummary[]; jobs: Map<string
         <tr><TH>Name</TH><TH>Description</TH><TH>Schedule</TH><TH>Status</TH></tr>
       </thead>
       <tbody>
-        {agents.map((a) => (
-          <tr key={a.name}>
-            <TD><Link to={`/agents/${encodeURIComponent(a.name)}`}>{a.name}</Link></TD>
-            <TD className="text-muted"><span className="line-clamp-1" title={a.description}>{a.description}</span></TD>
-            <TD className="text-muted whitespace-nowrap">
-              {a.schedule
-                ? <code className="cron" title={cronEnglish(a.schedule)}>{a.schedule}</code>
-                : jobs.get(a.name)
-                ? <Link to={`/agents/${encodeURIComponent(a.name)}?tab=schedules`}>{jobs.get(a.name)} job{jobs.get(a.name)! > 1 ? "s" : ""}</Link>
-                : "—"}
-            </TD>
-            <TD>
-              {a.quarantined
-                ? <Chip variant="danger" title={a.error ?? "Quarantined"}>quarantined</Chip>
-                : a.blocked
-                ? <Chip variant="danger" title={a.blocked_reason ?? "Blocked"}>blocked</Chip>
-                : <Chip variant="ok">ok</Chip>}
-            </TD>
-          </tr>
-        ))}
+        {agents.map((a) => {
+          const schedule = scheduleOf(a);
+          return (
+            <tr key={a.name}>
+              <TD><Link to={`/agents/${encodeURIComponent(a.name)}`}>{a.name}</Link></TD>
+              <TD className="text-muted"><span className="line-clamp-1" title={a.description}>{a.description}</span></TD>
+              <TD className="text-muted whitespace-nowrap">
+                {schedule
+                  ? <code className="cron" title={cronEnglish(schedule, a.entrypoints?.timezone)}>{schedule}</code>
+                  : jobs.get(a.name)
+                  ? <Link to={`/agents/${encodeURIComponent(a.name)}?tab=schedules`}>{jobs.get(a.name)} job{jobs.get(a.name)! > 1 ? "s" : ""}</Link>
+                  : "—"}
+              </TD>
+              <TD>
+                {a.quarantined
+                  ? <Chip variant="danger" title={a.error ?? "Quarantined"}>quarantined</Chip>
+                  : a.blocked
+                  ? <Chip variant="danger" title={a.blocked_reason ?? "Blocked"}>blocked</Chip>
+                  : a.enabled === false
+                  ? <Chip variant="warn" title="Disabled — the definition stays, runs are rejected.">disabled</Chip>
+                  : <Chip variant="ok">ok</Chip>}
+              </TD>
+            </tr>
+          );
+        })}
       </tbody>
     </Table>
   );

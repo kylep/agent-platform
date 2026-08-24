@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { NavLink, useParams } from "react-router-dom";
-import { api } from "../api";
+import { api, type ToolHelp } from "../api";
 import { Chip } from "@ap/ui/chip";
 import { Markdown } from "@ap/ui/markdown";
 
@@ -11,7 +11,6 @@ import { Markdown } from "@ap/ui/markdown";
 
 type Topic = { slug: string; title: string };
 type TopicDetail = Topic & { markdown: string };
-type ToolHelp = { name: string; kind: string; description: string; sensitive: boolean; display_name?: string | null };
 
 function ToolsPage() {
   const [tools, setTools] = useState<ToolHelp[] | null>(null);

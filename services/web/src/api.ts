@@ -2,31 +2,76 @@ export type SecretKeyField = { name: string; hint?: string };
 export type SecretStatus = { name: string; status: string; declared: boolean; required: boolean; hint?: string; key?: string; probeable?: boolean; keys?: SecretKeyField[] };
 export type SetupState = { needs_admin: boolean; secrets: SecretStatus[] };
 
-export type AgentSummary = {
-  name: string;
-  description: string;
-  quarantined: boolean;
-  error: string | null;
-  // Blocked = unmet required secret dependency (fix the secret);
-  // quarantined = broken definition (fix the agent).
-  blocked: boolean;
-  blocked_reason: string | null;
-  system: boolean;
-  schedule: string;
+// --- Agents (DB-first — docs/design/15) -------------------------------------
+// An agent IS its row: prompt, config, grants and entrypoints all live in
+// `agent_defs` and are edited directly (no PR round-trip). Every write appends
+// a snapshot to the change log below.
+
+export type CronEntry = { schedule: string; prompt: string };
+export type WebhookEntry = { path: string };
+
+export type AgentEntrypoints = {
+  crons: CronEntry[];
+  webhooks: WebhookEntry[];
+  topics: string[];
+  timezone: string;      // IANA zone the crons are read in; "" = UTC
 };
 
-export type AgentManifest = {
+export type AgentDef = {
+  name: string;
+  prompt: string;               // the agent's context/personality (former agent.md body)
+  description: string;
+  model: string;                // "" = platform default
   role: string;
+  system: boolean;
+  can_invoke: boolean;
   concurrency: number;
   timeout_seconds: number;
+  result_topic: string;
+  transcript_retention_days: number | null;   // null = platform default
+  harness_tools: string[];      // Claude Code tools (Bash, WebFetch, …)
+  platform_tools: string[];     // mcp__…__ tools via the broker
   skills: string[];
   secrets: string[];
+  entrypoints: AgentEntrypoints;
+  enabled: boolean;
+};
+
+// The listing carries each agent's full definition plus server-derived
+// readiness. Definition fields are optional so the list keeps rendering if the
+// API trims the payload; readiness fields are never part of the row.
+export type AgentSummary = Partial<AgentDef> & {
+  name: string;
+  quarantined?: boolean;
+  error?: string | null;
+  // Blocked = unmet required secret dependency (fix the secret);
+  // quarantined = broken definition (fix the agent).
+  blocked?: boolean;
+  blocked_reason?: string | null;
+  schedule?: string;            // pre-rendered cron summary, when the API sends one
+};
+
+// One row of the append-only change log (no snapshot in the listing).
+export type AgentVersion = {
+  version: number;
+  changed_by: string;           // verified principal — never self-reported
+  changed_via: string;          // admin | tool:agents_edit | import | rollback | …
+  created_at: string;
+};
+
+// GET …/versions/{n}. The snapshot may arrive nested (`{version, snapshot}`)
+// or as the bare definition object; readers handle both.
+export type AgentVersionDetail = Partial<AgentVersion> & {
+  snapshot?: Record<string, unknown>;
+} & Record<string, unknown>;
+
+// A grantable tool with what enabling it actually does (/api/help/tools).
+export type ToolHelp = {
+  name: string;
+  kind: string;                 // claude (harness) | platform (brokered)
   description: string;
-  model?: string;
-  schedule?: string;
-  system?: boolean;
-  can_invoke?: boolean;
-  memory?: boolean;
+  sensitive: boolean;           // runner denies it for non-self-edit agents
+  display_name?: string | null;
 };
 
 export type EditResult = {
@@ -34,14 +79,6 @@ export type EditResult = {
   branch: string | null;
   changes: string[];
   pr: { number: number; url: string } | null;
-};
-
-export type AgentDetail = {
-  name: string;
-  manifest: AgentManifest;
-  agent_md: string;
-  entrypoints_raw: string;
-  error: string | null;
 };
 
 export type SyncStatus = { sha: string | null };

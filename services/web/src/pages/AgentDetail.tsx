@@ -1,14 +1,16 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
-import { api, type AgentDetail as AgentDetailData, type AgentMetrics, type AgentSummary, type EditResult, type ModelUsage } from "../api";
-import { SkillPicker, ToolPicker, useCapabilities } from "../components/CapabilityPickers";
-import { ChangePhaseBanner, PendingChangeBanner, useChangeLoop } from "../components/ChangeFlow";
+import { api, type AgentDef, type AgentMetrics, type AgentSummary, type ModelUsage } from "../api";
+import { useGrantCatalog } from "../components/CapabilityPickers";
+import { EntrypointsFields, GrantsFields, IdentityFields, PromptField, toDraft } from "../components/AgentForm";
+import AgentVersions from "../components/AgentVersions";
 import AgentChat from "../components/AgentChat";
 import AgentMemories from "../components/AgentMemories";
 import AgentSchedules from "../components/AgentSchedules";
 import { Banner } from "@ap/ui/banner";
 import { Button } from "@ap/ui/button";
-import { CodeEditor, Textarea } from "@ap/ui/field";
+import { Chip } from "@ap/ui/chip";
+import { ConfirmDialog } from "@ap/ui/dialog";
 import { Stat, StatRow } from "@ap/ui/stat";
 import { Table, TD, TH } from "@ap/ui/table";
 
@@ -56,46 +58,39 @@ function AgentReport({ name }: { name: string }) {
   );
 }
 
-// The tools an agent.md declares, or null when it has no `tools:` line (which
-// the CLI reads as "all tools"). Mirrors the backend parse_agent_tools.
-function parseTools(md: string): string[] | null {
-  const fm = md.split("---")[1] ?? "";
-  const line = fm.split("\n").find((l) => /^\s*tools:/i.test(l));
-  if (!line) return null;
-  return line.replace(/^\s*tools:/i, "").split(/[,\s]+/).map((s) => s.trim()).filter(Boolean);
-}
-
-// The editable Skills + Tools panel. Saving opens a PR via PATCH …/config.
-function CapabilityEditor({ agent, locked, onSaved }: {
-  agent: AgentDetailData; locked: boolean; onSaved: (r: EditResult) => void;
-}) {
-  const { skills, tools, labels, ready } = useCapabilities();
-  const [pickedSkills, setPickedSkills] = useState<Set<string>>(new Set(agent.manifest.skills));
-  const [pickedTools, setPickedTools] = useState<Set<string>>(new Set());
-  const [seeded, setSeeded] = useState(false);
+// The editor. An agent is a row (docs/design/15): the whole definition — prompt,
+// config, entrypoints and grants — is one draft, and Save writes it straight to
+// the live agent. The change log (History tab) is what makes that safe.
+function AgentConfig({ agent, onSaved }: { agent: AgentDef; onSaved: (next: AgentDef) => void }) {
+  const navigate = useNavigate();
+  const catalog = useGrantCatalog();
+  const original = toDraft(agent);
+  const [draft, setDraft] = useState<AgentDef>(original);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [noop, setNoop] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
-  // Once the tool catalog loads, seed the selection from the agent.md (no
-  // tools: line → all tools on).
-  if (ready && !seeded) {
-    const declared = parseTools(agent.agent_md);
-    setPickedTools(new Set(declared ?? tools));
-    setSeeded(true);
-  }
+  const dirty = JSON.stringify(draft) !== JSON.stringify(original);
+  const patch = (p: Partial<AgentDef>) => { setDraft((d) => ({ ...d, ...p })); setSaved(false); };
 
   async function save() {
-    setSaving(true);
-    setError(null);
-    setNoop(false);
+    setSaving(true); setError(null); setSaved(false);
     try {
-      const r = await api<EditResult>(`/api/agents/${encodeURIComponent(agent.name)}/config`, {
-        method: "PATCH",
-        body: JSON.stringify({ skills: [...pickedSkills], tools: [...pickedTools] }),
+      // The full definition goes on the wire: the server's field-level guard
+      // decides what a caller may change, and an admin session may change all
+      // of it. Sending everything also survives a replace-style PUT.
+      const next = await api<AgentDef>(`/api/agents/${encodeURIComponent(agent.name)}`, {
+        method: "PUT",
+        body: JSON.stringify(draft),
       });
-      if (r.tier === 0) setNoop(true);
-      else onSaved(r);
+      // Adopt the row the server actually stored (it may normalize fields), so
+      // the editor stops claiming unsaved changes it no longer has.
+      const canonical = next && next.name ? toDraft(next) : draft;
+      setDraft(canonical);
+      setSaved(true);
+      onSaved(canonical);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to save.");
     } finally {
@@ -103,159 +98,84 @@ function CapabilityEditor({ agent, locked, onSaved }: {
     }
   }
 
-  return (
-    <>
-      <h2>Skills</h2>
-      <p className="muted">Skills mount into the agent's pod and bind their required secrets.</p>
-      <SkillPicker skills={skills} selected={pickedSkills} onChange={setPickedSkills} />
-
-      <h2>Tools</h2>
-      <ToolPicker tools={tools} labels={labels} selected={pickedTools} onChange={setPickedTools} />
-
-      {noop && <Banner>No changes — the agent already matches this configuration.</Banner>}
-      {error && <div className="error">{error}</div>}
-      <div className="row-actions" style={{ marginTop: 12 }}>
-        <Button onClick={save} disabled={saving || !ready || locked}>
-          {saving ? "Saving…" : "Save skills & tools (opens PR)"}
-        </Button>
-      </div>
-      <p className="muted check-note">
-        Changing skills or tools is review-gated: it always opens a pull request rather than editing <code>main</code> directly.
-      </p>
-    </>
-  );
-}
-
-// The raw agent.md editor: deterministic save — exactly what you type becomes
-// the pending change (a PR on the agent's branch), no agent in the loop.
-function DefinitionEditor({ agent, locked, onSaved }: {
-  agent: AgentDetailData; locked: boolean; onSaved: (r: EditResult) => void;
-}) {
-  const [md, setMd] = useState(agent.agent_md);
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [noop, setNoop] = useState(false);
-  const dirty = md !== agent.agent_md;
-
-  async function save() {
-    setSaving(true);
-    setError(null);
-    setNoop(false);
+  async function remove() {
+    setDeleting(true); setError(null);
     try {
-      const r = await api<EditResult>(`/api/agents/${encodeURIComponent(agent.name)}/quick-edit`, {
-        method: "POST",
-        body: JSON.stringify({ field: "prompt", value: md }),
-      });
-      if (r.tier === 0) setNoop(true);
-      else onSaved(r);
+      await api(`/api/agents/${encodeURIComponent(agent.name)}`, { method: "DELETE" });
+      navigate("/agents");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to save.");
+      setError(err instanceof Error ? err.message : "Failed to delete.");
+      setConfirmDelete(false);
     } finally {
-      setSaving(false);
+      setDeleting(false);
     }
   }
 
+  const actions = (
+    <>
+      {error && <div className="error">{error}</div>}
+      <div className="row-actions" style={{ marginTop: 10 }}>
+        <Button onClick={save} disabled={saving || !dirty}>{saving ? "Saving…" : "Save changes"}</Button>
+        {dirty && <Button variant="secondary" onClick={() => setDraft(original)}>Discard edits</Button>}
+        <span className="muted check-note">
+          {dirty ? "Unsaved changes." : saved ? "Saved — live now." : "Saved changes apply to the next run."}
+        </span>
+      </div>
+    </>
+  );
+
   return (
     <>
-      <h2>Agent definition</h2>
-      <p className="muted">
-        The live definition, synced from <code>main</code> — this is exactly what runs. Edit it and
-        save: your exact text becomes a pending change to review under <Link to="/changes">Changes</Link>.
-      </p>
-      <CodeEditor
-        aria-label="Agent definition (agent.md)"
-        value={md}
-        onChange={(e) => setMd(e.target.value)}
-        readOnly={locked}
-        rows={Math.min(30, Math.max(12, md.split("\n").length + 2))}
-      />
-      {noop && <Banner>No changes — the definition already matches.</Banner>}
-      {error && <div className="error">{error}</div>}
-      <div className="row-actions" style={{ marginTop: 8 }}>
-        <Button onClick={save} disabled={saving || locked || !dirty}>
-          {saving ? "Saving…" : "Save definition (opens PR)"}
-        </Button>
-        {dirty && !locked && (
-          <Button variant="secondary" onClick={() => setMd(agent.agent_md)}>Discard edits</Button>
-        )}
-      </div>
+      <IdentityFields draft={draft} patch={patch} catalog={catalog} />
+      <PromptField draft={draft} patch={patch} />
+      {actions}
+
+      <EntrypointsFields draft={draft} patch={patch} />
+      <GrantsFields draft={draft} patch={patch} catalog={catalog} />
+      {actions}
+
+      {!draft.system && (
+        <>
+          <h2>Delete</h2>
+          <p className="muted">
+            Removes the definition. Run history, memories and reports stay — they belong to the
+            platform, not the row.
+          </p>
+          <div className="row-actions">
+            <Button variant="danger" onClick={() => setConfirmDelete(true)} disabled={deleting}>
+              Delete agent
+            </Button>
+          </div>
+        </>
+      )}
+
+      <ConfirmDialog
+        open={confirmDelete}
+        title={`Delete ${agent.name}?`}
+        confirmLabel={deleting ? "Deleting…" : "Delete agent"}
+        onConfirm={remove}
+        onCancel={() => setConfirmDelete(false)}
+      >
+        The agent stops existing immediately: schedules and webhooks pointing at it stop firing.
+        Its change log goes with it — this is not undoable from the UI.
+      </ConfirmDialog>
     </>
   );
 }
 
-// The agent's durable triggers (entrypoints.yaml) — same save→PR contract as
-// the definition editor, on the same coder/agent-<name> branch and lock.
-function EntrypointsEditor({ agent, locked, onSaved }: {
-  agent: AgentDetailData; locked: boolean; onSaved: (r: EditResult) => void;
-}) {
-  const [yamlText, setYamlText] = useState(agent.entrypoints_raw);
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [noop, setNoop] = useState(false);
-  useEffect(() => setYamlText(agent.entrypoints_raw), [agent.entrypoints_raw]);
-  const dirty = yamlText !== agent.entrypoints_raw;
-
-  async function save() {
-    setSaving(true); setError(null); setNoop(false);
-    try {
-      const r = await api<EditResult>(`/api/agents/${encodeURIComponent(agent.name)}/quick-edit`, {
-        method: "POST",
-        body: JSON.stringify({ field: "entrypoints", value: yamlText }),
-      });
-      if (r.tier === 0) setNoop(true);
-      else onSaved(r);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to save.");
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  return (
-    <>
-      <h2>Entrypoints</h2>
-      <p className="muted">
-        The agent's durable triggers (<code>entrypoints.yaml</code>): <code>cron</code> list,
-        declared <code>webhooks</code> paths, <code>kafka</code> (reserved). Invalid YAML is
-        rejected at save time. Emptying the editor removes the file. Ad-hoc schedules belong
-        in <Link to={`/agents/${encodeURIComponent(agent.name)}?tab=schedules`}>Jobs</Link> instead.
-      </p>
-      <CodeEditor
-        aria-label="Entrypoints (entrypoints.yaml)"
-        value={yamlText}
-        onChange={(e) => setYamlText(e.target.value)}
-        readOnly={locked}
-        placeholder={'cron: ["0 9 * * *"]\nwebhooks:\n  - path: my-hook\n'}
-        rows={Math.min(14, Math.max(5, yamlText.split("\n").length + 2))}
-      />
-      {noop && <Banner>No changes — the entrypoints already match.</Banner>}
-      {error && <div className="error">{error}</div>}
-      <div className="row-actions" style={{ marginTop: 8 }}>
-        <Button onClick={save} disabled={saving || locked || !dirty}>
-          {saving ? "Saving…" : "Save entrypoints (opens PR)"}
-        </Button>
-        {dirty && !locked && (
-          <Button variant="secondary" onClick={() => setYamlText(agent.entrypoints_raw)}>Discard edits</Button>
-        )}
-      </div>
-    </>
-  );
-}
-
-type Tab = "config" | "conversations" | "memories" | "schedules" | "report";
+type Tab = "config" | "history" | "conversations" | "memories" | "schedules" | "report";
 
 export default function AgentDetail() {
   const { name } = useParams<{ name: string }>();
-  const navigate = useNavigate();
   const [params, setParams] = useSearchParams();
   const tab = (params.get("tab") as Tab) ?? "config";
-  const [agent, setAgent] = useState<AgentDetailData | null>(null);
+  const [agent, setAgent] = useState<AgentDef | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [instruction, setInstruction] = useState("");
-  const [editing, setEditing] = useState(false);
-  const [editError, setEditError] = useState<string | null>(null);
   const [summary, setSummary] = useState<AgentSummary | null>(null);
+  // Remounts the editor so its field-local state re-seeds from a fresh load
+  // (after a save or a rollback) instead of holding stale text.
+  const [formKey, setFormKey] = useState(0);
 
   function setTab(t: Tab) {
     const p = new URLSearchParams(params);
@@ -267,19 +187,15 @@ export default function AgentDetail() {
 
   function loadContent() {
     if (!name) return;
-    api<AgentDetailData>(`/api/agents/${encodeURIComponent(name)}`)
-      .then(setAgent)
+    api<AgentDef>(`/api/agents/${encodeURIComponent(name)}`)
+      .then((a) => { setAgent(a); setFormKey((k) => k + 1); })
       .catch((err) => setLoadError(err instanceof Error ? err.message : "Failed to load agent."))
       .finally(() => setLoading(false));
-    // The listing carries readiness (blocked + reason) — the detail view doesn't.
+    // The listing carries readiness (blocked + reason) — the row itself doesn't.
     api<AgentSummary[]>("/api/agents")
       .then((all) => setSummary(all.find((a) => a.name === name) ?? null))
       .catch(() => setSummary(null));
   }
-
-  // The change loop: while a PR is open on this agent's branch every editor is
-  // locked; when it resolves we wait for the cluster sync, refetch, and flash.
-  const { pr: pending, phase, adopt } = useChangeLoop(`coder/agent-${name}`, loadContent);
 
   useEffect(() => {
     if (!name) return;
@@ -287,35 +203,6 @@ export default function AgentDetail() {
     loadContent();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [name]);
-
-  function onSaved(r: EditResult) {
-    // A save opened (or updated) the PR — reflect the lock immediately.
-    adopt({
-      number: r.pr?.number ?? 0,
-      title: `Pending change for ${name}`,
-      url: r.pr?.url ?? "",
-      branch: r.branch ?? `coder/agent-${name}`,
-      author: "you",
-      created_at: new Date().toISOString(),
-    });
-  }
-
-  async function editAgent() {
-    if (!name) return;
-    setEditing(true);
-    setEditError(null);
-    try {
-      const run = await api<{ id: string }>(`/api/agents/${encodeURIComponent(name)}/edit`, {
-        method: "POST",
-        body: JSON.stringify({ instruction }),
-      });
-      navigate(`/runs/${run.id}`);
-    } catch (err) {
-      setEditError(err instanceof Error ? err.message : "Failed to start edit.");
-    } finally {
-      setEditing(false);
-    }
-  }
 
   if (loading) return <div className="page"><p className="muted">Loading…</p></div>;
   if (loadError) {
@@ -339,19 +226,25 @@ export default function AgentDetail() {
 
   return (
     <div className={tab === "conversations" ? "page page-chat" : "page"}>
-      <h1>{agent.name}</h1>
-      {agent.error && <Banner variant="danger">{agent.error}</Banner>}
+      <div className="page-header">
+        <h1>{agent.name}</h1>
+        <div className="row-actions">
+          {agent.system && <Chip>system</Chip>}
+          {agent.enabled === false && <Chip variant="warn">disabled</Chip>}
+          {summary?.quarantined && <Chip variant="danger">quarantined</Chip>}
+        </div>
+      </div>
+      {summary?.error && <Banner variant="danger">{summary.error}</Banner>}
       {summary?.blocked && (
         <Banner variant="danger">
           {summary.blocked_reason} — fix it under <Link to="/secrets">Settings → Secrets</Link>.
           Runs are rejected until the secret is healthy.
         </Banner>
       )}
-      {pending && <PendingChangeBanner pr={pending} what="agent" />}
-      <ChangePhaseBanner phase={phase} what="definition" />
 
       <div className="tabs">
         <button className={tab === "config" ? "tab active" : "tab"} onClick={() => setTab("config")}>Config</button>
+        <button className={tab === "history" ? "tab active" : "tab"} onClick={() => setTab("history")}>History</button>
         <button className={tab === "conversations" ? "tab active" : "tab"} onClick={() => setTab("conversations")}>Conversations</button>
         <button className={tab === "memories" ? "tab active" : "tab"} onClick={() => setTab("memories")}>Memories</button>
         <button className={tab === "schedules" ? "tab active" : "tab"} onClick={() => setTab("schedules")}>Schedules</button>
@@ -362,47 +255,10 @@ export default function AgentDetail() {
       {tab === "conversations" && <AgentChat agent={agent.name} />}
       {tab === "memories" && <AgentMemories agent={agent.name} />}
       {tab === "schedules" && <AgentSchedules agent={agent.name} />}
-      {tab === "config" && (<>
-      <dl className="def-list">
-        <dt>Role</dt>
-        <dd>{agent.manifest.role}</dd>
-        <dt>Description</dt>
-        <dd>{agent.manifest.description}</dd>
-        <dt>Concurrency</dt>
-        <dd>{agent.manifest.concurrency}</dd>
-        <dt>Timeout (s)</dt>
-        <dd>{agent.manifest.timeout_seconds}</dd>
-        <dt>Secrets</dt>
-        <dd>{agent.manifest.secrets.length ? agent.manifest.secrets.join(", ") : "—"}</dd>
-      </dl>
-
-      <DefinitionEditor agent={agent} locked={pending !== null} onSaved={onSaved} />
-
-      <EntrypointsEditor agent={agent} locked={pending !== null} onSaved={onSaved} />
-
-      <CapabilityEditor agent={agent} locked={pending !== null} onSaved={onSaved} />
-
-      <h2>Edit the prompt with platform-coder</h2>
-      <p className="muted">
-        Or describe a change in plain language. platform-coder makes the change in the repo and opens a
-        pull request (one per agent) that you review and merge under <Link to="/changes">Changes</Link>.
-        It does not change anything until you merge.
-      </p>
-      <Textarea
-        placeholder="e.g. Add a line telling the agent to always reply in English."
-        aria-label="Instruction for platform-coder"
-        value={instruction}
-        onChange={(e) => setInstruction(e.target.value)}
-        rows={3}
-        readOnly={pending !== null}
-      />
-      {editError && <div className="error">{editError}</div>}
-      <div className="row-actions" style={{ marginTop: 8 }}>
-        <Button onClick={editAgent} disabled={editing || pending !== null || instruction.trim() === ""}>
-          {editing ? "Dispatching…" : "Edit with platform-coder"}
-        </Button>
-      </div>
-      </>)}
+      {tab === "history" && <AgentVersions agent={agent.name} onRolledBack={loadContent} />}
+      {tab === "config" && (
+        <AgentConfig key={formKey} agent={agent} onSaved={setAgent} />
+      )}
     </div>
   );
 }

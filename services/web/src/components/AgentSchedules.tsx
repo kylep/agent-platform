@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { cronEnglish } from "../lib/cron";
+import { cronEnglish, zoneOptions } from "../lib/cron";
 import { api, type Job, type ScheduleEntry } from "../api";
 import { Button } from "@ap/ui/button";
 import { Chip } from "@ap/ui/chip";
@@ -22,17 +22,6 @@ function Cron({ cron, timezone }: { cron: string; timezone?: string }) {
       {timezone && <span className="text-muted"> {timezone}</span>}
     </code>
   );
-}
-
-// IANA zones the browser knows, for the timezone field's datalist. Guarded:
-// Intl.supportedValuesOf is recent enough that an empty list is a fine
-// degradation — the input still accepts a typed zone and the API validates it.
-function zoneOptions(): string[] {
-  try {
-    return Intl.supportedValuesOf("timeZone");
-  } catch {
-    return [];
-  }
 }
 
 // Create/edit a job. The agent is fixed to this page's agent.
@@ -94,7 +83,7 @@ function JobForm({ agent, job, onDone, onCancel }: {
 }
 
 /** Agent-scoped Schedules tab: this agent's cron jobs (1:many) plus its
- * manifest-declared schedule (1:1, if any). */
+ * cron entrypoints (declared in its definition). */
 export default function AgentSchedules({ agent }: { agent: string }) {
   const navigate = useNavigate();
   const [jobs, setJobs] = useState<Job[]>([]);
@@ -186,8 +175,8 @@ export default function AgentSchedules({ agent }: { agent: string }) {
 
       {schedule && (
         <section style={{ marginTop: 20 }}>
-          <h2>Manifest schedule</h2>
-          <p className="muted">Declared in this agent's manifest (<code>schedule:</code>). Edit the cron in the manifest.</p>
+          <h2>Entrypoint cron</h2>
+          <p className="muted">Part of the agent's definition — edit it under <em>Config → Entrypoints</em>.</p>
           <Table>
             <thead><tr><TH>Cron</TH><TH>Next fire</TH><TH>Last fire</TH><TH>Status</TH><TH></TH></tr></thead>
             <tbody>

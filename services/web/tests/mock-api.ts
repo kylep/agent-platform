@@ -6,22 +6,40 @@ import type { Page, Route } from "@playwright/test";
 // the backend suite. Unmatched GETs 404 loudly so a new page dependency shows
 // up as a test failure, not silent emptiness.
 
+// An agent IS its row (docs/design/15): the listing carries the full
+// definition plus server-derived readiness.
+const def = (over: Record<string, unknown>) => ({
+  prompt: "You are a platform agent.", description: "", model: "", role: "operator",
+  system: false, can_invoke: false, concurrency: 1, timeout_seconds: 1800,
+  result_topic: "", transcript_retention_days: null,
+  harness_tools: [], platform_tools: [], skills: [], secrets: [],
+  entrypoints: { crons: [], webhooks: [], topics: [], timezone: "" }, enabled: true,
+  ...over,
+});
+
+const healthMonitor = def({
+  name: "health-monitor", description: "Watches platform health.", model: "sonnet",
+  system: true, timeout_seconds: 600, harness_tools: ["WebSearch"],
+  platform_tools: ["mcp__platform__metrics"], skills: [], secrets: [],
+  prompt: "# health-monitor\nYou watch health.",
+  entrypoints: { crons: [{ schedule: "*/15 * * * *", prompt: "Check platform health." }],
+                 webhooks: [], topics: [], timezone: "" },
+});
+
 const agents = [
-  { name: "health-monitor", description: "Watches platform health.", quarantined: false,
-    error: null, blocked: false, blocked_reason: null, system: true, schedule: "*/15 * * * *" },
-  { name: "news", description: "Gathers the day's notable news.", quarantined: false,
-    error: null, blocked: true,
-    blocked_reason: "blocked: skill `discord` disabled — secret `discord-webhook` is not set",
-    system: false, schedule: "" },
-  { name: "pai", description: "Conversational assistant.", quarantined: false,
-    error: null, blocked: false, blocked_reason: null, system: false, schedule: "" },
+  { ...healthMonitor, quarantined: false, error: null, blocked: false, blocked_reason: null },
+  { ...def({ name: "news", description: "Gathers the day's notable news.", skills: ["news-lookup"] }),
+    quarantined: false, error: null, blocked: true,
+    blocked_reason: "blocked: skill `discord` disabled — secret `discord-webhook` is not set" },
+  { ...def({ name: "pai", description: "Conversational assistant." }),
+    quarantined: false, error: null, blocked: false, blocked_reason: null },
 ];
 
-const manifest = {
-  role: "operator", concurrency: 1, timeout_seconds: 600, skills: [], secrets: [],
-  description: "Watches platform health.", schedule: "", model: "sonnet", system: true,
-  can_invoke: false, memory: true, transcript_retention_days: null,
-};
+const versions = [
+  { version: 2, changed_by: "kyle", changed_via: "admin", created_at: new Date().toISOString() },
+  { version: 1, changed_by: "import", changed_via: "import",
+    created_at: new Date(Date.now() - 86400000).toISOString() },
+];
 
 const run = (id: string, agent: string, state: string, mins: number) => ({
   id, agent, state, trigger: "schedule", created_at: new Date(Date.now() - mins * 60000).toISOString(),
@@ -51,9 +69,11 @@ const secrets = [
     hint: "", key: "", probeable: false },
 ];
 
+// Pending changes are platform CODE only now — agent definitions are rows and
+// save directly (docs/design/15).
 const prs = [
-  { number: 12, title: "Edit news: agent definition", url: "https://github.com/x/y/pull/12",
-    branch: "coder/agent-news", author: "pericakai[bot]", created_at: new Date().toISOString() },
+  { number: 12, title: "Edit news-lookup: skill body", url: "https://github.com/x/y/pull/12",
+    branch: "coder/skill-news-lookup", author: "pericakai[bot]", created_at: new Date().toISOString() },
 ];
 
 const durations = agents.flatMap((a, i) =>
@@ -65,6 +85,7 @@ const durations = agents.flatMap((a, i) =>
 const agg = {
   total: 42, by_state: { succeeded: 40, failed: 2 }, active: 1, succeeded: 40,
   success_rate: 0.95, tokens_in: 1000, tokens_out: 5000, tool_calls: 12,
+  tokens_cache_read: 20000, tokens_cache_creation: 3000,
   avg_duration_seconds: 18.3, max_duration_seconds: 120, last_run_at: new Date().toISOString(),
 };
 
@@ -84,12 +105,10 @@ const reports = [
 const FIXTURES: Record<string, unknown> = {
   "/api/setup-state": { needs_admin: false, secrets },
   "/api/agents": agents,
-  "/api/agents/health-monitor": {
-    name: "health-monitor", manifest, agent_md: "# health-monitor\nYou watch health.",
-    entrypoints: { cron: ["*/15 * * * *"], webhooks: [], kafka: [] },
-    entrypoints_raw: 'cron: ["*/15 * * * *"]\n', error: null,
-  },
-  "/api/agent-tools": { tools: ["Bash", "Read", "WebFetch", "WebSearch", "TodoWrite"], labels: { TodoWrite: "Todo" } },
+  "/api/agents/health-monitor": healthMonitor,
+  "/api/agents/health-monitor/versions": versions,
+  "/api/agents/health-monitor/versions/1": { ...versions[1], snapshot: def({ name: "health-monitor" }) },
+  "/api/agents/health-monitor/versions/2": { ...versions[0], snapshot: healthMonitor },
   "/api/agent-models": { models: [{ id: "", label: "CLI default" }, { id: "sonnet", label: "Sonnet" }] },
   "/api/runs": runs,
   [`/api/runs/${runs[0].id}`]: runDetail,
@@ -105,15 +124,15 @@ const FIXTURES: Record<string, unknown> = {
   "/api/tags": [],
   "/api/pull-requests": prs,
   "/api/pull-requests/12/files": [
-    { filename: "agents/news/agent.md", status: "modified", additions: 2, deletions: 1,
+    { filename: "skills/news-lookup/SKILL.md", status: "modified", additions: 2, deletions: 1,
       patch: "@@ -1,2 +1,3 @@\n-old line\n+new line\n+another" },
   ],
   "/api/pull-requests/12/summary": {
     state: "ready", sha: "abc123",
-    summary: "Changes the news agent's definition: adds one instruction line. Low risk — no secrets, triggers, or permissions change.",
+    summary: "Changes the news-lookup skill: adds one instruction line. Low risk — no secrets, triggers, or permissions change.",
   },
   "/api/pull-requests/12/impact": {
-    items: [{ file: "agents/news/agent.md", block: "agent: news", area: "definition",
+    items: [{ file: "skills/news-lookup/SKILL.md", block: "skill: news-lookup", area: "definition",
               status: "modified", additions: 2, deletions: 1, notable: [] }],
     warnings: [],
   },
@@ -157,7 +176,8 @@ const FIXTURES: Record<string, unknown> = {
   "/api/secrets": secrets,
   "/api/metrics/overview": { ...agg, runs_24h: 10, runs_7d: 42, dlq: 0, window: 5000 },
   "/api/metrics/agents": agents.map((a) => ({ ...agg, agent: a.name, failure_streak: a.name === "news" ? 2 : 0 })),
-  "/api/metrics/models": [{ model: "claude-sonnet-5", runs: 40, tokens_in: 900, tokens_out: 4500 }],
+  "/api/metrics/models": [{ model: "claude-sonnet-5", runs: 40, tokens_in: 900, tokens_out: 4500,
+                            tokens_cache_read: 18000, tokens_cache_creation: 2500 }],
   "/api/metrics/durations": durations,
   "/api/health/kafka": { reachable: true, backlog: { dlq: 0 }, lag: 0 },
   "/api/integrations": [

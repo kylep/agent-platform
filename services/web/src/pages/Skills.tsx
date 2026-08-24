@@ -352,8 +352,8 @@ export default function Skills() {
     <div className="page">
       <h1>Skills &amp; Tools</h1>
       <p className="muted">
-        <strong>Skills are knowledge</strong> — markdown instructions agents follow, declared in the
-        manifest (<code>skills:</code>). <strong>Tools are execution</strong> — reviewed code the MCP
+        <strong>Skills are knowledge</strong> — markdown instructions agents follow, granted per
+        agent under <em>Config → Grants</em>. <strong>Tools are execution</strong> — reviewed code the MCP
         broker serves and the tool-executor runs; agents check them like any capability and control
         arguments only, never the code. Expand either to read or edit it — saves become pending changes.
       </p>
