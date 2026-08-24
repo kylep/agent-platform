@@ -62,10 +62,15 @@ def sync_detailed(
 ) -> Response[AgentDefOut | HTTPValidationError]:
     """Delete Agent
 
-     Delete an agent's definition. Its runs, memories and change log survive
-    (the log is append-only and outlives the row, so a deleted agent can still
-    be read back from its last snapshot). System agents are platform-internal
-    and refuse deletion.
+     Delete an agent's definition. Its runs, memories and change log survive.
+
+    Deleting is a write, so it logs one: a TOMBSTONE version whose snapshot is
+    the definition as it stood at the moment of deletion, and whose
+    `changed_via` is the normal label prefixed `delete:` (`delete:admin`,
+    `delete:tool:agents_edit`). The prefix is the whole marker — snapshots stay
+    uniformly parseable as definitions, with no synthetic keys inside them — and
+    it means the log alone is enough to say who removed an agent and to
+    recreate it. System agents are platform-internal and refuse deletion.
 
     Args:
         name (str):
@@ -96,10 +101,15 @@ def sync(
 ) -> AgentDefOut | HTTPValidationError | None:
     """Delete Agent
 
-     Delete an agent's definition. Its runs, memories and change log survive
-    (the log is append-only and outlives the row, so a deleted agent can still
-    be read back from its last snapshot). System agents are platform-internal
-    and refuse deletion.
+     Delete an agent's definition. Its runs, memories and change log survive.
+
+    Deleting is a write, so it logs one: a TOMBSTONE version whose snapshot is
+    the definition as it stood at the moment of deletion, and whose
+    `changed_via` is the normal label prefixed `delete:` (`delete:admin`,
+    `delete:tool:agents_edit`). The prefix is the whole marker — snapshots stay
+    uniformly parseable as definitions, with no synthetic keys inside them — and
+    it means the log alone is enough to say who removed an agent and to
+    recreate it. System agents are platform-internal and refuse deletion.
 
     Args:
         name (str):
@@ -125,10 +135,15 @@ async def asyncio_detailed(
 ) -> Response[AgentDefOut | HTTPValidationError]:
     """Delete Agent
 
-     Delete an agent's definition. Its runs, memories and change log survive
-    (the log is append-only and outlives the row, so a deleted agent can still
-    be read back from its last snapshot). System agents are platform-internal
-    and refuse deletion.
+     Delete an agent's definition. Its runs, memories and change log survive.
+
+    Deleting is a write, so it logs one: a TOMBSTONE version whose snapshot is
+    the definition as it stood at the moment of deletion, and whose
+    `changed_via` is the normal label prefixed `delete:` (`delete:admin`,
+    `delete:tool:agents_edit`). The prefix is the whole marker — snapshots stay
+    uniformly parseable as definitions, with no synthetic keys inside them — and
+    it means the log alone is enough to say who removed an agent and to
+    recreate it. System agents are platform-internal and refuse deletion.
 
     Args:
         name (str):
@@ -157,10 +172,15 @@ async def asyncio(
 ) -> AgentDefOut | HTTPValidationError | None:
     """Delete Agent
 
-     Delete an agent's definition. Its runs, memories and change log survive
-    (the log is append-only and outlives the row, so a deleted agent can still
-    be read back from its last snapshot). System agents are platform-internal
-    and refuse deletion.
+     Delete an agent's definition. Its runs, memories and change log survive.
+
+    Deleting is a write, so it logs one: a TOMBSTONE version whose snapshot is
+    the definition as it stood at the moment of deletion, and whose
+    `changed_via` is the normal label prefixed `delete:` (`delete:admin`,
+    `delete:tool:agents_edit`). The prefix is the whole marker — snapshots stay
+    uniformly parseable as definitions, with no synthetic keys inside them — and
+    it means the log alone is enough to say who removed an agent and to
+    recreate it. System agents are platform-internal and refuse deletion.
 
     Args:
         name (str):
