@@ -31,9 +31,14 @@ _ENV = re.compile(r"^[A-Z][A-Z0-9_]*$")
 # Suffixes of the broker's built-in mcp__platform__* tools. A custom tool may
 # not shadow one (the broker registers customs beside these; a collision would
 # be ambiguous). Kept here, next to the validation that uses it; agentspec's
-# PLATFORM_MCP_TOOLS derives from the same set via a lockstep test.
+# GRANTABLE_PLATFORM_TOOLS derives from the same set via a lockstep test.
+# `agents_edit`/`agents_grant` are core for exactly this reason even though
+# they sit on a different auth rung: they are broker-resident (they forward the
+# caller's bearer, which the executor never sees), so a `tools/agents_edit/`
+# directory would be a silent collision rather than a second implementation.
 CORE_TOOL_SUFFIXES = frozenset({
     "runs_read", "runs_write", "metrics", "query_app",
+    "agents_edit", "agents_grant",
 })
 
 

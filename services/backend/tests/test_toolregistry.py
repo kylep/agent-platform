@@ -7,7 +7,7 @@ from pathlib import Path
 import httpx
 import pytest
 
-from agentplatform.agentspec import PLATFORM_MCP_TOOLS
+from agentplatform.agentspec import GRANTABLE_PLATFORM_TOOLS
 from agentplatform.api.app import create_app
 from agentplatform.config import Settings
 from agentplatform.toolregistry import CORE_TOOL_SUFFIXES, ToolManifest, ToolRegistry
@@ -43,8 +43,12 @@ def make_tool(root: Path, name="echo", yaml_text=GOOD_YAML, entrypoint=True,
 
 def test_core_suffixes_lockstep_with_agentspec():
     """toolregistry's shadow-list and agentspec's broker tool list must agree,
-    or a custom tool could silently collide with a core one."""
-    assert {t.removeprefix("mcp__platform__") for t in PLATFORM_MCP_TOOLS} == set(CORE_TOOL_SUFFIXES)
+    or a custom tool could silently collide with a core one. The list to match
+    is the GRANTABLE one, not the annotator rung: `agents_edit`/`agents_grant`
+    are broker-resident too (they forward the caller's bearer, which the
+    executor never receives), they just sit on a narrower rung."""
+    assert {t.removeprefix("mcp__platform__") for t in GRANTABLE_PLATFORM_TOOLS} \
+        == set(CORE_TOOL_SUFFIXES)
 
 
 def test_registry_loads_valid_tool(tmp_path):
@@ -207,7 +211,7 @@ async def test_whoami_reports_no_tools_for_an_ungranted_agent(tool_client, sf,
     d = (await tool_client.get("/api/whoami",
                                headers={"Authorization": f"Bearer {token}"})).json()
     assert d["agent"] == "ungranted"
-    assert d["tools"] == []          # NOT PLATFORM_MCP_TOOLS + the registry's
+    assert d["tools"] == []          # NOT every core tool + the registry's
 
 
 async def test_whoami_admin_session_has_no_agent(tool_client):

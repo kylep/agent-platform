@@ -12,11 +12,17 @@ Custom tools (docs/design/12) are loaded dynamically from the synced checkout
 token is NEVER forwarded outward; instead the broker resolves it via
 `/api/whoami` and enforces that the calling agent's definition declares the
 tool, then sends only the verified identity to the executor.
+
+`agents_edit` / `agents_grant` (docs/design/15) are core tools on both counts:
+they forward the bearer like the rest, AND they check the declared grant like a
+custom tool, because they are authorized by a grant rather than by a role. Their
+logic lives in `agenttools.py`; only the MCP surface is here.
 """
 import logging
 import os
 from pathlib import Path
 
+import agenttools
 import httpx
 import yaml
 from fastmcp import FastMCP
@@ -46,13 +52,19 @@ def _caller_headers() -> dict:
     return headers
 
 
-async def _call(method: str, path: str, params: dict | None = None, json: dict | None = None) -> str:
+async def _request(method: str, path: str, params: dict | None = None,
+                   json: dict | None = None) -> httpx.Response:
     # Forward the caller's identity — the broker never substitutes its own.
     headers = _caller_headers()
     clean = {k: v for k, v in (params or {}).items() if v is not None}
     async with httpx.AsyncClient(base_url=_API, timeout=20) as c:
-        r = await c.request(method, path, params=clean or None, json=json, headers=headers)
-        return r.text or "ok"
+        return await c.request(method, path, params=clean or None, json=json,
+                               headers=headers)
+
+
+async def _call(method: str, path: str, params: dict | None = None, json: dict | None = None) -> str:
+    r = await _request(method, path, params, json)
+    return r.text or "ok"
 
 
 # --- runs (run-summarizer) ---------------------------------------------------
@@ -230,6 +242,92 @@ class CustomTool(Tool):
         await _audit(agent, run_id, initiated_by, self.name, arguments, "allow", t0,
                      result_bytes=len(output))
         return ToolResult(content=output)
+
+
+# --- agent definitions (docs/design/15) --------------------------------------
+# Core tools, because they forward the caller's BEARER: the platform API must
+# see the agent itself, or `agent_versions.changed_by` would name a shared
+# credential instead of the writer. The executor never gets a token, so these
+# cannot be `tools/<name>/` customs — see agenttools.py's header.
+#
+# Unlike the other core tools these carry the custom-tool guard rail: the API
+# is the real authorization (it re-derives the grant from the token on every
+# write), but a run that was never granted them should be told so here, and the
+# attempt should land in the audit trail rather than only in an API 403.
+
+async def _guarded(tool: str, handler, args: dict) -> str:
+    """whoami → declared-grant check → rate limit → run → audit, for a core
+    tool that is grant-gated rather than role-gated."""
+    t0 = _time.monotonic()
+    ident = await _whoami()
+    refused, decision = agenttools.guard(ident, tool)
+    agent = (ident or {}).get("agent") or (ident or {}).get("principal") or ""
+    run_id = (ident or {}).get("run_id") or ""
+    initiated_by = (ident or {}).get("initiated_by") or ""
+    if refused is not None:
+        await _audit(agent, run_id, initiated_by, tool, args, decision, t0)
+        return f"error: {refused}"
+    if not _rate_ok(agent, tool):
+        await _audit(agent, run_id, initiated_by, tool, args, "deny:rate-limit", t0)
+        return "error: rate limit exceeded for this tool — slow down and retry shortly"
+    out = await handler(_request, args)
+    await _audit(agent, run_id, initiated_by, tool, args,
+                 "error:tool" if out.startswith("error:") else "allow", t0,
+                 result_bytes=len(out))
+    return out
+
+
+@mcp.tool
+async def agents_edit(action: str, name: str | None = None,
+                      definition: dict | None = None) -> str:
+    """Read and write agent DEFINITIONS — what an agent IS.
+
+    action='list' → every agent, one compact row each;
+    action='get' (name) → one agent's full definition;
+    action='create' (name, definition) → a new agent, live immediately;
+    action='update' (name, definition) → change only the given fields (the
+      rest of the definition is preserved for you);
+    action='delete' (name) → remove it (its runs and change log survive).
+
+    `definition` fields: prompt, description, model, entrypoints, enabled,
+    concurrency, timeout_seconds, result_topic, transcript_retention_days.
+
+    It can NEVER change what an agent may DO — tools, skills, secrets,
+    can_invoke, role — that is the agents_grant tool, and attempting it here is
+    refused. CARE: this permission is about the KIND of change, not the target,
+    so you can rewrite the prompt (or add a cron) of an agent more privileged
+    than you are. Every write is logged against your name."""
+    return await _guarded("agents_edit", agenttools.agents_edit,
+                          {"action": action, "name": name, "definition": definition})
+
+
+@mcp.tool
+async def agents_grant(action: str, name: str, field: str | None = None,
+                       values: list[str] | None = None,
+                       harness_tools: list[str] | None = None,
+                       platform_tools: list[str] | None = None,
+                       skills: list[str] | None = None,
+                       secrets: list[str] | None = None,
+                       can_invoke: bool | None = None) -> str:
+    """Change what an agent may DO — GRANTS-EDITING, handle with care.
+
+    action='get' (name) → that agent's current grants;
+    action='set_grants' (name, + any of harness_tools/platform_tools/skills/
+      secrets/can_invoke) → replace those lists wholesale; omitted ones are
+      left exactly as they are;
+    action='add_grant' (name, field, values) → add names to one list;
+    action='remove_grant' (name, field, values) → take names off one list.
+    `field` is harness_tools | platform_tools | skills | secrets.
+
+    Use /api/help/tools names verbatim; a grant naming something the platform
+    does not ship is refused at save time. This tool does not touch prompts or
+    config (that is agents_edit), and cannot change an agent's role or system
+    flag. You can grant capabilities you do not hold yourself, including this
+    tool — the change log is the control, so make the reason obvious."""
+    return await _guarded("agents_grant", agenttools.agents_grant, {
+        "action": action, "name": name, "field": field, "values": values,
+        "harness_tools": harness_tools, "platform_tools": platform_tools,
+        "skills": skills, "secrets": secrets, "can_invoke": can_invoke})
 
 
 def _scan_custom_tools() -> dict[str, dict]:

@@ -25,13 +25,37 @@ CLAUDE_TOOLS: list[str] = [
 # Tools the platform's own MCP broker exposes (services/mcp-broker). Agents that
 # act on the platform declare these instead of Bash, so they get a token-scoped
 # API call rather than a shell. Keep in sync with broker.py's @mcp.tool set.
+#
+# THIS LIST IS ALSO A ROLE. Holding any of it promotes a run's token to
+# `annotator` (api/auth.py, joblauncher) because these tools read and write
+# ordinary platform DATA — runs, metrics, apps — through endpoints guarded by
+# role allow-lists. Adding a name here therefore widens the whole API surface
+# of every agent that holds it, not just the one tool.
 PLATFORM_MCP_TOOLS: list[str] = [
     "mcp__platform__runs_read", "mcp__platform__runs_write",
     "mcp__platform__metrics",
     "mcp__platform__query_app",
 ]
 
-AVAILABLE_TOOLS: list[str] = CLAUDE_TOOLS + PLATFORM_MCP_TOOLS
+# Broker tools that write AGENT DEFINITIONS (docs/design/15). Deliberately kept
+# OUT of PLATFORM_MCP_TOOLS: their authority comes from the grant itself — the
+# API resolves it per-write in `agent_write_scope` — so a holder stays on the
+# narrow `tools` rung and gains exactly the definition surface and nothing else.
+# Putting them in the list above would silently hand every holder `annotator`
+# across the whole API, which is the opposite of what the edit/grant split is
+# for. `agent_read_access` (api/agents.py) is what lets a holder read back the
+# definitions it may write.
+PLATFORM_MCP_AGENT_TOOLS: list[str] = [
+    "mcp__platform__agents_edit",
+    "mcp__platform__agents_grant",
+]
+
+# Every code-defined broker tool an agent may be granted, whatever rung it
+# lands the holder on. This — not PLATFORM_MCP_TOOLS — is the grantability
+# question ("is this a real tool?"); the ladder question is separate.
+GRANTABLE_PLATFORM_TOOLS: list[str] = PLATFORM_MCP_TOOLS + PLATFORM_MCP_AGENT_TOOLS
+
+AVAILABLE_TOOLS: list[str] = CLAUDE_TOOLS + GRANTABLE_PLATFORM_TOOLS
 
 # Help text for every grantable tool (the /help/tools page + picker docs).
 # A test asserts this covers AVAILABLE_TOOLS exactly — a tool cannot be added
@@ -83,6 +107,27 @@ TOOL_HELP: list[dict] = [
                     "the news archive by day/topic/keyword. GET only; "
                     "mutations stay with the app's own flows. Each app's "
                     "companion skill documents its endpoints."},
+    {"name": "mcp__platform__agents_edit", "kind": "platform",
+     "description": "Read and write agent DEFINITIONS: list agents, read one, "
+                    "create, update (prompt, description, model, entrypoints, "
+                    "timeouts, enabled) and delete. It can never change grants "
+                    "— tools, skills, secrets, can_invoke and role need "
+                    "agents_grant. HANDLE WITH CARE: the guard is on the KIND "
+                    "of change, not on the target, so a holder may rewrite the "
+                    "prompt or add a cron entrypoint to an agent far more "
+                    "privileged than itself. Grant it only where you would "
+                    "accept that, and read the change log (every write is "
+                    "attributed to the calling agent)."},
+    {"name": "mcp__platform__agents_grant", "kind": "platform",
+     "description": "GRANTS-EDITING — HANDLE WITH CARE. Changes what an agent "
+                    "may DO: its harness tools, platform tools, skills, "
+                    "secrets and can_invoke flag, on any agent. A holder can "
+                    "grant agents_grant onward, and can hand any agent any "
+                    "capability the platform ships, so it is effectively an "
+                    "administrative capability; the append-only change log is "
+                    "the control. It cannot edit prompts or config (that is "
+                    "agents_edit) and cannot set an agent's role or system "
+                    "flag through this tool."},
 ]
 
 # Models the UI offers for an agent's `model:` (runner passes it to
