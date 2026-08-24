@@ -75,6 +75,23 @@ async def clear_agent_secrets(session, agent: str) -> None:
     await session.execute(delete(WebhookSecret).where(WebhookSecret.agent == agent))
 
 
+async def prune_undeclared(session, agent: str, declared: set[str]) -> None:
+    """Drop secrets for paths the agent no longer declares.
+
+    A secret outlives no path. Without this, removing a webhook entry would
+    leave its credential behind, and re-declaring that path later would
+    silently re-arm a secret nobody can see or audit — the same
+    resurrection-by-the-back-door that keeps secrets out of `agent_versions` in
+    the first place (docs/design/16). Fail closed instead: a re-declared path
+    starts with no secret, and `secret` mode there rejects callers until
+    someone sets one.
+    """
+    stmt = delete(WebhookSecret).where(WebhookSecret.agent == agent)
+    if declared:
+        stmt = stmt.where(WebhookSecret.path.notin_(declared))
+    await session.execute(stmt)
+
+
 async def verify(session, agent: str, path: str, presented: str) -> bool | None:
     """Does `presented` match the stored secret for (agent, path)?
 

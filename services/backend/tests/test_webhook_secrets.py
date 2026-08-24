@@ -196,6 +196,22 @@ async def test_mode_and_secret_survive_a_definition_update(admin_client, sf, hoo
            (before.agent, before.path, before.secret_hash)
 
 
+async def test_undeclaring_the_path_drops_its_secret(admin_client, sf, hooked):
+    """A secret outlives no path. Leaving the row behind would mean
+    re-declaring the path later silently re-arms a credential nobody can see."""
+    await admin_client.put("/api/agents/hello-world/webhooks/hello-world/secret",
+                           json={"secret": SECRET})
+    r = await admin_client.put("/api/agents/hello-world",
+                               json=a_def("hello-world", entrypoints=ep()))
+    assert r.status_code == 200
+    assert await rows(sf) == []
+    # ...and bringing it back starts from nothing, not from the old secret.
+    r = await admin_client.put("/api/agents/hello-world",
+                               json=a_def("hello-world", entrypoints=ep("hello-world")))
+    assert r.json()["entrypoints"]["webhooks"][0]["secret_set"] is False
+    assert await rows(sf) == []
+
+
 async def test_deleting_the_agent_cleans_its_hashes(admin_client, sf, hooked):
     await admin_client.put("/api/agents/hello-world/webhooks/hello-world/secret",
                            json={"secret": SECRET})

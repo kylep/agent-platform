@@ -304,6 +304,17 @@ async def _annotated(session, row: AgentDef) -> dict:
                               await webhooksecrets.paths_with_secrets(session, row.name))
 
 
+async def _prune_webhook_secrets(session, model: AgentDefModel) -> None:
+    """After a definition lands, drop secrets for paths it no longer declares.
+
+    A secret is scoped to a path; removing the path removes the thing the
+    secret guards, and keeping the row would mean re-declaring that path later
+    silently re-arms a credential nobody can see (docs/design/16)."""
+    from agentplatform import webhooksecrets
+    await webhooksecrets.prune_undeclared(
+        session, model.name, {w.path for w in model.entrypoints.webhooks})
+
+
 def _value(model: AgentDefModel, field: str):
     """One definition field as it is stored/compared — nested models flattened
     to plain JSON, which is what the column holds."""
@@ -522,6 +533,7 @@ async def update_agent(request: Request, name: str, body: AgentDefIn,
         _apply(row, model)
         async with _conflict_as_409(s):
             await s.flush()
+            await _prune_webhook_secrets(s, model)
             await _log_version(s, row, changed_by=scope.principal,
                                changed_via=scope.changed_via(grants=bool(grants)))
             await s.commit()
@@ -699,12 +711,16 @@ async def rollback_agent(request: Request, name: str, version: int,
         except ValidationError as e:
             raise HTTPException(422, f"version {version} is no longer a valid "
                                      f"definition: {e}")
-        problems = validate_def(model_of(row), **_registries(request))
+        restored = model_of(row)
+        problems = validate_def(restored, **_registries(request))
         if problems:
             raise HTTPException(422, f"version {version} references things the "
                                      f"repo no longer ships: {'; '.join(problems)}")
         async with _conflict_as_409(s):
             await s.flush()
+            # The MODE is restorable; the secret never was. A rolled-back
+            # definition that drops a path drops its secret with it.
+            await _prune_webhook_secrets(s, restored)
             await _log_version(s, row, changed_by=principal, changed_via="rollback")
             await s.commit()
         out = await _annotated(s, row)
@@ -743,6 +759,7 @@ async def import_agents(request: Request, body: list[AgentCreateIn],
                     continue
                 _apply(row, model)
                 await s.flush()
+                await _prune_webhook_secrets(s, model)
                 await _log_version(s, row, changed_by=principal, changed_via="import")
                 results.append({"name": model.name, "status": status})
             await s.commit()
