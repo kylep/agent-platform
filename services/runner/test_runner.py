@@ -218,6 +218,7 @@ def _fetch_env(monkeypatch, tmp_path):
 
 def _payload(**over):
     d = {"name": "newsy", "prompt": "You are newsy.\n",
+         "description": "Gathers the day's news.",
          "harness_tools": ["WebSearch", "WebFetch"],
          "platform_tools": ["mcp__platform__memory"], "skills": [], "model": ""}
     d.update(over)
@@ -235,8 +236,53 @@ def test_install_agent_writes_the_fetched_definition(tmp_path, monkeypatch):
     assert seen == {"method": "GET", "path": "/api/runs/RID/agentdef"}
     assert (tmp_path / ".claude" / "agents" / "newsy.md").read_text() == (
         "---\nname: newsy\n"
+        'description: "Gathers the day\'s news."\n'
         "tools: WebSearch, WebFetch, mcp__platform__memory\n"
         "---\n\nYou are newsy.\n")
+    assert runner._agent_tools("newsy") == ["WebSearch", "WebFetch",
+                                            "mcp__platform__memory"]
+
+
+def test_rendered_frontmatter_carries_the_fields_the_cli_requires(tmp_path, monkeypatch):
+    """`name` and `description` are the CLI's REQUIRED frontmatter fields: a
+    subagent file with a name and no description is skipped, and the run then
+    dies on `--agent '<name>' not found`. That is how this was found in
+    production, so both fields are pinned here — a payload change that stops
+    delivering one has to fail in a test, not in a pod."""
+    _fetch_env(monkeypatch, tmp_path)
+    monkeypatch.setattr(runner, "_api_req", lambda m, p, body=None: _payload())
+    runner._install_agent("newsy")
+    front = (tmp_path / ".claude" / "agents" / "newsy.md").read_text().split("---")[1]
+    keys = [ln.split(":", 1)[0] for ln in front.strip().splitlines()]
+    assert "name" in keys and "description" in keys
+
+
+def test_a_blank_description_still_renders_a_populated_line(tmp_path, monkeypatch):
+    """An agent row's description column defaults to "", and the CLI only
+    promises to load a file whose description is THERE — `description:` with
+    nothing after it is YAML null, which is the case that was skipped. So a
+    blank one becomes a fallback naming the agent rather than an empty line."""
+    _fetch_env(monkeypatch, tmp_path)
+    monkeypatch.setattr(runner, "_api_req", lambda m, p, body=None:
+                        _payload(description=""))
+    runner._install_agent("newsy")
+    text = (tmp_path / ".claude" / "agents" / "newsy.md").read_text()
+    assert '\ndescription: "The newsy agent."\n' in text
+
+
+def test_a_multiline_description_cannot_corrupt_the_frontmatter(tmp_path, monkeypatch):
+    """The description is one frontmatter LINE. A raw newline in it would end
+    the scalar and turn the rest of the row's prose into bogus YAML keys, so
+    the value collapses to its first line and is quoted."""
+    _fetch_env(monkeypatch, tmp_path)
+    monkeypatch.setattr(runner, "_api_req", lambda m, p, body=None: _payload(
+        description='Reads "the news".\ntools: Bash\nnot: frontmatter'))
+    runner._install_agent("newsy")
+    text = (tmp_path / ".claude" / "agents" / "newsy.md").read_text()
+    front = text.split("---")[1]
+    assert front.count("\ndescription:") == 1
+    assert "not: frontmatter" not in front
+    assert front.count("tools:") == 1                 # the grant line, not the prose
     assert runner._agent_tools("newsy") == ["WebSearch", "WebFetch",
                                             "mcp__platform__memory"]
 

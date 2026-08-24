@@ -37,6 +37,7 @@ async def test_serves_the_definition_the_pod_must_materialize(client, sf, seed_a
     primed and the test never reloads it — the endpoint has to, or an agent
     created moments before its first run would 404."""
     await seed_agent("newsy", prompt="You are newsy.\n", model="sonnet",
+                     description="Gathers the day's news.",
                      harness_tools=["WebSearch", "WebFetch"],
                      platform_tools=["mcp__platform__memory"],
                      skills=["git"], secrets=["github-token"])
@@ -45,9 +46,23 @@ async def test_serves_the_definition_the_pod_must_materialize(client, sf, seed_a
     r = await client.get(f"/api/runs/{rid}/agentdef", headers=_auth(tok))
     assert r.status_code == 200
     assert r.json() == {"name": "newsy", "prompt": "You are newsy.\n",
+                        "description": "Gathers the day's news.",
                         "harness_tools": ["WebSearch", "WebFetch"],
                         "platform_tools": ["mcp__platform__memory"],
                         "skills": ["git"], "model": "sonnet"}
+
+
+async def test_the_description_is_served_because_the_cli_requires_it(
+        client, sf, seed_agent):
+    """`name` and `description` are the CLI's required frontmatter fields, and a
+    subagent file carrying only a name is skipped — `claude --agent <name>`
+    then reports the agent as NOT FOUND. Dropping the description from this
+    payload is therefore a broken run, not a cosmetic omission (found live)."""
+    await seed_agent("descy", prompt="x", description="Does the descy thing.")
+    rid = await _run(sf, "descy")
+    tok = await _session_key(sf, rid, "descy")
+    body = (await client.get(f"/api/runs/{rid}/agentdef", headers=_auth(tok))).json()
+    assert body["description"] == "Does the descy thing."
 
 
 async def test_ungranted_agent_carries_empty_lists(client, sf, seed_agent):
@@ -59,6 +74,9 @@ async def test_ungranted_agent_carries_empty_lists(client, sf, seed_agent):
     body = (await client.get(f"/api/runs/{rid}/agentdef", headers=_auth(tok))).json()
     assert body["harness_tools"] == [] and body["platform_tools"] == []
     assert body["model"] == "" and body["skills"] == []
+    # An undescribed row serves the schema default; the RUNNER is what must
+    # never emit a blank `description:` (see its own suite).
+    assert body["description"] == ""
 
 
 async def test_another_runs_token_is_forbidden(client, sf):

@@ -201,9 +201,38 @@ def _agentdef() -> tuple[dict | None, str]:
     return d, ""
 
 
+def _agent_description(d: dict) -> str:
+    """The frontmatter `description:` value for a fetched definition — always a
+    non-empty ONE-LINE string.
+
+    `name` and `description` are the only frontmatter fields the CLI requires,
+    and a file with a name but no description is SKIPPED: the agent then shows
+    up as "not found ... Available agents: <built-ins>", which is exactly how
+    this was found in production.
+
+    So the value is never allowed to be missing OR blank. A blank one is
+    treated as absent here on purpose: the docs only promise that a present,
+    populated description loads the file, and `description:` with nothing after
+    it is YAML null — indistinguishable from the field being gone. An agent row
+    whose description column is the schema default "" would otherwise fail the
+    same way the missing field did. The fallback names the agent, which is all
+    the description can usefully say when the row says nothing.
+
+    Multi-line descriptions collapse to their first non-empty line: the whole
+    value goes into a single frontmatter line, and a raw newline there would
+    end the scalar and corrupt the block. `json.dumps` supplies the quoting —
+    a JSON string is a valid YAML double-quoted scalar, so colons, quotes and
+    backslashes in the text stay inside the value."""
+    text = d.get("description") or ""
+    first = next((ln.strip() for ln in str(text).splitlines() if ln.strip()), "")
+    return json.dumps(first or f"The {d['name']} agent.")
+
+
 def _render_agent_md(d: dict) -> str:
     """A fetched definition as the file `claude --agent` reads: frontmatter
-    naming the agent and its granted tools, then the prompt as the body.
+    naming and describing the agent plus its granted tools, then the prompt as
+    the body. Name and description are the CLI's required fields — see
+    `_agent_description` for why the description is never left off.
 
     The `tools:` line is deliberately the SAME shape the git-synced agent.md
     carried, because `_agent_tools` parses it back out for --allowedTools — the
@@ -219,7 +248,7 @@ def _render_agent_md(d: dict) -> str:
     tools = [t for t in (*(d.get("harness_tools") or []),
                          *(d.get("platform_tools") or []))
              if isinstance(t, str) and re.fullmatch(r"[A-Za-z0-9_]+", t)]
-    front = [f"name: {d['name']}"]
+    front = [f"name: {d['name']}", f"description: {_agent_description(d)}"]
     if tools:
         front.append("tools: " + ", ".join(tools))
     return "---\n" + "\n".join(front) + "\n---\n\n" + (d.get("prompt") or "")

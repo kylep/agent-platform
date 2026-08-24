@@ -207,6 +207,7 @@ async def test_a_rows_grants_survive_the_launcher_the_api_and_the_runner(
     # tool it must NOT end up being allowed.
     async with sf() as s:
         s.add(AgentDef(name="newsy", prompt="You are newsy.\n", model="sonnet",
+                       description="Gathers the day's news.",
                        harness_tools=["WebSearch", "WebFetch", "Bash"],
                        platform_tools=[MEMORY], skills=["git"],
                        entrypoints={"crons": [{"schedule": "0 9 * * *",
@@ -279,9 +280,12 @@ async def test_a_rows_grants_survive_the_launcher_the_api_and_the_runner(
 
     installed, args = await asyncio.to_thread(_pod_side)
 
-    # The rendered file is the row: its grants, in the row's order, and nothing
-    # the payload carries that is not a grant.
+    # The rendered file is the row: its identity (the CLI's required `name` and
+    # `description` — without the latter it skips the file and the run dies on
+    # "agent not found"), its grants in the row's order, and nothing the
+    # payload carries that is not one of those.
     assert installed == ("---\nname: newsy\n"
+                         'description: "Gathers the day\'s news."\n'
                          f"tools: WebSearch, WebFetch, Bash, {MEMORY}\n"
                          "---\n\nYou are newsy.\n")
     deny_at = args.index("--disallowedTools")
@@ -358,7 +362,8 @@ def test_the_agentdef_payload_and_the_renderer_agree_on_field_names():
     Each key is checked by removing it and requiring the rendering to change —
     a name the renderer does not actually read cannot pass."""
     from agentplatform.api.runs import RunAgentDef
-    payload = {"name": "x", "prompt": "p", "harness_tools": ["WebFetch"],
+    payload = {"name": "x", "prompt": "p", "description": "d",
+               "harness_tools": ["WebFetch"],
                "platform_tools": [MEMORY], "skills": ["git"], "model": "sonnet"}
     assert set(RunAgentDef.model_fields) == set(payload)
 
@@ -371,7 +376,8 @@ def test_the_agentdef_payload_and_the_renderer_agree_on_field_names():
                                             if k != field})
         except KeyError:
             return "<required>"          # read, and not optional
-    for field in ("name", "prompt", "harness_tools", "platform_tools"):
+    for field in ("name", "prompt", "description", "harness_tools",
+                  "platform_tools"):
         assert without(field) != full, field
     # `skills` and `model` ride along for the "what is this pod running" view;
     # they are the launcher's to deliver (AP_SKILLS / the CLI flag), so the

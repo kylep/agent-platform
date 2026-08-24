@@ -30,9 +30,15 @@ class RunAgentDef(BaseModel):
     Not the full row: only what the pod materializes into
     `~/.claude/agents/<name>.md` and derives its permission flags from. The two
     grant lists are EXPLICIT — an empty list means no tools, never "everything"
-    — because the runner turns them straight into the file's `tools:` line."""
+    — because the runner turns them straight into the file's `tools:` line.
+
+    `description` is here because the CLI requires it: a subagent file carrying
+    a `name` but no `description` is SKIPPED (silently, bar a debug-log line),
+    and `claude --agent <name>` then reports the agent as not found. It is the
+    row's description, not decoration."""
     name: str
     prompt: str
+    description: str = ""
     harness_tools: list[str] = []
     platform_tools: list[str] = []
     skills: list[str] = []
@@ -214,6 +220,7 @@ async def get_agentdef(run_id: str, request: Request):
     # a pod exists, so this is belt-and-braces rather than a live path.
     m = info.manifest
     return RunAgentDef(name=info.name, prompt=info.agent_md,
+                       description=m.description if m else "",
                        harness_tools=info.harness_tools,
                        platform_tools=info.platform_tools,
                        skills=list(m.skills) if m else [],

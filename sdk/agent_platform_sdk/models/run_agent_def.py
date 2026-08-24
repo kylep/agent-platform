@@ -21,9 +21,15 @@ class RunAgentDef:
     grant lists are EXPLICIT — an empty list means no tools, never "everything"
     — because the runner turns them straight into the file's `tools:` line.
 
+    `description` is here because the CLI requires it: a subagent file carrying
+    a `name` but no `description` is SKIPPED (silently, bar a debug-log line),
+    and `claude --agent <name>` then reports the agent as not found. It is the
+    row's description, not decoration.
+
         Attributes:
             name (str):
             prompt (str):
+            description (str | Unset):  Default: ''.
             harness_tools (list[str] | Unset):
             model (str | Unset):  Default: ''.
             platform_tools (list[str] | Unset):
@@ -32,6 +38,7 @@ class RunAgentDef:
 
     name: str
     prompt: str
+    description: str | Unset = ""
     harness_tools: list[str] | Unset = UNSET
     model: str | Unset = ""
     platform_tools: list[str] | Unset = UNSET
@@ -42,6 +49,8 @@ class RunAgentDef:
         name = self.name
 
         prompt = self.prompt
+
+        description = self.description
 
         harness_tools: list[str] | Unset = UNSET
         if not isinstance(self.harness_tools, Unset):
@@ -65,6 +74,8 @@ class RunAgentDef:
                 "prompt": prompt,
             }
         )
+        if description is not UNSET:
+            field_dict["description"] = description
         if harness_tools is not UNSET:
             field_dict["harness_tools"] = harness_tools
         if model is not UNSET:
@@ -83,6 +94,8 @@ class RunAgentDef:
 
         prompt = d.pop("prompt")
 
+        description = d.pop("description", UNSET)
+
         harness_tools = cast(list[str], d.pop("harness_tools", UNSET))
 
         model = d.pop("model", UNSET)
@@ -94,6 +107,7 @@ class RunAgentDef:
         run_agent_def = cls(
             name=name,
             prompt=prompt,
+            description=description,
             harness_tools=harness_tools,
             model=model,
             platform_tools=platform_tools,
