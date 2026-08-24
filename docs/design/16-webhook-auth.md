@@ -33,6 +33,10 @@ resurrect rotated secrets. Instead:
   (503-style detail naming the misconfiguration) rather than falling open.
 - Rollback restores the MODE only. Rolling back to `secret` with no live hash
   is the fail-closed case above until a new secret is set.
+- A secret outlives no path. Deleting the agent, or any definition write that
+  stops declaring a path, drops that path's row — otherwise re-declaring it
+  later would silently re-arm a credential nobody can see, which is the same
+  resurrection this whole section exists to prevent.
 
 ## API
 
@@ -42,8 +46,14 @@ resurrect rotated secrets. Instead:
 - `GET /api/agents/{name}` webhook entries gain `secret_set: bool` (derived,
   not stored on the def) so the UI can show state without the value.
 - Ingress order: resolve path → owning agent (cross-agent uniqueness enforced
-  at write since design-15's final wave) → enabled/quarantine checks as today →
-  auth: platform key passes as today; else `secret` mode compares the header.
+  at write since design-15's final wave) → auth (platform key passes as today;
+  else `secret` mode compares the header) → enabled/quarantine checks as today.
+
+  Auth runs BEFORE the state checks, and the path resolution that has to
+  precede it is not allowed to leak: an unauthenticated caller gets the same
+  401 whether or not the path exists, so the endpoint doesn't become a
+  directory of declared webhooks. Only an already-authenticated caller sees
+  404 / 409.
 
 ## UI
 
