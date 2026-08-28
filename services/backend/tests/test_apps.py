@@ -1,5 +1,6 @@
 """Apps: the app.yaml contract, the provisioner, the registry API
 (docs/design/11)."""
+import httpx
 import pytest
 from sqlalchemy import select
 
@@ -109,3 +110,35 @@ async def test_query_app_rejects_traversal(admin_client):
     from agentplatform.api.apps import _path_ok
     assert not _path_ok("a/../b") and not _path_ok("/abs") and not _path_ok("a\x00b")
     assert _path_ok("items") and _path_ok("calendar")
+
+
+async def test_query_app_forwards_params(admin_client, monkeypatch):
+    """The proxy accepts the app endpoint's query two ways: loose query params
+    (what the broker sends) and a JSON `params` object (what OpenAPI-derived
+    clients like the external facade can express). Both reach the app."""
+    import json as _json
+    from agentplatform.api import apps as apps_mod
+    captured = []
+
+    async def upstream(request):
+        captured.append(str(request.url))
+        return httpx.Response(200, json=[])
+
+    real = apps_mod.httpx.AsyncClient
+
+    def fake_client(**kw):
+        kw.pop("base_url", None)
+        return real(transport=httpx.MockTransport(upstream), base_url="http://up", **kw)
+
+    monkeypatch.setattr(apps_mod.httpx, "AsyncClient", fake_client)
+    r = await admin_client.get("/api/apps/news/query/items",
+                               params={"params": _json.dumps({"q": "postgres", "limit": 5})})
+    assert r.status_code == 200
+    assert captured[-1] == "http://up/apps/news/api/items?q=postgres&limit=5"
+    r = await admin_client.get("/api/apps/news/query/items", params={"topic": "security"})
+    assert r.status_code == 200
+    assert captured[-1] == "http://up/apps/news/api/items?topic=security"
+    r = await admin_client.get("/api/apps/news/query/items", params={"params": "[1,2]"})
+    assert r.status_code == 400
+    r = await admin_client.get("/api/apps/news/query/items", params={"params": "{nope"})
+    assert r.status_code == 400

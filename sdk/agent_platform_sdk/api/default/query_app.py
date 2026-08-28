@@ -7,13 +7,26 @@ import httpx
 from ... import errors
 from ...client import AuthenticatedClient, Client
 from ...models.http_validation_error import HTTPValidationError
-from ...types import Response
+from ...types import UNSET, Response, Unset
 
 
 def _get_kwargs(
     name: str,
     path: str,
+    *,
+    params: None | str | Unset = UNSET,
 ) -> dict[str, Any]:
+
+    params: dict[str, Any] = {}
+
+    json_params: None | str | Unset
+    if isinstance(params, Unset):
+        json_params = UNSET
+    else:
+        json_params = params
+    params["params"] = json_params
+
+    params = {k: v for k, v in params.items() if v is not UNSET and v is not None}
 
     _kwargs: dict[str, Any] = {
         "method": "get",
@@ -21,6 +34,7 @@ def _get_kwargs(
             name=quote(str(name), safe=""),
             path=quote(str(path), safe=""),
         ),
+        "params": params,
     }
 
     return _kwargs
@@ -60,6 +74,7 @@ def sync_detailed(
     path: str,
     *,
     client: AuthenticatedClient | Client,
+    params: None | str | Unset = UNSET,
 ) -> Response[Any | HTTPValidationError]:
     """Query App
 
@@ -71,6 +86,8 @@ def sync_detailed(
     Args:
         name (str):
         path (str):
+        params (None | str | Unset): JSON object of query parameters for the app endpoint, e.g.
+            {"topic": "security", "limit": 20}
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -83,6 +100,7 @@ def sync_detailed(
     kwargs = _get_kwargs(
         name=name,
         path=path,
+        params=params,
     )
 
     response = client.get_httpx_client().request(
@@ -97,6 +115,7 @@ def sync(
     path: str,
     *,
     client: AuthenticatedClient | Client,
+    params: None | str | Unset = UNSET,
 ) -> Any | HTTPValidationError | None:
     """Query App
 
@@ -108,6 +127,8 @@ def sync(
     Args:
         name (str):
         path (str):
+        params (None | str | Unset): JSON object of query parameters for the app endpoint, e.g.
+            {"topic": "security", "limit": 20}
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -121,6 +142,7 @@ def sync(
         name=name,
         path=path,
         client=client,
+        params=params,
     ).parsed
 
 
@@ -129,6 +151,7 @@ async def asyncio_detailed(
     path: str,
     *,
     client: AuthenticatedClient | Client,
+    params: None | str | Unset = UNSET,
 ) -> Response[Any | HTTPValidationError]:
     """Query App
 
@@ -140,6 +163,8 @@ async def asyncio_detailed(
     Args:
         name (str):
         path (str):
+        params (None | str | Unset): JSON object of query parameters for the app endpoint, e.g.
+            {"topic": "security", "limit": 20}
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -152,6 +177,7 @@ async def asyncio_detailed(
     kwargs = _get_kwargs(
         name=name,
         path=path,
+        params=params,
     )
 
     response = await client.get_async_httpx_client().request(**kwargs)
@@ -164,6 +190,7 @@ async def asyncio(
     path: str,
     *,
     client: AuthenticatedClient | Client,
+    params: None | str | Unset = UNSET,
 ) -> Any | HTTPValidationError | None:
     """Query App
 
@@ -175,6 +202,8 @@ async def asyncio(
     Args:
         name (str):
         path (str):
+        params (None | str | Unset): JSON object of query parameters for the app endpoint, e.g.
+            {"topic": "security", "limit": 20}
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -189,5 +218,6 @@ async def asyncio(
             name=name,
             path=path,
             client=client,
+            params=params,
         )
     ).parsed

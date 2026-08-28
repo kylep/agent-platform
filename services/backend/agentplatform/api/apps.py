@@ -4,8 +4,10 @@ its Deployment is live. Apps serve their own UI/API behind /apps/<name>/ —
 this router also provides the nginx auth_request endpoint that session-guards
 those routes without the app ever seeing credentials, and a read-only proxy
 so shell-less agents can query app APIs through the MCP broker."""
+import json
+
 import httpx
-from fastapi import APIRouter, Depends, HTTPException, Request, Response
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 
 from agentplatform.api import schemas as S
 from agentplatform.api.auth import READ_ROLES, authenticate, require_role
@@ -66,8 +68,29 @@ def _path_ok(path: str) -> bool:
                                or any(ord(ch) < 0x20 for ch in path))
 
 
+def _upstream_params(request: Request, params: str | None) -> dict[str, str]:
+    """The app endpoint's query: every loose query param the caller sent
+    (the broker's shape), plus the JSON `params` object if given (the shape an
+    OpenAPI-derived client can express — a schema can name `params`, but not
+    "any query key the app happens to accept")."""
+    out = {k: v for k, v in request.query_params.items() if k != "params"}
+    if params:
+        try:
+            extra = json.loads(params)
+        except ValueError:
+            raise HTTPException(400, "params must be a JSON object")
+        if not isinstance(extra, dict) or not all(
+                isinstance(v, (str, int, float, bool)) for v in extra.values()):
+            raise HTTPException(400, "params must be a JSON object of scalar values")
+        out.update({str(k): str(v) for k, v in extra.items()})
+    return out
+
+
 @router.get("/api/apps/{name}/query/{path:path}")
 async def query_app(request: Request, name: str, path: str,
+                    params: str | None = Query(
+                        None, description="JSON object of query parameters for the "
+                        "app endpoint, e.g. {\"topic\": \"security\", \"limit\": 20}"),
                     principal: str = Depends(require_role(*READ_ROLES))):
     """Read-only proxy into an app's API, for agents that (correctly) have no
     shell: the MCP broker exposes this as a tool, the caller's own token
@@ -78,6 +101,7 @@ async def query_app(request: Request, name: str, path: str,
     # backslashes, control chars).
     if not _path_ok(path):
         raise HTTPException(400, "invalid path")
+    upstream_params = _upstream_params(request, params)
     reg = request.app.state.app_registry
     reg.reload()
     info = reg.get(name)
@@ -90,7 +114,7 @@ async def query_app(request: Request, name: str, path: str,
     try:
         async with httpx.AsyncClient(base_url=upstream, timeout=20) as c:
             r = await c.get(f"/apps/{name}/api/{path}",
-                            params=dict(request.query_params),
+                            params=upstream_params,
                             headers={"X-AP-User": agent or principal, "X-AP-Role": role})
     except httpx.HTTPError as e:
         raise HTTPException(502, f"app `{name}` unreachable: {e}")
