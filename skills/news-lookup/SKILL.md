@@ -17,7 +17,7 @@ You have **no shell**. Query with your `mcp__platform__query_app` tool:
 |---|---|---|
 | `summary` | — | totals + `latest_day` (start here for relative dates) |
 | `topics` | — | topics with counts + 14-day trend |
-| `items` | `day` \| `topic` \| `q` \| `day_from`+`day_to` \| `limit`/`offset` | stories: title, url, source, summary, topic, day |
+| `items` | `day` \| `topic` \| `q` \| `day_from`+`day_to` \| `limit`/`offset` | stories: title, url, source, summary, topic, day, published (the story's own date; null on rows archived before the freshness gates) |
 | `calendar` | `month` = `YYYY-MM` | per-day volume for a month |
 
 Examples:

@@ -37,6 +37,7 @@ class ItemView(BaseModel):
     topic_label: str
     color: int
     day: str
+    published: str | None
     run_id: str | None
 
 
@@ -135,5 +136,6 @@ async def items(request: Request, day: str | None = None, topic: str | None = No
         rows = (await s.execute(stmt.limit(min(limit, 500)).offset(offset))).all()
     return [{"id": i.id, "title": i.title, "url": i.url, "source": i.source,
              "summary": i.summary, "topic": t.slug, "topic_label": t.label,
-             "color": t.color, "day": i.day, "run_id": i.run_id}
+             "color": t.color, "day": i.day, "published": i.published,
+             "run_id": i.run_id}
             for i, t in rows]

@@ -209,3 +209,6 @@ hardening milestone.
 | [13](13-workload-identity.md) | Workload identity | Projected SA tokens, SPIRE mTLS, run JWTs, principals, tool audit |
 | [14](14-conversation-session-resume.md) | Conversation session resume | Stateful session resume instead of stateless full-transcript replay |
 | [15](15-db-first-agents.md) | DB-first agents | Agent identity moves from git to Postgres rows; `agents_edit`/`agents_grant` RBAC tools; per-agent change log replaces the PR record |
+| [16](16-webhook-auth.md) | Webhook auth | Per-path webhook secrets, uniform-401 anti-enumeration |
+| [17](17-external-mcp-facade.md) | External MCP facade | The platform API as MCP tools for outside clients, generated from OpenAPI |
+| [18](18-news-freshness.md) | News freshness | Why the digest posted old news; per-item `published` + deterministic gates (stale/undated/hub/repeat) as rejected events; `params` on the app query proxy |

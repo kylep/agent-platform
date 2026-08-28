@@ -124,4 +124,7 @@ already-shared. Records prune after `news_retention_days` (14).
   (`Bash`/`Read`/etc. self-edit-only regardless of the manifest) remains the
   first line. See [09](09-token-brokering.md).
 
-See also the dated spec: `docs/superpowers/specs/2026-07-29-news-privilege-separation-design.md`.
+See also the dated spec: `docs/superpowers/specs/2026-07-29-news-privilege-separation-design.md`,
+and [18](18-news-freshness.md) for the freshness gates added after the
+digest kept re-posting stale stories (the privilege split held; the dates
+did not).

@@ -45,6 +45,9 @@ class Item(Base):
     summary: Mapped[str] = mapped_column(Text, default="")
     topic_id: Mapped[int] = mapped_column(ForeignKey("topics.id"), index=True)
     day: Mapped[str] = mapped_column(String(10), index=True)   # YYYY-MM-DD
+    # The story's own publication date as the gatherer reported it (gated on
+    # ingest — see ingest.py). NULL only on rows archived before the gate.
+    published: Mapped[str | None] = mapped_column(String(10), nullable=True)
     run_id: Mapped[str | None] = mapped_column(String(32), nullable=True)
     dedup_hash: Mapped[str] = mapped_column(String(512), unique=True)
     raw: Mapped[dict] = mapped_column(JSON, default=dict)
@@ -63,6 +66,26 @@ def make_session_factory(engine):
     return async_sessionmaker(engine, expire_on_commit=False)
 
 
+def _ensure_columns(conn) -> None:
+    """Minimal additive migration: create_all makes missing *tables* but never
+    adds *columns* to an existing one. Add any model column missing from a
+    live table. The inspector ignores schema_translate_map, so the physical
+    schema (app_news on postgres) is resolved by hand here."""
+    from sqlalchemy import inspect as sa_inspect
+    insp = sa_inspect(conn)
+    schema = "app_news" if conn.dialect.name == "postgresql" else None
+    for table in Base.metadata.sorted_tables:
+        if not insp.has_table(table.name, schema=schema):
+            continue
+        existing = {c["name"] for c in insp.get_columns(table.name, schema=schema)}
+        for col in table.columns:
+            if col.name not in existing:
+                ddl = col.type.compile(dialect=conn.dialect)
+                qualified = f"{schema}.{table.name}" if schema else table.name
+                conn.exec_driver_sql(f"ALTER TABLE {qualified} ADD COLUMN {col.name} {ddl}")
+
+
 async def init_db(engine) -> None:
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        await conn.run_sync(_ensure_columns)

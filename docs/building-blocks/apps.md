@@ -2,9 +2,11 @@
 
 **What:** full applications built ON the platform — their own APIs and web
 UIs, their own data, driven by agents (`docs/design/11-apps-and-reports.md`). The news app is the
-reference: it consumes the news agent's digests, owns the archive + dedup,
-posts the Discord digest, writes the daily-news report, and serves a browser
-at `/apps/news/`. The **stockmarket** app is the second: it owns the price
+reference: it consumes the news agent's digests, owns the archive + dedup
+and the freshness gates (`docs/design/18-news-freshness.md` — undated,
+stale, hub-URL and re-worded-repeat stories are rejected as
+`app.news.item.rejected` events, never posted), posts the Discord digest,
+writes the daily-news report, and serves a browser at `/apps/news/`. The **stockmarket** app is the second: it owns the price
 archive, charts the indexes and your watchlist at `/apps/stockmarket/`, and
 ingests the weekday market brief the same way.
 
