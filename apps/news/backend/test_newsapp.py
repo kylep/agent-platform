@@ -331,3 +331,20 @@ async def test_render_daily_report_is_kit_markup(sf):
     async with sf() as s:
         pass
     assert "<script" not in body
+
+
+async def test_handle_still_posts_when_rejected_events_fail(sf):
+    """Observability must never cost the digest: a rejected-event publish
+    failure (topic missing, broker hiccup) is logged and the post goes out."""
+    class _Flaky(_Producer):
+        async def send_and_wait(self, topic, value):
+            if topic == TOPIC_REJECTED:
+                raise RuntimeError("UnknownTopicOrPartitionError")
+            await super().send_and_wait(topic, value)
+    loop = IngestLoop(sf, "kafka:9092")
+    producer = _Flaky()
+    await loop.handle(producer, json.dumps({"result": _digest(
+        "2026-08-28",
+        _item("Fresh", "https://d.com/2026/08/28/y", published="2026-08-28"),
+        _item("Old", "https://a.com/2026/05/08/z", published="2026-05-08"))}).encode())
+    assert [t for t, _ in producer.sent] == [TOPIC_INGESTED, TOPIC_CHANNEL_POST]

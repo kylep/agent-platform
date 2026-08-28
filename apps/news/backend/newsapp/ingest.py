@@ -155,11 +155,16 @@ class IngestLoop:
         res = await ingest_digest(self.sf, data.get("result"), run_id)
         for it, reason in res.rejected:
             url = dg.norm_url(it["url"])
-            await producer.send_and_wait(
-                TOPIC_REJECTED, _envelope("news.item.rejected", url, {
-                    "day": res.day, "headline": dg.sanitize(it.get("headline", "")),
-                    "url": url, "published": it.get("published"),
-                    "reason": reason, "run_id": run_id}))
+            try:
+                await producer.send_and_wait(
+                    TOPIC_REJECTED, _envelope("news.item.rejected", url, {
+                        "day": res.day, "headline": dg.sanitize(it.get("headline", "")),
+                        "url": url, "published": it.get("published"),
+                        "reason": reason, "run_id": run_id}))
+            except Exception:
+                # Observability must never cost the digest: the rejection is
+                # already in the log line below; the post still goes out.
+                log.exception("rejected-event publish failed (%s)", reason)
         if res.rejected:
             log.info("rejected %d items for %s: %s", len(res.rejected), res.day,
                      res.counts())
