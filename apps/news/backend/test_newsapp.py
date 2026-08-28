@@ -348,3 +348,21 @@ async def test_handle_still_posts_when_rejected_events_fail(sf):
         _item("Fresh", "https://d.com/2026/08/28/y", published="2026-08-28"),
         _item("Old", "https://a.com/2026/05/08/z", published="2026-05-08"))}).encode())
     assert [t for t, _ in producer.sent] == [TOPIC_INGESTED, TOPIC_CHANNEL_POST]
+
+
+async def test_weather_is_daily_not_deduped_by_url(sf):
+    """The forecast lives at one stable URL and is new every day; URL and
+    story dedup would post it exactly once, ever (as the archive proved)."""
+    url = "https://weather.gc.ca/en/location/index.html?coords=43.898%2C-78.939"
+    d1 = await ingest_digest(sf, _digest(
+        "2026-08-27", _item("Whitby/Toronto forecast: sunny, high 22", url,
+                            published="2026-08-27", section="Weather")))
+    d2 = await ingest_digest(sf, _digest(
+        "2026-08-28", _item("Whitby/Toronto forecast: sunny, high 24", url,
+                            published="2026-08-28", section="Weather")))
+    assert len(d1.new) == 1 and len(d2.new) == 1 and d2.rejected == []
+    # but the same day's forecast twice is still one row
+    d2b = await ingest_digest(sf, _digest(
+        "2026-08-28", _item("Whitby/Toronto forecast: sunny, high 24", url,
+                            published="2026-08-28", section="Weather")))
+    assert d2b.new == [] and [r for _, r in d2b.rejected] == ["duplicate-url"]

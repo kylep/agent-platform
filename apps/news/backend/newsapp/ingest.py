@@ -98,6 +98,7 @@ async def ingest_digest(sf, result_text: str | None, run_id: str | None = None,
     res = IngestResult(day=day)
     async with sf() as s:
         hashes = [dg.norm_url(it["url"]) for it in items]
+        hashes += [f"{h}#{day}" for h in hashes]
         seen = set((await s.execute(
             select(Item.dedup_hash).where(Item.dedup_hash.in_(hashes)))).scalars())
         told = list((await s.execute(
@@ -106,7 +107,11 @@ async def ingest_digest(sf, result_text: str | None, run_id: str | None = None,
             h = dg.norm_url(it["url"])
             headline = dg.sanitize(it.get("headline", ""))[:512]
             published = dg.parse_day(it.get("published"))
-            if h in seen:                       # archived, or intra-batch dup
+            # The forecast is a daily item at one stable URL: its identity is
+            # (url, day), and yesterday's wording is not a repeat of today's.
+            daily = dg.is_daily_section(it.get("section", ""))
+            key = f"{h}#{day}" if daily else h
+            if key in seen:                     # archived, or intra-batch dup
                 reason = "duplicate-url"
             elif published is None:
                 reason = "undated"
@@ -114,14 +119,14 @@ async def ingest_digest(sf, result_text: str | None, run_id: str | None = None,
                 reason = "stale"
             elif dg.is_hub_url(h):
                 reason = "hub-url"
-            elif any(dg.same_story(headline, t) for t in told):
+            elif not daily and any(dg.same_story(headline, t) for t in told):
                 reason = "duplicate-story"
             else:
                 reason = None
             if reason is not None:
                 res.rejected.append((it, reason))
                 continue
-            seen.add(h)
+            seen.add(key)
             told.append(headline)
             topic = await get_or_create_topic(s, it.get("section", "") or "Other")
             from urllib.parse import urlsplit
@@ -133,7 +138,7 @@ async def ingest_digest(sf, result_text: str | None, run_id: str | None = None,
                        summary=dg.sanitize(it.get("why", "")),
                        topic_id=topic.id, day=day, run_id=run_id,
                        published=published.isoformat(),
-                       dedup_hash=h, raw=it))
+                       dedup_hash=key, raw=it))
             res.new.append(it)
         await s.commit()
     return res

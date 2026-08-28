@@ -25,6 +25,14 @@ SECTION_ORDER = ["AI industry", "AI tooling", "Open source", "Security",
 # Rejection reasons, in the order the Discord footer lists them.
 REASON_ORDER = ("stale", "undated", "hub-url", "duplicate-story", "duplicate-url")
 
+# Sections whose item is new every day at the same URL (the forecast):
+# dedup by (url, day) and skip the story-similarity check.
+DAILY_SECTIONS = {"weather"}
+
+
+def is_daily_section(section: str) -> bool:
+    return slugify(section) in DAILY_SECTIONS
+
 # Section label → topic slug. Anything unmapped slugifies as-is (auto-topic).
 def slugify(section: str) -> str:
     s = re.sub(r"[^a-z0-9]+", "-", str(section).lower()).strip("-")

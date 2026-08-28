@@ -72,6 +72,11 @@ reason:
 | `hub-url` | URL is a site section/landing page (root, or ≤2 plain-word path segments — real articles carry a slug or a date/id) or on the aggregator host list |
 | `duplicate-story` | headline is the same story as one archived in the last 7 days: shares a CVE id, or ≥2 identity tokens covering ≥50% of the shorter headline (overlap coefficient — robust to one side being wordier, which Jaccard is not; English function words and headline verbs like *launches/patches/confirms* are stripped first) |
 
+The Weather section is *daily by nature* — one stable Environment Canada
+URL, new content every day — so its dedup key is `(url, day)` and the
+story-similarity check is skipped for it (URL dedup had silently posted the
+forecast exactly once, ever).
+
 A rejection is data, not a failure: every one becomes an
 `app.news.item.rejected` Kafka event (`{day, headline, url, published,
 reason, run_id}`), the Discord digest carries a subtext footer
