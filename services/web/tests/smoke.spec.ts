@@ -143,3 +143,13 @@ test("run detail renders from a run row", async ({ page }) => {
   await page.getByRole("link", { name: /a1a1a1a1/ }).first().click();
   await expect(page.locator("body")).toContainText(/health-monitor/);
 });
+
+test("a failing-agent card says how stale the streak is and when it next runs", async ({ page }) => {
+  // A streak is history until the agent runs again. Without the age and the
+  // next fire, "2 in a row" after an outage reads as a live fire.
+  await mockApi(page);
+  await page.goto("/");
+  const card = page.locator(".attention-item", { hasText: "news failing" });
+  await expect(card).toContainText("2 in a row");
+  await expect(card).toContainText("last failed 6h ago");
+});

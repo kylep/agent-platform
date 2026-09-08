@@ -9,6 +9,7 @@ import { Chip, StatusChip } from "@ap/ui/chip";
 import { Stat, StatRow } from "@ap/ui/stat";
 import { Table, TD, TH } from "@ap/ui/table";
 import { cronTitle, isSingleExpression, useCronPreview } from "../lib/cron";
+import { ago } from "../lib/time";
 
 // One actionable item in the "Needs attention" panel.
 type Attn = { key: string; text: string; to: string; sev: "warn" | "bad" };
@@ -38,6 +39,9 @@ export default function Dashboard() {
   // `name` is null for an entrypoint cron — it has no name of its own.
   const [upcoming, setUpcoming] = useState<
     { agent: string; name: string | null; next: string | null; cron: string }[]>([]);
+  // Earliest next fire per agent across jobs + entrypoint crons: tells a
+  // failing-agent card when the streak gets its next chance to clear.
+  const [nextByAgent, setNextByAgent] = useState<Record<string, string>>({});
   const [loaded, setLoaded] = useState(false);
 
   function refresh() {
@@ -55,8 +59,11 @@ export default function Dashboard() {
       const rows = [
         ...jobs.filter((j) => j.enabled).map((j) => ({ agent: j.agent, name: j.name, next: j.next_fire, cron: j.cron })),
         ...scheds.filter((s) => s.enabled).map((s) => ({ agent: s.agent, name: null, next: s.next_fire, cron: s.cron })),
-      ].filter((r) => r.next).sort((a, b) => (a.next ?? "").localeCompare(b.next ?? "")).slice(0, 5);
-      setUpcoming(rows);
+      ].filter((r) => r.next).sort((a, b) => (a.next ?? "").localeCompare(b.next ?? ""));
+      setUpcoming(rows.slice(0, 5));
+      const next: Record<string, string> = {};
+      for (const r of rows) if (r.next && !(r.agent in next)) next[r.agent] = r.next;   // sorted → first is earliest
+      setNextByAgent(next);
     }).finally(() => setLoaded(true));
   }
 
@@ -79,8 +86,16 @@ export default function Dashboard() {
   for (const a of agentMetrics
     .filter((m) => m.failure_streak >= 2 && live.has(m.agent))
     .sort((a, b) => b.failure_streak - a.failure_streak)) {
+    // A streak is history until the next run: say when it last grew and when
+    // it next gets a chance to clear, so "7 in a row, last failed 6h ago, next
+    // run 9:00 am" is not mistaken for a live fire.
+    const parts = [`${a.agent} failing — ${a.failure_streak} in a row`];
+    const last = ago(a.last_failed_at);
+    if (last) parts.push(`last failed ${last}`);
+    const next = nextByAgent[a.agent];
+    if (next) parts.push(`next run ${new Date(next).toLocaleString()}`);
     attention.push({ key: `fail-${a.agent}`, sev: "bad", to: `/agents/${encodeURIComponent(a.agent)}?tab=report`,
-      text: `${a.agent} failing — ${a.failure_streak} in a row` });
+      text: parts.join(" · ") });
   }
   for (const a of agents.filter((x) => x.quarantined)) {
     attention.push({ key: `quar-${a.name}`, sev: "bad", to: `/agents/${encodeURIComponent(a.name)}`,

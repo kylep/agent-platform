@@ -484,6 +484,7 @@ class MetricsOverview(_Agg):
 class AgentMetrics(_Agg):
     agent: str
     failure_streak: int
+    last_failed_at: str | None = None
 
 
 class RunDurationPoint(BaseModel):

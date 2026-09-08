@@ -268,6 +268,7 @@ export type AgentMetrics = {
   succeeded: number;
   success_rate: number | null;
   failure_streak: number;
+  last_failed_at: string | null;   // newest terminal non-success; null if none
   tokens_in: number;
   tokens_out: number;
   tool_calls: number;

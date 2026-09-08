@@ -62,6 +62,15 @@ def _failure_streak(runs: list[Run]) -> int:
     return streak
 
 
+def _last_failure(runs: list[Run]):
+    """When the newest terminal non-success run was created, or None. Lets the
+    dashboard say how stale a failure streak is: a streak whose last failure
+    predates the fix is history, not a live problem."""
+    failed = [as_utc(r.created_at) for r in runs
+              if r.state not in ACTIVE_STATES and r.state != _SUCCESS and r.created_at]
+    return max(failed).isoformat() if failed else None
+
+
 async def _recent_runs(request: Request) -> list[Run]:
     async with request.app.state.session_factory() as s:
         return list((await s.execute(
@@ -143,6 +152,7 @@ async def per_agent(request: Request):
         row = _agg(agent_runs)
         row["agent"] = agent
         row["failure_streak"] = _failure_streak(agent_runs)
+        row["last_failed_at"] = _last_failure(agent_runs)
         rows.append(row)
     rows.sort(key=lambda r: r["total"], reverse=True)
     return rows

@@ -1,4 +1,4 @@
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 from agentplatform.db import Run, RunModelUsage, RunState, utcnow
 
@@ -87,6 +87,11 @@ async def test_per_agent_and_failure_streak(admin_client, sf):
     by = {r["agent"]: r for r in rows}
     assert by["echo"]["total"] == 3 and by["echo"]["failure_streak"] == 2
     assert by["hello"]["failure_streak"] == 0
+    # last_failed_at = the newest terminal non-success (the timed-out run), so the
+    # dashboard can say HOW LONG AGO a streak last grew; None when nothing failed.
+    assert by["echo"]["last_failed_at"] is not None
+    assert abs((utcnow() - datetime.fromisoformat(by["echo"]["last_failed_at"])).total_seconds() - 600) < 30
+    assert by["hello"]["last_failed_at"] is None
     # sorted by total desc → echo first
     assert rows[0]["agent"] == "echo"
 
