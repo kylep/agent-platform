@@ -207,7 +207,7 @@ dispatch subagents, verify their evidence, commit, and update this file.
 
 ### Phase 3 — the router
 
-- [ ] **T7 `RelayRouter` with all loop guards.**
+- [x] **T7 `RelayRouter` with all loop guards.** (commit `c5e76e5`; review fixed: tool posts carry run hop (cap bypass), DM turns owned by the facade from either endpoint, wakes survive budget suppression, failed-run notices release wakes, after= cursor added)
   New `services/backend/agentplatform/relay_router.py`, hosted in
   `dispatcher_main.py` next to `ConversationIngestor`, consumer group
   `relay-router`. Implement steps 1–5 of the design's "router" section
@@ -233,7 +233,7 @@ dispatch subagents, verify their evidence, commit, and update this file.
 
 ### Phase 4 — web UI  `[ui]`
 
-- [ ] **T8 `[ui]` Relay page: rail + messages + compose, live via SSE.**
+- [x] **T8 `[ui]` Relay page: rail + messages + compose, live via SSE.** (commit `8f6486f`; visual review fixed mobile compose/mention/actions/timestamps; code review fixed thread fetch, real after= polling with backoff reconnect, parent nav active state, room-scoped mentions, group labels; shell collapses <560px)
   `services/web/src/pages/Relay.tsx` (+ `components/relay/*`): three-pane
   layout per the design's "Web UI" section; faces from `face_for` mirrored in
   TS (`lib/face.ts`, same hash + same emoji list — add a shared JSON fixture
@@ -277,11 +277,17 @@ dispatch subagents, verify their evidence, commit, and update this file.
 ### Phase 6 — delight
 
 - [ ] **T11 `#standup` job, `#ops` alerts, Settings toggle.**
-  Seed a system Job "relay-standup" (agent `pai` or a new tiny system agent
-  `relay-host` with the `relay` grant only) with cron `0 9 * * *` timezone
-  `America/Toronto`, prompt: post to `#standup` the message
-  "@all — what did you do in the last 24h? Two lines, link anything you
-  touched." (the router fans it out; the agent itself posts nothing else).
+  The standup summons must NOT be authored by an agent: an agent author's
+  `@all` is stripped at post time (T2/T7), and agent posts carry a hop, so
+  the fan-out would never happen. Instead add a scheduler-native "relay
+  post" job kind: extend the Jobs building block with an optional
+  `relay_post: {channel, body}` action (or a dedicated `POST
+  /api/relay/channels/{id}/messages` call made by the scheduler process as
+  participant `system:scheduler`, kind `text`, hop 0) so the message is a
+  non-agent, human-like author the router fans out for. Seed a job
+  "relay-standup", cron `0 9 * * *` timezone `America/Toronto`, channel
+  `standup`, body "@all — what did you do in the last 24h? Two lines, link
+  anything you touched.".
   health-monitor: its alert prompt gains "also post the alert to Relay
   `#ops` with the run linked" (edit through the design-15 change log via the
   API, not files). Settings page: toggle for `relay_default_grant` and a
@@ -320,7 +326,7 @@ dispatch subagents, verify their evidence, commit, and update this file.
 ### Repairs
 (added by the loop when the definition of done fails)
 
-- [ ] **R1 Curate the Relay routes into the MCP facade (design 17) and unpin the counts.**
+- [x] **R1 Curate the Relay routes into the MCP facade (design 17) and unpin the counts.** (commit `6558f34`; KEEP 9 / GATE 3 / EXCLUDE 1 → 63 default, 87 admin; verified with the CI recipe in a uv 3.12 venv, 20 passed; review skipped: curation-only change proven by the facade suite)
   `services/mcp-facade/test_facade.py` pins the KEEP surface at 54 tools and
   KEEP+GATE at 75; T3 added ~13 `/api/relay/*` routes and T6 excluded the SSE
   one, so the facade job is red on main. Decide per route in
@@ -338,6 +344,9 @@ dispatch subagents, verify their evidence, commit, and update this file.
 ### Deferred
 (low/medium review findings not fixed; each with file:line and one sentence)
 - T1 (closed by T5): the one-shot backfills are serialized by init_db's Postgres advisory lock.
+- T8: SSE backoff reconnect only exercised to its first retry in Playwright (mock stream ends immediately).
+- T8/T9: groups have no title field in the API; the UI synthesises a member list.
+- T7: sdk/regenerate.py picks whatever `ruff` is first on PATH; run it with the venv's bin first or via docker, else 142 files drift.
 - T6: hostname-based SSE consumer group ids accumulate stale groups across pod restarts (harmless at this scale).
 - T4: the recorder's two-commit gap (TranscriptEvent dedup, then state/claim) predates Relay; a DB hiccup between them makes a succeeded run's reply unrecoverable and the sweep posts the lost-reply notice into history.
 - T3: reaction-toggle insert race handled by catching IntegrityError but not unit-tested (needs real concurrency).
