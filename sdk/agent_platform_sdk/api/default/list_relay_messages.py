@@ -15,6 +15,7 @@ def _get_kwargs(
     channel_id: str,
     *,
     before: None | str | Unset = UNSET,
+    after: None | str | Unset = UNSET,
     limit: int | Unset = 50,
     thread: None | str | Unset = UNSET,
 ) -> dict[str, Any]:
@@ -27,6 +28,13 @@ def _get_kwargs(
     else:
         json_before = before
     params["before"] = json_before
+
+    json_after: None | str | Unset
+    if isinstance(after, Unset):
+        json_after = UNSET
+    else:
+        json_after = after
+    params["after"] = json_after
 
     params["limit"] = limit
 
@@ -90,18 +98,30 @@ def sync_detailed(
     *,
     client: AuthenticatedClient | Client,
     before: None | str | Unset = UNSET,
+    after: None | str | Unset = UNSET,
     limit: int | Unset = 50,
     thread: None | str | Unset = UNSET,
 ) -> Response[HTTPValidationError | list[RelayMessage]]:
-    """List Relay Messages
+    r"""List Relay Messages
 
-     A newest-first page. `before` is a message id rather than a timestamp so
-    a client pages by what it already holds; `thread` narrows to one root and
-    its replies.
+     A page of the room, from a cursor the client already holds.
+
+    Two directions, because a reader and a poll want opposite ends of the room.
+    `before` pages BACKWARDS, newest-first: scrolling up through history.
+    `after` pages FORWARDS, oldest-first: the catch-up a client does when its
+    stream was down, where keeping the OLDEST of the newer messages is what
+    makes the next page continue from this one instead of leaving a hole. Both
+    are message ids rather than timestamps, so a client pages by what it has;
+    `thread` narrows either to one root and its replies.
+
+    They are mutually exclusive: \"newer than X and older than Y\" is a range,
+    which is a different endpoint with a different contract, and quietly
+    honouring one of the two would hand a paging client a silent gap.
 
     Args:
         channel_id (str):
         before (None | str | Unset):
+        after (None | str | Unset):
         limit (int | Unset):  Default: 50.
         thread (None | str | Unset):
 
@@ -116,6 +136,7 @@ def sync_detailed(
     kwargs = _get_kwargs(
         channel_id=channel_id,
         before=before,
+        after=after,
         limit=limit,
         thread=thread,
     )
@@ -132,18 +153,30 @@ def sync(
     *,
     client: AuthenticatedClient | Client,
     before: None | str | Unset = UNSET,
+    after: None | str | Unset = UNSET,
     limit: int | Unset = 50,
     thread: None | str | Unset = UNSET,
 ) -> HTTPValidationError | list[RelayMessage] | None:
-    """List Relay Messages
+    r"""List Relay Messages
 
-     A newest-first page. `before` is a message id rather than a timestamp so
-    a client pages by what it already holds; `thread` narrows to one root and
-    its replies.
+     A page of the room, from a cursor the client already holds.
+
+    Two directions, because a reader and a poll want opposite ends of the room.
+    `before` pages BACKWARDS, newest-first: scrolling up through history.
+    `after` pages FORWARDS, oldest-first: the catch-up a client does when its
+    stream was down, where keeping the OLDEST of the newer messages is what
+    makes the next page continue from this one instead of leaving a hole. Both
+    are message ids rather than timestamps, so a client pages by what it has;
+    `thread` narrows either to one root and its replies.
+
+    They are mutually exclusive: \"newer than X and older than Y\" is a range,
+    which is a different endpoint with a different contract, and quietly
+    honouring one of the two would hand a paging client a silent gap.
 
     Args:
         channel_id (str):
         before (None | str | Unset):
+        after (None | str | Unset):
         limit (int | Unset):  Default: 50.
         thread (None | str | Unset):
 
@@ -159,6 +192,7 @@ def sync(
         channel_id=channel_id,
         client=client,
         before=before,
+        after=after,
         limit=limit,
         thread=thread,
     ).parsed
@@ -169,18 +203,30 @@ async def asyncio_detailed(
     *,
     client: AuthenticatedClient | Client,
     before: None | str | Unset = UNSET,
+    after: None | str | Unset = UNSET,
     limit: int | Unset = 50,
     thread: None | str | Unset = UNSET,
 ) -> Response[HTTPValidationError | list[RelayMessage]]:
-    """List Relay Messages
+    r"""List Relay Messages
 
-     A newest-first page. `before` is a message id rather than a timestamp so
-    a client pages by what it already holds; `thread` narrows to one root and
-    its replies.
+     A page of the room, from a cursor the client already holds.
+
+    Two directions, because a reader and a poll want opposite ends of the room.
+    `before` pages BACKWARDS, newest-first: scrolling up through history.
+    `after` pages FORWARDS, oldest-first: the catch-up a client does when its
+    stream was down, where keeping the OLDEST of the newer messages is what
+    makes the next page continue from this one instead of leaving a hole. Both
+    are message ids rather than timestamps, so a client pages by what it has;
+    `thread` narrows either to one root and its replies.
+
+    They are mutually exclusive: \"newer than X and older than Y\" is a range,
+    which is a different endpoint with a different contract, and quietly
+    honouring one of the two would hand a paging client a silent gap.
 
     Args:
         channel_id (str):
         before (None | str | Unset):
+        after (None | str | Unset):
         limit (int | Unset):  Default: 50.
         thread (None | str | Unset):
 
@@ -195,6 +241,7 @@ async def asyncio_detailed(
     kwargs = _get_kwargs(
         channel_id=channel_id,
         before=before,
+        after=after,
         limit=limit,
         thread=thread,
     )
@@ -209,18 +256,30 @@ async def asyncio(
     *,
     client: AuthenticatedClient | Client,
     before: None | str | Unset = UNSET,
+    after: None | str | Unset = UNSET,
     limit: int | Unset = 50,
     thread: None | str | Unset = UNSET,
 ) -> HTTPValidationError | list[RelayMessage] | None:
-    """List Relay Messages
+    r"""List Relay Messages
 
-     A newest-first page. `before` is a message id rather than a timestamp so
-    a client pages by what it already holds; `thread` narrows to one root and
-    its replies.
+     A page of the room, from a cursor the client already holds.
+
+    Two directions, because a reader and a poll want opposite ends of the room.
+    `before` pages BACKWARDS, newest-first: scrolling up through history.
+    `after` pages FORWARDS, oldest-first: the catch-up a client does when its
+    stream was down, where keeping the OLDEST of the newer messages is what
+    makes the next page continue from this one instead of leaving a hole. Both
+    are message ids rather than timestamps, so a client pages by what it has;
+    `thread` narrows either to one root and its replies.
+
+    They are mutually exclusive: \"newer than X and older than Y\" is a range,
+    which is a different endpoint with a different contract, and quietly
+    honouring one of the two would hand a paging client a silent gap.
 
     Args:
         channel_id (str):
         before (None | str | Unset):
+        after (None | str | Unset):
         limit (int | Unset):  Default: 50.
         thread (None | str | Unset):
 
@@ -237,6 +296,7 @@ async def asyncio(
             channel_id=channel_id,
             client=client,
             before=before,
+            after=after,
             limit=limit,
             thread=thread,
         )

@@ -22,20 +22,22 @@ from sqlalchemy.orm import aliased
 
 from agentplatform.api.auth import (INVOKE_ROLES, READ_ROLES, authenticate,
                                     require_role, role_allows)
-from agentplatform.db import (ACTIVE_STATES, AgentDef, Conversation,
-                              RELAY_SEED_CHANNELS, RelayInvocation, dm_key_of)
+from agentplatform.conversation import continue_conversation
+from agentplatform.db import (ACTIVE_STATES, Conversation, RELAY_SEED_CHANNELS,
+                              RelayInvocation, dm_key_of)
 from agentplatform.db import RelayMessage as MessageRow
 from agentplatform.db import RelayParticipant as ParticipantRow
 from agentplatform.db import RelayReaction as ReactionRow
 from agentplatform.db import Run, utcnow
-from agentplatform.relay import (agent_name, face_for, is_agent, is_member,
-                                 mentionable_in, parse_mentions, participant_of,
+from agentplatform.relay import (agent_name, is_agent, is_member, mentionable_in,
+                                 parse_mentions, participant_of,
                                  strip_room_mentions)
 # Aliased: the route below is the HTTP name for the same act, and the store
 # helper is what actually writes the row.
 from agentplatform.relay_feed import OVERFLOW
 from agentplatform.relay_store import post_relay_message as _insert_message
-from agentplatform.relay_store import (message_view, relay_message_payload,
+from agentplatform.relay_store import (faces_for, message_view,
+                                       relay_message_payload,
                                        publish_relay_message)
 
 log = logging.getLogger("relay")
@@ -141,18 +143,41 @@ async def _explicit_many(s, ids: list[str]) -> dict[str, set[str]]:
     return out
 
 
-async def _faces(s, names: set[str]) -> dict[str, dict]:
-    """Faces for a set of agent names. The row's own `icon` wins, but the hue
-    stays derived either way, so a custom emoji still gets its stable colour."""
-    if not names:
-        return {}
-    icons = dict((await s.execute(select(AgentDef.name, AgentDef.icon)
-                                  .where(AgentDef.name.in_(names)))).all())
-    faces = {}
-    for name in names:
-        face = face_for(name)
-        faces[name] = {"emoji": icons[name], "hue": face["hue"]} if icons.get(name) else face
-    return faces
+# Faces are shared with the router (docs/design/19): the roster an agent is
+# handed in its prompt and the one a human sees in the pane are the same room,
+# so they are rendered by one function.
+_faces = faces_for
+
+
+async def _hop_of(s, run_id: str | None) -> int:
+    """The hop a message posted by a RUN carries.
+
+    This is the same sum the recorder makes for an agent's final answer
+    (`trigger.hop + 1`), read off the run instead of the message: `Run.depth`
+    IS the hop of the mention that summoned it. Without it every message an
+    agent posts through the `relay` tool would land at hop 0 — a chain that
+    never counts, so the router's hop cap never fires and two agents can
+    address each other forever with only the hourly budget as a brake.
+
+    A human's message is hop 0 by definition. A run we cannot find is still a
+    run, so its message is at least one hop from the person who started it."""
+    if not run_id:
+        return 0
+    run = await s.get(Run, run_id)
+    return (run.depth or 0) + 1 if run is not None else 1
+
+
+def _newer_than(row):
+    """Strictly after `row` in the room's total order. (created_at, id) is that
+    order everywhere — the page, the SSE replay, the wake's context window — so
+    two messages written in the same tick still page deterministically."""
+    return or_(MessageRow.created_at > row.created_at,
+               (MessageRow.created_at == row.created_at) & (MessageRow.id > row.id))
+
+
+def _older_than(row):
+    return or_(MessageRow.created_at < row.created_at,
+               (MessageRow.created_at == row.created_at) & (MessageRow.id < row.id))
 
 
 def _face_of(author: str, faces: dict[str, dict]) -> dict | None:
@@ -409,12 +434,25 @@ async def _reactions(s, ids: list[str], participant: str) -> dict[str, list[dict
 @router.get("/api/relay/channels/{channel_id}/messages", response_model=list[S.RelayMessage])
 async def list_relay_messages(request: Request, channel_id: str,
                               before: str | None = None,
+                              after: str | None = None,
                               limit: int = Query(50, ge=1, le=200),
                               thread: str | None = None,
                               caller: Caller = Depends(require_relay_access(*READ))):
-    """A newest-first page. `before` is a message id rather than a timestamp so
-    a client pages by what it already holds; `thread` narrows to one root and
-    its replies."""
+    """A page of the room, from a cursor the client already holds.
+
+    Two directions, because a reader and a poll want opposite ends of the room.
+    `before` pages BACKWARDS, newest-first: scrolling up through history.
+    `after` pages FORWARDS, oldest-first: the catch-up a client does when its
+    stream was down, where keeping the OLDEST of the newer messages is what
+    makes the next page continue from this one instead of leaving a hole. Both
+    are message ids rather than timestamps, so a client pages by what it has;
+    `thread` narrows either to one root and its replies.
+
+    They are mutually exclusive: "newer than X and older than Y" is a range,
+    which is a different endpoint with a different contract, and quietly
+    honouring one of the two would hand a paging client a silent gap."""
+    if before and after:
+        raise HTTPException(422, "pass `before` or `after`, not both")
     agents = _agent_set(request)
     async with request.app.state.session_factory() as s:
         await _channel_or_404(s, channel_id, caller, agents)
@@ -422,19 +460,64 @@ async def list_relay_messages(request: Request, channel_id: str,
                                         MessageRow.deleted_at.is_(None))
         if thread:
             stmt = stmt.where(or_(MessageRow.thread_root == thread, MessageRow.id == thread))
-        if before:
-            cursor = await s.get(MessageRow, before)
+        if after:
+            cursor = await s.get(MessageRow, after)
             if cursor is None or cursor.channel_id != channel_id:
-                raise HTTPException(422, "unknown `before` cursor")
-            stmt = stmt.where(or_(MessageRow.created_at < cursor.created_at,
-                                  (MessageRow.created_at == cursor.created_at)
-                                  & (MessageRow.id < cursor.id)))
-        rows = list((await s.execute(stmt.order_by(
-            MessageRow.created_at.desc(), MessageRow.id.desc()).limit(limit))).scalars())
+                # The SSE replay's posture (`_missed`): a cursor we cannot
+                # place is from another room or a pruned message, and answering
+                # it with a page the client may already be showing would
+                # duplicate the room rather than catch it up.
+                return []
+            stmt = stmt.where(_newer_than(cursor)).order_by(MessageRow.created_at,
+                                                            MessageRow.id)
+        else:
+            if before:
+                cursor = await s.get(MessageRow, before)
+                if cursor is None or cursor.channel_id != channel_id:
+                    raise HTTPException(422, "unknown `before` cursor")
+                stmt = stmt.where(_older_than(cursor))
+            stmt = stmt.order_by(MessageRow.created_at.desc(), MessageRow.id.desc())
+        rows = list((await s.execute(stmt.limit(limit))).scalars())
         faces = await _faces(s, _agents_among(r.author for r in rows))
         reactions = await _reactions(s, [r.id for r in rows], caller.participant)
     return [_message(r, face=_face_of(r.author, faces), reactions=reactions.get(r.id))
             for r in rows]
+
+
+async def _dm_turn(request: Request, conv: Conversation, text: str, caller: Caller,
+                   agent: str) -> dict:
+    """Post a human's DM message the way the conversation facade does: message,
+    event, and the run that answers it.
+
+    A DM with an agent has two doors — this route and
+    `POST /api/conversations/{id}/messages` — onto one room, and in a DM every
+    human message is an implicit summons, mention or not. Only one of the two
+    may create the turn, or a message posted here gets answered twice: the
+    router deliberately leaves DM turns alone (`relay_router._facade_owns`),
+    because it sees the message before the facade's run exists and cannot tell
+    a duplicate from a turn. So this door delegates rather than inserting, and
+    `continue_conversation` stays the single definition of what a turn is.
+
+    `reply_to` is dropped: a DM is linear, and the facade threads nothing."""
+    info = request.app.state.agent_store.get(agent)
+    if info is not None and not info.enabled:
+        # The same answer the conversations endpoint gives: disabling an agent
+        # stops its threads rather than queueing work nothing will pick up.
+        raise HTTPException(409, "agent is disabled")
+    run_id = await continue_conversation(request.app.state.session_factory,
+                                         request.app.state.producer, conv.id, text,
+                                         caller.principal)
+    if run_id is None:
+        raise HTTPException(409, "conversation is closed, missing, or has a turn in progress")
+    async with request.app.state.session_factory() as s:
+        run = await s.get(Run, run_id)
+        row = await s.get(MessageRow, run.trigger_message_id) if run is not None else None
+    if row is None:
+        raise HTTPException(500, "the turn was created without its message")
+    # The facade published to Kafka; this pod's own streams still want it
+    # first-hand, for the same reason the generic path pushes before publishing.
+    request.app.state.feed.publish(conv.id, "message", relay_message_payload(row, conv))
+    return _message(row)
 
 
 @router.post("/api/relay/channels/{channel_id}/messages", response_model=S.RelayMessage)
@@ -453,19 +536,31 @@ async def post_relay_message(request: Request, channel_id: str, body: S.RelayMes
             if (parent is None or parent.channel_id != channel_id
                     or parent.deleted_at is not None):
                 raise HTTPException(404, "unknown reply_to")
-        text = body.body if caller.agent is None else strip_room_mentions(body.body)
-        row = await _insert_message(
-            s, conv, author=caller.participant, body=text, reply_to=body.reply_to,
-            # A closed room can only summon its own members: `@news` in a
-            # private group news is not in must stay text, or the mention hands
-            # it messages its absence was meant to withhold.
-            mentions=parse_mentions(text, mentionable_in(conv, agents, explicit),
-                                    caller.participant),
-            run_id=getattr(request.state, "api_key_run_id", None) if caller.agent else None)
-        await s.commit()
-        faces = await _faces(s, {caller.agent} if caller.agent else set())
-        face = _face_of(caller.participant, faces)
-        view = _message(row, face=face)
+        # A person's message in an agent DM is a TURN, and turns belong to the
+        # facade (see _dm_turn). Everything else — every channel and group, and
+        # an agent's own posts anywhere — is a plain message.
+        turn_agent = (conv.agent if caller.agent is None and conv.kind == "dm"
+                      and conv.agent else None)
+        if turn_agent is None:
+            text = body.body if caller.agent is None else strip_room_mentions(body.body)
+            run_id = (getattr(request.state, "api_key_run_id", None)
+                      if caller.agent else None)
+            row = await _insert_message(
+                s, conv, author=caller.participant, body=text, reply_to=body.reply_to,
+                # A closed room can only summon its own members: `@news` in a
+                # private group news is not in must stay text, or the mention
+                # hands it messages its absence was meant to withhold.
+                mentions=parse_mentions(text, mentionable_in(conv, agents, explicit),
+                                        caller.participant),
+                run_id=run_id, hop=await _hop_of(s, run_id))
+            await s.commit()
+            faces = await _faces(s, {caller.agent} if caller.agent else set())
+            face = _face_of(caller.participant, faces)
+            view = _message(row, face=face)
+    if turn_agent is not None:
+        # Outside the session: the facade opens its own, and the turn it
+        # materializes must not be nested inside a transaction this route holds.
+        return await _dm_turn(request, conv, body.body, caller, turn_agent)
     # Straight to this pod's own streams first: the room stays live when Kafka
     # is down, and when it is up the echo off `relay.messages` is deduped by id.
     request.app.state.feed.publish(conv.id, "message",
@@ -547,8 +642,7 @@ async def _missed(s, channel_id: str, cursor: str) -> list:
         return []
     return list((await s.execute(select(MessageRow).where(
         MessageRow.channel_id == channel_id, MessageRow.deleted_at.is_(None),
-        or_(MessageRow.created_at > row.created_at,
-            (MessageRow.created_at == row.created_at) & (MessageRow.id > row.id)))
+        _newer_than(row))
         .order_by(MessageRow.created_at, MessageRow.id).limit(REPLAY_LIMIT))).scalars())
 
 

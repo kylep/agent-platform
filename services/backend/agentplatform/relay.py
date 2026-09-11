@@ -13,6 +13,10 @@ from .agentspec import validate_agent_name
 # `initiated_by` (docs/design/13), so a Discord user needs no platform row.
 AGENT_PREFIX = "agent:"
 USER_PREFIX = "user:"
+# The author of a message the PLATFORM wrote: a run that died owes the room an
+# answer, and a guard that pauses a thread owes it a reason. No agent is in a
+# position to say either, so the platform says it in its own name.
+SYSTEM_AUTHOR = "system:relay"
 # Addressing the room. The router expands ALL to the channel's agent members;
 # only humans may use it (an agent that could page everyone is a loop).
 ROOM_MENTIONS = ("all", "channel", "here", "everyone")

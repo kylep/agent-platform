@@ -10,14 +10,12 @@ from agentplatform.db import (ACTIVE_STATES, Conversation, RelayMessage, Run,
                               utcnow)
 from agentplatform.events import (TOPIC_CONVERSATION_OUTBOUND,
                                   TOPIC_RUN_DLQ, TOPIC_RUN_EVENTS, TOPIC_RUN_TRANSCRIPT)
-from agentplatform.relay import mentionable_in, parse_mentions, participant_of
+from agentplatform.relay import (SYSTEM_AUTHOR, mentionable_in, parse_mentions,
+                                 participant_of)
 from agentplatform.relay_store import (binding_of, enabled_agents, explicit_members,
                                        post_relay_message, publish_relay_message)
 from agentplatform.secrets import CLAUDE_CREDENTIAL
 
-# The author of a message the platform itself wrote — a run that died owes the
-# room an answer, and no agent is in a position to give it.
-SYSTEM_AUTHOR = "system:relay"
 # How much of a run's error a reader needs to know what went wrong. The run
 # page holds the rest.
 ERROR_CHARS = 200

@@ -12,6 +12,7 @@ from sqlalchemy import or_, select
 from agentplatform.db import (AgentDef, RelayBinding, RelayMessage,
                               RelayParticipant, utcnow)
 from agentplatform.events import TOPIC_RELAY_MESSAGES
+from agentplatform.relay import face_for
 
 log = logging.getLogger("relay_store")
 
@@ -80,6 +81,24 @@ async def enabled_agents(session) -> set[str]:
     the router re-checks before it invokes anything."""
     return set((await session.execute(
         select(AgentDef.name).where(AgentDef.enabled))).scalars())
+
+
+async def faces_for(session, names: set[str]) -> dict[str, dict]:
+    """Faces for a set of agent names. The row's own `icon` wins, but the hue
+    stays derived either way, so a custom emoji still gets its stable colour.
+    Shared by the API (the message view) and the router (the run prompt's
+    roster): an agent that looks one way in the UI and another in another
+    agent's prompt is two agents as far as a reader is concerned."""
+    if not names:
+        return {}
+    icons = dict((await session.execute(select(AgentDef.name, AgentDef.icon)
+                                        .where(AgentDef.name.in_(names)))).all())
+    out = {}
+    for name in names:
+        face = face_for(name)
+        out[name] = ({"emoji": icons[name], "hue": face["hue"]}
+                     if icons.get(name) else face)
+    return out
 
 
 async def explicit_members(session, channel_id: str) -> set[str]:

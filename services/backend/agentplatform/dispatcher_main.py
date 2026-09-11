@@ -21,6 +21,7 @@ from agentplatform.joblauncher import JobWatcher, K8sJobLauncher
 from agentplatform.github import GitHubClient
 from agentplatform.pruning import ReportPruner, TranscriptPruner, sweep_orphaned_keys_forever
 from agentplatform.prsummarizer import PrSummarizer
+from agentplatform.relay_router import RelayRouter
 from agentplatform.reportregistry import ReportTypeRegistry
 from agentplatform.scheduler import Scheduler
 from agentplatform.secretregistry import SecretRegistry
@@ -104,6 +105,9 @@ async def main() -> None:
     ingestor = Ingestor(settings, session_factory, producer)
     audit_ingestor = ToolAuditIngestor(settings, session_factory, producer)
     conv_ingestor = ConversationIngestor(settings, session_factory, producer)
+    # Relay's router (docs/design/19): mentions become runs here, next to the
+    # connector ingest, because both are consumers that materialize work.
+    relay_router = RelayRouter(settings, session_factory, producer, agent_store)
 
     # Auto AI summaries on pending changes: needs the GitHub App (comments)
     # and only makes sense when self-edit is configured.
@@ -120,7 +124,8 @@ async def main() -> None:
                              pruner.run_forever(), report_pruner.run_forever(),
                              app_provisioner.run_forever(), tool_provisioner.run_forever(),
                              ingestor.run_forever(), audit_ingestor.run_forever(),
-                             conv_ingestor.run_forever(), verifier.run_forever(),
+                             conv_ingestor.run_forever(), relay_router.run_forever(),
+                             verifier.run_forever(),
                              sweep_orphaned_keys_forever(session_factory),
                              pr_summarizer.run_forever())
     finally:

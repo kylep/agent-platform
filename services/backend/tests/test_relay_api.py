@@ -8,9 +8,11 @@ import pytest
 from sqlalchemy import select
 
 from agentplatform.apikeys import generate_token, hash_token, token_prefix
+from agentplatform.config import Settings
 from agentplatform.db import (ApiKey, Conversation, RelayInvocation, RelayMessage,
                               RelayParticipant, Run, RunState, utcnow)
 from agentplatform.events import TOPIC_RELAY_MESSAGES
+from agentplatform.relay_router import RelayRouter
 
 
 @pytest.fixture
@@ -115,6 +117,124 @@ async def test_agent_token_authors_as_its_own_agent(client, token_client, sf,
     assert m["mentions"] == ["hello-world"]
     assert "@all" not in m["body"] and "all done" in m["body"]
     assert m["face"]["emoji"]
+
+
+@pytest.mark.parametrize("run_id, hop", [("r-deep", 4), ("r-gone", 1)])
+async def test_a_tool_post_carries_its_runs_next_hop(client, token_client, sf,
+                                                     seed_agent, agent_store,
+                                                     run_id, hop):
+    """A message an agent posts through the `relay` tool is one hop further
+    along than the mention that summoned it — the same sum the recorder makes
+    for the run's final answer, read off `Run.depth`. Stamped here or the
+    router's hop cap never fires for tool posts, and two agents can address
+    each other forever. A token whose run is gone still posts as a run, so it
+    is at least one hop from the human who started it."""
+    await _seed(seed_agent, agent_store, "news")
+    cid = await _channel_id(sf, "general")
+    async with sf() as s:
+        s.add(Run(id="r-deep", agent="news", trigger="mention",
+                  requested_by="user:admin", conversation_id=cid, depth=3,
+                  prompt="ctx", state=RunState.RUNNING))
+        await s.commit()
+    headers = await _agent_token(sf, "news", run_id=run_id)
+
+    m = (await token_client.post(f"/api/relay/channels/{cid}/messages",
+                                 json={"body": "still going"}, headers=headers)).json()
+    assert (m["hop"], m["run_id"]) == (hop, run_id)
+
+
+async def test_a_humans_message_starts_a_fresh_chain(admin_client, sf):
+    """Hop 0 is what lets a person restart a thread the guards paused."""
+    cid = await _channel_id(sf, "general")
+    m = (await admin_client.post(f"/api/relay/channels/{cid}/messages",
+                                 json={"body": "carry on"})).json()
+    assert m["hop"] == 0 and m["run_id"] is None
+
+
+async def _dm_with(client, other: str, headers=None) -> dict:
+    return (await client.post("/api/relay/dm", json={"with": other},
+                              headers=headers or {})).json()
+
+
+async def _all_runs(sf):
+    async with sf() as s:
+        return list((await s.execute(select(Run))).scalars())
+
+
+async def test_a_human_dm_post_is_a_turn_the_facade_owns(admin_client, sf, producer,
+                                                         seed_agent, agent_store):
+    """A DM with an agent is an implicit summons: every human message there is
+    a turn. Both doors onto that room — this route and /api/conversations —
+    must create exactly ONE run for it, which is why this one delegates to the
+    facade and the router keeps its hands off."""
+    await _seed(seed_agent, agent_store, "news")
+    dm = await _dm_with(admin_client, "agent:news")
+    r = await admin_client.post(f"/api/relay/channels/{dm['id']}/messages",
+                                json={"body": "@news morning"})
+    assert r.status_code == 200, r.text
+    m = r.json()
+    assert (m["author"], m["hop"], m["channel_id"]) == ("user:admin", 0, dm["id"])
+
+    runs = await _all_runs(sf)
+    assert len(runs) == 1
+    assert (runs[0].trigger, runs[0].trigger_message_id) == ("conversation", m["id"])
+    assert runs[0].conversation_id == dm["id"]
+
+    # The router sees the very same message off `relay.messages`; it must not
+    # answer a turn the facade already owns.
+    router = RelayRouter(Settings(), sf, producer, agent_store)
+    published = [d for t, _, d in producer.published if t == TOPIC_RELAY_MESSAGES]
+    await router.handle(published[-1])
+    assert len(await _all_runs(sf)) == 1
+    async with sf() as s:
+        decisions = [(i.agent, i.decision, i.reason)
+                     for i in (await s.execute(select(RelayInvocation))).scalars()]
+    assert decisions == [("news", "suppressed", "facade_owns_turn")]
+
+
+async def test_a_dm_turn_while_one_is_in_flight_is_refused(admin_client, sf,
+                                                           seed_agent, agent_store):
+    """Turns are serialized, and the answer is the facade's own: a room with a
+    run still thinking has nowhere to put a second one."""
+    await _seed(seed_agent, agent_store, "news")
+    dm = await _dm_with(admin_client, "agent:news")
+    first = await admin_client.post(f"/api/relay/channels/{dm['id']}/messages",
+                                    json={"body": "one"})
+    second = await admin_client.post(f"/api/relay/channels/{dm['id']}/messages",
+                                     json={"body": "two"})
+    assert first.status_code == 200
+    assert second.status_code == 409 and "turn in progress" in second.json()["detail"]
+    assert len(await _all_runs(sf)) == 1
+
+
+async def test_a_dm_turn_for_a_disabled_agent_is_refused(admin_client, sf,
+                                                        seed_agent, agent_store):
+    """The soft off-switch reaches this door too: a turn for a disabled agent
+    would be a run nothing will ever pick up. Same answer, same words as
+    /api/conversations gives."""
+    await _seed(seed_agent, agent_store, "news")
+    dm = await _dm_with(admin_client, "agent:news")
+    await _seed(seed_agent, agent_store, "news", enabled=False)
+    r = await admin_client.post(f"/api/relay/channels/{dm['id']}/messages",
+                                json={"body": "still there?"})
+    assert r.status_code == 409 and r.json()["detail"] == "agent is disabled"
+    assert await _all_runs(sf) == []
+
+
+async def test_an_agents_dm_post_takes_the_generic_path(client, token_client, sf,
+                                                        seed_agent, agent_store):
+    """Only a HUMAN's DM message is a turn. An agent posting in a DM is posting
+    a message: the run it is already inside answers for it, and the router
+    summons on the mention as it does anywhere else."""
+    await _seed(seed_agent, agent_store, "news")
+    await _seed(seed_agent, agent_store, "ada")
+    headers = await _agent_token(sf, "news")
+    dm = await _dm_with(token_client, "agent:ada", headers)
+    r = await token_client.post(f"/api/relay/channels/{dm['id']}/messages",
+                                json={"body": "@ada thoughts?"}, headers=headers)
+    assert r.status_code == 200, r.text
+    assert r.json()["author"] == "agent:news" and r.json()["mentions"] == ["ada"]
+    assert await _all_runs(sf) == []
 
 
 async def test_open_channel_admits_every_agent_but_a_group_does_not(
@@ -354,6 +474,70 @@ async def test_messages_page_newest_first(admin_client, sf):
     older = (await admin_client.get(f"/api/relay/channels/{cid}/messages",
                                     params={"limit": 2, "before": page[-1]["id"]})).json()
     assert [m["id"] for m in older] == list(reversed(ids))[2:4]
+
+
+async def test_messages_after_a_cursor_page_oldest_first(admin_client, sf):
+    """The catch-up direction: a client whose stream was down asks for what it
+    missed and gets it in the order it happened, from its own cursor — and the
+    cap keeps the OLDEST of those, so the next page continues rather than
+    leaving a hole in the middle of the room."""
+    cid = await _channel_id(sf, "general")
+    ids = [(await admin_client.post(f"/api/relay/channels/{cid}/messages",
+                                    json={"body": f"m{i}"})).json()["id"] for i in range(5)]
+    page = (await admin_client.get(f"/api/relay/channels/{cid}/messages",
+                                   params={"after": ids[1]})).json()
+    assert [m["id"] for m in page] == ids[2:]
+    assert [m["body"] for m in page] == ["m2", "m3", "m4"]
+    capped = (await admin_client.get(f"/api/relay/channels/{cid}/messages",
+                                     params={"after": ids[1], "limit": 2})).json()
+    assert [m["id"] for m in capped] == ids[2:4]
+    # Caught up: nothing newer than the newest.
+    assert (await admin_client.get(f"/api/relay/channels/{cid}/messages",
+                                   params={"after": ids[-1]})).json() == []
+
+
+async def test_after_and_before_together_are_refused(admin_client, sf):
+    """A range is a different contract; honouring one of the two quietly would
+    hand a paging client a gap it cannot see."""
+    cid = await _channel_id(sf, "general")
+    m = (await admin_client.post(f"/api/relay/channels/{cid}/messages",
+                                 json={"body": "only one"})).json()
+    r = await admin_client.get(f"/api/relay/channels/{cid}/messages",
+                               params={"after": m["id"], "before": m["id"]})
+    assert r.status_code == 422
+
+
+async def test_an_unplaceable_after_cursor_replays_nothing(admin_client, sf):
+    """`before` 422s (the reader asked for a page that cannot exist), but
+    `after` returns nothing, exactly as the SSE replay does: a pruned or
+    foreign cursor answered with a page would duplicate what the client is
+    already showing."""
+    cid = await _channel_id(sf, "general")
+    other = await _channel_id(sf, "ops")
+    stray = (await admin_client.post(f"/api/relay/channels/{other}/messages",
+                                     json={"body": "elsewhere"})).json()
+    await admin_client.post(f"/api/relay/channels/{cid}/messages", json={"body": "here"})
+    for cursor in (stray["id"], "nope"):
+        r = await admin_client.get(f"/api/relay/channels/{cid}/messages",
+                                   params={"after": cursor})
+        assert r.status_code == 200 and r.json() == []
+
+
+async def test_after_and_thread_narrow_together(admin_client, sf):
+    cid = await _channel_id(sf, "general")
+    root = (await admin_client.post(f"/api/relay/channels/{cid}/messages",
+                                    json={"body": "root"})).json()
+    first = (await admin_client.post(f"/api/relay/channels/{cid}/messages",
+                                     json={"body": "in thread", "reply_to": root["id"]})).json()
+    await admin_client.post(f"/api/relay/channels/{cid}/messages",
+                            json={"body": "elsewhere in the room"})
+    second = (await admin_client.post(f"/api/relay/channels/{cid}/messages",
+                                      json={"body": "later in thread",
+                                            "reply_to": root["id"]})).json()
+    page = (await admin_client.get(f"/api/relay/channels/{cid}/messages",
+                                   params={"after": first["id"],
+                                           "thread": root["id"]})).json()
+    assert [m["id"] for m in page] == [second["id"]]
 
 
 async def test_paging_cursor_must_be_a_message_in_this_channel(admin_client, sf):
