@@ -188,7 +188,7 @@ dispatch subagents, verify their evidence, commit, and update this file.
   admin `agents_grant` removal sticks (backfill does not re-add — record the
   removal as the marker).
 
-- [ ] **T6 Broker tool `relay` + run context prompt + SSE.**
+- [x] **T6 Broker tool `relay` + run context prompt + SSE.** (commit `20f5fb2`; review fixed: feed consumer injected so tests never touch Kafka, summon body kept inside the untrusted block, exact-then-unambiguous name resolution, overflow frames, error-prefixed broker bodies, membership re-check per heartbeat)
   `services/mcp-broker/broker.py`: add core tool `relay(action, channel?,
   body?, reply_to?, limit?, before?, to?, message_id?, emoji?, q?)` forwarding
   the caller's headers to `/api/relay/*`; action enum and a docstring that
@@ -320,9 +320,25 @@ dispatch subagents, verify their evidence, commit, and update this file.
 ### Repairs
 (added by the loop when the definition of done fails)
 
+- [ ] **R1 Curate the Relay routes into the MCP facade (design 17) and unpin the counts.**
+  `services/mcp-facade/test_facade.py` pins the KEEP surface at 54 tools and
+  KEEP+GATE at 75; T3 added ~13 `/api/relay/*` routes and T6 excluded the SSE
+  one, so the facade job is red on main. Decide per route in
+  `services/mcp-facade/facade.py`: KEEP the read/post surface a human MCP
+  client wants (channels list/detail, messages page/post, dm, search,
+  presence, stats, reactions), GATE channel create/patch/archive and bindings
+  behind `AP_MCP_ADMIN_TOOLS`, EXCLUDE the SSE events route (done in T6).
+  Update the docstring's counts and the two pinned numbers to the real values
+  from a fresh spec, and add a relay row to `docs/design/17-external-mcp-facade.md`'s
+  curation table if it has one. Tests: the facade suite green under the CI
+  recipe (`pip install -e services/backend -r services/mcp-facade/requirements.txt`
+  in a scratch venv under the scratchpad, python 3.12 via docker if the local
+  3.14 venv lacks fastmcp). Restart `ap-mcp-facade` after the API deploy (T12).
+
 ### Deferred
 (low/medium review findings not fixed; each with file:line and one sentence)
 - T1 (closed by T5): the one-shot backfills are serialized by init_db's Postgres advisory lock.
+- T6: hostname-based SSE consumer group ids accumulate stale groups across pod restarts (harmless at this scale).
 - T4: the recorder's two-commit gap (TranscriptEvent dedup, then state/claim) predates Relay; a DB hiccup between them makes a succeeded run's reply unrecoverable and the sweep posts the lost-reply notice into history.
 - T3: reaction-toggle insert race handled by catching IntegrityError but not unit-tested (needs real concurrency).
 - T3: a DM with zero participant rows (created by the legacy POST /api/conversations) stays visible to the legacy facade until T4 makes that path write participants.
