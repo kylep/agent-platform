@@ -149,7 +149,7 @@ dispatch subagents, verify their evidence, commit, and update this file.
   agent; non-member 403; DM get-or-create is idempotent; search finds a word;
   presence shows `thinking` for an active channel run.
 
-- [ ] **T4 Compatibility facade: `/api/conversations` over DM channels; recorder posts replies as messages.**
+- [x] **T4 Compatibility facade: `/api/conversations` over DM channels; recorder posts replies as messages.** (commit `fc538d4`; review fixed: first-turn/first-PUT IntegrityError retry, closed bound rooms reopen on inbound, honest lost-reply body; reverse frame-order test added)
   Modify `conversation.py`: `_history` reads `relay_messages` (falling back
   to runs only when a channel has no messages), `continue_conversation`
   inserts the human message (author = participant of `requested_by`), keeps
@@ -323,6 +323,7 @@ dispatch subagents, verify their evidence, commit, and update this file.
 ### Deferred
 (low/medium review findings not fixed; each with file:line and one sentence)
 - T1: two services booting into a virgin DB may race the one-shot backfill; loser crashloops once then sees the mark (`db.py` `_ensure_relay_backfill`). An advisory lock would remove it.
+- T4: the recorder's two-commit gap (TranscriptEvent dedup, then state/claim) predates Relay; a DB hiccup between them makes a succeeded run's reply unrecoverable and the sweep posts the lost-reply notice into history.
 - T3: reaction-toggle insert race handled by catching IntegrityError but not unit-tested (needs real concurrency).
 - T3: a DM with zero participant rows (created by the legacy POST /api/conversations) stays visible to the legacy facade until T4 makes that path write participants.
 - T2: `RESERVED_AGENT_NAMES` is enforced by `validate_agent_name`, which skills/secrets/tools also use, so those slugs are reserved there too (no collisions today).
