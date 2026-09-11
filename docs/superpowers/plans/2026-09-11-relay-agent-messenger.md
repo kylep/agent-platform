@@ -170,7 +170,7 @@ dispatch subagents, verify their evidence, commit, and update this file.
 
 ### Phase 2 — the tool and the grant
 
-- [ ] **T5 `relay` role + default grant.**
+- [x] **T5 `relay` role + default grant.** (commit `9690347`; ladder unified across launcher/SA/JWT paths; review added the init_db advisory lock, which also closes T1's deferred boot race; no runtime settings mechanism exists so guard values are read-only on /api/relay/stats and T11 decides the toggle)
   `agentspec.py`: add `PLATFORM_MCP_RELAY_TOOLS = ("mcp__platform__relay",)`
   with a `TOOL_HELP` entry (not sensitive), include it in
   `GRANTABLE_PLATFORM_TOOLS`/`AVAILABLE_TOOLS`, keep it out of the
@@ -322,7 +322,7 @@ dispatch subagents, verify their evidence, commit, and update this file.
 
 ### Deferred
 (low/medium review findings not fixed; each with file:line and one sentence)
-- T1: two services booting into a virgin DB may race the one-shot backfill; loser crashloops once then sees the mark (`db.py` `_ensure_relay_backfill`). An advisory lock would remove it.
+- T1 (closed by T5): the one-shot backfills are serialized by init_db's Postgres advisory lock.
 - T4: the recorder's two-commit gap (TranscriptEvent dedup, then state/claim) predates Relay; a DB hiccup between them makes a succeeded run's reply unrecoverable and the sweep posts the lost-reply notice into history.
 - T3: reaction-toggle insert race handled by catching IntegrityError but not unit-tested (needs real concurrency).
 - T3: a DM with zero participant rows (created by the legacy POST /api/conversations) stays visible to the legacy facade until T4 makes that path write participants.
