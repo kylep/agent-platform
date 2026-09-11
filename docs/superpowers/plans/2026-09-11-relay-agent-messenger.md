@@ -99,7 +99,7 @@ dispatch subagents, verify their evidence, commit, and update this file.
 
 ### Phase 1 — data model, migration, API
 
-- [ ] **T1 Schema: channels, messages, participants, sessions, bindings, wakes, invocations.**
+- [x] **T1 Schema: channels, messages, participants, sessions, bindings, wakes, invocations.** (commit `821d06f`; review round 1 fixed: dm-only guard on legacy endpoints, duplicate-binding dedupe, guarded DROP NOT NULL, `schema_marks` gate, per-run human attribution)
   Modify `services/backend/agentplatform/db.py`: extend `Conversation` with
   `kind` (default `"dm"`), `name`, `topic`, `open` (bool), `archived_at`; add
   models `RelayParticipant`, `RelayMessage`, `RelayReaction`,
@@ -319,6 +319,8 @@ dispatch subagents, verify their evidence, commit, and update this file.
 
 ### Deferred
 (low/medium review findings not fixed; each with file:line and one sentence)
+- T1: two services booting into a virgin DB may race the one-shot backfill; loser crashloops once then sees the mark (`db.py` `_ensure_relay_backfill`). An advisory lock would remove it.
+- T1: Postgres-only DDL (`DROP NOT NULL`, GIN tsvector index) has no CI coverage; verified on the NUC in T12.
 
 ## Definition of done
 
