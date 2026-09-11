@@ -82,6 +82,25 @@ class Settings(BaseSettings):
     # MCP broker service URL injected into token-bearing runs (the runner points
     # claude at it so agents get brokered API tools instead of a shell).
     mcp_broker_url: str = "http://agent-platform-mcp-broker:8000/mcp"
+    # Relay loop guards (docs/design/19). A run triggered by a message at hop h
+    # posts its reply at h+1; an agent-authored message at this hop can summon
+    # nobody, which is where a two-agent ping-pong stops. A human mention starts
+    # a fresh chain at hop 0, so a person can always continue a paused thread.
+    relay_max_hops: int = 4
+    # Spend caps on mention-triggered runs, counted from relay_invocations so
+    # they survive a restart. Over budget the router suppresses and says so once
+    # per channel per hour, rather than once per suppressed message.
+    relay_channel_invocations_per_hour: int = 30
+    relay_global_invocations_per_hour: int = 120
+    # An agent mentioned by another agent within this long of its own last reply
+    # in that channel gets a coalesced wake instead of a second run: three
+    # mentions during one reply become one follow-up, never three.
+    relay_agent_cooldown_seconds: int = 20
+    # How many recent channel messages a mention run is shown as context.
+    relay_context_messages: int = 30
+    # Whether agent creation grants mcp__platform__relay. The grant is a real
+    # row either way, so an admin can remove it per agent like any other.
+    relay_default_grant: bool = True
     # (The news pipeline settings are gone: news presentation lives in the news
     # APP now — the recorder just honors each manifest's `result_topic`.)
 

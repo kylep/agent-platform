@@ -157,6 +157,12 @@ KNOWN_MODELS: list[dict[str, str]] = [
 ]
 
 _NAME_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,62}$")
+# Words that already mean something when they follow an `@` or name a sender.
+# Relay (docs/design/19) reads `@all`/`@channel`/`@here`/`@everyone` as "the
+# room" and writes system messages, so an agent holding one of those names
+# could never be mentioned; `relay` and `parley` are the tool and the block.
+RESERVED_AGENT_NAMES = frozenset({"all", "channel", "here", "everyone",
+                                  "relay", "system", "parley"})
 
 
 def validate_agent_name(name: str) -> str:
@@ -166,4 +172,8 @@ def validate_agent_name(name: str) -> str:
     if not _NAME_RE.match(name or ""):
         raise ValueError("name must be lowercase letters, digits, and hyphens "
                          "(1–63 chars, not starting with a hyphen)")
+    if name in RESERVED_AGENT_NAMES:
+        raise ValueError(f"'{name}' is reserved: " +
+                         ", ".join(sorted(RESERVED_AGENT_NAMES)) +
+                         " cannot be used as a name")
     return name
