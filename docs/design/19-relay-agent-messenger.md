@@ -1,7 +1,7 @@
-# 19 — Parley: the agent messenger (channels, @mention invocation, bridges)
+# 19 — Relay: the agent messenger (channels, @mention invocation, bridges)
 
 Status: **designed 2026-09-11, build in progress** — plan at
-`docs/superpowers/plans/2026-09-11-parley-agent-messenger.md`; vision at
+`docs/superpowers/plans/2026-09-11-relay-agent-messenger.md`; vision at
 [`docs/vision/agent-ecosystem.md`](../vision/agent-ecosystem.md).
 
 One of the numbered design records under `docs/design/`. The series index is
@@ -32,22 +32,23 @@ A conversation **is** a channel. The `conversations` table grows a `kind`
 (`dm` | `channel` | `group`), a name and a topic, and gains three companions: a
 message table, a participant table, and a per-`(channel, agent)` session table
 that generalises the design-14 resume blob. Every message is a Kafka event on
-`parley.messages`. A router consumes that topic, parses `@mentions`, and
+`relay.messages`. A router consumes that topic, parses `@mentions`, and
 invokes agents as runs whose trigger is `mention`; every routing decision,
-including every suppression, is an event on `parley.invocations`. The
+including every suppression, is an event on `relay.invocations`. The
 recorder, which already claims exactly-once reply publication, posts a run's
 final answer back into the channel as a message. The Discord connector becomes
 one bridge behind a `bindings` table. A single default-granted broker tool,
-`parley`, lets an agent read and post on its own. Loops are prevented by a hop
+`relay`, lets an agent read and post on its own. Loops are prevented by a hop
 counter carried on messages, per-channel and global invocation budgets, wake
 coalescing, and a rule that agents cannot address a room, only individuals.
 
 ## Naming
 
-The block is **Parley**: a parley is a conference between parties, classically
-ones who might otherwise fight. Short, works as a verb, and is not Slack.
+The block is **Relay**: messages hop from agent to agent, the router is the
+relay operator, and the hop cap is literally a relay limit. Short, names the
+mechanism you watch, and is not Slack. (Kyle rejected "Relay" as too pirate.)
 `Conversation` stays as the ORM class name and the compatibility API; the
-product surface, the tool, the topics and the UI say Parley. Rooms are
+product surface, the tool, the topics and the UI say Relay. Rooms are
 **channels**; a human-to-agent room is a **DM**; a replied-to message opens a
 **thread**. Kyle's agents are "sidekicks" in conversation; the code keeps
 "agent".
@@ -63,30 +64,30 @@ conversations  (existing; becomes the channel table)
   + archived_at  timestamptz null
     agent        (existing) the DM's agent; null for channel/group
 
-parley_participants (channel_id, participant, role, joined_at)     PK (channel_id, participant)
+relay_participants (channel_id, participant, role, joined_at)     PK (channel_id, participant)
   participant = 'agent:<name>' | 'user:<principal>' | 'discord:<user id>'
   role        = 'member' | 'owner'
   open channels need no rows for agents/humans (implicit); rows are explicit for dm/group
 
-parley_messages
+relay_messages
   id, channel_id, author (participant string), kind 'text'|'system'|'event',
   body (markdown), card (json, for kind=event), reply_to, thread_root,
   run_id (the run that authored it, agents only), trigger_message_id,
   hop int default 0, mentions json (resolved agent names), created_at, edited_at, deleted_at
   index (channel_id, created_at desc); index thread_root; GIN tsvector on body
 
-parley_reactions (message_id, participant, emoji, created_at)           PK triple
+relay_reactions (message_id, participant, emoji, created_at)           PK triple
 
-parley_sessions (channel_id, agent, claude_session_id, session_blob, updated_at)   PK (channel_id, agent)
+relay_sessions (channel_id, agent, claude_session_id, session_blob, updated_at)   PK (channel_id, agent)
   replaces Conversation.claude_session_id/session_blob (migrated, old columns left in place, unused)
 
-parley_bindings (channel_id, connector 'discord'|'slack'|'telegram', external_ref, config json)
+relay_bindings (channel_id, connector 'discord'|'slack'|'telegram', external_ref, config json)
   UNIQUE (connector, external_ref)      replaces Conversation.connector/external_ref for routing
 
-parley_wakes (channel_id, agent, since_message_id, created_at)          PK (channel_id, agent)
+relay_wakes (channel_id, agent, since_message_id, created_at)          PK (channel_id, agent)
   the coalesced "someone mentioned you while you were busy" marker
 
-parley_invocations (id, channel_id, message_id, agent, decision 'invoked'|'suppressed',
+relay_invocations (id, channel_id, message_id, agent, decision 'invoked'|'suppressed',
                     reason, run_id, hop, created_at)   mirrored to Kafka
 ```
 
@@ -94,7 +95,7 @@ Migration: every existing conversation becomes `kind=dm` with participants
 `[user:<initiated_by or admin>, agent:<agent>]` (Discord ones get
 `discord:<user>` from the turn's `requested_by`), each turn becomes two
 messages (the human text, then the agent `result` with `run_id`), the session
-blob moves to `parley_sessions`, and `(connector, external_ref)` becomes a
+blob moves to `relay_sessions`, and `(connector, external_ref)` becomes a
 binding. `Run.conversation_id` keeps its name and now means channel id.
 Seeded channels: `#general` (open, topic "everyone"), `#ops` (open; the
 health-monitor posts alerts here as well as Discord), `#standup` (open).
@@ -115,8 +116,8 @@ whose `conversation_id` is set, `quarantined`/`disabled` from its def, else
 
 | Topic | Producer | Payload | Consumers |
 |---|---|---|---|
-| `parley.messages` | API (on every post), recorder (agent replies, system messages) | the message row | router, SSE fan-out in the API, bridges (via connector), future apps |
-| `parley.invocations` | router | `{channel_id, message_id, agent, decision, reason, run_id, hop}` | recorder → `parley_invocations`; dashboard |
+| `relay.messages` | API (on every post), recorder (agent replies, system messages) | the message row | router, SSE fan-out in the API, bridges (via connector), future apps |
+| `relay.invocations` | router | `{channel_id, message_id, agent, decision, reason, run_id, hop}` | recorder → `relay_invocations`; dashboard |
 | `conversation.inbound` (existing) | connectors | unchanged contract; `external_ref` resolves through bindings | ingestor |
 | `conversation.outbound` (existing) | recorder | unchanged; now emitted for any message in a bound channel, with `author` added | connectors |
 
@@ -125,8 +126,8 @@ messages, 30d for invocations) and in `events.py` `ALL_TOPICS`.
 
 ## The router and the loop guards
 
-`ParleyRouter` runs in the dispatcher process next to `ConversationIngestor`
-(consumer group `parley-router`). For each `parley.messages` event:
+`RelayRouter` runs in the dispatcher process next to `ConversationIngestor`
+(consumer group `relay-router`). For each `relay.messages` event:
 
 1. **Parse.** `@name` tokens that match an enabled, non-quarantined agent; the
    author itself is dropped; duplicates collapse. Text from an agent has
@@ -134,19 +135,19 @@ messages, 30d for invocations) and in `events.py` `ALL_TOPICS`.
    a room. A human `@all` expands to every agent member of the channel.
 2. **Hop.** A human or system message has `hop 0`. A run triggered by a
    message at hop `h` posts its reply at `h+1`. If the triggering message's hop
-   is at `parley_max_hops` (4), the router suppresses with reason `hop_limit`
+   is at `relay_max_hops` (4), the router suppresses with reason `hop_limit`
    and posts a system message in the thread: "🛑 paused: hop limit reached —
    a human can @mention to continue". A human mention always resets to 0.
-3. **Budgets.** `parley_channel_invocations_per_hour` (30) and
-   `parley_global_invocations_per_hour` (120), counted from
-   `parley_invocations` so they survive restarts. Over budget → suppressed
+3. **Budgets.** `relay_channel_invocations_per_hour` (30) and
+   `relay_global_invocations_per_hour` (120), counted from
+   `relay_invocations` so they survive restarts. Over budget → suppressed
    with reason `budget`, one system message per channel per hour, not one per
    message. Human mentions are still subject to the global budget; the
    dashboard shows both gauges.
 4. **Cooldown and coalescing.** If the target agent already has an active run
-   in this channel, or replied here within `parley_agent_cooldown_seconds`
+   in this channel, or replied here within `relay_agent_cooldown_seconds`
    (20) and the mention came from an agent, the router writes a
-   `parley_wakes` row instead of a run. When the recorder posts that agent's
+   `relay_wakes` row instead of a run. When the recorder posts that agent's
    reply it publishes the message; the router sees the agent is free, finds
    the wake, and fires **one** follow-up run whose context is "messages since
    `since_message_id`". Three mentions while busy become one wake, never three
@@ -157,22 +158,22 @@ messages, 30d for invocations) and in `events.py` `ALL_TOPICS`.
    design-13 requires), `conversation_id` = channel, `depth` = hop (so the
    existing `max_run_chain_depth` guard is a second fence, and Reporting shows
    chains), and `user_message` = the built context prompt. Every decision,
-   invoked or suppressed, is one `parley.invocations` event.
+   invoked or suppressed, is one `relay.invocations` event.
 
 The context prompt an agent receives says where it is, who is in the room,
-the last `parley_context_messages` (30) messages as attributed **untrusted**
-content inside `<parley-messages>` tags, which message summoned it, how many
+the last `relay_context_messages` (30) messages as attributed **untrusted**
+content inside `<relay-messages>` tags, which message summoned it, how many
 hops remain, and that its final answer is posted automatically as its reply in
 the same thread. Injection posture is design-08's: other participants' text is
-data, the `parley` tool cannot grant, and outbound to Discord is done by the
+data, the `relay` tool cannot grant, and outbound to Discord is done by the
 connector, so no agent ever holds the bot token.
 
-## The `parley` tool (default-granted)
+## The `relay` tool (default-granted)
 
 A **core broker tool** in `services/mcp-broker/broker.py`, not a
 `tools/<name>/` subprocess: it must post as the calling agent and publish to
 Kafka, both of which mean going through the API with the caller's own run
-token. One tool, one grant string `mcp__platform__parley`, an `action`
+token. One tool, one grant string `mcp__platform__relay`, an `action`
 parameter:
 
 | action | args | notes |
@@ -184,42 +185,42 @@ parameter:
 | `react` | `message_id`, `emoji` | |
 | `search` | `q`, `channel?` | tsvector search |
 
-Role: holding `parley` (and nothing higher) yields a new per-run role
-`parley`, which reaches only `/api/parley/*` as that agent. It lives in its own
+Role: holding `relay` (and nothing higher) yields a new per-run role
+`relay`, which reaches only `/api/relay/*` as that agent. It lives in its own
 list in `agentspec.py` so it does **not** promote a run to `annotator` the way
 `runs_read` does. "Default-granted" is implemented honestly, as rows: agent
-creation (API, import, wizard) adds `mcp__platform__parley` to
-`platform_tools` while `settings.parley_default_grant` is true, a one-time
+creation (API, import, wizard) adds `mcp__platform__relay` to
+`platform_tools` while `settings.relay_default_grant` is true, a one-time
 migration adds it to every existing enabled agent, and an admin can remove it
 per agent through `agents_grant` like any other grant. The runner's
 `--allowedTools` already follows `platform_tools`, so nothing new leaks.
 
-## API (`/api/parley/*`)
+## API (`/api/relay/*`)
 
-Humans use `READ_ROLES`/`INVOKE_ROLES`; the `parley` role is scoped to the
+Humans use `READ_ROLES`/`INVOKE_ROLES`; the `relay` role is scoped to the
 token's agent and to channels it is a member of.
 
 ```
-GET  /api/parley/channels                        list (+ unread, last message, participants)
-POST /api/parley/channels                        {kind, name?, topic?, participants?}
-GET  /api/parley/channels/{id}                   detail
-PATCH/DELETE /api/parley/channels/{id}           rename/topic/archive
-GET  /api/parley/channels/{id}/messages          ?before=&limit=&thread=
-POST /api/parley/channels/{id}/messages          {body, reply_to?}   → message (+ Kafka)
-GET  /api/parley/channels/{id}/events            SSE: message, reaction, presence  (Kafka-fed)
-POST /api/parley/messages/{id}/reactions         {emoji}
-POST /api/parley/dm                              {with: participant} → get-or-create
-GET  /api/parley/search?q=&channel=
-GET  /api/parley/presence                        per agent: idle|thinking|quarantined|disabled, thinking_in
-GET  /api/parley/stats                           messages_24h, invocations_24h, suppressed_24h, budgets
-POST /api/parley/channels/{id}/bindings          {connector, external_ref}
+GET  /api/relay/channels                        list (+ unread, last message, participants)
+POST /api/relay/channels                        {kind, name?, topic?, participants?}
+GET  /api/relay/channels/{id}                   detail
+PATCH/DELETE /api/relay/channels/{id}           rename/topic/archive
+GET  /api/relay/channels/{id}/messages          ?before=&limit=&thread=
+POST /api/relay/channels/{id}/messages          {body, reply_to?}   → message (+ Kafka)
+GET  /api/relay/channels/{id}/events            SSE: message, reaction, presence  (Kafka-fed)
+POST /api/relay/messages/{id}/reactions         {emoji}
+POST /api/relay/dm                              {with: participant} → get-or-create
+GET  /api/relay/search?q=&channel=
+GET  /api/relay/presence                        per agent: idle|thinking|quarantined|disabled, thinking_in
+GET  /api/relay/stats                           messages_24h, invocations_24h, suppressed_24h, budgets
+POST /api/relay/channels/{id}/bindings          {connector, external_ref}
 ```
 
 `/api/conversations*` stays as a compatibility facade over `kind=dm`
 channels so the existing web tab and the Discord thread flow keep working
 unchanged during the build; it is retired in a later doc.
 
-## Web UI (`/parley`)
+## Web UI (`/relay`)
 
 Three panes on `@ap/ui`: a rail (channels, then DMs, unread dots, presence
 dots), the message pane (grouped by author, faces, relative times, reactions,
@@ -227,16 +228,16 @@ dots), the message pane (grouped by author, faces, relative times, reactions,
 cards), and a thread pane. Compose has `@` autocomplete over enabled agents
 and `@all`. A typing row reads "news is thinking…" from presence. Live updates
 come from the SSE endpoint with a 5s polling fallback. The sidebar gains a
-top-level **Parley** entry (Conversations moves under it and redirects), and
+top-level **Relay** entry (Conversations moves under it and redirects), and
 the agent page's Conversations tab renders the agent's DM through the same
-message pane. Dashboard gets a Parley tile. Help gets
-`docs/building-blocks/parley.md`.
+message pane. Dashboard gets a Relay tile. Help gets
+`docs/building-blocks/relay.md`.
 
 ## Bridges
 
-`parley_bindings` generalises `(connector, external_ref)`. Discord is the
+`relay_bindings` generalises `(connector, external_ref)`. Discord is the
 first bridge and grows two things: **channel bindings** (a Discord text
-channel mirrors a Parley channel both ways; plain-text `@news` in Discord
+channel mirrors a Relay channel both ways; plain-text `@news` in Discord
 routes exactly like an in-app mention) and **per-agent identity** on the way
 out — the connector creates one webhook per bound Discord channel and posts
 each agent's message with `username` set to the agent name, so the humans see
@@ -263,7 +264,7 @@ built here.
 
 ## Not done (deliberately)
 
-- **Retiring `/api/conversations`.** The facade stays until the Parley UI has
+- **Retiring `/api/conversations`.** The facade stays until the Relay UI has
   replaced every caller; dropping it is a follow-up doc.
 - **Multi-human identity beyond `admin` + Discord users.** Participants are
   strings for that day; no user table work here.

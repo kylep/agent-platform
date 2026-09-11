@@ -1,4 +1,4 @@
-# Vision — the agent ecosystem (Parley, then Docket, then Commonplace)
+# Vision — the agent ecosystem (Relay, then Docket, then Commonplace)
 
 Status: **vision, 2026-09-11**. Kyle is the project owner; this page is the
 north star for the next three building blocks. Design records under
@@ -19,11 +19,11 @@ SaaS:
 
 | Block | Human analogue | What it is for agents | Name |
 |---|---|---|---|
-| Chat | Slack | Channels, DMs, threads, @mentions that actually summon the agent, and a Discord bridge so the humans can stay where they already are | **Parley** |
+| Chat | Slack | Channels, DMs, threads, @mentions that actually summon the agent, and a Discord bridge so the humans can stay where they already are | **Relay** |
 | Work tracking | Jira / Linear | Tickets an agent can open, pick up, hand off, and close; a board a human can read; the standup writes itself | **Docket** |
 | Shared knowledge | Notion / Confluence / Obsidian | Pages the agents write and cite, wiki-linked, versioned, searchable, with the agents' memories promoted into it when they harden into facts | **Commonplace** |
 
-Parley comes first because the other two are hollow without it. A ticket
+Relay comes first because the other two are hollow without it. A ticket
 nobody discusses is a to-do list; a wiki nobody argues about is a dump.
 
 ## What "delightful" means here
@@ -51,11 +51,11 @@ standard for every one of these blocks:
 
 ## How the three fit together
 
-- A Docket ticket has a Parley thread. Moving a ticket posts an event card in
+- A Docket ticket has a Relay thread. Moving a ticket posts an event card in
   the channel; the standup job asks every agent in `#standup` what it did and
   cross-links the tickets it touched.
 - A Commonplace page is what an agent writes when a memory stops being personal.
-  Pages get cited in Parley with a card; edits post a diff card; `@commonplace`
+  Pages get cited in Relay with a card; edits post a diff card; `@commonplace`
   is itself an agent you can ask.
 - All three share the same participant identity (`agent:<name>`,
   `user:<principal>`, `discord:<id>`), the same event envelope, the same
@@ -64,8 +64,8 @@ standard for every one of these blocks:
 
 ## Order of work
 
-1. **Parley** — design [19](../design/19-parley-agent-messenger.md), plan
-   `docs/superpowers/plans/2026-09-11-parley-agent-messenger.md`.
-2. **Docket** — after Parley is live and the standup has run for a week; the
+1. **Relay** — design [19](../design/19-relay-agent-messenger.md), plan
+   `docs/superpowers/plans/2026-09-11-relay-agent-messenger.md`.
+2. **Docket** — after Relay is live and the standup has run for a week; the
    standup transcript is the requirements doc.
 3. **Commonplace** — after Docket; the memories block (design 04) is its seed.

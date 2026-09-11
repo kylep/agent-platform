@@ -1,6 +1,6 @@
-# Plan — Parley, the agent messenger (design 19)
+# Plan — Relay, the agent messenger (design 19)
 
-Design: `docs/design/19-parley-agent-messenger.md`. Vision:
+Design: `docs/design/19-relay-agent-messenger.md`. Vision:
 `docs/vision/agent-ecosystem.md`. This file is the **single source of state**
 for the build: the loop re-reads it every tick, executes the first unchecked
 task, and ticks the box with the commit hash. Anyone (Kyle, a fresh session)
@@ -43,7 +43,7 @@ dispatch subagents, verify their evidence, commit, and update this file.
    still fails after two repair rounds, mark it `- [!]` with a one-paragraph
    note and continue to the next task — do not stall the whole build.
 6. Commit on `main` (Kyle's workflow: single branch, direct commits, `git add`
-   each file by name, never `-A`). Message: `feat(parley): <task title>` plus
+   each file by name, never `-A`). Message: `feat(relay): <task title>` plus
    a body, and the attribution trailer the session was given. Then edit this
    file: `- [x] **Tn …** (commit `<hash>`)`.
 7. Schedule the next wakeup with `delaySeconds: 60`, `noop: false`, and the
@@ -102,67 +102,67 @@ dispatch subagents, verify their evidence, commit, and update this file.
 - [ ] **T1 Schema: channels, messages, participants, sessions, bindings, wakes, invocations.**
   Modify `services/backend/agentplatform/db.py`: extend `Conversation` with
   `kind` (default `"dm"`), `name`, `topic`, `open` (bool), `archived_at`; add
-  models `ParleyParticipant`, `ParleyMessage`, `ParleyReaction`,
-  `ParleySession`, `ParleyBinding`, `ParleyWake`, `ParleyInvocation` exactly
+  models `RelayParticipant`, `RelayMessage`, `RelayReaction`,
+  `RelaySession`, `RelayBinding`, `RelayWake`, `RelayInvocation` exactly
   as the design's "Data model" section; add `AgentDef.icon` (nullable str).
-  Add `_ensure_parley_backfill(conn)` to `init_db`: copy
-  `claude_session_id`/`session_blob` into `parley_sessions` for every
+  Add `_ensure_relay_backfill(conn)` to `init_db`: copy
+  `claude_session_id`/`session_blob` into `relay_sessions` for every
   conversation with a blob, create a binding from `(connector, external_ref)`
   when `connector != "web"`, create the two participant rows per DM, and
-  synthesise two `parley_messages` per historical turn (human `user_message`,
+  synthesise two `relay_messages` per historical turn (human `user_message`,
   then agent `result` with `run_id`, `hop 0`), skipping conversations that
   already have messages. Seed channels `general`, `ops`, `standup`
   (`kind=channel, open=true`) if absent. Tests in
-  `services/backend/tests/test_parley_schema.py`: models round-trip on sqlite;
+  `services/backend/tests/test_relay_schema.py`: models round-trip on sqlite;
   backfill is idempotent (run `init_db` twice); a legacy conversation with two
   turns yields four messages in order; seeds exist.
 
 - [ ] **T2 Settings + participants + mention parsing library.**
-  Add to `config.py`: `parley_max_hops=4`,
-  `parley_channel_invocations_per_hour=30`,
-  `parley_global_invocations_per_hour=120`,
-  `parley_agent_cooldown_seconds=20`, `parley_context_messages=30`,
-  `parley_default_grant=True`, each with a why-comment in the file's voice.
-  New module `services/backend/agentplatform/parley.py` with pure functions:
+  Add to `config.py`: `relay_max_hops=4`,
+  `relay_channel_invocations_per_hour=30`,
+  `relay_global_invocations_per_hour=120`,
+  `relay_agent_cooldown_seconds=20`, `relay_context_messages=30`,
+  `relay_default_grant=True`, each with a why-comment in the file's voice.
+  New module `services/backend/agentplatform/relay.py` with pure functions:
   `parse_mentions(body, agents: set[str], author) -> list[str]` (dedupe, drop
   self, `@all` only for non-agent authors, returns `["*"]` for `@all`),
   `strip_room_mentions(body)` (for agent authors), `participant_of(agent|principal)`,
   `face_for(name) -> {emoji, hue}` (deterministic from a hash over a curated
   emoji list of ~40 friendly faces/objects), `is_member(channel, participant,
-  enabled_agents)` honouring `open`. Tests in `tests/test_parley_lib.py`.
+  enabled_agents)` honouring `open`. Tests in `tests/test_relay_lib.py`.
 
 - [ ] **T3 API: channels, messages, DM, reactions, search, presence, stats.**
-  New router `services/backend/agentplatform/api/parley.py` mounted in
-  `api/app.py`, schemas in `api/schemas.py` (`ParleyChannel`, `ParleyMessage`,
-  `ParleyPresence`, `ParleyStats`, …). Implement every route in the design's
+  New router `services/backend/agentplatform/api/relay.py` mounted in
+  `api/app.py`, schemas in `api/schemas.py` (`RelayChannel`, `RelayMessage`,
+  `RelayPresence`, `RelayStats`, …). Implement every route in the design's
   "API" table except SSE and bindings (T6, T12). Posting inserts the row,
-  resolves mentions via `parse_mentions`, publishes `parley.messages` (add
-  `TOPIC_PARLEY_MESSAGES`, `TOPIC_PARLEY_INVOCATIONS` to `events.py` and
+  resolves mentions via `parse_mentions`, publishes `relay.messages` (add
+  `TOPIC_RELAY_MESSAGES`, `TOPIC_RELAY_INVOCATIONS` to `events.py` and
   `values.yaml` topics). Authorship: human routes use `INVOKE_ROLES`/`READ_ROLES`
-  and the principal name; a `parley`-role token (T5) may only act as
+  and the principal name; a `relay`-role token (T5) may only act as
   `request.state.api_key_agent` and only in channels it is a member of (403
   otherwise). `presence` derives from `Run` rows in `ACTIVE_STATES` with
   `conversation_id` set plus agent def state. `stats` counts from
-  `parley_messages`/`parley_invocations` over 24h and reports both budgets'
-  usage. Tests `tests/test_parley_api.py`: post→message has mentions and a
+  `relay_messages`/`relay_invocations` over 24h and reports both budgets'
+  usage. Tests `tests/test_relay_api.py`: post→message has mentions and a
   Kafka envelope on the `FakeProducer`; agent token cannot post as another
   agent; non-member 403; DM get-or-create is idempotent; search finds a word;
   presence shows `thinking` for an active channel run.
 
 - [ ] **T4 Compatibility facade: `/api/conversations` over DM channels; recorder posts replies as messages.**
-  Modify `conversation.py`: `_history` reads `parley_messages` (falling back
+  Modify `conversation.py`: `_history` reads `relay_messages` (falling back
   to runs only when a channel has no messages), `continue_conversation`
   inserts the human message (author = participant of `requested_by`), keeps
   the one-turn-in-flight rule for `kind=dm` only. Modify `recorder.py`: on a
   terminal result for a run with `conversation_id`, insert the agent's reply
-  as a `parley_messages` row (`run_id`, `hop` = triggering message hop + 1 for
+  as a `relay_messages` row (`run_id`, `hop` = triggering message hop + 1 for
   `trigger=="mention"`, else 0, `reply_to` = the triggering message's thread),
-  publish `parley.messages`, and keep publishing `conversation.outbound` only
-  when the channel has a binding (look up `parley_bindings`, fall back to the
+  publish `relay.messages`, and keep publishing `conversation.outbound` only
+  when the channel has a binding (look up `relay_bindings`, fall back to the
   legacy columns). On a failed/timed-out run in a channel, insert a `system`
   message "😵 {agent} couldn't answer: {short error}". The exactly-once
   `_claim_reply` stays the gate for both. Modify `api/runs.py` session
-  endpoints to read/write `parley_sessions` keyed by `(run.conversation_id,
+  endpoints to read/write `relay_sessions` keyed by `(run.conversation_id,
   run.agent)` (migrated rows make this transparent). Tests: existing
   conversation tests still pass; a finished conversation run yields a message
   with `run_id`; a failed run yields a system message; session round-trip via
@@ -170,34 +170,34 @@ dispatch subagents, verify their evidence, commit, and update this file.
 
 ### Phase 2 — the tool and the grant
 
-- [ ] **T5 `parley` role + default grant.**
-  `agentspec.py`: add `PLATFORM_MCP_PARLEY_TOOLS = ("mcp__platform__parley",)`
+- [ ] **T5 `relay` role + default grant.**
+  `agentspec.py`: add `PLATFORM_MCP_RELAY_TOOLS = ("mcp__platform__relay",)`
   with a `TOOL_HELP` entry (not sensitive), include it in
   `GRANTABLE_PLATFORM_TOOLS`/`AVAILABLE_TOOLS`, keep it out of the
-  annotator-promoting list. `api/auth.py`: add role `parley` to `ROLES`; the
-  parley API accepts it. `joblauncher.py` `_platform_token_role`: parley-only
-  → `parley`; parley plus annotator tools → `annotator` (higher wins).
+  annotator-promoting list. `api/auth.py`: add role `relay` to `ROLES`; the
+  relay API accepts it. `joblauncher.py` `_platform_token_role`: relay-only
+  → `relay`; relay plus annotator tools → `annotator` (higher wins).
   Default grant: in `api/agents.py` create/import paths and the agent wizard
-  server side, add `mcp__platform__parley` to `platform_tools` when
-  `settings.parley_default_grant` and the caller did not explicitly exclude
-  it; add `_ensure_parley_default_grant(conn)` backfill in `db.py` that adds
+  server side, add `mcp__platform__relay` to `platform_tools` when
+  `settings.relay_default_grant` and the caller did not explicitly exclude
+  it; add `_ensure_relay_default_grant(conn)` backfill in `db.py` that adds
   the grant to every enabled agent lacking it, recorded through the design-15
-  version log with `changed_by="platform:parley-default-grant"` (once,
+  version log with `changed_by="platform:relay-default-grant"` (once,
   guarded by a marker row or by checking the version log). Tests: role
   ladder table-driven; a new agent has the grant; backfill idempotent; an
   admin `agents_grant` removal sticks (backfill does not re-add — record the
   removal as the marker).
 
-- [ ] **T6 Broker tool `parley` + run context prompt + SSE.**
-  `services/mcp-broker/broker.py`: add core tool `parley(action, channel?,
+- [ ] **T6 Broker tool `relay` + run context prompt + SSE.**
+  `services/mcp-broker/broker.py`: add core tool `relay(action, channel?,
   body?, reply_to?, limit?, before?, to?, message_id?, emoji?, q?)` forwarding
-  the caller's headers to `/api/parley/*`; action enum and a docstring that
-  teaches the agent the hop rule in one sentence. `services/backend/agentplatform/parley.py`:
+  the caller's headers to `/api/relay/*`; action enum and a docstring that
+  teaches the agent the hop rule in one sentence. `services/backend/agentplatform/relay.py`:
   `build_mention_prompt(channel, messages, mention_message, agent, hops_left,
   participants)` producing the design's context prompt with
-  `<parley-messages author=… at=…>` attributed untrusted blocks. API: add
-  `GET /api/parley/channels/{id}/events` (SSE) fed by a single in-process
-  `parley.messages` consumer in the API (`api/app.py` lifespan; group id
+  `<relay-messages author=… at=…>` attributed untrusted blocks. API: add
+  `GET /api/relay/channels/{id}/events` (SSE) fed by a single in-process
+  `relay.messages` consumer in the API (`api/app.py` lifespan; group id
   `api-sse-<pod>` with `auto_offset_reset=latest`), fanning out to per-channel
   asyncio queues; heartbeat every 15s; also emits `presence` when a run in the
   channel starts/ends (derive from `run.events` in the same consumer).
@@ -207,19 +207,19 @@ dispatch subagents, verify their evidence, commit, and update this file.
 
 ### Phase 3 — the router
 
-- [ ] **T7 `ParleyRouter` with all loop guards.**
-  New `services/backend/agentplatform/parley_router.py`, hosted in
+- [ ] **T7 `RelayRouter` with all loop guards.**
+  New `services/backend/agentplatform/relay_router.py`, hosted in
   `dispatcher_main.py` next to `ConversationIngestor`, consumer group
-  `parley-router`. Implement steps 1–5 of the design's "router" section
-  exactly: parse, hop check, budgets (count `parley_invocations` in the last
-  hour), cooldown + `parley_wakes` coalescing (fire the follow-up when the
+  `relay-router`. Implement steps 1–5 of the design's "router" section
+  exactly: parse, hop check, budgets (count `relay_invocations` in the last
+  hour), cooldown + `relay_wakes` coalescing (fire the follow-up when the
   recorder's reply message for that agent arrives), invoke via
   `materialize_run` with `trigger="mention"`, `depth=hop`, `initiated_by`
   inheritance, `user_message` = `build_mention_prompt(...)`. Every decision
-  writes `parley_invocations` and publishes `parley.invocations`. System
+  writes `relay_invocations` and publishes `relay.invocations`. System
   messages for `hop_limit` (per thread) and `budget` (once per channel per
   hour) are posted through the same insert+publish helper the API uses.
-  Tests `tests/test_parley_router.py` (table-driven, FakeProducer, sqlite):
+  Tests `tests/test_relay_router.py` (table-driven, FakeProducer, sqlite):
   human mention invokes at hop 0; agent reply at hop 4 mentioning another
   agent is suppressed with a system message; A↔B ping-pong stops after
   `max_hops` runs; three mentions while busy → one wake → one follow-up run
@@ -230,43 +230,43 @@ dispatch subagents, verify their evidence, commit, and update this file.
 
 ### Phase 4 — web UI  `[ui]`
 
-- [ ] **T8 `[ui]` Parley page: rail + messages + compose, live via SSE.**
-  `services/web/src/pages/Parley.tsx` (+ `components/parley/*`): three-pane
+- [ ] **T8 `[ui]` Relay page: rail + messages + compose, live via SSE.**
+  `services/web/src/pages/Relay.tsx` (+ `components/relay/*`): three-pane
   layout per the design's "Web UI" section; faces from `face_for` mirrored in
   TS (`lib/face.ts`, same hash + same emoji list — add a shared JSON fixture
   test so the two stay in sync); presence dots; "x is thinking…" row; SSE
   via `EventSource` with 5s polling fallback; `@` autocomplete over
   `/api/agents`; reactions; "view run ↗" linking `/runs/{run_id}`; system
-  rows muted; `?channel=` and `?thread=` in the URL. Route `/parley`, nav
-  entry **Parley** top-level with children Channels (`/parley`) and DMs
-  (`/parley?kind=dm`); `/conversations` redirects to `/parley?kind=dm`;
+  rows muted; `?channel=` and `?thread=` in the URL. Route `/relay`, nav
+  entry **Relay** top-level with children Channels (`/relay`) and DMs
+  (`/relay?kind=dm`); `/conversations` redirects to `/relay?kind=dm`;
   `AgentDetail` Conversations tab renders the DM through the new message
   pane. Fixtures + smoke rows + a11y path. Empty state for a channel with no
   messages must be inviting, not blank.
 
 - [ ] **T9 `[ui]` Thread pane, search, dashboard tile, Help page.**
-  Thread pane opens on reply; search box hits `/api/parley/search`;
-  Dashboard gets a Parley `Stat` tile (messages 24h, invocations 24h,
-  suppressed 24h, budget gauges) linking to `/parley`; write
-  `docs/building-blocks/parley.md` (Help auto-renders it) in the voice of the
+  Thread pane opens on reply; search box hits `/api/relay/search`;
+  Dashboard gets a Relay `Stat` tile (messages 24h, invocations 24h,
+  suppressed 24h, budget gauges) linking to `/relay`; write
+  `docs/building-blocks/relay.md` (Help auto-renders it) in the voice of the
   sibling pages; update `docs/building-blocks/conversations.md` to point at
-  Parley; add the glossary entries (Parley, channel, DM, thread, hop, wake).
+  Relay; add the glossary entries (Relay, channel, DM, thread, hop, wake).
 
 ### Phase 5 — Discord bridge
 
 - [ ] **T10 Bindings API + connector channel mirroring + per-agent webhooks.**
-  API: `POST/GET/DELETE /api/parley/channels/{id}/bindings`. Recorder/API:
+  API: `POST/GET/DELETE /api/relay/channels/{id}/bindings`. Recorder/API:
   when a message lands in a bound channel, publish `conversation.outbound`
   with `{channel_id, connector, external_ref, author, text, kind}` (extend the
   payload, keep old fields). `services/connector-discord/connector.py`:
   consume outbound for bound **channels** (not only threads): resolve the
-  Discord channel, get-or-create a webhook named `parley` there, post with
-  `username=<agent name>` (system messages post as `Parley`); inbound: any
+  Discord channel, get-or-create a webhook named `relay` there, post with
+  `username=<agent name>` (system messages post as `Relay`); inbound: any
   message in a bound Discord channel (author not a bot, no `webhook_id`) →
   `conversation.inbound` with `external_ref=<channel id>` and `text`
   unchanged (plain-text `@news` routes like an in-app mention); the existing
   mention-the-bot thread flow is untouched. `conversation_ingest.py`: resolve
-  `external_ref` through `parley_bindings` first. Tests: ingest maps a bound
+  `external_ref` through `relay_bindings` first. Tests: ingest maps a bound
   ref to the channel; outbound envelope carries `author`; connector unit
   tests for the webhook path with a fake discord client (mirror whatever the
   existing connector tests do; if none exist, add a minimal fake).
@@ -274,14 +274,14 @@ dispatch subagents, verify their evidence, commit, and update this file.
 ### Phase 6 — delight
 
 - [ ] **T11 `#standup` job, `#ops` alerts, Settings toggle.**
-  Seed a system Job "parley-standup" (agent `pai` or a new tiny system agent
-  `parley-host` with the `parley` grant only) with cron `0 9 * * *` timezone
+  Seed a system Job "relay-standup" (agent `pai` or a new tiny system agent
+  `relay-host` with the `relay` grant only) with cron `0 9 * * *` timezone
   `America/Toronto`, prompt: post to `#standup` the message
   "@all — what did you do in the last 24h? Two lines, link anything you
   touched." (the router fans it out; the agent itself posts nothing else).
-  health-monitor: its alert prompt gains "also post the alert to Parley
+  health-monitor: its alert prompt gains "also post the alert to Relay
   `#ops` with the run linked" (edit through the design-15 change log via the
-  API, not files). Settings page: toggle for `parley_default_grant` and a
+  API, not files). Settings page: toggle for `relay_default_grant` and a
   read-only view of the four guard values. Tests: seeding idempotent; the
   Settings API round-trips the toggle.
 
@@ -303,14 +303,14 @@ dispatch subagents, verify their evidence, commit, and update this file.
   then stop" in `#general` as admin; confirm two `invoked` invocations, two
   agent messages with `run_id`, and that the exchange ends by the hop cap or
   naturally with a system row if capped; confirm `#standup` job exists; open
-  the Parley page in a browser screenshot if possible. Record results here
+  the Relay page in a browser screenshot if possible. Record results here
   under "Live verification".
 
 - [ ] **T13 Memory + docs close-out.**
   Update `docs/design/19-*.md` Status line to shipped with the date, add an
   "AS BUILT" section for any deltas, update `docs/design/00-overview.md` row
   19 if the one-line changed, and write the agent-platform memory file
-  `agent-platform-parley.md` (index line in MEMORY.md) recording what shipped,
+  `agent-platform-relay.md` (index line in MEMORY.md) recording what shipped,
   the live-verification evidence, and gotchas. Send the final
   PushNotification.
 
@@ -325,9 +325,9 @@ dispatch subagents, verify their evidence, commit, and update this file.
 All T1–T13 are `[x]`; `cd services/backend && .venv/bin/python -m pytest -q`
 is green; `cd services/web && npm run -s lint && npm run -s build && npx
 playwright test` is green; the NUC runs the new images (`kubectl get pods`
-all Running, `GET /api/parley/stats` answers); "Live verification" below
+all Running, `GET /api/relay/stats` answers); "Live verification" below
 shows two different agents exchanging messages in `#general` with linked
-runs; the Parley page renders on the NUC; `#standup` job is scheduled.
+runs; the Relay page renders on the NUC; `#standup` job is scheduled.
 
 ## Live verification
 (filled in by T12: timestamps, message ids, run ids, invocation decisions, screenshot path)
