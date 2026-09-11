@@ -215,7 +215,10 @@ dispatch subagents, verify their evidence, commit, and update this file.
   hour), cooldown + `relay_wakes` coalescing (fire the follow-up when the
   recorder's reply message for that agent arrives), invoke via
   `materialize_run` with `trigger="mention"`, `depth=hop`, `initiated_by`
-  inheritance, `user_message` = `build_mention_prompt(...)`. Every decision
+  inheritance, `user_message` = `build_mention_prompt(...)`. Before invoking,
+  the router re-checks `is_member(channel, agent:<target>, enabled, explicit)`
+  itself (a mention recorded by the API is not a grant of room access) and
+  suppresses with reason `not_member` otherwise. Every decision
   writes `relay_invocations` and publishes `relay.invocations`. System
   messages for `hop_limit` (per thread) and `budget` (once per channel per
   hour) are posted through the same insert+publish helper the API uses.
