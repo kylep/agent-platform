@@ -117,7 +117,7 @@ dispatch subagents, verify their evidence, commit, and update this file.
   backfill is idempotent (run `init_db` twice); a legacy conversation with two
   turns yields four messages in order; seeds exist.
 
-- [ ] **T2 Settings + participants + mention parsing library.**
+- [x] **T2 Settings + participants + mention parsing library.** (commit `ee2aa9f`; review fixed: unterminated-fence mention leak, reserved agent names, connector fullmatch)
   Add to `config.py`: `relay_max_hops=4`,
   `relay_channel_invocations_per_hour=30`,
   `relay_global_invocations_per_hour=120`,
@@ -320,6 +320,7 @@ dispatch subagents, verify their evidence, commit, and update this file.
 ### Deferred
 (low/medium review findings not fixed; each with file:line and one sentence)
 - T1: two services booting into a virgin DB may race the one-shot backfill; loser crashloops once then sees the mark (`db.py` `_ensure_relay_backfill`). An advisory lock would remove it.
+- T2: `RESERVED_AGENT_NAMES` is enforced by `validate_agent_name`, which skills/secrets/tools also use, so those slugs are reserved there too (no collisions today).
 - T1: Postgres-only DDL (`DROP NOT NULL`, GIN tsvector index) has no CI coverage; verified on the NUC in T12.
 
 ## Definition of done
