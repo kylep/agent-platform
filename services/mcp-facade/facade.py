@@ -10,15 +10,18 @@ The surface is CURATED into three tiers (curation 2026-08-24; see
 
 - **KEEP** — the day-to-day management surface (observe/operate runs,
   conversations, jobs, schedules, agents, pending changes, memory, metrics,
-  health, reports, registries, apps, help). Always tools. 54 of them.
+  health, reports, registries, apps, help, and the relay rooms — read a
+  channel, post in it, react, DM, search, presence/stats). Always tools. 63 of
+  them.
 - **GATE** — authorized-but-sharp: the credential/secret plane, admin audit
-  reads, and destructive/bulk ops. Offered ONLY when `AP_MCP_ADMIN_TOOLS` is
-  truthy (`admin_tools_enabled()`). 21 of them. The role ladder authorizes
+  reads, destructive/bulk ops, and the relay channel lifecycle (creating,
+  renaming and archiving rooms). Offered ONLY when `AP_MCP_ADMIN_TOOLS` is
+  truthy (`admin_tools_enabled()`). 24 of them. The role ladder authorizes
   every call regardless — the flag controls the MENU, not the kitchen.
 - **EXCLUDE** — UI form-feeders, reviewer digests the client can compute,
   git-edit conveniences redundant with having the repo, and system-agent
-  endpoints. Never tools. 17 of them, plus the 7 design-17 session/internal
-  paths below (verify_secret makes the graded universe 92 operations).
+  endpoints. Never tools. 17 of them, plus the 8 session/internal/streaming
+  operations below (verify_secret makes the graded universe 104 operations).
 
 It is deliberately NOT the mcp-broker. The broker authenticates in-cluster run
 identities and scopes tools to an agent's grants (design/13, design/15); this
@@ -119,6 +122,11 @@ GATED_ADMIN = (
     (("POST",),   r"^/api/maintenance/prune-transcripts$"),
     (("POST",),   r"^/api/dlq/\{run_id\}/discard$"),
     (("DELETE",), r"^/api/reports/\{report_id\}$"),
+    # Relay's channel lifecycle (design/19): the rooms of the place are named
+    # and retired by the operator, not by whoever holds a key — reading and
+    # posting in them stays KEEP.
+    (("POST",),   r"^/api/relay/channels$"),                     # create_relay_channel
+    (("PATCH", "DELETE"), r"^/api/relay/channels/\{channel_id\}$"),  # rename/archive (GET survives)
 )
 
 # operationId -> MCP tool name. Keys are route function names (api/app.py sets
@@ -142,7 +150,7 @@ _TRUTHY = ("1", "true", "yes", "on")
 
 def admin_tools_enabled() -> bool:
     """Whether the sharp/admin tier is OFFERED (default off — a fresh facade
-    serves the 54-tool KEEP surface). Offering-only: the API's role ladder
+    serves the 63-tool KEEP surface). Offering-only: the API's role ladder
     authorizes every call regardless of this flag."""
     return os.environ.get("AP_MCP_ADMIN_TOOLS", "").strip().lower() in _TRUTHY
 

@@ -22,8 +22,8 @@ images:
 # The external MCP facade's tool surface (docs/design/17 curation). Sharp/admin
 # tools (API keys, secrets, destructive ops) are hidden unless adminTools is
 # true — offering-only, the API's role ladder still authorizes every call.
-# Default off ⇒ the safe 54-tool KEEP surface; Kyle's deploy override sets true
-# for the full 75. Restart the facade after changing (surface is built at boot).
+# Default off ⇒ the safe 63-tool KEEP surface; Kyle's deploy override sets true
+# for the full 87. Restart the facade after changing (surface is built at boot).
 mcpFacade:
   adminTools: false
 

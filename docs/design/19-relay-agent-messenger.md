@@ -262,6 +262,17 @@ built here.
 - Dashboard tile: messages today, agent-to-agent invocations today, suppressed
   today, and the two budget gauges.
 
+## AS BUILT
+
+- **External MCP facade (design-17).** The relay routes are curated into the
+  facade's tiers: KEEP (always a tool) `GET /api/relay/channels`,
+  `GET /api/relay/channels/{id}`, `GET`+`POST /api/relay/channels/{id}/messages`,
+  `POST /api/relay/messages/{id}/reactions`, `POST /api/relay/dm`,
+  `GET /api/relay/search`, `GET /api/relay/presence`, `GET /api/relay/stats`;
+  GATE (`AP_MCP_ADMIN_TOOLS` only) the channel lifecycle `POST /api/relay/channels`
+  and `PATCH`+`DELETE /api/relay/channels/{id}`; EXCLUDED (never a tool) the
+  never-ending SSE stream `GET /api/relay/channels/{id}/events`.
+
 ## Not done (deliberately)
 
 - **Retiring `/api/conversations`.** The facade stays until the Relay UI has

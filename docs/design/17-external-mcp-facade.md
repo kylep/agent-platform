@@ -69,12 +69,30 @@ gets one decision, pinned by the facade tests against the real OpenAPI document:
   from the diff, git-edit conveniences redundant with having the repo, and
   system-agent endpoints. Never tools regardless of the flag.
 
-Default surface: **54 tools**. With `AP_MCP_ADMIN_TOOLS=1`: **75 tools**
-(KEEP + GATE). A handful of ambiguous auto-generated names are clarified
+Default surface at that pass: **54 tools**; with `AP_MCP_ADMIN_TOOLS=1`,
+**75** (KEEP + GATE) — see Relay below for the current totals. A handful of
+ambiguous auto-generated names are clarified
 (`overview` → `metrics_overview`, `notify` → `notify_channel`, `set_enabled` →
 `set_schedule_enabled`, …). The surface is computed once at startup, so a
 facade restart is required after flipping the flag. Full per-tool rationale:
 `.superpowers/sdd/2026-08-24-facade-curation/scope.md`.
+
+## Curation: Relay (design-19, 2026-09)
+
+Relay's 13 `/api/relay/*` operations were graded the same way:
+
+- **KEEP (9)** — the day-to-day room surface: list channels and read one, page
+  and post messages, toggle a reaction, open a DM, search, presence, stats.
+- **GATE (3)** — the channel lifecycle: `POST /api/relay/channels`, and
+  `PATCH`/`DELETE /api/relay/channels/{id}` (rename/topic, archive). Naming and
+  retiring the rooms of the place is the operator's, not any bearer's.
+- **EXCLUDE (1)** — `GET /api/relay/channels/{id}/events`, the SSE stream. It
+  is a `text/event-stream` that by design never ends, so as a tool it would be
+  a call that never returns — the one shape MCP cannot represent.
+
+Totals after Relay: graded universe **104** operations — KEEP **63**, GATE
+**24**, EXCLUDE **17**. Default surface: **63 tools**; with
+`AP_MCP_ADMIN_TOOLS=1`: **87 tools**.
 
 ## Explicitly not now
 
