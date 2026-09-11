@@ -5,9 +5,11 @@ import uuid
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from agentplatform.api.auth import (ANNOTATE_ROLES, INVOKE_ROLES, READ_ROLES,
                                      require_admin, require_role)
-from agentplatform.db import ACTIVE_STATES, Conversation, Run, SecretAccess, TranscriptEvent
+from agentplatform.db import (ACTIVE_STATES, Conversation, RelaySession, Run,
+                              SecretAccess, TranscriptEvent)
 from agentplatform.events import TOPIC_RUN_REQUESTS
 from agentplatform.materialize import materialize_run
 
@@ -178,6 +180,14 @@ def _own_run_or_403(request: Request, run_id: str) -> None:
         raise HTTPException(status_code=403, detail="not this run's token")
 
 
+def _session_key(run: Run) -> dict:
+    """A resume blob belongs to (channel, agent), not to the channel: a Relay
+    room holds several agents and each keeps its own CLI session
+    (docs/design/19). The backfill moved the design-14 blobs onto this key, so
+    a run that started before it still finds its own."""
+    return {"channel_id": run.conversation_id, "agent": run.agent}
+
+
 @router.get("/api/runs/{run_id}/session",
             dependencies=[Depends(require_role("session", "admin"))])
 async def get_session(run_id: str, request: Request):
@@ -189,12 +199,12 @@ async def get_session(run_id: str, request: Request):
         run = await s.get(Run, run_id)
         if run is None or not run.conversation_id:
             raise HTTPException(status_code=404, detail="no conversation")
-        conv = await s.get(Conversation, run.conversation_id)
+        row = await s.get(RelaySession, _session_key(run))
         cap = request.app.state.settings.session_blob_max_bytes
-        if conv is None or not conv.session_blob or len(conv.session_blob) > cap:
+        if row is None or not row.session_blob or len(row.session_blob) > cap:
             return {"session_id": None, "blob_b64": None}
-        return {"session_id": conv.claude_session_id,
-                "blob_b64": base64.b64encode(conv.session_blob).decode()}
+        return {"session_id": row.claude_session_id,
+                "blob_b64": base64.b64encode(row.session_blob).decode()}
 
 
 @router.get("/api/runs/{run_id}/agentdef", response_model=RunAgentDef,
@@ -227,6 +237,19 @@ async def get_agentdef(run_id: str, request: Request):
                        model=m.model if m else "")
 
 
+async def _store_session(s, key: dict, session_id: str, blob: bytes | None) -> None:
+    """Upsert one (channel, agent) session. Takes the key, not the run: a retry
+    runs after a rollback, where touching an expired ORM attribute would be
+    implicit IO the async session cannot do."""
+    row = await s.get(RelaySession, key)
+    if row is None:
+        row = RelaySession(**key)
+        s.add(row)
+    row.claude_session_id = session_id
+    row.session_blob = blob
+    await s.commit()
+
+
 @router.put("/api/runs/{run_id}/session",
             dependencies=[Depends(require_role("session", "admin"))])
 async def put_session(run_id: str, body: S.SessionBlob, request: Request):
@@ -239,16 +262,20 @@ async def put_session(run_id: str, body: S.SessionBlob, request: Request):
         run = await s.get(Run, run_id)
         if run is None or not run.conversation_id:
             raise HTTPException(status_code=404, detail="no conversation")
-        conv = await s.get(Conversation, run.conversation_id)
-        if conv is None:
+        if await s.get(Conversation, run.conversation_id) is None:
             raise HTTPException(status_code=404, detail="no conversation")
-        if len(blob) > request.app.state.settings.session_blob_max_bytes:
-            conv.claude_session_id, conv.session_blob = "", None
-            await s.commit()
-            return {"ok": True, "reset": True}
-        conv.claude_session_id, conv.session_blob = body.session_id, blob
-        await s.commit()
-    return {"ok": True, "reset": False}
+        key = _session_key(run)
+        reset = len(blob) > request.app.state.settings.session_blob_max_bytes
+        session_id, stored = ("", None) if reset else (body.session_id, blob)
+        try:
+            await _store_session(s, key, session_id, stored)
+        except IntegrityError:
+            # A concurrent first PUT for this (channel, agent) won the insert.
+            # Its row IS the session; re-read and write this blob into it.
+            await s.rollback()
+            await _store_session(s, key, session_id, stored)
+    return {"ok": True, "reset": reset}
+
 
 @router.post("/api/runs/{run_id}/kill", response_model=S.Ok, dependencies=[Depends(require_admin)])
 async def kill_run(request: Request, run_id: str):

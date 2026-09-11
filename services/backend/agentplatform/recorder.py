@@ -5,11 +5,22 @@ from sqlalchemy import select, update
 from sqlalchemy.exc import IntegrityError
 
 from agentplatform.apikeys import revoke_run_keys
-from agentplatform.db import (ACTIVE_STATES, Conversation, Run, RunModelUsage,
-                              RunState, SecretMeta, TranscriptEvent, utcnow)
+from agentplatform.db import (ACTIVE_STATES, Conversation, RelayMessage, Run,
+                              RunModelUsage, RunState, SecretMeta, TranscriptEvent,
+                              utcnow)
 from agentplatform.events import (TOPIC_CONVERSATION_OUTBOUND,
                                   TOPIC_RUN_DLQ, TOPIC_RUN_EVENTS, TOPIC_RUN_TRANSCRIPT)
+from agentplatform.relay import mentionable_in, parse_mentions, participant_of
+from agentplatform.relay_store import (binding_of, enabled_agents, explicit_members,
+                                       post_relay_message, publish_relay_message)
 from agentplatform.secrets import CLAUDE_CREDENTIAL
+
+# The author of a message the platform itself wrote — a run that died owes the
+# room an answer, and no agent is in a position to give it.
+SYSTEM_AUTHOR = "system:relay"
+# How much of a run's error a reader needs to know what went wrong. The run
+# page holds the rest.
+ERROR_CHARS = 200
 
 log = logging.getLogger("recorder")
 
@@ -65,7 +76,7 @@ class Recorder:
             # The terminal `result` frame carries the final assistant reply and
             # the per-model token breakdown.
             result_event = None
-            outbound = None
+            posted = None
             if value.get("type") == "result":
                 if value.get("result"):
                     run.result = value.get("result")
@@ -73,12 +84,13 @@ class Recorder:
                 # and that is this one: `result` is in hand right here. Waiting
                 # for the terminal state to publish it would be a cross-topic
                 # read with no ordering guarantee (see `_claim_reply`).
-                if run.conversation_id and self.producer is not None and run.result:
+                failed = value.get("is_error") is True
+                if run.conversation_id and (run.result or failed):
                     state = (run.state if run.state not in ACTIVE_STATES else
-                             (RunState.FAILED if value.get("is_error") is True
-                              else RunState.SUCCEEDED))
+                             (RunState.FAILED if failed else RunState.SUCCEEDED))
                     if await self._claim_reply(s, run_id):
-                        outbound = await self._outbound_for(s, run, state, run.result)
+                        posted = await self._post_reply(s, run, state, run.result or "",
+                                                        failed=failed)
                 for model, u in (value.get("modelUsage") or {}).items():
                     # merge = idempotent upsert on (run_id, model) for redelivery.
                     await s.merge(RunModelUsage(
@@ -121,9 +133,7 @@ class Recorder:
                 await self._probe_credential(s, "invalid")
             await s.commit()
         # Publish outside the DB session (see _handle_state's note).
-        if outbound is not None:
-            await self.producer.publish(TOPIC_CONVERSATION_OUTBOUND, outbound["conversation_id"],
-                                        outbound, type="conversation.reply")
+        await self._publish_reply(posted)
         if result_event is not None and self.producer is not None:
             topic, payload = result_event
             await self.producer.publish(topic, payload["run_id"], payload,
@@ -145,14 +155,79 @@ class Recorder:
             .returning(Run.id))
         return res.first() is not None
 
-    async def _outbound_for(self, s, run: Run, state: str, text: str) -> dict | None:
-        """Build the `conversation.outbound` payload for a claimed reply."""
+    async def _post_reply(self, s, run: Run, state: str, text: str, *,
+                          failed: bool) -> tuple | None:
+        """Write the run's answer into its channel (docs/design/19) and build
+        the bridge payload that goes with it. Called by the single winner of
+        `_claim_reply`, so the room gets exactly one of each.
+
+        A failed run says so in the room rather than going quiet: silence is
+        indistinguishable from an agent that is still thinking."""
         conv = await s.get(Conversation, run.conversation_id)
         if conv is None:
             return None
-        return {"conversation_id": conv.id, "connector": conv.connector,
-                "external_ref": conv.external_ref, "run_id": run.id,
-                "state": state, "text": text}
+        trigger = (await s.get(RelayMessage, run.trigger_message_id)
+                   if run.trigger_message_id else None)
+        # The hop is what bounds agent-to-agent chatter, and only a mention is
+        # part of such a chain — a human's turn restarts the count at 0.
+        hop = trigger.hop + 1 if trigger is not None and run.trigger == "mention" else 0
+        # Answer inside the triggering message's thread, so a room with several
+        # conversations running keeps them apart.
+        reply_to = (trigger.thread_root or trigger.id) if trigger is not None else None
+        if failed:
+            author, kind = SYSTEM_AUTHOR, "system"
+            if state == RunState.SUCCEEDED:
+                # The sweep, on a run that finished fine and whose `result`
+                # frame never landed. It did the work, so the room must not be
+                # told it failed — only that the words are gone.
+                body = (f"😵 {run.agent} answered, but the reply was lost "
+                        f"(run {run.id[:8]})")
+            else:
+                body = (f"😵 {run.agent} couldn't answer: "
+                        f"{(run.error or state)[:ERROR_CHARS]}")
+            # A notice about a failure must not summon anyone: the room is
+            # already one broken run deep.
+            mentions = []
+        else:
+            author, kind, body = participant_of(agent=run.agent), "text", text
+            mentions = parse_mentions(
+                body, mentionable_in(conv, await enabled_agents(s),
+                                     await explicit_members(s, conv.id)), author)
+        msg = await post_relay_message(
+            s, conv, author=author, body=body, kind=kind, run_id=run.id, hop=hop,
+            trigger_message_id=run.trigger_message_id, reply_to=reply_to,
+            mentions=mentions)
+        # A bridged room gets the notice too when there is no text to relay: an
+        # empty message is worse than the reason it is empty.
+        return conv, msg, await self._outbound_for(s, conv, run, state, text or body, msg)
+
+    async def _outbound_for(self, s, conv: Conversation, run: Run, state: str,
+                            text: str, msg) -> dict | None:
+        """Build the `conversation.outbound` payload for a claimed reply — but
+        only for a channel a bridge is actually listening to. A binding is the
+        answer since design/19; the legacy connector columns are what a Discord
+        thread still carries until it is migrated (T10). A web room has no
+        bridge: the message IS the delivery there."""
+        binding = await binding_of(s, conv.id)
+        if binding is None and (conv.connector == "web" or not conv.external_ref):
+            return None
+        return {"conversation_id": conv.id,
+                "connector": binding.connector if binding else conv.connector,
+                "external_ref": binding.external_ref if binding else conv.external_ref,
+                "run_id": run.id, "state": state, "text": text,
+                "author": msg.author, "message_id": msg.id}
+
+    async def _publish_reply(self, posted) -> None:
+        """Announce a claimed reply: the message to Relay, the bridge payload to
+        the connectors. Outside the DB session, since neither is worth holding a
+        transaction open for."""
+        if posted is None or self.producer is None:
+            return
+        conv, msg, outbound = posted
+        await publish_relay_message(self.producer, conv, msg)
+        if outbound is not None:
+            await self.producer.publish(TOPIC_CONVERSATION_OUTBOUND, conv.id,
+                                        outbound, type="conversation.reply")
 
     async def reconcile_replies(self, grace_seconds: int) -> int:
         """Publish replies for finished conversation turns that never got one,
@@ -172,21 +247,20 @@ class Recorder:
                                   Run.state.not_in(ACTIVE_STATES),
                                   Run.finished_at.is_not(None),
                                   Run.finished_at < cutoff))).scalars().all()
-            outbounds = []
+            late = []
             for run in rows:
                 if not await self._claim_reply(s, run.id):
                     continue
-                text = run.result or f"(the run {run.state} without a reply)"
-                ob = await self._outbound_for(s, run, run.state, text)
-                if ob is not None:
-                    outbounds.append(ob)
+                posted = await self._post_reply(
+                    s, run, run.state, run.result or f"(the run {run.state} without a reply)",
+                    failed=run.result is None)
+                if posted is not None:
+                    late.append((run.id, posted))
             await s.commit()
-        for ob in outbounds:
+        for run_id, posted in late:
             log.warning("run %s: publishing conversation reply late — no result "
-                        "frame arrived within %ds", ob["run_id"], grace_seconds)
-            await self.producer.publish(TOPIC_CONVERSATION_OUTBOUND,
-                                        ob["conversation_id"], ob,
-                                        type="conversation.reply")
+                        "frame arrived within %ds", run_id, grace_seconds)
+            await self._publish_reply(posted)
             sent += 1
         return sent
 
@@ -213,8 +287,8 @@ class Recorder:
                 # the stored Claude token is known-good.
                 if new_state == RunState.SUCCEEDED:
                     await self._probe_credential(s, "valid")
-            outbound = None
-            if new_terminal and run.conversation_id and self.producer is not None:
+            posted = None
+            if new_terminal and run.conversation_id:
                 # Only publish from here when this consumer actually holds the
                 # reply, or when no reply is ever coming. A run that succeeded
                 # but whose `result` frame hasn't landed yet is left alone — the
@@ -225,13 +299,12 @@ class Recorder:
                 if text is None and new_state != RunState.SUCCEEDED:
                     text = f"(the run {new_state} without a reply)"
                 if text is not None and await self._claim_reply(s, run_id):
-                    outbound = await self._outbound_for(s, run, new_state, text)
+                    posted = await self._post_reply(s, run, new_state, text,
+                                                    failed=new_state != RunState.SUCCEEDED)
             await s.commit()
-        # Publish the conversation reply outside the DB session (connectors and the
-        # web UI consume conversation.outbound to deliver it).
-        if outbound is not None:
-            await self.producer.publish(TOPIC_CONVERSATION_OUTBOUND, outbound["conversation_id"],
-                                        outbound, type="conversation.reply")
+        # Publish the reply outside the DB session (Relay renders the message;
+        # the connectors deliver the outbound to their bridged rooms).
+        await self._publish_reply(posted)
 
     async def _handle_dlq(self, run_id: str, value: dict) -> None:
         async with self.sf() as s:

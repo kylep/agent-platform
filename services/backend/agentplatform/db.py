@@ -40,6 +40,10 @@ class Run(Base):
     # the raw user message for that turn (prompt holds the built context prompt).
     conversation_id: Mapped[str | None] = mapped_column(String(32), nullable=True, index=True)
     user_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # The relay message that caused this run (docs/design/19). The reply is
+    # threaded under it and takes its hop + 1, so a chain of agents answering
+    # each other is walkable — and boundable — from either end.
+    trigger_message_id: Mapped[str | None] = mapped_column(String(32), nullable=True)
     state: Mapped[str] = mapped_column(String(16), default=RunState.QUEUED)
     prompt: Mapped[str] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)

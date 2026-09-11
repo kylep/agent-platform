@@ -25,10 +25,13 @@ from agentplatform.db import RelayMessage as MessageRow
 from agentplatform.db import RelayParticipant as ParticipantRow
 from agentplatform.db import RelayReaction as ReactionRow
 from agentplatform.db import Run, utcnow
-from agentplatform.events import TOPIC_RELAY_MESSAGES
 from agentplatform.relay import (agent_name, face_for, is_agent, is_member,
                                  mentionable_in, parse_mentions, participant_of,
                                  strip_room_mentions)
+# Aliased: the route below is the HTTP name for the same act, and the store
+# helper is what actually writes the row.
+from agentplatform.relay_store import post_relay_message as _insert_message
+from agentplatform.relay_store import message_view, publish_relay_message
 
 log = logging.getLogger("relay")
 
@@ -148,13 +151,10 @@ def _agents_among(participants) -> set[str]:
     return {agent_name(p) for p in participants if is_agent(p)}
 
 
-def _message(row, *, face: dict | None = None, reactions: list | None = None) -> dict:
-    return {"id": row.id, "channel_id": row.channel_id, "author": row.author,
-            "kind": row.kind, "body": row.body, "card": row.card,
-            "reply_to": row.reply_to, "thread_root": row.thread_root,
-            "run_id": row.run_id, "hop": row.hop, "mentions": row.mentions or [],
-            "created_at": _iso(row.created_at), "edited_at": _iso(row.edited_at),
-            "face": face, "reactions": reactions or []}
+# The message view is shared with the recorder and the conversation facade, so
+# every writer renders a message the same way; the private name stays because
+# it is what this module's routes read as.
+_message = message_view
 
 
 def _channel(conv: Conversation, *, participants: set[str], last=None,
@@ -425,22 +425,6 @@ async def list_relay_messages(request: Request, channel_id: str,
             for r in rows]
 
 
-async def _publish(request: Request, conv: Conversation, view: dict) -> None:
-    """`relay.messages` is what the router, the SSE fan-out and the bridges all
-    read. The row is committed and is the source of truth, so a broker blip must
-    not fail a post that demonstrably landed — it costs the message its routing,
-    which the invocation log shows as the mention that did nothing."""
-    producer = request.app.state.producer
-    if producer is None:
-        return
-    try:
-        await producer.publish(TOPIC_RELAY_MESSAGES, conv.id,
-                               {**view, "channel_kind": conv.kind}, type="relay.message")
-    except Exception:
-        log.warning("relay.messages publish failed for message %s", view["id"],
-                    exc_info=True)
-
-
 @router.post("/api/relay/channels/{channel_id}/messages", response_model=S.RelayMessage)
 async def post_relay_message(request: Request, channel_id: str, body: S.RelayMessageIn,
                              caller: Caller = Depends(require_relay_access(*WRITE))):
@@ -452,33 +436,25 @@ async def post_relay_message(request: Request, channel_id: str, body: S.RelayMes
         explicit = await _explicit(s, conv.id)
         if not is_member(conv, caller.participant, agents, explicit):
             raise HTTPException(403, "not a member of this channel")
-        thread_root = None
         if body.reply_to:
             parent = await s.get(MessageRow, body.reply_to)
             if (parent is None or parent.channel_id != channel_id
                     or parent.deleted_at is not None):
                 raise HTTPException(404, "unknown reply_to")
-            # A thread is flat: a reply to a reply joins the same root, so the
-            # pane never has to render a tree.
-            thread_root = parent.thread_root or parent.id
         text = body.body if caller.agent is None else strip_room_mentions(body.body)
-        row = MessageRow(
-            channel_id=channel_id, author=caller.participant, kind="text", body=text,
-            reply_to=body.reply_to, thread_root=thread_root,
+        row = await _insert_message(
+            s, conv, author=caller.participant, body=text, reply_to=body.reply_to,
             # A closed room can only summon its own members: `@news` in a
             # private group news is not in must stay text, or the mention hands
             # it messages its absence was meant to withhold.
             mentions=parse_mentions(text, mentionable_in(conv, agents, explicit),
                                     caller.participant),
             run_id=getattr(request.state, "api_key_run_id", None) if caller.agent else None)
-        s.add(row)
-        # Posting is the activity the rail sorts private rooms by, and a room
-        # whose only message was just written has nothing else to sort on.
-        conv.updated_at = utcnow()
         await s.commit()
         faces = await _faces(s, {caller.agent} if caller.agent else set())
-        view = _message(row, face=_face_of(caller.participant, faces))
-    await _publish(request, conv, view)
+        face = _face_of(caller.participant, faces)
+        view = _message(row, face=face)
+    await publish_relay_message(request.app.state.producer, conv, row, face=face)
     return view
 
 
