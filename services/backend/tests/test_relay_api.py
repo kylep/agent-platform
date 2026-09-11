@@ -595,3 +595,12 @@ async def test_a_reply_to_a_deleted_message_is_a_miss(admin_client, sf):
         r = await admin_client.post(f"/api/relay/channels/{cid}/messages",
                                     json={"body": "re:", "reply_to": target})
         assert r.status_code == 404, target
+
+
+async def test_stats_reports_the_guard_settings(admin_client):
+    """The loop guards and the default grant are env-only settings, so stats is
+    where an operator can see what the running platform is actually enforcing."""
+    st = (await admin_client.get("/api/relay/stats")).json()
+    assert st["settings"] == {"default_grant": True, "max_hops": 4,
+                              "channel_per_hour": 30, "global_per_hour": 120,
+                              "cooldown_seconds": 20}

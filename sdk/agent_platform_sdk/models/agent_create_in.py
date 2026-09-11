@@ -18,7 +18,8 @@ T = TypeVar("T", bound="AgentCreateIn")
 @_attrs_define
 class AgentCreateIn:
     """Create/import payload — same definition, but the name is the one thing
-    that cannot be defaulted.
+    that cannot be defaulted, plus the one knob that is about the write rather
+    than about the agent.
 
         Attributes:
             name (str):
@@ -31,6 +32,7 @@ class AgentCreateIn:
             model (str | Unset):  Default: ''.
             platform_tools (list[str] | Unset):
             prompt (str | Unset):  Default: ''.
+            relay (bool | None | Unset):
             result_topic (str | Unset):  Default: ''.
             role (str | Unset):  Default: 'operator'.
             secrets (list[str] | Unset):
@@ -50,6 +52,7 @@ class AgentCreateIn:
     model: str | Unset = ""
     platform_tools: list[str] | Unset = UNSET
     prompt: str | Unset = ""
+    relay: bool | None | Unset = UNSET
     result_topic: str | Unset = ""
     role: str | Unset = "operator"
     secrets: list[str] | Unset = UNSET
@@ -84,6 +87,12 @@ class AgentCreateIn:
             platform_tools = self.platform_tools
 
         prompt = self.prompt
+
+        relay: bool | None | Unset
+        if isinstance(self.relay, Unset):
+            relay = UNSET
+        else:
+            relay = self.relay
 
         result_topic = self.result_topic
 
@@ -132,6 +141,8 @@ class AgentCreateIn:
             field_dict["platform_tools"] = platform_tools
         if prompt is not UNSET:
             field_dict["prompt"] = prompt
+        if relay is not UNSET:
+            field_dict["relay"] = relay
         if result_topic is not UNSET:
             field_dict["result_topic"] = result_topic
         if role is not UNSET:
@@ -179,6 +190,15 @@ class AgentCreateIn:
 
         prompt = d.pop("prompt", UNSET)
 
+        def _parse_relay(data: object) -> bool | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(bool | None | Unset, data)
+
+        relay = _parse_relay(d.pop("relay", UNSET))
+
         result_topic = d.pop("result_topic", UNSET)
 
         role = d.pop("role", UNSET)
@@ -213,6 +233,7 @@ class AgentCreateIn:
             model=model,
             platform_tools=platform_tools,
             prompt=prompt,
+            relay=relay,
             result_topic=result_topic,
             role=role,
             secrets=secrets,

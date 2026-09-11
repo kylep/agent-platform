@@ -64,7 +64,7 @@ async def main() -> None:
     log.info("self-edit %s", "enabled (github-app loaded)" if github_app else "disabled")
 
     engine = make_engine(settings.db_url)
-    await init_db(engine)
+    await init_db(engine, settings.relay_default_grant)
     session_factory = make_session_factory(engine)
 
     producer = Producer(settings.kafka_bootstrap, source="dispatcher")

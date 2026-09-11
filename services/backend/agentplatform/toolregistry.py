@@ -38,7 +38,7 @@ _ENV = re.compile(r"^[A-Z][A-Z0-9_]*$")
 # directory would be a silent collision rather than a second implementation.
 CORE_TOOL_SUFFIXES = frozenset({
     "runs_read", "runs_write", "metrics", "query_app",
-    "agents_edit", "agents_grant",
+    "agents_edit", "agents_grant", "relay",
 })
 
 

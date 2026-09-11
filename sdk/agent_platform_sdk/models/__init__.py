@@ -83,6 +83,7 @@ from .relay_message_in import RelayMessageIn
 from .relay_presence import RelayPresence
 from .relay_reaction_in import RelayReactionIn
 from .relay_reaction_view import RelayReactionView
+from .relay_settings import RelaySettings
 from .relay_stats import RelayStats
 from .report_detail import ReportDetail
 from .report_detail_meta import ReportDetailMeta
@@ -223,6 +224,7 @@ __all__ = (
     "RelayPresence",
     "RelayReactionIn",
     "RelayReactionView",
+    "RelaySettings",
     "RelayStats",
     "ReportDetail",
     "ReportDetailMeta",

@@ -73,7 +73,7 @@ def create_app(settings, session_factory, producer, secret_store=None, agent_sto
         st = app.state
         if st.session_factory is None:
             engine = make_engine(settings.db_url)
-            await init_db(engine)
+            await init_db(engine, settings.relay_default_grant)
             st.session_factory = make_session_factory(engine)
         # Agent definitions are rows (docs/design/15): prime the cache once the
         # session factory exists, so the first request reads real agents rather

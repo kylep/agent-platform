@@ -31,7 +31,8 @@ from sqlalchemy.exc import IntegrityError
 from agentplatform.agentdefs import (DEF_FIELDS, AgentDefModel, apply_snapshot,
                                      model_of, next_version, snapshot_of,
                                      validate_def)
-from agentplatform.agentspec import GRANTABLE_PLATFORM_TOOLS, KNOWN_MODELS
+from agentplatform.agentspec import (GRANTABLE_PLATFORM_TOOLS, KNOWN_MODELS,
+                                     PLATFORM_MCP_RELAY_TOOLS)
 from agentplatform.api.auth import (READ_ROLES, authenticate, require_admin,
                                     require_role, role_allows)
 from agentplatform.api.schemas import (AgentCreateIn, AgentDefIn, AgentDefOut,
@@ -49,6 +50,9 @@ router = APIRouter()
 # broker matches on — so the check is a plain membership test, no parsing.
 TOOL_AGENTS_EDIT = "mcp__platform__agents_edit"
 TOOL_AGENTS_GRANT = "mcp__platform__agents_grant"
+# The Relay grant (docs/design/19), which new agents are born holding while
+# `settings.relay_default_grant` says so.
+TOOL_RELAY = PLATFORM_MCP_RELAY_TOOLS[0]
 
 # The definition fields that are GRANTS — capability, not identity. Changing
 # one is an authorization decision (`agents_grant`); changing anything else is
@@ -330,6 +334,23 @@ def _apply(row: AgentDef, model: AgentDefModel) -> None:
         setattr(row, field, _value(model, field))
 
 
+def _with_relay(tools: list[str]) -> list[str]:
+    """`tools` plus the Relay grant — idempotent, and a new list: the one it is
+    given is the model's own, and mutating that would edit the definition the
+    caller sent out from under the authorization diff."""
+    return tools if TOOL_RELAY in tools else [*tools, TOOL_RELAY]
+
+
+def _relay_by_default(settings, requested: bool | None) -> bool:
+    """Whether this write adds the Relay grant of the PLATFORM's accord.
+
+    `requested` is the create payload's tri-state `relay`: None follows the
+    setting, False opts out, True is the caller asking — and a caller asking
+    is a caller granting, so True is handled on the model side where the
+    authorization diff can see it. Only the None case is a platform default."""
+    return requested is None and settings.relay_default_grant
+
+
 async def _log_version(session, row: AgentDef, *, changed_by: str, changed_via: str):
     """Append the row's current definition to the change log. Called after the
     row is flushed so the snapshot is what actually landed."""
@@ -479,7 +500,13 @@ async def create_agent(request: Request, body: AgentCreateIn,
     new agent that already holds the keys."""
     st = request.app.state
     scope.require_edit("creating an agent")
-    model = _model(request, body.model_dump(), body.name, _registries(request))
+    payload = body.model_dump(exclude={"relay"})   # a knob about the write, not a field
+    if body.relay:
+        # An explicit `relay: true` is the caller ASKING for the grant, so it
+        # rides in through the model and is authorized exactly as if they had
+        # written the tool into `platform_tools` themselves.
+        payload["platform_tools"] = _with_relay(payload["platform_tools"])
+    model = _model(request, payload, body.name, _registries(request))
     # A grant the new agent is BORN with is still a grant. "Born with" means
     # beyond the defaults, which is what a blank row reads as — so the same
     # diff that authorizes an update authorizes a create.
@@ -493,6 +520,14 @@ async def create_agent(request: Request, body: AgentCreateIn,
             raise HTTPException(409, "an agent with that name already exists")
         row = AgentDef(name=model.name)
         _apply(row, model)
+        if _relay_by_default(st.settings, body.relay):
+            # Applied AFTER the authorization above, on purpose: a grant the
+            # PLATFORM gives every new agent is not the caller escalating, so
+            # an `agents_edit`-only creator must not be refused for it, and the
+            # write must not be relabelled `tool:agents_grant` as though they
+            # had handed it over. It still lands on the row before the flush,
+            # so the version snapshot is the definition that actually exists.
+            row.platform_tools = _with_relay(row.platform_tools)
         async with _conflict_as_409(s, duplicate="an agent with that name "
                                                  "already exists"):
             s.add(row)
@@ -752,7 +787,19 @@ async def import_agents(request: Request, body: list[AgentCreateIn],
     written, because a half-applied import leaves the platform in a state
     nobody described."""
     registries = _registries(request)
-    models = [_model(request, d.model_dump(), d.name, registries) for d in body]
+    settings = request.app.state.settings
+    models = []
+    for d in body:
+        payload = d.model_dump(exclude={"relay"})
+        # Unlike create, the Relay default goes into the DEFINITION here rather
+        # than onto the row afterwards. Import is an admin-only UPSERT, so
+        # there is no authorization diff to keep it out of — and there is an
+        # idempotence promise to keep: a grant applied after the comparison
+        # would make every re-run of the same payload an "update" that logs a
+        # version, which is exactly what this endpoint says it does not do.
+        if d.relay or _relay_by_default(settings, d.relay):
+            payload["platform_tools"] = _with_relay(payload["platform_tools"])
+        models.append(_model(request, payload, d.name, registries))
     results = []
     async with request.app.state.session_factory() as s:
         await _check_webhook_conflicts(s, models)

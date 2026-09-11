@@ -351,10 +351,11 @@ class AgentVersion(Base):
     # The VERIFIED principal (session name, api-key name, or the run's agent) —
     # never self-reported by the request payload.
     changed_by: Mapped[str] = mapped_column(String(128), default="")
-    # admin | tool:agents_edit | tool:agents_grant | import | rollback, and
-    # `delete:<one of those>` for the tombstone a deletion files — the snapshot
-    # is the definition as it stood, so the log alone can say who removed an
-    # agent and recreate it.
+    # admin | tool:agents_edit | tool:agents_grant | import | rollback |
+    # migration (a one-time platform sweep such as the design-19 relay grant),
+    # and `delete:<one of those>` for the tombstone a deletion files — the
+    # snapshot is the definition as it stood, so the log alone can say who
+    # removed an agent and recreate it.
     changed_via: Mapped[str] = mapped_column(String(32), default="admin")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
 
@@ -575,8 +576,17 @@ def _ensure_memory_key_index(conn) -> None:
 
 # (name, topic) of the rooms the platform ships with — open to every agent and
 # every human, seeded once and thereafter editable like any other channel.
+# The advisory-lock key every service's init_db takes on postgres, so the
+# one-shot backfills below cannot interleave across processes. A LITERAL, not
+# a computed hash: it was derived once as the first 8 bytes of
+# sha256(b"agent-platform-init_db") read as a signed 64-bit int, and it must
+# stay put — a different hashing choice later would silently be a different
+# lock, which is the same as no lock at all.
+INIT_DB_LOCK_KEY = -7077053083107605676
+
 RELAY_BACKFILL_MARK = "relay-backfill-v1"
 RELAY_DM_KEY_MARK = "relay-dm-keys-v1"
+RELAY_GRANT_MARK = "relay-default-grant-v1"
 
 
 def dm_key_of(participants) -> str:
@@ -642,7 +652,10 @@ def _ensure_relay_backfill(conn) -> None:
     live code (not this function) owns every new message, so a second pass would
     be re-deriving rows it no longer has authority over. The seeded channels sit
     outside the mark: three lookups by name, and a deleted #general should not
-    come back only to the next fresh database."""
+    come back only to the next fresh database.
+
+    Not race-safe on its own: the check-then-write is serialized across
+    services by init_db's advisory lock (INIT_DB_LOCK_KEY)."""
     from sqlalchemy import inspect as sa_inspect
     if not sa_inspect(conn).has_table("conversations"):
         return
@@ -728,7 +741,10 @@ def _ensure_dm_keys(conn) -> None:
     backfill, which is what put the participant rows there in the first place.
     One-time and marked, like that backfill: from here on live code sets the
     key on every DM it creates, and a second pass would be re-deriving rows it
-    no longer owns."""
+    no longer owns.
+
+    Not race-safe on its own: the check-then-write is serialized across
+    services by init_db's advisory lock (INIT_DB_LOCK_KEY)."""
     from sqlalchemy import inspect as sa_inspect
     if not sa_inspect(conn).has_table("conversations"):
         return
@@ -760,6 +776,79 @@ def _ensure_dm_keys(conn) -> None:
     conn.execute(mark_t.insert().values(name=RELAY_DM_KEY_MARK, applied_at=utcnow()))
 
 
+def _ensure_relay_default_grant(conn, default_grant: bool = True) -> None:
+    """Give every agent that already exists the Relay grant (docs/design/19).
+
+    "Default-granted" is implemented honestly, as rows: new agents get it from
+    the create/import path, and this is the one-time sweep for the ones that
+    predate Relay. Each change is a real definition write, so it goes through
+    the design-15 change log like any other — a snapshot attributed to
+    `platform:relay-default-grant`, which is how an operator finds out later
+    why an agent holds a tool nobody granted it by hand.
+
+    Runs EXACTLY once, gated on its mark, and that is the whole mechanism
+    behind "an admin can take it away": once the mark is written this function
+    never looks at `agent_defs` again, so a grant removed through agents_grant
+    or a PUT stays removed. Two kinds of agent are left alone: DISABLED ones
+    (they are not talking to anyone, and handing a capability to an agent
+    somebody switched off is not this migration's call) and QUARANTINED ones
+    (a row that no longer validates is repaired through the API, and a boot-
+    time migration is the last thing that should have an opinion about it).
+
+    With `default_grant` off the sweep does not run AND does not mark itself:
+    the setting is "should agents hold this", not "was this migration skipped",
+    so turning it on later still backfills.
+
+    Not race-safe on its own: the check-then-write is serialized across
+    services by init_db's advisory lock (INIT_DB_LOCK_KEY)."""
+    from sqlalchemy import func, inspect as sa_inspect
+    if not default_grant or not sa_inspect(conn).has_table("agent_defs"):
+        return
+    mark_t = SchemaMark.__table__
+    if conn.execute(select(mark_t.c.name)
+                    .where(mark_t.c.name == RELAY_GRANT_MARK)).first():
+        return
+    # Imported here, not at module scope: agentdefs imports THIS module for the
+    # row classes, so the snapshot helpers can only be reached once db is built.
+    from pydantic import ValidationError
+    from agentplatform.agentspec import PLATFORM_MCP_RELAY_TOOLS
+    from agentplatform.agentdefs import model_of
+    relay = PLATFORM_MCP_RELAY_TOOLS[0]
+    def_t, ver_t = AgentDef.__table__, AgentVersion.__table__
+    # next_version() is a per-agent max+1 and `agent_versions` has a UNIQUE
+    # (agent, version); one grouped read gives the same answer for every agent
+    # at once, which is what keeps a hundred-agent backfill from being a
+    # hundred round trips that could each lose a race with itself.
+    latest = dict(conn.execute(select(ver_t.c.agent, func.max(ver_t.c.version))
+                               .group_by(ver_t.c.agent)).all())
+    for row in conn.execute(select(def_t)).fetchall():
+        # `is False`, not falsy: `enabled` is an ADD COLUMN away from being
+        # NULL on any row written before it existed, and NULL reads as the
+        # column default (True) everywhere else — see agentdefs.model_of.
+        tools = list(row.platform_tools or [])
+        if row.enabled is False or relay in tools:
+            continue
+        granted = tools + [relay]
+        try:
+            # The snapshot is the definition as it now stands: the row we read
+            # plus the one field we are changing. A row that no longer
+            # validates is QUARANTINED, not broken — the API keeps it readable
+            # so an admin can repair it — and a migration must not be what
+            # turns that into a crashlooping boot, so leave it exactly as it is.
+            snapshot = {**model_of(row).model_dump(mode="json"),
+                        "platform_tools": granted}
+        except ValidationError:
+            continue
+        conn.execute(def_t.update().where(def_t.c.name == row.name)
+                     .values(platform_tools=granted))
+        version = (latest.get(row.name) or 0) + 1
+        conn.execute(ver_t.insert().values(
+            id=uuid.uuid4().hex, agent=row.name, version=version, snapshot=snapshot,
+            changed_by="platform:relay-default-grant", changed_via="migration",
+            created_at=utcnow()))
+    conn.execute(mark_t.insert().values(name=RELAY_GRANT_MARK, applied_at=utcnow()))
+
+
 def _relay_message(channel_id, author, body, created_at, run_id=None) -> dict:
     """A replayed historical message: plain text at hop 0, with none of the
     threading a live message would carry."""
@@ -769,9 +858,29 @@ def _relay_message(channel_id, author, body, created_at, run_id=None) -> dict:
                 edited_at=None, deleted_at=None)
 
 
-async def init_db(engine: AsyncEngine) -> None:
+async def init_db(engine: AsyncEngine, default_grant: bool = True) -> None:
+    """Bring the schema up to date and run the one-off backfills.
+
+    `default_grant` is `settings.relay_default_grant` — passed in rather than
+    read, because this runs in three services (API, dispatcher, recorder) and
+    none of them hands `db` a settings object. It defaults to on so a caller
+    that has no opinion gets the platform's."""
     async with engine.begin() as conn:
         if conn.dialect.name == "postgresql":
+            # SERIALIZE THE WHOLE OF init_db ACROSS SERVICES. The API, the
+            # dispatcher and the recorder each run this at boot, and on a
+            # rollout they boot together — so every backfill below, which is a
+            # check-the-mark-then-write, can have two processes pass the check
+            # at the same moment. What they then collide on is not always
+            # benign: `_ensure_relay_default_grant` computes per-agent version
+            # numbers, and two writers agreeing on "max + 1" is exactly the
+            # (agent, version) collision `uq_agent_versions_agent_version`
+            # exists to refuse — a crashlooping boot instead of a migration.
+            # A transaction-scoped advisory lock makes the loser wait and then
+            # see the mark the winner wrote; it is released with the
+            # transaction, including when that transaction fails.
+            await conn.execute(text("SELECT pg_advisory_xact_lock(:k)")
+                               .bindparams(k=INIT_DB_LOCK_KEY))
             # The memory tool's schema must exist before create_all places the
             # memories table in it (the ToolProvisioner later grants the tool
             # role its privileges — creation order is API-first-safe).
@@ -782,3 +891,4 @@ async def init_db(engine: AsyncEngine) -> None:
         await conn.run_sync(_ensure_relay_ddl)
         await conn.run_sync(_ensure_relay_backfill)
         await conn.run_sync(_ensure_dm_keys)
+        await conn.run_sync(_ensure_relay_default_grant, default_grant)

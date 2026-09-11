@@ -32,3 +32,61 @@ async def test_init_db_adds_missing_columns_to_legacy_table():
         cols = {r[1] for r in (await c.exec_driver_sql("PRAGMA table_info(runs)")).all()}
     assert "summary" in cols and "tags" in cols
     await e.dispose()
+
+
+# --- init_db runs in three services at once ----------------------------------
+
+class _FakeConn:
+    """Enough AsyncConnection for init_db: a dialect name, and a record of what
+    it was asked to do. Stubbed rather than run against a real postgres because
+    what is under test is the ORDER of one statement, not its effect."""
+
+    def __init__(self, dialect: str):
+        self.dialect = type("D", (), {"name": dialect})()
+        self.calls: list[str] = []
+
+    async def execute(self, stmt):
+        self.calls.append(str(stmt))
+
+    async def run_sync(self, fn, *args):
+        self.calls.append(fn.__name__)
+
+
+class _FakeEngine:
+    def __init__(self, conn):
+        self._conn = conn
+
+    def begin(self):
+        conn = self._conn
+
+        class _Ctx:
+            async def __aenter__(self):
+                return conn
+
+            async def __aexit__(self, *exc):
+                return False
+
+        return _Ctx()
+
+
+async def test_init_db_takes_an_advisory_lock_on_postgres():
+    """Every service runs init_db at boot, and the one-shot backfills are
+    check-then-write — so the lock must be held before ANY of them, for the
+    whole transaction."""
+    from agentplatform.db import INIT_DB_LOCK_KEY, init_db
+    conn = _FakeConn("postgresql")
+    await init_db(_FakeEngine(conn))
+    assert conn.calls[0] == "SELECT pg_advisory_xact_lock(:k)"
+    assert "_ensure_relay_default_grant" in conn.calls
+    # The key is a fixed constant: changing it later is the same as no lock.
+    assert INIT_DB_LOCK_KEY == -7077053083107605676
+
+
+async def test_init_db_does_not_try_to_lock_on_sqlite():
+    """sqlite has no advisory locks — and one writer at a time is the whole
+    story there, so there is nothing to serialize."""
+    from agentplatform.db import init_db
+    conn = _FakeConn("sqlite")
+    await init_db(_FakeEngine(conn))
+    assert not any("advisory" in c for c in conn.calls)
+    assert conn.calls[0] == "create_all"

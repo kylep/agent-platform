@@ -4,7 +4,7 @@ from fastapi import APIRouter, HTTPException, Request, Response, Depends
 from itsdangerous import BadSignature, URLSafeSerializer
 from pydantic import BaseModel
 from sqlalchemy import select
-from agentplatform.agentspec import PLATFORM_MCP_TOOLS
+from agentplatform.agentspec import platform_token_role
 from agentplatform.apikeys import hash_token
 from agentplatform.db import ApiKey, Principal
 
@@ -46,7 +46,15 @@ def validate_session_cookie(app, cookie: str | None) -> str | None:
 # `tools` (docs/design/12) is the narrowest machine role: it satisfies NO
 # endpoint allow-list except /api/whoami — it exists purely so the MCP broker
 # can verify a caller and serve its declared custom tools.
-ROLES = ("reader", "annotator", "operator", "coder", "admin", "tools")
+# `relay` (docs/design/19) is the second per-run machine role, one notch above
+# `tools` and nowhere near the human scopes: it satisfies /api/whoami and the
+# Relay endpoints, which name it EXPLICITLY in their own allow-lists, and
+# nothing else. Being listed is the whole of its authority — there is no
+# hierarchy here — and inside Relay it is channel MEMBERSHIP, not the role,
+# that decides where the agent may actually speak. It is minted for an agent
+# whose only platform grant is the relay tool, which is most agents once the
+# default grant lands, so it deliberately buys nothing beyond talking.
+ROLES = ("reader", "annotator", "operator", "coder", "admin", "tools", "relay")
 READ_ROLES = ("reader", "annotator", "operator", "coder")
 ANNOTATE_ROLES = ("annotator", "operator", "coder")
 # Who may request a run (POST /api/runs) — humans (operator+) and agents whose
@@ -120,8 +128,11 @@ async def authenticate(request: Request) -> tuple[str, str] | None:
                     request.state.initiated_by = claims.get("initiated_by")
                     frozen = [t for t in (claims.get("tools") or [])
                               if isinstance(t, str)]
-                    role = ("annotator" if any(t in PLATFORM_MCP_TOOLS for t in frozen)
-                            else "tools")
+                    # The same ladder the launcher minted the key on, walked
+                    # over the FROZEN set: a mid-run grant edit must not move
+                    # the rung either way. An empty freeze still authenticates
+                    # — as `tools`, which reaches nothing but whoami.
+                    role = platform_token_role(frozen) or "tools"
                 request.state.api_key_run_id = run_id
                 request.state.api_key_agent = agent
                 request.state.frozen_tools = frozen
@@ -178,10 +189,9 @@ async def _validate_sa_token(request: Request, token: str) -> tuple[str, str] | 
     info = st.agent_store.get(agent)
     if info is None:
         return None
-    platform = [t for t in info.platform_tools if t.startswith("mcp__platform__")]
-    if not platform:
-        return None
-    role = "annotator" if any(t in PLATFORM_MCP_TOOLS for t in platform) else "tools"
+    role = platform_token_role(info.platform_tools)
+    if role is None:
+        return None       # no platform grant: nothing for this identity to be
     out = (agent, role)
     cache[h] = (time.monotonic() + _SA_CACHE_TTL, out)
     return out

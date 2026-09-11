@@ -70,7 +70,12 @@ class K8sJobLauncher(Launcher):
         """Mint a per-run token (role `operator` for invoke, `annotator` for
         memory-only), scoped to run.agent so its namespace/chain-depth are
         derived authoritatively. Tied to run.id and revoked when the run
-        terminates (revoke_run_keys)."""
+        terminates (revoke_run_keys).
+
+        The label is what the keys page and the audit trail call the key. Only
+        the two roles whose name is not self-explanatory are translated; the
+        rest — `tools`, `relay` — already say what they are, so they fall
+        through as `relay:<agent>` rather than needing an entry each."""
         token = generate_token()
         label = {"operator": "invoke", "annotator": "memory"}.get(role, role)
         async with self.sf() as s:
@@ -85,25 +90,27 @@ class K8sJobLauncher(Launcher):
 
     async def _platform_token_role(self, agent: str) -> str | None:
         """The per-run token role an agent's PLATFORM-TOOL GRANTS earn, or None
-        for no token. Core broker tools forward the token to the platform API,
-        so they need a data role (annotator); custom tools only need the
-        whoami-only `tools` role. No platform grant, no token — a token follows
-        an explicit grant, never an agent merely existing.
+        for no token. No platform grant, no token — a token follows an explicit
+        grant, never an agent merely existing.
+
+        The ladder itself lives in `agentspec.platform_token_role`, shared with
+        the API's two identity paths so a run cannot launch on one rung and be
+        authorized on another: core broker tools forward the token to the
+        platform API and earn `annotator`, the relay grant earns the
+        Relay-only `relay` (docs/design/19), anything else custom earns the
+        whoami-only `tools`.
 
         docs/design/15: the grants are `agent_defs.platform_tools`. The
         launcher no longer parses agent.md frontmatter, which a DB-sourced
         definition does not have."""
         if self.agent_store is None:
             return None
-        from agentplatform.agentspec import PLATFORM_MCP_TOOLS
+        from agentplatform.agentspec import platform_token_role
         await self.agent_store.reload()
         info = self.agent_store.get(agent)
         if info is None:
             return None
-        platform = [t for t in info.platform_tools if t.startswith("mcp__platform__")]
-        if not platform:
-            return None
-        return "annotator" if any(t in PLATFORM_MCP_TOOLS for t in platform) else "tools"
+        return platform_token_role(info.platform_tools)
 
     def _ensure_service_account(self, agent: str) -> str:
         """Idempotently create the agent's ServiceAccount (`agent-<name>`) so

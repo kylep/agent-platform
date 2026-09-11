@@ -106,8 +106,19 @@ class AgentDefIn(BaseModel):
 
 class AgentCreateIn(AgentDefIn):
     """Create/import payload — same definition, but the name is the one thing
-    that cannot be defaulted."""
+    that cannot be defaulted, plus the one knob that is about the write rather
+    than about the agent."""
     name: str
+    # The Relay default grant (docs/design/19), tri-state and deliberately NOT
+    # part of the definition: None follows `settings.relay_default_grant`,
+    # False is the explicit opt-out, True asks for the grant whatever the
+    # setting says. A field rather than a sentinel value inside
+    # `platform_tools`, because "do not give me the platform default" is not
+    # something an empty list can say — an empty list is also what a caller
+    # who simply wants no grants of their own sends. Absent from AgentDefIn:
+    # a PUT already replaces `platform_tools` wholesale, so removing the grant
+    # there is just sending the list without it.
+    relay: bool | None = None
 
 
 class AgentDefOut(BaseModel):
@@ -681,12 +692,29 @@ class RelayBudget(BaseModel):
     global_used_last_hour: int
 
 
+class RelaySettings(BaseModel):
+    """What the running platform is actually enforcing (docs/design/19).
+
+    READ-ONLY, and here rather than behind a settings endpoint because these
+    are environment settings: `Settings` is a pydantic-settings object read
+    from AP_* at boot, with no runtime-mutation mechanism anywhere in the API
+    to hang a toggle off. Reporting them beside the counters they govern at
+    least means an operator reading "suppressed_24h: 40" can see the budget
+    that suppressed them without going to read the Helm values."""
+    default_grant: bool
+    max_hops: int
+    channel_per_hour: int
+    global_per_hour: int
+    cooldown_seconds: int
+
+
 class RelayStats(BaseModel):
     messages_24h: int
     agent_messages_24h: int
     invocations_24h: int
     suppressed_24h: int
     budget: RelayBudget
+    settings: RelaySettings
 
 
 class RelayChannelIn(BaseModel):

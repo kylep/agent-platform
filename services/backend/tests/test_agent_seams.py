@@ -88,7 +88,11 @@ async def test_a_grant_written_through_the_api_reaches_the_agents_own_token(
     await agent_store.reload()
     granter = await bearer(sf, "granter")
 
-    created = await admin_client.post("/api/agents", json=a_def("worker"))
+    # `relay: false` opts out of the platform's default grant (docs/design/19):
+    # this seam is about a grant travelling from the tool to whoami, and it can
+    # only show that if the agent starts with no grants at all.
+    created = await admin_client.post("/api/agents",
+                                      json={**a_def("worker"), "relay": False})
     assert created.status_code == 201 and created.json()["platform_tools"] == []
 
     worker_token = await bearer(sf, "worker")
@@ -139,8 +143,10 @@ async def test_the_change_log_covers_a_definitions_whole_life(two_callers, sf,
     await agent_store.reload()
     granter = await bearer(sf, "granter")
 
-    assert (await admin_client.post("/api/agents", json=a_def(
-        "shortlived", description="v1"))).status_code == 201
+    # Opted out of the Relay default grant so every platform_tools value below
+    # is one of this test's own writes — the log is what is under test here.
+    assert (await admin_client.post("/api/agents", json={
+        **a_def("shortlived", description="v1"), "relay": False})).status_code == 201
     assert (await admin_client.put("/api/agents/shortlived", json=a_def(
         "shortlived", description="v2"))).status_code == 200
     assert (await client.put("/api/agents/shortlived", json=a_def(

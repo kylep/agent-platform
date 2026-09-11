@@ -642,4 +642,11 @@ async def relay_stats(request: Request):
             "invocations_24h": invocations, "suppressed_24h": suppressed,
             "budget": {"channel_per_hour": settings.relay_channel_invocations_per_hour,
                        "global_per_hour": settings.relay_global_invocations_per_hour,
-                       "global_used_last_hour": used}}
+                       "global_used_last_hour": used},
+            # The guards themselves, so the numbers above can be read against
+            # what produced them. Environment settings, hence read-only here.
+            "settings": {"default_grant": settings.relay_default_grant,
+                         "max_hops": settings.relay_max_hops,
+                         "channel_per_hour": settings.relay_channel_invocations_per_hour,
+                         "global_per_hour": settings.relay_global_invocations_per_hour,
+                         "cooldown_seconds": settings.relay_agent_cooldown_seconds}}

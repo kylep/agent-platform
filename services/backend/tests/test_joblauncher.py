@@ -328,24 +328,55 @@ async def test_system_token_minted_cached_and_injected(sf):
 
 
 async def test_platform_token_role_ladder(sf, seed_agent):
-    """Role ladder (docs/design/12): custom-only grants → whoami-only `tools`
-    role; any CORE broker tool → annotator (it forwards the token to our API);
-    harness-only grants / no platform grant / unknown agent → no token. The
-    grants are ROWS now (docs/design/15), not agent.md frontmatter."""
+    """Role ladder (docs/design/12, extended by docs/design/19): the WIDEST
+    rung a grant set earns wins. Core broker tools forward the token to our API
+    and earn `annotator`; the relay grant reaches only /api/relay/* as the
+    agent itself and earns `relay`; the agent-definition tools carry their
+    authority in the grant itself, so they promote nothing. Anything else
+    custom is the whoami-only `tools` rung, and harness-only grants / no
+    platform grant / an unknown agent earn no token at all. The grants are
+    ROWS now (docs/design/15), not agent.md frontmatter."""
     from agentplatform.agents import AgentStore
-    await seed_agent("stocky", platform_tools=["mcp__platform__stocks"])
-    await seed_agent("libby", platform_tools=["mcp__platform__query_app",
-                                              "mcp__platform__memory"])
-    await seed_agent("shelly", harness_tools=["WebFetch"])
-    await seed_agent("openy")
+    RELAY = "mcp__platform__relay"
+    table = [
+        ("stocky", ["mcp__platform__stocks"], [], "tools"),
+        ("libby", ["mcp__platform__query_app", "mcp__platform__memory"], [], "annotator"),
+        ("chatty", [RELAY], [], "relay"),
+        ("nosy", [RELAY, "mcp__platform__runs_read"], [], "annotator"),
+        # An agent tool is authorized per-write by the grant itself, so it
+        # neither promotes nor demotes the rung relay already earned.
+        ("editor", [RELAY, "mcp__platform__agents_edit"], [], "relay"),
+        ("granter", ["mcp__platform__agents_grant"], [], "tools"),
+        ("shelly", [], ["WebFetch"], None),
+        ("openy", [], [], None),
+    ]
+    for name, platform, harness, _ in table:
+        await seed_agent(name, platform_tools=platform, harness_tools=harness)
     launcher = K8sJobLauncher(batch=None, settings=Settings(runner_image="r:1", k8s_namespace="ap"),
                               agent_store=AgentStore(sf))
-    assert await launcher._platform_token_role("stocky") == "tools"
-    assert await launcher._platform_token_role("libby") == "annotator"
-    assert await launcher._platform_token_role("shelly") is None
-    assert await launcher._platform_token_role("openy") is None
+    for name, _, _, expected in table:
+        assert await launcher._platform_token_role(name) == expected, name
     assert await launcher._platform_token_role("ghost") is None
     # The frozen JWT grant set comes off the same rows.
     assert launcher._frozen_tools("libby") == ["mcp__platform__query_app",
                                                "mcp__platform__memory"]
     assert launcher._frozen_tools("shelly") == []
+
+
+async def test_a_relay_run_key_is_named_for_the_agent_that_holds_it(sf):
+    """The per-run key's NAME is what the keys page and the audit trail show,
+    so a relay-role key must read as one — `relay:<agent>` — rather than as an
+    unlabelled key nobody can place."""
+    from sqlalchemy import select
+    from agentplatform.db import ApiKey
+    launcher = K8sJobLauncher(batch=None, settings=Settings(runner_image="r:1", k8s_namespace="ap"),
+                              session_factory=sf)
+    run = Run(id="r1", agent="chatty", prompt="hi", state=RunState.QUEUED,
+              trigger="manual", requested_by="admin")
+    async with sf() as s:
+        s.add(run)
+        await s.commit()
+    await launcher._invoke_token(run, role="relay")
+    async with sf() as s:
+        key = (await s.execute(select(ApiKey).where(ApiKey.run_id == "r1"))).scalar_one()
+    assert (key.name, key.role, key.agent) == ("relay:chatty", "relay", "chatty")

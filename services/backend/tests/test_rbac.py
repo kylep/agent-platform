@@ -12,13 +12,19 @@ from agentplatform.api.auth import ROLES, role_allows
     ("operator", ("coder",), False),
     (None, ("reader",), False),          # unauthenticated
     ("bogus", ("reader",), False),       # unknown role, not listed
+    # `relay` satisfies only the allow-lists that name it (the Relay routes);
+    # it is not a rung of a hierarchy.
+    ("relay", ("relay", "operator"), True),
+    ("relay", ("operator",), False),
+    ("relay", ("reader",), False),
 ])
 def test_role_allows(role, allowed, ok):
     assert role_allows(role, allowed) is ok
 
 
 def test_roles_declared():
-    assert set(ROLES) == {"reader", "annotator", "operator", "coder", "admin", "tools"}
+    assert set(ROLES) == {"reader", "annotator", "operator", "coder", "admin",
+                          "tools", "relay"}
 
 
 async def test_require_admin_still_gates(admin_client):

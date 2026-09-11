@@ -77,7 +77,8 @@ def sync_detailed(
     Args:
         body (AgentCreateIn): Create/import payload — same definition, but the name is the one
             thing
-            that cannot be defaulted.
+            that cannot be defaulted, plus the one knob that is about the write rather
+            than about the agent.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -115,7 +116,8 @@ def sync(
     Args:
         body (AgentCreateIn): Create/import payload — same definition, but the name is the one
             thing
-            that cannot be defaulted.
+            that cannot be defaulted, plus the one knob that is about the write rather
+            than about the agent.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -148,7 +150,8 @@ async def asyncio_detailed(
     Args:
         body (AgentCreateIn): Create/import payload — same definition, but the name is the one
             thing
-            that cannot be defaulted.
+            that cannot be defaulted, plus the one knob that is about the write rather
+            than about the agent.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -184,7 +187,8 @@ async def asyncio(
     Args:
         body (AgentCreateIn): Create/import payload — same definition, but the name is the one
             thing
-            that cannot be defaulted.
+            that cannot be defaulted, plus the one knob that is about the write rather
+            than about the agent.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.

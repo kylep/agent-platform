@@ -92,8 +92,11 @@ async def test_help_documents_both_with_their_cautions(admin_client):
 async def test_a_definition_may_grant_them(admin_client):
     """validate_def sources its tool vocabulary from the grantable list, not
     the ladder list — otherwise the grant these tools exist for is unsavable."""
-    r = await admin_client.post("/api/agents", json=a_def(
-        "steward", platform_tools=[TOOL_AGENTS_EDIT, TOOL_AGENTS_GRANT]))
+    r = await admin_client.post("/api/agents", json={
+        **a_def("steward", platform_tools=[TOOL_AGENTS_EDIT, TOOL_AGENTS_GRANT]),
+        # Out of the Relay default's way: what is under test is that these two
+        # names save at all, not what else a new agent is born holding.
+        "relay": False})
     assert r.status_code == 201, r.text
     assert r.json()["platform_tools"] == [TOOL_AGENTS_EDIT, TOOL_AGENTS_GRANT]
 

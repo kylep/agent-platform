@@ -18,3 +18,16 @@ def test_mcp_broker_tools_are_selectable():
     run-summarizer) — making those agents uneditable."""
     assert "mcp__platform__runs_read" in AVAILABLE_TOOLS
     assert "mcp__platform__query_app" in AVAILABLE_TOOLS
+
+
+def test_the_relay_grant_is_selectable_but_does_not_promote():
+    """Relay's tool must be grantable like any other and must stay OUT of the
+    annotator-promoting list: holding it reaches /api/relay/* as the agent
+    itself and nothing else."""
+    from agentplatform.agentspec import (GRANTABLE_PLATFORM_TOOLS,
+                                         PLATFORM_MCP_RELAY_TOOLS,
+                                         PLATFORM_MCP_TOOLS)
+    assert PLATFORM_MCP_RELAY_TOOLS == ["mcp__platform__relay"]
+    assert "mcp__platform__relay" in GRANTABLE_PLATFORM_TOOLS
+    assert "mcp__platform__relay" in AVAILABLE_TOOLS
+    assert "mcp__platform__relay" not in PLATFORM_MCP_TOOLS
