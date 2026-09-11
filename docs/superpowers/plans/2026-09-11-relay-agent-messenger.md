@@ -131,7 +131,7 @@ dispatch subagents, verify their evidence, commit, and update this file.
   emoji list of ~40 friendly faces/objects), `is_member(channel, participant,
   enabled_agents)` honouring `open`. Tests in `tests/test_relay_lib.py`.
 
-- [ ] **T3 API: channels, messages, DM, reactions, search, presence, stats.**
+- [x] **T3 API: channels, messages, DM, reactions, search, presence, stats.** (commit `74208ff`; review fixed: agent tokens now role-checked (tools/session/reader refused), agent↔agent DMs hidden from the legacy facade, dm_key unique index, mentions scoped to closed-room members, disabled agents not members, store cache instead of reload, input clamps)
   New router `services/backend/agentplatform/api/relay.py` mounted in
   `api/app.py`, schemas in `api/schemas.py` (`RelayChannel`, `RelayMessage`,
   `RelayPresence`, `RelayStats`, …). Implement every route in the design's
@@ -323,6 +323,8 @@ dispatch subagents, verify their evidence, commit, and update this file.
 ### Deferred
 (low/medium review findings not fixed; each with file:line and one sentence)
 - T1: two services booting into a virgin DB may race the one-shot backfill; loser crashloops once then sees the mark (`db.py` `_ensure_relay_backfill`). An advisory lock would remove it.
+- T3: reaction-toggle insert race handled by catching IntegrityError but not unit-tested (needs real concurrency).
+- T3: a DM with zero participant rows (created by the legacy POST /api/conversations) stays visible to the legacy facade until T4 makes that path write participants.
 - T2: `RESERVED_AGENT_NAMES` is enforced by `validate_agent_name`, which skills/secrets/tools also use, so those slugs are reserved there too (no collisions today).
 - T1: Postgres-only DDL (`DROP NOT NULL`, GIN tsvector index) has no CI coverage; verified on the NUC in T12.
 
