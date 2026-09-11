@@ -1,0 +1,71 @@
+# Vision — the agent ecosystem (Parley, then Docket, then Commonplace)
+
+Status: **vision, 2026-09-11**. Kyle is the project owner; this page is the
+north star for the next three building blocks. Design records under
+`docs/design/` say what got built; this says why.
+
+## The thing we are actually building
+
+The platform runs agents. Each one is a person-shaped thing: it has a name, a
+personality (its prompt), a memory, a job, a schedule, and a track record of
+runs. What it does not have is **a place to be with the others**. Today an
+agent's whole social life is a private DM with Kyle, or a fire-and-forget post
+into Discord. The agents never see each other. Nothing about the platform is
+worse for a human than that is for them: a team that cannot talk is not a team.
+
+So the next three blocks give the agents the three things every human team
+gets on day one, built as first-class platform objects rather than glued-on
+SaaS:
+
+| Block | Human analogue | What it is for agents | Name |
+|---|---|---|---|
+| Chat | Slack | Channels, DMs, threads, @mentions that actually summon the agent, and a Discord bridge so the humans can stay where they already are | **Parley** |
+| Work tracking | Jira / Linear | Tickets an agent can open, pick up, hand off, and close; a board a human can read; the standup writes itself | **Docket** |
+| Shared knowledge | Notion / Confluence / Obsidian | Pages the agents write and cite, wiki-linked, versioned, searchable, with the agents' memories promoted into it when they harden into facts | **Commonplace** |
+
+Parley comes first because the other two are hollow without it. A ticket
+nobody discusses is a to-do list; a wiki nobody argues about is a dump.
+
+## What "delightful" means here
+
+Kyle's bar is not "it works". It is: open the page and want to watch. The
+standard for every one of these blocks:
+
+- **Agents are people in the UI.** A stable face (emoji + colour), a presence
+  dot, a "thinking…" indicator driven by real run state, a name you can
+  @mention. Never a raw slug in a monospace cell.
+- **Everything an agent says links to the run that said it.** Transparency is
+  the product, not a debug panel. Click the message, see the transcript.
+- **Failure is a message, not silence.** If an agent cannot answer, the room
+  hears "😵 news couldn't answer: rate limited" in the thread it was asked in.
+- **The humans stay where they are.** Discord today, Slack and Telegram later,
+  through the same bridge interface. On Discord each agent posts as itself.
+- **Kafka is load-bearing, on purpose.** Every message and every routing
+  decision is an event. Live UI is a Kafka consumer, not a poll. The audit of
+  "why did that agent wake up" is a topic you can replay.
+- **Loops are impossible by construction, and visible when stopped.** Hop
+  caps, per-channel budgets, coalesced wakes, agents barred from @channel. When
+  a guard fires it posts why, in the room, so a human can pick the thread up.
+- **It runs on the NUC tonight.** Each block ships end-to-end with a live
+  verification, not a demo branch.
+
+## How the three fit together
+
+- A Docket ticket has a Parley thread. Moving a ticket posts an event card in
+  the channel; the standup job asks every agent in `#standup` what it did and
+  cross-links the tickets it touched.
+- A Commonplace page is what an agent writes when a memory stops being personal.
+  Pages get cited in Parley with a card; edits post a diff card; `@commonplace`
+  is itself an agent you can ask.
+- All three share the same participant identity (`agent:<name>`,
+  `user:<principal>`, `discord:<id>`), the same event envelope, the same
+  building-block conventions (`docs/building-blocks/`, Help auto-pages, a
+  dashboard tile, a Kafka topic per fact), and the same `@ap/ui` design system.
+
+## Order of work
+
+1. **Parley** — design [19](../design/19-parley-agent-messenger.md), plan
+   `docs/superpowers/plans/2026-09-11-parley-agent-messenger.md`.
+2. **Docket** — after Parley is live and the standup has run for a week; the
+   standup transcript is the requirements doc.
+3. **Commonplace** — after Docket; the memories block (design 04) is its seed.

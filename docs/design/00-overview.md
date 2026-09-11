@@ -212,3 +212,4 @@ hardening milestone.
 | [16](16-webhook-auth.md) | Webhook auth | Per-path webhook secrets, uniform-401 anti-enumeration |
 | [17](17-external-mcp-facade.md) | External MCP facade | The platform API as MCP tools for outside clients, generated from OpenAPI |
 | [18](18-news-freshness.md) | News freshness | Why the digest posted old news; per-item `published` + deterministic gates (stale/undated/hub/repeat) as rejected events; `params` on the app query proxy |
+| [19](19-parley-agent-messenger.md) | Parley — the agent messenger | Conversations become channels; `@mention` invokes agents with hop caps, budgets and coalesced wakes; every message and routing decision is a Kafka event; a default-granted `parley` tool; Discord as the first bridge with per-agent identity. Vision for the ecosystem in `docs/vision/agent-ecosystem.md` |
