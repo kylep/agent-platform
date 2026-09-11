@@ -601,6 +601,132 @@ class ChartSvg(BaseModel):
     svg: str
 
 
+# --- relay (docs/design/19) ---------------------------------------------------
+# A participant is a namespaced string (`agent:news`, `user:admin`,
+# `discord:<id>`), never a foreign key — see `relay.participant_of`.
+
+class RelayFace(BaseModel):
+    """An agent's avatar: its own `AgentDef.icon` when set, else the
+    deterministic fallback so `news` looks the same in every client forever."""
+    emoji: str
+    hue: int
+
+
+class RelayReactionView(BaseModel):
+    emoji: str
+    count: int
+    mine: bool
+
+
+class RelayLastMessage(BaseModel):
+    id: str
+    author: str
+    body: str            # truncated — the rail shows a preview, not the message
+    created_at: str | None
+
+
+class RelayChannel(BaseModel):
+    id: str
+    kind: str            # dm | channel | group
+    name: str | None     # slug, channels only
+    topic: str
+    open: bool
+    archived_at: str | None
+    # The legacy single-agent field: set on DMs so /api/conversations keeps
+    # working over the same row, null on channels and groups.
+    agent: str | None
+    # Explicit membership rows. An open channel has none by design (everyone is
+    # a member), which is why `open` travels alongside rather than being
+    # inferred from an empty list.
+    participants: list[str]
+    last_message: RelayLastMessage | None
+    message_count: int
+    # Messages newer than the caller's own last message here; 0 when they have
+    # never spoken, so a room nobody has read does not shout.
+    unread: int
+
+
+class RelayChannelDetail(RelayChannel):
+    faces: dict[str, RelayFace]
+
+
+class RelayMessage(BaseModel):
+    id: str
+    channel_id: str
+    author: str
+    kind: str            # text | system | event
+    body: str
+    card: dict | None
+    reply_to: str | None
+    thread_root: str | None
+    run_id: str | None
+    hop: int
+    mentions: list[str]
+    created_at: str | None
+    edited_at: str | None
+    face: RelayFace | None
+    reactions: list[RelayReactionView] = []
+
+
+class RelayPresence(BaseModel):
+    agent: str
+    state: str                  # idle | thinking | quarantined | disabled
+    thinking_in: list[str]      # channel ids of its active runs
+    face: RelayFace
+
+
+class RelayBudget(BaseModel):
+    channel_per_hour: int
+    global_per_hour: int
+    global_used_last_hour: int
+
+
+class RelayStats(BaseModel):
+    messages_24h: int
+    agent_messages_24h: int
+    invocations_24h: int
+    suppressed_24h: int
+    budget: RelayBudget
+
+
+class RelayChannelIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    kind: str = "channel"
+    name: str | None = Field(default=None, max_length=64)
+    topic: str = Field(default="", max_length=256)
+    # Channels only, and only meaningful there: a dm/group is closed by
+    # definition. None = the kind's default (open for a channel).
+    open: bool | None = None
+    # A room, not a mailing list: the cap is what stops one request writing
+    # unbounded membership rows.
+    participants: list[str] = Field(default=[], max_length=64)
+
+
+class RelayChannelPatch(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    name: str | None = Field(default=None, max_length=64)
+    topic: str | None = Field(default=None, max_length=256)
+    archived: bool | None = None
+
+
+class RelayMessageIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    # No author field, deliberately: authorship comes from the token.
+    body: str = Field(min_length=1, max_length=8000)
+    reply_to: str | None = None
+
+
+class RelayReactionIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    emoji: str = Field(min_length=1, max_length=8)
+
+
+class RelayDmIn(BaseModel):
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
+    # `with` is a keyword, so the wire name and the field name differ here.
+    with_: str = Field(alias="with", min_length=3, max_length=128)
+
+
 # --- schedules ---------------------------------------------------------------
 
 class CronPreview(BaseModel):

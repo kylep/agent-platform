@@ -1,0 +1,196 @@
+from __future__ import annotations
+
+from collections.abc import Mapping
+from typing import TYPE_CHECKING, Any, TypeVar, cast
+
+from attrs import define as _attrs_define
+from attrs import field as _attrs_field
+from typing_extensions import Self
+
+if TYPE_CHECKING:
+    from ..models.relay_channel_detail_faces import RelayChannelDetailFaces
+    from ..models.relay_last_message import RelayLastMessage
+
+
+T = TypeVar("T", bound="RelayChannelDetail")
+
+
+@_attrs_define
+class RelayChannelDetail:
+    """
+    Attributes:
+        agent (None | str):
+        archived_at (None | str):
+        faces (RelayChannelDetailFaces):
+        id (str):
+        kind (str):
+        last_message (None | RelayLastMessage):
+        message_count (int):
+        name (None | str):
+        open_ (bool):
+        participants (list[str]):
+        topic (str):
+        unread (int):
+    """
+
+    agent: None | str
+    archived_at: None | str
+    faces: RelayChannelDetailFaces
+    id: str
+    kind: str
+    last_message: None | RelayLastMessage
+    message_count: int
+    name: None | str
+    open_: bool
+    participants: list[str]
+    topic: str
+    unread: int
+    additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
+
+    def to_dict(self) -> dict[str, Any]:
+        from ..models.relay_last_message import RelayLastMessage
+
+        agent: None | str
+        agent = self.agent
+
+        archived_at: None | str
+        archived_at = self.archived_at
+
+        faces = self.faces.to_dict()
+
+        id = self.id
+
+        kind = self.kind
+
+        last_message: dict[str, Any] | None
+        if isinstance(self.last_message, RelayLastMessage):
+            last_message = self.last_message.to_dict()
+        else:
+            last_message = self.last_message
+
+        message_count = self.message_count
+
+        name: None | str
+        name = self.name
+
+        open_ = self.open_
+
+        participants = self.participants
+
+        topic = self.topic
+
+        unread = self.unread
+
+        field_dict: dict[str, Any] = {}
+        field_dict.update(self.additional_properties)
+        field_dict.update(
+            {
+                "agent": agent,
+                "archived_at": archived_at,
+                "faces": faces,
+                "id": id,
+                "kind": kind,
+                "last_message": last_message,
+                "message_count": message_count,
+                "name": name,
+                "open": open_,
+                "participants": participants,
+                "topic": topic,
+                "unread": unread,
+            }
+        )
+
+        return field_dict
+
+    @classmethod
+    def from_dict(cls, src_dict: Mapping[str, Any]) -> Self:
+        from ..models.relay_channel_detail_faces import RelayChannelDetailFaces
+        from ..models.relay_last_message import RelayLastMessage
+
+        d = dict(src_dict)
+
+        def _parse_agent(data: object) -> None | str:
+            if data is None:
+                return data
+            return cast(None | str, data)
+
+        agent = _parse_agent(d.pop("agent"))
+
+        def _parse_archived_at(data: object) -> None | str:
+            if data is None:
+                return data
+            return cast(None | str, data)
+
+        archived_at = _parse_archived_at(d.pop("archived_at"))
+
+        faces = RelayChannelDetailFaces.from_dict(d.pop("faces"))
+
+        id = d.pop("id")
+
+        kind = d.pop("kind")
+
+        def _parse_last_message(data: object) -> None | RelayLastMessage:
+            if data is None:
+                return data
+            try:
+                if not isinstance(data, dict):
+                    raise TypeError()
+                last_message_type_0 = RelayLastMessage.from_dict(data)
+
+                return last_message_type_0
+            except (TypeError, ValueError, AttributeError, KeyError):
+                pass
+            return cast(None | RelayLastMessage, data)
+
+        last_message = _parse_last_message(d.pop("last_message"))
+
+        message_count = d.pop("message_count")
+
+        def _parse_name(data: object) -> None | str:
+            if data is None:
+                return data
+            return cast(None | str, data)
+
+        name = _parse_name(d.pop("name"))
+
+        open_ = d.pop("open")
+
+        participants = cast(list[str], d.pop("participants"))
+
+        topic = d.pop("topic")
+
+        unread = d.pop("unread")
+
+        relay_channel_detail = cls(
+            agent=agent,
+            archived_at=archived_at,
+            faces=faces,
+            id=id,
+            kind=kind,
+            last_message=last_message,
+            message_count=message_count,
+            name=name,
+            open_=open_,
+            participants=participants,
+            topic=topic,
+            unread=unread,
+        )
+
+        relay_channel_detail.additional_properties = d
+        return relay_channel_detail
+
+    @property
+    def additional_keys(self) -> list[str]:
+        return list(self.additional_properties.keys())
+
+    def __getitem__(self, key: str) -> Any:
+        return self.additional_properties[key]
+
+    def __setitem__(self, key: str, value: Any) -> None:
+        self.additional_properties[key] = value
+
+    def __delitem__(self, key: str) -> None:
+        del self.additional_properties[key]
+
+    def __contains__(self, key: str) -> bool:
+        return key in self.additional_properties

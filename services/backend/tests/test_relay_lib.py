@@ -8,7 +8,8 @@ from agentplatform.agentspec import RESERVED_AGENT_NAMES, validate_agent_name
 from agentplatform.config import Settings
 from agentplatform.relay import (AGENT_PREFIX, ALL, FACES, ROOM_MENTIONS, USER_PREFIX,
                                  agent_name, face_for, is_agent, is_member,
-                                 parse_mentions, participant_of, strip_room_mentions)
+                                 is_open_channel, mentionable_in, parse_mentions,
+                                 participant_of, strip_room_mentions)
 
 AGENTS = {"news", "pai", "news-bot", "health-monitor"}
 
@@ -160,7 +161,9 @@ def test_face_for_matches_the_documented_hash():
 
 
 ENABLED = {"news", "pai"}
-EXPLICIT = {"agent:news", "user:admin"}
+# `ghost` holds a participant row but is disabled/unknown — membership is not
+# a licence to run.
+EXPLICIT = {"agent:news", "agent:ghost", "user:admin"}
 
 
 @pytest.mark.parametrize("kind,open,participant,want", [
@@ -173,7 +176,9 @@ EXPLICIT = {"agent:news", "user:admin"}
     ("channel", False, "agent:pai", False),
     ("channel", False, "user:admin", True),
     ("channel", False, "user:someone", False),
+    ("channel", False, "agent:ghost", False),     # ...explicit, but not enabled
     ("dm", False, "agent:news", True),
+    ("dm", False, "agent:ghost", False),
     ("dm", False, "agent:pai", False),
     ("dm", True, "agent:pai", False),             # open is a channel-only flag
     ("group", False, "user:admin", True),
@@ -181,6 +186,21 @@ EXPLICIT = {"agent:news", "user:admin"}
 ])
 def test_is_member(kind, open, participant, want):
     assert is_member(Chan(kind, open), participant, ENABLED, EXPLICIT) is want
+
+
+@pytest.mark.parametrize("kind,open,want", [
+    ("channel", True, True), ("channel", False, False),
+    ("group", True, False), ("dm", True, False),
+])
+def test_is_open_channel(kind, open, want):
+    assert is_open_channel(Chan(kind, open)) is want
+
+
+def test_mentionable_in():
+    """A closed room can only summon its own members; an open one, anyone."""
+    assert mentionable_in(Chan("channel", True), ENABLED, set()) == ENABLED
+    assert mentionable_in(Chan("group"), ENABLED, EXPLICIT) == {"news"}
+    assert mentionable_in(Chan("dm"), ENABLED, {"user:admin"}) == set()
 
 
 def test_relay_settings_defaults():

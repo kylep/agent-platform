@@ -121,14 +121,36 @@ def face_for(name: str) -> dict:
     return {"emoji": FACES[int(h[8:16], 16) % len(FACES)], "hue": int(h[:8], 16) % 360}
 
 
+def is_open_channel(channel) -> bool:
+    """Open rooms are the exception every membership rule turns on, so the test
+    is written once. `channel` is duck-typed (.kind, .open) so the ORM row and a
+    plain object both work."""
+    return (getattr(channel, "kind", "") == "channel"
+            and bool(getattr(channel, "open", False)))
+
+
 def is_member(channel, participant: str, enabled_agents: set[str],
               explicit: set[str]) -> bool:
     """Whether a participant belongs to a channel. Open channels carry no
     participant rows — every enabled agent and every human is in them by
     definition — so only dm/group/closed rooms consult `explicit`, the
-    relay_participants strings. `channel` is duck-typed (.kind, .open) so the
-    ORM row and a plain object both work."""
-    if getattr(channel, "kind", "") == "channel" and bool(getattr(channel, "open", False)):
-        name = agent_name(participant)
-        return name in enabled_agents if name is not None else True
-    return participant in explicit
+    relay_participants strings.
+
+    An agent's enabled state is checked in BOTH branches: `enabled` is the soft
+    off-switch, and a disabled or quarantined agent left in a group's
+    participant rows must go as quiet there as it does everywhere else — the
+    row is its membership, not its licence to run."""
+    name = agent_name(participant)
+    if name is not None and name not in enabled_agents:
+        return False
+    return True if is_open_channel(channel) else participant in explicit
+
+
+def mentionable_in(channel, enabled_agents: set[str], explicit: set[str]) -> set[str]:
+    """The agents an `@name` in this room may summon: everyone in an open
+    channel, only the members of a closed one. Mentioning an agent that is not
+    in the room would otherwise pull it into a conversation it cannot read —
+    and, in a private room, hand it messages its absence was meant to withhold."""
+    if is_open_channel(channel):
+        return set(enabled_agents)
+    return {n for p in explicit if (n := agent_name(p)) is not None} & enabled_agents

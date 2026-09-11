@@ -21,6 +21,7 @@ from agentplatform.api import maintenance as maintenance_api
 from agentplatform.api import memory as memory_api
 from agentplatform.api import metrics as metrics_api
 from agentplatform.api import pulls as pulls_api
+from agentplatform.api import relay as relay_api
 from agentplatform.api import reports as reports_api
 from agentplatform.api import jobs as jobs_api
 from agentplatform.api import notify as notify_api
@@ -156,6 +157,7 @@ def create_app(settings, session_factory, producer, secret_store=None, agent_sto
     app.include_router(memory_api.router)
     app.include_router(metrics_api.router)
     app.include_router(pulls_api.router)
+    app.include_router(relay_api.router)
     app.include_router(reports_api.router)
     app.include_router(schedules_api.router)
     app.include_router(jobs_api.router)

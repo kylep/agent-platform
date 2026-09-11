@@ -24,6 +24,9 @@ TOPIC_RUN_DLQ = "run.dlq"                  # run-launch failures (DLQ UI)
 TOPIC_CONVERSATION_INBOUND = "conversation.inbound"    # connector → platform
 TOPIC_CONVERSATION_OUTBOUND = "conversation.outbound"  # platform → connector
 TOPIC_CHANNEL_POST = "discord.channel.post"            # platform → connector (broadcast to a channel)
+# Relay (docs/design/19)
+TOPIC_RELAY_MESSAGES = "relay.messages"        # every posted message → router, SSE, bridges
+TOPIC_RELAY_INVOCATIONS = "relay.invocations"  # router's routing decisions, including suppressions
 # Infra
 TOPIC_TOOL_AUDIT = "platform.tool.audit"   # broker → audit trail (design/13 E)
 
@@ -33,7 +36,8 @@ ALL_TOPICS = [
     TOPIC_RUN_INBOUND, TOPIC_RUN_REQUESTS, TOPIC_RUN_EVENTS, TOPIC_RUN_TRANSCRIPT,
     TOPIC_TOOL_AUDIT,
     TOPIC_RUN_DLQ, TOPIC_CONVERSATION_INBOUND, TOPIC_CONVERSATION_OUTBOUND,
-    TOPIC_CHANNEL_POST, TOPIC_DEAD_LETTER,
+    TOPIC_CHANNEL_POST, TOPIC_RELAY_MESSAGES, TOPIC_RELAY_INVOCATIONS,
+    TOPIC_DEAD_LETTER,
 ]
 
 SCHEMA_VERSION = 1

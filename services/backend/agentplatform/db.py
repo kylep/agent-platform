@@ -129,6 +129,13 @@ class Conversation(Base):
     # An open channel has no participant rows: every enabled agent and every
     # human is a member of it by definition.
     open: Mapped[bool] = mapped_column(default=False)
+    # The canonical identity of a DM: its two participant strings, sorted,
+    # joined by "|". A DM is not created, it is RESOLVED — asking for the same
+    # pair twice must return one room — and a lookup-then-insert forks under
+    # concurrency, so the uniqueness lives in an index (_ensure_relay_ddl) and
+    # this column is what that index is on. Null on channels and groups, and on
+    # a legacy DM whose pair was already claimed by an older row.
+    dm_key: Mapped[str | None] = mapped_column(String(300), nullable=True)
     archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     title: Mapped[str] = mapped_column(String(256), default="")
     status: Mapped[str] = mapped_column(String(16), default="active")  # active | closed
@@ -565,6 +572,14 @@ def _ensure_memory_key_index(conn) -> None:
 # (name, topic) of the rooms the platform ships with — open to every agent and
 # every human, seeded once and thereafter editable like any other channel.
 RELAY_BACKFILL_MARK = "relay-backfill-v1"
+RELAY_DM_KEY_MARK = "relay-dm-keys-v1"
+
+
+def dm_key_of(participants) -> str:
+    """The canonical `Conversation.dm_key` for a pair of participant strings.
+    Order-free by construction: the DM between a and b is the DM between b
+    and a."""
+    return "|".join(sorted(participants))
 
 RELAY_SEED_CHANNELS = (
     ("general", "everyone"),
@@ -581,6 +596,11 @@ def _ensure_relay_ddl(conn) -> None:
     conversation had exactly one agent."""
     conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uq_conversations_channel_name "
                       "ON conversations (name) WHERE kind = 'channel'"))
+    # Get-or-create made atomic: two requests racing for the same pair both
+    # insert, and the loser is told so by this index instead of forking the DM.
+    conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uq_conversations_dm_key "
+                      "ON conversations (dm_key) "
+                      "WHERE kind = 'dm' AND dm_key IS NOT NULL"))
     if conn.dialect.name == "postgresql":
         # DROP NOT NULL takes an ACCESS EXCLUSIVE lock even when the column is
         # already nullable, and this runs on every boot of every service — so
@@ -699,6 +719,43 @@ def _ensure_relay_backfill(conn) -> None:
     conn.execute(mark_t.insert().values(name=RELAY_BACKFILL_MARK, applied_at=utcnow()))
 
 
+def _ensure_dm_keys(conn) -> None:
+    """Give every existing two-party DM its canonical key. Runs after the relay
+    backfill, which is what put the participant rows there in the first place.
+    One-time and marked, like that backfill: from here on live code sets the
+    key on every DM it creates, and a second pass would be re-deriving rows it
+    no longer owns."""
+    from sqlalchemy import inspect as sa_inspect
+    if not sa_inspect(conn).has_table("conversations"):
+        return
+    mark_t = SchemaMark.__table__
+    if conn.execute(select(mark_t.c.name)
+                    .where(mark_t.c.name == RELAY_DM_KEY_MARK)).first():
+        return
+    conv_t, part_t = Conversation.__table__, RelayParticipant.__table__
+    members: dict[str, list[str]] = {}
+    for cid, participant in conn.execute(select(part_t.c.channel_id,
+                                                part_t.c.participant)):
+        members.setdefault(cid, []).append(participant)
+    taken = {r[0] for r in conn.execute(
+        select(conv_t.c.dm_key).where(conv_t.c.dm_key.isnot(None)))}
+    # Oldest first, for the same reason the binding backfill claims in that
+    # order: where two rows hold the same pair, the original is the real DM and
+    # the duplicate stays keyless rather than failing the boot.
+    for conv in conn.execute(select(conv_t.c.id).where(
+            conv_t.c.kind == "dm", conv_t.c.dm_key.is_(None))
+            .order_by(conv_t.c.created_at, conv_t.c.id)).fetchall():
+        pair = members.get(conv.id, [])
+        if len(pair) != 2:
+            continue
+        key = dm_key_of(pair)
+        if key in taken:
+            continue
+        conn.execute(conv_t.update().where(conv_t.c.id == conv.id).values(dm_key=key))
+        taken.add(key)
+    conn.execute(mark_t.insert().values(name=RELAY_DM_KEY_MARK, applied_at=utcnow()))
+
+
 def _relay_message(channel_id, author, body, created_at, run_id=None) -> dict:
     """A replayed historical message: plain text at hop 0, with none of the
     threading a live message would carry."""
@@ -720,3 +777,4 @@ async def init_db(engine: AsyncEngine) -> None:
         await conn.run_sync(_ensure_memory_key_index)
         await conn.run_sync(_ensure_relay_ddl)
         await conn.run_sync(_ensure_relay_backfill)
+        await conn.run_sync(_ensure_dm_keys)

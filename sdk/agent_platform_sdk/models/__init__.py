@@ -68,6 +68,22 @@ from .probe_in_headers import ProbeInHeaders
 from .prune_result import PruneResult
 from .pull_request import PullRequest
 from .pull_request_file import PullRequestFile
+from .relay_budget import RelayBudget
+from .relay_channel import RelayChannel
+from .relay_channel_detail import RelayChannelDetail
+from .relay_channel_detail_faces import RelayChannelDetailFaces
+from .relay_channel_in import RelayChannelIn
+from .relay_channel_patch import RelayChannelPatch
+from .relay_dm_in import RelayDmIn
+from .relay_face import RelayFace
+from .relay_last_message import RelayLastMessage
+from .relay_message import RelayMessage
+from .relay_message_card_type_0 import RelayMessageCardType0
+from .relay_message_in import RelayMessageIn
+from .relay_presence import RelayPresence
+from .relay_reaction_in import RelayReactionIn
+from .relay_reaction_view import RelayReactionView
+from .relay_stats import RelayStats
 from .report_detail import ReportDetail
 from .report_detail_meta import ReportDetailMeta
 from .report_in import ReportIn
@@ -192,6 +208,22 @@ __all__ = (
     "PruneResult",
     "PullRequest",
     "PullRequestFile",
+    "RelayBudget",
+    "RelayChannel",
+    "RelayChannelDetail",
+    "RelayChannelDetailFaces",
+    "RelayChannelIn",
+    "RelayChannelPatch",
+    "RelayDmIn",
+    "RelayFace",
+    "RelayLastMessage",
+    "RelayMessage",
+    "RelayMessageCardType0",
+    "RelayMessageIn",
+    "RelayPresence",
+    "RelayReactionIn",
+    "RelayReactionView",
+    "RelayStats",
     "ReportDetail",
     "ReportDetailMeta",
     "ReportIn",

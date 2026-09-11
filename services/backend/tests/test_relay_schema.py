@@ -3,12 +3,13 @@ backfill that reframes every legacy conversation as a DM channel."""
 from datetime import timedelta
 
 import pytest
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text
 
-from agentplatform.db import (Base, Conversation, RELAY_BACKFILL_MARK, RelayBinding,
-                              RelayInvocation, RelayMessage, RelayParticipant,
-                              RelayReaction, RelaySession, RelayWake, Run, RunState,
-                              SchemaMark, init_db, make_engine, make_session_factory,
+from agentplatform.db import (Base, Conversation, RELAY_BACKFILL_MARK,
+                              RELAY_DM_KEY_MARK, RelayBinding, RelayInvocation,
+                              RelayMessage, RelayParticipant, RelayReaction,
+                              RelaySession, RelayWake, Run, RunState, SchemaMark,
+                              dm_key_of, init_db, make_engine, make_session_factory,
                               utcnow)
 
 
@@ -224,3 +225,35 @@ async def test_backfill_attributes_each_turn_to_its_own_human(engine, sfx):
     assert parts == {"discord:11", "discord:22", "agent:hello-world"}
     assert [m.author for m in await _messages(sfx, cid)] == [
         "discord:11", "agent:hello-world", "discord:22", "agent:hello-world"]
+
+
+async def test_dm_key_backfills_and_is_unique(engine, sfx):
+    """`dm_key` is what makes opening a DM a lookup on an index instead of a
+    lookup-then-insert, so every legacy DM has to carry one too."""
+    cid, _ = await _mk_dm(sfx, turns=1)
+    await init_db(engine)
+    async with sfx() as s:
+        assert (await s.get(Conversation, cid)).dm_key == dm_key_of(
+            ["user:kyle", "agent:hello-world"])
+        assert (await s.get(SchemaMark, RELAY_DM_KEY_MARK)) is not None
+        rows = (await s.execute(text(
+            "SELECT name FROM sqlite_master WHERE type = 'index' "
+            "AND name = 'uq_conversations_dm_key'"))).all()
+    assert rows, "the partial unique index on dm_key is missing"
+    # A second boot neither re-derives nor duplicates.
+    await init_db(engine)
+    async with sfx() as s:
+        assert (await s.get(Conversation, cid)).dm_key == dm_key_of(
+            ["agent:hello-world", "user:kyle"])
+
+
+async def test_a_duplicate_dm_pair_leaves_the_younger_row_keyless(engine, sfx):
+    """Two rows for the same pair predate the index. The oldest is the real DM;
+    the duplicate stays keyless rather than failing the boot."""
+    t0 = utcnow() - timedelta(hours=2)
+    first, _ = await _mk_dm(sfx, turns=1, created_at=t0)
+    second, _ = await _mk_dm(sfx, turns=1, created_at=t0 + timedelta(hours=1))
+    await init_db(engine)
+    async with sfx() as s:
+        assert (await s.get(Conversation, first)).dm_key is not None
+        assert (await s.get(Conversation, second)).dm_key is None
