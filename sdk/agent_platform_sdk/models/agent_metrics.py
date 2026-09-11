@@ -7,6 +7,8 @@ from attrs import define as _attrs_define
 from attrs import field as _attrs_field
 from typing_extensions import Self
 
+from ..types import UNSET, Unset
+
 if TYPE_CHECKING:
     from ..models.agent_metrics_by_state import AgentMetricsByState
 
@@ -33,6 +35,7 @@ class AgentMetrics:
         tokens_out (int):
         tool_calls (int):
         total (int):
+        last_failed_at (None | str | Unset):
     """
 
     active: int
@@ -50,6 +53,7 @@ class AgentMetrics:
     tokens_out: int
     tool_calls: int
     total: int
+    last_failed_at: None | str | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -87,6 +91,12 @@ class AgentMetrics:
 
         total = self.total
 
+        last_failed_at: None | str | Unset
+        if isinstance(self.last_failed_at, Unset):
+            last_failed_at = UNSET
+        else:
+            last_failed_at = self.last_failed_at
+
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
@@ -108,6 +118,8 @@ class AgentMetrics:
                 "total": total,
             }
         )
+        if last_failed_at is not UNSET:
+            field_dict["last_failed_at"] = last_failed_at
 
         return field_dict
 
@@ -170,6 +182,15 @@ class AgentMetrics:
 
         total = d.pop("total")
 
+        def _parse_last_failed_at(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        last_failed_at = _parse_last_failed_at(d.pop("last_failed_at", UNSET))
+
         agent_metrics = cls(
             active=active,
             agent=agent,
@@ -186,6 +207,7 @@ class AgentMetrics:
             tokens_out=tokens_out,
             tool_calls=tool_calls,
             total=total,
+            last_failed_at=last_failed_at,
         )
 
         agent_metrics.additional_properties = d
