@@ -1,7 +1,8 @@
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from enum import StrEnum
-from sqlalchemy import JSON, DateTime, Index, Integer, LargeBinary, String, Text, UniqueConstraint, text
+from sqlalchemy import (JSON, DateTime, Index, Integer, LargeBinary, String, Text,
+                        UniqueConstraint, select, text)
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
@@ -108,14 +109,27 @@ class TranscriptEvent(Base):
     payload: Mapped[dict] = mapped_column(JSON)
 
 class Conversation(Base):
-    """A durable, multi-turn thread with an agent. Each turn is a Run
-    (Run.conversation_id). Sourced from a connector (web/discord/slack); an
-    external_ref binds it to the external channel (e.g. a Discord thread id)."""
+    """A CHANNEL (docs/design/19): a durable, multi-turn room whose messages are
+    relay_messages and whose turns are Runs (Run.conversation_id). A `dm` is the
+    original shape — one human, one agent in `agent` — and every pre-relay row
+    is one; `channel`/`group` rooms hold many participants and leave `agent`
+    null. connector/external_ref/claude_session_id/session_blob are the legacy
+    single-agent fields, superseded by relay_bindings and relay_sessions and
+    kept because the design-07/14 code paths still read them."""
     __tablename__ = "conversations"
     id: Mapped[str] = mapped_column(String(32), primary_key=True, default=lambda: uuid.uuid4().hex)
     connector: Mapped[str] = mapped_column(String(32))          # web | discord | slack
     external_ref: Mapped[str | None] = mapped_column(String(256), nullable=True, index=True)
-    agent: Mapped[str] = mapped_column(String(128))
+    agent: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    kind: Mapped[str] = mapped_column(String(16), default="dm")   # dm | channel | group
+    # Slug, channels only (`general`), unique among them — enforced by the
+    # partial index _ensure_relay_ddl creates, since dms leave it null.
+    name: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    topic: Mapped[str] = mapped_column(String(256), default="")
+    # An open channel has no participant rows: every enabled agent and every
+    # human is a member of it by definition.
+    open: Mapped[bool] = mapped_column(default=False)
+    archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     title: Mapped[str] = mapped_column(String(256), default="")
     status: Mapped[str] = mapped_column(String(16), default="active")  # active | closed
     # Claude CLI session resume (docs/design/14): the id + raw bytes of the
@@ -126,6 +140,124 @@ class Conversation(Base):
     session_blob: Mapped[bytes | None] = mapped_column(LargeBinary, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+
+class RelayParticipant(Base):
+    """Explicit membership of a dm or group channel. Open channels carry no
+    rows at all — membership there is implicit — so absence of rows is a real
+    answer, not missing data."""
+    __tablename__ = "relay_participants"
+    channel_id: Mapped[str] = mapped_column(String(32), primary_key=True)
+    # 'agent:<name>' | 'user:<principal>' | 'discord:<snowflake>'. A string, not
+    # a foreign key: the same identity seam as Run.initiated_by (design 13), and
+    # a participant may live outside this platform entirely.
+    participant: Mapped[str] = mapped_column(String(128), primary_key=True)
+    role: Mapped[str] = mapped_column(String(16), default="member")   # member | owner
+    joined_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class RelayMessage(Base):
+    """One message in a channel: the unit of history, of the `relay.messages`
+    event, and of the loop guard. `hop` is what bounds agent-to-agent chatter —
+    a human or system message is 0 and a run triggered by a message at h posts
+    its reply at h+1 — and trigger_message_id is the message that caused it,
+    so a chain is walkable in both directions."""
+    __tablename__ = "relay_messages"
+    __table_args__ = (Index("ix_relay_messages_channel_created", "channel_id", "created_at"),)
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=lambda: uuid.uuid4().hex)
+    channel_id: Mapped[str] = mapped_column(String(32))
+    author: Mapped[str] = mapped_column(String(128))
+    kind: Mapped[str] = mapped_column(String(16), default="text")   # text | system | event
+    body: Mapped[str] = mapped_column(Text, default="")
+    # Structured payload for kind=event (a run card, an alert) — the UI renders
+    # it instead of the body, which stays the plain-text fallback.
+    card: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    reply_to: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    thread_root: Mapped[str | None] = mapped_column(String(32), nullable=True, index=True)
+    # The run that authored this message (agents only) and the message that
+    # triggered that run.
+    run_id: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    trigger_message_id: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    hop: Mapped[int] = mapped_column(Integer, default=0)
+    # Agent names the router resolved from the body's @mentions, not the raw
+    # tokens: routing reads this, never the text.
+    mentions: Mapped[list] = mapped_column(JSON, default=list)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    edited_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Soft delete: a deleted message keeps its id so replies and threads that
+    # point at it still resolve.
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class RelayReaction(Base):
+    __tablename__ = "relay_reactions"
+    message_id: Mapped[str] = mapped_column(String(32), primary_key=True)
+    participant: Mapped[str] = mapped_column(String(128), primary_key=True)
+    emoji: Mapped[str] = mapped_column(String(32), primary_key=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class RelaySession(Base):
+    """The design-14 resume blob, generalised to (channel, agent): a channel can
+    hold several agents and each keeps its own CLI session. Stored opaquely,
+    exactly as Conversation.claude_session_id/session_blob were."""
+    __tablename__ = "relay_sessions"
+    channel_id: Mapped[str] = mapped_column(String(32), primary_key=True)
+    agent: Mapped[str] = mapped_column(String(128), primary_key=True)
+    claude_session_id: Mapped[str] = mapped_column(String(64), default="")
+    session_blob: Mapped[bytes | None] = mapped_column(LargeBinary, nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+
+
+class RelayBinding(Base):
+    """Ties a channel to a room on an external network. The unique
+    (connector, external_ref) is what makes inbound routing unambiguous: one
+    Discord thread can only ever resolve to one channel."""
+    __tablename__ = "relay_bindings"
+    __table_args__ = (UniqueConstraint("connector", "external_ref",
+                                       name="uq_relay_bindings_external"),)
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=lambda: uuid.uuid4().hex)
+    channel_id: Mapped[str] = mapped_column(String(32), index=True)
+    connector: Mapped[str] = mapped_column(String(32))    # discord | slack | telegram
+    external_ref: Mapped[str] = mapped_column(String(256))
+    config: Mapped[dict] = mapped_column(JSON, default=dict)
+
+
+class RelayWake(Base):
+    """The coalesced "someone mentioned you while you were busy" marker: at most
+    one per (channel, agent), pointing at the oldest message the agent has not
+    seen, so a flurry of mentions during a run becomes one follow-up."""
+    __tablename__ = "relay_wakes"
+    channel_id: Mapped[str] = mapped_column(String(32), primary_key=True)
+    agent: Mapped[str] = mapped_column(String(128), primary_key=True)
+    since_message_id: Mapped[str] = mapped_column(String(32))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class RelayInvocation(Base):
+    """Every routing decision, including every suppression — the record that
+    answers "why did nothing happen when I mentioned it?". Mirrored from the
+    `relay.invocations` topic."""
+    __tablename__ = "relay_invocations"
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=lambda: uuid.uuid4().hex)
+    channel_id: Mapped[str] = mapped_column(String(32), index=True)
+    message_id: Mapped[str] = mapped_column(String(32), index=True)
+    agent: Mapped[str] = mapped_column(String(128), index=True)
+    decision: Mapped[str] = mapped_column(String(16))     # invoked | suppressed
+    reason: Mapped[str] = mapped_column(String(64), default="")
+    run_id: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    hop: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
+
+
+class SchemaMark(Base):
+    """One-time data migrations record themselves here. create_all and
+    _ensure_columns are naturally idempotent; a BACKFILL is not — it has to know
+    it already ran, or it re-scans every source table on every boot forever and
+    (worse) re-derives rows the live code has since become the owner of."""
+    __tablename__ = "schema_marks"
+    name: Mapped[str] = mapped_column(String(64), primary_key=True)
+    applied_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
 
 class AgentDef(Base):
     """An agent's IDENTITY (docs/design/15): the row that replaced
@@ -145,6 +277,9 @@ class AgentDef(Base):
     # materializes ~/.claude/agents/<name>.md from this.
     prompt: Mapped[str] = mapped_column(Text, default="")
     description: Mapped[str] = mapped_column(String(512), default="")
+    # The agent's face in Relay (docs/design/19): one emoji, optional — unset
+    # means the UI derives a stable one from the name.
+    icon: Mapped[str | None] = mapped_column(String(16), nullable=True)
     model: Mapped[str] = mapped_column(String(64), default="")
     # Platform role the agent's tokens are minted at (see api.auth.ROLES);
     # `coder` is additionally what makes a run self-edit-capable.
@@ -427,6 +562,152 @@ def _ensure_memory_key_index(conn) -> None:
                       f"ON {tbl} (agent, key) WHERE key IS NOT NULL"))
 
 
+# (name, topic) of the rooms the platform ships with — open to every agent and
+# every human, seeded once and thereafter editable like any other channel.
+RELAY_BACKFILL_MARK = "relay-backfill-v1"
+
+RELAY_SEED_CHANNELS = (
+    ("general", "everyone"),
+    ("ops", "alerts and operations"),
+    ("standup", "what did you do today?"),
+)
+
+
+def _ensure_relay_ddl(conn) -> None:
+    """Schema the model declarations cannot express portably: a channel's name
+    is unique only among channels (dms leave it null, and several nulls are not
+    a conflict), postgres wants a full-text index sqlite has no equivalent for,
+    and a live conversations.agent is still NOT NULL from when every
+    conversation had exactly one agent."""
+    conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uq_conversations_channel_name "
+                      "ON conversations (name) WHERE kind = 'channel'"))
+    if conn.dialect.name == "postgresql":
+        # DROP NOT NULL takes an ACCESS EXCLUSIVE lock even when the column is
+        # already nullable, and this runs on every boot of every service — so
+        # ask first, the way _ensure_memory_key_index does.
+        if conn.execute(text(
+                "SELECT is_nullable FROM information_schema.columns "
+                "WHERE table_name = 'conversations' AND column_name = 'agent'"
+        )).scalar() == "NO":
+            conn.exec_driver_sql("ALTER TABLE conversations ALTER COLUMN agent DROP NOT NULL")
+        conn.exec_driver_sql("CREATE INDEX IF NOT EXISTS ix_relay_messages_body_fts "
+                             "ON relay_messages USING GIN (to_tsvector('english', body))")
+
+
+def _relay_human_of(conv, run) -> str:
+    """The human behind ONE historical turn. A connector turn records
+    `connector:<name>:<user>` in requested_by, and that external user IS the
+    participant identity on a bridged channel — there is no platform principal
+    behind it. A web turn carries the real principal in initiated_by. Derived
+    per turn, not per conversation: a bridged channel is a room, and two people
+    posting in it must not collapse into whoever spoke first."""
+    requested = (run.requested_by if run is not None else "") or ""
+    if conv.connector != "web" and requested.startswith("connector:"):
+        network, _, user = requested[len("connector:"):].partition(":")
+        if network and user:
+            return f"{network}:{user}"
+    initiated = (run.initiated_by if run is not None else None) or "admin"
+    return f"user:{initiated}"
+
+
+def _ensure_relay_backfill(conn) -> None:
+    """Migrate the pre-relay world into the relay tables (docs/design/19): every
+    conversation is already a dm channel, so give it its participants, replay its
+    turns as messages, and move its resume blob and connector ref into the tables
+    that now own them. A ONE-TIME migration, gated on its schema mark — after it,
+    live code (not this function) owns every new message, so a second pass would
+    be re-deriving rows it no longer has authority over. The seeded channels sit
+    outside the mark: three lookups by name, and a deleted #general should not
+    come back only to the next fresh database."""
+    from sqlalchemy import inspect as sa_inspect
+    if not sa_inspect(conn).has_table("conversations"):
+        return
+    conv_t, run_t = Conversation.__table__, Run.__table__
+    msg_t, part_t = RelayMessage.__table__, RelayParticipant.__table__
+    sess_t, bind_t = RelaySession.__table__, RelayBinding.__table__
+    for name, topic in RELAY_SEED_CHANNELS:
+        if conn.execute(select(conv_t.c.id).where(conv_t.c.kind == "channel",
+                                                  conv_t.c.name == name)).first():
+            continue
+        conn.execute(conv_t.insert().values(
+            id=uuid.uuid4().hex, connector="web", external_ref=None, agent=None,
+            kind="channel", name=name, topic=topic, open=True, archived_at=None,
+            title=f"#{name}", status="active", claude_session_id="", session_blob=None,
+            created_at=utcnow(), updated_at=utcnow()))
+
+    mark_t = SchemaMark.__table__
+    if conn.execute(select(mark_t.c.name)
+                    .where(mark_t.c.name == RELAY_BACKFILL_MARK)).first():
+        return
+    # _ensure_columns adds a column but cannot give existing rows its default.
+    conn.execute(text("UPDATE conversations SET kind = 'dm' WHERE kind IS NULL"))
+    conn.execute(text("UPDATE conversations SET topic = '' WHERE topic IS NULL"))
+    conn.execute(conv_t.update().where(conv_t.c.open.is_(None)).values(open=False))
+
+    have_messages = {r[0] for r in conn.execute(select(msg_t.c.channel_id).distinct())}
+    have_parts = {(r[0], r[1]) for r in
+                  conn.execute(select(part_t.c.channel_id, part_t.c.participant))}
+    have_sessions = {(r[0], r[1]) for r in
+                     conn.execute(select(sess_t.c.channel_id, sess_t.c.agent))}
+    have_bindings = {(r[0], r[1]) for r in
+                     conn.execute(select(bind_t.c.connector, bind_t.c.external_ref))}
+    # Oldest first: nothing stops two live conversations from sharing an
+    # external_ref (the ingestor's lookup-then-insert can race), but only one may
+    # hold the binding — the original, which is the one the bridge was really
+    # talking to. Claiming it here rather than letting the unique constraint
+    # decide keeps a boot from dying on data that is merely untidy.
+    for conv in conn.execute(select(conv_t).where(conv_t.c.kind == "dm")
+                             .order_by(conv_t.c.created_at, conv_t.c.id)).fetchall():
+        runs = conn.execute(select(run_t).where(run_t.c.conversation_id == conv.id)
+                            .order_by(run_t.c.created_at, run_t.c.id)).fetchall()
+        agent_part = f"agent:{conv.agent}" if conv.agent else None
+        if conv.agent and (conv.claude_session_id or conv.session_blob) \
+                and (conv.id, conv.agent) not in have_sessions:
+            conn.execute(sess_t.insert().values(
+                channel_id=conv.id, agent=conv.agent, updated_at=utcnow(),
+                claude_session_id=conv.claude_session_id or "",
+                session_blob=conv.session_blob))
+            have_sessions.add((conv.id, conv.agent))
+        if conv.connector != "web" and conv.external_ref \
+                and (conv.connector, conv.external_ref) not in have_bindings:
+            conn.execute(bind_t.insert().values(
+                id=uuid.uuid4().hex, channel_id=conv.id, connector=conv.connector,
+                external_ref=conv.external_ref, config={}))
+            have_bindings.add((conv.connector, conv.external_ref))
+        humans = [_relay_human_of(conv, run) for run in runs] or [_relay_human_of(conv, None)]
+        for participant in dict.fromkeys(humans + [agent_part]):
+            if participant and (conv.id, participant) not in have_parts:
+                conn.execute(part_t.insert().values(
+                    channel_id=conv.id, participant=participant, role="member",
+                    joined_at=conv.created_at or utcnow()))
+                have_parts.add((conv.id, participant))
+        if conv.id in have_messages:
+            continue
+        for run, human in zip(runs, humans):
+            asked = run.created_at or conv.created_at or utcnow()
+            if run.user_message:
+                conn.execute(msg_t.insert().values(_relay_message(
+                    conv.id, human, run.user_message, asked)))
+            if run.result is not None:
+                # Messages are read in created_at order, so a reply that landed
+                # in the same instant as its prompt must still sort after it.
+                answered = run.finished_at or asked
+                if answered <= asked:
+                    answered = asked + timedelta(microseconds=1)
+                conn.execute(msg_t.insert().values(_relay_message(
+                    conv.id, agent_part or human, run.result, answered, run_id=run.id)))
+    conn.execute(mark_t.insert().values(name=RELAY_BACKFILL_MARK, applied_at=utcnow()))
+
+
+def _relay_message(channel_id, author, body, created_at, run_id=None) -> dict:
+    """A replayed historical message: plain text at hop 0, with none of the
+    threading a live message would carry."""
+    return dict(id=uuid.uuid4().hex, channel_id=channel_id, author=author, kind="text",
+                body=body, card=None, reply_to=None, thread_root=None, run_id=run_id,
+                trigger_message_id=None, hop=0, mentions=[], created_at=created_at,
+                edited_at=None, deleted_at=None)
+
+
 async def init_db(engine: AsyncEngine) -> None:
     async with engine.begin() as conn:
         if conn.dialect.name == "postgresql":
@@ -437,3 +718,5 @@ async def init_db(engine: AsyncEngine) -> None:
         await conn.run_sync(Base.metadata.create_all)
         await conn.run_sync(_ensure_columns)
         await conn.run_sync(_ensure_memory_key_index)
+        await conn.run_sync(_ensure_relay_ddl)
+        await conn.run_sync(_ensure_relay_backfill)

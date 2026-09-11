@@ -32,6 +32,15 @@ def _view(c: Conversation) -> dict:
             "updated_at": c.updated_at.isoformat() if c.updated_at else None}
 
 
+def _dm_or_404(conv: Conversation | None) -> Conversation:
+    """These endpoints are the DM surface. Relay channels share the table
+    (docs/design/19) but have no single agent, so one reached through here is a
+    miss — not a conversation with holes in it."""
+    if conv is None or conv.kind != "dm":
+        raise HTTPException(404, "unknown conversation")
+    return conv
+
+
 def _sender(requested_by: str | None) -> str:
     """Human-facing sender of a turn, from Run.requested_by. Connector turns are
     stored as `connector:<name>:<user>`; show just the external user. Web/API
@@ -71,7 +80,8 @@ async def create_conversation(request: Request, body: ConversationIn):
 @router.get("/api/conversations", response_model=list[S.ConversationView], dependencies=[Depends(require_role(*READ_ROLES))])
 async def list_conversations(request: Request):
     async with request.app.state.session_factory() as s:
-        rows = (await s.execute(select(Conversation)
+        # DMs only, for the same reason _dm_or_404 exists.
+        rows = (await s.execute(select(Conversation).where(Conversation.kind == "dm")
                 .order_by(Conversation.updated_at.desc()))).scalars().all()
     return [_view(c) for c in rows]
 
@@ -80,9 +90,7 @@ async def list_conversations(request: Request):
             dependencies=[Depends(require_role(*READ_ROLES))])
 async def get_conversation(request: Request, conversation_id: str):
     async with request.app.state.session_factory() as s:
-        conv = await s.get(Conversation, conversation_id)
-        if conv is None:
-            raise HTTPException(404, "unknown conversation")
+        conv = _dm_or_404(await s.get(Conversation, conversation_id))
         turns = (await s.execute(select(Run).where(Run.conversation_id == conversation_id)
                  .order_by(Run.created_at))).scalars().all()
     d = _view(conv)
@@ -103,9 +111,7 @@ async def rename_conversation(request: Request, conversation_id: str, body: Conv
     """Rename a conversation. The title is a local display label (it does not
     touch the external channel), so any type — including Discord — is renamable."""
     async with request.app.state.session_factory() as s:
-        conv = await s.get(Conversation, conversation_id)
-        if conv is None:
-            raise HTTPException(404, "unknown conversation")
+        conv = _dm_or_404(await s.get(Conversation, conversation_id))
         conv.title = body.title.strip()
         await s.commit()
         return _view(conv)
@@ -119,9 +125,7 @@ async def delete_conversation(request: Request, conversation_id: str):
     belongs to the external channel, and a delete would just be recreated on
     the next inbound message."""
     async with request.app.state.session_factory() as s:
-        conv = await s.get(Conversation, conversation_id)
-        if conv is None:
-            raise HTTPException(404, "unknown conversation")
+        conv = _dm_or_404(await s.get(Conversation, conversation_id))
         if conv.connector != "web":
             raise HTTPException(409, f"{conv.connector} conversations are managed by "
                                      "their channel and can't be deleted here")
@@ -146,6 +150,7 @@ async def post_message(request: Request, conversation_id: str, body: MessageIn,
     async with request.app.state.session_factory() as s:
         conv = await s.get(Conversation, conversation_id)
     if conv is not None:
+        _dm_or_404(conv)
         await request.app.state.agent_store.reload()
         info = request.app.state.agent_store.get(conv.agent)
         if info is not None and not info.enabled:

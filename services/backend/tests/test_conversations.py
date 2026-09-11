@@ -142,7 +142,8 @@ async def test_connector_ingest_maps_ref_to_conversation(sf):
     await ing.handle(ev)
     await ing.handle({**ev, "text": "you there?"})   # same ref → same conversation
     async with sf() as s:
-        convs = (await s.execute(select(Conversation))).scalars().all()
+        convs = (await s.execute(select(Conversation).where(
+            Conversation.kind == "dm"))).scalars().all()
         runs = (await s.execute(select(Run))).scalars().all()
     assert len(convs) == 1 and convs[0].external_ref == "thread-1" and convs[0].connector == "discord"
     # first turn created a run; the second is blocked (a turn is still in flight)
@@ -188,3 +189,20 @@ async def test_rename_empty_title_422(admin_client):
     cid = (await admin_client.post("/api/conversations",
            json={"connector": "web", "agent": "hello-world"})).json()["id"]
     assert (await admin_client.patch(f"/api/conversations/{cid}", json={"title": ""})).status_code == 422
+
+
+async def test_channel_rows_are_not_reachable_as_conversations(admin_client, sf):
+    """A seeded relay channel (docs/design/19) shares the conversations table but
+    has no agent: the DM endpoints must miss it, not half-serve it."""
+    async with sf() as s:
+        cid = (await s.execute(select(Conversation.id).where(
+            Conversation.name == "general"))).scalar_one()
+    assert (await admin_client.get(f"/api/conversations/{cid}")).status_code == 404
+    assert (await admin_client.patch(f"/api/conversations/{cid}",
+                                     json={"title": "hi"})).status_code == 404
+    assert (await admin_client.post(f"/api/conversations/{cid}/messages",
+                                    json={"text": "hi"})).status_code == 404
+    assert (await admin_client.delete(f"/api/conversations/{cid}")).status_code == 404
+    assert not any(c["id"] == cid for c in (await admin_client.get("/api/conversations")).json())
+    async with sf() as s:
+        assert (await s.get(Conversation, cid)) is not None   # still there
