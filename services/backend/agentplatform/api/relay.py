@@ -7,12 +7,15 @@ field on the wire: a message is attributed from the caller's token —
 an agent can only ever speak as itself, and a prompt-injected one gains nothing
 by asking to be someone else. Membership (`relay.is_member`) is the second
 fence: it bounds where an agent may read and post, independent of role."""
+import asyncio
+import json
 import logging
 import re
 from datetime import timedelta
 from typing import NamedTuple
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request
+from fastapi.responses import StreamingResponse
 from sqlalchemy import case, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import aliased
@@ -30,8 +33,10 @@ from agentplatform.relay import (agent_name, face_for, is_agent, is_member,
                                  strip_room_mentions)
 # Aliased: the route below is the HTTP name for the same act, and the store
 # helper is what actually writes the row.
+from agentplatform.relay_feed import OVERFLOW
 from agentplatform.relay_store import post_relay_message as _insert_message
-from agentplatform.relay_store import message_view, publish_relay_message
+from agentplatform.relay_store import (message_view, relay_message_payload,
+                                       publish_relay_message)
 
 log = logging.getLogger("relay")
 
@@ -59,6 +64,13 @@ _PARTICIPANT_RE = re.compile(r"[a-z][a-z0-9_-]*:\S{1,96}")
 SEED_NAMES = {name for name, _ in RELAY_SEED_CHANNELS}
 # Preview length of the rail's last-message line.
 PREVIEW_CHARS = 200
+# How long a silent stream waits before saying something anyway. Proxies and
+# browsers both close an idle connection, and a comment costs one line.
+HEARTBEAT_SECONDS = 15.0
+# The replay cap when a reconnecting client names a message it already has: a
+# client that was away for an hour catches up by re-fetching the page, not by
+# having the whole backlog pushed at it.
+REPLAY_LIMIT = 200
 
 
 class Caller(NamedTuple):
@@ -454,6 +466,10 @@ async def post_relay_message(request: Request, channel_id: str, body: S.RelayMes
         faces = await _faces(s, {caller.agent} if caller.agent else set())
         face = _face_of(caller.participant, faces)
         view = _message(row, face=face)
+    # Straight to this pod's own streams first: the room stays live when Kafka
+    # is down, and when it is up the echo off `relay.messages` is deduped by id.
+    request.app.state.feed.publish(conv.id, "message",
+                                   relay_message_payload(row, conv, face=face))
     await publish_relay_message(request.app.state.producer, conv, row, face=face)
     return view
 
@@ -492,7 +508,120 @@ async def toggle_relay_reaction(request: Request, message_id: str, body: S.Relay
         count = (await s.execute(select(func.count()).select_from(ReactionRow).where(
             ReactionRow.message_id == message_id,
             ReactionRow.emoji == body.emoji))).scalar_one()
+    # Reactions have no Kafka topic in this design — they are a UI affordance,
+    # not a fact the router or a bridge acts on — so the feed is their only
+    # live path, and a second API pod's viewers see them on their next fetch.
+    request.app.state.feed.publish(message.channel_id, "reaction",
+                                   {"message_id": message_id, "emoji": body.emoji,
+                                    "count": count, "participant": caller.participant})
     return {"emoji": body.emoji, "count": count, "mine": existing is None}
+
+
+def _frame(event: str, data: dict) -> str:
+    """One SSE frame. A message carries its own id as the event id, which is
+    what a reconnecting browser sends back as `Last-Event-ID` — the resume
+    cursor is the message, not a sequence number we would have to keep."""
+    head = [f"id: {data['id']}"] if event == "message" and data.get("id") else []
+    return "\n".join(head + [f"event: {event}",
+                             "data: " + json.dumps(data, separators=(",", ":")), "", ""])
+
+
+async def _still_a_member(request: Request, channel_id: str, caller: Caller) -> bool:
+    """Whether an agent still belongs in this room. Membership can be taken
+    away while a stream is open — a participant row removed, the agent disabled
+    — and a socket that keeps delivering afterwards is the one way an agent
+    reads a room it was thrown out of."""
+    async with request.app.state.session_factory() as s:
+        conv = await s.get(Conversation, channel_id)
+        return conv is not None and is_member(
+            conv, caller.participant, _agent_set(request), await _explicit(s, conv.id))
+
+
+async def _missed(s, channel_id: str, cursor: str) -> list:
+    """Messages newer than the one the client says it already has, oldest
+    first. An id we cannot place replays NOTHING: it is a cursor from another
+    room or a pruned message, and answering it with the newest page would
+    duplicate whatever the client is already showing."""
+    row = await s.get(MessageRow, cursor)
+    if row is None or row.channel_id != channel_id:
+        return []
+    return list((await s.execute(select(MessageRow).where(
+        MessageRow.channel_id == channel_id, MessageRow.deleted_at.is_(None),
+        or_(MessageRow.created_at > row.created_at,
+            (MessageRow.created_at == row.created_at) & (MessageRow.id > row.id)))
+        .order_by(MessageRow.created_at, MessageRow.id).limit(REPLAY_LIMIT))).scalars())
+
+
+@router.get("/api/relay/channels/{channel_id}/events", response_class=StreamingResponse)
+async def relay_events(request: Request, channel_id: str, after: str | None = None,
+                       last_event_id: str | None = Header(None, alias="Last-Event-ID"),
+                       caller: Caller = Depends(require_relay_access(*READ))):
+    """The room, live: `message`, `reaction` and `presence` events as they
+    happen, plus a heartbeat comment so nothing between here and the browser
+    decides an idle stream is a dead one.
+
+    Membership is resolved BEFORE the response starts: a 403 has to be a 403,
+    not an event stream that opens and then says nothing."""
+    agents = _agent_set(request)
+    feed = request.app.state.feed
+    async with request.app.state.session_factory() as s:
+        conv = await _channel_or_404(s, channel_id, caller, agents)
+        # Subscribed before the replay is read, so a message posted between the
+        # two is queued rather than lost in the gap. Nothing after this point
+        # may leave without unsubscribing — a stream that never starts would
+        # otherwise hold a queue nobody will ever drain.
+        queue = feed.subscribe(channel_id)
+        try:
+            cursor = after or last_event_id
+            rows = await _missed(s, channel_id, cursor) if cursor else []
+            faces = await _faces(s, _agents_among(r.author for r in rows))
+            replay = [relay_message_payload(r, conv, face=_face_of(r.author, faces))
+                      for r in rows]
+        except BaseException:
+            feed.unsubscribe(channel_id, queue)
+            raise
+
+    async def stream():
+        last = cursor
+        try:
+            for data in replay:
+                last = data.get("id") or last
+                yield _frame("message", data)
+            while True:
+                try:
+                    # The interval is read per wait on purpose: it is a module
+                    # global a test can turn down without patching the route.
+                    event, data = await asyncio.wait_for(queue.get(), HEARTBEAT_SECONDS)
+                except TimeoutError:
+                    # The quiet tick is also the cheapest place to re-ask the
+                    # question the connect answered: one small query per open
+                    # agent stream per interval.
+                    if caller.agent is not None and not await _still_a_member(
+                            request, channel_id, caller):
+                        yield _frame("closed", {"reason": "no longer a member "
+                                                          "of this channel"})
+                        return
+                    yield ": heartbeat\n\n"
+                    continue
+                if event == OVERFLOW:
+                    # This stream fell behind and lost frames. It is told where
+                    # its picture stops being trustworthy; refetching from there
+                    # is the client's job, and cheaper than us replaying blind.
+                    yield _frame(OVERFLOW, {"after": last})
+                    continue
+                last = data.get("id") or last if event == "message" else last
+                yield _frame(event, data)
+        finally:
+            # Runs on client disconnect too (the generator is closed), which is
+            # the only thing that keeps the fan-out's subscriber set honest.
+            feed.unsubscribe(channel_id, queue)
+
+    return StreamingResponse(stream(), media_type="text/event-stream",
+                             headers={"Cache-Control": "no-cache",
+                                      # nginx buffers a proxied response by
+                                      # default, which would hold every frame
+                                      # until the stream ends — i.e. forever.
+                                      "X-Accel-Buffering": "no"})
 
 
 async def _find_dm(s, pair: list[str]) -> Conversation | None:

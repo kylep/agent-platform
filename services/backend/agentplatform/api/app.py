@@ -33,6 +33,7 @@ from agentplatform.api import skills as skills_api
 from agentplatform.api import tools as tools_api
 from agentplatform.api import tail as tail_api
 from agentplatform.db import make_engine, make_session_factory, init_db
+from agentplatform.relay_feed import RelayFeed
 from agentplatform.secrets import InMemorySecretStore
 
 
@@ -66,8 +67,36 @@ def kafka_consumer_factory(settings):
     return factory
 
 
+def relay_feed_consumer_factory(settings):
+    """Production factory for Relay's live feed: `relay.messages` for the room
+    and `run.events` for presence. A fresh consumer group per pod, reading from
+    `latest`, because this is a live feed and not a ledger — a pod that was down
+    has nothing to catch up on, since a reconnecting UI names the last message
+    it holds and the gap is replayed from postgres.
+
+    A FACTORY, and passed in rather than built from settings, for the same
+    reason `consumer_factory` is: `kafka_bootstrap` always has a value, so
+    anything keyed off it alone would have every test that enters the lifespan
+    dialling a broker that is not there."""
+
+    def factory():
+        import socket
+        import uuid
+        from aiokafka import AIOKafkaConsumer
+        from agentplatform.events import TOPIC_RELAY_MESSAGES, TOPIC_RUN_EVENTS
+
+        return AIOKafkaConsumer(
+            TOPIC_RELAY_MESSAGES, TOPIC_RUN_EVENTS,
+            bootstrap_servers=settings.kafka_bootstrap,
+            group_id=f"api-sse-{socket.gethostname() or uuid.uuid4().hex[:8]}",
+            auto_offset_reset="latest",
+        )
+
+    return factory
+
+
 def create_app(settings, session_factory, producer, secret_store=None, agent_store=None,
-                consumer_factory=None) -> FastAPI:
+                consumer_factory=None, feed_consumer_factory=None) -> FastAPI:
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         st = app.state
@@ -75,6 +104,9 @@ def create_app(settings, session_factory, producer, secret_store=None, agent_sto
             engine = make_engine(settings.db_url)
             await init_db(engine, settings.relay_default_grant)
             st.session_factory = make_session_factory(engine)
+        # The feed only needs a session for presence (a run event names a run,
+        # not a room), so it is handed the factory here, once it is real.
+        st.feed.session_factory = st.session_factory
         # Agent definitions are rows (docs/design/15): prime the cache once the
         # session factory exists, so the first request reads real agents rather
         # than an empty store waiting on its TTL refresh.
@@ -104,9 +136,39 @@ def create_app(settings, session_factory, producer, secret_store=None, agent_sto
                         await asyncio.sleep(5)
 
             start_task = asyncio.create_task(_start_with_retry())
+        # The live feed is best-effort in exactly the same way: the SSE endpoint
+        # works off the local fan-out alone (this pod's own posts), and the
+        # consumer only adds what the OTHER writers — another pod, the recorder,
+        # a bridge — put on the bus.
+        feed_task = None
+        if st.feed_consumer_factory is not None:
+            async def _feed_forever():
+                while True:
+                    consumer = st.feed_consumer_factory()
+                    try:
+                        await consumer.start()
+                        await st.feed.run(consumer, st.producer)
+                    except asyncio.CancelledError:
+                        raise
+                    except Exception:
+                        logging.getLogger("api").warning(
+                            "relay feed consumer failed; retrying", exc_info=True)
+                    finally:
+                        try:
+                            await consumer.stop()
+                        except Exception:
+                            pass
+                    # Paced whichever way the loop ended — a broker that is
+                    # refusing connections and a consumer that closed cleanly
+                    # under us both have to wait, or this is a hot loop.
+                    await asyncio.sleep(5)
+
+            feed_task = asyncio.create_task(_feed_forever())
         try:
             yield
         finally:
+            if feed_task is not None:
+                feed_task.cancel()
             if start_task is not None:
                 start_task.cancel()
             # The store's TTL refresh is scheduled, not awaited, so shutdown can
@@ -129,9 +191,14 @@ def create_app(settings, session_factory, producer, secret_store=None, agent_sto
     st = app.state
     st.settings, st.session_factory, st.producer = settings, session_factory, producer
     st.consumer_factory = consumer_factory
+    st.feed_consumer_factory = feed_consumer_factory
     secret_store = secret_store or InMemorySecretStore()
     agent_store = agent_store or AgentStore(session_factory)
     st.secret_store, st.agent_store = secret_store, agent_store
+    # Created here rather than in the lifespan: a test (and the SDK generator)
+    # drives the app without one, and an endpoint that publishes into a feed
+    # that does not exist yet would fail on the first post.
+    st.feed = RelayFeed(session_factory)
     from agentplatform.skills import SkillStore
     st.skill_store = SkillStore(Path(settings.skills_root))
     from agentplatform.secretregistry import SecretRegistry

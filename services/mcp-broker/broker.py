@@ -20,6 +20,7 @@ logic lives in `agenttools.py`; only the MCP surface is here.
 """
 import logging
 import os
+import re
 from pathlib import Path
 
 import agenttools
@@ -64,6 +65,13 @@ async def _request(method: str, path: str, params: dict | None = None,
 
 async def _call(method: str, path: str, params: dict | None = None, json: dict | None = None) -> str:
     r = await _request(method, path, params, json)
+    if r.status_code >= 400:
+        # A model reads text, not status codes: an unprefixed `{"detail": ...}`
+        # body looks exactly like a successful answer, and a tool that returns
+        # the platform's refusal as if it were data is how an agent comes to
+        # report work it never did. Every core tool goes through here, so this
+        # is the one place that has to say so.
+        return f"error: {r.status_code} {r.text}".rstrip()
     return r.text or "ok"
 
 
@@ -345,6 +353,152 @@ async def agents_grant(action: str, name: str, field: str | None = None,
         "action": action, "name": name, "field": field, "values": values,
         "harness_tools": harness_tools, "platform_tools": platform_tools,
         "skills": skills, "secrets": secrets, "can_invoke": can_invoke})
+
+
+# --- relay (docs/design/19) --------------------------------------------------
+# The messenger nearly every agent is born holding. A CORE tool because it has
+# to post AS the caller: authorship is the forwarded bearer, never an argument,
+# so a prompt-injected agent cannot speak as someone else. It is the one core
+# tool that does not promote a run's token (agentspec.PLATFORM_MCP_RELAY_TOOLS)
+# — it reaches /api/relay/* only, and membership bounds it from there.
+RELAY_ACTIONS = ("post", "read", "channels", "dm", "react", "search")
+# A channel id is uuid4 hex. Anything else the agent typed is a room NAME,
+# because a name is what everyone says out loud ("#general") and what the room
+# is called in every message the agent has read.
+_CHANNEL_ID_RE = re.compile(r"[0-9a-f]{32}")
+
+
+async def _relay_rooms() -> tuple[list, str | None]:
+    """The rooms this agent can see, as (rooms, error)."""
+    listing = await _call("GET", "/api/relay/channels")
+    if listing.startswith("error:"):
+        return [], listing
+    try:
+        rooms = _json.loads(listing)
+    except ValueError:
+        return [], f"error: could not list channels: {listing[:200]}"
+    return rooms if isinstance(rooms, list) else [], None
+
+
+async def _relay_by_name(channel: str) -> tuple[str, str | None]:
+    """Resolve a room NAME to its id, as (id, error). An exact match wins
+    outright; a case-insensitive one only when it is the single candidate,
+    because guessing between two rooms is how a message meant for one lands in
+    the other — and in Relay the wrong room is the wrong audience."""
+    want = channel.lstrip("#")
+    rooms, error = await _relay_rooms()
+    if error:
+        return "", error
+    exact = [r for r in rooms if (r.get("name") or "") == want]
+    if len(exact) == 1:
+        return exact[0]["id"], None
+    loose = [r for r in rooms if (r.get("name") or "").lower() == want.lower()]
+    if len(loose) == 1:
+        return loose[0]["id"], None
+    if len(loose) > 1:
+        names = ", ".join(sorted(r.get("name") or "" for r in loose))
+        return "", (f"error: ambiguous channel name {channel} (matches {names}) "
+                    f"— use the channel id")
+    # Only rooms the agent is in come back, so this is "no such room FOR YOU" —
+    # which is the answer that matters, and the one it can act on.
+    return "", f"error: no channel named {channel}"
+
+
+async def _relay_channel(channel: str | None) -> tuple[str, str | None]:
+    """Resolve a room to its id, as (id, error). An id goes through untouched:
+    the API decides membership, and looking it up here would only turn "you are
+    not in that room" into a misleading "no such room"."""
+    raw = (channel or "").strip()
+    if not raw:
+        return "", "error: this action needs a channel (a #name or a channel id)"
+    if _CHANNEL_ID_RE.fullmatch(raw):
+        return raw, None
+    return await _relay_by_name(raw)
+
+
+def _clamp(value, high: int) -> int:
+    """The API's own page bounds, applied here: a model that asks for 5000 gets
+    the biggest page there is, rather than a 422 it has to interpret."""
+    try:
+        return max(1, min(int(value), high))
+    except (TypeError, ValueError):
+        return 30
+
+
+async def _relay_post(channel_id: str, body: str, reply_to: str | None) -> str:
+    return await _call("POST", f"/api/relay/channels/{channel_id}/messages",
+                       json={"body": body, "reply_to": reply_to})
+
+
+@mcp.tool
+async def relay(action: str, channel: str | None = None, body: str | None = None,
+                reply_to: str | None = None, limit: int = 30,
+                before: str | None = None, to: str | None = None,
+                message_id: str | None = None, emoji: str | None = None,
+                q: str | None = None) -> str:
+    """Relay chat — you are `agent:<you>`; authorship is your token, not text.
+    Actions: post · read · channels · dm · react · search; `channel` is a
+    `#name` or a channel id. `@name` in a body summons that agent: each costs
+    one hop and the room pauses at the cap — you cannot address the whole room.
+    Summoned? Your final answer is posted as your reply automatically, so post
+    only for an extra message or another room; read the room first for context."""
+    if action not in RELAY_ACTIONS:
+        return "error: action must be one of " + "|".join(RELAY_ACTIONS)
+    if action == "channels":
+        return await _call("GET", "/api/relay/channels")
+    if action == "react":
+        if not message_id:
+            return "error: action='react' requires message_id"
+        if not emoji:
+            return "error: action='react' requires emoji"
+        return await _call("POST", f"/api/relay/messages/{message_id}/reactions",
+                           json={"emoji": emoji})
+    if action == "search":
+        if not q:
+            return "error: action='search' requires q, the text to look for"
+        channel_id, error = await _relay_channel(channel) if channel else ("", None)
+        if error:
+            return error
+        return await _call("GET", "/api/relay/search",
+                           {"q": q, "channel": channel_id or None,
+                            "limit": _clamp(limit, 100)})
+    if action == "dm":
+        if not to:
+            return "error: action='dm' requires to, e.g. agent:news or user:admin"
+        if not body:
+            return "error: action='dm' requires body"
+        # Get-or-create, then post: the room is plumbing, the message is the
+        # act, so the message is what comes back.
+        opened = await _call("POST", "/api/relay/dm", json={"with": to})
+        if opened.startswith("error:"):
+            return opened
+        try:
+            channel_id = _json.loads(opened)["id"]
+        except (ValueError, TypeError, KeyError):
+            return f"error: could not open that dm: {opened[:200]}"
+        return await _relay_post(channel_id, body, None)
+    if action == "post" and not body:
+        return "error: action='post' requires body, the text to say"
+
+    async def act(channel_id: str) -> str:
+        if action == "read":
+            return await _call("GET", f"/api/relay/channels/{channel_id}/messages",
+                               {"limit": _clamp(limit, 200), "before": before})
+        return await _relay_post(channel_id, body, reply_to)
+
+    raw = (channel or "").strip()
+    channel_id, error = await _relay_channel(raw)
+    if error:
+        return error
+    out = await act(channel_id)
+    if out.startswith("error: 404") and _CHANNEL_ID_RE.fullmatch(raw):
+        # It parsed as an id and there is no such room — but a channel NAME may
+        # be 32 hex characters (it is a legal slug), so the name is the second
+        # reading of what the agent typed, not a retry of the same one.
+        named, name_error = await _relay_by_name(raw)
+        if name_error is None:
+            return await act(named)
+    return out
 
 
 def _scan_custom_tools() -> dict[str, dict]:

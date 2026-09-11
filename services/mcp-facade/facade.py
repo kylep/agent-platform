@@ -17,7 +17,7 @@ The surface is CURATED into three tiers (curation 2026-08-24; see
   every call regardless — the flag controls the MENU, not the kitchen.
 - **EXCLUDE** — UI form-feeders, reviewer digests the client can compute,
   git-edit conveniences redundant with having the repo, and system-agent
-  endpoints. Never tools. 17 of them, plus the 6 design-17 session/internal
+  endpoints. Never tools. 17 of them, plus the 7 design-17 session/internal
   paths below (verify_secret makes the graded universe 92 operations).
 
 It is deliberately NOT the mcp-broker. The broker authenticates in-cluster run
@@ -71,6 +71,10 @@ EXCLUDED_PATHS = (
     ("*", r"^/api/runs/\{run_id\}/session$"),
     ("*", r"^/api/runs/\{run_id\}/agentdef$"),
     ("*", r"^/api/webhooks/\{path\}$"),
+    # Relay's event stream (design/19): a `text/event-stream` that by design
+    # never ends. As a tool it would be a call that never returns, which is the
+    # one shape MCP has no way to represent.
+    ("*", r"^/api/relay/channels/\{channel_id\}/events$"),
 )
 
 # Curated out (curation 2026-08-24): UI plumbing, reviewer digests the client

@@ -7,7 +7,7 @@ fan-out and the bridges downstream read only what was written here. A second
 implementation would be a second definition of what a message is."""
 import logging
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 
 from agentplatform.db import (AgentDef, RelayBinding, RelayMessage,
                               RelayParticipant, utcnow)
@@ -90,3 +90,34 @@ async def explicit_members(session, channel_id: str) -> set[str]:
 async def binding_of(session, channel_id: str) -> RelayBinding | None:
     return (await session.execute(select(RelayBinding).where(
         RelayBinding.channel_id == channel_id))).scalars().first()
+
+
+async def context_window(session, channel_id: str, *, limit: int,
+                         since_message_id: str | None = None):
+    """The messages a summoned agent is shown, oldest first.
+
+    Two shapes, one window. Normally it is the last `limit` messages — the room
+    as a human would scroll it. When the agent was busy and its wake was
+    coalesced, `since_message_id` says where it stopped reading, and it gets
+    everything that has happened since instead, so a run answering three
+    mentions at once sees all three rather than a page that might not even
+    contain the first. That tail is capped at 3x limit: a room that ran away
+    while an agent was thinking must not hand it an unbounded prompt, and if the
+    tail has to be truncated it is the NEWEST part that is kept — the mention
+    that woke it is at the end, and a prompt without that is no use at all.
+
+    An unknown cursor falls back to the plain page rather than returning
+    nothing: a message may have been pruned out from under the wake."""
+    base = select(RelayMessage).where(RelayMessage.channel_id == channel_id,
+                                      RelayMessage.deleted_at.is_(None))
+    cursor = await session.get(RelayMessage, since_message_id) if since_message_id else None
+    if cursor is not None and cursor.channel_id == channel_id:
+        # (created_at, id) is the same total order the message list pages by,
+        # so "after" means the same thing to the reader and to the wake.
+        base = base.where(or_(RelayMessage.created_at > cursor.created_at,
+                              (RelayMessage.created_at == cursor.created_at)
+                              & (RelayMessage.id > cursor.id)))
+        limit = limit * 3
+    rows = list((await session.execute(base.order_by(
+        RelayMessage.created_at.desc(), RelayMessage.id.desc()).limit(limit))).scalars())
+    return list(reversed(rows))

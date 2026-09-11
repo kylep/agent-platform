@@ -24,6 +24,11 @@ jobs:
         # genuine ap_ key — auth, RBAC, typed responses for real — and the
         # platform skill's documented /api paths are held to the live OpenAPI.
         run: pytest services/backend/tests
+      - name: Broker tool tests
+        # The broker's own tools (services/mcp-broker): the modules that reach
+        # the API with the caller's token. They stub fastmcp rather than
+        # installing an MCP runtime, so they ride along with the backend job.
+        run: pytest services/mcp-broker
       - name: SDK is in sync with the API
         # The SDK is generated from the OpenAPI spec; regenerate and fail if the
         # committed output differs, so it can never drift. Generator is pinned.
