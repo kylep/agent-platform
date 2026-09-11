@@ -7,7 +7,7 @@ import { mockApi } from "./mock-api";
 // but don't gate — tighten later if the baseline stays clean.)
 
 const PAGES = ["/", "/agents", "/agents/health-monitor", "/agents/health-monitor?tab=history",
-               "/agents/new", "/runs", "/conversations",
+               "/agents/new", "/runs", "/relay", "/relay?kind=dm",
                "/memories", "/changes", "/schedules", "/skills", "/secrets",
                "/dlq", "/reporting", "/reports", "/reports/daily-news", "/apps",
                "/help", "/help/tools", "/settings"];

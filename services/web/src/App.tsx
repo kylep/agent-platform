@@ -1,4 +1,4 @@
-import { BrowserRouter, Route, Routes } from "react-router-dom";
+import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import Gate from "./Gate";
 import NotFound from "./pages/NotFound";
 import Layout from "./Layout";
@@ -12,7 +12,7 @@ import AgentDetail from "./pages/AgentDetail";
 import Runs from "./pages/Runs";
 import RunDetail from "./pages/RunDetail";
 import Changes from "./pages/Changes";
-import Conversations from "./pages/Conversations";
+import Relay from "./pages/Relay";
 import Dlq from "./pages/Dlq";
 import Memories from "./pages/Memories";
 import Reporting from "./pages/Reporting";
@@ -37,7 +37,10 @@ export default function App() {
             <Route path="/agents/:name" element={<AgentDetail />} />
             <Route path="/runs" element={<Runs />} />
             <Route path="/runs/:id" element={<RunDetail />} />
-            <Route path="/conversations" element={<Conversations />} />
+            <Route path="/relay" element={<Relay />} />
+            {/* Conversations became Relay DMs (docs/design/19) — the old
+                path is still in bookmarks and in agents' own links. */}
+            <Route path="/conversations" element={<Navigate to="/relay?kind=dm" replace />} />
             <Route path="/changes" element={<Changes />} />
             <Route path="/dlq" element={<Dlq />} />
             <Route path="/reporting" element={<Reporting />} />

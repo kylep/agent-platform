@@ -13,7 +13,11 @@ const PAGES: { path: string; heading: string; probe?: RegExp }[] = [
   { path: "/agents/health-monitor?tab=history", heading: "health-monitor", probe: /Change log/ },
   { path: "/agents/new", heading: "New Agent", probe: /Grants/ },
   { path: "/runs", heading: "Runs" },
-  { path: "/conversations", heading: "Conversations", probe: /hello there/ },
+  { path: "/relay", heading: "Relay", probe: /Morning — what's on fire/ },
+  { path: "/relay?kind=dm", heading: "Relay", probe: /What's my day look like/ },
+  // /conversations is a redirect now (docs/design/19) — the row stays to prove
+  // an old bookmark still lands somewhere real.
+  { path: "/conversations", heading: "Relay", probe: /general/ },
   { path: "/memories", heading: "Memories", probe: /Kyle likes terminals/ },
   { path: "/changes", heading: "Pending Changes", probe: /skill: news-lookup/ },
   { path: "/schedules", heading: "Schedules", probe: /health-monitor/ },

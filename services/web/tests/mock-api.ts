@@ -106,6 +106,110 @@ const reports = [
     created_at: new Date().toISOString(), updated_at: new Date().toISOString() },
 ];
 
+
+// --- Relay (docs/design/19) --------------------------------------------------
+// Two channels (one busy, one empty) and a dm, with a face on the agents and a
+// message mix wide enough to exercise every row the pane can draw: grouped
+// agent messages with a run link, a system notice, an event card, reactions, a
+// threaded reply and a bridged Discord user.
+const MINUTE = 60000;
+const at = (minsAgo: number) => new Date(Date.now() - minsAgo * MINUTE).toISOString();
+
+const face = (emoji: string, hue: number) => ({ emoji, hue });
+// Derived by the backend (agentplatform.relay.face_for) — the frontend's
+// lib/face.ts reproduces these exactly, and tests/faces.spec.ts guards that.
+const FACES = {
+  news: face("🎈", 9),
+  "health-monitor": face("🧭", 109),
+  pai: face("🐢", 145),
+};
+
+const relayMessage = (over: Record<string, unknown>) => ({
+  id: "m0", channel_id: "rc1", author: "user:kyle", kind: "text", body: "",
+  card: null, reply_to: null, thread_root: null, run_id: null, hop: 0,
+  mentions: [], created_at: at(1), edited_at: null, face: null, reactions: [],
+  ...over,
+});
+
+// Oldest first here — readable — and reversed on the way out, because the API
+// answers a newest-first page.
+const generalMessages = [
+  relayMessage({ id: "m1", author: "user:kyle", body: "Morning — what's on fire?",
+                 created_at: at(60) }),
+  relayMessage({ id: "m2", author: "agent:news", body: "Nothing is on fire. Three stories worth reading.",
+                 run_id: runs[1].id, face: FACES.news, created_at: at(58),
+                 reactions: [{ emoji: "👍", count: 2, mine: false }] }),
+  relayMessage({ id: "m3", author: "agent:news", body: "The third one is a duplicate; I rejected it.",
+                 run_id: runs[1].id, face: FACES.news, created_at: at(57) }),
+  relayMessage({ id: "m4", author: "user:kyle", kind: "system",
+                 body: "kyle archived #old-standup.", created_at: at(40) }),
+  relayMessage({ id: "m5", author: "agent:health-monitor", kind: "event",
+                 face: FACES["health-monitor"], created_at: at(30),
+                 card: { title: "Run failed", body: "`news` has failed twice in a row." } }),
+  relayMessage({ id: "m6", author: "user:kyle", body: "@news dig into that one.",
+                 mentions: ["news"], created_at: at(20) }),
+  relayMessage({ id: "m7", author: "agent:news", body: "On it — reading the run now.",
+                 run_id: runs[1].id, face: FACES.news, reply_to: "m6", thread_root: "m6",
+                 created_at: at(15) }),
+  relayMessage({ id: "m8", author: "discord:152911", body: "hello from discord",
+                 created_at: at(5) }),
+];
+
+const dmMessages = [
+  relayMessage({ id: "d1", channel_id: "rd1", author: "user:kyle",
+                 body: "What's my day look like?", created_at: at(90) }),
+  relayMessage({ id: "d2", channel_id: "rd1", author: "agent:pai", face: FACES.pai,
+                 body: "Quiet. One deploy, one review.", run_id: runs[2].id, created_at: at(89) }),
+];
+
+const relayChannel = (over: Record<string, unknown>) => ({
+  id: "rc1", kind: "channel", name: null, topic: "", open: true, archived_at: null,
+  agent: null, participants: [], last_message: null, message_count: 0, unread: 0,
+  ...over,
+});
+
+const preview = (m: Record<string, unknown>) =>
+  ({ id: m.id, author: m.author, body: m.body, created_at: m.created_at });
+
+const relayChannels = [
+  relayChannel({ id: "rc1", name: "general", topic: "everyone", message_count: 8, unread: 2,
+                 last_message: preview(generalMessages[generalMessages.length - 1]) }),
+  relayChannel({ id: "rc2", name: "quiet", topic: "nothing has happened here yet" }),
+  relayChannel({ id: "rd1", kind: "dm", topic: "", open: false, agent: "pai",
+                 participants: ["agent:pai", "user:kyle"], message_count: 2,
+                 last_message: preview(dmMessages[1]) }),
+  // A group has no title on the wire (T9), so the UI has to name it by who is
+  // in it — and only its members are mentionable inside it.
+  relayChannel({ id: "rg1", kind: "group", topic: "", open: false,
+                 participants: ["agent:news", "agent:pai", "user:kyle"] }),
+];
+
+// Keyed by channel so the route below can honour `after` and `thread` — the
+// two cursors the pane actually pages with.
+const relayLog: Record<string, typeof generalMessages> = {
+  rc1: generalMessages, rc2: [], rd1: dmMessages, rg1: [],
+};
+
+/** The messages route's real contract: `after` pages FORWARDS oldest-first
+ * from a cursor (an id we cannot place replays nothing), `thread` narrows to
+ * a root and its replies, and a bare page comes back newest-first. */
+function relayPage(channel: string, params: URLSearchParams) {
+  const all = relayLog[channel] ?? [];
+  const thread = params.get("thread");
+  const rows = thread
+    ? all.filter((m) => m.id === thread || m.thread_root === thread)
+    : all;
+  const after = params.get("after");
+  if (after) {
+    const seen = rows.findIndex((m) => m.id === after);
+    return seen < 0 ? [] : rows.slice(seen + 1);
+  }
+  return [...rows].reverse();
+}
+
+const detail = (id: string, faces: Record<string, { emoji: string; hue: number }>) =>
+  ({ ...relayChannels.find((c) => c.id === id)!, faces });
+
 const FIXTURES: Record<string, unknown> = {
   "/api/setup-state": { needs_admin: false, secrets },
   "/api/agents": agents,
@@ -117,10 +221,20 @@ const FIXTURES: Record<string, unknown> = {
   "/api/runs": runs,
   [`/api/runs/${runs[0].id}`]: runDetail,
   [`/api/runs/${runs[0].id}/transcript`]: [],
-  "/api/conversations": [
-    { id: "cv1", agent: "pai", title: "hello there", kind: "web", active: true,
-      created_at: new Date().toISOString(), last_message_at: new Date().toISOString(), turns: 2 },
+  "/api/whoami": { principal: "kyle", role: "admin", agent: null, run_id: null, tools: null },
+  "/api/relay/channels": relayChannels,
+  "/api/relay/channels/rc1": detail("rc1", { news: FACES.news, "health-monitor": FACES["health-monitor"] }),
+  "/api/relay/channels/rc2": detail("rc2", {}),
+  "/api/relay/channels/rd1": detail("rd1", { pai: FACES.pai }),
+  "/api/relay/channels/rg1": detail("rg1", { news: FACES.news, pai: FACES.pai }),
+  "/api/relay/presence": [
+    { agent: "news", state: "thinking", thinking_in: ["rc1"], face: FACES.news },
+    { agent: "health-monitor", state: "idle", thinking_in: [], face: FACES["health-monitor"] },
+    { agent: "pai", state: "idle", thinking_in: [], face: FACES.pai },
   ],
+  // Get-or-create, so the same answer whatever the caller asks for: the
+  // AgentDetail Conversations tab opens its agent's dm through this.
+  "/api/relay/dm": detail("rd1", { pai: FACES.pai }),
   "/api/memories": [
     { id: "m1", agent: "pai", key: null, content: "Kyle likes terminals.", tags: ["style"],
       created_at: new Date().toISOString(), updated_at: new Date().toISOString() },
@@ -250,6 +364,25 @@ function cronPreview(expr: string) {
   return { english: `Cron ${expr.trim()} explained`, next: NEXT_FIRES, error: null };
 }
 
+// Relay's writes answer with the row they created — the pane appends what
+// comes back rather than guessing, so `{ ok: true }` would leave it empty.
+function relayPost(path: string, body: Record<string, string>): unknown {
+  const message = /^\/api\/relay\/channels\/([^/]+)\/messages$/.exec(path);
+  if (message) {
+    return relayMessage({ id: `posted-${message[1]}`, channel_id: message[1],
+                          author: "user:kyle", body: body.body,
+                          reply_to: body.reply_to ?? null,
+                          created_at: new Date().toISOString() });
+  }
+  if (/^\/api\/relay\/messages\/[^/]+\/reactions$/.test(path)) {
+    return { emoji: body.emoji, count: 1, mine: true };
+  }
+  if (path === "/api/relay/channels") {
+    return { ...relayChannel({ id: "rc9", name: body.name, topic: body.topic }), faces: {} };
+  }
+  return undefined;
+}
+
 export async function mockApi(page: Page): Promise<string[]> {
   const unmatched: string[] = [];
   await page.route("**/api/**", async (route: Route) => {
@@ -258,6 +391,29 @@ export async function mockApi(page: Page): Promise<string[]> {
     if (path === "/api/cron/preview") {
       await route.fulfill({ json: cronPreview(url.searchParams.get("expr") ?? "") });
       return;
+    }
+    // Relay's SSE stream. A route cannot hold a connection open, so the mock
+    // answers a well-formed but finished stream: one heartbeat comment, then
+    // EOF. The browser reads that as a dropped connection, the pane closes it
+    // and falls back to its poll, and — unlike a 404 or a wrong content type —
+    // nothing is logged to the console, which the smoke suite gates on.
+    if (path.endsWith("/events")) {
+      await route.fulfill({ status: 200, contentType: "text/event-stream",
+                            headers: { "Cache-Control": "no-cache" },
+                            body: ": heartbeat\n\n" });
+      return;
+    }
+    const page_ = /^\/api\/relay\/channels\/([^/]+)\/messages$/.exec(path);
+    if (page_ && route.request().method() === "GET") {
+      await route.fulfill({ json: relayPage(page_[1], url.searchParams) });
+      return;
+    }
+    if (route.request().method() === "POST" && path.startsWith("/api/relay/")) {
+      const posted = relayPost(path, route.request().postDataJSON() ?? {});
+      if (posted !== undefined) {
+        await route.fulfill({ json: posted });
+        return;
+      }
     }
     const hit = FIXTURES[path];
     if (hit !== undefined) {

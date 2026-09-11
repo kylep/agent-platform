@@ -6,6 +6,9 @@
     "module": "esnext",
     "types": ["vite/client"],
     "allowArbitraryExtensions": true,
+    /* src/lib/faces.json — the agent-face emoji list, copied verbatim from the
+       backend so the two stay comparable (tests/faces.spec.ts). */
+    "resolveJsonModule": true,
     "skipLibCheck": true,
 
     /* Bundler mode */

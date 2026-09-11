@@ -47,6 +47,32 @@
 .page-chat { max-width: 1200px; }
 .page-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 
+/* Phone widths. The shell's sidebar is a fixed 200px, which on a 390px screen
+   leaves a content column about 126px wide — one word per line, everywhere.
+   Lay the nav across the top as a wrapped strip instead, so the page gets the
+   whole screen and every link is still reachable.
+
+   The overrides live here, not in @ap/ui, because app frontends render the
+   same sidebar inside their own shells and are not this console; they are
+   written as `.layout > …` because the package's own flat `.nav` rules load
+   after this file and would otherwise win on source order alone. The
+   breakpoint sits below 620px on purpose: that is the width the runs-table
+   overflow test pins, and it must keep measuring a genuinely narrow column. */
+@media (max-width: 560px) {
+  .layout { flex-direction: column; }
+  .layout > .nav {
+    width: auto; padding: 8px 12px;
+    border-right: none; border-bottom: 1px solid var(--ds-border);
+    flex-direction: row; flex-wrap: wrap; align-items: center; gap: 0 2px;
+  }
+  .layout > .nav .nav-brand { width: 100%; padding: 0 0 4px; }
+  .layout > .nav .nav-group { flex-direction: row; flex-wrap: wrap; align-items: center; }
+  .layout > .nav .nav-link { padding: 5px 7px; font-size: 13px; }
+  .layout > .nav .nav-child { padding-left: 0; }
+  .layout > .nav .nav-foot { width: 100%; margin: 0; padding: 6px 0 0; }
+  .layout > .main { padding: 14px 12px; }
+}
+
 /* shared small layout helpers */
 .row-actions { display: flex; gap: 8px; align-items: center; white-space: nowrap; }
 .chip-row { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 16px; }
@@ -166,51 +192,196 @@
 .transcript-noise summary { font-size: 12px; color: var(--ds-text-muted); cursor: pointer; }
 .transcript-noise pre { font-size: 11px; margin-top: 6px; max-height: 300px; overflow: auto; }
 
-/* conversations + agent chat */
-.convo-layout { display: flex; gap: 16px; margin: 12px 0; min-height: 320px; }
-.convo-list { width: 260px; flex-shrink: 0; display: flex; flex-direction: column; gap: 4px; }
-.chat-layout { display: flex; gap: 14px; margin-top: 4px; height: calc(100vh - 240px); min-height: 420px; }
-.chat-rail { width: 240px; flex-shrink: 0; display: flex; flex-direction: column; gap: 4px; overflow-y: auto; padding-right: 2px; }
-.chat-empty { flex: 1; display: flex; align-items: center; justify-content: center; text-align: center; padding: 24px; }
-.convo-item {
-  appearance: none; text-align: left; background: var(--ds-surface); color: var(--ds-text);
-  border: 1px solid var(--ds-border); font-weight: 500; font-family: inherit;
-  border-radius: var(--radius-md); padding: 8px 10px; cursor: pointer; font-size: 13px;
-  display: flex; flex-direction: column; gap: 4px; align-items: flex-start;
+/* Relay (docs/design/19): the agent messenger — rail, transcript, compose.
+   The pane is a column that owns its own scroll, so the room stays put while
+   the transcript moves under it. */
+.relay-layout { display: flex; gap: 14px; margin-top: 4px; height: calc(100vh - 260px); min-height: 440px; }
+.relay-rail {
+  width: 230px; flex-shrink: 0; display: flex; flex-direction: column; gap: 3px;
+  overflow-y: auto; padding-right: 2px;
 }
-.convo-item:hover { border-color: var(--ds-text-muted); }
-.convo-item.active { border-color: var(--ds-accent); background: var(--ds-canvas); }
-.convo-item-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; width: 100%; }
-.convo-item-meta { display: flex; align-items: center; gap: 8px; width: 100%; }
-.convo-item-ts { font-size: 11px; color: var(--ds-text-muted); margin-left: auto; white-space: nowrap; }
-.convo-rename { display: inline-flex; gap: 6px; align-items: center; }
-.convo-rename input { font-size: 15px; padding: 4px 8px; min-width: 260px; }
-.convo-main { flex: 1; display: flex; flex-direction: column; border: 1px solid var(--ds-border); border-radius: var(--radius-lg); padding: 12px; min-width: 0; }
-.convo-head { border-bottom: 1px solid var(--ds-border); padding-bottom: 8px; margin-bottom: 8px; }
-.convo-head-actions { float: right; }
-.convo-turns { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; }
-.convo-turn { display: flex; flex-direction: column; gap: 4px; }
-.convo-user {
-  align-self: flex-end; background: var(--ds-accent); color: var(--ds-on-accent); border-radius: 10px;
-  padding: 6px 10px; max-width: 80%; white-space: pre-wrap; overflow-wrap: anywhere; word-break: break-word;
+.relay-rail-head {
+  font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em;
+  color: var(--ds-text-subtle); margin: 14px 0 4px; font-weight: 600;
 }
-.convo-agent {
-  align-self: flex-start; background: var(--ds-surface); border: 1px solid var(--ds-border);
-  border-radius: 10px; padding: 8px 12px; max-width: 92%; white-space: pre-wrap;
-  overflow-wrap: anywhere; word-break: break-word; font-size: 14px;
+.relay-rail-empty { font-size: 12px; padding: 2px 8px; margin: 0; }
+.relay-row {
+  appearance: none; text-align: left; background: none; color: var(--ds-text-muted);
+  border: 1px solid transparent; font-family: inherit; font-size: 13px;
+  border-radius: var(--radius-md); padding: 5px 8px; cursor: pointer;
+  display: flex; align-items: center; gap: 7px; width: 100%;
 }
-.convo-sender { font-size: 11px; font-weight: 600; opacity: 0.75; margin-bottom: 2px; }
-.convo-type {
-  display: inline-block; font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em;
-  border-radius: 999px; padding: 1px 7px; border: 1px solid var(--ds-border); color: var(--ds-text-muted);
+.relay-row:hover { background: var(--ds-surface); color: var(--ds-text); }
+.relay-row.active { background: var(--ds-surface); color: var(--ds-text); border-color: var(--ds-accent); }
+.relay-row-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; min-width: 0; }
+.relay-unread {
+  width: 7px; height: 7px; border-radius: 999px; background: var(--ds-accent); flex-shrink: 0;
 }
-.convo-type-web { color: var(--ds-accent); border-color: var(--ds-accent); }
-.convo-type-discord { color: var(--ds-chart-5); border-color: var(--ds-chart-5); }
-.convo-compose { display: flex; gap: 8px; margin-top: 10px; }
-.convo-compose textarea { flex: 1; }
-.convo-note {
-  font-size: 13px; margin: 6px 0 8px; padding: 6px 10px;
-  background: var(--ds-surface); border: 1px solid var(--ds-border); border-radius: var(--radius-md);
+/* The rail is a drawer below the breakpoint; above it, always open. */
+.relay-drawer-toggle { display: none; }
+
+.relay-pane {
+  /* The pane owns its scroll wherever it is mounted. Inside .relay-layout the
+     flex height governs; standing alone (AgentDetail's Conversations tab) the
+     bounds below are what keep a long dm from growing the whole page. */
+  min-height: 380px; max-height: calc(100vh - 210px);
+  flex: 1; min-width: 0; display: flex; flex-direction: column;
+  border: 1px solid var(--ds-border); border-radius: var(--radius-lg);
+  background: var(--ds-surface); padding: 10px 12px;
+}
+.relay-pane-head {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  border-bottom: 1px solid var(--ds-border); padding-bottom: 8px; margin-bottom: 4px;
+}
+.relay-topic {
+  font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  flex: 1; min-width: 0;
+}
+.relay-thread-note { display: inline-flex; align-items: center; gap: 8px; margin-left: auto; }
+/* One topic, never two: the header carries it in a room with history, the
+   welcome card carries it in a room without. */
+.relay-pane.empty .relay-pane-head .relay-topic { display: none; }
+.relay-faces { display: inline-flex; flex-shrink: 0; }
+/* Overlapped, like a room seen from the door: the count is in the label. */
+.relay-faces .relay-face + .relay-face { margin-left: -6px; }
+.relay-hash { color: var(--ds-text-subtle); font-weight: 600; }
+.relay-hash.big { font-size: 40px; line-height: 1; }
+/* overflow-x hidden, not auto: a single long word or a wide timestamp must
+   not give the transcript a second scroll axis that clips every header. */
+.relay-messages {
+  flex: 1; overflow-y: auto; overflow-x: hidden; padding: 8px 2px;
+  display: flex; flex-direction: column; gap: 2px;
+}
+
+/* A face: the agent's emoji on a disc tinted by its own derived hue. */
+.relay-face {
+  display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0;
+  border-radius: 999px; line-height: 1;
+  background: hsl(var(--face-hue) 55% 50% / 0.18);
+  border: 1px solid hsl(var(--face-hue) 55% 55% / 0.45);
+}
+.relay-face.thinking { animation: relay-breathe 1.8s ease-in-out infinite; }
+@keyframes relay-breathe { 0%, 100% { opacity: 0.55; } 50% { opacity: 1; } }
+
+.relay-block { display: flex; gap: 10px; padding: 6px 4px; border-radius: var(--radius-md); }
+.relay-block:hover { background: var(--ds-canvas); }
+.relay-block.standalone { padding-left: 44px; }
+.relay-block-body { min-width: 0; flex: 1; }
+.relay-block-head { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.relay-author { font-weight: 600; font-size: 13px; color: var(--ds-text); }
+.relay-time { font-size: 11px; color: var(--ds-text-subtle); white-space: nowrap; }
+.relay-message { position: relative; }
+.relay-body { font-size: 14px; overflow-wrap: anywhere; }
+.relay-body p { margin: 2px 0; }
+.relay-system { font-style: italic; color: var(--ds-text-muted); font-size: 13px; padding: 2px 0; }
+.relay-card {
+  border: 1px solid var(--ds-border); border-left: 3px solid var(--ds-accent);
+  border-radius: var(--radius-md); padding: 8px 10px; margin: 4px 0;
+  background: var(--ds-canvas);
+}
+.relay-card-title { font-weight: 600; font-size: 13px; margin-bottom: 2px; }
+.relay-card-body { font-size: 13px; color: var(--ds-text-muted); }
+
+/* Per-message actions stay out of the way until you look at the message —
+   a row of verbs under every line turns a conversation into a toolbar. */
+.relay-actions { display: flex; align-items: center; gap: 8px; min-height: 20px; margin-top: 2px; }
+.relay-action {
+  appearance: none; background: none; border: none; padding: 0; cursor: pointer;
+  font-family: inherit; font-size: 11px; color: var(--ds-text-subtle);
+  opacity: 0; transition: opacity 0.12s ease;
+}
+a.relay-action { color: var(--ds-link); }
+.relay-action:hover { color: var(--ds-accent); text-decoration: underline; }
+.relay-block:hover .relay-action,
+.relay-block:focus-within .relay-action { opacity: 1; }
+/* A pointer that cannot hover would never see them at all. */
+@media (hover: none) {
+  .relay-action, .relay-react-add { opacity: 1; }
+}
+.relay-reactions { display: inline-flex; align-items: center; gap: 4px; flex-wrap: wrap; }
+.relay-react-add { opacity: 0; transition: opacity 0.12s ease; }
+.relay-block:hover .relay-react-add,
+.relay-block:focus-within .relay-react-add { opacity: 1; }
+.relay-picker-wrap { position: relative; display: inline-flex; }
+.relay-picker {
+  position: absolute; bottom: calc(100% + 4px); left: 0; z-index: 10;
+  display: flex; gap: 2px; padding: 4px;
+  background: var(--ds-raised); border: 1px solid var(--ds-border);
+  border-radius: var(--radius-md); box-shadow: 0 4px 16px rgb(0 0 0 / 0.35);
+}
+.relay-picker.below { bottom: auto; top: calc(100% + 4px); }
+.relay-picker-emoji {
+  appearance: none; background: none; border: none; cursor: pointer;
+  font-size: 15px; line-height: 1; padding: 3px; border-radius: var(--radius-sm);
+}
+.relay-picker-emoji:hover { background: var(--ds-surface); }
+
+.relay-welcome {
+  margin: auto; text-align: center; display: flex; flex-direction: column;
+  align-items: center; gap: 6px; padding: 24px; max-width: 420px;
+}
+.relay-welcome h2 { margin: 4px 0 0; }
+.relay-welcome p { margin: 0; }
+
+.relay-thinking {
+  display: flex; align-items: center; gap: 6px; min-height: 22px;
+  font-size: 12px; color: var(--ds-text-muted); padding: 0 4px;
+}
+.relay-dots { display: inline-flex; gap: 3px; }
+.relay-dots i {
+  width: 4px; height: 4px; border-radius: 999px; background: var(--ds-text-subtle);
+  animation: relay-bounce 1.2s ease-in-out infinite;
+}
+.relay-dots i:nth-child(2) { animation-delay: 0.15s; }
+.relay-dots i:nth-child(3) { animation-delay: 0.3s; }
+@keyframes relay-bounce { 0%, 60%, 100% { opacity: 0.3; } 30% { opacity: 1; } }
+
+/* The mention popup is positioned against the whole compose box rather than
+   the field: anchored to the field it opened over the "x is thinking…" row,
+   which is the one line you want to keep reading while you type at an agent. */
+.relay-compose {
+  position: relative;
+  border-top: 1px solid var(--ds-border); padding-top: 8px; margin-top: 4px;
+}
+.relay-compose.archived { font-size: 13px; padding: 10px 4px; }
+.relay-compose-row { display: flex; gap: 8px; align-items: flex-end; flex-wrap: wrap; }
+/* A floor with a wrap behind it: the field keeps a usable width, and Send
+   drops onto its own line rather than squeezing the box to one character. */
+.relay-compose-field { flex: 1 1 240px; min-width: 0; }
+.relay-mentions {
+  /* Cleared past the thinking row (min-height 22px + the compose margin) that
+     sits immediately above the compose box — the popup opens over the
+     transcript, never over "x is thinking…". */
+  position: absolute; bottom: calc(100% + 28px); left: 0; z-index: 20;
+  margin: 0; padding: 4px; list-style: none;
+  /* Sized to its names, never past the window it is drawn in. */
+  width: max-content; min-width: min(200px, 100%); max-width: min(340px, calc(100vw - 28px));
+  background: var(--ds-raised); border: 1px solid var(--ds-border);
+  border-radius: var(--radius-md); box-shadow: 0 4px 16px rgb(0 0 0 / 0.35);
+}
+.relay-mention-hint { font-size: 12px; padding: 6px 8px; }
+.relay-mentions li {
+  padding: 4px 8px; border-radius: var(--radius-sm); cursor: pointer;
+  font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.relay-mentions li.active { background: var(--ds-surface); color: var(--ds-accent); }
+
+@media (max-width: 760px) {
+  .relay-layout { flex-direction: column; height: auto; }
+  .relay-pane { min-height: 60vh; max-height: none; }
+  .relay-rail { width: 100%; max-height: 45vh; }
+  .relay-rail[data-drawer="closed"] { display: none; }
+  .relay-drawer-toggle { display: inline-flex; align-self: flex-start; }
+}
+
+@media (max-width: 560px) {
+  /* Ellipsised to two characters is worse than absent. */
+  .relay-pane-head .relay-topic { display: none; }
+  .relay-pane { padding: 8px; }
+  /* Send under the field, both full width: a thumb-sized target beats a
+     6px-wide button wedged against the edge. */
+  .relay-compose-field { flex-basis: 100%; }
+  .relay-compose-row > button { width: 100%; }
 }
 
 /* tables: interactive rows + memories layout */

@@ -3,7 +3,7 @@
 export { Banner, bannerVariants } from "./banner";
 export { Button, buttonVariants, type ButtonProps } from "./button";
 export { Chip, ChipButton, chipStatusVariant, chipVariants, StatusChip } from "./chip";
-export { ConfirmDialog } from "./dialog";
+export { ConfirmDialog, FormDialog } from "./dialog";
 export { CodeEditor, Input, Select, Textarea } from "./field";
 export { Markdown } from "./markdown";
 export { buildPlatformNav, SideNav, ThemeToggle, useTheme,

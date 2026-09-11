@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import "./sidenav.css";
 import { Button } from "./button";
 
@@ -26,12 +26,15 @@ export type AppNavInfo = { name: string; icon: string };
 export function buildPlatformNav(apps: AppNavInfo[] = []): NavEntry[] {
   return [
     { to: "/", label: "Dashboard", end: true },
+    { to: "/relay", label: "Relay", children: [
+      { to: "/relay", label: "Channels", end: true },
+      { to: "/relay?kind=dm", label: "DMs" },
+    ] },
     { to: "/reporting", label: "Reporting", children: [
       { to: "/runs", label: "Runs" },
       { to: "/reports", label: "Reports" },
     ] },
     { to: "/agents", label: "Agents", children: [
-      { to: "/conversations", label: "Conversations" },
       { to: "/memories", label: "Memories" },
       { to: "/changes", label: "Changes" },
       { to: "/schedules", label: "Schedules" },
@@ -57,8 +60,18 @@ const anchorLink: LinkComponent = ({ to, className, children }) => (
   <a key={to} href={to} className={className(false)}>{children}</a>
 );
 
+function pathOf(to: string): string {
+  const i = to.indexOf("?");
+  return i < 0 ? to : to.slice(0, i);
+}
+
+function searchOf(to: string): URLSearchParams {
+  const i = to.indexOf("?");
+  return new URLSearchParams(i < 0 ? "" : to.slice(i + 1));
+}
+
 function groupPaths(e: NavEntry): string[] {
-  return [e.to, ...(e.children ?? []).map((c) => c.to)];
+  return [e.to, ...(e.children ?? []).map((c) => pathOf(c.to))];
 }
 
 export function useTheme() {
@@ -81,16 +94,34 @@ export function ThemeToggle() {
   );
 }
 
-export function SideNav({ entries, activePath, badges = {}, LinkComponent, footer }: {
+export function SideNav({ entries, activePath, activeSearch = "", badges = {},
+                         LinkComponent, footer }: {
   entries: NavEntry[];
   // Current location.pathname — drives active state + group auto-expand.
   // (Apps pass their own base, e.g. "/apps/news/".)
   activePath: string;
+  // Current location.search. Only needed where two links share a pathname and
+  // differ by a query param (Relay: /relay is Channels, /relay?kind=dm is
+  // DMs) — a router NavLink matches on pathname alone and would light both.
+  activeSearch?: string;
   badges?: Record<string, number>;
   LinkComponent?: LinkComponent;
   footer?: ReactNode;
 }) {
   const Link = LinkComponent ?? anchorLink;
+  // The query keys any link declares at a given pathname. An unparameterised
+  // link there is the selected one exactly when NONE of them is in the URL,
+  // which is what makes "Channels" go quiet on /relay?kind=dm.
+  const paramKeys = useMemo(() => {
+    const keys: Record<string, Set<string>> = {};
+    for (const e of entries) {
+      for (const l of [e, ...(e.children ?? [])]) {
+        const set = keys[pathOf(l.to)] ?? (keys[pathOf(l.to)] = new Set());
+        for (const k of searchOf(l.to).keys()) set.add(k);
+      }
+    }
+    return keys;
+  }, [entries]);
   const [open, setOpen] = useState<Record<string, boolean>>({});
   useEffect(() => {
     setOpen((prev) => {
@@ -105,7 +136,18 @@ export function SideNav({ entries, activePath, badges = {}, LinkComponent, foote
     });
   }, [activePath, entries]);
 
-  function renderLink(l: NavItem, child = false) {
+  // Whether a query-discriminated link is the current one: its own params
+  // must match, and a link that declares none must find none in the URL.
+  function paramsMatch(to: string): boolean {
+    const own = searchOf(to);
+    const current = new URLSearchParams(activeSearch);
+    for (const key of paramKeys[pathOf(to)] ?? []) {
+      if ((own.get(key) ?? "") !== (current.get(key) ?? "")) return false;
+    }
+    return true;
+  }
+
+  function renderLink(l: NavItem, child = false, groupHead = false) {
     const body = (
       <>
         <span>{l.label}</span>
@@ -116,9 +158,20 @@ export function SideNav({ entries, activePath, badges = {}, LinkComponent, foote
     );
     const cls = (active: boolean) =>
       `nav-link${child ? " nav-child" : ""}${active ? " active" : ""}`;
+    const path = pathOf(l.to);
+    // A group's own header link is the WHOLE group — prefix semantics, never
+    // discriminated by the params its children use. Otherwise "Relay" goes
+    // dark the moment you are on "/relay?kind=dm", which is still Relay.
+    const discriminated = !groupHead && (paramKeys[path]?.size ?? 0) > 0;
     if (l.external || !LinkComponent) {
-      const active = activePath.startsWith(l.to) && l.to !== "/";
+      const active = activePath.startsWith(path) && path !== "/" && paramsMatch(l.to);
       return <a key={l.to} href={l.to} className={cls(active)}>{body}</a>;
+    }
+    if (discriminated) {
+      // The router cannot answer this one, so answer it here and hand the
+      // link a verdict instead of a predicate.
+      const active = activePath === path && paramsMatch(l.to);
+      return <Link key={l.to} to={l.to} className={() => cls(active)}>{body}</Link>;
     }
     return <Link key={l.to} to={l.to} end={l.end} className={cls}>{body}</Link>;
   }
@@ -132,7 +185,7 @@ export function SideNav({ entries, activePath, badges = {}, LinkComponent, foote
         return (
           <div key={e.to} className="nav-group">
             <div className="nav-group-head">
-              <span className="nav-parent">{renderLink(e)}</span>
+              <span className="nav-parent">{renderLink(e, false, true)}</span>
               <button type="button" className={`nav-chevron${expanded ? " open" : ""}`}
                       aria-label={expanded ? `Collapse ${e.label}` : `Expand ${e.label}`}
                       onClick={() => setOpen((o) => ({ ...o, [e.to]: !expanded }))}>

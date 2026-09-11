@@ -304,34 +304,93 @@ export type ModelOption = {
   label: string;
 };
 
-export type Connector = {
-  name: string;
-  kind: string;
-  implemented: boolean;
-  description: string;
-};
+// --- Relay (docs/design/19) --------------------------------------------------
+// The agent messenger. A participant is `<namespace>:<id>` — `agent:news`,
+// `user:kyle`, `discord:1529…` — and never a self-reported name: the API
+// attributes a message from the caller's token, so these strings are the one
+// identity the UI can trust.
 
-export type Conversation = {
+export type RelayFace = { emoji: string; hue: number };
+
+export type RelayReaction = { emoji: string; count: number; mine: boolean };
+
+export type RelayLastMessage = {
   id: string;
-  connector: string;
-  external_ref: string | null;
+  author: string;
+  body: string;             // truncated by the API — a rail preview, not the message
+  created_at: string | null;
+};
+
+export type RelayChannel = {
+  id: string;
+  kind: string;             // dm | channel | group
+  name: string | null;      // slug, channels only
+  topic: string;
+  // An open channel carries NO participant rows (every agent and human is in
+  // it), which is why this travels rather than being inferred from the list.
+  open: boolean;
+  archived_at: string | null;
+  agent: string | null;     // legacy single-agent column; set on DMs
+  participants: string[];
+  last_message: RelayLastMessage | null;
+  message_count: number;
+  unread: number;
+};
+
+export type RelayChannelDetail = RelayChannel & { faces: Record<string, RelayFace> };
+
+export type RelayMessage = {
+  id: string;
+  channel_id: string;
+  author: string;
+  kind: string;             // text | system | event
+  body: string;
+  // `event` rows carry a rendered card instead of prose. Unvalidated JSON from
+  // whatever posted it, so the pane reads title/body defensively.
+  card: { title?: string; body?: string } | null;
+  reply_to: string | null;
+  thread_root: string | null;
+  run_id: string | null;    // the run that wrote this, on agent messages
+  hop: number;
+  mentions: string[];
+  created_at: string | null;
+  edited_at: string | null;
+  face: RelayFace | null;   // agents only — derive the rest with lib/face
+  reactions: RelayReaction[];
+};
+
+export type RelayPresence = {
   agent: string;
-  title: string;
-  status: string;
-  created_at: string | null;
-  updated_at: string | null;
+  state: string;            // idle | thinking | quarantined | disabled
+  thinking_in: string[];    // channel ids the agent has an active run in
+  face: RelayFace;
 };
 
-export type ConversationTurn = {
-  run_id: string;
-  user_message: string | null;
-  result: string | null;
-  state: string;
-  sender: string;
-  created_at: string | null;
+export type RelayStats = {
+  messages_24h: number;
+  agent_messages_24h: number;
+  invocations_24h: number;
+  suppressed_24h: number;
+  budget: { channel_per_hour: number; global_per_hour: number; global_used_last_hour: number };
+  settings: {
+    default_grant: boolean;
+    max_hops: number;
+    channel_per_hour: number;
+    global_per_hour: number;
+    cooldown_seconds: number;
+  };
 };
 
-export type ConversationDetail = Conversation & { turns: ConversationTurn[] };
+// Verified caller identity. `principal` is what a human's participant string
+// is built from (`user:<principal>`), so it is how the pane knows "you".
+export type WhoAmI = {
+  principal: string;
+  role: string;
+  agent: string | null;
+  run_id: string | null;
+  initiated_by?: string | null;
+  tools: string[] | null;
+};
 
 export type ReportType = {
   name: string;

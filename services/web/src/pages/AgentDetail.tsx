@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
-import { api, type AgentDef, type AgentMetrics, type AgentSummary, type ModelUsage } from "../api";
+import { api, type AgentDef, type AgentMetrics, type AgentSummary, type ModelUsage,
+         type RelayChannelDetail } from "../api";
 import { useGrantCatalog } from "../components/CapabilityPickers";
 import { EntrypointsFields, GrantsFields, IdentityFields, PromptField, toDraft } from "../components/AgentForm";
 import {
@@ -8,7 +9,7 @@ import {
   WEBHOOK_SECRET_MAX, WEBHOOK_SECRET_MIN, writeWebhookSecrets,
 } from "../lib/webhook-secrets";
 import AgentVersions from "../components/AgentVersions";
-import AgentChat from "../components/AgentChat";
+import MessagePane from "../components/relay/MessagePane";
 import AgentMemories from "../components/AgentMemories";
 import AgentSchedules from "../components/AgentSchedules";
 import { Banner } from "@ap/ui/banner";
@@ -65,6 +66,34 @@ function AgentReport({ name }: { name: string }) {
 // The editor. An agent is a row (docs/design/15): the whole definition — prompt,
 // config, entrypoints and grants — is one draft, and Save writes it straight to
 // the live agent. The change log (History tab) is what makes that safe.
+/** This agent's DM with you, rendered by the same pane Relay uses. The DM is
+ * an identity, not a new thread: `POST /api/relay/dm` is get-or-create, so
+ * opening this tab twice lands in the same room. */
+function AgentDm({ agent }: { agent: string }) {
+  const [channel, setChannel] = useState<RelayChannelDetail | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    setChannel(null); setError(null);
+    api<RelayChannelDetail>("/api/relay/dm", {
+      method: "POST", body: JSON.stringify({ with: `agent:${agent}` }),
+    })
+      .then(setChannel)
+      .catch((err) => setError(err instanceof Error ? err.message : "Could not open the dm."));
+  }, [agent]);
+
+  if (error) return <div className="error">{error}</div>;
+  if (!channel) return <p className="muted">Opening…</p>;
+  return (
+    <>
+      <p className="muted">
+        Your direct messages with {agent}. Every channel it is in lives in{" "}
+        <Link to="/relay">Relay</Link>.
+      </p>
+      <MessagePane channelId={channel.id} />
+    </>
+  );
+}
+
 function AgentConfig({ agent, onSaved }: { agent: AgentDef; onSaved: (next: AgentDef) => void }) {
   const navigate = useNavigate();
   const catalog = useGrantCatalog();
@@ -217,7 +246,6 @@ export default function AgentDetail() {
   function setTab(t: Tab) {
     const p = new URLSearchParams(params);
     p.set("tab", t);
-    if (t !== "conversations") p.delete("conversation");
     if (t !== "memories") p.delete("memory");
     setParams(p);
   }
@@ -290,7 +318,7 @@ export default function AgentDetail() {
       </div>
 
       {tab === "report" && <AgentReport name={agent.name} />}
-      {tab === "conversations" && <AgentChat agent={agent.name} />}
+      {tab === "conversations" && <AgentDm agent={agent.name} />}
       {tab === "memories" && <AgentMemories agent={agent.name} />}
       {tab === "schedules" && <AgentSchedules agent={agent.name} />}
       {tab === "history" && <AgentVersions agent={agent.name} onRolledBack={loadContent} />}

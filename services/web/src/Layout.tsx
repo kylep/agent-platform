@@ -40,6 +40,7 @@ export default function Layout() {
   return (
     <div className="layout">
       <SideNav entries={entries} activePath={location.pathname}
+               activeSearch={location.search}
                badges={{ "/changes": pendingChanges }} LinkComponent={routerLink} />
       <main className="main">
         <Outlet />
