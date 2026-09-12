@@ -13,6 +13,8 @@ import Runs from "./pages/Runs";
 import RunDetail from "./pages/RunDetail";
 import Changes from "./pages/Changes";
 import Relay from "./pages/Relay";
+import Tickets from "./pages/Tickets";
+import TicketDetail from "./pages/TicketDetail";
 import Dlq from "./pages/Dlq";
 import Memories from "./pages/Memories";
 import Reporting from "./pages/Reporting";
@@ -41,6 +43,8 @@ export default function App() {
             {/* Conversations became Relay DMs (docs/design/19) — the old
                 path is still in bookmarks and in agents' own links. */}
             <Route path="/conversations" element={<Navigate to="/relay?kind=dm" replace />} />
+            <Route path="/tickets" element={<Tickets />} />
+            <Route path="/tickets/:key" element={<TicketDetail />} />
             <Route path="/changes" element={<Changes />} />
             <Route path="/dlq" element={<Dlq />} />
             <Route path="/reporting" element={<Reporting />} />

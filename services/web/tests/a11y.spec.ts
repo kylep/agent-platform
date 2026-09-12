@@ -10,9 +10,10 @@ const PAGES = ["/", "/agents", "/agents/health-monitor", "/agents/health-monitor
                "/agents/new", "/runs", "/relay", "/relay?kind=dm",
                // the thread pane is a second live region on the page
                "/relay?channel=rc1&thread=m6",
+               "/tickets", "/tickets/OPS-1",
                "/memories", "/changes", "/schedules", "/skills", "/secrets",
                "/dlq", "/reporting", "/reports", "/reports/daily-news", "/apps",
-               "/help", "/help/tools", "/settings"];
+               "/help", "/help/tools", "/help/tickets", "/settings"];
 
 for (const path of PAGES) {
   test(`${path} passes axe`, async ({ page }) => {

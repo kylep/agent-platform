@@ -129,6 +129,10 @@ export type RunDetailData = RunSummary & {
   initiated_by?: string | null;
   secrets_granted: string[];
   permission_denials?: Array<Record<string, unknown>>;
+  // The ticket this run was summoned from (docs/design/20). Optional because
+  // the runs table has the column but `RunDetail` does not serve it yet: the
+  // run page shows the link the day the API starts answering with one.
+  ticket_id?: string | null;
 };
 
 export type DlqEntry = {
@@ -352,6 +356,21 @@ export type RelayChannel = {
 
 export type RelayChannelDetail = RelayChannel & { faces: Record<string, RelayFace> };
 
+/** An event row's card. `type` names the shape the rest is in: the platform's
+ * own `ticket` cards (docs/design/20) carry the board fields below, and
+ * anything else is a title and a markdown body. Every field is optional —
+ * whatever posted the event chose them, so nothing here is guaranteed. */
+export type RelayCard = {
+  title?: string;
+  body?: string;
+  type?: string;
+  key?: string;
+  state?: string;
+  priority?: string;
+  assignee?: string | null;
+  url?: string;
+};
+
 export type RelayMessage = {
   id: string;
   channel_id: string;
@@ -359,8 +378,8 @@ export type RelayMessage = {
   kind: string;             // text | system | event
   body: string;
   // `event` rows carry a rendered card instead of prose. Unvalidated JSON from
-  // whatever posted it, so the pane reads title/body defensively.
-  card: { title?: string; body?: string } | null;
+  // whatever posted it, so the pane reads every field defensively.
+  card: RelayCard | null;
   reply_to: string | null;
   thread_root: string | null;
   run_id: string | null;    // the run that wrote this, on agent messages

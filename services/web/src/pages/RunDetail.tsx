@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { api, type RunDetailData, type RunEvent } from "../api";
+import type { TicketDetail } from "../lib/tickets";
 import { Banner } from "@ap/ui/banner";
 import { Button } from "@ap/ui/button";
 import { StatusChip } from "@ap/ui/chip";
@@ -141,6 +142,28 @@ function RawTranscript({ events }: { events: RunEvent[] }) {
   );
 }
 
+/** The ticket a run was summoned from, as its key. The run row carries the
+ * ticket's id, and a person reads `OPS-12` — so the key is read off the ticket
+ * itself, which is one request and only when there is a ticket at all. */
+function TicketRef({ ticketId }: { ticketId: string }) {
+  const [key, setKey] = useState<string | null>(null);
+  useEffect(() => {
+    let on = true;
+    api<TicketDetail>(`/api/tickets/${encodeURIComponent(ticketId)}`)
+      .then((d) => { if (on) setKey(d.ticket.key); })
+      // A ticket in a room this reader cannot see is not an error on this page.
+      .catch(() => { if (on) setKey(null); });
+    return () => { on = false; };
+  }, [ticketId]);
+  if (!key) return null;
+  return (
+    <>
+      <dt>Ticket</dt>
+      <dd><Link to={`/tickets/${key}`}>🎫 {key}</Link></dd>
+    </>
+  );
+}
+
 export default function RunDetail() {
   const { id } = useParams<{ id: string }>();
   const [run, setRun] = useState<RunDetailData | null>(null);
@@ -241,6 +264,7 @@ export default function RunDetail() {
             <> · invoked by <Link to={`/runs/${run.parent_run_id}`}>{run.parent_run_id.slice(0, 8)}</Link> (depth {run.depth})</>
           )}
         </dd>
+        {run.ticket_id && <TicketRef ticketId={run.ticket_id} />}
         <dt>Initiated by</dt>
         <dd>{run.initiated_by ?? "—"}{run.requested_by && run.requested_by !== run.initiated_by ? ` (via ${run.requested_by})` : ""}</dd>
         <dt>Created</dt>

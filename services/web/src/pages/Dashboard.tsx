@@ -9,6 +9,7 @@ import { Chip, StatusChip } from "@ap/ui/chip";
 import { Stat, StatRow } from "@ap/ui/stat";
 import { Table, TD, TH } from "@ap/ui/table";
 import { cronTitle, isSingleExpression, useCronPreview } from "../lib/cron";
+import type { TicketStats } from "../lib/tickets";
 import { ago } from "../lib/time";
 
 // One actionable item in the "Needs attention" panel.
@@ -71,6 +72,21 @@ function RelayStat({ stats }: { stats: RelayStats }) {
   );
 }
 
+/** The board in four numbers, and a link into it. Open is the headline: it is
+ * the work that exists and has not started, which is the number that decides
+ * whether the platform is keeping up. */
+function TicketStat({ stats }: { stats: TicketStats }) {
+  return (
+    <Stat label="tickets · open" value={stats.open} to="/tickets"
+          sub={(
+            <span>
+              {stats.in_progress} in progress · {stats.blocked} blocked
+              {" · "}{stats.done_24h} done · 24h
+            </span>
+          )} />
+  );
+}
+
 export default function Dashboard() {
   const [ov, setOv] = useState<MetricsOverview | null>(null);
   const [runs, setRuns] = useState<RunSummary[]>([]);
@@ -80,6 +96,7 @@ export default function Dashboard() {
   const [secrets, setSecrets] = useState<SecretStatus[]>([]);
   const [prs, setPrs] = useState<PullRequest[]>([]);
   const [relay, setRelay] = useState<RelayStats | null>(null);
+  const [tickets, setTickets] = useState<TicketStats | null>(null);
   // `name` is null for an entrypoint cron — it has no name of its own.
   const [upcoming, setUpcoming] = useState<
     // `agent` is null for a relay job — it posts into a room and belongs to no
@@ -100,6 +117,7 @@ export default function Dashboard() {
     api<SecretStatus[]>("/api/secrets").then(setSecrets).catch(() => {});
     api<PullRequest[]>("/api/pull-requests").then(setPrs).catch(() => setPrs([]));  // 409 if no GH app
     api<RelayStats>("/api/relay/stats").then(setRelay).catch(() => setRelay(null));
+    api<TicketStats>("/api/tickets/stats").then(setTickets).catch(() => setTickets(null));
     Promise.all([
       api<Job[]>("/api/jobs").catch(() => [] as Job[]),
       api<ScheduleEntry[]>("/api/schedules").catch(() => [] as ScheduleEntry[]),
@@ -169,6 +187,22 @@ export default function Dashboard() {
       + " today (hop cap, budget or membership)",
     title: byReason(relay.suppressed_by_reason) });
 
+  // Work that has stopped moving. Blocked is somebody's decision and reads as
+  // a warning; stale and orphaned are the board rotting quietly, which is what
+  // a triage queue is for — an orphan is worse than a stale one, because
+  // nobody is coming for it at all.
+  if (tickets) {
+    const many = (n: number) => (n === 1 ? "ticket is" : "tickets are");
+    if (tickets.blocked) attention.push({ key: "tickets-blocked", sev: "warn", to: "/tickets",
+      text: `${tickets.blocked} ${many(tickets.blocked)} blocked` });
+    if (tickets.stale) attention.push({ key: "tickets-stale", sev: "warn", to: "/tickets",
+      text: `${tickets.stale} ${many(tickets.stale)} stale — in progress, untouched for`
+        + ` ${tickets.budget.stale_days} days` });
+    if (tickets.orphaned) attention.push({ key: "tickets-orphaned", sev: "bad", to: "/tickets",
+      text: `${tickets.orphaned} ${many(tickets.orphaned)} orphaned — assigned to an agent`
+        + " the platform no longer runs" });
+  }
+
   const claude = secrets.find((s) => s.name === "claude-credentials");
 
   return (
@@ -215,6 +249,7 @@ export default function Dashboard() {
         <Stat label="success rate" value={pct(ov?.success_rate ?? null)}
               warn={ov?.success_rate != null && ov.success_rate < 0.8} to="/reporting" />
         <Stat label={ov ? `tokens in/out (uncached) · last ${ov.window} runs` : "tokens in/out"} value={ov ? `${ov.tokens_in.toLocaleString()} / ${ov.tokens_out.toLocaleString()}` : "—"} to="/reporting" />
+        {tickets && <TicketStat stats={tickets} />}
         {relay && <RelayStat stats={relay} />}
       </StatRow>
 

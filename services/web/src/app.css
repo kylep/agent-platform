@@ -28,6 +28,13 @@
 }
 
 .muted { color: var(--ds-text-muted); }
+/* Read out, never drawn. Tailwind ships a `sr-only` utility but nothing in
+   these pages triggers its generation, so the class was silently doing nothing
+   and the text it hides was on screen. Defined here, it is always there. */
+.sr-only {
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0;
+}
 .error { color: var(--ds-danger); font-size: 14px; }
 .page-loading { padding: 32px; color: var(--ds-text-muted); }
 
@@ -48,6 +55,8 @@
 /* Relay carries a 230px rail and, with a thread open, a 360px pane beside the
    room — at .page-wide the room itself would be left under 400px. */
 .page-relay { max-width: 1200px; }
+/* Five columns of cards want more room than a document does. */
+.page-tickets { max-width: 1400px; }
 .page-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 
 /* Phone widths. The shell's sidebar is a fixed 200px, which on a 390px screen
@@ -471,6 +480,211 @@ a.relay-action { color: var(--ds-link); }
      6px-wide button wedged against the edge. */
   .relay-compose-field { flex-basis: 100%; }
   .relay-compose-row > button { width: 100%; }
+}
+
+/* tickets (docs/design/20): the board. Five columns of cards that a person
+   drags and an agent moves out from under them, so the column is the thing
+   that scrolls — never the page, and never the window on a phone. */
+.ticket-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.ticket-head > div { min-width: 0; flex: 1 1 320px; }
+.ticket-head-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.ticket-filters { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin: 8px 0 12px; }
+.ticket-mine { display: inline-flex; align-items: center; gap: 2px; }
+
+/* The standup nobody wrote: who moved what since yesterday. */
+.ticket-today {
+  background: var(--ds-surface); border: 1px solid var(--ds-border);
+  border-radius: var(--radius-md); padding: 8px 12px; margin-bottom: 12px;
+  display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+}
+.ticket-today-head { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--ds-text-subtle); margin: 0; }
+.ticket-today p { margin: 0; font-size: 13px; }
+.ticket-today-list { list-style: none; display: flex; gap: 14px; flex-wrap: wrap; margin: 0; padding: 0; }
+.ticket-today-list li { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; }
+.ticket-today-who { color: var(--ds-text); }
+.ticket-today-count {
+  font-size: 11px; padding: 0 6px; border-radius: 999px;
+  background: color-mix(in srgb, var(--ds-accent) 14%, transparent); color: var(--ds-accent);
+}
+
+/* The columns share the width they are given and only start scrolling when
+   five of them no longer fit — a board whose last column is a sliver off the
+   right edge on a laptop is a board with four columns. */
+.ticket-board-wrap { position: relative; }
+.ticket-board { display: flex; align-items: flex-start; gap: 8px; overflow-x: auto; padding-bottom: 10px; }
+.ticket-col {
+  flex: 1 1 0; min-width: 180px; display: flex; flex-direction: column; gap: 8px;
+  background: var(--ds-canvas); border: 1px solid var(--ds-border);
+  border-radius: var(--radius-md); padding: 8px 7px;
+}
+.ticket-col[data-over="yes"] { border-color: var(--ds-accent); }
+.ticket-col-head {
+  display: flex; align-items: center; gap: 4px; margin: 0; font-size: 11px;
+  text-transform: uppercase; letter-spacing: 0.06em; color: var(--ds-text-muted);
+}
+.ticket-count { margin-left: auto; color: var(--ds-text-subtle); }
+.ticket-col-body { display: flex; flex-direction: column; gap: 8px; min-height: 24px; }
+
+/* An empty board still draws its columns — five headings at zero say more than
+   a blank canvas does — so the message sits over them, below the headings and
+   clear of the words behind it. */
+.ticket-board-wrap[data-empty="yes"] .ticket-col-body { min-height: 130px; }
+.ticket-empty {
+  position: absolute; inset: 0; z-index: 1; display: flex;
+  align-items: center; justify-content: center; padding-top: 28px;
+  /* The columns behind it are the point; nothing here is clickable. */
+  pointer-events: none;
+}
+.ticket-empty-card {
+  text-align: center; padding: 14px 22px; border-radius: var(--radius-md);
+  background: var(--ds-surface); border: 1px solid var(--ds-border);
+}
+.ticket-empty-card p { margin: 0; font-size: 14px; }
+.ticket-empty-lead { color: var(--ds-text); margin-bottom: 2px; }
+
+/* A card is a person plus a piece of work: the face keeps its own column down
+   the left, the key sits beside it, and the title runs under both. */
+.ticket-card {
+  background: var(--ds-surface); border: 1px solid var(--ds-border); border-left-width: 3px;
+  border-radius: var(--radius-md); padding: 8px 10px;
+  display: grid; grid-template-columns: auto minmax(0, 1fr); column-gap: 8px; row-gap: 4px;
+  align-items: center; cursor: grab;
+  /* Positioned so the card is the containing block for what it holds. Without
+     it an absolutely positioned child (`sr-only`, the thinking halo) resolves
+     against the page, escapes the board's clip, and drags the whole document
+     sideways. */
+  position: relative;
+}
+.ticket-card:hover { border-color: var(--ds-text-subtle); }
+/* The stripe is the priority. It is never the only thing that says so — the
+   word is on the card too, visible for the two that are urgent and read out
+   for everyone else. */
+.ticket-card[data-priority="p0"] { border-left-color: var(--ds-danger); }
+.ticket-card[data-priority="p1"] { border-left-color: var(--ds-warning); }
+.ticket-card[data-priority="p2"] { border-left-color: var(--ds-accent); }
+/* Faint, but not invisible: an unstyled edge would read as "no priority set". */
+.ticket-card[data-priority="p3"] { border-left-color: color-mix(in srgb, var(--ds-text-subtle) 60%, transparent); }
+.ticket-face { grid-column: 1; grid-row: 1 / span 2; position: relative; display: inline-flex; }
+.ticket-face-none {
+  display: inline-block; border-radius: 50%; border: 1px dashed var(--ds-border);
+}
+/* Thinking is a halo around the face, never the face fading out: at the low
+   frame of a breathing opacity the emoji — the whole point of a face — is
+   gone. Relay's own pulse is left alone; this only overrides it on a card. */
+.ticket-card .relay-face.thinking { animation: none; opacity: 1; }
+.ticket-face[data-thinking="yes"]::after {
+  content: ""; position: absolute; inset: -3px; border-radius: 50%;
+  border: 2px solid var(--ds-accent); animation: ticket-halo 1.8s ease-in-out infinite;
+}
+@keyframes ticket-halo {
+  0%, 100% { opacity: 0.3; transform: scale(1); }
+  50% { opacity: 1; transform: scale(1.09); }
+}
+.ticket-card-head { grid-column: 2; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; min-width: 0; }
+.ticket-key { font-family: var(--font-mono); font-size: 12px; }
+.ticket-priority { font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--ds-text-subtle); }
+.ticket-title { grid-column: 2; margin: 0; font-size: 14px; line-height: 1.35; color: var(--ds-text); overflow-wrap: anywhere; }
+.ticket-card-foot {
+  grid-column: 1 / -1; display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+  font-size: 12px; color: var(--ds-text-muted); margin-top: 2px;
+}
+.ticket-who { min-width: 0; overflow-wrap: anywhere; }
+.ticket-pulse { color: var(--ds-accent); }
+.ticket-move { grid-column: 1 / -1; font-size: 12px; padding: 2px 6px; justify-self: start; max-width: 100%; }
+/* A board that could not be read says so where the board would have been. */
+.ticket-failed {
+  margin: 0; padding: 28px 14px; text-align: center; font-size: 14px;
+  color: var(--ds-danger); background: var(--ds-canvas);
+  border: 1px solid var(--ds-border); border-radius: var(--radius-md);
+}
+.ticket-card[data-busy="yes"] { opacity: 0.72; cursor: progress; }
+.ticket-new-row { display: flex; gap: 12px; flex-wrap: wrap; }
+.ticket-new-row > span { flex: 1 1 140px; }
+
+@media (max-width: 560px) {
+  .ticket-head-actions { width: 100%; }
+  .ticket-head-actions input { flex: 1; min-width: 0; }
+}
+
+/* One ticket as a page: the facts down one side, the conversation down the
+   other. The thread is Relay's own pane, so the only thing said about it here
+   is that it may take the whole column — its default width is the third
+   column of a room it is not in here. */
+.page-ticket { max-width: 1200px; }
+.ticket-detail-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.ticket-detail-head h1 { margin-bottom: 4px; }
+.ticket-detail-head .ticket-key { color: var(--ds-text-muted); margin-right: 6px; }
+.ticket-working {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  font-size: 13px; color: var(--ds-text-muted); margin: 0 0 10px;
+}
+.ticket-body { margin-bottom: 12px; }
+
+.ticket-detail { display: flex; align-items: flex-start; gap: 18px; }
+.ticket-side { flex: 0 0 300px; min-width: 0; }
+.ticket-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.ticket-main .relay-thread { flex: 1 1 auto; min-width: 0; }
+.ticket-fields { font-size: 13px; }
+.ticket-fields dd { min-width: 0; overflow-wrap: anywhere; }
+.ticket-state-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.ticket-move-error { margin-top: 4px; font-size: 12px; }
+.ticket-label-row { display: inline-flex; gap: 4px; flex-wrap: wrap; }
+.ticket-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 3px; }
+.ticket-link .ticket-key { margin-right: 4px; }
+.ticket-side-head {
+  font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em;
+  color: var(--ds-text-subtle); margin: 18px 0 6px;
+}
+.ticket-activity-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; font-size: 12px; }
+.ticket-activity-list li { display: flex; align-items: baseline; gap: 6px; }
+.ticket-activity-list .relay-face { align-self: center; }
+.ticket-activity-when { margin-left: auto; white-space: nowrap; }
+.ticket-assign-notify { display: inline-flex; align-items: center; gap: 2px; margin-top: 8px; }
+
+/* A ticket key anywhere in a room (docs/design/20). It is a link that reads as
+   a badge — the key is an identifier, and prose full of underlined identifiers
+   is prose nobody finishes. */
+.relay-body a[href^="/tickets/"],
+.relay-card-body a[href^="/tickets/"],
+.md a[href^="/tickets/"] {
+  font-family: var(--font-mono); font-size: 0.92em; text-decoration: none;
+  border: 1px solid var(--ds-border); border-radius: var(--radius-md);
+  padding: 0 5px; white-space: nowrap;
+}
+.relay-body a[href^="/tickets/"]:hover,
+.relay-card-body a[href^="/tickets/"]:hover,
+.md a[href^="/tickets/"]:hover { border-color: var(--ds-accent); }
+
+/* A ticket's card in the room it was opened in: the board's own vocabulary,
+   at transcript size, so a card in #ops reads as the same object as the card
+   on the board. */
+.relay-ticket-card { display: flex; flex-direction: column; gap: 4px; }
+.relay-ticket-card .relay-card-title { font-weight: 500; }
+.relay-ticket-card .ticket-key { font-family: var(--font-mono); font-size: 12px; }
+.relay-ticket-meta {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  font-size: 12px; color: var(--ds-text-muted);
+}
+
+/* The pane belongs to a room it is not standing beside here, so its ✕ would be
+   a "close" with nothing behind it. The other control says where it goes, and
+   it is the one this page shows at every width. */
+.ticket-main .relay-thread-back { display: inline-flex; }
+.ticket-main .relay-thread-close { display: none; }
+
+/* Below this the two columns are one, and the fields come first: what the
+   ticket IS has to be readable before the argument about it. */
+@media (max-width: 900px) {
+  .ticket-detail { flex-direction: column; }
+  .ticket-side { flex: 1 1 auto; width: 100%; }
+  .ticket-main { width: 100%; }
+  /* On a phone Relay turns the thread into a sheet over the room it covers.
+     Here it IS the page, so it stays in the flow — a fixed overlay would sit
+     on top of the fields the reader just scrolled past. */
+  .ticket-main .relay-thread {
+    position: static; inset: auto; z-index: auto; max-height: 70vh;
+    border-width: 1px; border-radius: var(--radius-lg);
+  }
 }
 
 /* tables: interactive rows + memories layout */

@@ -108,6 +108,19 @@ Every long-running piece of the platform. All of these are Deployments in the
   it has one, otherwise derived from a hash of the name (as are humans' and
   bridged users'), so the same name looks the same everywhere forever without
   anybody picking colours.
+- **Ticket** — one piece of work the platform is tracking: a title, a state
+  (`open` → `in_progress` → `blocked`/`review` → `done`/`cancelled`), an
+  assignee, and the Relay thread it is being discussed in. Agents open and move
+  them through the `tickets` tool, humans through the board. The block is
+  [tickets.md](tickets.md); the design record is
+  `docs/design/20-tickets-agent-work-tracker.md`.
+- **Project (tickets)** — a Relay channel with a ticket prefix. It is not a
+  second kind of object: `#ops` with prefix `OPS` *is* the OPS project, its
+  tickets live in it, and each one's card is a message in the room.
+- **Key** — a ticket's permanent name, `PREFIX-n` (`OPS-12`). The prefix comes
+  from the project channel's name, the number from a per-project counter, and
+  neither changes for the life of the ticket — including after it closes.
+  Case-sensitive: `ops-12` in a sentence is the word, not the ticket.
 - **Kyle (project owner)** — the sole operator of the reference deployment.
   Design docs quote him directly; those quotes are the historical record of a
   decision, not instructions to the reader.

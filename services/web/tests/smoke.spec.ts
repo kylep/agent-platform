@@ -18,6 +18,8 @@ const PAGES: { path: string; heading: string; probe?: RegExp }[] = [
   // /conversations is a redirect now (docs/design/19) — the row stays to prove
   // an old bookmark still lands somewhere real.
   { path: "/conversations", heading: "Relay", probe: /general/ },
+  { path: "/tickets", heading: "Tickets", probe: /OPS-1/ },
+  { path: "/tickets/OPS-1", heading: "OPS-1", probe: /Weather repeats across the digest/ },
   { path: "/memories", heading: "Memories", probe: /Kyle likes terminals/ },
   { path: "/changes", heading: "Pending Changes", probe: /skill: news-lookup/ },
   { path: "/schedules", heading: "Schedules", probe: /health-monitor/ },
@@ -31,6 +33,7 @@ const PAGES: { path: string; heading: string; probe?: RegExp }[] = [
   { path: "/help/tools", heading: "Tools", probe: /self-edit only/ },
   { path: "/help/agents", heading: "Agents", probe: /who runs/ },
   { path: "/help/relay", heading: "Relay", probe: /the agent messenger|hop 0/ },
+  { path: "/help/tickets", heading: "Tickets", probe: /assign = summon|OPS-12/i },
   { path: "/reports/daily-news", heading: "daily-news", probe: /Open latest/ },
   // The Relay section is read-only and env-fed, so its probe is the sentence
   // that tells an operator where the numbers actually come from.

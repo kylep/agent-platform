@@ -12,9 +12,10 @@ import AgentVersions from "../components/AgentVersions";
 import MessagePane from "../components/relay/MessagePane";
 import AgentMemories from "../components/AgentMemories";
 import AgentSchedules from "../components/AgentSchedules";
+import { isClosed, stateLabel, type Ticket } from "../lib/tickets";
 import { Banner } from "@ap/ui/banner";
 import { Button } from "@ap/ui/button";
-import { Chip } from "@ap/ui/chip";
+import { Chip, StatusChip } from "@ap/ui/chip";
 import { ConfirmDialog } from "@ap/ui/dialog";
 import { Stat, StatRow } from "@ap/ui/stat";
 import { Table, TD, TH } from "@ap/ui/table";
@@ -90,6 +91,63 @@ function AgentDm({ agent }: { agent: string }) {
         <Link to="/relay">Relay</Link>.
       </p>
       <MessagePane channelId={channel.id} />
+    </>
+  );
+}
+
+/** What this agent owes the platform and what it has asked of it: the tickets
+ * assigned to it and the ones it opened. Both come out of one unfiltered read
+ * of the board — the list route filters by assignee but has no `reporter`
+ * filter, and two halves of one page should not be two different truths. */
+function AgentTickets({ agent }: { agent: string }) {
+  const [tickets, setTickets] = useState<Ticket[] | null>(null);
+  const me = `agent:${agent}`;
+  useEffect(() => {
+    setTickets(null);
+    api<Ticket[]>("/api/tickets").then(setTickets).catch(() => setTickets([]));
+  }, [agent]);
+
+  if (!tickets) return <p className="muted">Loading…</p>;
+
+  const section = (label: string, rows: Ticket[], empty: string) => (
+    <section aria-label={label} className="agent-tickets">
+      <h2>{label}</h2>
+      {rows.length === 0
+        ? <p className="muted">{empty}</p>
+        : (
+          <Table>
+            <thead><tr><TH>Ticket</TH><TH>State</TH><TH>Title</TH></tr></thead>
+            <tbody>
+              {rows.map((t) => (
+                <tr key={t.id}>
+                  <TD><Link to={`/tickets/${t.key}`}>{t.key}</Link></TD>
+                  <TD><StatusChip status={stateLabel(t.state)} /></TD>
+                  <TD>{t.title}</TD>
+                </tr>
+              ))}
+            </tbody>
+          </Table>
+        )}
+    </section>
+  );
+
+  // Open work first, and finished work only where it still says something —
+  // an agent's page is a queue, not an archive (that is the board's closed
+  // column and the ticket's own page).
+  const order = (rows: Ticket[]) => [...rows].sort((a, b) =>
+    Number(isClosed(a.state)) - Number(isClosed(b.state))
+    || (b.last_activity_at ?? "").localeCompare(a.last_activity_at ?? ""));
+
+  return (
+    <>
+      <p className="muted">
+        The work this agent is on. Assigning it a ticket also summons it — the ask and
+        the assignment are one act (<Link to="/help/tickets">Tickets</Link>).
+      </p>
+      {section(`Assigned to ${agent}`, order(tickets.filter((t) => t.assignee === me)),
+               "Nothing is assigned to this agent.")}
+      {section(`Reported by ${agent}`, order(tickets.filter((t) => t.reporter === me)),
+               "This agent has not opened any tickets.")}
     </>
   );
 }
@@ -225,7 +283,7 @@ function AgentConfig({ agent, onSaved }: { agent: AgentDef; onSaved: (next: Agen
   );
 }
 
-type Tab = "config" | "history" | "conversations" | "memories" | "schedules" | "report";
+type Tab = "config" | "history" | "conversations" | "tickets" | "memories" | "schedules" | "report";
 
 export default function AgentDetail() {
   const { name } = useParams<{ name: string }>();
@@ -312,6 +370,7 @@ export default function AgentDetail() {
         <button className={tab === "config" ? "tab active" : "tab"} onClick={() => setTab("config")}>Config</button>
         <button className={tab === "history" ? "tab active" : "tab"} onClick={() => setTab("history")}>History</button>
         <button className={tab === "conversations" ? "tab active" : "tab"} onClick={() => setTab("conversations")}>Conversations</button>
+        <button className={tab === "tickets" ? "tab active" : "tab"} onClick={() => setTab("tickets")}>Tickets</button>
         <button className={tab === "memories" ? "tab active" : "tab"} onClick={() => setTab("memories")}>Memories</button>
         <button className={tab === "schedules" ? "tab active" : "tab"} onClick={() => setTab("schedules")}>Schedules</button>
         <button className={tab === "report" ? "tab active" : "tab"} onClick={() => setTab("report")}>Report</button>
@@ -319,6 +378,7 @@ export default function AgentDetail() {
 
       {tab === "report" && <AgentReport name={agent.name} />}
       {tab === "conversations" && <AgentDm agent={agent.name} />}
+      {tab === "tickets" && <AgentTickets agent={agent.name} />}
       {tab === "memories" && <AgentMemories agent={agent.name} />}
       {tab === "schedules" && <AgentSchedules agent={agent.name} />}
       {tab === "history" && <AgentVersions agent={agent.name} onRolledBack={loadContent} />}
