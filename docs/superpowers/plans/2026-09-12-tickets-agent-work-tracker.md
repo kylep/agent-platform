@@ -178,7 +178,7 @@ dispatch subagents, verify their evidence, commit, and update this file.
 
 ### Phase 2 — the store, the API, the events
 
-- [ ] **T3 `ticket_store.py`: the ONE place a ticket changes.**
+- [x] **T3 `ticket_store.py`: the ONE place a ticket changes.** (commit `e959d4c`; review fixed: actor↔run invariant so no agent mention lands at hop 0, one commit per call with edit_message_card staging-only, row locks on mutation, create budget counted under the channel lock (TicketBudgetError), parent validated + cycle-bounded, agent assignee must be enabled; router freed_by interaction moved to T6)
   New module `services/backend/agentplatform/ticket_store.py` with async
   functions taking `(session, producer, …)`: `create_ticket` (allocates the
   key under the channel row — `with_for_update()` on postgres, plain on
@@ -288,6 +288,19 @@ dispatch subagents, verify their evidence, commit, and update this file.
   `ticket_id` and gets the thread window; one outside gets the room window
   and the `<your-tickets>` block), `test_relay_lib.py` goldens,
   `test_tickets_schema.py` for both ensures being idempotent and prompt-safe.
+  **Binding addition from the T3 review:** `relay_router._freed_by` treats ANY
+  agent-authored message carrying `run_id` as the run's last word, and both
+  `api/relay.py` (the relay tool) and `ticket_store` post mid-run messages with
+  `run_id` for attribution — so an agent that comments on or assigns a ticket
+  mid-run is marked free early and a pending wake can start a second run of
+  the same agent while the first is still executing. Fix it in the router:
+  free an agent only on the recorder's reply (it is the one message whose
+  `trigger_message_id` is set — the API and the store never set it) or on a
+  `kind=system` failure notice with `run_id`; a `kind=text` agent message with
+  `run_id` but no `trigger_message_id` is a tool post and frees nobody (the
+  `run.events` backstop still fires the wake at the real terminal state). Add
+  the mutation-style test: a mid-run tool post while a wake is pending fires
+  nothing; the recorder's reply fires it.
 
 ### Phase 4 — web UI  `[ui]`
 
@@ -392,6 +405,9 @@ dispatch subagents, verify their evidence, commit, and update this file.
 (low/medium review findings not fixed; each with file:line and one sentence)
 - T2: `derive_prefix` strips digits from names, so a channel literally named `ops2` derives base `OPS` and, when `OPS` is taken, gets the same `OPS2` the collision loop would hand a second `ops`; keys stay globally unique, only prefix→channel inference is ambiguous (nothing does that today).
 - T2: `find_ticket_refs` reuses `relay._FENCE`, which recognises backtick fences only; a `~~~` fence is live text for mentions and ticket refs alike (pre-existing gap in relay.py).
+- T3: `say_budget_once` is check-then-insert with no lock, so two simultaneous refusals in one channel can post two hourly notices (worst case: a duplicate row, not a missed one).
+- T3: the channel-row lock taken for key allocation is held for the whole `create_ticket` transaction (card post, event, announce), so creates in one busy project serialise entirely rather than only on the counter.
+- T3: `_next_key`'s postgres `with_for_update` branch has no test (sqlite only in CI); verified live in T10 by opening two tickets back to back.
 - T2→T3: the once-per-hour budget row is deduped by matching `BUDGET_PREFIX`; the store's query must be scoped to `kind == "system"` rows the way `relay_router._say_budget` is, or a comment starting with that text suppresses the real notice.
 
 ## Definition of done
