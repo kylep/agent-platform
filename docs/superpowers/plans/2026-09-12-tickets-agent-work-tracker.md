@@ -210,7 +210,7 @@ dispatch subagents, verify their evidence, commit, and update this file.
   posts no mention; `can_move` violations raise; the budget counts only
   `created` events by that actor in the window.
 
-- [ ] **T4 API `/api/tickets/*`, the `relay` role widened, default grant, SSE, stats.**
+- [x] **T4 API `/api/tickets/*`, the `relay` role widened, default grant, SSE, stats.** (commit `7133d9d`; review fixed: PATCH prefix race is a 409 not a 500, archived projects refuse ticket writes; deferred: grant-independent annotator+ access is design-19's ladder)
   New router `services/backend/agentplatform/api/tickets.py` implementing
   every route in the design's "API" section over `ticket_store`, with
   `api/schemas.py` models. Auth: reuse `require_relay_access` from
@@ -408,6 +408,8 @@ dispatch subagents, verify their evidence, commit, and update this file.
 - T3: `say_budget_once` is check-then-insert with no lock, so two simultaneous refusals in one channel can post two hourly notices (worst case: a duplicate row, not a missed one).
 - T3: the channel-row lock taken for key allocation is held for the whole `create_ticket` transaction (card post, event, announce), so creates in one busy project serialise entirely rather than only on the counter.
 - T3: `_next_key`'s postgres `with_for_update` branch has no test (sqlite only in CI); verified live in T10 by opening two tickets back to back.
+- T4 (design-19 inheritance, needs its own decision): `require_relay_access` accepts any agent token whose role is `annotator` or above (`api/relay.py` `AGENT_ROLES`), so an agent promoted by `runs_read`/`metrics`/`query_app` reaches `/api/relay/*` and `/api/tickets/*` server-side without holding `mcp__platform__relay`/`mcp__platform__tickets`; the grant is enforced only by the runner's `--allowedTools`. A server-side grant check (read `platform_tools` from the agent store in the dependency) is the fix; it touches every relay test fixture, so it is a follow-up, not a mid-build change. Record in design 20 AS BUILT.
+- T4: a create-time `derive_prefix` collision between two simultaneous channel creates is caught by the generic IntegrityError handler and reported as "#name already exists" (right status, wrong reason).
 - T2→T3: the once-per-hour budget row is deduped by matching `BUDGET_PREFIX`; the store's query must be scoped to `kind == "system"` rows the way `relay_router._say_budget` is, or a comment starting with that text suppresses the real notice.
 
 ## Definition of done
