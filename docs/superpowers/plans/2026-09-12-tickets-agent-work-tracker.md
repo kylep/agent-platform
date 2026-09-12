@@ -369,7 +369,7 @@ dispatch subagents, verify their evidence, commit, and update this file.
   in `api/schemas.py`/`api/runs.py`, regenerate the SDK, test it in
   `tests/test_runs_api.py` (or wherever run views are tested).
 
-- [ ] **T10 Build, deploy to the NUC, live-verify assign-summons-move.**
+- [x] **T10 Build, deploy to the NUC, live-verify assign-summons-move.** (helm rev 53 at 17:16 EDT; scenarios 1 and 3 PASS, scenario 2 PARTIAL → R1/R2 below; evidence under "Live verification"; screenshots `scratchpad/live/tickets-board-1280.png`, `tickets-detail-1280.png`)
   Deploy exactly as Relay's T12 did (the session scratchpad's `t12-deploy.sh`
   is the reference: `docker buildx --platform linux/amd64 --provenance=false
   --load` for backend, web (`Dockerfile.prebuilt` after `npm run build`),
@@ -406,6 +406,38 @@ dispatch subagents, verify their evidence, commit, and update this file.
 ### Repairs
 (added by the loop when the definition of done fails)
 
+- [ ] **R1 A system agent's run token must carry its run, so its ticket writes are not refused.**
+  Live: `agent:health-monitor` got `403 this token has no run to act from` on
+  four `tickets action=create` calls. `joblauncher.py` `_system_token(agent)`
+  mints ONE annotator ApiKey per system agent with `run_id` NULL (cached for the
+  process), so `api/tickets.py::_run_of` cannot resolve the run and refuses every
+  write by exactly the agent design 20 tells to open OPS tickets (the relay tool
+  tolerated it only by treating a missing run as hop 1). Fix: give a `system:
+  true` agent's run a PER-RUN token that carries `run_id` (reuse the
+  `_invoke_token(run, role="annotator")` path or mint the system key per run
+  with `run_id=run.id`), keep the annotator scope, and let the existing per-run
+  key lifecycle (revocation/GC) apply; drop the per-agent cache and its
+  replace-predecessor dance if nothing else needs it. Tests in
+  `tests/test_joblauncher.py`: a system agent's launch env token resolves to an
+  ApiKey with `run_id == run.id`; `tests/test_tickets_api.py`: a system agent's
+  per-run token can create a ticket (201) and the event carries `run_id`.
+  Then rebuild the backend image, redeploy api/dispatcher/recorder (+ facade),
+  and re-run T10 scenario 2 (`scratchpad/t20-verify.py` step2) — record the
+  result under "Live verification".
+
+- [ ] **R2 A bare agent name as assignee must resolve to `agent:<name>` or be refused.**
+  Live: pai assigned OPS-2 to `pai` (no prefix); `_check_assignee` validates only
+  prefixed participants, so the ticket shows an assignee that summons nobody.
+  Fix in `ticket_store` (one place): normalise an unprefixed assignee that names
+  an enabled agent to `agent:<name>`; refuse any other unprefixed string with
+  `TicketRuleError("assignee must be agent:<name>, user:<name> or discord:<id>")`
+  (API → 400). Apply to `create_ticket` and `assign_ticket`. Mirror the
+  normalisation in the broker's `tickets` tool for `assignee`/`to` (a plain
+  `error:` when it cannot). Low, same change: `POST /api/tickets` should accept a
+  bare channel name (`"ops"`) like the broker does, not only `#ops`/id. Tests in
+  `tests/test_ticket_store.py`, `tests/test_tickets_api.py`,
+  `services/mcp-broker/test_tickets_tool.py`. Ships with R1's redeploy.
+
 ### Deferred
 (low/medium review findings not fixed; each with file:line and one sentence)
 - T2: `derive_prefix` strips digits from names, so a channel literally named `ops2` derives base `OPS` and, when `OPS` is taken, gets the same `OPS2` the collision loop would hand a second `ops`; keys stay globally unique, only prefix→channel inference is ambiguous (nothing does that today).
@@ -432,7 +464,165 @@ through the tool, and a standup answer that cites a key; the board renders on
 the NUC (screenshot path recorded).
 
 ## Live verification
-(evidence tables, written by T10)
+
+Deployed to the NUC (`pai`) on **2026-09-12** from the orchestrator's
+Terminal.app window: backend/web/mcp-broker/mcp-facade images built at
+17:14:51–17:16:24 local, imported into k3s containerd, `helm upgrade` at
+17:16:54 → **REVISION 53** (`STATUS: deployed`, "Upgrade complete"), then a
+rollout restart of ap-api / ap-dispatcher / ap-recorder / ap-web /
+ap-mcp-broker and finally ap-mcp-facade (it reads the API's OpenAPI at boot);
+every `kubectl rollout status` returned successfully and the script ended
+`### DONE-DEPLOY` / `EXIT=0` at 17:19. Post-deploy state at 17:19:10 showed the
+old pods Terminating behind the new ones and the Kafka topic list containing
+`relay.invocations relay.messages tickets.events` — the design-20 topic exists.
+(`ap-pg-backup-29818560-…` sits in Error: the known harmless catch-up backup
+pod, unrelated to this deploy.) Verification ran from this machine through the
+ssh port-forward at `http://localhost:18090`; script
+`scratchpad/t20-verify.py`, screenshots `scratchpad/t20-shot.mjs`.
+
+### Preflight (21:19:38Z)
+
+| check | result |
+| --- | --- |
+| `GET /api/tickets/stats` | 200, all counters 0, `budget.creates_per_hour=20`, `stale_days=3` |
+| `GET /api/tickets/projects` | 200 — `#general` → `GEN`, `#ops` → `OPS` (both seeded by init_db) |
+| `GET /api/agents` | 10 enabled agents, **10/10** carry `mcp__platform__tickets`; none missing |
+| `relay-standup` job | prompt is v2 — "@all — what did you do in the last 24h, **which tickets did you move**, and what is blocked? …"; cron `0 9 * * *` America/Toronto, enabled |
+| `health-monitor` prompt | contains "Open an **OPS ticket** for anything that needs a human, assign it to pai, and put the alert in the ticket's thread." |
+
+### Scenario 1 — assign = summon (PASS)
+
+Admin opened `OPS-1` ("Live check: confirm the weather dedup is still daily",
+p1) in `#ops` assigned to `agent:news` with `notify: true`. The whole exchange
+took **20 seconds** end to end.
+
+| when (UTC) | actor | event / message | hop | run id | outcome |
+| --- | --- | --- | --- | --- | --- |
+| 21:20:00.135 | user:admin | thread root card `🎫 OPS-1 · … — opened by admin` | 0 | — | ticket created (`state=open`) |
+| 21:20:00.142 | user:admin | event `created` | — | — | |
+| 21:20:00.150 | user:admin | `@news you've been assigned OPS-1` | 0 | — | the summons the assignment produced |
+| 21:20:00.152 | user:admin | event `assigned` → `agent:news` | — | — | |
+| 21:20:10 | agent:news | `thinking` appears on `GET /api/tickets/OPS-1` | — | `c07a7d9c52c74fd9843e52bc1486bd09` | +10 s after the assign |
+| 21:20:16.885 | agent:news | event `moved` `open → in_progress` | — | `c07a7d9c…` | system row in the thread: "news moved OPS-1 → in progress" |
+| 21:20:19.780 | agent:news | event `moved` `in_progress → review`, reason "Verified: weather items are always emitted with published=today's date and Whitby/Toronto-specific forecast, so the platform's dedup naturally treats each day's forecast as a new item — no code changes needed." | — | `c07a7d9c…` | final state **review** |
+| 21:20:23.741 | agent:news | "First thing I'd do: check that my weather item always carries `published` = today's date …" | **1** | `c07a7d9c…` | the "what would you do first" reply, posted into the ticket thread |
+
+Run `c07a7d9c52c74fd9843e52bc1486bd09` (`agent=news`, `trigger=mention`)
+finished `succeeded`; `thinking` cleared afterwards.
+
+Stats around scenario 1: `invocations_24h` **14 → 15 (+1)** — one summons, not
+a storm. `suppressed_by_reason` unchanged at `{hop_limit 0, budget 0,
+not_member 0, coalesced 4, facade_owns_turn 0}` (delta all zero). Relay budget
+`global_used_last_hour` 1 → 2 of 120. Tickets stats went to `review: 1` with
+`moved_24h = [agent:news ×2]`.
+
+### Scenario 2 — agents open tickets (PARTIAL — an agent opened the ticket, but not the one asked, and `agent:health-monitor` could not write)
+
+Admin posted in `#ops`: "@health-monitor open a ticket in #ops for the noisiest
+failing agent this week …, assign it to pai, and put your reasoning in the
+ticket's thread."
+
+| when (UTC) | actor | event / message | hop | run id | outcome |
+| --- | --- | --- | --- | --- | --- |
+| 21:20:46.731 | user:admin | the summons in `#ops` | 0 | — | mentions `health-monitor` |
+| 21:21:43 → 21:22:04 | agent:health-monitor | **4 × `mcp__platform__tickets` `action=create` → `error: 403 {"detail":"this token has no run to act from"}`** | — | `b8f167f579b54ad9b9d099eb01a25ecb` | every ticket write refused |
+| 21:22:16.409 | agent:health-monitor | "…I tried 4 times to open the OPS ticket … it's failing with `403 this token has no run to act from` … @pai — could you either create/own the OPS ticket …" | 1 | `b8f167f5…` | run `succeeded`; it delegated instead |
+| 21:22:42.978 | agent:pai | `🎫 OPS-2 · Investigate health-monitor failure streak (8 consecutive failures, 2026-09-12) — opened by pai` | **2** | `aa2cc15ceb0245dcaecd6689734936eb` | ticket **OPS-2** created, `reporter=agent:pai` |
+| 21:22:42.983 | agent:pai | event `assigned` → `pai` | — | `aa2cc15c…` | see the note below — **no summons fired** |
+| 21:22:50.008 | agent:pai | event `commented` — "Reasoning (from health-monitor's health check, relayed by pai): … 850 failed / 3850 total runs … run-summarizer shares the *exact* last_failed_at (19:00:03Z) → points to a shared platform-side cause …" | 2 | `aa2cc15c…` | the reasoning landed in the ticket thread as asked |
+| 21:22:55.501 | agent:pai | "Done ✅ Created **OPS-2** … assigned to me (pai), with your full reasoning posted in the ticket thread." | 2 | `aa2cc15c…` | reported back in the summons thread |
+
+So the **capability** is live — an agent opened a ticket through the tool, at
+hop 2, with its reasoning in the thread, and the hop cap held (no further
+wake). Two defects fell out of it:
+
+1. **A `system: true` agent cannot write to the board.**
+   `api/tickets.py::_run_of` (writing=True) 403s when
+   `request.state.api_key_run_id` is empty, and
+   `joblauncher.py:432` gives a system agent
+   `_system_token(run.agent)` — an ApiKey row minted **per agent with
+   `run_id` NULL** (`joblauncher.py:46-67`), not the per-run token
+   `_invoke_token` mints. health-monitor is `system: true`, so every ticket
+   create/move/assign/comment it attempts is a 403, while `news` and `pai`
+   (both `system: false`) wrote fine in the same session. This hits exactly
+   the agent whose prompt design-20 told to open OPS tickets.
+2. **A bare agent name as `assignee` is silently treated as a human.**
+   pai passed `assignee: "pai"`; `ticket_store._check_assignee` only validates
+   participants that already carry the `agent:` prefix (`relay.agent_name`
+   returns None otherwise), and the broker's `tickets` tool forwards the
+   argument verbatim (`broker.py:684`). OPS-2 therefore stored
+   `assignee = "pai"`, no `@pai` summons was sent, and nothing in the room said
+   so — the board shows a name that reaches nobody. Watched for 3 further
+   minutes: no `thinking`, no `moved`/`commented` by `agent:pai` from the
+   assignment (the only pai events on OPS-2 are its own create/assign/comment
+   from run `aa2cc15c…`).
+
+Relay stats over the scenario: `invocations_24h` 15 → 17 (+2: health-monitor
+and pai), `suppressed_24h` stayed 0.
+
+### Scenario 3 — standup cites the board (PASS)
+
+`POST /api/jobs/bce128bd0de14251aa54467d6b869d25/run` at 21:27:23Z (Run Now on
+`relay-standup`) → 200 `{"id": "9d11d5ce78ae44f6bade934a9c2057dd", "relay_channel": "standup"}`.
+
+| when (UTC) | actor | message (first ~90 chars) | hop | run id | ticket key cited |
+| --- | --- | --- | --- | --- | --- |
+| 21:27:23.181 | system:scheduler | "@all — what did you do in the last 24h, which tickets did you move, and what is blocked?…" | 0 | — | — |
+| 21:27:38.799 | agent:stockmarket | "Already covered the 09-11 session brief earlier today (QQQ/SPY/XIU.TO risk-on rally…" | 1 | `cba953f43b464fc29b9d8b5473788f39` | no |
+| 21:27:40.597 | agent:news | "This one's already handled — OPS-1 was already worked earlier today…" | 1 | `7b151f238fde48b58aba85bc25709a6d` | **OPS-1** |
+| 21:27:42.131 | agent:news-librarian | "No tickets assigned to me — none moved, nothing blocked…" | 1 | `200a8f27818945cc8f0d87cc7e3db657` | no (correctly) |
+| 21:27:59.134 | agent:running | "Synced Strava since 2026-06-14 (42 activities) and rebuilt the weekly brief…" | 1 | `be9de46d7e0f40d5bb6dbc4aea7fc01f` | no |
+| 21:28:00.349 | agent:platform-coder | "No ticket access was invoked and no edit requests landed in the last 24h — moved 0 tickets…" | 1 | `a3ca7f31b0884238ab0bc2c9a26e8426` | no (correctly) |
+| 21:28:07.324 | agent:pai | "Standup for 🐢 pai: … Also opened **OPS-2**…" | 1 | `a133650a5abc4a6396618ea3b82fc640` | **OPS-2** |
+| 21:28:14.175 | agent:stockmarket-data | "No tickets moved — none assigned to me, none touched. Data update: ran the daily sync…" | 1 | `3fe81072603b461db7b3a32e5f56be47` | no (correctly) |
+
+Seven agents answered, every one at hop 1 (no agent answered another agent's
+standup line). Both agents that actually held a ticket cited its key; the five
+with no tickets said so explicitly, which is the v2 prompt working.
+`health-monitor` did not answer — `@all` deliberately skips system agents.
+
+### Stats, before → after the whole session
+
+| metric | 21:19 | 21:32 |
+| --- | --- | --- |
+| relay `invocations_24h` | 14 | 24 |
+| relay `messages_24h` | 20 | 39 |
+| relay `agent_messages_24h` | 15 | 27 |
+| relay `suppressed_24h` | 0 | 0 |
+| relay `suppressed_by_reason` | `{hop_limit 0, budget 0, not_member 0, coalesced 4, facade_owns_turn 0}` | unchanged |
+| relay budget `global_used_last_hour` / `global_per_hour` | 1 / 120 | 11 / 120 |
+| tickets `open` / `review` | 0 / 0 | 1 / 1 |
+| tickets `moved_24h` | — | `agent:news ×2` |
+| tickets `budget.agents` | — | `pai: used 1, left 19` (of 20/h) |
+| tickets `stale` / `orphaned` | 0 / 0 | 0 / 0 |
+
+No guard fired anywhere in the session: nothing hop-capped, nothing
+budget-refused, no agent wrote into a room it is not in.
+
+### Screenshots (live, 1280×860, against the NUC)
+
+- `scratchpad/live/tickets-board-1280.png` — the Tickets board on the NUC:
+  five columns (Open 1 / In progress 0 / Blocked 0 / Review 1 / Closed·7d 0)
+  with a "TODAY" strip reading `news 2`, OPS-2 sitting in Open assigned to
+  `pai` and OPS-1 in Review badged `HIGH` with the news balloon face, plus the
+  project / assignee / label filters and a New-ticket button.
+- `scratchpad/live/tickets-detail-1280.png` — OPS-1's detail page: the
+  left rail (state REVIEW with a Move-to picker, p1·high, assignee news,
+  reporter you, project #ops, `news · succeeded` run link) beside a full
+  ACTIVITY log, and on the right the ticket's Relay thread showing the assign
+  mention, both italic system move rows, and news's own reply — one page that
+  is both the record and the room.
+
+### What did not happen
+
+- `agent:health-monitor` never created a ticket itself: four
+  `tickets action=create` calls were refused `403 this token has no run to act
+  from` (defect 1 above). The scenario was salvaged by the agent delegating to
+  `@pai`, which is behaviour worth keeping but is not the thing under test.
+- The `assignee: "pai"` on OPS-2 summoned nobody (defect 2 above); polled for
+  3 minutes with no `thinking` and no pai activity from the assignment.
+- No SSE/UI-push path was exercised beyond the two screenshots; the board was
+  read through the REST endpoints.
 
 ## Handoff to Kyle
 (commands the loop could not run because the auto-mode classifier refused them, ready to paste)
