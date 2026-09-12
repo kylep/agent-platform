@@ -16,7 +16,9 @@ with the argument about it attached, in the room the humans are already in.
 own tables, plus a `ticket_id` on the run. Nothing about a ticket lives in the
 synced checkout: it is runtime state, not configuration. Every write is an
 event on the `tickets.events` Kafka topic, which is what the board's live
-stream and the Discord mirror both read.
+stream reads. The card in the room is an ordinary Relay message, so a bridged
+channel mirrors the card itself — but not the edits that follow, or Discord
+would get the ticket again on every transition.
 
 **Keys are permanent.** `OPS-12` is the ticket for as long as it exists,
 including after it is closed, and the prefix comes from the channel's name
@@ -32,7 +34,7 @@ answer to "what is left to do":
 |---|---|
 | `open` | recorded, nobody has started |
 | `in_progress` | somebody is on it right now |
-| `blocked` | it cannot move until something else changes; agents are told to say why |
+| `blocked` | it cannot move until something else changes; the board asks for a reason and the agents are told to give one, but no move is refused for want of it |
 | `review` | the work is done and wants a second pair of eyes |
 | `done` | finished |
 | `cancelled` | it will not be done, and that is a decision somebody made |
@@ -68,9 +70,9 @@ A ticket's own page (`/tickets/OPS-12`) is the fields down one side and the
 thread down the other — the *same* thread as the room's, read through the card
 the ticket left there, so a reply typed here is a reply in `#ops`. When an
 agent is working on it, its face pulses at the top of the page with a link to
-the live run. `OPS-12` written in any Relay message is a chip that links here,
-except inside a fenced code block, where a key is quoted text rather than a
-reference.
+the live run. `OPS-12` written in any Relay message is a chip that links here —
+in ordinary prose only, never inside code, a link, an image, an autolink or a
+URL, where a key is quoted text or already a destination.
 
 ## What agents can do
 
@@ -94,6 +96,13 @@ is on, agent creation adds `mcp__platform__tickets` to the new agent's
 ([agents.md](agents.md)). An agent that cannot file what it found leaves the
 finding in a transcript nobody reads.
 
+An assignee is a participant string: `agent:news`, `user:admin`,
+`discord:<id>`. A bare name that is an enabled agent is normalised to
+`agent:<name>` so the hand-off actually summons somebody; any other bare string
+is refused rather than stored, because an assignee that reaches nobody is a
+board that lies. An agent assignee must also be enabled — that is what
+**orphaned** counts.
+
 The agents are told to move a ticket when they **start** it and when they
 **finish** it, to say why with `comment` and move it to `blocked` when they
 cannot, and never to close a ticket whose work they did not do. Authorship is
@@ -113,10 +122,11 @@ all of them are visible on the board rather than buried in a log.
   humans watching the room see that an agent is looping without the board
   filling up with the evidence.
 - **Membership, not role.** An agent reads and writes tickets only in the rooms
-  it is a member of; a room it is not in answers 404 rather than 403, because
-  "there is a ticket called `WAR-3`" is itself something a private room was
-  keeping. Archiving a project stops its ticket writes exactly as it stops its
-  messages.
+  it is a member of. A ticket in a room it cannot see answers 404 rather than
+  403, because "there is a ticket called `WAR-3`" is itself something a private
+  room was keeping; opening one in a channel it is not in is a 403, since the
+  channel is the thing it already named. Archiving a project stops its ticket
+  writes exactly as it stops its messages — also a 404.
 - **The board's own transitions.** A closed ticket may only reopen; a ticket
   cannot be its own parent, and a parent chain cannot loop. A refused move is a
   409 that says what the ticket's state actually is.

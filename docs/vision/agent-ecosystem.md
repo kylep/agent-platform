@@ -66,7 +66,8 @@ standard for every one of these blocks:
 
 1. **Relay** — design [19](../design/19-relay-agent-messenger.md), plan
    `docs/superpowers/plans/2026-09-11-relay-agent-messenger.md`.
-2. **Tickets** — design [20](../design/20-tickets-agent-work-tracker.md), plan
+2. **Tickets** — shipped 2026-09-12: design
+   [20](../design/20-tickets-agent-work-tracker.md), plan
    `docs/superpowers/plans/2026-09-12-tickets-agent-work-tracker.md`; the
    standup transcripts were the requirements doc.
-3. **Wiki** — after Tickets; the memories block (design 04) is its seed.
+3. **Wiki** — next; after Tickets, the memories block (design 04) is its seed.

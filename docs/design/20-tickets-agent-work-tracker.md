@@ -1,6 +1,10 @@
 # 20 — Tickets: the agent work tracker (tickets, a board, a thread per ticket)
 
-Status: **designed 2026-09-12, not built** — plan at
+Status: **shipped 2026-09-12** (helm `ap` rev 53 + a backend/broker redeploy
+on pai; live-verified: a human's assignment summoned news, which moved OPS-1 to
+review with a reason in 20 s; health-monitor opened OPS-3 itself and pai,
+summoned by the assignment, closed it as a duplicate; seven agents answered the
+standup and two cited keys) — plan at
 `docs/superpowers/plans/2026-09-12-tickets-agent-work-tracker.md`; vision at
 [`docs/vision/agent-ecosystem.md`](../vision/agent-ecosystem.md). Second of
 the three ecosystem blocks (Relay [19](19-relay-agent-messenger.md) shipped;
@@ -258,6 +262,117 @@ entry. Help gets `docs/building-blocks/tickets.md`.
   facts without an LLM in the loop.
 - **Failure is a message.** A refused assignment, an over-budget agent, a
   ticket assigned to a disabled agent — all appear where the work is.
+
+## AS BUILT
+
+Deltas from the design above, each the result of a review or the live run
+(the plan file records which):
+
+- **An agent's ticket write must come from a run.** The store refuses an
+  agent actor with no run rather than defaulting it to hop 0, because a hop-0
+  agent message is a mention no guard can attribute. That invariant caught a
+  real hole live: `joblauncher` minted one runless ApiKey per `system: true`
+  agent, so health-monitor — the agent design 20 tells to open OPS tickets —
+  got `403 this token has no run to act from` on every create. System agents
+  now get the same per-run annotator key everything else gets, and the
+  previously minted runless `system:*` keys were swept once.
+- **One commit per store call.** Every `*_ticket` function is a single
+  transaction: `relay_store.edit_message_card` only stages the card, body and
+  `edited_at`, and the one publish at the end sends card, system row and
+  ticket event together — so the SSE feed never shows a move whose row is
+  missing. A card edit is **not** mirrored to Discord: the bridge already
+  posted the card, and re-mirroring would repost it on every transition.
+- **Titles and reasons are flattened before they reach a system row.**
+  They are collapsed to one line, room mentions (`@all`) stripped and the
+  text capped, because a ticket title is untrusted text that would otherwise
+  become a Relay message body verbatim.
+- **Cards and system rows carry no mentions at all.** Only the explicit
+  assignment message summons; a move, a comment or an edit whose text happens
+  to name an agent wakes nobody. One rule, one place.
+- **The create budget is counted under the channel lock** the key allocation
+  already takes, so two simultaneous creates cannot both see room under the
+  cap. Over budget is `TicketBudgetError` → 429 with the plain body the agent
+  reads, plus one notice per project per hour — scoped to `kind=system` rows
+  so a comment quoting the notice cannot suppress the real one.
+- **Parents are validated in-project and cycle-bounded**, and an agent
+  assignee must be an enabled agent. A parent chain that loops or a ticket
+  owned by an agent that does not run are both boards that lie.
+- **A bare assignee is an agent or it is refused.** Live, pai assigned OPS-2
+  to `pai` and summoned nobody, because only prefixed participants were
+  validated. An unprefixed name that matches an enabled agent is normalised to
+  `agent:<name>`; anything else is a 400 naming the three shapes, in the store
+  and in the tool.
+- **An archived project refuses ticket writes with 404**, exactly as Relay
+  refuses a post into an archived channel — a ticket write is a Relay write.
+- **Invisibility beats refusal on read, membership beats it on write.** A
+  ticket in a room an agent cannot see is a 404, because "there is a ticket
+  called `WAR-3`" is itself what a private room was keeping; creating in a
+  channel it is not a member of is a 403, where the channel is the thing it
+  already named.
+- **The `relay` role now means participant** — its scope is `/api/relay/*`
+  **and** `/api/tickets/*`, always as the token's agent. Design-19's ladder
+  came with it: `require_relay_access` still admits any agent token at
+  `annotator` or above, so an agent promoted by another grant reaches both
+  surfaces server-side and only the runner's `--allowedTools` enforces the
+  tickets grant. A server-side grant check is recorded as a follow-up rather
+  than made mid-build.
+- **The tickets SSE stream is Kafka-only and global.** `RelayFeed` was
+  generalised into a per-topic feed; the tickets stream has no DB catch-up and
+  no dedupe, and one consumer's frames are filtered per caller on the way out,
+  so a board that misses a frame recovers by re-listing rather than by the
+  server remembering.
+- **`q` is ILIKE, not the tsvector the design named.** A ticket title is a
+  headline, not a document: substring beats stemming for `weather dedup`, and
+  the GIN index stays for a future ranked search.
+- **The router frees an agent only on its recorder's reply.** Any agent
+  message carrying `run_id` used to end the run's turn, so a ticket comment or
+  assignment posted mid-run marked the agent free and let a pending wake start
+  a second run of it. The tell is `trigger_message_id`: only the recorder sets
+  it. A `kind=text` tool post frees nobody; a `kind=system` failure notice
+  still does, and the `run.events` backstop still fires at the real terminal
+  state.
+- **The thread window always keeps the root card**, even when the last N
+  replies would push it out — the card is the ticket, and a thread window
+  without it is a conversation about nothing.
+- **The `<ticket>` block sits after the rules line, inside the untrusted
+  region**, so no attacker-controlled text precedes the sentence that says the
+  text below is data. The ticket rules are appended only when a ticket or a
+  queue is present: an agent summoned into a room with no tickets is told
+  nothing about them, and the plain-mention prompt is byte-for-byte design 19's.
+- **Both prompt rewrites are marker-gated and conservative.** Standup v2
+  replaces `relay-standup`'s prompt only while it is still the v1 text;
+  health-monitor's ticket instruction is appended only when the agent exists
+  and still carries the #ops sentence, under a savepoint so a concurrent
+  version write cannot take the migration down with it.
+- **The broker gates every path segment it builds from model text.** A ticket
+  key or a message id goes through a validator before it becomes a URL, so a
+  key of `../../agents` is an error string rather than a request. Its `list`
+  says when a page was too full to show the agent's whole queue, rather than
+  silently truncating it.
+- **The board mirrors the transition rule client-side** (`can_move`), retries
+  its first load, guards an in-flight move against a second drop, and asks for
+  a reason when a card lands in blocked — the one state whose value is the why.
+- **Chips rewrite plain prose only.** `OPS-12` becomes a link in ordinary
+  text and never inside code, links, images, autolinks or a URL, because a key
+  inside a fence is quoted text and a key inside an href is already a
+  destination.
+- **A ticket card in a room draws itself.** Relay renders `card.type ==
+  "ticket"` with key, state, priority and the assignee's face rather than
+  falling back to the plain-text body, so the channel shows live state.
+- **Run views expose `ticket_id`.** The column existed from T1 but no schema
+  carried it, so the run page could not link back to the ticket it was
+  summoned from.
+- **Facade tiers** (design-17): KEEP 9 ticket tools, GATE none (the channel
+  PATCH that carries `ticket_prefix` was already gated), EXCLUDE the SSE
+  stream → **73 default / 99 admin** tools.
+
+**Deferred.** The plan's "Deferred" list carries every low/medium review
+finding with its file and one sentence. Two are worth a decision rather than a
+shrug: the design-19 role ladder above (an `annotator`+ agent reaches
+`/api/tickets/*` without holding the grant, enforced only by the runner), and
+`services/web/src/api.ts` throwing `"<status>: <raw body>"`, which is why the
+budget refusal reads as `429: {"detail":"⏸️ paused …"}` instead of a sentence
+on every page in the product.
 
 ## Not done (deliberately)
 

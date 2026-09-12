@@ -317,6 +317,14 @@ Deltas from the design above, each the result of a review or the live run
   and `PATCH`+`DELETE /api/relay/channels/{id}`; EXCLUDED (never a tool) the
   never-ending SSE stream `GET /api/relay/channels/{id}/events`.
 
+- **Tickets (design [20](20-tickets-agent-work-tracker.md)) changed the router
+  and the prompt.** It added `relay_store.edit_message_card` (the only editable
+  thing in Relay, and the only one not mirrored to Discord), a thread shape for
+  `context_window` (root plus replies instead of the room page), the
+  `<ticket>` / `<your-tickets>` prompt blocks, and the `_freed_by` fix: an
+  agent's mid-run tool post no longer ends its turn — only the recorder's reply
+  (the one message with `trigger_message_id`) or a failure notice does.
+
 ## Not done (deliberately)
 
 - **Retiring `/api/conversations`.** The facade stays until the Relay UI has

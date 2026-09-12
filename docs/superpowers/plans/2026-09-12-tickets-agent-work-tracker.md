@@ -693,4 +693,29 @@ Board after round two: `open 1`, `review 1`, `done_24h 1`, `stale 0`,
   both passed on the rev-53 images and R1/R2 touch neither path.
 
 ## Handoff to Kyle
-(commands the loop could not run because the auto-mode classifier refused them, ready to paste)
+
+The loop hit no classifier refusal — the deploy and both redeploys ran through
+Terminal.app. What is left is decisions, not commands:
+
+- **`main` is 47 commits ahead of `origin/main`** and has been since before
+  Relay. The loop commits directly to `main` (Kyle's workflow) and never
+  pushes; Relay and Tickets both live only on this machine and on the NUC's
+  images until someone pushes.
+- **OPS-2 on the live board still carries the bare `pai` assignee.** It was
+  opened in round one, before R2 normalised bare names, so its assignee is the
+  string `pai` and summons nobody. R2 does not backfill; reassign it from
+  `/tickets/OPS-2` (assigning to `pai` now stores `agent:pai` and fires the
+  mention). It is also still open while OPS-3, its duplicate, is done.
+- **The screenshots are round one's** (`scratchpad/live/tickets-board-1280.png`,
+  `tickets-detail-1280.png`): the board they show predates OPS-3. Cosmetic —
+  re-shoot if either is going anywhere public.
+- **Two deferred items are security decisions, not cleanups** (both in
+  "Deferred" above, both recorded in design 20's AS BUILT): an agent at
+  `annotator` or above reaches `/api/relay/*` and `/api/tickets/*` server-side
+  without holding the grant — only the runner's `--allowedTools` stops it — and
+  `services/web/src/api.ts` surfaces raw JSON as error text, which is why the
+  budget 429 reads as `429: {"detail":…}` on every page in the product.
+- **The Discord mirror of a ticket card was never exercised.** No channel on
+  the NUC is bound to a bridge (no `connector-discord-api` secret is set), so
+  the card's plain-text body and the deliberate no-mirror on card edits are
+  tested but not live-proven.
