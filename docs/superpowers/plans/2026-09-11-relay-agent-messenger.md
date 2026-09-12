@@ -276,7 +276,7 @@ dispatch subagents, verify their evidence, commit, and update this file.
 
 ### Phase 6 — delight
 
-- [ ] **T11 `#standup` job, `#ops` alerts, Settings toggle.**
+- [x] **T11 `#standup` job, `#ops` alerts, Settings toggle.** (commit `a207942`; relay-post jobs + seeded relay-standup; review fixed: @all skips system agents, relay tick guarded; health-monitor #ops prompt edit is a live step in T12)
   The standup summons must NOT be authored by an agent: an agent author's
   `@all` is stripped at post time (T2/T7), and agent posts carry a hop, so
   the fan-out would never happen. Instead add a scheduler-native "relay
@@ -289,10 +289,13 @@ dispatch subagents, verify their evidence, commit, and update this file.
   `standup`, body "@all — what did you do in the last 24h? Two lines, link
   anything you touched.".
   health-monitor: its alert prompt gains "also post the alert to Relay
-  `#ops` with the run linked" (edit through the design-15 change log via the
-  API, not files). Settings page: toggle for `relay_default_grant` and a
-  read-only view of the four guard values. Tests: seeding idempotent; the
-  Settings API round-trips the toggle.
+  `#ops` with the run linked" — this is LIVE DATA (design-15 change log via
+  the API on the NUC), so it moves to T12's live steps. Settings page: there
+  is no runtime settings store (T5), so show a read-only "Relay" section
+  (default grant on/off, the four guard values, from `/api/relay/stats`
+  `settings`) with a note that they are chart/env values; no fake toggle.
+  Tests: seeding idempotent; the scheduler fires a relay-post job as a
+  non-agent author and the router fans it out.
 
 ### Phase 7 — ship it
 
@@ -344,6 +347,8 @@ dispatch subagents, verify their evidence, commit, and update this file.
 ### Deferred
 (low/medium review findings not fixed; each with file:line and one sentence)
 - T1 (closed by T5): the one-shot backfills are serialized by init_db's Postgres advisory lock.
+- T11: Scheduler.tick iterates jobs without ORDER BY; fire order is insertion order in practice.
+- T11: no UI to create a relay-post job (API/seed only).
 - T8: SSE backoff reconnect only exercised to its first retry in Playwright (mock stream ends immediately).
 - T8/T9: groups have no title field in the API; the UI synthesises a member list.
 - T7: sdk/regenerate.py picks whatever `ruff` is first on PATH; run it with the venv's bin first or via docker, else 142 files drift.
