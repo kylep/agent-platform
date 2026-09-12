@@ -406,7 +406,7 @@ dispatch subagents, verify their evidence, commit, and update this file.
 ### Repairs
 (added by the loop when the definition of done fails)
 
-- [ ] **R1 A system agent's run token must carry its run, so its ticket writes are not refused.**
+- [x] **R1 A system agent's run token must carry its run, so its ticket writes are not refused.** (commit `486c0d8`; per-run annotator key via `_invoke_token(run, label="system")`, runless `system:*` keys swept once (launcher-written rows only); redeployed; round two: health-monitor opened OPS-3 at hop 1, no 403)
   Live: `agent:health-monitor` got `403 this token has no run to act from` on
   four `tickets action=create` calls. `joblauncher.py` `_system_token(agent)`
   mints ONE annotator ApiKey per system agent with `run_id` NULL (cached for the
@@ -425,7 +425,7 @@ dispatch subagents, verify their evidence, commit, and update this file.
   and re-run T10 scenario 2 (`scratchpad/t20-verify.py` step2) — record the
   result under "Live verification".
 
-- [ ] **R2 A bare agent name as assignee must resolve to `agent:<name>` or be refused.**
+- [x] **R2 A bare agent name as assignee must resolve to `agent:<name>` or be refused.** (commit `486c0d8`; round two: bare `pai` normalised to `agent:pai` and pai was summoned; `nobody-here` → 400 with the syntax)
   Live: pai assigned OPS-2 to `pai` (no prefix); `_check_assignee` validates only
   prefixed participants, so the ticket shows an assignee that summons nobody.
   Fix in `ticket_store` (one place): normalise an unprefixed assignee that names
@@ -613,16 +613,84 @@ budget-refused, no agent wrote into a room it is not in.
   mention, both italic system move rows, and news's own reply — one page that
   is both the record and the room.
 
+
+### Round two — 2026-09-12, after R1/R2 (helm rev 53 + a backend/broker redeploy)
+
+Commit `486c0d8` ("system agents act from per-run tokens; a bare assignee is an
+agent or refused") was built at 18:04:09–18:05:35 local, imported into k3s
+containerd, and rolled out over the rev-53 release: `ap-api`, `ap-dispatcher`,
+`ap-recorder`, `ap-mcp-broker`, then `ap-mcp-facade` — every
+`kubectl rollout status` returned "successfully rolled out", `### DONE-REDEPLOY`
+/ `EXIT=0` at 18:06, and the relay router rejoined its group (generation 7) with
+its topics assigned. Same forward, same script.
+
+**(a) The runless `system:*` keys are gone (PASS).** `GET /api/api-keys` returns
+2374 rows, of which **5 are live** — `app:news`, `app:running`,
+`app:stockmarket`, `kyle-claude-code-mcp`, `wh-k-test2`, i.e. app and human
+credentials, none of them a system key. Of the **25** rows named
+`system:<agent>`, **0 are live**: the three that were still live before the
+redeploy were revoked in one stroke at **22:06:03.114620Z** — the migration's
+single timestamp — `system:change-summarizer`, `system:health-monitor` (minted
+21:20:46, the very key that 403'd in round one) and `system:run-summarizer`
+(minted 22:00:00). Every other `system:*` row carries an older `revoked_at`
+from the dispatcher's own re-mint. `ApiKeyView` does not expose `run_id`, so
+the check is by name and liveness — and by name, nothing runless survives.
+(No token or prefix value is reproduced here.)
+
+**(b) Scenario 2 re-run (PASS).** Same message in `#ops`, 22:07:04Z: "@health-monitor
+open a ticket in #ops for the noisiest failing agent this week …, assign it to
+pai, and put your reasoning in the ticket's thread." This time health-monitor
+did it itself, in **15 seconds**, with no 403 anywhere in the run.
+
+| when (UTC) | actor | event / message | hop | run id | outcome |
+| --- | --- | --- | --- | --- | --- |
+| 22:07:04.0 | user:admin | the summons in `#ops` | 0 | — | mentions `health-monitor` |
+| 22:07:19.393 | agent:health-monitor | `🎫 OPS-3 · Noisiest failing agent this week: health-monitor (failure streak) — opened by health-monitor` | **1** | `3de5f74aa2854a259a4cd2c8c4ff41ce` | **OPS-3** created, `reporter = agent:health-monitor` — the R1 fix, live |
+| 22:07:25.668 | agent:health-monitor | `@pai you've been assigned OPS-3` + event `assigned` `None → agent:pai` | 1 | `3de5f74a…` | the tool was given the bare `pai`; R2 normalised it to **`agent:pai`** and the mention actually fired |
+| 22:07:30.886 | agent:health-monitor | event `commented` — "Reasoning (health check run just now …): - Noisiest failing agent this week: hea…" | 1 | `3de5f74a…` | reasoning in the ticket thread, as asked |
+| 22:07:34.939 | agent:health-monitor | "Done. Created **OPS-3** … assigned to pai, with fu…" | 1 | `3de5f74a…` | reported back in the summons thread |
+| 22:07:35 | agent:pai | `thinking` on `GET /api/tickets/OPS-3` | — | `5da8f39000ed45d285a55bea0cffa968` | **the assignment summoned pai** (+10 s) |
+| 22:07:41.456 | agent:pai | event `commented` — "Closing as a duplicate of OPS-2 (same investigation, same reasoning — health-monitor failure_streak=8 at 19:00:03Z, corr…" | **2** | `5da8f390…` | |
+| 22:07:43.608 | agent:pai | event `moved` `open → done`, reason "Duplicate of OPS-2" | 2 | `5da8f390…` | final state **done**, `assignee = agent:pai` |
+
+Round-one's OPS-2 is still open, so pai reading OPS-3 as its duplicate is the
+board working rather than a miss. Relay stats over the scenario:
+`invocations_24h` **24 → 26 (+2)**, `suppressed_24h` still 0; the only movement
+in `suppressed_by_reason` was `coalesced` 4 → 6, which is the guard
+de-duplicating pai's two wakes (a second pai run, `ca0bbc78…`, was queued off
+the comment), not a refusal.
+
+**(c) A bare name is an agent or it is refused (PASS).** As admin, against
+OPS-3:
+
+| request | status | body / result |
+| --- | --- | --- |
+| `POST /api/tickets/OPS-3/assign {"to": "nobody-here"}` | **400** | `{"detail":"assignee must be agent:<name>, user:<name> or discord:<id>"}` |
+| `POST /api/tickets/OPS-3/assign {"to": "agent:news", "notify": false}` | **200** | `assignee = agent:news` |
+| `POST /api/tickets/OPS-3/assign {"to": "news", "notify": false}` | **200** | `assignee = agent:news` — a bare name that IS an enabled agent is normalised, not stored raw |
+
+Board after round two: `open 1`, `review 1`, `done_24h 1`, `stale 0`,
+`orphaned 0`; create budgets show `health-monitor: used 1, left 19` beside
+`pai: used 1, left 19`. Relay: `invocations_24h 27`, `messages_24h 50`,
+`agent_messages_24h 34`, `suppressed_24h 0`, budget 13/120 for the hour.
+
 ### What did not happen
 
-- `agent:health-monitor` never created a ticket itself: four
+- ROUND ONE ONLY, fixed by R1 (`486c0d8`) and re-verified above:
+  `agent:health-monitor` never created a ticket itself — four
   `tickets action=create` calls were refused `403 this token has no run to act
   from` (defect 1 above). The scenario was salvaged by the agent delegating to
-  `@pai`, which is behaviour worth keeping but is not the thing under test.
-- The `assignee: "pai"` on OPS-2 summoned nobody (defect 2 above); polled for
+  `@pai`, which is behaviour worth keeping but was not the thing under test.
+- ROUND ONE ONLY, fixed by R2 (`486c0d8`) and re-verified above: the
+  `assignee: "pai"` on OPS-2 summoned nobody (defect 2 above); polled for
   3 minutes with no `thinking` and no pai activity from the assignment.
-- No SSE/UI-push path was exercised beyond the two screenshots; the board was
-  read through the REST endpoints.
+- OPS-2 was left open and unsummoned — it predates R2, so its assignee is
+  still the bare string `pai`; round two opened OPS-3 rather than repairing it.
+- No SSE/UI-push path was exercised in either round beyond the two
+  screenshots; the board was read through the REST endpoints.
+- The screenshots are round one's: the board they show does not include OPS-3.
+- Scenarios 1 and 3 were not re-run or re-screenshotted after the redeploy;
+  both passed on the rev-53 images and R1/R2 touch neither path.
 
 ## Handoff to Kyle
 (commands the loop could not run because the auto-mode classifier refused them, ready to paste)
