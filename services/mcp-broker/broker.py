@@ -362,10 +362,12 @@ async def agents_grant(action: str, name: str, field: str | None = None,
 # tool that does not promote a run's token (agentspec.PLATFORM_MCP_RELAY_TOOLS)
 # — it reaches /api/relay/* only, and membership bounds it from there.
 RELAY_ACTIONS = ("post", "read", "channels", "dm", "react", "search")
-# A channel id is uuid4 hex. Anything else the agent typed is a room NAME,
-# because a name is what everyone says out loud ("#general") and what the room
-# is called in every message the agent has read.
-_CHANNEL_ID_RE = re.compile(r"[0-9a-f]{32}")
+# Every platform id is uuid4 hex — a channel's, a message's. For a channel it
+# decides a reading: anything else the agent typed is a room NAME, because a
+# name is what everyone says out loud ("#general") and what the room is called
+# in every message the agent has read. For a message id there is no second
+# reading, and the id goes into a URL path, so it is a gate.
+_HEX_ID_RE = re.compile(r"[0-9a-f]{32}")
 
 
 async def _relay_rooms() -> tuple[list, str | None]:
@@ -411,7 +413,7 @@ async def _relay_channel(channel: str | None) -> tuple[str, str | None]:
     raw = (channel or "").strip()
     if not raw:
         return "", "error: this action needs a channel (a #name or a channel id)"
-    if _CHANNEL_ID_RE.fullmatch(raw):
+    if _HEX_ID_RE.fullmatch(raw):
         return raw, None
     return await _relay_by_name(raw)
 
@@ -451,7 +453,13 @@ async def relay(action: str, channel: str | None = None, body: str | None = None
             return "error: action='react' requires message_id"
         if not emoji:
             return "error: action='react' requires emoji"
-        return await _call("POST", f"/api/relay/messages/{message_id}/reactions",
+        if not _HEX_ID_RE.fullmatch(message_id.strip()):
+            # The id is interpolated into a path and httpx resolves `..` before
+            # the request leaves, so a "message id" that is really a traversal
+            # would spend the caller's own bearer on an endpoint this tool does
+            # not reach. Refused here, where the shape is known exactly.
+            return "error: message_id must be a message id (32 hex characters)"
+        return await _call("POST", f"/api/relay/messages/{message_id.strip()}/reactions",
                            json={"emoji": emoji})
     if action == "search":
         if not q:
@@ -491,7 +499,7 @@ async def relay(action: str, channel: str | None = None, body: str | None = None
     if error:
         return error
     out = await act(channel_id)
-    if out.startswith("error: 404") and _CHANNEL_ID_RE.fullmatch(raw):
+    if out.startswith("error: 404") and _HEX_ID_RE.fullmatch(raw):
         # It parsed as an id and there is no such room — but a channel NAME may
         # be 32 hex characters (it is a legal slug), so the name is the second
         # reading of what the agent typed, not a retry of the same one.
@@ -499,6 +507,238 @@ async def relay(action: str, channel: str | None = None, body: str | None = None
         if name_error is None:
             return await act(named)
     return out
+
+
+# --- tickets (docs/design/20) ------------------------------------------------
+# Relay's sibling: the board an agent's work is tracked on. A CORE tool for the
+# same reason — the reporter, the actor and a comment's author are the forwarded
+# bearer, never an argument — and it rides the same `relay` role, which reaches
+# `/api/tickets/*` as the agent the token names.
+TICKET_ACTIONS = ("create", "get", "list", "update", "move", "assign", "comment",
+                  "search")
+TICKET_STATES = ("open", "in_progress", "blocked", "review", "done", "cancelled")
+TICKET_PRIORITIES = ("p0", "p1", "p2", "p3")
+TICKET_CLOSED = ("done", "cancelled")
+# `settings.tickets_thread_context_messages`, hard-coded: the broker holds no
+# settings, and asking the API for its own configuration would be a round trip
+# per read to learn a number that changes about never.
+TICKET_THREAD_MESSAGES = 40
+# The board's own page cap (`api/tickets.LIST_LIMIT`).
+TICKET_LIST_LIMIT = 500
+# `OPS-12` as a model types it. An id has no dash, so the two never collide.
+_TICKET_KEY_RE = re.compile(r"[A-Za-z][A-Za-z0-9]{1,5}-\d+")
+# The closed charset a ticket reference has to fit before it may become a URL
+# path. Keys and ids are letters, digits and a dash and nothing else, so this
+# is exact rather than a blocklist.
+_TICKET_REF_RE = re.compile(r"[A-Za-z0-9-]{1,64}")
+# What a model wraps an identifier in: a code span, or quotes. Stripped rather
+# than refused, because a 404 for punctuation teaches an agent nothing about
+# what it actually got wrong.
+_WRAPPERS = "`'\"“”‘’ "
+
+
+def _ticket_ref(key: str | None) -> tuple[str, str | None]:
+    """A ticket as the agent named it — a key or an id — as (ref, error).
+
+    Two jobs. It reads what the model meant: keys are upper-case by definition
+    and `ops-12` in backticks is what a model writes mid-sentence. And it is the
+    GATE on everything this tool interpolates into `/api/tickets/{...}`: httpx
+    resolves `..` before a request leaves, so `X/../../whoami` would be a GET of
+    another endpoint entirely, made with the caller's own bearer — the tool's
+    confinement to `/api/tickets/*` is this fullmatch and nothing else."""
+    raw = (key or "").strip(_WRAPPERS)
+    ref = raw.upper() if _TICKET_KEY_RE.fullmatch(raw) else raw
+    if ref and not _TICKET_REF_RE.fullmatch(ref):
+        return "", ("error: invalid ticket key or id — a key looks like OPS-12, "
+                    "an id is the ticket's own id")
+    return ref, None
+
+
+def _is_none(value: str | None) -> bool:
+    """`none` as the model says it: the sentinel that clears a field, since a
+    tool argument that was simply left out means "leave it alone"."""
+    return (value or "").strip(_WRAPPERS).lower() == "none"
+
+
+def _given(**fields) -> dict:
+    """Only the fields the caller actually named. Two reasons, both the API's:
+    a create schema forbids a null where it has a default, and a patch tells
+    "clear it" from "leave it alone" by which keys arrive."""
+    return {k: v for k, v in fields.items() if v is not None}
+
+
+def _ticket_line(t: dict) -> str:
+    return "  ".join([t.get("key") or "?", str(t.get("state") or ""),
+                      str(t.get("priority") or ""),
+                      t.get("assignee") or "unassigned",
+                      (t.get("title") or "").strip()])
+
+
+def _ticket_lines(out: str, *, drop_closed: bool, limit: int) -> str:
+    """A board as lines rather than as rows of JSON: a page of `TicketView`s
+    carries faces and six timestamps the agent has no use for, and one line per
+    ticket is what it can actually read through.
+
+    The two notes are about the seam between the API's page and this filter.
+    The API takes ONE state, so "neither done nor cancelled" is filtered here,
+    AFTER the cap — which means a project whose recently-closed tickets fill the
+    page would otherwise answer "no tickets" while open work sits behind them.
+    Silence there is the dangerous answer, so both a full page and a page that
+    the filter emptied say so, and say which argument fixes it."""
+    try:
+        rows = _json.loads(out)
+    except ValueError:
+        return out          # an `error:` string, or something we cannot render
+    if not isinstance(rows, list):
+        return out
+    page = len(rows)
+    if drop_closed:
+        rows = [t for t in rows if t.get("state") not in TICKET_CLOSED]
+    if not rows:
+        if not page:
+            return "no tickets"
+        return (f"only closed tickets in the first {page} — pass state=done or "
+                f"state=cancelled to see them, or name a channel to narrow it")
+    lines = [_ticket_line(t) for t in rows]
+    if page >= limit:
+        lines.append("more tickets than shown — pass state=open (or in_progress/"
+                     "blocked/review) to see one state fully")
+    return "\n".join(lines)
+
+
+async def _ticket_detail(key: str) -> str:
+    """One ticket with everything around it in a single answer: the row, its
+    history, the discussion and the runs it produced. The thread is Relay's to
+    serve — the API deliberately hands back a `root_message_id` instead of
+    duplicating the messages — so reading a ticket is two calls here rather than
+    two tool calls the agent has to know to make."""
+    out = await _call("GET", f"/api/tickets/{key}")
+    try:
+        detail = _json.loads(out)
+    except ValueError:
+        return out
+    root = detail.get("root_message_id")
+    channel_id = (detail.get("ticket") or {}).get("channel_id")
+    thread: object = []
+    if root and channel_id:
+        raw = await _call("GET", f"/api/relay/channels/{channel_id}/messages",
+                          {"thread": root, "limit": TICKET_THREAD_MESSAGES})
+        try:
+            thread = _json.loads(raw)
+        except ValueError:
+            # The ticket is the answer and the thread is context: a room that
+            # refuses is reported in place rather than losing the whole read.
+            thread = raw
+    return _json.dumps({"ticket": detail.get("ticket"),
+                        "events": detail.get("events") or [], "thread": thread,
+                        "runs": detail.get("runs") or [],
+                        "thinking": detail.get("thinking")})
+
+
+@mcp.tool
+async def tickets(action: str, key: str | None = None, channel: str | None = None,
+                  title: str | None = None, body: str | None = None,
+                  state: str | None = None, priority: str | None = None,
+                  assignee: str | None = None, labels: list[str] | None = None,
+                  parent: str | None = None, due: str | None = None,
+                  to: str | None = None, reason: str | None = None,
+                  notify: bool | None = None, q: str | None = None,
+                  limit: int = 50) -> str:
+    """Tickets — the board your work is tracked on; you act as yourself, from
+    your token. Actions: create · get · list · update · move · assign · comment
+    · search. `key` is `OPS-12` or a ticket id, `channel` a `#name` or an id.
+    Move a ticket when you START it (in_progress) and when you FINISH
+    (review/done); if you cannot do it, say why with `comment` and move it to
+    `blocked` with a reason. Never close a ticket whose work you did not do.
+    `assign` is a hand-off that WAKES the assignee (a mention, one hop) — to ask
+    a question, `comment` instead; `to='none'` unassigns.
+    `list` is yours and unfinished by default: pass `state` to see closed
+    tickets, `assignee='any'` for everyone's."""
+    if action not in TICKET_ACTIONS:
+        return "error: action must be one of " + "|".join(TICKET_ACTIONS)
+    # Both answered here rather than read back off a 400: the vocabulary is the
+    # board's and does not change, and a model that guessed `wip` needs the list
+    # of real states, not the API's opinion of its request.
+    if state and state not in TICKET_STATES:
+        return "error: state must be one of " + "|".join(TICKET_STATES)
+    if priority and priority not in TICKET_PRIORITIES:
+        return "error: priority must be one of " + "|".join(TICKET_PRIORITIES)
+    ref, error = _ticket_ref(key)
+    if error:
+        return error
+    parent_ref, error = _ticket_ref(None if _is_none(parent) else parent)
+    if error:
+        return error
+    if action in ("get", "update", "move", "assign", "comment") and not ref:
+        return (f"error: action='{action}' requires key, the ticket's key "
+                f"(e.g. OPS-12) or its id")
+
+    if action == "create":
+        if not title:
+            return "error: action='create' requires title, one line saying what the work is"
+        channel_id, error = await _relay_channel(channel)
+        if error:
+            return error
+        return await _call("POST", "/api/tickets", json={
+            "channel": channel_id, "title": title,
+            **_given(body=body, assignee=assignee, priority=priority, labels=labels,
+                     parent=parent_ref or None,
+                     due_at=None if _is_none(due) else due, notify=notify)})
+    if action == "get":
+        return await _ticket_detail(ref)
+    if action in ("list", "search"):
+        if action == "search" and not q:
+            return "error: action='search' requires q, the text to look for"
+        channel_id, error = await _relay_channel(channel) if channel else ("", None)
+        if error:
+            return error
+        page = _clamp(limit, TICKET_LIST_LIMIT)
+        if action == "search":
+            return _ticket_lines(await _call("GET", "/api/tickets", {
+                "q": q, "channel": channel_id or None, "limit": page}),
+                drop_closed=False, limit=page)
+        # An agent asks for its own queue far more often than for the board, so
+        # that is what a bare `list` answers; naming an assignee (`any` for
+        # everybody) is how it asks the wider question.
+        mine = assignee is None
+        out = await _call("GET", "/api/tickets", {
+            "channel": channel_id or None, "state": state or None,
+            "assignee": None if mine or assignee == "any" else assignee,
+            "mine": "true" if mine else None, "limit": page})
+        # Closed rows are dropped by `_ticket_lines` rather than asked for: the
+        # API filters by ONE state, and "neither done nor cancelled" is two.
+        return _ticket_lines(out, drop_closed=not state, limit=page)
+    if action == "update":
+        fields = _given(title=title, body=body, priority=priority, labels=labels,
+                        parent=parent_ref or None,
+                        due_at=None if _is_none(due) else due, reason=reason)
+        # `none` clears: `_given` drops what the caller did not name, so the
+        # only way to send an explicit null is to put it back afterwards.
+        for name, sentinel in (("parent", parent), ("due_at", due)):
+            if _is_none(sentinel):
+                fields[name] = None
+        if not set(fields) - {"reason"}:
+            return ("error: action='update' needs a field to change: title, body, "
+                    "priority, labels, parent or due (`none` clears parent or due)")
+        return await _call("PATCH", f"/api/tickets/{ref}", json=fields)
+    if action == "move":
+        if not state:
+            return "error: action='move' requires state: " + "|".join(TICKET_STATES)
+        if state == "blocked" and not reason:
+            return ("error: moving to blocked needs a reason — say what is "
+                    "blocking it, so somebody can unblock it")
+        return await _call("POST", f"/api/tickets/{ref}/move",
+                           json={"state": state, **_given(reason=reason)})
+    if action == "assign":
+        if not to:
+            return ("error: action='assign' requires to, a participant like "
+                    "agent:news or user:kyle (or 'none' to unassign)")
+        return await _call("POST", f"/api/tickets/{ref}/assign",
+                           json={"to": None if _is_none(to) else to,
+                                 **_given(reason=reason, notify=notify)})
+    if not body:
+        return "error: action='comment' requires body, the text to say in the thread"
+    return await _call("POST", f"/api/tickets/{ref}/comments", json={"body": body})
 
 
 def _scan_custom_tools() -> dict[str, dict]:

@@ -171,10 +171,23 @@ def test_dm_surfaces_the_apis_refusal_rather_than_posting(calls):
     assert out.startswith("error:") and "unknown agent" in out
 
 
+MESSAGE = "dd" * 16
+
+
 def test_react(calls):
-    relay(action="react", message_id="m1", emoji="🎉")
-    assert calls == [("POST", "/api/relay/messages/m1/reactions", None,
+    relay(action="react", message_id=MESSAGE, emoji="🎉")
+    assert calls == [("POST", f"/api/relay/messages/{MESSAGE}/reactions", None,
                       {"emoji": "🎉"})]
+
+
+@pytest.mark.parametrize("given", ["m1", "x/../../whoami", "../runs", MESSAGE.upper()])
+def test_a_reaction_target_that_is_not_a_message_id_is_refused(calls, given):
+    """The id is interpolated into the path and httpx normalises `..` before
+    the request leaves, so anything that is not an id is refused here rather
+    than spent on whatever endpoint it turned out to name."""
+    out = relay(action="react", message_id=given, emoji="👍")
+    assert out == "error: message_id must be a message id (32 hex characters)"
+    assert calls == []
 
 
 def test_search_scopes_to_a_channel_when_given(calls):
