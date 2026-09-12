@@ -10,18 +10,18 @@ The surface is CURATED into three tiers (curation 2026-08-24; see
 
 - **KEEP** — the day-to-day management surface (observe/operate runs,
   conversations, jobs, schedules, agents, pending changes, memory, metrics,
-  health, reports, registries, apps, help, and the relay rooms — read a
-  channel, post in it, react, DM, search, presence/stats). Always tools. 63 of
-  them.
+  health, reports, registries, apps, help, the relay rooms — read a channel,
+  post in it, react, DM, search, presence/stats — and the ticket board: file,
+  read, edit, move, assign, comment, stats). Always tools. 73 of them.
 - **GATE** — authorized-but-sharp: the credential/secret plane, admin audit
   reads, destructive/bulk ops, and the relay channel lifecycle (creating,
   renaming and archiving rooms). Offered ONLY when `AP_MCP_ADMIN_TOOLS` is
-  truthy (`admin_tools_enabled()`). 24 of them. The role ladder authorizes
+  truthy (`admin_tools_enabled()`). 26 of them. The role ladder authorizes
   every call regardless — the flag controls the MENU, not the kitchen.
 - **EXCLUDE** — UI form-feeders, reviewer digests the client can compute,
   git-edit conveniences redundant with having the repo, and system-agent
-  endpoints. Never tools. 17 of them, plus the 8 session/internal/streaming
-  operations below (verify_secret makes the graded universe 104 operations).
+  endpoints. Never tools. 18 of them, plus the 9 session/internal/streaming
+  operations below — 126 graded operations in all.
 
 It is deliberately NOT the mcp-broker. The broker authenticates in-cluster run
 identities and scopes tools to an agent's grants (design/13, design/15); this
@@ -78,6 +78,8 @@ EXCLUDED_PATHS = (
     # never ends. As a tool it would be a call that never returns, which is the
     # one shape MCP has no way to represent.
     ("*", r"^/api/relay/channels/\{channel_id\}/events$"),
+    # The ticket board's live feed (design/20) is the same never-ending shape.
+    ("*", r"^/api/tickets/events$"),
 )
 
 # Curated out (curation 2026-08-24): UI plumbing, reviewer digests the client
@@ -159,7 +161,7 @@ _TRUTHY = ("1", "true", "yes", "on")
 
 def admin_tools_enabled() -> bool:
     """Whether the sharp/admin tier is OFFERED (default off — a fresh facade
-    serves the 63-tool KEEP surface). Offering-only: the API's role ladder
+    serves the 73-tool KEEP surface). Offering-only: the API's role ladder
     authorizes every call regardless of this flag."""
     return os.environ.get("AP_MCP_ADMIN_TOOLS", "").strip().lower() in _TRUTHY
 

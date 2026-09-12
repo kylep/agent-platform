@@ -111,6 +111,9 @@ export type RunSummary = {
   created_at: string;
   summary: string | null;
   tags: string[];
+  // The ticket this run was summoned from (docs/design/20); null for every
+  // other trigger.
+  ticket_id?: string | null;
 };
 
 export type RunDetailData = RunSummary & {
@@ -129,10 +132,6 @@ export type RunDetailData = RunSummary & {
   initiated_by?: string | null;
   secrets_granted: string[];
   permission_denials?: Array<Record<string, unknown>>;
-  // The ticket this run was summoned from (docs/design/20). Optional because
-  // the runs table has the column but `RunDetail` does not serve it yet: the
-  // run page shows the link the day the API starts answering with one.
-  ticket_id?: string | null;
 };
 
 export type DlqEntry = {

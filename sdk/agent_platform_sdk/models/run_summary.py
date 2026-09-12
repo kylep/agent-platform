@@ -7,6 +7,8 @@ from attrs import define as _attrs_define
 from attrs import field as _attrs_field
 from typing_extensions import Self
 
+from ..types import UNSET, Unset
+
 T = TypeVar("T", bound="RunSummary")
 
 
@@ -21,6 +23,7 @@ class RunSummary:
         summary (None | str):
         tags (list[str]):
         trigger (str):
+        ticket_id (None | str | Unset):
     """
 
     agent: str
@@ -30,6 +33,7 @@ class RunSummary:
     summary: None | str
     tags: list[str]
     trigger: str
+    ticket_id: None | str | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -49,6 +53,12 @@ class RunSummary:
 
         trigger = self.trigger
 
+        ticket_id: None | str | Unset
+        if isinstance(self.ticket_id, Unset):
+            ticket_id = UNSET
+        else:
+            ticket_id = self.ticket_id
+
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
@@ -62,6 +72,8 @@ class RunSummary:
                 "trigger": trigger,
             }
         )
+        if ticket_id is not UNSET:
+            field_dict["ticket_id"] = ticket_id
 
         return field_dict
 
@@ -92,6 +104,15 @@ class RunSummary:
 
         trigger = d.pop("trigger")
 
+        def _parse_ticket_id(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        ticket_id = _parse_ticket_id(d.pop("ticket_id", UNSET))
+
         run_summary = cls(
             agent=agent,
             created_at=created_at,
@@ -100,6 +121,7 @@ class RunSummary:
             summary=summary,
             tags=tags,
             trigger=trigger,
+            ticket_id=ticket_id,
         )
 
         run_summary.additional_properties = d

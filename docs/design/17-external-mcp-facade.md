@@ -94,6 +94,30 @@ Totals after Relay: graded universe **104** operations — KEEP **63**, GATE
 **24**, EXCLUDE **17**. Default surface: **63 tools**; with
 `AP_MCP_ADMIN_TOOLS=1`: **87 tools**.
 
+## Curation: Tickets (design-20, 2026-09)
+
+Tickets' 10 `/api/tickets*` operations were graded the same way:
+
+- **KEEP (9)** — the whole board: list and read a ticket, file one, edit it,
+  move it between columns, assign it, comment on it, plus the `stats` and
+  `projects` rollups. A ticket is how work is asked for, so an MCP client that
+  cannot file or move one is missing the point of the board.
+- **GATE (0)** — nothing new. A ticket lives in a Relay channel, and the
+  channel lifecycle (create/rename/archive) was already gated by Relay.
+  `assign` and `create`-with-assignee summon an agent run by default
+  (`notify`), which an operator-role key can reach for every project; that
+  stays KEEP rather than GATE because the summons is an ordinary Relay
+  mention bound by the same per-channel and global invocation budgets as a
+  posted `@name` — the facade adds no way around them.
+- **EXCLUDE (1)** — `GET /api/tickets/events`, the board's SSE feed, for the
+  same reason as relay's: a stream that never ends cannot be a tool call.
+
+Totals after Tickets, counted from a fresh spec: **126** graded operations —
+KEEP **73**, GATE **26**, EXCLUDE **27** (18 curated out, 9 session/internal/
+streaming). Default surface: **73 tools**; with `AP_MCP_ADMIN_TOOLS=1`: **99
+tools**. These per-tier figures are computed from the OpenAPI document and the
+rule tuples, so they supersede the hand-counts in the passes above.
+
 ## Explicitly not now
 
 Write-scoping beyond the role ladder (a reader key already gets 403s from

@@ -43,6 +43,7 @@ class RunDetail:
         tool_calls (int):
         trigger (str):
         initiated_by (None | str | Unset):
+        ticket_id (None | str | Unset):
     """
 
     agent: str
@@ -66,6 +67,7 @@ class RunDetail:
     tool_calls: int
     trigger: str
     initiated_by: None | str | Unset = UNSET
+    ticket_id: None | str | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -125,6 +127,12 @@ class RunDetail:
         else:
             initiated_by = self.initiated_by
 
+        ticket_id: None | str | Unset
+        if isinstance(self.ticket_id, Unset):
+            ticket_id = UNSET
+        else:
+            ticket_id = self.ticket_id
+
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
@@ -153,6 +161,8 @@ class RunDetail:
         )
         if initiated_by is not UNSET:
             field_dict["initiated_by"] = initiated_by
+        if ticket_id is not UNSET:
+            field_dict["ticket_id"] = ticket_id
 
         return field_dict
 
@@ -254,6 +264,15 @@ class RunDetail:
 
         initiated_by = _parse_initiated_by(d.pop("initiated_by", UNSET))
 
+        def _parse_ticket_id(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        ticket_id = _parse_ticket_id(d.pop("ticket_id", UNSET))
+
         run_detail = cls(
             agent=agent,
             created_at=created_at,
@@ -276,6 +295,7 @@ class RunDetail:
             tool_calls=tool_calls,
             trigger=trigger,
             initiated_by=initiated_by,
+            ticket_id=ticket_id,
         )
 
         run_detail.additional_properties = d

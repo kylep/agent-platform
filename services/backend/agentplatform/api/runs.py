@@ -49,7 +49,8 @@ class RunAgentDef(BaseModel):
 def _summary(r: Run) -> dict:
     return {"id": r.id, "agent": r.agent, "state": r.state, "trigger": r.trigger,
             "created_at": r.created_at.isoformat() if r.created_at else None,
-            "summary": r.summary, "tags": r.tags or []}
+            "summary": r.summary, "tags": r.tags or [],
+            "ticket_id": r.ticket_id}
 
 @router.post("/api/runs", response_model=S.RunAccepted)
 async def create_run(request: Request, body: RunIn,

@@ -244,6 +244,9 @@ class RunSummary(BaseModel):
     created_at: str | None
     summary: str | None
     tags: list[str]
+    # The ticket this run was summoned from (docs/design/20), so a run always
+    # points back at what asked for it. Null for every other trigger.
+    ticket_id: str | None = None
 
 
 class RunDetail(RunSummary):
