@@ -13,7 +13,8 @@ from sqlalchemy import select, text
 from agentplatform.api import relay as relay_api
 from agentplatform.api.tickets import STREAM
 from agentplatform.db import (AgentDef, Conversation, RelayMessage,
-                              RelayParticipant, Run, RunState, Ticket, utcnow)
+                              RelayParticipant, Run, RunState, Ticket,
+                              TicketEvent, utcnow)
 from agentplatform.events import TOPIC_TICKETS_EVENTS
 from agentplatform.tickets import BUDGET_PREFIX
 
@@ -203,6 +204,64 @@ async def test_stats_count_the_board(admin_client, sf, seed_agent, agent_store):
     assert stats["budget"]["creates_per_hour"] == 20
 
 
+async def test_a_bare_assignee_is_an_agent_or_a_400(admin_client, seed_agent,
+                                                    agent_store):
+    """What pai actually did to OPS-2: assigned it to `pai`. Stored as typed,
+    the board shows an assignee that summons nobody — so a bare name that is an
+    agent is one, and a bare name that is not is refused with the shapes that
+    are allowed."""
+    await _seed(seed_agent, agent_store, "news")
+    t = await _open(admin_client)
+    r = await admin_client.post(f"/api/tickets/{t['key']}/assign", json={"to": "news"})
+    assert r.status_code == 200, r.text
+    assert r.json()["assignee"] == "agent:news"
+
+    r = await admin_client.post(f"/api/tickets/{t['key']}/assign", json={"to": "kyle"})
+    assert r.status_code == 400, r.text
+    assert "agent:<name>" in r.json()["detail"]
+    # A create carries the same rule, and a refused create files nothing.
+    r = await admin_client.post("/api/tickets", json={"channel": "#general",
+                                                      "title": "x", "assignee": "kyle"})
+    assert r.status_code == 400, r.text
+    assert (await admin_client.post("/api/tickets",
+                                    json={"channel": "#general", "title": "y",
+                                          "assignee": "news"})).json()["assignee"] \
+        == "agent:news"
+
+
+async def test_a_channel_can_be_named_without_its_hash(admin_client):
+    """`ops` is what a model types, and the tool already accepts it — the API
+    refusing it made the same word mean two things depending on the door."""
+    r = await admin_client.post("/api/tickets", json={"channel": "ops", "title": "x"})
+    assert r.status_code == 201, r.text
+    assert r.json()["key"] == "OPS-1"
+    assert (await admin_client.get("/api/tickets", params={"channel": "ops"})).json()
+    r = await admin_client.post("/api/tickets", json={"channel": "nowhere", "title": "x"})
+    assert r.status_code == 404, r.text
+
+
+async def test_a_name_that_looks_like_an_id_is_still_a_name(admin_client, sf):
+    """A channel slug may be 32 hex characters — `_NAME_RE` allows it — so
+    "looks like an id" is a guess, not a rule. The name is tried first and the
+    id is the fallback, which is the only order where both forms always find
+    the room they name."""
+    async with sf() as s:
+        s.add(conv := Conversation(connector="web", kind="channel", open=True,
+                                   name="ab" * 16, topic="", title="#hex",
+                                   ticket_prefix="HEX", ticket_seq=0))
+        await s.commit()
+        hex_name, hex_id = conv.name, conv.id
+    r = await admin_client.post("/api/tickets", json={"channel": hex_name, "title": "x"})
+    assert r.status_code == 201, r.text
+    assert r.json()["key"] == "HEX-1"
+    # And an id is still an id: the general channel answers to its own.
+    gen = await _channel_id(sf, "general")
+    assert (await admin_client.post("/api/tickets",
+                                    json={"channel": gen, "title": "y"})
+            ).json()["key"] == "GEN-1"
+    assert hex_id != hex_name
+
+
 # --- who may do what ---------------------------------------------------------
 
 async def test_a_reader_may_read_but_not_write(admin_client, token_client, sf):
@@ -280,6 +339,46 @@ async def test_an_agent_token_with_no_run_may_not_write(token_client, sf, seed_a
     assert r.status_code == 403, r.text
     # Reading is still fine: a stale key can look at the board.
     assert (await token_client.get("/api/tickets", headers=headers)).status_code == 200
+
+
+async def test_a_system_agents_launcher_token_opens_a_ticket(token_client, sf,
+                                                             seed_agent, agent_store):
+    """The live failure (docs/design/20): `agent:health-monitor` is told to open
+    OPS tickets, and every one of them was a 403 because the token its own
+    launcher hands it named no run. The launcher is driven here rather than
+    imitated — a per-run key written by hand would pass whatever the launcher
+    actually mints."""
+    from agentplatform.agents import Manifest
+    from agentplatform.config import Settings
+    from agentplatform.joblauncher import K8sJobLauncher
+
+    class _FakeBatch:
+        def create_namespaced_job(self, ns, job): self.job = job
+
+    await _seed(seed_agent, agent_store, "health-monitor", system=True)
+    async with sf() as s:
+        s.add(run := Run(agent="health-monitor", trigger="schedule",
+                         requested_by="scheduler", state=RunState.RUNNING,
+                         prompt="watch the platform"))
+        await s.commit()
+        run_id = run.id
+    batch = _FakeBatch()
+    launcher = K8sJobLauncher(batch=batch, settings=Settings(),
+                              session_factory=sf)
+    async with sf() as s:
+        await launcher.launch(await s.get(Run, run_id), Manifest(system=True))
+    env = {e.name: e.value for e in batch.job.spec.template.spec.containers[0].env}
+    headers = {"Authorization": f"Bearer {env['AP_API_TOKEN']}"}
+
+    r = await token_client.post("/api/tickets",
+                                json={"channel": "#ops", "title": "disk is 91% full"},
+                                headers=headers)
+    assert r.status_code == 201, r.text
+    assert r.json()["reporter"] == "agent:health-monitor"
+    async with sf() as s:
+        event = (await s.execute(select(TicketEvent).where(
+            TicketEvent.ticket_id == r.json()["id"]))).scalar_one()
+    assert event.run_id == run_id
 
 
 async def test_the_hourly_create_budget_is_a_429_and_a_line_in_the_room(

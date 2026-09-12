@@ -406,6 +406,39 @@ async def test_an_agent_assignee_has_to_exist(sf, producer, seed_agent):
         assert (await s.get(Ticket, ticket.id)).assignee == "discord:12345"
 
 
+async def test_a_bare_name_is_an_agent_or_it_is_nobody(sf, producer, seed_agent):
+    """`assignee: "pai"` is what a model writes, and stored as typed it is an
+    assignee that summons nobody and matches no filter. A bare name that IS an
+    agent becomes one; anything else bare is refused, because the platform
+    cannot tell a person from a typo and guessing wrong is the same ticket
+    assigned to nobody."""
+    await seed_agent("pai", description="t")
+    cid = await _project(sf, "ZZ")
+    ticket = await _open(sf, producer, cid, assignee="pai")
+    assert ticket.assignee == "agent:pai"
+    # The card is born with the real participant on it, so the board and the
+    # summons agree about who has it.
+    card = next(r for r in await _messages(sf, cid) if r.id == ticket.root_message_id)
+    assert card.card["assignee"] == "agent:pai"
+
+    with pytest.raises(store.TicketRuleError):
+        await _open(sf, producer, cid, assignee="kyle")
+    assert len(await _tickets(sf)) == 1
+
+    async with sf() as s:
+        row = await s.get(Ticket, ticket.id)
+        with pytest.raises(store.TicketRuleError):
+            await store.assign_ticket(s, producer, row, actor="user:admin",
+                                      assignee="kyle")
+        await s.rollback()
+    async with sf() as s:
+        row = await s.get(Ticket, ticket.id)
+        await store.assign_ticket(s, producer, row, actor="user:admin",
+                                  assignee="pai")
+    async with sf() as s:
+        assert (await s.get(Ticket, ticket.id)).assignee == "agent:pai"
+
+
 async def test_create_can_assign_in_one_go(sf, producer, seed_agent):
     await seed_agent("news", description="t")
     cid = await _project(sf, "ZZ")

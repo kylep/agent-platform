@@ -90,12 +90,20 @@ async def _readable(s, caller: Caller, agents: set[str]) -> set[str] | None:
 
 
 async def _channel_or_404(s, ref: str) -> Conversation:
-    """A channel by id or by `#name`. The `#name` form is what an agent
-    actually holds — it knows the room it is talking in by name, and making it
-    look the id up first would be a round trip to say something it already
-    said."""
-    conv = (await channel_by_name(s, ref[1:]) if ref.startswith("#")
-            else await s.get(Conversation, ref))
+    """A channel by id, by `#name`, or by the bare name. The `#name` form is
+    what an agent actually holds — it knows the room it is talking in by name,
+    and making it look the id up first would be a round trip to say something
+    it already said — and `ops` is the same word with the sigil a model
+    dropped, which the `tickets` tool has always accepted.
+
+    A bare ref is a NAME first and an id second. Shape cannot decide it: a
+    channel slug may be 32 hex characters, so "that looks like an id" would
+    make the room called `ab…ab` unreachable by the only word anyone calls it.
+    A `#name` stays a name outright — the sigil is the caller saying so."""
+    if ref.startswith("#"):
+        conv = await channel_by_name(s, ref[1:])
+    else:
+        conv = await channel_by_name(s, ref) or await s.get(Conversation, ref)
     if conv is None:
         raise HTTPException(404, "unknown channel")
     return conv
@@ -232,6 +240,10 @@ async def list_tickets(request: Request, channel: str | None = None,
         if state:
             stmt = stmt.where(Ticket.state == state)
         if assignee:
+            # An exact match on the stored participant string: `agent:news`,
+            # not `news`. The store is what normalises a bare name on a write
+            # (and the `tickets` tool before a read), because a filter that
+            # guessed would answer a different question than the one asked.
             stmt = stmt.where(Ticket.assignee == assignee)
         if mine:
             stmt = stmt.where(Ticket.assignee == caller.participant)

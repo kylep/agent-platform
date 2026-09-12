@@ -249,6 +249,45 @@ def test_assign_none_is_the_unassign(calls):
     assert calls[-1][3] == {"to": None, "notify": False}
 
 
+def test_a_bare_name_is_sent_as_an_agent(calls):
+    """A model writes `to='pai'`, and the API would store a participant that
+    summons nobody. The broker cannot know which agents exist — it prefixes and
+    lets the API refuse a name that is not one — but a bare name is the only
+    kind an agent holds, so `agent:` is the only reading."""
+    tickets(action="assign", key=KEY, to="pai")
+    assert calls[-1][3] == {"to": "agent:pai"}
+    tickets(action="create", channel=GENERAL, title="t", assignee="pai")
+    assert calls[-1][3]["assignee"] == "agent:pai"
+
+
+def test_an_already_qualified_participant_is_left_alone(calls):
+    """`user:` and `discord:` are participants this platform does not own, and
+    `none`/`any` are the tool's own words, not names."""
+    for to in ("user:kyle", "discord:12345"):
+        tickets(action="assign", key=KEY, to=to)
+        assert calls[-1][3] == {"to": to}
+    tickets(action="assign", key=KEY, to="none")
+    assert calls[-1][3] == {"to": None}
+    tickets(action="list", assignee="any")
+    assert calls[-1][2]["assignee"] is None and calls[-1][2]["mine"] is None
+
+
+def test_a_bare_name_the_board_does_not_know_points_at_the_person_syntax(calls):
+    """The tool guessed `agent:` — so when the API answers that there is no
+    such agent, the guess is the likeliest thing that was wrong, and the
+    refusal has to say what a person is written as. A caller who wrote the
+    prefix itself already knows."""
+    calls.replies[f"/api/tickets/{KEY}/assign"] = (
+        'error: 400 {"detail":"unknown or disabled agent: admin"}')
+    assert tickets(action="assign", key=KEY, to="admin").endswith(
+        " — for a person write user:<name>")
+    assert "for a person" not in tickets(action="assign", key=KEY, to="agent:admin")
+    calls.replies["/api/tickets"] = (
+        'error: 400 {"detail":"unknown or disabled agent: admin"}')
+    assert tickets(action="create", channel=GENERAL, title="t",
+                   assignee="admin").endswith(" — for a person write user:<name>")
+
+
 def test_assign_needs_somebody_to_assign_to(calls):
     out = tickets(action="assign", key=KEY)
     assert out.startswith("error:") and "to" in out
@@ -351,7 +390,7 @@ def test_the_docstring_teaches_the_rules_briefly():
     assert len([line for line in doc.splitlines() if line.strip()]) <= 10
     lowered = doc.lower()
     for phrase in ("ops-12", "#name", "blocked", "never close", "assign", "hop",
-                   "comment"):
+                   "comment", "user:<name>", "discord:<id>"):
         assert phrase in lowered
 
 

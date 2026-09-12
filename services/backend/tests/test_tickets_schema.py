@@ -5,11 +5,12 @@ from sqlalchemy import func, select
 
 from agentplatform.db import (HEALTH_MONITOR_TICKET_RULE, RELAY_STANDUP_PROMPT_V2,
                               TICKETS_GRANT_MARK, TICKETS_HEALTH_MONITOR_MARK,
-                              TICKETS_SEED_MARK, TICKETS_STANDUP_MARK, AgentDef,
+                              TICKETS_SEED_MARK, TICKETS_STANDUP_MARK,
+                              TICKETS_SYSTEM_KEYS_MARK, AgentDef, ApiKey,
                               AgentVersion, Base, Conversation, Run, RunState,
                               ScheduledJob, SchemaMark, Ticket, TicketEvent,
                               TicketPriority, TicketState, init_db, make_engine,
-                              make_session_factory)
+                              make_session_factory, utcnow)
 
 
 @pytest.fixture
@@ -350,3 +351,57 @@ async def test_a_version_collision_leaves_the_boot_standing(engine, sfx, monkeyp
     monkeypatch.undo()
     await init_db(engine)
     assert HEALTH_MONITOR_TICKET_RULE in await _agent_prompt(sfx)
+
+
+# --- the system keys design/20 R1 orphaned ------------------------------------
+
+async def test_the_per_agent_system_keys_are_revoked(engine, sfx):
+    """Before R1 a system agent held ONE `system:<agent>` key with no run, and
+    the dispatcher revoked the predecessor each time it re-minted. Per-run keys
+    replaced that minting, so nothing reaps the last one any more: without this
+    sweep every system agent keeps a live annotator credential forever."""
+    async with sfx() as s:
+        for agent in ("health-monitor", "run-summarizer"):
+            s.add(ApiKey(name=f"system:{agent}", role="annotator", agent=agent,
+                         key_hash=f"h-{agent}", prefix=f"ap_{agent[:6]}"))
+        # The shape R1 mints now: same name, but it belongs to a run and is
+        # revoked with it.
+        s.add(ApiKey(name="system:health-monitor", role="annotator",
+                     agent="health-monitor", run_id="r" * 32,
+                     key_hash="h-live", prefix="ap_live"))
+        s.add(ApiKey(name="system:gone", role="annotator", agent="gone",
+                     key_hash="h-gone", prefix="ap_gone", revoked_at=utcnow()))
+        # An admin-minted key that happens to be called `system:backup`. The
+        # mint route validates no name and scopes no agent, so the sweep has to
+        # be able to tell somebody's key from the launcher's.
+        s.add(ApiKey(name="system:backup", role="annotator", agent=None,
+                     key_hash="h-admin", prefix="ap_admin"))
+        await s.commit()
+        was_revoked = (await s.execute(select(ApiKey.revoked_at).where(
+            ApiKey.key_hash == "h-gone"))).scalar_one()
+
+    await init_db(engine)
+
+    async def revoked():
+        async with sfx() as s:
+            return {k.key_hash: k.revoked_at
+                    for k in (await s.execute(select(ApiKey))).scalars()}
+    after = await revoked()
+    assert after["h-health-monitor"] is not None
+    assert after["h-run-summarizer"] is not None
+    # A key that names its run is the live credential of a live run, and a key
+    # with no agent was minted by a person, not by the launcher.
+    assert after["h-live"] is None and after["h-admin"] is None
+    assert after["h-gone"] == was_revoked
+    async with sfx() as s:
+        assert await s.get(SchemaMark, TICKETS_SYSTEM_KEYS_MARK) is not None
+
+    # A second boot is a no-op: a new per-run key minted since must survive it,
+    # and an orphan cannot be revoked twice at two different times.
+    async with sfx() as s:
+        s.add(ApiKey(name="system:health-monitor", role="annotator",
+                     agent="health-monitor", run_id="s" * 32,
+                     key_hash="h-later", prefix="ap_later"))
+        await s.commit()
+    await init_db(engine)
+    assert await revoked() == {**after, "h-later": None}

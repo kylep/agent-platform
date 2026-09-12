@@ -38,35 +38,10 @@ class K8sJobLauncher(Launcher):
         # mcp__platform__* tool makes the run token-bearing (docs/design/12) —
         # a tools-scoped token when nothing broader applies.
         self.agent_store = agent_store
-        # One operator API key per system agent, cached for the process
-        # lifetime (plaintext isn't recoverable from the stored hash).
-        self._system_tokens: dict[str, str] = {}
         self._sa_ready: set[str] = set()
 
-    async def _system_token(self, agent: str) -> str:
-        if agent not in self._system_tokens:
-            token = generate_token()
-            async with self.sf() as s:
-                # Single-owner: this process's token REPLACES any predecessor.
-                # The cache is in-memory, so every dispatcher restart re-mints;
-                # without this, each restart left another live key behind.
-                from sqlalchemy import select
-                from agentplatform.db import utcnow
-                stale = (await s.execute(select(ApiKey).where(
-                    ApiKey.name == f"system:{agent}", ApiKey.run_id.is_(None),
-                    ApiKey.revoked_at.is_(None)))).scalars().all()
-                for k in stale:
-                    k.revoked_at = utcnow()
-                # `annotator`: narrow scope (read runs + annotate) so a
-                # prompt-injected system agent can't trigger/kill runs or touch
-                # anything else.
-                s.add(ApiKey(name=f"system:{agent}", role="annotator", agent=agent,
-                             key_hash=hash_token(token), prefix=token_prefix(token)))
-                await s.commit()
-            self._system_tokens[agent] = token
-        return self._system_tokens[agent]
-
-    async def _invoke_token(self, run: Run, role: str = "operator") -> str:
+    async def _invoke_token(self, run: Run, role: str = "operator",
+                            label: str | None = None) -> str:
         """Mint a per-run token (role `operator` for invoke, `annotator` for
         memory-only), scoped to run.agent so its namespace/chain-depth are
         derived authoritatively. Tied to run.id and revoked when the run
@@ -75,9 +50,12 @@ class K8sJobLauncher(Launcher):
         The label is what the keys page and the audit trail call the key. Only
         the two roles whose name is not self-explanatory are translated; the
         rest — `tools`, `relay` — already say what they are, so they fall
-        through as `relay:<agent>` rather than needing an entry each."""
+        through as `relay:<agent>` rather than needing an entry each. A caller
+        names one explicitly where the role does not say WHY the key exists: a
+        system agent's is an annotator by scope but `system:<agent>` in the
+        trail, which is what an operator reading the keys page looks for."""
         token = generate_token()
-        label = {"operator": "invoke", "annotator": "memory"}.get(role, role)
+        label = label or {"operator": "invoke", "annotator": "memory"}.get(role, role)
         async with self.sf() as s:
             s.add(ApiKey(name=f"{label}:{run.agent}", role=role, agent=run.agent,
                          run_id=run.id, key_hash=hash_token(token), prefix=token_prefix(token)))
@@ -428,8 +406,13 @@ class K8sJobLauncher(Launcher):
                 # as operator, save/recall its own memories).
                 api_token = await self._invoke_token(run)
             elif manifest.system:
-                # Narrow annotator token: read runs + annotate only.
-                api_token = await self._system_token(run.agent)
+                # Narrow annotator token: read runs + annotate only, and
+                # per-run like every other. A platform write is refused unless
+                # the token names the run it acts from — a system agent opens
+                # tickets (docs/design/20) — and the run's own end revokes it,
+                # where a process-wide key outlived every run that used it.
+                api_token = await self._invoke_token(run, role="annotator",
+                                                     label="system")
             else:
                 # docs/design/12: declaring platform tools IS the grant. Core
                 # tools (they forward the token to our API) earn annotator;

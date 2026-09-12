@@ -173,7 +173,7 @@ async def create_ticket(session, producer, conv, *, actor: str, title: str,
         raise TicketRuleError("a ticket needs a title")
     if conv.ticket_prefix is None:
         raise TicketRuleError(f"#{conv.name} is not a project")
-    await _check_assignee(session, assignee)
+    assignee = await _check_assignee(session, assignee)
     # The channel row lock first: it is what serialises two agents opening at
     # once, so both the budget count and the key come out of one queue.
     channel = await _lock_channel(session, conv)
@@ -243,9 +243,9 @@ async def assign_ticket(session, producer, ticket, *, actor: str,
     either way — a summons the router refuses for budget does not un-assign
     the work, it just means the assignee finds it at its next wake."""
     _require_actor(actor, run)
-    await _check_assignee(session, assignee)
+    assignee = await _check_assignee(session, assignee)
     ticket = await _lock(session, ticket)
-    from_value, ticket.assignee = ticket.assignee, assignee or None
+    from_value, ticket.assignee = ticket.assignee, assignee
     conv = await _conv_of(session, ticket)
     msg, event = await _announce_assignment(session, conv, ticket, actor=actor,
                                             assignee=ticket.assignee, reason=reason,
@@ -432,18 +432,36 @@ async def _check_budget(session, actor: str, limit: int) -> None:
             f"hour (limit {limit}); try again later")
 
 
-async def _check_assignee(session, assignee: str | None) -> None:
-    """An agent assignee has to be an agent that exists and is enabled.
+async def _check_assignee(session, assignee: str | None) -> str | None:
+    """The assignee as it will be STORED: a participant string, or None.
 
-    Stored unchecked, a typo (`agent:nwes`) or a since-deleted agent is a
-    ticket assigned to nobody that still LOOKS assigned: the board shows a
-    name, the summons resolves to nothing, and the work sits there because
-    everyone who reads it thinks somebody else has it. Humans are not checked —
-    a participant may be a person this platform has never seen — and None is
-    the unassign."""
-    name = agent_name(assignee or "")
+    An agent assignee has to be an agent that exists and is enabled. Stored
+    unchecked, a typo (`agent:nwes`) or a since-deleted agent is a ticket
+    assigned to nobody that still LOOKS assigned: the board shows a name, the
+    summons resolves to nothing, and the work sits there because everyone who
+    reads it thinks somebody else has it. Humans are not checked — a
+    participant may be a person this platform has never seen — and None is the
+    unassign.
+
+    A BARE name is read as an agent or refused. `assignee: "pai"` is what a
+    model writes, and it is the same failure wearing a different hat: the board
+    shows `pai`, `mine` matches nothing and the mention is never posted. A bare
+    name is the only kind an agent holds, so there is exactly one honest
+    reading of it — and when that reading is not an agent, the platform cannot
+    tell a person from a typo, so it says which shapes it takes rather than
+    guessing."""
+    raw = (assignee or "").strip()
+    if not raw:
+        return None
+    if ":" not in raw:
+        if raw not in await enabled_agents(session):
+            raise TicketRuleError("assignee must be agent:<name>, user:<name> "
+                                  "or discord:<id>")
+        return AGENT_PREFIX + raw
+    name = agent_name(raw)
     if name is not None and name not in await enabled_agents(session):
         raise TicketRuleError(f"unknown or disabled agent: {name}")
+    return raw
 
 
 async def _check_parent(session, parent_id: str | None, *, channel_id: str,

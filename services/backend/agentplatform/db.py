@@ -691,6 +691,7 @@ RELAY_STANDUP_MARK = "relay-standup-job-v1"
 TICKETS_SEED_MARK = "tickets-seed-v1"
 TICKETS_STANDUP_MARK = "tickets-standup-v2"
 TICKETS_HEALTH_MONITOR_MARK = "tickets-health-monitor-v1"
+TICKETS_SYSTEM_KEYS_MARK = "tickets-system-keys-v1"
 
 # The channels that become PROJECTS when Tickets ships (docs/design/20), and
 # the prefix each one's keys are stamped with. #standup is deliberately absent:
@@ -1100,6 +1101,43 @@ def _ensure_dm_keys(conn) -> None:
     conn.execute(mark_t.insert().values(name=RELAY_DM_KEY_MARK, applied_at=utcnow()))
 
 
+def _ensure_orphan_system_keys_revoked(conn) -> None:
+    """Revoke the runless `system:<agent>` keys the old minting left behind.
+
+    A system agent used to hold ONE process-wide API key with no run, and the
+    dispatcher revoked the predecessor each time it re-minted — that revoke was
+    the only thing reaping them. docs/design/20 R1 replaced it with a per-run
+    key (a ticket write is refused unless the token names its run), so the last
+    key each system agent was handed is now an annotator credential that
+    nothing will ever revoke. This is that sweep, one time: from here on the
+    run's own terminal state revokes the key, and a second pass would be
+    revoking keys that belong to live runs.
+
+    The match is the launcher's OWN rows, not a name: `mint_api_key` validates
+    no name and scopes no agent, so an admin key somebody called
+    `system:backup` is indistinguishable by name alone — and revoking a
+    person's credential from a migration is a failure nobody would look for
+    here. An agent scope plus the annotator role is what only the launcher
+    wrote. Keys WITH a run are untouched whatever they are called — the new
+    ones carry the same name — and so is anything already revoked, whose
+    revoked_at is a fact about when it happened.
+
+    Not race-safe on its own: the check-then-write is serialized across
+    services by init_db's advisory lock (INIT_DB_LOCK_KEY)."""
+    mark_t, key_t = SchemaMark.__table__, ApiKey.__table__
+    if conn.execute(select(mark_t.c.name)
+                    .where(mark_t.c.name == TICKETS_SYSTEM_KEYS_MARK)).first():
+        return
+    res = conn.execute(key_t.update().where(
+        key_t.c.name.like("system:%"), key_t.c.agent.isnot(None),
+        key_t.c.role == "annotator", key_t.c.run_id.is_(None),
+        key_t.c.revoked_at.is_(None)).values(revoked_at=utcnow()))
+    conn.execute(mark_t.insert().values(name=TICKETS_SYSTEM_KEYS_MARK,
+                                        applied_at=utcnow()))
+    if res.rowcount:
+        log.info("revoked %d runless system agent keys", res.rowcount)
+
+
 def _ensure_relay_default_grant(conn, default_grant: bool = True) -> None:
     """Give every agent that already exists the Relay grant (docs/design/19)."""
     from agentplatform.agentspec import TOOL_RELAY
@@ -1248,3 +1286,4 @@ async def init_db(engine: AsyncEngine, default_grant: bool = True,
         # in the change log, in the order they happened.
         await conn.run_sync(_ensure_tickets_standup_v2)
         await conn.run_sync(_ensure_tickets_health_monitor)
+        await conn.run_sync(_ensure_orphan_system_keys_revoked)

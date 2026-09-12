@@ -311,20 +311,40 @@ def test_build_job_no_secrets_means_no_envfrom(tmp_path):
     assert job.spec.template.spec.containers[0].env_from is None
 
 
-async def test_system_token_minted_cached_and_injected(sf):
+async def test_a_system_agents_token_carries_the_run_it_acts_from(sf):
+    """A system agent writes tickets, and every ticket write is refused unless
+    the token names the run it is acting from. So its token is per-run like
+    every other — one process-wide key with a null run left the agent design/20
+    tells to open OPS tickets unable to open any."""
     from sqlalchemy import select
+    from agentplatform.apikeys import hash_token
     from agentplatform.db import ApiKey
-    launcher = K8sJobLauncher(batch=None, settings=Settings(runner_image="r:1", k8s_namespace="ap"),
-                              session_factory=sf)
-    t1 = await launcher._system_token("run-summarizer")
-    t2 = await launcher._system_token("run-summarizer")
-    assert t1 == t2 and t1.startswith("ap_")
+
+    class _FakeBatch:
+        def __init__(self): self.job = None
+        def create_namespaced_job(self, ns, job): self.job = job
+
+    batch = _FakeBatch()
+    launcher = K8sJobLauncher(batch=batch, settings=Settings(
+        runner_image="r:1", k8s_namespace="ap", api_internal_url="http://api:8090"),
+        session_factory=sf)
     async with sf() as s:
-        keys = (await s.execute(select(ApiKey))).scalars().all()
-    assert len(keys) == 1 and keys[0].role == "annotator" and keys[0].agent == "run-summarizer"
-    run = Run(agent="run-summarizer", trigger="schedule", requested_by="scheduler", prompt="go"); run.id = "d" * 32
-    env = {e.name: e.value for e in launcher.build_job(run, Manifest(system=True), api_token=t1).spec.template.spec.containers[0].env}
-    assert env["AP_API_TOKEN"] == t1 and env["AP_API_URL"].startswith("http://agent-platform-api")
+        s.add(run := Run(agent="health-monitor", trigger="schedule",
+                         requested_by="scheduler", prompt="go"))
+        await s.commit()
+        run_id = run.id
+    async with sf() as s:
+        run = await s.get(Run, run_id)
+    await launcher.launch(run, Manifest(system=True))
+
+    env = {e.name: e.value for e in batch.job.spec.template.spec.containers[0].env}
+    async with sf() as s:
+        keys = {k.role: k for k in (await s.execute(select(ApiKey))).scalars()}
+    key = keys["annotator"]
+    assert (key.run_id, key.agent, key.name) == (run_id, "health-monitor",
+                                                 "system:health-monitor")
+    assert hash_token(env["AP_API_TOKEN"]) == key.key_hash
+    assert env["AP_API_URL"] == "http://api:8090"
 
 
 async def test_platform_token_role_ladder(sf, seed_agent):

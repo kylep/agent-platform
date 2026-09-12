@@ -560,6 +560,48 @@ def _is_none(value: str | None) -> bool:
     return (value or "").strip(_WRAPPERS).lower() == "none"
 
 
+# The tool's own words for "nobody" and "everybody". Neither is a name, so
+# neither may be read as one.
+_TICKET_SENTINELS = ("none", "any")
+
+
+# What the API says about a name that is not an agent, and the half of the
+# answer it cannot give: it was told `agent:admin` and has no idea the tool
+# supplied that prefix.
+_UNKNOWN_AGENT = "unknown or disabled agent"
+_PERSON_HINT = " — for a person write user:<name>"
+
+
+def _is_bare_name(value: str | None) -> bool:
+    """Whether this is a name with no namespace on it — the one form the tool
+    has to read for the model."""
+    raw = (value or "").strip(_WRAPPERS)
+    return bool(raw) and ":" not in raw and raw.lower() not in _TICKET_SENTINELS
+
+
+def _participant(value: str | None) -> str | None:
+    """A participant as the model typed it: a bare `pai` is `agent:pai`.
+
+    A bare name is the only kind an agent holds, so that is the one honest
+    reading — and left bare it reaches the board as an assignee that summons
+    nobody and matches no filter. `user:`/`discord:` are participants this
+    platform does not own and go through untouched. Whether the agent actually
+    exists is the API's answer, not this tool's: the broker holds no roster,
+    and a 400 naming the agent is better than a guess made here."""
+    return ("agent:" + value.strip(_WRAPPERS) if _is_bare_name(value)
+            else value)
+
+
+def _person_hint(out: str, guessed: bool) -> str:
+    """Finish the refusal the tool's own guess caused.
+
+    `to='admin'` became `agent:admin`, so "unknown or disabled agent: admin" is
+    an answer to a question the model did not ask, and the fix — a `user:`
+    prefix — is the one thing the API cannot know to suggest. Only where the
+    tool did the prefixing: a caller who wrote `agent:admin` meant an agent."""
+    return out + _PERSON_HINT if guessed and _UNKNOWN_AGENT in out else out
+
+
 def _given(**fields) -> dict:
     """Only the fields the caller actually named. Two reasons, both the API's:
     a create schema forbids a null where it has a default, and a patch tells
@@ -644,18 +686,20 @@ async def tickets(action: str, key: str | None = None, channel: str | None = Non
                   to: str | None = None, reason: str | None = None,
                   notify: bool | None = None, q: str | None = None,
                   limit: int = 50) -> str:
-    """Tickets — the board your work is tracked on; you act as yourself, from
-    your token. Actions: create · get · list · update · move · assign · comment
-    · search. `key` is `OPS-12` or a ticket id, `channel` a `#name` or an id.
-    Move a ticket when you START it (in_progress) and when you FINISH
-    (review/done); if you cannot do it, say why with `comment` and move it to
-    `blocked` with a reason. Never close a ticket whose work you did not do.
-    `assign` is a hand-off that WAKES the assignee (a mention, one hop) — to ask
-    a question, `comment` instead; `to='none'` unassigns.
-    `list` is yours and unfinished by default: pass `state` to see closed
-    tickets, `assignee='any'` for everyone's."""
+    """Tickets — the board your work is tracked on; you act as yourself, from your
+    token. Actions: create · get · list · update · move · assign · comment ·
+    search. `key` is `OPS-12` or an id, `channel` a `#name` or an id. Move a
+    ticket when you START it (in_progress) and when you FINISH (review/done);
+    if you cannot, say why with `comment` and move it to `blocked`. Never close
+    work you did not do. `assign` WAKES the assignee (a mention, one hop); to
+    ask a question, `comment` instead, and `to='none'` unassigns. An assignee
+    is `agent:<name>`, `user:<name>` or `discord:<id>`; a bare name is an
+    agent. `list` is yours and unfinished by default: `state` shows closed
+    work, `assignee='any'` the whole board."""
     if action not in TICKET_ACTIONS:
         return "error: action must be one of " + "|".join(TICKET_ACTIONS)
+    guessed_assignee, guessed_to = _is_bare_name(assignee), _is_bare_name(to)
+    assignee, to = _participant(assignee), _participant(to)
     # Both answered here rather than read back off a 400: the vocabulary is the
     # board's and does not change, and a model that guessed `wip` needs the list
     # of real states, not the API's opinion of its request.
@@ -679,11 +723,12 @@ async def tickets(action: str, key: str | None = None, channel: str | None = Non
         channel_id, error = await _relay_channel(channel)
         if error:
             return error
-        return await _call("POST", "/api/tickets", json={
+        return _person_hint(await _call("POST", "/api/tickets", json={
             "channel": channel_id, "title": title,
             **_given(body=body, assignee=assignee, priority=priority, labels=labels,
                      parent=parent_ref or None,
-                     due_at=None if _is_none(due) else due, notify=notify)})
+                     due_at=None if _is_none(due) else due, notify=notify)}),
+            guessed_assignee)
     if action == "get":
         return await _ticket_detail(ref)
     if action in ("list", "search"):
@@ -733,9 +778,11 @@ async def tickets(action: str, key: str | None = None, channel: str | None = Non
         if not to:
             return ("error: action='assign' requires to, a participant like "
                     "agent:news or user:kyle (or 'none' to unassign)")
-        return await _call("POST", f"/api/tickets/{ref}/assign",
-                           json={"to": None if _is_none(to) else to,
-                                 **_given(reason=reason, notify=notify)})
+        return _person_hint(await _call("POST", f"/api/tickets/{ref}/assign",
+                                        json={"to": None if _is_none(to) else to,
+                                              **_given(reason=reason,
+                                                       notify=notify)}),
+                            guessed_to)
     if not body:
         return "error: action='comment' requires body, the text to say in the thread"
     return await _call("POST", f"/api/tickets/{ref}/comments", json={"body": body})
