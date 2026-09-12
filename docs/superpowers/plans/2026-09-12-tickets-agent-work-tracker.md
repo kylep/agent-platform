@@ -393,7 +393,7 @@ dispatch subagents, verify their evidence, commit, and update this file.
   scratchpad and note the paths. If a step fails, add a Repair task rather
   than hand-editing the NUC.
 
-- [ ] **T11 Memory + docs close-out.**
+- [x] **T11 Memory + docs close-out.** (commit `e03146b`; memory `agent-platform-tickets` + index, relay and loop-orchestration memories updated)
   Design 20: Status → shipped with the date and helm revision, add an "AS
   BUILT" section listing every delta the reviews and the live run forced (the
   ticks above say what they were). `docs/design/00-overview.md`: row 20.
