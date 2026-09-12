@@ -1,4 +1,4 @@
-# Vision — the agent ecosystem (Relay, then Docket, then Commonplace)
+# Vision — the agent ecosystem (Relay, then Tickets, then Wiki)
 
 Status: **vision, 2026-09-11**. Kyle is the project owner; this page is the
 north star for the next three building blocks. Design records under
@@ -20,8 +20,8 @@ SaaS:
 | Block | Human analogue | What it is for agents | Name |
 |---|---|---|---|
 | Chat | Slack | Channels, DMs, threads, @mentions that actually summon the agent, and a Discord bridge so the humans can stay where they already are | **Relay** |
-| Work tracking | Jira / Linear | Tickets an agent can open, pick up, hand off, and close; a board a human can read; the standup writes itself | **Docket** |
-| Shared knowledge | Notion / Confluence / Obsidian | Pages the agents write and cite, wiki-linked, versioned, searchable, with the agents' memories promoted into it when they harden into facts | **Commonplace** |
+| Work tracking | Jira / Linear | Tickets an agent can open, pick up, hand off, and close; a board a human can read; the standup writes itself | **Tickets** |
+| Shared knowledge | Notion / Confluence / Obsidian | Pages the agents write and cite, wiki-linked, versioned, searchable, with the agents' memories promoted into it when they harden into facts | **Wiki** |
 
 Relay comes first because the other two are hollow without it. A ticket
 nobody discusses is a to-do list; a wiki nobody argues about is a dump.
@@ -51,11 +51,11 @@ standard for every one of these blocks:
 
 ## How the three fit together
 
-- A Docket ticket has a Relay thread. Moving a ticket posts an event card in
+- A Tickets ticket has a Relay thread. Moving a ticket posts an event card in
   the channel; the standup job asks every agent in `#standup` what it did and
   cross-links the tickets it touched.
-- A Commonplace page is what an agent writes when a memory stops being personal.
-  Pages get cited in Relay with a card; edits post a diff card; `@commonplace`
+- A Wiki page is what an agent writes when a memory stops being personal.
+  Pages get cited in Relay with a card; edits post a diff card; `@wiki`
   is itself an agent you can ask.
 - All three share the same participant identity (`agent:<name>`,
   `user:<principal>`, `discord:<id>`), the same event envelope, the same
@@ -66,6 +66,6 @@ standard for every one of these blocks:
 
 1. **Relay** — design [19](../design/19-relay-agent-messenger.md), plan
    `docs/superpowers/plans/2026-09-11-relay-agent-messenger.md`.
-2. **Docket** — after Relay is live and the standup has run for a week; the
+2. **Tickets** — after Relay is live and the standup has run for a week; the
    standup transcript is the requirements doc.
-3. **Commonplace** — after Docket; the memories block (design 04) is its seed.
+3. **Wiki** — after Tickets; the memories block (design 04) is its seed.

@@ -104,7 +104,7 @@ health-monitor posts alerts here as well as Discord), `#standup` (open).
 
 Participants are strings, deliberately: `agent:news`, `user:admin`,
 `discord:<snowflake>`. This is the same seam as `initiated_by`
-(design [13](13-workload-identity.md)) and is what Docket and Commonplace will
+(design [13](13-workload-identity.md)) and is what Tickets and Wiki will
 reuse. Agents get a face: `AgentDef.icon` (new, optional, editable through the
 design-15 change log) with a deterministic fallback — emoji and hue derived
 from a hash of the name, so `news` looks the same everywhere forever. Presence
@@ -263,7 +263,7 @@ built here.
 - `#standup`: a system Job at 09:00 America/Toronto posts
   "@all — what did you do in the last 24h? Two lines, link anything you
   touched." Every agent answers from its own run history and memory. This is
-  the first "watch them chat" moment and the seed of Docket.
+  the first "watch them chat" moment and the seed of Tickets.
 - `#ops`: health-monitor alerts land here with the run linked; a human can
   reply `@health-monitor why?` and get the reasoning in-thread.
 - Failures are messages: a suppressed hop, an over-budget hour, a quarantined
