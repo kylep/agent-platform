@@ -636,10 +636,33 @@ class RelayLastMessage(BaseModel):
     created_at: str | None
 
 
+class RelayBindingView(BaseModel):
+    """A room on another network that mirrors this channel (docs/design/19).
+    `external_ref` is that network's own id for it — a Discord channel or
+    thread snowflake — and is unique per connector platform-wide."""
+    id: str
+    connector: str       # discord | slack | telegram
+    external_ref: str
+    config: dict
+
+
+class RelayBindingRef(BaseModel):
+    """The cross-channel listing a connector reads at startup: which of its
+    rooms map to which channel. The connector is the query, so it is not
+    repeated on every row."""
+    channel_id: str
+    external_ref: str
+    config: dict
+
+
 class RelayChannel(BaseModel):
     id: str
     kind: str            # dm | channel | group
     name: str | None     # slug, channels only
+    # The room's display name: `#general` for a channel, the group's name, the
+    # pair for a dm. `name` is the slug and is null off channels, so this is
+    # what a rail can always show.
+    title: str | None
     topic: str
     open: bool
     archived_at: str | None
@@ -659,6 +682,13 @@ class RelayChannel(BaseModel):
 
 class RelayChannelDetail(RelayChannel):
     faces: dict[str, RelayFace]
+    # The bridges this room is mirrored to, so one fetch tells a client the
+    # room is two-sided.
+    bindings: list[RelayBindingView] = []
+    # participant string -> the name that participant goes by on its own
+    # network, for the ones whose string is an id rather than a name
+    # (`discord:415…`). Absent for agents and principals.
+    display_names: dict[str, str] = {}
 
 
 class RelayMessage(BaseModel):
@@ -712,7 +742,14 @@ class RelayStats(BaseModel):
     messages_24h: int
     agent_messages_24h: int
     invocations_24h: int
+    # Mentions that went UNANSWERED — the hop cap, the hourly budget, an agent
+    # that is not in the room. Deliberately not every suppression: a coalesced
+    # wake and a DM turn the facade owns are the guards working, and counting
+    # them here is what makes a healthy room look like a broken one.
     suppressed_24h: int
+    # Every suppression reason of the last day, zero-filled for the ones the
+    # router knows about, so a reader can see WHY beside the headline.
+    suppressed_by_reason: dict[str, int]
     budget: RelayBudget
     settings: RelaySettings
 
@@ -747,6 +784,15 @@ class RelayMessageIn(BaseModel):
 class RelayReactionIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
     emoji: str = Field(min_length=1, max_length=8)
+
+
+class RelayBindingIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    connector: str = Field(max_length=32)
+    external_ref: str = Field(min_length=1, max_length=256)
+    # Connector-specific detail (a guild id, a webhook name). Opaque here: the
+    # platform never interprets it, the bridge does.
+    config: dict = {}
 
 
 class RelayDmIn(BaseModel):

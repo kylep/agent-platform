@@ -8,12 +8,13 @@ from agentplatform.apikeys import revoke_run_keys
 from agentplatform.db import (ACTIVE_STATES, Conversation, RelayMessage, Run,
                               RunModelUsage, RunState, SecretMeta, TranscriptEvent,
                               utcnow)
-from agentplatform.events import (TOPIC_CONVERSATION_OUTBOUND,
-                                  TOPIC_RUN_DLQ, TOPIC_RUN_EVENTS, TOPIC_RUN_TRANSCRIPT)
+from agentplatform.events import (TOPIC_RUN_DLQ, TOPIC_RUN_EVENTS,
+                                  TOPIC_RUN_TRANSCRIPT)
 from agentplatform.relay import (SYSTEM_AUTHOR, mentionable_in, parse_mentions,
                                  participant_of)
-from agentplatform.relay_store import (binding_of, enabled_agents, explicit_members,
-                                       post_relay_message, publish_relay_message)
+from agentplatform.relay_store import (enabled_agents, explicit_members,
+                                       outbound_for_message, post_relay_message,
+                                       publish_relay_message)
 from agentplatform.secrets import CLAUDE_CREDENTIAL
 
 # How much of a run's error a reader needs to know what went wrong. The run
@@ -195,25 +196,12 @@ class Recorder:
             s, conv, author=author, body=body, kind=kind, run_id=run.id, hop=hop,
             trigger_message_id=run.trigger_message_id, reply_to=reply_to,
             mentions=mentions)
-        # A bridged room gets the notice too when there is no text to relay: an
-        # empty message is worse than the reason it is empty.
-        return conv, msg, await self._outbound_for(s, conv, run, state, text or body, msg)
-
-    async def _outbound_for(self, s, conv: Conversation, run: Run, state: str,
-                            text: str, msg) -> dict | None:
-        """Build the `conversation.outbound` payload for a claimed reply — but
-        only for a channel a bridge is actually listening to. A binding is the
-        answer since design/19; the legacy connector columns are what a Discord
-        thread still carries until it is migrated (T10). A web room has no
-        bridge: the message IS the delivery there."""
-        binding = await binding_of(s, conv.id)
-        if binding is None and (conv.connector == "web" or not conv.external_ref):
-            return None
-        return {"conversation_id": conv.id,
-                "connector": binding.connector if binding else conv.connector,
-                "external_ref": binding.external_ref if binding else conv.external_ref,
-                "run_id": run.id, "state": state, "text": text,
-                "author": msg.author, "message_id": msg.id}
+        # A bridged room is shown the message, whatever it turned out to be: a
+        # failed run's notice is what the room says, so it is what the bridge
+        # relays — an empty message is worse than the reason it is empty.
+        # `state` is passed because the Run row does not carry the terminal
+        # state yet on the path that holds the result frame.
+        return conv, msg, await outbound_for_message(s, conv, msg, state=state)
 
     async def _publish_reply(self, posted) -> None:
         """Announce a claimed reply: the message to Relay, the bridge payload to
@@ -222,10 +210,7 @@ class Recorder:
         if posted is None or self.producer is None:
             return
         conv, msg, outbound = posted
-        await publish_relay_message(self.producer, conv, msg)
-        if outbound is not None:
-            await self.producer.publish(TOPIC_CONVERSATION_OUTBOUND, conv.id,
-                                        outbound, type="conversation.reply")
+        await publish_relay_message(self.producer, conv, msg, outbound=outbound)
 
     async def reconcile_replies(self, grace_seconds: int) -> int:
         """Publish replies for finished conversation turns that never got one,

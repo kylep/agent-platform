@@ -27,6 +27,7 @@ class RelayChannel:
         name (None | str):
         open_ (bool):
         participants (list[str]):
+        title (None | str):
         topic (str):
         unread (int):
     """
@@ -40,6 +41,7 @@ class RelayChannel:
     name: None | str
     open_: bool
     participants: list[str]
+    title: None | str
     topic: str
     unread: int
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
@@ -72,6 +74,9 @@ class RelayChannel:
 
         participants = self.participants
 
+        title: None | str
+        title = self.title
+
         topic = self.topic
 
         unread = self.unread
@@ -89,6 +94,7 @@ class RelayChannel:
                 "name": name,
                 "open": open_,
                 "participants": participants,
+                "title": title,
                 "topic": topic,
                 "unread": unread,
             }
@@ -148,6 +154,13 @@ class RelayChannel:
 
         participants = cast(list[str], d.pop("participants"))
 
+        def _parse_title(data: object) -> None | str:
+            if data is None:
+                return data
+            return cast(None | str, data)
+
+        title = _parse_title(d.pop("title"))
+
         topic = d.pop("topic")
 
         unread = d.pop("unread")
@@ -162,6 +175,7 @@ class RelayChannel:
             name=name,
             open_=open_,
             participants=participants,
+            title=title,
             topic=topic,
             unread=unread,
         )

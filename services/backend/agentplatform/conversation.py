@@ -18,7 +18,8 @@ from agentplatform.materialize import materialize_run
 from agentplatform.relay import (is_agent, mentionable_in, parse_mentions,
                                  participant_of)
 from agentplatform.relay_store import (enabled_agents, explicit_members,
-                                       post_relay_message, publish_relay_message)
+                                       outbound_for_message, post_relay_message,
+                                       publish_relay_message)
 
 log = logging.getLogger("conversation")
 
@@ -193,8 +194,13 @@ async def continue_conversation(session_factory, producer, conversation_id: str,
                 log.warning("conversation %s: turn lost a second race; the caller "
                             "is told to retry", conversation_id)
                 return None
+        # The bridge's copy of the human's turn, resolved before the session
+        # closes: a DM bound to Discord shows both halves of the conversation
+        # there, and the loop guard drops the copy when the message ARRIVED
+        # from that bridge in the first place (docs/design/19 T10).
+        outbound = await outbound_for_message(s, conv, msg)
         message_id = msg.id
-    await publish_relay_message(producer, conv, msg)
+    await publish_relay_message(producer, conv, msg, outbound=outbound)
 
     run_id = uuid.uuid4().hex
     await materialize_run(session_factory, producer, {

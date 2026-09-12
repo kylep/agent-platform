@@ -1,2 +1,5 @@
 discord.py>=2.4
 aiokafka>=0.11
+# Imported directly (the bindings poll), not just via discord.py: a direct
+# import earns a declared dependency.
+aiohttp>=3.9

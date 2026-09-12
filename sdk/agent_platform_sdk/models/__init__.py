@@ -68,9 +68,16 @@ from .probe_in_headers import ProbeInHeaders
 from .prune_result import PruneResult
 from .pull_request import PullRequest
 from .pull_request_file import PullRequestFile
+from .relay_binding_in import RelayBindingIn
+from .relay_binding_in_config import RelayBindingInConfig
+from .relay_binding_ref import RelayBindingRef
+from .relay_binding_ref_config import RelayBindingRefConfig
+from .relay_binding_view import RelayBindingView
+from .relay_binding_view_config import RelayBindingViewConfig
 from .relay_budget import RelayBudget
 from .relay_channel import RelayChannel
 from .relay_channel_detail import RelayChannelDetail
+from .relay_channel_detail_display_names import RelayChannelDetailDisplayNames
 from .relay_channel_detail_faces import RelayChannelDetailFaces
 from .relay_channel_in import RelayChannelIn
 from .relay_channel_patch import RelayChannelPatch
@@ -85,6 +92,7 @@ from .relay_reaction_in import RelayReactionIn
 from .relay_reaction_view import RelayReactionView
 from .relay_settings import RelaySettings
 from .relay_stats import RelayStats
+from .relay_stats_suppressed_by_reason import RelayStatsSuppressedByReason
 from .report_detail import ReportDetail
 from .report_detail_meta import ReportDetailMeta
 from .report_in import ReportIn
@@ -209,9 +217,16 @@ __all__ = (
     "PruneResult",
     "PullRequest",
     "PullRequestFile",
+    "RelayBindingIn",
+    "RelayBindingInConfig",
+    "RelayBindingRef",
+    "RelayBindingRefConfig",
+    "RelayBindingView",
+    "RelayBindingViewConfig",
     "RelayBudget",
     "RelayChannel",
     "RelayChannelDetail",
+    "RelayChannelDetailDisplayNames",
     "RelayChannelDetailFaces",
     "RelayChannelIn",
     "RelayChannelPatch",
@@ -226,6 +241,7 @@ __all__ = (
     "RelayReactionView",
     "RelaySettings",
     "RelayStats",
+    "RelayStatsSuppressedByReason",
     "ReportDetail",
     "ReportDetailMeta",
     "ReportIn",

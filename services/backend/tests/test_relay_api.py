@@ -406,10 +406,45 @@ async def test_stats_counts_the_last_day(admin_client, sf, token_client,
     st = (await admin_client.get("/api/relay/stats")).json()
     assert st["messages_24h"] == 2
     assert st["agent_messages_24h"] == 1
-    assert st["invocations_24h"] == 2
+    # Invoked only: the tile says "invocations", so a refusal must not raise it.
+    assert st["invocations_24h"] == 1
     assert st["suppressed_24h"] == 1
     assert st["budget"] == {"channel_per_hour": 30, "global_per_hour": 120,
                             "global_used_last_hour": 1}
+
+
+async def test_suppressed_counts_only_the_refusals(admin_client, sf):
+    """A coalesced wake and a DM turn the facade owns are suppressions the way
+    a green build is a failure: recorded, not wrong. Counting them as trouble
+    is what had the dashboard reporting a problem in a healthy room — so the
+    headline number is the three refusals, and the breakdown carries the rest."""
+    cid = await _channel_id(sf, "general")
+    async with sf() as s:
+        for i, reason in enumerate(["hop_limit", "budget", "not_member",
+                                    "coalesced", "coalesced", "facade_owns_turn"]):
+            s.add(RelayInvocation(channel_id=cid, message_id=f"m{i}", agent="news",
+                                  decision="suppressed", reason=reason, hop=1))
+        # Yesterday's refusal is not today's, and an invoked row is nobody's
+        # suppression.
+        s.add(RelayInvocation(channel_id=cid, message_id="old", agent="news",
+                              decision="suppressed", reason="budget", hop=1,
+                              created_at=utcnow() - timedelta(days=3)))
+        s.add(RelayInvocation(channel_id=cid, message_id="ok", agent="news",
+                              decision="invoked", reason="mention", hop=0))
+        await s.commit()
+    st = (await admin_client.get("/api/relay/stats")).json()
+    assert st["suppressed_24h"] == 3
+    assert st["suppressed_by_reason"] == {"hop_limit": 1, "budget": 1, "not_member": 1,
+                                          "coalesced": 2, "facade_owns_turn": 1}
+
+
+async def test_every_known_reason_is_reported_even_at_zero(admin_client):
+    """Zero-filled, so a reader can tell "nothing was refused for that reason"
+    from "that reason no longer exists"."""
+    st = (await admin_client.get("/api/relay/stats")).json()
+    assert st["suppressed_24h"] == 0
+    assert st["suppressed_by_reason"] == {"hop_limit": 0, "budget": 0, "not_member": 0,
+                                          "coalesced": 0, "facade_owns_turn": 0}
 
 
 async def test_archived_channel_stops_taking_messages(admin_client, sf):
@@ -788,3 +823,140 @@ async def test_stats_reports_the_guard_settings(admin_client):
     assert st["settings"] == {"default_grant": True, "max_hops": 4,
                               "channel_per_hour": 30, "global_per_hour": 120,
                               "cooldown_seconds": 20}
+
+
+# --- bindings (docs/design/19 T10) -------------------------------------------
+# A binding is what makes a room two-sided: the Discord channel on the other
+# end of it is the SAME room. Which is why these routes are human-only — an
+# agent that could bind a channel could choose its own audience.
+
+
+async def test_a_binding_is_created_listed_and_deleted(admin_client, sf):
+    cid = await _channel_id(sf, "general")
+    assert (await admin_client.get(f"/api/relay/channels/{cid}/bindings")).json() == []
+    r = await admin_client.post(f"/api/relay/channels/{cid}/bindings",
+                                json={"connector": "discord", "external_ref": "4242",
+                                      "config": {"guild": "g1"}})
+    assert r.status_code == 201, r.text
+    binding = r.json()
+    assert (binding["connector"], binding["external_ref"]) == ("discord", "4242")
+    assert binding["config"] == {"guild": "g1"}
+    assert [b["id"] for b in
+            (await admin_client.get(f"/api/relay/channels/{cid}/bindings")).json()] == [
+        binding["id"]]
+    # The detail view carries them, so one fetch tells the UI a room is bridged.
+    detail = (await admin_client.get(f"/api/relay/channels/{cid}")).json()
+    assert [b["external_ref"] for b in detail["bindings"]] == ["4242"]
+
+    gone = await admin_client.delete(f"/api/relay/channels/{cid}/bindings/{binding['id']}")
+    assert gone.status_code == 200 and gone.json() == {"ok": True, "id": binding["id"]}
+    assert (await admin_client.get(f"/api/relay/channels/{cid}/bindings")).json() == []
+    assert (await admin_client.delete(
+        f"/api/relay/channels/{cid}/bindings/{binding['id']}")).status_code == 404
+
+
+async def test_a_ref_already_bound_is_a_conflict(admin_client, sf):
+    """One Discord channel, one Relay channel: the whole point of the unique
+    (connector, external_ref) is that an inbound message resolves to one room."""
+    first = await _channel_id(sf, "general")
+    second = await _channel_id(sf, "ops")
+    body = {"connector": "discord", "external_ref": "77"}
+    assert (await admin_client.post(f"/api/relay/channels/{first}/bindings",
+                                    json=body)).status_code == 201
+    assert (await admin_client.post(f"/api/relay/channels/{second}/bindings",
+                                    json=body)).status_code == 409
+    # ...including a second bind of the same room to the same ref.
+    assert (await admin_client.post(f"/api/relay/channels/{first}/bindings",
+                                    json=body)).status_code == 409
+    # Another network is another room on the other side, so it binds fine.
+    assert (await admin_client.post(f"/api/relay/channels/{first}/bindings",
+                                    json={"connector": "slack",
+                                          "external_ref": "77"})).status_code == 201
+
+
+async def test_a_dm_cannot_be_bound(admin_client, sf, seed_agent, agent_store):
+    """A DM already has a bridge — the ingestor writes one for the Discord
+    thread the moment it speaks — and the connector runs that flow itself. A
+    second binding here would only be a room it then mirrors twice, through a
+    webhook a thread cannot have."""
+    await _seed(seed_agent, agent_store, "news")
+    dm = (await admin_client.post("/api/relay/dm", json={"with": "agent:news"})).json()
+    r = await admin_client.post(f"/api/relay/channels/{dm['id']}/bindings",
+                                json={"connector": "discord", "external_ref": "9"})
+    assert r.status_code == 409 and "thread flow" in r.json()["detail"]
+
+
+async def test_binding_input_is_validated(admin_client, sf):
+    cid = await _channel_id(sf, "general")
+    assert (await admin_client.post(f"/api/relay/channels/{cid}/bindings",
+                                    json={"connector": "irc",
+                                          "external_ref": "1"})).status_code == 422
+    assert (await admin_client.post(f"/api/relay/channels/{cid}/bindings",
+                                    json={"connector": "discord",
+                                          "external_ref": "  "})).status_code == 422
+    assert (await admin_client.post("/api/relay/channels/nope/bindings",
+                                    json={"connector": "discord",
+                                          "external_ref": "1"})).status_code == 404
+
+
+async def test_the_cross_channel_list_is_what_a_connector_reads(admin_client, sf):
+    """The connector asks the platform which rooms it mirrors, rather than
+    being told in its environment — a binding made in the UI has to reach it
+    without a redeploy."""
+    general, ops = await _channel_id(sf, "general"), await _channel_id(sf, "ops")
+    await admin_client.post(f"/api/relay/channels/{general}/bindings",
+                            json={"connector": "discord", "external_ref": "111",
+                                  "config": {"guild": "g"}})
+    await admin_client.post(f"/api/relay/channels/{ops}/bindings",
+                            json={"connector": "slack", "external_ref": "222"})
+    rows = (await admin_client.get("/api/relay/bindings?connector=discord")).json()
+    assert rows == [{"channel_id": general, "external_ref": "111",
+                     "config": {"guild": "g"}}]
+    assert [r["external_ref"] for r in
+            (await admin_client.get("/api/relay/bindings?connector=slack")).json()] == ["222"]
+
+
+async def test_bindings_are_human_only(admin_client, token_client, sf, seed_agent,
+                                       agent_store):
+    """Never an agent token: a bridge is a decision about who can read the room,
+    and an agent holding the `relay` grant must not be able to make it."""
+    await _seed(seed_agent, agent_store, "news")
+    headers = await _agent_token(sf, "news")
+    cid = await _channel_id(sf, "general")
+    created = (await admin_client.post(f"/api/relay/channels/{cid}/bindings",
+                                       json={"connector": "discord",
+                                             "external_ref": "9"})).json()
+    assert (await token_client.get(f"/api/relay/channels/{cid}/bindings",
+                                   headers=headers)).status_code == 403
+    assert (await token_client.post(f"/api/relay/channels/{cid}/bindings",
+                                    headers=headers,
+                                    json={"connector": "discord",
+                                          "external_ref": "10"})).status_code == 403
+    assert (await token_client.delete(
+        f"/api/relay/channels/{cid}/bindings/{created['id']}",
+        headers=headers)).status_code == 403
+    assert (await token_client.get("/api/relay/bindings?connector=discord",
+                                   headers=headers)).status_code == 403
+
+
+async def test_a_reader_may_list_bindings_but_not_make_one(admin_client, token_client, sf):
+    headers = await _human_token(sf, "watcher", "reader")
+    cid = await _channel_id(sf, "general")
+    assert (await token_client.get(f"/api/relay/channels/{cid}/bindings",
+                                   headers=headers)).status_code == 200
+    assert (await token_client.get("/api/relay/bindings?connector=discord",
+                                   headers=headers)).status_code == 200
+    assert (await token_client.post(f"/api/relay/channels/{cid}/bindings", headers=headers,
+                                    json={"connector": "discord",
+                                          "external_ref": "1"})).status_code == 403
+
+
+async def test_a_channel_carries_its_title(admin_client, sf):
+    """The rail shows a room's name; a dm and a group have only a title."""
+    cid = await _channel_id(sf, "general")
+    assert (await admin_client.get(f"/api/relay/channels/{cid}")).json()["title"] == "#general"
+    group = (await admin_client.post("/api/relay/channels",
+                                     json={"kind": "group", "name": "Launch plan"})).json()
+    assert group["title"] == "Launch plan" and group["bindings"] == []
+    listed = {c["id"]: c for c in (await admin_client.get("/api/relay/channels")).json()}
+    assert listed[group["id"]]["title"] == "Launch plan"

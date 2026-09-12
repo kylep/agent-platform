@@ -25,6 +25,7 @@ from agentplatform.api.auth import (INVOKE_ROLES, READ_ROLES, authenticate,
 from agentplatform.conversation import continue_conversation
 from agentplatform.db import (ACTIVE_STATES, Conversation, RELAY_SEED_CHANNELS,
                               RelayInvocation, dm_key_of)
+from agentplatform.db import RelayBinding as BindingRow
 from agentplatform.db import RelayMessage as MessageRow
 from agentplatform.db import RelayParticipant as ParticipantRow
 from agentplatform.db import RelayReaction as ReactionRow
@@ -36,7 +37,8 @@ from agentplatform.relay import (agent_name, is_agent, is_member, mentionable_in
 # helper is what actually writes the row.
 from agentplatform.relay_feed import OVERFLOW
 from agentplatform.relay_store import post_relay_message as _insert_message
-from agentplatform.relay_store import (faces_for, message_view,
+from agentplatform.relay_store import (bindings_of, faces_for, message_view,
+                                       outbound_for_message,
                                        relay_message_payload,
                                        publish_relay_message)
 
@@ -73,6 +75,16 @@ HEARTBEAT_SECONDS = 15.0
 # client that was away for an hour catches up by re-fetching the page, not by
 # having the whole backlog pushed at it.
 REPLAY_LIMIT = 200
+
+# Why the router refused a mention, exactly as `relay_router` records it. The
+# split matters because only three of them mean a mention went unanswered: a
+# COALESCED wake is the guard working (three mentions became one run) and
+# FACADE_OWNS_TURN is a DM being answered by the other door. Counting those as
+# trouble is how a perfectly healthy room ends up reported as a problem, so the
+# headline `suppressed_24h` is the refusals and the breakdown carries the rest.
+REFUSED_REASONS = ("hop_limit", "budget", "not_member")
+ROUTINE_REASONS = ("coalesced", "facade_owns_turn")
+SUPPRESSION_REASONS = REFUSED_REASONS + ROUTINE_REASONS
 
 
 class Caller(NamedTuple):
@@ -196,7 +208,8 @@ _message = message_view
 
 def _channel(conv: Conversation, *, participants: set[str], last=None,
              count: int = 0, unread: int = 0) -> dict:
-    return {"id": conv.id, "kind": conv.kind, "name": conv.name, "topic": conv.topic,
+    return {"id": conv.id, "kind": conv.kind, "name": conv.name,
+            "title": conv.title, "topic": conv.topic,
             "open": bool(conv.open), "archived_at": _iso(conv.archived_at),
             "agent": conv.agent, "participants": sorted(participants),
             "last_message": None if last is None else {
@@ -211,6 +224,15 @@ async def _detail(s, conv: Conversation) -> dict:
     names = _agents_among(participants) | ({conv.agent} if conv.agent else set())
     view = _channel(conv, participants=participants)
     view["faces"] = await _faces(s, names)
+    view["bindings"] = [_binding(b) for b in await bindings_of(s, conv.id)]
+    # What the people from other networks are CALLED. Only they have one: an
+    # agent and a principal are named by their participant string, and a client
+    # that had to guess which half of `discord:415…` to show would show the
+    # number.
+    view["display_names"] = dict((await s.execute(select(
+        ParticipantRow.participant, ParticipantRow.display_name).where(
+        ParticipantRow.channel_id == conv.id,
+        ParticipantRow.display_name.is_not(None)))).all())
     return view
 
 
@@ -415,6 +437,110 @@ async def archive_relay_channel(request: Request, channel_id: str):
     return {"ok": True, "id": channel_id}
 
 
+# --- bindings (docs/design/19) ------------------------------------------------
+# A binding makes a room two-sided: the Discord channel behind it is the SAME
+# room, and everything written here is mirrored there. That is a decision about
+# who can read the room, so these routes are human-only — `agents=False` — even
+# for the list: an agent that could bind a channel could choose its own
+# audience, and one that could read the bindings would learn where the rooms it
+# is in are being echoed.
+
+CONNECTORS = ("discord", "slack", "telegram")
+
+
+def _binding(row) -> dict:
+    return {"id": row.id, "connector": row.connector,
+            "external_ref": row.external_ref, "config": row.config or {}}
+
+
+@router.get("/api/relay/bindings", response_model=list[S.RelayBindingRef],
+            dependencies=[Depends(require_relay_access(*READ_ROLES, agents=False))])
+async def list_bindings_for_connector(request: Request,
+                                      connector: str = Query(max_length=32)):
+    """Every CHANNEL this connector mirrors. A bridge asks the platform which
+    rooms it is responsible for rather than being told in its environment: a
+    binding made in the UI has to reach it without a redeploy, and the
+    connector holds no state of its own worth trusting.
+
+    DMs are excluded, and that exclusion is load-bearing. `conversation_ingest`
+    writes a binding for every thread it meets on first contact, and a Discord
+    thread id is a snowflake exactly like a channel id — so handing those back
+    would have the bridge treat every private thread as a mirrored room:
+    inbound would stop requiring a mention of the bot and would re-author the
+    thread's history under a second participant, and outbound would try to hang
+    a webhook on a thread, which Discord does not allow — a 404 the connector
+    swallows, and the reply is simply never delivered. The thread flow is the
+    connector's own; the platform only names the rooms it mirrors."""
+    async with request.app.state.session_factory() as s:
+        rows = list((await s.execute(
+            select(BindingRow)
+            .join(Conversation, Conversation.id == BindingRow.channel_id)
+            .where(BindingRow.connector == connector,
+                   Conversation.kind.in_(("channel", "group")))
+            .order_by(BindingRow.external_ref))).scalars())
+    return [{"channel_id": r.channel_id, "external_ref": r.external_ref,
+             "config": r.config or {}} for r in rows]
+
+
+@router.get("/api/relay/channels/{channel_id}/bindings",
+            response_model=list[S.RelayBindingView],
+            dependencies=[Depends(require_relay_access(*READ_ROLES, agents=False))])
+async def list_relay_bindings(request: Request, channel_id: str):
+    async with request.app.state.session_factory() as s:
+        if await s.get(Conversation, channel_id) is None:
+            raise HTTPException(404, "unknown channel")
+        return [_binding(b) for b in await bindings_of(s, channel_id)]
+
+
+@router.post("/api/relay/channels/{channel_id}/bindings", status_code=201,
+             response_model=S.RelayBindingView,
+             dependencies=[Depends(require_relay_access(*INVOKE_ROLES, agents=False))])
+async def create_relay_binding(request: Request, channel_id: str, body: S.RelayBindingIn):
+    if body.connector not in CONNECTORS:
+        raise HTTPException(422, f"connector must be one of {', '.join(CONNECTORS)}")
+    external_ref = body.external_ref.strip()
+    if not external_ref:
+        raise HTTPException(422, "external_ref must name a room on that network")
+    async with request.app.state.session_factory() as s:
+        conv = await s.get(Conversation, channel_id)
+        if conv is None:
+            raise HTTPException(404, "unknown channel")
+        if conv.kind == "dm":
+            # The connector owns its own threads (see the listing above): a DM
+            # already has a bridge, made by the ingestor when the thread first
+            # spoke, and a second one made here would only be a room the
+            # connector then mirrors twice.
+            raise HTTPException(409, "DMs are bound by the connector's own thread flow")
+        row = BindingRow(channel_id=channel_id, connector=body.connector,
+                         external_ref=external_ref, config=dict(body.config))
+        s.add(row)
+        try:
+            await s.commit()
+        except IntegrityError:
+            # The unique (connector, external_ref) is the real arbiter: one room
+            # on the other network resolves to exactly one channel, or an
+            # inbound message would have two places to land.
+            await s.rollback()
+            raise HTTPException(409, f"{body.connector}:{external_ref} is already "
+                                     f"bound to a channel")
+        return _binding(row)
+
+
+@router.delete("/api/relay/channels/{channel_id}/bindings/{binding_id}",
+               response_model=S.OkId,
+               dependencies=[Depends(require_relay_access(*INVOKE_ROLES, agents=False))])
+async def delete_relay_binding(request: Request, channel_id: str, binding_id: str):
+    """Unbind: the room stays, the bridge stops. The messages on both sides are
+    the record of what was said and neither is touched."""
+    async with request.app.state.session_factory() as s:
+        row = await s.get(BindingRow, binding_id)
+        if row is None or row.channel_id != channel_id:
+            raise HTTPException(404, "unknown binding")
+        await s.delete(row)
+        await s.commit()
+    return {"ok": True, "id": binding_id}
+
+
 async def _reactions(s, ids: list[str], participant: str) -> dict[str, list[dict]]:
     if not ids:
         return {}
@@ -557,6 +683,10 @@ async def post_relay_message(request: Request, channel_id: str, body: S.RelayMes
             faces = await _faces(s, {caller.agent} if caller.agent else set())
             face = _face_of(caller.participant, faces)
             view = _message(row, face=face)
+            # A bound room is mirrored both ways (docs/design/19 T10): what a
+            # person types here is what Discord shows. Resolved inside the
+            # session, published outside it.
+            outbound = await outbound_for_message(s, conv, row)
     if turn_agent is not None:
         # Outside the session: the facade opens its own, and the turn it
         # materializes must not be nested inside a transaction this route holds.
@@ -565,7 +695,8 @@ async def post_relay_message(request: Request, channel_id: str, body: S.RelayMes
     # is down, and when it is up the echo off `relay.messages` is deduped by id.
     request.app.state.feed.publish(conv.id, "message",
                                    relay_message_payload(row, conv, face=face))
-    await publish_relay_message(request.app.state.producer, conv, row, face=face)
+    await publish_relay_message(request.app.state.producer, conv, row, face=face,
+                                outbound=outbound)
     return view
 
 
@@ -854,15 +985,31 @@ async def relay_stats(request: Request):
         by_agents = await count(MessageRow, MessageRow.created_at >= day,
                                 MessageRow.deleted_at.is_(None),
                                 MessageRow.author.like("agent:%"))
-        invocations = await count(RelayInvocation, RelayInvocation.created_at >= day)
-        suppressed = await count(RelayInvocation, RelayInvocation.created_at >= day,
-                                 RelayInvocation.decision == "suppressed")
+        # Invoked only: the tile reads "agent invocations today", and a number
+        # that grew every time the router REFUSED to invoke somebody would be
+        # counting the opposite of what it says.
+        invocations = await count(RelayInvocation, RelayInvocation.created_at >= day,
+                                  RelayInvocation.decision == "invoked")
+        by_reason = (await s.execute(
+            select(RelayInvocation.reason, func.count())
+            .where(RelayInvocation.created_at >= day,
+                   RelayInvocation.decision == "suppressed")
+            .group_by(RelayInvocation.reason))).all()
         # The global budget the router spends against: invocations that became
         # runs, in the trailing hour.
         used = await count(RelayInvocation, RelayInvocation.created_at >= hour,
                            RelayInvocation.decision == "invoked")
+    # Zero-filled: "nothing was refused for that reason" and "that reason is
+    # gone" are different answers, and a missing key gives the reader the wrong
+    # one. A reason the router grows later still appears — it simply has no
+    # zero-filled floor until it is named above.
+    breakdown = {reason: 0 for reason in SUPPRESSION_REASONS}
+    for reason, n in by_reason:
+        breakdown[reason or "unknown"] = breakdown.get(reason or "unknown", 0) + n
+    suppressed = sum(breakdown[reason] for reason in REFUSED_REASONS)
     return {"messages_24h": messages, "agent_messages_24h": by_agents,
             "invocations_24h": invocations, "suppressed_24h": suppressed,
+            "suppressed_by_reason": breakdown,
             "budget": {"channel_per_hour": settings.relay_channel_invocations_per_hour,
                        "global_per_hour": settings.relay_global_invocations_per_hour,
                        "global_used_last_hour": used},

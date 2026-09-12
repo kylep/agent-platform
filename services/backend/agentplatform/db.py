@@ -163,6 +163,12 @@ class RelayParticipant(Base):
     # a participant may live outside this platform entirely.
     participant: Mapped[str] = mapped_column(String(128), primary_key=True)
     role: Mapped[str] = mapped_column(String(16), default="member")   # member | owner
+    # What this participant is CALLED on the network it comes from, when that
+    # is not readable from the string itself. `discord:415…` is a snowflake and
+    # nothing else: without the name the bridge learns when they speak, a room
+    # full of Discord people renders as a row of numbers. Null for agents and
+    # principals, whose participant string is already their name.
+    display_name: Mapped[str | None] = mapped_column(String(128), nullable=True)
     joined_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 

@@ -568,3 +568,24 @@ async def test_a_failed_run_still_releases_its_wake(make_router, sf):
     assert await _decisions(sf) == [("ada", "suppressed", "coalesced"),
                                     ("ada", "invoked", "wake")]
     assert await _wakes(sf) == []
+
+
+async def test_a_pause_notice_reaches_a_bound_room(make_router, sf, producer):
+    """The bridge is told why the room went quiet (docs/design/19 T10): a
+    Discord channel that just watched two agents stop mid-thread needs the same
+    "paused" line the web pane shows."""
+    from agentplatform.db import RelayBinding
+    from agentplatform.events import TOPIC_CONVERSATION_OUTBOUND
+    router = await make_router()
+    cid = await _channel(sf)
+    async with sf() as s:
+        s.add(RelayBinding(channel_id=cid, connector="discord", external_ref="chan-7"))
+        await s.commit()
+    root = await _say(router, sf, cid, "user:admin", "kick this off @ada")
+    await _finish(sf, "ada")
+    await _say(router, sf, cid, "agent:ada", "@bob take it from here",
+               hop=router.settings.relay_max_hops, run_id=uuid.uuid4().hex,
+               reply_to=root)
+    out = [d for t, _, d in producer.published if t == TOPIC_CONVERSATION_OUTBOUND]
+    assert [(d["kind"], d["author"], d["text"], d["external_ref"]) for d in out] == [
+        ("system", "system:relay", HOP_LIMIT_BODY, "chan-7")]

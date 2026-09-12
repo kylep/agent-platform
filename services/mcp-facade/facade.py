@@ -101,6 +101,10 @@ CURATED_OUT = (
     (("POST",),  r"^/api/tools/new$"),
     (("POST",),  r"^/api/skills/\{name\}/quick-edit$"),
     (("POST",),  r"^/api/skills/new$"),
+    # Relay's cross-channel binding list (design/19): it exists for the
+    # connectors, which read it over HTTP with their own token on a timer. As a
+    # tool it would answer a question no MCP client asks.
+    (("GET",),   r"^/api/relay/bindings$"),
 )
 
 # Sharp/admin tools: OFFERED only when AP_MCP_ADMIN_TOOLS is truthy. The role
@@ -127,6 +131,11 @@ GATED_ADMIN = (
     # posting in them stays KEEP.
     (("POST",),   r"^/api/relay/channels$"),                     # create_relay_channel
     (("PATCH", "DELETE"), r"^/api/relay/channels/\{channel_id\}$"),  # rename/archive (GET survives)
+    # Binding a room to Discord decides who can read it, which is the same
+    # class of decision as naming or retiring one (the GET stays KEEP: "is this
+    # room bridged?" is worth answering).
+    (("POST",),   r"^/api/relay/channels/\{channel_id\}/bindings$"),
+    (("DELETE",), r"^/api/relay/channels/\{channel_id\}/bindings/\{binding_id\}$"),
 )
 
 # operationId -> MCP tool name. Keys are route function names (api/app.py sets

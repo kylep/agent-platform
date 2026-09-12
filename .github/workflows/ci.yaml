@@ -29,6 +29,11 @@ jobs:
         # the API with the caller's token. They stub fastmcp rather than
         # installing an MCP runtime, so they ride along with the backend job.
         run: pytest services/mcp-broker
+      - name: Discord connector tests
+        # The bridge (services/connector-discord): it stubs discord.py and
+        # aiokafka rather than installing a gateway client, so like the broker's
+        # tests it rides along with the backend job.
+        run: pytest services/connector-discord
       - name: SDK is in sync with the API
         # The SDK is generated from the OpenAPI spec; regenerate and fail if the
         # committed output differs, so it can never drift. Generator is pinned.

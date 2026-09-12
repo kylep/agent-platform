@@ -7,7 +7,13 @@ from attrs import define as _attrs_define
 from attrs import field as _attrs_field
 from typing_extensions import Self
 
+from ..types import UNSET, Unset
+
 if TYPE_CHECKING:
+    from ..models.relay_binding_view import RelayBindingView
+    from ..models.relay_channel_detail_display_names import (
+        RelayChannelDetailDisplayNames,
+    )
     from ..models.relay_channel_detail_faces import RelayChannelDetailFaces
     from ..models.relay_last_message import RelayLastMessage
 
@@ -29,8 +35,11 @@ class RelayChannelDetail:
         name (None | str):
         open_ (bool):
         participants (list[str]):
+        title (None | str):
         topic (str):
         unread (int):
+        bindings (list[RelayBindingView] | Unset):
+        display_names (RelayChannelDetailDisplayNames | Unset):
     """
 
     agent: None | str
@@ -43,8 +52,11 @@ class RelayChannelDetail:
     name: None | str
     open_: bool
     participants: list[str]
+    title: None | str
     topic: str
     unread: int
+    bindings: list[RelayBindingView] | Unset = UNSET
+    display_names: RelayChannelDetailDisplayNames | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -77,9 +89,23 @@ class RelayChannelDetail:
 
         participants = self.participants
 
+        title: None | str
+        title = self.title
+
         topic = self.topic
 
         unread = self.unread
+
+        bindings: list[dict[str, Any]] | Unset = UNSET
+        if not isinstance(self.bindings, Unset):
+            bindings = []
+            for bindings_item_data in self.bindings:
+                bindings_item = bindings_item_data.to_dict()
+                bindings.append(bindings_item)
+
+        display_names: dict[str, Any] | Unset = UNSET
+        if not isinstance(self.display_names, Unset):
+            display_names = self.display_names.to_dict()
 
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
@@ -95,15 +121,24 @@ class RelayChannelDetail:
                 "name": name,
                 "open": open_,
                 "participants": participants,
+                "title": title,
                 "topic": topic,
                 "unread": unread,
             }
         )
+        if bindings is not UNSET:
+            field_dict["bindings"] = bindings
+        if display_names is not UNSET:
+            field_dict["display_names"] = display_names
 
         return field_dict
 
     @classmethod
     def from_dict(cls, src_dict: Mapping[str, Any]) -> Self:
+        from ..models.relay_binding_view import RelayBindingView
+        from ..models.relay_channel_detail_display_names import (
+            RelayChannelDetailDisplayNames,
+        )
         from ..models.relay_channel_detail_faces import RelayChannelDetailFaces
         from ..models.relay_last_message import RelayLastMessage
 
@@ -157,9 +192,32 @@ class RelayChannelDetail:
 
         participants = cast(list[str], d.pop("participants"))
 
+        def _parse_title(data: object) -> None | str:
+            if data is None:
+                return data
+            return cast(None | str, data)
+
+        title = _parse_title(d.pop("title"))
+
         topic = d.pop("topic")
 
         unread = d.pop("unread")
+
+        _bindings = d.pop("bindings", UNSET)
+        bindings: list[RelayBindingView] | Unset = UNSET
+        if _bindings is not UNSET:
+            bindings = []
+            for bindings_item_data in _bindings:
+                bindings_item = RelayBindingView.from_dict(bindings_item_data)
+
+                bindings.append(bindings_item)
+
+        _display_names = d.pop("display_names", UNSET)
+        display_names: RelayChannelDetailDisplayNames | Unset
+        if isinstance(_display_names, Unset):
+            display_names = UNSET
+        else:
+            display_names = RelayChannelDetailDisplayNames.from_dict(_display_names)
 
         relay_channel_detail = cls(
             agent=agent,
@@ -172,8 +230,11 @@ class RelayChannelDetail:
             name=name,
             open_=open_,
             participants=participants,
+            title=title,
             topic=topic,
             unread=unread,
+            bindings=bindings,
+            display_names=display_names,
         )
 
         relay_channel_detail.additional_properties = d

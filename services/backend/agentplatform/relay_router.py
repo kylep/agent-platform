@@ -39,7 +39,8 @@ from agentplatform.relay import (AGENT_PREFIX, ALL, SYSTEM_AUTHOR, USER_PREFIX,
                                  is_member, is_open_channel, mentionable_in,
                                  parse_mentions)
 from agentplatform.relay_store import (context_window, explicit_members, faces_for,
-                                       post_relay_message, publish_relay_message)
+                                       outbound_for_message, post_relay_message,
+                                       publish_relay_message)
 
 log = logging.getLogger("relay_router")
 
@@ -164,11 +165,15 @@ class RelayRouter:
             if paused_limit is not None:
                 notices.append(await self._say_budget(s, conv, paused_limit))
             await s.commit()
+            # The bridge's copy of each notice, resolved while the session is
+            # still open (docs/design/19 T10): a room mirrored into Discord is
+            # owed the reason it went quiet just as much as the web pane is.
+            mirrored = [(row, await outbound_for_message(s, conv, row))
+                        for row in notices if row is not None]
         # Committed first, published after: the row is the record, and a broker
         # blip must cost the room its notice, never its decision.
-        for row in notices:
-            if row is not None:
-                await publish_relay_message(self.producer, conv, row)
+        for row, outbound in mirrored:
+            await publish_relay_message(self.producer, conv, row, outbound=outbound)
         for spec in specs:
             await materialize_run(self.sf, self.producer, spec)
         for payload in decided:

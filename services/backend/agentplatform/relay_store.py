@@ -1,17 +1,24 @@
-"""Writing a Relay message: the row, its view, and the `relay.messages` event.
+"""Writing a Relay message: the row, its view, and the events it becomes.
 
-Three callers post into channels — the REST API, the recorder (an agent's
-reply) and the conversation facade (a human's turn) — and every one of them
-must produce the same row and the same event, because the router, the SSE
-fan-out and the bridges downstream read only what was written here. A second
-implementation would be a second definition of what a message is."""
+Four callers post into channels — the REST API, the recorder (an agent's
+reply), the router (the platform's own notices) and the conversation facade (a
+human's turn, whether typed here or bridged in) — and every one of them must
+produce the same row and the same events, because the router, the SSE fan-out
+and the bridges downstream read only what was written here. A second
+implementation would be a second definition of what a message is.
+
+A message in a bound room becomes more than one event: `relay.messages` for the
+platform, plus a `conversation.outbound` for each network the room is bridged
+to. They are published together, here, so a room cannot be mirrored one way by
+the API and another by the recorder."""
 import logging
 
 from sqlalchemy import or_, select
 
 from agentplatform.db import (AgentDef, RelayBinding, RelayMessage,
-                              RelayParticipant, utcnow)
-from agentplatform.events import TOPIC_RELAY_MESSAGES
+                              RelayParticipant, Run, utcnow)
+from agentplatform.events import (TOPIC_CONVERSATION_OUTBOUND,
+                                  TOPIC_RELAY_MESSAGES)
 from agentplatform.relay import face_for
 
 log = logging.getLogger("relay_store")
@@ -59,11 +66,78 @@ async def post_relay_message(session, conv, *, author: str, body: str,
     return row
 
 
-async def publish_relay_message(producer, conv, msg, *, face=None) -> None:
+# What a message's `state` says when no run wrote it. The field is a run's
+# outcome, and a human typing in a channel has none — but connectors have read
+# it since design-07, so it stays present and honest rather than absent.
+POSTED = "posted"
+
+
+async def outbound_for_message(session, conv, msg, *,
+                               state: str | None = None) -> list[dict]:
+    """The `conversation.outbound` payloads that mirror `msg` to the networks on
+    the other side of its room — one per binding, empty when nobody is
+    listening.
+
+    A LIST because a room may be bridged more than once: #ops in Discord and in
+    Slack is still one room, and mirroring to whichever binding a query happened
+    to return first would make the other network silently miss half a
+    conversation.
+
+    Everything written into a bound room is mirrored — an agent's reply, a
+    human's post, the platform's own notices — because the channel behind a
+    binding IS the room, not a notification sink: a bridge that carried only
+    agent replies would show Discord half a conversation, with every question
+    missing.
+
+    Two rules decide the set. A binding is the bridge (docs/design/19); the
+    legacy connector columns still answer for a thread the backfill has not
+    reached, and a web room with neither has no other side at all. And a message
+    that ARRIVED over one of these bridges is never sent back down THAT one: the
+    author's namespace is the network it came from (`discord:<id>`), so
+    comparing it to each binding's connector is the whole loop guard — without
+    it every human line in a bound channel is echoed back at the person who
+    typed it. The other bridges still get it: a Discord message belongs on the
+    Slack side of the same room.
+
+    `state` is the run outcome the recorder holds before the Run row does; left
+    out, it is read off the run that authored the message."""
+    bridges = [(b.connector, b.external_ref) for b in await bindings_of(session, conv.id)]
+    if not bridges:
+        if conv.connector == "web" or not conv.external_ref:
+            return []
+        bridges = [(conv.connector, conv.external_ref)]
+    origin = (msg.author or "").partition(":")[0]
+    bridges = [(connector, ref) for connector, ref in bridges if connector != origin]
+    if not bridges:
+        return []
+    if state is None:
+        run = await session.get(Run, msg.run_id) if msg.run_id else None
+        state = run.state if run is not None else POSTED
+    return [{"channel_id": conv.id,
+             # The same id under its design-07 name: connectors and the DLQ UI
+             # still read `conversation_id`, and a bridge is not the place to
+             # break a wire format over a rename.
+             "conversation_id": conv.id,
+             "connector": connector, "external_ref": ref,
+             "author": msg.author, "kind": msg.kind, "message_id": msg.id,
+             "run_id": msg.run_id, "text": msg.body or "", "state": state}
+            for connector, ref in bridges]
+
+
+async def publish_relay_message(producer, conv, msg, *, face=None,
+                                outbound=()) -> None:
     """`relay.messages` is what the router, the SSE fan-out and the bridges all
     read. The row is committed and is the source of truth, so a broker blip must
     not fail a post that demonstrably landed — it costs the message its routing,
-    which the invocation log shows as the mention that did nothing."""
+    which the invocation log shows as the mention that did nothing.
+
+    `outbound` is the bridges' copies of the same message (one per binding),
+    resolved by `outbound_for_message` while the caller still held its session:
+    a binding lookup here would put a database round trip inside the publish,
+    and every caller has already let its transaction go by this point. All the
+    publishes happen in one call so that the API, the recorder and the router
+    cannot mirror a room differently — there is one definition of "the message
+    went out", and this is it."""
     if producer is None:
         return
     try:
@@ -72,6 +146,18 @@ async def publish_relay_message(producer, conv, msg, *, face=None) -> None:
                                type="relay.message")
     except Exception:
         log.warning("relay.messages publish failed for message %s", msg.id, exc_info=True)
+    for payload in outbound or ():
+        try:
+            # `conversation.reply` since design-07, for messages that are no
+            # longer only replies: the connectors match on the type, so
+            # renaming it would silence every bridge the moment this deploys.
+            await producer.publish(TOPIC_CONVERSATION_OUTBOUND, conv.id, payload,
+                                   type="conversation.reply")
+        except Exception:
+            # Per bridge: one unreachable network must not cost the others
+            # their copy of the message.
+            log.warning("conversation.outbound publish failed for message %s to %s",
+                        msg.id, payload.get("connector"), exc_info=True)
 
 
 async def enabled_agents(session) -> set[str]:
@@ -106,9 +192,13 @@ async def explicit_members(session, channel_id: str) -> set[str]:
         RelayParticipant.channel_id == channel_id))).scalars())
 
 
-async def binding_of(session, channel_id: str) -> RelayBinding | None:
-    return (await session.execute(select(RelayBinding).where(
-        RelayBinding.channel_id == channel_id))).scalars().first()
+async def bindings_of(session, channel_id: str) -> list[RelayBinding]:
+    """Every bridge this room is mirrored to, in a stable order — the order is
+    the reason this is not a `.first()`: two bindings must produce the same two
+    payloads every time, not whichever one the planner returned."""
+    return list((await session.execute(select(RelayBinding).where(
+        RelayBinding.channel_id == channel_id).order_by(
+        RelayBinding.connector, RelayBinding.external_ref))).scalars())
 
 
 async def context_window(session, channel_id: str, *, limit: int,

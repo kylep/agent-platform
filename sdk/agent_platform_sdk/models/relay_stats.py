@@ -10,6 +10,7 @@ from typing_extensions import Self
 if TYPE_CHECKING:
     from ..models.relay_budget import RelayBudget
     from ..models.relay_settings import RelaySettings
+    from ..models.relay_stats_suppressed_by_reason import RelayStatsSuppressedByReason
 
 
 T = TypeVar("T", bound="RelayStats")
@@ -32,6 +33,7 @@ class RelayStats:
             least means an operator reading "suppressed_24h: 40" can see the budget
             that suppressed them without going to read the Helm values.
         suppressed_24h (int):
+        suppressed_by_reason (RelayStatsSuppressedByReason):
     """
 
     agent_messages_24h: int
@@ -40,6 +42,7 @@ class RelayStats:
     messages_24h: int
     settings: RelaySettings
     suppressed_24h: int
+    suppressed_by_reason: RelayStatsSuppressedByReason
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -55,6 +58,8 @@ class RelayStats:
 
         suppressed_24h = self.suppressed_24h
 
+        suppressed_by_reason = self.suppressed_by_reason.to_dict()
+
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
@@ -65,6 +70,7 @@ class RelayStats:
                 "messages_24h": messages_24h,
                 "settings": settings,
                 "suppressed_24h": suppressed_24h,
+                "suppressed_by_reason": suppressed_by_reason,
             }
         )
 
@@ -74,6 +80,9 @@ class RelayStats:
     def from_dict(cls, src_dict: Mapping[str, Any]) -> Self:
         from ..models.relay_budget import RelayBudget
         from ..models.relay_settings import RelaySettings
+        from ..models.relay_stats_suppressed_by_reason import (
+            RelayStatsSuppressedByReason,
+        )
 
         d = dict(src_dict)
         agent_messages_24h = d.pop("agent_messages_24h")
@@ -88,6 +97,10 @@ class RelayStats:
 
         suppressed_24h = d.pop("suppressed_24h")
 
+        suppressed_by_reason = RelayStatsSuppressedByReason.from_dict(
+            d.pop("suppressed_by_reason")
+        )
+
         relay_stats = cls(
             agent_messages_24h=agent_messages_24h,
             budget=budget,
@@ -95,6 +108,7 @@ class RelayStats:
             messages_24h=messages_24h,
             settings=settings,
             suppressed_24h=suppressed_24h,
+            suppressed_by_reason=suppressed_by_reason,
         )
 
         relay_stats.additional_properties = d
