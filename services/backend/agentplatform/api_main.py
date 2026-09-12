@@ -2,7 +2,8 @@ import uvicorn
 
 from agentplatform.agents import AgentStore
 from agentplatform.api.app import (create_app, kafka_consumer_factory,
-                                   relay_feed_consumer_factory)
+                                   relay_feed_consumer_factory,
+                                   tickets_feed_consumer_factory)
 from agentplatform.config import get_settings
 from agentplatform.events import Producer
 from agentplatform.secrets import InMemorySecretStore, K8sSecretStore
@@ -28,6 +29,7 @@ def build_app():
         agent_store=AgentStore(None),
         consumer_factory=kafka_consumer_factory(settings),
         feed_consumer_factory=relay_feed_consumer_factory(settings),
+        ticket_feed_consumer_factory=tickets_feed_consumer_factory(settings),
     )
     app.state.sa_validator = _make_sa_validator()
     return app

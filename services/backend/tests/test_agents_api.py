@@ -751,12 +751,14 @@ async def test_disabling_an_agent_stops_its_in_flight_conversation(admin_client,
     assert r.status_code == 409 and "disabled" in r.json()["detail"]
 
 
-# --- the relay default grant (docs/design/19) --------------------------------
+# --- the participant default grants (docs/design/19, docs/design/20) ----------
 # "Default-granted" is implemented as ROWS: a created agent is born holding
-# `mcp__platform__relay` while the platform setting says so, and an admin can
-# take it away afterwards like any other grant.
+# `mcp__platform__relay` and `mcp__platform__tickets` while the platform
+# settings say so, and an admin can take either away afterwards like any other
+# grant. Two settings, so "a messenger but no work tracker" is expressible.
 
 RELAY = "mcp__platform__relay"
+TICKETS = "mcp__platform__tickets"
 
 
 async def tools_of(sf, agent: str) -> list[str]:
@@ -764,37 +766,43 @@ async def tools_of(sf, agent: str) -> list[str]:
         return (await s.get(AgentDef, agent)).platform_tools
 
 
-async def test_create_grants_relay_by_default(admin_client, sf):
+async def test_create_grants_the_participant_tools_by_default(admin_client, sf):
     r = await admin_client.post("/api/agents", json=a_def("newbie"))
     assert r.status_code == 201, r.text
-    assert r.json()["platform_tools"] == [RELAY]
-    assert await tools_of(sf, "newbie") == [RELAY]
-    # The change log records the definition that actually landed, grant and all.
-    assert (await versions_of(sf, "newbie"))[0].snapshot["platform_tools"] == [RELAY]
+    assert r.json()["platform_tools"] == [RELAY, TICKETS]
+    assert await tools_of(sf, "newbie") == [RELAY, TICKETS]
+    # The change log records the definition that actually landed, grants and all.
+    assert (await versions_of(sf, "newbie"))[0].snapshot["platform_tools"] == [RELAY,
+                                                                              TICKETS]
 
 
 async def test_create_appends_the_default_to_the_grants_asked_for(admin_client, sf):
     r = await admin_client.post("/api/agents", json=a_def(
         "quant", platform_tools=["mcp__platform__stocks"]))
     assert r.status_code == 201, r.text
-    assert await tools_of(sf, "quant") == ["mcp__platform__stocks", RELAY]
+    assert await tools_of(sf, "quant") == ["mcp__platform__stocks", RELAY, TICKETS]
 
 
-async def test_create_may_opt_out_of_the_relay_grant(admin_client, sf):
-    """`relay: false` is the explicit opt-out — a field, not a magic string."""
+async def test_create_may_opt_out_of_a_participant_grant(admin_client, sf):
+    """`relay: false` is the explicit opt-out — a field, not a magic string —
+    and it opts out of that grant alone."""
     r = await admin_client.post("/api/agents", json={**a_def("quiet"), "relay": False})
     assert r.status_code == 201, r.text
-    assert await tools_of(sf, "quiet") == []
+    assert await tools_of(sf, "quiet") == [TICKETS]
+    r = await admin_client.post("/api/agents", json={**a_def("mum"), "relay": False,
+                                                     "tickets": False})
+    assert r.status_code == 201, r.text
+    assert await tools_of(sf, "mum") == []
 
 
 async def test_the_relay_default_can_be_turned_off_platform_wide(admin_client, sf):
     admin_client._transport.app.state.settings.relay_default_grant = False
     assert (await admin_client.post("/api/agents", json=a_def("mute"))).status_code == 201
-    assert await tools_of(sf, "mute") == []
+    assert await tools_of(sf, "mute") == [TICKETS]
     # ...and an explicit `relay: true` still asks for it.
     assert (await admin_client.post("/api/agents",
                                     json={**a_def("loud"), "relay": True})).status_code == 201
-    assert await tools_of(sf, "loud") == [RELAY]
+    assert await tools_of(sf, "loud") == [RELAY, TICKETS]
 
 
 async def test_the_relay_default_is_not_the_caller_escalating(client, sf, seed_agent,
@@ -808,7 +816,7 @@ async def test_the_relay_default_is_not_the_caller_escalating(client, sf, seed_a
     h = await bearer(sf, "editor")
     r = await client.post("/api/agents", json=a_def("ordinary"), headers=h)
     assert r.status_code == 201, r.text
-    assert await tools_of(sf, "ordinary") == [RELAY]
+    assert await tools_of(sf, "ordinary") == [RELAY, TICKETS]
     assert (await versions_of(sf, "ordinary"))[0].changed_via == "tool:agents_edit"
 
 
@@ -824,12 +832,12 @@ async def test_asking_for_relay_explicitly_is_still_a_grant(client, sf, seed_age
     assert r.status_code == 403 and "platform_tools" in r.json()["detail"]
 
 
-async def test_import_grants_relay_and_stays_idempotent(admin_client, sf):
-    payload = [a_def("fresh"), {**a_def("quiet"), "relay": False}]
+async def test_import_grants_the_participant_tools_and_stays_idempotent(admin_client, sf):
+    payload = [a_def("fresh"), {**a_def("quiet"), "relay": False, "tickets": False}]
     r = await admin_client.post("/api/agents/import", json=payload)
     assert r.json() == [{"name": "fresh", "status": "created"},
                         {"name": "quiet", "status": "created"}]
-    assert await tools_of(sf, "fresh") == [RELAY]
+    assert await tools_of(sf, "fresh") == [RELAY, TICKETS]
     assert await tools_of(sf, "quiet") == []
     # Re-running the same payload must still be the no-op the endpoint promises.
     r = await admin_client.post("/api/agents/import", json=payload)

@@ -292,12 +292,17 @@ async def _versions(sfx, name: str) -> list[tuple]:
                           .order_by(AgentVersion.version))).scalars()]
 
 
+# `tickets_grant=False` throughout: these are design-19's sweep, and Tickets
+# (docs/design/20) runs a second one over the same rows with its own mark, whose
+# own test lives in test_tickets_schema.py. Letting both run here would have
+# every assertion below carry a grant it is not about.
+
 async def test_default_grant_backfill_covers_the_agents_that_already_exist(engine, sfx):
     await _defs(sfx,
                 news={"platform_tools": ["mcp__platform__query_app"]},
                 chatty={"platform_tools": [RELAY]},
                 retired={"platform_tools": [], "enabled": False})
-    await init_db(engine)
+    await init_db(engine, tickets_grant=False)
     assert await _grants(sfx, "news") == ["mcp__platform__query_app", RELAY]
     assert await _grants(sfx, "chatty") == [RELAY]      # already held it
     assert await _grants(sfx, "retired") == []          # disabled agents are left alone
@@ -316,35 +321,35 @@ async def test_default_grant_backfill_continues_the_agents_change_log(engine, sf
         s.add(AgentVersion(agent="news", version=7, snapshot={"name": "news"},
                            changed_by="admin", changed_via="admin"))
         await s.commit()
-    await init_db(engine)
+    await init_db(engine, tickets_grant=False)
     assert [v for v, *_ in await _versions(sfx, "news")] == [7, 8]
 
 
 async def test_default_grant_backfill_runs_once_and_marks_itself(engine, sfx):
     from agentplatform.db import RELAY_GRANT_MARK
     await _defs(sfx, news={"platform_tools": []})
-    await init_db(engine)
+    await init_db(engine, tickets_grant=False)
     async with sfx() as s:
         assert await s.get(SchemaMark, RELAY_GRANT_MARK) is not None
     before = await _versions(sfx, "news")
-    await init_db(engine)
+    await init_db(engine, tickets_grant=False)
     assert await _versions(sfx, "news") == before
     # An agent created after the migration belongs to the create path, not to
     # a second sweep.
     await _defs(sfx, later={"platform_tools": []})
-    await init_db(engine)
+    await init_db(engine, tickets_grant=False)
     assert await _grants(sfx, "later") == []
 
 
 async def test_a_removed_relay_grant_is_not_re_added(engine, sfx):
     from agentplatform.db import AgentDef
     await _defs(sfx, news={"platform_tools": []})
-    await init_db(engine)
+    await init_db(engine, tickets_grant=False)
     async with sfx() as s:
         row = await s.get(AgentDef, "news")
         row.platform_tools = []          # an admin takes it away via agents_grant
         await s.commit()
-    await init_db(engine)
+    await init_db(engine, tickets_grant=False)
     assert await _grants(sfx, "news") == []
 
 
@@ -353,11 +358,11 @@ async def test_default_grant_backfill_honours_the_setting(engine, sfx):
     not mark itself either, so turning the setting on later still backfills."""
     from agentplatform.db import RELAY_GRANT_MARK
     await _defs(sfx, news={"platform_tools": []})
-    await init_db(engine, default_grant=False)
+    await init_db(engine, default_grant=False, tickets_grant=False)
     assert await _grants(sfx, "news") == []
     async with sfx() as s:
         assert await s.get(SchemaMark, RELAY_GRANT_MARK) is None
-    await init_db(engine, default_grant=True)
+    await init_db(engine, default_grant=True, tickets_grant=False)
     assert await _grants(sfx, "news") == [RELAY]
 
 
@@ -370,7 +375,7 @@ async def test_default_grant_backfill_survives_a_quarantined_row(engine, sfx):
     async with sfx() as s:
         s.add(AgentDef(name="broken", role="not-a-role", platform_tools=[]))
         await s.commit()
-    await init_db(engine)
+    await init_db(engine, tickets_grant=False)
     assert await _grants(sfx, "news") == [RELAY]
     assert await _grants(sfx, "broken") == []
     assert await _versions(sfx, "broken") == []
@@ -385,7 +390,7 @@ async def test_default_grant_backfill_reads_a_null_enabled_as_enabled(engine, sf
     # migration re-adds it — nullable, and NULL on the row already there.
     async with engine.begin() as c:
         await c.exec_driver_sql("ALTER TABLE agent_defs DROP COLUMN enabled")
-    await init_db(engine)
+    await init_db(engine, tickets_grant=False)
     async with sfx() as s:
         assert (await s.execute(text(
             "SELECT enabled FROM agent_defs WHERE name = 'news'"))).scalar() is None

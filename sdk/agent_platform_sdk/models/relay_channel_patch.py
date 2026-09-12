@@ -17,11 +17,13 @@ class RelayChannelPatch:
     Attributes:
         archived (bool | None | Unset):
         name (None | str | Unset):
+        ticket_prefix (None | str | Unset):
         topic (None | str | Unset):
     """
 
     archived: bool | None | Unset = UNSET
     name: None | str | Unset = UNSET
+    ticket_prefix: None | str | Unset = UNSET
     topic: None | str | Unset = UNSET
 
     def to_dict(self) -> dict[str, Any]:
@@ -37,6 +39,12 @@ class RelayChannelPatch:
         else:
             name = self.name
 
+        ticket_prefix: None | str | Unset
+        if isinstance(self.ticket_prefix, Unset):
+            ticket_prefix = UNSET
+        else:
+            ticket_prefix = self.ticket_prefix
+
         topic: None | str | Unset
         if isinstance(self.topic, Unset):
             topic = UNSET
@@ -50,6 +58,8 @@ class RelayChannelPatch:
             field_dict["archived"] = archived
         if name is not UNSET:
             field_dict["name"] = name
+        if ticket_prefix is not UNSET:
+            field_dict["ticket_prefix"] = ticket_prefix
         if topic is not UNSET:
             field_dict["topic"] = topic
 
@@ -77,6 +87,15 @@ class RelayChannelPatch:
 
         name = _parse_name(d.pop("name", UNSET))
 
+        def _parse_ticket_prefix(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        ticket_prefix = _parse_ticket_prefix(d.pop("ticket_prefix", UNSET))
+
         def _parse_topic(data: object) -> None | str | Unset:
             if data is None:
                 return data
@@ -89,6 +108,7 @@ class RelayChannelPatch:
         relay_channel_patch = cls(
             archived=archived,
             name=name,
+            ticket_prefix=ticket_prefix,
             topic=topic,
         )
 

@@ -130,6 +130,21 @@ from .skill_view import SkillView
 from .skill_wizard_in import SkillWizardIn
 from .skill_wizard_secret import SkillWizardSecret
 from .sync_status import SyncStatus
+from .ticket_actor_count import TicketActorCount
+from .ticket_agent_budget import TicketAgentBudget
+from .ticket_assign_in import TicketAssignIn
+from .ticket_budget_view import TicketBudgetView
+from .ticket_comment_in import TicketCommentIn
+from .ticket_detail import TicketDetail
+from .ticket_event_view import TicketEventView
+from .ticket_in import TicketIn
+from .ticket_move_in import TicketMoveIn
+from .ticket_patch import TicketPatch
+from .ticket_project import TicketProject
+from .ticket_run_ref import TicketRunRef
+from .ticket_stats import TicketStats
+from .ticket_thinking import TicketThinking
+from .ticket_view import TicketView
 from .tool_audit_view import ToolAuditView
 from .tool_detail import ToolDetail
 from .tool_detail_files import ToolDetailFiles
@@ -279,6 +294,21 @@ __all__ = (
     "SkillWizardIn",
     "SkillWizardSecret",
     "SyncStatus",
+    "TicketActorCount",
+    "TicketAgentBudget",
+    "TicketAssignIn",
+    "TicketBudgetView",
+    "TicketCommentIn",
+    "TicketDetail",
+    "TicketEventView",
+    "TicketIn",
+    "TicketMoveIn",
+    "TicketPatch",
+    "TicketProject",
+    "TicketRunRef",
+    "TicketStats",
+    "TicketThinking",
+    "TicketView",
     "ToolAuditView",
     "ToolDetail",
     "ToolDetailFiles",

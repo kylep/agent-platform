@@ -35,6 +35,7 @@ class RelayChannelDetail:
         name (None | str):
         open_ (bool):
         participants (list[str]):
+        ticket_prefix (None | str):
         title (None | str):
         topic (str):
         unread (int):
@@ -52,6 +53,7 @@ class RelayChannelDetail:
     name: None | str
     open_: bool
     participants: list[str]
+    ticket_prefix: None | str
     title: None | str
     topic: str
     unread: int
@@ -89,6 +91,9 @@ class RelayChannelDetail:
 
         participants = self.participants
 
+        ticket_prefix: None | str
+        ticket_prefix = self.ticket_prefix
+
         title: None | str
         title = self.title
 
@@ -121,6 +126,7 @@ class RelayChannelDetail:
                 "name": name,
                 "open": open_,
                 "participants": participants,
+                "ticket_prefix": ticket_prefix,
                 "title": title,
                 "topic": topic,
                 "unread": unread,
@@ -192,6 +198,13 @@ class RelayChannelDetail:
 
         participants = cast(list[str], d.pop("participants"))
 
+        def _parse_ticket_prefix(data: object) -> None | str:
+            if data is None:
+                return data
+            return cast(None | str, data)
+
+        ticket_prefix = _parse_ticket_prefix(d.pop("ticket_prefix"))
+
         def _parse_title(data: object) -> None | str:
             if data is None:
                 return data
@@ -230,6 +243,7 @@ class RelayChannelDetail:
             name=name,
             open_=open_,
             participants=participants,
+            ticket_prefix=ticket_prefix,
             title=title,
             topic=topic,
             unread=unread,

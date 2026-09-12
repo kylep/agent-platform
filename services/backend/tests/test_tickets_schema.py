@@ -3,7 +3,8 @@ channel carries, and the one-off seed that makes #general and #ops projects."""
 import pytest
 from sqlalchemy import func, select
 
-from agentplatform.db import (Base, Conversation, Run, RunState, SchemaMark,
+from agentplatform.db import (AgentDef, AgentVersion, Base, Conversation, Run,
+                              RunState, SchemaMark, TICKETS_GRANT_MARK,
                               TICKETS_SEED_MARK, Ticket, TicketEvent, TicketPriority,
                               TicketState, init_db, make_engine, make_session_factory)
 
@@ -146,3 +147,55 @@ async def test_legacy_tables_gain_the_ticket_columns():
                   ticket_id="t9"))
         await s.commit()
     await e.dispose()
+
+
+# --- the tickets default grant (docs/design/20) ------------------------------
+# A second sweep over the same rows as design-19's, with its own mark: the two
+# ship a release apart, so an agent that predates Tickets has to be reached even
+# though the relay sweep already ran and marked itself.
+
+async def _grants(sfx, name: str) -> list[str]:
+    async with sfx() as s:
+        return (await s.get(AgentDef, name)).platform_tools
+
+
+async def test_tickets_grant_backfill_covers_the_agents_that_already_exist(engine, sfx):
+    async with sfx() as s:
+        s.add(AgentDef(name="news", prompt="p", description="d",
+                       platform_tools=["mcp__platform__relay"]))
+        s.add(AgentDef(name="retired", prompt="p", description="d",
+                       platform_tools=[], enabled=False))
+        await s.commit()
+    await init_db(engine)
+    assert await _grants(sfx, "news") == ["mcp__platform__relay",
+                                          "mcp__platform__tickets"]
+    assert await _grants(sfx, "retired") == []      # disabled agents are left alone
+    async with sfx() as s:
+        assert await s.get(SchemaMark, TICKETS_GRANT_MARK) is not None
+        versions = list((await s.execute(select(AgentVersion).where(
+            AgentVersion.agent == "news"))).scalars())
+    # The sweep continues the design-15 change log, attributed to itself, so an
+    # operator can find out later why an agent holds a tool nobody granted it.
+    assert [(v.changed_by, v.changed_via) for v in versions] == [
+        ("platform:tickets-default-grant", "migration")]
+
+
+async def test_tickets_grant_backfill_honours_the_setting_and_runs_once(engine, sfx):
+    """Off means the sweep does not run AND does not mark itself, so turning it
+    on later still backfills; on means exactly one pass, ever."""
+    async with sfx() as s:
+        s.add(AgentDef(name="news", prompt="p", description="d", platform_tools=[]))
+        await s.commit()
+    await init_db(engine, tickets_grant=False)
+    assert await _grants(sfx, "news") == ["mcp__platform__relay"]
+    async with sfx() as s:
+        assert await s.get(SchemaMark, TICKETS_GRANT_MARK) is None
+    await init_db(engine, tickets_grant=True)
+    assert await _grants(sfx, "news") == ["mcp__platform__relay",
+                                          "mcp__platform__tickets"]
+    # An admin taking it away afterwards is not undone by the next boot.
+    async with sfx() as s:
+        (await s.get(AgentDef, "news")).platform_tools = []
+        await s.commit()
+    await init_db(engine)
+    assert await _grants(sfx, "news") == []

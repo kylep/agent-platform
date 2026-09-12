@@ -38,6 +38,7 @@ class AgentCreateIn:
             secrets (list[str] | Unset):
             skills (list[str] | Unset):
             system (bool | Unset):  Default: False.
+            tickets (bool | None | Unset):
             timeout_seconds (int | Unset):  Default: 1800.
             transcript_retention_days (int | None | Unset):
     """
@@ -58,6 +59,7 @@ class AgentCreateIn:
     secrets: list[str] | Unset = UNSET
     skills: list[str] | Unset = UNSET
     system: bool | Unset = False
+    tickets: bool | None | Unset = UNSET
     timeout_seconds: int | Unset = 1800
     transcript_retention_days: int | None | Unset = UNSET
 
@@ -108,6 +110,12 @@ class AgentCreateIn:
 
         system = self.system
 
+        tickets: bool | None | Unset
+        if isinstance(self.tickets, Unset):
+            tickets = UNSET
+        else:
+            tickets = self.tickets
+
         timeout_seconds = self.timeout_seconds
 
         transcript_retention_days: int | None | Unset
@@ -153,6 +161,8 @@ class AgentCreateIn:
             field_dict["skills"] = skills
         if system is not UNSET:
             field_dict["system"] = system
+        if tickets is not UNSET:
+            field_dict["tickets"] = tickets
         if timeout_seconds is not UNSET:
             field_dict["timeout_seconds"] = timeout_seconds
         if transcript_retention_days is not UNSET:
@@ -209,6 +219,15 @@ class AgentCreateIn:
 
         system = d.pop("system", UNSET)
 
+        def _parse_tickets(data: object) -> bool | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(bool | None | Unset, data)
+
+        tickets = _parse_tickets(d.pop("tickets", UNSET))
+
         timeout_seconds = d.pop("timeout_seconds", UNSET)
 
         def _parse_transcript_retention_days(data: object) -> int | None | Unset:
@@ -239,6 +258,7 @@ class AgentCreateIn:
             secrets=secrets,
             skills=skills,
             system=system,
+            tickets=tickets,
             timeout_seconds=timeout_seconds,
             transcript_retention_days=transcript_retention_days,
         )

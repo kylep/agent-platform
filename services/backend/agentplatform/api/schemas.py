@@ -119,6 +119,10 @@ class AgentCreateIn(AgentDefIn):
     # a PUT already replaces `platform_tools` wholesale, so removing the grant
     # there is just sending the list without it.
     relay: bool | None = None
+    # The Tickets default grant (docs/design/20), the same tri-state for the
+    # same reason: an operator may want the messenger without the work tracker,
+    # and one knob could not say so.
+    tickets: bool | None = None
 
 
 class AgentDefOut(BaseModel):
@@ -681,6 +685,9 @@ class RelayChannel(BaseModel):
     # a member), which is why `open` travels alongside rather than being
     # inferred from an empty list.
     participants: list[str]
+    # A channel with a prefix IS a project (docs/design/20). Null on groups and
+    # DMs, and on a channel whose prefix an operator never gave it.
+    ticket_prefix: str | None
     last_message: RelayLastMessage | None
     message_count: int
     # Messages newer than the caller's own last message here; 0 when they have
@@ -781,6 +788,11 @@ class RelayChannelPatch(BaseModel):
     name: str | None = Field(default=None, max_length=64)
     topic: str | None = Field(default=None, max_length=256)
     archived: bool | None = None
+    # Making a channel a project (docs/design/20): 2-6 uppercase letters,
+    # unique among channels, and only until the first ticket is filed under it.
+    # Null is "unchanged" like every other field here — a project that has
+    # issued keys cannot un-become one, because those keys are forever.
+    ticket_prefix: str | None = Field(default=None, max_length=8)
 
 
 class RelayMessageIn(BaseModel):
@@ -808,6 +820,186 @@ class RelayDmIn(BaseModel):
     model_config = ConfigDict(extra="forbid", populate_by_name=True)
     # `with` is a keyword, so the wire name and the field name differ here.
     with_: str = Field(alias="with", min_length=3, max_length=128)
+
+
+# --- tickets (docs/design/20) -------------------------------------------------
+# A ticket is a row with a state AND a Relay thread, so these models are the
+# row: the thread is read through Relay's own message endpoints. Participants
+# are the same namespaced strings Relay uses, and a face is only ever resolved
+# for an agent — a human participant may live outside this platform, so there
+# is nothing to look its avatar up in.
+
+class TicketView(BaseModel):
+    id: str
+    key: str                     # 'OPS-12', stable for the life of the ticket
+    channel_id: str              # the project
+    title: str
+    body: str
+    state: str                   # open|in_progress|blocked|review|done|cancelled
+    priority: str                # p0|p1|p2|p3
+    assignee: str | None
+    reporter: str
+    labels: list[str]
+    parent_id: str | None
+    due_at: str | None
+    # The run that opened it (agents only) and the event card in the channel,
+    # which is also the root of the ticket's thread.
+    run_id: str | None
+    root_message_id: str | None
+    created_at: str | None
+    updated_at: str | None
+    # Distinct from updated_at: a comment is activity but not an edit, and
+    # `stale` below is read off this one.
+    last_activity_at: str | None
+    closed_at: str | None
+    # Attached by the API, not stored: the board draws faces without a second
+    # call, and a card badges itself as stale without knowing the setting.
+    assignee_face: RelayFace | None = None
+    reporter_face: RelayFace | None = None
+    stale: bool = False
+
+
+class TicketEventView(BaseModel):
+    id: str
+    ticket_id: str
+    actor: str
+    kind: str                    # created|moved|assigned|edited|commented|reopened
+    from_value: str | None
+    to_value: str | None
+    reason: str | None
+    # The Relay message this change produced — the system row, or the comment.
+    message_id: str | None
+    run_id: str | None
+    created_at: str | None
+    actor_face: RelayFace | None = None
+
+
+class TicketRunRef(BaseModel):
+    """A run that was summoned from this ticket's thread."""
+    id: str
+    agent: str
+    state: str
+    trigger: str
+    created_at: str | None
+
+
+class TicketThinking(BaseModel):
+    """The run working on this ticket right now, if there is one. Derived from
+    the runs, never stored, exactly as Relay's presence is."""
+    run_id: str
+    agent: str
+
+
+class TicketDetail(BaseModel):
+    ticket: TicketView
+    events: list[TicketEventView]
+    # The card in the channel: the client reads the discussion by asking Relay
+    # for this thread, rather than having the messages duplicated here.
+    root_message_id: str | None
+    runs: list[TicketRunRef]
+    thinking: TicketThinking | None
+
+
+class TicketProject(BaseModel):
+    """A Relay channel that has a prefix, with the two counts a project picker
+    shows."""
+    id: str
+    name: str | None
+    title: str | None
+    prefix: str
+    open: int
+    in_progress: int
+
+
+class TicketActorCount(BaseModel):
+    """One row of the board's "Today" strip: who moved how much."""
+    actor: str
+    label: str                   # the actor as a room says it (`news`)
+    count: int
+    face: RelayFace | None = None
+
+
+class TicketAgentBudget(BaseModel):
+    agent: str
+    used: int                    # tickets opened in the trailing hour
+    left: int
+    face: RelayFace | None = None
+
+
+class TicketBudgetView(BaseModel):
+    creates_per_hour: int
+    stale_days: int
+    # Only the agents that have actually opened something this hour, busiest
+    # first: a list of every agent at zero would say nothing.
+    agents: list[TicketAgentBudget] = []
+
+
+class TicketStats(BaseModel):
+    open: int
+    in_progress: int
+    blocked: int
+    review: int
+    done_24h: int
+    moved_24h: list[TicketActorCount]
+    # Both computed, never stored: in-progress work nobody has touched for
+    # `stale_days`, and open work assigned to an agent that is disabled or gone.
+    stale: int
+    orphaned: int
+    budget: TicketBudgetView
+
+
+class TicketIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    # A channel id or a `#name`. Not optional: a ticket without a project has
+    # no key, no card and nowhere to be discussed.
+    channel: str = Field(min_length=1, max_length=128)
+    title: str = Field(min_length=1, max_length=256)
+    body: str = Field(default="", max_length=16000)
+    # No `reporter`: authorship comes from the token, and `extra="forbid"`
+    # makes asking for one a 422 rather than a field quietly ignored.
+    assignee: str | None = Field(default=None, max_length=128)
+    priority: str = "p2"
+    labels: list[str] = Field(default=[], max_length=32)
+    parent: str | None = Field(default=None, max_length=64)   # a key or an id
+    due_at: datetime | None = None
+    # Whether an agent assignee is actually summoned. The ticket is assigned
+    # either way (docs/design/20).
+    notify: bool = True
+
+
+class TicketPatch(BaseModel):
+    """The editable fields. Every one is nullable AND defaulted, so "clear the
+    due date" and "leave it alone" are told apart by which keys the caller
+    actually sent (`model_fields_set`), not by the value."""
+    model_config = ConfigDict(extra="forbid")
+    title: str | None = Field(default=None, max_length=256)
+    body: str | None = Field(default=None, max_length=16000)
+    priority: str | None = None
+    labels: list[str] | None = Field(default=None, max_length=32)
+    parent: str | None = Field(default=None, max_length=64)
+    due_at: datetime | None = None
+    reason: str | None = Field(default=None, max_length=1000)
+
+
+class TicketMoveIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    state: str = Field(min_length=1, max_length=16)
+    reason: str | None = Field(default=None, max_length=1000)
+
+
+class TicketAssignIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    # Required but nullable: `null` is the unassign, and leaving the field out
+    # is a request that says nothing.
+    to: str | None = Field(max_length=128)
+    reason: str | None = Field(default=None, max_length=1000)
+    notify: bool = True
+
+
+class TicketCommentIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    # No author field, deliberately: the same rule as a Relay message.
+    body: str = Field(min_length=1, max_length=8000)
 
 
 # --- schedules ---------------------------------------------------------------

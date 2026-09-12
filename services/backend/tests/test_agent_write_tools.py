@@ -94,9 +94,9 @@ async def test_a_definition_may_grant_them(admin_client):
     the ladder list — otherwise the grant these tools exist for is unsavable."""
     r = await admin_client.post("/api/agents", json={
         **a_def("steward", platform_tools=[TOOL_AGENTS_EDIT, TOOL_AGENTS_GRANT]),
-        # Out of the Relay default's way: what is under test is that these two
-        # names save at all, not what else a new agent is born holding.
-        "relay": False})
+        # Out of the participant defaults' way: what is under test is that
+        # these two names save at all, not what else a new agent is born holding.
+        "relay": False, "tickets": False})
     assert r.status_code == 201, r.text
     assert r.json()["platform_tools"] == [TOOL_AGENTS_EDIT, TOOL_AGENTS_GRANT]
 

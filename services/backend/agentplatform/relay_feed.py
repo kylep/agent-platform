@@ -1,4 +1,5 @@
-"""The live fan-out behind Relay's SSE endpoint (docs/design/19 T6).
+"""The live fan-out behind the platform's SSE endpoints (docs/design/19 T6,
+docs/design/20 T4).
 
 One object per API process. Every open event stream holds a queue; a message
 reaches those queues twice over — once from the API pod that wrote it, the
@@ -13,7 +14,12 @@ stopped reading costs its own stream — it loses its oldest frame and is handed
 an `overflow` marker telling it to resync — never the post that produced them.
 Presence is derived here too, from `run.events` — a run with a channel entering
 RUNNING is an agent thinking in that room, and anything terminal is it going
-quiet — so nothing has to be stored and nothing leaks when a pod dies."""
+quiet — so nothing has to be stored and nothing leaks when a pod dies.
+
+`TopicFeed` is the mechanism; `RelayFeed` is Relay's use of it. Tickets
+(docs/design/20) is the second: the same bounded queues, the same overflow
+marker and the same "publishing never raises" promise, over `tickets.events` —
+a board that has fallen behind wants telling in exactly the way a room does."""
 import asyncio
 import logging
 from collections import OrderedDict
@@ -40,12 +46,31 @@ OVERFLOW = "overflow"
 TERMINAL_STATES = tuple(s for s in RunState if s not in ACTIVE_STATES)
 
 
-class RelayFeed:
-    """Per-channel fan-out. `session_factory` is only needed for presence (a
-    run event names a run, not a room); it is assigned after construction on the
-    API's lifespan path, exactly as the agent store's is."""
+class TopicFeed:
+    """Per-key fan-out over ONE Kafka topic.
 
-    def __init__(self, session_factory=None):
+    `topic` is what the feed consumes and `event` the SSE event name a record
+    becomes; `frame_of` turns a consumed payload into the `(stream key, data)`
+    its subscribers receive, or None for a record this feed has nothing to say
+    about. The stream key is whatever the endpoint subscribes by — a channel id
+    for Relay, one constant for the ticket board, which is a single stream for
+    the whole platform.
+
+    `dedupe` is for a feed whose events arrive TWICE: Relay publishes locally
+    the moment a post commits and then meets the same message again off Kafka,
+    and the id dedupe is what makes that double feed safe. A feed fed from one
+    direction leaves it off — a ticket's id is on every one of its events, so
+    deduping there would deliver a ticket's first change and drop the rest.
+
+    `session_factory` is only needed by a subclass that has to look something
+    up (Relay's presence: a run event names a run, not a room); it is assigned
+    after construction on the API's lifespan path, exactly as the agent store's
+    is."""
+
+    def __init__(self, topic: str, *, event: str, frame_of, dedupe: bool = False,
+                 session_factory=None):
+        self.topic, self.event, self.frame_of = topic, event, frame_of
+        self.dedupe = dedupe
         self.session_factory = session_factory
         self._subs: dict[str, set[asyncio.Queue]] = {}
         self._seen: OrderedDict[str, None] = OrderedDict()
@@ -75,7 +100,7 @@ class RelayFeed:
         message this feed has already delivered — the caller's two paths racing,
         not an error. Synchronous on purpose: `put_nowait` cannot block, so
         posting a message never waits on a reader."""
-        if event == "message" and not self._fresh(data.get("id")):
+        if self.dedupe and event == self.event and not self._fresh(data.get("id")):
             return False
         for q in list(self._subs.get(channel_id, ())):
             try:
@@ -86,8 +111,8 @@ class RelayFeed:
                 # events are the ones it would want if it catches up. Publishing
                 # must never raise into the caller — the message is committed,
                 # and one slow browser cannot be allowed to fail a post.
-                log.warning("relay stream backlog full on channel %s; "
-                            "signalling overflow", channel_id)
+                log.warning("%s stream backlog full on %s; signalling overflow",
+                            self.topic, channel_id)
                 try:
                     q.get_nowait()
                 except asyncio.QueueEmpty:
@@ -109,17 +134,37 @@ class RelayFeed:
         return True
 
     async def run(self, consumer, producer=None) -> None:
-        """Consume `relay.messages` (+ `run.events` for presence) forever. The
-        shared loop dead-letters a handler failure, so `producer` is the API's
-        own; without one a failure is logged and the offset still advances."""
+        """Consume this feed's topics forever. The shared loop dead-letters a
+        handler failure, so `producer` is the API's own; without one a failure
+        is logged and the offset still advances."""
         await consume_forever(consumer, producer, self._on_message)
 
     async def _on_message(self, msg, data: dict) -> None:
-        if msg.topic == TOPIC_RELAY_MESSAGES:
-            if data.get("channel_id"):
-                self.publish(data["channel_id"], "message", data)
-        elif msg.topic == TOPIC_RUN_EVENTS:
+        if msg.topic != self.topic:
+            return
+        framed = self.frame_of(data)
+        if framed is not None:
+            self.publish(framed[0], self.event, framed[1])
+
+
+def _relay_frame(data: dict):
+    return (data["channel_id"], data) if data.get("channel_id") else None
+
+
+class RelayFeed(TopicFeed):
+    """Relay's rooms: `relay.messages` fanned out per channel, plus the presence
+    a run event implies — the one thing here that is not a straight relay of
+    what arrived, and the reason this feed holds a session factory."""
+
+    def __init__(self, session_factory=None):
+        super().__init__(TOPIC_RELAY_MESSAGES, event="message", frame_of=_relay_frame,
+                         dedupe=True, session_factory=session_factory)
+
+    async def _on_message(self, msg, data: dict) -> None:
+        if msg.topic == TOPIC_RUN_EVENTS:
             await self._presence(data)
+            return
+        await super()._on_message(msg, data)
 
     async def _presence(self, data: dict) -> None:
         state, run_id = data.get("state"), data.get("run_id")

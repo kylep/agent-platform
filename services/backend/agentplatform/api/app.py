@@ -30,6 +30,7 @@ from agentplatform.api import webhooks as webhooks_api
 from agentplatform.api import runs as runs_api
 from agentplatform.api import secrets as secrets_api
 from agentplatform.api import skills as skills_api
+from agentplatform.api import tickets as tickets_api
 from agentplatform.api import tools as tools_api
 from agentplatform.api import tail as tail_api
 from agentplatform.db import make_engine, make_session_factory, init_db
@@ -95,18 +96,43 @@ def relay_feed_consumer_factory(settings):
     return factory
 
 
+def tickets_feed_consumer_factory(settings):
+    """Production factory for the ticket board's live feed: `tickets.events`,
+    a fresh group per pod from `latest`. Its own consumer rather than another
+    topic on Relay's, because the two feeds fan out to different subscribers
+    and a board falling behind must not cost a room its messages."""
+
+    def factory():
+        import socket
+        import uuid
+        from aiokafka import AIOKafkaConsumer
+        from agentplatform.events import TOPIC_TICKETS_EVENTS
+
+        return AIOKafkaConsumer(
+            TOPIC_TICKETS_EVENTS,
+            bootstrap_servers=settings.kafka_bootstrap,
+            group_id=f"api-tickets-{socket.gethostname() or uuid.uuid4().hex[:8]}",
+            auto_offset_reset="latest",
+        )
+
+    return factory
+
+
 def create_app(settings, session_factory, producer, secret_store=None, agent_store=None,
-                consumer_factory=None, feed_consumer_factory=None) -> FastAPI:
+                consumer_factory=None, feed_consumer_factory=None,
+                ticket_feed_consumer_factory=None) -> FastAPI:
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         st = app.state
         if st.session_factory is None:
             engine = make_engine(settings.db_url)
-            await init_db(engine, settings.relay_default_grant)
+            await init_db(engine, settings.relay_default_grant,
+                          settings.tickets_default_grant)
             st.session_factory = make_session_factory(engine)
         # The feed only needs a session for presence (a run event names a run,
         # not a room), so it is handed the factory here, once it is real.
         st.feed.session_factory = st.session_factory
+        st.ticket_feed.session_factory = st.session_factory
         # Agent definitions are rows (docs/design/15): prime the cache once the
         # session factory exists, so the first request reads real agents rather
         # than an empty store waiting on its TTL refresh.
@@ -136,39 +162,42 @@ def create_app(settings, session_factory, producer, secret_store=None, agent_sto
                         await asyncio.sleep(5)
 
             start_task = asyncio.create_task(_start_with_retry())
-        # The live feed is best-effort in exactly the same way: the SSE endpoint
-        # works off the local fan-out alone (this pod's own posts), and the
-        # consumer only adds what the OTHER writers — another pod, the recorder,
-        # a bridge — put on the bus.
-        feed_task = None
-        if st.feed_consumer_factory is not None:
-            async def _feed_forever():
-                while True:
-                    consumer = st.feed_consumer_factory()
+        # The live feeds are best-effort in exactly the same way: Relay's SSE
+        # endpoint works off the local fan-out alone (this pod's own posts), and
+        # the consumer only adds what the OTHER writers — another pod, the
+        # recorder, a bridge — put on the bus. The ticket board is fed by its
+        # consumer alone, so it goes quiet rather than wrong when Kafka is down.
+        async def _feed_forever(name, feed, factory):
+            while True:
+                consumer = factory()
+                try:
+                    await consumer.start()
+                    await feed.run(consumer, st.producer)
+                except asyncio.CancelledError:
+                    raise
+                except Exception:
+                    logging.getLogger("api").warning(
+                        "%s feed consumer failed; retrying", name, exc_info=True)
+                finally:
                     try:
-                        await consumer.start()
-                        await st.feed.run(consumer, st.producer)
-                    except asyncio.CancelledError:
-                        raise
+                        await consumer.stop()
                     except Exception:
-                        logging.getLogger("api").warning(
-                            "relay feed consumer failed; retrying", exc_info=True)
-                    finally:
-                        try:
-                            await consumer.stop()
-                        except Exception:
-                            pass
-                    # Paced whichever way the loop ended — a broker that is
-                    # refusing connections and a consumer that closed cleanly
-                    # under us both have to wait, or this is a hot loop.
-                    await asyncio.sleep(5)
+                        pass
+                # Paced whichever way the loop ended — a broker that is
+                # refusing connections and a consumer that closed cleanly
+                # under us both have to wait, or this is a hot loop.
+                await asyncio.sleep(5)
 
-            feed_task = asyncio.create_task(_feed_forever())
+        feed_tasks = [asyncio.create_task(_feed_forever(name, feed, factory))
+                      for name, feed, factory in
+                      (("relay", st.feed, st.feed_consumer_factory),
+                       ("tickets", st.ticket_feed, st.ticket_feed_consumer_factory))
+                      if factory is not None]
         try:
             yield
         finally:
-            if feed_task is not None:
-                feed_task.cancel()
+            for task in feed_tasks:
+                task.cancel()
             if start_task is not None:
                 start_task.cancel()
             # The store's TTL refresh is scheduled, not awaited, so shutdown can
@@ -192,6 +221,7 @@ def create_app(settings, session_factory, producer, secret_store=None, agent_sto
     st.settings, st.session_factory, st.producer = settings, session_factory, producer
     st.consumer_factory = consumer_factory
     st.feed_consumer_factory = feed_consumer_factory
+    st.ticket_feed_consumer_factory = ticket_feed_consumer_factory
     secret_store = secret_store or InMemorySecretStore()
     agent_store = agent_store or AgentStore(session_factory)
     st.secret_store, st.agent_store = secret_store, agent_store
@@ -199,6 +229,7 @@ def create_app(settings, session_factory, producer, secret_store=None, agent_sto
     # drives the app without one, and an endpoint that publishes into a feed
     # that does not exist yet would fail on the first post.
     st.feed = RelayFeed(session_factory)
+    st.ticket_feed = tickets_api.ticket_feed(session_factory)
     from agentplatform.skills import SkillStore
     st.skill_store = SkillStore(Path(settings.skills_root))
     from agentplatform.secretregistry import SecretRegistry
@@ -234,6 +265,7 @@ def create_app(settings, session_factory, producer, secret_store=None, agent_sto
     app.include_router(agents_api.router)
     app.include_router(runs_api.router)
     app.include_router(skills_api.router)
+    app.include_router(tickets_api.router)
     app.include_router(tools_api.router)
     app.include_router(tail_api.router)
     return app

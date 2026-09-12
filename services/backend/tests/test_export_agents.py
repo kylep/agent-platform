@@ -109,10 +109,12 @@ async def test_an_exported_tree_imports_into_a_fresh_platform(admin_client, migr
     got = (await admin_client.get("/api/agents/chatty")).json()
     assert got["harness_tools"] == ["WebSearch", "WebFetch"]
     # An import lands on a live platform and takes its defaults: an agent
-    # arriving from an export gets the Relay grant (docs/design/19) like any
-    # other new agent. The re-run above is what proves that stays idempotent.
+    # arriving from an export gets the participant grants (docs/design/19,
+    # docs/design/20) like any other new agent. The re-run above is what proves
+    # that stays idempotent.
     assert got["platform_tools"] == ["mcp__platform__query_app",
-                                     "mcp__platform__relay"]
+                                     "mcp__platform__relay",
+                                     "mcp__platform__tickets"]
     assert got["model"] == "opus" and got["timeout_seconds"] == 180
 
 

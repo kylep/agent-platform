@@ -29,7 +29,7 @@ from agentplatform.db import RelayBinding as BindingRow
 from agentplatform.db import RelayMessage as MessageRow
 from agentplatform.db import RelayParticipant as ParticipantRow
 from agentplatform.db import RelayReaction as ReactionRow
-from agentplatform.db import Run, utcnow
+from agentplatform.db import Run, Ticket, utcnow
 from agentplatform.relay import (agent_name, is_agent, is_member, mentionable_in,
                                  parse_mentions, participant_of,
                                  strip_room_mentions)
@@ -41,6 +41,7 @@ from agentplatform.relay_store import (bindings_of, faces_for, message_view,
                                        outbound_for_message,
                                        relay_message_payload,
                                        publish_relay_message)
+from agentplatform.tickets import KEY_RE, derive_prefix
 
 log = logging.getLogger("relay")
 
@@ -61,6 +62,14 @@ WRITE = (*INVOKE_ROLES, RELAY_ROLE)
 AGENT_ROLES = ("relay", "annotator", "operator", "coder", "admin")
 
 _NAME_RE = re.compile(r"[a-z0-9][a-z0-9-]{0,62}")
+def _is_ticket_prefix(prefix: str) -> bool:
+    """Whether a channel may stamp its keys with this (docs/design/20).
+
+    Asked by building a key out of it rather than by a second regex: the
+    prefix is valid exactly when `KEY_RE` — the one definition of what a key
+    looks like — accepts what it produces. A prefix nothing can match is a
+    channel owning tickets no message can ever refer to by name."""
+    return KEY_RE.fullmatch(f"{prefix}-1") is not None
 # A participant is `<namespace>:<id>` — loose on the id (a Discord snowflake, a
 # principal) and strict on the namespace, which is what keeps `agent:`/`user:`
 # unforgeable by a connector.
@@ -211,7 +220,8 @@ def _channel(conv: Conversation, *, participants: set[str], last=None,
     return {"id": conv.id, "kind": conv.kind, "name": conv.name,
             "title": conv.title, "topic": conv.topic,
             "open": bool(conv.open), "archived_at": _iso(conv.archived_at),
-            "agent": conv.agent, "participants": sorted(participants),
+            "agent": conv.agent, "ticket_prefix": conv.ticket_prefix,
+            "participants": sorted(participants),
             "last_message": None if last is None else {
                 "id": last.id, "author": last.author,
                 "body": (last.body or "")[:PREVIEW_CHARS],
@@ -317,6 +327,45 @@ async def _name_taken(s, name: str, *, besides: str | None = None) -> bool:
     return (await s.execute(stmt)).first() is not None
 
 
+def _patch_conflict(body: S.RelayChannelPatch) -> str:
+    """Which uniqueness a lost race hit. Only a field this patch actually set
+    can have collided, and a prefix is the one the caller will not guess at
+    from a message about a name."""
+    if body.ticket_prefix is not None:
+        return f"{body.ticket_prefix.strip().upper()} is another project's prefix"
+    return f"#{body.name} already exists"
+
+
+async def _taken_prefixes(s, *, besides: str | None = None) -> set[str]:
+    stmt = select(Conversation.ticket_prefix).where(Conversation.ticket_prefix.isnot(None))
+    if besides:
+        stmt = stmt.where(Conversation.id != besides)
+    return set((await s.execute(stmt)).scalars())
+
+
+async def _set_ticket_prefix(s, conv: Conversation, prefix: str) -> None:
+    """Make this channel a project, or rename the stem of its keys.
+
+    Only until the first ticket: a key is the name people say and the one on
+    every card, system row and cross-reference already written, so re-stemming
+    a project that has issued keys would orphan all of them at once."""
+    if conv.kind != "channel":
+        raise HTTPException(422, "only a channel can be a project")
+    prefix = prefix.strip().upper()
+    if not _is_ticket_prefix(prefix):
+        raise HTTPException(422, "a ticket prefix is 2-6 letters or digits, "
+                                 "starting with a letter (OPS, PLAT)")
+    if prefix == conv.ticket_prefix:
+        return
+    if (await s.execute(select(Ticket.id).where(
+            Ticket.channel_id == conv.id).limit(1))).first() is not None:
+        raise HTTPException(409, f"#{conv.name} has already issued keys under "
+                                 f"{conv.ticket_prefix}")
+    if prefix in await _taken_prefixes(s, besides=conv.id):
+        raise HTTPException(409, f"{prefix} is another project's prefix")
+    conv.ticket_prefix = prefix
+
+
 def _slug(name: str | None) -> str:
     name = (name or "").strip()
     if not _NAME_RE.fullmatch(name):
@@ -375,6 +424,12 @@ async def create_relay_channel(request: Request, body: S.RelayChannelIn,
                             topic=body.topic.strip()[:256], open=is_open,
                             title=f"#{name}" if is_channel
                                   else (body.name or "group").strip()[:256])
+        if is_channel:
+            # A channel is a project by default (docs/design/20): the prefix is
+            # derived from the name and stays editable until the first ticket,
+            # so a room nobody files against simply never uses it. Groups and
+            # DMs get none — they are conversations, not bodies of work.
+            conv.ticket_prefix = derive_prefix(name, await _taken_prefixes(s))
         s.add(conv)
         await s.flush()
         for p in sorted(participants):
@@ -416,7 +471,18 @@ async def patch_relay_channel(request: Request, channel_id: str, body: S.RelayCh
             conv.topic = body.topic.strip()[:256]
         if body.archived is not None:
             conv.archived_at = utcnow() if body.archived else None
-        await s.commit()
+        if body.ticket_prefix is not None:
+            await _set_ticket_prefix(s, conv, body.ticket_prefix)
+        try:
+            await s.commit()
+        except IntegrityError:
+            # The partial unique indexes are the real arbiters of a channel's
+            # name and of its ticket prefix; the checks above only make the
+            # common case a clean 409. Two patches choosing the same prefix
+            # both pass those checks — the loser meets the index HERE, and an
+            # uncaught one would be a 500 for what is plainly a conflict.
+            await s.rollback()
+            raise HTTPException(409, _patch_conflict(body))
         return await _detail(s, conv)
 
 

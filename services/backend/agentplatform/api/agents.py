@@ -32,7 +32,7 @@ from agentplatform.agentdefs import (DEF_FIELDS, AgentDefModel, apply_snapshot,
                                      model_of, next_version, snapshot_of,
                                      validate_def)
 from agentplatform.agentspec import (GRANTABLE_PLATFORM_TOOLS, KNOWN_MODELS,
-                                     PLATFORM_MCP_RELAY_TOOLS)
+                                     TOOL_RELAY, TOOL_TICKETS)
 from agentplatform.api.auth import (READ_ROLES, authenticate, require_admin,
                                     require_role, role_allows)
 from agentplatform.api.schemas import (AgentCreateIn, AgentDefIn, AgentDefOut,
@@ -50,9 +50,14 @@ router = APIRouter()
 # broker matches on — so the check is a plain membership test, no parsing.
 TOOL_AGENTS_EDIT = "mcp__platform__agents_edit"
 TOOL_AGENTS_GRANT = "mcp__platform__agents_grant"
-# The Relay grant (docs/design/19), which new agents are born holding while
-# `settings.relay_default_grant` says so.
-TOOL_RELAY = PLATFORM_MCP_RELAY_TOOLS[0]
+# The participant grants (docs/design/19, docs/design/20), which new agents are
+# born holding while their setting says so. Two settings and not one: an
+# operator who wants the messenger without the work tracker is asking a
+# reasonable question, and a single switch could not answer it. Each entry is
+# (tool, setting), and the payload knob is the tool's last segment — `relay`,
+# `tickets` — so adding a third participant grant is one line here.
+DEFAULT_GRANTS = ((TOOL_RELAY, "relay_default_grant"),
+                  (TOOL_TICKETS, "tickets_default_grant"))
 
 # The definition fields that are GRANTS — capability, not identity. Changing
 # one is an authorization decision (`agents_grant`); changing anything else is
@@ -334,21 +339,35 @@ def _apply(row: AgentDef, model: AgentDefModel) -> None:
         setattr(row, field, _value(model, field))
 
 
-def _with_relay(tools: list[str]) -> list[str]:
-    """`tools` plus the Relay grant — idempotent, and a new list: the one it is
+def _with_grants(tools: list[str], grants: list[str]) -> list[str]:
+    """`tools` plus these grants — idempotent, and a new list: the one it is
     given is the model's own, and mutating that would edit the definition the
     caller sent out from under the authorization diff."""
-    return tools if TOOL_RELAY in tools else [*tools, TOOL_RELAY]
+    return [*tools, *(g for g in grants if g not in tools)]
 
 
-def _relay_by_default(settings, requested: bool | None) -> bool:
-    """Whether this write adds the Relay grant of the PLATFORM's accord.
+def _knob(tool: str) -> str:
+    """The create payload's field for a grant: `mcp__platform__relay` -> `relay`."""
+    return tool.rsplit("__", 1)[-1]
 
-    `requested` is the create payload's tri-state `relay`: None follows the
-    setting, False opts out, True is the caller asking — and a caller asking
-    is a caller granting, so True is handled on the model side where the
-    authorization diff can see it. Only the None case is a platform default."""
-    return requested is None and settings.relay_default_grant
+
+def _asked_for(body) -> list[str]:
+    """The participant grants the CALLER asked for outright.
+
+    A caller asking is a caller granting, so these ride in through the model
+    and are authorized exactly as if they had written the tool into
+    `platform_tools` themselves."""
+    return [tool for tool, _ in DEFAULT_GRANTS if getattr(body, _knob(tool)) is True]
+
+
+def _by_default(settings, body) -> list[str]:
+    """The participant grants the PLATFORM adds of its own accord.
+
+    Each is a tri-state on the create payload: None follows the setting, False
+    is the explicit opt-out, True is the caller asking (see `_asked_for`). Only
+    the None case is a platform default."""
+    return [tool for tool, setting in DEFAULT_GRANTS
+            if getattr(body, _knob(tool)) is None and getattr(settings, setting)]
 
 
 async def _log_version(session, row: AgentDef, *, changed_by: str, changed_via: str):
@@ -500,12 +519,9 @@ async def create_agent(request: Request, body: AgentCreateIn,
     new agent that already holds the keys."""
     st = request.app.state
     scope.require_edit("creating an agent")
-    payload = body.model_dump(exclude={"relay"})   # a knob about the write, not a field
-    if body.relay:
-        # An explicit `relay: true` is the caller ASKING for the grant, so it
-        # rides in through the model and is authorized exactly as if they had
-        # written the tool into `platform_tools` themselves.
-        payload["platform_tools"] = _with_relay(payload["platform_tools"])
+    # Knobs about the write, not fields of the agent.
+    payload = body.model_dump(exclude={_knob(t) for t, _ in DEFAULT_GRANTS})
+    payload["platform_tools"] = _with_grants(payload["platform_tools"], _asked_for(body))
     model = _model(request, payload, body.name, _registries(request))
     # A grant the new agent is BORN with is still a grant. "Born with" means
     # beyond the defaults, which is what a blank row reads as — so the same
@@ -520,14 +536,14 @@ async def create_agent(request: Request, body: AgentCreateIn,
             raise HTTPException(409, "an agent with that name already exists")
         row = AgentDef(name=model.name)
         _apply(row, model)
-        if _relay_by_default(st.settings, body.relay):
-            # Applied AFTER the authorization above, on purpose: a grant the
-            # PLATFORM gives every new agent is not the caller escalating, so
-            # an `agents_edit`-only creator must not be refused for it, and the
-            # write must not be relabelled `tool:agents_grant` as though they
-            # had handed it over. It still lands on the row before the flush,
-            # so the version snapshot is the definition that actually exists.
-            row.platform_tools = _with_relay(row.platform_tools)
+        # Applied AFTER the authorization above, on purpose: a grant the
+        # PLATFORM gives every new agent is not the caller escalating, so an
+        # `agents_edit`-only creator must not be refused for it, and the write
+        # must not be relabelled `tool:agents_grant` as though they had handed
+        # it over. It still lands on the row before the flush, so the version
+        # snapshot is the definition that actually exists.
+        row.platform_tools = _with_grants(row.platform_tools,
+                                          _by_default(st.settings, body))
         async with _conflict_as_409(s, duplicate="an agent with that name "
                                                  "already exists"):
             s.add(row)
@@ -790,15 +806,15 @@ async def import_agents(request: Request, body: list[AgentCreateIn],
     settings = request.app.state.settings
     models = []
     for d in body:
-        payload = d.model_dump(exclude={"relay"})
-        # Unlike create, the Relay default goes into the DEFINITION here rather
-        # than onto the row afterwards. Import is an admin-only UPSERT, so
-        # there is no authorization diff to keep it out of — and there is an
-        # idempotence promise to keep: a grant applied after the comparison
+        payload = d.model_dump(exclude={_knob(t) for t, _ in DEFAULT_GRANTS})
+        # Unlike create, the participant defaults go into the DEFINITION here
+        # rather than onto the row afterwards. Import is an admin-only UPSERT,
+        # so there is no authorization diff to keep them out of — and there is
+        # an idempotence promise to keep: a grant applied after the comparison
         # would make every re-run of the same payload an "update" that logs a
         # version, which is exactly what this endpoint says it does not do.
-        if d.relay or _relay_by_default(settings, d.relay):
-            payload["platform_tools"] = _with_relay(payload["platform_tools"])
+        payload["platform_tools"] = _with_grants(
+            payload["platform_tools"], _asked_for(d) + _by_default(settings, d))
         models.append(_model(request, payload, d.name, registries))
     results = []
     async with request.app.state.session_factory() as s:

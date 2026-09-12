@@ -682,6 +682,7 @@ INIT_DB_LOCK_KEY = -7077053083107605676
 RELAY_BACKFILL_MARK = "relay-backfill-v1"
 RELAY_DM_KEY_MARK = "relay-dm-keys-v1"
 RELAY_GRANT_MARK = "relay-default-grant-v1"
+TICKETS_GRANT_MARK = "tickets-default-grant-v1"
 RELAY_STANDUP_MARK = "relay-standup-job-v1"
 TICKETS_SEED_MARK = "tickets-seed-v1"
 
@@ -976,16 +977,37 @@ def _ensure_dm_keys(conn) -> None:
 
 
 def _ensure_relay_default_grant(conn, default_grant: bool = True) -> None:
-    """Give every agent that already exists the Relay grant (docs/design/19).
+    """Give every agent that already exists the Relay grant (docs/design/19)."""
+    from agentplatform.agentspec import TOOL_RELAY
+    _grant_to_every_agent(conn, TOOL_RELAY, RELAY_GRANT_MARK,
+                          changed_by="platform:relay-default-grant",
+                          default_grant=default_grant)
+
+
+def _ensure_tickets_default_grant(conn, default_grant: bool = True) -> None:
+    """Give every agent that already exists the Tickets grant (docs/design/20).
+
+    Its own mark, not relay's: the two are separate settings and ship a release
+    apart, so an agent that predates Tickets has to be swept even though the
+    relay sweep already ran and marked itself."""
+    from agentplatform.agentspec import TOOL_TICKETS
+    _grant_to_every_agent(conn, TOOL_TICKETS, TICKETS_GRANT_MARK,
+                          changed_by="platform:tickets-default-grant",
+                          default_grant=default_grant)
+
+
+def _grant_to_every_agent(conn, tool: str, mark: str, *, changed_by: str,
+                          default_grant: bool) -> None:
+    """The one-time sweep behind a default-granted platform tool.
 
     "Default-granted" is implemented honestly, as rows: new agents get it from
     the create/import path, and this is the one-time sweep for the ones that
-    predate Relay. Each change is a real definition write, so it goes through
+    predate the tool. Each change is a real definition write, so it goes through
     the design-15 change log like any other — a snapshot attributed to
-    `platform:relay-default-grant`, which is how an operator finds out later
-    why an agent holds a tool nobody granted it by hand.
+    `changed_by`, which is how an operator finds out later why an agent holds a
+    tool nobody granted it by hand.
 
-    Runs EXACTLY once, gated on its mark, and that is the whole mechanism
+    Runs EXACTLY once per tool, gated on its own mark, and that is the whole mechanism
     behind "an admin can take it away": once the mark is written this function
     never looks at `agent_defs` again, so a grant removed through agents_grant
     or a PUT stays removed. Two kinds of agent are left alone: DISABLED ones
@@ -1004,15 +1026,12 @@ def _ensure_relay_default_grant(conn, default_grant: bool = True) -> None:
     if not default_grant or not sa_inspect(conn).has_table("agent_defs"):
         return
     mark_t = SchemaMark.__table__
-    if conn.execute(select(mark_t.c.name)
-                    .where(mark_t.c.name == RELAY_GRANT_MARK)).first():
+    if conn.execute(select(mark_t.c.name).where(mark_t.c.name == mark)).first():
         return
     # Imported here, not at module scope: agentdefs imports THIS module for the
     # row classes, so the snapshot helpers can only be reached once db is built.
     from pydantic import ValidationError
-    from agentplatform.agentspec import PLATFORM_MCP_RELAY_TOOLS
     from agentplatform.agentdefs import model_of
-    relay = PLATFORM_MCP_RELAY_TOOLS[0]
     def_t, ver_t = AgentDef.__table__, AgentVersion.__table__
     # next_version() is a per-agent max+1 and `agent_versions` has a UNIQUE
     # (agent, version); one grouped read gives the same answer for every agent
@@ -1025,9 +1044,9 @@ def _ensure_relay_default_grant(conn, default_grant: bool = True) -> None:
         # NULL on any row written before it existed, and NULL reads as the
         # column default (True) everywhere else — see agentdefs.model_of.
         tools = list(row.platform_tools or [])
-        if row.enabled is False or relay in tools:
+        if row.enabled is False or tool in tools:
             continue
-        granted = tools + [relay]
+        granted = tools + [tool]
         try:
             # The snapshot is the definition as it now stands: the row we read
             # plus the one field we are changing. A row that no longer
@@ -1043,9 +1062,8 @@ def _ensure_relay_default_grant(conn, default_grant: bool = True) -> None:
         version = (latest.get(row.name) or 0) + 1
         conn.execute(ver_t.insert().values(
             id=uuid.uuid4().hex, agent=row.name, version=version, snapshot=snapshot,
-            changed_by="platform:relay-default-grant", changed_via="migration",
-            created_at=utcnow()))
-    conn.execute(mark_t.insert().values(name=RELAY_GRANT_MARK, applied_at=utcnow()))
+            changed_by=changed_by, changed_via="migration", created_at=utcnow()))
+    conn.execute(mark_t.insert().values(name=mark, applied_at=utcnow()))
 
 
 def _relay_message(channel_id, author, body, created_at, run_id=None) -> dict:
@@ -1057,13 +1075,15 @@ def _relay_message(channel_id, author, body, created_at, run_id=None) -> dict:
                 edited_at=None, deleted_at=None)
 
 
-async def init_db(engine: AsyncEngine, default_grant: bool = True) -> None:
+async def init_db(engine: AsyncEngine, default_grant: bool = True,
+                  tickets_grant: bool = True) -> None:
     """Bring the schema up to date and run the one-off backfills.
 
-    `default_grant` is `settings.relay_default_grant` — passed in rather than
-    read, because this runs in three services (API, dispatcher, recorder) and
-    none of them hands `db` a settings object. It defaults to on so a caller
-    that has no opinion gets the platform's."""
+    `default_grant` and `tickets_grant` are `settings.relay_default_grant` and
+    `settings.tickets_default_grant` — passed in rather than read, because this
+    runs in three services (API, dispatcher, recorder) and none of them hands
+    `db` a settings object. They default to on so a caller that has no opinion
+    gets the platform's."""
     async with engine.begin() as conn:
         if conn.dialect.name == "postgresql":
             # SERIALIZE THE WHOLE OF init_db ACROSS SERVICES. The API, the
@@ -1098,3 +1118,4 @@ async def init_db(engine: AsyncEngine, default_grant: bool = True) -> None:
         # prefix belongs to a room, and #general and #ops are created above.
         await conn.run_sync(_ensure_tickets_ddl)
         await conn.run_sync(_ensure_tickets_seed)
+        await conn.run_sync(_ensure_tickets_default_grant, tickets_grant)
