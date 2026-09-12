@@ -101,6 +101,25 @@ class Settings(BaseSettings):
     # Whether agent creation grants mcp__platform__relay. The grant is a real
     # row either way, so an admin can remove it per agent like any other.
     relay_default_grant: bool = True
+    # Tickets (docs/design/20). Opening a ticket is cheap and permanent, so an
+    # agent stuck in a retry loop can bury the board in noise no human asked
+    # for: creation gets its own hourly cap per agent, counted from the ticket
+    # rows. Moves, comments and assignments are NOT capped — they are how work
+    # gets finished, and an assignment is already a Relay mention paying the
+    # relay budget.
+    tickets_agent_creates_per_hour: int = 20
+    # "in progress and nobody has touched it in this long" — the board's stale
+    # badge and the stats. Days, because a ticket is a unit of work and not of
+    # execution: an agent can legitimately be mid-ticket overnight.
+    tickets_stale_days: int = 3
+    # Whether agent creation grants mcp__platform__tickets, same bargain as
+    # relay_default_grant: on by default because an agent that cannot file what
+    # it found leaves the finding in a transcript nobody reads.
+    tickets_default_grant: bool = True
+    # How many messages of a ticket's thread a summoned run is shown. Larger
+    # than relay_context_messages: the thread IS the ticket's history, and a
+    # hand-off that starts halfway through it repeats work already done.
+    tickets_thread_context_messages: int = 40
     # (The news pipeline settings are gone: news presentation lives in the news
     # APP now — the recorder just honors each manifest's `result_topic`.)
 
