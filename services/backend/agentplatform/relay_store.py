@@ -44,7 +44,7 @@ async def post_relay_message(session, conv, *, author: str, body: str,
                              kind: str = "text", run_id: str | None = None,
                              hop: int = 0, trigger_message_id: str | None = None,
                              reply_to: str | None = None,
-                             mentions=None) -> RelayMessage:
+                             mentions=None, card: dict | None = None) -> RelayMessage:
     """Insert a message into `conv`. Flushed but NOT committed: the caller owns
     the transaction, so a turn's message and the run that answers it land
     together or not at all."""
@@ -55,15 +55,41 @@ async def post_relay_message(session, conv, *, author: str, body: str,
         # never has to render a tree.
         thread_root = (parent.thread_root or parent.id) if parent is not None else None
     row = RelayMessage(channel_id=conv.id, author=author, kind=kind, body=body,
-                       reply_to=reply_to, thread_root=thread_root, run_id=run_id,
-                       trigger_message_id=trigger_message_id, hop=hop,
-                       mentions=list(mentions or []))
+                       card=card, reply_to=reply_to, thread_root=thread_root,
+                       run_id=run_id, trigger_message_id=trigger_message_id,
+                       hop=hop, mentions=list(mentions or []))
     session.add(row)
     # Posting is the activity the rail sorts private rooms by, and a room whose
     # only message was just written has nothing else to sort on.
     conv.updated_at = utcnow()
     await session.flush()
     return row
+
+
+async def edit_message_card(session, msg, *, card: dict, body: str) -> RelayMessage:
+    """Rewrite a `kind=event` message's card and its plain-text fallback.
+
+    The only editable thing about a Relay message, and it exists for one reason
+    (docs/design/20): a ticket's card sits in the room showing its state, so a
+    move that posted a new card would leave the channel holding a stack of
+    contradictory ones. Author, hop, reply_to, thread_root and created_at are
+    deliberately untouched — an edit changes what a message SAYS, never who
+    said it or where it sits in the thread, which is also what lets the SSE
+    consumer upsert it by id.
+
+    Flushed but NOT committed and NOT published, exactly like
+    `post_relay_message`: the caller owns the transaction, and an edit that
+    committed on its own would split a ticket change into two — the row durably
+    moved, the row that explains the move still uncommitted. Hand the returned
+    message to `publish_relay_message` after the commit and the SSE feed
+    re-sends it.
+
+    Publish it WITHOUT `outbound`: a bridge has no concept of an edit, so
+    mirroring one would post the card into Discord again on every transition.
+    The system row in the thread is what the bridge carries."""
+    msg.card, msg.body, msg.edited_at = card, body, utcnow()
+    await session.flush()
+    return msg
 
 
 # What a message's `state` says when no run wrote it. The field is a run's

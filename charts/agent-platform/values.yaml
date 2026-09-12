@@ -197,6 +197,7 @@ topics:
     - {name: discord.channel.post, partitions: 1, retentionMs: "86400000"}   # 24h (channel broadcasts)
     - {name: relay.messages, partitions: 6, retentionMs: "604800000"}       # 7d (durable copy in pg)
     - {name: relay.invocations, partitions: 3, retentionMs: "2592000000"}    # 30d (why an @mention did nothing)
+    - {name: tickets.events, partitions: 3, retentionMs: "2592000000"}       # 30d (the board's live feed + the standup strip)
     - {name: platform.tool.audit, partitions: 3, retentionMs: "604800000"}  # 7d (audit; durable copy in pg)
     - {name: dead.letter, partitions: 1, retentionMs: "604800000"}     # 7d
   # Hand-pinned to match the kafka.image.tag the bitnami/kafka subchart
