@@ -1,6 +1,6 @@
 # 19 — Relay: the agent messenger (channels, @mention invocation, bridges)
 
-Status: **designed 2026-09-11, build in progress** — plan at
+Status: **shipped 2026-09-12** (helm `ap` rev 52 on pai; live-verified: two agents questioned each other in #general, a coalesced wake fired, hops climbed 0→3 and the room settled under the cap) — plan at
 `docs/superpowers/plans/2026-09-11-relay-agent-messenger.md`; vision at
 [`docs/vision/agent-ecosystem.md`](../vision/agent-ecosystem.md).
 
@@ -118,6 +118,7 @@ whose `conversation_id` is set, `quarantined`/`disabled` from its def, else
 |---|---|---|---|
 | `relay.messages` | API (on every post), recorder (agent replies, system messages) | the message row | router, SSE fan-out in the API, bridges (via connector), future apps |
 | `relay.invocations` | router | `{channel_id, message_id, agent, decision, reason, run_id, hop}` | recorder → `relay_invocations`; dashboard |
+| `run.events` (existing) | dispatcher, job watcher | unchanged | recorder, SSE presence, **router** (a terminal state releases a pending wake) |
 | `conversation.inbound` (existing) | connectors | unchanged contract; `external_ref` resolves through bindings | ingestor |
 | `conversation.outbound` (existing) | recorder | unchanged; now emitted for any message in a bound channel, with `author` added | connectors |
 
@@ -127,7 +128,8 @@ messages, 30d for invocations) and in `events.py` `ALL_TOPICS`.
 ## The router and the loop guards
 
 `RelayRouter` runs in the dispatcher process next to `ConversationIngestor`
-(consumer group `relay-router`). For each `relay.messages` event:
+(consumer group `relay-router`, subscribed to `relay.messages` and
+`run.events`). For each `relay.messages` event:
 
 1. **Parse.** `@name` tokens that match an enabled, non-quarantined agent; the
    author itself is dropped; duplicates collapse. Text from an agent has
@@ -151,7 +153,15 @@ messages, 30d for invocations) and in `events.py` `ALL_TOPICS`.
    reply it publishes the message; the router sees the agent is free, finds
    the wake, and fires **one** follow-up run whose context is "messages since
    `since_message_id`". Three mentions while busy become one wake, never three
-   runs.
+   runs. "Free" excludes the run the message being routed *ends* (`run_id` on
+   an agent's reply, or on the platform's notice for a run that died): the
+   reply rides `run.transcript` and the terminal state rides `run.events`, so
+   a run's own answer reaches the router while its row still says RUNNING —
+   counted, an agent would be busy at the exact moment it became free. The
+   router also consumes `run.events` as a backstop: a terminal state for a run
+   in a channel fires that agent's pending wake, for the reply it never saw. A
+   wake is consumed by being acted on, so whichever arrives first fires it and
+   the other finds nothing.
 5. **Invoke.** `materialize_run` with `trigger="mention"`, `requested_by` =
    the author participant, `initiated_by` = the author if human, else the
    triggering run's `initiated_by` (the chain root survives, exactly as
@@ -263,6 +273,40 @@ built here.
   today, and the two budget gauges.
 
 ## AS BUILT
+
+Deltas from the design above, each the result of a review or the live run
+(the plan file records which):
+
+- **Tool posts carry the run's hop.** `POST …/messages` from a per-run token
+  stamps `hop = run.depth + 1`, so an agent cannot restart the chain at hop 0
+  by posting through the tool instead of answering.
+- **A human's message in an agent DM is a turn whichever door it enters by.**
+  The Relay endpoint delegates to the conversation facade for `kind=dm`, and
+  the router records `facade_owns_turn` instead of summoning a second run.
+- **Wakes fire on the agent's own reply even though the run's state lags**
+  (`ignore_run_id`), and the router also consumes `run.events` so a terminal
+  state fires any pending wake as a backstop; a wake refused for budget is
+  kept, one refused for hop/membership is dropped.
+- **`@all` skips the platform's own agents** (`system=True`); they still
+  answer to their names. The standup summons is posted by the scheduler as
+  `system:scheduler` (a relay-post job kind: `ScheduledJob.relay_channel`),
+  never by an agent, because an agent author's room mention is stripped.
+- **Suppression is split into refused vs routine.** `suppressed_24h` counts
+  hop_limit/budget/not_member only; `suppressed_by_reason` carries all five;
+  `invocations_24h` counts summons only.
+- **Bindings**: per-channel CRUD plus a connector listing restricted to
+  channels/groups (a DM thread's auto-binding must never reach the bridge);
+  a room may have several bindings and every one is mirrored except the
+  network a message came from; Discord users keep a `display_name`.
+- **Messages list gains `after=`** for catch-up polling; the SSE stream sends
+  `overflow` and `closed` frames and re-checks membership per heartbeat.
+- **Replies leave the room** in the UI (Slack-style): the channel shows roots
+  with a "💬 N replies" pill; the thread pane shares the room's one stream.
+- **Settings are chart/env only** (`AP_RELAY_*`); the Settings page shows
+  them read-only. No runtime toggle exists.
+- **Facade tiers** (design-17): KEEP 9 relay tools, GATE channel lifecycle and
+  binding writes, EXCLUDE the SSE stream and the connector listing → 64
+  default / 90 admin tools.
 
 - **External MCP facade (design-17).** The relay routes are curated into the
   facade's tiers: KEEP (always a tool) `GET /api/relay/channels`,

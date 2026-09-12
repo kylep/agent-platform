@@ -32,7 +32,7 @@ from sqlalchemy import func, or_, select
 from agentplatform.db import (ACTIVE_STATES, Conversation, RelayInvocation,
                               RelayMessage, RelayWake, Run, utcnow)
 from agentplatform.events import (TOPIC_RELAY_INVOCATIONS, TOPIC_RELAY_MESSAGES,
-                                  consume_forever)
+                                  TOPIC_RUN_EVENTS, consume_forever)
 from agentplatform.materialize import materialize_run
 from agentplatform.relay import (AGENT_PREFIX, ALL, SYSTEM_AUTHOR, USER_PREFIX,
                                  agent_name, build_mention_prompt, is_agent,
@@ -45,6 +45,12 @@ from agentplatform.relay_store import (context_window, explicit_members, faces_f
 log = logging.getLogger("relay_router")
 
 CONSUMER_GROUP = "relay-router"
+
+# Two topics, one loop. `relay.messages` is the router's work; `run.events` is
+# its backstop — the terminal state of a run is the one signal that an agent is
+# free that always arrives, even when the reply that usually carries the news
+# is lost, deleted, or never written (see `on_run_terminal`).
+TOPICS = (TOPIC_RELAY_MESSAGES, TOPIC_RUN_EVENTS)
 
 # The two things the platform says in a room on its own behalf. Constants
 # because they are also how the router recognises that it has already said it:
@@ -59,8 +65,10 @@ def budget_body(limit: int) -> str:
 
 
 class RelayRouter:
-    """Consumes `relay.messages` and turns mentions into runs. One instance per
-    dispatcher process, next to `ConversationIngestor`."""
+    """Consumes `relay.messages` and turns mentions into runs — plus
+    `run.events`, where a run ending is the backstop that releases a wake its
+    agent's reply did not. One instance per dispatcher process, next to
+    `ConversationIngestor`."""
 
     def __init__(self, settings, session_factory, producer, agent_store):
         self.settings = settings
@@ -70,7 +78,7 @@ class RelayRouter:
 
     async def run_forever(self) -> None:
         consumer = AIOKafkaConsumer(
-            TOPIC_RELAY_MESSAGES, bootstrap_servers=self.settings.kafka_bootstrap,
+            *TOPICS, bootstrap_servers=self.settings.kafka_bootstrap,
             group_id=CONSUMER_GROUP, enable_auto_commit=False,
             # `latest`, emphatically NOT `earliest`: the router's backlog is a
             # day of mentions that were already answered. Replaying it after a
@@ -79,10 +87,22 @@ class RelayRouter:
             auto_offset_reset="latest")
         await consumer.start()
         try:
-            await consume_forever(consumer, self.producer,
-                                  lambda msg, data: self.handle(data))
+            await consume_forever(consumer, self.producer, self._on_message)
         finally:
             await consumer.stop()
+
+    async def _on_message(self, msg, data: dict) -> None:
+        if msg.topic == TOPIC_RELAY_MESSAGES:
+            await self.handle(data)
+            return
+        # `run.events` carries every state of every run on the platform, and
+        # only the last one frees an agent. The state is taken from the EVENT
+        # rather than re-read from the row: the recorder is the one that writes
+        # that row and it reads the same topic, so the row may not have caught
+        # up yet — and a wake dropped on that race is a room gone quiet.
+        state = (data or {}).get("state")
+        if state and state not in ACTIVE_STATES and data.get("run_id"):
+            await self.on_run_terminal(data["run_id"])
 
     async def handle(self, data: dict) -> None:
         """Route one message. The whole decision is made inside a single
@@ -97,9 +117,6 @@ class RelayRouter:
         # run that died would keep a backlog hostage until someone noticed.
         if (data or {}).get("kind") not in ("text", "system"):
             return
-        decided: list[dict] = []
-        notices: list[RelayMessage] = []
-        specs: list[dict] = []
         async with self.sf() as s:
             conv = await s.get(Conversation, (data.get("channel_id") or ""))
             # The row, not the payload: the event is a view of a message that
@@ -113,71 +130,143 @@ class RelayRouter:
             summons = await self._summons(s, conv, msg, enabled, explicit)
             if not summons:
                 return
-            channel_used, global_used = await self._spend(s, conv.id)
-            paused_limit, said_hop = None, False
-            for agent, mention, wake, kind in summons:
-                hop = (mention.hop or 0) if is_agent(mention.author) else 0
-                run_id, limit = None, None
-                if not is_member(conv, AGENT_PREFIX + agent, enabled, explicit):
-                    decision, reason = "suppressed", "not_member"
-                elif kind == "mention" and self._facade_owns(conv, msg, agent):
-                    # Recorded BEFORE the "already answered" skip below: it is
-                    # true of the room rather than of a particular run, so it
-                    # is the same answer whether the facade's run exists yet or
-                    # not — and it is the answer to "why did the router ignore
-                    # my DM?", which silence would not be.
-                    decision, reason = "suppressed", "facade_owns_turn"
-                # A mention that already has its run is answered, and a second
-                # decision about it would be noise: Kafka is at-least-once.
-                elif await self._answered(s, conv.id, agent, mention.id):
-                    continue
-                elif self._out_of_hops(mention, hop):
-                    decision, reason = "suppressed", "hop_limit"
-                    said_hop = True
-                elif (limit := self._exhausted(channel_used, global_used)) is not None:
-                    decision, reason = "suppressed", "budget"
-                    paused_limit = limit
-                elif kind == "mention" and await self._occupied(s, conv, msg, agent):
-                    decision, reason = "suppressed", "coalesced"
-                    await self._coalesce(s, conv.id, agent, wake, msg)
-                else:
-                    decision, reason = "invoked", kind
-                    run_id = uuid.uuid4().hex
-                    channel_used, global_used = channel_used + 1, global_used + 1
-                    specs.append(await self._spec(s, conv, mention, agent, hop, run_id,
-                                                  wake=wake, enabled=enabled,
-                                                  explicit=explicit))
-                # A wake is consumed by being acted on. Fired or refused, it
-                # must not survive: an agent that reports for duty on every
-                # subsequent reply is the coalescing bug in reverse. The
-                # exception is `budget`, which is an answer about the HOUR and
-                # not about this backlog — deleting the wake there would
-                # silently discard messages nobody has read, and the hour is
-                # over in minutes.
-                if (wake is not None and reason != "budget"
-                        and (kind == "wake" or decision == "invoked")):
-                    await s.delete(wake)
-                decided.append(await self._record(
-                    s, channel_id=conv.id, message_id=mention.id, agent=agent,
-                    decision=decision, reason=reason, run_id=run_id, hop=hop))
-            if said_hop:
-                notices.append(await self._say_hop_limit(s, conv, msg))
-            if paused_limit is not None:
-                notices.append(await self._say_budget(s, conv, paused_limit))
-            await s.commit()
-            # The bridge's copy of each notice, resolved while the session is
-            # still open (docs/design/19 T10): a room mirrored into Discord is
-            # owed the reason it went quiet just as much as the web pane is.
-            mirrored = [(row, await outbound_for_message(s, conv, row))
-                        for row in notices if row is not None]
-        # Committed first, published after: the row is the record, and a broker
-        # blip must cost the room its notice, never its decision.
+            decided, specs, mirrored = await self._decide(
+                s, conv, msg, summons, enabled, explicit)
+        await self._emit(conv, decided, specs, mirrored)
+
+    async def _decide(self, s, conv, msg, summons, enabled, explicit):
+        """Run every summons through the guards, commit the decisions, and hand
+        back what still has to leave the process.
+
+        Split out of `handle` because `on_run_terminal` summons an agent too,
+        with no message of its own to route: one decision loop means the wake a
+        reply fires and the wake a terminal state fires are the same wake,
+        recorded the same way, rather than two implementations that drift."""
+        decided: list[dict] = []
+        notices: list[RelayMessage] = []
+        specs: list[dict] = []
+        channel_used, global_used = await self._spend(s, conv.id)
+        paused_limit, said_hop = None, False
+        for agent, mention, wake, kind in summons:
+            hop = (mention.hop or 0) if is_agent(mention.author) else 0
+            run_id, limit = None, None
+            if not is_member(conv, AGENT_PREFIX + agent, enabled, explicit):
+                decision, reason = "suppressed", "not_member"
+            elif kind == "mention" and self._facade_owns(conv, msg, agent):
+                # Recorded BEFORE the "already answered" skip below: it is
+                # true of the room rather than of a particular run, so it
+                # is the same answer whether the facade's run exists yet or
+                # not — and it is the answer to "why did the router ignore
+                # my DM?", which silence would not be.
+                decision, reason = "suppressed", "facade_owns_turn"
+            # A mention that already has its run is answered, and a second
+            # decision about it would be noise: Kafka is at-least-once.
+            elif await self._answered(s, conv.id, agent, mention.id):
+                continue
+            elif self._out_of_hops(mention, hop):
+                decision, reason = "suppressed", "hop_limit"
+                said_hop = True
+            elif (limit := self._exhausted(channel_used, global_used)) is not None:
+                decision, reason = "suppressed", "budget"
+                paused_limit = limit
+            elif kind == "mention" and await self._occupied(s, conv, msg, agent):
+                decision, reason = "suppressed", "coalesced"
+                await self._coalesce(s, conv.id, agent, wake, msg)
+            else:
+                decision, reason = "invoked", kind
+                run_id = uuid.uuid4().hex
+                channel_used, global_used = channel_used + 1, global_used + 1
+                specs.append(await self._spec(s, conv, mention, agent, hop, run_id,
+                                              wake=wake, enabled=enabled,
+                                              explicit=explicit))
+            # A wake is consumed by being acted on. Fired or refused, it
+            # must not survive: an agent that reports for duty on every
+            # subsequent reply is the coalescing bug in reverse. The
+            # exception is `budget`, which is an answer about the HOUR and
+            # not about this backlog — deleting the wake there would
+            # silently discard messages nobody has read, and the hour is
+            # over in minutes.
+            #
+            # This delete is also what makes a wake fire exactly ONCE when two
+            # things race for it: an agent's reply and its run's terminal state
+            # both free that agent, they ride different topics, and either can
+            # arrive first. The guarantee is sequential, not concurrent — one
+            # `consume_forever` loop over both topics, one router per
+            # dispatcher, one dispatcher replica (charts/dispatcher.yaml) — so
+            # the second arrival reads the row after the first deleted it and
+            # summons nobody. It does NOT survive a second router: two sessions
+            # holding the same wake would both commit and both materialize a
+            # run, because a zero-row ORM DELETE on a table without a
+            # `version_id_col` only warns (SQLAlchemy's `only_warn` path in
+            # orm/persistence.py — verified, it is the UPDATE that raises
+            # StaleDataError, not the DELETE). Scaling the dispatcher out means
+            # claiming the wake with a conditional DELETE ... RETURNING first,
+            # the way `recorder._claim_reply` claims the right to post a reply.
+            if (wake is not None and reason != "budget"
+                    and (kind == "wake" or decision == "invoked")):
+                await s.delete(wake)
+            decided.append(await self._record(
+                s, channel_id=conv.id, message_id=mention.id, agent=agent,
+                decision=decision, reason=reason, run_id=run_id, hop=hop))
+        if said_hop:
+            notices.append(await self._say_hop_limit(s, conv, msg))
+        if paused_limit is not None:
+            notices.append(await self._say_budget(s, conv, paused_limit))
+        await s.commit()
+        # The bridge's copy of each notice, resolved while the session is
+        # still open (docs/design/19 T10): a room mirrored into Discord is
+        # owed the reason it went quiet just as much as the web pane is.
+        mirrored = [(row, await outbound_for_message(s, conv, row))
+                    for row in notices if row is not None]
+        return decided, specs, mirrored
+
+    async def _emit(self, conv, decided, specs, mirrored) -> None:
+        """Committed first, published after: the row is the record, and a broker
+        blip must cost the room its notice, never its decision."""
         for row, outbound in mirrored:
             await publish_relay_message(self.producer, conv, row, outbound=outbound)
         for spec in specs:
             await materialize_run(self.sf, self.producer, spec)
         for payload in decided:
             await self._publish(payload)
+
+    async def on_run_terminal(self, run_id: str) -> None:
+        """Fire the wake this run's agent was carrying, now that the run is over.
+
+        The reply path in `_summons` is the usual one — an agent's answer is how
+        the room learns its run ended. This is the backstop for the answer the
+        router never sees: a lost `result` frame, a deleted message, a reply
+        published by a process that crashed before the router read it. The
+        terminal state always lands, so it is the one signal that cannot go
+        missing, and firing from both is safe because a wake is deleted by
+        being acted on — whichever arrives first consumes it.
+
+        The caller has SEEN the terminal state; `run.state` is deliberately not
+        re-read, because the recorder writes that row from the same topic and
+        may not have got there yet. What matters instead is that this run does
+        not count as its own agent's "busy" (`ignore_run_id`) — which is the
+        whole bug this repairs."""
+        async with self.sf() as s:
+            run = await s.get(Run, run_id)
+            if run is None or not run.conversation_id:
+                return
+            wake = await s.get(RelayWake, (run.conversation_id, run.agent))
+            if wake is None:
+                return
+            conv = await s.get(Conversation, run.conversation_id)
+            # The anchor is the oldest message the agent has not read, and the
+            # follow-up is built from it. Gone (pruned, deleted), the wake is
+            # left where it is: the next message in the room fires it with a
+            # window of its own rather than the router inventing a turn.
+            anchor = await s.get(RelayMessage, wake.since_message_id)
+            if conv is None or anchor is None or anchor.deleted_at is not None:
+                return
+            if await self._busy(s, conv.id, run.agent, ignore_run_id=run_id):
+                return
+            decided, specs, mirrored = await self._decide(
+                s, conv, anchor, [(run.agent, anchor, wake, "wake")],
+                self._live_agents(), await explicit_members(s, conv.id))
+        await self._emit(conv, decided, specs, mirrored)
 
     # --- who is being addressed ---------------------------------------------
 
@@ -199,7 +288,11 @@ class RelayRouter:
         freed = await self._freed_by(s, msg)
         if freed is not None:
             wake = await s.get(RelayWake, (conv.id, freed))
-            if wake is not None and not await self._busy(s, conv.id, freed):
+            # `msg.run_id` is the run this message ENDS — an agent's own answer,
+            # or the platform's notice for a run that died. Either way it is
+            # that run's last word, so it does not make its own agent busy.
+            if wake is not None and not await self._busy(s, conv.id, freed,
+                                                         ignore_run_id=msg.run_id):
                 anchor = await s.get(RelayMessage, wake.since_message_id)
                 out.append((freed, anchor if anchor is not None else msg, wake, "wake"))
         if msg.kind != "text":
@@ -314,10 +407,23 @@ class RelayRouter:
             return self.settings.relay_global_invocations_per_hour
         return None
 
-    async def _busy(self, s, channel_id: str, agent: str) -> bool:
-        return (await s.execute(select(Run.id).where(
+    async def _busy(self, s, channel_id: str, agent: str, *,
+                    ignore_run_id: str | None = None) -> bool:
+        """Whether the agent has a run in flight in this room.
+
+        `ignore_run_id` is the run whose ENDING is being processed. Its state
+        row lags: the reply rides `run.transcript` and the terminal state rides
+        `run.events`, so at the moment a run's own answer reaches the router
+        the row still says RUNNING. Counting it would mean an agent is
+        permanently busy at exactly the moment it becomes free, which is how
+        two agents introduced to each other both sat on a wake that never
+        fired."""
+        q = select(Run.id).where(
             Run.conversation_id == channel_id, Run.agent == agent,
-            Run.state.in_(ACTIVE_STATES)).limit(1))).first() is not None
+            Run.state.in_(ACTIVE_STATES))
+        if ignore_run_id:
+            q = q.where(Run.id != ignore_run_id)
+        return (await s.execute(q.limit(1))).first() is not None
 
     async def _occupied(self, s, conv, msg, agent: str) -> bool:
         """Whether this mention should become a wake rather than a run: the

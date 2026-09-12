@@ -299,7 +299,7 @@ dispatch subagents, verify their evidence, commit, and update this file.
 
 ### Phase 7 — ship it
 
-- [ ] **T12 Build, deploy to the NUC, live-verify a real agent conversation.**
+- [x] **T12 Build, deploy to the NUC, live-verify a real agent conversation.** (helm rev 52 + backend redeploy after R2; evidence under Live verification; the classifier allowed the deploy from Terminal.app, so nothing was handed off)
   Build `agent-platform-backend:dev`, `agent-platform-web:dev`
   (`npm run build -w web` first, `Dockerfile.prebuilt`),
   `agent-platform-mcp-broker:dev`, `agent-platform-connector-discord:dev`
@@ -318,7 +318,7 @@ dispatch subagents, verify their evidence, commit, and update this file.
   the Relay page in a browser screenshot if possible. Record results here
   under "Live verification".
 
-- [ ] **T13 Memory + docs close-out.**
+- [x] **T13 Memory + docs close-out.** (design 19 Status shipped + AS BUILT deltas, overview row, memory `agent-platform-relay` rewritten with live facts and gotchas; done by the orchestrator)
   Update `docs/design/19-*.md` Status line to shipped with the date, add an
   "AS BUILT" section for any deltas, update `docs/design/00-overview.md` row
   19 if the one-line changed, and write the agent-platform memory file
@@ -328,6 +328,13 @@ dispatch subagents, verify their evidence, commit, and update this file.
 
 ### Repairs
 (added by the loop when the definition of done fails)
+
+- [x] **R2 A coalesced wake must fire on the agent's own reply even though its run's terminal state lags.**
+  Live: two wakes stuck (see Live verification). Fix in `relay_router.py`: exclude
+  the reply's own `run_id` from the active-run check when firing a wake, and also
+  fire pending wakes on a run's terminal `run.events` state so nothing waits for
+  the next message. Redeploy backend, re-summon in #general, confirm the wakes
+  fire and the exchange settles (hop cap or naturally). (fixed: `ignore_run_id` on the freeing reply + `run.events` backstop; redeployed; round two above proves it)
 
 - [x] **R1 Curate the Relay routes into the MCP facade (design 17) and unpin the counts.** (commit `6558f34`; KEEP 9 / GATE 3 / EXCLUDE 1 → 63 default, 87 admin; verified with the CI recipe in a uv 3.12 venv, 20 passed; review skipped: curation-only change proven by the facade suite)
   `services/mcp-facade/test_facade.py` pins the KEEP surface at 54 tools and
@@ -347,6 +354,9 @@ dispatch subagents, verify their evidence, commit, and update this file.
 ### Deferred
 (low/medium review findings not fixed; each with file:line and one sentence)
 - T1 (closed by T5): the one-shot backfills are serialized by init_db's Postgres advisory lock.
+- R2: a wake fires once only because the router is sequential (one consumer loop, dispatcher replicas: 1); a zero-row ORM DELETE on relay_wakes only warns, so a second router would need a conditional DELETE … RETURNING claim like recorder._claim_reply.
+- T12: the DM rail lists one entry per legacy conversation, so `pai` and `news-librarian` appear several times with identical labels; label DMs by title/last message or group per agent (cosmetic).
+- T12: `ERROR:asyncio:Unclosed AIOKafkaProducer` logged once in the dispatcher at restart (shutdown ordering; pre-existing pattern).
 - T11: Scheduler.tick iterates jobs without ORDER BY; fire order is insertion order in practice.
 - T11: no UI to create a relay-post job (API/seed only).
 - T8: SSE backoff reconnect only exercised to its first retry in Playwright (mock stream ends immediately).
@@ -369,7 +379,58 @@ shows two different agents exchanging messages in `#general` with linked
 runs; the Relay page renders on the NUC; `#standup` job is scheduled.
 
 ## Live verification
-(filled in by T12: timestamps, message ids, run ids, invocation decisions, screenshot path)
+
+**2026-09-12 00:03 EDT — deploy.** helm `ap` revision 52 (stored values + pai-nuc
+overlay), images backend/web/mcp-broker/mcp-facade/connector-discord `:dev`
+imported into k3s, seven rollouts complete, topics `relay.messages` and
+`relay.invocations` created by the topics hook, router joined group
+`relay-router`, connector consuming `conversation.outbound`. Deploy script:
+session scratchpad `t12-deploy.sh` (run from Terminal.app; the Local Network
+permission blocks this process and Homebrew python, so the API was reached
+through `ssh -L 18090:localhost:8090 pai`).
+
+**Seeds live:** channels general/ops/standup; job `relay-standup`
+(`0 9 * * *`, America/Toronto, relay_channel=standup, enabled);
+`/api/relay/stats` reports the guards (4 / 30 / 120 / 20s / 30) and
+`default_grant: true`; health-monitor's prompt gained the #ops instruction via
+`PUT /api/agents/health-monitor` (grants now include `mcp__platform__relay`).
+
+**Two agents talking (#general `0ba3a930…`):**
+
+| when (UTC) | author | hop | run | body |
+|---|---|---|---|---|
+| 04:27:47 | user:admin | 0 | — | @news @health-monitor say hi to each other in one line each, then stop. |
+| 04:27:59 | agent:health-monitor | 1 | `1f8eff55` | Hi @news, health-monitor here — all systems nominal on my end! |
+| 04:28:01 | agent:news | 1 | `70fe21e7` | Hi @health-monitor, I'm news — I gather AI/tech/security/world/local headlines… 👋 |
+
+`relay_invocations`: news invoked/mention hop 0; health-monitor invoked/mention
+hop 0; news suppressed/coalesced hop 1 (mentioned while its run was live);
+health-monitor suppressed/coalesced hop 1 (cooldown). Both replies are threaded
+under the summons; the page shows "💬 2 replies · last 4m ago". Dashboard tile:
+3 messages · 2 agent · 2 invocations · 0 refused · budget 2/120.
+Screenshots: scratchpad `live/relay-live-1280.png`, `live/dashboard-live-1280.png`.
+
+**Defect found live → R2:** both coalesced wakes stayed in `relay_wakes`
+because the freeing reply was evaluated ~200 ms before its own run's terminal
+state landed (news finished 04:28:01.66, reply seen 04:28:01.44), so the
+"agent has an active run" check counted the run that had just answered.
+
+**2026-09-12 00:46 EDT — round two, after R2 (backend redeployed):** admin posted
+"@news @health-monitor round two: each of you ask the other exactly one
+question, answer if asked, then stop." in #general.
+
+| when (UTC) | author | hop | run | decision that produced it |
+|---|---|---|---|---|
+| 04:46:19 | news | 1 | `806e9b62` | invoked/mention (asks health-monitor a question) |
+| 04:46:22 | health-monitor | 1 | `61894a10` | invoked/mention (asks news a question) |
+| 04:46:43 | health-monitor | 2 | `bb5ea37d` | invoked/**wake** hop 1 — its own reply freed it and fired the wake news's question had left |
+| 04:46:51 | news | 3 | `da041e3b` | invoked/mention hop 2 (health-monitor's question), answered and stopped |
+
+`relay_invocations` for the round: 4 invoked, 2 coalesced; `relay_wakes` empty
+afterwards (the two wakes stuck from round one were consumed too); the router's
+consumer shows `{'run.events', 'relay.messages'}`. Stats: 8 messages, 6 agent,
+6 invocations, 0 refused, budget 6/120. Hops climbed 0→1→2→3 and the room
+settled on its own under the cap of 4. This is the design working end to end.
 
 ## Handoff to Kyle
 (commands the loop could not run because the auto-mode classifier refused them, ready to paste)

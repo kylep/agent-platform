@@ -6,8 +6,10 @@ one is tested by driving a real message through `handle` rather than by calling
 the guard: the interesting failures are in how they COMBINE (a busy agent at
 the hop limit, a wake that fires into an over-budget hour), and only the whole
 router has an opinion about that."""
+import json
 import uuid
 from datetime import timedelta
+from types import SimpleNamespace
 
 import pytest
 from sqlalchemy import select
@@ -17,7 +19,8 @@ from agentplatform.config import Settings
 from agentplatform.db import (ACTIVE_STATES, Conversation, RelayInvocation,
                               RelayMessage, RelayParticipant, RelayWake, Run,
                               RunState, utcnow)
-from agentplatform.events import TOPIC_RELAY_INVOCATIONS
+from agentplatform.events import (TOPIC_RELAY_INVOCATIONS, TOPIC_RUN_EVENTS,
+                                  make_envelope)
 from agentplatform.relay_router import BUDGET_PREFIX, HOP_LIMIT_BODY, RelayRouter
 from agentplatform.relay_store import post_relay_message, relay_message_payload
 
@@ -614,6 +617,203 @@ async def test_a_failed_run_still_releases_its_wake(make_router, sf):
     assert await _decisions(sf) == [("ada", "suppressed", "coalesced"),
                                     ("ada", "invoked", "wake")]
     assert await _wakes(sf) == []
+
+
+async def _end(sf, run_id: str, state=RunState.SUCCEEDED) -> None:
+    """What the recorder does when the terminal state finally lands — AFTER the
+    reply, which rides the other topic."""
+    async with sf() as s:
+        run = await s.get(Run, run_id)
+        run.state, run.finished_at = state, utcnow()
+        await s.commit()
+
+
+def _state_event(run_id: str, state) -> tuple:
+    """A `run.events` state message as the dispatcher publishes it."""
+    data = {"run_id": run_id, "type": "state", "state": str(state), "detail": ""}
+    msg = SimpleNamespace(topic=TOPIC_RUN_EVENTS, key=run_id.encode(),
+                          value=json.dumps(make_envelope(
+                              type="run.state", key=run_id, data=data,
+                              source="test")).encode())
+    return msg, data
+
+
+async def test_two_agents_introduced_to_each_other_both_get_their_wake(make_router, sf):
+    """The live failure (repair R2), reproduced exactly.
+
+    A reply reaches the router on `run.transcript`; the terminal state that
+    ends the same run reaches it on `run.events`, later. So when an agent's own
+    reply arrives, its run row still says RUNNING — and the room's two pending
+    wakes both hung on that, leaving "@news @health-monitor say hi to each
+    other" answered by nobody. The reply IS the run's last word, and the state
+    is the backstop for a reply the router never sees."""
+    router = await make_router(agents=("news", "health-monitor"))
+    cid = await _channel(sf)
+    await _say(router, sf, cid, "user:admin", "@news @health-monitor say hi to each other")
+    first = {r.agent: r.id for r in await _runs(sf)}
+    assert sorted(first) == ["health-monitor", "news"]
+
+    # health-monitor answers first, mentioning news — who is still running, so
+    # the mention becomes news's wake.
+    hm_reply = await _say(router, sf, cid, "agent:health-monitor", "hi @news, nice to meet you",
+                          hop=1, run_id=first["health-monitor"])
+    assert [w.agent for w in await _wakes(sf)] == ["news"]
+
+    # news answers seconds later, its OWN run row still RUNNING. That reply is
+    # what frees news: its wake fires here, and its mention of health-monitor
+    # (still busy) becomes health-monitor's wake.
+    news_reply = await _say(router, sf, cid, "agent:news", "hello @health-monitor",
+                            hop=1, run_id=first["news"])
+    woken = [r for r in await _runs(sf) if r.id not in first.values()]
+    assert [r.agent for r in woken] == ["news"]
+    assert woken[0].trigger_message_id == hm_reply and woken[0].depth == 1
+    assert "nice to meet you" in woken[0].prompt
+    assert [w.agent for w in await _wakes(sf)] == ["health-monitor"]
+
+    # health-monitor's run ends without the router ever seeing another message
+    # from it: the terminal state is what fires the wake it was carrying.
+    await _end(sf, first["health-monitor"])
+    await router.on_run_terminal(first["health-monitor"])
+
+    woken = [r for r in await _runs(sf) if r.id not in first.values()]
+    assert sorted(r.agent for r in woken) == ["health-monitor", "news"]
+    hm_run = next(r for r in woken if r.agent == "health-monitor")
+    assert hm_run.trigger_message_id == news_reply
+    assert "hello @health-monitor" in hm_run.prompt
+    assert await _wakes(sf) == []
+    assert sorted(await _decisions(sf, cid)) == sorted([
+        ("news", "invoked", "mention"), ("health-monitor", "invoked", "mention"),
+        ("news", "suppressed", "coalesced"), ("news", "invoked", "wake"),
+        ("health-monitor", "suppressed", "coalesced"),
+        ("health-monitor", "invoked", "wake")])
+
+
+async def test_a_wake_fires_once_across_the_reply_and_the_terminal_state(make_router, sf):
+    """The two paths are the same wake seen twice, and a wake is consumed by
+    being acted on: the reply fires it, the state that follows finds nothing."""
+    router = await make_router()
+    cid = await _channel(sf)
+    await _busy_run(sf, cid, "ada", run_id="ada-run")
+    missed = await _say(router, sf, cid, "user:admin", "@ada while you were out")
+    assert [w.since_message_id for w in await _wakes(sf)] == [missed]
+
+    await _say(router, sf, cid, "agent:ada", "back", hop=1, run_id="ada-run")
+    await _end(sf, "ada-run")
+    await router.on_run_terminal("ada-run")
+
+    runs = [r for r in await _runs(sf) if r.id != "ada-run"]
+    assert [r.agent for r in runs] == ["ada"]
+    assert [d for d in await _decisions(sf, cid) if d[1] == "invoked"] == [
+        ("ada", "invoked", "wake")]
+    assert await _wakes(sf) == []
+
+
+async def test_a_reply_that_arrives_after_its_terminal_state_wakes_nobody(make_router, sf):
+    """The other order. Nothing sequences `run.transcript` against
+    `run.events`, so the state can win and the reply arrive at a router that
+    has already fired the wake on it. The reply is then a message about a run
+    that is finished and a backlog that is answered: it must not fire a second
+    follow-up, and it must not put the wake back."""
+    router = await make_router()
+    cid = await _channel(sf)
+    await _busy_run(sf, cid, "ada", run_id="ada-run")
+    missed = await _say(router, sf, cid, "user:admin", "@ada while you were out")
+
+    await _end(sf, "ada-run")
+    await router.on_run_terminal("ada-run")
+    woken = [r for r in await _runs(sf) if r.id != "ada-run"]
+    assert [r.agent for r in woken] == ["ada"] and woken[0].trigger_message_id == missed
+
+    # ... and only now does the reply that ended `ada-run` reach the router.
+    await _say(router, sf, cid, "agent:ada", "back", hop=1, run_id="ada-run")
+
+    assert [r.id for r in await _runs(sf)] == ["ada-run", woken[0].id]
+    assert await _wakes(sf) == []
+    assert await _decisions(sf, cid) == [("ada", "suppressed", "coalesced"),
+                                         ("ada", "invoked", "wake")]
+
+
+async def test_a_redelivered_terminal_state_wakes_nobody_twice(make_router, sf):
+    """Kafka is at-least-once on `run.events` too, and a run's terminal state
+    is published by the dispatcher AND by the job watcher. The wake is consumed
+    by the first one: the second finds nothing to fire."""
+    router = await make_router()
+    cid = await _channel(sf)
+    await _busy_run(sf, cid, "ada", run_id="ada-run")
+    await _say(router, sf, cid, "user:admin", "@ada while you were out")
+    await _end(sf, "ada-run")
+
+    for _ in range(2):
+        await router._on_message(*_state_event("ada-run", RunState.SUCCEEDED))
+    await router.on_run_terminal("ada-run")
+
+    assert [r.agent for r in await _runs(sf) if r.id != "ada-run"] == ["ada"]
+    assert [d for d in await _decisions(sf, cid) if d[1] == "invoked"] == [
+        ("ada", "invoked", "wake")]
+    assert await _wakes(sf) == []
+
+
+async def test_a_terminal_state_does_not_wake_an_agent_that_is_busy_again(make_router, sf):
+    """Excluding the run that just ended is not excluding every run: an agent
+    already working on something else in the room is still busy, and its wake
+    waits for that one to end."""
+    router = await make_router()
+    cid = await _channel(sf)
+    await _busy_run(sf, cid, "ada", run_id="ada-run")
+    await _say(router, sf, cid, "user:admin", "@ada while you were out")
+    await _busy_run(sf, cid, "ada", run_id="ada-next")
+
+    await _end(sf, "ada-run")
+    await router.on_run_terminal("ada-run")
+    assert [w.agent for w in await _wakes(sf)] == ["ada"]
+    assert sorted(r.id for r in await _runs(sf)) == ["ada-next", "ada-run"]
+
+    await _end(sf, "ada-next")
+    await router.on_run_terminal("ada-next")
+    assert [r.agent for r in await _runs(sf) if r.id not in ("ada-run", "ada-next")] == ["ada"]
+    assert await _wakes(sf) == []
+
+
+async def test_a_wake_fires_on_the_state_event_even_before_the_row_catches_up(
+        make_router, sf):
+    """`run.events` has two readers — the recorder, which writes the row, and
+    the router, which reads it — and no order between them. So the router
+    believes the event it was handed rather than re-reading a row that may not
+    have been written yet."""
+    router = await make_router()
+    cid = await _channel(sf)
+    await _busy_run(sf, cid, "ada", run_id="ada-run")
+    await _say(router, sf, cid, "user:admin", "@ada while you were out")
+
+    msg, data = _state_event("ada-run", RunState.SUCCEEDED)
+    await router._on_message(msg, data)  # the row still says RUNNING
+
+    assert [r.agent for r in await _runs(sf) if r.id != "ada-run"] == ["ada"]
+    assert await _wakes(sf) == []
+
+
+async def test_a_non_terminal_state_event_wakes_nobody(make_router, sf):
+    """Every run on the platform rides this topic, and most of the states are
+    a run starting, not ending."""
+    router = await make_router()
+    cid = await _channel(sf)
+    await _busy_run(sf, cid, "ada", run_id="ada-run")
+    await _say(router, sf, cid, "user:admin", "@ada while you were out")
+
+    for state in (RunState.QUEUED, RunState.DISPATCHED, RunState.RUNNING):
+        await router._on_message(*_state_event("ada-run", state))
+    await router._on_message(*_state_event("no-such-run", RunState.SUCCEEDED))
+
+    assert [r.id for r in await _runs(sf)] == ["ada-run"]
+    assert [w.agent for w in await _wakes(sf)] == ["ada"]
+
+
+async def test_the_router_reads_both_topics(make_router, sf):
+    """The router only has a backstop if it is subscribed to the topic the
+    terminal state arrives on."""
+    from agentplatform.events import TOPIC_RELAY_MESSAGES
+    from agentplatform.relay_router import TOPICS
+    assert TOPICS == (TOPIC_RELAY_MESSAGES, TOPIC_RUN_EVENTS)
 
 
 async def test_a_pause_notice_reaches_a_bound_room(make_router, sf, producer):
