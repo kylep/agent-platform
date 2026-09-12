@@ -3,10 +3,13 @@ channel carries, and the one-off seed that makes #general and #ops projects."""
 import pytest
 from sqlalchemy import func, select
 
-from agentplatform.db import (AgentDef, AgentVersion, Base, Conversation, Run,
-                              RunState, SchemaMark, TICKETS_GRANT_MARK,
-                              TICKETS_SEED_MARK, Ticket, TicketEvent, TicketPriority,
-                              TicketState, init_db, make_engine, make_session_factory)
+from agentplatform.db import (HEALTH_MONITOR_TICKET_RULE, RELAY_STANDUP_PROMPT_V2,
+                              TICKETS_GRANT_MARK, TICKETS_HEALTH_MONITOR_MARK,
+                              TICKETS_SEED_MARK, TICKETS_STANDUP_MARK, AgentDef,
+                              AgentVersion, Base, Conversation, Run, RunState,
+                              ScheduledJob, SchemaMark, Ticket, TicketEvent,
+                              TicketPriority, TicketState, init_db, make_engine,
+                              make_session_factory)
 
 
 @pytest.fixture
@@ -199,3 +202,151 @@ async def test_tickets_grant_backfill_honours_the_setting_and_runs_once(engine, 
         await s.commit()
     await init_db(engine)
     assert await _grants(sfx, "news") == []
+
+
+# --- standup v2 and the health-monitor prompt (docs/design/20) ---------------
+# Two one-time rewrites of things an operator can edit afterwards, so each is
+# gated on its own mark and each refuses to touch text that is no longer the
+# text it knows.
+
+async def _standup(sfx) -> ScheduledJob:
+    async with sfx() as s:
+        return (await s.execute(select(ScheduledJob).where(
+            ScheduledJob.name == "relay-standup"))).scalar_one()
+
+
+async def test_the_standup_asks_about_tickets(engine, sfx):
+    """A fresh database ends at v2 — the seed is still the v1 row, and this
+    rewrite runs in the same init_db — so a new install and an upgraded one ask
+    the room the same question."""
+    await init_db(engine)
+    job = await _standup(sfx)
+    assert job.prompt == RELAY_STANDUP_PROMPT_V2
+    assert "which tickets did you move" in job.prompt
+    assert (job.cron, job.relay_channel) == ("0 9 * * *", "standup")
+    async with sfx() as s:
+        assert await s.get(SchemaMark, TICKETS_STANDUP_MARK) is not None
+    await init_db(engine)
+    assert (await _standup(sfx)).prompt == RELAY_STANDUP_PROMPT_V2
+
+
+async def test_the_standup_rewrite_never_overrules_an_edited_prompt(engine, sfx):
+    """The job is a row an admin owns. Rewriting a prompt somebody changed
+    would be the platform overruling the operator once a night, so the rewrite
+    only ever replaces the exact v1 text it shipped."""
+    await init_db(engine)
+    async with sfx() as s:
+        job = (await s.execute(select(ScheduledJob).where(
+            ScheduledJob.name == "relay-standup"))).scalar_one()
+        job.prompt = "@all — ship anything?"
+        # The mark is what makes this a ONE-time rewrite; without it the edit
+        # below would be the case the guard has to survive on the next boot.
+        await s.delete(await s.get(SchemaMark, TICKETS_STANDUP_MARK))
+        await s.commit()
+    await init_db(engine)
+    assert (await _standup(sfx)).prompt == "@all — ship anything?"
+
+
+async def _health_monitor(sfx, prompt: str) -> None:
+    async with sfx() as s:
+        s.add(AgentDef(name="health-monitor", description="d", prompt=prompt))
+        await s.commit()
+
+
+OPS_PROMPT = ("# health-monitor\nYou watch the platform.\n\n"
+              "When something is wrong, post an alert in #ops.\n")
+
+
+async def test_health_monitor_learns_to_open_tickets(engine, sfx):
+    """Its alerts become work items with an owner (docs/design/20), and the
+    change goes through the design-15 change log like any other definition
+    write, attributed to the migration that made it."""
+    await _health_monitor(sfx, OPS_PROMPT)
+    await init_db(engine)
+    async with sfx() as s:
+        row = await s.get(AgentDef, "health-monitor")
+        assert row.prompt.startswith(OPS_PROMPT.rstrip("\n"))
+        assert row.prompt.endswith(HEALTH_MONITOR_TICKET_RULE)
+        assert "\n\n" + HEALTH_MONITOR_TICKET_RULE in row.prompt
+        assert await s.get(SchemaMark, TICKETS_HEALTH_MONITOR_MARK) is not None
+        versions = list((await s.execute(select(AgentVersion).where(
+            AgentVersion.agent == "health-monitor").order_by(
+            AgentVersion.version))).scalars())
+    # Behind the two default-grant sweeps, which also write the log.
+    assert [(v.version, v.changed_by, v.changed_via) for v in versions] == [
+        (1, "platform:relay-default-grant", "migration"),
+        (2, "platform:tickets-default-grant", "migration"),
+        (3, "system:tickets", "migration")]
+    assert versions[-1].snapshot["prompt"] == (await _agent_prompt(sfx))
+    # Once only: the appended paragraph is not re-appended on the next boot.
+    before = await _agent_prompt(sfx)
+    await init_db(engine)
+    assert await _agent_prompt(sfx) == before
+
+
+async def _agent_prompt(sfx) -> str:
+    async with sfx() as s:
+        return (await s.get(AgentDef, "health-monitor")).prompt
+
+
+async def test_health_monitor_that_is_not_there_yet_is_reached_on_a_later_boot(
+        engine, sfx):
+    """The mark is written only when the rewrite is APPLIED: a platform whose
+    health-monitor is created after Tickets ships still gets the instruction on
+    the next boot, rather than having missed its one chance."""
+    await init_db(engine)
+    async with sfx() as s:
+        assert await s.get(SchemaMark, TICKETS_HEALTH_MONITOR_MARK) is None
+    await _health_monitor(sfx, OPS_PROMPT)
+    await init_db(engine)
+    assert HEALTH_MONITOR_TICKET_RULE in await _agent_prompt(sfx)
+
+
+async def test_a_prompt_that_already_says_it_is_left_alone(engine, sfx):
+    """The live prompt is edited through the API, so the phrase may already be
+    there — by hand, or from a rollback to a snapshot that had it. Appending it
+    again would say the same thing twice in the agent's own instructions."""
+    already = OPS_PROMPT + "\nAlso: open an OPS ticket when a human is needed.\n"
+    await _health_monitor(sfx, already)
+    await init_db(engine)
+    assert await _agent_prompt(sfx) == already
+    async with sfx() as s:
+        assert (await s.execute(select(func.count()).select_from(
+            AgentVersion.__table__).where(
+            AgentVersion.changed_by == "system:tickets"))).scalar_one() == 0
+
+
+async def test_a_version_collision_leaves_the_boot_standing(engine, sfx, monkeypatch):
+    """init_db's advisory lock serializes the other init_db callers and nothing
+    else: an admin saving health-monitor through the API at the same moment
+    takes the version number this rewrite computed. Losing that race must cost
+    the rewrite a boot, not take the pod down with it — and the whole of
+    init_db has to survive, not just this function."""
+    import uuid as uuid_mod
+    from agentplatform import db as db_mod
+    # The first pass marks the grant sweeps (health-monitor does not exist yet),
+    # so on the second one this is the only thing left writing a version row.
+    await init_db(engine)
+    await _health_monitor(sfx, OPS_PROMPT)
+    taken = "f" * 32
+    async with sfx() as s:
+        s.add(AgentVersion(id=taken, agent="someone-else", version=1, snapshot={},
+                           changed_by="admin", changed_via="admin"))
+        await s.commit()
+    monkeypatch.setattr(db_mod.uuid, "uuid4", lambda: uuid_mod.UUID(taken))
+
+    await init_db(engine)
+
+    assert await _agent_prompt(sfx) == OPS_PROMPT
+    async with sfx() as s:
+        # Neither half landed, and the rest of init_db did: the savepoint is
+        # what keeps a refused insert from abandoning the whole transaction.
+        assert await s.get(SchemaMark, TICKETS_HEALTH_MONITOR_MARK) is None
+        assert await s.get(SchemaMark, TICKETS_STANDUP_MARK) is not None
+        assert (await s.execute(select(func.count()).select_from(
+            AgentVersion.__table__).where(
+            AgentVersion.agent == "health-monitor"))).scalar_one() == 0
+    # The next boot, against whatever the admin left behind, applies it.
+    monkeypatch.undo()
+    await init_db(engine)
+    assert HEALTH_MONITOR_TICKET_RULE in await _agent_prompt(sfx)

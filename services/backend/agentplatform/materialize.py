@@ -24,7 +24,7 @@ async def materialize_run(session_factory, producer, spec: dict,
     `spec` keys: run_id, agent, prompt, trigger, requested_by, and optional
     initiated_by (root principal, defaults to "admin" — the single-operator
     stub of docs/design/13 D), parent_run_id, depth, conversation_id,
-    trigger_message_id.
+    trigger_message_id, ticket_id.
     Returns the run id.
 
     Postgres-first: the row is committed before the publish, and a failed/slow
@@ -41,6 +41,7 @@ async def materialize_run(session_factory, producer, spec: dict,
                 conversation_id=spec.get("conversation_id"),
                 user_message=spec.get("user_message"),
                 trigger_message_id=spec.get("trigger_message_id"),
+                ticket_id=spec.get("ticket_id"),
             ))
             await s.commit()
     try:

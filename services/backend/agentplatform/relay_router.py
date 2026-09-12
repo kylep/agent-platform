@@ -30,7 +30,8 @@ from aiokafka import AIOKafkaConsumer
 from sqlalchemy import func, or_, select
 
 from agentplatform.db import (ACTIVE_STATES, Conversation, RelayInvocation,
-                              RelayMessage, RelayWake, Run, utcnow)
+                              RelayMessage, RelayWake, Run, Ticket, TicketEvent,
+                              utcnow)
 from agentplatform.events import (TOPIC_RELAY_INVOCATIONS, TOPIC_RELAY_MESSAGES,
                                   TOPIC_RUN_EVENTS, consume_forever)
 from agentplatform.materialize import materialize_run
@@ -41,6 +42,7 @@ from agentplatform.relay import (AGENT_PREFIX, ALL, SYSTEM_AUTHOR, USER_PREFIX,
 from agentplatform.relay_store import (context_window, explicit_members, faces_for,
                                        outbound_for_message, post_relay_message,
                                        publish_relay_message)
+from agentplatform.tickets import CLOSED_STATES
 
 log = logging.getLogger("relay_router")
 
@@ -62,6 +64,14 @@ BUDGET_PREFIX = "⏸️ paused: this room has used its hourly agent budget"
 
 def budget_body(limit: int) -> str:
     return f"{BUDGET_PREFIX} ({limit}/hour); try again later"
+
+
+# How much of a ticket travels with the summons (docs/design/20). Five events
+# is the hand-off — who opened it, who moved it, what they said — without
+# replaying a month of an old ticket's history; ten queue lines is a glance at
+# the board, which is all `<your-tickets>` is for.
+TICKET_EVENTS = 5
+YOUR_TICKETS = 10
 
 
 class RelayRouter:
@@ -310,10 +320,25 @@ class RelayRouter:
         Usually that is simply its author: an agent's reply is posted as its
         run finishes. The other case is a run that FAILED — it leaves a system
         notice in the platform's own name instead of an answer — and the agent
-        behind that notice is owed its pending wake just the same."""
+        behind that notice is owed its pending wake just the same.
+
+        A run's `run_id` is NOT enough on its own, which is the whole of this
+        check. An agent posts mid-run too — through the `relay` tool, and
+        through every ticket it touches (docs/design/20: the card, the
+        assignment mention, a comment) — and those messages carry `run_id` for
+        attribution. Read as "the run is over" they free an agent that is still
+        executing, and a pending wake then starts a SECOND run of it alongside
+        the first. So the test is `trigger_message_id`: the recorder stamps its
+        reply with the run's own trigger (`recorder._post_reply`), and neither
+        `api/relay.py` nor `ticket_store` ever sets it. A conversation turn is
+        covered too — the facade materializes those runs WITH a trigger message
+        (`conversation.continue_conversation`), so a DM reply still frees.
+        Anything left over — a scheduled run with no triggering message, a
+        reply that was lost — is freed by `run.events`, the backstop that
+        always lands."""
         name = agent_name(msg.author)
         if name is not None:
-            return name if msg.run_id else None
+            return name if (msg.run_id and msg.trigger_message_id) else None
         if msg.kind == "system" and msg.run_id:
             run = await s.get(Run, msg.run_id)
             return run.agent if run is not None else None
@@ -461,8 +486,17 @@ class RelayRouter:
 
     async def _spec(self, s, conv, mention, agent: str, hop: int, run_id: str, *,
                     wake, enabled, explicit) -> dict:
+        # A summons inside a thread is answered from the thread (docs/design/20):
+        # "in a thread" is `thread_root` set and nothing cleverer, because the
+        # one message that opens a ticket's thread is its card, and a card
+        # mentions nobody — so a root message is never itself a summons into a
+        # ticket, and a root that is not a ticket's is just the room talking.
+        thread_root = mention.thread_root
+        ticket = await self._ticket_of(s, thread_root)
         window = await context_window(
-            s, conv.id, limit=self.settings.relay_context_messages,
+            s, conv.id, thread_root=thread_root,
+            limit=(self.settings.tickets_thread_context_messages if thread_root
+                   else self.settings.relay_context_messages),
             since_message_id=await self._resume_from(s, conv.id, wake))
         participants = self._roster(conv, explicit, enabled, window)
         names = {n for n in (agent_name(p) for p in participants) if n}
@@ -470,7 +504,15 @@ class RelayRouter:
         prompt = build_mention_prompt(
             channel=conv, messages=window, mention=mention, agent=agent,
             hops_left=max(0, self.settings.relay_max_hops - hop - 1),
-            participants=participants, faces=await faces_for(s, names))
+            participants=participants, faces=await faces_for(s, names),
+            ticket=ticket,
+            ticket_events=(await self._ticket_events(s, ticket)
+                           if ticket is not None else ()),
+            # Only when there is no ticket in hand: an agent summoned INTO a
+            # ticket has been told which work this is, and appending its whole
+            # queue underneath invites it to answer about a different one.
+            your_tickets=(() if ticket is not None
+                          else await self._your_tickets(s, agent)))
         # prompt and user_message are the same text on purpose: for a relay run
         # the built context IS the turn, and the run page shows it as what the
         # agent was asked.
@@ -479,7 +521,43 @@ class RelayRouter:
                 "requested_by": mention.author,
                 "initiated_by": await self._initiated_by(s, mention),
                 "parent_run_id": mention.run_id, "depth": hop,
-                "conversation_id": conv.id, "trigger_message_id": mention.id}
+                "conversation_id": conv.id, "trigger_message_id": mention.id,
+                # What this run is WORK on, as opposed to what it is a reply to:
+                # the ticket page lists it, and the board shows the agent
+                # thinking on the card.
+                "ticket_id": ticket.id if ticket is not None else None}
+
+    async def _ticket_of(self, s, thread_root: str | None):
+        """The ticket whose thread this summons sits in, or None.
+
+        The card IS the thread root (docs/design/20), so the lookup is that one
+        column — which is also why an assignment mention finds its ticket
+        without carrying a key: it is a reply, and its root is the card."""
+        if not thread_root:
+            return None
+        return (await s.execute(select(Ticket).where(
+            Ticket.root_message_id == thread_root).limit(1))).scalars().first()
+
+    async def _ticket_events(self, s, ticket) -> list:
+        """The tail of the ticket's history, oldest first — read newest-first
+        and reversed, so a long-running ticket hands the agent where the work
+        got to rather than where it started."""
+        rows = (await s.execute(select(TicketEvent)
+                .where(TicketEvent.ticket_id == ticket.id)
+                .order_by(TicketEvent.created_at.desc(), TicketEvent.id.desc())
+                .limit(TICKET_EVENTS))).scalars().all()
+        return list(reversed(rows))
+
+    async def _your_tickets(self, s, agent: str) -> list:
+        """The agent's own open work, most recently active first. Closed
+        tickets are left out for the same reason the board's columns end: a
+        queue is what is still owed, and a done ticket in it is an invitation
+        to report work that was finished last week."""
+        return list((await s.execute(select(Ticket)
+                     .where(Ticket.assignee == AGENT_PREFIX + agent,
+                            Ticket.state.not_in(CLOSED_STATES))
+                     .order_by(Ticket.last_activity_at.desc(), Ticket.id.desc())
+                     .limit(YOUR_TICKETS))).scalars())
 
     async def _resume_from(self, s, channel_id: str, wake) -> str | None:
         """Where a woken agent starts reading again.

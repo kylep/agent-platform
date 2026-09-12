@@ -1,3 +1,4 @@
+import logging
 import uuid
 from datetime import datetime, timedelta, timezone
 from enum import StrEnum
@@ -5,6 +6,9 @@ from sqlalchemy import (JSON, DateTime, Index, Integer, LargeBinary, String, Tex
                         UniqueConstraint, select, text)
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
+
+log = logging.getLogger("db")
+
 
 def utcnow() -> datetime:
     return datetime.now(timezone.utc)
@@ -685,6 +689,8 @@ RELAY_GRANT_MARK = "relay-default-grant-v1"
 TICKETS_GRANT_MARK = "tickets-default-grant-v1"
 RELAY_STANDUP_MARK = "relay-standup-job-v1"
 TICKETS_SEED_MARK = "tickets-seed-v1"
+TICKETS_STANDUP_MARK = "tickets-standup-v2"
+TICKETS_HEALTH_MONITOR_MARK = "tickets-health-monitor-v1"
 
 # The channels that become PROJECTS when Tickets ships (docs/design/20), and
 # the prefix each one's keys are stamped with. #standup is deliberately absent:
@@ -699,6 +705,22 @@ RELAY_STANDUP_JOB = dict(
     timezone="America/Toronto",
     prompt="@all — what did you do in the last 24h? Two lines, link anything "
            "you touched.")
+# What the same job asks once Tickets ships (docs/design/20): the room can now
+# answer with the board, and the question that gets that answer names it. The
+# v1 text above is kept exactly as it was rather than edited in place, because
+# it is also the needle `_ensure_tickets_standup_v2` matches on — a live job
+# still carrying it has not been touched by an admin, and one that is not is
+# somebody's own question and none of the platform's business.
+RELAY_STANDUP_PROMPT_V2 = (
+    "@all — what did you do in the last 24h, which tickets did you move, and "
+    "what is blocked? Two lines each, link what you touched.")
+# The paragraph health-monitor gains when Tickets ships (docs/design/20,
+# "Delight"): its alerts stop being a wall of red in #ops and become work items
+# with an owner. Appended to whatever prompt it currently has — the live one is
+# not in the repo, it was set through the API — rather than replacing it.
+HEALTH_MONITOR_TICKET_RULE = (
+    "Open an OPS ticket for anything that needs a human, assign it to pai if "
+    "it is about the platform, and put the alert in the ticket's thread.")
 
 
 def dm_key_of(participants) -> str:
@@ -936,6 +958,108 @@ def _ensure_relay_standup_job(conn) -> None:
     conn.execute(mark_t.insert().values(name=RELAY_STANDUP_MARK, applied_at=utcnow()))
 
 
+def _ensure_tickets_standup_v2(conn) -> None:
+    """Ask the standup about tickets (docs/design/20).
+
+    A rewrite and not a second seed: #standup is one job, and an install that
+    already has it must end up asking the same question a fresh one does. It
+    fires on a fresh database too — the v1 seed above runs first in the same
+    init_db — so there is exactly one shipped wording, in exactly one place.
+
+    ONLY when the prompt is still the v1 text, verbatim. The job is a row an
+    admin owns through the Jobs UI, and a platform that rewrites an edited
+    prompt is overruling the operator once a night. The mark is written either
+    way: this is a one-time upgrade, not a policy about what the job may say,
+    so an admin who later types the v1 words back keeps them.
+
+    Not race-safe on its own: the check-then-write is serialized across
+    services by init_db's advisory lock (INIT_DB_LOCK_KEY)."""
+    from sqlalchemy import inspect as sa_inspect
+    if not sa_inspect(conn).has_table("scheduled_jobs"):
+        return
+    mark_t = SchemaMark.__table__
+    if conn.execute(select(mark_t.c.name)
+                    .where(mark_t.c.name == TICKETS_STANDUP_MARK)).first():
+        return
+    job_t = ScheduledJob.__table__
+    conn.execute(job_t.update().where(
+        job_t.c.name == RELAY_STANDUP_JOB["name"],
+        job_t.c.prompt == RELAY_STANDUP_JOB["prompt"]).values(
+            prompt=RELAY_STANDUP_PROMPT_V2, updated_at=utcnow()))
+    conn.execute(mark_t.insert().values(name=TICKETS_STANDUP_MARK,
+                                        applied_at=utcnow()))
+
+
+def _ensure_tickets_health_monitor(conn) -> None:
+    """Teach health-monitor to open tickets (docs/design/20, "Delight").
+
+    Its prompt is not in the repo — agent definitions are rows (docs/design/15)
+    and this one was written through the API — so the condition is what the
+    prompt SAYS: an agent that does not already talk about an OPS ticket gains
+    the paragraph, appended to whatever else it has been told. A prompt that
+    mentions one already is left exactly alone, whether an admin wrote it or a
+    rollback restored it; saying the same thing twice in an agent's own
+    instructions is not an improvement.
+
+    Marked only when it is APPLIED, unlike every other backfill here, and that
+    is deliberate: on a fresh database (a new install, a test) there is no
+    health-monitor yet, and a mark written for a sweep that did nothing would
+    mean the agent somebody creates next week never gets it. The cost of the
+    other direction is one indexed lookup per boot.
+
+    A row that no longer validates is left alone for the same reason the grant
+    sweep leaves it: a quarantined definition is repaired through the API, and
+    a boot-time migration is the last thing that should have an opinion on it.
+
+    Not race-safe on its own: the check-then-write is serialized across
+    services by init_db's advisory lock (INIT_DB_LOCK_KEY)."""
+    from sqlalchemy import func, inspect as sa_inspect
+    from sqlalchemy.exc import IntegrityError
+    if not sa_inspect(conn).has_table("agent_defs"):
+        return
+    mark_t = SchemaMark.__table__
+    if conn.execute(select(mark_t.c.name)
+                    .where(mark_t.c.name == TICKETS_HEALTH_MONITOR_MARK)).first():
+        return
+    from pydantic import ValidationError
+    from agentplatform.agentdefs import model_of
+    def_t, ver_t = AgentDef.__table__, AgentVersion.__table__
+    row = conn.execute(select(def_t).where(
+        def_t.c.name == "health-monitor")).first()
+    if row is None or "OPS ticket" in (row.prompt or ""):
+        return
+    prompt = (row.prompt or "").rstrip() + "\n\n" + HEALTH_MONITOR_TICKET_RULE
+    try:
+        snapshot = {**model_of(row).model_dump(mode="json"), "prompt": prompt}
+    except ValidationError:
+        return
+    version = (conn.execute(select(func.max(ver_t.c.version))
+                            .where(ver_t.c.agent == row.name)).scalar() or 0) + 1
+    # The write and its log entry, inside a SAVEPOINT. init_db's advisory lock
+    # serializes the other init_db callers and nothing else: an admin saving
+    # health-monitor through the API at this exact moment reads the same max
+    # and takes the same version number, and `uq_agent_versions_agent_version`
+    # refuses the loser — which, uncaught, is an IntegrityError inside
+    # `engine.begin()` and a pod that crash-loops once on boot. The savepoint
+    # is what makes losing survivable: only this pair of statements rolls back,
+    # rather than the whole of init_db being abandoned by an aborted
+    # transaction. The mark is not written, so the next boot simply does it
+    # again — by then against the admin's version of the prompt.
+    try:
+        with conn.begin_nested():
+            conn.execute(def_t.update().where(def_t.c.name == row.name)
+                         .values(prompt=prompt))
+            conn.execute(ver_t.insert().values(
+                id=uuid.uuid4().hex, agent=row.name, version=version,
+                snapshot=snapshot, changed_by="system:tickets",
+                changed_via="migration", created_at=utcnow()))
+    except IntegrityError:
+        log.warning("health-monitor prompt rewrite lost a race; retrying next boot")
+        return
+    conn.execute(mark_t.insert().values(name=TICKETS_HEALTH_MONITOR_MARK,
+                                        applied_at=utcnow()))
+
+
 def _ensure_dm_keys(conn) -> None:
     """Give every existing two-party DM its canonical key. Runs after the relay
     backfill, which is what put the participant rows there in the first place.
@@ -1119,3 +1243,8 @@ async def init_db(engine: AsyncEngine, default_grant: bool = True,
         await conn.run_sync(_ensure_tickets_ddl)
         await conn.run_sync(_ensure_tickets_seed)
         await conn.run_sync(_ensure_tickets_default_grant, tickets_grant)
+        # After the v1 seed above, which this rewrites, and after the grant
+        # sweep: health-monitor's prompt change and its new tool are one story
+        # in the change log, in the order they happened.
+        await conn.run_sync(_ensure_tickets_standup_v2)
+        await conn.run_sync(_ensure_tickets_health_monitor)

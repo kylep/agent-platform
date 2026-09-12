@@ -6,7 +6,8 @@ import pytest
 from sqlalchemy import func, select, text
 
 from agentplatform.db import (Base, Conversation, RELAY_BACKFILL_MARK,
-                              RELAY_DM_KEY_MARK, RELAY_STANDUP_MARK, RelayBinding,
+                              RELAY_DM_KEY_MARK, RELAY_STANDUP_MARK,
+                              RELAY_STANDUP_PROMPT_V2, RelayBinding,
                               RelayInvocation, RelayMessage, RelayParticipant,
                               RelayReaction, RelaySession, RelayWake, Run, RunState,
                               ScheduledJob, SchemaMark, dm_key_of, init_db,
@@ -416,8 +417,10 @@ async def test_standup_job_is_seeded_once(engine, sfx):
     job = jobs[0]
     assert (job.name, job.agent, job.cron, job.timezone, job.enabled) == \
         ("relay-standup", None, "0 9 * * *", "America/Toronto", True)
-    assert job.prompt == ("@all — what did you do in the last 24h? Two lines, "
-                          "link anything you touched.")
+    # The v1 text this seeds is rewritten in the same init_db by Tickets
+    # (docs/design/20, `_ensure_tickets_standup_v2`), so what a fresh database
+    # ends up with is the question that asks about the board.
+    assert job.prompt == RELAY_STANDUP_PROMPT_V2
     # Armed by the scheduler's first tick, not by the seed: a job seeded at
     # 08:59 must not go off the moment the API boots.
     assert job.next_fire is None

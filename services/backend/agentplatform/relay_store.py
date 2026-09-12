@@ -272,11 +272,32 @@ async def bindings_of(session, channel_id: str) -> list[RelayBinding]:
         RelayBinding.connector, RelayBinding.external_ref))).scalars())
 
 
+async def _thread_window(session, base, thread_root: str, limit: int):
+    """One thread, oldest first: the root ALWAYS, then the newest replies under
+    it.
+
+    The root is force-kept rather than left to the ordinary newest-n cut,
+    because in a ticket's thread the root is the CARD — the key, the title, the
+    state the whole conversation is about (docs/design/20). A thread longer
+    than the window would otherwise hand every later summons a pile of replies
+    about a ticket it can no longer name, and the agent's first move would be
+    to ask which one. Deleted rows stay out on both halves (`base` carries that
+    filter), and a root that is gone simply gives its slot back to the replies."""
+    root = (await session.execute(
+        base.where(RelayMessage.id == thread_root))).scalars().first()
+    replies = list((await session.execute(
+        base.where(RelayMessage.thread_root == thread_root)
+        .order_by(RelayMessage.created_at.desc(), RelayMessage.id.desc())
+        .limit(max(0, limit - 1) if root is not None else limit))).scalars())
+    return ([root] if root is not None else []) + list(reversed(replies))
+
+
 async def context_window(session, channel_id: str, *, limit: int,
-                         since_message_id: str | None = None):
+                         since_message_id: str | None = None,
+                         thread_root: str | None = None):
     """The messages a summoned agent is shown, oldest first.
 
-    Two shapes, one window. Normally it is the last `limit` messages — the room
+    Three shapes, one window. Normally it is the last `limit` messages — the room
     as a human would scroll it. When the agent was busy and its wake was
     coalesced, `since_message_id` says where it stopped reading, and it gets
     everything that has happened since instead, so a run answering three
@@ -287,11 +308,22 @@ async def context_window(session, channel_id: str, *, limit: int,
     that woke it is at the end, and a prompt without that is no use at all.
 
     An unknown cursor falls back to the plain page rather than returning
-    nothing: a message may have been pruned out from under the wake."""
+    nothing: a message may have been pruned out from under the wake.
+
+    `thread_root` is the third shape (docs/design/20): a summons inside a thread
+    is answered from the thread — the root and its replies, and `limit` is then
+    the caller's thread limit rather than its room one. A ticket's thread IS the
+    ticket's history, and a hand-off shown the room's last page instead would
+    start halfway through work somebody already did. A coalesced wake still
+    wins, deliberately: the backlog an agent was woken for is the ROOM's, and
+    narrowing it to one thread would drop the messages it is answering."""
     base = select(RelayMessage).where(RelayMessage.channel_id == channel_id,
                                       RelayMessage.deleted_at.is_(None))
     cursor = await session.get(RelayMessage, since_message_id) if since_message_id else None
-    if cursor is not None and cursor.channel_id == channel_id:
+    resumed = cursor is not None and cursor.channel_id == channel_id
+    if thread_root and not resumed:
+        return await _thread_window(session, base, thread_root, limit)
+    if resumed:
         # (created_at, id) is the same total order the message list pages by,
         # so "after" means the same thing to the reader and to the wake.
         base = base.where(or_(RelayMessage.created_at > cursor.created_at,

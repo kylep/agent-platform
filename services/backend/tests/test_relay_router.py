@@ -57,7 +57,8 @@ async def _channel(sf, *, kind="channel", open=True, name=None, agent=None,
 
 
 async def _say(router, sf, channel_id: str, author: str, body: str, *,
-               kind="text", hop=0, run_id=None, reply_to=None) -> str:
+               kind="text", hop=0, run_id=None, reply_to=None,
+               trigger_message_id=None) -> str:
     """Post a message and route it, exactly as the API/recorder → Kafka →
     router path does. `mentions` is deliberately left empty: the router
     re-parses the body, and a test that pre-computed the list would be
@@ -65,7 +66,8 @@ async def _say(router, sf, channel_id: str, author: str, body: str, *,
     async with sf() as s:
         conv = await s.get(Conversation, channel_id)
         msg = await post_relay_message(s, conv, author=author, body=body, kind=kind,
-                                       hop=hop, run_id=run_id, reply_to=reply_to)
+                                       hop=hop, run_id=run_id, reply_to=reply_to,
+                                       trigger_message_id=trigger_message_id)
         await s.commit()
         payload = relay_message_payload(msg, conv)
     await router.handle(payload)
@@ -412,12 +414,32 @@ async def test_an_old_hour_does_not_count(make_router, sf):
 # --- cooldown, coalescing and wakes ------------------------------------------
 
 
-async def _busy_run(sf, channel_id: str, agent: str, run_id="busy") -> None:
+async def _busy_run(sf, channel_id: str, agent: str, run_id="busy",
+                    trigger=None) -> None:
+    """A run the agent is already in the middle of. It carries a
+    `trigger_message_id` because every real run in a room does — the mention or
+    the turn that asked for it — and that is what its reply will be stamped
+    with when it ends (`_reply`). A stand-in id is enough where the test never
+    posted the triggering message itself."""
     async with sf() as s:
         s.add(Run(id=run_id, agent=agent, trigger="mention", requested_by="user:admin",
                   initiated_by="admin", conversation_id=channel_id, prompt="p",
+                  trigger_message_id=trigger or f"{run_id}-trigger",
                   state=RunState.RUNNING))
         await s.commit()
+
+
+async def _reply(router, sf, channel_id: str, agent: str, body: str, *,
+                 run_id: str, hop=1) -> str:
+    """The RECORDER's message: a run's answer, carrying its run AND the message
+    that triggered it (`recorder._post_reply`). The trigger is the half the
+    router reads — it is what separates a run's last word from a tool post the
+    same run made while it was still working."""
+    async with sf() as s:
+        run = await s.get(Run, run_id)
+        trigger = run.trigger_message_id if run is not None else None
+    return await _say(router, sf, channel_id, f"agent:{agent}", body, hop=hop,
+                      run_id=run_id, trigger_message_id=trigger)
 
 
 async def test_mentions_of_a_busy_agent_become_one_wake_then_one_run(make_router, sf):
@@ -437,8 +459,7 @@ async def test_mentions_of_a_busy_agent_become_one_wake_then_one_run(make_router
     # The recorder posts ada's reply once its run is over: the router sees the
     # agent is free, finds the wake, and answers all three at once.
     await _finish(sf, "ada")
-    await _say(router, sf, cid, "agent:ada", "done with the other thing", hop=1,
-               run_id="busy")
+    await _reply(router, sf, cid, "ada", "done with the other thing", run_id="busy")
 
     runs = [r for r in await _runs(sf) if r.id != "busy"]
     assert len(runs) == 1 and runs[0].agent == "ada"
@@ -526,7 +547,7 @@ async def test_an_agent_removed_from_a_group_is_not_summoned_back(make_router, s
         await s.delete(await s.get(RelayParticipant, (cid, "agent:ada")))
         await s.commit()
     await _finish(sf, "ada")
-    await _say(router, sf, cid, "agent:ada", "back", hop=1, run_id="busy")
+    await _reply(router, sf, cid, "ada", "back", run_id="busy")
 
     assert [r.id for r in await _runs(sf)] == ["busy"]
     assert await _decisions(sf) == [("ada", "suppressed", "coalesced"),
@@ -570,7 +591,7 @@ async def test_a_wake_survives_an_over_budget_hour(make_router, sf):
     missed = await _say(router, sf, cid, "user:admin", "@ada while you were out")
     await _seed_invocations(sf, cid, router.settings.relay_channel_invocations_per_hour)
     await _finish(sf, "ada")
-    await _say(router, sf, cid, "agent:ada", "back", hop=1, run_id="busy")
+    await _reply(router, sf, cid, "ada", "back", run_id="busy")
 
     assert [d for d in await _decisions(sf) if d[1] == "suppressed"] == [
         ("ada", "suppressed", "coalesced"), ("ada", "suppressed", "budget")]
@@ -584,7 +605,7 @@ async def test_a_wake_survives_an_over_budget_hour(make_router, sf):
                 RelayInvocation.message_id.like("seed%")))).scalars():
             row.created_at = stale
         await s.commit()
-    await _say(router, sf, cid, "agent:ada", "and back again", hop=1, run_id="busy")
+    await _reply(router, sf, cid, "ada", "and back again", run_id="busy")
 
     runs = [r for r in await _runs(sf) if r.id != "busy"]
     assert len(runs) == 1 and runs[0].agent == "ada"
@@ -655,15 +676,16 @@ async def test_two_agents_introduced_to_each_other_both_get_their_wake(make_rout
 
     # health-monitor answers first, mentioning news — who is still running, so
     # the mention becomes news's wake.
-    hm_reply = await _say(router, sf, cid, "agent:health-monitor", "hi @news, nice to meet you",
-                          hop=1, run_id=first["health-monitor"])
+    hm_reply = await _reply(router, sf, cid, "health-monitor",
+                            "hi @news, nice to meet you",
+                            run_id=first["health-monitor"])
     assert [w.agent for w in await _wakes(sf)] == ["news"]
 
     # news answers seconds later, its OWN run row still RUNNING. That reply is
     # what frees news: its wake fires here, and its mention of health-monitor
     # (still busy) becomes health-monitor's wake.
-    news_reply = await _say(router, sf, cid, "agent:news", "hello @health-monitor",
-                            hop=1, run_id=first["news"])
+    news_reply = await _reply(router, sf, cid, "news", "hello @health-monitor",
+                              run_id=first["news"])
     woken = [r for r in await _runs(sf) if r.id not in first.values()]
     assert [r.agent for r in woken] == ["news"]
     assert woken[0].trigger_message_id == hm_reply and woken[0].depth == 1
@@ -697,7 +719,7 @@ async def test_a_wake_fires_once_across_the_reply_and_the_terminal_state(make_ro
     missed = await _say(router, sf, cid, "user:admin", "@ada while you were out")
     assert [w.since_message_id for w in await _wakes(sf)] == [missed]
 
-    await _say(router, sf, cid, "agent:ada", "back", hop=1, run_id="ada-run")
+    await _reply(router, sf, cid, "ada", "back", run_id="ada-run")
     await _end(sf, "ada-run")
     await router.on_run_terminal("ada-run")
 
@@ -725,7 +747,7 @@ async def test_a_reply_that_arrives_after_its_terminal_state_wakes_nobody(make_r
     assert [r.agent for r in woken] == ["ada"] and woken[0].trigger_message_id == missed
 
     # ... and only now does the reply that ended `ada-run` reach the router.
-    await _say(router, sf, cid, "agent:ada", "back", hop=1, run_id="ada-run")
+    await _reply(router, sf, cid, "ada", "back", run_id="ada-run")
 
     assert [r.id for r in await _runs(sf)] == ["ada-run", woken[0].id]
     assert await _wakes(sf) == []
@@ -835,3 +857,184 @@ async def test_a_pause_notice_reaches_a_bound_room(make_router, sf, producer):
     out = [d for t, _, d in producer.published if t == TOPIC_CONVERSATION_OUTBOUND]
     assert [(d["kind"], d["author"], d["text"], d["external_ref"]) for d in out] == [
         ("system", "system:relay", HOP_LIMIT_BODY, "chan-7")]
+
+
+# --- tickets: the thread-aware summons (docs/design/20 T6) -------------------
+
+
+async def _project(sf, prefix="OPS") -> str:
+    cid = await _channel(sf)
+    async with sf() as s:
+        (await s.get(Conversation, cid)).ticket_prefix = prefix
+        await s.commit()
+    return cid
+
+
+async def _ticket(sf, producer, channel_id: str, *, title="Fix the stale dedup",
+                  body="", assignee=None, actor="user:admin", state=None) -> dict:
+    """A ticket opened the way everything opens one: through the store, so the
+    card in the room really is the thread root the router has to recognise."""
+    from agentplatform.db import Ticket
+    from agentplatform.ticket_store import create_ticket
+    async with sf() as s:
+        conv = await s.get(Conversation, channel_id)
+        t = await create_ticket(s, producer, conv, actor=actor, title=title,
+                                body=body, assignee=assignee, notify=False)
+        if state:
+            (await s.get(Ticket, t.id)).state = state
+            await s.commit()
+        return {"id": t.id, "key": t.key, "root": t.root_message_id}
+
+
+async def test_a_summons_in_a_ticket_thread_carries_the_ticket(make_router, sf, producer):
+    """The assignment mention is a reply under the card, so the run it summons
+    is about that ticket: it says so on the Run row, it opens with the ticket,
+    and it reads the thread rather than the room."""
+    router = await make_router()
+    cid = await _project(sf)
+    t = await _ticket(sf, producer, cid, title="Fix the stale dedup",
+                      body="the forecast repeats")
+    await _say(router, sf, cid, "user:admin", "unrelated room chatter")
+    await _say(router, sf, cid, "user:admin", "some background", reply_to=t["root"])
+    await _say(router, sf, cid, "user:admin", f"@ada you've been assigned {t['key']}",
+               reply_to=t["root"])
+
+    runs = await _runs(sf)
+    assert [(r.agent, r.ticket_id) for r in runs] == [("ada", t["id"])]
+    assert f'<ticket key="{t["key"]}" state="open"' in runs[0].prompt
+    assert "<body>the forecast repeats</body>" in runs[0].prompt
+    assert "Move the ticket with the `tickets` tool" in runs[0].prompt
+    # The window is the thread: the card, the background, the summons — and
+    # not the room's chatter, which is about something else entirely.
+    assert "some background" in runs[0].prompt
+    assert "unrelated room chatter" not in runs[0].prompt
+    # A ticket thread is where the work is; the agent's whole queue is not.
+    assert "<your-tickets" not in runs[0].prompt
+
+
+async def test_a_summons_outside_a_ticket_thread_gets_the_agents_queue(
+        make_router, sf, producer):
+    """The #standup shape: no ticket in hand, so the prompt ends with the
+    agent's own open work and the room page it always had."""
+    router = await make_router()
+    cid = await _project(sf)
+    mine = await _ticket(sf, producer, cid, title="Fix the stale dedup",
+                         assignee="agent:ada")
+    await _ticket(sf, producer, cid, title="Someone else's problem",
+                  assignee="agent:bob")
+    done = await _ticket(sf, producer, cid, title="Long since finished",
+                         assignee="agent:ada", state="done")
+    await _say(router, sf, cid, "user:admin", "unrelated room chatter")
+    await _say(router, sf, cid, "user:admin", "@ada what did you do today?")
+
+    runs = await _runs(sf)
+    assert [(r.agent, r.ticket_id) for r in runs] == [("ada", None)]
+    # The queue is ada's own open work — bob's ticket and ada's finished one
+    # are in the room (their cards were posted there), but not in the list.
+    _, _, queue = runs[0].prompt.partition("<your-tickets")
+    assert queue.startswith(' count="1">\n')
+    assert f"{mine['key']} · open · Fix the stale dedup" in queue
+    assert "Someone else's problem" not in queue and done["key"] not in queue
+    assert "unrelated room chatter" in runs[0].prompt
+    assert "<ticket key=" not in runs[0].prompt
+
+
+async def test_a_ticket_thread_summons_with_no_ticket_is_still_a_thread(
+        make_router, sf, producer):
+    """A thread that is not a ticket's still reads as a thread — the shape is
+    about the conversation, not the board — and the agent's queue rides along
+    because there is no ticket to lead with."""
+    router = await make_router()
+    cid = await _project(sf)
+    await _ticket(sf, producer, cid, title="Fix the stale dedup", assignee="agent:ada")
+    root = await _say(router, sf, cid, "user:admin", "let's talk about the deploy")
+    await _say(router, sf, cid, "user:admin", "elsewhere in the room")
+    await _say(router, sf, cid, "user:admin", "@ada thoughts?", reply_to=root)
+
+    runs = await _runs(sf)
+    assert [(r.agent, r.ticket_id) for r in runs] == [("ada", None)]
+    assert "let's talk about the deploy" in runs[0].prompt
+    assert "elsewhere in the room" not in runs[0].prompt
+    assert '<your-tickets count="1">' in runs[0].prompt
+
+
+async def test_a_mid_run_tool_post_does_not_free_the_agent(make_router, sf, producer):
+    """A run that comments on a ticket while it works posts a message carrying
+    its `run_id` — but that is not the run's last word, and treating it as one
+    starts a SECOND run of the same agent while the first is still executing.
+    Only the recorder's reply (the one message that also carries
+    `trigger_message_id`) frees the agent."""
+    router = await make_router()
+    cid = await _project(sf)
+    t = await _ticket(sf, producer, cid, title="Fix the stale dedup")
+    await _busy_run(sf, cid, "ada", run_id="ada-run")
+    missed = await _say(router, sf, cid, "user:admin", "@ada while you were out")
+    assert [w.since_message_id for w in await _wakes(sf)] == [missed]
+
+    # Exactly what `ticket_store.comment_ticket` writes mid-run: the actor's
+    # own message, attributed to the run, threaded under the card.
+    await _say(router, sf, cid, "agent:ada", f"looking at {t['key']} now", hop=1,
+               run_id="ada-run", reply_to=t["root"])
+    assert [r.id for r in await _runs(sf)] == ["ada-run"]
+    assert [w.since_message_id for w in await _wakes(sf)] == [missed]
+
+    # The recorder's reply is the run's last word, and it fires the wake.
+    await _finish(sf, "ada")
+    await _reply(router, sf, cid, "ada", "done", run_id="ada-run")
+    assert [r.agent for r in await _runs(sf) if r.id != "ada-run"] == ["ada"]
+    assert await _wakes(sf) == []
+
+
+async def test_a_ticket_handed_back_and_forth_hits_the_hop_cap(make_router, sf, producer):
+    """Assign = summon (docs/design/20), so a hand-off between two agents is an
+    agent-authored mention chain — and it runs into the fence that stops every
+    other one. Each assignment posts at the assigner's `run.depth + 1`, the run
+    it summons is created at that hop, and the fourth one is refused with the
+    room told once, in the ticket's own thread."""
+    from agentplatform.db import Ticket
+    from agentplatform.ticket_store import assign_ticket
+    router = await make_router(relay_agent_cooldown_seconds=0)
+    cid = await _project(sf)
+    t = await _ticket(sf, producer, cid, title="Fix the stale dedup")
+    # A human's summons rooted the chain: ada is answering it at depth 0.
+    async with sf() as s:
+        s.add(Run(id="ada-0", agent="ada", trigger="mention", requested_by="user:admin",
+                  initiated_by="admin", conversation_id=cid, prompt="p", depth=0,
+                  ticket_id=t["id"], trigger_message_id=t["root"],
+                  state=RunState.RUNNING))
+        await s.commit()
+
+    holder, run_id, hops = "ada", "ada-0", []
+    for _ in range(6):
+        other = "bob" if holder == "ada" else "ada"
+        async with sf() as s:
+            conv = await s.get(Conversation, cid)
+            event = await assign_ticket(s, producer, await s.get(Ticket, t["id"]),
+                                        actor=f"agent:{holder}",
+                                        assignee=f"agent:{other}",
+                                        run=await s.get(Run, run_id))
+            msg = await s.get(RelayMessage, event.message_id)
+            hops.append(msg.hop)
+            payload = relay_message_payload(msg, conv)
+        # The assigning run ends on its own message, as the recorder's reply
+        # would: nothing here is testing the busy guard.
+        await _finish(sf, holder)
+        await router.handle(payload)
+        summoned = {r.trigger_message_id: r for r in await _runs(sf)}
+        if payload["id"] not in summoned:
+            break
+        run_id, holder = summoned[payload["id"]].id, other
+
+    # hop 4 is `relay_max_hops`, and the mention that would have carried it is
+    # where the ping-pong stops.
+    assert hops == [1, 2, 3, 4]
+    assert await _decisions(sf, cid) == [
+        ("bob", "invoked", "mention"), ("ada", "invoked", "mention"),
+        ("bob", "invoked", "mention"), ("ada", "suppressed", "hop_limit")]
+    # Every run the chain summoned is work on the ticket, not just a reply in
+    # a room that happens to contain one.
+    assert {r.ticket_id for r in await _runs(sf)} == {t["id"]}
+    # And the room is told where it stopped: in the ticket's thread, under the
+    # card, which is where a human picking the work up is already looking.
+    notices = [m for m in await _system(sf, cid) if m.body == HOP_LIMIT_BODY]
+    assert [(m.reply_to, m.thread_root) for m in notices] == [(t["root"], t["root"])]
