@@ -304,7 +304,7 @@ dispatch subagents, verify their evidence, commit, and update this file.
 
 ### Phase 4 — web UI  `[ui]`
 
-- [ ] **T7 `[ui]` Board page `/tickets`: columns, live cards, filters, Today strip, new-ticket dialog, drag-to-move.** `[parallel with T8]` (owns `pages/Tickets.tsx`, `components/tickets/Board*`, `lib/tickets.ts`, the `useTickets` hook, `tests/tickets.spec.ts`, the Tickets rows in `mock-api.ts` and `smoke.spec.ts`)
+- [x] **T7 `[ui]` Board page `/tickets`: columns, live cards, filters, Today strip, new-ticket dialog, drag-to-move.** (commit `054104d`, shared with T8; visual review fixed: five columns fit at 1280, 28px faces, designed empty state, halo pulse; defect review fixed: legal-move rule mirrored client-side, initial-load retry, `.sr-only` defined, fence-aware refs, in-flight move guard, filtered assignee picker + you, blocked asks a reason) `[parallel with T8]` (owns `pages/Tickets.tsx`, `components/tickets/Board*`, `lib/tickets.ts`, the `useTickets` hook, `tests/tickets.spec.ts`, the Tickets rows in `mock-api.ts` and `smoke.spec.ts`)
   New `services/web/src/pages/Tickets.tsx` and `components/tickets/`:
   `useTickets` hook (one SSE connection to `/api/tickets/events` with the
   same backoff/catch-up shape as `useChannel`, upsert by id; initial load
@@ -325,7 +325,7 @@ dispatch subagents, verify their evidence, commit, and update this file.
   moves; an SSE `ticket` frame moves a card live; empty state; 390px layout
   scrolls columns horizontally inside the board, never the page.
 
-- [ ] **T8 `[ui]` Ticket page, chips in Relay, run link, agent tab, dashboard tile, Help.** `[parallel with T7]` (owns `pages/TicketDetail.tsx`, `components/tickets/Detail*`, `components/relay/Message.tsx`, `pages/RunDetail.tsx`, `pages/AgentDetail.tsx`, `pages/Dashboard.tsx`, `docs/building-blocks/*`, the Ticket-detail rows in `mock-api.ts`/`smoke.spec.ts`)
+- [x] **T8 `[ui]` Ticket page, chips in Relay, run link, agent tab, dashboard tile, Help.** (commit `054104d`, shared with T7; review fixed: move select via canMove, overflow refetch, chip rewrite skips code/links/images/autolinks/URLs, prefix cache retries, memoised, ticket cards in rooms draw key/state/assignee face, move error inline, read-ordering race; visual: ship) `[parallel with T7]` (owns `pages/TicketDetail.tsx`, `components/tickets/Detail*`, `components/relay/Message.tsx`, `pages/RunDetail.tsx`, `pages/AgentDetail.tsx`, `pages/Dashboard.tsx`, `docs/building-blocks/*`, the Ticket-detail rows in `mock-api.ts`/`smoke.spec.ts`)
   New `services/web/src/pages/TicketDetail.tsx` at `/tickets/:key`: fields
   down the side (state, priority, assignee with `Face`, reporter, labels,
   due, project, parent/children, linked runs → `/runs/:id`), move and assign
@@ -363,6 +363,11 @@ dispatch subagents, verify their evidence, commit, and update this file.
   services/mcp-facade/requirements.txt`). Confirm `sdk/regenerate.py`
   produces no diff and `.github/workflows/ci.yaml` needs no change (add the
   broker's new test file to its job if the job lists files).
+  **Addition from T8:** `api/runs.py`'s run detail and list schemas do not
+  expose `Run.ticket_id`, so the run page cannot show its `🎫 KEY` link;
+  add `ticket_id: str | None` to `RunDetail` (and the list row if cheap)
+  in `api/schemas.py`/`api/runs.py`, regenerate the SDK, test it in
+  `tests/test_runs_api.py` (or wherever run views are tested).
 
 - [ ] **T10 Build, deploy to the NUC, live-verify assign-summons-move.**
   Deploy exactly as Relay's T12 did (the session scratchpad's `t12-deploy.sh`
@@ -410,6 +415,8 @@ dispatch subagents, verify their evidence, commit, and update this file.
 - T3: `_next_key`'s postgres `with_for_update` branch has no test (sqlite only in CI); verified live in T10 by opening two tickets back to back.
 - T4 (design-19 inheritance, needs its own decision): `require_relay_access` accepts any agent token whose role is `annotator` or above (`api/relay.py` `AGENT_ROLES`), so an agent promoted by `runs_read`/`metrics`/`query_app` reaches `/api/relay/*` and `/api/tickets/*` server-side without holding `mcp__platform__relay`/`mcp__platform__tickets`; the grant is enforced only by the runner's `--allowedTools`. A server-side grant check (read `platform_tools` from the agent store in the dependency) is the fix; it touches every relay test fixture, so it is a follow-up, not a mid-build change. Record in design 20 AS BUILT.
 - T4: a create-time `derive_prefix` collision between two simultaneous channel creates is caught by the generic IntegrityError handler and reported as "#name already exists" (right status, wrong reason).
+- T7 (pre-existing, cross-cutting): `services/web/src/api.ts` throws `"<status>: <raw body>"`, so every error a page shows is raw JSON (`429: {"detail":"⏸️ paused …"}`); parsing FastAPI's `detail` there would make the budget notice and move refusals read as sentences everywhere. Touches every page's error text and some specs' assertions.
+- T7: move errors are one page-level banner overwritten by the next failure rather than a message on the card.
 - T2→T3: the once-per-hour budget row is deduped by matching `BUDGET_PREFIX`; the store's query must be scoped to `kind == "system"` rows the way `relay_router._say_budget` is, or a comment starting with that text suppresses the real notice.
 
 ## Definition of done
