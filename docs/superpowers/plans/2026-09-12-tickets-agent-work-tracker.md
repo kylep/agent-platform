@@ -139,7 +139,7 @@ dispatch subagents, verify their evidence, commit, and update this file.
 
 ### Phase 1 — data model and the pure library
 
-- [ ] **T1 Schema: tickets, ticket_events, project prefixes, Run.ticket_id, seeds.**
+- [x] **T1 Schema: tickets, ticket_events, project prefixes, Run.ticket_id, seeds.** (commit `544dc43`; review fixed: ticket_seq backfilled to 0 on pre-existing rows, legacy-row test asserts it)
   Modify `services/backend/agentplatform/db.py`: add `Ticket` and
   `TicketEvent` exactly as the design's "Data model" section (states and
   priorities as `StrEnum`s); add `Conversation.ticket_prefix` (nullable
