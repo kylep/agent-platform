@@ -247,7 +247,7 @@ dispatch subagents, verify their evidence, commit, and update this file.
 
 ### Phase 3 — the agents' side
 
-- [ ] **T5 Broker tool `tickets`.** `[parallel with T6]` (owns
+- [x] **T5 Broker tool `tickets`.** (commit `0637337`; review fixed: key/id path-segment gate closes a traversal (relay react too), full-page and closed-only notes on list, none-sentinels for parent/due, wrapped keys) `[parallel with T6]` (owns
   `services/mcp-broker/*`, `sdk/`, `agentspec.py` registry text only)
   In `services/mcp-broker/broker.py` add `@mcp.tool async def tickets(action,
   …)` with the design's eight actions, next to `relay` and in its voice:
@@ -262,7 +262,7 @@ dispatch subagents, verify their evidence, commit, and update this file.
   key/id resolution, the error strings, and that authorship is never an
   argument.
 
-- [ ] **T6 Thread-aware summons: `Run.ticket_id`, the `<ticket>` prompt, `<your-tickets>`, standup v2, health-monitor prompt.** `[parallel with T5]` (owns `relay.py`, `relay_router.py`, `relay_store.py`, `scheduler.py`, `db.py` seeds, their tests)
+- [x] **T6 Thread-aware summons: `Run.ticket_id`, the `<ticket>` prompt, `<your-tickets>`, standup v2, health-monitor prompt.** (commit `2d68d94`; review fixed: root card always kept in the thread window, ping-pong hop-cap router test, health-monitor version race guarded by a savepoint) `[parallel with T5]` (owns `relay.py`, `relay_router.py`, `relay_store.py`, `scheduler.py`, `db.py` seeds, their tests)
   In `relay_store.context_window` add a thread shape: when the summoning
   message has a `thread_root` (or is a root with replies), the window is the
   root plus its replies (last `tickets_thread_context_messages`), not the
