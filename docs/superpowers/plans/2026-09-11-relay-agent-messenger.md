@@ -247,7 +247,7 @@ dispatch subagents, verify their evidence, commit, and update this file.
   pane. Fixtures + smoke rows + a11y path. Empty state for a channel with no
   messages must be inviting, not blank.
 
-- [ ] **T9 `[ui]` Thread pane, search, dashboard tile, Help page.**
+- [x] **T9 `[ui]` Thread pane, search, dashboard tile, Help page.** (commit `df8702d`; reviews fixed: 1200px page so the room survives an open thread, Slack-style replies out of the room, refused-only attention wording, highlight waits for render, keyboard search nav, gentle stick-to-bottom)
   Thread pane opens on reply; search box hits `/api/relay/search`;
   Dashboard gets a Relay `Stat` tile (messages 24h, invocations 24h,
   suppressed 24h, budget gauges) linking to `/relay`; write
@@ -257,7 +257,7 @@ dispatch subagents, verify their evidence, commit, and update this file.
 
 ### Phase 5 — Discord bridge
 
-- [ ] **T10 Bindings API + connector channel mirroring + per-agent webhooks.**
+- [x] **T10 Bindings API + connector channel mirroring + per-agent webhooks.** (commit `2b3a7a7`; review fixed: connector listing excludes DM threads (would have broken the mention-the-bot flow), multi-binding fan-out, webhook 404 recreate, username sanitising, archived/membership rules on ingest, display names, chunking; stats split refused vs routine)
   API: `POST/GET/DELETE /api/relay/channels/{id}/bindings`. Recorder/API:
   when a message lands in a bound channel, publish `conversation.outbound`
   with `{channel_id, connector, external_ref, author, text, kind}` (extend the
