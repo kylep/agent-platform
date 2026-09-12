@@ -2,8 +2,8 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import {
   api, type AgentMetrics, type AgentSummary, type Job, type KafkaHealth,
-  type MetricsOverview, type PullRequest, type RunSummary, type ScheduleEntry,
-  type SecretStatus,
+  type MetricsOverview, type PullRequest, type RelayStats, type RunSummary,
+  type ScheduleEntry, type SecretStatus,
 } from "../api";
 import { Chip, StatusChip } from "@ap/ui/chip";
 import { Stat, StatRow } from "@ap/ui/stat";
@@ -12,7 +12,7 @@ import { cronTitle, isSingleExpression, useCronPreview } from "../lib/cron";
 import { ago } from "../lib/time";
 
 // One actionable item in the "Needs attention" panel.
-type Attn = { key: string; text: string; to: string; sev: "warn" | "bad" };
+type Attn = { key: string; text: string; to: string; sev: "warn" | "bad"; title?: string };
 
 // What's next. A Job has a name it was given; an agent's entrypoint cron has
 // none, so the cell says what the cron means instead — asked of the platform,
@@ -28,6 +28,49 @@ function UpcomingCell({ cron, name }: { cron: string; name: string | null }) {
 
 function pct(x: number | null): string { return x === null ? "—" : `${(x * 100).toFixed(0)}%`; }
 
+// The share of the hour's global mention budget already spent. Past this the
+// router is close to suppressing summons, which is worth seeing before it
+// happens rather than in the "paused" notice afterwards.
+const BUDGET_WARN = 0.8;
+
+// The reasons a mention went unanswered, in the API's own words (they are what
+// the invocation rows and the docs call them). The routine suppressions the
+// same map carries — `coalesced`, `facade_owns_turn` — are the guards working
+// and are NOT refusals, so they stay out of this.
+const REFUSED_REASONS = ["hop_limit", "budget", "not_member"];
+
+/** The refusal breakdown as a tooltip: "hop_limit × 2 · budget × 1". */
+function byReason(counts: Record<string, number> | undefined): string | undefined {
+  const rows = REFUSED_REASONS
+    .map((reason) => [reason, counts?.[reason] ?? 0] as const)
+    .filter(([, n]) => n > 0);
+  return rows.length ? rows.map(([reason, n]) => `${reason} × ${n}`).join(" · ") : undefined;
+}
+
+/** Relay's last 24 hours, as a card: how much was said, how much of it was
+ * agents, and how close the hour is to its invocation ceiling. */
+function RelayStat({ stats }: { stats: RelayStats }) {
+  const { global_used_last_hour: used, global_per_hour: cap } = stats.budget;
+  const hot = cap > 0 && used / cap >= BUDGET_WARN;
+  return (
+    <Stat label="relay · 24h" value={stats.messages_24h} to="/relay"
+          sub={(
+            <>
+              {/* "refused", not "suppressed": the count is the mentions a
+                  guard turned down, not the ones it coalesced into one wake. */}
+              <span title={byReason(stats.suppressed_by_reason)}>
+                {stats.agent_messages_24h} agent · {stats.invocations_24h} invocations
+                {" · "}{stats.suppressed_24h} refused
+              </span>
+              <Chip variant={hot ? "warn" : "neutral"}
+                    title="mention invocations this hour, against the global budget">
+                budget {used}/{cap}
+              </Chip>
+            </>
+          )} />
+  );
+}
+
 export default function Dashboard() {
   const [ov, setOv] = useState<MetricsOverview | null>(null);
   const [runs, setRuns] = useState<RunSummary[]>([]);
@@ -36,6 +79,7 @@ export default function Dashboard() {
   const [agents, setAgents] = useState<AgentSummary[]>([]);
   const [secrets, setSecrets] = useState<SecretStatus[]>([]);
   const [prs, setPrs] = useState<PullRequest[]>([]);
+  const [relay, setRelay] = useState<RelayStats | null>(null);
   // `name` is null for an entrypoint cron — it has no name of its own.
   const [upcoming, setUpcoming] = useState<
     { agent: string; name: string | null; next: string | null; cron: string }[]>([]);
@@ -52,6 +96,7 @@ export default function Dashboard() {
     api<AgentSummary[]>("/api/agents").then(setAgents).catch(() => {});
     api<SecretStatus[]>("/api/secrets").then(setSecrets).catch(() => {});
     api<PullRequest[]>("/api/pull-requests").then(setPrs).catch(() => setPrs([]));  // 409 if no GH app
+    api<RelayStats>("/api/relay/stats").then(setRelay).catch(() => setRelay(null));
     Promise.all([
       api<Job[]>("/api/jobs").catch(() => [] as Job[]),
       api<ScheduleEntry[]>("/api/schedules").catch(() => [] as ScheduleEntry[]),
@@ -113,6 +158,13 @@ export default function Dashboard() {
   }
   if (kafka && !kafka.reachable) attention.push({ key: "broker", sev: "bad", to: "/reporting",
     text: "Kafka broker unreachable" });
+  // A refused mention is an agent that was asked something and never answered
+  // — and it is not resumable, which "paused" would imply. Coalesced wakes are
+  // not counted here: those are the guard working, and the agent does reply.
+  if (relay && relay.suppressed_24h > 0) attention.push({ key: "relay", sev: "warn", to: "/relay",
+    text: `Relay refused ${relay.suppressed_24h} mention${relay.suppressed_24h === 1 ? "" : "s"}`
+      + " today (hop cap, budget or membership)",
+    title: byReason(relay.suppressed_by_reason) });
 
   const claude = secrets.find((s) => s.name === "claude-credentials");
 
@@ -146,7 +198,7 @@ export default function Dashboard() {
         <ul className="attention-list">
           {attention.map((a) => (
             <li key={a.key} className={`attention-item attention-${a.sev}`}>
-              <Link to={a.to}>{a.text} →</Link>
+              <Link to={a.to} title={a.title}>{a.text} →</Link>
             </li>
           ))}
         </ul>
@@ -160,6 +212,7 @@ export default function Dashboard() {
         <Stat label="success rate" value={pct(ov?.success_rate ?? null)}
               warn={ov?.success_rate != null && ov.success_rate < 0.8} to="/reporting" />
         <Stat label={ov ? `tokens in/out (uncached) · last ${ov.window} runs` : "tokens in/out"} value={ov ? `${ov.tokens_in.toLocaleString()} / ${ov.tokens_out.toLocaleString()}` : "—"} to="/reporting" />
+        {relay && <RelayStat stats={relay} />}
       </StatRow>
 
       <div className="dash-cols">

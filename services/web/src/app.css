@@ -45,6 +45,9 @@
 .page { max-width: 720px; }
 .page-wide { max-width: 960px; }
 .page-chat { max-width: 1200px; }
+/* Relay carries a 230px rail and, with a thread open, a 360px pane beside the
+   room — at .page-wide the room itself would be left under 400px. */
+.page-relay { max-width: 1200px; }
 .page-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 
 /* Phone widths. The shell's sidebar is a fixed 200px, which on a 390px screen
@@ -237,7 +240,6 @@
   font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   flex: 1; min-width: 0;
 }
-.relay-thread-note { display: inline-flex; align-items: center; gap: 8px; margin-left: auto; }
 /* One topic, never two: the header carries it in a room with history, the
    welcome card carries it in a room without. */
 .relay-pane.empty .relay-pane-head .relay-topic { display: none; }
@@ -365,6 +367,93 @@ a.relay-action { color: var(--ds-link); }
   font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .relay-mentions li.active { background: var(--ds-surface); color: var(--ds-accent); }
+
+/* The page header carries the search box, so the room below it never has to
+   give up a row of transcript to a control that is used a few times a day. */
+.relay-head {
+  display: flex; align-items: flex-start; justify-content: space-between;
+  gap: 16px; flex-wrap: wrap;
+}
+.relay-head > div { min-width: 0; flex: 1 1 320px; }
+.relay-search { position: relative; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.relay-search input { width: min(280px, 70vw); }
+/* Anchored to the box and floated over the rooms: a results list that pushed
+   the layout down would move the thing you were reading as you typed. */
+.relay-search-results {
+  position: absolute; top: calc(100% + 6px); right: 0; z-index: 30;
+  width: min(560px, calc(100vw - 32px)); max-height: 60vh; overflow-y: auto;
+  background: var(--ds-raised); border: 1px solid var(--ds-border);
+  border-radius: var(--radius-md); box-shadow: 0 4px 16px rgb(0 0 0 / 0.35);
+  padding: 4px;
+}
+.relay-search-results ul { list-style: none; margin: 0; padding: 0; }
+.relay-search-results li {
+  cursor: pointer; font-size: 13px; color: var(--ds-text-muted);
+  padding: 6px 8px; border-radius: var(--radius-sm);
+  display: grid; grid-template-columns: auto auto auto 1fr; gap: 2px 8px; align-items: center;
+}
+.relay-search-results li:hover, .relay-search-results li.active { background: var(--ds-surface); }
+.relay-search-who { font-weight: 600; color: var(--ds-text); }
+.relay-search-where { font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* The snippet is the whole point of the row, so it gets the second line to
+   itself rather than being ellipsised into three words. */
+.relay-search-snippet {
+  grid-column: 1 / -1; overflow-wrap: anywhere;
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden;
+}
+.relay-search-snippet mark { background: color-mix(in srgb, var(--ds-accent) 28%, transparent); color: var(--ds-text); }
+.relay-search-empty { padding: 8px; margin: 0; font-size: 13px; }
+
+/* The thread beside its room: a column on a desktop, a sheet over the room on
+   a phone, where there is no "beside". */
+.relay-thread { flex: 0 1 380px; min-width: 360px; }
+.relay-thread-back { display: none; }
+.relay-thread-close {
+  margin-left: auto; appearance: none; background: none; border: none; cursor: pointer; padding: 0 2px;
+  font-family: inherit; font-size: 14px; color: var(--ds-text-subtle);
+}
+.relay-thread-close:hover { color: var(--ds-accent); }
+/* The room does not inline replies, so this row is the only sign a thread is
+   there: a real button, always visible, unlike the hover verbs beside it. */
+.relay-replies {
+  appearance: none; cursor: pointer; font-family: inherit; font-size: 12px;
+  display: inline-flex; align-items: center; gap: 4px; margin-top: 2px;
+  padding: 2px 8px; border-radius: 999px;
+  background: color-mix(in srgb, var(--ds-accent) 8%, transparent);
+  border: 1px solid color-mix(in srgb, var(--ds-accent) 35%, transparent);
+  color: var(--ds-accent);
+}
+.relay-replies:hover { background: color-mix(in srgb, var(--ds-accent) 16%, transparent); }
+.relay-replies-when { color: var(--ds-text-subtle); }
+/* Where a search result landed. Fades rather than blinks — the mark is there
+   to be found by the eye, not to demand the room's attention. */
+.relay-message.highlight {
+  background: color-mix(in srgb, var(--ds-accent) 14%, transparent);
+  border-radius: var(--radius-md); box-shadow: 0 0 0 4px color-mix(in srgb, var(--ds-accent) 14%, transparent);
+  transition: background 0.4s ease, box-shadow 0.4s ease;
+}
+
+/* Three columns in a window sized for two: the rail steps aside (its drawer
+   toggle stays, so the rooms are one click away) rather than letting the room
+   itself be squeezed under a readable width. The breakpoint is a VIEWPORT
+   width but the constraint is the page's: the shell's 200px sidebar and the
+   page padding come off first, so ~1400px of window is what it takes to fit a
+   230px rail, a 480px room and a 360px thread. */
+@media (max-width: 1400px) {
+  .relay-layout[data-thread="open"] .relay-rail[data-drawer="closed"] { display: none; }
+  .relay-layout[data-thread="open"] .relay-drawer-toggle {
+    display: inline-flex; align-self: flex-start;
+  }
+}
+
+@media (max-width: 900px) {
+  .relay-thread {
+    position: fixed; inset: 0; z-index: 40; min-width: 0; max-height: none;
+    border-radius: 0; border-width: 0;
+  }
+  .relay-thread-back { display: inline-flex; }
+  .relay-thread-close { display: none; }
+}
 
 @media (max-width: 760px) {
   .relay-layout { flex-direction: column; height: auto; }

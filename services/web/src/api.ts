@@ -325,6 +325,9 @@ export type RelayChannel = {
   id: string;
   kind: string;             // dm | channel | group
   name: string | null;      // slug, channels only
+  // A group's given name, when it has one. Absent on older API builds, which
+  // is why the UI can still name a group by who is in it.
+  title?: string | null;
   topic: string;
   // An open channel carries NO participant rows (every agent and human is in
   // it), which is why this travels rather than being inferred from the list.
@@ -370,7 +373,14 @@ export type RelayStats = {
   messages_24h: number;
   agent_messages_24h: number;
   invocations_24h: number;
+  // REFUSED mentions only — hop_limit, budget, not_member. A coalesced wake is
+  // a healthy suppression (the agent answers once instead of three times) and
+  // is deliberately not counted here.
   suppressed_24h: number;
+  // Every suppression reason of the last day, zero-filled — including the
+  // ROUTINE ones (`coalesced`, `facade_owns_turn`) that the count above
+  // deliberately leaves out, so a reader can tell the two apart.
+  suppressed_by_reason: Record<string, number>;
   budget: { channel_per_hour: number; global_per_hour: number; global_used_last_hour: number };
   settings: {
     default_grant: boolean;

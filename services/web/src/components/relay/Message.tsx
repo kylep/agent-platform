@@ -2,10 +2,11 @@ import { useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { Chip, ChipButton } from "@ap/ui/chip";
 import { Markdown } from "@ap/ui/markdown";
-import type { RelayFace, RelayMessage } from "../../api";
+import type { RelayMessage } from "../../api";
 import { ago } from "../../lib/time";
 import { agentName, namespaceOf, participantLabel } from "../../lib/relay";
 import { Face } from "./Face";
+import type { MessageGroup, ThreadSummary } from "./useChannel";
 
 // The room's transcript. Consecutive messages from the same author inside a
 // short window are ONE block with one face and one timestamp — a chat where
@@ -17,15 +18,6 @@ const PICKER = ["👍", "🎉", "🙏", "👀", "🔥", "😂", "❤️", "🤖"
 // of the way of the message you are reacting to); below it, downward — rather
 // than sliding up over the transcript and hiding what came before.
 const PICKER_HEIGHT = 48;
-
-export type MessageGroup = {
-  author: string;
-  face: RelayFace | null;
-  // system/event rows are the room speaking, not a person: never grouped,
-  // never given a face.
-  standalone: boolean;
-  items: RelayMessage[];
-};
 
 function Reactions({ message, onReact }: {
   message: RelayMessage;
@@ -91,10 +83,18 @@ function Body({ message }: { message: RelayMessage }) {
   return <Markdown text={message.body} className="relay-body" />;
 }
 
-export function MessageBlock({ group, me, threadId, onReact, onThread }: {
+export function MessageBlock({ group, me, inThread, highlight, threads,
+                              onReact, onThread }: {
   group: MessageGroup;
   me: string | null;
-  threadId?: string | null;
+  // This block is being drawn inside the thread pane rather than in the room.
+  inThread?: boolean;
+  // The message a search result sent the reader to: marked for a moment so the
+  // eye lands on it, since a jumped-to message otherwise looks like any other.
+  highlight?: string | null;
+  // The threads hanging off these messages, by root id. A root with replies
+  // advertises the conversation; anything else offers to start one.
+  threads?: Map<string, ThreadSummary>;
   onReact: (message: RelayMessage, emoji: string) => void;
   // Absent where the host has nowhere to show a thread — then the action is
   // not offered at all rather than offered and dead.
@@ -109,7 +109,7 @@ export function MessageBlock({ group, me, threadId, onReact, onThread }: {
       <div className="relay-block standalone">
         <div className="relay-block-body">
           {group.items.map((m) => (
-            <div key={m.id} className="relay-message">
+            <div key={m.id} className={messageClass(m, highlight)} data-message-id={m.id}>
               <Body message={m} />
               <div className="relay-actions">
                 <span className="relay-time">{ago(m.created_at)}</span>
@@ -133,26 +133,65 @@ export function MessageBlock({ group, me, threadId, onReact, onThread }: {
           {ns !== "agent" && ns !== "user" && ns !== "" && <Chip>{ns}</Chip>}
           <span className="relay-time">{ago(first.created_at)}</span>
         </div>
-        {group.items.map((m) => (
-          <div key={m.id} className="relay-message">
-            <Body message={m} />
-            <div className="relay-actions">
-              <Reactions message={m} onReact={onReact} />
-              {agent && m.run_id && (
-                <Link to={`/runs/${m.run_id}`} className="relay-action">view run ↗</Link>
-              )}
-              {/* A reply inside a thread already IS the thread — offering to
-                  open it from there would go nowhere new. */}
-              {!threadId && onThread && (
-                <button type="button" className="relay-action"
-                        onClick={() => onThread(m.thread_root ?? m.id)}>
-                  reply in thread
-                </button>
+        {group.items.map((m) => {
+          // A reply drawn inside the thread pane already IS the thread, so it
+          // offers neither the verb nor the count.
+          const thread = inThread || !onThread ? undefined : summary(m, threads);
+          return (
+            <div key={m.id} className={messageClass(m, highlight)} data-message-id={m.id}>
+              <Body message={m} />
+              <div className="relay-actions">
+                <Reactions message={m} onReact={onReact} />
+                {agent && m.run_id && (
+                  <Link to={`/runs/${m.run_id}`} className="relay-action">view run ↗</Link>
+                )}
+                {!inThread && onThread && !thread && (
+                  <button type="button" className="relay-action"
+                          onClick={() => onThread(m.thread_root ?? m.id)}>
+                    reply in thread
+                  </button>
+                )}
+              </div>
+              {thread && onThread && (
+                <ThreadAction message={m} thread={thread} onThread={onThread} />
               )}
             </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
     </div>
   );
+}
+
+/** The way into a thread. The replies themselves are NOT in the room — a room
+ * where every side conversation is inlined is a room you cannot follow — so
+ * this row is the only sign they exist, and it says how many and how recent so
+ * the reader can decide without opening it. */
+function ThreadAction({ message, thread, onThread }: {
+  message: RelayMessage;
+  thread: ThreadSummary;
+  onThread: (id: string) => void;
+}) {
+  const last = ago(thread.last);
+  return (
+    <button type="button" className="relay-replies"
+            onClick={() => onThread(message.thread_root ?? message.id)}>
+      💬 {thread.count} {thread.count === 1 ? "reply" : "replies"}
+      {last && <span className="relay-replies-when"> · last {last}</span>}
+    </button>
+  );
+}
+
+/** The thread hanging off this message, if it has one. Only a root can: a
+ * reply's own id is never a thread root. The count is what the pane has
+ * loaded plus whatever the stream has delivered since, which is all a client
+ * can know without the server carrying one. */
+function summary(message: RelayMessage, threads?: Map<string, ThreadSummary>):
+  ThreadSummary | undefined {
+  return message.thread_root && message.thread_root !== message.id
+    ? undefined : threads?.get(message.id);
+}
+
+function messageClass(message: RelayMessage, highlight?: string | null): string {
+  return message.id === highlight ? "relay-message highlight" : "relay-message";
 }

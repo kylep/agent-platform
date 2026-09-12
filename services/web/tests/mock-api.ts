@@ -178,16 +178,19 @@ const relayChannels = [
   relayChannel({ id: "rd1", kind: "dm", topic: "", open: false, agent: "pai",
                  participants: ["agent:pai", "user:kyle"], message_count: 2,
                  last_message: preview(dmMessages[1]) }),
-  // A group has no title on the wire (T9), so the UI has to name it by who is
-  // in it — and only its members are mentionable inside it.
+  // An untitled group: the UI has to name it by who is in it, and only its
+  // members are mentionable inside it.
   relayChannel({ id: "rg1", kind: "group", topic: "", open: false,
                  participants: ["agent:news", "agent:pai", "user:kyle"] }),
+  // …and one the API gave a title, which wins over the member list.
+  relayChannel({ id: "rg2", kind: "group", title: "release crew", topic: "", open: false,
+                 participants: ["agent:pai", "user:kyle"] }),
 ];
 
 // Keyed by channel so the route below can honour `after` and `thread` — the
 // two cursors the pane actually pages with.
 const relayLog: Record<string, typeof generalMessages> = {
-  rc1: generalMessages, rc2: [], rd1: dmMessages, rg1: [],
+  rc1: generalMessages, rc2: [], rd1: dmMessages, rg1: [], rg2: [],
 };
 
 /** The messages route's real contract: `after` pages FORWARDS oldest-first
@@ -205,6 +208,20 @@ function relayPage(channel: string, params: URLSearchParams) {
     return seen < 0 ? [] : rows.slice(seen + 1);
   }
   return [...rows].reverse();
+}
+
+/** Search's contract: newest-first message rows whose body matches, across
+ * every room the caller can see unless `channel` narrows it. The real thing is
+ * a postgres tsvector; a substring scan is the same answer for these fixtures. */
+function relaySearch(params: URLSearchParams) {
+  const q = (params.get("q") ?? "").toLowerCase();
+  const only = params.get("channel");
+  const limit = Number(params.get("limit") ?? 50);
+  const rows = Object.entries(relayLog)
+    .filter(([id]) => !only || id === only)
+    .flatMap(([, messages]) => messages)
+    .filter((m) => m.body.toLowerCase().includes(q));
+  return [...rows].reverse().slice(0, limit);
 }
 
 const detail = (id: string, faces: Record<string, { emoji: string; hue: number }>) =>
@@ -227,6 +244,20 @@ const FIXTURES: Record<string, unknown> = {
   "/api/relay/channels/rc2": detail("rc2", {}),
   "/api/relay/channels/rd1": detail("rd1", { pai: FACES.pai }),
   "/api/relay/channels/rg1": detail("rg1", { news: FACES.news, pai: FACES.pai }),
+  "/api/relay/channels/rg2": detail("rg2", { pai: FACES.pai }),
+  // Two of the day's mentions were REFUSED (a hop cap, an hour over budget),
+  // which is what puts the Relay row in the Dashboard's triage queue. Wakes —
+  // mentions coalesced into one reply — are not counted here.
+  "/api/relay/stats": {
+    messages_24h: 42, agent_messages_24h: 17, invocations_24h: 9, suppressed_24h: 2,
+    // Zero-filled the way the API answers, routine reasons included: the four
+    // coalesced wakes are the guard working and must not read as trouble.
+    suppressed_by_reason: { hop_limit: 1, budget: 1, not_member: 0,
+                            coalesced: 4, facade_owns_turn: 0 },
+    budget: { channel_per_hour: 30, global_per_hour: 120, global_used_last_hour: 96 },
+    settings: { default_grant: true, max_hops: 4, channel_per_hour: 30,
+                global_per_hour: 120, cooldown_seconds: 20 },
+  },
   "/api/relay/presence": [
     { agent: "news", state: "thinking", thinking_in: ["rc1"], face: FACES.news },
     { agent: "health-monitor", state: "idle", thinking_in: [], face: FACES["health-monitor"] },
@@ -321,10 +352,17 @@ const FIXTURES: Record<string, unknown> = {
   "/api/help/topics": [
     { slug: "agents", title: "Agents" },
     { slug: "changes", title: "Changes — the change loop" },
+    { slug: "relay", title: "Relay" },
   ],
   "/api/help/topics/agents": {
     slug: "agents", title: "Agents",
     markdown: "# Agents\n\n**What:** who runs — one folder per agent.",
+  },
+  "/api/help/topics/relay": {
+    slug: "relay", title: "Relay",
+    markdown: "# Relay\n\n**What:** the agent messenger — the rooms the platform"
+      + " talks in. `@name` summons that agent.\n\n## The loop guards, in plain words"
+      + "\n\n- **Hops.** A human or system message is hop 0.",
   },
   "/api/help/tools": [
     { name: "Bash", kind: "claude", sensitive: true,
@@ -371,7 +409,10 @@ function relayPost(path: string, body: Record<string, string>): unknown {
   if (message) {
     return relayMessage({ id: `posted-${message[1]}`, channel_id: message[1],
                           author: "user:kyle", body: body.body,
+                          // The API resolves the root of the chain it is
+                          // answering; every fixture reply answers a root.
                           reply_to: body.reply_to ?? null,
+                          thread_root: body.reply_to ?? null,
                           created_at: new Date().toISOString() });
   }
   if (/^\/api\/relay\/messages\/[^/]+\/reactions$/.test(path)) {
@@ -401,6 +442,10 @@ export async function mockApi(page: Page): Promise<string[]> {
       await route.fulfill({ status: 200, contentType: "text/event-stream",
                             headers: { "Cache-Control": "no-cache" },
                             body: ": heartbeat\n\n" });
+      return;
+    }
+    if (path === "/api/relay/search" && route.request().method() === "GET") {
+      await route.fulfill({ json: relaySearch(url.searchParams) });
       return;
     }
     const page_ = /^\/api\/relay\/channels\/([^/]+)\/messages$/.exec(path);

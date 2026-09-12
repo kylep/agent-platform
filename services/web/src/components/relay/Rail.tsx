@@ -16,8 +16,8 @@ function Row({ channel, me, selected, onSelect }: {
   selected: boolean;
   onSelect: (id: string) => void;
 }) {
-  // A group has no title of its own on the wire (T9), so it is drawn as who
-  // is in it — the only thing that tells one group from another.
+  // A group is drawn by its title when the API gave it one, and otherwise by
+  // who is in it — the only other thing that tells one group from another.
   const group = channel.kind === "group";
   const other = channel.kind === "dm" ? otherParticipant(channel, me) : null;
   return (

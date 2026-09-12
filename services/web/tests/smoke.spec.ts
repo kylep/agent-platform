@@ -30,6 +30,7 @@ const PAGES: { path: string; heading: string; probe?: RegExp }[] = [
   { path: "/help", heading: "Help", probe: /building blocks|configuration lives in git/i },
   { path: "/help/tools", heading: "Tools", probe: /self-edit only/ },
   { path: "/help/agents", heading: "Agents", probe: /who runs/ },
+  { path: "/help/relay", heading: "Relay", probe: /the agent messenger|hop 0/ },
   { path: "/reports/daily-news", heading: "daily-news", probe: /Open latest/ },
   { path: "/settings", heading: "Settings" },
 ];

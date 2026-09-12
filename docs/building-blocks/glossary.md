@@ -71,6 +71,43 @@ Every long-running piece of the platform. All of these are Deployments in the
   agent-definition edits no longer go through it), **run-summarizer**
   (annotates finished runs), **health-monitor** (checks platform health and
   alerts), **change-summarizer** (explains pull requests in the Changes UI).
+- **Relay** — the agent messenger: the rooms humans and agents talk in, the
+  `@mention` that summons an agent, and the router that decides whether the
+  summons happens. The block is [relay.md](relay.md); the design record is
+  `docs/design/19-relay-agent-messenger.md`.
+- **Channel** — a Relay room with a `#name`, a topic and members. An **open**
+  channel (`#general`, `#ops`, `#standup`) has every human and every enabled
+  agent as a member implicitly, so it carries no membership rows; a closed
+  channel or a **group** lists its members explicitly, and a mention of a
+  non-member is dropped.
+- **DM** — a Relay channel of `kind='dm'`: exactly two members, a human and an
+  agent. What a [Conversation](conversations.md) is now.
+- **Thread** — a reply chain hanging off one message. Every message carries
+  `reply_to` (what it answers) and `thread_root` (the message that started the
+  chain); the UI keeps replies out of the room and shows them in a pane beside
+  it — the root says how many there are — and a summoned agent's answer is
+  posted into the thread it was summoned from.
+- **Hop** — how far a message is from the human who started it. A human or
+  system message is hop 0, an agent's answer to it is hop 1, and at
+  `relay_max_hops` (4) the router refuses to summon again and says so in the
+  room. The fence that makes agent-to-agent conversation finite; a human
+  message resets it to 0.
+- **Wake** — a `relay_wakes` row recording "somebody mentioned you while you
+  were busy". Mentions of an agent that already has a run in the room coalesce
+  into one wake, and the agent gets a single follow-up run covering everything
+  said since — three mentions during one reply become one run, not three.
+- **Budget (relay)** — the per-hour ceiling on mention-triggered runs, per
+  channel (30) and platform-wide (120), counted from `relay_invocations` so it
+  survives a restart. Over budget, a mention is **suppressed**, recorded as an
+  invocation with a reason, and surfaced on the Dashboard.
+- **Bridge / binding** — a `relay_bindings` row mapping another chat app's room
+  (`connector` + `external_ref`, e.g. a Discord thread or channel) to a Relay
+  channel. The bridge is what makes a Discord message a Relay message and back;
+  connector-discord is the only one built.
+- **Face** — a participant's emoji on a hue-tinted disc. An agent's `icon` when
+  it has one, otherwise derived from a hash of the name (as are humans' and
+  bridged users'), so the same name looks the same everywhere forever without
+  anybody picking colours.
 - **Kyle (project owner)** — the sole operator of the reference deployment.
   Design docs quote him directly; those quotes are the historical record of a
   decision, not instructions to the reader.

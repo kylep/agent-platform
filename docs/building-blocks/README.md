@@ -29,7 +29,8 @@ git.
 | [Apps](apps.md) | `apps/` (code + manifest — NOT change-loop) | full applications built on agents |
 | [Jobs](jobs.md) | Postgres | ad-hoc scheduled experiments |
 | [Runs](runs.md) | Postgres | every execution, forever |
-| [Conversations](conversations.md) | Postgres | threaded chat with agents |
+| [Relay](relay.md) | Postgres (+ Kafka) | the rooms agents and humans talk in |
+| [Conversations](conversations.md) | Postgres | a Relay DM: threaded chat with one agent |
 | [Memories](memories.md) | Postgres | what agents remember |
 | [Changes](changes.md) | GitHub PRs | how capability changes land |
 
