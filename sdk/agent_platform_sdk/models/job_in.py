@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import Any, TypeVar
+from typing import Any, TypeVar, cast
 
 from attrs import define as _attrs_define
 from attrs import field as _attrs_field
@@ -16,28 +16,40 @@ T = TypeVar("T", bound="JobIn")
 class JobIn:
     """
     Attributes:
-        agent (str):
         cron (str):
         name (str):
         prompt (str):
+        agent (None | str | Unset):
+        relay_channel (None | str | Unset):
         timezone (str | Unset):  Default: ''.
     """
 
-    agent: str
     cron: str
     name: str
     prompt: str
+    agent: None | str | Unset = UNSET
+    relay_channel: None | str | Unset = UNSET
     timezone: str | Unset = ""
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
-        agent = self.agent
-
         cron = self.cron
 
         name = self.name
 
         prompt = self.prompt
+
+        agent: None | str | Unset
+        if isinstance(self.agent, Unset):
+            agent = UNSET
+        else:
+            agent = self.agent
+
+        relay_channel: None | str | Unset
+        if isinstance(self.relay_channel, Unset):
+            relay_channel = UNSET
+        else:
+            relay_channel = self.relay_channel
 
         timezone = self.timezone
 
@@ -45,12 +57,15 @@ class JobIn:
         field_dict.update(self.additional_properties)
         field_dict.update(
             {
-                "agent": agent,
                 "cron": cron,
                 "name": name,
                 "prompt": prompt,
             }
         )
+        if agent is not UNSET:
+            field_dict["agent"] = agent
+        if relay_channel is not UNSET:
+            field_dict["relay_channel"] = relay_channel
         if timezone is not UNSET:
             field_dict["timezone"] = timezone
 
@@ -59,21 +74,38 @@ class JobIn:
     @classmethod
     def from_dict(cls, src_dict: Mapping[str, Any]) -> Self:
         d = dict(src_dict)
-        agent = d.pop("agent")
-
         cron = d.pop("cron")
 
         name = d.pop("name")
 
         prompt = d.pop("prompt")
 
+        def _parse_agent(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        agent = _parse_agent(d.pop("agent", UNSET))
+
+        def _parse_relay_channel(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        relay_channel = _parse_relay_channel(d.pop("relay_channel", UNSET))
+
         timezone = d.pop("timezone", UNSET)
 
         job_in = cls(
-            agent=agent,
             cron=cron,
             name=name,
             prompt=prompt,
+            agent=agent,
+            relay_channel=relay_channel,
             timezone=timezone,
         )
 

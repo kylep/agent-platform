@@ -32,7 +32,9 @@ const PAGES: { path: string; heading: string; probe?: RegExp }[] = [
   { path: "/help/agents", heading: "Agents", probe: /who runs/ },
   { path: "/help/relay", heading: "Relay", probe: /the agent messenger|hop 0/ },
   { path: "/reports/daily-news", heading: "daily-news", probe: /Open latest/ },
-  { path: "/settings", heading: "Settings" },
+  // The Relay section is read-only and env-fed, so its probe is the sentence
+  // that tells an operator where the numbers actually come from.
+  { path: "/settings", heading: "Settings", probe: /AP_RELAY_MAX_HOPS/ },
 ];
 
 for (const { path, heading, probe } of PAGES) {
@@ -51,6 +53,18 @@ for (const { path, heading, probe } of PAGES) {
     expect(unmatched, `unfixtured API calls on ${path}`).toEqual([]);
   });
 }
+
+test("a relay job shows its room, not a broken agent link", async ({ page }) => {
+  // The #standup summons has no agent (docs/design/19): an agent-authored
+  // `@all` is stripped, so the platform posts it. The Schedules page has to say
+  // where it goes without linking to /agents/null.
+  const unmatched = await mockApi(page);
+  await page.goto("/schedules");
+  const row = page.locator("tr", { hasText: "relay-standup" });
+  await expect(row).toContainText("Relay → #standup");
+  await expect(row.locator("a")).toHaveCount(0);
+  expect(unmatched, "unfixtured API calls on /schedules").toEqual([]);
+});
 
 test("tailwind utilities are actually generated (source-detection canary)", async ({ page }) => {
   // Regression guard: after the @ap/ui extraction, Tailwind's automatic

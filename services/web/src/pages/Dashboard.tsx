@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import {
-  api, type AgentMetrics, type AgentSummary, type Job, type KafkaHealth,
+  api, jobTarget, type AgentMetrics, type AgentSummary, type Job, type KafkaHealth,
   type MetricsOverview, type PullRequest, type RelayStats, type RunSummary,
   type ScheduleEntry, type SecretStatus,
 } from "../api";
@@ -82,7 +82,10 @@ export default function Dashboard() {
   const [relay, setRelay] = useState<RelayStats | null>(null);
   // `name` is null for an entrypoint cron — it has no name of its own.
   const [upcoming, setUpcoming] = useState<
-    { agent: string; name: string | null; next: string | null; cron: string }[]>([]);
+    // `agent` is null for a relay job — it posts into a room and belongs to no
+    // one agent, so the cell names the room and links nowhere.
+    { agent: string | null; target: string; name: string | null;
+      next: string | null; cron: string }[]>([]);
   // Earliest next fire per agent across jobs + entrypoint crons: tells a
   // failing-agent card when the streak gets its next chance to clear.
   const [nextByAgent, setNextByAgent] = useState<Record<string, string>>({});
@@ -102,12 +105,12 @@ export default function Dashboard() {
       api<ScheduleEntry[]>("/api/schedules").catch(() => [] as ScheduleEntry[]),
     ]).then(([jobs, scheds]) => {
       const rows = [
-        ...jobs.filter((j) => j.enabled).map((j) => ({ agent: j.agent, name: j.name, next: j.next_fire, cron: j.cron })),
-        ...scheds.filter((s) => s.enabled).map((s) => ({ agent: s.agent, name: null, next: s.next_fire, cron: s.cron })),
+        ...jobs.filter((j) => j.enabled).map((j) => ({ agent: j.agent, target: jobTarget(j), name: j.name, next: j.next_fire, cron: j.cron })),
+        ...scheds.filter((s) => s.enabled).map((s) => ({ agent: s.agent, target: s.agent, name: null, next: s.next_fire, cron: s.cron })),
       ].filter((r) => r.next).sort((a, b) => (a.next ?? "").localeCompare(b.next ?? ""));
       setUpcoming(rows.slice(0, 5));
       const next: Record<string, string> = {};
-      for (const r of rows) if (r.next && !(r.agent in next)) next[r.agent] = r.next;   // sorted → first is earliest
+      for (const r of rows) if (r.next && r.agent && !(r.agent in next)) next[r.agent] = r.next;   // sorted → first is earliest
       setNextByAgent(next);
     }).finally(() => setLoaded(true));
   }
@@ -240,8 +243,10 @@ export default function Dashboard() {
             <thead><tr><TH>Agent</TH><TH>Job</TH><TH>Next fire</TH></tr></thead>
             <tbody>
               {upcoming.map((u, i) => (
-                <tr key={`${u.agent}-${u.name}-${i}`}>
-                  <TD><Link to={`/agents/${encodeURIComponent(u.agent)}?tab=schedules`}>{u.agent}</Link></TD>
+                <tr key={`${u.target}-${u.name}-${i}`}>
+                  <TD>{u.agent
+                    ? <Link to={`/agents/${encodeURIComponent(u.agent)}?tab=schedules`}>{u.agent}</Link>
+                    : <Link to="/schedules">{u.target}</Link>}</TD>
                   <UpcomingCell cron={u.cron} name={u.name} />
                   <TD className="text-muted" title={u.cron}>{u.next ? new Date(u.next).toLocaleString() : "—"}</TD>
                 </tr>

@@ -23,6 +23,7 @@ class RelaySettings:
 
         Attributes:
             channel_per_hour (int):
+            context_messages (int):
             cooldown_seconds (int):
             default_grant (bool):
             global_per_hour (int):
@@ -30,6 +31,7 @@ class RelaySettings:
     """
 
     channel_per_hour: int
+    context_messages: int
     cooldown_seconds: int
     default_grant: bool
     global_per_hour: int
@@ -38,6 +40,8 @@ class RelaySettings:
 
     def to_dict(self) -> dict[str, Any]:
         channel_per_hour = self.channel_per_hour
+
+        context_messages = self.context_messages
 
         cooldown_seconds = self.cooldown_seconds
 
@@ -52,6 +56,7 @@ class RelaySettings:
         field_dict.update(
             {
                 "channel_per_hour": channel_per_hour,
+                "context_messages": context_messages,
                 "cooldown_seconds": cooldown_seconds,
                 "default_grant": default_grant,
                 "global_per_hour": global_per_hour,
@@ -66,6 +71,8 @@ class RelaySettings:
         d = dict(src_dict)
         channel_per_hour = d.pop("channel_per_hour")
 
+        context_messages = d.pop("context_messages")
+
         cooldown_seconds = d.pop("cooldown_seconds")
 
         default_grant = d.pop("default_grant")
@@ -76,6 +83,7 @@ class RelaySettings:
 
         relay_settings = cls(
             channel_per_hour=channel_per_hour,
+            context_messages=context_messages,
             cooldown_seconds=cooldown_seconds,
             default_grant=default_grant,
             global_per_hour=global_per_hour,

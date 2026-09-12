@@ -434,7 +434,11 @@ class Integration(BaseModel):
 class JobView(BaseModel):
     id: str
     name: str
-    agent: str
+    # Exactly one of these is set: a job either runs an agent or posts into a
+    # Relay channel (docs/design/19). `agent` stays first and keeps its name —
+    # every existing caller reads it, and a relay job simply has none.
+    agent: str | None
+    relay_channel: str | None = None
     cron: str
     timezone: str = ""          # IANA zone the cron is read in; empty = UTC
     prompt: str
@@ -444,8 +448,12 @@ class JobView(BaseModel):
 
 
 class JobRunAccepted(BaseModel):
+    """What Run Now created: a run id for an agent job, a MESSAGE id for a relay
+    job. One field because the caller's next move is the same either way — show
+    the thing it just started — and `relay_channel` says which kind it is."""
     id: str
-    agent: str
+    agent: str | None
+    relay_channel: str | None = None
 
 
 # --- maintenance -------------------------------------------------------------
@@ -736,6 +744,7 @@ class RelaySettings(BaseModel):
     channel_per_hour: int
     global_per_hour: int
     cooldown_seconds: int
+    context_messages: int
 
 
 class RelayStats(BaseModel):

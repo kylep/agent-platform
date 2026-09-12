@@ -473,14 +473,26 @@ class Schedule(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
 
 class ScheduledJob(Base):
-    """A recurring task: run `agent` with `prompt` on a cron. Decouples the
-    schedule from the agent (1:many — one agent can back many jobs, each with
-    its own cron + prompt), unlike an agent's own declared entrypoint crons.
-    Created and managed from the UI; the scheduler fires it when due."""
+    """A recurring task on a cron. Decouples the schedule from the agent (1:many
+    — one agent can back many jobs, each with its own cron + prompt), unlike an
+    agent's own declared entrypoint crons. Created and managed from the UI; the
+    scheduler fires it when due.
+
+    A job has exactly ONE action, and the two are mutually exclusive: run
+    `agent` with `prompt`, or post `prompt` into the Relay channel named by
+    `relay_channel` (docs/design/19). The second exists because a message that
+    summons the room cannot be written by an agent — `parse_mentions` strips an
+    agent's `@all`, and its posts carry a hop — so the #standup summons has to
+    come from the platform itself. The API enforces the exclusivity; both
+    columns are nullable because either half may be the one that is absent."""
     __tablename__ = "scheduled_jobs"
     id: Mapped[str] = mapped_column(String(32), primary_key=True, default=lambda: uuid.uuid4().hex)
     name: Mapped[str] = mapped_column(String(128))
-    agent: Mapped[str] = mapped_column(String(128), index=True)
+    agent: Mapped[str | None] = mapped_column(String(128), index=True, nullable=True)
+    # A channel NAME, not an id: the room is resolved at fire time, so a job
+    # survives a channel being archived and recreated, and the seeded job below
+    # can be written without knowing what id #standup happens to have.
+    relay_channel: Mapped[str | None] = mapped_column(String(64), nullable=True)
     cron: Mapped[str] = mapped_column(String(128))
     # IANA zone the cron is read in; empty = UTC. Stored times stay UTC — this
     # only decides which UTC instant a wall-clock expression means, so a job
@@ -593,6 +605,16 @@ INIT_DB_LOCK_KEY = -7077053083107605676
 RELAY_BACKFILL_MARK = "relay-backfill-v1"
 RELAY_DM_KEY_MARK = "relay-dm-keys-v1"
 RELAY_GRANT_MARK = "relay-default-grant-v1"
+RELAY_STANDUP_MARK = "relay-standup-job-v1"
+
+# The job that makes #standup a room instead of an empty channel (docs/design/19,
+# "Delight, shipped in the first cut"). 09:00 in Kyle's own zone, because the
+# ask is "what did you do in the last 24h" and that question has a wall clock.
+RELAY_STANDUP_JOB = dict(
+    name="relay-standup", relay_channel="standup", cron="0 9 * * *",
+    timezone="America/Toronto",
+    prompt="@all — what did you do in the last 24h? Two lines, link anything "
+           "you touched.")
 
 
 def dm_key_of(participants) -> str:
@@ -612,8 +634,9 @@ def _ensure_relay_ddl(conn) -> None:
     """Schema the model declarations cannot express portably: a channel's name
     is unique only among channels (dms leave it null, and several nulls are not
     a conflict), postgres wants a full-text index sqlite has no equivalent for,
-    and a live conversations.agent is still NOT NULL from when every
-    conversation had exactly one agent."""
+    and two live columns are still NOT NULL from when every conversation had
+    exactly one agent and every job ran one (docs/design/19: a relay job posts
+    into a room and names none)."""
     conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uq_conversations_channel_name "
                       "ON conversations (name) WHERE kind = 'channel'"))
     # Get-or-create made atomic: two requests racing for the same pair both
@@ -625,11 +648,13 @@ def _ensure_relay_ddl(conn) -> None:
         # DROP NOT NULL takes an ACCESS EXCLUSIVE lock even when the column is
         # already nullable, and this runs on every boot of every service — so
         # ask first, the way _ensure_memory_key_index does.
-        if conn.execute(text(
-                "SELECT is_nullable FROM information_schema.columns "
-                "WHERE table_name = 'conversations' AND column_name = 'agent'"
-        )).scalar() == "NO":
-            conn.exec_driver_sql("ALTER TABLE conversations ALTER COLUMN agent DROP NOT NULL")
+        for table in ("conversations", "scheduled_jobs"):
+            if conn.execute(text(
+                    "SELECT is_nullable FROM information_schema.columns "
+                    "WHERE table_name = :t AND column_name = 'agent'"
+            ).bindparams(t=table)).scalar() == "NO":
+                conn.exec_driver_sql(
+                    f"ALTER TABLE {table} ALTER COLUMN agent DROP NOT NULL")
         conn.exec_driver_sql("CREATE INDEX IF NOT EXISTS ix_relay_messages_body_fts "
                              "ON relay_messages USING GIN (to_tsvector('english', body))")
 
@@ -740,6 +765,38 @@ def _ensure_relay_backfill(conn) -> None:
                 conn.execute(msg_t.insert().values(_relay_message(
                     conv.id, agent_part or human, run.result, answered, run_id=run.id)))
     conn.execute(mark_t.insert().values(name=RELAY_BACKFILL_MARK, applied_at=utcnow()))
+
+
+def _ensure_relay_standup_job(conn) -> None:
+    """Seed the #standup summons as a real ScheduledJob row.
+
+    A job rather than anything scheduler-specific: the platform already knows
+    how to fire a cron, and shipping this as a row means an admin edits, pauses
+    or deletes it through the same Jobs UI as everything else. Its author is the
+    PLATFORM, not an agent — an agent's `@all` is stripped at post time and its
+    posts carry a hop, so an agent-authored summons would reach nobody.
+
+    Gated on its mark, and that gate IS the off-switch: once seeded, this
+    function never looks at `scheduled_jobs` again, so a job somebody disabled
+    stays disabled and a job somebody deleted stays deleted. Seeding it a second
+    time would be the platform overruling the operator once a night.
+
+    Not race-safe on its own: the check-then-write is serialized across services
+    by init_db's advisory lock (INIT_DB_LOCK_KEY)."""
+    from sqlalchemy import inspect as sa_inspect
+    if not sa_inspect(conn).has_table("scheduled_jobs"):
+        return
+    mark_t = SchemaMark.__table__
+    if conn.execute(select(mark_t.c.name)
+                    .where(mark_t.c.name == RELAY_STANDUP_MARK)).first():
+        return
+    # next_fire is left null deliberately: the scheduler arms a new job on the
+    # tick after it appears and fires it on the one after that, so a job seeded
+    # at 08:59 does not go off the moment the API boots.
+    conn.execute(ScheduledJob.__table__.insert().values(
+        id=uuid.uuid4().hex, enabled=True, last_fire=None, next_fire=None,
+        created_at=utcnow(), updated_at=utcnow(), agent=None, **RELAY_STANDUP_JOB))
+    conn.execute(mark_t.insert().values(name=RELAY_STANDUP_MARK, applied_at=utcnow()))
 
 
 def _ensure_dm_keys(conn) -> None:
@@ -896,5 +953,8 @@ async def init_db(engine: AsyncEngine, default_grant: bool = True) -> None:
         await conn.run_sync(_ensure_memory_key_index)
         await conn.run_sync(_ensure_relay_ddl)
         await conn.run_sync(_ensure_relay_backfill)
+        # After the channel seeds: the job names #standup, and a job pointing at
+        # a room that does not exist yet is a warning in the log every morning.
+        await conn.run_sync(_ensure_relay_standup_job)
         await conn.run_sync(_ensure_dm_keys)
         await conn.run_sync(_ensure_relay_default_grant, default_grant)

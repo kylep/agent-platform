@@ -249,10 +249,36 @@ class RelayRouter:
             # agent's room mention, because an agent that can page everyone is
             # a storm. It expands to the room's agent roster: every enabled
             # agent in an open channel, the agent members of a closed one.
-            for name in (sorted(room) if token == ALL else [token]):
+            for name in (self._room_roster(room) if token == ALL else [token]):
                 if name != author and name not in out:
                     out.append(name)
         return out
+
+    def _room_roster(self, room: set[str]) -> list[str]:
+        """Who `@all` actually wakes: everyone in the room EXCEPT the platform's
+        own agents.
+
+        A system agent (the run summarizer, the health monitor) is
+        infrastructure. It answers to its NAME, not to the room: `@health-monitor
+        why?` still summons it, and every guard applies to that mention as
+        usual. What it must not do is answer a question addressed to everybody —
+        the 09:00 #standup would otherwise hand each of them a Claude run every
+        morning to report work nobody asked them about, and a human's `@all` in
+        any open channel would page them too.
+
+        Filtered HERE and not in `_live_agents`, deliberately: that set is
+        MEMBERSHIP (`is_member` reads it in both branches), and an agent removed
+        from it stops being in the room at all — which would break the direct
+        mention this is careful to keep."""
+        return sorted(n for n in room if not self._is_system(n))
+
+    def _is_system(self, name: str) -> bool:
+        """Whether the agent's definition declares it platform-internal. A
+        quarantined row has no manifest to ask, and it is not summonable anyway
+        (`_live_agents` drops it), so the missing answer is simply `False`."""
+        info = self.agents.get(name)
+        return bool(info is not None and info.manifest is not None
+                    and info.manifest.system)
 
     # --- the guards ----------------------------------------------------------
 

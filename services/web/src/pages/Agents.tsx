@@ -83,7 +83,9 @@ export default function Agents() {
     api<Job[]>("/api/jobs")
       .then((js) => {
         const m = new Map<string, number>();
-        for (const j of js) if (j.enabled) m.set(j.agent, (m.get(j.agent) ?? 0) + 1);
+        // Relay jobs are skipped: they fire into a room, so no agent's card owes
+        // the reader a "1 job" badge for them.
+        for (const j of js) if (j.enabled && j.agent) m.set(j.agent, (m.get(j.agent) ?? 0) + 1);
         setJobs(m);
       })
       .catch(() => {});

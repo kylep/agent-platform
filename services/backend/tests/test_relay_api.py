@@ -822,7 +822,7 @@ async def test_stats_reports_the_guard_settings(admin_client):
     st = (await admin_client.get("/api/relay/stats")).json()
     assert st["settings"] == {"default_grant": True, "max_hops": 4,
                               "channel_per_hour": 30, "global_per_hour": 120,
-                              "cooldown_seconds": 20}
+                              "cooldown_seconds": 20, "context_messages": 30}
 
 
 # --- bindings (docs/design/19 T10) -------------------------------------------

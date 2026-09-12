@@ -17,6 +17,11 @@ USER_PREFIX = "user:"
 # answer, and a guard that pauses a thread owes it a reason. No agent is in a
 # position to say either, so the platform says it in its own name.
 SYSTEM_AUTHOR = "system:relay"
+# The author of a scheduled summons (docs/design/19, the #standup job). A
+# separate name from SYSTEM_AUTHOR so the room can tell "the guard paused this
+# thread" from "the clock asked a question", and NOT an agent: `parse_mentions`
+# strips an agent's `@all`, so a summons signed by one would address nobody.
+SCHEDULER_AUTHOR = "system:scheduler"
 # Addressing the room. The router expands ALL to the channel's agent members;
 # only humans may use it (an agent that could page everyone is a loop).
 ROOM_MENTIONS = ("all", "channel", "here", "everyone")

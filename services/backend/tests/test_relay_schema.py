@@ -6,11 +6,11 @@ import pytest
 from sqlalchemy import func, select, text
 
 from agentplatform.db import (Base, Conversation, RELAY_BACKFILL_MARK,
-                              RELAY_DM_KEY_MARK, RelayBinding, RelayInvocation,
-                              RelayMessage, RelayParticipant, RelayReaction,
-                              RelaySession, RelayWake, Run, RunState, SchemaMark,
-                              dm_key_of, init_db, make_engine, make_session_factory,
-                              utcnow)
+                              RELAY_DM_KEY_MARK, RELAY_STANDUP_MARK, RelayBinding,
+                              RelayInvocation, RelayMessage, RelayParticipant,
+                              RelayReaction, RelaySession, RelayWake, Run, RunState,
+                              ScheduledJob, SchemaMark, dm_key_of, init_db,
+                              make_engine, make_session_factory, utcnow)
 
 
 @pytest.fixture
@@ -390,3 +390,50 @@ async def test_default_grant_backfill_reads_a_null_enabled_as_enabled(engine, sf
         assert (await s.execute(text(
             "SELECT enabled FROM agent_defs WHERE name = 'news'"))).scalar() is None
     assert await _grants(sfx, "news") == [RELAY]
+
+
+# --- the seeded #standup job (docs/design/19) --------------------------------
+# Seeded ONCE and gated on its mark, which is the whole off-switch: the row is
+# an operator's to disable or delete, and a seed that came back every boot would
+# be the platform overruling them once a night.
+
+async def _standup_jobs(sfx):
+    async with sfx() as s:
+        return (await s.execute(select(ScheduledJob).where(
+            ScheduledJob.relay_channel == "standup"))).scalars().all()
+
+
+async def test_standup_job_is_seeded_once(engine, sfx):
+    await init_db(engine)
+    await init_db(engine)
+    jobs = await _standup_jobs(sfx)
+    assert len(jobs) == 1
+    job = jobs[0]
+    assert (job.name, job.agent, job.cron, job.timezone, job.enabled) == \
+        ("relay-standup", None, "0 9 * * *", "America/Toronto", True)
+    assert job.prompt == ("@all — what did you do in the last 24h? Two lines, "
+                          "link anything you touched.")
+    # Armed by the scheduler's first tick, not by the seed: a job seeded at
+    # 08:59 must not go off the moment the API boots.
+    assert job.next_fire is None
+    async with sfx() as s:
+        assert (await s.get(SchemaMark, RELAY_STANDUP_MARK)) is not None
+
+
+async def test_disabling_the_standup_job_sticks(engine, sfx):
+    await init_db(engine)
+    async with sfx() as s:
+        job = (await _standup_jobs(sfx))[0]
+        (await s.get(ScheduledJob, job.id)).enabled = False
+        await s.commit()
+    await init_db(engine)
+    assert [j.enabled for j in await _standup_jobs(sfx)] == [False]
+
+
+async def test_deleting_the_standup_job_does_not_bring_it_back(engine, sfx):
+    await init_db(engine)
+    async with sfx() as s:
+        await s.delete(await s.get(ScheduledJob, (await _standup_jobs(sfx))[0].id))
+        await s.commit()
+    await init_db(engine)
+    assert await _standup_jobs(sfx) == []

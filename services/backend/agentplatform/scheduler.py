@@ -25,6 +25,8 @@ from sqlalchemy import select
 
 from agentplatform.db import Schedule, ScheduledJob, utcnow
 from agentplatform.events import TOPIC_RUN_INBOUND
+from agentplatform.relay import SCHEDULER_AUTHOR
+from agentplatform.relay_store import summon_channel
 
 if TYPE_CHECKING:   # `agentdefs` imports this module (lazily) for its validators
     from agentplatform.agentdefs import CronEntry
@@ -181,8 +183,9 @@ class Scheduler:
             log.warning("publish failed for scheduled run %s", run_id)
 
     async def _tick_job(self, job_id: str, now: datetime) -> None:
-        """Fire one Scheduled Job when due, using its own agent + prompt."""
-        run_id = agent = prompt = None
+        """Fire one Scheduled Job when due — either as a run on its own agent,
+        or as a message in its own Relay channel."""
+        run_id = agent = prompt = channel = None
         async with self.sf() as s:
             job = await s.get(ScheduledJob, job_id)
             if job is None:
@@ -195,10 +198,27 @@ class Scheduler:
             if not job.enabled or now < as_utc(job.next_fire):
                 return
             run_id, agent, prompt = uuid.uuid4().hex, job.agent, job.prompt
+            channel = job.relay_channel
             job.last_fire = now
             # from now → skip missed fires
             job.next_fire = next_fire(job.cron, now, job.timezone)
             await s.commit()
+        if channel:
+            # A relay job makes no Run and asks for none. It posts, the router
+            # reads the post, and whichever agents the room's `@all` resolves to
+            # are summoned through the mention path with all of its guards — so
+            # a standup in a room of twenty agents spends the same budget as
+            # twenty people typing the same question would.
+            try:
+                await summon_channel(self.sf, self.producer, channel,
+                                     author=SCHEDULER_AUTHOR, body=prompt)
+            except Exception:
+                # Same containment as the run branch below: `tick` fires every
+                # job in one pass, and a database blip on the standup must not
+                # cost every job after it in the list its turn. The fire is
+                # already recorded, so this one is skipped, not retried.
+                log.warning("relay post failed for scheduled job %s", job_id)
+            return
         try:
             await self.producer.publish(TOPIC_RUN_INBOUND, run_id, {
                 "run_id": run_id, "agent": agent, "prompt": prompt,

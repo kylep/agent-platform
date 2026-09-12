@@ -256,7 +256,7 @@ const FIXTURES: Record<string, unknown> = {
                             coalesced: 4, facade_owns_turn: 0 },
     budget: { channel_per_hour: 30, global_per_hour: 120, global_used_last_hour: 96 },
     settings: { default_grant: true, max_hops: 4, channel_per_hour: 30,
-                global_per_hour: 120, cooldown_seconds: 20 },
+                global_per_hour: 120, cooldown_seconds: 20, context_messages: 30 },
   },
   "/api/relay/presence": [
     { agent: "news", state: "thinking", thinking_in: ["rc1"], face: FACES.news },
@@ -321,7 +321,16 @@ const FIXTURES: Record<string, unknown> = {
     { agent: "health-monitor", cron: "*/15 * * * *", enabled: true,
       last_fire: new Date().toISOString(), next_fire: new Date(Date.now() + 600000).toISOString() },
   ],
-  "/api/jobs": [],
+  // The seeded #standup summons (docs/design/19): a job with no agent, which is
+  // what proves the Schedules page can render a row that belongs to a room.
+  // `next_fire` is null so it stays out of the Dashboard's upcoming tile — that
+  // tile is covered by the entrypoint cron above.
+  "/api/jobs": [
+    { id: "jstandup", name: "relay-standup", agent: null, relay_channel: "standup",
+      cron: "0 9 * * *", timezone: "America/Toronto", enabled: true,
+      prompt: "@all — what did you do in the last 24h? Two lines, link anything you touched.",
+      last_fire: null, next_fire: null },
+  ],
   "/api/secrets": secrets,
   "/api/metrics/overview": { ...agg, runs_24h: 10, runs_7d: 42, dlq: 0, window: 5000 },
   "/api/metrics/agents": agents.map((a) => ({ ...agg, agent: a.name, failure_streak: a.name === "news" ? 2 : 0,

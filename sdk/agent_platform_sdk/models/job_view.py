@@ -16,7 +16,7 @@ T = TypeVar("T", bound="JobView")
 class JobView:
     """
     Attributes:
-        agent (str):
+        agent (None | str):
         cron (str):
         enabled (bool):
         id (str):
@@ -24,10 +24,11 @@ class JobView:
         name (str):
         next_fire (None | str):
         prompt (str):
+        relay_channel (None | str | Unset):
         timezone (str | Unset):  Default: ''.
     """
 
-    agent: str
+    agent: None | str
     cron: str
     enabled: bool
     id: str
@@ -35,10 +36,12 @@ class JobView:
     name: str
     next_fire: None | str
     prompt: str
+    relay_channel: None | str | Unset = UNSET
     timezone: str | Unset = ""
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
+        agent: None | str
         agent = self.agent
 
         cron = self.cron
@@ -57,6 +60,12 @@ class JobView:
 
         prompt = self.prompt
 
+        relay_channel: None | str | Unset
+        if isinstance(self.relay_channel, Unset):
+            relay_channel = UNSET
+        else:
+            relay_channel = self.relay_channel
+
         timezone = self.timezone
 
         field_dict: dict[str, Any] = {}
@@ -73,6 +82,8 @@ class JobView:
                 "prompt": prompt,
             }
         )
+        if relay_channel is not UNSET:
+            field_dict["relay_channel"] = relay_channel
         if timezone is not UNSET:
             field_dict["timezone"] = timezone
 
@@ -81,7 +92,13 @@ class JobView:
     @classmethod
     def from_dict(cls, src_dict: Mapping[str, Any]) -> Self:
         d = dict(src_dict)
-        agent = d.pop("agent")
+
+        def _parse_agent(data: object) -> None | str:
+            if data is None:
+                return data
+            return cast(None | str, data)
+
+        agent = _parse_agent(d.pop("agent"))
 
         cron = d.pop("cron")
 
@@ -107,6 +124,15 @@ class JobView:
 
         prompt = d.pop("prompt")
 
+        def _parse_relay_channel(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        relay_channel = _parse_relay_channel(d.pop("relay_channel", UNSET))
+
         timezone = d.pop("timezone", UNSET)
 
         job_view = cls(
@@ -118,6 +144,7 @@ class JobView:
             name=name,
             next_fire=next_fire,
             prompt=prompt,
+            relay_channel=relay_channel,
             timezone=timezone,
         )
 

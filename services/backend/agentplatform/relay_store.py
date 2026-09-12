@@ -15,11 +15,11 @@ import logging
 
 from sqlalchemy import or_, select
 
-from agentplatform.db import (AgentDef, RelayBinding, RelayMessage,
+from agentplatform.db import (AgentDef, Conversation, RelayBinding, RelayMessage,
                               RelayParticipant, Run, utcnow)
 from agentplatform.events import (TOPIC_CONVERSATION_OUTBOUND,
                                   TOPIC_RELAY_MESSAGES)
-from agentplatform.relay import face_for
+from agentplatform.relay import face_for, mentionable_in, parse_mentions
 
 log = logging.getLogger("relay_store")
 
@@ -158,6 +158,51 @@ async def publish_relay_message(producer, conv, msg, *, face=None,
             # their copy of the message.
             log.warning("conversation.outbound publish failed for message %s to %s",
                         msg.id, payload.get("connector"), exc_info=True)
+
+
+async def channel_by_name(session, name: str) -> Conversation | None:
+    """The live channel called `name`, or None. Archived rooms do not answer to
+    their name: a job pointed at one has nowhere to post, and reviving the room
+    by writing into it is not the scheduler's call."""
+    return (await session.execute(select(Conversation).where(
+        Conversation.kind == "channel", Conversation.name == name,
+        Conversation.archived_at.is_(None)))).scalars().first()
+
+
+async def summon_channel(session_factory, producer, name: str, *,
+                         author: str, body: str) -> RelayMessage | None:
+    """Post `body` into the channel called `name` as a NON-AGENT author, and
+    publish it. Returns the message, or None when there is no such room.
+
+    This is how the platform itself speaks into a room on a schedule
+    (docs/design/19: the #standup job). It is one function because two doors
+    lead here — the scheduler's tick and Run Now — and a summons that parsed its
+    mentions differently depending on which one fired it would be two features.
+
+    The author must not be an agent, and that is the whole point of the seam:
+    `parse_mentions` refuses an agent's `@all`, so only a human or the platform
+    can put `*` on a message and wake the room.
+
+    No Run is created and nothing is recorded beyond the message: the router
+    reads it off `relay.messages` like any other, and what it decides to summon
+    is its business, not the caller's."""
+    async with session_factory() as s:
+        conv = await channel_by_name(s, name)
+        if conv is None:
+            log.warning("no live channel #%s to post into", name)
+            return None
+        agents = await enabled_agents(s)
+        explicit = await explicit_members(s, conv.id)
+        # Hop 0, like every message nobody's run wrote: a summons starts a fresh
+        # chain, which is what gives the agents it wakes their full hop budget.
+        msg = await post_relay_message(
+            s, conv, author=author, body=body,
+            mentions=parse_mentions(body, mentionable_in(conv, agents, explicit),
+                                    author))
+        await s.commit()
+        outbound = await outbound_for_message(s, conv, msg)
+    await publish_relay_message(producer, conv, msg, outbound=outbound)
+    return msg
 
 
 async def enabled_agents(session) -> set[str]:

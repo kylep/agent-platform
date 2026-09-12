@@ -191,7 +191,12 @@ export type ScheduleEntry = {
 export type Job = {
   id: string;
   name: string;
-  agent: string;
+  // Exactly one of these is set. An agent job runs `agent` with `prompt`; a
+  // relay job posts `prompt` into the named Relay channel as the platform
+  // (docs/design/19) — the #standup summons is one, and it has no agent because
+  // an agent-authored `@all` never reaches the room.
+  agent: string | null;
+  relay_channel: string | null;
   cron: string;
   timezone: string;       // IANA zone the cron is read in; "" = UTC
   prompt: string;
@@ -199,6 +204,11 @@ export type Job = {
   last_fire: string | null;
   next_fire: string | null;
 };
+
+/** How a job's target reads in a table. A relay job names its room, because
+ * "—" in the Agent column tells a reader nothing about what fires at 09:00. */
+export const jobTarget = (j: Pick<Job, "agent" | "relay_channel">) =>
+  j.agent ?? `Relay → #${j.relay_channel ?? "?"}`;
 
 export type Memory = {
   id: string;
@@ -388,6 +398,7 @@ export type RelayStats = {
     channel_per_hour: number;
     global_per_hour: number;
     cooldown_seconds: number;
+    context_messages: number;
   };
 };
 

@@ -221,6 +221,52 @@ async def test_a_human_at_all_invokes_every_agent_member(make_router, sf):
                                             ("bob", "invoked", "mention")]
 
 
+async def _with_health_monitor(router, seed_agent):
+    """A PLATFORM agent in the room: enabled, valid, and `system` — which is the
+    one thing `@all` has to notice."""
+    await seed_agent("health-monitor", description="t", system=True)
+    await router.agents.reload()
+
+
+async def test_at_all_skips_the_platforms_own_agents(make_router, sf, seed_agent):
+    """A system agent is infrastructure, not a participant. Left in the roster,
+    the 09:00 #standup would buy a Claude run from the health monitor every
+    morning to report work nobody asked it about — and so would any human's
+    `@all` in any open channel."""
+    router = await make_router()
+    await _with_health_monitor(router, seed_agent)
+    cid = await _channel(sf)
+    await _say(router, sf, cid, "user:admin", "@all standup please")
+    assert sorted(r.agent for r in await _runs(sf)) == ["ada", "bob"]
+    # Not even a suppression row: it was never addressed, so there is nothing
+    # to explain.
+    assert all(agent != "health-monitor" for agent, _, _ in await _decisions(sf))
+
+
+async def test_at_all_skips_system_agents_in_a_closed_room_too(make_router, sf, seed_agent):
+    """The explicit-member path expands the same roster, so a group that lists
+    the health monitor by hand still does not page it with `@all`."""
+    router = await make_router()
+    await _with_health_monitor(router, seed_agent)
+    cid = await _channel(sf, kind="group", open=False,
+                         participants=("user:admin", "agent:ada",
+                                       "agent:health-monitor"))
+    await _say(router, sf, cid, "user:admin", "@all standup please")
+    assert [r.agent for r in await _runs(sf)] == ["ada"]
+
+
+async def test_a_system_agent_still_answers_its_own_name(make_router, sf, seed_agent):
+    """The whole point of filtering the ROSTER rather than membership:
+    `@health-monitor why?` is exactly how design-19 says an operator asks #ops
+    for the reasoning behind an alert."""
+    router = await make_router()
+    await _with_health_monitor(router, seed_agent)
+    cid = await _channel(sf)
+    await _say(router, sf, cid, "user:admin", "@health-monitor why?")
+    assert [r.agent for r in await _runs(sf)] == ["health-monitor"]
+    assert await _decisions(sf) == [("health-monitor", "invoked", "mention")]
+
+
 @pytest.mark.parametrize("fields", [{"enabled": False}, {"role": "not-a-role"}])
 async def test_a_disabled_or_quarantined_agent_is_never_invoked(
         make_router, sf, seed_agent, fields):

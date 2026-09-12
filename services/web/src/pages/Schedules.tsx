@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { cronTitle, isSingleExpression, useCronPreview } from "../lib/cron";
-import { api, type Job, type ScheduleEntry } from "../api";
+import { api, jobTarget, type Job, type ScheduleEntry } from "../api";
 import { Chip } from "@ap/ui/chip";
 import { Select } from "@ap/ui/field";
 import { Table, TD, TH } from "@ap/ui/table";
@@ -16,7 +16,9 @@ function Cron({ cron }: { cron: string }) {
 }
 
 type Row = {
-  agent: string; name: string; kind: "Job" | "Entrypoint";
+  // The agent whose page this row opens — null for a relay job, which belongs
+  // to a room rather than to an agent, and so has nowhere to click through to.
+  agent: string | null; target: string; name: string; kind: "Job" | "Entrypoint";
   cron: string; next_fire: string | null; enabled: boolean;
 };
 
@@ -36,11 +38,11 @@ export default function Schedules() {
       api<ScheduleEntry[]>("/api/schedules"),
     ]).then(([jobs, scheds]) => {
       const j: Row[] = jobs.map((x) => ({
-        agent: x.agent, name: x.name, kind: "Job", cron: x.cron,
+        agent: x.agent, target: jobTarget(x), name: x.name, kind: "Job", cron: x.cron,
         next_fire: x.next_fire, enabled: x.enabled }));
       const s: Row[] = scheds.map((x) => ({
-        agent: x.agent, name: "(entrypoint cron)", kind: "Entrypoint", cron: x.cron,
-        next_fire: x.next_fire, enabled: x.enabled }));
+        agent: x.agent, target: x.agent, name: "(entrypoint cron)", kind: "Entrypoint",
+        cron: x.cron, next_fire: x.next_fire, enabled: x.enabled }));
       const all = [...j, ...s].sort((a, b) =>
         (a.next_fire ?? "9999").localeCompare(b.next_fire ?? "9999"));
       setRows(all);
@@ -48,7 +50,8 @@ export default function Schedules() {
       .finally(() => setLoading(false));
   }, []);
 
-  const agents = useMemo(() => [...new Set(rows.map((r) => r.agent))].sort(), [rows]);
+  const agents = useMemo(
+    () => [...new Set(rows.map((r) => r.agent).filter((a) => a !== null))].sort(), [rows]);
   const shown = agentFilter ? rows.filter((r) => r.agent === agentFilter) : rows;
 
   return (
@@ -57,6 +60,7 @@ export default function Schedules() {
       <p className="muted">
         Recurring work across all agents — cron jobs and agents' own cron entrypoints. Hover a cron to read it in
         plain English. Create or edit from an agent's <em>Schedules</em> tab; click a row to open it there.
+        A <strong>Relay →</strong> row posts into a channel instead of running one agent: the room answers it.
       </p>
 
       <div className="row-actions" style={{ marginBottom: 12 }}>
@@ -76,9 +80,11 @@ export default function Schedules() {
           </thead>
           <tbody>
             {shown.map((r, i) => (
-              <tr key={`${r.agent}-${r.name}-${i}`} className="clickable-row"
-                  onClick={() => navigate(`/agents/${encodeURIComponent(r.agent)}?tab=schedules`)}>
-                <TD>{r.agent}</TD>
+              <tr key={`${r.target}-${r.name}-${i}`}
+                  className={r.agent ? "clickable-row" : undefined}
+                  onClick={() => r.agent &&
+                    navigate(`/agents/${encodeURIComponent(r.agent)}?tab=schedules`)}>
+                <TD>{r.target}</TD>
                 <TD>{r.name}</TD>
                 <TD className="text-muted">{r.kind}</TD>
                 <TD><Cron cron={r.cron} /></TD>

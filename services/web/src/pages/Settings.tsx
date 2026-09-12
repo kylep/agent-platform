@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { api, type ApiKey, type ApiKeyMinted } from "../api";
+import { api, type ApiKey, type ApiKeyMinted, type RelayStats } from "../api";
 import { Banner } from "@ap/ui/banner";
 import { Button } from "@ap/ui/button";
 import { Chip } from "@ap/ui/chip";
@@ -143,12 +143,97 @@ function ApiKeysSection() {
   );
 }
 
+// The Relay guards, in the order an operator asks about them, each with the
+// reason it exists — lifted from the comments beside the settings themselves in
+// `services/backend/agentplatform/config.py` so the two cannot drift into two
+// different explanations of the same number.
+const RELAY_GUARDS: { env: string; label: string;
+                      value: (s: RelayStats["settings"]) => string; why: string }[] = [
+  { env: "AP_RELAY_MAX_HOPS", label: "Max hops",
+    value: (s) => String(s.max_hops),
+    why: "A run triggered by a message at hop h posts its reply at h+1; an agent-authored " +
+         "message at this hop can summon nobody, which is where a two-agent ping-pong stops. " +
+         "A human mention starts a fresh chain at hop 0." },
+  { env: "AP_RELAY_CHANNEL_INVOCATIONS_PER_HOUR", label: "Channel invocations / hour",
+    value: (s) => String(s.channel_per_hour),
+    why: "Spend cap on mention-triggered runs in one room, counted from the invocation log " +
+         "so it survives a restart. Over budget the router suppresses and says so once per " +
+         "channel per hour, rather than once per suppressed message." },
+  { env: "AP_RELAY_GLOBAL_INVOCATIONS_PER_HOUR", label: "Global invocations / hour",
+    value: (s) => String(s.global_per_hour),
+    why: "The same cap across every room at once — the ceiling on what an hour of Relay can " +
+         "cost, whichever channel the mentions land in." },
+  { env: "AP_RELAY_AGENT_COOLDOWN_SECONDS", label: "Agent cooldown",
+    value: (s) => `${s.cooldown_seconds}s`,
+    why: "An agent mentioned by another agent within this long of its own last reply in that " +
+         "channel gets a coalesced wake instead of a second run: three mentions during one " +
+         "reply become one follow-up, never three." },
+  { env: "AP_RELAY_CONTEXT_MESSAGES", label: "Context messages",
+    value: (s) => String(s.context_messages),
+    why: "How many recent channel messages a mention run is shown as context." },
+];
+
+function RelaySection() {
+  const [stats, setStats] = useState<RelayStats | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    api<RelayStats>("/api/relay/stats").then(setStats)
+      .catch((err) => setError(err instanceof Error ? err.message : "Failed to load Relay settings."));
+  }, []);
+
+  return (
+    <section>
+      <h2>Relay</h2>
+      <p className="muted">
+        What the running platform is enforcing for the agent messenger — the default grant and the
+        loop guards behind every <code>@mention</code>. Read-only here.
+      </p>
+      {error && <div className="error">{error}</div>}
+      {!error && !stats && <p className="muted">Loading…</p>}
+      {stats && (
+        <>
+          <p>
+            Default grant:{" "}
+            {stats.settings.default_grant
+              ? <Chip variant="ok">on</Chip>
+              : <Chip variant="danger">off</Chip>}{" "}
+            <span className="muted">
+              Whether creating an agent grants it <code>mcp__platform__relay</code>. The grant is a
+              real row either way, so an admin can remove it per agent like any other.
+            </span>
+          </p>
+          <Table>
+            <thead>
+              <tr><TH>Guard</TH><TH>Value</TH><TH>Env</TH><TH>Why</TH></tr>
+            </thead>
+            <tbody>
+              {RELAY_GUARDS.map((g) => (
+                <tr key={g.env}>
+                  <TD>{g.label}</TD>
+                  <TD>{g.value(stats.settings)}</TD>
+                  <TD className="text-muted"><code>{g.env}</code></TD>
+                  <TD className="text-muted">{g.why}</TD>
+                </tr>
+              ))}
+            </tbody>
+          </Table>
+          <p className="muted mt-2">
+            Set in the Helm chart / env (<code>AP_RELAY_*</code>), applied on restart.
+          </p>
+        </>
+      )}
+    </section>
+  );
+}
+
 export default function Settings() {
   return (
     <div className="page">
       <h1>Settings</h1>
       <PasswordSection />
       <ApiKeysSection />
+      <RelaySection />
     </div>
   );
 }

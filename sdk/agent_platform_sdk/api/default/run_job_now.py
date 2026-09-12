@@ -62,7 +62,8 @@ def sync_detailed(
 ) -> Response[HTTPValidationError | JobRunAccepted]:
     """Run Job Now
 
-     Run Now: materialize a run immediately from the job's agent + prompt.
+     Run Now: do immediately whatever this job's cron would have done —
+    materialize a run, or post its prompt into its Relay channel.
 
     Args:
         job_id (str):
@@ -93,7 +94,8 @@ def sync(
 ) -> HTTPValidationError | JobRunAccepted | None:
     """Run Job Now
 
-     Run Now: materialize a run immediately from the job's agent + prompt.
+     Run Now: do immediately whatever this job's cron would have done —
+    materialize a run, or post its prompt into its Relay channel.
 
     Args:
         job_id (str):
@@ -119,7 +121,8 @@ async def asyncio_detailed(
 ) -> Response[HTTPValidationError | JobRunAccepted]:
     """Run Job Now
 
-     Run Now: materialize a run immediately from the job's agent + prompt.
+     Run Now: do immediately whatever this job's cron would have done —
+    materialize a run, or post its prompt into its Relay channel.
 
     Args:
         job_id (str):
@@ -148,7 +151,8 @@ async def asyncio(
 ) -> HTTPValidationError | JobRunAccepted | None:
     """Run Job Now
 
-     Run Now: materialize a run immediately from the job's agent + prompt.
+     Run Now: do immediately whatever this job's cron would have done —
+    materialize a run, or post its prompt into its Relay channel.
 
     Args:
         job_id (str):

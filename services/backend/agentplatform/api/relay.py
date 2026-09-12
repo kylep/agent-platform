@@ -1019,4 +1019,5 @@ async def relay_stats(request: Request):
                          "max_hops": settings.relay_max_hops,
                          "channel_per_hour": settings.relay_channel_invocations_per_hour,
                          "global_per_hour": settings.relay_global_invocations_per_hour,
-                         "cooldown_seconds": settings.relay_agent_cooldown_seconds}}
+                         "cooldown_seconds": settings.relay_agent_cooldown_seconds,
+                         "context_messages": settings.relay_context_messages}}
