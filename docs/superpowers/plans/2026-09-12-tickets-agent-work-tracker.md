@@ -156,7 +156,7 @@ dispatch subagents, verify their evidence, commit, and update this file.
   a channel's prefix is unique (sqlite: enforce it in the API later, here just
   assert the model allows null on dms).
 
-- [ ] **T2 Settings + `tickets.py` pure library.**
+- [x] **T2 Settings + `tickets.py` pure library.** (commit `13d5f2c`; review fixed: titles/reasons flattened + room-mentions stripped + capped before entering system rows, is_stale normalises both operands, derive_prefix never yields a letterless prefix)
   Add to `config.py` with why-comments in the file's voice:
   `tickets_agent_creates_per_hour=20`, `tickets_stale_days=3`,
   `tickets_default_grant=True`, `tickets_thread_context_messages=40`.
@@ -390,6 +390,9 @@ dispatch subagents, verify their evidence, commit, and update this file.
 
 ### Deferred
 (low/medium review findings not fixed; each with file:line and one sentence)
+- T2: `derive_prefix` strips digits from names, so a channel literally named `ops2` derives base `OPS` and, when `OPS` is taken, gets the same `OPS2` the collision loop would hand a second `ops`; keys stay globally unique, only prefix→channel inference is ambiguous (nothing does that today).
+- T2: `find_ticket_refs` reuses `relay._FENCE`, which recognises backtick fences only; a `~~~` fence is live text for mentions and ticket refs alike (pre-existing gap in relay.py).
+- T2→T3: the once-per-hour budget row is deduped by matching `BUDGET_PREFIX`; the store's query must be scoped to `kind == "system"` rows the way `relay_router._say_budget` is, or a comment starting with that text suppresses the real notice.
 
 ## Definition of done
 
