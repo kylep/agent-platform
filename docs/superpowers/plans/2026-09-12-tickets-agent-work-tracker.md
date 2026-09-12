@@ -350,7 +350,7 @@ dispatch subagents, verify their evidence, commit, and update this file.
 
 ### Phase 5 — ship it
 
-- [ ] **T9 Facade curation (design 17), SDK drift, CI.**
+- [x] **T9 Facade curation (design 17), SDK drift, CI.** (commit `ee7c301`; KEEP 9 / GATE 0 / EXCLUDE 1 → 73 default, 99 admin, spec-computed; run views gained ticket_id; review: ship, two doc/comment lines applied)
   In `services/mcp-facade/facade.py`: KEEP `GET /api/tickets`, `POST
   /api/tickets`, `GET`/`PATCH /api/tickets/{key}`, `POST …/move`, `POST
   …/assign`, `POST …/comments`, `GET /api/tickets/stats`, `GET
