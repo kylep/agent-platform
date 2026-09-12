@@ -16,6 +16,14 @@ class RunState(StrEnum):
 
 ACTIVE_STATES = (RunState.QUEUED, RunState.DISPATCHED, RunState.RUNNING)
 
+class TicketState(StrEnum):
+    """The board's columns (docs/design/20), left to right."""
+    OPEN = "open"; IN_PROGRESS = "in_progress"; BLOCKED = "blocked"
+    REVIEW = "review"; DONE = "done"; CANCELLED = "cancelled"
+
+class TicketPriority(StrEnum):
+    P0 = "p0"; P1 = "p1"; P2 = "p2"; P3 = "p3"
+
 class Base(DeclarativeBase): pass
 
 class Run(Base):
@@ -44,6 +52,10 @@ class Run(Base):
     # threaded under it and takes its hop + 1, so a chain of agents answering
     # each other is walkable — and boundable — from either end.
     trigger_message_id: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    # The ticket this run was summoned from (docs/design/20): set when the
+    # triggering message was posted in a ticket's thread, so the work a run did
+    # is reachable from the ticket and not only from the room it was asked in.
+    ticket_id: Mapped[str | None] = mapped_column(String(32), nullable=True, index=True)
     state: Mapped[str] = mapped_column(String(16), default=RunState.QUEUED)
     prompt: Mapped[str] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
@@ -141,6 +153,12 @@ class Conversation(Base):
     # a legacy DM whose pair was already claimed by an older row.
     dm_key: Mapped[str | None] = mapped_column(String(300), nullable=True)
     archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # A channel with a prefix IS a project (docs/design/20): 2-6 uppercase
+    # letters, unique among channels (_ensure_tickets_ddl), and the stem of
+    # every key issued here. ticket_seq is the last number handed out, bumped
+    # under the channel row lock so two agents opening at once cannot collide.
+    ticket_prefix: Mapped[str | None] = mapped_column(String(8), nullable=True)
+    ticket_seq: Mapped[int] = mapped_column(Integer, default=0)
     title: Mapped[str] = mapped_column(String(256), default="")
     status: Mapped[str] = mapped_column(String(16), default="active")  # active | closed
     # Claude CLI session resume (docs/design/14): the id + raw bytes of the
@@ -263,6 +281,65 @@ class RelayInvocation(Base):
     reason: Mapped[str] = mapped_column(String(64), default="")
     run_id: Mapped[str | None] = mapped_column(String(32), nullable=True)
     hop: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
+
+
+class Ticket(Base):
+    """A unit of WORK (docs/design/20), as opposed to a Run, which is a unit of
+    execution: one ticket is any number of runs by any number of agents over any
+    number of days. It lives in a Relay channel — the channel is the project —
+    and `root_message_id` is its event card there, whose thread is the ticket's
+    discussion and activity log. This row is the structured copy the board and
+    the stats read; the thread is the human-readable one.
+
+    `assignee`/`reporter` are Relay participant strings, not foreign keys, for
+    the same reason RelayParticipant.participant is one: a ticket can be
+    assigned to a human, and a human may live outside this platform."""
+    __tablename__ = "tickets"
+    __table_args__ = (Index("ix_tickets_channel_state", "channel_id", "state"),)
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=lambda: uuid.uuid4().hex)
+    # 'OPS-12': the name people say, stable for the life of the ticket even if
+    # it is later retitled, reassigned or closed.
+    key: Mapped[str] = mapped_column(String(32), unique=True)
+    channel_id: Mapped[str] = mapped_column(String(32))
+    title: Mapped[str] = mapped_column(String(256))
+    body: Mapped[str] = mapped_column(Text, default="")
+    state: Mapped[str] = mapped_column(String(16), default=TicketState.OPEN)
+    priority: Mapped[str] = mapped_column(String(4), default=TicketPriority.P2)
+    assignee: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
+    reporter: Mapped[str] = mapped_column(String(128))
+    labels: Mapped[list] = mapped_column(JSON, default=list)
+    parent_id: Mapped[str | None] = mapped_column(String(32), nullable=True, index=True)
+    due_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # The run that opened it (agents only) and the event card in the channel.
+    run_id: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    root_message_id: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+    # Distinct from updated_at: a comment in the thread is activity but not an
+    # edit, and "stale" on the board means nobody has touched it, not that no
+    # field changed.
+    last_activity_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    # Set when the state becomes done or cancelled, cleared when it reopens.
+    closed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class TicketEvent(Base):
+    """Every change to a ticket, in the order it happened: the structured twin
+    of the system rows the thread shows, and what the board's "Today" strip —
+    the standup nobody writes — is read from. Mirrored to `tickets.events`."""
+    __tablename__ = "ticket_events"
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=lambda: uuid.uuid4().hex)
+    ticket_id: Mapped[str] = mapped_column(String(32), index=True)
+    actor: Mapped[str] = mapped_column(String(128), index=True)
+    # created | moved | assigned | edited | commented | reopened
+    kind: Mapped[str] = mapped_column(String(16))
+    from_value: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    to_value: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # The relay message this change produced — the system row, or the comment.
+    message_id: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    run_id: Mapped[str | None] = mapped_column(String(32), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
 
 
@@ -606,6 +683,12 @@ RELAY_BACKFILL_MARK = "relay-backfill-v1"
 RELAY_DM_KEY_MARK = "relay-dm-keys-v1"
 RELAY_GRANT_MARK = "relay-default-grant-v1"
 RELAY_STANDUP_MARK = "relay-standup-job-v1"
+TICKETS_SEED_MARK = "tickets-seed-v1"
+
+# The channels that become PROJECTS when Tickets ships (docs/design/20), and
+# the prefix each one's keys are stamped with. #standup is deliberately absent:
+# it is the ceremony room, and a ceremony is not a project.
+TICKETS_SEED_PREFIXES = (("general", "GEN"), ("ops", "OPS"))
 
 # The job that makes #standup a room instead of an empty channel (docs/design/19,
 # "Delight, shipped in the first cut"). 09:00 in Kyle's own zone, because the
@@ -657,6 +740,59 @@ def _ensure_relay_ddl(conn) -> None:
                     f"ALTER TABLE {table} ALTER COLUMN agent DROP NOT NULL")
         conn.exec_driver_sql("CREATE INDEX IF NOT EXISTS ix_relay_messages_body_fts "
                              "ON relay_messages USING GIN (to_tsvector('english', body))")
+
+
+def _ensure_tickets_ddl(conn) -> None:
+    """The ticket schema the model declarations cannot express (docs/design/20).
+
+    Two of the three pieces are postgres-only: a prefix is unique among the
+    channels that have one (a dm leaves it null, and nulls do not collide),
+    which wants a partial unique index, and the board's search is a GIN
+    tsvector over title and body, which sqlite has no equivalent for — the API
+    is what refuses a duplicate prefix on a sqlite test database. The third is
+    portable and is here because create_all never touches an existing table:
+    `runs` predates Tickets everywhere real, so its ticket_id index has to be
+    asked for by name."""
+    conn.execute(text("CREATE INDEX IF NOT EXISTS ix_runs_ticket_id ON runs (ticket_id)"))
+    if conn.dialect.name == "postgresql":
+        conn.exec_driver_sql("CREATE UNIQUE INDEX IF NOT EXISTS uq_conversations_ticket_prefix "
+                             "ON conversations (ticket_prefix) "
+                             "WHERE ticket_prefix IS NOT NULL")
+        conn.exec_driver_sql("CREATE INDEX IF NOT EXISTS ix_tickets_fts ON tickets "
+                             "USING GIN (to_tsvector('english', title || ' ' || body))")
+
+
+def _ensure_tickets_seed(conn) -> None:
+    """Make the two shipped rooms projects: #general is `GEN`, #ops is `OPS`.
+
+    Gated on its mark, and that gate is the off-switch, exactly as the relay
+    seeds are: once written this never looks at `conversations` again, so a
+    prefix an admin renamed stays renamed and one they cleared stays cleared.
+    `WHERE ticket_prefix IS NULL` only guards the window before the mark exists.
+
+    Not race-safe on its own: the check-then-write is serialized across services
+    by init_db's advisory lock (INIT_DB_LOCK_KEY)."""
+    from sqlalchemy import inspect as sa_inspect
+    if not sa_inspect(conn).has_table("conversations"):
+        return
+    conv_t = Conversation.__table__
+    # OUTSIDE the mark, and before it: _ensure_columns adds a column but cannot
+    # give the rows that already exist its default, so every conversation that
+    # predates Tickets carries a NULL seq — and NULL + 1 is NULL in SQL and a
+    # TypeError in Python, i.e. the first key allocated in an old room. Cheap
+    # and idempotent, so it also heals a row added by some later ALTER.
+    conn.execute(conv_t.update().where(conv_t.c.ticket_seq.is_(None))
+                 .values(ticket_seq=0))
+    mark_t = SchemaMark.__table__
+    if conn.execute(select(mark_t.c.name)
+                    .where(mark_t.c.name == TICKETS_SEED_MARK)).first():
+        return
+    for name, prefix in TICKETS_SEED_PREFIXES:
+        conn.execute(conv_t.update()
+                     .where(conv_t.c.kind == "channel", conv_t.c.name == name,
+                            conv_t.c.ticket_prefix.is_(None))
+                     .values(ticket_prefix=prefix))
+    conn.execute(mark_t.insert().values(name=TICKETS_SEED_MARK, applied_at=utcnow()))
 
 
 def _relay_human_of(conv, run) -> str:
@@ -958,3 +1094,7 @@ async def init_db(engine: AsyncEngine, default_grant: bool = True) -> None:
         await conn.run_sync(_ensure_relay_standup_job)
         await conn.run_sync(_ensure_dm_keys)
         await conn.run_sync(_ensure_relay_default_grant, default_grant)
+        # After the channel seeds, for the same reason the standup job is: a
+        # prefix belongs to a room, and #general and #ops are created above.
+        await conn.run_sync(_ensure_tickets_ddl)
+        await conn.run_sync(_ensure_tickets_seed)
