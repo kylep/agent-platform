@@ -432,7 +432,7 @@ dispatch subagents, verify their evidence, commit, and update this file.
   `/wiki/standup` at 1280 through the forward. If a step fails, add a Repair
   task rather than hand-editing the NUC.
 
-- [ ] **T11 Memory + docs close-out.**
+- [x] **T11 Memory + docs close-out.** (commit `b3757a5`; memory `agent-platform-wiki` + index, loop-orchestration memory updated)
   Design 21: Status → shipped with the date and helm revision, an "AS BUILT"
   section listing every delta the reviews and the live run forced (the ticks
   above say what they were). `docs/design/00-overview.md`: row 21.
