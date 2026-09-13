@@ -50,15 +50,13 @@ from agentplatform.relay import (AGENT_PREFIX, SYSTEM_AUTHOR, agent_name,
 from agentplatform.relay_store import (edit_message_card, enabled_agents,
                                        explicit_members, outbound_for_message,
                                        post_relay_message, publish_relay_message)
+# `one_line` is the pure layer's "somebody else's words, on one line, safe to
+# quote": a reason reaches the thread through the system row AND through the
+# assignment mention, and two sanitisers would be two answers to what a reason
+# may contain. It is the platform's one answer, shared with the wiki.
 from agentplatform.tickets import (BUDGET_PREFIX, CLOSED_STATES, REASON_LIMIT,
                                    budget_body, can_move, card_body, card_for,
-                                   event_row_text, participant_label)
-# The pure layer's "somebody else's words, on one line, safe to quote": a
-# reason reaches the thread through the system row AND through the assignment
-# mention, and two sanitisers would be two answers to what a reason may
-# contain. Private to `tickets` because nothing outside this pair should be
-# quoting user text into the platform's voice at all.
-from agentplatform.tickets import _line
+                                   event_row_text, one_line, participant_label)
 
 log = logging.getLogger("ticket_store")
 
@@ -600,7 +598,7 @@ async def _announce_assignment(session, conv, ticket, *, actor: str, assignee,
     body, mentions = "", []
     if notify and target:
         body = f"@{target} you've been assigned {ticket.key}"
-        detail = _line(reason, REASON_LIMIT)
+        detail = one_line(reason, REASON_LIMIT)
         if detail:
             body = f"{body}: {detail}"
         mentions = parse_mentions(body, await _room_agents(session, conv), actor)

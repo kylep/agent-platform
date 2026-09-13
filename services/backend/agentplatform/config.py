@@ -120,6 +120,26 @@ class Settings(BaseSettings):
     # than relay_context_messages: the thread IS the ticket's history, and a
     # hand-off that starts halfway through it repeats work already done.
     tickets_thread_context_messages: int = 40
+    # Wiki (docs/design/21). A page is permanent and shared, so a looping agent
+    # can rewrite the platform's own knowledge faster than anyone reads it:
+    # writes get an hourly cap per agent, counted from wiki_versions. Humans are
+    # not metered — a person editing 40 pages in an hour is a working afternoon.
+    wiki_agent_writes_per_hour: int = 30
+    # How many matching pages the `<wiki>` prompt block offers a run. Small on
+    # purpose: the block is summaries and slugs pointing at the wiki tool, not
+    # the wiki itself, and every page here is context every run pays for.
+    wiki_prompt_pages: int = 5
+    # Whether agent creation grants mcp__platform__wiki, same bargain as
+    # relay_default_grant: knowledge nobody can write down stays in a transcript.
+    wiki_default_grant: bool = True
+    # "nobody has touched this page in this long" — the gardener's stale list
+    # and the stats. Long, because a page that is still true needs no edits;
+    # stale means unreviewed, not wrong.
+    wiki_stale_days: int = 30
+    # Hard cap on a page body, in bytes. Every version stores the FULL body, so
+    # this is what makes the history affordable — and a page past this size is
+    # one nobody reads anyway, it wants splitting and a [[link]].
+    wiki_max_body_bytes: int = 65536
     # (The news pipeline settings are gone: news presentation lives in the news
     # APP now — the recorder just honors each manifest's `result_topic`.)
 

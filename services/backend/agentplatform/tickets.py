@@ -49,7 +49,7 @@ _WHITESPACE_RE = re.compile(r"\s+")
 TITLE_LIMIT, REASON_LIMIT, LABEL_LIMIT = 120, 200, 64
 
 
-def _line(text, limit: int) -> str:
+def one_line(text, limit: int) -> str:
     """One line of somebody else's text, safe to interpolate into a sentence the
     platform writes in its own voice.
 
@@ -163,7 +163,7 @@ def card_for(ticket, *, url_base: str) -> dict:
     the Relay client renders it directly, and the Discord bridge falls back to
     the body below when it cannot."""
     return {"type": "ticket", "key": ticket.key,
-            "title": _line(ticket.title, TITLE_LIMIT),
+            "title": one_line(ticket.title, TITLE_LIMIT),
             "state": str(ticket.state), "priority": str(ticket.priority),
             "assignee": ticket.assignee,
             "url": f"{(url_base or '').rstrip('/')}/tickets/{ticket.key}"}
@@ -173,8 +173,8 @@ def card_body(ticket) -> str:
     """The card message's plain text. It exists because the Discord mirror (and
     any other bridge) gets the body and not the card, so the sentence has to
     carry the ticket on its own."""
-    return (f"🎫 {ticket.key} · {_line(ticket.title, TITLE_LIMIT)} — opened by "
-            f"{_line(participant_label(ticket.reporter), LABEL_LIMIT)}")
+    return (f"🎫 {ticket.key} · {one_line(ticket.title, TITLE_LIMIT)} — opened by "
+            f"{one_line(participant_label(ticket.reporter), LABEL_LIMIT)}")
 
 
 def event_row_text(event, actor_label: str, key: str) -> str:
@@ -190,10 +190,10 @@ def event_row_text(event, actor_label: str, key: str) -> str:
         text = f"{actor_label} opened {key}"
     elif kind == "moved":
         text = (f"{actor_label} moved {key} → "
-                f"{_line(state_label(event.to_value), LABEL_LIMIT)}")
+                f"{one_line(state_label(event.to_value), LABEL_LIMIT)}")
     elif kind == "assigned":
         text = (f"{actor_label} assigned {key} to "
-                f"{_line(participant_label(event.to_value), LABEL_LIMIT)}"
+                f"{one_line(participant_label(event.to_value), LABEL_LIMIT)}"
                 if event.to_value else f"{actor_label} unassigned {key}")
     elif kind == "edited":
         text = f"{actor_label} edited {key}"
@@ -205,7 +205,7 @@ def event_row_text(event, actor_label: str, key: str) -> str:
         # Not a fallback: an unknown kind would put a sentence in the room that
         # describes nothing, and the kinds are a closed set the store controls.
         raise ValueError(f"unknown ticket event kind: {kind!r}")
-    reason = _line(getattr(event, "reason", None), REASON_LIMIT)
+    reason = one_line(getattr(event, "reason", None), REASON_LIMIT)
     return f"{text}: {reason}" if reason else text
 
 
