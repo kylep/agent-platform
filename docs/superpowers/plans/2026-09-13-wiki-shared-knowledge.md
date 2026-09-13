@@ -408,7 +408,7 @@ dispatch subagents, verify their evidence, commit, and update this file.
   `tests/test_wiki_api.py` and `services/mcp-broker/test_wiki_tool.py`;
   regenerate the SDK.
 
-- [ ] **T10 Build, deploy to the NUC, live-verify cite / write / promote / conflict.**
+- [x] **T10 Build, deploy to the NUC, live-verify cite / write / promote / conflict.** (helm rev 55 at 14:03 EDT; promote/write/conflict/stats PASS, cite PARTIAL → R1; evidence under "Live verification"; screenshots `scratchpad/live/wiki-home-1280.png`, `wiki-page-1280.png`)
   Deploy exactly as Tickets' T10 did (protocol step 9; all four images —
   backend, web, mcp-broker, mcp-facade — plus helm upgrade for the new topic).
   Through the ssh forward: `init_db` seeded `home`, `#wiki`, the `wiki`
@@ -446,6 +446,27 @@ dispatch subagents, verify their evidence, commit, and update this file.
 ### Repairs
 (added by the loop when the definition of done fails)
 
+- [ ] **R1 The `<wiki>` prompt block never fires on postgres: the search ANDs every term.**
+  Live: `@news where does Kyle live? …` summoned news with no `<wiki>` block
+  (it answered from the tool instead); `GET /api/wiki/pages?q=kyle location`
+  → `[kyle-location]` but `q=news kyle location` → `[]`; `@pai kyle location`
+  (a 3-letter mention that `_search_words` drops) DID get the block. Root
+  cause: `wiki_store._pg_search` uses `plainto_tsquery`, which ANDs terms,
+  while the sqlite branch ORs candidates and ranks by overlap — the suite
+  only runs sqlite. Fix: (a) in `relay_router._wiki_pages` strip `@mentions`
+  from the match text before searching (the summoned agent's own name is
+  never a page term); (b) in `_pg_search` build an OR query from the same
+  `_search_words` list — `to_tsquery('english', 'w1 | w2 | …')` over
+  words already restricted to `[a-z0-9]+` (or `websearch_to_tsquery` with
+  ` OR `), keep `ts_rank` ordering and the indexed match expression; (c) add
+  a compile test asserting the postgres SQL contains `|` (or `OR`) and not a
+  bare `plainto_tsquery`, and a router test that a summons `@news where does
+  Kyle live?` matches a `kyle-location` page on sqlite too (mentions
+  stripped). Then rebuild the backend image, redeploy api/dispatcher/recorder
+  (+ facade) with the scratchpad `t20-redeploy.sh` pattern, and re-run T10
+  scenario 2 (`t21-verify.py` step 2): the run's prompt must contain
+  `<wiki`. Record the result under "Live verification".
+
 ### Deferred
 (low/medium review findings not fixed; each with file:line and one sentence)
 - T9: `WikiPromoteIn` accepts `agent` alongside `memory_id` and silently ignores it; the validator should refuse the combination like it refuses `memory_id`+`key`.
@@ -467,7 +488,144 @@ page that turned a wanted link blue, and a 409 on a stale base version; the
 wiki renders on the NUC (screenshot paths recorded).
 
 ## Live verification
-(evidence tables, written by T10)
+
+Run 2026-09-13, 18:03–18:09 UTC, against the production NUC (`pai`) through
+the ssh forward at `http://localhost:18090`. Deploy log:
+`scratchpad/deploy22.out` (`EXIT=0`); verify script: `scratchpad/t21-verify.py`
+(`step0 … step4`, `stats`); screenshot script: `scratchpad/t21-shot.mjs`.
+
+### Deploy
+
+`helm upgrade` at 14:00:54 local (18:00:54 UTC) took the release to
+**REVISION 55** — `agent-platform-0.1.0`, `DESCRIPTION: Upgrade complete`,
+superseding revision 54 from 00:07 the same day. Six rollouts all reported
+`successfully rolled out` in order: `ap-api`, `ap-dispatcher`, `ap-recorder`,
+`ap-web`, `ap-mcp-broker`, and then `ap-mcp-facade` last (it reads the API's
+OpenAPI at boot), finishing 18:03:21 UTC. The post-deploy pod list shows the
+six old pods `Terminating` and no new pod in anything but `Running`; the one
+non-Running row, `ap-pg-backup-29818560-msrdf 0/1 Error (2d2h)`, is the known
+catch-up backup pod and predates this deploy. The Kafka topic list printed
+after the rollout reads `relay.invocations relay.messages tickets.events
+wiki.events` — **`wiki.events` exists**. The relay router rejoined its group
+(`relay-router` generation 10) and reassigned partitions cleanly.
+
+### Preflight (T10 step 0)
+
+| check | result |
+| --- | --- |
+| `GET /api/wiki/stats` | 200 — `pages=1 wanted=2 stale=0`, `budget.limit=30`, `edits_24h=[system:wiki ×1]` |
+| `GET /api/wiki/pages/home` | 200 — v1, `created_by=system:wiki`, links `['deploying', 'standup']` — both present |
+| `GET /api/wiki/wanted` | 200 — `[{deploying, linked_from:[home]}, {standup, linked_from:[home]}]` |
+| `GET /api/relay/channels` | `['general', 'ops', 'qa', 'standup', 'wiki']` — `#wiki` present, id `c041e64dd3884b1a83bc0a45b18d9bed`, topic "every edit, as a diff card" |
+| `GET /api/agents/wiki` | 200 — `system=true`, `enabled=true`, `platform_tools=['mcp__platform__relay','mcp__platform__tickets','mcp__platform__wiki']` |
+| every enabled agent has `mcp__platform__wiki` | 11 of 11 enabled agents; `missing=[]` |
+| `GET /api/jobs` → `wiki-gardener` | id `fd8c920f7ef747a385a11482834ac830`, `cron='0 10 * * 0'`, `timezone=America/Toronto`, `enabled=true`, `relay_channel='wiki'` |
+
+Relay before: `invocations_24h=25 messages_24h=187 agent_messages_24h=39
+suppressed_24h=1`.
+
+### Scenario 1 — promote a memory (PASS)
+
+| when (UTC) | actor | event | run | outcome |
+| --- | --- | --- | --- | --- |
+| 18:03:56 | admin | `GET /api/memories?agent=pai` | — | keys `['User', 'Location', 'tone']`; `Location` = id `8658254c011f4feebb1b622180a7c670` |
+| 18:03:57 | admin | `POST /api/wiki/promote {memory_id, slug: kyle-location, title: "Kyle's location"}` | — | **200**, page `fa7e7fc978ea4198b591a44dc5666159` v1, `source_memory_id=8658254c011f4feebb1b622180a7c670`, `tags=['memory','pai']`, body = the memory plus "Promoted from pai's memory `Location` on 2026-09-13" |
+| 18:03:57.256 | platform | newest message in `#wiki` | — | `kind="event"`, `card.type="wiki"`, `card.slug="kyle-location"`, `card.version=1`, `card.author="user:admin"`, `card.reason="promoted from memory"`, `+3 −0`, `url=/wiki/kyle-location` |
+
+### Scenario 2 — an agent cites a page (PARTIAL — see "What did not happen")
+
+| when (UTC) | actor | message | run | outcome |
+| --- | --- | --- | --- | --- |
+| 18:04:02 | admin | `#general` "@news where does Kyle live? Cite the wiki page you used." (msg `7cc756548c3b420e81119c24bfff8947`) | — | 200, `mentions=['news']`, hop 0 |
+| 18:04:16 | agent:news | "Kyle lives in Whitby, Ontario, Canada — per wiki page `[[kyle-location]]`." (msg `f87c9f5cea894bc5af3495900e392804`) | `85e128b8ef604528a667a1644ffe4a3b` | reply at hop 1, run `succeeded`; the `[[kyle-location]]` citation is correct |
+| 18:04:22 | admin | `GET /api/runs/85e128b8…` | — | `prompt_len=7512`; `<relay-messages>` and `<your-tickets>` present, **`<wiki` absent** — the answer came from the `wiki` MCP tool, not from a prompt block |
+| 18:04:22 | admin | `GET /api/wiki/pages/kyle-location` | — | `cited_in.count=1` (was 0), last = that message by `agent:news` |
+
+Follow-up experiments, to separate "the block is broken" from "the query
+missed":
+
+| when (UTC) | probe | result |
+| --- | --- | --- |
+| 18:05:35 | `#general` "@news kyle location" → run `5eb129a54f1e47a7a11ace7a95409148` | reply cites `[[kyle-location]]`; prompt still has **no** `<wiki` block |
+| 18:06:12 | `GET /api/wiki/pages?q=…` against the live postgres FTS | `'kyle'` → `[kyle-location]`; `'location'` → `[kyle-location]`; `'kyle location'` → `[kyle-location]`; **`'news kyle location'` → `[]`**; `'news where kyle live cite wiki page used'` → `[]` |
+| 18:06:59 | `#general` "@pai kyle location" (`@pai` is 3 chars, so `_search_words` drops it and every remaining word is in the page) → run `0d585ca0493247f69427ec68819949a5` | prompt **does** carry `<wiki count="1">` / `[[kyle-location]] · Kyle's location · User lives in Whitby, Ontario, Canada` / `</wiki>`; reply cites `[[kyle-location]]` |
+
+Root cause, from the code the probes point at:
+`wiki_store.search_for_prompt`'s postgres branch (`_pg_search`, wiki_store.py
+:513) builds `plainto_tsquery('english', ' '.join(words))`, which **ANDs**
+every term, while the sqlite branch (wiki_store.py:494–510) ORs the candidates
+and ranks by overlap count. In production every summons therefore has to have
+all of its ≥4-character words present in one page — and the summons always
+contains the mentioned agent's own name (`news`, `stockmarket`, …), which no
+page contains. The unit tests run on sqlite, so they exercise the OR branch
+and pass. The mechanism itself is proven working by the 18:06:59 probe; only
+the query that selects pages is wrong.
+
+Relay after scenario 2: `invocations_24h=26 messages_24h=190
+agent_messages_24h=40 suppressed_24h=1` (unchanged suppression).
+
+### Scenario 3 — the librarian writes a wanted page (PASS)
+
+| when (UTC) | actor | event | run | outcome |
+| --- | --- | --- | --- | --- |
+| 18:07:28 | admin | `#wiki` "@wiki write the standup page: …" (msg `30cb57fa32444cb396a838fcbd303cb2`) | — | 200, `mentions=['wiki']`, hop 0 |
+| 18:07:41.406 | agent:wiki | page `standup` created | `c79c96d91fe54ad3b3d63f4c228dadd3` | `GET /api/wiki/pages/standup` **200** at +13 s — v1, `created_by=agent:wiki`, title "Standup", body carries `#standup`, 09:00 America/Toronto daily, and the two-line answer; links `['deploying']` |
+| 18:07:41.410 | agent:wiki | `GET /api/wiki/pages/standup/history` | `c79c96d91fe54ad3b3d63f4c228dadd3` | v1 `+8 −0`, reason "Created the standup page per admin request: what #standup is, its 09:00 America/Toronto daily cadence, and the two-line answer format expected from agents." |
+| 18:07:41.416 | agent:wiki | newest `#wiki` card | `c79c96d91fe54ad3b3d63f4c228dadd3` | `card.type="wiki"`, `card.slug="standup"`, `card.version=1`, `card.author="agent:wiki"`, hop 1 |
+| 18:07:48 | admin | `GET /api/wiki/wanted` | — | `['deploying']` — **`standup` no longer wanted** |
+| 18:07:51.273 | agent:wiki | reply in `#wiki` (msg `a90f5d479d484ea3981f7d4201bf659e`, hop 1) | `c79c96d91fe54ad3b3d63f4c228dadd3` | "Wrote [[standup]]: `#standup` fires **09:00 America/Toronto daily**, and each agent answers in two lines — 1) what you did in the last 24h + tickets moved, 2) what's blocked. [[deploying]] doesn't exi…" |
+
+The librarian's own page links `[[deploying]]`, so `wanted` now reports
+`deploying` as `linked_from: ['home', 'standup']` — the red link propagated
+rather than being consumed.
+
+### Scenario 4 — stale `base_version` is refused (PASS)
+
+| when (UTC) | actor | event | outcome |
+| --- | --- | --- | --- |
+| 18:08:04 | admin | `GET /api/wiki/pages/standup` | V = **1**, `updated_by=agent:wiki` |
+| 18:08:05.005 | admin | `PUT /api/wiki/pages/standup {base_version: 1, reason: "live check"}` | **200**, version **2**, `updated_by=user:admin`; history v2 `+2 −0`, `run_id=null` (a human write) |
+| 18:08:05 | admin | `PUT` again with `base_version: 1` | **409** — `{"detail": "standup is at v2, not the version you read", "current_version": 2, "current_summary": "`#standup` is the channel where every agent posts a daily status update. It fires at **09:00 America/Toronto, daily**."}` |
+
+### Stats deltas (before → after, 18:03:50 → 18:08:10 UTC)
+
+| metric | before | after | delta |
+| --- | --- | --- | --- |
+| `wiki.pages` | 1 | 3 | +2 (`kyle-location`, `standup`) |
+| `wiki.wanted` | 2 | 1 | −1 (`standup` written; `deploying` still red) |
+| `wiki.stale` | 0 | 0 | 0 |
+| `wiki.edits_24h` | `system:wiki ×1` | `user:admin ×2, agent:wiki ×1, system:wiki ×1` | +3 versions |
+| `wiki.budget` | `limit=30`, no agents | `limit=30`, `wiki: used=1 left=29` | the librarian's one write is metered |
+| `relay.invocations_24h` | 25 | 29 | +4 (news ×2, pai ×1, wiki ×1) |
+| `relay.messages_24h` | 187 | 198 | +11 |
+| `relay.agent_messages_24h` | 39 | 44 | +5 |
+| `relay.suppressed_24h` | 1 | 1 | 0 — no hop-limit, budget, not-member, coalesced or facade suppression fired |
+| `tickets/stats` | — | — | **byte-identical before and after**; the wiki touched nothing on the board |
+
+### Screenshots
+
+- `scratchpad/live/wiki-home-1280.png` — `/wiki` at 1280×860: the header counts
+  "3 pages · 1 wanted · 0 stale", a search box, MEMORY/PAI tag chips, RECENT
+  CHANGES listing `standup` v2 / `kyle-location` v1 / `home` v1 with faces and
+  relative times, a WANTED entry for `deploying`, and the home page body on the
+  right where `[[standup]]` now renders as a live green chip while
+  `[[deploying]]` is still a red wanted link.
+- `scratchpad/live/wiki-page-1280.png` — `/wiki/standup` at 1280×860: the page
+  the librarian wrote, showing "v2 · you · just now · cited in 1 message · wiki
+  just now", Edit/History buttons, the rendered two-line standup instructions
+  with a red `[[deploying]]` chip and the admin's appended "Verified live.",
+  and a BACKLINKS panel listing `Home`.
+
+### What did not happen
+
+- **The `<wiki>` prompt block never fired for the scenario-2 summons.** The
+  citation itself worked (the agent used the `wiki` tool and `cited_in` went
+  0 → 1 → 3), but the assertion that the run's prompt contained `<wiki` failed
+  for both `@news` summonses. Diagnosed to `_pg_search`'s AND semantics, above;
+  the block is proven to render correctly when the query matches. Needs a
+  Repair task — it is a production-only bug the sqlite-backed suite cannot see.
+- Nothing else timed out: every poll in scenarios 1, 3 and 4 resolved inside
+  its first or second tick.
 
 ## Handoff to Kyle
 (commands the loop could not run because the auto-mode classifier refused them, ready to paste)
