@@ -290,7 +290,7 @@ dispatch subagents, verify their evidence, commit, and update this file.
 
 ### Phase 3 — the agents' side
 
-- [ ] **T5 The `<wiki>` prompt block, the `wiki` librarian agent, the gardener job.** `[parallel with T6]` (owns `relay.py`, `relay_router.py`, `relay_store.py`, `db.py` seeds, `scheduler.py` if needed, their tests)
+- [x] **T5 The `<wiki>` prompt block, the `wiki` librarian agent, the gardener job.** (commit `4ca1440`; review fixed: postgres ranking reads tags, gardener job adopted by name, sqlite scan capped) `[parallel with T6]` (owns `relay.py`, `relay_router.py`, `relay_store.py`, `db.py` seeds, `scheduler.py` if needed, their tests)
   In `relay.build_mention_prompt` add an optional `wiki_pages` list rendered
   as a `<wiki>` block inside the untrusted region (after `<relay-messages>`,
   before `<your-tickets>`): each `[[slug]] · title · summary` escaped with
@@ -319,7 +319,7 @@ dispatch subagents, verify their evidence, commit, and update this file.
   — both ensures idempotent, the agent row's grants and `system` flag, the
   job's cron/timezone/channel.
 
-- [ ] **T6 Broker tool `wiki`.** `[parallel with T5]` (owns `services/mcp-broker/*`)
+- [x] **T6 Broker tool `wiki`.** (commit `1db4d30`; review fixed: archived-slug guidance, flattened list/history rows (tickets too), 403 on memory listing named, slug regex anchored) `[parallel with T5]` (owns `services/mcp-broker/*`)
   In `broker.py` add `@mcp.tool @_metered("wiki") async def wiki(action, …)`
   with the design's eight actions, next to `tickets` and in its voice: every
   slug from model text passes `SLUG_RE` before a URL is built (else `error:
@@ -399,6 +399,14 @@ dispatch subagents, verify their evidence, commit, and update this file.
   (design-21)" section to design 17 with the reasoning. Verify in the 3.12
   venv (scratchpad `facade-venv`; `pip install -q -e services/backend` first).
   Confirm `sdk/regenerate.py` is a no-op and CI needs no change.
+  **Addition from T6:** `POST /api/wiki/promote` should accept `key` as an
+  alternative to `memory_id`, resolved server-side in the caller's own
+  namespace (an agent's participant token cannot list `/api/memories`, which
+  is `READ_ROLES`, so the broker's key lookup 403s for most agents); a human
+  passing `key` must also pass `agent`. Then the broker's `promote` sends
+  `{key}` straight through instead of resolving it. Tests in
+  `tests/test_wiki_api.py` and `services/mcp-broker/test_wiki_tool.py`;
+  regenerate the SDK.
 
 - [ ] **T10 Build, deploy to the NUC, live-verify cite / write / promote / conflict.**
   Deploy exactly as Tickets' T10 did (protocol step 9; all four images —
