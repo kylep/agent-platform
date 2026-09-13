@@ -247,7 +247,7 @@ dispatch subagents, verify their evidence, commit, and update this file.
   commit leaves nothing applied; a publish failure after commit leaves a
   consistent page.
 
-- [ ] **T4 API `/api/wiki/*`, the participant role widened, default grant, SSE, stats, promote.**
+- [x] **T4 API `/api/wiki/*`, the participant role widened, default grant, SSE, stats, promote.** (commit `c859391`; review fixed: archive-twice guarded under the lock, `require_wiki_access` requires the wiki grant for agent callers, lost create race → 409 via WikiExistsError, citations scoped to the reader's rooms, count_capped; facade SSE exclusion + counts 85/111 landed here, T9 decides the DELETE gate)
   New router `api/wiki.py` implementing every route in the design's "API"
   section over `wiki_store`, with `api/schemas.py` models (`WikiPageView`
   incl. `updated_by_face`, `WikiVersionView`, `WikiHistoryRow`,
