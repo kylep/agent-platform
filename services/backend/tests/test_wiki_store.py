@@ -681,14 +681,61 @@ def test_the_postgres_search_matches_the_index_and_ranks_on_tags():
     from sqlalchemy.dialects import postgresql
 
     from agentplatform.db import WikiPage
-    sql = " ".join(str(store._pg_search(
+    compiled = store._pg_search(
         select(WikiPage).where(WikiPage.archived_at.is_(None)),
-        ["dedup", "rule"], 5).compile(dialect=postgresql.dialect())).split())
-    match = sql.partition("WHERE ")[2].partition(" ORDER BY ")[0]
+        ["dedup", "rule"], 5).compile(dialect=postgresql.dialect())
+    sql = " ".join(str(compiled).split())
+    inner, _, outer = sql.rpartition(" ORDER BY ")
+    match = inner.partition("WHERE ")[2].partition(" ORDER BY ")[0]
     assert "wiki_pages.title || %(title_1)s || wiki_pages.body" in match
     assert "tags" not in match
-    rank = sql.partition(" ORDER BY ")[2]
-    assert "ts_rank" in rank and "CAST(wiki_pages.tags AS TEXT)" in rank
+    assert "ts_rank" in outer and "tags AS TEXT)" in outer
+    # And the tag-inclusive rank is computed over a BOUNDED set: the indexed
+    # match picks the candidates and stops, the way the sqlite branch does.
+    assert sql.count("LIMIT") == 2
+    assert store.SEARCH_CANDIDATES_MAX in compiled.params.values()
+
+
+def test_the_postgres_search_ors_its_words_the_way_the_fallback_does():
+    """The regression the LIVE wiki caught: `plainto_tsquery` ANDs its terms,
+    so a summons matched nothing on postgres while sqlite matched the page.
+
+    The text this search is handed is whatever the room said, which is always
+    more words than any one page contains — "where does Kyle live?" has to find
+    the page about Kyle. Both halves therefore OR the words and let the RANK
+    decide, which is what the sqlite branch has always done (it ORs the LIKEs
+    and scores the overlap)."""
+    from sqlalchemy import select
+    from sqlalchemy.dialects import postgresql
+
+    from agentplatform.db import WikiPage
+    compiled = store._pg_search(
+        select(WikiPage).where(WikiPage.archived_at.is_(None)),
+        ["dedup", "rule"], 5).compile(dialect=postgresql.dialect())
+    sql = " ".join(str(compiled).split())
+    assert "plainto_tsquery" not in sql and "to_tsquery" in sql
+    # The whole OR-expression is ONE bound parameter, never interpolated.
+    assert "dedup | rule" in compiled.params.values()
+
+
+def test_the_postgres_search_never_hands_tsquery_an_operator():
+    """`to_tsquery` parses its argument, so a `!` or a `:` that reached it
+    would be a syntax error on a live summons rather than a miss. The words
+    come from `_search_words`, which only ever emits `[a-z0-9]+`; this is the
+    guard that keeps that true at the seam where the SQL is built."""
+    from sqlalchemy import select
+    from sqlalchemy.dialects import postgresql
+
+    from agentplatform.db import WikiPage
+    live = select(WikiPage).where(WikiPage.archived_at.is_(None))
+    compiled = store._pg_search(
+        live, ["dedup", "rule!", "a:b", "ok"], 5).compile(
+            dialect=postgresql.dialect())
+    assert "dedup | ok" in compiled.params.values()
+    # Nothing left to ask for is a search that matches nothing, not a query.
+    sql = str(store._pg_search(live, ["!!"], 5).compile(
+        dialect=postgresql.dialect()))
+    assert "tsquery" not in sql
 
 
 async def test_search_for_prompt_caps_what_it_scores(sf, monkeypatch):

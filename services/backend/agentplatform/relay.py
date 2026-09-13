@@ -48,6 +48,14 @@ _MENTION_RE = re.compile(r"(?<![^\s(\[\"])@([A-Za-z0-9][A-Za-z0-9-]*)(?![A-Za-z0
 # live mention".
 _FENCE = r"```.*?(?:```|\Z)"
 _CODE_RE = re.compile(_FENCE + r"|`[^`]*`", re.DOTALL)
+# Mentions to drop, code spans to KEEP — the same alternation trick as the
+# rule below, matching code first. `parse_mentions` blanks code because a
+# quoted `@news` must not summon; a search over the same text wants the words
+# inside a pasted traceback, where `@pytest.mark.flaky` is a decorator.
+_CODE_OR_MENTION_RE = re.compile(
+    r"(?P<code>" + _FENCE + r"|`[^`]*`)"
+    r"|(?<![^\s(\[\"])@[A-Za-z0-9][A-Za-z0-9-]*(?![A-Za-z0-9-])",
+    re.DOTALL)
 _CODE_OR_ROOM_RE = re.compile(
     r"(?P<code>" + _FENCE + r"|`[^`]*`)"
     r"|(?<![^\s(\[\"])@(?P<word>" + "|".join(ROOM_MENTIONS) + r")(?![A-Za-z0-9-])",
@@ -138,6 +146,21 @@ def strip_room_mentions(body: str) -> str:
     address to everyone."""
     return _CODE_OR_ROOM_RE.sub(
         lambda m: m.group("code") if m.group("code") else m.group("word"), body or "")
+
+
+def strip_mentions(text: str) -> str:
+    """`text` with every `@name` address removed: the question, without who it
+    was asked of.
+
+    What a room is TALKING ABOUT is never the name it summoned. Matching the
+    wiki on "@news" drags in every page that mentions the news job, and on a
+    search that ANDs its terms it cost the summons its `<wiki>` block outright
+    (docs/design/21). Room mentions go the same way — `@all` is who, not what.
+    The `@` and the name become a space so the words either side still split.
+    Code spans survive whole: unlike `parse_mentions`, which blanks them so a
+    quoted `@news` cannot summon, this keeps what a pasted traceback says."""
+    return _CODE_OR_MENTION_RE.sub(
+        lambda m: m.group("code") if m.group("code") else " ", text or "")
 
 
 def face_for(name: str) -> dict:

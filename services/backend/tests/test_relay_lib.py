@@ -16,7 +16,7 @@ from agentplatform.relay import (AGENT_PREFIX, ALL, FACES, ROOM_MENTIONS, USER_P
                                  agent_name, build_mention_prompt, face_for,
                                  is_agent, is_member, is_open_channel,
                                  mentionable_in, parse_mentions, participant_of,
-                                 strip_room_mentions)
+                                 strip_mentions, strip_room_mentions)
 from agentplatform.relay_store import context_window
 
 AGENTS = {"news", "pai", "news-bot", "health-monitor"}
@@ -146,7 +146,27 @@ def test_strip_room_mentions(body, want):
     assert strip_room_mentions(body) == want
 
 
+@pytest.mark.parametrize("body,want", [
+    ("@news where does Kyle live?", "  where does Kyle live?"),
+    ("@all @here look", "    look"),                           # rooms go too
+    ("@news-bot and @News", "  and  "),                        # hyphens, any case
+    ("mail a@news.com", "mail a@news.com"),                    # email untouched
+    # Code is prose to a search: a pasted traceback's decorator is not an
+    # address, and blanking it would take the words around it with it.
+    ("see `@app.route` here", "see `@app.route` here"),
+    ("```py\n@given(st.text())\ndef f(): ...\n```",
+     "```py\n@given(st.text())\ndef f(): ...\n```"),
+    ("```\n@news\n(cut off", "```\n@news\n(cut off"),          # unclosed fence
+    ("nothing to strip", "nothing to strip"),
+    ("", ""),
+])
+def test_strip_mentions(body, want):
+    assert strip_mentions(body) == want
+
+
 def test_faces_are_single_codepoint_and_distinct():
+
+
     assert len(FACES) >= 32
     assert len(set(FACES)) == len(FACES)
     for e in FACES:

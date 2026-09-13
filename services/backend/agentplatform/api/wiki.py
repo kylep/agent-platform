@@ -152,7 +152,15 @@ def _matching(bind, q: str):
     sqlite has no such index and falls back to a substring match ordered by
     recency, exactly the dialect fork the ticket board's `q` makes. A wiki
     search is over documents rather than headlines, which is why this one takes
-    the stemmed index where Tickets deliberately does not."""
+    the stemmed index where Tickets deliberately does not.
+
+    `plainto_tsquery` ANDs the words, and that is the choice here even though
+    the PROMPT search (`wiki_store._pg_search`) deliberately ORs them: a search
+    box is a person narrowing down, who can drop a word and look again, while
+    the prompt search is handed a whole room's worth of talk with nobody to ask.
+    ANDing also keeps the two dialects honest about each other — a substring
+    match on the phrase is narrow in the same direction, where an OR on one side
+    only would make the UI answer differently on a dev's sqlite than in prod."""
     if bind.dialect.name == "postgresql":
         vector = func.to_tsvector("english", WikiPage.title + " " + WikiPage.body)
         query = func.plainto_tsquery("english", q)

@@ -35,8 +35,9 @@ import re
 from datetime import timedelta
 from types import SimpleNamespace
 
-from sqlalchemy import Text, cast, delete, func, or_, select
+from sqlalchemy import Text, cast, delete, false, func, or_, select
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import aliased
 
 from agentplatform.config import get_settings
 from agentplatform.db import (Conversation, RelayMessage, WikiLink, WikiPage,
@@ -68,11 +69,18 @@ PROMOTE_REASON = "promoted from memory"
 # a pasted log, and every word past this one is another OR clause on a query
 # that runs on every mention in every room.
 SEARCH_WORDS_MAX = 12
-# How many matching pages the sqlite fallback will score. Its ranking happens
-# in Python, so every candidate is a row that crosses the wire — and the block
-# it feeds is five lines long. Newest-first, because a wiki big enough to hit
-# this is one where the page somebody touched last week is the likelier answer.
+# How many matching pages either branch will rank, and the block they feed is
+# five lines long. sqlite ranks in Python, so every candidate is a row that
+# crosses the wire — newest-first, because a wiki big enough to hit this is one
+# where the page somebody touched last week is the likelier answer; postgres
+# ranks in the query, and the cap is what keeps an OR over a dozen words from
+# re-scoring the whole table on every summons.
 SEARCH_CANDIDATES_MAX = 200
+# What may be handed to `to_tsquery`, which PARSES its argument: a stray `!`,
+# `:`, `&` or `(` in there is a syntax error on a live summons, not a miss.
+# `_search_words` only ever emits these, and `_pg_search` re-checks at the seam
+# where the SQL is actually built.
+TSQUERY_WORD_RE = re.compile(r"[a-z0-9]+")
 
 
 class WikiRuleError(ValueError):
@@ -520,14 +528,40 @@ def _pg_search(live, words: list[str], limit: int):
     because it is only ever computed over the handful of rows the index already
     returned, so that is where the tags go: `::text` on the JSON array is
     enough, since to_tsvector splits on the brackets and the quotes and leaves
-    the tags themselves standing as words."""
-    query = func.plainto_tsquery("english", " ".join(words))
+    the tags themselves standing as words.
+
+    Hence the subquery: the index picks `SEARCH_CANDIDATES_MAX` rows and stops,
+    and only those pay for the tag-inclusive `ts_rank`. An OR over a dozen
+    words is a wide net, and on a wiki where every page shares a word with the
+    room it would otherwise re-rank the whole table on every summons — the same
+    bound the sqlite branch puts on what it will score.
+
+    The words are ORed, which is the whole point and was the live bug: this is
+    handed whatever the ROOM said, and a room always says more words than any
+    one page contains, so `plainto_tsquery` — which ANDs its terms — answered
+    "where does Kyle live?" with nothing while the sqlite fallback (ORed LIKEs,
+    ranked on the overlap) found the page. `ts_rank` is what sorts the wider
+    net, exactly as the overlap count does over there. The whole expression
+    goes in as ONE bound parameter; nothing is interpolated into the SQL."""
+    safe = [w for w in words if TSQUERY_WORD_RE.fullmatch(w)]
+    if not safe:
+        # Nothing askable survived: a search that matches nothing, not a
+        # `to_tsquery('')` for postgres to raise a notice about.
+        return live.where(false()).limit(limit)
+    # Words that are all stopwords ("where does this") parse to an EMPTY
+    # tsquery, which matches nothing — a miss, never an error.
+    query = func.to_tsquery("english", " | ".join(safe))
     indexed = func.to_tsvector("english", WikiPage.title + " " + WikiPage.body)
-    ranked = func.to_tsvector("english", WikiPage.title + " "
-                              + cast(WikiPage.tags, Text) + " " + WikiPage.body)
-    # Ties broken by slug for the reason the other branch breaks them there.
-    return (live.where(indexed.op("@@")(query))
-            .order_by(func.ts_rank(ranked, query).desc(), WikiPage.slug)
+    # Ties broken by slug for the reason the other branch breaks them there,
+    # in BOTH passes: the inner one decides which rows the outer gets to see.
+    candidates = (live.where(indexed.op("@@")(query))
+                  .order_by(func.ts_rank(indexed, query).desc(), WikiPage.slug)
+                  .limit(SEARCH_CANDIDATES_MAX)).subquery()
+    page = aliased(WikiPage, candidates)
+    ranked = func.to_tsvector("english", page.title + " "
+                              + cast(page.tags, Text) + " " + page.body)
+    return (select(page)
+            .order_by(func.ts_rank(ranked, query).desc(), page.slug)
             .limit(limit))
 
 
@@ -537,8 +571,9 @@ def _search_words(text: str) -> list[str]:
 
     Short words are dropped because they are noise — "the" matches half the
     wiki — and the cap is what keeps a pasted stack trace from turning into a
-    hundred-clause OR. Alphanumerics only, which is also why no ILIKE escaping
-    is needed below: `%` and `_` cannot survive the split."""
+    hundred-clause OR. Alphanumerics only, which is what makes both branches
+    safe without escaping: `%` and `_` cannot survive the split for the ILIKEs,
+    and neither can a `!` or a `:` for postgres's `to_tsquery`."""
     seen: list[str] = []
     for word in re.findall(r"[a-z0-9]+", (text or "").lower()):
         if len(word) >= 4 and word not in seen:

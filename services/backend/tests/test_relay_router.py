@@ -1103,3 +1103,34 @@ async def test_the_thread_is_matched_too_not_just_the_summons(make_router, sf):
                       "the dedup rule bit us again this morning")
     await _say(router, sf, cid, "user:admin", "@ada thoughts?", reply_to=root)
     assert "[[dedup-rule]]" in (await _runs(sf))[0].prompt
+
+
+async def test_the_summoned_agents_own_name_is_not_a_search_term(make_router, sf):
+    """The address is not part of the question. `@news where does Kyle live?`
+    is about Kyle; matching on "news" as well pulls in every page that happens
+    to mention the agent and — on postgres, where the terms were ANDed — cost
+    the room its `<wiki>` block entirely (the LIVE bug). Room mentions go the
+    same way: `@all` is who is being asked, not what about."""
+    router = await make_router(agents=("news", "bob"))
+    await _page(sf, "kyle-location", "Kyle's location", summary="Whitby, Ontario",
+                body="Kyle lives in Whitby, east of Toronto.")
+    await _page(sf, "news-desk", "News desk", body="how the news job runs")
+    cid = await _channel(sf)
+    await _say(router, sf, cid, "user:admin", "@news where does Kyle live?")
+
+    prompt = (await _runs(sf))[0].prompt
+    assert "[[kyle-location]] · Kyle's location · Whitby, Ontario" in prompt
+    assert "[[news-desk]]" not in prompt
+
+
+async def test_a_pasted_traceback_still_matches_what_it_is_about(make_router, sf):
+    """Code is prose to the search. `@pytest` in a pasted stack trace is a
+    decorator, not an address — blanking it the way mention PARSING does would
+    lose the one word that says what the room is asking about."""
+    router = await make_router(agents=("news", "bob"))
+    await _page(sf, "pytest-runner", "Pytest", summary="how we run it",
+                body="our runner, invoked by the platform")
+    cid = await _channel(sf)
+    await _say(router, sf, cid, "user:admin",
+               "@news why does this flake?\n```py\n@pytest.mark.flaky\ndef f(): ...\n```")
+    assert "[[pytest-runner]]" in (await _runs(sf))[0].prompt

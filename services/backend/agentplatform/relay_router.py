@@ -38,7 +38,7 @@ from agentplatform.materialize import materialize_run
 from agentplatform.relay import (AGENT_PREFIX, ALL, SYSTEM_AUTHOR, USER_PREFIX,
                                  agent_name, build_mention_prompt, is_agent,
                                  is_member, is_open_channel, mentionable_in,
-                                 parse_mentions)
+                                 parse_mentions, strip_mentions)
 from agentplatform.relay_store import (context_window, explicit_members, faces_for,
                                        outbound_for_message, post_relay_message,
                                        publish_relay_message)
@@ -575,10 +575,16 @@ class RelayRouter:
         page's worth of discussion is about the discussion, and matching the
         four words of the mention alone would find nothing. In the room, the
         window is the last page of whatever everyone has been saying, which is
-        not what this agent was asked."""
+        not what this agent was asked.
+
+        The `@name`s come out first: an address is who the question is for, not
+        what it is about, and leaving them in matched pages on the agent's own
+        name — on postgres, where the search ANDs its terms, it matched nothing
+        at all and the block never fired."""
         text = mention.body or ""
         if thread_root:
             text = "\n".join([*(m.body or "" for m in window), text])
+        text = strip_mentions(text)
         pages = await search_for_prompt(s, text[-WIKI_MATCH_CHARS:],
                                         limit=self.settings.wiki_prompt_pages)
         return [{"slug": p.slug, "title": p.title, "summary": p.summary}
