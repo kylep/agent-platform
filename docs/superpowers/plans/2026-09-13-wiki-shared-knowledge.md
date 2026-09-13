@@ -339,7 +339,7 @@ dispatch subagents, verify their evidence, commit, and update this file.
 
 ### Phase 4 — web UI  `[ui]`
 
-- [ ] **T7 `[ui]` Wiki home and page: render, edit with conflicts, history and diff, recent changes live.**
+- [x] **T7 `[ui]` Wiki home and page: render, edit with conflicts, history and diff, recent changes live.** (commit `2a9fcf1`, shared with T8; defect review fixed: diff error state, missing→exists live reload + create-race message, search race guard, nested-bracket link protection, mobile tables; visual: wiki chips cut to the ticket chip's pattern)
   New `services/web/src/pages/{Wiki,WikiPage}.tsx`, `components/wiki/*`,
   `lib/wiki.ts` (types, `wikiRefs` — `[[slug]]` outside fences, `slugify`).
   `/wiki`: the `home` page rendered plus a rail: search (`/` focuses, hits
@@ -369,7 +369,7 @@ dispatch subagents, verify their evidence, commit, and update this file.
   added/removed lines; an SSE `page` frame updates Recent changes; 390 never
   scrolls sideways.
 
-- [ ] **T8 `[ui]` Chips in Relay and tickets, Memories promote, dashboard tile, Help.** `[after T7 reports]` (owns `components/relay/Message.tsx` only through the shared `lib/chips.ts` T7 made, `pages/Memories.tsx`, `pages/Dashboard.tsx`, `pages/TicketDetail.tsx` (body render only), `docs/building-blocks/*`; adds fixtures/smoke rows only)
+- [x] **T8 `[ui]` Chips in Relay and tickets, Memories promote, dashboard tile, Help.** (commit `2a9fcf1`, shared with T7; review fixed: promote dialog's three refusals instead of raw JSON, memories table floor + scroll at 390, promoted rows lose the button, threshold boundaries, smoke probe) `[after T7 reports]` (owns `components/relay/Message.tsx` only through the shared `lib/chips.ts` T7 made, `pages/Memories.tsx`, `pages/Dashboard.tsx`, `pages/TicketDetail.tsx` (body render only), `docs/building-blocks/*`; adds fixtures/smoke rows only)
   `[[slug]]` chips in Relay messages and ticket bodies via the shared chip
   pass (existing → blue link to `/wiki/slug`, wanted → red). Memories page:
   a "Promote to wiki" button per row (dialog: slug prefilled from the key via
@@ -448,6 +448,9 @@ dispatch subagents, verify their evidence, commit, and update this file.
 
 ### Deferred
 (low/medium review findings not fixed; each with file:line and one sentence)
+- T8: the dashboard's Wiki tile vanishes (not `—`) when `/api/wiki/stats` fails — the same convention as the Tickets and Relay tiles.
+- T8: with the page cache failed/unloaded (`slugs === null`) every `[[slug]]` chip renders as an ordinary link rather than a neutral "unknown" state (fails open toward "looks real" until the cache recovers).
+- T8: the dashboard's "untouched for 30 days" copy hardcodes `STALE_DAYS` client-side while the count uses the server's `wiki_stale_days`; add `stale_days` to `/api/wiki/stats` to align (the tickets stats do this).
 
 ## Definition of done
 
