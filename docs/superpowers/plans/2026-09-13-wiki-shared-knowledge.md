@@ -175,7 +175,7 @@ dispatch subagents, verify their evidence, commit, and update this file.
 
 ### Phase 1 — model and the pure library
 
-- [ ] **T1 Schema: wiki_pages, wiki_versions, wiki_links, seeds.**
+- [x] **T1 Schema: wiki_pages, wiki_versions, wiki_links, seeds.** (commit `5d807fd`; review fixed: home-page seed is lookup-first so a stray row cannot crash init_db)
   Modify `services/backend/agentplatform/db.py`: add `WikiPage`, `WikiVersion`,
   `WikiLink` exactly as the design's "Data model" (uuid4 hex ids, `utcnow`
   timestamps, `UNIQUE (page_id, version)` as a real constraint, `wiki_links`
