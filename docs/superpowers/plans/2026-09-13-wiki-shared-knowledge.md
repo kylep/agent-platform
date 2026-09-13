@@ -446,7 +446,7 @@ dispatch subagents, verify their evidence, commit, and update this file.
 ### Repairs
 (added by the loop when the definition of done fails)
 
-- [ ] **R1 The `<wiki>` prompt block never fires on postgres: the search ANDs every term.**
+- [x] **R1 The `<wiki>` prompt block never fires on postgres: the search ANDs every term.** (commit `27e7f8c`; OR-of-words as one bound to_tsquery param over a capped candidate set, @mentions stripped outside code; review: ship, two follow-ups folded in; round two: the same summons carried `<wiki count="3">` and news cited [[kyle-location]])
   Live: `@news where does Kyle live? …` summoned news with no `<wiki>` block
   (it answered from the tool instead); `GET /api/wiki/pages?q=kyle location`
   → `[kyle-location]` but `q=news kyle location` → `[]`; `@pai kyle location`
@@ -616,16 +616,59 @@ rather than being consumed.
   with a red `[[deploying]]` chip and the admin's appended "Verified live.",
   and a BACKLINKS panel listing `Home`.
 
+### Round two (after R1, helm rev 55 + backend/broker redeploy)
+
+R1 (`27e7f8c fix(wiki): the <wiki> prompt block fires on postgres — OR the
+words, strip mentions`) was built and shipped as a backend + mcp-broker image
+redeploy on top of helm revision 55: `redeploy22.out` ends `EXIT=0`, with
+`ap-api`, `ap-dispatcher`, `ap-recorder`, `ap-mcp-broker` and then
+`ap-mcp-facade` all `successfully rolled out` by 23:27 UTC. No helm upgrade,
+so the release stays at revision 55. Tunnel re-checked (`/login` → 200) before
+the probes. Script: `scratchpad/t21-round2.py`.
+
+Both probes assert on the RUN'S PROMPT, not on the reply — a correct reply
+could always come from the `wiki` tool, and what R1 had to fix is the block the
+router builds.
+
+| when (UTC) | probe | actor | run | `<wiki` in prompt | block carries | verdict |
+| --- | --- | --- | --- | --- | --- | --- |
+| 23:43:06 → 23:43:21 | `#general` "@news where does Kyle live? Cite the wiki page you used." (msg `6cf727c03ebf40e7a9f63554289b051d`) | agent:news, hop 1, msg `12176445e5304dfcbff871b779318a52` | `fc2837b64f0c40a7a3c58000a80c9e44` (`succeeded`, `prompt_len=9496`) | **yes** | `<wiki count="3">` — `[[home]]`, **`[[kyle-location]]`**, `[[standup]]` | **PASS** |
+| 23:43:26 → 23:43:44 | `#general` "@pai what is the standup format? cite the page" (msg `30da757c35d748108dbad7bc415ed994`) | agent:pai, hop 1, msg `957fbbb001e046a39248c0fca0e52c47` | `5737bf096ffa4560b299eb96e91e139b` (`succeeded`, `prompt_len=9490`) | **yes** | `<wiki count="2">` — `[[home]]`, **`[[standup]]`** | **PASS** |
+
+This is the exact summons that produced no block in round one, unchanged, and
+it now carries three pages: the same wording that scored zero under
+`plainto_tsquery`'s AND matches under R1's OR-plus-`ts_rank`, and the `@news`
+token that used to poison the query is stripped by the router before the match.
+
+Replies and citations both landed:
+
+- `agent:news` — "Kyle lives in Whitby, Ontario, Canada — per wiki page
+  `[[kyle-location]]`." `kyle-location` `cited_in.count` **3 → 4**.
+- `agent:pai` — "Per `[[standup]]`, it fires daily at **09:00 America/Toronto**
+  in `#standup`, and you answer in **two lines**: 1. What you did in the last
+  24h, and which tickets you moved… 2. What's blocked and why…" `standup`
+  `cited_in.count` **1 → 2**.
+
+Relay across round two: `invocations_24h` 16 → 18 (+2, one per probe),
+`messages_24h` 71 → 75, `agent_messages_24h` 30 → 32, `suppressed_24h`
+unchanged at 1.
+
+The human search box was deliberately left ANDing, which R1's comment on
+`api/wiki.py::_matching` states outright — re-probed live and still true:
+`?q=kyle location` → `[kyle-location]`, `?q=news kyle location` → `[]`. That is
+a scope boundary, not a leftover: a person narrowing down can drop a word and
+look again, and the prompt search cannot.
+
 ### What did not happen
 
-- **The `<wiki>` prompt block never fired for the scenario-2 summons.** The
-  citation itself worked (the agent used the `wiki` tool and `cited_in` went
-  0 → 1 → 3), but the assertion that the run's prompt contained `<wiki` failed
-  for both `@news` summonses. Diagnosed to `_pg_search`'s AND semantics, above;
-  the block is proven to render correctly when the query matches. Needs a
-  Repair task — it is a production-only bug the sqlite-backed suite cannot see.
-- Nothing else timed out: every poll in scenarios 1, 3 and 4 resolved inside
-  its first or second tick.
+- **Round one only:** the `<wiki>` prompt block never fired for the scenario-2
+  summons. The citation itself worked (the agent used the `wiki` tool and
+  `cited_in` went 0 → 1 → 3), but the assertion that the run's prompt contained
+  `<wiki` failed for both `@news` summonses — a production-only bug the
+  sqlite-backed suite could not see, diagnosed to `_pg_search`'s AND semantics
+  above. **Fixed by R1 and re-verified live: both round-two probes PASS.**
+- Nothing timed out in either round: every poll in scenarios 1, 3 and 4, and
+  both round-two probes, resolved inside its first or second tick.
 
 ## Handoff to Kyle
 (commands the loop could not run because the auto-mode classifier refused them, ready to paste)
