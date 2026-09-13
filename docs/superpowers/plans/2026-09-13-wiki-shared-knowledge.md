@@ -193,7 +193,7 @@ dispatch subagents, verify their evidence, commit, and update this file.
   (page, two links, the channel); the unique version constraint refuses a
   duplicate.
 
-- [ ] **T2 Settings + `wiki.py` pure library.**
+- [x] **T2 Settings + `wiki.py` pure library.** (commit `ff1c59a`; review fixed: summary skips fences and every leading heading, links ignore inline code, CRLF normalised, parenthesised URLs unwrapped; `tickets._line` → `one_line`)
   Add to `config.py` with why-comments: `wiki_agent_writes_per_hour=30`,
   `wiki_prompt_pages=5`, `wiki_default_grant=True`, `wiki_stale_days=30`,
   `wiki_max_body_bytes=65536`. New module `agentplatform/wiki.py` with pure
