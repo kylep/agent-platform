@@ -732,11 +732,19 @@ def _given(**fields) -> dict:
     return {k: v for k, v in fields.items() if v is not None}
 
 
+def _flat(text) -> str:
+    """A field as one line. A title, a summary or a reason is agent-written
+    text on its way into another agent's listing, and a newline inside one
+    forges rows there that read exactly like real ones — the wiki flattens its
+    summaries server-side for the same reason, and this is the same rule
+    applied where the rows are actually built."""
+    return " ".join(str(text or "").split())
+
+
 def _ticket_line(t: dict) -> str:
     return "  ".join([t.get("key") or "?", str(t.get("state") or ""),
                       str(t.get("priority") or ""),
-                      t.get("assignee") or "unassigned",
-                      (t.get("title") or "").strip()])
+                      t.get("assignee") or "unassigned", _flat(t.get("title"))])
 
 
 def _ticket_lines(out: str, *, drop_closed: bool, limit: int) -> str:
@@ -910,6 +918,302 @@ async def tickets(action: str, key: str | None = None, channel: str | None = Non
     if not body:
         return "error: action='comment' requires body, the text to say in the thread"
     return await _call("POST", f"/api/tickets/{ref}/comments", json={"body": body})
+
+
+# --- wiki (docs/design/21) ---------------------------------------------------
+# The third participant tool, and a core one for the reason the other two are:
+# a version's author is the forwarded bearer, never an argument. What is
+# different here is that a page is not in a room — there is no channel to
+# resolve, and the only thing the model names is a slug, which becomes both a
+# URL path and a `[[link]]`.
+WIKI_ACTIONS = ("read", "search", "list", "write", "append", "history",
+                "promote", "wanted")
+# `api/wiki.py`'s own page cap, which bounds the history's limit too.
+WIKI_LIST_LIMIT = 200
+# How far the memory listing is searched when `promote` is given a key rather
+# than an id: `q` matches keys as well as content, so the exact key is picked
+# out of a page of near-misses rather than asked for row by row.
+WIKI_MEMORY_SCAN = 50
+# The slug grammar, character for character as `agentplatform.wiki.SLUG_RE` —
+# anchors included, so the gate holds wherever it is used rather than only
+# where the call site remembered `.fullmatch`. Restated rather than imported
+# (the broker shares no code with the backend), and it is the GATE on
+# everything this tool interpolates into `/api/wiki/pages/{...}`: httpx
+# resolves `..` before a request leaves, so `x/../../whoami` would be a GET of
+# another endpoint entirely, made with the caller's own bearer.
+_WIKI_SLUG_RE = re.compile(r"\A[a-z0-9][a-z0-9-]{0,63}\Z")
+# The tool teaches `[[slug]]`, so a model hands one back that way about as often
+# as it types the bare slug; brackets come off with the code spans and quotes.
+_WIKI_WRAPPERS = _WRAPPERS + "[]"
+
+
+def _wiki_slug(slug: str | None) -> tuple[str, str | None]:
+    """A page as the agent named it, as (slug, error). Lower-cased because a
+    slug IS lowercase — `Deploying` is the same page typed in prose, and
+    refusing it teaches nothing — and then held to the grammar exactly."""
+    raw = (slug or "").strip(_WIKI_WRAPPERS).lower()
+    if raw and not _WIKI_SLUG_RE.fullmatch(raw):
+        return "", ("error: a slug is lowercase letters, digits and dashes, "
+                    "e.g. deploying")
+    return raw, None
+
+
+def _wiki_tags(tags) -> list[str] | None:
+    """Tags however the model listed them: a real list, or the comma-separated
+    string it writes when the schema says list and the sentence says `ops, db`.
+    Untouched when absent — a null would be a 422 against a field that has a
+    default."""
+    if tags is None:
+        return None
+    raw = tags.split(",") if isinstance(tags, str) else tags
+    return [t for t in (str(x).strip() for x in raw) if t]
+
+
+def _wiki_title(slug: str) -> str:
+    """The title a created page gets when the agent did not choose one. A page
+    with no headline reads as a fragment, and the slug is the only thing the
+    tool knows about it."""
+    return slug.replace("-", " ").title()
+
+
+def _conflict_version(out: str) -> int | None:
+    """The version a 409 says the page is at now, if it carries one. A create
+    that lost a slug race does not — the store knows only that the name is
+    taken — so this is None as often as it is a number."""
+    try:
+        return _json.loads(out.split(" ", 2)[2]).get("current_version")
+    except (IndexError, ValueError, AttributeError):
+        return None
+
+
+def _wiki_changed(out: str) -> str:
+    """A lost race as an instruction rather than a status code. `error: 409` on
+    a write means somebody else wrote between the read and the write, and the
+    only useful answer names what the page is at now and both ways forward."""
+    if not out.startswith("error: 409"):
+        return out
+    version = _conflict_version(out)
+    now = f" (now v{version})" if version else ""
+    return (f"error: the page changed under you{now}: re-read it and merge, "
+            f"or use append")
+
+
+def _wiki_line(p: dict) -> str:
+    return "  ".join([p.get("slug") or "?", _flat(p.get("title")),
+                      _flat(p.get("summary"))])
+
+
+def _wiki_lines(out: str, limit: int) -> str:
+    """A search result as lines rather than as rows of JSON: a `WikiPageView`
+    carries the whole 64 KB body, a face and four timestamps, and what the
+    agent is choosing between is a slug and a sentence. A full page says so,
+    because "these are the matches" and "these are the first 20 of them" are
+    different answers to a search."""
+    try:
+        rows = _json.loads(out)
+    except ValueError:
+        return out          # an `error:` string, or something we cannot render
+    if not isinstance(rows, list):
+        return out
+    if not rows:
+        return "no pages"
+    lines = [_wiki_line(p) for p in rows]
+    if len(rows) >= limit:
+        lines.append("more pages than shown — narrow it with q, tag or "
+                     "changed_since")
+    return "\n".join(lines)
+
+
+async def _wiki_read(slug: str) -> str:
+    """One page and what points at it, trimmed to what an agent reads: the id,
+    the summary the body repeats and the face the web UI draws are noise in a
+    prompt, and the backlinks and citation count are the reason to read a page
+    through the tool rather than to guess at it."""
+    out = await _call("GET", f"/api/wiki/pages/{slug}")
+    try:
+        detail = _json.loads(out)
+    except ValueError:
+        return out
+    page = detail.get("page") or {}
+    return _json.dumps({
+        "page": {k: page.get(k) for k in ("slug", "title", "body", "tags",
+                                          "version", "updated_by", "updated_at")},
+        "backlinks": detail.get("backlinks") or [],
+        "cited_in": detail.get("cited_in") or {}})
+
+
+async def _current_version(slug: str) -> tuple[int | None, bool]:
+    """What the page is at now, as (version, archived), for a create that found
+    the slug taken.
+
+    The create's 409 cannot say — the store knows only that the name is used —
+    so the number the agent has to pass next comes from one more read. A 404 on
+    that read is not a missing page: the slug is demonstrably taken, and an
+    archived page is the one thing that is both. Anything else it cannot read
+    leaves the instruction without the number rather than without the
+    instruction."""
+    out = await _call("GET", f"/api/wiki/pages/{slug}")
+    if out.startswith("error: 404"):
+        return None, True
+    try:
+        return (_json.loads(out).get("page") or {}).get("version"), False
+    except (ValueError, AttributeError):
+        return None, False
+
+
+async def _wiki_history(slug: str, limit: int) -> str:
+    out = await _call("GET", f"/api/wiki/pages/{slug}/history", {"limit": limit})
+    try:
+        rows = _json.loads(out)
+    except ValueError:
+        return out
+    if not isinstance(rows, list):
+        return out
+    if not rows:
+        return "no versions"
+    return "\n".join(
+        f"v{r.get('version')}  {_flat(r.get('author')) or '?'}  "
+        f"+{r.get('added', 0)}/-{r.get('removed', 0)}  "
+        f"{_flat(r.get('reason'))}" for r in rows)
+
+
+async def _wiki_wanted() -> str:
+    out = await _call("GET", "/api/wiki/wanted")
+    try:
+        rows = _json.loads(out)
+    except ValueError:
+        return out
+    if not isinstance(rows, list):
+        return out
+    if not rows:
+        return "no wanted pages — every link points at a page that exists"
+    return "\n".join(f"{r.get('slug') or '?'}  linked from "
+                     f"{', '.join(r.get('linked_from') or [])}" for r in rows)
+
+
+async def _memory_by_key(key: str) -> tuple[str, str | None]:
+    """The caller's memory with this key, as (memory_id, error).
+
+    The promote endpoint takes an id and a model holds the key it remembered
+    under, so the key is resolved here — through `/api/memories`, which the
+    token namespaces for an agent, so the id that comes back can only ever be
+    the caller's own. One extra call and no roster: an exact key match or a
+    refusal that names the argument that always works.
+
+    A participant-only run token does not reach the memory API at all (the
+    listing is `READ_ROLES`, the wiki is not), and that 403 is a different
+    answer from "no such key": one is fixed by passing the id, the other by
+    passing the right key, and telling them apart is the difference between an
+    agent that retries forever and one that reaches for `memory_id`."""
+    out = await _call("GET", "/api/memories", {"q": key, "limit": WIKI_MEMORY_SCAN})
+    if out.startswith("error: 403"):
+        return "", ("error: cannot list your memories from this token (403) — "
+                    "pass memory_id instead (the memory tool's read answers "
+                    "with ids)")
+    try:
+        rows = _json.loads(out)
+    except ValueError:
+        rows = None
+    matched = ([m for m in rows if (m.get("key") or "") == key]
+               if isinstance(rows, list) else [])
+    if len(matched) == 1:
+        return matched[0].get("id") or "", None
+    return "", (f"error: could not find one memory of yours keyed {key!r} — "
+                f"pass memory_id instead (the memory tool's read answers with "
+                f"the id of each one)")
+
+
+@mcp.tool
+@_metered("wiki")
+async def wiki(action: str, slug: str | None = None, q: str | None = None,
+               body: str | None = None, reason: str | None = None,
+               title: str | None = None, tags: list[str] | str | None = None,
+               base_version: int | None = None, tag: str | None = None,
+               changed_since: str | None = None, key: str | None = None,
+               memory_id: str | None = None, limit: int = 20) -> str:
+    """The wiki — what everybody here knows; you write as yourself, from your
+    token. Actions: read · search · list · write · append · history · promote ·
+    wanted. A slug is lowercase-with-dashes (`deploying`); cite a page as
+    `[[slug]]` anywhere and never invent one — search or read first. Prefer
+    `append` for a note: it adds a section, never conflicts, and writes the
+    page if it is missing. `write` REPLACES the page, so read it first and pass
+    the `base_version` you read; with no base_version it only creates a page
+    that does not exist yet. Every write needs a `reason` — one line on what
+    changed and why. `promote` turns one of your own memories (`memory_id`, or
+    its `key`) into a page everybody can cite."""
+    if action not in WIKI_ACTIONS:
+        return "error: action must be one of " + "|".join(WIKI_ACTIONS)
+    ref, error = _wiki_slug(slug)
+    if error:
+        return error
+    if action in ("read", "write", "append", "history") and not ref:
+        return (f"error: action='{action}' requires slug, the page's slug "
+                f"(e.g. deploying)")
+    size = _clamp(limit, WIKI_LIST_LIMIT)
+
+    if action == "read":
+        return await _wiki_read(ref)
+    if action == "search":
+        if not q:
+            return "error: action='search' requires q, the words to look for"
+        return _wiki_lines(await _call("GET", "/api/wiki/pages",
+                                       {"q": q, "limit": size}), size)
+    if action == "list":
+        return _wiki_lines(await _call("GET", "/api/wiki/pages", {
+            "tag": tag or None, "changed_since": changed_since or None,
+            "limit": size}), size)
+    if action == "history":
+        return await _wiki_history(ref, size)
+    if action == "wanted":
+        return await _wiki_wanted()
+    if action == "promote":
+        if not (memory_id or key):
+            return ("error: action='promote' requires memory_id, the memory to "
+                    "harden into a page (or key, the key you saved it under)")
+        if not memory_id:
+            memory_id, error = await _memory_by_key(key)
+            if error:
+                return error
+        return await _call("POST", "/api/wiki/promote",
+                           json={"memory_id": memory_id,
+                                 **_given(slug=ref or None, title=title)})
+
+    if not body:
+        return (f"error: action='{action}' requires body, the "
+                + ("page's full new text — append adds to a page instead"
+                   if action == "write" else "section to add"))
+    if not reason:
+        return "error: give a reason for the edit"
+    if action == "append":
+        return await _call("POST", f"/api/wiki/pages/{ref}/append",
+                           json={"body": body, "reason": reason})
+    if base_version is not None:
+        return _wiki_changed(await _call(
+            "PUT", f"/api/wiki/pages/{ref}",
+            json={"body": body, "reason": reason, "base_version": base_version,
+                  **_given(title=title, tags=_wiki_tags(tags))}))
+    # No base_version, so this is a create — and the create is also how the
+    # tool asks whether the page is there at all. A slug that is taken comes
+    # back as the guidance a blind overwrite needs, never as a write: a replace
+    # that never said what it read is a writer claiming the page has not moved
+    # without having looked.
+    out = await _call("POST", "/api/wiki/pages",
+                      json={"slug": ref, "title": title or _wiki_title(ref),
+                            "body": body, "reason": reason,
+                            **_given(tags=_wiki_tags(tags))})
+    if not out.startswith("error: 409"):
+        return out
+    current, gone = await _current_version(ref)
+    if gone:
+        # The slug is taken and the page will not answer for it: it is in the
+        # archive, where `append` cannot go either (the store refuses a write
+        # to an archived page). Without this the agent is told to read a page
+        # that 404s and to pass a version nobody will give it — a loop with no
+        # way out of it that is not a person.
+        return (f"error: {ref} exists but is archived — ask a human to restore "
+                f"it")
+    return "error: read the page first and pass base_version" + (
+        f"={current}" if current else "")
 
 
 def _scan_custom_tools() -> dict[str, dict]:
