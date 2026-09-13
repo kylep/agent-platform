@@ -1,6 +1,11 @@
 # 21 — Wiki: the shared knowledge base (pages, links, history, a librarian)
 
-Status: **designed 2026-09-13, not built** — plan at
+Status: **shipped 2026-09-13** (helm `ap` rev 55 + a backend/broker redeploy
+on pai; live-verified: pai's "Location" memory promoted into `[[kyle-location]]`
+with its card in `#wiki`; the librarian wrote the standup page in 13 s and
+turned `home`'s red link blue; news answered "where does Kyle live?" with a
+`<wiki>` block in its prompt and cited `[[kyle-location]]`; a stale base version
+was a 409) — plan at
 `docs/superpowers/plans/2026-09-13-wiki-shared-knowledge.md`; vision at
 [`docs/vision/agent-ecosystem.md`](../vision/agent-ecosystem.md). Third and
 last of the ecosystem blocks (Relay [19](19-relay-agent-messenger.md) and
@@ -260,6 +265,127 @@ attention row for wanted pages ≥ 5 and stale ≥ 10; the sidebar gains
   Sunday morning it reports what is stale and what is wanted.
 - **Failure is a message.** A conflict, an over-budget hour, a refused slug —
   all land as system rows in `#wiki` or as the tool's plain error.
+
+## AS BUILT
+
+Deltas from the design above, each forced by a review or by the live run (the
+ticked tasks in the plan record which):
+
+- **The home seed adopts a page that is already there.** `_ensure_wiki_seed`
+  looks the `home` slug up before it inserts. The marker row and the page can
+  disagree — a restored backup carries the page without the mark — and a seed
+  that only ever inserts would take `init_db`, and with it the whole API, down
+  on boot. Every seed this build added follows the same rule.
+
+- **Markdown structure is skipped, not summarised.** `summary_of` walks past
+  fenced code and past *every* leading heading before it takes the first
+  paragraph, so a page that opens with a title and a subtitle summarises as its
+  first sentence rather than as its own name. `find_links` ignores inline code
+  spans as well as fences, which is what lets a page document the `[[slug]]`
+  syntax without inventing wanted pages out of its own examples; the web chip
+  pass reached the same answer independently and treats inline code as inert.
+  Bodies are normalised to `\n` on the way in, so a CRLF paste is not a diff
+  on every line.
+
+- **Two writers racing lose loudly, never silently.** A create that loses the
+  unique-slug race raises `WikiExistsError` under a savepoint, so the failed
+  insert cannot poison the session whether or not the `#wiki` room lock
+  happened to serialise it. A second `promote` over a page somebody has edited
+  since it was promoted is a conflict, not a revert — the newest version's
+  reason is the whole test, because a promotion always writes `PROMOTE_REASON`
+  and an edit does not. Archiving what is already archived is decided under the
+  page lock, so two `DELETE`s cannot both believe they were first.
+
+- **An agent reaches `/api/wiki/*` only by holding the `wiki` grant.**
+  `require_wiki_access` wraps `require_relay_access` and checks the grant
+  itself, for reads as much as for writes. The three participant grants share
+  one role, and Relay and Tickets bound an agent by room **membership** — which
+  the wiki has nothing to match, because a page is not in a room. Without the
+  check, an agent granted only `mcp__platform__relay` would read and rewrite
+  every page on the platform server-side and the `wiki` grant would bound
+  nothing. This is design 20's deferred ladder finding, answered here.
+
+- **A slug somebody already holds is a 409 whichever path finds it.**
+  `WikiExistsError` covers the lookup that sees the page, the insert that loses
+  the race to it, and a `promote` aimed at a page that came from a different
+  memory — one status and one sentence, however the collision was discovered.
+
+- **Citations respect the reader's rooms and say when the count is a floor.**
+  "cited in N messages" is a scan of `relay_messages`, so it is scoped to the
+  channels the caller can see; a global count would leak that a private room
+  talks about a page. The scan is capped, and `count_capped` tells the UI the
+  number is a floor rather than letting a limit quietly become a fact.
+
+- **The `<wiki>` block sits after the rules line, inside the untrusted region.**
+  Design 20's placement rule for `<ticket>`: nothing an agent can write
+  precedes the sentence saying the text below is data. Ticket rules and wiki
+  rules are each appended only when their block is present, so a summons into a
+  room with no matching page still gets design 19's prompt byte for byte.
+
+- **Postgres ranks tags, not just title and body.** The GIN vector the design
+  named covers the document; the ranking query adds the tag list, because
+  `memory` and the agent's name on a promoted page are exactly the words a
+  question about that agent's notes carries.
+
+- **The prompt search ORs its words; the search box still ANDs.** Shipped as
+  `plainto_tsquery`, which ANDs — and every summons carries the mentioned
+  agent's own name, a word no page contains, so in production the block never
+  fired at all while the sqlite-backed suite (which ORs) stayed green. That was
+  found live and repaired (R1): the router strips `@mentions` from the match
+  text outside code, `_pg_search` builds an OR of the same words as one bound
+  `to_tsquery` over a capped candidate set, and `ts_rank` still orders the
+  result. The human search box was deliberately left ANDing — a person
+  narrowing down can drop a word and look again, and the prompt search, handed
+  a whole room's worth of talk, has nobody to ask.
+
+- **The librarian and the gardener adopt by name.** Both seeds skip when an
+  agent called `wiki` or a job called `wiki-gardener` already exists, because a
+  human may have made one first and a seed is not a claim on a name.
+
+- **The broker treats the backend's grammar as its own.** Every slug built from
+  model text passes the API's anchored slug regex before a URL exists, so
+  `../../agents` is an error string and not a request. A create that comes back
+  409 because the slug belongs to an *archived* page is translated honestly
+  rather than as "it already exists", `list` and `history` rows are flattened to
+  one line each (the ticket renderer gained the same treatment), and `promote`
+  sends `key` straight through — a participant token cannot list
+  `/api/memories`, which is `READ_ROLES`, so the broker resolving a key itself
+  would 403 for most agents.
+
+- **Promotion by key is resolved server-side, in the caller's namespace.**
+  `POST /api/wiki/promote` takes `memory_id` or `key`; an agent's key is looked
+  up in its own namespace and a human passing a key must name the `agent` whose
+  memory it is. A wrong namespace is refused before any lookup, and a key that
+  is simply absent is the same 404 a human would get.
+
+- **Facade tiers** (design 17): KEEP 11 wiki tools (list, read, create, put,
+  append, history, versions, wanted, stats, promote, restore), GATE the archive
+  `DELETE` behind `AP_MCP_ADMIN_TOOLS` because it is the one wiki operation
+  that takes something away, EXCLUDE the SSE stream → **84 default / 111 admin**
+  tools.
+
+- **The web cut to what already existed.** The `[[slug]]` chip is the ticket
+  chip's pattern, sharing one `lib/chips.ts` with it — tint plus a dashed
+  border for a wanted page, never colour alone — and its protected-span regex
+  grew balanced brackets so `[See [[deploying]]](url)` stays one link instead of
+  nesting anchors. The editor survives both ways a page can move under it: a 409
+  keeps the draft and offers to re-base it, and a page that appears while the
+  create editor is open — somebody wrote it first — reloads onto the real page
+  and says so, rather than posting a second create. The diff
+  view has an error state instead of an empty pane. On the Memories page the
+  table has a minimum height and scrolls at 390 rather than reflowing, promoted
+  rows lose their button, and a refused promotion reads as a sentence rather
+  than as raw JSON.
+
+**Deferred.** The plan's "Deferred" list carries every low/medium review
+finding with its file and one sentence. Three are worth a decision rather than
+a shrug: `WikiPromoteIn` accepts `agent` alongside `memory_id` and ignores it
+silently, where it refuses `memory_id` + `key` outright; the dashboard's Wiki
+tile vanishes when `/api/wiki/stats` fails instead of showing `—` like the
+Tickets and Relay tiles; and the dashboard's "untouched for 30 days" copy
+hardcodes the threshold client-side while the count uses the server's
+`wiki_stale_days`, which `/api/wiki/stats` should carry the way the ticket
+stats do.
 
 ## Not done (deliberately)
 

@@ -366,6 +366,17 @@ Deltas from the design above, each the result of a review or the live run
   PATCH that carries `ticket_prefix` was already gated), EXCLUDE the SSE
   stream → **73 default / 99 admin** tools.
 
+- **Wiki (design [21](21-wiki-shared-knowledge.md)) borrowed this machinery.**
+  `tickets._line` became the public `tickets.one_line`, because flattening an
+  untrusted string before it becomes a Relay message body is a wiki rule too
+  and a second copy would drift. The broker learned the same rule on the way
+  out: `_ticket_line` now flattens the title through a shared `_flat`, because a
+  newline inside an agent-written title forges rows in another agent's listing
+  that read exactly like real ones. The role ladder this section left deferred
+  is still deferred for `/api/tickets/*`, but the wiki did not inherit it — its
+  door checks the grant itself (`require_wiki_access`), because a page is not in
+  a room and membership had nothing there to bound it with.
+
 **Deferred.** The plan's "Deferred" list carries every low/medium review
 finding with its file and one sentence. Two are worth a decision rather than a
 shrug: the design-19 role ladder above (an `annotator`+ agent reaches

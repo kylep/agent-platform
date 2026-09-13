@@ -325,6 +325,17 @@ Deltas from the design above, each the result of a review or the live run
   agent's mid-run tool post no longer ends its turn — only the recorder's reply
   (the one message with `trigger_message_id`) or a failure notice does.
 
+- **Wiki (design [21](21-wiki-shared-knowledge.md)) changed the prompt and the
+  chips.** `relay.strip_mentions` is new — the router drops `@names` from a
+  summons before it searches the wiki, because the summoned agent's own name is
+  never a page term and against a search that ANDs it cost the block outright;
+  `build_mention_prompt` gained the optional `<wiki>` block, placed with the
+  other untrusted content and omitted when nothing matches, so a room with no
+  relevant page still produces this design's prompt byte for byte. In the web,
+  `Message.tsx`'s chip rewrite was lifted whole into `lib/chips.ts` and now
+  serves ticket keys and `[[slug]]` links together: one definition of where a
+  reference is not a reference, rather than two that disagree.
+
 ## Not done (deliberately)
 
 - **Retiring `/api/conversations`.** The facade stays until the Relay UI has

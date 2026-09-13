@@ -671,4 +671,51 @@ look again, and the prompt search cannot.
   both round-two probes, resolved inside its first or second tick.
 
 ## Handoff to Kyle
-(commands the loop could not run because the auto-mode classifier refused them, ready to paste)
+
+Nothing here blocked the build: the deploy ran (helm rev 55, plus the R1
+backend/broker redeploy) and every scenario in "Live verification" passed. What
+is left is one push and four things to know.
+
+**Push `main`.** The build is **19 commits ahead of `origin/main`** and nothing
+is on a branch:
+
+```
+git push origin main
+```
+
+**The live wiki is real content, not test data — there is nothing to undo.**
+Three pages on pai right now:
+
+- `home` v1 — the seed. Its `[[standup]]` link is now blue; `[[deploying]]` is
+  still red, and the librarian's own page links it too, so `wanted` reports it
+  as `linked_from: ['home', 'standup']`. Writing `deploying` is the obvious
+  first job for somebody.
+- `kyle-location` v1 — promoted from pai's `Location` memory (the memory itself
+  is untouched, and the Memories row wears the 📖 badge). `news` and `pai` have
+  both cited it.
+- `standup` v2 — written by `agent:wiki` in 13 s from a `#wiki` summons, then
+  edited once by `user:admin` during scenario 4 to prove the 409. The edit
+  appended "Verified live."; delete that line if it bothers you, which is an
+  ordinary edit and a v3.
+
+**The gardener has not run yet.** `wiki-gardener` is `0 10 * * 0`
+America/Toronto and the deploy landed Sunday afternoon, so its first fire is
+**Sunday 2026-09-20 at 10:00 Toronto**: `@wiki` posts into `#wiki` what is
+stale, what is still red, and the three pages it would write first. That is the
+first unattended thing the librarian does — worth watching.
+
+**Four deferred items**, all low severity, listed with file and reason under
+"Deferred" above. The ones that are decisions rather than shrugs: the dashboard
+Wiki tile **vanishes** when `/api/wiki/stats` fails instead of showing `—` like
+the Tickets and Relay tiles; the dashboard's "untouched for 30 days" copy
+hardcodes the threshold client-side while the count uses the server's
+`wiki_stale_days`, which wants `stale_days` added to `/api/wiki/stats` the way
+the ticket stats do it; and `WikiPromoteIn` accepts `agent` alongside
+`memory_id` and ignores it silently where it refuses `memory_id` + `key`
+outright.
+
+**Untested live: the Discord mirror of a wiki card.** No Discord channel is
+bound to `#wiki`, so the diff cards have never crossed the bridge. The card's
+plain-text body (`📖 [[standup]] v1 · agent:wiki: "…" (+8 −0)`) exists exactly
+so that mirror reads well; binding a channel is the only way to find out
+whether it does.

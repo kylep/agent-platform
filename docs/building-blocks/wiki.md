@@ -62,12 +62,23 @@ write against what the page actually says. `append` — add a section at the end
 — carries no base version and **never conflicts**, which is why the agents are
 told to prefer it for notes.
 
+A stale base version is not the only 409 here, and the others read the same
+way. Creating a page whose slug somebody already holds is refused rather than
+merged — including when two writers race for the slug and one loses at the
+database, and including a `promote` aimed at a page that came from a different
+memory — and archiving a page that is already archived is refused too. One
+status, one sentence, however the collision was found.
+
 **How to use it:** open **Wiki** in the sidebar. The front door is the `home`
 page rendered — a page like any other, so whoever wants it to say something
 else edits it — with a rail beside it: search, tags, **Recent changes** live
 from the stream, **Wanted pages**, and **Stale** (untouched for
-`wiki_stale_days`, **30**). A page's own URL is `/wiki/<slug>`; **Edit** is a
-markdown box and a reason, **History** is the drawer. The Dashboard carries the
+`wiki_stale_days`, **30**). The search box wants **every** word: `deploy helm`
+finds only pages carrying both, so a search that comes back empty is usually a
+word too many. (The `<wiki>` prompt block below is the one deliberate
+exception — it is handed a whole room's worth of talk and has nobody to ask,
+so it ORs.) A page's own URL is `/wiki/<slug>`; **Edit** is a markdown box and
+a reason, **History** is the drawer. The Dashboard carries the
 wiki's three numbers (pages · edits today · wanted), and raises a row when the
 wanted list passes 5 or the stale list passes 10 — a couple of red links is how
 a healthy wiki looks, a backlog is gardening somebody owes.
@@ -80,7 +91,7 @@ Agents hold one default-granted broker tool, `wiki`
 | action | what it does |
 |---|---|
 | `read` | one page whole, with its backlinks and how often it is cited |
-| `search` | ranked full-text search: slug · title · summary |
+| `search` | ranked full-text search, every word required: slug · title · summary |
 | `list` | newest first; `tag`, `changed_since` to narrow it |
 | `write` | replace the body (`body`, `reason`, `title?`, `tags?`, `base_version`) — with no `base_version` it only creates a page that is not there |
 | `append` | add a section (`body`, `reason`); never conflicts, writes the page if it is missing |
@@ -110,6 +121,13 @@ A memory is one agent's note; a page is everybody's fact. **Promote** is the
 moment somebody decides a note has hardened into the second kind of thing — a
 button on every row of the Memories page (slug and title prefilled from the
 key), or the tool's `promote` action for an agent doing it to its own memory.
+
+A memory is named by its id or by its **key**, and a key is resolved
+server-side: an agent's key is looked up in its own namespace (a participant
+token never reaches `/api/memories`, so it could not resolve one itself), and a
+person promoting by key names the agent whose memory it is. Promoting the same
+memory again updates its page — unless somebody has edited the page since it
+was promoted, which is a conflict rather than a silent revert.
 
 The page gets the memory's content plus a provenance line ("Promoted from
 pai's memory `Location` on 2026-09-13"), the tags `memory` and the agent's
@@ -150,7 +168,10 @@ buried in a log.
   title is 120 characters, a reason 200, and there are at most 20 tags.
 - **Archive, not delete.** `DELETE` archives a page: it drops out of search,
   out of the links and out of the prompt block, and keeps its whole history. It
-  can be restored. Nothing removes a version.
+  can be restored. Nothing removes a version. Archiving is also the one wiki
+  operation the [external MCP facade](../design/17-external-mcp-facade.md)
+  offers only when `AP_MCP_ADMIN_TOOLS` is on — restoring stays available, so a
+  mistaken archive is undoable without turning the flag on.
 - **Every write is an event.** A `wiki_versions` row, a `wiki.events` message
   and a diff card in `#wiki` — "who decided the platform believes this, and
   when?" is an answerable question, and the answer names a person or a run.

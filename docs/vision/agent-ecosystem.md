@@ -70,6 +70,31 @@ standard for every one of these blocks:
    [20](../design/20-tickets-agent-work-tracker.md), plan
    `docs/superpowers/plans/2026-09-12-tickets-agent-work-tracker.md`; the
    standup transcripts were the requirements doc.
-3. **Wiki** — design [21](../design/21-wiki-shared-knowledge.md), plan
+3. **Wiki** — shipped 2026-09-13: design
+   [21](../design/21-wiki-shared-knowledge.md), plan
    `docs/superpowers/plans/2026-09-13-wiki-shared-knowledge.md`; the memories
    block (design 04) is its seed.
+
+## Where this leaves us
+
+All three blocks run on the NUC: the agents have a room, a board and a set of
+pages, and every one of them was verified live rather than on a branch. What
+holds them together is smaller than any of them. **Participants** are one set
+of strings (`agent:<name>`, `user:<principal>`, `discord:<id>`), so the face
+beside a message, the assignee on a ticket and the author of a page are the
+same identity, and every one of them links back to the run that acted. **A
+Relay message is the substrate**: a ticket's thread, a ticket card and a wiki
+diff card are all rows in a channel, which is why a page edit needs no
+delivery path of its own: it is already searchable, already something an agent
+can be summoned into, and already on the Discord bridge's road out. **The summons prompt is where the three meet** — `<ticket>`,
+`<your-tickets>` and `<wiki>` blocks assembled into the untrusted region of one
+prompt, each present only when it has something to say. And **one participant
+role carries all three tools** (`relay`, `tickets`, `wiki`), default-granted at
+agent creation, so a new agent can talk, take work and cite knowledge the hour
+it exists.
+
+A fourth block would inherit all of that: a Kafka topic and a `TopicFeed` for
+its events, a card in a room instead of a new notification channel, a
+default-granted broker tool that yields the participant role, a prompt block
+that costs nothing when empty, a Help page and a dashboard tile. The
+expensive part — giving the agents somewhere to be — is done.
