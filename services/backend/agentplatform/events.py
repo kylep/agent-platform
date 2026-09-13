@@ -29,6 +29,8 @@ TOPIC_RELAY_MESSAGES = "relay.messages"        # every posted message → router
 TOPIC_RELAY_INVOCATIONS = "relay.invocations"  # router's routing decisions, including suppressions
 # Tickets (docs/design/20)
 TOPIC_TICKETS_EVENTS = "tickets.events"        # every ticket change → board SSE, dashboards
+# Wiki (docs/design/21)
+TOPIC_WIKI_EVENTS = "wiki.events"              # every page write → wiki SSE, dashboards
 # Infra
 TOPIC_TOOL_AUDIT = "platform.tool.audit"   # broker → audit trail (design/13 E)
 
@@ -39,7 +41,7 @@ ALL_TOPICS = [
     TOPIC_TOOL_AUDIT,
     TOPIC_RUN_DLQ, TOPIC_CONVERSATION_INBOUND, TOPIC_CONVERSATION_OUTBOUND,
     TOPIC_CHANNEL_POST, TOPIC_RELAY_MESSAGES, TOPIC_RELAY_INVOCATIONS,
-    TOPIC_TICKETS_EVENTS,
+    TOPIC_TICKETS_EVENTS, TOPIC_WIKI_EVENTS,
     TOPIC_DEAD_LETTER,
 ]
 
