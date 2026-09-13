@@ -166,13 +166,16 @@ async def _grants(sfx, name: str) -> list[str]:
 
 
 async def test_tickets_grant_backfill_covers_the_agents_that_already_exist(engine, sfx):
+    # `wiki_grant=False` here and below: the Wiki (docs/design/21) sweeps the
+    # same rows under its own mark, and letting it run would have every
+    # assertion in this section carry a grant it is not about.
     async with sfx() as s:
         s.add(AgentDef(name="news", prompt="p", description="d",
                        platform_tools=["mcp__platform__relay"]))
         s.add(AgentDef(name="retired", prompt="p", description="d",
                        platform_tools=[], enabled=False))
         await s.commit()
-    await init_db(engine)
+    await init_db(engine, wiki_grant=False)
     assert await _grants(sfx, "news") == ["mcp__platform__relay",
                                           "mcp__platform__tickets"]
     assert await _grants(sfx, "retired") == []      # disabled agents are left alone
@@ -192,18 +195,18 @@ async def test_tickets_grant_backfill_honours_the_setting_and_runs_once(engine, 
     async with sfx() as s:
         s.add(AgentDef(name="news", prompt="p", description="d", platform_tools=[]))
         await s.commit()
-    await init_db(engine, tickets_grant=False)
+    await init_db(engine, tickets_grant=False, wiki_grant=False)
     assert await _grants(sfx, "news") == ["mcp__platform__relay"]
     async with sfx() as s:
         assert await s.get(SchemaMark, TICKETS_GRANT_MARK) is None
-    await init_db(engine, tickets_grant=True)
+    await init_db(engine, tickets_grant=True, wiki_grant=False)
     assert await _grants(sfx, "news") == ["mcp__platform__relay",
                                           "mcp__platform__tickets"]
     # An admin taking it away afterwards is not undone by the next boot.
     async with sfx() as s:
         (await s.get(AgentDef, "news")).platform_tools = []
         await s.commit()
-    await init_db(engine)
+    await init_db(engine, wiki_grant=False)
     assert await _grants(sfx, "news") == []
 
 
@@ -275,11 +278,13 @@ async def test_health_monitor_learns_to_open_tickets(engine, sfx):
         versions = list((await s.execute(select(AgentVersion).where(
             AgentVersion.agent == "health-monitor").order_by(
             AgentVersion.version))).scalars())
-    # Behind the two default-grant sweeps, which also write the log.
+    # Behind the three default-grant sweeps, which also write the log, and in
+    # the order init_db runs them.
     assert [(v.version, v.changed_by, v.changed_via) for v in versions] == [
         (1, "platform:relay-default-grant", "migration"),
         (2, "platform:tickets-default-grant", "migration"),
-        (3, "system:tickets", "migration")]
+        (3, "system:tickets", "migration"),
+        (4, "platform:wiki-default-grant", "migration")]
     assert versions[-1].snapshot["prompt"] == (await _agent_prompt(sfx))
     # Once only: the appended paragraph is not re-appended on the next boot.
     before = await _agent_prompt(sfx)

@@ -41,6 +41,7 @@ class AgentCreateIn:
             tickets (bool | None | Unset):
             timeout_seconds (int | Unset):  Default: 1800.
             transcript_retention_days (int | None | Unset):
+            wiki (bool | None | Unset):
     """
 
     name: str
@@ -62,6 +63,7 @@ class AgentCreateIn:
     tickets: bool | None | Unset = UNSET
     timeout_seconds: int | Unset = 1800
     transcript_retention_days: int | None | Unset = UNSET
+    wiki: bool | None | Unset = UNSET
 
     def to_dict(self) -> dict[str, Any]:
         name = self.name
@@ -124,6 +126,12 @@ class AgentCreateIn:
         else:
             transcript_retention_days = self.transcript_retention_days
 
+        wiki: bool | None | Unset
+        if isinstance(self.wiki, Unset):
+            wiki = UNSET
+        else:
+            wiki = self.wiki
+
         field_dict: dict[str, Any] = {}
 
         field_dict.update(
@@ -167,6 +175,8 @@ class AgentCreateIn:
             field_dict["timeout_seconds"] = timeout_seconds
         if transcript_retention_days is not UNSET:
             field_dict["transcript_retention_days"] = transcript_retention_days
+        if wiki is not UNSET:
+            field_dict["wiki"] = wiki
 
         return field_dict
 
@@ -241,6 +251,15 @@ class AgentCreateIn:
             d.pop("transcript_retention_days", UNSET)
         )
 
+        def _parse_wiki(data: object) -> bool | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(bool | None | Unset, data)
+
+        wiki = _parse_wiki(d.pop("wiki", UNSET))
+
         agent_create_in = cls(
             name=name,
             can_invoke=can_invoke,
@@ -261,6 +280,7 @@ class AgentCreateIn:
             tickets=tickets,
             timeout_seconds=timeout_seconds,
             transcript_retention_days=transcript_retention_days,
+            wiki=wiki,
         )
 
         return agent_create_in

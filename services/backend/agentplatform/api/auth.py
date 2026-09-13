@@ -46,16 +46,19 @@ def validate_session_cookie(app, cookie: str | None) -> str | None:
 # `tools` (docs/design/12) is the narrowest machine role: it satisfies NO
 # endpoint allow-list except /api/whoami — it exists purely so the MCP broker
 # can verify a caller and serve its declared custom tools.
-# `relay` (docs/design/19, widened by docs/design/20) is the second per-run
-# machine role, one notch above `tools` and nowhere near the human scopes: it
-# satisfies /api/whoami, the Relay endpoints and the Tickets endpoints, which
-# name it EXPLICITLY in their own allow-lists, and nothing else. Being listed
-# is the whole of its authority — there is no hierarchy here — and in both
-# blocks it is channel MEMBERSHIP, not the role, that decides where the agent
-# may actually act. It keeps its name and means "participant": it is minted for
-# an agent whose platform grants are the relay and tickets tools, which is most
-# agents once the default grant lands, so it deliberately buys nothing beyond
-# talking and tracking its own work.
+# `relay` (docs/design/19, widened by docs/design/20 and docs/design/21) is the
+# second per-run machine role, one notch above `tools` and nowhere near the
+# human scopes: it satisfies /api/whoami, the Relay endpoints, the Tickets
+# endpoints and the Wiki endpoints, which name it EXPLICITLY in their own
+# allow-lists, and nothing else. Being listed is the whole of its authority —
+# there is no hierarchy here — and in the first two blocks it is channel
+# MEMBERSHIP, not the role, that decides where the agent may actually act. The
+# wiki has no such fence because a page is not in a room: it belongs to the
+# platform, and every participant reads and writes all of it. The role keeps its
+# name and means "participant": it is minted for an agent whose platform grants
+# are the relay, tickets and wiki tools, which is most agents once the default
+# grants land, so it deliberately buys nothing beyond talking, tracking its own
+# work and writing down what it learned.
 ROLES = ("reader", "annotator", "operator", "coder", "admin", "tools", "relay")
 READ_ROLES = ("reader", "annotator", "operator", "coder")
 ANNOTATE_ROLES = ("annotator", "operator", "coder")

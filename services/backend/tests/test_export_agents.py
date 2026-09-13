@@ -114,7 +114,8 @@ async def test_an_exported_tree_imports_into_a_fresh_platform(admin_client, migr
     # that stays idempotent.
     assert got["platform_tools"] == ["mcp__platform__query_app",
                                      "mcp__platform__relay",
-                                     "mcp__platform__tickets"]
+                                     "mcp__platform__tickets",
+                                     "mcp__platform__wiki"]
     assert got["model"] == "opus" and got["timeout_seconds"] == 180
 
 

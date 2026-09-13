@@ -242,6 +242,32 @@ async def test_archive_hides_a_page_from_wanted_and_backlinks(sf, producer):
         await s.rollback()
 
 
+async def test_archiving_twice_is_refused_under_the_lock(sf, producer):
+    """The second DELETE is not a no-op: it would post a second card and a
+    second event for a departure that already happened. The check is made under
+    the row lock rather than by the caller, because two DELETEs that both read a
+    live page both pass anything asked before it."""
+    page = await _create(sf, producer, slug="runbook", title="Runbook", body="a")
+    async with sf() as s:
+        await store.archive_page(s, producer, "runbook", actor="user:admin")
+    events, room = len(_wiki_events(producer)), await _room(sf)
+    cards = len(await _messages(sf, room.id))
+    async with sf() as s:
+        with pytest.raises(store.WikiRuleError, match="already archived"):
+            await store.archive_page(s, producer, "runbook", actor="user:admin")
+        await s.rollback()
+    assert len(_wiki_events(producer)) == events
+    assert len(await _messages(sf, room.id)) == cards
+    assert [v.version for v in await _versions(sf, page.id)] == [1]
+    # ...and the mirror image: un-archiving a live page is refused too.
+    async with sf() as s:
+        await store.restore_page(s, producer, "runbook", actor="user:admin")
+    async with sf() as s:
+        with pytest.raises(store.WikiRuleError, match="not archived"):
+            await store.restore_page(s, producer, "runbook", actor="user:admin")
+        await s.rollback()
+
+
 async def test_un_archiving_makes_no_version(sf, producer):
     page = await _create(sf, producer, slug="runbook", title="Runbook", body="a")
     async with sf() as s:
@@ -386,7 +412,7 @@ async def test_the_caps_are_refused(sf, producer):
     assert [p.slug for p in await _pages(sf)] == ["home"]
 
     await _create(sf, producer)
-    with pytest.raises(store.WikiRuleError):
+    with pytest.raises(store.WikiExistsError):
         await _create(sf, producer)          # the slug is taken
 
 
@@ -395,7 +421,10 @@ async def test_a_lost_create_race_is_a_rule_error(sf, producer, monkeypatch):
     Two creates of the same new slug race whenever `#wiki` is not there to
     serialise them, and the loser must be told in the platform's own words —
     an IntegrityError escaping here is a 500 for a write somebody merely lost,
-    and it would take the caller's whole transaction with it."""
+    and it would take the caller's whole transaction with it.
+
+    Both doors raise the SAME class, which is what lets the API answer a lost
+    race exactly as it answers a slug that was already taken when it looked."""
     await _create(sf, producer, slug="deploying")
 
     async def _no_page(*args, **kwargs):
@@ -403,7 +432,7 @@ async def test_a_lost_create_race_is_a_rule_error(sf, producer, monkeypatch):
 
     monkeypatch.setattr(store, "_page_by_slug", _no_page)
     async with sf() as s:
-        with pytest.raises(store.WikiRuleError):
+        with pytest.raises(store.WikiExistsError):
             await store.create_page(s, producer, actor="user:admin",
                                     slug="deploying", title="Deploying", body="b")
         # The savepoint rolled back, not the transaction: the session the

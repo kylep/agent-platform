@@ -72,6 +72,14 @@ class WikiRuleError(ValueError):
     without knowing this module's exception classes."""
 
 
+class WikiExistsError(WikiRuleError):
+    """The slug is taken. Its own class because it is the one rule error that is
+    not "you sent something wrong" but "somebody got there first": the API
+    answers it 409, and it has to answer the courteous lookup and the lost race
+    on the unique index identically, or a create that merely lost a race would
+    read as a malformed request."""
+
+
 class WikiConflictError(WikiRuleError):
     """Somebody else wrote the page since the caller read it. Carries what the
     caller needs to merge rather than just saying no: the version it would have
@@ -181,7 +189,7 @@ async def create_page(session, producer, *, actor: str, slug: str, title: str,
     conv = await _lock_room(session)
     await _check_budget(session, actor, budget_limit)
     if await _page_by_slug(session, slug) is not None:
-        raise WikiRuleError(f"a page called {slug} already exists")
+        raise WikiExistsError(f"a page called {slug} already exists")
     now = utcnow()
     page = WikiPage(slug=slug, title=title, body=body or "",
                     summary=summary_of(body), tags=tags, version=1,
@@ -199,7 +207,7 @@ async def create_page(session, producer, *, actor: str, slug: str, title: str,
             session.add(page)
             await session.flush()
     except IntegrityError as exc:
-        raise WikiRuleError(f"a page called {slug} already exists") from exc
+        raise WikiExistsError(f"a page called {slug} already exists") from exc
     version = await _add_version(session, page, actor=actor, run=run, reason=reason)
     await _rewrite_links(session, page)
     return await _finish(session, producer, conv, page, version, event=event,
@@ -282,7 +290,11 @@ async def archive_page(session, producer, slug: str, *, actor: str,
     No version row, because nothing was written: archiving is a fact about the
     page, not about its text, and a history entry whose body is identical to
     the one before it is a diff nobody can read. The card still goes up, so the
-    room sees a page leave the same way it saw it arrive."""
+    room sees a page leave the same way it saw it arrive.
+
+    Archiving an archived page is refused (under the row lock — see
+    `_set_archived`): it is not a no-op, it is a second announcement of a
+    departure that already happened."""
     return await _set_archived(session, producer, slug, at=utcnow(), actor=actor,
                                reason=reason, run=run, url_base=url_base,
                                event="archived")
@@ -367,7 +379,7 @@ async def promote_memory(session, producer, memory: dict, *, actor: str, slug: s
                                  source_memory_id=memory.get("id"),
                                  event="promoted")
     if page.source_memory_id != memory.get("id"):
-        raise WikiRuleError(f"a page called {slug} already exists")
+        raise WikiExistsError(f"a page called {slug} already exists")
     latest = await _version_of(session, page, page.version)
     if latest is None or (latest.reason or "") != PROMOTE_REASON:
         raise WikiConflictError(
@@ -520,6 +532,15 @@ async def _set_archived(session, producer, slug: str, *, at, actor: str,
     page = await _lock_page(session, _check_slug(slug))
     if page is None:
         raise WikiRuleError(f"there is no page called {slug}")
+    # Asked HERE, under the row lock, and not by the caller: two DELETEs that
+    # both read a live page both pass any check made before this point, and the
+    # loser would archive an archived page — a second card in the room and a
+    # second event for a change that did not happen. The lock is what makes
+    # read-check-write one decision, exactly as it is for a body.
+    if at is not None and page.archived_at is not None:
+        raise WikiRuleError(f"{page.slug} is already archived")
+    if at is None and page.archived_at is None:
+        raise WikiRuleError(f"{page.slug} is not archived")
     conv = await _lock_room(session)
     page.archived_at, page.updated_by = at, actor
     return await _finish(session, producer, conv, page,

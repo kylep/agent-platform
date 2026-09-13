@@ -24,6 +24,7 @@ from .test_relay_sse import StubConsumer, _msg, sse  # noqa: F401
 
 RELAY_GRANT = "mcp__platform__relay"
 TICKETS_GRANT = "mcp__platform__tickets"
+WIKI_GRANT = "mcp__platform__wiki"
 
 
 async def _run_id(sf, agent: str, *, depth: int = 0) -> str:
@@ -624,15 +625,15 @@ async def test_the_stream_beats_and_skips_rooms_an_agent_is_not_in(
 
 # --- the default grant -------------------------------------------------------
 
-async def test_a_new_agent_holds_both_grants(admin_client, sf):
+async def test_a_new_agent_holds_the_participant_grants(admin_client, sf):
     r = await admin_client.post("/api/agents", json={"name": "newbie",
                                                      "description": "test",
                                                      "prompt": "# newbie"})
     assert r.status_code == 201, r.text
-    assert r.json()["platform_tools"] == [RELAY_GRANT, TICKETS_GRANT]
+    assert r.json()["platform_tools"] == [RELAY_GRANT, TICKETS_GRANT, WIKI_GRANT]
     async with sf() as s:
-        assert (await s.get(AgentDef, "newbie")).platform_tools == [RELAY_GRANT,
-                                                                   TICKETS_GRANT]
+        assert (await s.get(AgentDef, "newbie")).platform_tools == [
+            RELAY_GRANT, TICKETS_GRANT, WIKI_GRANT]
 
 
 async def test_the_tickets_default_can_be_turned_off_platform_wide(admin_client, sf):
@@ -641,4 +642,4 @@ async def test_the_tickets_default_can_be_turned_off_platform_wide(admin_client,
                                                      "description": "test",
                                                      "prompt": "# quiet"})
     assert r.status_code == 201, r.text
-    assert r.json()["platform_tools"] == [RELAY_GRANT]
+    assert r.json()["platform_tools"] == [RELAY_GRANT, WIKI_GRANT]

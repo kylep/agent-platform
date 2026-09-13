@@ -777,6 +777,7 @@ TICKETS_STANDUP_MARK = "tickets-standup-v2"
 TICKETS_HEALTH_MONITOR_MARK = "tickets-health-monitor-v1"
 TICKETS_SYSTEM_KEYS_MARK = "tickets-system-keys-v1"
 WIKI_SEED_MARK = "wiki-seed-v1"
+WIKI_GRANT_MARK = "wiki-default-grant-v1"
 
 # The channels that become PROJECTS when Tickets ships (docs/design/20), and
 # the prefix each one's keys are stamped with. #standup is deliberately absent:
@@ -1335,6 +1336,18 @@ def _ensure_tickets_default_grant(conn, default_grant: bool = True) -> None:
                           default_grant=default_grant)
 
 
+def _ensure_wiki_default_grant(conn, default_grant: bool = True) -> None:
+    """Give every agent that already exists the Wiki grant (docs/design/21).
+
+    Its own mark for the reason Tickets' is its own: the sweeps ship a release
+    apart, and an agent that predates the wiki has to be reached even though
+    the earlier ones already ran and marked themselves."""
+    from agentplatform.agentspec import TOOL_WIKI
+    _grant_to_every_agent(conn, TOOL_WIKI, WIKI_GRANT_MARK,
+                          changed_by="platform:wiki-default-grant",
+                          default_grant=default_grant)
+
+
 def _grant_to_every_agent(conn, tool: str, mark: str, *, changed_by: str,
                           default_grant: bool) -> None:
     """The one-time sweep behind a default-granted platform tool.
@@ -1415,14 +1428,14 @@ def _relay_message(channel_id, author, body, created_at, run_id=None) -> dict:
 
 
 async def init_db(engine: AsyncEngine, default_grant: bool = True,
-                  tickets_grant: bool = True) -> None:
+                  tickets_grant: bool = True, wiki_grant: bool = True) -> None:
     """Bring the schema up to date and run the one-off backfills.
 
-    `default_grant` and `tickets_grant` are `settings.relay_default_grant` and
-    `settings.tickets_default_grant` — passed in rather than read, because this
-    runs in three services (API, dispatcher, recorder) and none of them hands
-    `db` a settings object. They default to on so a caller that has no opinion
-    gets the platform's."""
+    `default_grant`, `tickets_grant` and `wiki_grant` are the three participant
+    grant settings (`settings.relay_default_grant` and its two siblings) —
+    passed in rather than read, because this runs in three services (API,
+    dispatcher, recorder) and none of them hands `db` a settings object. They
+    default to on so a caller that has no opinion gets the platform's."""
     async with engine.begin() as conn:
         if conn.dialect.name == "postgresql":
             # SERIALIZE THE WHOLE OF init_db ACROSS SERVICES. The API, the
@@ -1466,3 +1479,4 @@ async def init_db(engine: AsyncEngine, default_grant: bool = True,
         await conn.run_sync(_ensure_orphan_system_keys_revoked)
         await conn.run_sync(_ensure_wiki_ddl)
         await conn.run_sync(_ensure_wiki_seed)
+        await conn.run_sync(_ensure_wiki_default_grant, wiki_grant)

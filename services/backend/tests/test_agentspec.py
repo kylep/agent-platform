@@ -21,14 +21,16 @@ def test_mcp_broker_tools_are_selectable():
 
 
 def test_the_participant_grants_are_selectable_but_do_not_promote():
-    """The relay and tickets tools must be grantable like any other and must
-    stay OUT of the annotator-promoting list: holding either reaches
-    /api/relay/* and /api/tickets/* as the agent itself and nothing else."""
+    """The relay, tickets and wiki tools must be grantable like any other and
+    must stay OUT of the annotator-promoting list: holding one reaches
+    /api/relay/*, /api/tickets/* or /api/wiki/* as the agent itself and nothing
+    else."""
     from agentplatform.agentspec import (GRANTABLE_PLATFORM_TOOLS,
                                          PLATFORM_MCP_RELAY_TOOLS,
                                          PLATFORM_MCP_TOOLS)
     assert PLATFORM_MCP_RELAY_TOOLS == ["mcp__platform__relay",
-                                        "mcp__platform__tickets"]
+                                        "mcp__platform__tickets",
+                                        "mcp__platform__wiki"]
     for tool in PLATFORM_MCP_RELAY_TOOLS:
         assert tool in GRANTABLE_PLATFORM_TOOLS
         assert tool in AVAILABLE_TOOLS

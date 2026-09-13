@@ -162,6 +162,24 @@ from .webhook_entry_in import WebhookEntryIn
 from .webhook_secret_in import WebhookSecretIn
 from .webhook_secret_state import WebhookSecretState
 from .who_am_i import WhoAmI
+from .wiki_agent_budget import WikiAgentBudget
+from .wiki_append_in import WikiAppendIn
+from .wiki_author_count import WikiAuthorCount
+from .wiki_budget_view import WikiBudgetView
+from .wiki_citation import WikiCitation
+from .wiki_citations import WikiCitations
+from .wiki_diff_view import WikiDiffView
+from .wiki_history_row import WikiHistoryRow
+from .wiki_page_detail import WikiPageDetail
+from .wiki_page_in import WikiPageIn
+from .wiki_page_ref import WikiPageRef
+from .wiki_page_view import WikiPageView
+from .wiki_promote_in import WikiPromoteIn
+from .wiki_restore_in import WikiRestoreIn
+from .wiki_stats import WikiStats
+from .wiki_version_view import WikiVersionView
+from .wiki_wanted_row import WikiWantedRow
+from .wiki_write_in import WikiWriteIn
 
 __all__ = (
     "AgentCreateIn",
@@ -326,4 +344,22 @@ __all__ = (
     "WebhookSecretIn",
     "WebhookSecretState",
     "WhoAmI",
+    "WikiAgentBudget",
+    "WikiAppendIn",
+    "WikiAuthorCount",
+    "WikiBudgetView",
+    "WikiCitation",
+    "WikiCitations",
+    "WikiDiffView",
+    "WikiHistoryRow",
+    "WikiPageDetail",
+    "WikiPageIn",
+    "WikiPageRef",
+    "WikiPageView",
+    "WikiPromoteIn",
+    "WikiRestoreIn",
+    "WikiStats",
+    "WikiVersionView",
+    "WikiWantedRow",
+    "WikiWriteIn",
 )

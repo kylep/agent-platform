@@ -80,6 +80,8 @@ EXCLUDED_PATHS = (
     ("*", r"^/api/relay/channels/\{channel_id\}/events$"),
     # The ticket board's live feed (design/20) is the same never-ending shape.
     ("*", r"^/api/tickets/events$"),
+    # And the wiki's (design/21).
+    ("*", r"^/api/wiki/events$"),
 )
 
 # Curated out (curation 2026-08-24): UI plumbing, reviewer digests the client

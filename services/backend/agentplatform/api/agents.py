@@ -32,7 +32,7 @@ from agentplatform.agentdefs import (DEF_FIELDS, AgentDefModel, apply_snapshot,
                                      model_of, next_version, snapshot_of,
                                      validate_def)
 from agentplatform.agentspec import (GRANTABLE_PLATFORM_TOOLS, KNOWN_MODELS,
-                                     TOOL_RELAY, TOOL_TICKETS)
+                                     TOOL_RELAY, TOOL_TICKETS, TOOL_WIKI)
 from agentplatform.api.auth import (READ_ROLES, authenticate, require_admin,
                                     require_role, role_allows)
 from agentplatform.api.schemas import (AgentCreateIn, AgentDefIn, AgentDefOut,
@@ -50,14 +50,15 @@ router = APIRouter()
 # broker matches on — so the check is a plain membership test, no parsing.
 TOOL_AGENTS_EDIT = "mcp__platform__agents_edit"
 TOOL_AGENTS_GRANT = "mcp__platform__agents_grant"
-# The participant grants (docs/design/19, docs/design/20), which new agents are
-# born holding while their setting says so. Two settings and not one: an
-# operator who wants the messenger without the work tracker is asking a
-# reasonable question, and a single switch could not answer it. Each entry is
-# (tool, setting), and the payload knob is the tool's last segment — `relay`,
-# `tickets` — so adding a third participant grant is one line here.
+# The participant grants (docs/design/19, docs/design/20, docs/design/21), which
+# new agents are born holding while their setting says so. A setting each and
+# not one between them: an operator who wants the messenger without the work
+# tracker is asking a reasonable question, and a single switch could not answer
+# it. Each entry is (tool, setting), and the payload knob is the tool's last
+# segment — `relay`, `tickets`, `wiki` — so a fourth is one line here.
 DEFAULT_GRANTS = ((TOOL_RELAY, "relay_default_grant"),
-                  (TOOL_TICKETS, "tickets_default_grant"))
+                  (TOOL_TICKETS, "tickets_default_grant"),
+                  (TOOL_WIKI, "wiki_default_grant"))
 
 # The definition fields that are GRANTS — capability, not identity. Changing
 # one is an authorization decision (`agents_grant`); changing anything else is

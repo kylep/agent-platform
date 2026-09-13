@@ -123,6 +123,8 @@ class AgentCreateIn(AgentDefIn):
     # same reason: an operator may want the messenger without the work tracker,
     # and one knob could not say so.
     tickets: bool | None = None
+    # The Wiki default grant (docs/design/21), the third of the same shape.
+    wiki: bool | None = None
 
 
 class AgentDefOut(BaseModel):
@@ -1016,6 +1018,178 @@ class TicketCommentIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
     # No author field, deliberately: the same rule as a Relay message.
     body: str = Field(min_length=1, max_length=8000)
+
+
+# --- wiki (docs/design/21) ----------------------------------------------------
+# A page is a row plus the history that proves who said it. Authors are the same
+# namespaced participant strings Relay uses, so a face is resolved for an agent
+# and is null for anybody else. Nothing here is room-scoped: a page belongs to
+# the platform, and `#wiki` is only where its diff cards are narrated.
+
+class WikiPageView(BaseModel):
+    id: str
+    slug: str                    # the URL and the `[[link]]` target
+    title: str
+    body: str
+    summary: str                 # the first paragraph, recomputed on every write
+    tags: list[str]
+    version: int
+    created_by: str
+    updated_by: str
+    # The memory this page was promoted from, if it was (docs/design/21).
+    source_memory_id: str | None
+    created_at: str | None
+    updated_at: str | None
+    archived_at: str | None
+    # Attached by the API, never stored — the same seam as a ticket's faces.
+    updated_by_face: RelayFace | None = None
+
+
+class WikiPageRef(BaseModel):
+    """A page named from somewhere else: a backlink in the sidebar."""
+    slug: str
+    title: str
+
+
+class WikiCitation(BaseModel):
+    """One room message that pointed at this page with a `[[slug]]`. Only ever
+    from a room the reader may see: the page is the platform's, the conversation
+    about it is still Relay's."""
+    message_id: str
+    channel_id: str
+    author: str
+    created_at: str | None
+
+
+class WikiCitations(BaseModel):
+    count: int
+    # Whether the scan behind `count` hit its limit, which makes the count a
+    # floor rather than a total ("cited in 200+ messages").
+    count_capped: bool = False
+    # The last three, newest first: a link back into the conversation, not a
+    # second copy of it.
+    last: list[WikiCitation] = []
+
+
+class WikiPageDetail(BaseModel):
+    page: WikiPageView
+    backlinks: list[WikiPageRef]
+    cited_in: WikiCitations
+
+
+class WikiVersionView(BaseModel):
+    id: str
+    page_id: str
+    version: int
+    title: str
+    body: str                    # the FULL body: diffs are computed on read
+    author: str
+    run_id: str | None           # the run that wrote it (agents only)
+    reason: str
+    created_at: str | None
+    author_face: RelayFace | None = None
+
+
+class WikiHistoryRow(BaseModel):
+    """One line of the history drawer. No body, deliberately: the drawer shows
+    who, why and ±lines, and a page's whole text per row would make reading the
+    history cost more than reading the page."""
+    id: str
+    version: int
+    title: str
+    author: str
+    run_id: str | None
+    reason: str
+    created_at: str | None
+    added: int
+    removed: int
+    author_face: RelayFace | None = None
+
+
+class WikiDiffView(BaseModel):
+    """One version and what it changed, against the version before it."""
+    version: WikiVersionView
+    diff: str
+    added: int
+    removed: int
+
+
+class WikiWantedRow(BaseModel):
+    """A red link: a slug pages point at that nobody has written yet."""
+    slug: str
+    linked_from: list[str]
+
+
+class WikiAuthorCount(BaseModel):
+    author: str
+    count: int
+    face: RelayFace | None = None
+
+
+class WikiAgentBudget(BaseModel):
+    agent: str
+    used: int                    # versions written in the trailing hour
+    left: int
+
+
+class WikiBudgetView(BaseModel):
+    limit: int
+    # Only the agents that have actually written this hour, busiest first.
+    agents: list[WikiAgentBudget] = []
+
+
+class WikiStats(BaseModel):
+    pages: int                   # live ones; archiving takes a page out
+    edits_24h: list[WikiAuthorCount]
+    wanted: int
+    # Untouched for `wiki_stale_days` — computed every time, never stored, for
+    # the same reason a ticket's staleness is: the setting can change.
+    stale: int
+    budget: WikiBudgetView
+
+
+class WikiPageIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    slug: str = Field(min_length=1, max_length=64)
+    title: str = Field(min_length=1, max_length=120)
+    body: str = Field(default="", max_length=65536)
+    tags: list[str] = Field(default=[], max_length=20)
+    reason: str = Field(default="", max_length=200)
+
+
+class WikiWriteIn(BaseModel):
+    """A full replacement of a page's body. `base_version` is REQUIRED and
+    unset is a 422: a write that never says what it read is a writer claiming
+    the page has not moved without having looked, and the loser of two of those
+    silently erases the winner."""
+    model_config = ConfigDict(extra="forbid")
+    body: str = Field(max_length=65536)
+    reason: str = Field(default="", max_length=200)
+    title: str | None = Field(default=None, max_length=120)
+    tags: list[str] | None = Field(default=None, max_length=20)
+    base_version: int = Field(ge=1)
+
+
+class WikiAppendIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    body: str = Field(min_length=1, max_length=65536)
+    reason: str = Field(default="", max_length=200)
+
+
+class WikiRestoreIn(BaseModel):
+    """Un-archive, or roll back. `version` absent is the un-archive; naming one
+    is a roll-back, which is a new version rather than a rewritten history."""
+    model_config = ConfigDict(extra="forbid")
+    version: int | None = Field(default=None, ge=1)
+    reason: str | None = Field(default=None, max_length=200)
+
+
+class WikiPromoteIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    memory_id: str = Field(min_length=1, max_length=64)
+    # Both derived from the memory's key when they are not given.
+    slug: str | None = Field(default=None, max_length=64)
+    title: str | None = Field(default=None, max_length=120)
 
 
 # --- schedules ---------------------------------------------------------------
