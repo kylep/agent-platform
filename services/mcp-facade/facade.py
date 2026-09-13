@@ -11,17 +11,19 @@ The surface is CURATED into three tiers (curation 2026-08-24; see
 - **KEEP** — the day-to-day management surface (observe/operate runs,
   conversations, jobs, schedules, agents, pending changes, memory, metrics,
   health, reports, registries, apps, help, the relay rooms — read a channel,
-  post in it, react, DM, search, presence/stats — and the ticket board: file,
-  read, edit, move, assign, comment, stats). Always tools. 73 of them.
+  post in it, react, DM, search, presence/stats — the ticket board: file,
+  read, edit, move, assign, comment, stats — and the wiki: read, search, write,
+  append, history, restore, promote, wanted). Always tools. 84 of them.
 - **GATE** — authorized-but-sharp: the credential/secret plane, admin audit
-  reads, destructive/bulk ops, and the relay channel lifecycle (creating,
-  renaming and archiving rooms). Offered ONLY when `AP_MCP_ADMIN_TOOLS` is
-  truthy (`admin_tools_enabled()`). 26 of them. The role ladder authorizes
-  every call regardless — the flag controls the MENU, not the kitchen.
+  reads, destructive/bulk ops, the relay channel lifecycle (creating, renaming
+  and archiving rooms), and archiving a wiki page. Offered ONLY when
+  `AP_MCP_ADMIN_TOOLS` is truthy (`admin_tools_enabled()`). 27 of them. The
+  role ladder authorizes every call regardless — the flag controls the MENU,
+  not the kitchen.
 - **EXCLUDE** — UI form-feeders, reviewer digests the client can compute,
   git-edit conveniences redundant with having the repo, and system-agent
-  endpoints. Never tools. 18 of them, plus the 9 session/internal/streaming
-  operations below — 126 graded operations in all.
+  endpoints. Never tools. 18 of them, plus the 10 session/internal/streaming
+  operations below — 139 graded operations in all.
 
 It is deliberately NOT the mcp-broker. The broker authenticates in-cluster run
 identities and scopes tools to an agent's grants (design/13, design/15); this
@@ -140,6 +142,11 @@ GATED_ADMIN = (
     # room bridged?" is worth answering).
     (("POST",),   r"^/api/relay/channels/\{channel_id\}/bindings$"),
     (("DELETE",), r"^/api/relay/channels/\{channel_id\}/bindings/\{binding_id\}$"),
+    # Archiving a wiki page (design/21) takes it out of search, the links and
+    # the prompt block — the one wiki operation that removes rather than adds a
+    # version. Restoring one stays KEEP so a mistake is reversible without the
+    # flag; every other write is an ordinary edit the history records.
+    (("DELETE",), r"^/api/wiki/pages/\{slug\}$"),
 )
 
 # operationId -> MCP tool name. Keys are route function names (api/app.py sets
@@ -163,7 +170,7 @@ _TRUTHY = ("1", "true", "yes", "on")
 
 def admin_tools_enabled() -> bool:
     """Whether the sharp/admin tier is OFFERED (default off — a fresh facade
-    serves the 73-tool KEEP surface). Offering-only: the API's role ladder
+    serves the 84-tool KEEP surface). Offering-only: the API's role ladder
     authorizes every call regardless of this flag."""
     return os.environ.get("AP_MCP_ADMIN_TOOLS", "").strip().lower() in _TRUTHY
 

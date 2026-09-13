@@ -296,10 +296,6 @@ def test_nothing_wanted_says_so(calls):
 
 # --- promote ------------------------------------------------------------------
 
-MEMORY = {"id": "mem1", "agent": "news", "key": "deploy-notes",
-          "content": "helm upgrade", "tags": []}
-
-
 def test_promote_sends_the_memory_id_it_was_given(calls):
     wiki(action="promote", memory_id="mem1")
     assert calls == [("POST", "/api/wiki/promote", None, {"memory_id": "mem1"})]
@@ -311,33 +307,22 @@ def test_promote_carries_a_slug_and_title_when_they_were_chosen(calls):
                             "title": "Deploying"}
 
 
-def test_promote_by_key_resolves_the_callers_own_memory_first(calls):
-    """The API promotes by id; a model holds the key it remembered under. The
-    listing is namespace-locked by the token, so the id can only ever be the
-    caller's own."""
-    calls.replies["/api/memories"] = json.dumps([MEMORY])
-    wiki(action="promote", key="deploy-notes")
-    assert calls == [("GET", "/api/memories", {"q": "deploy-notes", "limit": 50}, None),
-                     ("POST", "/api/wiki/promote", None, {"memory_id": "mem1"})]
+def test_promote_by_key_hands_the_key_to_the_api(calls):
+    """A model holds the key it remembered under, and the API resolves it in
+    the caller's own namespace. The tool does NOT look it up: `/api/memories`
+    is a door a participant-only run token does not open, so a lookup here
+    would 403 for exactly the agents this action is for."""
+    wiki(action="promote", key="deploy-notes", slug=SLUG)
+    assert calls == [("POST", "/api/wiki/promote", None,
+                      {"key": "deploy-notes", "slug": SLUG})]
 
 
-def test_a_key_that_is_not_a_memory_of_yours_is_refused_without_promoting(calls):
-    calls.replies["/api/memories"] = json.dumps(
-        [{**MEMORY, "key": "deploy-notes-old"}])
-    out = wiki(action="promote", key="deploy-notes")
-    assert out.startswith("error:") and "memory_id" in out
-    assert [c[1] for c in calls] == ["/api/memories"]
-
-
-def test_a_token_that_cannot_read_the_memories_says_that_rather_than_no_match(calls):
-    """A participant-only run token does not reach the memory API at all. "No
-    memory keyed that" would send the agent looking for a better key, when the
-    only thing that works from here is the id."""
-    calls.replies["/api/memories"] = "error: 403 forbidden"
-    assert wiki(action="promote", key="deploy-notes") == (
-        "error: cannot list your memories from this token (403) — pass "
-        "memory_id instead (the memory tool's read answers with ids)")
-    assert [c[1] for c in calls] == ["/api/memories"]
+def test_promote_names_the_memory_one_way_even_when_given_both(calls):
+    """The API takes exactly one of the two and 422s on both. A model that
+    helpfully passes the id AND the key gets a promotion, not a schema error:
+    the id is the exact answer, so it wins."""
+    wiki(action="promote", memory_id="mem1", key="deploy-notes")
+    assert calls[-1][3] == {"memory_id": "mem1"}
 
 
 def test_promote_needs_a_memory_to_promote(calls):

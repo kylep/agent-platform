@@ -75,12 +75,25 @@ def sync_detailed(
     through the memory API's own view so the shape the store is handed is the
     shape the memory endpoints serve.
 
+    A memory is named by id or by `key`. The key is resolved HERE rather than
+    by the caller, because the caller that wants it most cannot do it: an agent
+    remembers a key, and `/api/memories` is `READ_ROLES`, which a participant
+    token is not. Resolution is scoped the same way promotion is — an agent's
+    own namespace, and a human's whichever they named.
+
     The slug and title come from the memory's key when the caller does not name
     them, which is what makes promoting the same memory twice land on the same
     page instead of a second copy.
 
     Args:
-        body (WikiPromoteIn):
+        body (WikiPromoteIn): The memory to harden into a page, named exactly one way.
+
+            `key` exists because the caller that most wants to promote cannot use an
+            id: an agent holds the key it remembered under, and its participant token
+            is refused by `/api/memories` (a `READ_ROLES` door the wiki's is not), so
+            trading a key for an id over HTTP is not a trade it can make. The key is
+            therefore resolved server-side, in the caller's own namespace — which is
+            also why a human, who has no namespace of their own, must say `agent`.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -116,12 +129,25 @@ def sync(
     through the memory API's own view so the shape the store is handed is the
     shape the memory endpoints serve.
 
+    A memory is named by id or by `key`. The key is resolved HERE rather than
+    by the caller, because the caller that wants it most cannot do it: an agent
+    remembers a key, and `/api/memories` is `READ_ROLES`, which a participant
+    token is not. Resolution is scoped the same way promotion is — an agent's
+    own namespace, and a human's whichever they named.
+
     The slug and title come from the memory's key when the caller does not name
     them, which is what makes promoting the same memory twice land on the same
     page instead of a second copy.
 
     Args:
-        body (WikiPromoteIn):
+        body (WikiPromoteIn): The memory to harden into a page, named exactly one way.
+
+            `key` exists because the caller that most wants to promote cannot use an
+            id: an agent holds the key it remembered under, and its participant token
+            is refused by `/api/memories` (a `READ_ROLES` door the wiki's is not), so
+            trading a key for an id over HTTP is not a trade it can make. The key is
+            therefore resolved server-side, in the caller's own namespace — which is
+            also why a human, who has no namespace of their own, must say `agent`.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -152,12 +178,25 @@ async def asyncio_detailed(
     through the memory API's own view so the shape the store is handed is the
     shape the memory endpoints serve.
 
+    A memory is named by id or by `key`. The key is resolved HERE rather than
+    by the caller, because the caller that wants it most cannot do it: an agent
+    remembers a key, and `/api/memories` is `READ_ROLES`, which a participant
+    token is not. Resolution is scoped the same way promotion is — an agent's
+    own namespace, and a human's whichever they named.
+
     The slug and title come from the memory's key when the caller does not name
     them, which is what makes promoting the same memory twice land on the same
     page instead of a second copy.
 
     Args:
-        body (WikiPromoteIn):
+        body (WikiPromoteIn): The memory to harden into a page, named exactly one way.
+
+            `key` exists because the caller that most wants to promote cannot use an
+            id: an agent holds the key it remembered under, and its participant token
+            is refused by `/api/memories` (a `READ_ROLES` door the wiki's is not), so
+            trading a key for an id over HTTP is not a trade it can make. The key is
+            therefore resolved server-side, in the caller's own namespace — which is
+            also why a human, who has no namespace of their own, must say `agent`.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -191,12 +230,25 @@ async def asyncio(
     through the memory API's own view so the shape the store is handed is the
     shape the memory endpoints serve.
 
+    A memory is named by id or by `key`. The key is resolved HERE rather than
+    by the caller, because the caller that wants it most cannot do it: an agent
+    remembers a key, and `/api/memories` is `READ_ROLES`, which a participant
+    token is not. Resolution is scoped the same way promotion is — an agent's
+    own namespace, and a human's whichever they named.
+
     The slug and title come from the memory's key when the caller does not name
     them, which is what makes promoting the same memory twice land on the same
     page instead of a second copy.
 
     Args:
-        body (WikiPromoteIn):
+        body (WikiPromoteIn): The memory to harden into a page, named exactly one way.
+
+            `key` exists because the caller that most wants to promote cannot use an
+            id: an agent holds the key it remembered under, and its participant token
+            is refused by `/api/memories` (a `READ_ROLES` door the wiki's is not), so
+            trading a key for an id over HTTP is not a trade it can make. The key is
+            therefore resolved server-side, in the caller's own namespace — which is
+            also why a human, who has no namespace of their own, must say `agent`.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.

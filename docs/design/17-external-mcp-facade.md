@@ -118,6 +118,31 @@ streaming). Default surface: **73 tools**; with `AP_MCP_ADMIN_TOOLS=1`: **99
 tools**. These per-tier figures are computed from the OpenAPI document and the
 rule tuples, so they supersede the hand-counts in the passes above.
 
+## Curation: Wiki (design-21, 2026-09)
+
+The wiki's 13 `/api/wiki/*` operations were graded the same way:
+
+- **KEEP (11)** — the whole garden: list and search the pages, read one with
+  its backlinks and citations, create, replace, append, read the history and
+  one version's diff, restore, promote a memory, and the `wanted` and `stats`
+  rollups. `write` and `promote` are KEEP rather than GATE because an operator
+  key editing a page is an ordinary edit: every write is a version with an
+  author, a reason and a diff card in `#wiki`, so nothing done through the
+  facade is done quietly, and nothing done through it is lost.
+- **GATE (1)** — `DELETE /api/wiki/pages/{slug}`, archiving. It is the one
+  write that removes rather than adds: the page drops out of search, the links
+  and the prompt block. `POST /api/wiki/pages/{slug}/restore` deliberately
+  stays KEEP, so a mistaken archive is reversible without turning the flag on
+  — the gate is on taking a page away, not on putting it back.
+- **EXCLUDE (1)** — `GET /api/wiki/events`, the recent-changes SSE stream, for
+  the same reason relay's and the board's are excluded: a call that never
+  returns is the one shape MCP cannot represent.
+
+Totals after Wiki, counted from a fresh spec: **139** graded operations — KEEP
+**84**, GATE **27**, EXCLUDE **28** (18 curated out, 10 session/internal/
+streaming). Default surface: **84 tools**; with `AP_MCP_ADMIN_TOOLS=1`: **111
+tools**.
+
 ## Explicitly not now
 
 Write-scoping beyond the role ladder (a reader key already gets 403s from

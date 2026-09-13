@@ -43,13 +43,13 @@ def build_tools(spec, admin_tools):
 
 @pytest.fixture(scope="module")
 def tools(spec):
-    """The DEFAULT (admin-off) tool surface — the 73-tool KEEP set."""
+    """The DEFAULT (admin-off) tool surface — the 84-tool KEEP set."""
     return build_tools(spec, admin_tools=False)
 
 
 @pytest.fixture(scope="module")
 def admin_tools(spec):
-    """The admin-on surface — KEEP + GATE (99 tools)."""
+    """The admin-on surface — KEEP + GATE (111 tools)."""
     return build_tools(spec, admin_tools=True)
 
 
@@ -97,11 +97,11 @@ def test_setup_state_is_not_caught_by_the_setup_exclusion():
 
 def test_everything_else_is_a_tool(spec, tools):
     """The default surface, by construction: exactly the operations that are
-    not design-17-excluded, not curated out, and not gated. Pinned at 85."""
+    not design-17-excluded, not curated out, and not gated. Pinned at 84."""
     hidden = {(m, p) for m, p in operations(spec) if matches(ALL_RULES, m, p)}
     expected = set(operations(spec)) - hidden
     assert {(t._route.method, t._route.path) for t in tools} == expected
-    assert len(tools) == len(expected) == 85, \
+    assert len(tools) == len(expected) == 84, \
         sorted({(t._route.method, t._route.path) for t in tools})
 
 
@@ -181,6 +181,29 @@ def test_tickets_are_tools_except_the_stream(spec, tools):
         assert op in surface, f"{op} missing from the ticket surface"
     assert ("GET", "/api/tickets/events") in operations(spec)
     assert ("GET", "/api/tickets/events") not in surface
+
+
+def test_the_wiki_is_tools_except_archiving_and_the_stream(spec, tools, admin_tools):
+    """The wiki (design/21) is the whole garden minus two operations: the SSE
+    stream, for the reason relay's and the board's are excluded, and archiving
+    a page, which gates because it takes a page out of the wiki. Restoring one
+    stays KEEP on purpose — a mistaken archive is then reversible without
+    turning the admin flag on."""
+    surface = {(t._route.method, t._route.path) for t in tools}
+    for op in (("GET", "/api/wiki/pages"), ("POST", "/api/wiki/pages"),
+               ("GET", "/api/wiki/pages/{slug}"), ("PUT", "/api/wiki/pages/{slug}"),
+               ("POST", "/api/wiki/pages/{slug}/append"),
+               ("POST", "/api/wiki/pages/{slug}/restore"),
+               ("GET", "/api/wiki/pages/{slug}/history"),
+               ("GET", "/api/wiki/pages/{slug}/versions/{version}"),
+               ("POST", "/api/wiki/promote"), ("GET", "/api/wiki/wanted"),
+               ("GET", "/api/wiki/stats")):
+        assert op in surface, f"{op} missing from the wiki surface"
+    assert ("DELETE", "/api/wiki/pages/{slug}") not in surface
+    assert ("DELETE", "/api/wiki/pages/{slug}") in {
+        (t._route.method, t._route.path) for t in admin_tools}
+    assert ("GET", "/api/wiki/events") in operations(spec)
+    assert ("GET", "/api/wiki/events") not in surface
 
 
 def test_renames_applied(tools, admin_tools):

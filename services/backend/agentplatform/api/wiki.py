@@ -366,6 +366,45 @@ async def restore_wiki_page(request: Request, slug: str, body: S.WikiRestoreIn,
         url_base=URL_BASE, **kw))
 
 
+async def _memory_of(s, caller: Caller, body: S.WikiPromoteIn) -> Memory:
+    """The memory this caller asked to promote, by id or by key.
+
+    The namespace rule is one rule read two ways. By id, the row names its own
+    namespace and a mismatch is a 403: the caller already holds the id, so
+    there is no existence left to protect and "that is not yours" is the answer
+    an agent can act on (the memory API's own 404 would send it looking for a
+    better id). By key, the namespace is an INPUT, so a wrong one is refused
+    before any lookup and a key that is simply not there is a 404 — the same
+    404 a human gets, because a key in a namespace the caller may read either
+    exists or does not.
+
+    `memory_api._resolve_ns` is deliberately not reused: it reads the API
+    KEY's agent, and the caller here is a run participant whose namespace is
+    `caller.agent`."""
+    if body.memory_id:
+        row = await s.get(Memory, body.memory_id)
+        if row is None:
+            raise HTTPException(404, "unknown memory")
+        if caller.agent is not None and row.agent != caller.agent:
+            raise HTTPException(403, "an agent may promote only its own memories")
+        return row
+    if caller.agent is not None:
+        if body.agent is not None and body.agent != caller.agent:
+            raise HTTPException(403, "an agent may promote only its own memories")
+        namespace = caller.agent
+    elif body.agent:
+        namespace = body.agent
+    else:
+        # A key is unique inside a namespace and nowhere else, and a human has
+        # none of their own to fall back on.
+        raise HTTPException(400, "promoting by key needs agent, whose memory it is")
+    row = (await s.execute(select(Memory).where(
+        Memory.agent == namespace, Memory.key == body.key))).scalars().first()
+    if row is None:
+        raise HTTPException(404, f"{namespace} has no memory keyed {body.key!r}")
+    return row
+
+
 @router.post("/api/wiki/promote", response_model=S.WikiPageView)
 async def promote_memory(request: Request, body: S.WikiPromoteIn,
                          caller: Caller = Depends(require_wiki_access(*WRITE))):
@@ -377,19 +416,18 @@ async def promote_memory(request: Request, body: S.WikiPromoteIn,
     through the memory API's own view so the shape the store is handed is the
     shape the memory endpoints serve.
 
+    A memory is named by id or by `key`. The key is resolved HERE rather than
+    by the caller, because the caller that wants it most cannot do it: an agent
+    remembers a key, and `/api/memories` is `READ_ROLES`, which a participant
+    token is not. Resolution is scoped the same way promotion is — an agent's
+    own namespace, and a human's whichever they named.
+
     The slug and title come from the memory's key when the caller does not name
     them, which is what makes promoting the same memory twice land on the same
     page instead of a second copy."""
     st = request.app.state
     async with st.session_factory() as s:
-        row = await s.get(Memory, body.memory_id)
-        if row is None:
-            raise HTTPException(404, "unknown memory")
-        # 403 and not the memory API's 404: the caller named an id it already
-        # holds, so there is no existence left to protect, and "that is not
-        # yours" is the answer an agent can act on.
-        if caller.agent is not None and row.agent != caller.agent:
-            raise HTTPException(403, "an agent may promote only its own memories")
+        row = await _memory_of(s, caller, body)
         memory = memory_api._view(row)
     try:
         slug = _slug(body.slug or slugify(memory["key"] or ""))

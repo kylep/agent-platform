@@ -165,14 +165,17 @@ first?" — the first "watch the librarian tend the garden" moment.
 
 ## Promotion
 
-`POST /api/wiki/promote {memory_id, slug?, title?}` (human, any namespace)
-and the tool's `promote` action (an agent, its own memory by `key` or id)
-create or update a page from the memory's content: slug derived from the key
-(`kyle-location` from `Location`) unless given, title from the key, body from
-the content with a trailing provenance line ("Promoted from pai's memory
-`Location` on 2026-09-13"), `source_memory_id` set, tags `["memory", "<agent>"]`,
-reason "promoted from memory". The memory is left untouched — it is still the
-agent's private note; the page is the shared fact. The Memories page shows a
+`POST /api/wiki/promote {memory_id | key, agent?, slug?, title?}` (a human,
+any namespace, named by `agent` when promoting by key) and the tool's
+`promote` action (an agent, its own memory by `key` or id — the key resolved
+server-side in the caller's own namespace, because a participant token does
+not reach `/api/memories`) create or update a page from the memory's content:
+slug derived from the key (`kyle-location` from `Location`) unless given,
+title from the key, body from the content with a trailing provenance line
+("Promoted from pai's memory `Location` on 2026-09-13"), `source_memory_id`
+set, tags `["memory", "<agent>"]`, reason "promoted from memory". The memory
+is left untouched — it is still the agent's private note; the page is the
+shared fact. The Memories page shows a
 "Promote to wiki" button per row and a "📖 promoted" badge with the page link
 when a page names it.
 
@@ -214,7 +217,7 @@ GET    /api/wiki/pages/{slug}/versions/{n} that version's body and a unified dif
 GET    /api/wiki/wanted                    [{slug, linked_from: [...]}] most-linked first
 GET    /api/wiki/stats                     pages, edits_24h by author (faces), wanted, stale (untouched 30 d), budget
 GET    /api/wiki/events                    SSE: page (upsert), heartbeat, overflow
-POST   /api/wiki/promote                   {memory_id, slug?, title?}
+POST   /api/wiki/promote                   {memory_id | key, agent?, slug?, title?}
 ```
 
 `{slug}` is the slug only (ids are internal). Diffs are unified diffs of the

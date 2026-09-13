@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from agentplatform import agentdefs, webhooksecrets
 
@@ -1185,11 +1185,32 @@ class WikiRestoreIn(BaseModel):
 
 
 class WikiPromoteIn(BaseModel):
+    """The memory to harden into a page, named exactly one way.
+
+    `key` exists because the caller that most wants to promote cannot use an
+    id: an agent holds the key it remembered under, and its participant token
+    is refused by `/api/memories` (a `READ_ROLES` door the wiki's is not), so
+    trading a key for an id over HTTP is not a trade it can make. The key is
+    therefore resolved server-side, in the caller's own namespace — which is
+    also why a human, who has no namespace of their own, must say `agent`.
+    """
     model_config = ConfigDict(extra="forbid")
-    memory_id: str = Field(min_length=1, max_length=64)
+    memory_id: str | None = Field(default=None, min_length=1, max_length=64)
+    key: str | None = Field(default=None, min_length=1, max_length=128)
+    # Whose memory `key` is. An agent caller's namespace is its own and naming
+    # another is refused; a human has none to default to.
+    agent: str | None = Field(default=None, min_length=1, max_length=128)
     # Both derived from the memory's key when they are not given.
     slug: str | None = Field(default=None, max_length=64)
     title: str | None = Field(default=None, max_length=120)
+
+    @model_validator(mode="after")
+    def _one_way_to_name_it(self):
+        # Both is two answers to "which memory", and resolving the ambiguity by
+        # preferring one would make the other argument silently do nothing.
+        if bool(self.memory_id) == bool(self.key):
+            raise ValueError("pass exactly one of memory_id or key")
+        return self
 
 
 # --- schedules ---------------------------------------------------------------

@@ -930,10 +930,6 @@ WIKI_ACTIONS = ("read", "search", "list", "write", "append", "history",
                 "promote", "wanted")
 # `api/wiki.py`'s own page cap, which bounds the history's limit too.
 WIKI_LIST_LIMIT = 200
-# How far the memory listing is searched when `promote` is given a key rather
-# than an id: `q` matches keys as well as content, so the exact key is picked
-# out of a page of near-misses rather than asked for row by row.
-WIKI_MEMORY_SCAN = 50
 # The slug grammar, character for character as `agentplatform.wiki.SLUG_RE` —
 # anchors included, so the gate holds wherever it is used rather than only
 # where the call site remembered `.fullmatch`. Restated rather than imported
@@ -1091,38 +1087,6 @@ async def _wiki_wanted() -> str:
                      f"{', '.join(r.get('linked_from') or [])}" for r in rows)
 
 
-async def _memory_by_key(key: str) -> tuple[str, str | None]:
-    """The caller's memory with this key, as (memory_id, error).
-
-    The promote endpoint takes an id and a model holds the key it remembered
-    under, so the key is resolved here — through `/api/memories`, which the
-    token namespaces for an agent, so the id that comes back can only ever be
-    the caller's own. One extra call and no roster: an exact key match or a
-    refusal that names the argument that always works.
-
-    A participant-only run token does not reach the memory API at all (the
-    listing is `READ_ROLES`, the wiki is not), and that 403 is a different
-    answer from "no such key": one is fixed by passing the id, the other by
-    passing the right key, and telling them apart is the difference between an
-    agent that retries forever and one that reaches for `memory_id`."""
-    out = await _call("GET", "/api/memories", {"q": key, "limit": WIKI_MEMORY_SCAN})
-    if out.startswith("error: 403"):
-        return "", ("error: cannot list your memories from this token (403) — "
-                    "pass memory_id instead (the memory tool's read answers "
-                    "with ids)")
-    try:
-        rows = _json.loads(out)
-    except ValueError:
-        rows = None
-    matched = ([m for m in rows if (m.get("key") or "") == key]
-               if isinstance(rows, list) else [])
-    if len(matched) == 1:
-        return matched[0].get("id") or "", None
-    return "", (f"error: could not find one memory of yours keyed {key!r} — "
-                f"pass memory_id instead (the memory tool's read answers with "
-                f"the id of each one)")
-
-
 @mcp.tool
 @_metered("wiki")
 async def wiki(action: str, slug: str | None = None, q: str | None = None,
@@ -1139,8 +1103,8 @@ async def wiki(action: str, slug: str | None = None, q: str | None = None,
     page if it is missing. `write` REPLACES the page, so read it first and pass
     the `base_version` you read; with no base_version it only creates a page
     that does not exist yet. Every write needs a `reason` — one line on what
-    changed and why. `promote` turns one of your own memories (`memory_id`, or
-    its `key`) into a page everybody can cite."""
+    changed and why. `promote` turns one of your own memories (by the `key` you
+    saved it under, or `memory_id`) into a page everybody can cite."""
     if action not in WIKI_ACTIONS:
         return "error: action must be one of " + "|".join(WIKI_ACTIONS)
     ref, error = _wiki_slug(slug)
@@ -1168,15 +1132,14 @@ async def wiki(action: str, slug: str | None = None, q: str | None = None,
         return await _wiki_wanted()
     if action == "promote":
         if not (memory_id or key):
-            return ("error: action='promote' requires memory_id, the memory to "
-                    "harden into a page (or key, the key you saved it under)")
-        if not memory_id:
-            memory_id, error = await _memory_by_key(key)
-            if error:
-                return error
+            return ("error: action='promote' requires key, the key you saved "
+                    "the memory under (or memory_id, if you have the id)")
+        # The key goes over as the key: the API resolves it in this token's own
+        # namespace, which is the one lookup a participant-only run token
+        # cannot make for itself (`/api/memories` is not its door).
+        named = {"memory_id": memory_id} if memory_id else {"key": key}
         return await _call("POST", "/api/wiki/promote",
-                           json={"memory_id": memory_id,
-                                 **_given(slug=ref or None, title=title)})
+                           json={**named, **_given(slug=ref or None, title=title)})
 
     if not body:
         return (f"error: action='{action}' requires body, the "

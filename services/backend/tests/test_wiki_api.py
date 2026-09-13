@@ -450,6 +450,57 @@ async def test_an_agent_promotes_only_its_own_memory(token_client, sf, seed_agen
     assert r.status_code == 403, r.text
 
 
+async def test_an_agent_promotes_by_key_from_its_own_namespace(token_client, sf,
+                                                               seed_agent, agent_store):
+    """An agent holds the key it remembered under, not the id, and its
+    participant token cannot list `/api/memories` to trade one for the other —
+    so the key is resolved here, in the caller's own namespace. The same key in
+    somebody else's namespace is not a memory this caller has."""
+    headers = await _agent_headers(sf, seed_agent, agent_store, "news")
+    await _memory(sf, "news", "Dedup", "The forecast is a daily item.")
+    await _memory(sf, "pai", "Dedup", "Something else entirely.")
+    r = await token_client.post("/api/wiki/promote",
+                                json={"key": "Dedup", "slug": "weather-dedup"},
+                                headers=headers)
+    assert r.status_code == 200, r.text
+    assert r.json()["created_by"] == "agent:news"
+    assert "The forecast is a daily item." in r.json()["body"]
+
+    # Naming another namespace is the cross-namespace refusal, not a promotion.
+    r = await token_client.post("/api/wiki/promote",
+                                json={"key": "Dedup", "agent": "pai"}, headers=headers)
+    assert r.status_code == 403, r.text
+    r = await token_client.post("/api/wiki/promote", json={"key": "nope"},
+                                headers=headers)
+    assert r.status_code == 404, r.text
+
+
+async def test_a_human_promoting_by_key_names_the_namespace(admin_client, sf):
+    """A key is only unique inside a namespace, and a human has none of their
+    own — so a human promoting by key says whose memory it is."""
+    await _memory(sf, "pai", "Location", "Kyle lives in Whitby.")
+    assert (await admin_client.post("/api/wiki/promote",
+                                    json={"key": "Location"})).status_code == 400
+    r = await admin_client.post("/api/wiki/promote",
+                                json={"key": "Location", "agent": "pai"})
+    assert r.status_code == 200, r.text
+    assert r.json()["slug"] == "location"
+    r = await admin_client.post("/api/wiki/promote",
+                                json={"key": "nope", "agent": "pai"})
+    assert r.status_code == 404, r.text
+
+
+async def test_promote_names_the_memory_exactly_one_way(admin_client, sf):
+    """Neither argument is nothing to promote; both is two answers to which
+    memory, and a 422 at the door is cheaper than guessing."""
+    memory_id = await _memory(sf, "pai", "Location", "Kyle lives in Whitby.")
+    assert (await admin_client.post("/api/wiki/promote", json={})).status_code == 422
+    r = await admin_client.post("/api/wiki/promote",
+                                json={"memory_id": memory_id, "key": "Location",
+                                      "agent": "pai"})
+    assert r.status_code == 422, r.text
+
+
 # --- stats and live -----------------------------------------------------------
 
 async def test_stats_report_the_garden(admin_client, sf):
