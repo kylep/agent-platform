@@ -389,7 +389,7 @@ dispatch subagents, verify their evidence, commit, and update this file.
 
 ### Phase 5 — ship it
 
-- [ ] **T9 Facade curation (design 17), SDK drift, CI.**
+- [x] **T9 Facade curation (design 17), SDK drift, CI.** (commit `4127702`; KEEP 11 / GATE 1 (archive) / EXCLUDE 1 → 84 default, 111 admin; promote by key server-side; review: ship)
   In `services/mcp-facade/facade.py`: KEEP the page list/read/create/put/
   append/history/versions/wanted/stats/promote and restore operations; GATE
   `DELETE /api/wiki/pages/{slug}` (archiving is destructive) behind
@@ -448,6 +448,7 @@ dispatch subagents, verify their evidence, commit, and update this file.
 
 ### Deferred
 (low/medium review findings not fixed; each with file:line and one sentence)
+- T9: `WikiPromoteIn` accepts `agent` alongside `memory_id` and silently ignores it; the validator should refuse the combination like it refuses `memory_id`+`key`.
 - T8: the dashboard's Wiki tile vanishes (not `—`) when `/api/wiki/stats` fails — the same convention as the Tickets and Relay tiles.
 - T8: with the page cache failed/unloaded (`slugs === null`) every `[[slug]]` chip renders as an ordinary link rather than a neutral "unknown" state (fails open toward "looks real" until the cache recovers).
 - T8: the dashboard's "untouched for 30 days" copy hardcodes `STALE_DAYS` client-side while the count uses the server's `wiki_stale_days`; add `stale_days` to `/api/wiki/stats` to align (the tickets stats do this).
