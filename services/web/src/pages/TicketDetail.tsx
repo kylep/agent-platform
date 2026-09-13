@@ -1,7 +1,6 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { Chip } from "@ap/ui/chip";
-import { Markdown } from "@ap/ui/markdown";
 import { api, type AgentSummary } from "../api";
 import { DetailActivity } from "../components/tickets/DetailActivity";
 import { DetailAssign } from "../components/tickets/DetailAssign";
@@ -9,6 +8,7 @@ import { DetailFields } from "../components/tickets/DetailFields";
 import { Face } from "../components/relay/Face";
 import ThreadPane from "../components/relay/ThreadPane";
 import { useChannel } from "../components/relay/useChannel";
+import { Prose } from "../components/wiki/Prose";
 import {
   type Ticket, type TicketDetail as Detail, type TicketProject,
 } from "../lib/tickets";
@@ -32,6 +32,10 @@ type Page = {
    * channel by construction, so one list of the project answers both. */
   siblings: Ticket[];
   project: TicketProject | null;
+  /** Every project's prefix — what the description's chip pass rewrites. The
+   * ticket's own project is not enough: a body routinely names work on another
+   * board, and a key nobody can click is the one thing chips exist to fix. */
+  prefixes: string[];
   agents: string[];
   me: string | null;
   error: string | null;
@@ -151,7 +155,10 @@ function useTicketPage(key: string): Page {
   }, []);
 
   const project = projects.find((p) => p.id === detail?.ticket.channel_id) ?? null;
-  return { detail, siblings, project, agents, me, error, loaded, absorb };
+  // Stable across renders, so the description is rewritten when it changes and
+  // not on every stream frame that touches the page.
+  const prefixes = useMemo(() => projects.map((p) => p.prefix), [projects]);
+  return { detail, siblings, project, prefixes, agents, me, error, loaded, absorb };
 }
 
 /** The ticket's thread, live, through the same subscription Relay uses. The
@@ -267,7 +274,12 @@ export default function TicketDetail() {
         </div>
 
         <div className="ticket-main">
-          {ticket.body && <Markdown text={ticket.body} className="ticket-body" />}
+          {/* The description is prose like a room message is, so it gets the
+              same chips: `OPS-12` links to the ticket, `[[deploying]]` to the
+              page — red when nobody has written it (docs/design/21). */}
+          {ticket.body && (
+            <Prose text={ticket.body} prefixes={page.prefixes} className="ticket-body" />
+          )}
           {detail.root_message_id
             ? <TicketThread channelId={ticket.channel_id} threadId={detail.root_message_id} />
             : (

@@ -10,16 +10,17 @@ const PAGES = ["/", "/agents", "/agents/health-monitor", "/agents/health-monitor
                "/agents/new", "/runs", "/relay", "/relay?kind=dm",
                // the thread pane is a second live region on the page
                "/relay?channel=rc1&thread=m6",
-               "/tickets", "/tickets/OPS-1",
+               "/tickets", "/tickets/OPS-1", "/wiki", "/wiki/deploying",
                "/memories", "/changes", "/schedules", "/skills", "/secrets",
                "/dlq", "/reporting", "/reports", "/reports/daily-news", "/apps",
-               "/help", "/help/tools", "/help/tickets", "/settings"];
+               "/help", "/help/tools", "/help/tickets", "/help/wiki", "/settings"];
 
 /** The pages whose layout is a DIFFERENT layout on a phone: columns re-stack,
  * the rail becomes a drawer, wrapper boxes are dissolved to reorder what they
  * hold. A sweep that only ever ran at 1280 cannot see what any of that costs —
  * a landmark dropped by a mobile-only rule passed this file for months. */
-const MOBILE = ["/tickets", "/tickets/OPS-1", "/relay", "/relay?channel=rc1&thread=m6"];
+const MOBILE = ["/tickets", "/tickets/OPS-1", "/wiki", "/wiki/deploying",
+                "/relay", "/relay?channel=rc1&thread=m6"];
 
 async function axe(page: import("@playwright/test").Page, path: string, where: string) {
   await mockApi(page);

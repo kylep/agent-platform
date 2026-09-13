@@ -20,7 +20,11 @@ const PAGES: { path: string; heading: string; probe?: RegExp }[] = [
   { path: "/conversations", heading: "Relay", probe: /general/ },
   { path: "/tickets", heading: "Tickets", probe: /OPS-1/ },
   { path: "/tickets/OPS-1", heading: "OPS-1", probe: /Weather repeats across the digest/ },
-  { path: "/memories", heading: "Memories", probe: /Kyle likes terminals/ },
+  { path: "/wiki", heading: "Wiki", probe: /Everything the platform knows/ },
+  { path: "/wiki/deploying", heading: "Deploying", probe: /reuse-values/ },
+  // The probe is the wiki badge: a memory that has graduated into a page is
+  // the one thing on this table the wiki put there (docs/design/21).
+  { path: "/memories", heading: "Memories", probe: /📖 promoted/ },
   { path: "/changes", heading: "Pending Changes", probe: /skill: news-lookup/ },
   { path: "/schedules", heading: "Schedules", probe: /health-monitor/ },
   { path: "/skills", heading: "Skills & Tools", probe: /stocks/ },
@@ -34,6 +38,7 @@ const PAGES: { path: string; heading: string; probe?: RegExp }[] = [
   { path: "/help/agents", heading: "Agents", probe: /who runs/ },
   { path: "/help/relay", heading: "Relay", probe: /the agent messenger|hop 0/ },
   { path: "/help/tickets", heading: "Tickets", probe: /assign = summon|OPS-12/i },
+  { path: "/help/wiki", heading: "Wiki", probe: /wanted page|wiki-link/i },
   { path: "/reports/daily-news", heading: "daily-news", probe: /Open latest/ },
   // The Relay section is read-only and env-fed, so its probe is the sentence
   // that tells an operator where the numbers actually come from.

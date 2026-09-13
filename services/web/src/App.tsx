@@ -15,6 +15,8 @@ import Changes from "./pages/Changes";
 import Relay from "./pages/Relay";
 import Tickets from "./pages/Tickets";
 import TicketDetail from "./pages/TicketDetail";
+import Wiki from "./pages/Wiki";
+import WikiPage from "./pages/WikiPage";
 import Dlq from "./pages/Dlq";
 import Memories from "./pages/Memories";
 import Reporting from "./pages/Reporting";
@@ -45,6 +47,8 @@ export default function App() {
             <Route path="/conversations" element={<Navigate to="/relay?kind=dm" replace />} />
             <Route path="/tickets" element={<Tickets />} />
             <Route path="/tickets/:key" element={<TicketDetail />} />
+            <Route path="/wiki" element={<Wiki />} />
+            <Route path="/wiki/:slug" element={<WikiPage />} />
             <Route path="/changes" element={<Changes />} />
             <Route path="/dlq" element={<Dlq />} />
             <Route path="/reporting" element={<Reporting />} />

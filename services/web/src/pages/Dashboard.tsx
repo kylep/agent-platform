@@ -12,6 +12,7 @@ import { cronTitle, isSingleExpression, useCronPreview } from "../lib/cron";
 import type { TicketStats } from "../lib/tickets";
 import { ago } from "../lib/time";
 import { useTitle } from "../lib/title";
+import { STALE_DAYS, type WikiStats } from "../lib/wiki";
 
 // One actionable item in the "Needs attention" panel.
 type Attn = { key: string; text: string; to: string; sev: "warn" | "bad"; title?: string };
@@ -88,6 +89,25 @@ function TicketStat({ stats }: { stats: TicketStats }) {
   );
 }
 
+/** The wiki in three numbers (docs/design/21). Pages is the headline — it is
+ * how much the platform has actually written down — with the day's edits and
+ * the red links under it, which together say whether it is still growing. */
+function WikiStat({ stats }: { stats: WikiStats }) {
+  const edits = stats.edits_24h.reduce((n, a) => n + a.count, 0);
+  return (
+    <Stat label="wiki · pages" value={stats.pages} to="/wiki"
+          sub={<span>{edits} edits · 24h · {stats.wanted} wanted</span>} />
+  );
+}
+
+// When a wiki's own to-do list is worth a human's attention. A couple of red
+// links is how a wiki is supposed to look — somebody wrote a link to a page
+// they mean to write — so only a backlog counts; and a page nobody has touched
+// in a month is unreviewed rather than wrong, which is why the stale bar is
+// higher still.
+const WANTED_ATTN = 5;
+const STALE_ATTN = 10;
+
 export default function Dashboard() {
   useTitle("Dashboard");
   const [ov, setOv] = useState<MetricsOverview | null>(null);
@@ -99,6 +119,7 @@ export default function Dashboard() {
   const [prs, setPrs] = useState<PullRequest[]>([]);
   const [relay, setRelay] = useState<RelayStats | null>(null);
   const [tickets, setTickets] = useState<TicketStats | null>(null);
+  const [wiki, setWiki] = useState<WikiStats | null>(null);
   // `name` is null for an entrypoint cron — it has no name of its own.
   const [upcoming, setUpcoming] = useState<
     // `agent` is null for a relay job — it posts into a room and belongs to no
@@ -120,6 +141,7 @@ export default function Dashboard() {
     api<PullRequest[]>("/api/pull-requests").then(setPrs).catch(() => setPrs([]));  // 409 if no GH app
     api<RelayStats>("/api/relay/stats").then(setRelay).catch(() => setRelay(null));
     api<TicketStats>("/api/tickets/stats").then(setTickets).catch(() => setTickets(null));
+    api<WikiStats>("/api/wiki/stats").then(setWiki).catch(() => setWiki(null));
     Promise.all([
       api<Job[]>("/api/jobs").catch(() => [] as Job[]),
       api<ScheduleEntry[]>("/api/schedules").catch(() => [] as ScheduleEntry[]),
@@ -205,6 +227,16 @@ export default function Dashboard() {
         + " the platform no longer runs" });
   }
 
+  // The wiki's own backlog: links nobody has followed up, and pages nobody has
+  // looked at since. Neither is a fault — they are the gardening the librarian
+  // is asked about on Sunday — so both read as warnings.
+  if (wiki) {
+    if (wiki.wanted >= WANTED_ATTN) attention.push({ key: "wiki-wanted", sev: "warn", to: "/wiki",
+      text: `${wiki.wanted} wanted pages — links to pages nobody has written yet` });
+    if (wiki.stale >= STALE_ATTN) attention.push({ key: "wiki-stale", sev: "warn", to: "/wiki",
+      text: `${wiki.stale} stale pages — untouched for ${STALE_DAYS} days` });
+  }
+
   const claude = secrets.find((s) => s.name === "claude-credentials");
 
   return (
@@ -252,6 +284,7 @@ export default function Dashboard() {
               warn={ov?.success_rate != null && ov.success_rate < 0.8} to="/reporting" />
         <Stat label={ov ? `tokens in/out (uncached) · last ${ov.window} runs` : "tokens in/out"} value={ov ? `${ov.tokens_in.toLocaleString()} / ${ov.tokens_out.toLocaleString()}` : "—"} to="/reporting" />
         {tickets && <TicketStat stats={tickets} />}
+        {wiki && <WikiStat stats={wiki} />}
         {relay && <RelayStat stats={relay} />}
       </StatRow>
 

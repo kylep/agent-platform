@@ -31,6 +31,7 @@ export function buildPlatformNav(apps: AppNavInfo[] = []): NavEntry[] {
       { to: "/relay?kind=dm", label: "DMs" },
     ] },
     { to: "/tickets", label: "Tickets" },
+    { to: "/wiki", label: "Wiki" },
     { to: "/reporting", label: "Reporting", children: [
       { to: "/runs", label: "Runs" },
       { to: "/reports", label: "Reports" },

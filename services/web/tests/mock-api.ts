@@ -187,6 +187,14 @@ const opsMessages = [
   relayMessage({ id: "k1r3", channel_id: "rc3", author: "user:kyle", reply_to: "k1",
                  thread_root: "k1", created_at: at(583),
                  body: "Same root cause as OPS-2.\n\n```\nOPS-3 is only an example\n```" }),
+  // Two rows that CITE a wiki page: `[[deploying]]` is a chip in a room the
+  // same way a ticket key is, and the page's "cited in 2 messages" is these.
+  relayMessage({ id: "k1r4", channel_id: "rc3", author: "agent:pai", face: FACES.pai,
+                 reply_to: "k1", thread_root: "k1", created_at: at(583),
+                 body: "The helm trap is written up in [[deploying]] now." }),
+  relayMessage({ id: "k1r5", channel_id: "rc3", author: "user:kyle", reply_to: "k1",
+                 thread_root: "k1", created_at: at(590),
+                 body: "Read [[deploying]] before the next release." }),
   ticketCard("OPS-2", "Kafka lag alert fires every night", "in_progress", "p0",
              "agent:health-monitor",
              { id: "k2", author: "agent:health-monitor", face: FACES["health-monitor"],
@@ -449,6 +457,262 @@ function ticketWrite(path: string, method: string, body: Record<string, unknown>
            last_activity_at: new Date().toISOString() };
 }
 
+// --- the wiki (docs/design/21) ------------------------------------------------
+// Three live pages, one archived, and two slugs the live ones point at that
+// nobody has written — which is what a wanted page IS. Between them they cover
+// every state the UI draws: a promoted page, a stale one, an agent-written
+// version with a run behind it, a chip, a red chip, and a `[[slug]]` in
+// backticks that is neither.
+const DAY = 24 * 60;
+
+const wikiRow = (over: Record<string, unknown>) => ({
+  id: "w0", slug: "page", title: "Page", body: "", summary: "",
+  tags: [] as string[], version: 1,
+  created_by: "user:admin", updated_by: "user:admin",
+  source_memory_id: null as string | null,
+  created_at: at(60 * DAY), updated_at: at(60),
+  archived_at: null as string | null,
+  updated_by_face: null as { emoji: string; hue: number } | null,
+  ...over,
+});
+
+const homeBody = `# The wiki
+
+Everything the platform knows, written where anybody can cite it — the people
+and the agents alike.
+
+Start with [[deploying]]: it is the page the rooms point at most.
+
+Write \`[[standup]]\` in a message and it becomes a chip; the same words in
+backticks stay words. A page nobody has written yet is red, and following one
+opens the editor — we still need a [[standup]] page.
+
+A link somebody wrote on purpose is left alone, brackets and all:
+[See [[deploying]]](https://example.com/deploy).
+`;
+
+const deployingBody = `# Deploying
+
+Push the image, sync the agents, then \`helm upgrade\`.
+
+Do not pass \`--reuse-values\` on a chart whose defaults moved: it keeps the old
+ones and the release drifts from the chart.
+
+| step | who | command | needs | takes | notes |
+| --- | --- | --- | --- | --- | --- |
+| build | ci | \`docker buildx build --provenance=false .\` | a tag | 4 min | the flag matters |
+| import | ops | \`ctr -n k8s.io images import agent-platform.tar\` | the tarball | 2 min | on the node |
+| release | ops | \`helm upgrade agent-platform ./chart\` | the chart | 1 min | never --reuse-values |
+
+See also [[kafka-lag]] and the [[standup]] we owe ourselves.
+`;
+
+/** The wiki as the list route answers it. Exported so a spec can stream one of
+ * these back through the SSE mock rather than inventing a second shape. */
+export const wikiFixtures = [
+  wikiRow({ id: "w-home", slug: "home", title: "The wiki", body: homeBody,
+            summary: "Everything the platform knows, written where anybody can cite it.",
+            version: 3, updated_by: "agent:news", updated_by_face: FACES.news,
+            updated_at: at(20) }),
+  wikiRow({ id: "w-deploying", slug: "deploying", title: "Deploying",
+            body: deployingBody, tags: ["ops"],
+            summary: "Push the image, sync the agents, then helm upgrade.",
+            version: 2, updated_by: "agent:pai", updated_by_face: FACES.pai,
+            updated_at: at(90) }),
+  // Promoted out of pai's own memory, and untouched since — the stale one.
+  wikiRow({ id: "w-kyle", slug: "kyle-location", title: "Kyle's location",
+            body: "Kyle is in Whitby, Ontario — UTC-5, UTC-4 in the summer.\n",
+            summary: "Kyle is in Whitby, Ontario.", tags: ["memory", "pai"],
+            source_memory_id: "m-pai-location", updated_by: "user:admin",
+            created_at: at(120 * DAY), updated_at: at(45 * DAY) }),
+];
+
+// Archived: out of the wiki, still in the record. It is never listed and reads
+// as missing, exactly as the API answers it.
+const wikiArchived = wikiRow({ id: "w-old", slug: "old-notes", title: "Old notes",
+                               body: "Superseded.\n", version: 4,
+                               updated_at: at(200 * DAY), archived_at: at(30 * DAY) });
+
+const wikiCitation = (message_id: string, author: string, minsAgo: number) =>
+  ({ message_id, channel_id: "rc3", author, created_at: at(minsAgo) });
+
+const wikiDetails: Record<string, unknown> = {
+  home: { page: wikiFixtures[0], backlinks: [{ slug: "deploying", title: "Deploying" }],
+          cited_in: { count: 0, count_capped: false, last: [] } },
+  deploying: {
+    page: wikiFixtures[1],
+    backlinks: [{ slug: "home", title: "The wiki" }],
+    cited_in: { count: 2, count_capped: false,
+                last: [wikiCitation("k1r4", "agent:pai", 583),
+                       wikiCitation("k1r5", "user:kyle", 590)] },
+  },
+  "kyle-location": { page: wikiFixtures[2], backlinks: [],
+                     cited_in: { count: 0, count_capped: false, last: [] } },
+};
+
+const wikiHistoryRow = (over: Record<string, unknown>) => ({
+  id: "v0", version: 1, title: "Page", author: "user:admin", run_id: null,
+  reason: "", created_at: at(60), added: 0, removed: 0,
+  author_face: null as { emoji: string; hue: number } | null, ...over,
+});
+
+const wikiHistories: Record<string, unknown[]> = {
+  deploying: [
+    wikiHistoryRow({ id: "vd2", version: 2, title: "Deploying", author: "agent:pai",
+                     author_face: FACES.pai, run_id: "r-pai-1",
+                     reason: "add the helm --reuse-values trap", added: 12, removed: 1,
+                     created_at: at(90) }),
+    wikiHistoryRow({ id: "vd1", version: 1, title: "Deploying", reason: "first draft",
+                     added: 20, removed: 0, created_at: at(40 * DAY) }),
+  ],
+  home: [
+    wikiHistoryRow({ id: "vh3", version: 3, title: "The wiki", author: "agent:news",
+                     author_face: FACES.news, run_id: "r-news-1",
+                     reason: "link the deploying page", added: 4, removed: 2,
+                     created_at: at(20) }),
+    wikiHistoryRow({ id: "vh2", version: 2, title: "The wiki", reason: "say what a red link is",
+                     added: 6, removed: 0, created_at: at(2 * DAY) }),
+    wikiHistoryRow({ id: "vh1", version: 1, title: "The wiki", reason: "first draft",
+                     added: 9, removed: 0, created_at: at(60 * DAY) }),
+  ],
+  "kyle-location": [
+    wikiHistoryRow({ id: "vk1", version: 1, title: "Kyle's location",
+                     reason: "promoted from memory", added: 2, removed: 0,
+                     created_at: at(45 * DAY) }),
+  ],
+};
+
+// One version and what it changed. The diff is a real unified diff so the view
+// has hunk headers, context, additions and removals to colour and to prefix.
+const deployingDiff = [
+  "--- deploying v1",
+  "+++ deploying v2",
+  "@@ -1,6 +1,8 @@",
+  " # Deploying",
+  " ",
+  " Push the image, sync the agents, then `helm upgrade`.",
+  "-Then check the release.",
+  "+",
+  "+Do not pass `--reuse-values` on a chart whose defaults moved: it keeps the old",
+  "+ones and the release drifts from the chart.",
+  " ",
+  " See also [[kafka-lag]] and the [[standup]] we owe ourselves.",
+].join("\n");
+
+const wikiVersion = (slug: string, version: number, over: Record<string, unknown> = {}) => {
+  const row = (wikiHistories[slug] ?? []).find(
+    (r) => (r as { version: number }).version === version) as Record<string, unknown> | undefined;
+  if (!row) return undefined;
+  const page = wikiFixtures.find((p) => p.slug === slug);
+  return {
+    version: { ...row, page_id: page?.id ?? "w0", body: page?.body ?? "" },
+    diff: `--- ${slug} v${version - 1}\n+++ ${slug} v${version}\n@@ -1,1 +1,1 @@\n-before\n+after`,
+    added: row.added, removed: row.removed, ...over,
+  };
+};
+
+const wikiWanted = [
+  { slug: "standup", linked_from: ["home", "deploying"] },
+  { slug: "kafka-lag", linked_from: ["deploying"] },
+];
+
+const wikiStats = {
+  pages: 3,
+  edits_24h: [
+    { author: "agent:pai", face: FACES.pai, count: 2 },
+    { author: "user:admin", face: null, count: 1 },
+  ],
+  wanted: 2, stale: 1,
+  budget: { limit: 30, agents: [{ agent: "pai", used: 2, left: 28 }] },
+};
+
+/** The list route's filters. The rail asks the server for `q` and `tag`
+ * because only the server can rank a search — a mock that answered every query
+ * with everything would make the wrong thing pass. */
+function wikiList(params: URLSearchParams) {
+  const q = (params.get("q") ?? "").toLowerCase();
+  const tag = params.get("tag");
+  const memory = params.get("source_memory_id");
+  const since = params.get("changed_since");
+  const limit = Number(params.get("limit") ?? 200);
+  return wikiFixtures
+    .filter((p) => (!q || `${p.title} ${p.body}`.toLowerCase().includes(q))
+      && (!tag || p.tags.includes(tag))
+      && (!memory || p.source_memory_id === memory)
+      && (!since || (p.updated_at ?? "") >= since))
+    .slice(0, limit);
+}
+
+/** Every wiki read, including the 404s. A slug nobody has written answers 404
+ * the way the API does — that IS the answer the wanted-page flow is built on,
+ * so it must not be recorded as a missing fixture. */
+function wikiGet(path: string, params: URLSearchParams):
+  { status?: number; json: unknown } | undefined {
+  if (path === "/api/wiki/pages") return { json: wikiList(params) };
+  if (path === "/api/wiki/wanted") return { json: wikiWanted };
+  if (path === "/api/wiki/stats") return { json: wikiStats };
+  const m = /^\/api\/wiki\/pages\/([^/]+)(?:\/(history|versions\/(\d+)))?$/.exec(path);
+  if (!m) return undefined;
+  const [, slug, kind, version] = m;
+  const known = wikiFixtures.some((p) => p.slug === slug) || slug === wikiArchived.slug;
+  const missing = { status: 404, json: { detail: "unknown wiki page" } };
+  if (!known) return missing;
+  // An archived page keeps its history and loses everything else.
+  if (!kind) {
+    return wikiDetails[slug] ? { json: wikiDetails[slug] } : missing;
+  }
+  if (kind === "history") return { json: wikiHistories[slug] ?? [] };
+  const view = slug === "deploying" && version === "2"
+    ? wikiVersion(slug, 2, { diff: deployingDiff })
+    : wikiVersion(slug, Number(version));
+  return view ? { json: view } : { status: 404, json: { detail: `${slug} has no v${version}` } };
+}
+
+/** Every wiki write answers with the page it produced, the way the API does.
+ * A PUT that names a base version the page has moved past is the 409 the
+ * editor is built around — body and all, since the version it has got to and
+ * what it now says are what makes merging possible. */
+function wikiWrite(path: string, method: string, body: Record<string, unknown>):
+  { status?: number; json: unknown } | undefined {
+  const now = new Date().toISOString();
+  if (path === "/api/wiki/pages" && method === "POST") {
+    return { status: 201, json: wikiRow({
+      id: `w-${body.slug}`, slug: String(body.slug ?? "new"),
+      title: String(body.title ?? body.slug ?? "New page"),
+      body: String(body.body ?? ""), summary: String(body.body ?? "").split("\n")[0],
+      tags: (body.tags as string[]) ?? [], version: 1,
+      updated_by: "user:kyle", created_at: now, updated_at: now }) };
+  }
+  if (path === "/api/wiki/promote" && method === "POST") {
+    return { json: wikiFixtures[2] };
+  }
+  const m = /^\/api\/wiki\/pages\/([^/]+)(?:\/(append|restore))?$/.exec(path);
+  const row = m && wikiFixtures.find((p) => p.slug === m[1]);
+  if (!m || !row) return undefined;
+  if (method === "DELETE") {
+    return { json: { ...row, archived_at: now, updated_at: now } };
+  }
+  if (m[2] === "append") {
+    return { json: { ...row, version: row.version + 1, updated_at: now,
+                     body: `${row.body}\n\n${String(body.body ?? "")}` } };
+  }
+  if (m[2] === "restore") {
+    return { json: { ...row, version: row.version + 1, updated_at: now,
+                     updated_by: "user:kyle", updated_by_face: null } };
+  }
+  if (method !== "PUT") return undefined;
+  if (body.base_version !== row.version) {
+    return { status: 409, json: {
+      detail: `${row.slug} has moved on: you read v${body.base_version}, it is at v5`,
+      current_version: 5, current_summary: row.summary } };
+  }
+  return { json: { ...row, version: row.version + 1, updated_at: now,
+                   updated_by: "user:kyle", updated_by_face: null,
+                   body: String(body.body ?? row.body),
+                   title: String(body.title ?? row.title),
+                   tags: (body.tags as string[]) ?? row.tags } };
+}
+
 const FIXTURES: Record<string, unknown> = {
   "/api/setup-state": { needs_admin: false, secrets },
   "/api/agents": agents,
@@ -508,6 +772,15 @@ const FIXTURES: Record<string, unknown> = {
   "/api/memories": [
     { id: "m1", agent: "pai", key: null, content: "Kyle likes terminals.", tags: ["style"],
       created_at: new Date().toISOString(), updated_at: new Date().toISOString() },
+    // The two states a memory can be in once the wiki exists (docs/design/21):
+    // one that has graduated into a page — `w-kyle` names it, which is what
+    // the badge reads — and one that has not, which is what Promote is for.
+    { id: "m-pai-location", agent: "pai", key: "Kyle location",
+      content: "Kyle is in Whitby, Ontario — UTC-5, UTC-4 in the summer.", tags: ["place"],
+      created_at: at(120 * DAY), updated_at: at(45 * DAY) },
+    { id: "m-news-dedup", agent: "news", key: "Weather dedup",
+      content: "The forecast is one item a day, not one per source.", tags: ["rules"],
+      created_at: at(300), updated_at: at(120) },
   ],
   "/api/tags": [],
   "/api/pull-requests": prs,
@@ -602,6 +875,7 @@ const FIXTURES: Record<string, unknown> = {
     { slug: "changes", title: "Changes — the change loop" },
     { slug: "relay", title: "Relay" },
     { slug: "tickets", title: "Tickets" },
+    { slug: "wiki", title: "Wiki" },
   ],
   "/api/help/topics/agents": {
     slug: "agents", title: "Agents",
@@ -619,6 +893,13 @@ const FIXTURES: Record<string, unknown> = {
       + " A ticket has a key — `OPS-12` — and lives in the project room it was"
       + " opened in.\n\n**assign = summon:** handing a ticket to an agent posts a"
       + " real mention in its thread, so the ask and the assignment are one act.",
+  },
+  "/api/help/topics/wiki": {
+    slug: "wiki", title: "Wiki",
+    markdown: "# Wiki\n\n**What:** the shared knowledge the platform writes down"
+      + " — pages with slugs, `[[wiki-links]]`, and a version history.\n\n"
+      + "A link to a slug nobody has written yet is a **wanted page**: it renders"
+      + " red, and following it opens the editor.",
   },
   "/api/help/tools": [
     { name: "Bash", kind: "claude", sensitive: true,
@@ -715,6 +996,19 @@ export async function mockApi(page: Page): Promise<string[]> {
     if (page_ && route.request().method() === "GET") {
       await route.fulfill({ json: relayPage(page_[1], url.searchParams) });
       return;
+    }
+    // The whole wiki surface, reads and writes alike — including its 404s: a
+    // slug nobody has written is an ANSWER here (the wanted-page flow is built
+    // on it), never a fixture somebody forgot.
+    if (path.startsWith("/api/wiki/")) {
+      const method = route.request().method();
+      const answer = method === "GET"
+        ? wikiGet(path, url.searchParams)
+        : wikiWrite(path, method, route.request().postDataJSON() ?? {});
+      if (answer) {
+        await route.fulfill({ status: answer.status ?? 200, json: answer.json });
+        return;
+      }
     }
     if (path === "/api/tickets" && route.request().method() === "GET") {
       await route.fulfill({ json: ticketList(url.searchParams) });

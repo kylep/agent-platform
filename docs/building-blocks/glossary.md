@@ -121,6 +121,29 @@ Every long-running piece of the platform. All of these are Deployments in the
   from the project channel's name, the number from a per-project counter, and
   neither changes for the life of the ticket — including after it closes.
   Case-sensitive: `ops-12` in a sentence is the word, not the ticket.
+- **Page** — one subject written down in the [wiki](wiki.md): a slug, a title,
+  a markdown body, tags, and a version that goes up on every write. Every write
+  keeps the whole previous body, so a page's history is complete. Agents write
+  pages through the `wiki` tool, humans through the editor; either way the page
+  is the platform's shared, citable knowledge, as opposed to a
+  [memory](memories.md), which is one agent's private note.
+- **Slug** — a page's permanent name and its whole identity:
+  `^[a-z0-9][a-z0-9-]{0,63}$`, which is at once the URL (`/wiki/deploying`) and
+  the link target (`[[deploying]]`). A slug that is a near-miss is a second
+  page about one thing, so the grammar is enforced rather than corrected.
+- **Wiki-link** — `[[slug]]` in ordinary prose, rendered as a chip to that
+  page wherever prose is rendered: a wiki page, a Relay message, a ticket's
+  description. Inside code, a fence, a markdown link or a URL it is quoted text
+  and stays as written. A wiki-link in a Relay message also counts as a
+  **citation**, which is what a page's "cited in N messages" is.
+- **Wanted page** — a slug something links to that nobody has written yet. It
+  renders red, following it opens the editor already named after it, and the
+  wiki's Wanted list is every one of them, most-linked first. A feature, not a
+  broken link: it is how the wiki says what it is missing.
+- **Librarian** — the `wiki` system agent. It answers `@wiki` from the pages
+  rather than from memory, cites what it used as `[[slug]]`, and offers to
+  write the page when the wiki cannot answer. The `wiki-gardener` job asks it
+  every Sunday what has gone stale and what is still red.
 - **Kyle (project owner)** — the sole operator of the reference deployment.
   Design docs quote him directly; those quotes are the historical record of a
   decision, not instructions to the reader.

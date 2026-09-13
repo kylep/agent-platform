@@ -641,6 +641,199 @@ a.relay-action { color: var(--ds-link); }
 .ticket-activity-when { margin-left: auto; white-space: nowrap; }
 .ticket-assign-notify { display: inline-flex; align-items: center; gap: 2px; margin-top: 8px; }
 
+/* wiki (docs/design/21): the platform's shared knowledge as a document, with
+   an index down one side saying what is happening to it. A page is prose, so
+   it gets the doc-scale ramp the help pages use rather than the transcript
+   scale `.md` defaults to. */
+.page-wiki { max-width: 1280px; }
+.page-wiki-page { max-width: 1120px; }
+.wiki-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.wiki-head > div { min-width: 0; flex: 1 1 380px; }
+.wiki-counts { white-space: nowrap; margin: 0; font-size: 13px; }
+.wiki-layout { display: flex; align-items: flex-start; gap: 24px; }
+.wiki-main { flex: 1 1 auto; min-width: 0; }
+.wiki-rail { flex: 0 0 250px; min-width: 0; display: flex; flex-direction: column; gap: 18px; }
+.wiki-page-rail { flex-basis: 210px; }
+.wiki-search { width: 100%; }
+.wiki-rail-block { min-width: 0; }
+.wiki-rail-head {
+  font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em;
+  color: var(--ds-text-subtle); margin: 0 0 6px;
+}
+.wiki-rail-block p { margin: 0; font-size: 13px; }
+.wiki-tags { display: flex; flex-wrap: wrap; gap: 6px; }
+.wiki-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; font-size: 13px; }
+.wiki-list li { min-width: 0; overflow-wrap: anywhere; }
+.wiki-hit-summary { display: block; font-size: 12px; }
+/* A link to a page nobody has written. Red AND titled: the tooltip says what
+   the colour means, because colour on its own says nothing to a reader who
+   cannot see it. */
+.wiki-red { color: var(--ds-danger); }
+.wiki-changes { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; font-size: 12.5px; }
+.wiki-changes li { display: flex; align-items: flex-start; gap: 6px; min-width: 0; }
+.wiki-change-what { min-width: 0; overflow-wrap: anywhere; }
+.wiki-change-why { color: var(--ds-text); }
+.wiki-change-who { display: block; font-size: 11.5px; }
+.wiki-lines { margin-left: auto; white-space: nowrap; font-family: var(--font-mono); font-size: 11.5px; }
+.wiki-added { color: var(--ds-success); }
+.wiki-removed { color: var(--ds-danger); }
+
+/* The page itself. */
+.wiki-page-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.wiki-page-head > div { min-width: 0; flex: 1 1 380px; }
+.wiki-page-head h1 { margin-bottom: 6px; }
+.wiki-page-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.wiki-meta {
+  display: flex; align-items: center; flex-wrap: wrap; gap: 8px;
+  margin: 0 0 16px; font-size: 13px; color: var(--ds-text-muted);
+}
+.wiki-meta .wiki-version-n { font-family: var(--font-mono); }
+.wiki-who { display: inline-flex; align-items: center; gap: 5px; color: var(--ds-text); }
+.wiki-cited { min-width: 0; overflow-wrap: anywhere; }
+.wiki-missing { display: flex; flex-direction: column; align-items: flex-start; gap: 10px; }
+.wiki-home-edit { margin-top: 18px; font-size: 13px; }
+
+/* Doc-scale typography, as the help pages have: a wiki page is a document
+   somebody reads end to end, not a chat bubble. */
+/* `overflow-x: auto` and not `display: block` on the table itself: blocking a
+   <table> drops its role out of the accessibility tree, and a wide table is a
+   reason to scroll one box, never a reason to make the whole document swipe
+   sideways on a phone. */
+.wiki-body { max-width: 720px; font-size: 14px; line-height: 1.65; overflow-x: auto; }
+.wiki-body h1 { font-size: 22px; font-weight: 650; margin: 0 0 14px; letter-spacing: -0.01em; }
+.wiki-body h2 {
+  font-size: 17px; font-weight: 600; margin: 28px 0 10px;
+  padding-bottom: 6px; border-bottom: 1px solid var(--ds-border);
+}
+.wiki-body h3 { font-size: 14.5px; font-weight: 600; margin: 20px 0 6px; }
+.wiki-body p { margin: 10px 0; }
+.wiki-body ul, .wiki-body ol { margin: 10px 0; padding-left: 26px; }
+.wiki-body ul { list-style: disc; }
+.wiki-body ol { list-style: decimal; }
+.wiki-body li { margin: 5px 0; }
+.wiki-body pre { margin: 14px 0; padding: 12px 14px; font-size: 12.5px; line-height: 1.5; }
+.wiki-body blockquote { margin: 12px 0; padding: 4px 14px; }
+.wiki-body table { width: 100%; margin: 14px 0; }
+
+/* A `[[slug]]` anywhere it is rendered (docs/design/21) — a wiki page, a room
+   message, a ticket body, all of which render through the same `.md`. It is
+   cut to the ticket key's pattern below (same radius, same padding, the mono
+   family) because the two are the same KIND of thing in a sentence: a named
+   object you can open, not a phrase somebody underlined. What separates them
+   is the tint, and what separates a page from a wanted one is the tint AND a
+   dashed border — never colour alone. The `title` is the wanted marker: it
+   survives DOMPurify and doubles as the tooltip saying what the red means. */
+.md a[href^="/wiki/"] {
+  font-family: var(--font-mono); font-size: 0.92em; text-decoration: none;
+  border: 1px solid color-mix(in srgb, var(--ds-link) 45%, transparent);
+  border-radius: var(--radius-md);
+  padding: 0 5px;
+  color: var(--ds-link);
+  background: color-mix(in srgb, var(--ds-link) 10%, transparent);
+}
+/* Deliberately NOT `white-space: nowrap` as the ticket chip is: a key is six
+   characters and a slug is up to sixty-four, and an unbreakable one would be a
+   pill wider than a phone. */
+.md a[href^="/wiki/"]:hover {
+  border-color: var(--ds-link);
+  background: color-mix(in srgb, var(--ds-link) 16%, transparent);
+}
+.md a[href^="/wiki/"][title^="wanted"] {
+  color: var(--ds-danger);
+  border: 1px dashed color-mix(in srgb, var(--ds-danger) 60%, transparent);
+  background: color-mix(in srgb, var(--ds-danger) 8%, transparent);
+}
+.md a[href^="/wiki/"][title^="wanted"]:hover {
+  border-color: var(--ds-danger);
+  background: color-mix(in srgb, var(--ds-danger) 14%, transparent);
+}
+
+/* Writing a page. */
+.wiki-editor { max-width: 780px; }
+.wiki-editor-row { display: flex; gap: 12px; flex-wrap: wrap; }
+.wiki-editor-row > span { flex: 1 1 200px; min-width: 0; display: block; }
+.wiki-editor-row input { width: 100%; }
+.wiki-editor-actions { display: flex; align-items: center; gap: 10px; margin-top: 14px; flex-wrap: wrap; }
+.wiki-editor-error { margin: 10px 0 0; }
+/* The conflict is stated where the words are, above the box they are still
+   in: nothing was lost, and the way forward is one button. */
+.wiki-conflict {
+  border: 1px solid var(--ds-warning); border-radius: var(--radius-lg);
+  padding: 10px 14px; margin-bottom: 14px;
+  background: color-mix(in srgb, var(--ds-warning) 8%, transparent);
+}
+.wiki-conflict p { margin: 0 0 8px; font-size: 13px; }
+
+/* The history drawer and its diff. */
+.wiki-history {
+  margin-top: 24px; border-top: 1px solid var(--ds-border); padding-top: 14px;
+}
+.wiki-versions { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+.wiki-versions > li { border-left: 2px solid var(--ds-border); padding-left: 10px; }
+.wiki-version {
+  display: flex; align-items: center; gap: 8px; width: 100%;
+  background: none; border: none; padding: 2px 0; cursor: pointer;
+  font-size: 13px; color: var(--ds-text); text-align: left;
+}
+.wiki-version-n { font-family: var(--font-mono); font-size: 12px; }
+.wiki-version-when { margin-left: auto; white-space: nowrap; }
+.wiki-version-why, .wiki-version-run { margin: 2px 0 0; font-size: 12.5px; color: var(--ds-text-muted); }
+.wiki-version-diff { margin: 8px 0 4px; display: flex; flex-direction: column; align-items: flex-start; gap: 10px; }
+.wiki-diff-summary { margin: 0; font-family: var(--font-mono); font-size: 12px; }
+.wiki-diff {
+  width: 100%; margin: 0; padding: 10px 12px;
+  background: var(--ds-surface); border: 1px solid var(--ds-border);
+  border-radius: var(--radius-md);
+  font-family: var(--font-mono); font-size: 12px; line-height: 1.5;
+  /* Wraps rather than scrolls: a diff on a phone that hides the right-hand
+     half of every line is a diff nobody can read. */
+  white-space: pre-wrap; overflow-wrap: anywhere;
+}
+.wiki-diff-line { display: block; }
+/* The `+` and `−` are in the text — the tint is the second cue, never the
+   only one. */
+.wiki-diff-line[data-kind="add"] { color: var(--ds-success); background: color-mix(in srgb, var(--ds-success) 10%, transparent); }
+.wiki-diff-line[data-kind="del"] { color: var(--ds-danger); background: color-mix(in srgb, var(--ds-danger) 10%, transparent); }
+.wiki-diff-line[data-kind="hunk"] { color: var(--ds-accent); }
+.wiki-diff-line[data-kind="meta"] { color: var(--ds-text-subtle); }
+
+/* Narrow: one column, the page before the index — you came here to read it.
+   The rail keeps its landmark (no `display: contents`, which would drop it
+   from the accessibility tree on exactly the screens that need it most). */
+@media (max-width: 900px) {
+  .wiki-layout { flex-direction: column; gap: 18px; }
+  .wiki-main { order: 1; width: 100%; }
+  .wiki-rail { order: 2; flex-basis: auto; width: 100%; }
+  .wiki-body { max-width: none; }
+}
+@media (max-width: 560px) {
+  .wiki-page-actions { width: 100%; }
+  .wiki-version-when { margin-left: 0; }
+}
+
+/* Where a memory meets the wiki (docs/design/21): the Memories table's last
+   column, which is either an invitation to promote the note or the badge
+   saying it already graduated. The badge is a LINK — the page it names is the
+   thing you actually want once you know it exists. */
+.mem-wiki { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.mem-promoted { white-space: nowrap; font-size: 12px; text-decoration: none; }
+.mem-promoted:hover { text-decoration: underline; }
+/* The verb is a fixed-width thing in a cell that can be scrolled to; it never
+   wraps to "Promo" because the column got narrow. */
+.mem-wiki button { white-space: nowrap; }
+
+/* The all-agents table (pages/Memories.tsx) carries two more columns than the
+   per-agent one, and `.mem-table` is `table-layout: fixed` so the memory cell
+   can ellipsise — an auto table sizes itself to a `nowrap` cell and truncates
+   nothing. Fixed columns and a phone do not fit, so the table gets a FLOOR:
+   past it the overflow belongs to the table's own scroller, the way it does on
+   every other console table, rather than to a memory column squeezed to
+   nothing under headers sitting on top of each other. */
+.mem-table-all { min-width: 740px; }
+.mem-table-all th:nth-child(1), .mem-table-all td:nth-child(1) { width: 140px; }
+.mem-table-all th:nth-child(3), .mem-table-all td:nth-child(3) { width: 160px; }
+.mem-table-all th:nth-child(4), .mem-table-all td:nth-child(4) { width: 170px; }
+
 /* A ticket key anywhere in a room (docs/design/20). It is a link that reads as
    a badge — the key is an identifier, and prose full of underlined identifiers
    is prose nobody finishes. */
