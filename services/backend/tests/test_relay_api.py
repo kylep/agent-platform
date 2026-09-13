@@ -530,8 +530,8 @@ async def test_channel_list_ordering_unread_and_last_message(admin_client, token
 
     listed = (await admin_client.get("/api/relay/channels")).json()
     # Channels by name, then the private rooms by last activity (the DM spoke last).
-    assert [c["name"] for c in listed[:3]] == ["general", "ops", "standup"]
-    assert [c["id"] for c in listed[3:]] == [dm["id"], group["id"]]
+    assert [c["name"] for c in listed[:4]] == ["general", "ops", "standup", "wiki"]
+    assert [c["id"] for c in listed[4:]] == [dm["id"], group["id"]]
 
     by_id = {c["id"]: c for c in listed}
     assert by_id[ops]["unread"] == 2

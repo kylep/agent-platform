@@ -351,6 +351,86 @@ class TicketEvent(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
 
 
+class WikiPage(Base):
+    """A page: the shared, citable unit of what this platform knows
+    (docs/design/21). A memory is one agent's private note and a Relay message
+    is gone by tomorrow — a page outlives both, and `[[slug]]` is how anything
+    here points at it.
+
+    `slug` is the identity people and models type, so it is what carries the
+    uniqueness; `id` is the join key the history and the links use, because a
+    page can be retitled but never re-slugged out from under its own history.
+    `created_by`/`updated_by` are Relay participant strings, the same identity
+    seam as RelayParticipant.participant. `version` is the page's CURRENT
+    version — the number a write names to prove it read the row it is editing —
+    and every value it has ever held is a row in wiki_versions."""
+    __tablename__ = "wiki_pages"
+    # Recent changes is the wiki's front page, and it is this index.
+    __table_args__ = (Index("ix_wiki_pages_updated", "updated_at"),)
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=lambda: uuid.uuid4().hex)
+    slug: Mapped[str] = mapped_column(String(64), unique=True)
+    title: Mapped[str] = mapped_column(String(120))
+    body: Mapped[str] = mapped_column(Text, default="")
+    # The first paragraph, recomputed on every write: what the search results,
+    # the citation chip and the agent's <wiki> prompt block show instead of a
+    # 64 KB body.
+    summary: Mapped[str] = mapped_column(String(280), default="")
+    tags: Mapped[list] = mapped_column(JSON, default=list)
+    version: Mapped[int] = mapped_column(Integer, default=1)
+    created_by: Mapped[str] = mapped_column(String(128))
+    updated_by: Mapped[str] = mapped_column(String(128))
+    # Provenance: the memory this page was promoted from (design-21,
+    # "Promotion"). Not a foreign key — the memory tool owns tool_memory and
+    # the wiki must not reach into it — and the memory is left in place, so
+    # this is a note about where the fact came from, not ownership of it.
+    source_memory_id: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+    # Archive, not delete: an archived page drops out of search, links and the
+    # prompt block but keeps its history and can be restored.
+    archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class WikiVersion(Base):
+    """One write, with the FULL body it produced — diffs are computed on read.
+    Storing the whole text rather than a patch is what makes any version
+    readable on its own, and a page is capped at 64 KB precisely so the history
+    can afford it.
+
+    The unique (page_id, version) is the optimistic-concurrency guard made
+    real: two writers who both read v2 both try to write v3, and the loser is
+    told by this constraint instead of silently erasing the winner."""
+    __tablename__ = "wiki_versions"
+    __table_args__ = (UniqueConstraint("page_id", "version",
+                                       name="uq_wiki_versions_page_version"),)
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=lambda: uuid.uuid4().hex)
+    page_id: Mapped[str] = mapped_column(String(32), index=True)
+    version: Mapped[int] = mapped_column(Integer)
+    title: Mapped[str] = mapped_column(String(120))
+    body: Mapped[str] = mapped_column(Text, default="")
+    author: Mapped[str] = mapped_column(String(128))
+    # The run that wrote it (agents only): every sentence in the wiki links
+    # back to the run that put it there.
+    run_id: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    reason: Mapped[str] = mapped_column(String(200), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class WikiLink(Base):
+    """One `[[slug]]` found in a page's body, rewritten from scratch on every
+    write — which is why the pair is the key: a body that mentions a slug twice
+    is one link, and a body that stops mentioning it has none.
+
+    The target is a SLUG, not a page id: a link to a page nobody has written
+    yet is a wanted page, and that dangling row is the feature — it is where
+    the red links come from."""
+    __tablename__ = "wiki_links"
+    # Backlinks ("what points here") and wanted pages are both this index.
+    __table_args__ = (Index("ix_wiki_links_to_slug", "to_slug"),)
+    from_page_id: Mapped[str] = mapped_column(String(32), primary_key=True)
+    to_slug: Mapped[str] = mapped_column(String(64), primary_key=True)
+
+
 class SchemaMark(Base):
     """One-time data migrations record themselves here. create_all and
     _ensure_columns are naturally idempotent; a BACKFILL is not — it has to know
@@ -696,6 +776,7 @@ TICKETS_SEED_MARK = "tickets-seed-v1"
 TICKETS_STANDUP_MARK = "tickets-standup-v2"
 TICKETS_HEALTH_MONITOR_MARK = "tickets-health-monitor-v1"
 TICKETS_SYSTEM_KEYS_MARK = "tickets-system-keys-v1"
+WIKI_SEED_MARK = "wiki-seed-v1"
 
 # The channels that become PROJECTS when Tickets ships (docs/design/20), and
 # the prefix each one's keys are stamped with. #standup is deliberately absent:
@@ -726,6 +807,35 @@ RELAY_STANDUP_PROMPT_V2 = (
 HEALTH_MONITOR_TICKET_RULE = (
     "Open an OPS ticket for anything that needs a human, assign it to pai if "
     "it is about the platform, and put the alert in the ticket's thread.")
+
+# The room every edit is narrated into (docs/design/21), seeded like the relay
+# channels but on its own mark — it ships a release later — and deliberately
+# WITHOUT a ticket prefix: #wiki is a feed, and a feed is not a project.
+WIKI_SEED_CHANNEL = ("wiki", "every edit, as a diff card")
+
+# The one page the wiki ships with. It is the wiki explaining itself, so it is
+# also the worked example of the two things a writer has to know: `[[slug]]`
+# links, and that a link to a page nobody has written is an invitation. The two
+# wanted links are seeded as real rows, which is how the first red links exist
+# before anyone has typed anything.
+WIKI_HOME_BODY = """\
+This is the platform's wiki: the pages every agent and every human here share.
+A memory is private to one agent and a Relay message is gone by tomorrow — a
+page is neither. Write down what hardens into a fact, and cite it.
+
+Link to another page by its slug, in double brackets: `[[deploying]]`. A link
+to a page nobody has written yet is a *wanted page*, and it renders red until
+someone does — an invitation, not an error.
+
+Every edit posts a diff card in `#wiki`, with who wrote it and why, so the
+room watches the knowledge grow. Keep pages short and factual, say what
+changed in the reason, and cite what you used.
+
+## Wanted
+
+- [[standup]] — what the ceremony asks, and what a good answer looks like.
+- [[deploying]] — how a change reaches the NUC.
+"""
 
 
 def dm_key_of(participants) -> str:
@@ -821,6 +931,69 @@ def _ensure_tickets_seed(conn) -> None:
                             conv_t.c.ticket_prefix.is_(None))
                      .values(ticket_prefix=prefix))
     conn.execute(mark_t.insert().values(name=TICKETS_SEED_MARK, applied_at=utcnow()))
+
+
+def _ensure_wiki_ddl(conn) -> None:
+    """The wiki schema the model declarations cannot express (docs/design/21):
+    search is a GIN tsvector over a page's title and body, which is postgres
+    only — on sqlite the API falls back to LIKE, as the ticket board does."""
+    if conn.dialect.name == "postgresql":
+        conn.exec_driver_sql("CREATE INDEX IF NOT EXISTS ix_wiki_pages_fts ON wiki_pages "
+                             "USING GIN (to_tsvector('english', title || ' ' || body))")
+
+
+def _ensure_wiki_seed(conn) -> None:
+    """Ship the wiki with a page and a room: `home` (with its v1 and its two
+    wanted links) and the `#wiki` channel every diff card is posted into.
+
+    Gated on its mark, and that gate IS the off-switch, exactly as the relay
+    and ticket seeds are: once written this never looks at the wiki tables
+    again, so a home page somebody rewrote stays rewritten and one they deleted
+    stays deleted. Both halves are looked up first all the same, because the
+    mark can be absent while the rows are not — a restored backup, a cleared
+    mark, a #wiki room an admin made by hand — and `slug` and the channel name
+    are both unique. An insert that collided would fail the single transaction
+    every service boots through, which is a crash loop, not a seed. What is
+    already there is somebody's, so adopt it and mark.
+
+    Not race-safe on its own: the check-then-write is serialized across services
+    by init_db's advisory lock (INIT_DB_LOCK_KEY)."""
+    mark_t = SchemaMark.__table__
+    if conn.execute(select(mark_t.c.name)
+                    .where(mark_t.c.name == WIKI_SEED_MARK)).first():
+        return
+    conv_t = Conversation.__table__
+    name, topic = WIKI_SEED_CHANNEL
+    if not conn.execute(select(conv_t.c.id).where(conv_t.c.kind == "channel",
+                                                  conv_t.c.name == name)).first():
+        conn.execute(conv_t.insert().values(
+            id=uuid.uuid4().hex, connector="web", external_ref=None, agent=None,
+            kind="channel", name=name, topic=topic, open=True, archived_at=None,
+            ticket_prefix=None, ticket_seq=0, title=f"#{name}", status="active",
+            claude_session_id="", session_blob=None,
+            created_at=utcnow(), updated_at=utcnow()))
+    page_t = WikiPage.__table__
+    if not conn.execute(select(page_t.c.id).where(page_t.c.slug == "home")).first():
+        now = utcnow()
+        page_id = uuid.uuid4().hex
+        # The summary is the first paragraph collapsed onto one line, the same
+        # rule every write follows — computed here rather than imported, so the
+        # seed depends on nothing but the constant above. It is the one place
+        # that duplicates the write path's `summary_of`.
+        summary = " ".join(WIKI_HOME_BODY.split("\n\n", 1)[0].split())[:280]
+        conn.execute(page_t.insert().values(
+            id=page_id, slug="home", title="Home", body=WIKI_HOME_BODY,
+            summary=summary, tags=[], version=1, created_by="system:wiki",
+            updated_by="system:wiki", source_memory_id=None,
+            created_at=now, updated_at=now, archived_at=None))
+        conn.execute(WikiVersion.__table__.insert().values(
+            id=uuid.uuid4().hex, page_id=page_id, version=1, title="Home",
+            body=WIKI_HOME_BODY, author="system:wiki", run_id=None,
+            reason="the first page", created_at=now))
+        for slug in ("standup", "deploying"):
+            conn.execute(WikiLink.__table__.insert().values(
+                from_page_id=page_id, to_slug=slug))
+    conn.execute(mark_t.insert().values(name=WIKI_SEED_MARK, applied_at=utcnow()))
 
 
 def _relay_human_of(conv, run) -> str:
@@ -1291,3 +1464,5 @@ async def init_db(engine: AsyncEngine, default_grant: bool = True,
         await conn.run_sync(_ensure_tickets_standup_v2)
         await conn.run_sync(_ensure_tickets_health_monitor)
         await conn.run_sync(_ensure_orphan_system_keys_revoked)
+        await conn.run_sync(_ensure_wiki_ddl)
+        await conn.run_sync(_ensure_wiki_seed)

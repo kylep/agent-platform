@@ -161,7 +161,8 @@ async def test_seeded_channels_exist_exactly_once(engine, sfx):
     assert [(c.name, c.topic, c.open, c.agent) for c in rows] == [
         ("general", "everyone", True, None),
         ("ops", "alerts and operations", True, None),
-        ("standup", "what did you do today?", True, None)]
+        ("standup", "what did you do today?", True, None),
+        ("wiki", "every edit, as a diff card", True, None)]
 
 
 async def test_legacy_table_gains_the_channel_columns_and_backfills():
