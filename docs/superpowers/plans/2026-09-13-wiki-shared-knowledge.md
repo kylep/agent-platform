@@ -218,7 +218,7 @@ dispatch subagents, verify their evidence, commit, and update this file.
 
 ### Phase 2 — the store, the API, the events
 
-- [ ] **T3 `wiki_store.py`: the ONE place a page changes.**
+- [x] **T3 `wiki_store.py`: the ONE place a page changes.** (commit `45b55a2`; review fixed: lost create race is a WikiRuleError under a savepoint even without the room lock, re-promotion refuses to overwrite an edit since promotion, history limit clamped)
   New `agentplatform/wiki_store.py` modelled line-for-line on
   `ticket_store.py`: `create_page`, `write_page` (replace with
   `base_version`; `WikiConflictError(WikiRuleError)` carrying the current
