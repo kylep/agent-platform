@@ -204,3 +204,127 @@ async def test_wiki_grant_backfill_honours_the_setting_and_runs_once(engine, sfx
         await s.commit()
     await init_db(engine, default_grant=False, tickets_grant=False)
     assert await _grants(sfx, "news") == []
+
+
+# --- the librarian and the gardener (docs/design/21) -------------------------
+# The wiki ships with somebody who tends it: a system agent that answers @wiki,
+# and a Sunday-morning job that asks it what needs writing. Both are one-time
+# seeds behind their own marks, so an admin who edits or deletes either one
+# keeps their version.
+
+async def test_the_wiki_agent_is_seeded(engine, sfx):
+    from agentplatform.agentspec import TOOL_RELAY, TOOL_TICKETS, TOOL_WIKI
+    from agentplatform.db import (WIKI_AGENT_MARK, WIKI_AGENT_PROMPT, AgentDef,
+                                  AgentVersion)
+    await init_db(engine)
+    async with sfx() as s:
+        row = await s.get(AgentDef, "wiki")
+        assert row is not None
+        assert (row.system, row.enabled, row.can_invoke) == (True, True, False)
+        assert row.prompt == WIKI_AGENT_PROMPT
+        assert row.description.startswith("The wiki's librarian")
+        assert row.platform_tools == [TOOL_RELAY, TOOL_TICKETS, TOOL_WIKI]
+        assert (row.harness_tools, row.skills, row.secrets) == ([], [], [])
+        assert (row.model, row.role) == ("", "operator")
+        # No triggers of its own: the librarian is summoned, not scheduled —
+        # the gardener job below is what puts a rhythm on it.
+        assert row.entrypoints == {"crons": [], "webhooks": [], "topics": [],
+                                   "timezone": ""}
+        versions = list((await s.execute(select(AgentVersion).where(
+            AgentVersion.agent == "wiki"))).scalars())
+        assert [(v.version, v.changed_by, v.changed_via) for v in versions] == [
+            (1, "system:wiki", "migration")]
+        assert versions[0].snapshot["platform_tools"] == [
+            TOOL_RELAY, TOOL_TICKETS, TOOL_WIKI]
+        assert versions[0].snapshot["system"] is True
+        assert await s.get(SchemaMark, WIKI_AGENT_MARK) is not None
+
+
+async def test_an_existing_wiki_agent_is_adopted_not_overwritten(engine, sfx):
+    """A human may have made one first, and a boot-time seed is the last thing
+    that should have an opinion about somebody else's agent."""
+    from agentplatform.db import WIKI_AGENT_MARK, AgentDef, AgentVersion
+    async with sfx() as s:
+        s.add(AgentDef(name="wiki", prompt="mine", description="mine",
+                       platform_tools=[]))
+        await s.commit()
+    await init_db(engine)
+    async with sfx() as s:
+        row = await s.get(AgentDef, "wiki")
+        assert (row.prompt, row.system) == ("mine", False)
+        # The default-grant sweeps still reach it, as they reach every agent
+        # that predates the wiki — but nothing here writes the librarian's own
+        # definition over theirs.
+        authors = list((await s.execute(select(AgentVersion.changed_by).where(
+            AgentVersion.agent == "wiki"))).scalars())
+        assert "system:wiki" not in authors
+        assert await s.get(SchemaMark, WIKI_AGENT_MARK) is not None
+
+
+async def test_the_wiki_agent_mark_is_the_off_switch(engine, sfx):
+    from agentplatform.db import AgentDef
+    await init_db(engine)
+    async with sfx() as s:
+        await s.delete(await s.get(AgentDef, "wiki"))
+        await s.commit()
+    await init_db(engine)
+    async with sfx() as s:
+        assert await s.get(AgentDef, "wiki") is None
+
+
+async def test_the_gardener_job_is_seeded(engine, sfx):
+    from agentplatform.db import WIKI_GARDENER_MARK, ScheduledJob
+    await init_db(engine)
+    async with sfx() as s:
+        job = (await s.execute(select(ScheduledJob).where(
+            ScheduledJob.name == "wiki-gardener"))).scalar_one()
+        assert (job.cron, job.timezone) == ("0 10 * * 0", "America/Toronto")
+        # A relay-post job, not an agent run: the summons has to come from the
+        # platform, because an agent's own @mention carries a hop.
+        assert (job.relay_channel, job.agent) == ("wiki", None)
+        assert job.prompt.startswith("@wiki — which pages")
+        assert (job.enabled, job.next_fire) == (True, None)
+        assert await s.get(SchemaMark, WIKI_GARDENER_MARK) is not None
+
+
+async def test_the_gardener_job_mark_is_the_off_switch(engine, sfx):
+    from agentplatform.db import ScheduledJob
+    await init_db(engine)
+    async with sfx() as s:
+        await s.execute(ScheduledJob.__table__.delete().where(
+            ScheduledJob.__table__.c.name == "wiki-gardener"))
+        await s.commit()
+    await init_db(engine)
+    async with sfx() as s:
+        assert (await s.execute(select(func.count()).select_from(
+            ScheduledJob.__table__).where(
+                ScheduledJob.__table__.c.name == "wiki-gardener"))).scalar_one() == 0
+
+
+async def test_the_librarian_seeds_are_idempotent(engine, sfx):
+    from agentplatform.db import AgentDef, AgentVersion, ScheduledJob
+    await init_db(engine)
+    await init_db(engine)
+    async def counts():
+        async with sfx() as s:
+            return [(await s.execute(select(func.count()).select_from(t))).scalar_one()
+                    for t in (AgentDef.__table__, AgentVersion.__table__,
+                              ScheduledJob.__table__)]
+    assert await counts() == [1, 1, 2]      # the librarian, its v1, standup + gardener
+
+
+async def test_a_gardener_job_that_already_exists_is_adopted(engine, sfx):
+    """`scheduled_jobs.name` has no unique index, so the mark being absent
+    while the row is not — a restored backup, a job an admin wrote by hand —
+    must not leave #wiki with two gardeners asking the same question."""
+    from agentplatform.db import WIKI_GARDENER_MARK, ScheduledJob
+    async with sfx() as s:
+        s.add(ScheduledJob(name="wiki-gardener", relay_channel="wiki",
+                           cron="0 6 * * 1", prompt="mine"))
+        await s.commit()
+    await init_db(engine)
+    async with sfx() as s:
+        job = (await s.execute(select(ScheduledJob).where(
+            ScheduledJob.name == "wiki-gardener"))).scalar_one()
+        assert (job.cron, job.prompt) == ("0 6 * * 1", "mine")
+        assert await s.get(SchemaMark, WIKI_GARDENER_MARK) is not None

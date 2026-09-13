@@ -611,3 +611,90 @@ async def test_a_page_that_vanished_is_a_rule_error(sf, producer):
         async with sf() as s:
             await store.restore_page(s, producer, "home", version=99,
                                      actor="user:admin")
+
+
+# --- the prompt search (docs/design/21 T5) -----------------------------------
+# What the `<wiki>` block is built from: the live pages that match what a room
+# is talking about, best first. Ranked rather than filtered — the block is five
+# lines, so which five is the whole question. (`sf` has the seeded `home` page
+# in it, so the queries below deliberately avoid its words.)
+
+async def _page(sf, slug, title, *, body="", tags=(), archived=False) -> None:
+    async with sf() as s:
+        s.add(WikiPage(slug=slug, title=title, body=body, summary=title,
+                       tags=list(tags), created_by="user:admin",
+                       updated_by="user:admin",
+                       archived_at=utcnow() if archived else None))
+        await s.commit()
+
+
+async def _search(sf, text, *, limit=5) -> list[str]:
+    async with sf() as s:
+        return [p.slug for p in await store.search_for_prompt(s, text, limit=limit)]
+
+
+async def test_search_for_prompt_matches_a_title_or_a_body(sf):
+    await _page(sf, "dedup-rule", "Dedup rule", body="one story per day")
+    await _page(sf, "runbook", "Runbook", body="turn the crank")
+    await _page(sf, "elsewhere", "Elsewhere", body="nothing to do with it")
+    assert await _search(sf, "our dedup rule please") == ["dedup-rule"]
+    assert await _search(sf, "somebody turn the crank") == ["runbook"]
+
+
+async def test_search_for_prompt_ranks_the_better_match_first(sf):
+    await _page(sf, "one-word", "Forecast", body="unrelated")
+    await _page(sf, "both-words", "Forecast dedup", body="one story per day")
+    assert (await _search(sf, "the forecast dedup question"))[0] == "both-words"
+
+
+async def test_search_for_prompt_counts_a_tag_towards_the_rank(sf):
+    """Tags are what a page is filed under, so a page filed under the word the
+    room used is a better answer than one that merely contains it."""
+    await _page(sf, "plain", "Runbook", body="turn the crank")
+    await _page(sf, "filed", "Runbook two", tags=["nucdeploy"])
+    assert (await _search(sf, "the nucdeploy runbook"))[0] == "filed"
+
+
+async def test_search_for_prompt_skips_archived_pages_and_short_words(sf):
+    await _page(sf, "gone", "Dedup rule", body="one story per day", archived=True)
+    assert await _search(sf, "our dedup rule please") == []
+    # Words under four characters are noise: "the" would match half the wiki.
+    await _page(sf, "the-page", "The page", body="the the the")
+    assert await _search(sf, "the it a of") == []
+
+
+async def test_search_for_prompt_honours_its_limit_and_empty_text(sf):
+    for i in range(4):
+        await _page(sf, f"dedup-{i}", f"Dedup {i}", body="one story per day")
+    assert len(await _search(sf, "dedup story", limit=2)) == 2
+    assert await _search(sf, "") == [] and await _search(sf, "dedup", limit=0) == []
+
+
+def test_the_postgres_search_matches_the_index_and_ranks_on_tags():
+    """No postgres in CI, so the SQL itself is the assertion.
+
+    Two things have to stay true of it: the `@@` match is `_ensure_wiki_ddl`'s
+    indexed expression verbatim (or every summons in every room seq-scans the
+    wiki), and the rank reads the tags as well, which is what the other branch
+    scores on."""
+    from sqlalchemy import select
+    from sqlalchemy.dialects import postgresql
+
+    from agentplatform.db import WikiPage
+    sql = " ".join(str(store._pg_search(
+        select(WikiPage).where(WikiPage.archived_at.is_(None)),
+        ["dedup", "rule"], 5).compile(dialect=postgresql.dialect())).split())
+    match = sql.partition("WHERE ")[2].partition(" ORDER BY ")[0]
+    assert "wiki_pages.title || %(title_1)s || wiki_pages.body" in match
+    assert "tags" not in match
+    rank = sql.partition(" ORDER BY ")[2]
+    assert "ts_rank" in rank and "CAST(wiki_pages.tags AS TEXT)" in rank
+
+
+async def test_search_for_prompt_caps_what_it_scores(sf, monkeypatch):
+    """The fallback ranks in Python, so every candidate is a row on the wire:
+    a wiki big enough to matter must not be loaded whole to fill five lines."""
+    monkeypatch.setattr(store, "SEARCH_CANDIDATES_MAX", 3)
+    for i in range(6):
+        await _page(sf, f"dedup-{i}", f"Dedup {i}", body="one story per day")
+    assert len(await _search(sf, "dedup story", limit=10)) == 3

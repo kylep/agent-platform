@@ -17,7 +17,10 @@ async def test_agent_def_defaults_round_trip(sf):
     async with sf() as s:
         s.add(AgentDef(name="hello-world")); await s.commit()
     async with sf() as s:
-        got = (await s.execute(select(AgentDef))).scalar_one()
+        # By name: the platform seeds the `wiki` librarian (docs/design/21), so
+        # a fresh database is no longer an empty agents table.
+        got = (await s.execute(select(AgentDef).where(
+            AgentDef.name == "hello-world"))).scalar_one()
     assert got.name == "hello-world"
     assert got.prompt == "" and got.description == "" and got.model == ""
     assert got.role == "operator" and got.system is False and got.can_invoke is False
@@ -43,7 +46,8 @@ async def test_agent_def_stores_grants_and_entrypoints(sf):
                        enabled=False))
         await s.commit()
     async with sf() as s:
-        got = (await s.execute(select(AgentDef))).scalar_one()
+        got = (await s.execute(select(AgentDef).where(
+            AgentDef.name == "news"))).scalar_one()
     assert got.entrypoints == ep and got.skills == ["git"]
     assert got.transcript_retention_days == 7 and got.enabled is False
 
@@ -54,7 +58,8 @@ async def test_agent_version_round_trip(sf):
                            changed_by="admin", changed_via="admin"))
         await s.commit()
     async with sf() as s:
-        got = (await s.execute(select(AgentVersion))).scalar_one()
+        got = (await s.execute(select(AgentVersion).where(
+            AgentVersion.agent == "news"))).scalar_one()
     assert len(got.id) == 32 and got.created_at is not None
     assert got.snapshot == {"name": "news"} and got.changed_via == "admin"
 

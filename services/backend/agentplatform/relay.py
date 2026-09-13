@@ -212,6 +212,17 @@ _TICKET_RULES = (
 )
 
 
+# Said only when there are matching pages in the prompt (docs/design/21).
+# Appended on the same terms as _TICKET_RULES, and for the same reason: a room
+# whose talk matches no page is told nothing about the wiki, so the prompt a
+# plain mention builds is the same bytes it was before the Wiki shipped.
+_WIKI_RULES = (
+    " Cite a page as `[[slug]]` when you use it. When you learn a fact the "
+    "wiki lacks and you are confident, write it with the `wiki` tool (`append` "
+    "for notes, `write` for a page) and say what you wrote."
+)
+
+
 def _attr(value) -> str:
     """An always-double-quoted XML attribute. `quoteattr` would switch to single
     quotes around a value containing one — legal XML, but the prompt is read by
@@ -318,9 +329,34 @@ def _your_tickets_block(tickets) -> list[str]:
             "</your-tickets>"]
 
 
+def _wiki_field(page, field: str) -> str:
+    """One field of a page from either a row or a dict — the router hands over
+    whatever its query returned, and neither shape is worth converting for the
+    sake of three strings."""
+    value = page.get(field) if isinstance(page, dict) else getattr(page, field, "")
+    return str(value or "")
+
+
+def _wiki_block(pages) -> list[str]:
+    """The pages the room's talk matched (docs/design/21), one line each: the
+    slug to cite, the title, the summary. A line and not an element for the
+    reason `<your-tickets>` is one — this is a shelf to glance at, and the page
+    itself is one `wiki` tool call away.
+
+    Escaped like every other block down here, because it IS untrusted: a title
+    is whoever wrote the page's words, and anybody holding the wiki tool can
+    write a page that every room on the platform then reads."""
+    return [f"<wiki count={_attr(len(pages))}>",
+            *[f"[[{escape(_wiki_field(p, 'slug'))}]] · "
+              f"{escape(_wiki_field(p, 'title'))} · "
+              f"{escape(_wiki_field(p, 'summary'))}" for p in pages],
+            "</wiki>"]
+
+
 def build_mention_prompt(*, channel, messages, mention, agent: str, hops_left: int,
                          participants, faces: dict | None = None,
-                         ticket=None, ticket_events=(), your_tickets=()) -> str:
+                         ticket=None, ticket_events=(), your_tickets=(),
+                         wiki_pages=()) -> str:
     """The prompt for a run summoned by `mention`. Deterministic: the same room
     and the same messages produce the same bytes, so a golden test can hold the
     whole thing and a diff to it is a deliberate change of what agents are told.
@@ -333,12 +369,16 @@ def build_mention_prompt(*, channel, messages, mention, agent: str, hops_left: i
     in, and `your_tickets` the agent's open queue when it does not — the caller
     decides which, because "is this a ticket thread" is a query and this layer
     has no I/O. Both are omitted entirely when empty: a room with no tickets in
-    it gets the prompt it always got."""
+    it gets the prompt it always got.
+
+    `wiki_pages` is that bargain once more (docs/design/21): the pages the
+    room's own words matched, or nothing at all."""
     return "\n".join([
         _where(channel, agent, participants),
         _roster(agent, participants, faces),
         _RULES.format(hops_left=hops_left)
-        + (_TICKET_RULES if (ticket is not None or your_tickets) else ""),
+        + (_TICKET_RULES if (ticket is not None or your_tickets) else "")
+        + (_WIKI_RULES if wiki_pages else ""),
         # BEFORE the room and AFTER the rules: the ticket is what the summons is
         # about, so it is the first thing read — but it is somebody else's text,
         # and no untrusted block may precede the sentence that says so.
@@ -347,6 +387,10 @@ def build_mention_prompt(*, channel, messages, mention, agent: str, hops_left: i
         f"count={_attr(len(messages))}>",
         *[_rendered(m) for m in messages],
         "</relay-messages>",
+        # Inside the untrusted region, between the room and the agent's own
+        # queue: a page is other people's text, and the two lists read in the
+        # order they are useful — what is known, then what is owed.
+        *(_wiki_block(wiki_pages) if wiki_pages else []),
         *(_your_tickets_block(your_tickets) if your_tickets else []),
         # The summoning message is REFERENCED, never repeated: quoting it out
         # here would put attacker-controlled text outside the untrusted block,

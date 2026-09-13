@@ -1038,3 +1038,68 @@ async def test_a_ticket_handed_back_and_forth_hits_the_hop_cap(make_router, sf, 
     # card, which is where a human picking the work up is already looking.
     notices = [m for m in await _system(sf, cid) if m.body == HOP_LIMIT_BODY]
     assert [(m.reply_to, m.thread_root) for m in notices] == [(t["root"], t["root"])]
+
+
+# --- the wiki block (docs/design/21 T5) --------------------------------------
+# What the room is talking about, matched against the pages, and offered to the
+# run as slugs to cite. The match is the interesting part: a page nobody is
+# talking about costs every run in the room context, and an archived page is
+# knowledge the wiki has withdrawn.
+
+
+async def _page(sf, slug: str, title: str, *, body="", summary="", tags=(),
+                archived=False) -> None:
+    from agentplatform.db import WikiPage
+    async with sf() as s:
+        s.add(WikiPage(slug=slug, title=title, body=body,
+                       summary=summary or title, tags=list(tags),
+                       created_by="user:admin", updated_by="user:admin",
+                       archived_at=utcnow() if archived else None))
+        await s.commit()
+
+
+async def test_a_summons_carries_the_pages_it_is_talking_about(make_router, sf):
+    router = await make_router()
+    await _page(sf, "dedup-rule", "Dedup rule", body="one story per day",
+                summary="one story per day")
+    await _page(sf, "pto-policy", "PTO policy", body="ask first")
+    cid = await _channel(sf)
+    await _say(router, sf, cid, "user:admin", "@ada what is our dedup rule?")
+
+    prompt = (await _runs(sf))[0].prompt
+    assert "[[dedup-rule]] · Dedup rule · one story per day" in prompt
+    assert "[[pto-policy]]" not in prompt
+    assert "Cite a page as `[[slug]]` when you use it." in prompt
+
+
+async def test_an_archived_page_is_never_offered(make_router, sf):
+    """Archiving is how a page stops counting — a withdrawn page that still
+    turned up in every prompt would be knowledge nobody can take back."""
+    router = await make_router()
+    await _page(sf, "dedup-rule", "Dedup rule", body="one story per day",
+                archived=True)
+    cid = await _channel(sf)
+    await _say(router, sf, cid, "user:admin", "@ada what is our dedup rule?")
+    assert "[[dedup-rule]]" not in (await _runs(sf))[0].prompt
+
+
+async def test_a_room_with_no_matching_page_gets_no_block(make_router, sf):
+    router = await make_router()
+    await _page(sf, "dedup-rule", "Dedup rule", body="one story per day")
+    cid = await _channel(sf)
+    await _say(router, sf, cid, "user:admin", "@ada ping")
+    prompt = (await _runs(sf))[0].prompt
+    assert "<wiki count=" not in prompt and "[[slug]]" not in prompt
+
+
+async def test_the_thread_is_matched_too_not_just_the_summons(make_router, sf):
+    """A summons inside a thread is answered from the thread, so the thread is
+    what the agent is being asked about — "any thoughts?" under a page's worth
+    of discussion must still reach the page."""
+    router = await make_router()
+    await _page(sf, "dedup-rule", "Dedup rule", body="one story per day")
+    cid = await _channel(sf)
+    root = await _say(router, sf, cid, "user:admin",
+                      "the dedup rule bit us again this morning")
+    await _say(router, sf, cid, "user:admin", "@ada thoughts?", reply_to=root)
+    assert "[[dedup-rule]]" in (await _runs(sf))[0].prompt

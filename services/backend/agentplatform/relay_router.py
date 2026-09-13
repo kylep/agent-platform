@@ -43,6 +43,7 @@ from agentplatform.relay_store import (context_window, explicit_members, faces_f
                                        outbound_for_message, post_relay_message,
                                        publish_relay_message)
 from agentplatform.tickets import CLOSED_STATES
+from agentplatform.wiki_store import search_for_prompt
 
 log = logging.getLogger("relay_router")
 
@@ -72,6 +73,11 @@ def budget_body(limit: int) -> str:
 # the board, which is all `<your-tickets>` is for.
 TICKET_EVENTS = 5
 YOUR_TICKETS = 10
+
+# How much of the room's talk the wiki search reads (docs/design/21). The
+# summons plus its thread, truncated: a thread can be a day long, and the query
+# only needs to know what the conversation is ABOUT.
+WIKI_MATCH_CHARS = 2000
 
 
 class RelayRouter:
@@ -512,7 +518,8 @@ class RelayRouter:
             # ticket has been told which work this is, and appending its whole
             # queue underneath invites it to answer about a different one.
             your_tickets=(() if ticket is not None
-                          else await self._your_tickets(s, agent)))
+                          else await self._your_tickets(s, agent)),
+            wiki_pages=await self._wiki_pages(s, mention, window, thread_root))
         # prompt and user_message are the same text on purpose: for a relay run
         # the built context IS the turn, and the run page shows it as what the
         # agent was asked.
@@ -558,6 +565,24 @@ class RelayRouter:
                             Ticket.state.not_in(CLOSED_STATES))
                      .order_by(Ticket.last_activity_at.desc(), Ticket.id.desc())
                      .limit(YOUR_TICKETS))).scalars())
+
+    async def _wiki_pages(self, s, mention, window, thread_root) -> list[dict]:
+        """The pages the room is talking about (docs/design/21), as the block
+        renders them.
+
+        The text matched is the summons and — only in a thread, where the
+        window IS the thread — what it is a reply to: "any thoughts?" under a
+        page's worth of discussion is about the discussion, and matching the
+        four words of the mention alone would find nothing. In the room, the
+        window is the last page of whatever everyone has been saying, which is
+        not what this agent was asked."""
+        text = mention.body or ""
+        if thread_root:
+            text = "\n".join([*(m.body or "" for m in window), text])
+        pages = await search_for_prompt(s, text[-WIKI_MATCH_CHARS:],
+                                        limit=self.settings.wiki_prompt_pages)
+        return [{"slug": p.slug, "title": p.title, "summary": p.summary}
+                for p in pages]
 
     async def _resume_from(self, s, channel_id: str, wake) -> str | None:
         """Where a woken agent starts reading again.

@@ -31,10 +31,11 @@ publishes after it. A commit in the middle would leave a page whose body moved
 while its links or its version row rolled back — the one inconsistency the
 whole module exists to prevent — and the caller would be told it failed."""
 import logging
+import re
 from datetime import timedelta
 from types import SimpleNamespace
 
-from sqlalchemy import delete, func, select
+from sqlalchemy import Text, cast, delete, func, or_, select
 from sqlalchemy.exc import IntegrityError
 
 from agentplatform.config import get_settings
@@ -63,6 +64,15 @@ TAGS_MAX, TAG_LIMIT = 20, 32
 # page whose newest version was written by a promotion is still the memory's
 # page, and one whose newest version was not has been edited by somebody since.
 PROMOTE_REASON = "promoted from memory"
+# How many of a room's words the prompt search matches on. A summons can carry
+# a pasted log, and every word past this one is another OR clause on a query
+# that runs on every mention in every room.
+SEARCH_WORDS_MAX = 12
+# How many matching pages the sqlite fallback will score. Its ranking happens
+# in Python, so every candidate is a row that crosses the wire — and the block
+# it feeds is five lines long. Newest-first, because a wiki big enough to hit
+# this is one where the page somebody touched last week is the likelier answer.
+SEARCH_CANDIDATES_MAX = 200
 
 
 class WikiRuleError(ValueError):
@@ -452,6 +462,88 @@ async def wanted(session) -> list[dict]:
     return [{"slug": slug, "linked_from": sorted(froms)}
             for slug, froms in sorted(by_slug.items(),
                                       key=lambda kv: (-len(kv[1]), kv[0]))]
+
+
+async def search_for_prompt(session, text: str, *, limit: int) -> list[WikiPage]:
+    """The live pages `text` is about, best match first — what the `<wiki>`
+    block in a run's prompt is built from (docs/design/21).
+
+    ONE query, always, and never the whole wiki: this runs on every summons in
+    every room, so a wiki with a thousand pages must cost the same as one with
+    ten. Archived pages are excluded for the reason they are excluded from the
+    backlinks and the wanted list — archiving is how a page stops counting, and
+    one that kept turning up in every prompt would be knowledge nobody can take
+    back.
+
+    Two dialects, deliberately not one, and they are the same search twice:
+    the SQL finds the pages whose TITLE OR BODY answers, and the ranking then
+    reads the TAGS too — a page filed under the word the room used is a better
+    answer than one that merely contains it. Postgres does both in the query
+    (the match against the GIN tsvector `_ensure_wiki_ddl` builds, the rank
+    against a vector that also carries the tags); sqlite, which has no
+    equivalent, narrows with LIKE the way the ticket board does and counts the
+    overlap in Python. The two agree on what matches; they do not promise the
+    same order, and nothing downstream depends on that."""
+    words = _search_words(text)
+    if limit <= 0 or not words:
+        return []
+    live = select(WikiPage).where(WikiPage.archived_at.is_(None))
+    if session.get_bind().dialect.name == "postgresql":
+        return list((await session.execute(
+            _pg_search(live, words, limit))).scalars())
+    candidates = (await session.execute(live.where(or_(*[
+        clause for word in words
+        for clause in (WikiPage.title.ilike(f"%{word}%"),
+                       WikiPage.body.ilike(f"%{word}%"))]))
+        .order_by(WikiPage.updated_at.desc(), WikiPage.slug)
+        .limit(SEARCH_CANDIDATES_MAX))).scalars()
+    scored = []
+    for page in candidates:
+        haystack = " ".join([page.title or "", *(page.tags or []),
+                             page.body or ""]).lower()
+        score = sum(1 for word in words if word in haystack)
+        if score:
+            # Ties broken by slug, not by insertion order: the prompt is pinned
+            # by golden tests, and a block that shuffled between identical runs
+            # would make every one of them a coin toss.
+            scored.append((-score, page.slug, page))
+    return [page for _, _, page in sorted(scored, key=lambda row: row[:2])[:limit]]
+
+
+def _pg_search(live, words: list[str], limit: int):
+    """The postgres half of `search_for_prompt`, as a statement, so a test can
+    compile it without a postgres to run it against.
+
+    Two vectors, on purpose. The MATCH is `_ensure_wiki_ddl`'s indexed
+    expression VERBATIM — change one character of it and every summons in every
+    room starts sequentially scanning the wiki. The RANK is free to be richer
+    because it is only ever computed over the handful of rows the index already
+    returned, so that is where the tags go: `::text` on the JSON array is
+    enough, since to_tsvector splits on the brackets and the quotes and leaves
+    the tags themselves standing as words."""
+    query = func.plainto_tsquery("english", " ".join(words))
+    indexed = func.to_tsvector("english", WikiPage.title + " " + WikiPage.body)
+    ranked = func.to_tsvector("english", WikiPage.title + " "
+                              + cast(WikiPage.tags, Text) + " " + WikiPage.body)
+    # Ties broken by slug for the reason the other branch breaks them there.
+    return (live.where(indexed.op("@@")(query))
+            .order_by(func.ts_rank(ranked, query).desc(), WikiPage.slug)
+            .limit(limit))
+
+
+def _search_words(text: str) -> list[str]:
+    """The words worth matching on, from whatever the room said: lowercased,
+    four characters or more, deduped, and capped.
+
+    Short words are dropped because they are noise — "the" matches half the
+    wiki — and the cap is what keeps a pasted stack trace from turning into a
+    hundred-clause OR. Alphanumerics only, which is also why no ILIKE escaping
+    is needed below: `%` and `_` cannot survive the split."""
+    seen: list[str] = []
+    for word in re.findall(r"[a-z0-9]+", (text or "").lower()):
+        if len(word) >= 4 and word not in seen:
+            seen.append(word)
+    return seen[:SEARCH_WORDS_MAX]
 
 
 async def agent_write_budget_left(session, agent: str, limit: int, now) -> int:

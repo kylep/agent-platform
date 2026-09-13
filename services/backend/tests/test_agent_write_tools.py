@@ -568,4 +568,6 @@ async def test_neither_tool_works_without_a_grant_at_all(client, sf, seed_agent,
         "action": "add_grant", "name": "hello-world", "field": "skills",
         "values": ["git"]})
     async with sf() as s:
-        assert (await s.execute(select(AgentVersion))).scalars().all() == []
+        # Scoped by agent: the seeded `wiki` librarian brings a v1 of its own.
+        assert (await s.execute(select(AgentVersion).where(
+            AgentVersion.agent == "hello-world"))).scalars().all() == []
