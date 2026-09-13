@@ -55,6 +55,14 @@ _CODE_OR_ROOM_RE = re.compile(
 # Connectors name a bridge (`discord`, `slack`); the two platform prefixes are
 # reserved so an inbound bridge id can never forge `agent:`/`user:`.
 _CONNECTOR_RE = re.compile(r"[a-z][a-z0-9_-]*")
+# What a participant string a CALLER hands us has to look like: `<namespace>:<id>`,
+# loose on the id (a Discord snowflake, a principal) and strict on the
+# namespace, which is what keeps `agent:`/`user:` unforgeable by a connector.
+# Case-sensitive on purpose — `Agent:pai` is not the agent namespace, and read
+# as a stranger's it is an assignment that summons nobody.
+_PARTICIPANT_RE = re.compile(r"[a-z][a-z0-9_-]*:\S{1,96}")
+# The column is 128, and a string that would not fit is refused rather than cut.
+PARTICIPANT_MAX = 128
 
 
 def participant_of(*, agent: str | None = None, principal: str | None = None,
@@ -81,6 +89,14 @@ def participant_of(*, agent: str | None = None, principal: str | None = None,
     if not re.fullmatch(r"\S+", external_user):
         raise ValueError("external_user must be non-empty and contain no whitespace")
     return f"{connector}:{external_user}"
+
+
+def is_participant(value: str) -> bool:
+    """Whether a string is a well-formed participant. The one gate every door
+    that takes a participant from a caller uses — a DM target, a channel's
+    member list, a ticket's assignee — so a shape one door refuses is not
+    quietly stored by the next."""
+    return len(value) <= PARTICIPANT_MAX and _PARTICIPANT_RE.fullmatch(value) is not None
 
 
 def is_agent(participant: str) -> bool:

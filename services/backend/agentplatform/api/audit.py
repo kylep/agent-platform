@@ -48,6 +48,6 @@ async def list_tool_audit(request: Request, limit: int = Query(100, ge=1, le=100
         rows = (await s.execute(stmt)).scalars().all()
     return [{"id": r.id, "ts": r.ts.isoformat() if r.ts else None, "run_id": r.run_id,
              "agent": r.agent, "initiated_by": r.initiated_by, "tool": r.tool,
-             "args_digest": r.args_digest, "decision": r.decision,
+             "action": r.action, "args_digest": r.args_digest, "decision": r.decision,
              "latency_ms": r.latency_ms, "result_bytes": r.result_bytes}
             for r in rows]

@@ -14,6 +14,7 @@ T = TypeVar("T", bound="ToolAuditView")
 class ToolAuditView:
     """
     Attributes:
+        action (None | str):
         agent (str):
         args_digest (str):
         decision (str):
@@ -26,6 +27,7 @@ class ToolAuditView:
         ts (None | str):
     """
 
+    action: None | str
     agent: str
     args_digest: str
     decision: str
@@ -39,6 +41,9 @@ class ToolAuditView:
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
+        action: None | str
+        action = self.action
+
         agent = self.agent
 
         args_digest = self.args_digest
@@ -66,6 +71,7 @@ class ToolAuditView:
         field_dict.update(self.additional_properties)
         field_dict.update(
             {
+                "action": action,
                 "agent": agent,
                 "args_digest": args_digest,
                 "decision": decision,
@@ -84,6 +90,14 @@ class ToolAuditView:
     @classmethod
     def from_dict(cls, src_dict: Mapping[str, Any]) -> Self:
         d = dict(src_dict)
+
+        def _parse_action(data: object) -> None | str:
+            if data is None:
+                return data
+            return cast(None | str, data)
+
+        action = _parse_action(d.pop("action"))
+
         agent = d.pop("agent")
 
         args_digest = d.pop("args_digest")
@@ -120,6 +134,7 @@ class ToolAuditView:
         ts = _parse_ts(d.pop("ts"))
 
         tool_audit_view = cls(
+            action=action,
             agent=agent,
             args_digest=args_digest,
             decision=decision,

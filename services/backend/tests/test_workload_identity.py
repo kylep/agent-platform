@@ -235,6 +235,25 @@ async def test_tool_audit_ingest_and_surfaces(client, sf, producer):
     assert rows[0]["initiated_by"] == "admin" and rows[0]["args_digest"] == "d" * 64
 
 
+async def test_the_audit_row_keeps_the_action_the_broker_named(sf, producer):
+    """A multi-action tool is one `tool` name: `relay` alone cannot tell a read
+    from a post, and the arguments are a digest by design. The broker names the
+    verb, so the trail keeps it — and a record from a single-action tool, or
+    from a broker that predates the field, stays null rather than guessing."""
+    from sqlalchemy import select
+
+    from agentplatform.db import ToolAudit
+    from agentplatform.ingest import ToolAuditIngestor
+    ing = ToolAuditIngestor(None, sf, producer)
+    await ing._record({"agent": "pai", "tool": "relay", "decision": "allow",
+                       "action": "post"})
+    await ing._record({"agent": "pai", "tool": "stocks", "decision": "allow"})
+    async with sf() as s:
+        rows = {r.tool: r.action for r in
+                (await s.execute(select(ToolAudit))).scalars()}
+    assert rows == {"relay": "post", "stocks": None}
+
+
 # --- SPIRE mTLS sidecar (docs/design/13 B) -----------------------------------
 
 def test_spire_enabled_adds_mcp_tunnel_sidecar():

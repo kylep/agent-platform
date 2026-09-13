@@ -339,6 +339,28 @@ async def test_reactions_toggle(admin_client, sf):
     assert listed[0]["reactions"] == [{"emoji": "🎉", "count": 1, "mine": True}]
 
 
+async def test_a_reaction_has_to_be_a_glyph(admin_client, sf):
+    """The field is called `emoji` and its value is echoed to every viewer of
+    the room, in the message payload and in the SSE frame. `<script>` is not a
+    reaction, and a pill is no place to find out what a client does with one."""
+    cid = await _channel_id(sf, "general")
+    m = (await admin_client.post(f"/api/relay/channels/{cid}/messages",
+                                 json={"body": "ship it"})).json()
+    for bad in ("<script>", "a&b", "a b", "\u0007", "", "x" * 17):
+        r = await admin_client.post(f"/api/relay/messages/{m['id']}/reactions",
+                                    json={"emoji": bad})
+        assert r.status_code == 422, (bad, r.text)
+    # One emoji is not one code point: a skin-toned family of four is eleven,
+    # and a cap that counted them as characters refused an ordinary reaction.
+    family = "\U0001f468\U0001f3fd\u200d\U0001f469\U0001f3fd\u200d" \
+             "\U0001f467\U0001f3fd\u200d\U0001f466\U0001f3fd"
+    assert len(family) == 11
+    for good in ("🎉", "👍", "🏳️‍🌈", family):
+        r = await admin_client.post(f"/api/relay/messages/{m['id']}/reactions",
+                                    json={"emoji": good})
+        assert r.status_code == 200, (good, r.text)
+
+
 async def test_search_finds_a_word_and_respects_visibility(
         admin_client, token_client, sf, seed_agent, agent_store):
     await _seed(seed_agent, agent_store, "news")
@@ -359,6 +381,28 @@ async def test_search_finds_a_word_and_respects_visibility(
     scoped = (await admin_client.get("/api/relay/search",
                                      params={"q": "kafka", "channel": cid})).json()
     assert [m["channel_id"] for m in scoped] == [cid]
+
+
+async def test_search_takes_a_channel_by_name_as_well_as_by_id(admin_client, sf):
+    """`channel=#general` answered `[]` — indistinguishable from "nothing
+    matched" — while the same room by id answered fine. A channel reference is
+    one thing across the platform: the sigil form, the bare name, or the id."""
+    cid = await _channel_id(sf, "general")
+    await admin_client.post(f"/api/relay/channels/{cid}/messages",
+                            json={"body": "the Kafka lag is back to zero"})
+
+    async def found(channel):
+        r = await admin_client.get("/api/relay/search",
+                                   params={"q": "kafka", "channel": channel})
+        assert r.status_code == 200, r.text
+        return [m["channel_id"] for m in r.json()]
+
+    assert await found("#general") == [cid]
+    assert await found("general") == [cid]
+    assert await found(cid) == [cid]
+    r = await admin_client.get("/api/relay/search",
+                               params={"q": "kafka", "channel": "nowhere"})
+    assert r.status_code == 404, r.text
 
 
 async def test_presence_reports_thinking_with_its_channel(admin_client, sf,

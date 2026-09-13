@@ -103,6 +103,10 @@ class ToolAudit(Base):
     agent: Mapped[str] = mapped_column(String(128), index=True)
     initiated_by: Mapped[str | None] = mapped_column(String(128), nullable=True)
     tool: Mapped[str] = mapped_column(String(64), index=True)
+    # Which verb of a multi-action tool was called (`relay` is a read AND a
+    # post), as the broker named it. Nullable: a single-action tool names none,
+    # and rows written before the field existed have none to give.
+    action: Mapped[str | None] = mapped_column(String(32), nullable=True)
     args_digest: Mapped[str] = mapped_column(String(64), default="")
     decision: Mapped[str] = mapped_column(String(64))
     latency_ms: Mapped[int] = mapped_column(Integer, default=0)

@@ -40,12 +40,13 @@ from datetime import timedelta
 
 from sqlalchemy import func, select
 
+from agentplatform.connectors import IMPLEMENTED as LIVE_CONNECTORS
 from agentplatform.db import (Conversation, RelayMessage, Ticket, TicketEvent,
                               TicketPriority, TicketState, utcnow)
 from agentplatform.events import TOPIC_TICKETS_EVENTS
 from agentplatform.relay import (AGENT_PREFIX, SYSTEM_AUTHOR, agent_name,
-                                 is_agent, mentionable_in, parse_mentions,
-                                 strip_room_mentions)
+                                 is_agent, is_participant, mentionable_in,
+                                 parse_mentions, strip_room_mentions)
 from agentplatform.relay_store import (edit_message_card, enabled_agents,
                                        explicit_members, outbound_for_message,
                                        post_relay_message, publish_relay_message)
@@ -71,6 +72,20 @@ EDITABLE = ("body", "due_at", "labels", "parent_id", "priority", "title")
 # shallow convenience, not a tree — thirty-two is far past any honest nesting
 # and still a walk that terminates on a corrupt chain rather than hanging.
 MAX_ANCESTRY = 32
+# The namespaces an assignee may carry: the two platform ones and the bridges
+# that are actually WIRED (`web` is not one — a web user is a principal, and a
+# principal is `user:`; `slack` is a placeholder with no bridge behind it, so
+# `slack:whoever` is a name on the board that no notification can ever reach).
+# Relay's grammar alone takes any lowercase namespace, which is right for a DM
+# target a connector invented and wrong here: `hacker:injected` on a board reads
+# as a person, and there is no such person to read it.
+ASSIGNEE_NAMESPACES = {"agent", "user"} | (LIVE_CONNECTORS - {"web"})
+# The refusal names what is accepted, computed from the set above: a message
+# that listed the shapes by hand would go on naming `discord:` the day a bridge
+# is added or removed.
+ASSIGNEE_SHAPES = ", ".join(["agent:<name>", "user:<name>"] +
+                           sorted(f"{ns}:<id>"
+                                  for ns in ASSIGNEE_NAMESPACES - {"agent", "user"}))
 
 
 class TicketRuleError(ValueError):
@@ -233,18 +248,26 @@ async def move_ticket(session, producer, ticket, *, actor: str, to_state: str,
 async def assign_ticket(session, producer, ticket, *, actor: str,
                         assignee: str | None, reason: str | None = None,
                         notify: bool = True, run=None,
-                        url_base: str = "") -> TicketEvent:
-    """Give a ticket to somebody — an agent, a human, or nobody.
+                        url_base: str = "") -> TicketEvent | None:
+    """Give a ticket to somebody — an agent, a human, or nobody. Returns None
+    when it is already theirs.
 
     Assignment is the ask (docs/design/20): with `notify`, an agent assignee is
     summoned by a real mention in the thread, authored by the actor and hopped
     like anything else the actor says, so hand-off ping-pong runs into the same
     cap that stops every other agent-to-agent chain. The ticket is assigned
     either way — a summons the router refuses for budget does not un-assign
-    the work, it just means the assignee finds it at its next wake."""
+    the work, it just means the assignee finds it at its next wake.
+
+    Re-assigning it to whoever already has it changes nothing, exactly as an
+    edit that edits nothing does: the event would record a move from a
+    participant to itself, and the thread would gain a line — and a summons —
+    for work that is already in the right hands."""
     _require_actor(actor, run)
     assignee = await _check_assignee(session, assignee)
     ticket = await _lock(session, ticket)
+    if ticket.assignee == assignee:
+        return None
     from_value, ticket.assignee = ticket.assignee, assignee
     conv = await _conv_of(session, ticket)
     msg, event = await _announce_assignment(session, conv, ticket, actor=actor,
@@ -449,15 +472,24 @@ async def _check_assignee(session, assignee: str | None) -> str | None:
     name is the only kind an agent holds, so there is exactly one honest
     reading of it — and when that reading is not an agent, the platform cannot
     tell a person from a typo, so it says which shapes it takes rather than
-    guessing."""
+    guessing.
+
+    A QUALIFIED name is held to Relay's own participant grammar, case and all.
+    `Agent:pai` is not the agent namespace: read as a stranger's participant it
+    files cleanly, shows a name on the board, and summons nobody — the bare-name
+    failure again, wearing the prefix that hides it. `is_participant` is the
+    same gate a DM target and a channel's member list pass, so a shape one door
+    refuses is not quietly stored by this one, and the namespace has to be one
+    the platform actually has."""
     raw = (assignee or "").strip()
     if not raw:
         return None
     if ":" not in raw:
         if raw not in await enabled_agents(session):
-            raise TicketRuleError("assignee must be agent:<name>, user:<name> "
-                                  "or discord:<id>")
+            raise TicketRuleError(f"assignee must be one of {ASSIGNEE_SHAPES}")
         return AGENT_PREFIX + raw
+    if not is_participant(raw) or raw.split(":", 1)[0] not in ASSIGNEE_NAMESPACES:
+        raise TicketRuleError(f"assignee must be one of {ASSIGNEE_SHAPES}")
     name = agent_name(raw)
     if name is not None and name not in await enabled_agents(session):
         raise TicketRuleError(f"unknown or disabled agent: {name}")

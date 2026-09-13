@@ -379,6 +379,31 @@ async def test_assigning_a_human_never_mentions(sf, producer, seed_agent):
     assert row.kind == "system" and row.mentions == []
 
 
+async def test_assigning_it_to_whoever_already_has_it_changes_nothing(
+        sf, producer, seed_agent):
+    """The second `assign agent:news` is somebody re-stating where the ticket
+    already is: an `assigned agent:news→agent:news` event and a line in the
+    thread saying so are noise, and a fresh summons for work already in hand is
+    worse than noise."""
+    await seed_agent("news", description="t")
+    cid = await _project(sf, "ZZ")
+    ticket = await _open(sf, producer, cid)
+    async with sf() as s:
+        await store.assign_ticket(s, producer, await s.get(Ticket, ticket.id),
+                                  actor="user:admin", assignee="agent:news")
+    before = len(await _events(sf, ticket.id)), len(await _messages(sf, cid))
+
+    async with sf() as s:
+        # The bare name is the same assignee once it is normalised, so it is the
+        # same no-op.
+        for again in ("agent:news", "news"):
+            assert await store.assign_ticket(s, producer, await s.get(Ticket, ticket.id),
+                                             actor="user:admin", assignee=again) is None
+    assert (len(await _events(sf, ticket.id)), len(await _messages(sf, cid))) == before
+    async with sf() as s:
+        assert (await s.get(Ticket, ticket.id)).assignee == "agent:news"
+
+
 async def test_an_agent_assignee_has_to_exist(sf, producer, seed_agent):
     """Stored unchecked, a typo is a ticket that looks assigned and summons
     nobody — the worst of both, because everyone reading it thinks somebody
@@ -437,6 +462,38 @@ async def test_a_bare_name_is_an_agent_or_it_is_nobody(sf, producer, seed_agent)
                                   assignee="pai")
     async with sf() as s:
         assert (await s.get(Ticket, ticket.id)).assignee == "agent:pai"
+
+
+async def test_a_mis_cased_namespace_is_refused_not_stored(sf, producer, seed_agent):
+    """`Agent:pai` is not `agent:pai` and never was: stored verbatim it takes
+    the human branch, so the board shows an assignee and nothing is ever
+    summoned. Every qualified assignee is held to the same participant grammar
+    Relay applies at its own doors."""
+    await seed_agent("pai", description="t")
+    cid = await _project(sf, "ZZ")
+    ticket = await _open(sf, producer, cid)
+    async with sf() as s:
+        row = await s.get(Ticket, ticket.id)
+        # `slack:` is a connector the platform knows OF and does not have: a
+        # name on the board that no bridge can ever notify.
+        for bad in ("Agent:pai", "AGENT:pai", "hacker:injected", "slack:x", "agent:",
+                    ":pai", "user:with space"):
+            with pytest.raises(store.TicketRuleError):
+                await store.assign_ticket(s, producer, row, actor="user:admin",
+                                          assignee=bad)
+            await s.rollback()
+    async with sf() as s:
+        assert (await s.get(Ticket, ticket.id)).assignee is None
+    for bad in ("Agent:pai", "hacker:injected"):
+        with pytest.raises(store.TicketRuleError):
+            await _open(sf, producer, cid, assignee=bad)
+    assert len(await _tickets(sf)) == 1
+    for good in ("user:kyle", "discord:123", "agent:pai"):
+        async with sf() as s:
+            await store.assign_ticket(s, producer, await s.get(Ticket, ticket.id),
+                                      actor="user:admin", assignee=good)
+        async with sf() as s:
+            assert (await s.get(Ticket, ticket.id)).assignee == good
 
 
 async def test_create_can_assign_in_one_go(sf, producer, seed_agent):

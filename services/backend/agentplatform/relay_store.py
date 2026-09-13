@@ -195,6 +195,21 @@ async def channel_by_name(session, name: str) -> Conversation | None:
         Conversation.archived_at.is_(None)))).scalars().first()
 
 
+async def channel_by_ref(session, ref: str) -> Conversation | None:
+    """A channel by id, by `#name`, or by the bare name — the one reading of a
+    channel reference every door uses (docs/design/20). An agent knows the room
+    it is talking in by name and a model drops the sigil, so a door that took
+    only an id answered "nothing matched" to a reference that named a real room.
+
+    A bare ref is a NAME first and an id second. Shape cannot decide it: a
+    channel slug may be 32 hex characters, so "that looks like an id" would make
+    the room called `ab…ab` unreachable by the only word anyone calls it. A
+    `#name` stays a name outright — the sigil is the caller saying so."""
+    if ref.startswith("#"):
+        return await channel_by_name(session, ref[1:])
+    return await channel_by_name(session, ref) or await session.get(Conversation, ref)
+
+
 async def summon_channel(session_factory, producer, name: str, *,
                          author: str, body: str) -> RelayMessage | None:
     """Post `body` into the channel called `name` as a NON-AGENT author, and

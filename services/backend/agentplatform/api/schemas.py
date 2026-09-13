@@ -388,6 +388,10 @@ class ToolAuditView(BaseModel):
     agent: str
     initiated_by: str | None
     tool: str
+    # The verb of a multi-action tool, when the broker named one. Nullable and
+    # required, like `run_id` beside it: the route always answers the field, and
+    # what varies is whether the call had a verb.
+    action: str | None
     args_digest: str
     decision: str
     latency_ms: int
@@ -807,7 +811,16 @@ class RelayMessageIn(BaseModel):
 
 class RelayReactionIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    emoji: str = Field(min_length=1, max_length=8)
+    # A glyph, not a string: the value is stored as given and echoed to every
+    # viewer of the room, in the message payload and in the SSE frame, so what
+    # this accepts is what a reaction pill eventually holds. Whitespace and
+    # control characters are not glyphs, and `<`/`>`/`&` are refused here so no
+    # client's rendering choice can turn a reaction into markup. The length is
+    # in code points and one emoji is many of them — a skin-toned family of
+    # four is eleven — so the cap is sixteen, which holds every compound
+    # sequence a keyboard offers and still nothing anybody would call a word.
+    emoji: str = Field(min_length=1, max_length=16,
+                       pattern=r"^[^\s<>&\x00-\x1f\x7f]{1,16}$")
 
 
 class RelayBindingIn(BaseModel):

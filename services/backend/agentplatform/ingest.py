@@ -51,6 +51,7 @@ class ToolAuditIngestor:
                 run_id=(data.get("run_id") or None),
                 initiated_by=(data.get("initiated_by") or None),
                 tool=str(data.get("tool") or "unknown")[:64],
+                action=(str(data["action"])[:32] if data.get("action") else None),
                 args_digest=str(data.get("args_digest") or "")[:64],
                 decision=str(data.get("decision") or "unknown")[:64],
                 latency_ms=int(data.get("latency_ms") or 0),

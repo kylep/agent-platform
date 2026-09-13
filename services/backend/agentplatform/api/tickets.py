@@ -28,7 +28,8 @@ from datetime import timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
-from sqlalchemy import func, or_, select
+from sqlalchemy import cast, func, or_, select
+from sqlalchemy.dialects.postgresql import JSONB
 
 from agentplatform import ticket_store as store
 from agentplatform.api import relay as relay_api
@@ -46,7 +47,7 @@ from agentplatform.db import (ACTIVE_STATES, Conversation, RelayMessage, Run,
                               Ticket, TicketEvent, TicketState, utcnow)
 from agentplatform.relay import agent_name, is_agent, is_member
 from agentplatform.relay_feed import OVERFLOW, TopicFeed
-from agentplatform.relay_store import channel_by_name, faces_for, message_view
+from agentplatform.relay_store import channel_by_ref, faces_for, message_view
 from agentplatform.events import TOPIC_TICKETS_EVENTS
 from agentplatform.tickets import (CLOSED_STATES, budget_body, is_stale,
                                    participant_label)
@@ -77,6 +78,21 @@ LINKED_RUNS = 10
 
 # --- resolving what the caller named -----------------------------------------
 
+def _labelled(bind, label: str):
+    """`label` as a WHERE clause, so the cap counts matching rows.
+
+    Filtered in python after the limit — which is what this used to do — a
+    labelled ticket that sorted past the page vanished with no error and no
+    flag, and `label=qa&limit=2` answered "no such tickets". Containment has no
+    portable spelling, so there are two: `@>` on postgres (the column is `json`,
+    hence the cast to `jsonb`, which is the type that has the operator) and
+    `json_each` on sqlite, the same dialect fork `db.py` makes for DDL."""
+    if bind.dialect.name == "postgresql":
+        return cast(Ticket.labels, JSONB).contains([label])
+    each = func.json_each(Ticket.labels).table_valued("value")
+    return select(1).select_from(each).where(each.c.value == label).exists()
+
+
 async def _readable(s, caller: Caller, agents: set[str]) -> set[str] | None:
     """The channels this caller may see tickets in, or None for "all of them".
 
@@ -90,20 +106,10 @@ async def _readable(s, caller: Caller, agents: set[str]) -> set[str] | None:
 
 
 async def _channel_or_404(s, ref: str) -> Conversation:
-    """A channel by id, by `#name`, or by the bare name. The `#name` form is
-    what an agent actually holds — it knows the room it is talking in by name,
-    and making it look the id up first would be a round trip to say something
-    it already said — and `ops` is the same word with the sigil a model
-    dropped, which the `tickets` tool has always accepted.
-
-    A bare ref is a NAME first and an id second. Shape cannot decide it: a
-    channel slug may be 32 hex characters, so "that looks like an id" would
-    make the room called `ab…ab` unreachable by the only word anyone calls it.
-    A `#name` stays a name outright — the sigil is the caller saying so."""
-    if ref.startswith("#"):
-        conv = await channel_by_name(s, ref[1:])
-    else:
-        conv = await channel_by_name(s, ref) or await s.get(Conversation, ref)
+    """A channel by id, by `#name`, or by the bare name — `channel_by_ref`'s
+    reading of a reference, with the 404 a route owes a caller that named a
+    room this platform does not have."""
+    conv = await channel_by_ref(s, ref)
     if conv is None:
         raise HTTPException(404, "unknown channel")
     return conv
@@ -207,6 +213,14 @@ async def _views(s, rows, settings) -> list[dict]:
             for t in rows]
 
 
+async def _runs_in(s, *where, limit: int | None = None) -> list:
+    """Runs matching `where`, newest first. `limit` is the page the caller has
+    room for; without one every match comes back, which is what lets the runs a
+    ticket's own history names outrank the ones merely summoned in its thread."""
+    stmt = select(Run).where(*where).order_by(Run.created_at.desc(), Run.id.desc())
+    return list((await s.execute(stmt if limit is None else stmt.limit(limit))).scalars())
+
+
 async def _one(s, ticket, settings) -> dict:
     return (await _views(s, [ticket], settings))[0]
 
@@ -253,15 +267,11 @@ async def list_tickets(request: Request, channel: str | None = None,
             needle = q.lower()
             stmt = stmt.where(or_(func.lower(Ticket.title).contains(needle, autoescape=True),
                                   func.lower(Ticket.body).contains(needle, autoescape=True)))
+        if label:
+            stmt = stmt.where(_labelled(s.get_bind(), label))
         rows = list((await s.execute(stmt.order_by(
             Ticket.priority, Ticket.last_activity_at.desc(), Ticket.id)
             .limit(limit))).scalars())
-        if label:
-            # JSON containment differs by dialect, so labels are filtered in
-            # python rather than in half a query per backend — after the cap,
-            # which is exact while a project's board fits in one page and is
-            # the same trade the cap itself makes.
-            rows = [t for t in rows if label in (t.labels or [])]
         return await _views(s, rows, request.app.state.settings)
 
 
@@ -430,9 +440,26 @@ async def get_ticket(request: Request, key: str,
         events = list((await s.execute(select(TicketEvent).where(
             TicketEvent.ticket_id == ticket.id)
             .order_by(TicketEvent.created_at, TicketEvent.id))).scalars())
-        runs = list((await s.execute(select(Run).where(Run.ticket_id == ticket.id)
-                                     .order_by(Run.created_at.desc(), Run.id.desc())
-                                     .limit(LINKED_RUNS))).scalars())
+        # `Run.ticket_id` is set only for a run SUMMONED in the thread, so on
+        # its own it misses the run that opened the ticket and every run that
+        # moved it through the tool — the ones whose events are already on this
+        # page, each one linking a run the panel above claimed did not exist.
+        # The ticket's own history is what says which runs touched it.
+        #
+        # Those NAMED runs are never dropped, and the newest summoned runs fill
+        # the rest of the page: a newest-first cap over the union would lose the
+        # opener again the moment ten newer runs are summoned in the thread, and
+        # the opener is the oldest run there is. So the list is `LINKED_RUNS`
+        # unless the history itself names more than that.
+        named = {e.run_id for e in events if e.run_id} | {ticket.run_id} - {None}
+        runs = await _runs_in(s, Run.id.in_(named)) if named else []
+        fill = LINKED_RUNS - len(runs)
+        if fill > 0:
+            summoned = [Run.ticket_id == ticket.id]
+            if named:
+                summoned.append(Run.id.notin_(named))
+            runs += await _runs_in(s, *summoned, limit=fill)
+        runs.sort(key=lambda r: (r.created_at, r.id), reverse=True)
         thinking = next((r for r in runs if r.state in ACTIVE_STATES), None)
         faces = await faces_for(s, _agents_in([e.actor for e in events]))
         view = await _one(s, ticket, request.app.state.settings)

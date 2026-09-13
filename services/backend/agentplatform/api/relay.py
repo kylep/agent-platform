@@ -30,15 +30,15 @@ from agentplatform.db import RelayMessage as MessageRow
 from agentplatform.db import RelayParticipant as ParticipantRow
 from agentplatform.db import RelayReaction as ReactionRow
 from agentplatform.db import Run, Ticket, utcnow
-from agentplatform.relay import (agent_name, is_agent, is_member, mentionable_in,
-                                 parse_mentions, participant_of,
+from agentplatform.relay import (agent_name, is_agent, is_member, is_participant,
+                                 mentionable_in, parse_mentions, participant_of,
                                  strip_room_mentions)
 # Aliased: the route below is the HTTP name for the same act, and the store
 # helper is what actually writes the row.
 from agentplatform.relay_feed import OVERFLOW
 from agentplatform.relay_store import post_relay_message as _insert_message
-from agentplatform.relay_store import (bindings_of, faces_for, message_view,
-                                       outbound_for_message,
+from agentplatform.relay_store import (bindings_of, channel_by_ref, faces_for,
+                                       message_view, outbound_for_message,
                                        relay_message_payload,
                                        publish_relay_message)
 from agentplatform.tickets import KEY_RE, derive_prefix
@@ -70,10 +70,6 @@ def _is_ticket_prefix(prefix: str) -> bool:
     looks like — accepts what it produces. A prefix nothing can match is a
     channel owning tickets no message can ever refer to by name."""
     return KEY_RE.fullmatch(f"{prefix}-1") is not None
-# A participant is `<namespace>:<id>` — loose on the id (a Discord snowflake, a
-# principal) and strict on the namespace, which is what keeps `agent:`/`user:`
-# unforgeable by a connector.
-_PARTICIPANT_RE = re.compile(r"[a-z][a-z0-9_-]*:\S{1,96}")
 SEED_NAMES = {name for name, _ in RELAY_SEED_CHANNELS}
 # Preview length of the rail's last-message line.
 PREVIEW_CHARS = 200
@@ -410,7 +406,7 @@ async def create_relay_channel(request: Request, body: S.RelayChannelIn,
                                  "every agent and every human is already a member")
     participants = set()
     for p in body.participants:
-        if len(p) > 128 or not _PARTICIPANT_RE.fullmatch(p):
+        if not is_participant(p):
             raise HTTPException(422, f"'{p[:64]}' is not a participant string")
         participants.add(p)
     if not is_open:
@@ -946,7 +942,7 @@ async def open_relay_dm(request: Request, body: S.RelayDmIn,
     """Get-or-create, never "create": a DM is an identity (these two people),
     so asking for it twice must not fork the history."""
     other = body.with_.strip()
-    if len(other) > 128 or not _PARTICIPANT_RE.fullmatch(other):
+    if not is_participant(other):
         raise HTTPException(422, f"'{other[:64]}' is not a participant string")
     if other == caller.participant:
         raise HTTPException(422, "a dm needs two participants")
@@ -990,8 +986,18 @@ async def search_relay_messages(request: Request, q: str = Query(min_length=1, m
                                 caller: Caller = Depends(require_relay_access(*READ))):
     agents = _agent_set(request)
     async with request.app.state.session_factory() as s:
+        # The same reading of a channel reference the board uses: an agent
+        # searching the room it is in holds `#ops`, not the room's id, and a
+        # reference this door could not read used to come back as "nothing
+        # matched" rather than as a miss.
+        scope = None if channel is None else await channel_by_ref(s, channel)
+        if channel is not None and scope is None:
+            raise HTTPException(404, "unknown channel")
         visible, _ = await _visible(s, caller, agents)
-        ids = [c.id for c in visible if channel is None or c.id == channel]
+        # Visibility still decides the answer, not the reference: a room the
+        # caller cannot see searches as empty rather than as a 403, which is
+        # the same thing an unscoped search tells them about it.
+        ids = [c.id for c in visible if scope is None or c.id == scope.id]
         if not ids:
             return []
         stmt = select(MessageRow).where(MessageRow.channel_id.in_(ids),

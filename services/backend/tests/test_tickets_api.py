@@ -11,7 +11,7 @@ from datetime import timedelta
 from sqlalchemy import select, text
 
 from agentplatform.api import relay as relay_api
-from agentplatform.api.tickets import STREAM
+from agentplatform.api.tickets import LINKED_RUNS, STREAM
 from agentplatform.db import (AgentDef, Conversation, RelayMessage,
                               RelayParticipant, Run, RunState, Ticket,
                               TicketEvent, utcnow)
@@ -170,6 +170,27 @@ async def test_the_list_filters_the_board(admin_client, sf, seed_agent, agent_st
     assert rows[0]["assignee_face"]["emoji"] and rows[0]["reporter_face"] is None
 
 
+async def test_the_label_filter_survives_the_limit(admin_client):
+    """Filtered in python after the cap, a labelled ticket that sorted past the
+    page was dropped without a trace — `label=qa&limit=2` answered `[]` while
+    three tickets carried the label. The cap now counts matches."""
+    for i in range(4):
+        await _open(admin_client, title=f"urgent {i}", priority="p0")
+    labelled = {(await _open(admin_client, title=f"later {i}", priority="p3",
+                             labels=["qa"]))["key"] for i in range(3)}
+
+    async def keys(**params):
+        r = await admin_client.get("/api/tickets", params=params)
+        assert r.status_code == 200, r.text
+        return [t["key"] for t in r.json()]
+
+    assert set(await keys(label="qa")) == labelled
+    # The limit is a cap on the answer, not on the rows the filter got to see.
+    page = await keys(label="qa", limit=2)
+    assert len(page) == 2 and set(page) < labelled
+    assert await keys(label="nothing-has-this") == []
+
+
 async def test_projects_are_the_channels_with_a_prefix(admin_client):
     await _open(admin_client)
     r = await admin_client.get("/api/tickets/projects")
@@ -227,6 +248,29 @@ async def test_a_bare_assignee_is_an_agent_or_a_400(admin_client, seed_agent,
                                     json={"channel": "#general", "title": "y",
                                           "assignee": "news"})).json()["assignee"] \
         == "agent:news"
+
+
+async def test_a_qualified_assignee_has_to_be_a_participant_string(admin_client,
+                                                                   seed_agent,
+                                                                   agent_store):
+    """`Agent:pai` reached the store as a stranger's name and was filed as one:
+    200, an assignee on the board, and no summons. Anything with a colon is now
+    held to the grammar Relay uses at its own doors, namespace case included."""
+    await _seed(seed_agent, agent_store, "news")
+    t = await _open(admin_client)
+    for bad in ("Agent:news", "hacker:injected", "slack:x", "user:with space"):
+        r = await admin_client.post(f"/api/tickets/{t['key']}/assign", json={"to": bad})
+        assert r.status_code == 400, r.text
+        assert "agent:<name>" in r.json()["detail"]
+    r = await admin_client.post("/api/tickets", json={"channel": "#general",
+                                                      "title": "x",
+                                                      "assignee": "Agent:news"})
+    assert r.status_code == 400, r.text
+
+    for good in ("user:kyle", "discord:123"):
+        r = await admin_client.post(f"/api/tickets/{t['key']}/assign", json={"to": good})
+        assert r.status_code == 200, r.text
+        assert r.json()["assignee"] == good
 
 
 async def test_a_channel_can_be_named_without_its_hash(admin_client):
@@ -324,6 +368,38 @@ async def test_an_agent_opens_a_ticket_as_itself(token_client, sf, seed_agent,
                                 json={"channel": "#general", "title": "x",
                                       "reporter": "user:admin"}, headers=headers)
     assert r.status_code == 422
+
+
+async def test_the_detail_links_the_run_that_opened_it(admin_client, token_client, sf,
+                                                       seed_agent, agent_store):
+    """`Run.ticket_id` is set only when a run was summoned IN a ticket's thread,
+    so the run that OPENED the ticket — or moved it with the tool — left three
+    Activity rows each linking a run while the fields panel above said "none
+    yet". The linked runs are every run the ticket's own history names."""
+    headers = await _agent_in(sf, seed_agent, agent_store, "news")
+    key = (await token_client.post("/api/tickets",
+                                   json={"channel": "#general", "title": "found it"},
+                                   headers=headers)).json()["key"]
+    await token_client.post(f"/api/tickets/{key}/move",
+                            json={"state": "in_progress"}, headers=headers)
+    detail = (await admin_client.get(f"/api/tickets/{key}")).json()
+    from_events = {e["run_id"] for e in detail["events"] if e["run_id"]}
+    assert from_events and {r["id"] for r in detail["runs"]} == from_events
+    opener = next(iter(from_events))
+    async with sf() as s:
+        assert (await s.get(Run, opener)).ticket_id is None
+        # ...and a busy thread does not push it back out: the run that opened
+        # the ticket is the oldest one, so a newest-first cap over the union is
+        # exactly what loses it again.
+        for i in range(LINKED_RUNS + 1):
+            s.add(Run(agent="news", trigger="mention", requested_by="user:admin",
+                      prompt="p", state=RunState.SUCCEEDED,
+                      ticket_id=detail["ticket"]["id"],
+                      created_at=utcnow() + timedelta(minutes=i + 1)))
+        await s.commit()
+    runs = (await admin_client.get(f"/api/tickets/{key}")).json()["runs"]
+    assert opener in {r["id"] for r in runs}
+    assert len(runs) == LINKED_RUNS
 
 
 async def test_an_agent_token_with_no_run_may_not_write(token_client, sf, seed_agent,
