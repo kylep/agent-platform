@@ -192,6 +192,28 @@ test("the new-ticket dialog opens a ticket and puts it on the board",
     .toContainText("The board needs a first ticket");
 });
 
+test("a hint too long for its field trails off rather than clipping mid-word",
+     async ({ page }) => {
+  await mockApi(page);
+  await page.setViewportSize({ width: 390, height: 780 });
+  // A placeholder is the field's explanation, and a dialog field is narrow.
+  // "why it is moving (option" reads as a typo; "why it is moving (…" reads
+  // as a sentence that ran out of room — which is what it is.
+  // On the field, not on `::placeholder`: browsers only honour the
+  // ::first-line properties there, and text-overflow is not one of them.
+  const ellipsed = (label: string) => page.getByLabel(label).evaluate(
+    (el) => getComputedStyle(el).textOverflow);
+
+  await page.goto("/tickets");
+  await page.getByRole("button", { name: "New ticket" }).click();
+  expect(await ellipsed("Title")).toBe("ellipsis");
+  expect(await ellipsed("Labels")).toBe("ellipsis");
+
+  await page.goto("/tickets/OPS-1");
+  await page.getByRole("button", { name: "Assign" }).click();
+  expect(await ellipsed("Reason")).toBe("ellipsis");
+});
+
 test("a board with nothing on it says so", async ({ page }) => {
   await mockApi(page);
   await page.route((url) => url.pathname === "/api/tickets",

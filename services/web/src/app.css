@@ -672,17 +672,35 @@ a.relay-action { color: var(--ds-link); }
 .ticket-main .relay-thread-back { display: inline-flex; }
 .ticket-main .relay-thread-close { display: none; }
 
-/* Below this the two columns are one, and the fields come first: what the
-   ticket IS has to be readable before the argument about it. */
+/* Below this the two columns are one, and one column is a reading order: what
+   the ticket IS, the facts about it, the argument about it, and only then the
+   audit trail of what has already been changed. The two wrappers exist to make
+   the columns and nothing else, so here they stop drawing a box at all
+   (`display: contents`) — that is what lets four blocks living in two parents
+   be ordered against each other. Neither wrapper carries a landmark, precisely
+   because of this rule: the landmarks are on the blocks (TicketDetail.tsx). */
 @media (max-width: 900px) {
-  .ticket-detail { flex-direction: column; }
-  .ticket-side { flex: 1 1 auto; width: 100%; }
-  .ticket-main { width: 100%; }
+  /* `stretch`, because the four blocks are the flex items now and each one
+     wants the whole width the two columns used to hand them. */
+  .ticket-detail { flex-direction: column; align-items: stretch; gap: 12px; }
+  .ticket-side, .ticket-main { display: contents; }
+  .ticket-main > .ticket-body { order: 1; margin-bottom: 0; }
+  .ticket-side > .ticket-fields-box { order: 2; }
+  /* The thread, or the line explaining why this ticket hasn't got one. */
+  .ticket-main > :not(.ticket-body) { order: 3; }
+  .ticket-side > .ticket-activity { order: 4; }
+  /* Its heading is the first thing in its block now, not a sub-head trailing
+     the fields above it. */
+  .ticket-side > .ticket-activity .ticket-side-head { margin-top: 0; }
   /* On a phone Relay turns the thread into a sheet over the room it covers.
      Here it IS the page, so it stays in the flow — a fixed overlay would sit
-     on top of the fields the reader just scrolled past. */
+     on top of the fields the reader just scrolled past.
+     `min-height` is reset for the same reason: the room pane is floored at
+     60vh on a phone because there it IS the screen, but here it is one block
+     in a column, and a two-message thread holding open half a screen pushes
+     the ticket's own history off the bottom. */
   .ticket-main .relay-thread {
-    position: static; inset: auto; z-index: auto; max-height: 70vh;
+    position: static; inset: auto; z-index: auto; min-height: 0; max-height: 70vh;
     border-width: 1px; border-radius: var(--radius-lg);
   }
 }

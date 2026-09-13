@@ -17,6 +17,25 @@ test("the rail lists channels and direct messages", async ({ page }) => {
   await expect(rail.getByRole("button", { name: /^pai/ })).toBeVisible();
 });
 
+test("a rail row carries its full name, however narrow the rail is",
+     async ({ page }) => {
+  await mockApi(page);
+  await page.goto("/relay");
+  const rail = page.getByRole("complementary", { name: "Channels" });
+  // An untitled group is named by who is in it, and that is exactly the label
+  // the rail is too narrow to finish: the row has to be able to say it in
+  // full without being opened.
+  // The tooltip is the ROW's, so pointing at the faces answers it too.
+  const group = rail.locator(".relay-row", { hasText: "3 members" });
+  await expect(group).toHaveAttribute("title", "3 members: news, pai, you");
+  // …and the rule is the row's, not the group's: every row carries its own.
+  await expect(rail.locator(".relay-row", { hasText: "release crew" }))
+    .toHaveAttribute("title", "release crew");
+  await expect(rail.locator(".relay-row")
+    .filter({ has: page.locator(".relay-row-name", { hasText: "general" }) }))
+    .toHaveAttribute("title", "general");
+});
+
 test("a channel reads oldest-first, with each author named once", async ({ page }) => {
   await mockApi(page);
   await page.goto("/relay");

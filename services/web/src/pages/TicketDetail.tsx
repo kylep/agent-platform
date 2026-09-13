@@ -12,6 +12,7 @@ import { useChannel } from "../components/relay/useChannel";
 import {
   type Ticket, type TicketDetail as Detail, type TicketProject,
 } from "../lib/tickets";
+import { useTitle } from "../lib/title";
 
 // One piece of work as a page (docs/design/20): the fields somebody has to be
 // able to change, the history of what has already been changed, and the thread
@@ -176,6 +177,9 @@ export default function TicketDetail() {
 
   const detail = page.detail;
   const ticket = detail?.ticket ?? null;
+  // The key is in the URL, so the tab can say which ticket this is before
+  // the row lands — and what it is about once it has.
+  useTitle(key, ticket?.title);
 
   /** One write, one answer: the server returns the row it stored, which is the
    * only honest thing to put on screen — a move can be refused (a closed
@@ -248,13 +252,19 @@ export default function TicketDetail() {
       )}
 
       <div className="ticket-detail">
-        <aside className="ticket-side">
+        {/* A wrapper, not a landmark: on a phone this box is dissolved
+            (`display: contents`) so its two blocks can be ordered against the
+            description and the thread, and a dissolved element is one no
+            screen reader is promised to keep. The landmarks live on the blocks
+            themselves — the fields are the <aside>, the history its own
+            labelled region. */}
+        <div className="ticket-side">
           <DetailFields ticket={ticket} me={page.me} project={page.project} parent={parent}
                         subtasks={subtasks} runs={detail.runs} busy={busy}
                         moveError={moveError} onMove={move}
                         onAssign={() => setAssigning(true)} />
           <DetailActivity events={detail.events} me={page.me} />
-        </aside>
+        </div>
 
         <div className="ticket-main">
           {ticket.body && <Markdown text={ticket.body} className="ticket-body" />}

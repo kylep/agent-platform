@@ -19,6 +19,7 @@ import { Chip, StatusChip } from "@ap/ui/chip";
 import { ConfirmDialog } from "@ap/ui/dialog";
 import { Stat, StatRow } from "@ap/ui/stat";
 import { Table, TD, TH } from "@ap/ui/table";
+import { useTitle } from "../lib/title";
 
 function AgentReport({ name }: { name: string }) {
   const [m, setM] = useState<AgentMetrics | null>(null);
@@ -287,6 +288,7 @@ type Tab = "config" | "history" | "conversations" | "tickets" | "memories" | "sc
 
 export default function AgentDetail() {
   const { name } = useParams<{ name: string }>();
+  useTitle(name, "Agents");
   const [params, setParams] = useSearchParams();
   const tab = (params.get("tab") as Tab) ?? "config";
   const [agent, setAgent] = useState<AgentDef | null>(null);

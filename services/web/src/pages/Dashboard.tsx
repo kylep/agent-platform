@@ -11,6 +11,7 @@ import { Table, TD, TH } from "@ap/ui/table";
 import { cronTitle, isSingleExpression, useCronPreview } from "../lib/cron";
 import type { TicketStats } from "../lib/tickets";
 import { ago } from "../lib/time";
+import { useTitle } from "../lib/title";
 
 // One actionable item in the "Needs attention" panel.
 type Attn = { key: string; text: string; to: string; sev: "warn" | "bad"; title?: string };
@@ -88,6 +89,7 @@ function TicketStat({ stats }: { stats: TicketStats }) {
 }
 
 export default function Dashboard() {
+  useTitle("Dashboard");
   const [ov, setOv] = useState<MetricsOverview | null>(null);
   const [runs, setRuns] = useState<RunSummary[]>([]);
   const [kafka, setKafka] = useState<KafkaHealth | null>(null);

@@ -20,9 +20,16 @@ function Row({ channel, me, selected, onSelect }: {
   // who is in it — the only other thing that tells one group from another.
   const group = channel.kind === "group";
   const other = channel.kind === "dm" ? otherParticipant(channel, me) : null;
+  // The rail is narrow by design and the name is clipped to fit it, so the
+  // full one rides along as the row's tooltip — for a group that member list
+  // IS the name, and "3 members: news, pai, y…" names nothing. It sits on the
+  // row rather than on the clipped span so that pointing anywhere along the
+  // row, faces included, answers "who is in this one".
+  const name = channel.kind === "channel" ? channel.name : channelLabel(channel, me);
   return (
     <button type="button" className={`relay-row${selected ? " active" : ""}`}
             aria-current={selected ? "true" : undefined}
+            title={name ?? undefined}
             onClick={() => onSelect(channel.id)}>
       {group
         ? (
@@ -33,9 +40,7 @@ function Row({ channel, me, selected, onSelect }: {
         : other
           ? <Face participant={other} size={22} />
           : <span className="relay-hash" aria-hidden="true">#</span>}
-      <span className="relay-row-name">{
-        channel.kind === "channel" ? channel.name : channelLabel(channel, me)
-      }</span>
+      <span className="relay-row-name">{name}</span>
       {channel.unread > 0 && (
         // A dot, not a number: the count is the API's business, and a rail
         // full of digits reads as a to-do list.

@@ -7,6 +7,7 @@ import { Button } from "@ap/ui/button";
 import { StatusChip } from "@ap/ui/chip";
 import { Markdown } from "@ap/ui/markdown";
 import { isActiveState } from "./Runs";
+import { useTitle } from "../lib/title";
 
 type ContentBlock = {
   type?: string;
@@ -174,6 +175,9 @@ export default function RunDetail() {
   const [killing, setKilling] = useState(false);
   const [killError, setKillError] = useState<string | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
+  // The id is in the URL, so the tab names the run before its row arrives —
+  // and says whose run it is once it has.
+  useTitle(id && `Run ${id.slice(0, 8)}`, run?.agent);
 
   const refetchHeader = useCallback(() => {
     if (!id) return;

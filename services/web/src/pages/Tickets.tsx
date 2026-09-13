@@ -8,6 +8,7 @@ import { TodayStrip } from "../components/tickets/TodayStrip";
 import { useTickets } from "../components/tickets/useTickets";
 import { participantLabel } from "../lib/relay";
 import type { Ticket } from "../lib/tickets";
+import { useTitle } from "../lib/title";
 
 // The board (docs/design/20): the platform's work, live. Which slice of it you
 // are looking at lives in the URL — project, assignee, label, mine, a search —
@@ -27,6 +28,7 @@ function matches(t: Ticket, q: string): boolean {
 }
 
 export default function Tickets() {
+  useTitle("Tickets");
   const [params, setParams] = useSearchParams();
   const board = useTickets();
   const [creating, setCreating] = useState(false);

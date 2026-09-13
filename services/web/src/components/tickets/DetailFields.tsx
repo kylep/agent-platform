@@ -63,79 +63,84 @@ export function DetailFields({ ticket, me, project, parent, subtasks, runs, busy
   onAssign: () => void;
 }) {
   return (
-    <dl className="def-list ticket-fields">
-      <Row label="State">
-        <span className="ticket-state-row">
-          <StatusChip status={stateLabel(ticket.state)} className="ticket-state" />
-          {/* The same move the board's card offers, and the same one an agent
-              makes with the tool: one endpoint, three ways in. Only the
-              transitions the API will actually accept are listed — a closed
-              ticket offers "open", because reopening is the only way out of
-              done. */}
-          <Select className="ticket-move" value="" disabled={busy}
-                  aria-label={`Move ${ticket.key} to…`}
-                  onChange={(e) => { if (e.target.value) onMove(e.target.value); }}>
-            <option value="">Move to…</option>
-            {TICKET_STATES.filter((s) => canMove(ticket.state, s))
-              .map((s) => <option key={s} value={s}>{stateLabel(s)}</option>)}
-          </Select>
-        </span>
-        {moveError && <div className="error ticket-move-error">{moveError}</div>}
-      </Row>
-      <Row label="Priority">{ticket.priority} · {priorityLabel(ticket.priority)}</Row>
-      <Row label="Assignee">
-        <span className="ticket-state-row">
-          {ticket.assignee
-            ? <Who participant={ticket.assignee} face={ticket.assignee_face} me={me} />
-            : <span className="muted">unassigned</span>}
-          <Button variant="secondary" size="sm" disabled={busy} onClick={onAssign}>
-            Assign
-          </Button>
-        </span>
-      </Row>
-      <Row label="Reporter">
-        <Who participant={ticket.reporter} face={ticket.reporter_face} me={me} />
-      </Row>
-      <Row label="Labels">
-        {ticket.labels.length
-          ? <span className="ticket-label-row">
-              {ticket.labels.map((l) => <Chip key={l}>{l}</Chip>)}
-            </span>
-          : <span className="muted">none</span>}
-      </Row>
-      <Row label="Due">
-        {ticket.due_at
-          ? new Date(ticket.due_at).toLocaleDateString()
-          : <span className="muted">no date</span>}
-      </Row>
-      <Row label="Project">
-        {/* The project IS a Relay room (docs/design/20), so the field goes
-            where the conversation is rather than to a board filter. */}
-        <Link to={`/relay?channel=${encodeURIComponent(ticket.channel_id)}`}>
-          #{project?.name ?? project?.title ?? "channel"}
-        </Link>
-      </Row>
-      {parent && <Row label="Parent"><TicketLink ticket={parent} /></Row>}
-      {subtasks.length > 0 && (
-        <Row label="Children">
-          <ul className="ticket-list">
-            {subtasks.map((c) => <li key={c.id}><TicketLink ticket={c} /></li>)}
-          </ul>
+    // The landmark for the side of the page. It sits on the fields rather than
+    // on the column that holds them because that column stops being a box on a
+    // phone, and the history below it is already a labelled region of its own.
+    <aside className="ticket-fields-box" aria-label="Details">
+      <dl className="def-list ticket-fields">
+        <Row label="State">
+          <span className="ticket-state-row">
+            <StatusChip status={stateLabel(ticket.state)} className="ticket-state" />
+            {/* The same move the board's card offers, and the same one an agent
+                makes with the tool: one endpoint, three ways in. Only the
+                transitions the API will actually accept are listed — a closed
+                ticket offers "open", because reopening is the only way out of
+                done. */}
+            <Select className="ticket-move" value="" disabled={busy}
+                    aria-label={`Move ${ticket.key} to…`}
+                    onChange={(e) => { if (e.target.value) onMove(e.target.value); }}>
+              <option value="">Move to…</option>
+              {TICKET_STATES.filter((s) => canMove(ticket.state, s))
+                .map((s) => <option key={s} value={s}>{stateLabel(s)}</option>)}
+            </Select>
+          </span>
+          {moveError && <div className="error ticket-move-error">{moveError}</div>}
         </Row>
-      )}
-      <Row label="Runs">
-        {runs.length
-          ? (
+        <Row label="Priority">{ticket.priority} · {priorityLabel(ticket.priority)}</Row>
+        <Row label="Assignee">
+          <span className="ticket-state-row">
+            {ticket.assignee
+              ? <Who participant={ticket.assignee} face={ticket.assignee_face} me={me} />
+              : <span className="muted">unassigned</span>}
+            <Button variant="secondary" size="sm" disabled={busy} onClick={onAssign}>
+              Assign
+            </Button>
+          </span>
+        </Row>
+        <Row label="Reporter">
+          <Who participant={ticket.reporter} face={ticket.reporter_face} me={me} />
+        </Row>
+        <Row label="Labels">
+          {ticket.labels.length
+            ? <span className="ticket-label-row">
+                {ticket.labels.map((l) => <Chip key={l}>{l}</Chip>)}
+              </span>
+            : <span className="muted">none</span>}
+        </Row>
+        <Row label="Due">
+          {ticket.due_at
+            ? new Date(ticket.due_at).toLocaleDateString()
+            : <span className="muted">no date</span>}
+        </Row>
+        <Row label="Project">
+          {/* The project IS a Relay room (docs/design/20), so the field goes
+              where the conversation is rather than to a board filter. */}
+          <Link to={`/relay?channel=${encodeURIComponent(ticket.channel_id)}`}>
+            #{project?.name ?? project?.title ?? "channel"}
+          </Link>
+        </Row>
+        {parent && <Row label="Parent"><TicketLink ticket={parent} /></Row>}
+        {subtasks.length > 0 && (
+          <Row label="Children">
             <ul className="ticket-list">
-              {runs.map((r) => (
-                <li key={r.id}>
-                  <Link to={`/runs/${r.id}`}>{r.agent} · {r.state}</Link>
-                </li>
-              ))}
+              {subtasks.map((c) => <li key={c.id}><TicketLink ticket={c} /></li>)}
             </ul>
-          )
-          : <span className="muted">none yet</span>}
-      </Row>
-    </dl>
+          </Row>
+        )}
+        <Row label="Runs">
+          {runs.length
+            ? (
+              <ul className="ticket-list">
+                {runs.map((r) => (
+                  <li key={r.id}>
+                    <Link to={`/runs/${r.id}`}>{r.agent} · {r.state}</Link>
+                  </li>
+                ))}
+              </ul>
+            )
+            : <span className="muted">none yet</span>}
+        </Row>
+      </dl>
+    </aside>
   );
 }

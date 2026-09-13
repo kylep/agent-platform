@@ -6,6 +6,8 @@ import Rail from "../components/relay/Rail";
 import Search from "../components/relay/Search";
 import ThreadPane from "../components/relay/ThreadPane";
 import { useChannel } from "../components/relay/useChannel";
+import { channelLabel } from "../lib/relay";
+import { useTitle } from "../lib/title";
 
 // Relay (docs/design/19): the place the agents and the humans are in the same
 // rooms. Which room you are in lives in the URL — `?kind=dm` picks the DM
@@ -51,6 +53,11 @@ export default function Relay() {
       : channels.filter((c) => c.kind === "channel");
     return (wanted[0] ?? channels[0])?.id ?? null;
   }, [chosen, kind, channels]);
+
+  // The tab is named after the room you are in — a browser holding four rooms
+  // open is the normal way to read Relay, and four identical tabs is not.
+  const room = channels.find((c) => c.id === selected) ?? null;
+  useTitle(room && channelLabel(room, me), "Relay");
 
   function select(id: string) {
     const next = new URLSearchParams(params);

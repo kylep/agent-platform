@@ -177,6 +177,64 @@ test("at 390 the fields stack above the thread and nothing scrolls sideways",
   expect(doc.width).toBeLessThanOrEqual(doc.view + 1);
 });
 
+test("at 390 the ticket reads description → fields → thread → activity",
+     async ({ page }) => {
+  await mockApi(page);
+  await page.setViewportSize({ width: 390, height: 780 });
+  await page.goto("/tickets/OPS-1");
+  // What a reader opening a ticket cold wants, in the order they want it:
+  // what it IS, the facts about it, the argument about it — and only then the
+  // audit trail. On one column that order is the stacking order.
+  const top = async (sel: string) => {
+    const box = await page.locator(sel).boundingBox();
+    if (!box) throw new Error(`${sel} has no box`);
+    return box.y;
+  };
+  const body = await top(".ticket-body");
+  const fields = await top(".ticket-fields");
+  const thread = await top(".ticket-main .relay-thread");
+  const activity = await top(".ticket-activity");
+  expect(body).toBeLessThan(fields);
+  expect(fields).toBeLessThan(thread);
+  expect(thread).toBeLessThan(activity);
+
+  // Reordering the column must not cost the fields their landmark: a screen
+  // reader on a phone still has something to jump to.
+  expect(await page.locator(".ticket-detail").ariaSnapshot()).toContain("complementary");
+  // …and that landmark has to be a real box. The wrappers are dissolved here
+  // (`display: contents`) to get the ordering, and a dissolved element is one
+  // engines are not obliged to keep in the accessibility tree — WebKit drops
+  // it, which is exactly the phone this test is standing in for.
+  const landmark = page.getByRole("complementary", { name: "Details" });
+  expect(await landmark.evaluate((el) => getComputedStyle(el).display)).not.toBe("contents");
+});
+
+test("at 390 a short thread does not hold open a hole above the activity log",
+     async ({ page }) => {
+  await mockApi(page);
+  await page.setViewportSize({ width: 390, height: 780 });
+  // Relay's room pane is floored at 60vh on a phone, which is right for a room
+  // that IS the screen and wrong for a thread standing in a column of blocks:
+  // a one-message ticket thread would push its own history half a screen down.
+  await page.goto("/tickets/OPS-2");
+  const box = async (sel: string) => {
+    const b = await page.locator(sel).first().boundingBox();
+    if (!b) throw new Error(`${sel} has no box`);
+    return b;
+  };
+  const thread = await box(".ticket-main .relay-thread");
+  const messages = await box(".ticket-main .relay-messages");
+  const one = await box(".ticket-main .relay-block");
+  const activity = await box(".ticket-activity");
+
+  // The floor was 60vh — the number to beat is the one it used to hold open.
+  expect(thread.height).toBeLessThan(780 * 0.6);
+  // The transcript is as tall as the transcript: one message, no empty half.
+  expect(messages.height - one.height).toBeLessThan(40);
+  // …so the history follows the thread instead of being pushed off-screen.
+  expect(activity.y - (thread.y + thread.height)).toBeLessThan(40);
+});
+
 // --- what the repair round pinned ------------------------------------------
 
 test("a done ticket offers the only move it has: back open", async ({ page }) => {

@@ -57,6 +57,35 @@ for (const { path, heading, probe } of PAGES) {
   });
 }
 
+test("every page names itself in the tab", async ({ page }) => {
+  await mockApi(page);
+  // Several rooms and several tickets open at once is the normal way to use
+  // this app; identical tab labels make that pile unusable.
+  await page.goto("/tickets/OPS-1");
+  await expect.poll(() => page.title())
+    .toBe("OPS-1 · Weather repeats across the digest · Agent Platform");
+
+  await page.goto("/relay?channel=rc1");
+  await expect.poll(() => page.title()).toBe("#general · Relay · Agent Platform");
+  // A different room is a different tab.
+  await page.goto("/relay?channel=rc3");
+  await expect.poll(() => page.title()).toBe("#ops · Relay · Agent Platform");
+
+  await page.goto("/tickets");
+  await expect.poll(() => page.title()).toBe("Tickets · Agent Platform");
+  await page.goto("/agents/health-monitor");
+  await expect.poll(() => page.title()).toBe("health-monitor · Agents · Agent Platform");
+  await page.goto("/help/tickets");
+  await expect.poll(() => page.title()).toBe("Tickets · Help · Agent Platform");
+
+  // …and a page that does NOT name itself falls back to the app rather than
+  // inheriting the name of whatever was open before it.
+  await page.goto("/tickets/OPS-1");
+  await page.getByRole("link", { name: "Settings", exact: true }).click();
+  await expect(page.getByRole("heading", { level: 1, name: "Settings" })).toBeVisible();
+  await expect.poll(() => page.title()).toBe("Agent Platform");
+});
+
 test("a relay job shows its room, not a broken agent link", async ({ page }) => {
   // The #standup summons has no agent (docs/design/19): an agent-authored
   // `@all` is stripped, so the platform posts it. The Schedules page has to say

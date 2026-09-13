@@ -3,6 +3,7 @@ import { NavLink, useParams } from "react-router-dom";
 import { api, type ToolHelp } from "../api";
 import { Chip } from "@ap/ui/chip";
 import { Markdown } from "@ap/ui/markdown";
+import { useTitle } from "../lib/title";
 
 // Help: the platform's concepts, served from the SAME docs that live in git
 // (docs/building-blocks/ in the synced checkout — edit the doc, the page
@@ -92,6 +93,13 @@ export default function Help() {
   const { slug } = useParams();
   const [topics, setTopics] = useState<Topic[]>([]);
   useEffect(() => { api<Topic[]>("/api/help/topics").then(setTopics).catch(() => {}); }, []);
+  // Named after the topic, which is what a bookmark of a help page is for.
+  // The slug stands in until the topic list arrives, so the tab is never a
+  // bare "Help" while a named page is on screen.
+  const topic = slug === undefined ? null
+    : slug === "tools" ? "Tools"
+    : topics.find((t) => t.slug === slug)?.title ?? slug;
+  useTitle(topic, "Help");
   return (
     <div className="help-layout">
       <nav className="help-subnav" aria-label="Help topics">

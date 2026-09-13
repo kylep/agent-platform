@@ -6,6 +6,7 @@ import { cn } from "@ap/ui/cn";
 import { buttonVariants } from "@ap/ui/button";
 import { Chip } from "@ap/ui/chip";
 import { Table, TD, TH } from "@ap/ui/table";
+import { useTitle } from "../lib/title";
 
 // The cron summary: the API may pre-render one, else it's the agent's own
 // cron entrypoints (its row is the source of truth — docs/design/15).
@@ -74,6 +75,7 @@ function AgentTable({ agents, jobs }: { agents: AgentSummary[]; jobs: Map<string
 }
 
 export default function Agents() {
+  useTitle("Agents");
   const [agents, setAgents] = useState<AgentSummary[]>([]);
   const [jobs, setJobs] = useState<Map<string, number>>(new Map());
   const [loading, setLoading] = useState(true);

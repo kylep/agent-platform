@@ -1,9 +1,18 @@
 import { forwardRef, type InputHTMLAttributes, type SelectHTMLAttributes, type TextareaHTMLAttributes } from "react";
 import { cn } from "./cn";
 
+// A placeholder is the field's own explanation, and a field in a dialog is
+// narrow — so a hint that does not fit trails off instead of being sliced
+// mid-word ("why it is moving (option" reads as a typo, not as truncation).
+// The property goes on the field rather than on `::placeholder`, which
+// browsers restrict to the ::first-line properties (text-overflow is not one
+// of them); on the field it ellipsises the hint AND an overlong resting
+// value, and browsers turn it off while the field has focus, so typing past
+// the edge still scrolls normally.
 const fieldBase =
   "rounded-md border border-border bg-surface px-2.5 py-1.5 text-sm text-default " +
-  "placeholder:text-subtle focus-visible:outline-2 focus-visible:outline-accent " +
+  "text-ellipsis placeholder:text-subtle " +
+  "focus-visible:outline-2 focus-visible:outline-accent " +
   "disabled:opacity-50 read-only:opacity-70";
 
 export const Input = forwardRef<HTMLInputElement, InputHTMLAttributes<HTMLInputElement>>(

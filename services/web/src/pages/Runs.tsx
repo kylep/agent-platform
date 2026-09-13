@@ -5,6 +5,7 @@ import { Button } from "@ap/ui/button";
 import { ChipButton, StatusChip } from "@ap/ui/chip";
 import { Select } from "@ap/ui/field";
 import { Table, TD, TH } from "@ap/ui/table";
+import { useTitle } from "../lib/title";
 
 const REFRESH_MS = 5000;
 const PAGE = 50;
@@ -18,6 +19,7 @@ export function isActiveState(state: string): boolean {
 }
 
 export default function Runs() {
+  useTitle("Runs");
   const [params, setParams] = useSearchParams();
   const [runs, setRuns] = useState<RunSummary[]>([]);
   const [tags, setTags] = useState<string[]>([]);
