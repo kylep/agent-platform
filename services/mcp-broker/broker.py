@@ -138,7 +138,10 @@ async def query_app(app: str, path: str, params: dict | None = None) -> str:
 # audit log (published to Kafka — the recorder side writes the table; this
 # service stays credential-free) and per-identity rate limits.
 
+import asyncio as _asyncio
+import functools as _functools
 import hashlib as _hashlib
+import inspect as _inspect
 import json as _json
 import time as _time
 import uuid as _uuid
@@ -154,6 +157,9 @@ _RATE_CAPACITY = 30.0
 _RATE_REFILL_PER_S = 0.5
 _buckets: dict[tuple[str, str], list[float]] = defaultdict(
     lambda: [_RATE_CAPACITY, _time.monotonic()])
+# One string for every tool that runs out of tokens: the model has learned what
+# it means, and a second wording would only be a second thing to learn.
+_RATE_LIMITED = "error: rate limit exceeded for this tool — slow down and retry shortly"
 
 
 def _rate_ok(agent: str, tool: str) -> bool:
@@ -173,29 +179,60 @@ def _args_digest(arguments: dict) -> str:
         _json.dumps(arguments, sort_keys=True, default=str).encode()).hexdigest()
 
 
-async def _audit(agent: str, run_id: str, initiated_by: str, tool: str,
-                 arguments: dict, decision: str, t0: float, result_bytes: int = 0) -> None:
-    """Fire-and-forget audit event; auditing must never break a tool call."""
+async def _publish_audit(agent: str, run_id: str, initiated_by: str, tool: str,
+                         arguments: dict, decision: str, t0: float,
+                         result_bytes: int = 0, action: str | None = None) -> None:
     global _audit_producer
     if not _KAFKA:
         return
     try:
         if _audit_producer is None:
             from aiokafka import AIOKafkaProducer
-            _audit_producer = AIOKafkaProducer(bootstrap_servers=_KAFKA)
-            await _audit_producer.start()
+            producer = AIOKafkaProducer(bootstrap_servers=_KAFKA)
+            # Only a STARTED producer becomes the shared one: a start that
+            # failed — or that the bound below cancelled half way — would
+            # otherwise be kept and reused, and every later call would publish
+            # into a producer that can never send.
+            await producer.start()
+            _audit_producer = producer
         env = {"type": "tool.audit", "schema_version": 1, "id": _uuid.uuid4().hex,
                "ts": datetime.now(timezone.utc).isoformat(), "key": agent,
                "source": "mcp-broker",
                "data": {"agent": agent, "run_id": run_id or None,
                         "initiated_by": initiated_by or None, "tool": tool,
                         "args_digest": _args_digest(arguments), "decision": decision,
+                        # Which verb of a multi-action tool was called: `relay`
+                        # alone cannot tell a read from a post, and the args are
+                        # a digest by design. The trail is the topic — a consumer
+                        # keeps the columns it has.
+                        "action": action or None,
                         "latency_ms": int((_time.monotonic() - t0) * 1000),
                         "result_bytes": result_bytes}}
         await _audit_producer.send_and_wait(
             _TOPIC_AUDIT, _json.dumps(env).encode(), key=agent.encode() or b"unknown")
     except Exception:
         log.exception("tool audit publish failed (call unaffected)")
+
+
+# A publish is on the caller's hot path, and a broker that cannot reach Kafka is
+# not always a broker that finds out quickly: aiokafka waits out its own request
+# timeout (40s by default) before raising. The trail is worth a moment of a
+# tool call and no more — a summoned agent's reply must not wait on it.
+_AUDIT_TIMEOUT_S = 2.0
+
+
+async def _audit(agent: str, run_id: str, initiated_by: str, tool: str,
+                 arguments: dict, decision: str, t0: float, result_bytes: int = 0,
+                 action: str | None = None) -> None:
+    """Fire-and-forget audit event; auditing must never break — or stall — a
+    tool call. Every tool publishes through here, so the bound is here too."""
+    try:
+        await _asyncio.wait_for(
+            _publish_audit(agent, run_id, initiated_by, tool, arguments, decision,
+                           t0, result_bytes, action), _AUDIT_TIMEOUT_S)
+    except TimeoutError:
+        log.warning("tool audit publish timed out after %ss (call unaffected): %s/%s",
+                    _AUDIT_TIMEOUT_S, tool, decision)
 
 
 # --- custom tools (docs/design/12) -------------------------------------------
@@ -208,6 +245,91 @@ async def _whoami() -> dict | None:
     async with httpx.AsyncClient(base_url=_API, timeout=10) as c:
         r = await c.get("/api/whoami", headers=headers)
     return r.json() if r.status_code == 200 else None
+
+
+async def _identity() -> dict:
+    """The caller's verified identity for metering, or an empty one.
+
+    Unlike a custom tool's, this resolution must not be able to refuse the call:
+    a metered core tool forwards the caller's own bearer and the API re-checks
+    it, so `/api/whoami` being down says nothing about whether the call is
+    allowed. An empty identity therefore means "unmetered, and recorded as
+    unknown" (see `_metered`) — which costs little, because a caller the API
+    cannot name is a caller the API will not serve either."""
+    try:
+        return await _whoami() or {}
+    except Exception:
+        log.exception("could not resolve the caller for metering (call unaffected)")
+        return {}
+
+
+def _metered(tool: str):
+    """Rate-limit and audit a core tool that the platform API alone authorizes.
+
+    `relay` and `tickets` are granted to nearly every agent, and nothing
+    downstream throttles a plain post, comment or read — the router's hop cap
+    and budgets only gate messages that summon somebody. So they carry the same
+    per-(agent, tool) token bucket and the same `platform.tool.audit` trail as
+    every custom tool; the only thing missing here is the grant check, because
+    the forwarded bearer is the authorization and the API applies it.
+
+    The cost is one `/api/whoami` per call — the round trip `_guarded` already
+    pays, and the only way to get the agent NAME a bucket and a record are keyed
+    by: taking it from a header the caller writes would let a flood shed the
+    identity it is being counted under.
+
+    It wraps rather than being called inline so the tool keeps its own signature
+    and docstring — that pair is what fastmcp turns into the MCP schema."""
+    def decorate(fn):
+        signature = _inspect.signature(fn)
+
+        @_functools.wraps(fn)
+        async def metered(*args, **kwargs) -> str:
+            t0 = _time.monotonic()
+            given = signature.bind(*args, **kwargs).arguments
+            # Only what the caller actually named, and never carried raw:
+            # `_audit` digests this, so a message body is covered by the record
+            # without ever being in it.
+            audited = {k: v for k, v in given.items() if v is not None}
+            action = str(audited.get("action") or "")
+            ident = await _identity()
+            agent = ident.get("agent") or ident.get("principal") or ""
+            run_id = ident.get("run_id") or ""
+            initiated_by = ident.get("initiated_by") or ""
+
+            async def record(decision: str, result_bytes: int = 0) -> None:
+                await _audit(agent, run_id, initiated_by, tool, audited, decision,
+                             t0, result_bytes=result_bytes, action=action)
+
+            # An unresolved caller is not metered: `""` is not an identity, it
+            # is EVERY identity that failed to resolve, so keying a bucket on it
+            # would turn one bad minute of `/api/whoami` into a platform-wide
+            # false rate limit. The record is still written — with the empty
+            # agent, which is how the blip becomes visible.
+            if agent and not _rate_ok(agent, tool):
+                await record("deny:rate-limit")
+                return _RATE_LIMITED
+            try:
+                out = await fn(*args, **kwargs)
+            # The API pod restarting would otherwise escape as a raw MCP
+            # exception, with no audit row for an attempt that was made — the
+            # same hole `_guarded` closes, closed the same way and worded the
+            # same way, because the model reads these strings.
+            except httpx.HTTPError as e:
+                await record("error:api-unreachable")
+                return f"error: the platform API is unreachable ({e}) — retry shortly"
+            except Exception as e:
+                log.exception("%s failed", tool)
+                await record("error:tool")
+                return f"error: {tool} failed unexpectedly: {type(e).__name__}: {e}"
+            # Refusals the tool answers itself count too: a model looping on a
+            # malformed call is exactly the loop this trail exists to show.
+            await record("error:tool" if out.startswith("error:") else "allow",
+                         result_bytes=len(out))
+            return out
+
+        return metered
+    return decorate
 
 
 class CustomTool(Tool):
@@ -230,7 +352,7 @@ class CustomTool(Tool):
             return ToolResult(content=f"error: your agent does not declare the {self.name} tool")
         if not _rate_ok(agent, self.name):
             await _audit(agent, run_id, initiated_by, self.name, arguments, "deny:rate-limit", t0)
-            return ToolResult(content="error: rate limit exceeded for this tool — slow down and retry shortly")
+            return ToolResult(content=_RATE_LIMITED)
         caller = {"agent": agent, "run_id": run_id}
         try:
             async with httpx.AsyncClient(base_url=_EXECUTOR, timeout=150) as c:
@@ -277,7 +399,7 @@ async def _guarded(tool: str, handler, args: dict) -> str:
         return f"error: {refused}"
     if not _rate_ok(agent, tool):
         await _audit(agent, run_id, initiated_by, tool, args, "deny:rate-limit", t0)
-        return "error: rate limit exceeded for this tool — slow down and retry shortly"
+        return _RATE_LIMITED
     # agenttools raises only ToolError, which it renders itself — but the API
     # pod restarting (httpx) or answering with something unparseable would
     # otherwise escape as a raw MCP exception, with no audit row for an attempt
@@ -433,6 +555,7 @@ async def _relay_post(channel_id: str, body: str, reply_to: str | None) -> str:
 
 
 @mcp.tool
+@_metered("relay")
 async def relay(action: str, channel: str | None = None, body: str | None = None,
                 reply_to: str | None = None, limit: int = 30,
                 before: str | None = None, to: str | None = None,
@@ -678,6 +801,7 @@ async def _ticket_detail(key: str) -> str:
 
 
 @mcp.tool
+@_metered("tickets")
 async def tickets(action: str, key: str | None = None, channel: str | None = None,
                   title: str | None = None, body: str | None = None,
                   state: str | None = None, priority: str | None = None,

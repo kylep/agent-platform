@@ -14,11 +14,14 @@ Tests are synchronous and drive the coroutines with `asyncio.run`, so the file
 needs no asyncio plugin configuration of its own."""
 import asyncio
 import importlib.util
+import inspect
 import json
 import sys
+import time
 import types
 from pathlib import Path
 
+import httpx
 import pytest
 
 HERE = Path(__file__).resolve().parent
@@ -105,6 +108,47 @@ def calls(monkeypatch):
 
     monkeypatch.setattr(broker, "_call", _call)
     return recorded
+
+
+@pytest.fixture(autouse=True)
+def caller(monkeypatch):
+    """Who the broker thinks is calling. Every metered tool resolves this once
+    per call, and the token bucket is keyed by it — the buckets are module
+    state, so each test also starts with a full one."""
+    async def _whoami():
+        return {"agent": "news", "run_id": "r1", "initiated_by": "cron"}
+
+    monkeypatch.setattr(broker, "_whoami", _whoami)
+    broker._buckets.clear()
+    yield
+    broker._buckets.clear()
+
+
+class FakeProducer:
+    """The audit producer, recording what would have gone to Kafka — or, with
+    `fail`, standing in for a broker that cannot reach it, or with `hang`, for
+    the worse case: one that has not found out yet."""
+
+    def __init__(self, fail=False, hang=False):
+        self.sent = []
+        self.fail = fail
+        self.hang = hang
+
+    async def send_and_wait(self, topic, value, key=None):
+        if self.hang:
+            await asyncio.sleep(3600)
+        if self.fail:
+            raise RuntimeError("kafka is unreachable")
+        self.sent.append((topic, json.loads(value.decode()), key))
+
+
+@pytest.fixture
+def published(monkeypatch):
+    """The audit envelopes the call publishes, as (topic, envelope, key)."""
+    producer = FakeProducer()
+    monkeypatch.setattr(broker, "_KAFKA", "kafka:9092")
+    monkeypatch.setattr(broker, "_audit_producer", producer)
+    return producer.sent
 
 
 def relay(**kw):
@@ -332,3 +376,139 @@ def test_call_passes_success_through_untouched(monkeypatch, status, text, want):
 
     monkeypatch.setattr(broker, "_request", _request)
     assert asyncio.run(broker._call("GET", "/api/runs")) == want
+
+
+# --- rate limit + audit trail (QA-5) ------------------------------------------
+# `relay` is granted to nearly every agent and nothing downstream throttles a
+# plain post or read, so the broker's own token bucket and audit trail — the
+# ones every custom tool has always had — are the only backstop for a run that
+# loops on it.
+
+def test_every_call_lands_in_the_audit_trail_with_its_action(calls, published):
+    relay(action="post", channel=GENERAL, body="morning")
+    assert len(published) == 1
+    topic, envelope, key = published[0]
+    assert topic == broker._TOPIC_AUDIT
+    data = envelope["data"]
+    assert (data["tool"], data["action"]) == ("relay", "post")
+    assert data["decision"] == "allow"
+    assert (data["agent"], data["run_id"], data["initiated_by"]) == (
+        "news", "r1", "cron")
+
+
+def test_a_read_is_audited_as_a_read(calls, published):
+    """The tool name alone cannot tell a read from a post, which is the whole
+    point of auditing the busiest tool on the platform."""
+    relay(action="read", channel=GENERAL)
+    assert published[-1][1]["data"]["action"] == "read"
+
+
+def test_the_audit_record_digests_the_arguments_rather_than_carrying_them(
+        calls, published):
+    relay(action="post", channel=GENERAL, body="the password is hunter2")
+    envelope = published[0][1]
+    assert "hunter2" not in json.dumps(envelope)
+    assert len(envelope["data"]["args_digest"]) == 64
+
+
+def test_an_api_refusal_is_audited_as_an_error(calls, published):
+    calls.replies[f"/api/relay/channels/{GENERAL}/messages"] = (
+        'error: 403 {"detail":"not a member of this channel"}')
+    relay(action="post", channel=GENERAL, body="x")
+    assert published[-1][1]["data"]["decision"] == "error:tool"
+
+
+def test_over_the_limit_is_refused_without_touching_the_api(calls, published):
+    burst = int(broker._RATE_CAPACITY)
+    for _ in range(burst):
+        assert not relay(action="channels").startswith("error:")
+    assert len(calls) == burst
+    out = relay(action="channels")
+    assert out == ("error: rate limit exceeded for this tool — slow down and "
+                   "retry shortly")
+    assert len(calls) == burst          # the refusal costs the API nothing
+    assert published[-1][1]["data"]["decision"] == "deny:rate-limit"
+
+
+def test_a_summoned_agents_turn_is_nowhere_near_the_limit(calls):
+    """Read the room, then answer: the shape of nearly every summoned run. A
+    limit that catches this would break the platform, not protect it."""
+    for _ in range(3):
+        relay(action="read", channel=GENERAL)
+    for _ in range(3):
+        assert relay(action="post", channel=GENERAL, body="x") == '{"ok": true}'
+
+
+def test_a_failing_audit_publish_does_not_change_the_answer(calls, monkeypatch):
+    monkeypatch.setattr(broker, "_KAFKA", "kafka:9092")
+    monkeypatch.setattr(broker, "_audit_producer", FakeProducer(fail=True))
+    assert relay(action="post", channel=GENERAL, body="hi") == '{"ok": true}'
+    assert calls == [("POST", f"/api/relay/channels/{GENERAL}/messages", None,
+                      {"body": "hi", "reply_to": None})]
+
+
+def test_metering_keeps_the_signature_fastmcp_turns_into_a_schema():
+    params = inspect.signature(broker.relay).parameters
+    assert ["action", "channel", "body"] == list(params)[:3]
+    assert params["limit"].default == 30
+    assert broker.relay.__name__ == "relay"
+
+
+# --- the metering wrapper itself ----------------------------------------------
+# `relay` and `tickets` share one wrapper, so its own failure modes are pinned
+# once, here: what it costs, what it swallows, and what it must not refuse.
+
+def test_a_stalled_audit_publish_does_not_stall_the_tool(calls, monkeypatch):
+    """A broker that cannot reach Kafka does not always find out quickly —
+    aiokafka waits out its request timeout first. The trail is worth a moment of
+    a summoned agent's reply and no more."""
+    monkeypatch.setattr(broker, "_KAFKA", "kafka:9092")
+    monkeypatch.setattr(broker, "_audit_producer", FakeProducer(hang=True))
+    monkeypatch.setattr(broker, "_AUDIT_TIMEOUT_S", 0.05)
+    started = time.monotonic()
+    out = relay(action="post", channel=GENERAL, body="hi")
+    assert out == '{"ok": true}'
+    assert time.monotonic() - started < 1.0
+    assert calls == [("POST", f"/api/relay/channels/{GENERAL}/messages", None,
+                      {"body": "hi", "reply_to": None})]
+
+
+def test_an_unreachable_api_is_an_answer_and_a_record_not_a_crash(
+        calls, published, monkeypatch):
+    """The API pod restarting would otherwise escape as a raw MCP exception,
+    with no row for an attempt that was made."""
+    async def _call(method, path, params=None, json=None):
+        raise httpx.ConnectError("connection refused")
+
+    monkeypatch.setattr(broker, "_call", _call)
+    out = relay(action="channels")
+    assert out.startswith("error: the platform API is unreachable")
+    assert out.endswith("— retry shortly")
+    assert published[-1][1]["data"]["decision"] == "error:api-unreachable"
+
+
+def test_an_unexpected_failure_is_an_answer_and_a_record_too(
+        calls, published, monkeypatch):
+    async def _call(method, path, params=None, json=None):
+        raise RuntimeError("something nobody predicted")
+
+    monkeypatch.setattr(broker, "_call", _call)
+    out = relay(action="channels")
+    assert out == ("error: relay failed unexpectedly: RuntimeError: "
+                   "something nobody predicted")
+    assert published[-1][1]["data"]["decision"] == "error:tool"
+
+
+def test_an_unresolved_caller_is_recorded_but_never_rate_limited(calls, published,
+                                                                 monkeypatch):
+    """`""` is not an identity, it is every identity that failed to resolve:
+    keying a bucket on it would turn one bad minute of /api/whoami into a
+    platform-wide false rate limit."""
+    async def _whoami():
+        raise httpx.ConnectError("whoami is having a moment")
+
+    monkeypatch.setattr(broker, "_whoami", _whoami)
+    for _ in range(int(broker._RATE_CAPACITY) + 1):
+        assert relay(action="channels") == json.dumps(CHANNELS)
+    assert len(calls) == int(broker._RATE_CAPACITY) + 1
+    assert published[-1][1]["data"]["agent"] == ""      # the blip stays visible

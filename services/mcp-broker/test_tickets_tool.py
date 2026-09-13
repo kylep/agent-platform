@@ -12,10 +12,14 @@ come from that file, so there is exactly one place that knows how to import
 
 Tests are synchronous and drive the coroutines with `asyncio.run`."""
 import asyncio
+import inspect
 import json
 
 import pytest
-from test_relay_tool import CHANNELS, Calls, broker
+# `caller` is an autouse fixture: importing it registers it for this module
+# too, so tickets calls resolve an identity and start with a full bucket.
+from test_relay_tool import (CHANNELS, Calls, FakeProducer,  # noqa: F401
+                            broker, caller, published)
 
 GENERAL, DESK = CHANNELS[0]["id"], CHANNELS[1]["id"]
 KEY = "OPS-12"
@@ -453,3 +457,78 @@ def test_update_can_clear_the_parent_and_the_due_date(calls):
 def test_create_ignores_a_none_parent_rather_than_filing_one(calls):
     tickets(action="create", channel=GENERAL, title="t", parent="none")
     assert calls[-1][3] == {"channel": GENERAL, "title": "t"}
+
+
+# --- rate limit + audit trail (QA-5) ------------------------------------------
+# The board is `relay`'s sibling in this too: default-granted, unthrottled
+# downstream (only ticket CREATE has a budget), so the broker's token bucket and
+# audit trail are what stand between a looping run and the board.
+
+def test_every_call_lands_in_the_audit_trail_with_its_action(calls, published):
+    tickets(action="comment", key=KEY, body="on it")
+    assert len(published) == 1
+    topic, envelope, key = published[0]
+    assert topic == broker._TOPIC_AUDIT
+    data = envelope["data"]
+    assert (data["tool"], data["action"]) == ("tickets", "comment")
+    assert data["decision"] == "allow"
+    assert (data["agent"], data["run_id"]) == ("news", "r1")
+
+
+def test_each_action_is_named_in_its_own_record(calls, published):
+    tickets(action="list")
+    tickets(action="move", key=KEY, state="review")
+    assert [p[1]["data"]["action"] for p in published] == ["list", "move"]
+
+
+def test_the_audit_record_digests_the_arguments_rather_than_carrying_them(
+        calls, published):
+    tickets(action="comment", key=KEY, body="the password is hunter2")
+    envelope = published[0][1]
+    assert "hunter2" not in json.dumps(envelope)
+    assert len(envelope["data"]["args_digest"]) == 64
+
+
+def test_a_refusal_the_tool_answers_itself_is_still_audited(calls, published):
+    """A model looping on a malformed call is exactly the loop worth counting,
+    so the record is written even when no HTTP call was made."""
+    assert tickets(action="move", key=KEY).startswith("error: action='move'")
+    assert calls == []
+    assert published[-1][1]["data"]["decision"] == "error:tool"
+
+
+def test_over_the_limit_is_refused_without_touching_the_api(calls, published):
+    burst = int(broker._RATE_CAPACITY)
+    for _ in range(burst):
+        assert not tickets(action="get", key=KEY).startswith("error:")
+    made = len(calls)
+    out = tickets(action="get", key=KEY)
+    assert out == ("error: rate limit exceeded for this tool — slow down and "
+                   "retry shortly")
+    assert len(calls) == made           # the refusal costs the API nothing
+    assert published[-1][1]["data"]["decision"] == "deny:rate-limit"
+
+
+def test_the_board_and_the_messenger_are_counted_apart(calls):
+    """One bucket per (agent, tool): spending the board's does not silence the
+    agent in the room it is reporting to."""
+    for _ in range(int(broker._RATE_CAPACITY) + 1):
+        tickets(action="get", key=KEY)
+    assert tickets(action="get", key=KEY).startswith("error: rate limit")
+    assert asyncio.run(broker.relay(action="channels")) != (
+        "error: rate limit exceeded for this tool — slow down and retry shortly")
+
+
+def test_a_failing_audit_publish_does_not_change_the_answer(calls, monkeypatch):
+    monkeypatch.setattr(broker, "_KAFKA", "kafka:9092")
+    monkeypatch.setattr(broker, "_audit_producer", FakeProducer(fail=True))
+    assert tickets(action="comment", key=KEY, body="hi") == '{"ok": true}'
+    assert calls == [("POST", f"/api/tickets/{KEY}/comments", None,
+                      {"body": "hi"})]
+
+
+def test_metering_keeps_the_signature_fastmcp_turns_into_a_schema():
+    params = inspect.signature(broker.tickets).parameters
+    assert ["action", "key", "channel"] == list(params)[:3]
+    assert params["limit"].default == 50
+    assert broker.tickets.__name__ == "tickets"
