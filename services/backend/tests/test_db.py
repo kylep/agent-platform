@@ -90,3 +90,78 @@ async def test_init_db_does_not_try_to_lock_on_sqlite():
     await init_db(_FakeEngine(conn))
     assert not any("advisory" in c for c in conn.calls)
     assert conn.calls[0] == "create_all"
+
+
+# --- the quota grant sweep (docs/design/22) ----------------------------------
+# `get_quota_usage` is default-granted, and "default-granted" is implemented as
+# rows: new agents get it from the create path, and this is the one-time sweep
+# for the agents that predate the tool.
+
+@pytest.fixture
+async def bare():
+    """Tables and nothing else — the shape init_db finds on the first boot
+    after the tool ships."""
+    from agentplatform.db import Base, make_engine
+    e = make_engine("sqlite+aiosqlite:///:memory:")
+    async with e.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    yield e
+    await e.dispose()
+
+
+def _participants(**kw):
+    """init_db with the three older participant sweeps off, so what a test
+    reads back is the quota sweep's work and nobody else's."""
+    return dict(default_grant=False, tickets_grant=False, wiki_grant=False, **kw)
+
+
+async def _tools(sf, name: str) -> list[str]:
+    from agentplatform.db import AgentDef
+    async with sf() as s:
+        return (await s.get(AgentDef, name)).platform_tools
+
+
+async def test_quota_grant_backfill_covers_the_agents_that_already_exist(bare):
+    from agentplatform.db import (QUOTA_GRANT_MARK, AgentDef, AgentVersion,
+                                  SchemaMark)
+    sf = make_session_factory(bare)
+    async with sf() as s:
+        s.add(AgentDef(name="news", prompt="p", description="d",
+                       platform_tools=["mcp__platform__relay"]))
+        s.add(AgentDef(name="retired", prompt="p", description="d",
+                       platform_tools=[], enabled=False))
+        await s.commit()
+    await init_db(bare, **_participants())
+    assert await _tools(sf, "news") == ["mcp__platform__relay",
+                                        "mcp__platform__get_quota_usage"]
+    assert await _tools(sf, "retired") == []     # disabled agents are left alone
+    async with sf() as s:
+        assert await s.get(SchemaMark, QUOTA_GRANT_MARK) is not None
+        versions = list((await s.execute(select(AgentVersion).where(
+            AgentVersion.agent == "news"))).scalars())
+    # The sweep continues the design-15 change log, attributed to itself, so an
+    # operator can find out later why an agent holds a tool nobody granted it.
+    assert [(v.changed_by, v.changed_via) for v in versions] == [
+        ("platform:quota-default-grant", "migration")]
+
+
+async def test_quota_grant_backfill_honours_the_setting_and_runs_once(bare):
+    """Off means the sweep does not run AND does not mark itself, so turning it
+    on later still backfills; on means exactly one pass, ever."""
+    from agentplatform.db import QUOTA_GRANT_MARK, AgentDef, SchemaMark
+    sf = make_session_factory(bare)
+    async with sf() as s:
+        s.add(AgentDef(name="news", prompt="p", description="d", platform_tools=[]))
+        await s.commit()
+    await init_db(bare, **_participants(quota_grant=False))
+    assert await _tools(sf, "news") == []
+    async with sf() as s:
+        assert await s.get(SchemaMark, QUOTA_GRANT_MARK) is None
+    await init_db(bare, **_participants())
+    assert await _tools(sf, "news") == ["mcp__platform__get_quota_usage"]
+    # An admin taking it away afterwards is not undone by the next boot.
+    async with sf() as s:
+        (await s.get(AgentDef, "news")).platform_tools = []
+        await s.commit()
+    await init_db(bare, **_participants())
+    assert await _tools(sf, "news") == []

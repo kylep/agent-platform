@@ -176,7 +176,8 @@ def create_app(settings, session_factory, producer, secret_store=None, agent_sto
             engine = make_engine(settings.db_url)
             await init_db(engine, settings.relay_default_grant,
                           settings.tickets_default_grant,
-                          settings.wiki_default_grant)
+                          settings.wiki_default_grant,
+                          quota_grant=settings.quota_default_grant)
             st.session_factory = make_session_factory(engine)
         # The feed only needs a session for presence (a run event names a run,
         # not a room), so it is handed the factory here, once it is real.

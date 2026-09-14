@@ -126,6 +126,10 @@ class AgentCreateIn(AgentDefIn):
     tickets: bool | None = None
     # The Wiki default grant (docs/design/21), the third of the same shape.
     wiki: bool | None = None
+    # The usage-reading default grant (docs/design/22), the fourth. Named for
+    # the tool's last segment like its siblings (`agents._knob`), which is why
+    # this one reads as a verb: the tool is `get_quota_usage`.
+    get_quota_usage: bool | None = None
 
 
 class AgentDefOut(BaseModel):

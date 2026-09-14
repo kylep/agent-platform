@@ -30,8 +30,36 @@ def test_the_participant_grants_are_selectable_but_do_not_promote():
                                          PLATFORM_MCP_TOOLS)
     assert PLATFORM_MCP_RELAY_TOOLS == ["mcp__platform__relay",
                                         "mcp__platform__tickets",
-                                        "mcp__platform__wiki"]
+                                        "mcp__platform__wiki",
+                                        "mcp__platform__get_quota_usage"]
     for tool in PLATFORM_MCP_RELAY_TOOLS:
         assert tool in GRANTABLE_PLATFORM_TOOLS
         assert tool in AVAILABLE_TOOLS
         assert tool not in PLATFORM_MCP_TOOLS
+
+
+def test_the_quota_grant_rides_the_participant_rung(monkeypatch):
+    """docs/design/22: asking how much usage is left reaches /api/quota as the
+    agent itself, so it earns the `relay` rung and must not earn `annotator` —
+    the tool is default-granted, and promoting on a default grant would hand
+    every agent on the platform the run/metrics surface."""
+    from agentplatform.agentspec import (PLATFORM_MCP_RELAY_TOOLS, TOOL_QUOTA,
+                                         platform_token_role)
+    assert TOOL_QUOTA == "mcp__platform__get_quota_usage"
+    assert TOOL_QUOTA in PLATFORM_MCP_RELAY_TOOLS
+    assert TOOL_QUOTA in AVAILABLE_TOOLS
+    assert platform_token_role([TOOL_QUOTA]) == "relay"
+    assert platform_token_role(["mcp__platform__runs_read", TOOL_QUOTA]) == "annotator"
+
+
+def test_the_quota_grant_survives_the_runners_allowed_tools_filter():
+    """The runner writes a granted tool into the agent's frontmatter and parses
+    it back out for `--allowedTools`, dropping anything that is not a bare tool
+    name (services/runner/runner.py `_install_agent`) — a permission SPECIFIER
+    would otherwise slip past the sensitive-set strip. A grant name that missed
+    that shape would be granted everywhere and allowed nowhere."""
+    import re
+
+    from agentplatform.agentspec import GRANTABLE_PLATFORM_TOOLS
+    for tool in GRANTABLE_PLATFORM_TOOLS:
+        assert re.fullmatch(r"[A-Za-z0-9_]+", tool)

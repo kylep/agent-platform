@@ -88,13 +88,13 @@ async def test_a_grant_written_through_the_api_reaches_the_agents_own_token(
     await agent_store.reload()
     granter = await bearer(sf, "granter")
 
-    # `relay`/`tickets`/`wiki: false` opt out of the platform's default grants
-    # (docs/design/19, docs/design/20, docs/design/21): this seam is about a
-    # grant travelling from the tool to whoami, and it can only show that if the
-    # agent starts with no grants at all.
+    # The four `false`s opt out of the platform's default grants
+    # (docs/design/19, docs/design/20, docs/design/21, docs/design/22): this
+    # seam is about a grant travelling from the tool to whoami, and it can only
+    # show that if the agent starts with no grants at all.
     created = await admin_client.post(
         "/api/agents", json={**a_def("worker"), "relay": False, "tickets": False,
-                             "wiki": False})
+                             "wiki": False, "get_quota_usage": False})
     assert created.status_code == 201 and created.json()["platform_tools"] == []
 
     worker_token = await bearer(sf, "worker")
@@ -149,7 +149,8 @@ async def test_the_change_log_covers_a_definitions_whole_life(two_callers, sf,
     # below is one of this test's own writes — the log is what is under test.
     assert (await admin_client.post("/api/agents", json={
         **a_def("shortlived", description="v1"), "relay": False,
-        "tickets": False, "wiki": False})).status_code == 201
+        "tickets": False, "wiki": False,
+        "get_quota_usage": False})).status_code == 201
     assert (await admin_client.put("/api/agents/shortlived", json=a_def(
         "shortlived", description="v2"))).status_code == 200
     assert (await client.put("/api/agents/shortlived", json=a_def(

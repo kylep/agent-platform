@@ -28,6 +28,7 @@ class AgentCreateIn:
             description (str | Unset):  Default: ''.
             enabled (bool | Unset):  Default: True.
             entrypoints (EntrypointsIn | Unset):
+            get_quota_usage (bool | None | Unset):
             harness_tools (list[str] | Unset):
             model (str | Unset):  Default: ''.
             platform_tools (list[str] | Unset):
@@ -50,6 +51,7 @@ class AgentCreateIn:
     description: str | Unset = ""
     enabled: bool | Unset = True
     entrypoints: EntrypointsIn | Unset = UNSET
+    get_quota_usage: bool | None | Unset = UNSET
     harness_tools: list[str] | Unset = UNSET
     model: str | Unset = ""
     platform_tools: list[str] | Unset = UNSET
@@ -79,6 +81,12 @@ class AgentCreateIn:
         entrypoints: dict[str, Any] | Unset = UNSET
         if not isinstance(self.entrypoints, Unset):
             entrypoints = self.entrypoints.to_dict()
+
+        get_quota_usage: bool | None | Unset
+        if isinstance(self.get_quota_usage, Unset):
+            get_quota_usage = UNSET
+        else:
+            get_quota_usage = self.get_quota_usage
 
         harness_tools: list[str] | Unset = UNSET
         if not isinstance(self.harness_tools, Unset):
@@ -149,6 +157,8 @@ class AgentCreateIn:
             field_dict["enabled"] = enabled
         if entrypoints is not UNSET:
             field_dict["entrypoints"] = entrypoints
+        if get_quota_usage is not UNSET:
+            field_dict["get_quota_usage"] = get_quota_usage
         if harness_tools is not UNSET:
             field_dict["harness_tools"] = harness_tools
         if model is not UNSET:
@@ -201,6 +211,15 @@ class AgentCreateIn:
             entrypoints = UNSET
         else:
             entrypoints = EntrypointsIn.from_dict(_entrypoints)
+
+        def _parse_get_quota_usage(data: object) -> bool | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(bool | None | Unset, data)
+
+        get_quota_usage = _parse_get_quota_usage(d.pop("get_quota_usage", UNSET))
 
         harness_tools = cast(list[str], d.pop("harness_tools", UNSET))
 
@@ -267,6 +286,7 @@ class AgentCreateIn:
             description=description,
             enabled=enabled,
             entrypoints=entrypoints,
+            get_quota_usage=get_quota_usage,
             harness_tools=harness_tools,
             model=model,
             platform_tools=platform_tools,

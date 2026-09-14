@@ -471,3 +471,31 @@ async def test_the_reported_http_status_is_kept_in_raw(admin_client, sf):
     assert r.status_code == 200, r.text
     async with sf() as s:
         assert (await quota_store.latest(s)).raw["http_status"] == "429"
+
+
+# --- the default grant --------------------------------------------------------
+# "Default-granted" is rows, not a special case in the broker: a created agent
+# is born holding the tool while `quota_default_grant` says so, and an admin can
+# take it away afterwards like any other grant.
+
+QUOTA_GRANT = "mcp__platform__get_quota_usage"
+
+
+async def test_a_new_agent_is_born_able_to_read_the_usage(admin_client, sf):
+    from agentplatform.db import AgentDef
+    r = await admin_client.post("/api/agents", json={"name": "newbie",
+                                                     "description": "test",
+                                                     "prompt": "# newbie"})
+    assert r.status_code == 201, r.text
+    assert QUOTA_GRANT in r.json()["platform_tools"]
+    async with sf() as s:
+        assert QUOTA_GRANT in (await s.get(AgentDef, "newbie")).platform_tools
+
+
+async def test_the_usage_default_can_be_turned_off_platform_wide(admin_client, sf):
+    admin_client._transport.app.state.settings.quota_default_grant = False
+    r = await admin_client.post("/api/agents", json={"name": "blind",
+                                                     "description": "test",
+                                                     "prompt": "# blind"})
+    assert r.status_code == 201, r.text
+    assert QUOTA_GRANT not in r.json()["platform_tools"]

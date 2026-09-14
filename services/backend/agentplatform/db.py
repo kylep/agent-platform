@@ -813,6 +813,7 @@ WIKI_SEED_MARK = "wiki-seed-v1"
 WIKI_GRANT_MARK = "wiki-default-grant-v1"
 WIKI_AGENT_MARK = "wiki-agent-v1"
 WIKI_GARDENER_MARK = "wiki-gardener-v1"
+QUOTA_GRANT_MARK = "quota-default-grant-v1"
 
 # The channels that become PROJECTS when Tickets ships (docs/design/20), and
 # the prefix each one's keys are stamped with. #standup is deliberately absent:
@@ -1111,7 +1112,7 @@ def _ensure_wiki_agent(conn) -> None:
     name = "wiki"
     if not conn.execute(select(def_t.c.name).where(def_t.c.name == name)).first():
         from agentplatform.agentdefs import AgentDefModel
-        from agentplatform.agentspec import TOOL_RELAY, TOOL_TICKETS, TOOL_WIKI
+        from agentplatform.agentspec import TOOL_RELAY, TOOL_TICKETS, TOOL_WIKI, TOOL_QUOTA
         # The row is built FROM the snapshot rather than beside it, so the
         # definition and its first change-log entry cannot describe different
         # agents — and every field the model defaults is the platform default
@@ -1119,7 +1120,7 @@ def _ensure_wiki_agent(conn) -> None:
         snapshot = AgentDefModel(
             name=name, prompt=WIKI_AGENT_PROMPT,
             description=WIKI_AGENT_DESCRIPTION, system=True,
-            platform_tools=[TOOL_RELAY, TOOL_TICKETS, TOOL_WIKI],
+            platform_tools=[TOOL_RELAY, TOOL_TICKETS, TOOL_WIKI, TOOL_QUOTA],
         ).model_dump(mode="json")
         version = (conn.execute(select(func.max(ver_t.c.version))
                                 .where(ver_t.c.agent == name)).scalar() or 0) + 1
@@ -1529,6 +1530,19 @@ def _ensure_wiki_default_grant(conn, default_grant: bool = True) -> None:
                           default_grant=default_grant)
 
 
+def _ensure_quota_default_grant(conn, default_grant: bool = True) -> None:
+    """Give every agent that already exists the usage-reading grant
+    (docs/design/22).
+
+    Its own mark for the reason the wiki's is its own: the sweeps ship a
+    release apart, and an agent that predates the tool has to be reached even
+    though the earlier ones already ran and marked themselves."""
+    from agentplatform.agentspec import TOOL_QUOTA
+    _grant_to_every_agent(conn, TOOL_QUOTA, QUOTA_GRANT_MARK,
+                          changed_by="platform:quota-default-grant",
+                          default_grant=default_grant)
+
+
 def _grant_to_every_agent(conn, tool: str, mark: str, *, changed_by: str,
                           default_grant: bool) -> None:
     """The one-time sweep behind a default-granted platform tool.
@@ -1609,11 +1623,12 @@ def _relay_message(channel_id, author, body, created_at, run_id=None) -> dict:
 
 
 async def init_db(engine: AsyncEngine, default_grant: bool = True,
-                  tickets_grant: bool = True, wiki_grant: bool = True) -> None:
+                  tickets_grant: bool = True, wiki_grant: bool = True,
+                  quota_grant: bool = True) -> None:
     """Bring the schema up to date and run the one-off backfills.
 
-    `default_grant`, `tickets_grant` and `wiki_grant` are the three participant
-    grant settings (`settings.relay_default_grant` and its two siblings) —
+    `default_grant`, `tickets_grant`, `wiki_grant` and `quota_grant` are the
+    default-grant settings (`settings.relay_default_grant` and its siblings) —
     passed in rather than read, because this runs in three services (API,
     dispatcher, recorder) and none of them hands `db` a settings object. They
     default to on so a caller that has no opinion gets the platform's."""
@@ -1661,9 +1676,10 @@ async def init_db(engine: AsyncEngine, default_grant: bool = True,
         await conn.run_sync(_ensure_wiki_ddl)
         await conn.run_sync(_ensure_wiki_seed)
         await conn.run_sync(_ensure_wiki_default_grant, wiki_grant)
-        # After the grant sweep, which has already marked itself: the librarian
-        # is born holding its three grants, so being missed by the sweep costs
-        # it nothing. After the room seed, for the reason the standup job comes
+        await conn.run_sync(_ensure_quota_default_grant, quota_grant)
+        # After the grant sweeps, which have already marked themselves: the
+        # librarian is born holding all four grants, so being missed by them
+        # costs it nothing — a new default grant must be added to its seed. After the room seed, for the reason the standup job comes
         # after #standup — the gardener names #wiki.
         await conn.run_sync(_ensure_wiki_agent)
         await conn.run_sync(_ensure_wiki_gardener_job)

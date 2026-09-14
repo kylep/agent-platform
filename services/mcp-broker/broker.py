@@ -143,6 +143,7 @@ import functools as _functools
 import hashlib as _hashlib
 import inspect as _inspect
 import json as _json
+import math as _math
 import time as _time
 import uuid as _uuid
 from collections import defaultdict
@@ -1177,6 +1178,160 @@ async def wiki(action: str, slug: str | None = None, q: str | None = None,
                 f"it")
     return "error: read the page first and pass base_version" + (
         f"={current}" if current else "")
+
+
+# --- quota (docs/design/22) --------------------------------------------------
+# How much of the shared Claude subscription is left, in the words an agent
+# decides with. A CORE tool like the rest of the participant set: it forwards
+# the caller's own bearer, and what bounds the cost is not who asks but the
+# API's own short-circuit — one probe per `quota_refresh_min_seconds` for the
+# whole platform, however many agents ask inside it.
+#
+# The TEXT is rendered here, from parsed numbers, because the broker cannot
+# import the backend — so `quota.render_text` exists twice and the two copies
+# have to agree to the character. Both sides pin the same string for the same
+# snapshot (test_quota_tool.py, tests/test_quota.py); drift in either is a red
+# test rather than two formats for one fact.
+
+# `agentplatform.quota.ADVISORY_THRESHOLD`: where reporting stops and advising
+# starts.
+_QUOTA_ADVISORY = 0.90
+_QUOTA_REFRESH = "/api/quota/refresh"
+_QUOTA = "/api/quota"
+
+
+def _quota_now() -> datetime:
+    """The clock every relative time is measured against — its own function so
+    a test can pin it."""
+    return datetime.now(timezone.utc)
+
+
+def _quota_time(value) -> datetime | None:
+    """An ISO timestamp from the API as a tz-aware UTC datetime. A value with
+    no offset is read as UTC: the alternative is a naive datetime reaching a
+    subtraction, which is a crash rather than a wrong number."""
+    if not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+
+
+def _quota_delta(delta) -> str:
+    """`3h 57m`, `3d 7h`, `2s` — `quota.humanize_delta`, to the character."""
+    total = int(max(delta.total_seconds(), 0))
+    days, rest = divmod(total, 86400)
+    hours, rest = divmod(rest, 3600)
+    minutes, seconds = divmod(rest, 60)
+    units = ((days, "d"), (hours, "h"), (minutes, "m"), (seconds, "s"))
+    lead = next((i for i, (value, _) in enumerate(units) if value), None)
+    if lead is None:
+        return "0s"
+    parts = [f"{units[lead][0]}{units[lead][1]}"]
+    if lead + 1 < len(units) and units[lead + 1][0]:
+        parts.append(f"{units[lead + 1][0]}{units[lead + 1][1]}")
+    return " ".join(parts)
+
+
+def _quota_percent(utilization: float) -> int:
+    # Half-UP, as `quota._percent` is: a usage number rounds toward the bad news.
+    return _math.floor(utilization * 100 + 0.5)
+
+
+def _quota_window(label: str, window: dict, now: datetime) -> str:
+    utilization = window.get("utilization")
+    if utilization is None:
+        return f"{label} window: unknown."
+    used = f"{label} window: {_quota_percent(utilization)}% used"
+    reset = _quota_time(window.get("resets_at"))
+    if reset is None:
+        return used + "."
+    return (f"{used}, resets in {_quota_delta(reset - now)} "
+            f"({reset.astimezone(timezone.utc):%Y-%m-%d %H:%M} UTC).")
+
+
+def _quota_text(data: dict, now: datetime) -> str:
+    """One snapshot as the sentences `quota.render_text` writes for it. Built
+    from parsed numbers plus `status`, which the API has already reduced to a
+    token — no header string reaches a model through here."""
+    five = data.get("five_hour") or {}
+    seven = data.get("seven_day") or {}
+    observed = _quota_time(data.get("observed_at"))
+    used = (five.get("utilization"), seven.get("utilization"))
+    if observed is None and all(u is None for u in used):
+        return "No usage observation yet."
+    lines = [_quota_window("5-hour", five, now), _quota_window("7-day", seven, now)]
+    tail = []
+    if observed is not None:
+        tail.append(f"Observed {_quota_delta(now - observed)} ago "
+                    f"({data.get('source')}).")
+    if data.get("status"):
+        tail.append(f"Status: {data['status']}.")
+    if tail:
+        lines.append(" ".join(tail))
+    if any(u is not None and u > _QUOTA_ADVISORY for u in used):
+        lines.append("Usage is above 90%: defer heavy work until the window resets.")
+    return "\n".join(lines)
+
+
+def _quota_snapshot(out: str) -> dict | None:
+    """The snapshot in a quota response, or None when the answer was not one —
+    an `error:` string from `_call`, or a body nothing can read."""
+    try:
+        data = _json.loads(out)
+    except ValueError:
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def _quota_unreadable(out: str) -> str:
+    return out if out.startswith("error:") else (
+        f"error: unreadable usage answer: {_flat(out)[:200]}")
+
+
+async def _quota_cached() -> str:
+    """The last reading, said to be the last reading. Reached only when the
+    refresh could not run: the probe is the one part of this that can be
+    unavailable — the snapshot is a row — and a stale reading an agent KNOWS is
+    stale still answers "should I start this now"."""
+    out = await _call("GET", _QUOTA)
+    data = _quota_snapshot(out)
+    if data is None:
+        return _quota_unreadable(out)
+    now = _quota_now()
+    observed = _quota_time(data.get("observed_at"))
+    if observed is None:
+        return ("error: usage could not be refreshed and nothing has been "
+                "observed yet")
+    return (f"{_quota_text(data, now)}\nThe usage probe is unavailable, so "
+            f"this is the cached reading from {_quota_delta(now - observed)} "
+            f"ago.")
+
+
+@mcp.tool
+@_metered("quota")
+async def get_quota_usage() -> str:
+    """How much of the shared Claude usage allowance is left right now.
+
+    Two rolling windows: a 5-hour one that refills several times a day, and a
+    7-day one that does not. The percentages are how much of each is already
+    SPENT — by everyone on this platform together, you and every other agent
+    and the humans, not by you alone — and each line says when that window
+    resets.
+
+    Cheap to call: at most one tiny probe, and calls arriving close together
+    are answered from the last reading instead of probing again. Ask before
+    committing to something expensive — a long research sweep, a big refactor,
+    a batch of subagents — and when the choice is between doing the thorough
+    version now and doing it after the reset. Above 90% the answer says so:
+    defer what can wait, and say in your reply that you did."""
+    out = await _call("POST", _QUOTA_REFRESH)
+    if out.startswith("error: 503"):
+        return await _quota_cached()
+    data = _quota_snapshot(out)
+    return _quota_text(data, _quota_now()) if data is not None else _quota_unreadable(out)
 
 
 def _scan_custom_tools() -> dict[str, dict]:

@@ -132,6 +132,11 @@ class Settings(BaseSettings):
     # Whether agent creation grants mcp__platform__wiki, same bargain as
     # relay_default_grant: knowledge nobody can write down stays in a transcript.
     wiki_default_grant: bool = True
+    # Whether agent creation grants mcp__platform__get_quota_usage
+    # (docs/design/22). On for the same reason the others are: an agent that
+    # cannot see how much of the shared allowance is left spends it as if it
+    # were infinite.
+    quota_default_grant: bool = True
     # "nobody has touched this page in this long" — the gardener's stale list
     # and the stats. Long, because a page that is still true needs no edits;
     # stale means unreviewed, not wrong.
