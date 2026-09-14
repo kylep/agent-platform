@@ -438,7 +438,7 @@ dispatch subagents, verify their evidence, commit, and update this file.
   Acceptance: every path/name/count in the docs exists in the tree; the
   Help page lists Quota (the API serves `docs/building-blocks/*` directly).
 
-- [ ] **T7 Deploy and live verification.** (all ACs) `[after T6]`
+- [x] **T7 Deploy and live verification.** (all ACs) `[after T6]` (helm rev 56 then 57 after R1; evidence below)
   The orchestrator does this task itself with the Terminal.app mechanics
   from protocol step 9 (no implementer): build and import backend, web,
   broker, facade images (the proxy is a stock image; only its ConfigMap
@@ -480,7 +480,7 @@ dispatch subagents, verify their evidence, commit, and update this file.
 
 ### Repairs
 
-_(added by the loop when the definition of done fails)_
+- [x] **R1 Proxy push target must be the API service's full cluster name; days in the bar label.** (commit `dfd4fd8`, helm rev 57) Live, every periodic push logged `"agent-platform-api" could not be resolved (3: Host not found)`: nginx's resolver applies no search domains, so the bare service name never resolves (the docker test's `host.docker.internal` hid it). `claudeProxy.quota.apiUrl` empty now means `http://agent-platform-api.<namespace>.svc.cluster.local:8000`, pinned by a lint test. The sidebar label printed `75h 40m` where the tool says `3d 3h`; the formatter now mirrors `humanize_delta`.
 
 ### Deferred
 
@@ -512,8 +512,55 @@ all Running, `GET /api/quota` answers through the forward with
 
 ## Live verification
 
-_(filled by T7)_
+Run 2026-09-14 17:13–17:26 UTC against pai through the ssh forward.
+Deploy: `scratchpad/t22-build.out` + `t22-ship.out` (helm rev 56, all
+rollouts green, `quota.events` created), then R1: `t22-ship2.out` (helm
+rev 57, proxy rolled on its config checksum, rendered push target
+`http://agent-platform-api.agent-platform.svc.cluster.local:8000/api/internal/quota`).
+Logs: `t22-logs.out`; poll: `t22-live.log`; screenshots: `live/quota-*.png`.
+
+1. **Baseline** 17:17:31Z `GET /api/quota` → all windows null, `stale: true`.
+2. **Passive path (AC-1).** Before R1 the proxy logged `quota post failed:
+   "agent-platform-api" could not be resolved (3: Host not found)` every
+   5 s. After R1 (17:25:10Z refresh probe through the proxy) the API log
+   shows `POST /api/internal/quota HTTP/1.1 200 OK` from the proxy pod
+   (10.42.0.63) and the proxy log is clean. The snapshot kept
+   `source: refresh` because the proxy's observation of that same response
+   carried an `observed_at` a few ms older than the API's own and the
+   ordering guard ignored it — correct; a plain run (no refresh) will show
+   `source: proxy`. Handoff item 1 asks Kyle to glance at that after the
+   next scheduled job.
+3. **Tool (AC-3).** 17:17:48Z posted `@pai what is our Claude quota usage
+   right now?` in #general; 17:17:59Z the snapshot filled (5h 0.35, 7d
+   0.93, `allowed_warning`, `source: refresh`); pai replied by 17:18:38Z:
+   "5-hour window: 35% used — resets in ~3h 52m (2026-09-14 21:10 UTC) ·
+   7-day window: 93% used — resets in ~3d 3h (2026-09-17 21:00 UTC) · ⚠️
+   The 7-day window is above 90%, so it's worth deferring any heavy work".
+   A second refresh at 17:25:10Z answered `probe: "message"`: count_tokens
+   does NOT carry the usage headers; the one-token message does. Two
+   `quota.event` envelopes on the topic (0.35 → 0.41), none for repeats.
+4. **Web (AC-4, AC-5).** `live/quota-nav-dark-1280.png` (viewed): two
+   bars directly under "Agent Platform", white track, blue `35%`, pink
+   `93%`, the label inverting at the fill edge; light and 390 variants
+   written. Meter labels read "5-hour window: 35% used, resets in 3h 50m ·
+   observed 1m ago". The page-load refresh could not be exercised live
+   (the snapshot was never stale after the first observation); T5's
+   Playwright test covers it.
+5. **HUD comparison.** Kyle's status line showed 22% / 81% at ~08:50 EDT;
+   the platform read 35% / 93% at 13:18 EDT after the morning's builds. Not
+   the same minute; left to Kyle (Handoff 2).
+
 
 ## Handoff to Kyle
 
-_(commands the loop could not run itself, and anything only Kyle can check)_
+1. After the next scheduled run (news, standup) confirm `GET /api/quota`
+   shows `"source": "proxy"` — that is the passive path with no refresh in
+   the way.
+2. Compare the sidebar's two numbers with your Claude Code status line in
+   the same minute.
+3. The raw header forms were not captured live (the API does not expose
+   `raw`); if curious: `select raw from quota_snapshot` in the platform DB.
+   The parser accepts fraction or percent and epoch or ISO either way.
+4. The Wiki build's 21 commits plus this build are unpushed on main; push
+   when you want.
+

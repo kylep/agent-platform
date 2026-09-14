@@ -1,6 +1,6 @@
 # 22 — Quota: the account's usage windows, always in view
 
-Status: **built 2026-09-14** (deploy + live verification pending, T7) — plan
+Status: **shipped 2026-09-14** (helm `ap` rev 57 on pai; live-verified: pai answered `@pai what is our quota usage` with both windows and the >90% advisory, the proxy's internal POST answers 200, the sidebar shows 35% / 93% under the brand) — plan
 at `docs/superpowers/plans/2026-09-14-quota-usage-bars.md`. Extends the
 token-brokering proxy of [09](09-token-brokering.md), the tools block of
 [12](12-executable-capabilities.md) and the participant-role tool trio of
@@ -525,6 +525,6 @@ itself (the ticked tasks in the plan record which):
   and a raw route would be a second unmetered way to spend the probe.
   `GET /api/quota` stays a tool: reading the snapshot costs nothing.
 
-Probe step that answered live: _(T7)_
+Probe step that answered live: `message` — `count_tokens` returns no usage headers; the one-token `/v1/messages` call does.
 
-Header value forms observed live: _(T7)_
+Header value forms observed live: not captured (raw is not exposed by the API); both forms parse. R1: the push target must be the API service's full cluster name — nginx's resolver applies no search domains.
