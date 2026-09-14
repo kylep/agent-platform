@@ -2,8 +2,8 @@ import logging
 import uuid
 from datetime import datetime, timedelta, timezone
 from enum import StrEnum
-from sqlalchemy import (JSON, DateTime, Index, Integer, LargeBinary, String, Text,
-                        UniqueConstraint, select, text)
+from sqlalchemy import (JSON, DateTime, Float, Index, Integer, LargeBinary, String,
+                        Text, UniqueConstraint, select, text)
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
@@ -429,6 +429,39 @@ class WikiLink(Base):
     __table_args__ = (Index("ix_wiki_links_to_slug", "to_slug"),)
     from_page_id: Mapped[str] = mapped_column(String(32), primary_key=True)
     to_slug: Mapped[str] = mapped_column(String(64), primary_key=True)
+
+
+class QuotaSnapshot(Base):
+    """What Anthropic last said about this account's usage (docs/design/22) —
+    ONE row, `id = 1`, rewritten in place by whoever observed most recently.
+
+    A snapshot, not a history: every response the proxy sees carries these
+    headers, so an append-only table would grow with every API call the
+    platform makes and say nothing a burn-rate reader wants. The history is
+    the `quota.events` topic, which gets an envelope only when a number
+    actually MOVED — a repeat still bumps `observed_at` here.
+
+    `raw` is every `anthropic-ratelimit-unified-*` header verbatim, including
+    the ones this platform does not read yet (overage, grace, slow): it is
+    kept so a new field costs a parser and not a redeploy-and-wait, and it is
+    never rendered into a prompt or a page. The typed columns above it are
+    what anything else reads."""
+    __tablename__ = "quota_snapshot"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    # Fractions, 0.0-1.0, whichever form the header arrived in (quota.py).
+    five_hour_utilization: Mapped[float | None] = mapped_column(Float, nullable=True)
+    five_hour_resets_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    seven_day_utilization: Mapped[float | None] = mapped_column(Float, nullable=True)
+    seven_day_resets_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    status: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    raw: Mapped[dict] = mapped_column(JSON, default=dict)
+    # When Anthropic answered, as opposed to when this row was written: a
+    # queued observation that lands late must not look newer than it is.
+    observed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    # 'proxy' (a real response someone else's work produced) or 'refresh' (a
+    # probe the platform made on purpose).
+    source: Mapped[str] = mapped_column(String(16), default="proxy")
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
 
 
 class SchemaMark(Base):
