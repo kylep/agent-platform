@@ -36,3 +36,9 @@
   background: var(--ds-accent); color: var(--ds-on-accent);
 }
 .nav-foot { margin-top: auto; padding: 8px; }
+
+/* The brand's own gutter, so whatever sits here lines up with it. `:empty`
+   is what keeps a consumer with nothing to show from costing the nav 12px of
+   dead space — the slot is always rendered, its content is not. */
+.nav-below-brand { padding: 0 8px 12px; margin-top: -8px; }
+.nav-below-brand:empty { display: none; }

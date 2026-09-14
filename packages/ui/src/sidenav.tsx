@@ -97,7 +97,7 @@ export function ThemeToggle() {
 }
 
 export function SideNav({ entries, activePath, activeSearch = "", badges = {},
-                         LinkComponent, footer }: {
+                         LinkComponent, footer, belowBrand }: {
   entries: NavEntry[];
   // Current location.pathname — drives active state + group auto-expand.
   // (Apps pass their own base, e.g. "/apps/news/".)
@@ -109,6 +109,11 @@ export function SideNav({ entries, activePath, activeSearch = "", badges = {},
   badges?: Record<string, number>;
   LinkComponent?: LinkComponent;
   footer?: ReactNode;
+  // Rendered directly under the brand, at the brand's own horizontal padding
+  // — the console puts the usage bars here (docs/design/22). The wrapper
+  // collapses when what it holds renders nothing, so a consumer that has no
+  // data to show costs the nav no height.
+  belowBrand?: ReactNode;
 }) {
   const Link = LinkComponent ?? anchorLink;
   // The query keys any link declares at a given pathname. An unparameterised
@@ -181,6 +186,7 @@ export function SideNav({ entries, activePath, activeSearch = "", badges = {},
   return (
     <nav className="nav">
       <div className="nav-brand">Agent Platform</div>
+      <div className="nav-below-brand">{belowBrand}</div>
       {entries.map((e) => {
         if (!e.children?.length) return renderLink(e);
         const expanded = open[e.to] ?? false;

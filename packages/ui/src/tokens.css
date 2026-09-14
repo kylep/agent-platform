@@ -58,6 +58,18 @@
   --color-green-600: #16a34a;
   --color-blue-600: #2563eb;
 
+  /* quota bars (docs/design/22) — the sidebar's two usage underlines. The
+     blue is the chart ramp's blue and the pink has no neighbour in it, so the
+     two windows never read as one series; both are a step deeper than the
+     chips because the bar INVERTS across the fill edge — the label is drawn
+     in the fill colour on the white track and in white on the fill, so ONE
+     ratio (>= 4.5:1 against white) has to carry both, and the chip hues do
+     not. White is a primitive for the same reason: one of the two label
+     colours has to be a constant rather than a themed one. */
+  --color-blue-400: #2f6fe0;
+  --color-pink-400: #c2379b;
+  --color-white: #ffffff;
+
   /* radius — tight, terminal */
   --radius-sm: 2px;
   --radius-md: 4px;
@@ -109,6 +121,13 @@
   --ds-chart-6: #3ddbe8;
   --ds-chart-7: #d2a8ff;
   --ds-chart-8: #9aa4b2;
+
+  /* The track is white on the dark nav; the fills sit on it and the label
+     flips to white where a fill passes under it. */
+  --ds-quota-5h: var(--color-blue-400);
+  --ds-quota-7d: var(--color-pink-400);
+  --ds-quota-track: var(--color-white);
+  --ds-quota-label-on: var(--color-white);
 }
 
 /* Light = secondary theme */
@@ -136,6 +155,13 @@
   --ds-chart-6: #0d9488;
   --ds-chart-7: #6d28d9;
   --ds-chart-8: #52606d;
+
+  /* Same hues, but the raised surface for the track: white on a white canvas
+     is no track at all. */
+  --ds-quota-5h: var(--color-blue-400);
+  --ds-quota-7d: var(--color-pink-400);
+  --ds-quota-track: var(--ds-raised);
+  --ds-quota-label-on: var(--color-white);
 }
 
 /* App base */

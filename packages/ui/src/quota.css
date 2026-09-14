@@ -1,0 +1,37 @@
+/* The sidebar's usage bars (docs/design/22): two thin underlines to the
+   brand. Presentational only — the shell never fetches; the console hands in
+   a snapshot. */
+
+.quota { display: flex; flex-direction: column; gap: 3px; }
+
+.quota-bar {
+  position: relative; height: 12px; overflow: hidden;
+  border-radius: var(--radius-sm); background: var(--ds-quota-track);
+  /* The clipped label has to be positioned against the BAR, not against the
+     clip that holds it, or the two copies of the text would not line up. A
+     container query is the only way to hand a descendant the bar's width. */
+  container-type: inline-size;
+}
+
+/* The fill and the white copy of the label, clipped to the same edge: one
+   layer, so the letters can never disagree with the bar about where the
+   boundary is. */
+.quota-clip {
+  position: absolute; inset: 0; width: var(--quota-pct);
+  overflow: hidden; background: var(--quota-fill);
+}
+
+/* Past its reset or simply old: still the last thing Anthropic said, drawn
+   quieter so it is not mistaken for a live number. The WHOLE bar dims, track
+   and label included — dimming the fill alone leaves a nearly-empty bar
+   looking exactly like a fresh one, since there is barely any fill to dim. */
+.quota-bar[data-stale] { opacity: 0.5; }
+
+.quota-label {
+  position: absolute; top: 0; left: 0; height: 100%; width: 100cqw;
+  display: flex; align-items: center; justify-content: center;
+  font-family: var(--font-mono); font-size: 10px; line-height: 1;
+  letter-spacing: 0.02em; user-select: none;
+  color: var(--quota-fill);
+}
+.quota-label-on { color: var(--ds-quota-label-on); }

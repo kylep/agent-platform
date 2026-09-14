@@ -78,6 +78,9 @@
     flex-direction: row; flex-wrap: wrap; align-items: center; gap: 0 2px;
   }
   .layout > .nav .nav-brand { width: 100%; padding: 0 0 4px; }
+  /* The bars are an underline to the brand, so at this width they underline
+     the whole strip rather than a 200px column. */
+  .layout > .nav .nav-below-brand { width: 100%; margin: 0; padding: 0 0 6px; }
   .layout > .nav .nav-group { flex-direction: row; flex-wrap: wrap; align-items: center; }
   .layout > .nav .nav-link { padding: 5px 7px; font-size: 13px; }
   .layout > .nav .nav-child { padding-left: 0; }

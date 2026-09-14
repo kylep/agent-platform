@@ -2,11 +2,14 @@ import { useEffect, useMemo, useState } from "react";
 import { NavLink, Outlet, useLocation } from "react-router-dom";
 import { api, type AppView, type PullRequest } from "./api";
 import { buildPlatformNav, SideNav, type LinkComponent } from "@ap/ui/sidenav";
+import { QuotaBars } from "@ap/ui/quota";
+import { useQuota } from "./components/quota/useQuota";
 
 // The console shell: the shared platform sidebar (from @ap/ui — app
 // frontends render the same one) around the routed pages. Console-specific
-// bits live here: react-router links, the pending-changes badge, and the
-// deployed-apps accordion data.
+// bits live here: react-router links, the pending-changes badge, the
+// deployed-apps accordion data, and the usage snapshot the bars under the
+// brand are drawn from (docs/design/22 — the shell itself fetches nothing).
 
 const routerLink: LinkComponent = ({ to, end, className, children }) => (
   <NavLink key={to} to={to} end={end}
@@ -19,6 +22,7 @@ export default function Layout() {
   const [pendingChanges, setPendingChanges] = useState(0);
   const [apps, setApps] = useState<AppView[]>([]);
   const location = useLocation();
+  const quota = useQuota();
 
   function refreshBadges() {
     api<PullRequest[]>("/api/pull-requests")
@@ -41,7 +45,8 @@ export default function Layout() {
     <div className="layout">
       <SideNav entries={entries} activePath={location.pathname}
                activeSearch={location.search}
-               badges={{ "/changes": pendingChanges }} LinkComponent={routerLink} />
+               badges={{ "/changes": pendingChanges }} LinkComponent={routerLink}
+               belowBrand={<QuotaBars {...quota} />} />
       <main className="main">
         <Outlet />
       </main>

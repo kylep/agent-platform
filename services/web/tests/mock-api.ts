@@ -968,11 +968,59 @@ function relayPost(path: string, body: Record<string, string>): unknown {
   return undefined;
 }
 
+/** The usage snapshot the sidebar bars are drawn from (docs/design/22).
+ * `resets_at` is relative to the moment the fixture is asked for so the
+ * countdown in the label is always a countdown, never a date in the past. */
+function quotaSnapshot(over: Record<string, unknown> = {}) {
+  const now = Date.now();
+  const at = (ms: number) => new Date(now + ms).toISOString();
+  return {
+    five_hour: { utilization: 0.22, resets_at: at(3.9 * 3600e3) },
+    seven_day: { utilization: 0.81, resets_at: at(4.2 * 86400e3) },
+    status: "allowed", observed_at: at(-120e3), source: "proxy",
+    stale: false, age_seconds: 120, probe: null,
+    ...over,
+  };
+}
+
+/** A snapshot the hook has to refresh, and a count of the refreshes it made.
+ * Registered AFTER `mockApi` on purpose — Playwright tries handlers in
+ * reverse registration order, so the last one in wins. */
+export async function staleQuota(page: Page): Promise<{ count: () => number }> {
+  let refreshes = 0;
+  const stale = quotaSnapshot({
+    five_hour: { utilization: 0.05, resets_at: null },
+    seven_day: { utilization: 0.40, resets_at: null },
+    observed_at: new Date(Date.now() - 7200e3).toISOString(),
+    stale: true, age_seconds: 7200,
+  });
+  await page.route("**/api/quota", async (route: Route) => {
+    await route.fulfill({ json: stale });
+  });
+  await page.route("**/api/quota/refresh", async (route: Route) => {
+    refreshes += 1;
+    await route.fulfill({ json: quotaSnapshot({ source: "refresh", probe: "count_tokens" }) });
+  });
+  return { count: () => refreshes };
+}
+
+/** Take a route back out of the mock: what the UI must do when an endpoint
+ * it asks for is simply not answering. */
+export async function unfixtured(page: Page, glob: string): Promise<void> {
+  await page.route(glob, async (route: Route) => {
+    await route.fulfill({ status: 500, json: { detail: "unavailable" } });
+  });
+}
+
 export async function mockApi(page: Page): Promise<string[]> {
   const unmatched: string[] = [];
   await page.route("**/api/**", async (route: Route) => {
     const url = new URL(route.request().url());
     const path = url.pathname;
+    if (path === "/api/quota" || path === "/api/quota/refresh") {
+      await route.fulfill({ json: quotaSnapshot() });
+      return;
+    }
     if (path === "/api/cron/preview") {
       await route.fulfill({ json: cronPreview(url.searchParams.get("expr") ?? "") });
       return;
