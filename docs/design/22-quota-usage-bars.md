@@ -257,7 +257,8 @@ and `anthropic-beta: oauth-2025-04-20`:
 The choice is made at runtime by looking for the header, so no config
 follows Anthropic's behaviour around; live verification records which step
 answered. The probe model is a setting (`QUOTA_PROBE_MODEL`, default
-`claude-haiku-4-5-20251001`).
+`claude-haiku-4-5`, the undated form the platform's model picker already
+uses).
 
 ### Alternatives considered — where the refresh runs
 

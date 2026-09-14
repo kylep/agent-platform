@@ -185,7 +185,7 @@ dispatch subagents, verify their evidence, commit, and update this file.
 
 ### Phase 1 — capture and cache (T1 and T2 are disjoint)
 
-- [ ] **T1 Proxy capture: njs header filter, internal secret, network policy, docker test.** `[parallel with T2]` (AC-1)
+- [x] **T1 Proxy capture: njs header filter, internal secret, network policy, docker test.** `[parallel with T2]` (AC-1) (commit `0af6278`; fetch-from-filter breaks responses on njs 1.0.0 → shared dict + 5 s js_periodic; review added try/catch + evict, secret gating, scheme-driven TLS, fetch timeout, CI job)
   Design sections: "The proxy capture" (with its contract and both
   Alternatives tables), "Identity, trust, and guards".
   Files: `charts/agent-platform/templates/claude-proxy-config.yaml`
@@ -243,7 +243,7 @@ dispatch subagents, verify their evidence, commit, and update this file.
   this machine); `helm lint` clean; the production template still verifies
   Anthropic's TLS and still blanks `x-api-key`.
 
-- [ ] **T2 Model, pure library, store, topic.** `[parallel with T1]` (AC-2)
+- [x] **T2 Model, pure library, store, topic.** `[parallel with T1]` (AC-2) (commit `2cfd84e`; review fixed the savepoint insert race, out-of-order observations, raw cap, epoch<=0, rounding)
   Design sections: "Data model", "Events", "Naming", "Identity, trust, and
   guards".
   Files: `services/backend/agentplatform/db.py` (`QuotaSnapshot` model per
@@ -279,7 +279,7 @@ dispatch subagents, verify their evidence, commit, and update this file.
 
 ### Phase 2 — the API
 
-- [ ] **T3 API: `/api/quota`, refresh probe, internal observe, SSE, facade, SDK.** `[after T2 reports]` (AC-1, AC-3, AC-4)
+- [x] **T3 API: `/api/quota`, refresh probe, internal observe, SSE, facade, SDK.** `[after T2 reports]` (AC-1, AC-3, AC-4) (commit `5770e2d`; review fixed pre-auth body parsing, future observed_at freeze, non-ASCII secret, unclosed client; internal route never answers 204 because njs never settles a fetch on one)
   Design sections: "API", "Alternatives considered — where the refresh
   runs", "Identity, trust, and guards".
   Files: new `services/backend/agentplatform/api/quota.py` (router with the
@@ -287,7 +287,7 @@ dispatch subagents, verify their evidence, commit, and update this file.
   router; `quota_feed` on `app.state`; a `quota_events_consumer_factory`
   mirroring the wiki one; start it where the wiki feed is started),
   `config.py` (`internal_secret: str = ""`, `quota_refresh_min_seconds: int
-  = 15`, `quota_probe_model: str = "claude-haiku-4-5-20251001"`,
+  = 15`, `quota_probe_model: str = "claude-haiku-4-5"` (the undated form the repo's picker already uses),
   `quota_probe_timeout_seconds: float = 20`), `api/schemas.py` (`Quota`,
   `QuotaWindow`, `QuotaObserveIn`), `charts/agent-platform/templates/
   api.yaml` (`AP_INTERNAL_SECRET` from `.Values.env`, `required`;
@@ -485,6 +485,15 @@ _(added by the loop when the definition of done fails)_
 ### Deferred
 
 _(low/medium findings the loop chose not to fix, with file:line)_
+
+- T1: the 4 KB stored-JSON cap in `quotaCapture` is unreachable through a
+  live proxy (`proxy_buffer_size` 4k bounds the upstream header block
+  first); covered by the njs unit test only.
+- T1: the periodic push means the snapshot lags a response by up to 5 s
+  and a burst collapses to its newest reading (design allowed this
+  fallback).
+- T1: the shared dict entry expires after 60 s (`evict` requires a
+  `timeout`); a reading nobody could post inside a minute is dropped.
 
 ## Definition of done
 
