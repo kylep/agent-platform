@@ -1,0 +1,409 @@
+# 22 — Quota: the account's usage windows, always in view
+
+Status: **draft 2026-09-14** — plan at
+`docs/superpowers/plans/2026-09-14-quota-usage-bars.md`. Extends the
+token-brokering proxy of [09](09-token-brokering.md), the tools block of
+[12](12-tools-building-block.md) and the participant-role tool trio of
+[19](19-relay-agent-messenger.md)/[20](20-tickets-agent-work-tracker.md)/
+[21](21-wiki-shared-knowledge.md).
+
+One of the numbered design records under `docs/design/`. The series index is
+`docs/design/00-overview.md`; component names are defined in
+`docs/building-blocks/glossary.md`, and Kyle is the project owner.
+
+## The ask (the PRD, in Kyle's words, 2026-09-14)
+
+> 1. every response should update the value
+> 2. we should cache the value somewhere including a timestamp of when the
+>    value was last collected
+> 3. a get_quota_usage tool should be introduced and made available to all
+>    agents. It should do the absolute minimum query to anthropic needed
+>    (from a token cost perspective) to get the usage response headers.
+> 4. on the platform webpage page load, if the value is > the reset
+>    timestamp, run get_quota_usage and async update it
+> 5. make the bars look nice. Two bars, one blue, one kinda pink … with a x%
+>    sorta in the middle (inverting the colour, so white on pink / pink on
+>    white, for example), thin vertically, sidebar-spanning width, just below
+>    "Agent Platform". I'll know blue is 5h and pink is weekly, no need to
+>    label them. Use white for the rest of the bar so its like the top left
+>    "Agent Platform" string just has two underlines
+
+Acceptance criteria derived from it, referenced as **AC-n** below:
+
+- **AC-1** Every response that api.anthropic.com returns to the platform
+  (any runner pod, any run) updates the cached usage value.
+- **AC-2** The cache holds the latest value of each window and the instant it
+  was collected; it survives API restarts.
+- **AC-3** A `get_quota_usage` tool exists, every agent holds it, and calling
+  it makes the cheapest request to Anthropic that still returns the usage
+  headers, then returns the fresh values.
+- **AC-4** When the web app loads and the cached value is past its reset
+  timestamp (or there is no value), it triggers a refresh asynchronously and
+  the bars update when it lands.
+- **AC-5** Two thin bars, blue (5-hour) and pink (7-day), the width of the
+  sidebar, directly under the "Agent Platform" brand, unlabelled, white
+  track, `NN%` centred in each with the colour inverted where the fill passes
+  under the text.
+
+## The problem
+
+The Claude subscription that runs every agent has two rolling limits, a
+five-hour window and a seven-day window. Anthropic reports both on every
+API response as `anthropic-ratelimit-unified-*` headers, and Claude Code
+shows them in its status line. The platform, which spends most of that
+budget, shows nothing: Kyle learns the weekly window is at 81% from his
+laptop terminal, and an agent that is about to schedule a heavy job has no
+way to ask. When the window is exhausted, runs fail with an empty error and
+the only trace is a `rate_limit_event` deep in a transcript (memory
+`agent-platform-quota-failure-signature`).
+
+Every one of those headers already passes through one pod the platform
+owns: the claude-proxy, the nginx that injects the credential
+([09](09-token-brokering.md)). It sees every response and drops the headers
+on the floor.
+
+## The decision in one paragraph
+
+The claude-proxy keeps injecting the token and, on every upstream response,
+reads the four unified usage headers and posts them to a new internal
+endpoint on the API, authenticated with a shared secret it reads per request
+like the token. The API stores one row, `quota_snapshot`, the latest value
+of each window with its reset instant and the time it was observed, and
+publishes a `quota.events` envelope whenever the value changes so the web
+sidebar (over SSE) and anything else on Kafka can follow it. A
+`get_quota_usage` tool, default-granted to every agent through the existing
+participant-role grant list, asks the API to refresh: the API makes the
+cheapest Claude call that still carries the headers, through the same
+proxy, so the token stays where design 09 put it and the proxy observes that
+response like any other. The sidebar renders the two windows as two thin
+bars under the brand and, on load, asks for a refresh if the cached value is
+older than its own reset.
+
+## Naming
+
+- **Quota** is the block name (Kyle's). The windows are the **5-hour
+  window** and the **7-day window**; in prose "usage", never "rate limit"
+  (a rate limit is what happens when a window is full).
+- A **snapshot** is the cached row. An **observation** is one set of header
+  values seen on one response; the snapshot is the latest observation.
+- A **refresh** is the platform deliberately making a Claude call to
+  observe. A **probe** is that call's request shape.
+- The tool is `get_quota_usage` (Kyle's name; the other platform tools are
+  verbs-as-nouns like `wiki`, but the ask pins this one). Its grant is
+  `mcp__platform__get_quota_usage`.
+
+## Architecture
+
+```mermaid
+flowchart LR
+  subgraph runner["runner pod (any run)"]
+    cli[claude CLI]
+  end
+  subgraph proxy["claude-proxy (nginx + njs)"]
+    inj[inject token]
+    cap[js_header_filter: read usage headers]
+  end
+  anth[(api.anthropic.com)]
+  subgraph api["API"]
+    obs[POST /api/internal/quota]
+    store[(quota_snapshot)]
+    ref[POST /api/quota/refresh]
+    get[GET /api/quota]
+    sse[GET /api/quota/events]
+  end
+  kafka[(quota.events)]
+  broker[mcp-broker: get_quota_usage]
+  web[web sidebar: QuotaBars]
+
+  cli --> inj --> anth --> cap
+  cap -- "X-AP-Internal-Secret" --> obs --> store
+  obs -- on change --> kafka --> sse --> web
+  broker --> ref --> inj
+  ref --> store
+  web -- on load, stale? --> ref
+  web --> get
+```
+
+Two paths write the snapshot and both end in the same store function:
+
+1. **Passive** (AC-1): the proxy's header filter fires on every upstream
+   response and posts the raw header values. This is the path that keeps
+   the value current while pai is busy, at zero extra token cost.
+2. **Active** (AC-3, AC-4): the API's refresh makes one probe call through
+   the proxy. The proxy observes it like any other response (path 1), and
+   the API also parses the headers off the response it holds, so the refresh
+   returns fresh values synchronously even if the passive post lags.
+
+## The proxy capture
+
+`claude-proxy-config.yaml` grows a second njs function next to `auth`:
+a `js_header_filter` handler on the `location /` that proxies to Anthropic.
+It reads, from the upstream response, every `anthropic-ratelimit-unified-*`
+header (the four the platform needs plus whatever else is present, so the
+snapshot keeps the overage/grace/slow fields Claude Code also knows about
+without a redeploy when they matter), builds a small JSON body, and issues a
+fire-and-forget `ngx.fetch` `POST` to the API's `/api/internal/quota`
+route (service `agent-platform-api`, port 8000), presenting the internal
+secret in the `X-AP-Internal-Secret` header. The handler never awaits the fetch, never
+modifies the response, and logs (not raises) on failure: a broken quota post
+must never slow or fail a model call. Responses without the headers (4xx
+from Anthropic without them, non-`/v1/` paths) post nothing.
+
+The secret is read per request from `/secrets/internal/quota`, a new
+`{{ .Release.Name }}-internal` Secret mounted read-only, exactly as the
+token is read from `/secrets/claude/token` (rotation without restart). The
+value is `.Values.env.AP_INTERNAL_SECRET`, required at install exactly like
+`env.AP_SESSION_SECRET` (it lives in the stored values, never in git), and
+the API reads the same value from its environment.
+
+Network policy: `allow-api` gains `claude-proxy` as an ingress source on
+8000, and `allow-claude-proxy` gains `api` (for the refresh probe). Nothing
+else changes; the proxy's egress to Anthropic and its no-service-account
+posture are untouched.
+
+**Contract** (the body the proxy posts; the API tolerates extra keys):
+
+```json
+{"headers": {"anthropic-ratelimit-unified-5h-utilization": "0.22",
+             "anthropic-ratelimit-unified-5h-reset": "1757880000",
+             "anthropic-ratelimit-unified-7d-utilization": "0.81",
+             "anthropic-ratelimit-unified-7d-reset": "1758150000",
+             "anthropic-ratelimit-unified-status": "allowed"},
+ "status": 200, "observed_at": "2026-09-14T15:02:11Z"}
+```
+
+Header values are forwarded verbatim as strings. Parsing lives in one
+place (`quota.py`): utilization accepts a fraction (`0.22`) or a percent
+(`22`, `22.5`), because the exact form was not observable from this machine
+before implementation; reset accepts epoch seconds or ISO-8601. Live
+verification records which form Anthropic actually sends.
+
+### Alternatives considered — how the proxy reports
+
+| Option | Pros | Cons | Verdict |
+|---|---|---|---|
+| njs `js_header_filter` + fire-and-forget `ngx.fetch` to the API | One place, per-response, no new pod, secret read like the token | njs networking from a filter has to be proven (the reference does not list handler restrictions for `ngx.fetch`) | **Chosen**; proven by a docker integration test in T1 |
+| Shared dict + `js_periodic` push every few seconds | Networking from a timer handler is uncontroversial | Up to N seconds lag; more njs state | Fallback if the filter cannot fetch — same contract, same endpoint |
+| nginx access log with `$upstream_http_*` + tailer sidecar | Zero njs | A second container, log parsing, a file to rotate | Rejected |
+| Proxy publishes straight to Kafka | Kyle likes Kafka | nginx cannot speak Kafka; a sidecar again | Rejected; the API publishes instead |
+| API polls the proxy for a value it keeps | No secret needed on the proxy | Not "every response updates"; polling lag | Rejected |
+
+### Alternatives considered — authenticating the proxy
+
+| Option | Pros | Cons | Verdict |
+|---|---|---|---|
+| Static shared secret header, constant-time compare, uniform 401 | Matches the webhook secret's shape (`webhooksecrets.py`), no DB row, no per-run identity needed | One more secret to carry | **Chosen** |
+| Per-run API key like runners | Existing mechanism | The proxy has no run and must never hold platform credentials beyond the token | Rejected |
+| No auth, rely on network policy | Simplest | Any pod in the namespace could poison the snapshot | Rejected |
+
+## Data model (platform Postgres, additive migration via `db.py`)
+
+`quota_snapshot` — a singleton (`id = 1`, enforced by the store):
+
+| column | type | notes |
+|---|---|---|
+| `id` | int PK | always 1 |
+| `five_hour_utilization` | float, nullable | 0.0–1.0 |
+| `five_hour_resets_at` | datetime(tz), nullable | |
+| `seven_day_utilization` | float, nullable | 0.0–1.0 |
+| `seven_day_resets_at` | datetime(tz), nullable | |
+| `status` | str, nullable | the unified `status` header (`allowed`, …) |
+| `raw` | JSON | every `anthropic-ratelimit-unified-*` header, verbatim |
+| `observed_at` | datetime(tz) | when Anthropic answered |
+| `source` | str | `proxy` or `refresh` |
+| `updated_at` | datetime(tz) | row write time |
+
+History is not a table: it is the `quota.events` topic (7-day retention),
+one envelope per **change** of any utilization or reset value. A response
+that repeats the values still bumps `observed_at` (AC-1) but publishes
+nothing, so the topic reads as a burn-rate log rather than a request log.
+
+### Alternatives considered — storage
+
+| Option | Pros | Cons | Verdict |
+|---|---|---|---|
+| Singleton row + change events on Kafka | Trivial reads, history where the platform already keeps history, SSE via `TopicFeed` | Two writes per change | **Chosen** |
+| Append-only `quota_observations` table | SQL history | Grows with every API call; needs pruning | Rejected |
+| In-memory only in the API | No schema | Lost on restart (AC-2), not shared across replicas | Rejected |
+
+## Events (Kafka, design-07 `Envelope`)
+
+Topic `quota.events` (`TOPIC_QUOTA_EVENTS`, in `ALL_TOPICS` and in
+`values.yaml` `topics.specs`, `retentionMs: "604800000"`), envelope type
+`quota.event`, key `"quota"`, data = the snapshot as the API serialises it
+(`five_hour: {utilization, resets_at}`, `seven_day: {…}`, `status`,
+`observed_at`, `source`). `quota_feed()` is a `TopicFeed` over it with one
+stream key, consumed by `GET /api/quota/events` exactly like the wiki feed.
+
+## API (`/api/quota/*`)
+
+| Route | Auth | Behaviour |
+|---|---|---|
+| `GET /api/quota` | `READ_ROLES` + `relay` | The snapshot plus `stale` (true when there is no row or `now` is past the earliest non-null `resets_at`) and `age_seconds`. 200 with nulls before the first observation. |
+| `POST /api/quota/refresh` | `READ_ROLES` + `relay` | Runs the probe through the proxy, observes the response headers (`source="refresh"`), returns the same shape as GET. Coalesced: one in-flight probe per process; a caller arriving during one waits for its result. Short-circuits to the cache when it was observed under `QUOTA_REFRESH_MIN_SECONDS` (default 15) ago and is not stale, so a looping agent cannot turn the tool into a token drain. 503 with a plain `detail` when the proxy is unreachable or the response carries no usage headers. |
+| `POST /api/internal/quota` | `X-AP-Internal-Secret` only (no session, no API key) | Observe. Uniform 401 on a missing or wrong secret, 503 when the API has no secret configured (fail closed). Accepts the proxy contract; ignores bodies without any known header. Never in the facade. |
+| `GET /api/quota/events` | `READ_ROLES` + `relay` | SSE: `quota` frames with the GET shape, heartbeats, `overflow` marker. Excluded from the facade like every stream. |
+
+The refresh's probe, in order, both through `AP_CLAUDE_PROXY_URL` with a
+placeholder bearer (the proxy replaces it), `anthropic-version: 2023-06-01`
+and `anthropic-beta: oauth-2025-04-20`:
+
+1. `POST /v1/messages/count_tokens` with a one-character user message on the
+   cheapest current model. No output tokens; if the response carries the
+   utilization headers this is the whole probe.
+2. Otherwise `POST /v1/messages` with `max_tokens: 1` and the same message.
+   One input token-ish, one output token: the floor for a real completion.
+
+The choice is made at runtime by looking for the header, so no config
+follows Anthropic's behaviour around; live verification records which step
+answered. The probe model is a setting (`QUOTA_PROBE_MODEL`, default
+`claude-haiku-4-5-20251001`).
+
+### Alternatives considered — where the refresh runs
+
+| Option | Pros | Cons | Verdict |
+|---|---|---|---|
+| The API, through the proxy | Token stays in the proxy (design 09), one implementation for the tool and the web, coalescing in one place | The API needs egress to the proxy (one netpol line) | **Chosen** |
+| The broker calls Anthropic itself | No API change | The broker would need the token; two refresh paths | Rejected |
+| Runner pods report from their own responses | No proxy change | Every runner image changes; misses nothing the proxy does not already see | Rejected |
+
+## The `get_quota_usage` tool (default-granted)
+
+A plain `@mcp.tool` function in `broker.py`, `@_metered("quota")` like the
+trio, no arguments. It `POST`s `/api/quota/refresh` with the caller's own
+token and renders the answer as text a model reads well:
+
+```
+5-hour window: 22% used, resets in 3h 54m (2026-09-14 19:00 UTC).
+7-day window: 81% used, resets in 3d 8h (2026-09-17 23:00 UTC).
+Observed 2s ago (refresh). Status: allowed.
+```
+
+Above 90% on either window the text adds one sentence advising the agent to
+defer heavy work until the reset. Errors come back as `error: …` strings.
+The grant constant `TOOL_QUOTA = "mcp__platform__get_quota_usage"` joins
+`PLATFORM_MCP_RELAY_TOOLS`, which already yields the `relay` per-run role
+and the runner `--allowedTools` entry; `_ensure_quota_default_grant` sweeps
+it onto every agent under a schema mark, the same helper the trio used.
+
+## Web UI (the sidebar)
+
+`packages/ui/src/quota.tsx` exports `QuotaBars({five_hour, seven_day,
+observed_at, stale})`: two bars, each the sidebar's inner width, rendered
+directly under `.nav-brand` through a new `SideNav` prop `belowBrand`
+(the shared shell stays data-free; `services/web` fetches). Each bar:
+
+- height ~12px so the centred `NN%` label (monospace, ~10px) fits; the
+  track is white; the fill is `--ds-quota-5h` (blue) or `--ds-quota-7d`
+  (pink), two new semantic tokens in `tokens.css` backed by two new
+  primitives. No raw hex anywhere else (`check:tokens`).
+- the label is drawn twice: once in the bar colour over the whole track,
+  and once in white inside a layer clipped to the fill width. Where the fill
+  passes under the text the letters read white-on-colour; elsewhere
+  colour-on-white. No text is ever measured or split.
+- `title` and `aria-label`: "5-hour window: 22% used, resets in 3h 54m ·
+  observed 2m ago". `role="meter"` with `aria-valuenow`.
+- stale (past reset, or older than an hour): the fill dims to 50% opacity
+  until fresh data arrives. No value at all: the component renders nothing
+  (no placeholder bars).
+- light theme: the track uses the theme's raised surface token, since a
+  white track on a white canvas is invisible; the fills stay the same hues.
+
+`services/web/src/components/quota/useQuota.ts` follows `useTickets`'
+shape: `GET /api/quota` on mount; if `stale`, `POST /api/quota/refresh`
+(fire-and-forget, result merged into state); then `EventSource
+/api/quota/events` with the same backoff/poll fallback; re-fetch on
+`visibilitychange` to visible. `Layout.tsx` (where `SideNav` is rendered;
+`App.tsx` only owns routes) passes `<QuotaBars {...quota}/>` to `SideNav`.
+Rendered on every page (it is the shell). At ≤560px the nav does not
+collapse: it reflows into a full-width horizontal bar (`app.css` `.layout`
+column rule) with the brand on its own line, so the bars must stay directly
+under the brand and span that full width there too; the 390-wide visual
+review checks it.
+
+### Alternatives considered — where the bars live
+
+| Option | Pros | Cons | Verdict |
+|---|---|---|---|
+| Under the brand, inside `SideNav`, via a prop | Exactly the ask; one place for every page | `packages/ui` gains a component that takes data from the app | **Chosen** |
+| A dashboard tile | Easy | Not "always in view"; the ask is explicit | Rejected (a tile can come later from the same hook) |
+| Footer slot next to the theme toggle | Prop already exists | Not under the brand | Rejected |
+
+## Identity, trust, and guards
+
+- The proxy holds two secrets now (token, internal secret) and still no
+  service account. The internal endpoint accepts nothing but the secret.
+- The tool can only spend what the probe costs; `_metered` rate-limits per
+  agent and the refresh short-circuit bounds the platform-wide rate to one
+  probe per `QUOTA_REFRESH_MIN_SECONDS`.
+- Snapshot values are numbers and a status string; `raw` is stored but
+  never rendered into a prompt or a page without escaping. The tool's text
+  is built from parsed numbers, never from header strings.
+- Reader sessions can trigger a refresh from the web (AC-4 needs it);
+  cost is bounded by the same short-circuit.
+
+## File change list
+
+Create:
+- `services/backend/agentplatform/quota.py` (pure: header parsing,
+  normalisation, staleness, text rendering)
+- `services/backend/agentplatform/quota_store.py` (observe, latest, feed)
+- `services/backend/agentplatform/api/quota.py`
+- `services/backend/tests/test_quota.py`, `test_quota_store.py`,
+  `test_quota_api.py`
+- `services/mcp-broker/test_quota_tool.py`
+- `services/claude-proxy/tests/test_proxy_quota.py` (docker-based, skips
+  without docker) and a fixture fake upstream/receiver
+- `charts/agent-platform/templates/internal-secret.yaml`
+- `packages/ui/src/quota.tsx`, `quota.css`, `quota.stories.tsx`
+- `services/web/src/components/quota/useQuota.ts`
+- `services/web/tests/quota.spec.ts`
+- `docs/building-blocks/quota.md`
+
+Modify:
+- `charts/agent-platform/templates/claude-proxy-config.yaml`,
+  `claude-proxy.yaml`, `networkpolicy.yaml`, `api.yaml` (secret env),
+  `values.yaml` (`env.AP_INTERNAL_SECRET`, `claudeProxy.quota`, topic spec)
+- `services/backend/agentplatform/db.py` (model, default-grant sweep),
+  `events.py` (topic), `settings.py`, `agentspec.py`, `api/app.py`
+  (router, feed consumer), `api/schemas.py`
+- `services/mcp-broker/broker.py`
+- `services/mcp-facade/facade.py`, `test_facade.py` (counts 85/112)
+- `packages/ui/src/sidenav.tsx`, `sidenav.css`, `tokens.css`, `index.ts`
+- `services/web/src/Layout.tsx`, `tests/mock-api.ts`, `tests/a11y.spec.ts`
+- `sdk/` (regenerated)
+- `docs/design/00-overview.md`, `docs/design/09-token-brokering.md` (AS
+  BUILT note), `docs/design/17-*` (facade counts),
+  `docs/building-blocks/README.md`, `glossary.md`
+
+## Task breakdown
+
+The plan file carries the tasks with their acceptance checklists; the
+dependency order is:
+
+| Task | Requirement | Depends on | Parallel |
+|---|---|---|---|
+| T1 proxy capture + docker test + chart | AC-1 | — | with T2 |
+| T2 model, pure library, store, topic | AC-2 | — | with T1 |
+| T3 API routes, settings, facade, SDK | AC-1, AC-3, AC-4 | T2 | — |
+| T4 broker tool + grant sweep | AC-3 | T3 | with T5 |
+| T5 tokens, `QuotaBars`, `useQuota`, wiring `[ui]` | AC-4, AC-5 | T3 | with T4 |
+| T6 docs | all | T1–T5 | — |
+| T7 deploy + live verification | all | T6 | — |
+
+## Not done (deliberately)
+
+- No alerting when a window crosses a threshold: the health-monitor agent
+  can call the tool and open an OPS ticket; that is a prompt change, not a
+  design.
+- No burn-rate chart: `quota.events` holds the data; a Reports page can
+  read it later.
+- No spend-limit window (`spend_limit` behind an apps gateway): pai is on a
+  subscription; the parser keeps unknown headers in `raw` so nothing is
+  lost.
+- No per-agent attribution of usage: the headers are account-wide; the
+  run-metrics rollups already attribute tokens per agent.
+
+## AS BUILT
+
+_(filled by the build loop)_
