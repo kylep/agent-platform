@@ -54,7 +54,10 @@ data:
     // header filter") and the client gets an empty reply -- so the filter only
     // parks the snapshot in a shared dict and a timer does the POST. A model
     // call therefore never waits on, and never fails with, the quota hop.
-    var quotaUrl = '{{ .Values.claudeProxy.quota.apiUrl }}/api/internal/quota';
+    {{- /* nginx's resolver knows nothing of /etc/resolv.conf search domains, so
+         the in-cluster default must be the service's full name; a bare
+         `agent-platform-api` fails with "Host not found" at push time. */}}
+    var quotaUrl = '{{ .Values.claudeProxy.quota.apiUrl | default (printf "http://agent-platform-api.%s.svc.cluster.local:8000" .Release.Namespace) }}/api/internal/quota';
     // What the platform actually reads. Everything else Anthropic sends under
     // the prefix rides along (overage/grace fields arrive without a redeploy),
     // but these are what survive if the header set is too big to store.

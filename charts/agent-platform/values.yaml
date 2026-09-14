@@ -66,7 +66,10 @@ claudeProxy:
   # platform API, which is how the platform learns its own usage at all.
   quota:
     enabled: true
-    apiUrl: http://agent-platform-api:8000
+    # Empty means the API service in this namespace by its full cluster name
+    # (nginx's resolver applies no search domains, so a bare service name
+    # cannot resolve). Set only to point the proxy somewhere else, e.g. a test.
+    apiUrl: ""
 
 # Per-service resource requests/limits for the agent-platform-owned Deployments
 # (api, dispatcher, recorder, web). Subchart (postgresql/kafka) resources are

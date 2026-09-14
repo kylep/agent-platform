@@ -293,3 +293,11 @@ def test_a_missing_secret_file_posts_nothing(tmp_path, docker_host, fakes):
         assert "quota secret unreadable" in bare.logs()
     finally:
         bare.stop()
+
+
+def test_the_default_push_target_is_the_api_service_full_name():
+    # nginx's resolver applies no search domains: a bare service name fails with
+    # "Host not found" at push time (seen live, design 22 R1).
+    docs = helm_template(show_only="templates/claude-proxy-config.yaml")
+    config = next(d for d in docs if d["kind"] == "ConfigMap")
+    assert "http://agent-platform-api.default.svc.cluster.local:8000/api/internal/quota" in config["data"]["claude.js"]

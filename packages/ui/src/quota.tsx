@@ -28,10 +28,11 @@ function percent(utilization: number | null | undefined): number | null {
     ? Math.min(100, Math.max(0, Math.floor(utilization * 100 + 0.5))) : null;
 }
 
-/** "3h 54m", "12m", "40s" — enough precision to act on, never more. */
+/** "3d 3h", "3h 54m", "12m", "40s" — the backend's humanize_delta, so the label and the tool agree. */
 function duration(seconds: number): string {
   const s = Math.max(0, Math.round(seconds));
-  const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60);
+  const d = Math.floor(s / 86400), h = Math.floor((s % 86400) / 3600), m = Math.floor((s % 3600) / 60);
+  if (d) return `${d}d ${h}h`;
   if (h) return `${h}h ${m}m`;
   return m ? `${m}m` : `${s}s`;
 }
