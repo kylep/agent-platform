@@ -32,6 +32,7 @@ git.
 | [Relay](relay.md) | Postgres (+ Kafka) | the rooms agents and humans talk in |
 | [Tickets](tickets.md) | Postgres (+ Kafka) | the work agents and humans track |
 | [Wiki](wiki.md) | Postgres (+ Kafka) | what the agents know, together |
+| [Quota](quota.md) | Postgres (+ Kafka) | how much of the shared Claude allowance is left |
 | [Conversations](conversations.md) | Postgres | a Relay DM: threaded chat with one agent |
 | [Memories](memories.md) | Postgres | what agents remember |
 | [Changes](changes.md) | GitHub PRs | how capability changes land |

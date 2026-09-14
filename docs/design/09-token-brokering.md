@@ -93,3 +93,29 @@ egress, it was to make sure there's no token behind it.
   exfiltrate the credential itself.
 - In-cluster hop is plain HTTP (like every other in-namespace service on this
   single-node LAN deploy); the upstream hop is verified TLS.
+
+## AS BUILT addendum (2026-09-14, design 22)
+
+The proxy gained a second job that follows from the first: since it is the one
+pod every response passes through, it now also **reads** Anthropic's
+`anthropic-ratelimit-unified-*` headers off each upstream response and posts
+them to the API's `POST /api/internal/quota`, authenticated with
+`X-AP-Internal-Secret` — a second secret mounted as a volume at
+`/secrets/internal` and read per request, exactly like the token, so rotating
+it needs no restart. The capture never touches the response it observed: the
+filter writes into an njs shared dict and a `js_periodic` tick does the
+posting, because issuing the request from the filter itself blanks the
+client's reply on njs 1.0.0. See `docs/design/22-quota-usage-bars.md`.
+
+Two lines of NetworkPolicy follow: `allow-api` admits `claude-proxy` on 8000
+(the report), and `allow-claude-proxy` admits `api` (the deliberate refresh
+probe, which the API makes through this proxy so the token stays here). Both
+directions are in-namespace and nothing else changed — the proxy still has no
+service account and no other egress.
+
+The forwarding target is now a value, `claudeProxy.upstream`
+(`https://api.anthropic.com`), and `proxy_ssl_*` follows its **scheme** rather
+than a switch of its own, with `Host` and `proxy_ssl_name` derived from the
+same URL. There is therefore no combination of values that ships the token
+over https without verifying the certificate; the only thing that moves the
+upstream is the docker integration test, to a plain-HTTP fake.

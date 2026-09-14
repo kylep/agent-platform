@@ -1,9 +1,9 @@
 # 22 — Quota: the account's usage windows, always in view
 
-Status: **draft 2026-09-14** — plan at
-`docs/superpowers/plans/2026-09-14-quota-usage-bars.md`. Extends the
+Status: **built 2026-09-14** (deploy + live verification pending, T7) — plan
+at `docs/superpowers/plans/2026-09-14-quota-usage-bars.md`. Extends the
 token-brokering proxy of [09](09-token-brokering.md), the tools block of
-[12](12-tools-building-block.md) and the participant-role tool trio of
+[12](12-executable-capabilities.md) and the participant-role tool trio of
 [19](19-relay-agent-messenger.md)/[20](20-tickets-agent-work-tracker.md)/
 [21](21-wiki-shared-knowledge.md).
 
@@ -182,8 +182,8 @@ verification records which form Anthropic actually sends.
 
 | Option | Pros | Cons | Verdict |
 |---|---|---|---|
-| njs `js_header_filter` + fire-and-forget `ngx.fetch` to the API | One place, per-response, no new pod, secret read like the token | njs networking from a filter has to be proven (the reference does not list handler restrictions for `ngx.fetch`) | **Chosen**; proven by a docker integration test in T1 |
-| Shared dict + `js_periodic` push every few seconds | Networking from a timer handler is uncontroversial | Up to N seconds lag; more njs state | Fallback if the filter cannot fetch — same contract, same endpoint |
+| njs `js_header_filter` + fire-and-forget `ngx.fetch` to the API | One place, per-response, no new pod, secret read like the token | njs networking from a filter has to be proven (the reference does not list handler restrictions for `ngx.fetch`) | **Rejected on evidence**: on njs 1.0.0 an `ngx.fetch` from the filter blanks the client's own response (empty reply), which is the one cost this design refuses to pay. Found by the docker test written to prove it |
+| Shared dict + `js_periodic` push every few seconds | Networking from a timer handler is uncontroversial | Up to N seconds lag; more njs state | **Chosen** — the fallback shipped, same contract, same endpoint: the filter only writes to a shared dict, and a 5 s tick posts it |
 | nginx access log with `$upstream_http_*` + tailer sidecar | Zero njs | A second container, log parsing, a file to rotate | Rejected |
 | Proxy publishes straight to Kafka | Kyle likes Kafka | nginx cannot speak Kafka; a sidecar again | Rejected; the API publishes instead |
 | API polls the proxy for a value it keeps | No secret needed on the proxy | Not "every response updates"; polling lag | Rejected |
@@ -407,4 +407,124 @@ dependency order is:
 
 ## AS BUILT
 
-_(filled by the build loop)_
+Deltas from the design above, each forced by a review, by a test, or by njs
+itself (the ticked tasks in the plan record which):
+
+- **The header filter cannot be the thing that posts.** `ngx.fetch` from
+  inside `js_header_filter` blanks the client's own response on njs 1.0.0 —
+  the run gets an empty reply from Anthropic, which is exactly the harm the
+  design forbade. The fallback in the alternatives table is what shipped:
+  `quotaCapture` writes the snapshot into a shared dict
+  (`js_shared_dict_zone zone=quota:32k timeout=60s evict`) and
+  `js_periodic claude.quotaPush interval=5s` posts it with
+  `js_fetch_timeout 1500ms`. The capture is wrapped in `try`/`catch` end to
+  end and the stored JSON is capped, because a dict that is full or a value
+  that is oversize must log rather than throw into a response path. The
+  "already sent" marker lives *in the dict* rather than in a module variable:
+  a periodic tick gets a fresh VM, so a variable would forget what it sent and
+  re-post the same reading forever. The cost is bounded and known: the
+  snapshot lags a response by up to 5 s and a burst collapses to its newest
+  reading, which is what the design allowed this fallback to cost.
+
+- **The internal route reads the secret before it reads the body.** The body
+  is parsed by hand instead of being declared as a pydantic parameter, because
+  FastAPI validates a parameter *before* the handler runs — an anonymous
+  caller would have had a megabyte of JSON parsed to earn a 422 describing an
+  endpoint they cannot use. So: header compared first, then the body under a
+  64 KiB cap, then anybody's schema. The OpenAPI body and the two 200 shapes
+  are declared by hand for the same reason.
+
+- **It never answers 204.** A report carrying no usage header is ignored, but
+  answered with `{"ignored": true}` and a body, because njs's `ngx.fetch`
+  never settles its promise on a bodyless 204 — the proxy would hang on the
+  outcome it hits most often.
+
+- **A timestamp from the future is clamped on the way in and healed on the way
+  out.** `parse_observed_at` clamps a reported `observed_at` past our own
+  clock (plus skew) to now; `quota_store._superseded` independently refuses to
+  let a *stored* future timestamp win, so a row that got past an earlier check
+  or a clock that jumped heals on the next observation rather than freezing
+  the snapshot for good.
+
+- **The singleton is written under a savepoint, in a loop.** Before the row
+  exists there is nothing for `FOR UPDATE` to lock, so several first
+  observations reach the insert at once. The loser's insert is scoped to a
+  `begin_nested()` — `db.py`'s pattern for the same race — so only that
+  statement rolls back, the caller's session survives, and the next trip round
+  the loop finds the winner's row and updates it. Ordering is a guard, not an
+  assumption: two proxy reports can cross on the wire, and the older one
+  landing last would publish a drop in usage that never happened, so an
+  observation older than the stored one is dropped (equal instants apply).
+
+- **The refresh short-circuits inside the lock, not before it.** Both halves
+  of the cache test are load-bearing — recency alone would keep serving a
+  window that has already turned over, freshness alone would let a loop spend
+  a probe per call — and doing the test under the same lock the probe holds
+  means a caller arriving during a probe waits for it and then finds the fresh
+  snapshot it wrote. Same answer, one fewer request to Anthropic. The probe
+  asks any status: a 429 is exactly when these numbers matter most and it
+  carries them.
+
+- **`quota_probe_model` is `claude-haiku-4-5`**, the undated form the
+  platform's model picker already uses, so the setting does not need editing
+  the day a dated snapshot is retired.
+
+- **The tool's text is the store's text.** `quota.render_text` builds the
+  answer from parsed numbers and the reduced `status` token — no header string
+  reaches a model — and the broker mirrors it character for character, so the
+  sentence an agent reads is the same whichever side rendered it. A 503 from
+  the refresh falls back to the cached reading and says how old it is, rather
+  than telling an agent nothing is known.
+
+- **The grant lands three ways, and the order matters.** `TOOL_QUOTA =
+  "mcp__platform__get_quota_usage"` joins `PLATFORM_MCP_RELAY_TOOLS` (the
+  participant role and the runner's `--allowedTools`),
+  `_ensure_quota_default_grant` sweeps it onto every existing agent under a
+  schema mark, and `DEFAULT_GRANTS` gives it to new ones behind
+  `quota_default_grant`. The seeded wiki librarian is born holding it: review
+  caught that its seed ran *after* the sweep had marked itself, so on a fresh
+  install the one agent created by the build would never have been granted the
+  tool at all.
+
+- **The inverted label is one clipped overlay, not two measurements.** The
+  label is drawn twice — once in the fill colour over the whole track, once in
+  white inside `.quota-clip`, which carries both the fill and the white copy
+  and is clipped to the fill width — so the letters can never disagree with
+  the bar about where the boundary is. The clipped copy is positioned against
+  the *bar* via a container query (`width: 100cqw`), which is the only way to
+  hand a descendant the bar's width; against the clip's own width the two
+  copies would not line up. The chip hues were deepened one step to
+  `#2f6fe0` / `#c2379b`, because the label inverts across the fill edge and
+  one ratio has to carry 4.5:1 in both layers.
+
+- **Stale dims the whole bar.** Dimming the fill alone leaves a nearly-empty
+  bar looking exactly like a fresh one — there is barely any fill to dim — so
+  `.quota-bar[data-stale]` takes the track and the label with it.
+
+- **SSE frames and refresh answers always replace; only catch-up reads are
+  ordered.** A read can start before a refresh and land after it, and without
+  the guard the bars would walk back to the stale numbers; ordering the
+  *stream* the same way would let a clock skew wedge the hook, which review
+  caught. A 60 s poll stands in when the stream is down, and
+  `visibilitychange` re-reads.
+
+- **Everything quota is gated on `claudeProxy.quota.enabled`.** The Secret,
+  its mount, the proxy's push and the API's `AP_INTERNAL_SECRET` env are the
+  two halves of one credential, so neither is configured without the other:
+  `required` *inside* the gate rather than a default, since with capture on an
+  empty value ships a sidebar that silently never updates, and with it off the
+  API's internal route fails closed (503). `claudeProxy.upstream` is now a
+  value and `proxy_ssl_*` follows its scheme — there is no combination that
+  ships the token over https without checking the certificate — with `Host`
+  and `proxy_ssl_name` derived from the same URL.
+
+- **The facade is 85 default / 112 admin**, pinned by a test rather than
+  counted by hand. `/api/quota/events` is excluded as a stream and
+  `/api/internal/` as a prefix; `POST /api/quota/refresh` is curated out
+  because agents reach it through the tool, where the per-agent metering is,
+  and a raw route would be a second unmetered way to spend the probe.
+  `GET /api/quota` stays a tool: reading the snapshot costs nothing.
+
+Probe step that answered live: _(T7)_
+
+Header value forms observed live: _(T7)_

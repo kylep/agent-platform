@@ -143,6 +143,31 @@ Totals after Wiki, counted from a fresh spec: **139** graded operations — KEEP
 streaming). Default surface: **84 tools**; with `AP_MCP_ADMIN_TOOLS=1`: **111
 tools**.
 
+## Curation: Quota (design-22, 2026-09)
+
+The usage snapshot adds four operations, and three of them are not tools:
+
+- **KEEP (1)** — `GET /api/quota`, the snapshot. Reading it costs nothing and
+  answers the question a client outside the cluster most wants answered before
+  it starts something long: how much of the shared allowance is left.
+- **GATE (0)** — nothing new.
+- **EXCLUDE (3)** — `GET /api/quota/events`, the sidebar's SSE stream, for the
+  reason relay's, the board's and the wiki's are excluded: a call that never
+  returns is the one shape MCP cannot represent. `POST /api/internal/quota`
+  goes with it, as a **prefix** (`^/api/internal/`) rather than a path, so the
+  next internal endpoint is excluded the day it is written rather than the day
+  somebody notices — that plane authenticates on a shared secret this service
+  does not hold and must never forward, and its callers are infrastructure,
+  not MCP clients. And `POST /api/quota/refresh` is **curated out**: it is the
+  deliberate probe, and agents reach it through the `get_quota_usage` tool,
+  which is where the per-agent metering lives. Offering the raw route as well
+  would be a second, unmetered way to spend it.
+
+Totals after Quota, counted from a fresh spec: **143** graded operations —
+KEEP **85**, GATE **27**, EXCLUDE **31** (19 curated out, 12 session/internal/
+streaming). Default surface: **85 tools**; with `AP_MCP_ADMIN_TOOLS=1`: **112
+tools**. Both numbers are now pinned by a test rather than recounted by hand.
+
 ## Explicitly not now
 
 Write-scoping beyond the role ladder (a reader key already gets 403s from

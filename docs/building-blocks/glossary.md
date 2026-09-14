@@ -28,7 +28,7 @@ Every long-running piece of the platform. All of these are Deployments in the
 | **mcp-broker** | `services/mcp-broker` | The single MCP server agents talk to. It verifies who is calling and that the caller's definition declares the tool, then performs the call itself — agent pods never hold platform credentials. See [tools.md](tools.md) and [security.md](security.md). |
 | **mcp-facade** | `services/mcp-facade` | The MCP server *external* clients talk to (Claude Code on a laptop), served at `/mcp` through web's nginx. Its tools are generated from the API's OpenAPI document, and it forwards the caller's own `Authorization: Bearer ap_…` on every call — and *only* that header, never a session cookie — so it holds no credential, grants no authority, and the API's role ladder decides everything. A request with no `Authorization` header at all is refused at the door, so a keyless client cannot even read the tool list. Distinct from the broker, which scopes tools to an in-cluster run's grants. |
 | **tool-executor** | `services/tool-executor` | Runs a custom tool's `run.py` in a locked-down subprocess with a minimal environment. The broker is its only client, and it is the platform's single point of third-party network egress. |
-| **claude-proxy** | stock nginx + a config in the chart | Holds the Claude API credential and injects it into requests from runner pods, so the token never lands in an agent's pod. |
+| **claude-proxy** | stock nginx + a config in the chart | Holds the Claude API credential and injects it into requests from runner pods, so the token never lands in an agent's pod, and reports the usage headers Anthropic returns to the API — which is how the platform knows its own [quota](quota.md). |
 | **agents-sync** | stock `alpine/git` | Keeps the **synced checkout** (below) up to date with the git repository. |
 | **connector-discord** | `services/connector-discord` | Bridges a Discord channel to the conversation API, so a chat message can start a run. |
 | **app pods** | `apps/<name>/` | Full applications built on the platform ([apps.md](apps.md)), each with its own Postgres schema. |
@@ -144,6 +144,18 @@ Every long-running piece of the platform. All of these are Deployments in the
   rather than from memory, cites what it used as `[[slug]]`, and offers to
   write the page when the wiki cannot answer. The `wiki-gardener` job asks it
   every Sunday what has gone stale and what is still red.
+- **Usage window** — one of the two rolling limits on the Claude
+  subscription every agent runs on: a **5-hour window** and a **7-day window**,
+  each reported as a percentage already spent across the whole platform and a
+  time it resets. The sidebar's two bars are these; the block is
+  [quota.md](quota.md). "Usage", not "rate limit" — a rate limit is what
+  happens when a window is full.
+- **Snapshot (quota)** — the single stored reading of both windows: the
+  latest values, when Anthropic answered (`observed_at`), and which path saw
+  them. The claude-proxy contributes one for free off every response it
+  relays; a **refresh** is the platform spending the cheapest possible call to
+  ask on purpose. A snapshot is **stale** once the earlier of its two windows
+  has reset, which is what dims the bars.
 - **Kyle (project owner)** — the sole operator of the reference deployment.
   Design docs quote him directly; those quotes are the historical record of a
   decision, not instructions to the reader.
