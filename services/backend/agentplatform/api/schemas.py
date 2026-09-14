@@ -14,6 +14,7 @@ generate as untyped, which is honest for genuinely free-form data.
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -1306,6 +1307,91 @@ class WhoAmI(BaseModel):
     # The mcp__platform__* tools the caller's agent definition declares
     # (None for non-agent callers, e.g. the admin session).
     tools: list[str] | None
+
+
+# --- quota (docs/design/22) ---------------------------------------------------
+
+class QuotaWindow(BaseModel):
+    """One rate-limit window. `utilization` is a FRACTION whichever form the
+    header arrived in (`quota.parse_utilization`), so a bar never has to guess
+    whether 22 means a fifth or everything."""
+    utilization: float | None
+    resets_at: str | None
+
+
+class Quota(BaseModel):
+    """The snapshot, as `quota_store.serialize` produces it — the one shape the
+    REST body, the SSE frame and the `quota.events` payload share."""
+    five_hour: QuotaWindow
+    seven_day: QuotaWindow
+    status: str | None
+    observed_at: str | None
+    source: str | None
+    # Whether the observation can still be believed: no row at all, or a window
+    # that has reset since it was taken.
+    stale: bool
+    age_seconds: int | None
+    # Which probe step answered, on the refresh route only: `count_tokens` when
+    # the free step carried the headers, `message` when it took a real
+    # completion, null when the call was answered from the cache. Anthropic's
+    # behaviour here was not observable before implementation, so the platform
+    # records what actually happened rather than asserting it.
+    probe: str | None = None
+
+
+# What one report may carry. The body is capped in the route before it is
+# parsed at all; these bound the SHAPE inside that body, so a well-formed 64 KiB
+# document cannot still arrive as ten thousand one-byte headers.
+QUOTA_MAX_HEADERS = 128
+QUOTA_MAX_HEADER_CHARS = 512
+
+
+class QuotaObserveIn(BaseModel):
+    """What the claude-proxy reports (docs/design/22): the response headers it
+    just relayed, verbatim. Extra keys are tolerated — the proxy is a shell
+    script's worth of nginx/njs and the contract has to survive it growing a
+    field — and a body carrying no usage header at all is ignored, not an
+    error, because most responses say nothing about usage.
+
+    The bounds are here rather than left to the store because this is the one
+    door on the platform that a session cannot open and an API key cannot
+    open: whatever reaches it has already been trusted on a shared secret, so
+    the shape is the only thing left to check."""
+    headers: dict[str, Any] = Field(default_factory=dict)
+    # The HTTP status the proxy saw with those headers. Diagnostic only — no
+    # typed column, nothing branches on it — but it is kept in the snapshot's
+    # `raw` as `http_status`, because a 0.99 reading off a 429 and the same
+    # reading off a 200 mean different things to whoever reads the row.
+    status: int | None = None
+    # When Anthropic answered. Parsed, and only used when it parses: a report
+    # that queued behind something must not look newer than it is, and a
+    # garbage timestamp must not make the snapshot look older than it is. A
+    # time in the future is clamped rather than believed (`parse_observed_at`)
+    # — it would otherwise outrank every later observation for good.
+    observed_at: str | None = None
+
+    @model_validator(mode="after")
+    def _bounded(self):
+        if len(self.headers) > QUOTA_MAX_HEADERS:
+            raise ValueError(f"at most {QUOTA_MAX_HEADERS} headers")
+        for key, value in self.headers.items():
+            if len(key) > QUOTA_MAX_HEADER_CHARS or len(str(value)) > QUOTA_MAX_HEADER_CHARS:
+                raise ValueError(
+                    f"header names and values are at most {QUOTA_MAX_HEADER_CHARS} characters")
+        return self
+
+
+class QuotaIgnored(BaseModel):
+    """The answer to a report that said nothing about usage.
+
+    Most responses the proxy relays carry no usage header at all, so this is
+    the COMMON outcome, not an error — writing those would overwrite a real
+    snapshot with nulls. It is a 200 with a body rather than a 204 because the
+    proxy is njs, whose `ngx.fetch` never settles its promise on a bodyless
+    204: the request would hang until nginx timed it out, once per relayed
+    Anthropic call. It deliberately carries no snapshot — the hot path must not
+    cost a database read to say "nothing to record"."""
+    ignored: bool = True
 
 
 # --- custom tools (docs/design/12) -------------------------------------------

@@ -140,6 +140,21 @@ class Settings(BaseSettings):
     # this is what makes the history affordable — and a page past this size is
     # one nobody reads anyway, it wants splitting and a [[link]].
     wiki_max_body_bytes: int = 65536
+    # Quota (docs/design/22). The shared secret the claude-proxy presents on
+    # `POST /api/internal/quota` — the ONE credential that door accepts, since
+    # nginx calls it with no session and no API key. Empty means the endpoint
+    # refuses everybody (503): an API that cannot tell the proxy from anyone
+    # else must not take usage reports from either.
+    internal_secret: str = ""
+    # The platform-wide floor between probes. A refresh arriving inside this
+    # window of a fresh, non-stale snapshot is answered from the cache, so the
+    # quota tool costs at most one probe per interval however many agents are
+    # asking — the guard is the rate, not the caller's role.
+    quota_refresh_min_seconds: int = 15
+    # What the probe asks about. The cheapest current model, because the answer
+    # is a header and the completion is thrown away.
+    quota_probe_model: str = "claude-haiku-4-5"
+    quota_probe_timeout_seconds: float = 20
     # (The news pipeline settings are gone: news presentation lives in the news
     # APP now — the recorder just honors each manifest's `result_topic`.)
 

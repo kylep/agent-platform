@@ -13,7 +13,8 @@ The surface is CURATED into three tiers (curation 2026-08-24; see
   health, reports, registries, apps, help, the relay rooms — read a channel,
   post in it, react, DM, search, presence/stats — the ticket board: file,
   read, edit, move, assign, comment, stats — and the wiki: read, search, write,
-  append, history, restore, promote, wanted). Always tools. 84 of them.
+  append, history, restore, promote, wanted — and the usage snapshot).
+  Always tools. 85 of them.
 - **GATE** — authorized-but-sharp: the credential/secret plane, admin audit
   reads, destructive/bulk ops, the relay channel lifecycle (creating, renaming
   and archiving rooms), and archiving a wiki page. Offered ONLY when
@@ -22,8 +23,8 @@ The surface is CURATED into three tiers (curation 2026-08-24; see
   not the kitchen.
 - **EXCLUDE** — UI form-feeders, reviewer digests the client can compute,
   git-edit conveniences redundant with having the repo, and system-agent
-  endpoints. Never tools. 18 of them, plus the 10 session/internal/streaming
-  operations below — 139 graded operations in all.
+  endpoints. Never tools. 19 of them, plus the 12 session/internal/streaming
+  operations below — 143 graded operations in all.
 
 It is deliberately NOT the mcp-broker. The broker authenticates in-cluster run
 identities and scopes tools to an agent's grants (design/13, design/15); this
@@ -84,6 +85,14 @@ EXCLUDED_PATHS = (
     ("*", r"^/api/tickets/events$"),
     # And the wiki's (design/21).
     ("*", r"^/api/wiki/events$"),
+    # And the usage sidebar's (design/22).
+    ("*", r"^/api/quota/events$"),
+    # The internal plane (design/22's `POST /api/internal/quota`): these routes
+    # authenticate on a shared secret this service does not hold and must never
+    # forward, and their callers are infrastructure, not MCP clients. A prefix
+    # rather than one path, so a second internal endpoint is excluded the day
+    # it is written rather than the day someone notices.
+    ("*", r"^/api/internal/"),
 )
 
 # Curated out (curation 2026-08-24): UI plumbing, reviewer digests the client
@@ -111,6 +120,11 @@ CURATED_OUT = (
     # connectors, which read it over HTTP with their own token on a timer. As a
     # tool it would answer a question no MCP client asks.
     (("GET",),   r"^/api/relay/bindings$"),
+    # The deliberate usage probe (design/22). Agents reach it through the
+    # `quota` tool, which is where the per-agent metering lives; offering the
+    # raw route as well would be a second, unmetered way to spend the probe.
+    # `GET /api/quota` stays a tool — reading the snapshot costs nothing.
+    (("POST",),  r"^/api/quota/refresh$"),
 )
 
 # Sharp/admin tools: OFFERED only when AP_MCP_ADMIN_TOOLS is truthy. The role
@@ -170,7 +184,7 @@ _TRUTHY = ("1", "true", "yes", "on")
 
 def admin_tools_enabled() -> bool:
     """Whether the sharp/admin tier is OFFERED (default off — a fresh facade
-    serves the 84-tool KEEP surface). Offering-only: the API's role ladder
+    serves the 85-tool KEEP surface). Offering-only: the API's role ladder
     authorizes every call regardless of this flag."""
     return os.environ.get("AP_MCP_ADMIN_TOOLS", "").strip().lower() in _TRUTHY
 

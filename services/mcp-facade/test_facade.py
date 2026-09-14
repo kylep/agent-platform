@@ -43,13 +43,13 @@ def build_tools(spec, admin_tools):
 
 @pytest.fixture(scope="module")
 def tools(spec):
-    """The DEFAULT (admin-off) tool surface — the 84-tool KEEP set."""
+    """The DEFAULT (admin-off) tool surface — the 85-tool KEEP set."""
     return build_tools(spec, admin_tools=False)
 
 
 @pytest.fixture(scope="module")
 def admin_tools(spec):
-    """The admin-on surface — KEEP + GATE (111 tools)."""
+    """The admin-on surface — KEEP + GATE (112 tools)."""
     return build_tools(spec, admin_tools=True)
 
 
@@ -97,23 +97,23 @@ def test_setup_state_is_not_caught_by_the_setup_exclusion():
 
 def test_everything_else_is_a_tool(spec, tools):
     """The default surface, by construction: exactly the operations that are
-    not design-17-excluded, not curated out, and not gated. Pinned at 84."""
+    not design-17-excluded, not curated out, and not gated. Pinned at 85."""
     hidden = {(m, p) for m, p in operations(spec) if matches(ALL_RULES, m, p)}
     expected = set(operations(spec)) - hidden
     assert {(t._route.method, t._route.path) for t in tools} == expected
-    assert len(tools) == len(expected) == 84, \
+    assert len(tools) == len(expected) == 85, \
         sorted({(t._route.method, t._route.path) for t in tools})
 
 
 def test_admin_flag_restores_gated(spec, admin_tools):
-    """With AP_MCP_ADMIN_TOOLS on, the gated set returns (111 total) but the
+    """With AP_MCP_ADMIN_TOOLS on, the gated set returns (112 total) but the
     design-17 exclusions and CURATED_OUT never come back."""
     still_hidden = facade.EXCLUDED_PATHS + facade.CURATED_OUT
     hidden = {(m, p) for m, p in operations(spec)
               if matches(still_hidden, m, p)}
     expected = set(operations(spec)) - hidden
     assert {(t._route.method, t._route.path) for t in admin_tools} == expected
-    assert len(admin_tools) == len(expected) == 111, \
+    assert len(admin_tools) == len(expected) == 112, \
         sorted({(t._route.method, t._route.path) for t in admin_tools})
     names = {t.name for t in admin_tools}
     for gated in ("mint_api_key", "put_secret", "delete_agent", "import_agents",
@@ -204,6 +204,38 @@ def test_the_wiki_is_tools_except_archiving_and_the_stream(spec, tools, admin_to
         (t._route.method, t._route.path) for t in admin_tools}
     assert ("GET", "/api/wiki/events") in operations(spec)
     assert ("GET", "/api/wiki/events") not in surface
+
+
+def test_quota_offers_the_read_and_nothing_else(spec, tools, admin_tools):
+    """Quota (design/22) contributes exactly ONE tool. Reading the snapshot is
+    free, so it is offered; the deliberate probe is not, because agents reach
+    it through the `quota` tool where the per-agent metering lives, and a raw
+    route beside it would be an unmetered second way to spend the probe. The
+    stream is excluded like every stream, and the proxy's internal report is
+    excluded with the admin flag ON as well — it authenticates on a secret this
+    service does not hold."""
+    admin_surface = {(t._route.method, t._route.path) for t in admin_tools}
+    surface = {(t._route.method, t._route.path) for t in tools}
+    assert ("GET", "/api/quota") in surface
+    for op in (("POST", "/api/quota/refresh"), ("GET", "/api/quota/events"),
+               ("POST", "/api/internal/quota")):
+        assert op in operations(spec), f"{op} vanished from the API"
+        assert op not in surface and op not in admin_surface
+
+
+def test_the_docstring_tier_counts_match_the_real_spec(spec, tools, admin_tools):
+    """The module docstring states four counts, and they had drifted — nothing
+    checked them, so the numbers described an older API. They are the first
+    thing anyone reads about this service, so they are now pinned to what the
+    rules actually grade."""
+    doc = facade.__doc__
+    ops = operations(spec)
+    curated = {(m, p) for m, p in ops if matches(facade.CURATED_OUT, m, p)}
+    excluded = {(m, p) for m, p in ops if matches(facade.EXCLUDED_PATHS, m, p)}
+    for count, label in ((len(tools), "KEEP"), (len(admin_tools) - len(tools), "GATE"),
+                         (len(curated), "curated-out"), (len(excluded), "design-17"),
+                         (len(ops), "graded")):
+        assert f"{count}" in doc, f"the {label} count ({count}) is not in the docstring"
 
 
 def test_renames_applied(tools, admin_tools):

@@ -4,6 +4,7 @@ from agentplatform.agents import AgentStore
 from agentplatform.api.app import (create_app, kafka_consumer_factory,
                                    relay_feed_consumer_factory,
                                    tickets_feed_consumer_factory,
+                                   quota_events_consumer_factory,
                                    wiki_events_consumer_factory)
 from agentplatform.config import get_settings
 from agentplatform.events import Producer
@@ -32,6 +33,7 @@ def build_app():
         feed_consumer_factory=relay_feed_consumer_factory(settings),
         ticket_feed_consumer_factory=tickets_feed_consumer_factory(settings),
         wiki_feed_consumer_factory=wiki_events_consumer_factory(settings),
+        quota_feed_consumer_factory=quota_events_consumer_factory(settings),
     )
     app.state.sa_validator = _make_sa_validator()
     return app

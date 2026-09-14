@@ -57,6 +57,9 @@ from .metrics_overview_by_state import MetricsOverviewByState
 from .model_option import ModelOption
 from .model_usage import ModelUsage
 from .notify_in import NotifyIn
+from .observe_quota_quota_ignored import ObserveQuotaQuotaIgnored
+from .observe_quota_quota_observe_in import ObserveQuotaQuotaObserveIn
+from .observe_quota_quota_observe_in_headers import ObserveQuotaQuotaObserveInHeaders
 from .ok import Ok
 from .ok_id import OkId
 from .ok_id_state import OkIdState
@@ -68,6 +71,8 @@ from .probe_in_headers import ProbeInHeaders
 from .prune_result import PruneResult
 from .pull_request import PullRequest
 from .pull_request_file import PullRequestFile
+from .quota import Quota
+from .quota_window import QuotaWindow
 from .relay_binding_in import RelayBindingIn
 from .relay_binding_in_config import RelayBindingInConfig
 from .relay_binding_ref import RelayBindingRef
@@ -239,6 +244,9 @@ __all__ = (
     "ModelOption",
     "ModelUsage",
     "NotifyIn",
+    "ObserveQuotaQuotaIgnored",
+    "ObserveQuotaQuotaObserveIn",
+    "ObserveQuotaQuotaObserveInHeaders",
     "Ok",
     "OkId",
     "OkIdState",
@@ -250,6 +258,8 @@ __all__ = (
     "PruneResult",
     "PullRequest",
     "PullRequestFile",
+    "Quota",
+    "QuotaWindow",
     "RelayBindingIn",
     "RelayBindingInConfig",
     "RelayBindingRef",

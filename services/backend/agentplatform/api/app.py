@@ -21,6 +21,7 @@ from agentplatform.api import maintenance as maintenance_api
 from agentplatform.api import memory as memory_api
 from agentplatform.api import metrics as metrics_api
 from agentplatform.api import pulls as pulls_api
+from agentplatform.api import quota as quota_api
 from agentplatform.api import relay as relay_api
 from agentplatform.api import reports as reports_api
 from agentplatform.api import jobs as jobs_api
@@ -34,6 +35,7 @@ from agentplatform.api import tickets as tickets_api
 from agentplatform.api import tools as tools_api
 from agentplatform.api import tail as tail_api
 from agentplatform.api import wiki as wiki_api
+from agentplatform import quota_store
 from agentplatform.db import make_engine, make_session_factory, init_db
 from agentplatform.relay_feed import RelayFeed
 from agentplatform.secrets import InMemorySecretStore
@@ -141,10 +143,32 @@ def wiki_events_consumer_factory(settings):
     return factory
 
 
+def quota_events_consumer_factory(settings):
+    """Production factory for the usage sidebar's live feed: `quota.events`, a
+    fresh group per pod from `latest`. Its own consumer for the reason the wiki
+    has its own — a feed falling behind must cost only its own subscribers."""
+
+    def factory():
+        import socket
+        import uuid
+        from aiokafka import AIOKafkaConsumer
+        from agentplatform.events import TOPIC_QUOTA_EVENTS
+
+        return AIOKafkaConsumer(
+            TOPIC_QUOTA_EVENTS,
+            bootstrap_servers=settings.kafka_bootstrap,
+            group_id=f"api-quota-{socket.gethostname() or uuid.uuid4().hex[:8]}",
+            auto_offset_reset="latest",
+        )
+
+    return factory
+
+
 def create_app(settings, session_factory, producer, secret_store=None, agent_store=None,
                 consumer_factory=None, feed_consumer_factory=None,
                 ticket_feed_consumer_factory=None,
-                wiki_feed_consumer_factory=None) -> FastAPI:
+                wiki_feed_consumer_factory=None,
+                quota_feed_consumer_factory=None) -> FastAPI:
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         st = app.state
@@ -159,6 +183,7 @@ def create_app(settings, session_factory, producer, secret_store=None, agent_sto
         st.feed.session_factory = st.session_factory
         st.ticket_feed.session_factory = st.session_factory
         st.wiki_feed.session_factory = st.session_factory
+        st.quota_feed.session_factory = st.session_factory
         # Agent definitions are rows (docs/design/15): prime the cache once the
         # session factory exists, so the first request reads real agents rather
         # than an empty store waiting on its TTL refresh.
@@ -218,7 +243,8 @@ def create_app(settings, session_factory, producer, secret_store=None, agent_sto
                       for name, feed, factory in
                       (("relay", st.feed, st.feed_consumer_factory),
                        ("tickets", st.ticket_feed, st.ticket_feed_consumer_factory),
-                       ("wiki", st.wiki_feed, st.wiki_feed_consumer_factory))
+                       ("wiki", st.wiki_feed, st.wiki_feed_consumer_factory),
+                       ("quota", st.quota_feed, st.quota_feed_consumer_factory))
                       if factory is not None]
         try:
             yield
@@ -231,6 +257,13 @@ def create_app(settings, session_factory, producer, secret_store=None, agent_sto
             # land on top of one mid-query. Cancel it before the producer stops
             # and the engine goes: an ordered teardown, not a destroyed task.
             await st.agent_store.aclose()
+            # The quota probe's client is made on first use and would otherwise
+            # outlive the app with its connection pool open.
+            if getattr(st, "quota_client", None) is not None:
+                try:
+                    await st.quota_client.aclose()
+                except Exception:
+                    pass
             if st.producer is not None:
                 try:
                     await st.producer.stop()
@@ -250,6 +283,7 @@ def create_app(settings, session_factory, producer, secret_store=None, agent_sto
     st.feed_consumer_factory = feed_consumer_factory
     st.ticket_feed_consumer_factory = ticket_feed_consumer_factory
     st.wiki_feed_consumer_factory = wiki_feed_consumer_factory
+    st.quota_feed_consumer_factory = quota_feed_consumer_factory
     secret_store = secret_store or InMemorySecretStore()
     agent_store = agent_store or AgentStore(session_factory)
     st.secret_store, st.agent_store = secret_store, agent_store
@@ -259,6 +293,11 @@ def create_app(settings, session_factory, producer, secret_store=None, agent_sto
     st.feed = RelayFeed(session_factory)
     st.ticket_feed = tickets_api.ticket_feed(session_factory)
     st.wiki_feed = wiki_api.wiki_feed(session_factory)
+    st.quota_feed = quota_store.quota_feed(session_factory)
+    # The quota probe's HTTP client and its coalescing lock are made on
+    # first use (api/quota.py). Named here because this is the seam a test
+    # replaces with a MockTransport so the suite never dials Anthropic.
+    st.quota_client = None
     from agentplatform.skills import SkillStore
     st.skill_store = SkillStore(Path(settings.skills_root))
     from agentplatform.secretregistry import SecretRegistry
@@ -284,6 +323,10 @@ def create_app(settings, session_factory, producer, secret_store=None, agent_sto
     app.include_router(memory_api.router)
     app.include_router(metrics_api.router)
     app.include_router(pulls_api.router)
+    app.include_router(quota_api.router)
+    # No auth dependency anywhere on this one: the shared secret IS the
+    # credential (docs/design/22), because nginx presents nothing else.
+    app.include_router(quota_api.internal_router)
     app.include_router(relay_api.router)
     app.include_router(reports_api.router)
     app.include_router(schedules_api.router)
