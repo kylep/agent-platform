@@ -149,7 +149,26 @@ jobs:
         # OCI deps (bitnamicharts) are handled natively by helm 3.8+; no login needed.
         run: helm dependency update charts/agent-platform
       - name: Lint chart
-        run: helm lint charts/agent-platform --set env.AP_SESSION_SECRET=x
+        # Both secrets are `required` in the templates, so a lint needs both.
+        run: helm lint charts/agent-platform --set env.AP_SESSION_SECRET=x --set env.AP_INTERNAL_SECRET=y
+
+  claude-proxy:
+    # The proxy has no source of its own — it is nginx, njs and the chart's
+    # ConfigMap — so its tests render the chart and run the real image over the
+    # render. Runners have Docker, so the integration tests run for real here.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: azure/setup-helm@v4
+      - name: Update chart dependencies
+        run: helm dependency update charts/agent-platform
+      - name: Install test deps
+        run: pip install pytest pyyaml
+      - name: Run claude-proxy tests
+        run: cd services/claude-proxy && python -m pytest -q
 
   secret-scan:
     # GATING backstop for the local pre-commit hooks (.pre-commit-config.yaml):

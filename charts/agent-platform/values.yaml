@@ -57,6 +57,16 @@ claudeProxy:
   # ClusterIP of the cluster DNS service, for nginx's `resolver` directive
   # (k3s/CoreDNS default). nginx needs an address here, not a name.
   resolver: 10.43.0.10
+  # The forwarding target. Only the integration test moves it, to a plain-HTTP
+  # fake. TLS verification follows the scheme, so there is no combination of
+  # values that ships the token over https without checking the certificate.
+  upstream: https://api.anthropic.com
+  # Quota capture (docs/design/22): the proxy reads Anthropic's
+  # anthropic-ratelimit-unified-* response headers and pushes a snapshot to the
+  # platform API, which is how the platform learns its own usage at all.
+  quota:
+    enabled: true
+    apiUrl: http://agent-platform-api:8000
 
 # Per-service resource requests/limits for the agent-platform-owned Deployments
 # (api, dispatcher, recorder, web). Subchart (postgresql/kafka) resources are
@@ -168,6 +178,8 @@ agents:
 # values and are not set here. AP_SESSION_SECRET has intentionally no default
 # below -- the templates use `required` and installs fail without one, e.g.
 #   --set env.AP_SESSION_SECRET=... or -f a values file that sets it.
+# AP_INTERNAL_SECRET is the same kind of value: no default, required, and it
+# authenticates the claude-proxy's quota push to the API (docs/design/22).
 env:
   AP_K8S_NAMESPACE: ""
   AP_GLOBAL_CONCURRENCY: "3"
@@ -199,6 +211,7 @@ topics:
     - {name: relay.invocations, partitions: 3, retentionMs: "2592000000"}    # 30d (why an @mention did nothing)
     - {name: tickets.events, partitions: 3, retentionMs: "2592000000"}       # 30d (the board's live feed + the standup strip)
     - {name: wiki.events, partitions: 3, retentionMs: "2592000000"}          # 30d (every page write → the wiki's live feed)
+    - {name: quota.events, partitions: 1, retentionMs: "604800000"}         # 7d (usage snapshot changes; the row in pg is the current value)
     - {name: platform.tool.audit, partitions: 3, retentionMs: "604800000"}  # 7d (audit; durable copy in pg)
     - {name: dead.letter, partitions: 1, retentionMs: "604800000"}     # 7d
   # Hand-pinned to match the kafka.image.tag the bitnami/kafka subchart

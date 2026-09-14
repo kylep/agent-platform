@@ -32,7 +32,8 @@ spec:
 ---
 # api: from web (UI proxy), runner pods (system/memory agents call the API),
 # the mcp-broker (it forwards every brokered tool call here with the caller's
-# own token), and the mcp-facade (same, for external clients — design/17).
+# own token), the mcp-facade (same, for external clients — design/17), and the
+# claude-proxy (its quota snapshot push — design/22).
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -50,7 +51,7 @@ spec:
         - podSelector:
             matchExpressions:
               - {key: app.kubernetes.io/name, operator: In, values: [agent-platform]}
-              - {key: app.kubernetes.io/component, operator: In, values: [web, runner, mcp-broker, mcp-facade]}
+              - {key: app.kubernetes.io/component, operator: In, values: [web, runner, mcp-broker, mcp-facade, claude-proxy]}
       ports:
         - port: 8000
           protocol: TCP
@@ -167,7 +168,8 @@ spec:
           protocol: TCP
 ---
 # claude-proxy: runner pods reach it on 8000; it holds the Claude token and
-# forwards to api.anthropic.com (docs/design/09).
+# forwards to api.anthropic.com (docs/design/09). The api reaches it too, to
+# probe the live quota on demand (docs/design/22).
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -185,7 +187,7 @@ spec:
         - podSelector:
             matchExpressions:
               - {key: app.kubernetes.io/name, operator: In, values: [agent-platform]}
-              - {key: app.kubernetes.io/component, operator: In, values: [runner]}
+              - {key: app.kubernetes.io/component, operator: In, values: [runner, api]}
       ports:
         - port: 8000
           protocol: TCP

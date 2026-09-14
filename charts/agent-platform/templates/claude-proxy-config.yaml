@@ -1,4 +1,6 @@
 {{- if .Values.claudeProxy.enabled }}
+{{- $upstream := urlParse .Values.claudeProxy.upstream }}
+{{- $quota := and .Values.claudeProxy.quota.enabled .Values.claudeProxy.enabled }}
 # Auth-injecting egress proxy for the Claude API (docs/design/09): the ONLY pod
 # that holds the Claude subscription token. Runner pods run `claude` with a
 # placeholder credential and ANTHROPIC_BASE_URL pointed here; nginx replaces
@@ -47,7 +49,98 @@ data:
         return '';
       }
     }
-    export default {auth};
+    // Quota capture (docs/design/22). njs refuses to start an async request from
+    // a header filter -- nginx aborts the response ("async operation inside ...
+    // header filter") and the client gets an empty reply -- so the filter only
+    // parks the snapshot in a shared dict and a timer does the POST. A model
+    // call therefore never waits on, and never fails with, the quota hop.
+    var quotaUrl = '{{ .Values.claudeProxy.quota.apiUrl }}/api/internal/quota';
+    // What the platform actually reads. Everything else Anthropic sends under
+    // the prefix rides along (overage/grace fields arrive without a redeploy),
+    // but these are what survive if the header set is too big to store.
+    var quotaFields = ['anthropic-ratelimit-unified-5h-utilization',
+                       'anthropic-ratelimit-unified-5h-reset',
+                       'anthropic-ratelimit-unified-7d-utilization',
+                       'anthropic-ratelimit-unified-7d-reset',
+                       'anthropic-ratelimit-unified-status'];
+    function quotaCapture(r) {
+      // This runs on every model response, so it may log but must NEVER throw:
+      // an exception out of a header filter is NGX_ERROR, i.e. the client's
+      // response destroyed by the bookkeeping meant to be invisible to it.
+      try {
+        var headers = {};
+        var found = false;
+        for (var name in r.headersOut) {
+          var field = name.toLowerCase();
+          if (field.indexOf('anthropic-ratelimit-unified-') !== 0) continue;
+          // A repeated header comes back as an array; nginx sends the last one,
+          // and String([a, b]) would comma-join them into a value nobody sent.
+          var value = r.headersOut[name];
+          headers[field] = String(Array.isArray(value) ? value[value.length - 1] : value);
+          found = true;
+        }
+        if (!found) return;
+        var snapshot = {
+          headers: headers,
+          status: Number(r.status),
+          observed_at: new Date().toISOString().replace(/\.\d+Z$/, 'Z')
+        };
+        var body = JSON.stringify(snapshot);
+        if (body.length > 4096) {
+          // The upstream's header set is not ours to bound: keep the fields the
+          // platform reads rather than handing the zone an unbounded value.
+          snapshot.headers = {};
+          for (var i = 0; i < quotaFields.length; i++) {
+            if (headers[quotaFields[i]] !== undefined) {
+              snapshot.headers[quotaFields[i]] = headers[quotaFields[i]];
+            }
+          }
+          body = JSON.stringify(snapshot);
+        }
+        ngx.shared.quota.set('snapshot', body);
+      } catch (e) {
+        r.warn('quota capture failed: ' + e.message);
+      }
+    }
+    function quotaPush() {
+      // Two keys, not pop(): on an expiring dict -- and evict demands a
+      // timeout -- njs 1.0.0's pop() removes the entry and hands back
+      // undefined, losing the snapshot. So the filter writes 'snapshot' and
+      // this posts whenever it differs from 'sent'. The marker lives in the
+      // zone because each tick gets a fresh njs VM: a module-level variable
+      // would forget what it sent and re-post the same reading forever.
+      var body = ngx.shared.quota.get('snapshot');
+      if (body === undefined || body === ngx.shared.quota.get('sent')) {
+        return Promise.resolve();
+      }
+      var secret;
+      try {
+        // Read here, at post time, so a rotation of the mounted secret takes
+        // effect without a restart -- and off the response's hot path.
+        secret = fs.readFileSync('/secrets/internal/quota').toString().trim();
+      } catch (e) {
+        ngx.log(ngx.WARN, 'quota secret unreadable: ' + e.message);
+        return Promise.resolve();
+      }
+      // Marked sent BEFORE the fetch and un-marked on failure: njs leaves the
+      // promise unsettled for some replies (a bare 204), and waiting for a
+      // settle that never comes would re-post the same reading every tick.
+      ngx.shared.quota.set('sent', body);
+      return ngx.fetch(quotaUrl, {
+        method: 'POST',
+        body: body,
+        headers: {'Content-Type': 'application/json', 'X-AP-Internal-Secret': secret}
+      }).then(function (response) {
+        if (!response.ok) {
+          ngx.shared.quota.delete('sent');
+          ngx.log(ngx.WARN, 'quota post rejected: ' + response.status);
+        }
+      }).catch(function (e) {
+        ngx.shared.quota.delete('sent');
+        ngx.log(ngx.WARN, 'quota post failed: ' + e.message);
+      });
+    }
+    export default {auth, quotaCapture, quotaPush};
   # Rendered by the nginx image's envsubst entrypoint into /etc/nginx/conf.d;
   # ${VARS} are container env. nginx runtime vars ($upstream, $claude_auth) are
   # untouched (envsubst only substitutes names present in the environment).
@@ -55,29 +148,52 @@ data:
     js_path "/etc/nginx/njs/";
     js_import claude from claude.js;
     js_set $claude_auth claude.auth;
+{{- if $quota }}
+    # evict: on exhaustion drop the oldest entry rather than throwing into the
+    # header filter (nginx requires a timeout= alongside it; a snapshot nothing
+    # popped within the minute is stale anyway). Shared across workers -- the
+    # filter runs in whichever worker served the model call, the timer in one.
+    js_shared_dict_zone zone=quota:32k timeout=60s evict;
+{{- end }}
     server {
       listen 8000;
       # Resolve the upstream through cluster DNS and honor TTLs, so a
       # long-lived pod tracks Anthropic IP changes (a static proxy_pass
       # resolves once at startup and can go stale).
       resolver ${DNS_RESOLVER} valid=300s ipv6=off;
+{{- if $quota }}
+      location @quota_push {
+        # Under the tick: a slow API must lose its own POST, not have the next
+        # tick kill it ("already running, killing previous instance"), which
+        # would silently drop every snapshot and never reach the .catch.
+        js_fetch_timeout 1500ms;
+        js_periodic claude.quotaPush interval=5s;
+      }
+{{- end }}
       location / {
-        set $upstream https://api.anthropic.com;
+        set $upstream {{ .Values.claudeProxy.upstream }};
         proxy_pass $upstream;
         proxy_http_version 1.1;
         proxy_set_header Connection "";
-        proxy_set_header Host api.anthropic.com;
+        proxy_set_header Host {{ $upstream.host }};
         # Replace the runner's placeholder credential with the real token;
         # whatever the client sent is never forwarded.
         proxy_set_header Authorization $claude_auth;
         proxy_set_header x-api-key "";
+{{- if hasPrefix "https://" .Values.claudeProxy.upstream }}
         # Verify the upstream's TLS identity (nginx defaults to no verify).
+        # Tied to the scheme, not a separate switch: there is no way to send the
+        # subscription token over TLS without checking who is on the other end.
         proxy_ssl_server_name on;
-        proxy_ssl_name api.anthropic.com;
+        proxy_ssl_name {{ $upstream.hostname }};
         proxy_ssl_protocols TLSv1.2 TLSv1.3;
         proxy_ssl_verify on;
         proxy_ssl_trusted_certificate /etc/ssl/certs/ca-certificates.crt;
         proxy_ssl_verify_depth 3;
+{{- end }}
+{{- if $quota }}
+        js_header_filter claude.quotaCapture;
+{{- end }}
         # Stream SSE tokens as they arrive; don't spool bodies.
         proxy_buffering off;
         proxy_request_buffering off;

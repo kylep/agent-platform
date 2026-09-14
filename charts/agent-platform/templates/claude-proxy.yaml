@@ -48,6 +48,13 @@ spec:
             - name: claude-credentials
               mountPath: /secrets/claude
               readOnly: true
+{{- if .Values.claudeProxy.quota.enabled }}
+            # Same story for the quota push credential (docs/design/22): a file,
+            # so rotating it does not mean restarting the proxy.
+            - name: internal-secret
+              mountPath: /secrets/internal
+              readOnly: true
+{{- end }}
             - name: config
               mountPath: /etc/nginx/nginx.conf
               subPath: nginx.conf
@@ -75,6 +82,11 @@ spec:
         - name: claude-credentials
           secret:
             secretName: claude-credentials
+{{- if .Values.claudeProxy.quota.enabled }}
+        - name: internal-secret
+          secret:
+            secretName: {{ .Release.Name }}-internal
+{{- end }}
         - name: config
           configMap:
             name: {{ .Release.Name }}-claude-proxy

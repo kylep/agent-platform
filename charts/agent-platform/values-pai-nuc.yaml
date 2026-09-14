@@ -1,7 +1,7 @@
 # Memory profile for the pai-nuc single-node cluster (local-path storage,
 # tight resource envelope). Layer over values.yaml with:
 #   helm install agent-platform charts/agent-platform -f values-pai-nuc.yaml \
-#     --set env.AP_SESSION_SECRET=...
+#     --set env.AP_SESSION_SECRET=... --set env.AP_INTERNAL_SECRET=...
 
 resources:
   api:
