@@ -335,7 +335,7 @@ dispatch subagents, verify their evidence, commit, and update this file.
 
 ### Phase 3 — the agents' side and the sidebar (T4 and T5 are disjoint)
 
-- [ ] **T4 Broker tool `get_quota_usage` + default grant.** `[after T3 reports]` `[parallel with T5]` (AC-3)
+- [x] **T4 Broker tool `get_quota_usage` + default grant.** `[after T3 reports]` `[parallel with T5]` (AC-3) (commit `717958b`; also DEFAULT_GRANTS for new agents + the librarian seed; review caught the seed-after-sweep gap)
   Design sections: "The `get_quota_usage` tool", "Identity, trust, and
   guards".
   Files: `services/mcp-broker/broker.py` (a plain `@mcp.tool` +
