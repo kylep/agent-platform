@@ -415,7 +415,7 @@ dispatch subagents, verify their evidence, commit, and update this file.
 
 ### Phase 4 — ship it
 
-- [ ] **T6 Docs.** (all ACs) `[after T4 and T5 are committed]`
+- [x] **T6 Docs.** (all ACs) `[after T4 and T5 are committed]` (commit `3ed2eb7`; facade tiers recomputed from the live spec; link check by the orchestrator)
   Files: `docs/design/22-quota-usage-bars.md` (Status → shipped pending
   T7; fill "AS BUILT" from the commits: the njs approach that worked, the
   probe step that answered if T7 already ran — otherwise leave that line
