@@ -366,7 +366,7 @@ dispatch subagents, verify their evidence, commit, and update this file.
   an agent holding the grant lists `mcp__platform__get_quota_usage` in its
   allowed tools.
 
-- [ ] **T5 Sidebar bars: tokens, `QuotaBars`, `useQuota`, wiring.** `[ui]` `[after T3 reports]` `[parallel with T4]` (AC-4, AC-5)
+- [x] **T5 Sidebar bars: tokens, `QuotaBars`, `useQuota`, wiring.** `[ui]` `[after T3 reports]` `[parallel with T4]` (AC-4, AC-5) (commit `197a72c`; combined defect+visual review: inversion clean at the fill edge, fixed half-dimmed stale bars and a clock-regression wedge; chip hues deepened one step for 4.5:1 in both label layers)
   Design sections: "Web UI (the sidebar)" with its Alternatives table, and
   the AC-4/AC-5 lines of "The ask".
   Files: `packages/ui/src/tokens.css` (primitives `--color-blue-400` and
@@ -492,6 +492,8 @@ _(low/medium findings the loop chose not to fix, with file:line)_
 - T1: the periodic push means the snapshot lags a response by up to 5 s
   and a burst collapses to its newest reading (design allowed this
   fallback).
+- T5: a refresh that fails (503) leaves the bars at the stale snapshot for that page load (one probe per load, by design); `useQuota.ts`.
+- T5: utilization 0.995–0.999 renders as 100% (half-up parity with the backend).
 - T1: the shared dict entry expires after 60 s (`evict` requires a
   `timeout`); a reading nobody could post inside a minute is dropped.
 
