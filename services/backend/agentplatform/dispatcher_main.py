@@ -19,7 +19,8 @@ from agentplatform.conversation_ingest import ConversationIngestor
 from agentplatform.ingest import Ingestor, ToolAuditIngestor
 from agentplatform.joblauncher import JobWatcher, K8sJobLauncher
 from agentplatform.github import GitHubClient
-from agentplatform.pruning import ReportPruner, TranscriptPruner, sweep_orphaned_keys_forever
+from agentplatform.pruning import (ArtifactPruner, ReportPruner, TranscriptPruner,
+                                   sweep_orphaned_keys_forever)
 from agentplatform.prsummarizer import PrSummarizer
 from agentplatform.relay_router import RelayRouter
 from agentplatform.reportregistry import ReportTypeRegistry
@@ -67,7 +68,8 @@ async def main() -> None:
     engine = make_engine(settings.db_url)
     await init_db(engine, settings.relay_default_grant,
                   settings.tickets_default_grant, settings.wiki_default_grant,
-                  quota_grant=settings.quota_default_grant)
+                  quota_grant=settings.quota_default_grant,
+                  artifacts_grant=settings.artifacts_default_grant)
     session_factory = make_session_factory(engine)
 
     producer = Producer(settings.kafka_bootstrap, source="dispatcher")
@@ -97,6 +99,7 @@ async def main() -> None:
     scheduler = Scheduler(session_factory, agent_store, producer)
     pruner = TranscriptPruner(session_factory, agent_store, settings)
     report_pruner = ReportPruner(session_factory, ReportTypeRegistry(settings.reports_root))
+    artifact_pruner = ArtifactPruner(session_factory, settings)
     app_provisioner = AppProvisioner(AppRegistry(settings.apps_root), engine,
                                      session_factory,
                                      K8sSecretStore(core, settings.k8s_namespace),
@@ -124,6 +127,7 @@ async def main() -> None:
         await asyncio.gather(dispatcher.run_forever(), watcher.run_forever(),
                              dispatcher.sweep_forever(), scheduler.run_forever(),
                              pruner.run_forever(), report_pruner.run_forever(),
+                             artifact_pruner.run_forever(),
                              app_provisioner.run_forever(), tool_provisioner.run_forever(),
                              ingestor.run_forever(), audit_ingestor.run_forever(),
                              conv_ingestor.run_forever(), relay_router.run_forever(),

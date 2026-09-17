@@ -61,6 +61,8 @@ async def list_tool_help(request: Request):
     out = [{"sensitive": False, **t} for t in TOOL_HELP]
     registry = request.app.state.tool_registry
     registry.reload()
+    # Not `valid()`: an internal tool is the API's to run and is never on the
+    # MCP surface, so a grant to it would be dead and its help a lie.
     out += [{"name": m.mcp_name, "kind": "platform", "sensitive": False,
-             "description": m.description} for m in registry.valid()]
+             "description": m.description} for m in registry.valid() if not m.internal]
     return out

@@ -18,6 +18,10 @@ from .api_key_created import ApiKeyCreated
 from .api_key_in import ApiKeyIn
 from .api_key_view import ApiKeyView
 from .app_view import AppView
+from .artifact_patch import ArtifactPatch
+from .artifact_stats import ArtifactStats
+from .artifact_view import ArtifactView
+from .artifact_view_meta import ArtifactViewMeta
 from .backlog import Backlog
 from .change_impact import ChangeImpact
 from .change_impact_item import ChangeImpactItem
@@ -30,6 +34,12 @@ from .conversation_in import ConversationIn
 from .conversation_patch import ConversationPatch
 from .conversation_turn import ConversationTurn
 from .conversation_view import ConversationView
+from .create_artifact_files_body import CreateArtifactFilesBody
+from .create_artifact_json_artifact_in import CreateArtifactJsonArtifactIn
+from .create_artifact_json_artifact_in_meta_type_0 import (
+    CreateArtifactJsonArtifactInMetaType0,
+)
+from .create_artifact_json_artifact_in_source import CreateArtifactJsonArtifactInSource
 from .creds import Creds
 from .cron_entry_in import CronEntryIn
 from .cron_preview import CronPreview
@@ -46,6 +56,8 @@ from .job_patch import JobPatch
 from .job_run_accepted import JobRunAccepted
 from .job_view import JobView
 from .kafka_health import KafkaHealth
+from .list_artifacts_kind_type_0 import ListArtifactsKindType0
+from .list_artifacts_source_type_0 import ListArtifactsSourceType0
 from .memory_in import MemoryIn
 from .memory_patch import MemoryPatch
 from .memory_view import MemoryView
@@ -205,6 +217,10 @@ __all__ = (
     "ApiKeyIn",
     "ApiKeyView",
     "AppView",
+    "ArtifactPatch",
+    "ArtifactStats",
+    "ArtifactView",
+    "ArtifactViewMeta",
     "Backlog",
     "ChangeImpact",
     "ChangeImpactItem",
@@ -217,6 +233,10 @@ __all__ = (
     "ConversationPatch",
     "ConversationTurn",
     "ConversationView",
+    "CreateArtifactFilesBody",
+    "CreateArtifactJsonArtifactIn",
+    "CreateArtifactJsonArtifactInMetaType0",
+    "CreateArtifactJsonArtifactInSource",
     "Creds",
     "CronEntryIn",
     "CronPreview",
@@ -233,6 +253,8 @@ __all__ = (
     "JobRunAccepted",
     "JobView",
     "KafkaHealth",
+    "ListArtifactsKindType0",
+    "ListArtifactsSourceType0",
     "MemoryIn",
     "MemoryPatch",
     "MemoryView",

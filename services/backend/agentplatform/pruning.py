@@ -102,6 +102,49 @@ class ReportPruner:
             await asyncio.sleep(interval_seconds)
 
 
+class ArtifactPruner:
+    """Artifact retention (docs/design/23): a delete is `deleted_at`, so a
+    `[[artifact:]]` card naming a gone artifact resolves to "deleted" rather
+    than to nothing; this is what finally removes the row — and its bytes,
+    which are a separate table with no cascade promised on every dialect —
+    once it has been gone `artifacts_prune_days`. A window of <= 0 keeps the
+    soft-deleted rows forever. Live rows are never touched."""
+
+    def __init__(self, session_factory, settings):
+        self.sf = session_factory
+        self.settings = settings
+
+    async def prune_once(self, now=None) -> int:
+        """Hard-delete soft-deleted artifacts past the window. Returns the
+        number of artifact rows deleted."""
+        from agentplatform.db import Artifact, ArtifactBlob
+        days = self.settings.artifacts_prune_days
+        if days <= 0:
+            return 0
+        cutoff = (now or utcnow()) - timedelta(days=days)
+        deleted = 0
+        async with self.sf() as s:
+            expired = (await s.execute(select(Artifact.id).where(
+                Artifact.deleted_at.isnot(None), Artifact.deleted_at < cutoff))).scalars().all()
+            for i in range(0, len(expired), _CHUNK):
+                chunk = expired[i:i + _CHUNK]
+                await s.execute(delete(ArtifactBlob).where(ArtifactBlob.artifact_id.in_(chunk)))
+                res = await s.execute(delete(Artifact).where(Artifact.id.in_(chunk)))
+                deleted += res.rowcount or 0
+            await s.commit()
+        if deleted:
+            log.info("pruned %d artifacts deleted more than %d days ago", deleted, days)
+        return deleted
+
+    async def run_forever(self, interval_seconds: int = 86400) -> None:
+        while True:
+            try:
+                await self.prune_once()
+            except Exception:
+                log.exception("artifact prune failed")
+            await asyncio.sleep(interval_seconds)
+
+
 async def sweep_orphaned_keys_forever(session_factory, interval_seconds: int = 900) -> None:
     """Containment + hygiene: revoke per-run API keys whose run already
     terminated but whose terminal-frame revocation never happened (crashed

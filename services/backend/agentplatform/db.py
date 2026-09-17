@@ -464,6 +464,58 @@ class QuotaSnapshot(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
 
 
+class Artifact(Base):
+    """A named blob the platform keeps (docs/design/23): a screenshot an agent
+    saved, an image it generated, a file a person dropped on the Studio.
+
+    Everything here is metadata; the bytes are an `ArtifactBlob` row keyed by
+    the same id, so that a list — the Studio's grid, the `[[artifact:]]` card,
+    the events topic — never drags a megabyte per row through the session.
+    `mime` and `kind` are what the BYTES said on the way in (the store sniffs
+    magic; it never keeps a client's claim), which is what lets the content
+    route decide `inline` from the row alone. `owner` is a Relay participant
+    string, the identity seam every block shares, and it comes from the
+    token: an agent cannot save as somebody else. Deleting is `deleted_at`
+    rather than a DELETE so a card that names a gone artifact still resolves
+    to "deleted" and not to nothing; the pruner hard-deletes later."""
+    __tablename__ = "artifacts"
+    # The Studio pages by owner and by source, newest first; the pruner scans
+    # by deleted_at. Postgres walks these backwards for the desc order.
+    __table_args__ = (Index("ix_artifacts_owner_created", "owner", "created_at"),
+                      Index("ix_artifacts_source_created", "source", "created_at"),
+                      Index("ix_artifacts_deleted", "deleted_at"))
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=lambda: uuid.uuid4().hex)
+    name: Mapped[str] = mapped_column(String(120))
+    mime: Mapped[str] = mapped_column(String(80))
+    size: Mapped[int] = mapped_column(Integer)
+    sha256: Mapped[str] = mapped_column(String(64))
+    # image | file — image only for the four rasters Pillow made a thumb of.
+    kind: Mapped[str] = mapped_column(String(8))
+    width: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    height: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # Images only: ≤ 512 px on the long side, JPEG (PNG when there is alpha),
+    # ≤ 150 KiB. Small enough to live on the row the grid reads.
+    thumb: Mapped[bytes | None] = mapped_column(LargeBinary, nullable=True)
+    owner: Mapped[str] = mapped_column(String(160))
+    run_id: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    # upload | generated | derived | tool
+    source: Mapped[str] = mapped_column(String(12), default="upload")
+    # Provenance, shaped by the source: a generation's model and prompt, a
+    # derivative's parent, a tool's name. Capped at 8 KB of JSON at the door.
+    meta: Mapped[dict] = mapped_column(JSON, default=dict)
+    tags: Mapped[list] = mapped_column(JSON, default=list)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class ArtifactBlob(Base):
+    """An artifact's bytes, alone in their own table for the reason above: the
+    only query that touches this table is the one serving them."""
+    __tablename__ = "artifact_blobs"
+    artifact_id: Mapped[str] = mapped_column(String(32), primary_key=True)
+    data: Mapped[bytes] = mapped_column(LargeBinary)
+
+
 class SchemaMark(Base):
     """One-time data migrations record themselves here. create_all and
     _ensure_columns are naturally idempotent; a BACKFILL is not — it has to know
@@ -814,6 +866,7 @@ WIKI_GRANT_MARK = "wiki-default-grant-v1"
 WIKI_AGENT_MARK = "wiki-agent-v1"
 WIKI_GARDENER_MARK = "wiki-gardener-v1"
 QUOTA_GRANT_MARK = "quota-default-grant-v1"
+ARTIFACTS_GRANT_MARK = "artifacts-default-grant-v1"
 
 # The channels that become PROJECTS when Tickets ships (docs/design/20), and
 # the prefix each one's keys are stamped with. #standup is deliberately absent:
@@ -1112,7 +1165,8 @@ def _ensure_wiki_agent(conn) -> None:
     name = "wiki"
     if not conn.execute(select(def_t.c.name).where(def_t.c.name == name)).first():
         from agentplatform.agentdefs import AgentDefModel
-        from agentplatform.agentspec import TOOL_RELAY, TOOL_TICKETS, TOOL_WIKI, TOOL_QUOTA
+        from agentplatform.agentspec import (TOOL_ARTIFACTS, TOOL_QUOTA, TOOL_RELAY,
+                                             TOOL_TICKETS, TOOL_WIKI)
         # The row is built FROM the snapshot rather than beside it, so the
         # definition and its first change-log entry cannot describe different
         # agents — and every field the model defaults is the platform default
@@ -1120,7 +1174,8 @@ def _ensure_wiki_agent(conn) -> None:
         snapshot = AgentDefModel(
             name=name, prompt=WIKI_AGENT_PROMPT,
             description=WIKI_AGENT_DESCRIPTION, system=True,
-            platform_tools=[TOOL_RELAY, TOOL_TICKETS, TOOL_WIKI, TOOL_QUOTA],
+            platform_tools=[TOOL_RELAY, TOOL_TICKETS, TOOL_WIKI, TOOL_QUOTA,
+                            TOOL_ARTIFACTS],
         ).model_dump(mode="json")
         version = (conn.execute(select(func.max(ver_t.c.version))
                                 .where(ver_t.c.agent == name)).scalar() or 0) + 1
@@ -1543,6 +1598,17 @@ def _ensure_quota_default_grant(conn, default_grant: bool = True) -> None:
                           default_grant=default_grant)
 
 
+def _ensure_artifacts_default_grant(conn, default_grant: bool = True) -> None:
+    """Give every agent that already exists the artifacts grant
+    (docs/design/23) — as ambient as Relay's, and its own mark for the reason
+    every sweep since Tickets' has been: it ships a release after the others
+    ran and marked themselves."""
+    from agentplatform.agentspec import TOOL_ARTIFACTS
+    _grant_to_every_agent(conn, TOOL_ARTIFACTS, ARTIFACTS_GRANT_MARK,
+                          changed_by="platform:artifacts-default-grant",
+                          default_grant=default_grant)
+
+
 def _grant_to_every_agent(conn, tool: str, mark: str, *, changed_by: str,
                           default_grant: bool) -> None:
     """The one-time sweep behind a default-granted platform tool.
@@ -1624,10 +1690,11 @@ def _relay_message(channel_id, author, body, created_at, run_id=None) -> dict:
 
 async def init_db(engine: AsyncEngine, default_grant: bool = True,
                   tickets_grant: bool = True, wiki_grant: bool = True,
-                  quota_grant: bool = True) -> None:
+                  quota_grant: bool = True, artifacts_grant: bool = True) -> None:
     """Bring the schema up to date and run the one-off backfills.
 
-    `default_grant`, `tickets_grant`, `wiki_grant` and `quota_grant` are the
+    `default_grant`, `tickets_grant`, `wiki_grant`, `quota_grant` and
+    `artifacts_grant` are the
     default-grant settings (`settings.relay_default_grant` and its siblings) —
     passed in rather than read, because this runs in three services (API,
     dispatcher, recorder) and none of them hands `db` a settings object. They
@@ -1677,8 +1744,9 @@ async def init_db(engine: AsyncEngine, default_grant: bool = True,
         await conn.run_sync(_ensure_wiki_seed)
         await conn.run_sync(_ensure_wiki_default_grant, wiki_grant)
         await conn.run_sync(_ensure_quota_default_grant, quota_grant)
+        await conn.run_sync(_ensure_artifacts_default_grant, artifacts_grant)
         # After the grant sweeps, which have already marked themselves: the
-        # librarian is born holding all four grants, so being missed by them
+        # librarian is born holding all five grants, so being missed by them
         # costs it nothing — a new default grant must be added to its seed. After the room seed, for the reason the standup job comes
         # after #standup — the gardener names #wiki.
         await conn.run_sync(_ensure_wiki_agent)

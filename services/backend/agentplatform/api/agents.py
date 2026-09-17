@@ -32,8 +32,8 @@ from agentplatform.agentdefs import (DEF_FIELDS, AgentDefModel, apply_snapshot,
                                      model_of, next_version, snapshot_of,
                                      validate_def)
 from agentplatform.agentspec import (GRANTABLE_PLATFORM_TOOLS, KNOWN_MODELS,
-                                     TOOL_QUOTA, TOOL_RELAY, TOOL_TICKETS,
-                                     TOOL_WIKI)
+                                     TOOL_ARTIFACTS, TOOL_QUOTA, TOOL_RELAY,
+                                     TOOL_TICKETS, TOOL_WIKI)
 from agentplatform.api.auth import (READ_ROLES, authenticate, require_admin,
                                     require_role, role_allows)
 from agentplatform.api.schemas import (AgentCreateIn, AgentDefIn, AgentDefOut,
@@ -52,16 +52,18 @@ router = APIRouter()
 TOOL_AGENTS_EDIT = "mcp__platform__agents_edit"
 TOOL_AGENTS_GRANT = "mcp__platform__agents_grant"
 # The grants new agents are born holding while their setting says so: the three
-# participant ones (docs/design/19, docs/design/20, docs/design/21) and reading
-# how much usage is left (docs/design/22). A setting each and not one between
-# them: an operator who wants the messenger without the work tracker is asking a
-# reasonable question, and a single switch could not answer it. Each entry is
-# (tool, setting), and the payload knob is the tool's last segment — `relay`,
-# `tickets`, `wiki`, `get_quota_usage` — so a fifth is one line here.
+# participant ones (docs/design/19, docs/design/20, docs/design/21), reading
+# how much usage is left (docs/design/22) and the file store (docs/design/23).
+# A setting each and not one between them: an operator who wants the messenger
+# without the work tracker is asking a reasonable question, and a single switch
+# could not answer it. Each entry is (tool, setting), and the payload knob is
+# the tool's last segment — `relay`, `tickets`, `wiki`, `get_quota_usage`,
+# `artifacts` — so a sixth is one line here.
 DEFAULT_GRANTS = ((TOOL_RELAY, "relay_default_grant"),
                   (TOOL_TICKETS, "tickets_default_grant"),
                   (TOOL_WIKI, "wiki_default_grant"),
-                  (TOOL_QUOTA, "quota_default_grant"))
+                  (TOOL_QUOTA, "quota_default_grant"),
+                  (TOOL_ARTIFACTS, "artifacts_default_grant"))
 
 # The definition fields that are GRANTS — capability, not identity. Changing
 # one is an authorization decision (`agents_grant`); changing anything else is

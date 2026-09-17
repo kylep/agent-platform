@@ -28,6 +28,7 @@ RELAY_GRANT = "mcp__platform__relay"
 TICKETS_GRANT = "mcp__platform__tickets"
 WIKI_GRANT = "mcp__platform__wiki"
 QUOTA_GRANT = "mcp__platform__get_quota_usage"
+ARTIFACTS_GRANT = "mcp__platform__artifacts"
 
 
 async def _run_id(sf, agent: str, *, depth: int = 0) -> str:
@@ -572,9 +573,10 @@ async def test_the_stream_beats_for_an_agent_too(admin_client, token_client, sf,
 # --- the default grant --------------------------------------------------------
 
 async def test_a_new_agent_holds_all_three_participant_grants(admin_client, sf):
-    # The fourth default grant (docs/design/22) rides along; it is not this
-    # file's subject, and `tests/test_quota_api.py` is where it is asserted.
-    born = [RELAY_GRANT, TICKETS_GRANT, WIKI_GRANT, QUOTA_GRANT]
+    # The fourth and fifth default grants (docs/design/22, docs/design/23) ride
+    # along; they are not this file's subject, and `tests/test_quota_api.py` and
+    # `tests/test_artifacts_feed.py` are where they are asserted.
+    born = [RELAY_GRANT, TICKETS_GRANT, WIKI_GRANT, QUOTA_GRANT, ARTIFACTS_GRANT]
     r = await admin_client.post("/api/agents", json={"name": "newbie",
                                                      "description": "test",
                                                      "prompt": "# newbie"})
@@ -590,4 +592,5 @@ async def test_the_wiki_default_can_be_turned_off_platform_wide(admin_client, sf
                                                      "description": "test",
                                                      "prompt": "# quiet"})
     assert r.status_code == 201, r.text
-    assert r.json()["platform_tools"] == [RELAY_GRANT, TICKETS_GRANT, QUOTA_GRANT]
+    assert r.json()["platform_tools"] == [RELAY_GRANT, TICKETS_GRANT, QUOTA_GRANT,
+                                          ARTIFACTS_GRANT]

@@ -31,7 +31,9 @@ def test_the_participant_grants_are_selectable_but_do_not_promote():
     assert PLATFORM_MCP_RELAY_TOOLS == ["mcp__platform__relay",
                                         "mcp__platform__tickets",
                                         "mcp__platform__wiki",
-                                        "mcp__platform__get_quota_usage"]
+                                        "mcp__platform__get_quota_usage",
+                                        "mcp__platform__artifacts",
+                                        "mcp__platform__image_gen"]
     for tool in PLATFORM_MCP_RELAY_TOOLS:
         assert tool in GRANTABLE_PLATFORM_TOOLS
         assert tool in AVAILABLE_TOOLS
@@ -50,6 +52,23 @@ def test_the_quota_grant_rides_the_participant_rung(monkeypatch):
     assert TOOL_QUOTA in AVAILABLE_TOOLS
     assert platform_token_role([TOOL_QUOTA]) == "relay"
     assert platform_token_role(["mcp__platform__runs_read", TOOL_QUOTA]) == "annotator"
+
+
+def test_the_artifact_grants_ride_the_participant_rung():
+    """docs/design/23: `artifacts` is default-granted and `image_gen` is the
+    artist's, and both reach `/api/artifacts/*` as the agent itself — the
+    `relay` rung, never `annotator`, for the reason the quota grant gives."""
+    from agentplatform.agentspec import (PLATFORM_MCP_RELAY_TOOLS, TOOL_ARTIFACTS,
+                                         TOOL_HELP, TOOL_IMAGE_GEN,
+                                         platform_token_role)
+    assert TOOL_ARTIFACTS == "mcp__platform__artifacts"
+    assert TOOL_IMAGE_GEN == "mcp__platform__image_gen"
+    for tool in (TOOL_ARTIFACTS, TOOL_IMAGE_GEN):
+        assert tool in PLATFORM_MCP_RELAY_TOOLS
+        assert platform_token_role([tool]) == "relay"
+    names = {t["name"]: t.get("display_name") for t in TOOL_HELP}
+    assert names[TOOL_ARTIFACTS] == "Artifacts"
+    assert names[TOOL_IMAGE_GEN] == "Image generation"
 
 
 def test_the_quota_grant_survives_the_runners_allowed_tools_filter():

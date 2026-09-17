@@ -1,7 +1,8 @@
 import uvicorn
 
 from agentplatform.agents import AgentStore
-from agentplatform.api.app import (create_app, kafka_consumer_factory,
+from agentplatform.api.app import (artifacts_events_consumer_factory,
+                                   create_app, kafka_consumer_factory,
                                    relay_feed_consumer_factory,
                                    tickets_feed_consumer_factory,
                                    quota_events_consumer_factory,
@@ -34,6 +35,7 @@ def build_app():
         ticket_feed_consumer_factory=tickets_feed_consumer_factory(settings),
         wiki_feed_consumer_factory=wiki_events_consumer_factory(settings),
         quota_feed_consumer_factory=quota_events_consumer_factory(settings),
+        artifacts_feed_consumer_factory=artifacts_events_consumer_factory(settings),
     )
     app.state.sa_validator = _make_sa_validator()
     return app

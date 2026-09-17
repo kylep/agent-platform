@@ -69,3 +69,54 @@ async def test_retention_days_resolution(sf):
     assert pruner.retention_days("shortlived") == 1
     assert pruner.retention_days("keeper") == 0
     assert pruner.retention_days("unknown-agent") == 30  # falls back to default
+
+
+# --- artifacts (docs/design/23) -------------------------------------------------
+# A delete is `deleted_at` so a card naming a gone artifact still resolves to
+# "deleted"; the pruner is what turns that into a DELETE, rows and bytes both,
+# once the row has been gone long enough that nothing is still pointing at it.
+
+async def _artifact(sf, *, deleted_days_ago=None) -> str:
+    from agentplatform.db import Artifact, ArtifactBlob
+    async with sf() as s:
+        a = Artifact(name="a.bin", mime="application/octet-stream", size=1, sha256="x" * 64,
+                     kind="file", owner="user:admin", source="upload",
+                     deleted_at=(utcnow() - timedelta(days=deleted_days_ago)
+                                 if deleted_days_ago is not None else None))
+        s.add(a)
+        await s.flush()
+        s.add(ArtifactBlob(artifact_id=a.id, data=b"\x00"))
+        await s.commit()
+        return a.id
+
+
+async def _artifact_rows(sf, artifact_id) -> tuple[int, int]:
+    from agentplatform.db import Artifact, ArtifactBlob
+    async with sf() as s:
+        rows = (await s.execute(select(func.count()).select_from(Artifact)
+                                .where(Artifact.id == artifact_id))).scalar_one()
+        blobs = (await s.execute(select(func.count()).select_from(ArtifactBlob)
+                                 .where(ArtifactBlob.artifact_id == artifact_id))).scalar_one()
+        return rows, blobs
+
+
+async def test_artifact_pruner_deletes_only_expired_soft_deleted_rows(sf):
+    from agentplatform.pruning import ArtifactPruner
+    live = await _artifact(sf)
+    fresh = await _artifact(sf, deleted_days_ago=1)
+    expired = await _artifact(sf, deleted_days_ago=40)
+    pruner = ArtifactPruner(sf, Settings(artifacts_prune_days=30))
+    assert await pruner.prune_once() == 1
+    # The blob goes with the row: sqlite promises no cascade, and bytes with
+    # no row are the one thing nobody could ever list to notice.
+    assert await _artifact_rows(sf, expired) == (0, 0)
+    assert await _artifact_rows(sf, fresh) == (1, 1)
+    assert await _artifact_rows(sf, live) == (1, 1)
+    assert await pruner.prune_once() == 0
+
+
+async def test_artifact_pruner_zero_keeps_the_soft_deleted_forever(sf):
+    from agentplatform.pruning import ArtifactPruner
+    old = await _artifact(sf, deleted_days_ago=999)
+    assert await ArtifactPruner(sf, Settings(artifacts_prune_days=0)).prune_once() == 0
+    assert await _artifact_rows(sf, old) == (1, 1)

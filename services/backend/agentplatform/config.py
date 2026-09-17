@@ -160,6 +160,21 @@ class Settings(BaseSettings):
     # is a header and the completion is thrown away.
     quota_probe_model: str = "claude-haiku-4-5"
     quota_probe_timeout_seconds: float = 20
+    # Artifacts (docs/design/23). The bytes live in postgres, so both caps are
+    # about the database and not the disk: one artifact is bounded the way a
+    # session blob is (8 MiB), and the whole store is bounded because a looping
+    # agent saving screenshots would otherwise grow the platform's own database
+    # until the backup CronJob is the first thing to notice. A write past the
+    # total is a 507 with a message the Studio shows.
+    artifacts_max_bytes: int = 8 * 1024 * 1024
+    artifacts_total_max_bytes: int = 2 * 1024 ** 3
+    # A delete is `deleted_at` so a card naming a gone artifact still says
+    # "deleted"; the dispatcher hard-deletes rows (and their bytes) this long
+    # after, in the retention loop that prunes transcripts.
+    artifacts_prune_days: int = 30
+    # Whether agent creation grants mcp__platform__artifacts. On for the
+    # reason relay's is: an agent that cannot keep a file describes it instead.
+    artifacts_default_grant: bool = True
     # (The news pipeline settings are gone: news presentation lives in the news
     # APP now — the recorder just honors each manifest's `result_topic`.)
 

@@ -130,6 +130,9 @@ class AgentCreateIn(AgentDefIn):
     # the tool's last segment like its siblings (`agents._knob`), which is why
     # this one reads as a verb: the tool is `get_quota_usage`.
     get_quota_usage: bool | None = None
+    # The artifacts default grant (docs/design/23), the fifth. `image_gen` has
+    # no knob: it is granted on purpose, never by default.
+    artifacts: bool | None = None
 
 
 class AgentDefOut(BaseModel):

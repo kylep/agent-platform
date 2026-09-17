@@ -23,6 +23,7 @@ class AgentCreateIn:
 
         Attributes:
             name (str):
+            artifacts (bool | None | Unset):
             can_invoke (bool | Unset):  Default: False.
             concurrency (int | Unset):  Default: 1.
             description (str | Unset):  Default: ''.
@@ -46,6 +47,7 @@ class AgentCreateIn:
     """
 
     name: str
+    artifacts: bool | None | Unset = UNSET
     can_invoke: bool | Unset = False
     concurrency: int | Unset = 1
     description: str | Unset = ""
@@ -69,6 +71,12 @@ class AgentCreateIn:
 
     def to_dict(self) -> dict[str, Any]:
         name = self.name
+
+        artifacts: bool | None | Unset
+        if isinstance(self.artifacts, Unset):
+            artifacts = UNSET
+        else:
+            artifacts = self.artifacts
 
         can_invoke = self.can_invoke
 
@@ -147,6 +155,8 @@ class AgentCreateIn:
                 "name": name,
             }
         )
+        if artifacts is not UNSET:
+            field_dict["artifacts"] = artifacts
         if can_invoke is not UNSET:
             field_dict["can_invoke"] = can_invoke
         if concurrency is not UNSET:
@@ -196,6 +206,15 @@ class AgentCreateIn:
 
         d = dict(src_dict)
         name = d.pop("name")
+
+        def _parse_artifacts(data: object) -> bool | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(bool | None | Unset, data)
+
+        artifacts = _parse_artifacts(d.pop("artifacts", UNSET))
 
         can_invoke = d.pop("can_invoke", UNSET)
 
@@ -281,6 +300,7 @@ class AgentCreateIn:
 
         agent_create_in = cls(
             name=name,
+            artifacts=artifacts,
             can_invoke=can_invoke,
             concurrency=concurrency,
             description=description,

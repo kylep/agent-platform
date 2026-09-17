@@ -157,11 +157,12 @@ async def test_the_mark_is_the_off_switch(engine, sfx):
 # relay and tickets sweeps ran a release earlier and have already marked
 # themselves — an agent that predates the wiki still has to be reached.
 
-# `OTHER_SWEEPS` throughout this section: design-19's, design-20's and
-# design-22's sweeps run over the same rows under their own marks, with their
+# `OTHER_SWEEPS` throughout this section: design-19's, design-20's, design-22's
+# and design-23's sweeps run over the same rows under their own marks, with their
 # own tests, and letting them run here would have every assertion below carry
 # grants it is not about.
-OTHER_SWEEPS = dict(default_grant=False, tickets_grant=False, quota_grant=False)
+OTHER_SWEEPS = dict(default_grant=False, tickets_grant=False, quota_grant=False,
+                    artifacts_grant=False)
 
 
 async def _grants(sfx, name: str) -> list[str]:
@@ -220,7 +221,8 @@ async def test_wiki_grant_backfill_honours_the_setting_and_runs_once(engine, sfx
 # keeps their version.
 
 async def test_the_wiki_agent_is_seeded(engine, sfx):
-    from agentplatform.agentspec import TOOL_RELAY, TOOL_TICKETS, TOOL_WIKI, TOOL_QUOTA
+    from agentplatform.agentspec import (TOOL_ARTIFACTS, TOOL_QUOTA, TOOL_RELAY,
+                                         TOOL_TICKETS, TOOL_WIKI)
     from agentplatform.db import (WIKI_AGENT_MARK, WIKI_AGENT_PROMPT, AgentDef,
                                   AgentVersion)
     await init_db(engine)
@@ -230,7 +232,8 @@ async def test_the_wiki_agent_is_seeded(engine, sfx):
         assert (row.system, row.enabled, row.can_invoke) == (True, True, False)
         assert row.prompt == WIKI_AGENT_PROMPT
         assert row.description.startswith("The wiki's librarian")
-        assert row.platform_tools == [TOOL_RELAY, TOOL_TICKETS, TOOL_WIKI, TOOL_QUOTA]
+        assert row.platform_tools == [TOOL_RELAY, TOOL_TICKETS, TOOL_WIKI, TOOL_QUOTA,
+                                      TOOL_ARTIFACTS]
         assert (row.harness_tools, row.skills, row.secrets) == ([], [], [])
         assert (row.model, row.role) == ("", "operator")
         # No triggers of its own: the librarian is summoned, not scheduled —
@@ -242,7 +245,7 @@ async def test_the_wiki_agent_is_seeded(engine, sfx):
         assert [(v.version, v.changed_by, v.changed_via) for v in versions] == [
             (1, "system:wiki", "migration")]
         assert versions[0].snapshot["platform_tools"] == [
-            TOOL_RELAY, TOOL_TICKETS, TOOL_WIKI, TOOL_QUOTA]
+            TOOL_RELAY, TOOL_TICKETS, TOOL_WIKI, TOOL_QUOTA, TOOL_ARTIFACTS]
         assert versions[0].snapshot["system"] is True
         assert await s.get(SchemaMark, WIKI_AGENT_MARK) is not None
 

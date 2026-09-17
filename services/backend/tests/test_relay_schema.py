@@ -299,7 +299,8 @@ async def _versions(sfx, name: str) -> list[tuple]:
 # (docs/design/22) each run one of their own over the same rows under their own
 # marks, with their own tests. Letting those run here would have every
 # assertion below carry grants it is not about.
-OTHER_SWEEPS = dict(tickets_grant=False, wiki_grant=False, quota_grant=False)
+OTHER_SWEEPS = dict(tickets_grant=False, wiki_grant=False, quota_grant=False,
+                    artifacts_grant=False)
 
 async def test_default_grant_backfill_covers_the_agents_that_already_exist(engine, sfx):
     await _defs(sfx,

@@ -110,9 +110,10 @@ async def bare():
 
 
 def _participants(**kw):
-    """init_db with the three older participant sweeps off, so what a test
-    reads back is the quota sweep's work and nobody else's."""
-    return dict(default_grant=False, tickets_grant=False, wiki_grant=False, **kw)
+    """init_db with every other participant sweep off, so what a test reads
+    back is the one sweep under test and nobody else's."""
+    return {**dict(default_grant=False, tickets_grant=False, wiki_grant=False,
+                   quota_grant=False, artifacts_grant=False), **kw}
 
 
 async def _tools(sf, name: str) -> list[str]:
@@ -131,7 +132,7 @@ async def test_quota_grant_backfill_covers_the_agents_that_already_exist(bare):
         s.add(AgentDef(name="retired", prompt="p", description="d",
                        platform_tools=[], enabled=False))
         await s.commit()
-    await init_db(bare, **_participants())
+    await init_db(bare, **_participants(quota_grant=True))
     assert await _tools(sf, "news") == ["mcp__platform__relay",
                                         "mcp__platform__get_quota_usage"]
     assert await _tools(sf, "retired") == []     # disabled agents are left alone
@@ -157,11 +158,52 @@ async def test_quota_grant_backfill_honours_the_setting_and_runs_once(bare):
     assert await _tools(sf, "news") == []
     async with sf() as s:
         assert await s.get(SchemaMark, QUOTA_GRANT_MARK) is None
-    await init_db(bare, **_participants())
+    await init_db(bare, **_participants(quota_grant=True))
     assert await _tools(sf, "news") == ["mcp__platform__get_quota_usage"]
     # An admin taking it away afterwards is not undone by the next boot.
     async with sf() as s:
         (await s.get(AgentDef, "news")).platform_tools = []
         await s.commit()
+    await init_db(bare, **_participants(quota_grant=True))
+    assert await _tools(sf, "news") == []
+
+
+async def test_artifacts_grant_backfill_covers_the_agents_that_already_exist(bare):
+    """docs/design/23: `artifacts` is as ambient as `relay`, so the agents that
+    predate it are swept once, each change a `migration` version of its own."""
+    from agentplatform.db import (ARTIFACTS_GRANT_MARK, AgentDef, AgentVersion,
+                                  SchemaMark)
+    sf = make_session_factory(bare)
+    async with sf() as s:
+        s.add(AgentDef(name="news", prompt="p", description="d",
+                       platform_tools=["mcp__platform__relay"]))
+        s.add(AgentDef(name="retired", prompt="p", description="d",
+                       platform_tools=[], enabled=False))
+        await s.commit()
+    await init_db(bare, **_participants(artifacts_grant=True))
+    assert await _tools(sf, "news") == ["mcp__platform__relay",
+                                        "mcp__platform__artifacts"]
+    assert await _tools(sf, "retired") == []
+    async with sf() as s:
+        assert await s.get(SchemaMark, ARTIFACTS_GRANT_MARK) is not None
+        versions = list((await s.execute(select(AgentVersion).where(
+            AgentVersion.agent == "news"))).scalars())
+    assert [(v.changed_by, v.changed_via) for v in versions] == [
+        ("platform:artifacts-default-grant", "migration")]
+    # Exactly once: the next boot finds the mark and leaves the rows alone.
+    await init_db(bare, **_participants(artifacts_grant=True))
+    async with sf() as s:
+        assert len(list((await s.execute(select(AgentVersion).where(
+            AgentVersion.agent == "news"))).scalars())) == 1
+
+
+async def test_artifacts_grant_backfill_honours_the_setting(bare):
+    from agentplatform.db import ARTIFACTS_GRANT_MARK, AgentDef, SchemaMark
+    sf = make_session_factory(bare)
+    async with sf() as s:
+        s.add(AgentDef(name="news", prompt="p", description="d", platform_tools=[]))
+        await s.commit()
     await init_db(bare, **_participants())
     assert await _tools(sf, "news") == []
+    async with sf() as s:
+        assert await s.get(SchemaMark, ARTIFACTS_GRANT_MARK) is None

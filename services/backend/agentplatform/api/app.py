@@ -9,6 +9,8 @@ from agentplatform.agents import AgentStore
 from agentplatform.api import agents as agents_api
 from agentplatform.api import apikeys as apikeys_api
 from agentplatform.api import apps as apps_api
+from agentplatform.api import artifacts as artifacts_api
+from agentplatform.api import artifacts_feed as artifacts_feed_api
 from agentplatform.api import audit as audit_api
 from agentplatform.api import auth
 from agentplatform.api import conversations as conversations_api
@@ -164,11 +166,34 @@ def quota_events_consumer_factory(settings):
     return factory
 
 
+def artifacts_events_consumer_factory(settings):
+    """Production factory for the Studio's live strip: `artifacts.events`, a
+    fresh group per pod from `latest`. Its own consumer for the reason the
+    others have theirs — a feed falling behind must cost only its own
+    subscribers."""
+
+    def factory():
+        import socket
+        import uuid
+        from aiokafka import AIOKafkaConsumer
+        from agentplatform.events import TOPIC_ARTIFACTS_EVENTS
+
+        return AIOKafkaConsumer(
+            TOPIC_ARTIFACTS_EVENTS,
+            bootstrap_servers=settings.kafka_bootstrap,
+            group_id=f"api-artifacts-{socket.gethostname() or uuid.uuid4().hex[:8]}",
+            auto_offset_reset="latest",
+        )
+
+    return factory
+
+
 def create_app(settings, session_factory, producer, secret_store=None, agent_store=None,
                 consumer_factory=None, feed_consumer_factory=None,
                 ticket_feed_consumer_factory=None,
                 wiki_feed_consumer_factory=None,
-                quota_feed_consumer_factory=None) -> FastAPI:
+                quota_feed_consumer_factory=None,
+                artifacts_feed_consumer_factory=None) -> FastAPI:
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         st = app.state
@@ -177,7 +202,8 @@ def create_app(settings, session_factory, producer, secret_store=None, agent_sto
             await init_db(engine, settings.relay_default_grant,
                           settings.tickets_default_grant,
                           settings.wiki_default_grant,
-                          quota_grant=settings.quota_default_grant)
+                          quota_grant=settings.quota_default_grant,
+                          artifacts_grant=settings.artifacts_default_grant)
             st.session_factory = make_session_factory(engine)
         # The feed only needs a session for presence (a run event names a run,
         # not a room), so it is handed the factory here, once it is real.
@@ -185,6 +211,7 @@ def create_app(settings, session_factory, producer, secret_store=None, agent_sto
         st.ticket_feed.session_factory = st.session_factory
         st.wiki_feed.session_factory = st.session_factory
         st.quota_feed.session_factory = st.session_factory
+        st.artifacts_feed.session_factory = st.session_factory
         # Agent definitions are rows (docs/design/15): prime the cache once the
         # session factory exists, so the first request reads real agents rather
         # than an empty store waiting on its TTL refresh.
@@ -245,7 +272,9 @@ def create_app(settings, session_factory, producer, secret_store=None, agent_sto
                       (("relay", st.feed, st.feed_consumer_factory),
                        ("tickets", st.ticket_feed, st.ticket_feed_consumer_factory),
                        ("wiki", st.wiki_feed, st.wiki_feed_consumer_factory),
-                       ("quota", st.quota_feed, st.quota_feed_consumer_factory))
+                       ("quota", st.quota_feed, st.quota_feed_consumer_factory),
+                       ("artifacts", st.artifacts_feed,
+                        st.artifacts_feed_consumer_factory))
                       if factory is not None]
         try:
             yield
@@ -285,6 +314,7 @@ def create_app(settings, session_factory, producer, secret_store=None, agent_sto
     st.ticket_feed_consumer_factory = ticket_feed_consumer_factory
     st.wiki_feed_consumer_factory = wiki_feed_consumer_factory
     st.quota_feed_consumer_factory = quota_feed_consumer_factory
+    st.artifacts_feed_consumer_factory = artifacts_feed_consumer_factory
     secret_store = secret_store or InMemorySecretStore()
     agent_store = agent_store or AgentStore(session_factory)
     st.secret_store, st.agent_store = secret_store, agent_store
@@ -295,6 +325,7 @@ def create_app(settings, session_factory, producer, secret_store=None, agent_sto
     st.ticket_feed = tickets_api.ticket_feed(session_factory)
     st.wiki_feed = wiki_api.wiki_feed(session_factory)
     st.quota_feed = quota_store.quota_feed(session_factory)
+    st.artifacts_feed = artifacts_feed_api.artifacts_feed(session_factory)
     # The quota probe's HTTP client and its coalescing lock are made on
     # first use (api/quota.py). Named here because this is the seam a test
     # replaces with a MockTransport so the suite never dials Anthropic.
@@ -313,6 +344,10 @@ def create_app(settings, session_factory, producer, secret_store=None, agent_sto
     app.include_router(auth.router)
     app.include_router(apps_api.router)
     app.include_router(apikeys_api.router)
+    # The feed first: `/api/artifacts/events` is a literal path under a router
+    # whose `/api/artifacts/{artifact_id}` would otherwise claim it.
+    app.include_router(artifacts_feed_api.router)
+    app.include_router(artifacts_api.router)
     app.include_router(audit_api.router)
     app.include_router(conversations_api.router)
     app.include_router(cron_api.router)

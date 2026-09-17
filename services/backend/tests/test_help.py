@@ -35,3 +35,19 @@ async def test_help_topics_from_synced_docs(admin_client, tmp_checkout):
     assert r.json()["markdown"].startswith("# Agents")
     assert (await admin_client.get("/api/help/topics/nope")).status_code == 404
     assert (await admin_client.get("/api/help/topics/..%2Fsecret")).status_code in (400, 404)
+
+
+async def test_help_tools_hides_internal_tools(admin_client, tmp_path):
+    """An `internal: true` tool (docs/design/23) is the API's to run and never
+    on the MCP surface, so it must not document itself as a grant — and the
+    core `image_gen` entry must not appear beside a registry twin."""
+    from agentplatform.toolregistry import ToolRegistry
+
+    from .test_toolregistry import GOOD_YAML, make_tool
+    make_tool(tmp_path, name="echo")
+    make_tool(tmp_path, name="image_gen",
+              yaml_text=GOOD_YAML.replace("name: echo", "name: image_gen") + "internal: true\n")
+    admin_client._transport.app.state.tool_registry = ToolRegistry(tmp_path)
+    names = [t["name"] for t in (await admin_client.get("/api/help/tools")).json()]
+    assert "mcp__platform__echo" in names
+    assert names.count("mcp__platform__image_gen") == 1
