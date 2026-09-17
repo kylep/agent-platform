@@ -243,7 +243,7 @@ dispatch subagents, verify their evidence, commit, and update this file.
 
 ### Phase 0 — the secrets first, so Kyle can paste keys while the rest is built
 
-- [ ] **T1 Secret declarations for the three providers.** (AC-2 precondition)
+- [x] **T1 Secret declarations for the three providers.** (AC-2 precondition) (commit `467e327`; review moved the Gemini key from `?key=` to the `x-goog-api-key` header and made the BFL script fail closed on 5xx/429)
   Design sections: "`tools/image_gen` — the port" (the last paragraph on
   secret blocks), "Trust boundaries and guards" (Keys).
   Files: new `secrets/openai-api-key/secret.yaml`,
@@ -761,6 +761,8 @@ dispatch subagents, verify their evidence, commit, and update this file.
 ### Deferred
 
 (low/medium findings the loop chose not to fix, with file:line)
+
+- (T1 review, medium, pre-existing) `services/backend/agentplatform/secretverify.py:50-75` — declarative probes run `urlopen(timeout=8)` but DNS resolution (`getaddrinfo`) is not bounded by it and `verifierloop.verify_all` awaits probes sequentially, so a hung resolver stalls the whole heartbeat pass; scripts are safe (`subprocess.run(timeout=20)`). Fix later: wrap each `verify_one` in `asyncio.wait_for`.
 
 ## Definition of done
 
