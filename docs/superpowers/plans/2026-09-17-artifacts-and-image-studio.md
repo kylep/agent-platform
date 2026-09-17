@@ -263,12 +263,13 @@ dispatch subagents, verify their evidence, commit, and update this file.
   probe URLs interpolate; the script's status mapping is tested.
   After commit: protocol step 10 (push, poll, `open`, PushNotification).
 
-### Phase 1 — the block's backend (T2, T3, T4 are disjoint)
+### Phase 1 — the block's backend (T2 ∥ T4; T3 after T2 reports)
 
-- [ ] **T2 Artifact store, tables and API.** `[parallel with T3, T4]` (AC-1)
+- [ ] **T2 Artifact store, tables and API.** `[parallel with T4]` (AC-1)
   Design sections: "Data model", "Trust boundaries and guards", "API"
-  (everything except `generate`, `models`, `stats`' spend fields, and the
-  agent image route), "Naming".
+  (everything except `generate`, `models`, `events`, `stats`' spend fields,
+  and the agent image route), "Naming", "Kafka" (the constant and the
+  publish hook only).
   Files: `db.py` (`Artifact`, `ArtifactBlob`, indexes; a pg-only
   `_ensure_artifacts_ddl` if any), new `artifact_store.py` (create from
   bytes: sniff → kind/mime/size/sha256/width/height/thumb; list with
@@ -279,7 +280,16 @@ dispatch subagents, verify their evidence, commit, and update this file.
   (routes in the design's table minus the three named above; multipart via
   `UploadFile` AND the JSON shape; owner from the token — user principal or
   `agent:<name>` with `_run_of`; READ_ROLES read; delete = owner /
-  `agents_edit` holder / admin), `api/app.py` router registration,
+  `agents_edit` holder / admin), `api/app.py` router registration (Edit,
+  never rewrite — T3 and T4 edit neighbouring files concurrently),
+  `events.py` (`TOPIC_ARTIFACTS_EVENTS = "artifacts.events"`, in
+  `ALL_TOPICS`), `charts/agent-platform/values.yaml` (`{name:
+  artifacts.events, partitions: 3, retentionMs: "2592000000"}`),
+  `artifact_store.publish_artifact_event(producer, *, event: str,
+  artifact: dict, agent: str | None = None)` — best-effort post-commit
+  publish in the `wiki_store._finish` shape, type `artifacts.event`, called
+  for `created` and `deleted`; `GET /api/artifacts/stats` with `count`,
+  `bytes`, `total_cap` (T6 adds the spend fields),
   `pyproject.toml` (Pillow, python-multipart), `services/web/nginx.conf`
   (`client_max_body_size 16m` on `/api/`; keep the `/mcp` blocks as they
   are). Serving exactly per "Trust boundaries": nosniff, immutable cache,
@@ -299,31 +309,25 @@ dispatch subagents, verify their evidence, commit, and update this file.
   header (bomb) → 413. Acceptance: all routes in the table exist with those
   semantics; sqlite suite green; `nginx.conf` change present.
 
-- [ ] **T3 Grants, events, feed, prune.** `[parallel with T2, T4]` (AC-1)
+- [ ] **T3 Grants, feed, prune.** `[after T2 reports; parallel with T4]` (AC-1)
   Design sections: "Data model" (Seeds — the grant sweep), "Kafka", "Broker
-  tools" (the grant lists only), "API" (`events`, `stats`).
+  tools" (the grant lists only), "API" (`events`). T2 already owns the topic
+  constant, the values.yaml spec, `publish_artifact_event` and `stats`;
+  build on its uncommitted files, do not rewrite them.
   Files: `agentspec.py` (`TOOL_ARTIFACTS = "mcp__platform__artifacts"`,
   `TOOL_IMAGE_GEN = "mcp__platform__image_gen"`, both appended to
   `PLATFORM_MCP_RELAY_TOOLS`, `TOOL_HELP` entries with display names
-  "Artifacts" and "Image generation"), `events.py`
-  (`TOPIC_ARTIFACTS_EVENTS = "artifacts.events"`, in `ALL_TOPICS`),
-  `charts/agent-platform/values.yaml` (`{name: artifacts.events,
-  partitions: 3, retentionMs: "2592000000"}`), `db.py`
+  "Artifacts" and "Image generation"), `db.py`
   (`ARTIFACTS_GRANT_MARK = "artifacts-default-grant-v1"` sweep via
   `_grant_to_every_agent`; the wiki-agent seed's grant list gains
-  `TOOL_ARTIFACTS`), `api/artifacts.py` — coordinate with T2's owner: T3
-  owns ONLY the `events` SSE route and `stats` in a separate module
-  `api/artifacts_feed.py` mounted under the same prefix, plus the publish
-  hook `artifact_store.publish_event(producer, event, artifact)` that T2's
-  store calls post-commit (agree the function signature in the task text:
-  `async def publish_artifact_event(producer, *, event: str, artifact:
-  dict, agent: str | None = None) -> None`), `api/app.py` +
+  `TOOL_ARTIFACTS`), the `events` SSE route in a separate module
+  `api/artifacts_feed.py` mounted under the same prefix (T2 owns
+  `api/artifacts.py`; do not edit it), `api/app.py` (Edit only) +
   `api_main.py` (`artifacts_events_consumer_factory`, the wiki shape),
   `pruning.py` (an `ArtifactPruner` deleting rows with `deleted_at <
   now - artifacts_prune_days`, run beside the transcript pruner in
   `dispatcher_main.py`). Tests: the sweep grants `artifacts` to every agent
-  once and appends a `migration` version; the topic is in both places
-  (`test_events_topics*` pattern); SSE replays a created event injected
+  once and appends a `migration` version; SSE replays a created event injected
   through `FakeProducer`; the pruner deletes only expired soft-deleted rows;
   the TOOL_HELP lockstep test passes with the two new names (the broker
   side lands in T7 — if the lockstep test compares against `broker.py`,
@@ -332,7 +336,7 @@ dispatch subagents, verify their evidence, commit, and update this file.
   Acceptance: suites green; `ALL_TOPICS` and `values.yaml` agree.
 
 - [ ] **T4 Executor file sink, `internal` tools, timeout ceiling, chart wiring.**
-  `[parallel with T2, T3]` (AC-2 precondition)
+  `[parallel with T2]` (AC-2 precondition)
   Design sections: "The executor's file sink".
   Files: `services/tool-executor/executor.py` (per-call `tempfile.mkdtemp`
   under `/tmp` with `in/` and `out/`; `TOOL_IN_DIR`/`TOOL_OUT_DIR` in
