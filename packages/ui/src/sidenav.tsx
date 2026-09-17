@@ -26,10 +26,7 @@ export type AppNavInfo = { name: string; icon: string };
 export function buildPlatformNav(apps: AppNavInfo[] = []): NavEntry[] {
   return [
     { to: "/", label: "Dashboard", end: true },
-    { to: "/relay", label: "Relay", children: [
-      { to: "/relay", label: "Channels", end: true },
-      { to: "/relay?kind=dm", label: "DMs" },
-    ] },
+    { to: "/relay", label: "Relay" },
     { to: "/tickets", label: "Tickets" },
     { to: "/wiki", label: "Wiki" },
     { to: "/reporting", label: "Reporting", children: [

@@ -116,9 +116,6 @@ test("?kind=dm opens the direct messages side", async ({ page }) => {
   await mockApi(page);
   await page.goto("/relay?kind=dm");
   await expect(page.locator(".relay-messages")).toContainText("What's my day look like?");
-  // and the nav says which half you are in
-  await expect(page.getByRole("link", { name: "DMs" })).toHaveClass(/active/);
-  await expect(page.getByRole("link", { name: "Channels" })).not.toHaveClass(/active/);
 });
 
 test("/conversations redirects to Relay's dm side", async ({ page }) => {
@@ -408,9 +405,8 @@ test("the Relay nav entry stays lit on both of its sides", async ({ page }) => {
   await mockApi(page);
   await page.goto("/relay");
   await expect(page.getByRole("link", { name: "Relay", exact: true })).toHaveClass(/active/);
-  await expect(page.getByRole("link", { name: "Channels" })).toHaveClass(/active/);
   await page.goto("/relay?kind=dm");
-  // The group header is the whole group — it does not go dark on a sub-page.
+  // One entry for both halves — the rail inside the page picks the side.
   await expect(page.getByRole("link", { name: "Relay", exact: true })).toHaveClass(/active/);
 });
 
