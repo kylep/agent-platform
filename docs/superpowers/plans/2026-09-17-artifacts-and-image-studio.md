@@ -265,7 +265,7 @@ dispatch subagents, verify their evidence, commit, and update this file.
 
 ### Phase 1 — the block's backend (T2 ∥ T4; T3 after T2 reports)
 
-- [ ] **T2 Artifact store, tables and API.** `[parallel with T4]` (AC-1)
+- [x] **T2 Artifact store, tables and API.** `[parallel with T4]` (AC-1) (commit `ef00b81`; review added the PATCH ownership check, a pre-parse body bound (direct callers bypass nginx), LIKE escaping, Pillow off the loop)
   Design sections: "Data model", "Trust boundaries and guards", "API"
   (everything except `generate`, `models`, `events`, `stats`' spend fields,
   and the agent image route), "Naming", "Kafka" (the constant and the
@@ -309,7 +309,7 @@ dispatch subagents, verify their evidence, commit, and update this file.
   header (bomb) → 413. Acceptance: all routes in the table exist with those
   semantics; sqlite suite green; `nginx.conf` change present.
 
-- [ ] **T3 Grants, feed, prune.** `[after T2 reports; parallel with T4]` (AC-1)
+- [x] **T3 Grants, feed, prune.** `[after T2 reports; parallel with T4]` (AC-1) (commit `ef00b81`; also DEFAULT_GRANTS + `artifacts` knob on create, `help.py` hides internal tools, SDK regenerated in python:3.12-slim — the CI-equivalent; a 3.12 uv venv produced a different generator form)
   Design sections: "Data model" (Seeds — the grant sweep), "Kafka", "Broker
   tools" (the grant lists only), "API" (`events`). T2 already owns the topic
   constant, the values.yaml spec, `publish_artifact_event` and `stats`;
@@ -335,8 +335,8 @@ dispatch subagents, verify their evidence, commit, and update this file.
   placeholder tool that T7 replaces, and say so in the report).
   Acceptance: suites green; `ALL_TOPICS` and `values.yaml` agree.
 
-- [ ] **T4 Executor file sink, `internal` tools, timeout ceiling, chart wiring.**
-  `[parallel with T2]` (AC-2 precondition)
+- [x] **T4 Executor file sink, `internal` tools, timeout ceiling, chart wiring.**
+  `[parallel with T2]` (AC-2 precondition) (commit `b624dbd`; review found a symlinked sidecar read, pre-decode b64 cap, killpg — a forked grandchild hung proc.wait() —, broker timeout clamp, internal tools excluded from mcp_names, tunnel startupProbe)
   Design sections: "The executor's file sink".
   Files: `services/tool-executor/executor.py` (per-call `tempfile.mkdtemp`
   under `/tmp` with `in/` and `out/`; `TOOL_IN_DIR`/`TOOL_OUT_DIR` in
@@ -766,6 +766,10 @@ dispatch subagents, verify their evidence, commit, and update this file.
 
 (low/medium findings the loop chose not to fix, with file:line)
 
+- (T2 review, low) `artifact_store.py` sets `Image.MAX_IMAGE_PIXELS` process-wide at import; fine while nothing else in the process uses Pillow.
+- (T2 review, low) `PATCH /api/artifacts/{id}` publishes no event; the design lists only created/deleted/agent_image.
+- (T4 review, low) `TOOL_SCRATCH_DIR` is not validated at executor boot (a misconfigured dir → 500 per call instead of a boot failure).
+- (T4 review, low) the broker suite stubs `fastmcp`; a real-fastmcp incompatibility in `CustomTool` fields would only surface at deploy (the reviewer verified 3.4.7 by hand).
 - (T1 review, medium, pre-existing) `services/backend/agentplatform/secretverify.py:50-75` — declarative probes run `urlopen(timeout=8)` but DNS resolution (`getaddrinfo`) is not bounded by it and `verifierloop.verify_all` awaits probes sequentially, so a hung resolver stalls the whole heartbeat pass; scripts are safe (`subprocess.run(timeout=20)`). Fix later: wrap each `verify_one` in `asyncio.wait_for`.
 
 ## Definition of done
