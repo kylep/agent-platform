@@ -92,9 +92,53 @@ def test_manifest_rejects_bad_names_and_bounds():
     with pytest.raises(ValueError, match="timeout"):
         ToolManifest(name="ok_tool", description="A perfectly valid description here.",
                      timeout_seconds=600)
+    with pytest.raises(ValueError, match="timeout"):
+        ToolManifest(name="ok_tool", description="A perfectly valid description here.",
+                     timeout_seconds=0)
     with pytest.raises(ValueError, match="type: object"):
         ToolManifest(name="ok_tool", description="A perfectly valid description here.",
                      params={"type": "string"})
+
+
+def test_manifest_timeout_ceiling_is_300():
+    """Image generation polls; the executor clamps at 300 s and the manifest
+    must be allowed to ask for it (docs/design/23)."""
+    m = ToolManifest(name="ok_tool", description="A perfectly valid description here.",
+                     timeout_seconds=300)
+    assert m.timeout_seconds == 300
+
+
+def test_manifest_internal_flag_defaults_off():
+    """`internal: true` marks a tool the broker never registers — the API is
+    its only caller (docs/design/23). Absent, a tool is agent-callable."""
+    m = ToolManifest(name="ok_tool", description="A perfectly valid description here.")
+    assert m.internal is False
+    m = ToolManifest(name="ok_tool", description="A perfectly valid description here.",
+                     internal=True)
+    assert m.internal is True
+
+
+def test_internal_tool_is_never_an_mcp_name(tmp_path):
+    """An internal tool is not on the MCP surface, so a grant to it would be
+    dead: the registry must not offer it as a grantable name."""
+    make_tool(tmp_path)
+    make_tool(tmp_path, name="hidden", yaml_text=GOOD_YAML.replace("name: echo", "name: hidden")
+              + "internal: true\n")
+    reg = ToolRegistry(tmp_path)
+    assert reg.get("hidden").manifest is not None and reg.get("hidden").error is None
+    assert reg.mcp_names() == ["mcp__platform__echo"]
+
+
+def test_internal_tool_may_share_a_core_tool_name():
+    """The API runs an internal tool by directory name, never via MCP, so a
+    core `image_gen` broker tool and a `tools/image_gen/` directory are two
+    halves of one feature rather than a collision (docs/design/23). The same
+    name WITHOUT `internal` is the collision the shadow check exists for."""
+    m = ToolManifest(name="image_gen", description="Generate an image from a prompt.",
+                     internal=True)
+    assert m.name == "image_gen" and m.internal
+    with pytest.raises(ValueError, match="shadows a core"):
+        ToolManifest(name="image_gen", description="Generate an image from a prompt.")
 
 
 def test_manifest_infra_defaults_and_secret_coercion():

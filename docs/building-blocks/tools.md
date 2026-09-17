@@ -60,7 +60,8 @@ params:                   # JSON Schema (type: object) for the arguments;
 infra:
   secrets: [linear-api-key]   # secret BLOCKS, bound by name like skills do
   database: true              # provisioned pg role + schema tool_<name>
-timeout_seconds: 45       # wall clock; 1–120
+timeout_seconds: 45       # wall clock; 1–300
+internal: false           # true → API-only; the broker never offers it to agents
 ```
 
 ## How a call flows
@@ -80,8 +81,40 @@ timeout_seconds: 45       # wall clock; 1–120
 3. The executor validates the args against `params`, then runs `run.py` with
    a **minimal env**: the declared secrets' keys (fetched from k8s at call
    time — never baked into any pod), `TOOL_DB_URL` when `database: true`,
-   and `TOOL_CALLER_AGENT` / `TOOL_RUN_ID`. Timeout enforced, output capped
-   at 256 KiB, non-zero exit → structured error the model can read.
+   `TOOL_CALLER_AGENT` / `TOOL_RUN_ID`, and the two file-sink directories
+   below. Timeout enforced, output capped at 256 KiB, non-zero exit →
+   structured error the model can read.
+
+## The file sink
+
+Stdout is a text channel with a 256 KiB cap; the sink is how a tool returns
+something that is not text (`docs/design/23-artifacts-and-image-studio.md`).
+Every call gets a fresh scratch directory with two children, named to the
+subprocess as `TOOL_IN_DIR` and `TOOL_OUT_DIR` and deleted when the call
+ends. The caller may pass `files_in: [{name, mime, b64}]` on `/run` (at most 4
+files of 8 MiB, plain filenames only) and the tool reads them by name from
+`TOOL_IN_DIR`. Anything the tool writes into `TOOL_OUT_DIR` comes back as
+`files: [{name, mime, b64, meta}]` — up to 8 files of 8 MiB each, mime sniffed
+from magic bytes (png/jpeg/gif/webp, else `application/octet-stream`), and an
+optional `<name>.meta.json` sidecar merged into that file's `meta` rather than
+returned as a file. A file over the cap is skipped and named in the
+response's `warnings` list; the call itself still succeeds.
+
+## Internal tools
+
+`internal: true` in the manifest keeps a tool off the MCP surface entirely:
+the broker's scan skips it, so no agent can declare or call it, and the
+platform API is its only caller (via `AP_EXECUTOR_URL`; under SPIRE the api
+pod carries the same ghostunnel client tunnel the broker does). `image_gen`
+is the first — the Studio drives it, agents never do.
+
+## The 300-second ceiling
+
+`timeout_seconds` accepts 1–300 and the executor clamps at 300 regardless of
+what a manifest asks for; image generation polls a provider and needs the
+room, while the older 120 s bound was sized for lookups. The broker's forward
+to the executor waits the manifest's timeout plus 30 s, so the hop in front
+of a long tool is never the one that cuts it off.
 
 ## Declarative provisioning
 

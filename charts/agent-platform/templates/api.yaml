@@ -39,6 +39,15 @@ spec:
             {{- include "agent-platform.backendEnv" . | nindent 12 }}
             - name: AP_SESSION_SECRET
               value: {{ required "env.AP_SESSION_SECRET is required (e.g. --set env.AP_SESSION_SECRET=...)" .Values.env.AP_SESSION_SECRET | quote }}
+            # The tool-executor, for `internal` tools the api runs itself
+            # (docs/design/23). Under SPIRE the hop leaves through the local
+            # client tunnel below, the same shape as the broker's.
+            - name: AP_EXECUTOR_URL
+              {{- if .Values.spire.enabled }}
+              value: "http://127.0.0.1:8301"
+              {{- else }}
+              value: "http://agent-platform-tool-executor:8000"
+              {{- end }}
             {{- if and .Values.claudeProxy.enabled .Values.claudeProxy.quota.enabled }}
             # The claude-proxy's credential for POST /api/internal/quota
             # (docs/design/22), gated on the same two values as the Secret the
@@ -57,10 +66,51 @@ spec:
               readOnly: true
           resources:
             {{- toYaml .Values.resources.api | nindent 12 }}
+        {{- if .Values.spire.enabled }}
+        # Egress tunnel to the executor: api code talks plain HTTP to
+        # localhost:8301; this wraps it in mTLS pinned to the executor's SVID.
+        - name: executor-tunnel
+          image: {{ .Values.spire.ghostunnelImage | quote }}
+          args:
+            - client
+            - --listen=127.0.0.1:8301
+            - --target=agent-platform-tool-executor:8443
+            - --use-workload-api-addr={{ .Values.spire.workloadApiSocket }}
+            - --verify-uri=spiffe://{{ .Values.spire.trustDomain }}/ns/{{ .Release.Namespace }}/sa/{{ .Release.Name }}-tool-executor
+            - --status=http://0.0.0.0:8302
+          # Same gate as the run pods' mcp-tunnel: a fresh pod can beat its
+          # SPIRE entry, and client-mode /_status only passes once a full TLS
+          # connection to the executor has succeeded (SVID in hand, server
+          # cert verified) — so the tunnel is not Ready while it would fail.
+          startupProbe:
+            httpGet: {path: /_status, port: 8302}
+            periodSeconds: 2
+            failureThreshold: 60
+          securityContext:
+            allowPrivilegeEscalation: false
+            runAsNonRoot: true
+            runAsUser: 1001
+            runAsGroup: 1001
+            readOnlyRootFilesystem: true
+            capabilities: {drop: ["ALL"]}
+          volumeMounts:
+            - name: spiffe-workload-api
+              mountPath: /spiffe-workload-api
+              readOnly: true
+          resources:
+            requests: {memory: 32Mi, cpu: 10m}
+            limits: {memory: 64Mi}
+        {{- end }}
       volumes:
         - name: agent-definitions
           persistentVolumeClaim:
             claimName: {{ .Values.env.AP_AGENTS_VOLUME_CLAIM }}
+        {{- if .Values.spire.enabled }}
+        - name: spiffe-workload-api
+          csi:
+            driver: csi.spiffe.io
+            readOnly: true
+        {{- end }}
 ---
 apiVersion: v1
 kind: Service

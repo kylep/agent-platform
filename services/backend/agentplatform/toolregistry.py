@@ -22,7 +22,7 @@ import re
 from pathlib import Path
 
 import yaml
-from pydantic import BaseModel, ValidationError, field_validator
+from pydantic import BaseModel, ValidationError, field_validator, model_validator
 
 # MCP tool-name style, and safe to embed in env prefixes / pg identifiers.
 _NAME = re.compile(r"^[a-z][a-z0-9_]{1,40}$")
@@ -39,7 +39,7 @@ _ENV = re.compile(r"^[A-Z][A-Z0-9_]*$")
 CORE_TOOL_SUFFIXES = frozenset({
     "runs_read", "runs_write", "metrics", "query_app",
     "agents_edit", "agents_grant", "relay", "tickets", "wiki",
-    "get_quota_usage",
+    "get_quota_usage", "artifacts", "image_gen",
 })
 
 
@@ -67,16 +67,28 @@ class ToolManifest(BaseModel):
     # every call against it before running run.py.
     params: dict = {"type": "object", "properties": {}}
     infra: ToolInfra = ToolInfra()
+    # Clamped again by the executor; the ceiling is what polling tools
+    # (image generation, docs/design/23) actually need.
     timeout_seconds: int = 30
+    # The broker's scan skips an internal tool, so no agent can call it; the
+    # platform API is its only caller. `image_gen` is the first.
+    internal: bool = False
 
     @field_validator("name")
     @classmethod
     def _name_style(cls, v: str) -> str:
         if not _NAME.match(v):
             raise ValueError(f"tool name must match {_NAME.pattern}, got {v!r}")
-        if v in CORE_TOOL_SUFFIXES:
-            raise ValueError(f"{v!r} shadows a core platform tool")
         return v
+
+    @model_validator(mode="after")
+    def _no_core_shadow(self):
+        # An internal tool is exempt: the API runs it by directory name and
+        # the broker never registers it, so a core `image_gen` broker tool and
+        # a `tools/image_gen/` directory are one feature, not a collision.
+        if self.name in CORE_TOOL_SUFFIXES and not self.internal:
+            raise ValueError(f"{self.name!r} shadows a core platform tool")
+        return self
 
     @field_validator("description")
     @classmethod
@@ -95,8 +107,8 @@ class ToolManifest(BaseModel):
     @field_validator("timeout_seconds")
     @classmethod
     def _timeout_sane(cls, v: int) -> int:
-        if not 1 <= v <= 120:
-            raise ValueError("timeout_seconds must be between 1 and 120")
+        if not 1 <= v <= 300:
+            raise ValueError("timeout_seconds must be between 1 and 300")
         return v
 
     @property
@@ -165,4 +177,6 @@ class ToolRegistry:
         return [t.manifest for t in self._cache.values() if t.manifest is not None]
 
     def mcp_names(self) -> list[str]:
-        return [m.mcp_name for m in self.valid()]
+        """The grantable names: internal tools are not on the MCP surface, so
+        a grant to one would be dead."""
+        return [m.mcp_name for m in self.valid() if not m.internal]

@@ -1,8 +1,9 @@
 # Tool executor (docs/design/12): the ONLY place custom platform tools run.
-# The mcp-broker is its only permitted client (netpol) and forwards verified
-# caller identity, never credentials. It reads tools/ from the synced checkout
-# volume, so tool edits are live without touching this image — only new pip
-# deps require a rebuild (they're baked in by the Dockerfile).
+# Its clients are the mcp-broker (which forwards verified caller identity,
+# never credentials) and the api, for `internal` tools (docs/design/23). It
+# reads tools/ from the synced checkout volume, so tool edits are live without
+# touching this image — only new pip deps require a rebuild (they're baked in
+# by the Dockerfile).
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -63,7 +64,8 @@ spec:
             requests: {memory: 128Mi, cpu: 50m}
             limits: {memory: 512Mi}
         {{- if .Values.spire.enabled }}
-        # mTLS front door: ONLY the broker's SVID may connect (design/13 B).
+        # mTLS front door: ONLY the broker's and the api's SVIDs may connect
+        # (design/13 B; the api joined for internal tools, design/23).
         - name: mtls-server
           image: {{ .Values.spire.ghostunnelImage | quote }}
           args:
@@ -73,6 +75,7 @@ spec:
             - --status=http://0.0.0.0:8302
             - --use-workload-api-addr={{ .Values.spire.workloadApiSocket }}
             - --allow-uri=spiffe://{{ .Values.spire.trustDomain }}/ns/{{ .Release.Namespace }}/sa/{{ .Release.Name }}-mcp-broker
+            - --allow-uri=spiffe://{{ .Values.spire.trustDomain }}/ns/{{ .Release.Namespace }}/sa/{{ .Release.Name }}-api
           ports:
             - containerPort: 8443
           readinessProbe:

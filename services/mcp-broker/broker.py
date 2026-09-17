@@ -333,10 +333,20 @@ def _metered(tool: str):
     return decorate
 
 
+# The executor enforces the manifest's own timeout; this hop only has to
+# outlast it, plus the executor's staging and file collection around the run.
+_EXECUTOR_TIMEOUT_MARGIN = 30
+
+
 class CustomTool(Tool):
     """An MCP tool whose schema comes from tool.yaml and whose execution is a
     verified forward to the tool-executor. The caller's token stays between
     broker and platform API — the executor gets identity, never credentials."""
+
+    # The manifest's `timeout_seconds` (registry default when unset). A
+    # declared field because fastmcp's Tool forbids extras; distinct from the
+    # base class's own `timeout`, which is fastmcp's execution deadline.
+    timeout_seconds: int = 30
 
     async def run(self, arguments: dict) -> ToolResult:
         t0 = _time.monotonic()
@@ -356,7 +366,9 @@ class CustomTool(Tool):
             return ToolResult(content=_RATE_LIMITED)
         caller = {"agent": agent, "run_id": run_id}
         try:
-            async with httpx.AsyncClient(base_url=_EXECUTOR, timeout=150) as c:
+            async with httpx.AsyncClient(
+                    base_url=_EXECUTOR,
+                    timeout=self.timeout_seconds + _EXECUTOR_TIMEOUT_MARGIN) as c:
                 r = await c.post("/run", json={"tool": self.name, "args": arguments,
                                                "caller": caller})
         except httpx.HTTPError as e:
@@ -1351,11 +1363,29 @@ def _scan_custom_tools() -> dict[str, dict]:
         name = m.get("name", d.name)
         if name != d.name or not m.get("description"):
             continue
+        # `internal: true` (docs/design/23): the platform API's tool, never an
+        # agent's — it does not exist on the MCP surface at all.
+        if m.get("internal"):
+            continue
+        m["timeout_seconds"] = _clamp_timeout(m.get("timeout_seconds"))
         found[name] = m
     return found
 
 
-_registered: dict[str, str] = {}  # name → description (change detection)
+# The registry's own bounds; the broker reads raw yaml, so a manifest the
+# registry would refuse must still yield a sane forward timeout here.
+_TIMEOUT_MIN, _TIMEOUT_MAX, _TIMEOUT_DEFAULT = 1, 300, 30
+
+
+def _clamp_timeout(raw) -> int:
+    try:
+        value = int(raw)
+    except (TypeError, ValueError):
+        return _TIMEOUT_DEFAULT
+    return max(_TIMEOUT_MIN, min(value, _TIMEOUT_MAX))
+
+
+_registered: dict[str, tuple[str, int]] = {}  # name → (description, timeout): change detection
 
 
 def refresh_custom_tools() -> None:
@@ -1369,14 +1399,16 @@ def refresh_custom_tools() -> None:
             log.info("custom tool removed: %s", name)
     for name, m in current.items():
         desc = m["description"]
-        if _registered.get(name) == desc:
+        timeout = m["timeout_seconds"]
+        if _registered.get(name) == (desc, timeout):
             continue
         if name in _registered:
             mcp.local_provider.remove_tool(name)
         mcp.add_tool(CustomTool(
             name=name, description=desc,
-            parameters=m.get("params") or {"type": "object", "properties": {}}))
-        _registered[name] = desc
+            parameters=m.get("params") or {"type": "object", "properties": {}},
+            timeout_seconds=timeout))
+        _registered[name] = (desc, timeout)
         log.info("custom tool registered: %s", name)
 
 
