@@ -168,6 +168,35 @@ KEEP **85**, GATE **27**, EXCLUDE **31** (19 curated out, 12 session/internal/
 streaming). Default surface: **85 tools**; with `AP_MCP_ADMIN_TOOLS=1`: **112
 tools**. Both numbers are now pinned by a test rather than recounted by hand.
 
+## Curation: Artifacts (design-23, 2026-09)
+
+The artifacts block adds twelve operations, and three of them are not tools:
+
+- **KEEP (9)** — the metadata surface and the writes: `GET /api/artifacts`
+  (list), `POST /api/artifacts` (save), `GET /api/artifacts/{artifact_id}`,
+  `PATCH` and `DELETE` on it, `GET /api/artifacts/stats`,
+  `GET /api/artifacts/models` (the image registry crossed with secret
+  status), `POST /api/artifacts/generate` (one image, synchronously — the
+  API's own budget and daily cap meter this call whoever makes it, so
+  offering it is not a second, unmetered way to spend), and
+  `PUT /api/agents/{name}/image` (an agent's picture).
+- **GATE (0)** — nothing new.
+- **EXCLUDE (3)** — `GET /api/artifacts/events`, the Studio's SSE stream, for
+  the reason every other stream is excluded; and the two byte routes,
+  `GET /api/artifacts/{artifact_id}/content` and `…/thumb`: a PNG has no
+  place in an MCP text result, and a client that wants the bytes has both
+  URLs from the metadata the kept tools return. Agents see a picture through
+  the broker's `artifacts` tool, which attaches it as an image content block.
+
+Totals after Artifacts, counted from a fresh spec: **155** graded operations
+— KEEP **94**, GATE **27**, EXCLUDE **34** (19 curated out, 15
+session/internal/streaming/byte-serving). Default surface: **94 tools**; with
+`AP_MCP_ADMIN_TOOLS=1`: **121 tools**. The four docstring counts are pinned
+by `test_the_docstring_tier_counts_match_the_real_spec`, and the three
+exclusions by their own test. After the deploy the facade must be restarted
+so it re-reads the spec (the regenerated SDK's `AgentDefOut` also expects the
+new `face` field).
+
 ## Explicitly not now
 
 Write-scoping beyond the role ladder (a reader key already gets 403s from

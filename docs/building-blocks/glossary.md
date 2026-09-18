@@ -27,7 +27,7 @@ Every long-running piece of the platform. All of these are Deployments in the
 | **web** | `services/web` | The React UI plus the nginx that serves it, terminates the login session, and proxies `/api` and `/apps/<name>/`. The only LAN-facing service. |
 | **mcp-broker** | `services/mcp-broker` | The single MCP server agents talk to. It verifies who is calling and that the caller's definition declares the tool, then performs the call itself — agent pods never hold platform credentials. See [tools.md](tools.md) and [security.md](security.md). |
 | **mcp-facade** | `services/mcp-facade` | The MCP server *external* clients talk to (Claude Code on a laptop), served at `/mcp` through web's nginx. Its tools are generated from the API's OpenAPI document, and it forwards the caller's own `Authorization: Bearer ap_…` on every call — and *only* that header, never a session cookie — so it holds no credential, grants no authority, and the API's role ladder decides everything. A request with no `Authorization` header at all is refused at the door, so a keyless client cannot even read the tool list. Distinct from the broker, which scopes tools to an in-cluster run's grants. |
-| **tool-executor** | `services/tool-executor` | Runs a custom tool's `run.py` in a locked-down subprocess with a minimal environment. The broker is its only client, and it is the platform's single point of third-party network egress. |
+| **tool-executor** | `services/tool-executor` | Runs a custom tool's `run.py` in a locked-down subprocess with a minimal environment, and a **file sink**: a per-call `TOOL_IN_DIR` / `TOOL_OUT_DIR` pair through which a tool takes files in and hands files back, which is how a tool returns something that is not text. Its clients are the broker and, for `internal` tools, the api; it is the platform's single point of third-party network egress. |
 | **claude-proxy** | stock nginx + a config in the chart | Holds the Claude API credential and injects it into requests from runner pods, so the token never lands in an agent's pod, and reports the usage headers Anthropic returns to the API — which is how the platform knows its own [quota](quota.md). |
 | **agents-sync** | stock `alpine/git` | Keeps the **synced checkout** (below) up to date with the git repository. |
 | **connector-discord** | `services/connector-discord` | Bridges a Discord channel to the conversation API, so a chat message can start a run. |
@@ -107,7 +107,10 @@ Every long-running piece of the platform. All of these are Deployments in the
 - **Face** — a participant's emoji on a hue-tinted disc. An agent's `icon` when
   it has one, otherwise derived from a hash of the name (as are humans' and
   bridged users'), so the same name looks the same everywhere forever without
-  anybody picking colours.
+  anybody picking colours. An agent with a **profile image** (an image
+  artifact, `image_artifact_id` on its row) wears that picture inside the same
+  disc, everywhere a face is drawn, and falls back to the emoji if the picture
+  fails to load.
 - **Ticket** — one piece of work the platform is tracking: a title, a state
   (`open` → `in_progress` → `blocked`/`review` → `done`/`cancelled`), an
   assignee, and the Relay thread it is being discussed in. Agents open and move
@@ -156,6 +159,43 @@ Every long-running piece of the platform. All of these are Deployments in the
   relays; a **refresh** is the platform spending the cheapest possible call to
   ask on purpose. A snapshot is **stale** once the earlier of its two windows
   has reset, which is what dims the bars.
+- **Artifact** — a file the platform keeps: a named blob with a sniffed mime,
+  a size, a sha256, an owner (a participant string), a source (`upload`,
+  `generated`, `derived`, `tool`), a `meta` that is its provenance, and tags.
+  Bytes live in Postgres (`artifact_blobs`), a raster image also carries its
+  dimensions and a thumb, and every change is an `artifacts.events` event.
+  Agents keep files through the `artifacts` tool, humans through the Studio;
+  the block is [artifacts.md](artifacts.md), the design record is
+  `docs/design/23-artifacts-and-image-studio.md`.
+- **Artifact card** — `[[artifact:<id>]]` in ordinary prose, rendered wherever
+  Relay prose is rendered as the thumb (or a file glyph), the name, the
+  owner's face and one line of provenance. The same protection as a wiki-link:
+  inside code, a fence, a markdown link or a URL it is quoted text. An id
+  nobody has is a muted "artifact not found" chip.
+- **Derived** — an artifact made from another one: the Studio's markup or crop
+  of a picture, saved as a new artifact whose `meta.parent_id` names the
+  original and whose `operation` says which. A markup is a new artifact, not
+  a new version.
+- **Studio** — the page at `/studio` where a person generates an image with no
+  agent in the loop: a configured model, a prompt, size or aspect and quality,
+  optional reference images, a stage with the result and its provenance, a
+  recent strip, and a markup mode. Its child page `/artifacts` is the block's
+  own grid.
+- **Artist** — the seeded `artist` agent: summon it with `@artist` and a brief
+  and it generates one image through the `image_gen` tool, keeps it as an
+  artifact and answers with its card. Not a system agent, so `@all` reaches
+  it — which is why its first rule is to draw nothing for a summons that did
+  not ask for a picture.
+- **`#art`** — the open Relay channel the platform seeds for every generated
+  image: each generation lands there as an event card (`[[artifact:<id>]]`
+  and one flattened line — who, which model, the prompt), and the daily spend
+  cap says so there once a day when it is reached.
+- **Internal tool** — a `tools/<name>/` whose manifest says `internal: true`:
+  the broker never registers it, so no agent can declare or call it, and the
+  platform api is its only caller. `image_gen` is the first — the Studio and
+  the broker's `image_gen` core tool both reach it through
+  `POST /api/artifacts/generate`, which is the one place a generation
+  happens and where the budget lives.
 - **Kyle (project owner)** — the sole operator of the reference deployment.
   Design docs quote him directly; those quotes are the historical record of a
   decision, not instructions to the reader.

@@ -113,6 +113,18 @@ A summoned agent is handed the room's recent messages (`relay_context_messages`
 instruction. The `relay` tool cannot grant anything, and no agent holds the
 Discord token.
 
+## Artifact cards
+
+`[[artifact:<id>]]` in a message renders as an **artifact card** — the
+picture's thumb (or a file's glyph), its name, its owner's face and one line
+of provenance; click for the lightbox, `open ↗` for its page. It is the third
+chip in the same rewrite as `[[slug]]` and ticket keys, with the same
+protection (quoted text inside code, links and URLs), and an id nobody has is
+a muted "artifact not found" chip. Every generated image also lands in
+`#art` as an event card the API posts — an event row rather than a text row,
+so the prompt it quotes can never summon anybody. The block is
+[artifacts.md](artifacts.md).
+
 ## Bridges
 
 `relay_bindings` maps a room in someone else's chat app — `(connector,
@@ -131,7 +143,10 @@ Every participant has a face: an emoji on a disc tinted by its own hue. An
 agent's face is `icon` on its definition when it has one; otherwise — and for
 humans and bridged users — it is derived from a hash of the name, so `news`
 looks the same in the rail, in the room, in presence and on the agent's page,
-forever, without anybody choosing a palette. Presence works the same way: an
+forever, without anybody choosing a palette. An agent with a profile image
+(an image artifact on its row — [agents.md](agents.md)) wears that picture
+inside the same disc instead, wherever a face is drawn, falling back to the
+emoji if the picture fails to load. Presence works the same way: an
 agent reads as **thinking** while it has an active run in the room, derived
 from the run rather than stored, so nothing has to be cleaned up when a pod
 dies.

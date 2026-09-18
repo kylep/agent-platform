@@ -65,6 +65,30 @@ is granting influence over what every agent (including admin-equivalent ones)
 actually does; see the "Indirect escalation via editorial fields" note in
 [design-15](../design/15-db-first-agents.md#indirect-escalation-via-editorial-fields).
 
+## Profile image
+
+An agent's picture is a **presentation attribute, not part of its
+definition** — the same seam as `icon`: `image_artifact_id` on the row names
+an image [artifact](artifacts.md), it never enters a version snapshot, a
+rollback leaves it alone, and it is dropped from a definition `PUT`. It is
+set through its own route, `PUT /api/agents/{name}/image` with
+`{artifact_id | null}`, by the admin session, an `agents_edit` holder, or
+**the agent itself** from its own run (which is what the artist does after
+it draws one) — the artifact must be a live image. Once set, every face the
+UI draws for that agent — Relay, tickets, the wiki, presence, the Agents
+grid — shows the picture inside the same hue-tinted disc, with the emoji as
+the fallback. Deleting the artifact clears the picture.
+
+On the agent's page the Config tab has a **Profile image** section outside
+the definition editor: **Upload** (a file or a drop), **Choose from
+artifacts**, **Generate** (a configured model and a prompt prefilled as
+`Portrait of "<name>": <description>. flat, friendly avatar, square, centred,
+no text` — the generation is an ordinary artifact owned by you, so it lands
+in `#art` and the Studio's strip too), and **Remove**. `/agents` itself is a
+card grid by default — face, name, description, status, schedule — with a
+Grid/Table toggle in the header that `localStorage` remembers; the table is
+the old page, unchanged.
+
 ## Change log, not review
 
 Every write to a definition — from the UI, the raw API, or either tool —

@@ -50,7 +50,7 @@ contexts):
 | **connector-discord** | Bridges Discord to the platform: a mention opens a thread, which is a Conversation; consumes `discord.channel.post` to speak. Sole holder of the bot token. |
 | **postgres** | Runtime state: runs, transcripts, schedules, jobs, principals, memories, conversations, secret metadata. |
 | **kafka** (single-node KRaft) | Topics: `run.inbound`, `run.requests`, `run.events`, `run.transcript`, `run.dlq`, `conversation.*`, `discord.channel.post`, `platform.tool.audit`, `dead.letter` (the chart's `topics.specs` is authoritative). |
-| **tool-executor** (`docs/design/12-executable-capabilities.md`) | Runs custom tools' reviewed code in a locked-down subprocess with call-time secrets. The broker is its only client; it is the platform's single third-party-egress point. |
+| **tool-executor** (`docs/design/12-executable-capabilities.md`) | Runs custom tools' reviewed code in a locked-down subprocess with call-time secrets, with a per-call file sink (`TOOL_IN_DIR`/`TOOL_OUT_DIR`) for tools that take or return files ([23](23-artifacts-and-image-studio.md)). Its clients are the broker and, for `internal` tools, the api; it is the platform's single third-party-egress point. |
 | **claude-proxy** (`docs/design/09-token-brokering.md`) | Holds the Claude credential and injects it per-request, so runner pods never carry it; also reads the usage headers off every upstream response and reports them to the api ([22](22-quota-usage-bars.md)). |
 | **agents-sync** | Keeps the synced checkout of this repository current; every service reads definitions from it. |
 | **app pods** (`docs/design/11-apps-and-reports.md`) | Full applications built on the platform, one per `apps/<name>/`. |
@@ -109,6 +109,11 @@ plus its own row-level grants.
   `tool_memory`, and agents reach it by declaring the tool.)
 - `secrets_meta` — names, bindings, rotation timestamps. Values live in
   k8s Secrets only.
+- `artifacts` / `artifact_blobs` — the files agents and humans keep: metadata
+  (sniffed mime, size, sha256, owner, source, provenance `meta`, tags, a
+  thumb for images) in one table and the bytes in another. Since
+  [23](23-artifacts-and-image-studio.md); see
+  `docs/building-blocks/artifacts.md`.
 
 Run states: `queued → dispatched → running → succeeded | failed |
 timed_out | killed`, plus `rejected` and `dlq`. Guardrails on every run:
@@ -216,3 +221,4 @@ hardening milestone.
 | [20](20-tickets-agent-work-tracker.md) | Tickets — the agent work tracker (shipped 2026-09-12) | A ticket is a row with a state and a Relay thread; the channel is the project (`OPS-12`); assigning to an agent summons it through Relay's guards; every change is a `tickets.events` event and a live board; a default-granted `tickets` tool; the Today strip is the standup written by nobody |
 | [21](21-wiki-shared-knowledge.md) | Wiki — the shared knowledge base (shipped 2026-09-13) | Markdown pages with `[[slug]]` links, full version history and search; every write is a `wiki.events` event and a diff card in `#wiki`; a default-granted `wiki` tool; memories promote into pages; summoned agents get a `<wiki>` block and cite; a seeded `wiki` librarian agent answers `@wiki` |
 | [22](22-quota-usage-bars.md) | Quota — the account's usage windows (built 2026-09-14) | Anthropic reports both rolling windows on every response and the claude-proxy already sees every response: it captures them into a `quota_snapshot` row and a `quota.events` topic, the sidebar draws them as two thin bars under the brand, and a default-granted `get_quota_usage` tool lets an agent ask how much of the shared allowance is left before committing to expensive work — refreshed by the cheapest Claude call that still carries the headers, coalesced platform-wide so the tool cannot become a token drain |
+| [23](23-artifacts-and-image-studio.md) | Artifacts, image generation and the Image Studio (built 2026-09-18, live verification pending) | Files become a block: an artifact is a row plus a blob in Postgres, served with `nosniff` and inline only for raster images, every change an `artifacts.events` event; the tool-executor gains a generic file sink and `internal` tools, and the api becomes its second client; one internal `image_gen` tool ports Kyle's OpenAI/Gemini/BFL generator behind three secret blocks, and `POST /api/artifacts/generate` is the one place a generation happens — per-agent hourly budget, platform-wide daily cap, a card in `#art`; a default-granted `artifacts` tool whose `get` hands the model a picture as an image block; agents wear an image artifact as their face and `/agents` becomes a card grid; the Studio (`/studio`) generates, iterates on a reference, marks up and saves a derived artifact with no agent in the loop; a seeded `artist` agent answers `@artist` with a card |

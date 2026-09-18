@@ -39,6 +39,35 @@ Status: SHIPPED 2026-08-07 (all 7 phases live-verified on the NUC)
   name collision with these core tools, same as any other core-tool-shadow
   attempt.
 
+### AS BUILT addendum 2026-09-17 (design-23)
+
+- **The executor has a file sink.** Every `/run` gets a per-call scratch pair
+  handed to the subprocess as `TOOL_IN_DIR` / `TOOL_OUT_DIR`: the caller may
+  pass `files_in: [{name, mime, b64}]` (≤ 4 × 8 MiB, basenames only, a
+  request-body ceiling enforced before any JSON is parsed), and whatever the
+  tool leaves in `out/` comes back as `files: [{name, mime, b64, meta}]`
+  (≤ 8 × 8 MiB, mime sniffed from magic bytes, a `<name>.meta.json` sidecar
+  folded into `meta`) plus `warnings` for what was dropped. Stdout keeps its
+  256 KiB text cap; the sink is how a tool returns something that is not
+  text. The subprocess runs in its own session and the group is killed on
+  timeout.
+- **`internal: true`** in a manifest keeps a tool off the MCP surface: the
+  broker's scan skips it, `mcp_names` and the tool help leave it out, and the
+  platform api runs it by directory name — which also exempts it from the
+  core-name shadow check, so `tools/image_gen/` coexists with the broker's
+  core `image_gen` tool. `image_gen` is the first.
+- **The timeout ceiling is 300 s** (was 120): `timeout_seconds` is validated
+  1..300 by the registry and clamped at 300 by the executor; the broker clamps
+  the same way and waits the manifest's timeout plus 30 s.
+- **The api is the executor's second caller.** "Accepted from the broker
+  only" above is now "from the broker and the api": `AP_EXECUTOR_URL` on the
+  api Deployment (under SPIRE, `http://127.0.0.1:8301` through an
+  `executor-tunnel` ghostunnel client sidecar; otherwise the executor
+  Service), the executor's mTLS front door accepts the api's SVID as a second
+  `--allow-uri`, and the `allow-tool-executor` netpol admits the `api`
+  component. The api calls only internal tools this way — today, `image_gen`
+  from `POST /api/artifacts/generate`.
+
 ## Problem
 
 Skills carry *knowledge* but nothing on the platform can *execute* for a

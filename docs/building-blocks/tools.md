@@ -106,11 +106,16 @@ response's `warnings` list; the call itself still succeeds.
 the broker's scan skips it, so no agent can declare or call it, and the
 platform API is its only caller (via `AP_EXECUTOR_URL`; under SPIRE the api
 pod carries the same ghostunnel client tunnel the broker does). `image_gen`
-is the first — the Studio drives it, agents never do.
-`tools/image_gen/` is the shipped reference: a stdlib `run.py` over a
-`models.json` registry, binding the optional `openai-api-key`,
-`gemini-api-key` and `bfl-api-key` blocks (an unset one degrades to
-"provider not configured", never a load error).
+is the first: the Studio and the broker's `image_gen` core tool both reach it
+through `POST /api/artifacts/generate`, the one place a generation happens
+and where the budget lives — no agent ever runs the executor tool itself
+([artifacts.md](artifacts.md)). `tools/image_gen/` is the shipped reference: a
+stdlib `run.py` over a `models.json` registry, binding the optional
+`openai-api-key`, `gemini-api-key` and `bfl-api-key` blocks (an unset one
+degrades to "provider not configured", never a load error). Because an
+internal tool is run by directory name and never registered by the broker,
+it is exempt from the core-name shadow rule below — a core `image_gen` broker
+tool and a `tools/image_gen/` directory are one feature, not a collision.
 
 ## The 300-second ceiling
 
@@ -141,7 +146,9 @@ anything down.
   checkout, with no deploy.
 - A tool name cannot shadow one of the broker's built-in core tools —
   `runs_read`, `runs_write`, `metrics`, `query_app`, `agents_edit`,
-  `agents_grant` — a `tools/agents_edit/` directory is refused at the
+  `agents_grant`, `relay`, `tickets`, `wiki`, `get_quota_usage`, `artifacts`,
+  `image_gen` — a `tools/agents_edit/` directory is refused at the
   registry, loudly, rather than silently losing to (or fighting) the broker's
-  own tool of the same name. A tool folder without a `run.py` is likewise
-  surfaced as an error rather than becoming a silently dead capability.
+  own tool of the same name (an `internal: true` tool is the one exemption,
+  above). A tool folder without a `run.py` is likewise surfaced as an error
+  rather than becoming a silently dead capability.

@@ -1,6 +1,9 @@
 # 23 — Artifacts, image generation, and the Image Studio
 
-Status: **designed 2026-09-17**, not yet built — plan at
+Status: **built 2026-09-17/18, shipped pending T15** (every task through
+T14 committed on `main`; the deploy and live verification — helm upgrade,
+the three keys pasted on `/secrets`, one image from each provider, `@artist`
+answering in `#art` — are the plan's last task) — plan at
 `docs/superpowers/plans/2026-09-17-artifacts-and-image-studio.md`. Builds on
 Relay [19](19-relay-agent-messenger.md) (cards, participants), the tools
 building block [12](12-executable-capabilities.md) (the executor runs the
@@ -419,4 +422,149 @@ parent, which is enough).
 
 ## AS BUILT
 
-Filled by the build's docs task.
+Deltas from the design above, each forced by a review, a test, or a
+provider's actual API (the ticked tasks in the plan record which). The
+commits are the eight `feat(artifacts)` ones between `467e327` (T1) and
+`6129ba0` (T13).
+
+- **The executor sink is as designed, with three hardenings.** `/run` takes
+  `files_in: [{name, mime, b64}]` (≤ 4 × 8 MiB, basenames only, the base64
+  length checked before decoding, and a request-body ceiling enforced on the
+  raw bytes before any JSON is parsed) and answers `files: [{name, mime, b64,
+  meta}]` plus `warnings: [..]` (≤ 8 × 8 MiB; an oversized entry, a symlink or
+  a non-regular file is skipped and named in `warnings` rather than failing
+  the call). The sidecar is `<name>.meta.json` — for the image tool that is
+  **`image.<ext>.meta.json`**, not the design's `image.meta.json`. The
+  subprocess runs in its own session and the whole process group is killed
+  on timeout: a forked grandchild used to keep `proc.wait()` from ever
+  returning.
+- **`internal: true` exempts a tool from the core-name shadow check.** The
+  registry refuses a `tools/<name>/` that shadows a broker core tool; an
+  internal tool is the API's to run by directory name and the broker never
+  registers it, so a core `image_gen` broker tool and a `tools/image_gen/`
+  directory are one feature, not a collision. The broker's scan skips
+  internal tools, `help.py` leaves them off the tool-help list, and
+  `mcp_names` (the grantable names) excludes them. The broker clamps a
+  manifest timeout to 1..300 and forwards it plus 30 s.
+- **The real BFL ids are the endpoint paths.** `flux-kontext-pro`,
+  `flux-kontext-max` and `flux-pro-1.1` — not the design's
+  `flux-1-kontext-pro` / `flux-1-kontext-max` / `flux-1.1-pro`. The OpenAI
+  and Gemini ids are as designed; every id was checked against the
+  provider's docs on 2026-09-17 and `models.json` is the place to fix drift.
+  OpenAI's `gpt-image-2+` and every BFL width/height model accept custom
+  sizes (`custom_size: true` in the registry, sizes snapped to a 16-pixel
+  grid); `gpt-image-1-mini` is limited to its listed sizes. Gemini's
+  `quality` is its `imageSize` (`1K`/`2K`/`4K`); FLUX.1 Kontext takes aspects.
+- **One 165 s wall-clock budget inside the 180 s manifest.** `run.py` starts
+  a budget at entry and every socket timeout is `min(60, remaining)`, so the
+  provider's own reason reaches the user before the executor's SIGKILL would
+  replace it with "tool timed out". Redirects are refused (a 3xx must never
+  carry a key to another host), BFL's `polling_url` host is checked, response
+  reads are capped at 32 MiB, and an unexpected exception is one clean stderr
+  line — never a traceback in the browser.
+- **The API's generate route is guarded by a reservation ledger.** A
+  generation is check-then-spend with up to 210 s between the two, so
+  every request arriving while one waits on the executor would read the same
+  rows and pass the same caps. `_Reservations` in `image_gen_service.py`
+  holds the price (and, for an agent, the one image) from the check until the
+  row exists or the attempt has failed, and the caps are read against the rows
+  **plus** what is reserved. It is process-local, which is exact only because
+  the api Deployment pins `replicas: 1`; a second replica would reopen the
+  window across replicas. The row count is still the record.
+- **Everything that can refuse for the request's own sake refuses before the
+  executor is called** — an unknown model, a size the registry does not list,
+  a reference to a model without `edits`, a prompt over 2000 characters (the
+  meta cap would otherwise refuse the row *after* the provider was paid) —
+  and a registry entry with no price is refused too, so a free-looking image
+  can never walk past the cap.
+- **The `#art` card is `kind="event"`, not text.** The router re-parses
+  `@mentions` from the body of every text row, so a prompt reading "@news
+  retract that" would summon news with a fresh hop budget the moment its
+  card landed. Event rows are never read for mentions — the ticket card's
+  protection, borrowed whole. The row also carries a `card` payload
+  (`{type: "artifact", artifact_id, owner, model, prompt}`), and the daily
+  cap notice is a `kind="system"` row marked in `schema_marks`
+  (`art-budget-notice-<day>`) so it is said once across processes.
+- **`POST /api/artifacts/generate` requires the `image_gen` grant** for an
+  agent, not the either-grant fence the store's routes share: `artifacts` is
+  default-granted so any agent can keep a file, and this is the one door that
+  spends money. The other `/api/artifacts/*` routes open to an agent holding
+  either grant (`require_artifacts_access`) — the artist holds `image_gen`
+  and needs the store its pictures land in.
+- **`local_timezone`** (`America/Toronto`) is a new setting: the zone
+  "today" turns in for the daily cap and the month for the stats. An unknown
+  zone is a warning and UTC, never a route that cannot answer. `stats`'
+  cap field is `daily_cap_usd`, not the design's `daily_cap`.
+- **The api pod dials the executor through its own SPIRE tunnel.** Under
+  `spire.enabled` the api Deployment carries an `executor-tunnel` ghostunnel
+  client sidecar (with a startup probe) and `AP_EXECUTOR_URL` is
+  `http://127.0.0.1:8301`; otherwise it is the executor Service directly.
+  The executor's mTLS front door gains `--allow-uri` for the api's SVID and
+  the `allow-tool-executor` netpol admits the `api` component beside the
+  broker.
+- **The models route reads secret status off the event loop, cached.** The
+  k8s store is a synchronous call per block; `provider_status` caches for
+  60 s and pushes the store call to a thread. `configured` is true when a
+  block is `valid` or `unprobed` (how most keys arrive).
+- **The secret probes.** The Gemini key travels in the `x-goog-api-key`
+  header, not `?key=` in the URL (a query-string key lands in access logs, and
+  newer-format keys reject it). The BFL script polls `get_result` for a
+  sentinel task id with `x-key`: 401/403 → rejected, 404/422/200 → accepted,
+  and **anything else (429, 5xx, a WAF page) is inconclusive and fails
+  closed** — marking a key valid through an outage would let a dead key look
+  green; the verifier heartbeat re-runs it every 600 s.
+- **The broker's `generate` waits 240 s**, not the `_metered` default of
+  20 s, which would have reported "unreachable — retry shortly" while the API
+  kept spending; a timeout now tells the model not to retry blindly and to
+  check `artifacts list` first. Attached pictures are bounded on the bytes
+  that arrive (thumb ≤ 150 KiB, `full=true` ≤ 1 MiB, an image mime), refusals
+  become plain capped strings with a hint per status (429 wait, 402 tomorrow,
+  502 change the prompt), and audit rows record sizes, never bytes.
+- **Agent images: the `agents_edit`-holder / self rule, plus grant parity.**
+  `PUT /api/agents/{name}/image` is admin, an `agents_edit` holder, or the
+  agent itself — "itself" meaning the run token's run (`_run_of`), and the
+  run's agent must hold `artifacts` or `image_gen`, as the store's own routes
+  ask. Deleting or pruning an artifact undresses every agent wearing it and
+  publishes an `agent_image` clear (`artifact: null`), which the SSE feed
+  passes through. The column is deliberately not a foreign key, so the two
+  delete paths do by hand what a cascade would.
+- **The web shares one SSE feed per tab.** The grid and every mounted
+  `[[artifact:…]]` card subscribe to one `EventSource`
+  (`components/artifacts/feed.ts`), started by the first subscriber and
+  closed by the last, with the board's widening retry; a card that rendered
+  before its row landed no longer stays "not found" for the session, and a
+  deleted picture empties its cards. Byte URLs are used only when they start
+  with `/api/artifacts/`. The nav label is "Studio" without the emoji.
+- **The artist has a step 0.** The daily `#standup` `@all` reaches it (it is
+  not `system`), so the prompt's first rule is that a summons that is not an
+  image request gets one line or silence, never a generation. The three house
+  styles, the model guidance, the never-claim rule and the budget rule are as
+  designed; the row's first change-log entry is `changed_via: seed`. The
+  profile-image dialog's prefilled prompt is `Portrait of "<name>":
+  <description>. flat, friendly avatar, square, centred, no text`.
+- **Markup** is at the picture's natural pixels with a 16 MP working-canvas
+  cap (larger sources are scaled), Esc and ⌘Z, swatches from the chart tokens,
+  a black-and-white crop marquee, and a Save that refuses a zero-op (a
+  byte-identical copy labelled crop); click-only arrows and rectangles are
+  dropped. `/studio/<id>` stages an artifact and `/studio?ref=<id>` preloads a
+  reference; a result that lands after the reader has left the page no longer
+  pulls them back.
+- **`artifacts_default_grant`** is a fifth default-grant knob beside relay's,
+  tickets', wiki's and quota's, and `POST /api/agents` honours it; the sweep mark is
+  `artifacts-default-grant-v1`.
+
+Deferred, noted in the plan's Deferred section and not built: the Discord
+bridge attaching the image to a mirrored message; per-agent style memory for
+the artist; a batch mode; video; an egress allow-list for the executor; masks
+for OpenAI edits; server-side resize on upload; artifact versions (a markup is
+a new artifact with a parent, which is enough). Review lows left as they are:
+`Image.MAX_IMAGE_PIXELS` is set process-wide at import; `PATCH` publishes no
+event; `TOOL_SCRATCH_DIR` is not validated at executor boot; the broker suite
+stubs `fastmcp`; a generate holds up to ~43 MB of base64 references in
+memory; `K8sSecretStore.get` is synchronous under the secrets page (the
+models route wraps it, the page does not); `PUT …/image` publishes on an
+unchanged value; the regenerated SDK's `AgentDefOut.from_dict` pops `face`
+unconditionally, so the facade must restart after the deploy; `/artifacts`'
+owner/tag pickers are drawn from the filtered rows; the Studio stat row reads
+`$x / $0.00` when the daily cap is zero; and the pre-existing
+`secretverify.py` probe whose DNS resolution is not bounded by its timeout.

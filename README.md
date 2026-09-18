@@ -112,6 +112,13 @@ Postgres backup CronJob is the recovery story for that (see
   (web = continuable in the UI, discord = bridged read-only), each turn a run.
 - **[Memories](docs/building-blocks/memories.md)** — per-agent namespaced
   notes with full-text search, editable in the UI.
+- **[Artifacts](docs/building-blocks/artifacts.md)** — the files agents and
+  humans keep, as rows plus blobs in Postgres: sniffed mime, provenance,
+  bytes served with `nosniff` and inline only for raster images. A
+  default-granted `artifacts` tool hands a model a picture as an image block;
+  an internal `image_gen` tool (OpenAI, Gemini, Black Forest Labs) generates
+  behind a per-agent budget and a daily cap; agents wear an artifact as their
+  face; the Studio generates, iterates and marks up with no agent in the loop.
 - **[Changes](docs/building-blocks/changes.md)** — the self-edit loop for
   *capability*: every skill/tool/secret mutation becomes a commit or PR;
   deterministic editors lock on their pending change; nothing an agent writes
@@ -169,7 +176,7 @@ agent-platform/
 │   │                          #   nginx also session-guards /apps/<name>/ (auth_request)
 │   ├── mcp-broker/            # platform API + custom tools as mcp__platform__* over streamable HTTP
 │   ├── mcp-facade/            # the API's OpenAPI generated into MCP tools for EXTERNAL clients (/mcp)
-│   ├── tool-executor/         # runs tools/<name>/run.py in a minimal env; the single egress point
+│   ├── tool-executor/         # runs tools/<name>/run.py in a minimal env (+ a file sink); the single egress point
 │   ├── connector-discord/     # Discord threads ↔ Conversations
 │   └── connector-slack/       # placeholder (not implemented)
 ├── charts/agent-platform/     # the Helm chart: all Deployments incl. agents-sync (git→cluster

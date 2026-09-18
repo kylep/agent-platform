@@ -60,6 +60,23 @@ stealing, and (c) an exfiltration channel.
   (nh3) and rendered in a sandboxed, CSP-deny-all iframe; news ingestion is
   privilege-separated (gatherer holds zero credentials); connector
   output is length-capped with mass-pings defanged.
+- **Byte serving (`docs/design/23-artifacts-and-image-studio.md`):** an
+  artifact's bytes are the platform handing a browser a file somebody else
+  chose — possibly a model. The mime is sniffed from the bytes on the way in
+  (four rasters by magic; four text types only when claimed *and* UTF-8;
+  everything else `application/octet-stream`) and no route ever reflects a
+  client's claim. `GET /api/artifacts/{id}/content` always sets
+  `X-Content-Type-Options: nosniff` and an immutable private cache, and
+  `Content-Disposition: inline` only for PNG/JPEG/WebP/GIF — SVG and HTML
+  are attachments, whatever they called themselves. The only code that
+  interprets the bytes is Pillow, for the rasters, behind an explicit
+  50-megapixel cap so a decompression bomb is a 413. The owner is the
+  caller's token, never the body; an agent writes only from a live run; the
+  web uses a byte URL only when it starts with `/api/artifacts/`. Image
+  generation runs as an `internal` executor tool, so provider keys exist only
+  in that subprocess for one call; the api never sees a key and the model
+  never sees a provider response, and the generation route is metered per
+  agent per hour and capped per day so a looping agent is a 429, not a bill.
 
 ## Broker authentication: current state and target
 
@@ -97,7 +114,10 @@ ServiceAccount and issues rotating X.509 SVIDs
 `spiffe://pai/ns/<ns>/sa/<sa>`). ghostunnel sidecars carry the mutual TLS so
 app code stays TLS-ignorant: broker + executor bind localhost with an
 SVID-authenticated front door on 8443 (namespace workloads → broker;
-ONLY the broker's identity → executor), and MCP-talking run pods get a
+ONLY the broker's and the api's identities → executor — the api joined for
+`internal` tools, `docs/design/23-artifacts-and-image-studio.md`, and dials
+the executor through its own `executor-tunnel` ghostunnel client sidecar
+with the same startup probe), and MCP-talking run pods get a
 native-sidecar client tunnel whose startupProbe (a full TLS dial) gates
 the runner until the pod's identity works. The run JWT + SA token remain
 required — layers, not alternatives. `spire.enabled=false` is the
