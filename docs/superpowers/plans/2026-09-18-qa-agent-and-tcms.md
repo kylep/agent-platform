@@ -135,7 +135,7 @@ dispatch subagents, verify their evidence, commit, and update this file.
    review runs on opus, noted in the tick).
 9. NUC access, deploy mechanics and the classifier rule: as in the
    coding-agent plan's protocol step 9 (Terminal.app `do script`, the `ssh -f
-   -N -L 18090:localhost:8090 pai` forward, the `t23-deploy.sh` reference
+   -N -L 18090:localhost:8090 pai` forward, the `docs/superpowers/plans/reference-deploy-pai.sh` reference (with `KUBECONFIG=$HOME/.kube/pai-nuc.yaml` and `DOCKER_HOST=unix://$HOME/.rd/docker.sock` exported; `helm` runs from the Mac, not on pai)
    script, stored values fetched fresh, rollouts, facade last). **This build
    adds the `app-tcms` image** (built from the REPO ROOT: `-f
    apps/tcms/Dockerfile .` after `npm run build -w tcms-frontend`), rebuilds

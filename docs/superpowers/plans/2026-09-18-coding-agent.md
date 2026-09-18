@@ -133,8 +133,14 @@ dispatch subagents, verify their evidence, commit, and update this file.
    `claude-code-local-network-tcc-gotcha`). The API is reachable from this
    process only through `ssh -f -N -L 18090:localhost:8090 pai` (started the
    same way; check `curl localhost:18090/login` before each live step) at
-   `http://localhost:18090`. The deploy script from the artifacts build is
-   the reference (scratchpad `t23-deploy.sh`: buildx `--platform linux/amd64
+   `http://localhost:18090`. (On 2026-09-18 plain `ssh pai`, `helm` and
+   `kubectl` worked directly from this process with
+   `KUBECONFIG=$HOME/.kube/pai-nuc.yaml` and `DOCKER_HOST=unix://$HOME/.rd/docker.sock`
+   exported — try that first; fall back to Terminal.app on "No route to
+   host". `helm` is not on pai's PATH over ssh: run it from the Mac.) The
+   deploy script is checked in as
+   `docs/superpowers/plans/reference-deploy-pai.sh` (copy it to the
+   scratchpad, set `SCRATCH`, edit the image list; it does: buildx `--platform linux/amd64
    --provenance=false --load`, `docker save` → `scp` → `sudo k3s ctr -n
    k8s.io images import`, `helm upgrade ap charts/agent-platform -n
    agent-platform -f <stored values> -f charts/agent-platform/values-pai-nuc.yaml`
