@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { Banner } from "@ap/ui/banner";
 import { Button, buttonVariants } from "@ap/ui/button";
@@ -6,9 +6,10 @@ import { cn } from "@ap/ui/cn";
 import { ConfirmDialog, FormDialog } from "@ap/ui/dialog";
 import { Select } from "@ap/ui/field";
 import { api, setAgentImage, type AgentSummary, type Artifact } from "../../api";
-import { safeArtifactUrl } from "../../lib/artifacts";
+import { fileGlyph, formatBytes, safeArtifactUrl } from "../../lib/artifacts";
 import { Provenance } from "../artifacts/Provenance";
 import { errorDetail } from "./generate";
+import { loadImage, Markup } from "./Markup";
 
 // The right column (docs/design/23): the picture, or the wait for it, or
 // the invitation to ask. Each of the three is drawn on purpose — an empty
@@ -16,27 +17,42 @@ import { errorDetail } from "./generate";
 // seconds ticking over a shimmer, and a result is the hero with everything
 // known about it underneath.
 
-export function Stage({ artifact: a, pending, elapsed, modelLabel, me, missing, onIterate, onDelete, onWorn }: {
+export function Stage({ artifact: a, pending, elapsed, modelLabel, me, absent, onIterate, onDelete, onWorn, onDerived }: {
   artifact: Artifact | null;
   pending: boolean;
   elapsed: number;
   modelLabel: string | null;
   me: string | null;
-  /** The id the URL named, when nobody has it. */
-  missing: string | null;
+  /** Why the stage is empty when the reader asked for a picture: the URL
+   * named an id nobody has, or the one that was here was deleted elsewhere. */
+  absent: { id: string; deleted: boolean } | null;
   onIterate: (a: Artifact) => void;
   onDelete: (a: Artifact) => Promise<void>;
   /** An agent now wears the picture; the page says so. */
   onWorn: (agent: string) => void;
+  /** A markup or crop of the picture was kept; it takes the stage. */
+  onDerived: (a: Artifact) => void;
 }) {
   const [wearing, setWearing] = useState(false);
   const [confirming, setConfirming] = useState(false);
+  // The picture as the markup canvas will draw it, loaded before the mode is
+  // entered: a canvas with nothing on it is not a markup mode, it is a bug.
+  const [marking, setMarking] = useState<HTMLImageElement | null>(null);
+  // Leaving the mode by Cancel or Save hands the keyboard back to the button
+  // that opened it — which is not on the page until the mode is gone, so the
+  // focus waits for the render that brings it back.
+  const markUpRef = useRef<HTMLButtonElement>(null);
+  const refocus = useRef(false);
   // One write at a time, whichever dialog started it; every refusal lands in
   // this section's Banner, so a dialog can close without taking the reason
   // with it.
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const content = a ? safeArtifactUrl(a.content_url) : null;
+  // A file can reach the stage (a link, the strip's older rows) but has no
+  // picture to show and nothing to iterate on, mark up or wear: it is its
+  // glyph, its name and a download, nothing more.
+  const picture = a?.kind === "image" ? content : null;
 
   async function attempt(fn: () => Promise<void>) {
     if (busy) return;
@@ -62,9 +78,28 @@ export function Stage({ artifact: a, pending, elapsed, modelLabel, me, missing, 
     setWearing(false);
   }
 
+  function markUp() {
+    if (!picture) return;
+    attempt(async () => { setMarking(await loadImage(picture)); });
+  }
+
+  function leaveMarkup() {
+    refocus.current = true;
+    setMarking(null);
+  }
+
+  // A new picture on the stage (a saved markup, a click in the strip, the
+  // back button) leaves the mode: the canvas was the old one's.
+  useEffect(() => { setMarking(null); }, [a?.id]);
+  useEffect(() => {
+    if (marking || !refocus.current) return;
+    refocus.current = false;
+    markUpRef.current?.focus();
+  }, [marking]);
+
   return (
     <section className="studio-stage" aria-label="Stage" aria-busy={pending || undefined}
-             data-state={pending ? "pending" : a ? "result" : "empty"}>
+             data-state={pending ? "pending" : marking && a ? "markup" : a ? "result" : "empty"}>
       {pending ? (
         <div className="studio-wait">
           <div className="studio-shimmer" aria-hidden="true" />
@@ -73,24 +108,51 @@ export function Stage({ artifact: a, pending, elapsed, modelLabel, me, missing, 
           </p>
           <p className="muted">A picture can take a minute or two. The page waits with you.</p>
         </div>
+      ) : a && marking && picture ? (
+        <Markup artifact={a} image={marking} onCancel={leaveMarkup}
+                onSaved={(d) => { refocus.current = true; onDerived(d); }} />
+      ) : a && a.kind !== "image" ? (
+        <>
+          <figure className="studio-result studio-file">
+            <span className="artifact-glyph" aria-hidden="true">{fileGlyph(a.mime)}</span>
+            <figcaption className="studio-result-name" title={a.name}>{a.name}</figcaption>
+            <span className="muted">{a.mime} · {formatBytes(a.size)}</span>
+          </figure>
+          <div className="studio-actions">
+            {content && (
+              <a href={content} download={a.name}
+                 className={cn(buttonVariants({ variant: "secondary", size: "sm" }),
+                               "no-underline hover:no-underline")}>
+                Download
+              </a>
+            )}
+            <Link to={`/artifacts/${a.id}`} className="studio-open-link">open in Artifacts ↗</Link>
+          </div>
+          <Provenance artifact={a} me={me} />
+        </>
       ) : a ? (
         <>
           <figure className="studio-result">
-            {content
-              ? <img src={content} alt={a.name} />
+            {picture
+              ? <img src={picture} alt={a.name} />
               : <div className="studio-empty-box"><span className="muted">This picture's bytes are off the artifacts routes and are not shown.</span></div>}
             <figcaption className="studio-result-name" title={a.name}>{a.name}</figcaption>
           </figure>
           <div className="studio-actions">
+            {/* Iterate is the filled one: a result is most often the start of
+                the next ask. */}
+            <Button size="sm" disabled={busy} onClick={() => onIterate(a)}>
+              Iterate
+            </Button>
             <Button variant="secondary" size="sm" disabled={busy} onClick={() => setWearing(true)}>
               Use as agent image
             </Button>
-            <Button variant="secondary" size="sm" disabled={busy} onClick={() => onIterate(a)}>
-              Iterate
+            <Button ref={markUpRef} variant="secondary" size="sm" disabled={busy || !picture}
+                    onClick={markUp}>
+              Mark up
             </Button>
-            <Button variant="secondary" size="sm" disabled title="next task">Mark up</Button>
-            {content && (
-              <a href={content} download={a.name}
+            {picture && (
+              <a href={picture} download={a.name}
                  className={cn(buttonVariants({ variant: "secondary", size: "sm" }),
                                "no-underline hover:no-underline")}>
                 Download
@@ -108,11 +170,13 @@ export function Stage({ artifact: a, pending, elapsed, modelLabel, me, missing, 
         <div className="studio-empty-box">
           <span className="studio-empty-glyph" aria-hidden="true">🎨</span>
           <p className="studio-empty-title">
-            {missing ? "There is no such artifact." : "Nothing on the stage yet."}
+            {absent?.deleted ? "That picture was deleted."
+              : absent ? "There is no such artifact."
+              : "Nothing on the stage yet."}
           </p>
           <p className="muted">
-            {missing
-              ? <>The picture <code>{missing.slice(0, 8)}…</code> may have been deleted. </>
+            {absent && !absent.deleted
+              ? <>The picture <code>{absent.id.slice(0, 8)}…</code> may have been deleted. </>
               : null}
             Describe a picture on the left and press Generate — or pick one from the
             strip below to start from.

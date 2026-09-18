@@ -1315,6 +1315,11 @@ a.relay-action { color: var(--ds-link); }
 }
 @media (max-width: 899px) {
   .studio { grid-template-columns: minmax(0, 1fr); }
+  /* With a picture up, a shared /studio/<id> link should land on it: the
+     stage goes first. An empty stage stays under the form, where the ask
+     comes before the answer. */
+  .studio:has(> .studio-stage[data-state="result"]) .studio-stage,
+  .studio:has(> .studio-stage[data-state="markup"]) .studio-stage { order: -1; }
 }
 .studio-compose { display: flex; flex-direction: column; min-width: 0; }
 .studio-compose > .field-label:first-child { margin-top: 0; }
@@ -1369,7 +1374,9 @@ a.relay-action { color: var(--ds-link); }
 .studio-wait-line { font-size: 14px; font-variant-numeric: tabular-nums; }
 .studio-shimmer {
   width: min(100%, 60vh); aspect-ratio: 1; border-radius: var(--radius-lg);
-  background: linear-gradient(90deg, var(--ds-canvas) 25%, var(--ds-raised) 50%, var(--ds-canvas) 75%);
+  /* surface↔raised, as the profile image's: canvas and raised are the same
+     colour in the light theme, and a sheen between equals does not move. */
+  background: linear-gradient(90deg, var(--ds-surface) 25%, var(--ds-raised) 50%, var(--ds-surface) 75%);
   background-size: 200% 100%; animation: studio-shimmer 1.4s linear infinite;
 }
 @keyframes studio-shimmer { from { background-position: 200% 0; } to { background-position: -200% 0; } }
@@ -1381,6 +1388,8 @@ a.relay-action { color: var(--ds-link); }
   width: 100%; max-height: 70vh; object-fit: contain; display: block;
   border-radius: var(--radius-lg);
 }
+.studio-file { gap: 8px; padding: 24px 0; }
+.studio-file .artifact-glyph { font-size: 64px; }
 .studio-result-name {
   font-size: 13px; font-weight: 600; max-width: 100%;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
@@ -1388,6 +1397,29 @@ a.relay-action { color: var(--ds-link); }
 .studio-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .studio-open-link { font-size: 12px; margin-left: auto; }
 .studio-stage .artifact-prov { border-top: 1px solid var(--ds-border); padding-top: 12px; }
+
+/* Markup: a canvas in the stage's own column, the toolbar above it. The
+   canvas is the picture's pixels and is scaled by CSS alone — contained, so a
+   portrait letterboxes rather than stretches, and the component maps the
+   pointer through the same box. `touch-action: none` is what lets a finger
+   draw instead of scroll. */
+.markup { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.markup-toolbar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.markup-group { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
+.markup-group-end { margin-left: auto; }
+.markup-toolbar [aria-pressed="true"] { border-color: var(--ds-accent); box-shadow: 0 0 0 1px var(--ds-accent); }
+.markup-swatch { width: 22px; height: 22px; padding: 0; border-radius: 50%; }
+.markup-frame { position: relative; min-width: 0; }
+.markup-canvas {
+  display: block; width: 100%; height: auto; max-height: 70vh; object-fit: contain;
+  touch-action: none; cursor: crosshair; user-select: none; border-radius: var(--radius-lg);
+}
+.markup-text { position: absolute; transform: translateY(-100%); width: 12em; max-width: 90%; }
+.markup-hint { margin: 0; font-size: 12px; }
+@media (max-width: 560px) {
+  .markup-group-end { margin-left: 0; }
+  .markup-canvas { max-height: 55vh; }
+}
 
 /* The recent strip: one row of thumbs that scrolls sideways, so twenty-four
    pictures never push the page down the way a grid would. */

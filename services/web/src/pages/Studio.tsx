@@ -5,6 +5,7 @@ import {
   artifactModels, artifactStats, generateArtifact, getArtifact,
   type Artifact, type ArtifactStats, type ImageModel,
 } from "../api";
+import { subscribeArtifactFeed } from "../components/artifacts/feed";
 import { useArtifacts } from "../components/artifacts/useArtifacts";
 import { Compose } from "../components/studio/Compose";
 import {
@@ -36,12 +37,25 @@ export default function Studio() {
   const [references, setReferences] = useState<Artifact[]>([]);
   const [staged, setStaged] = useState<Artifact | null>(null);
   const [missing, setMissing] = useState<string | null>(null);
+  // The picture that was on the stage until a feed frame said it was deleted
+  // elsewhere — the stage empties and says so rather than keeping a picture
+  // that is gone.
+  const [gone, setGone] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
   const [elapsed, setElapsed] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [stats, setStats] = useState<ArtifactStats | null>(null);
   const promptRef = useRef<HTMLTextAreaElement>(null);
+  // A generation waits up to minutes; the reader may have gone elsewhere by
+  // the time it answers. Nothing after an await touches state or the URL
+  // unless the page is still the one on screen — the result is in the
+  // strip and #art either way.
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => { mounted.current = false; };
+  }, []);
 
   const query = useMemo(() => ({ kind: "image", limit: RECENT }), []);
   const view = useArtifacts(query);
@@ -92,6 +106,9 @@ export default function Studio() {
   useEffect(() => {
     setMissing(null);
     if (!id) { setStaged(null); return; }
+    // A different picture asked for clears the note; the URL may still name
+    // the deleted one for a render before the navigation away lands.
+    setGone((g) => (g === id ? g : null));
     if (staging === id) return;
     const inStrip = strip.current.find((a) => a.id === id);
     if (inStrip) { setStaged(inStrip); return; }
@@ -102,14 +119,33 @@ export default function Studio() {
     return () => { on = false; };
   }, [id, staging]);
 
+  // Deleted elsewhere while on the stage — the feed says so, the stage
+  // empties. Joined only while something is staged, so an empty stage costs
+  // no listener.
+  useEffect(() => {
+    if (!staging) return;
+    return subscribeArtifactFeed((frame) => {
+      if (frame.type !== "artifact" || frame.event.event !== "deleted") return;
+      if (frame.event.artifact?.id !== staging) return;
+      setStaged(null);
+      setGone(staging);
+      navigate("/studio", { replace: true });
+    });
+  }, [staging, navigate]);
+
   // `?ref=<id>` arrives as a reference, once, and is taken off the URL so a
-  // reload does not add it twice.
+  // reload does not add it twice. Only a picture can be a reference: a file
+  // is refused in words rather than sent to a generator that cannot read it.
   const ref = params.get("ref");
   useEffect(() => {
     if (!ref) return;
     let on = true;
     getArtifact(ref)
-      .then((a) => { if (on) addReference(a); })
+      .then((a) => {
+        if (!on) return;
+        if (a.kind === "image") addReference(a);
+        else setError(`Only images can be references — ${a.name} is a file.`);
+      })
       .catch((err) => { if (on) setError(errorDetail(err, "That reference could not be loaded.")); })
       .finally(() => {
         if (!on) return;
@@ -132,19 +168,23 @@ export default function Studio() {
   }
 
   async function generate() {
-    if (!chosen || !draft.prompt.trim() || pending) return;
+    // The select never offers an unconfigured model, but the form is the
+    // only gate between here and a paid request.
+    if (!chosen?.configured || !draft.prompt.trim() || pending) return;
     setPending(true); setError(null); setNotice(null);
     try {
       const a = await generateArtifact(requestFor(chosen, draft, references));
+      if (!mounted.current) return;
       view.absorb([a]);
       setStaged(a);
       setMissing(null);
+      setGone(null);
       navigate(`/studio/${a.id}`, { replace: true });
       refreshStats();
     } catch (err) {
-      setError(errorDetail(err, "The picture was not generated."));
+      if (mounted.current) setError(errorDetail(err, "The picture was not generated."));
     } finally {
-      setPending(false);
+      if (mounted.current) setPending(false);
     }
   }
 
@@ -157,6 +197,7 @@ export default function Studio() {
 
   async function remove(a: Artifact) {
     await view.remove(a);
+    if (!mounted.current) return;
     setReferences((prev) => prev.filter((r) => r.id !== a.id));
     setStaged(null);
     navigate("/studio", { replace: true });
@@ -166,7 +207,20 @@ export default function Studio() {
   function open(a: Artifact) {
     setStaged(a);
     setMissing(null);
+    setGone(null);
     navigate(`/studio/${a.id}`);
+  }
+
+  // A markup is a new picture like a generation is: into the strip, onto the
+  // stage, and the sums move (bytes, not spend).
+  function derived(a: Artifact) {
+    if (!mounted.current) return;
+    view.absorb([a]);
+    setStaged(a);
+    setMissing(null);
+    setGone(null);
+    navigate(`/studio/${a.id}`);
+    refreshStats();
   }
 
   return (
@@ -188,8 +242,9 @@ export default function Studio() {
                  result={staged} pending={pending} elapsed={elapsed} stats={stats}
                  error={error} onError={setError} onGenerate={generate} promptRef={promptRef} />
         <Stage artifact={pending ? null : staged} pending={pending} elapsed={elapsed}
-               modelLabel={chosen?.label ?? null} me={view.me} missing={missing}
-               onIterate={iterate} onDelete={remove}
+               modelLabel={chosen?.label ?? null} me={view.me}
+               absent={missing ? { id: missing, deleted: false } : gone ? { id: gone, deleted: true } : null}
+               onIterate={iterate} onDelete={remove} onDerived={derived}
                onWorn={(agent) => setNotice(`Now the face of ${agent}.`)} />
       </div>
       <RecentStrip artifacts={view.artifacts.slice(0, RECENT)} current={staged?.id ?? null}

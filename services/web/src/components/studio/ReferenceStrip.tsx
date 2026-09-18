@@ -32,12 +32,16 @@ export function ReferenceStrip({ references, enabled, modelLabel, result, busy, 
   const [uploading, setUploading] = useState(false);
   const [picking, setPicking] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
+  // `uploading` as the render sees it lags a tick behind; two drops in the
+  // same tick would both read it false. The ref is the gate, the state the
+  // look — the profile image's own shape.
+  const inFlight = useRef(false);
   const full = references.length >= MAX_REFERENCES;
-  const locked = !enabled || busy || full;
+  const locked = !enabled || busy || full || uploading;
   const resultHeld = result !== null && references.some((r) => r.id === result.id);
 
   async function upload(file: File | undefined) {
-    if (!file || locked) return;
+    if (!file || locked || inFlight.current) return;
     // Refused here rather than by the API, as the profile image does: a
     // wrong file costs a round trip and, for a big one, a long wait.
     if (!file.type.startsWith("image/")) {
@@ -48,6 +52,7 @@ export function ReferenceStrip({ references, enabled, modelLabel, result, busy, 
       onError(`${file.name} is ${(file.size / 1024 / 1024).toFixed(1)} MiB; a reference can be at most 8 MiB.`);
       return;
     }
+    inFlight.current = true;
     setUploading(true); onError(null);
     try {
       const form = new FormData();
@@ -56,6 +61,7 @@ export function ReferenceStrip({ references, enabled, modelLabel, result, busy, 
     } catch (err) {
       onError(errorDetail(err, "The file was not uploaded."));
     } finally {
+      inFlight.current = false;
       setUploading(false);
     }
   }
@@ -100,12 +106,12 @@ export function ReferenceStrip({ references, enabled, modelLabel, result, busy, 
            onDragLeave={() => setOver(false)}
            onDrop={drop}>
         <span>Drop an image here, or</span>
-        <Button variant="secondary" size="sm" disabled={locked || uploading}
-                onClick={() => fileRef.current?.click()}>
+        <Button variant="secondary" size="sm" disabled={locked}
+                onClick={() => { if (!inFlight.current) fileRef.current?.click(); }}>
           {uploading ? "Uploading…" : "Upload"}
         </Button>
         <Button variant="secondary" size="sm" disabled={locked}
-                onClick={() => setPicking(true)}>
+                onClick={() => { if (!inFlight.current) setPicking(true); }}>
           Pick from artifacts
         </Button>
         {result && (
