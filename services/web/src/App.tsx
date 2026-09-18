@@ -17,6 +17,8 @@ import Tickets from "./pages/Tickets";
 import TicketDetail from "./pages/TicketDetail";
 import Wiki from "./pages/Wiki";
 import WikiPage from "./pages/WikiPage";
+import Artifacts from "./pages/Artifacts";
+import Studio from "./pages/Studio";
 import Dlq from "./pages/Dlq";
 import Memories from "./pages/Memories";
 import Reporting from "./pages/Reporting";
@@ -49,6 +51,13 @@ export default function App() {
             <Route path="/tickets/:key" element={<TicketDetail />} />
             <Route path="/wiki" element={<Wiki />} />
             <Route path="/wiki/:slug" element={<WikiPage />} />
+            <Route path="/studio" element={<Studio />} />
+            {/* The stage is a URL too: a result can be sent to somebody. */}
+            <Route path="/studio/:id" element={<Studio />} />
+            <Route path="/artifacts" element={<Artifacts />} />
+            {/* The lightbox is a URL (docs/design/23): a picture in a room is
+                something you can send somebody. */}
+            <Route path="/artifacts/:id" element={<Artifacts />} />
             <Route path="/changes" element={<Changes />} />
             <Route path="/dlq" element={<Dlq />} />
             <Route path="/reporting" element={<Reporting />} />

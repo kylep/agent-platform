@@ -274,6 +274,12 @@
   background: hsl(var(--face-hue) 55% 50% / 0.18);
   border: 1px solid hsl(var(--face-hue) 55% 55% / 0.45);
 }
+/* An agent with a picture (docs/design/23) wears it inside the same disc:
+   the hue ring stays, so the picture is still the same identity as the emoji
+   it replaces, and it never lands beside a face drawn the old way. */
+.relay-face img {
+  display: block; width: 100%; height: 100%; object-fit: cover; border-radius: 999px;
+}
 .relay-face.thinking { animation: relay-breathe 1.8s ease-in-out infinite; }
 @keyframes relay-breathe { 0%, 100% { opacity: 0.55; } 50% { opacity: 1; } }
 
@@ -1081,6 +1087,329 @@ a.relay-action { color: var(--ds-link); }
 .app-resources { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 12px; }
 .app-error { font-size: 11px; white-space: pre-wrap; margin: 0; }
 .app-open { margin-top: 6px; font-weight: 600; }
+
+/* artifacts (docs/design/23) */
+/* Tiles want more room than a document, like the board does. */
+.page-artifacts { max-width: 1400px; }
+.artifact-studio-link { font-weight: 600; white-space: nowrap; }
+.artifact-grid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 12px; margin-top: 16px;
+}
+/* One card, two postures: a tile on the grid (thumb over the name), a row in
+   a room (thumb beside it). The component is the same; the context decides. */
+.artifact-card {
+  display: flex; flex-direction: column; min-width: 0;
+  background: var(--ds-surface); border: 1px solid var(--ds-border);
+  border-radius: var(--radius-lg); overflow: hidden; transition: border-color 120ms;
+}
+.artifact-card:hover { border-color: var(--ds-accent); }
+.artifact-card-thumb {
+  display: flex; align-items: center; justify-content: center;
+  width: 100%; aspect-ratio: 1; padding: 0; border: 0; cursor: pointer;
+  background: var(--ds-canvas); color: inherit; font: inherit;
+}
+.artifact-card-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.artifact-card-thumb:focus-visible { outline: 2px solid var(--ds-accent); outline-offset: -2px; }
+.artifact-glyph { font-size: 40px; line-height: 1; }
+.artifact-card-meta { display: flex; flex-direction: column; gap: 3px; padding: 8px 10px; min-width: 0; }
+.artifact-card-name {
+  font-size: 13px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.artifact-card-prov { display: flex; align-items: center; gap: 6px; font-size: 12px; min-width: 0; }
+.artifact-card-prov .relay-face { flex-shrink: 0; }
+.artifact-card-provline { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.artifact-card-link { font-size: 12px; align-self: flex-start; }
+/* Still a card while the row is on its way, so the transcript does not jump
+   when it lands. */
+.artifact-card-pending { display: block; height: 72px; width: 220px; margin: 4px 0; }
+/* A chip in a room whose picture is gone: said in words, not left as a hole. */
+.artifact-missing { color: var(--ds-text-muted); font-style: italic; }
+
+/* In a room — a chip in prose or the #art event alike — a row, at transcript
+   size, and never wider than the message. */
+.relay-message .artifact-card {
+  flex-direction: row; align-items: stretch; max-width: 420px; margin: 4px 0;
+}
+.relay-message .artifact-card .artifact-card-thumb {
+  width: 72px; height: 72px; aspect-ratio: auto; flex-shrink: 0;
+}
+.relay-message .artifact-card .artifact-glyph { font-size: 28px; }
+.relay-message .artifact-card .artifact-card-meta { justify-content: center; }
+.relay-artifact-card { border-left-color: var(--ds-border); }
+.relay-artifact-card .relay-card-body { margin-top: 2px; }
+
+/* The bytes bar: the store's total against its cap, the quota bars' shape. */
+.artifact-usage { display: flex; align-items: center; gap: 10px; margin: 4px 0 8px; flex-wrap: wrap; }
+.artifact-usage-bar {
+  position: relative; flex: 1 1 200px; max-width: 320px; height: 8px; overflow: hidden;
+  border-radius: var(--radius-sm); background: var(--ds-quota-track);
+  border: 1px solid var(--ds-border);
+}
+.artifact-usage-fill {
+  position: absolute; inset: 0; width: var(--usage-pct); background: var(--ds-accent);
+}
+.artifact-usage-bar[data-warn] .artifact-usage-fill { background: var(--ds-warning); }
+.artifact-usage-label { font-size: 12px; }
+.artifact-empty { margin-top: 16px; }
+
+/* The lightbox: the picture as large as the window allows, the provenance
+   beside it; on a phone, under it. Radix positions nothing — this does. */
+.artifact-lightbox-overlay { position: fixed; inset: 0; z-index: 40; background: rgb(0 0 0 / 0.6); }
+.artifact-lightbox {
+  position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%); z-index: 50;
+  width: min(1100px, 94vw); max-height: 92vh; display: flex; flex-direction: column;
+  background: var(--ds-raised); border: 1px solid var(--ds-border);
+  border-radius: var(--radius-lg); overflow: hidden;
+}
+.artifact-lightbox-head {
+  display: grid; grid-template-columns: 1fr auto; column-gap: 12px; align-items: center;
+  padding: 10px 14px; border-bottom: 1px solid var(--ds-border);
+}
+.artifact-lightbox-title {
+  margin: 0; font-size: 14px; font-weight: 600; min-width: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.artifact-lightbox-desc { grid-column: 1; margin: 0; font-size: 12px; }
+.artifact-lightbox-close {
+  grid-column: 2; grid-row: 1 / span 2; background: none; border: 0; color: var(--ds-text-muted);
+  font: inherit; font-size: 16px; cursor: pointer; padding: 4px 6px; border-radius: var(--radius-md);
+}
+.artifact-lightbox-close:hover { color: var(--ds-text); background: var(--ds-surface); }
+.artifact-lightbox-body { display: flex; min-height: 0; flex: 1; }
+.artifact-lightbox-stage {
+  flex: 1; min-width: 0; min-height: 160px; display: flex; align-items: center; justify-content: center;
+  background: var(--ds-canvas); padding: 12px;
+}
+/* A small raster (a crop, a tiny upload) scales up to a readable size with
+   its aspect kept; a large one is only ever scaled down. */
+.artifact-lightbox-stage img {
+  min-width: min(100%, 320px); height: auto; max-width: 100%;
+  max-height: calc(92vh - 80px); object-fit: contain;
+}
+.artifact-lightbox-file { display: flex; flex-direction: column; align-items: center; gap: 8px; }
+.artifact-lightbox-file .artifact-glyph { font-size: 64px; }
+.artifact-lightbox-side {
+  width: 300px; flex-shrink: 0; overflow-y: auto; padding: 12px 14px;
+  border-left: 1px solid var(--ds-border); display: flex; flex-direction: column; gap: 12px;
+}
+.artifact-lightbox-actions { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; font-size: 13px; }
+.artifact-lightbox-studio { font-weight: 600; }
+.artifact-prov { margin: 0; display: flex; flex-direction: column; gap: 6px; font-size: 12px; }
+.artifact-prov-row { display: grid; grid-template-columns: 84px 1fr; gap: 8px; align-items: baseline; }
+.artifact-prov dt { color: var(--ds-text-subtle); text-transform: uppercase; letter-spacing: 0.04em; font-size: 10px; }
+.artifact-prov dd { margin: 0; min-width: 0; overflow-wrap: anywhere; display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
+.artifact-prov-who { display: inline-flex; align-items: center; gap: 6px; }
+.artifact-prov-ref { font-family: var(--font-mono); }
+@media (max-width: 720px) {
+  .artifact-lightbox { width: 100vw; max-height: 100vh; height: 100vh; border-radius: 0; border: 0; }
+  .artifact-lightbox-body { flex-direction: column; overflow-y: auto; }
+  .artifact-lightbox-stage { flex: 0 0 auto; }
+  .artifact-lightbox-stage img { max-height: 55vh; }
+  .artifact-lightbox-side { width: auto; border-left: 0; border-top: 1px solid var(--ds-border); overflow: visible; }
+  .artifact-grid { grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); }
+}
+/* On the two-column phone grid a tile is too narrow for "gpt-image-1 · 2 s ·
+   $0.02" on one line, and an ellipsis there eats the price. Let it wrap. */
+@media (max-width: 560px) {
+  .artifact-card-provline { white-space: normal; }
+}
+
+/* agents as cards (docs/design/23): the report-type grid's shape, with a
+   face where the report type has an icon. minmax(260px) puts one column on a
+   phone with nothing to scroll sideways for. */
+.agent-grid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 12px; margin-top: 16px;
+}
+.agent-card {
+  display: flex; gap: 14px; min-width: 0;
+  background: var(--ds-surface); border: 1px solid var(--ds-border);
+  border-radius: var(--radius-lg); padding: 14px; transition: border-color 120ms;
+}
+.agent-card:hover { border-color: var(--ds-accent); }
+.agent-card-body { display: flex; flex-direction: column; gap: 4px; min-width: 0; flex: 1; }
+.agent-card-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.agent-card-name { font-family: var(--font-mono); font-weight: 600; }
+.agent-card-desc {
+  margin: 0; font-size: 13px;
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden;
+}
+.agent-card-foot { display: flex; gap: 12px; flex-wrap: wrap; font-size: 12px; margin-top: auto; }
+/* The segmented control: two buttons that read as one, the pressed one lit
+   by the accent so the state is not colour alone but border and text too. */
+.view-toggle { display: inline-flex; }
+.view-toggle > button:first-child { border-top-right-radius: 0; border-bottom-right-radius: 0; }
+.view-toggle > button:last-child { border-top-left-radius: 0; border-bottom-left-radius: 0; margin-left: -1px; }
+.view-toggle > button[aria-pressed="true"] {
+  border-color: var(--ds-accent); color: var(--ds-accent); position: relative; z-index: 1;
+}
+.agent-head { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.agent-head h1 { margin: 0; }
+
+/* The profile-image section on an agent's page: the face beside its
+   controls; on a phone, above them. It sits outside the editor (its writes
+   are its own), so it borrows the editor's heading rule by hand — the same
+   landmark the Prompt and Entrypoints sections get — and leaves room before
+   the identity grid that follows. */
+.profile-image-section { margin-bottom: 28px; }
+.profile-image-section h2 { margin-top: 32px; padding-top: 20px; border-top: 1px solid var(--ds-border); }
+.profile-image { display: flex; gap: 16px; align-items: flex-start; flex-wrap: wrap; margin-bottom: 12px; }
+.profile-image-actions { display: flex; flex-direction: column; gap: 8px; flex: 1 1 240px; min-width: 0; }
+.profile-image-buttons { display: flex; gap: 8px; flex-wrap: wrap; }
+.profile-image-note { margin: 0; font-size: 12px; }
+.profile-image-error { flex-basis: 100%; }
+/* A target, not a field: tall enough to drop on, the glyph and the copy
+   centred, the button beside the words. */
+.drop-zone {
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px;
+  min-height: 96px; padding: 14px; font-size: 13px; color: var(--ds-text-muted);
+  border: 1px dashed var(--ds-border); border-radius: var(--radius-lg);
+  transition: border-color 120ms, background 120ms;
+}
+.drop-zone svg { width: 24px; height: 24px; color: var(--ds-text-subtle); }
+.drop-zone-line { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: center; }
+.drop-zone[data-over] {
+  border-color: var(--ds-accent);
+  background: color-mix(in srgb, var(--ds-accent) 8%, transparent);
+}
+.drop-zone[data-over] svg { color: var(--ds-accent); }
+/* The picker: the Studio's grid in a dialog sized for a form, so it scrolls.
+   The bottom row fading out is the cue that there is more — the table's
+   edge mask, turned on its side (`black` is mask alpha, not a colour) — and
+   the rule under it says where the scroll box ends. */
+.profile-image-picker {
+  max-height: 50vh; overflow-y: auto;
+  border-bottom: 1px solid var(--ds-border); padding-bottom: 8px;
+}
+.profile-image-picker[data-overflow="end"] {
+  mask-image: linear-gradient(to bottom, black calc(100% - 32px), transparent);
+}
+.profile-image-picker .artifact-grid { margin-top: 4px; }
+.profile-image-picked { margin: 8px 0 0; }
+.profile-image-stage { display: flex; flex-direction: column; align-items: center; gap: 6px; margin-bottom: 8px; }
+.profile-image-preview {
+  width: 160px; height: 160px; object-fit: cover;
+  border: 1px solid var(--ds-border); border-radius: var(--radius-lg);
+}
+/* The wait: a sheen across the square the picture will fill, with the
+   seconds counted beside it — a generation is minutes, not a spinner's worth. */
+.profile-image-shimmer {
+  width: 160px; height: 160px; border-radius: var(--radius-lg);
+  background: linear-gradient(90deg, var(--ds-surface) 25%, var(--ds-raised) 50%, var(--ds-surface) 75%);
+  background-size: 200% 100%; animation: profile-shimmer 1.4s linear infinite;
+}
+@keyframes profile-shimmer { from { background-position: 200% 0; } to { background-position: -200% 0; } }
+
+/* The Studio (docs/design/23): compose beside the stage, the recent strip
+   under both. Below 900px the stage would be narrower than the picture is
+   worth, so the columns stack — the form first, because on a phone the ask
+   comes before the answer. */
+.page-studio { max-width: 1400px; }
+.studio-head { margin-bottom: 16px; }
+.studio-head h1 { margin: 0; }
+.studio-lede { margin: 4px 0 0; font-size: 13px; max-width: 560px; }
+.studio {
+  display: grid; grid-template-columns: minmax(300px, 380px) minmax(0, 1fr);
+  gap: 24px; align-items: start;
+}
+@media (max-width: 899px) {
+  .studio { grid-template-columns: minmax(0, 1fr); }
+}
+.studio-compose { display: flex; flex-direction: column; min-width: 0; }
+.studio-compose > .field-label:first-child { margin-top: 0; }
+.studio-knobs { display: flex; gap: 12px; flex-wrap: wrap; }
+.studio-knob { display: flex; flex-direction: column; flex: 1 1 120px; min-width: 0; }
+.studio-knob .field-label { margin-top: 12px; }
+.studio-knob select, .studio-knob input { width: 100%; }
+.studio-generate { display: flex; align-items: center; gap: 12px; margin: 16px 0; flex-wrap: wrap; }
+.studio-price { opacity: 0.8; font-weight: 400; }
+.studio-hint { font-size: 12px; font-family: var(--font-mono); }
+
+/* The reference strip: what a generation starts from. Greyed, not hidden,
+   under a model that would ignore it — the reader should see that the knob
+   exists and that this model has not got it. */
+.reference-strip { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; }
+.reference-strip[data-disabled] .drop-zone { opacity: 0.55; }
+.reference-strip-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.reference-strip-head .field-label { margin: 0; }
+.reference-strip-note { font-size: 12px; }
+.reference-thumbs { display: flex; gap: 8px; flex-wrap: wrap; margin: 0; padding: 0; list-style: none; }
+.reference-thumb {
+  position: relative; width: 72px; height: 72px; display: flex; align-items: center; justify-content: center;
+  background: var(--ds-canvas); border: 1px solid var(--ds-border); border-radius: var(--radius-lg);
+  overflow: hidden;
+}
+.reference-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.reference-thumb .artifact-glyph { font-size: 28px; }
+.reference-remove {
+  position: absolute; top: 2px; right: 2px; width: 20px; height: 20px; padding: 0;
+  line-height: 1; background: var(--ds-surface);
+}
+
+/* The stage. Its three states are drawn on purpose: empty is an invitation
+   in a dashed box, pending is a shimmer the size of the picture to come,
+   and a result is the hero — the picture as large as the column allows,
+   never taller than the viewport is worth. */
+.studio-stage {
+  display: flex; flex-direction: column; gap: 12px; min-width: 0; min-height: 320px;
+  background: var(--ds-surface); border: 1px solid var(--ds-border);
+  border-radius: var(--radius-lg); padding: 16px;
+}
+.studio-stage[data-state="empty"] { border-style: dashed; justify-content: center; }
+.studio-empty-box {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  text-align: center; gap: 6px; padding: 32px 16px; flex: 1;
+}
+.studio-empty-box p { margin: 0; max-width: 360px; }
+.studio-empty-glyph { font-size: 40px; line-height: 1; margin-bottom: 8px; }
+.studio-empty-title { font-weight: 600; }
+.studio-wait { display: flex; flex-direction: column; align-items: center; gap: 8px; }
+.studio-wait p { margin: 0; text-align: center; }
+.studio-wait-line { font-size: 14px; font-variant-numeric: tabular-nums; }
+.studio-shimmer {
+  width: min(100%, 60vh); aspect-ratio: 1; border-radius: var(--radius-lg);
+  background: linear-gradient(90deg, var(--ds-canvas) 25%, var(--ds-raised) 50%, var(--ds-canvas) 75%);
+  background-size: 200% 100%; animation: studio-shimmer 1.4s linear infinite;
+}
+@keyframes studio-shimmer { from { background-position: 200% 0; } to { background-position: -200% 0; } }
+.studio-result { margin: 0; display: flex; flex-direction: column; align-items: center; gap: 6px; }
+/* The picture fills the column and is scaled down, never up past 70vh: a
+   portrait letterboxes inside its own width rather than pushing the
+   provenance below the fold. */
+.studio-result img {
+  width: 100%; max-height: 70vh; object-fit: contain; display: block;
+  border-radius: var(--radius-lg);
+}
+.studio-result-name {
+  font-size: 13px; font-weight: 600; max-width: 100%;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.studio-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.studio-open-link { font-size: 12px; margin-left: auto; }
+.studio-stage .artifact-prov { border-top: 1px solid var(--ds-border); padding-top: 12px; }
+
+/* The recent strip: one row of thumbs that scrolls sideways, so twenty-four
+   pictures never push the page down the way a grid would. */
+.recent-strip { margin-top: 24px; }
+.recent-strip-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.recent-strip-head h2 { margin: 0 0 8px; }
+.recent-thumbs {
+  display: flex; gap: 8px; margin: 0; padding: 0 0 6px; list-style: none;
+  overflow-x: auto; scroll-snap-type: x proximity;
+}
+.recent-thumbs li { flex: 0 0 auto; scroll-snap-align: start; }
+.recent-thumb {
+  width: 96px; height: 96px; padding: 0; overflow: hidden;
+  background: var(--ds-canvas); border-radius: var(--radius-lg);
+}
+.recent-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.recent-thumb[aria-current="true"] { border-color: var(--ds-accent); box-shadow: 0 0 0 1px var(--ds-accent); }
+@media (max-width: 560px) {
+  .studio-stage { padding: 12px; min-height: 240px; }
+  .studio-result img { max-height: 55vh; }
+  .recent-thumb { width: 72px; height: 72px; }
+}
 
 /* help */
 .help-layout { display: flex; gap: 32px; max-width: 1000px; }

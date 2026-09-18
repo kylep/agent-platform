@@ -1,3 +1,4 @@
+import { artifactRefs } from "./artifacts";
 import { ticketRefs } from "./tickets";
 import { wikiRefs } from "./wiki";
 
@@ -40,16 +41,55 @@ export const PROTECTED = new RegExp([
   "https?://\\S+",                 // a bare URL gfm will autolink
 ].join("|"), "g");
 
-/** Run `rewrite` over every stretch of ordinary prose, leaving every protected
- * span exactly as it was. The one place the protection is applied. */
-export function outsideCode(text: string, rewrite: (plain: string) => string): string {
-  let out = "";
+/** The text cut into stretches, each marked as protected or not, in order.
+ * The one place the protection is applied: the rewrite below and the split
+ * further down both walk this, so neither can learn a rule the other lacks. */
+function* stretches(text: string): Generator<[chunk: string, guarded: boolean]> {
   let at = 0;
   for (const span of text.matchAll(PROTECTED)) {
-    out += rewrite(text.slice(at, span.index)) + span[0];
+    yield [text.slice(at, span.index), false];
+    yield [span[0], true];
     at = span.index + span[0].length;
   }
-  return out + rewrite(text.slice(at));
+  yield [text.slice(at), false];
+}
+
+/** Run `rewrite` over every stretch of ordinary prose, leaving every protected
+ * span exactly as it was. */
+export function outsideCode(text: string, rewrite: (plain: string) => string): string {
+  let out = "";
+  for (const [chunk, guarded] of stretches(text)) out += guarded ? chunk : rewrite(chunk);
+  return out;
+}
+
+/** A body cut around its artifact cards: prose to render as markdown, and
+ * the ids to render as cards between the pieces (docs/design/23).
+ *
+ * A split rather than a rewrite, because a card is a component and the
+ * markdown renderer hands back HTML — there is no anchor a card could be
+ * written as, and `<img>` is forbidden in rendered markdown on purpose. The
+ * same protection applies: `[[artifact:…]]` in a code span or a link is
+ * quoted, not used. Empty prose pieces are dropped, so a body that IS a chip
+ * yields one card and no blank paragraph beside it. */
+export type BodyPiece = { kind: "text"; text: string } | { kind: "artifact"; id: string };
+
+export function splitArtifacts(text: string): BodyPiece[] {
+  const out: BodyPiece[] = [];
+  let buf = "";
+  const flush = () => { if (buf.trim()) out.push({ kind: "text", text: buf }); buf = ""; };
+  for (const [chunk, guarded] of stretches(text || "")) {
+    if (guarded) { buf += chunk; continue; }
+    let at = 0;
+    for (const ref of artifactRefs(chunk)) {
+      buf += chunk.slice(at, ref.start);
+      flush();
+      out.push({ kind: "artifact", id: ref.id });
+      at = ref.end;
+    }
+    buf += chunk.slice(at);
+  }
+  flush();
+  return out;
 }
 
 /** Every ticket key in one stretch of ordinary prose, as a markdown link. */

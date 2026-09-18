@@ -3,10 +3,11 @@ import { Link, useNavigate } from "react-router-dom";
 import { Chip, ChipButton } from "@ap/ui/chip";
 import { Markdown } from "@ap/ui/markdown";
 import { api, type RelayCard, type RelayMessage } from "../../api";
-import { linkChips } from "../../lib/chips";
+import { linkChips, splitArtifacts, type BodyPiece } from "../../lib/chips";
 import { ago } from "../../lib/time";
 import { agentName, namespaceOf, participantLabel } from "../../lib/relay";
 import { priorityLabel, stateLabel, type TicketProject } from "../../lib/tickets";
+import { ArtifactCard } from "../artifacts/ArtifactCard";
 import { useWikiSlugs } from "../wiki/Prose";
 import { Face } from "./Face";
 import type { MessageGroup, ThreadSummary } from "./useChannel";
@@ -128,6 +129,21 @@ function TicketCardBody({ card, me }: { card: RelayCard; me: string | null }) {
   );
 }
 
+/** The `#art` card (docs/design/23): the picture itself, as the same card a
+ * chip in prose becomes, and the prompt under it in the poster's words. The
+ * body the API wrote beside the card is the same thing flattened for a bridge
+ * that cannot draw a card, so it is not drawn twice here. */
+function ArtifactCardBody({ card, me }: { card: RelayCard; me: string | null }) {
+  return (
+    <div className="relay-card relay-artifact-card">
+      {card.artifact_id
+        ? <ArtifactCard id={card.artifact_id} me={me} />
+        : <Chip className="artifact-missing">artifact not found</Chip>}
+      {card.prompt && <div className="relay-card-body"><q>{card.prompt}</q></div>}
+    </div>
+  );
+}
+
 function Body({ message, me }: { message: RelayMessage; me: string | null }) {
   const prefixes = useTicketPrefixes();
   const slugs = useWikiSlugs();
@@ -136,8 +152,13 @@ function Body({ message, me }: { message: RelayMessage; me: string | null }) {
   // One rewrite per message, not one per render: a room re-renders on every
   // frame that arrives, and this walks the whole body.
   const source = message.kind === "event" ? (card.body || message.body) : message.body;
-  const text = useMemo(() => linkChips(source, prefixes, slugs),
-                       [source, prefixes, slugs]);
+  // The body cut around its artifact cards first — a card is a component, not
+  // an anchor the markdown could carry — then the chip rewrite over each piece
+  // of prose. Both walk the same protected spans, so `[[artifact:…]]` in a
+  // code span is quoted here exactly as `[[slug]]` is.
+  const pieces = useMemo(() => splitArtifacts(source).map((piece) =>
+    (piece.kind === "text" ? { ...piece, text: linkChips(piece.text, prefixes, slugs) } : piece)),
+  [source, prefixes, slugs]);
 
   // A chip — a ticket key or a `[[page]]` — is an anchor inside rendered
   // markdown: `Markdown` hands back HTML, not elements, so one delegated click
@@ -159,17 +180,33 @@ function Body({ message, me }: { message: RelayMessage; me: string | null }) {
   }
   if (message.kind === "event") {
     if (card.type === "ticket") return <TicketCardBody card={card} me={me} />;
+    if (card.type === "artifact") return <ArtifactCardBody card={card} me={me} />;
     return (
       <div className="relay-card" onClick={onClick}>
         {card.title && <div className="relay-card-title">{card.title}</div>}
-        <div className="relay-card-body"><Markdown text={text} /></div>
+        <div className="relay-card-body"><Pieces pieces={pieces} me={me} /></div>
       </div>
     );
   }
   return (
     <div onClick={onClick}>
-      <Markdown text={text} className="relay-body" />
+      <Pieces pieces={pieces} me={me} className="relay-body" />
     </div>
+  );
+}
+
+/** The body's pieces in order: prose as markdown, an artifact as its card. */
+function Pieces({ pieces, me, className }: {
+  pieces: BodyPiece[]; me: string | null; className?: string;
+}) {
+  // A body with nothing in it is still a body — the row keeps its element.
+  if (pieces.length === 0) return <Markdown text="" className={className} />;
+  return (
+    <>
+      {pieces.map((piece, i) => (piece.kind === "artifact"
+        ? <ArtifactCard key={`${piece.id}-${i}`} id={piece.id} me={me} />
+        : <Markdown key={i} text={piece.text} className={className} />))}
+    </>
   );
 }
 

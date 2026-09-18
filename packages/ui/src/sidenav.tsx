@@ -29,6 +29,9 @@ export function buildPlatformNav(apps: AppNavInfo[] = []): NavEntry[] {
     { to: "/relay", label: "Relay" },
     { to: "/tickets", label: "Tickets" },
     { to: "/wiki", label: "Wiki" },
+    { to: "/studio", label: "Studio", children: [
+      { to: "/artifacts", label: "Artifacts" },
+    ] },
     { to: "/reporting", label: "Reporting", children: [
       { to: "/runs", label: "Runs" },
       { to: "/reports", label: "Reports" },

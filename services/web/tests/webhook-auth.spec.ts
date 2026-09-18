@@ -71,8 +71,9 @@ test("choosing Secret reveals a masked field the eye unmasks", async ({ page }) 
   await expect(page.locator(`[title="${HEADER_TIP}"]`)).toHaveCount(1);
 
   // Generate hands over a high-entropy value and unmasks it, because a secret
-  // nobody can read is a secret nobody can give to the caller.
-  await page.getByRole("button", { name: "Generate" }).click();
+  // nobody can read is a secret nobody can give to the caller. Scoped to the
+  // editor: the profile-image section above it has a Generate of its own.
+  await page.locator(".agent-form").getByRole("button", { name: "Generate" }).click();
   await expect(field).toHaveAttribute("type", "text");
   const generated = await field.inputValue();
   expect(generated).not.toBe(SECRET);
@@ -232,6 +233,8 @@ test("a create whose secret write fails hands over the editor, not a dead form",
 test("the agents listing marks who has a webhook", async ({ page }) => {
   await mockApi(page);
   await page.goto("/agents");
+  // The column is the table's; the grid (the default) says it in words.
+  await page.getByRole("button", { name: "Table" }).click();
 
   const cell = (agent: string) => page.locator("tr", { has: page.getByRole("link", { name: agent, exact: true }) })
     .locator("td").nth(3);

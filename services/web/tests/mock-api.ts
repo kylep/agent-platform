@@ -107,22 +107,255 @@ const reports = [
 ];
 
 
+// --- Artifacts (docs/design/23) ----------------------------------------------
+// Six rows: enough for every tile the grid draws (a generated image with its
+// whole provenance, an upload, a derived crop, a file with no thumb) and for
+// the two faces the block puts on other pages — a card in a room, a picture
+// on an agent. Ids are 32 hex chars, as the API mints them.
+const MINUTE = 60000;
+const at = (minsAgo: number) => new Date(Date.now() - minsAgo * MINUTE).toISOString();
+const aid = (seed: string) => seed.repeat(32).slice(0, 32);
+
+// A real 1×1 PNG, so every <img> the suite draws off the thumb and content
+// routes decodes — a fake body would fire `onerror`, and the face would fall
+// back to its emoji exactly where the test expects the picture.
+const PNG_B64 =
+  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==";
+
+const artifact = (id: string, over: Record<string, unknown>) => ({
+  id, name: "", mime: "image/png", size: 1024, sha256: aid("f"), kind: "image",
+  width: 1024, height: 1024, owner: "user:kyle", run_id: null, source: "upload",
+  meta: {}, tags: [], created_at: at(30), deleted_at: null,
+  thumb_url: `/api/artifacts/${id}/thumb`, content_url: `/api/artifacts/${id}/content`,
+  ...over,
+});
+
+const dragon = artifact(aid("a1"), {
+  name: "gpt-image-1-a-dragon-over-the-harbour.png", size: 412000, owner: "agent:pai",
+  run_id: runs[2].id, source: "generated", tags: ["dragon", "harbour"], created_at: at(12),
+  // The generated row's meta is its provenance, as image_gen writes it.
+  meta: { provider: "openai", model: "gpt-image-1", prompt: "A dragon over the harbour at dawn",
+          params: { size: "1024x1024", quality: "medium" }, seed: 42, cost_usd: 0.04,
+          duration_ms: 3120, reference_ids: [], tool: "image_gen" },
+});
+const logo = artifact(aid("a2"), { name: "logo.png", size: 20480, tags: ["logo"],
+                                    width: 512, height: 512, created_at: at(600) });
+const artifacts = [
+  dragon,
+  logo,
+  artifact(aid("a3"), { name: "digest.csv", mime: "text/csv", kind: "file", size: 3072,
+                        width: null, height: null, owner: "agent:news", run_id: runs[1].id,
+                        source: "tool", thumb_url: null, created_at: at(90) }),
+  // Cropped from the logo: derived, and it names its parent.
+  artifact(aid("a4"), { name: "logo-crop.png", size: 8192, source: "derived",
+                        width: 128, height: 128, meta: { parent_id: aid("a2") },
+                        created_at: at(500) }),
+  // news's own picture — what its face wears (see FACES below).
+  artifact(aid("a5"), { name: "news-face.png", size: 65536, owner: "agent:news",
+                        source: "generated", tags: ["face"], width: 256, height: 256,
+                        meta: { provider: "openai", model: "gpt-image-1",
+                                prompt: "A cheerful balloon reading a newspaper", params: {},
+                                seed: null, cost_usd: 0.02, duration_ms: 2400,
+                                reference_ids: [], tool: "image_gen" },
+                        created_at: at(2000) }),
+  artifact(aid("a6"), { name: "dashboard-screenshot.png", size: 150000,
+                        owner: "agent:health-monitor", width: 1440, height: 900,
+                        created_at: at(4000) }),
+  // A row whose byte URLs point somewhere other than the artifacts routes —
+  // what a compromised API (or a bad migration) could hand a browser. The UI
+  // must draw a glyph and no link rather than put them in `src`/`href`.
+  artifact(aid("a7"), { name: "hostile.png", size: 100, owner: "agent:pai",
+                        thumb_url: "https://evil.example/thumb.png",
+                        content_url: "https://evil.example/content.png",
+                        created_at: at(9000) }),
+];
+
+// What the two write routes answer with: the upload as the API would name it,
+// and a fresh generation carrying the dragon's provenance under a new id.
+// Module-level so a spec can name the id it expects to see PUT onto an agent.
+const uploaded = artifact(aid("b1"), { name: "upload.png", created_at: at(0) });
+const generated = artifact(aid("b2"), { ...dragon, id: aid("b2"),
+                                        name: "gpt-image-1-generated.png", created_at: at(0) });
+
+/** The rows a spec reaches for by role rather than by position. */
+export const ARTIFACTS = { generated: dragon, file: artifacts[2], face: artifacts[4],
+                           hostile: artifacts[6], uploaded, fresh: generated,
+                           // Named in #art and held by nobody — until a spec
+                           // makes it land through `artifactFeed`.
+                           missing_id: aid("d0") };
+
+/** The artifacts stream, driven by a spec. A route cannot hold a connection
+ * open, so frames a test emits are queued and delivered whole on the stream's
+ * NEXT connection — the hook's own reconnect, which the mock's EOF answer
+ * provokes every couple of seconds. A row created here is also answered by
+ * `/api/artifacts/<id>` for this page only, so a card that re-fetches finds
+ * it; the shared fixtures are never mutated. Registered after `mockApi`, so
+ * its routes win (Playwright tries handlers newest first). */
+export async function artifactFeed(page: Page): Promise<{
+  created: (id: string, over?: Record<string, unknown>) => Record<string, unknown>;
+  deleted: (row: Record<string, unknown>) => void;
+}> {
+  const pending: string[] = [];
+  const late = new Map<string, Record<string, unknown>>();
+  const frame = (data: unknown) => `event: artifact\ndata: ${JSON.stringify(data)}\n\n`;
+  await page.route("**/api/artifacts/events", async (route: Route) => {
+    await route.fulfill({ status: 200, contentType: "text/event-stream",
+                          headers: { "Cache-Control": "no-cache" },
+                          body: pending.splice(0).join("") || ": heartbeat\n\n" });
+  });
+  await page.route(/\/api\/artifacts\/[0-9a-f]{32}(\/thumb|\/content)?$/, async (route: Route) => {
+    const m = /\/api\/artifacts\/([0-9a-f]{32})(\/thumb|\/content)?$/
+      .exec(new URL(route.request().url()).pathname);
+    const row = m && late.get(m[1]);
+    if (!row || route.request().method() !== "GET") await route.fallback();
+    else if (m[2]) {
+      await route.fulfill({ body: Buffer.from(PNG_B64, "base64"), contentType: "image/png" });
+    } else await route.fulfill({ json: row });
+  });
+  return {
+    created(id, over = {}) {
+      const row = artifact(id, { name: `late-${id.slice(0, 4)}.png`, created_at: at(0), ...over });
+      late.set(id, row);
+      pending.push(frame({ event: "created", artifact: row, agent: null }));
+      return row;
+    },
+    deleted(row) {
+      late.delete(String(row.id));
+      pending.push(frame({ event: "deleted", artifact: { ...row, deleted_at: at(0) }, agent: null }));
+    },
+  };
+}
+
+/** A store with more pictures than the Studio's recent strip shows, for this
+ * page only: the strip asks for the last 24 and the shared fixtures hold six.
+ * The rows are answered by id and served bytes too, so a thumb decodes and a
+ * click on one fetches a real row; registered after `mockApi`, so it wins. */
+export async function studioRecent(page: Page, n = 30): Promise<Record<string, unknown>[]> {
+  const rows = Array.from({ length: n }, (_, i) =>
+    artifact(`c${i.toString(16).padStart(2, "0")}`.padEnd(32, "0"),
+             { name: `recent-${i}.png`, created_at: at(i + 1) }));
+  await page.route("**/api/artifacts?**", async (route: Route) => {
+    const params = new URL(route.request().url()).searchParams;
+    if (route.request().method() !== "GET" || params.get("kind") !== "image" || !params.get("limit")) {
+      await route.fallback();
+      return;
+    }
+    await route.fulfill({ json: rows.slice(0, Number(params.get("limit"))) });
+  });
+  await page.route(/\/api\/artifacts\/c[0-9a-f]{2}0{29}(\/thumb|\/content)?$/, async (route: Route) => {
+    const m = /\/api\/artifacts\/([0-9a-f]{32})(\/thumb|\/content)?$/
+      .exec(new URL(route.request().url()).pathname);
+    const row = m && rows.find((r) => r.id === m[1]);
+    if (!row || route.request().method() !== "GET") await route.fallback();
+    else if (m[2]) {
+      await route.fulfill({ body: Buffer.from(PNG_B64, "base64"), contentType: "image/png" });
+    } else await route.fulfill({ json: row });
+  });
+  return rows;
+}
+
+const artifactStats = {
+  count: artifacts.length, bytes: artifacts.reduce((n, a) => n + a.size, 0),
+  total_cap: 500 * 1024 * 1024, generated_this_month: 2, spend_this_month_usd: 0.06,
+  spend_today_usd: 0.04, daily_cap_usd: 2,
+};
+
+const imageModels = [
+  { id: "gpt-image-1", provider: "openai", label: "GPT Image 1", price_usd: 0.04,
+    sizes: ["1024x1024", "1536x1024", "1024x1536"], aspects: null, custom_size: false,
+    qualities: ["low", "medium", "high"], edits: true, configured: true, default: true },
+  { id: "flux-pro", provider: "bfl", label: "FLUX 1.1 pro", price_usd: 0.05, sizes: null,
+    aspects: ["1:1", "16:9", "9:16"], custom_size: true, qualities: null, edits: false,
+    configured: false, default: false },
+  // A second configured provider, and one that speaks aspects rather than
+  // sizes: what proves a picker offers every key that is set and asks each
+  // model for its geometry in its own words.
+  { id: "imagen-4", provider: "google", label: "Imagen 4", price_usd: 0.04, sizes: null,
+    aspects: ["1:1", "3:4", "4:3", "16:9", "9:16"], custom_size: false, qualities: null,
+    edits: false, configured: true, default: false },
+];
+
+/** The list route's own filters, over the fixtures: every one is a column
+ * match except `q`, which the API runs over the name. */
+function artifactList(params: URLSearchParams) {
+  const q = (params.get("q") ?? "").toLowerCase();
+  return artifacts.filter((a) =>
+    (!params.get("kind") || a.kind === params.get("kind"))
+    && (!params.get("owner") || a.owner === params.get("owner"))
+    && (!params.get("source") || a.source === params.get("source"))
+    && (!params.get("tag") || a.tags.includes(params.get("tag")!))
+    && (!q || a.name.toLowerCase().includes(q)));
+}
+
+type Fulfil = { status?: number; json?: unknown; body?: Buffer; contentType?: string };
+
+/** The whole artifacts surface, bytes included. An unknown id is a 404 here
+ * rather than an unfixtured call: the room's "artifact not found" chip is
+ * built on that answer. Multipart is matched by path BEFORE anything reads
+ * the body as JSON, because `postDataJSON()` throws on a form. */
+function artifactRoute(path: string, method: string, params: URLSearchParams): Fulfil | undefined {
+  if (path === "/api/artifacts") {
+    if (method === "GET") return { json: artifactList(params) };
+    if (method === "POST") return { status: 201, json: uploaded };
+    return undefined;
+  }
+  if (path === "/api/artifacts/stats") return { json: artifactStats };
+  if (path === "/api/artifacts/models") return { json: imageModels };
+  if (path === "/api/artifacts/generate" && method === "POST") {
+    return { status: 201, json: generated };
+  }
+  const m = /^\/api\/artifacts\/([0-9a-f]{32})(?:\/(thumb|content))?$/.exec(path);
+  if (!m) return undefined;
+  const row = artifacts.find((a) => a.id === m[1]);
+  if (!row) return { status: 404, json: { detail: "unknown artifact" } };
+  if (m[2] === "thumb" && row.kind !== "image") {
+    return { status: 404, json: { detail: "no thumb for this artifact" } };
+  }
+  if (m[2]) return { body: Buffer.from(PNG_B64, "base64"), contentType: "image/png" };
+  if (method === "GET") return { json: row };
+  if (method === "PATCH") return { json: row };
+  if (method === "DELETE") return { json: { ...row, deleted_at: at(0) } };
+  return undefined;
+}
+
+
 // --- Relay (docs/design/19) --------------------------------------------------
 // Two channels (one busy, one empty) and a dm, with a face on the agents and a
 // message mix wide enough to exercise every row the pane can draw: grouped
 // agent messages with a run link, a system notice, an event card, reactions, a
 // threaded reply and a bridged Discord user.
-const MINUTE = 60000;
-const at = (minsAgo: number) => new Date(Date.now() - minsAgo * MINUTE).toISOString();
-
 const face = (emoji: string, hue: number) => ({ emoji, hue });
 // Derived by the backend (agentplatform.relay.face_for) — the frontend's
 // lib/face.ts reproduces these exactly, and tests/faces.spec.ts guards that.
+// news additionally has a picture (docs/design/23): the thumb of its image
+// artifact rides on the face, and every consumer shows it over the emoji.
 const FACES = {
-  news: face("🎈", 9),
+  news: { ...face("🎈", 9), image_url: ARTIFACTS.face.thumb_url },
   "health-monitor": face("🧭", 109),
   pai: face("🐢", 145),
 };
+
+// The listing and the row both wear the face (docs/design/23), so the Agents
+// pages draw a picture without a second fetch — news's is the artifact above.
+const agentRows = agents.map((a) => ({
+  ...a, face: FACES[a.name as keyof typeof FACES] ?? null,
+  image_artifact_id: a.name === "news" ? ARTIFACTS.face.id : null,
+}));
+/** Every agent `/api/agents` lists, in its order — what a picker built on
+ * the listing has to offer, no more and no fewer. */
+export const AGENT_NAMES = agentRows.map((a) => a.name);
+
+/** `PUT /api/agents/{name}/image`: the row as the API answers it, the picture
+ * set (or cleared) from the body, so a refetch after the write shows it. */
+function agentImageWrite(path: string, body: Record<string, unknown>): unknown {
+  const m = /^\/api\/agents\/([^/]+)\/image$/.exec(path);
+  if (!m) return undefined;
+  const row = agentRows.find((a) => a.name === decodeURIComponent(m[1]));
+  if (!row) return undefined;
+  const id = typeof body.artifact_id === "string" ? body.artifact_id : null;
+  return { ...row, image_artifact_id: id,
+           face: { ...(row.face ?? face("🧱", 0)), image_url: id ? `/api/artifacts/${id}/thumb` : null } };
+}
 
 const relayMessage = (over: Record<string, unknown>) => ({
   id: "m0", channel_id: "rc1", author: "user:kyle", kind: "text", body: "",
@@ -210,6 +443,25 @@ const opsMessages = [
              { id: "k6", author: "agent:pai", face: FACES.pai, created_at: at(260) }),
 ];
 
+// The #art room (docs/design/23): the card the API posts when an image is
+// generated — an EVENT row, its body the chip plus one flattened line — and
+// the three ways prose can carry the chip: a live id, an id nobody has, and
+// the syntax quoted in a code span, which is documentation and not a card.
+const artMessages = [
+  relayMessage({ id: "art1", channel_id: "rc4", author: "system:platform", kind: "event",
+                 created_at: at(12),
+                 body: `[[artifact:${dragon.id}]]\nby pai · gpt-image-1 · "A dragon over the harbour at dawn"`,
+                 card: { type: "artifact", artifact_id: dragon.id, owner: "agent:pai",
+                         model: "gpt-image-1", prompt: "A dragon over the harbour at dawn" } }),
+  relayMessage({ id: "art2", channel_id: "rc4", author: "user:kyle", created_at: at(10),
+                 body: `Love it — pin this one [[artifact:${dragon.id}]] for the readme.` }),
+  relayMessage({ id: "art3", channel_id: "rc4", author: "agent:pai", face: FACES.pai,
+                 run_id: runs[2].id, created_at: at(9),
+                 body: `The earlier draft was [[artifact:${aid("d0")}]], since removed.` }),
+  relayMessage({ id: "art4", channel_id: "rc4", author: "user:kyle", created_at: at(8),
+                 body: `For reference, the syntax is \`[[artifact:${dragon.id}]]\` in any message.` }),
+];
+
 const relayChannel = (over: Record<string, unknown>) => ({
   id: "rc1", kind: "channel", name: null, topic: "", open: true, archived_at: null,
   agent: null, participants: [], last_message: null, message_count: 0, unread: 0,
@@ -228,6 +480,9 @@ const relayChannels = [
   relayChannel({ id: "rc3", name: "ops", title: "ops", topic: "the platform's own work",
                  message_count: opsMessages.length,
                  last_message: preview(opsMessages[opsMessages.length - 1]) }),
+  relayChannel({ id: "rc4", name: "art", topic: "what the artist made today",
+                 message_count: artMessages.length,
+                 last_message: preview(artMessages[artMessages.length - 1]) }),
   relayChannel({ id: "rd1", kind: "dm", topic: "", open: false, agent: "pai",
                  participants: ["agent:pai", "user:kyle"], message_count: 2,
                  last_message: preview(dmMessages[1]) }),
@@ -243,7 +498,8 @@ const relayChannels = [
 // Keyed by channel so the route below can honour `after` and `thread` — the
 // two cursors the pane actually pages with.
 const relayLog: Record<string, typeof generalMessages> = {
-  rc1: generalMessages, rc2: [], rc3: opsMessages, rd1: dmMessages, rg1: [], rg2: [],
+  rc1: generalMessages, rc2: [], rc3: opsMessages, rc4: artMessages, rd1: dmMessages,
+  rg1: [], rg2: [],
 };
 
 /** The messages route's real contract: `after` pages FORWARDS oldest-first
@@ -715,11 +971,11 @@ function wikiWrite(path: string, method: string, body: Record<string, unknown>):
 
 const FIXTURES: Record<string, unknown> = {
   "/api/setup-state": { needs_admin: false, secrets },
-  "/api/agents": agents,
-  "/api/agents/health-monitor": healthMonitor,
+  "/api/agents": agentRows,
+  "/api/agents/health-monitor": { ...healthMonitor, face: FACES["health-monitor"], image_artifact_id: null },
   // news has a definition too, so its own page (and its Tickets tab) can be
   // opened the way health-monitor's can.
-  "/api/agents/news": agents[1],
+  "/api/agents/news": agentRows[1],
   "/api/agents/health-monitor/versions": versions,
   "/api/agents/health-monitor/versions/1": { ...versions[1], snapshot: def({ name: "health-monitor" }) },
   "/api/agents/health-monitor/versions/2": { ...versions[0], snapshot: healthMonitor },
@@ -738,6 +994,7 @@ const FIXTURES: Record<string, unknown> = {
   "/api/relay/channels/rc2": detail("rc2", {}),
   "/api/relay/channels/rc3": detail("rc3", { news: FACES.news, pai: FACES.pai,
                                              "health-monitor": FACES["health-monitor"] }),
+  "/api/relay/channels/rc4": detail("rc4", { pai: FACES.pai }),
   "/api/relay/channels/rd1": detail("rd1", { pai: FACES.pai }),
   "/api/relay/channels/rg1": detail("rg1", { news: FACES.news, pai: FACES.pai }),
   "/api/relay/channels/rg2": detail("rg2", { pai: FACES.pai }),
@@ -1058,6 +1315,15 @@ export async function mockApi(page: Page): Promise<string[]> {
         return;
       }
     }
+    if (path.startsWith("/api/artifacts")) {
+      const answer = artifactRoute(path, route.request().method(), url.searchParams);
+      if (answer) {
+        await route.fulfill(answer.body
+          ? { status: 200, body: answer.body, contentType: answer.contentType }
+          : { status: answer.status ?? 200, json: answer.json });
+        return;
+      }
+    }
     if (path === "/api/tickets" && route.request().method() === "GET") {
       await route.fulfill({ json: ticketList(url.searchParams) });
       return;
@@ -1075,6 +1341,13 @@ export async function mockApi(page: Page): Promise<string[]> {
       const posted = relayPost(path, route.request().postDataJSON() ?? {});
       if (posted !== undefined) {
         await route.fulfill({ json: posted });
+        return;
+      }
+    }
+    if (route.request().method() === "PUT" && path.endsWith("/image")) {
+      const row = agentImageWrite(path, route.request().postDataJSON() ?? {});
+      if (row !== undefined) {
+        await route.fulfill({ json: row });
         return;
       }
     }

@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { mockApi } from "./mock-api";
+import { ARTIFACTS, mockApi } from "./mock-api";
 
 // Every page renders against the mocked API with zero console errors and its
 // key content present. This is the UI's backpressure: an agent (or human)
@@ -22,6 +22,13 @@ const PAGES: { path: string; heading: string; probe?: RegExp }[] = [
   { path: "/tickets/OPS-1", heading: "OPS-1", probe: /Weather repeats across the digest/ },
   { path: "/wiki", heading: "Wiki", probe: /Everything the platform knows/ },
   { path: "/wiki/deploying", heading: "Deploying", probe: /reuse-values/ },
+  { path: "/artifacts", heading: "Artifacts", probe: /a-dragon-over-the-harbour/ },
+  // The deep link is the lightbox: the probe is provenance only the open
+  // picture shows.
+  { path: `/artifacts/${ARTIFACTS.generated.id}`, heading: "Artifacts", probe: /gpt-image-1 · 3 s/ },
+  // The probe is a priced model option: the registry landed.
+  { path: "/studio", heading: "Studio", probe: /GPT Image 1 · \$0\.04/ },
+  { path: `/studio/${ARTIFACTS.generated.id}`, heading: "Studio", probe: /gpt-image-1 \(openai\)/ },
   // The probe is the wiki badge: a memory that has graduated into a page is
   // the one thing on this table the wiki put there (docs/design/21).
   { path: "/memories", heading: "Memories", probe: /📖 promoted/ },

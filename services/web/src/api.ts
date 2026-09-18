@@ -62,6 +62,10 @@ export type AgentDef = {
 // API trims the payload; readiness fields are never part of the row.
 export type AgentSummary = Partial<AgentDef> & {
   name: string;
+  // The agent's picture (docs/design/23): an image artifact's id, and the face
+  // the API derived from it — `image_url` set when there is one to wear.
+  image_artifact_id?: string | null;
+  face?: RelayFace | null;
   quarantined?: boolean;
   error?: string | null;
   // Blocked = unmet required secret dependency (fix the secret);
@@ -323,7 +327,10 @@ export type ModelOption = {
 // attributes a message from the caller's token, so these strings are the one
 // identity the UI can trust.
 
-export type RelayFace = { emoji: string; hue: number };
+// `image_url` is the agent's picture (docs/design/23) — the thumb route of
+// its image artifact — which every face consumer shows over the emoji when it
+// is set. Optional because a face derived client-side (lib/face) has none.
+export type RelayFace = { emoji: string; hue: number; image_url?: string | null };
 
 export type RelayReaction = { emoji: string; count: number; mine: boolean };
 
@@ -368,6 +375,12 @@ export type RelayCard = {
   priority?: string;
   assignee?: string | null;
   url?: string;
+  // The `#art` card (docs/design/23): the generated image, who asked for it,
+  // on which model, with the prompt already flattened by the API.
+  artifact_id?: string;
+  owner?: string;
+  model?: string;
+  prompt?: string;
 };
 
 export type RelayMessage = {
@@ -471,6 +484,138 @@ export type AppView = {
   ready: boolean | null;      // null = not deployed / unknown
   ready_replicas: number;
 };
+
+// --- Artifacts (docs/design/23) ---------------------------------------------
+// A picture or a file the platform keeps: a row with bytes behind it. The
+// view is metadata only — the thumb and the content are the two byte routes
+// below, never a JSON field. `[[artifact:<id>]]` in a message is its card.
+
+export type ArtifactKind = "image" | "file";
+export type ArtifactSource = "upload" | "generated" | "derived" | "tool";
+
+export type Artifact = {
+  id: string;                  // 32 lowercase hex chars
+  name: string;
+  mime: string;                // what the bytes are, never what was claimed
+  size: number;
+  sha256: string;
+  kind: ArtifactKind;
+  width: number | null;
+  height: number | null;
+  owner: string;               // a participant string: agent:<name> | user:<principal>
+  run_id: string | null;
+  source: ArtifactSource;
+  // A generated image's provenance lives here (provider, model, prompt,
+  // params, seed, cost_usd, duration_ms, reference_ids); a derived one names
+  // its `parent_id`. Whatever produced the row chose the keys, so a reader
+  // checks before it trusts one.
+  meta: Record<string, unknown>;
+  tags: string[];
+  created_at: string | null;
+  deleted_at: string | null;
+  thumb_url: string | null;    // images only
+  content_url: string;
+};
+
+export type ArtifactStats = {
+  count: number;
+  bytes: number;
+  total_cap: number;
+  generated_this_month: number;
+  spend_this_month_usd: number;
+  spend_today_usd: number;
+  daily_cap_usd: number;
+};
+
+/** A registry entry × whether its provider's key is set. `sizes` or `aspects`,
+ * never both — which one says what geometry the model takes. */
+export type ImageModel = {
+  id: string;
+  provider: string;
+  label: string;
+  price_usd: number;
+  sizes: string[] | null;
+  aspects: string[] | null;
+  custom_size: boolean;
+  qualities: string[] | null;
+  edits: boolean;
+  configured: boolean;
+  default: boolean;
+};
+
+export type GenerateIn = {
+  prompt: string;
+  model?: string | null;
+  size?: string | null;
+  aspect?: string | null;
+  quality?: string | null;
+  seed?: number | null;
+  reference_ids?: string[] | null;
+  name?: string | null;
+  tags?: string[] | null;
+};
+
+/** One frame of `/api/artifacts/events`: `artifact` is null only on an
+ * `agent_image` clear, whose whole meaning is that there is no picture. */
+export type ArtifactEvent = {
+  event: "created" | "deleted" | "agent_image";
+  artifact: Artifact | null;
+  agent?: string | null;
+};
+
+export type ArtifactQuery = {
+  kind?: string; owner?: string; source?: string; q?: string; tag?: string;
+  limit?: number; before?: string;
+};
+
+export function listArtifacts(query: ArtifactQuery = {}): Promise<Artifact[]> {
+  const params = new URLSearchParams();
+  for (const [k, v] of Object.entries(query)) {
+    if (v !== undefined && v !== null && v !== "") params.set(k, String(v));
+  }
+  const qs = params.toString();
+  return api<Artifact[]>(`/api/artifacts${qs ? `?${qs}` : ""}`);
+}
+
+export function getArtifact(id: string): Promise<Artifact> {
+  return api<Artifact>(`/api/artifacts/${encodeURIComponent(id)}`);
+}
+
+/** Multipart, so the browser sets the boundary itself: the wrapper's JSON
+ * header is deliberately overridden with none. */
+export function uploadArtifact(form: FormData): Promise<Artifact> {
+  return api<Artifact>("/api/artifacts", { method: "POST", body: form, headers: {} });
+}
+
+export function patchArtifact(id: string, body: { name?: string; tags?: string[] }):
+  Promise<Artifact> {
+  return api<Artifact>(`/api/artifacts/${encodeURIComponent(id)}`,
+                       { method: "PATCH", body: JSON.stringify(body) });
+}
+
+/** A soft delete; the API answers with the row as it now is. */
+export function deleteArtifact(id: string): Promise<Artifact> {
+  return api<Artifact>(`/api/artifacts/${encodeURIComponent(id)}`, { method: "DELETE" });
+}
+
+export function artifactStats(): Promise<ArtifactStats> {
+  return api<ArtifactStats>("/api/artifacts/stats");
+}
+
+export function artifactModels(): Promise<ImageModel[]> {
+  return api<ImageModel[]>("/api/artifacts/models");
+}
+
+/** Synchronous on the API's side — a caller waits for the picture. */
+export function generateArtifact(body: GenerateIn): Promise<Artifact> {
+  return api<Artifact>("/api/artifacts/generate", { method: "POST", body: JSON.stringify(body) });
+}
+
+/** Set (or with null, clear) an agent's picture. */
+export function setAgentImage(name: string, artifactId: string | null): Promise<AgentSummary> {
+  return api<AgentSummary>(`/api/agents/${encodeURIComponent(name)}/image`,
+                           { method: "PUT", body: JSON.stringify({ artifact_id: artifactId }) });
+}
 
 export async function api<T>(path: string, opts: RequestInit = {}): Promise<T> {
   const res = await fetch(path, {

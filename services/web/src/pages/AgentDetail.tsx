@@ -9,6 +9,8 @@ import {
   WEBHOOK_SECRET_MAX, WEBHOOK_SECRET_MIN, writeWebhookSecrets,
 } from "../lib/webhook-secrets";
 import AgentVersions from "../components/AgentVersions";
+import { ProfileImage, type AgentImage } from "../components/agents/ProfileImage";
+import { Face } from "../components/relay/Face";
 import MessagePane from "../components/relay/MessagePane";
 import AgentMemories from "../components/AgentMemories";
 import AgentSchedules from "../components/AgentSchedules";
@@ -153,10 +155,24 @@ function AgentTickets({ agent }: { agent: string }) {
   );
 }
 
-function AgentConfig({ agent, onSaved }: { agent: AgentDef; onSaved: (next: AgentDef) => void }) {
+// The row as every GET answers it: the definition plus the picture the image
+// route owns (docs/design/23), which the editor must not treat as an edit.
+type AgentRow = AgentDef & AgentImage;
+
+// The definition alone. The picture rides on the row but is not the editor's
+// to save: kept out of the draft, a refetch that changes the face does not
+// read as unsaved changes, and the PUT never carries it.
+function defOf(row: AgentRow): AgentDef {
+  const def: Record<string, unknown> = { ...row };
+  delete def.face;
+  delete def.image_artifact_id;
+  return def as AgentDef;
+}
+
+function AgentConfig({ agent, onSaved }: { agent: AgentRow; onSaved: (next: AgentDef) => void }) {
   const navigate = useNavigate();
   const catalog = useGrantCatalog();
-  const original = toDraft(agent);
+  const original = toDraft(defOf(agent));
   const [draft, setDraft] = useState<AgentDef>(original);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -191,7 +207,7 @@ function AgentConfig({ agent, onSaved }: { agent: AgentDef; onSaved: (next: Agen
         : null;
       // Adopt the row the server actually stored (it may normalize fields), so
       // the editor stops claiming unsaved changes it no longer has.
-      let canonical = next && next.name ? toDraft(next) : draft;
+      let canonical = next && next.name ? toDraft(defOf(next)) : draft;
       // Secrets go second and alone: the endpoint 404s until the path is
       // declared, and the value never rides along with the definition.
       await writeWebhookSecrets(agent.name, pendingSecrets);
@@ -291,7 +307,7 @@ export default function AgentDetail() {
   useTitle(name, "Agents");
   const [params, setParams] = useSearchParams();
   const tab = (params.get("tab") as Tab) ?? "config";
-  const [agent, setAgent] = useState<AgentDef | null>(null);
+  const [agent, setAgent] = useState<AgentRow | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [summary, setSummary] = useState<AgentSummary | null>(null);
@@ -312,7 +328,7 @@ export default function AgentDetail() {
 
   function loadContent() {
     if (!name) return;
-    api<AgentDef>(`/api/agents/${encodeURIComponent(name)}`)
+    api<AgentRow>(`/api/agents/${encodeURIComponent(name)}`)
       .then((a) => { setAgent(a); setFormKey((k) => k + 1); })
       .catch((err) => setLoadError(err instanceof Error ? err.message : "Failed to load agent."))
       .finally(() => setLoading(false));
@@ -320,6 +336,13 @@ export default function AgentDetail() {
     api<AgentSummary[]>("/api/agents")
       .then((all) => setSummary(all.find((a) => a.name === name) ?? null))
       .catch(() => setSummary(null));
+  }
+
+  // The row again, and only the row: what a changed picture needs. The editor
+  // is NOT remounted, so an edit in progress survives choosing a face.
+  async function reloadRow() {
+    if (!name) return;
+    setAgent(await api<AgentRow>(`/api/agents/${encodeURIComponent(name)}`));
   }
 
   useEffect(() => {
@@ -352,7 +375,10 @@ export default function AgentDetail() {
   return (
     <div className={tab === "conversations" ? "page page-chat" : "page"}>
       <div className="page-header">
-        <h1>{agent.name}</h1>
+        <div className="agent-head">
+          <Face participant={`agent:${agent.name}`} face={agent.face} size={64} />
+          <h1>{agent.name}</h1>
+        </div>
         <div className="row-actions">
           {agent.system && <Chip>system</Chip>}
           {agent.enabled === false && <Chip variant="warn">disabled</Chip>}
@@ -385,7 +411,17 @@ export default function AgentDetail() {
       {tab === "schedules" && <AgentSchedules agent={agent.name} />}
       {tab === "history" && <AgentVersions agent={agent.name} onRolledBack={loadContent} />}
       {tab === "config" && (
-        <AgentConfig key={formKey} agent={agent} onSaved={setAgent} />
+        <>
+          <div className="profile-image-section">
+            <h2>Profile image</h2>
+            <ProfileImage name={agent.name} description={agent.description}
+                          image={agent} onChanged={reloadRow} />
+          </div>
+          {/* A save answers with the definition only; the picture on the row
+              stays what the image route last made it. */}
+          <AgentConfig key={formKey} agent={agent}
+                       onSaved={(next) => setAgent((a) => ({ ...a, ...next }))} />
+        </>
       )}
     </div>
   );

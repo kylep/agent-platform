@@ -1,6 +1,6 @@
 import AxeBuilder from "@axe-core/playwright";
 import { expect, test } from "@playwright/test";
-import { mockApi } from "./mock-api";
+import { ARTIFACTS, mockApi } from "./mock-api";
 
 // axe-core over every page: serious/critical violations fail the build.
 // (moderate/minor are reported in the failure message when the gate trips,
@@ -11,6 +11,10 @@ const PAGES = ["/", "/agents", "/agents/health-monitor", "/agents/health-monitor
                // the thread pane is a second live region on the page
                "/relay?channel=rc1&thread=m6",
                "/tickets", "/tickets/OPS-1", "/wiki", "/wiki/deploying",
+               "/artifacts", `/artifacts/${ARTIFACTS.generated.id}`, "/studio",
+               `/studio/${ARTIFACTS.generated.id}`,
+               // the #art room: artifact cards inside the transcript
+               "/relay?channel=rc4",
                "/memories", "/changes", "/schedules", "/skills", "/secrets",
                "/dlq", "/reporting", "/reports", "/reports/daily-news", "/apps",
                "/help", "/help/tools", "/help/tickets", "/help/wiki", "/settings"];
@@ -20,7 +24,9 @@ const PAGES = ["/", "/agents", "/agents/health-monitor", "/agents/health-monitor
  * hold. A sweep that only ever ran at 1280 cannot see what any of that costs —
  * a landmark dropped by a mobile-only rule passed this file for months. */
 const MOBILE = ["/tickets", "/tickets/OPS-1", "/wiki", "/wiki/deploying",
-                "/relay", "/relay?channel=rc1&thread=m6"];
+                "/relay", "/relay?channel=rc1&thread=m6",
+                "/artifacts", `/artifacts/${ARTIFACTS.generated.id}`, "/studio",
+                `/studio/${ARTIFACTS.generated.id}`];
 
 async function axe(page: import("@playwright/test").Page, path: string, where: string) {
   await mockApi(page);
