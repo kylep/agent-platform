@@ -1,9 +1,13 @@
 # 23 — Artifacts, image generation, and the Image Studio
 
-Status: **built 2026-09-17/18, shipped pending T15** (every task through
-T14 committed on `main`; the deploy and live verification — helm upgrade,
-the three keys pasted on `/secrets`, one image from each provider, `@artist`
-answering in `#art` — are the plan's last task) — plan at
+Status: **shipped 2026-09-18** (helm `ap` rev 58 on pai; live-verified: one
+image from each provider through the Studio route — BFL in 5 s, Gemini in
+3 s, OpenAI in 27 s — each with its `#art` card and `artifacts.event`;
+`@artist` answered a brief in 35 s with a `[[artifact:…]]` card and iterated
+"make it blue" with the first result as its reference; `pai` saved a note
+artifact from Relay; `pai` wears a generated robot on the agents grid and in
+every room; a markup saved from the Studio is a `derived` artifact naming its
+parent; bytes serve with nosniff, inline only for rasters) — plan at
 `docs/superpowers/plans/2026-09-17-artifacts-and-image-studio.md`. Builds on
 Relay [19](19-relay-agent-messenger.md) (cards, participants), the tools
 building block [12](12-executable-capabilities.md) (the executor runs the

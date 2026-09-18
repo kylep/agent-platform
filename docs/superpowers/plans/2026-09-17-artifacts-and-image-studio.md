@@ -676,7 +676,7 @@ dispatch subagents, verify their evidence, commit, and update this file.
 
 ### Phase 4 — ship it
 
-- [ ] **T14 Docs.** `[after T13 is committed]` (all ACs)
+- [x] **T14 Docs.** `[after T13 is committed]` (all ACs) (commit `2b718d4`; the implementer ran its own sonnet doc reviewer over four slices — one wording fix; facade counts recomputed from the live spec: 155 graded / 94 KEEP, artifacts 9 KEEP + 3 excluded)
   Files: `docs/design/23-artifacts-and-image-studio.md` (Status → shipped
   pending T15; fill "AS BUILT" from the commits and the implementer
   reports: the executor sink shape, the model ids T5 confirmed, anything
@@ -705,8 +705,8 @@ dispatch subagents, verify their evidence, commit, and update this file.
   in the tree; the Help page lists Artifacts (the API serves
   `docs/building-blocks/*` directly).
 
-- [ ] **T15 Deploy and live verification.** `[after T14]` (AC-6, and the live
-  proof of AC-1…AC-5)
+- [x] **T15 Deploy and live verification.** `[after T14]` (AC-6, and the live
+  proof of AC-1…AC-5) (helm rev 58, 2026-09-18 11:45; evidence below; deployed ahead of T14 at Kyle's request for a demo)
   The orchestrator does this task itself with the Terminal.app mechanics
   from protocol step 9 (no implementer). First `git push origin main` (the
   sync must carry `tools/image_gen`, the secret blocks and the docs). Build
@@ -783,6 +783,7 @@ dispatch subagents, verify their evidence, commit, and update this file.
 - (T10 review, low) `/artifacts` owner/tag dropdown options are derived from the currently filtered rows, so picking `kind=file` hides owners with no files until filters clear.
 - (T10 visual, low) a system-posted `#art` card renders without an author line, consistent with every other `kind: event` card (ticket cards too).
 - (T11 visual, pre-existing) `/agents/<name>` at 390 overflows by 1–2 px from the `.tabs` strip (seven tab buttons, no wrap) — present before this build.
+- (T15 live, low) the broker's `image_gen` tool description should name the size grammar — the artist tried `size: "square"` once (clean error, self-corrected).
 - (T12 review, low) the Studio stat row prints `$x / $0.00` when `image_gen_daily_usd` is 0; the setting means "cap at zero", not "no cap", so the reading is technically right but odd.
 - (T1 review, medium, pre-existing) `services/backend/agentplatform/secretverify.py:50-75` — declarative probes run `urlopen(timeout=8)` but DNS resolution (`getaddrinfo`) is not bounded by it and `verifierloop.verify_all` awaits probes sequentially, so a hung resolver stalls the whole heartbeat pass; scripts are safe (`subprocess.run(timeout=20)`). Fix later: wrap each `verify_one` in `asyncio.wait_for`.
 
@@ -806,9 +807,79 @@ key at build time" with the handed-off commands, and that still passes.
 
 ## Live verification
 
-(filled by T15)
+Run 2026-09-18 11:41–12:10 local (15:41–16:10 UTC) against pai through the
+ssh forward. Deploy: scratchpad `t23-deploy.sh` → `deploy23.out` (helm rev
+**58**, five images imported incl. the new `tool-executor`, all rollouts
+green, facade last, `EXIT=0`); cluster facts `facts23.out`; screenshots
+`scratchpad/live/*.png` (read by the orchestrator: agents grid, #art).
+Kyle set the three provider keys during T2 (11:20 local); all verified
+`valid` before deploy. Kyle asked for the deploy ahead of the docs for a
+demo; T14 committed after, then this record.
+
+1. **Upload + serving (AC-1).** 11:52 `POST /api/artifacts` multipart 96×64
+   PNG → 201 `f79f978a…` (`image/png`, kind image, owner `user:admin`).
+   `/content`: `Content-Type: image/png`, `x-content-type-options: nosniff`,
+   `cache-control: private, max-age=31536000, immutable`,
+   `content-disposition: inline; filename="demo-upload.png"`. `/thumb`:
+   inline `thumb.png`. An HTML file claiming `image/png` → stored
+   `application/octet-stream`, kind file, served `attachment`, `/thumb` 404;
+   deleted afterwards (200).
+2. **Agent save (AC-1).** 11:58:55 `@pai save a note called hello.md …` in
+   #general → 11:59:14 pai: "Done! Saved `hello.md` … [[artifact:dc7dd948…]]";
+   the row is `text/plain`, owner `agent:pai`, source upload; the card
+   renders in the room (`live/03-relay-general-thread-pai-1280-dark.png`).
+3. **Generate (AC-2)** — all three providers live, same prompt ("a friendly
+   robot librarian, flat vector icon, dark charcoal background"):
+   `flux-2-klein-4b` 201 in 5 s (`e5486a65…`, 1024², $0.014, 4016 ms);
+   `gpt-image-1-mini` 201 in 27 s (`fa7b6818…`, $0.05);
+   `gemini-3.1-flash-lite-image` 201 in 3 s (`a9c189a8…`, $0.04). Each posted
+   a `#art` event card (`by admin · <model> · "<prompt>"`) and an
+   `artifacts.event created` envelope (kafka console consumer, `facts23.out`).
+   Reference generation is proven by item 4 (the artist's iteration). Budget
+   / daily cap not exercised live (they spend): T6's tests cover them.
+4. **Artist (AC-3).** 11:56:28 `@artist make me a small icon of a compass,
+   flat style` in #art → 11:57:03 (35 s): `[[artifact:f16c08f0…]]
+   gpt-image-2.5-flare, 1024×1024, flat icon house style — clean compass on
+   dark charcoal, orange needle for pop. Want a different color accent…?`
+   Row: owner `agent:artist`, `run_id 0fdfa166…`, source generated, $0.20.
+   11:57:17 `@artist make it blue` → 11:57:56: `[[artifact:308895f4…]] Same
+   compass, needle swapped to blue…`; `meta.reference_ids == [f16c08f0…]`
+   (the previous result as the reference). Executor log shows one honest
+   refusal on the way: `image_gen exited 1: size must look like
+   WIDTHxHEIGHT, got 'square'` — the artist corrected its call.
+5. **Agent image (AC-4).** `PUT /api/agents/pai/image {artifact_id: e5486a65…}`
+   → 200, `face.image_url = /api/artifacts/e5486a65…/thumb`, `GET
+   /api/agents` carries it; `artifacts.event agent_image` on the topic.
+   `/agents` grid default with pai's robot (`live/01-agents-1280-dark-grid.png`,
+   light + 390 variants, table toggle `01-agents-1280-dark-table.png`);
+   `/agents/pai` header + Profile image section (`02-agents-pai-*.png`);
+   pai's message rows in Relay wear it (`03-relay-general-thread-pai-*.png`).
+6. **Studio (AC-5).** `/studio` lists 16 configured models with prices and a
+   real stat row (`06-studio-empty-*.png`, 390 stacks); `/studio/f16c08f0…`
+   stages the compass with provenance (`05-studio-compass-stage-*.png`);
+   Mark up → rectangle + arrow → Save → derived artifact `a79c65de…` with
+   `source: derived`, `meta.parent_id: f16c08f0…`, staged at `/studio/a79c…`
+   (`05-studio-markup-mode-1280.png`, `-390.png`, `-result-1280-dark.png`).
+   Two extra derived rows from the runner's reruns were deleted. `/artifacts`
+   grid + lightbox provenance (`04-artifacts-*.png`); #art cards with real
+   thumbs (`03-relay-art-*.png`). `scrollWidth ≤ innerWidth` at 390 on every
+   page visited.
+7. **Caps / cluster.** Stats after: `count 8, bytes 5.8 MB of 2 GiB,
+   generated_this_month 5, spend_today $0.504 / $5.00`. `helm history`: rev
+   58 deployed 11:45:07; all platform pods Running; api pod containers
+   `api executor-tunnel`; executor pod 2/2; `kubectl top`: api 189 Mi after
+   thumbnails, executor 52 Mi; `artifacts.events` 3 partitions, retention
+   30 d. Facade restarted last (the SDK's `face` field).
 
 ## Handoff to Kyle
 
-(filled by the loop: the secrets link, anything classifier-blocked, the
-generation commands if no key was valid at build time)
+1. The secrets link was sent at 11:20 local and the keys were set and
+   verified; nothing else was classifier-blocked.
+2. Spend so far: $0.50 today (five generations incl. the artist's two at
+   $0.20 each on `gpt-image-2.5-flare`). The daily cap is $5.00
+   (`image_gen_daily_usd`), the agent hourly budget 10 (`image_gen_agent_per_hour`).
+3. Small follow-up worth doing: the artist once passed `size: "square"`;
+   the broker's `image_gen` tool description could name the accepted size
+   grammar (`WxH` or an aspect like `1:1`) to save that round trip.
+4. Push state: `main` pushed before the deploy; the docs and this record
+   are pushed by the loop's final commit.
