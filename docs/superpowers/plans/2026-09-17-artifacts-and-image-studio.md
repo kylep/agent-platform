@@ -505,7 +505,7 @@ dispatch subagents, verify their evidence, commit, and update this file.
   channel view's `faces` carries it. Acceptance: suite green; the wiki/
   tickets/relay face tests unchanged.
 
-- [ ] **T9 The artist.** `[after T7 is committed]` (AC-3)
+- [x] **T9 The artist.** `[after T7 is committed]` (AC-3) (commit `52343c3`; review added a step 0 so the daily #standup @all never makes it generate)
   Design sections: "The artist", "Relay".
   Files: `db.py` (`ARTIST_SEED_MARK = "artist-seed-v1"`, `_ensure_artist_seed`
   in the `_ensure_wiki_seed` shape: name `artist`, `model: sonnet`,
@@ -522,7 +522,7 @@ dispatch subagents, verify their evidence, commit, and update this file.
 
 ### Phase 3 — the web (T10 → T11 → T12 → T13, each starting when the previous reports)
 
-- [ ] **T10 `[ui]` Face images, artifact cards, the `/artifacts` page, nav.** (AC-1, AC-3, AC-4)
+- [x] **T10 `[ui]` Face images, artifact cards, the `/artifacts` page, nav.** (AC-1, AC-3, AC-4) (commit `68ce735`; review: one shared per-tab SSE feed + card-cache invalidation (a 404 was cached for the session), byte-URL scheme guard, nav label without the emoji, lightbox floor for small images)
   Design sections: "Relay", "Agent images and the Agents page" (the
   `Face.tsx` paragraph), "The Studio" (the `/artifacts` paragraph and the
   nav line), "Naming".
@@ -566,7 +566,7 @@ dispatch subagents, verify their evidence, commit, and update this file.
   reviewer's screenshots show the grid at 1280 and 390 in both themes with
   no overflow.
 
-- [ ] **T11 `[ui]` Agents card grid + Profile image section.** `[after T10 reports]` (AC-4)
+- [x] **T11 `[ui]` Agents card grid + Profile image section.** `[after T10 reports]` (AC-4) (commit `68ce735`; review: the section owns every write/error (a dialog closed mid-flight swallowed failures), drop zone gated against double-fire, client-side type/size checks, 422-array fold; visual: section divider, picker scroll fade, a real drop zone)
   Design sections: "Agent images and the Agents page" (all).
   Files: `pages/Agents.tsx` (a `ViewToggle` segmented control in the page
   header — two `<Button>`s with `aria-pressed`, labels "Grid" and "Table";
@@ -605,7 +605,7 @@ dispatch subagents, verify their evidence, commit, and update this file.
   both themes: the grid wraps to one column at 390 without horizontal
   scroll; the segmented control is keyboard-operable.
 
-- [ ] **T12 `[ui]` The Studio.** `[after T11 reports]` (AC-5)
+- [x] **T12 `[ui]` The Studio.** `[after T11 reports]` (AC-5) (commit `68ce735`, committed with T10/T11 because it re-pointed ProfileImage at the shared studio helpers; code + visual review findings land as a follow-up commit)
   Design sections: "The Studio" (all but Markup), "API" (`generate`,
   `models`, `stats`), "Naming".
   Files: new `pages/Studio.tsx` (replaces T10's placeholder; the two-column
@@ -780,6 +780,9 @@ dispatch subagents, verify their evidence, commit, and update this file.
 - (T6 review, medium, pre-existing) `secrets.py::K8sSecretStore.get` is a synchronous kubernetes call inside async routes (`api/secrets.py` too); the models route now wraps it in `to_thread` + a cache, the secrets page still does not.
 - (T8 review, low) `PUT /api/agents/{name}/image` publishes an `agent_image` event even when the value is unchanged (noise only).
 - (T8 review, low) the regenerated SDK's `AgentDefOut.from_dict` pops `face` unconditionally — against a pre-T8 server it KeyErrors; restart the facade after deploy (T15).
+- (T10 review, low) `/artifacts` owner/tag dropdown options are derived from the currently filtered rows, so picking `kind=file` hides owners with no files until filters clear.
+- (T10 visual, low) a system-posted `#art` card renders without an author line, consistent with every other `kind: event` card (ticket cards too).
+- (T11 visual, pre-existing) `/agents/<name>` at 390 overflows by 1–2 px from the `.tabs` strip (seven tab buttons, no wrap) — present before this build.
 - (T1 review, medium, pre-existing) `services/backend/agentplatform/secretverify.py:50-75` — declarative probes run `urlopen(timeout=8)` but DNS resolution (`getaddrinfo`) is not bounded by it and `verifierloop.verify_all` awaits probes sequentially, so a hung resolver stalls the whole heartbeat pass; scripts are safe (`subprocess.run(timeout=20)`). Fix later: wrap each `verify_one` in `asyncio.wait_for`.
 
 ## Definition of done
