@@ -264,7 +264,7 @@ dispatch subagents, verify their evidence, commit, and update this file.
 
 ### Phase 0 — the definition and the policy (T1 ∥ T2)
 
-- [ ] **T1 Agent fields: role `dev`, the two grant fields, the two quota fields.** `[parallel with T2]` (AC-1, AC-3 precondition)
+- [x] **T1 Agent fields: role `dev`, the two grant fields, the two quota fields.** `[parallel with T2]` (AC-1, AC-3 precondition) (commit `a1e0491`; review: strict ints on the pct fields, empty glob segments refused)
   Design sections: "Data model", "Naming".
   Files: `agentdefs.py` (`AGENT_ROLES` gains `"dev"`; `DEF_FIELDS` gains
   `push_path_globs`, `may_delete_tests`, `quota_5h_max_pct`,
@@ -293,7 +293,7 @@ dispatch subagents, verify their evidence, commit, and update this file.
   backend + broker suites green; SDK diff clean; web `lint` + `build` green
   (no UI yet — T10 owns the editor).
 
-- [ ] **T2 `testpaths.py`: the glob matcher, `TEST_PATH_GLOBS`, the deny list, the policy.** `[parallel with T1]` (AC-2)
+- [x] **T2 `testpaths.py`: the glob matcher, `TEST_PATH_GLOBS`, the deny list, the policy.** `[parallel with T1]` (AC-2) (commit `31f0e0b`; review: regex ReDoS → linear wildcard walk with 200-char/16-segment bounds, copy status handled, NUL/backslash/old-path-less rename refused)
   Design sections: "Trust boundaries and guards" (the path policy,
   `TEST_PATH_GLOBS`, never force).
   Files: new `services/backend/agentplatform/testpaths.py` — `match(pattern,
