@@ -62,9 +62,27 @@ def _stub_fastmcp():
 
     tools.Tool = Tool
     tool_mod.ToolResult = ToolResult
+    # The two content blocks the artifact tools put in a ToolResult. The real
+    # ones are pydantic models with exactly these fields, and the tools only
+    # ever build them and read them back by attribute.
+    mcp_pkg = types.ModuleType("mcp")
+    mcp_types = types.ModuleType("mcp.types")
+
+    class TextContent:
+        def __init__(self, type="text", text=""):
+            self.type, self.text = type, text
+
+    class ImageContent:
+        def __init__(self, type="image", data="", mimeType=""):
+            self.type, self.data, self.mimeType = type, data, mimeType
+
+    mcp_types.TextContent = TextContent
+    mcp_types.ImageContent = ImageContent
+    mcp_pkg.types = mcp_types
     sys.modules.update({"fastmcp": fastmcp, "fastmcp.server": server,
                         "fastmcp.server.dependencies": deps,
-                        "fastmcp.tools": tools, "fastmcp.tools.tool": tool_mod})
+                        "fastmcp.tools": tools, "fastmcp.tools.tool": tool_mod,
+                        "mcp": mcp_pkg, "mcp.types": mcp_types})
 
 
 def _load_broker():
@@ -357,7 +375,7 @@ class FakeResponse:
 def test_call_marks_an_api_refusal_as_an_error(monkeypatch):
     """Unprefixed, a 403 body reads exactly like data — which is how an agent
     comes to report work the platform refused to do."""
-    async def _request(method, path, params=None, json=None):
+    async def _request(method, path, params=None, json=None, timeout=20):
         return FakeResponse(403, '{"detail":"not a member of this channel"}')
 
     monkeypatch.setattr(broker, "_request", _request)
@@ -371,7 +389,7 @@ def test_call_marks_an_api_refusal_as_an_error(monkeypatch):
     (404, "", "error: 404"),
 ])
 def test_call_passes_success_through_untouched(monkeypatch, status, text, want):
-    async def _request(method, path, params=None, json=None):
+    async def _request(method, path, params=None, json=None, timeout=20):
         return FakeResponse(status, text)
 
     monkeypatch.setattr(broker, "_request", _request)

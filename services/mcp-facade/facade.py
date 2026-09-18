@@ -13,8 +13,9 @@ The surface is CURATED into three tiers (curation 2026-08-24; see
   health, reports, registries, apps, help, the relay rooms — read a channel,
   post in it, react, DM, search, presence/stats — the ticket board: file,
   read, edit, move, assign, comment, stats — and the wiki: read, search, write,
-  append, history, restore, promote, wanted — and the usage snapshot).
-  Always tools. 85 of them.
+  append, history, restore, promote, wanted — the usage snapshot — and the
+  artifacts: list, read, save, edit, delete, generate, the model registry and
+  the stats). Always tools. 94 of them.
 - **GATE** — authorized-but-sharp: the credential/secret plane, admin audit
   reads, destructive/bulk ops, the relay channel lifecycle (creating, renaming
   and archiving rooms), and archiving a wiki page. Offered ONLY when
@@ -23,8 +24,8 @@ The surface is CURATED into three tiers (curation 2026-08-24; see
   not the kitchen.
 - **EXCLUDE** — UI form-feeders, reviewer digests the client can compute,
   git-edit conveniences redundant with having the repo, and system-agent
-  endpoints. Never tools. 19 of them, plus the 12 session/internal/streaming
-  operations below — 143 graded operations in all.
+  endpoints. Never tools. 19 of them, plus the 15 session/internal/streaming/
+  byte-serving operations below — 155 graded operations in all.
 
 It is deliberately NOT the mcp-broker. The broker authenticates in-cluster run
 identities and scopes tools to an agent's grants (design/13, design/15); this
@@ -87,6 +88,14 @@ EXCLUDED_PATHS = (
     ("*", r"^/api/wiki/events$"),
     # And the usage sidebar's (design/22).
     ("*", r"^/api/quota/events$"),
+    # And the Studio's (design/23).
+    ("*", r"^/api/artifacts/events$"),
+    # An artifact's two byte routes (design/23): a PNG has no place in an MCP
+    # text result, and a client that wants the bytes has both URLs from the
+    # metadata the artifact tools do return. Agents see a picture through the
+    # broker's `artifacts` tool, which attaches it as an image block.
+    ("*", r"^/api/artifacts/\{artifact_id\}/content$"),
+    ("*", r"^/api/artifacts/\{artifact_id\}/thumb$"),
     # The internal plane (design/22's `POST /api/internal/quota`): these routes
     # authenticate on a shared secret this service does not hold and must never
     # forward, and their callers are infrastructure, not MCP clients. A prefix
@@ -184,7 +193,7 @@ _TRUTHY = ("1", "true", "yes", "on")
 
 def admin_tools_enabled() -> bool:
     """Whether the sharp/admin tier is OFFERED (default off — a fresh facade
-    serves the 85-tool KEEP surface). Offering-only: the API's role ladder
+    serves the 94-tool KEEP surface). Offering-only: the API's role ladder
     authorizes every call regardless of this flag."""
     return os.environ.get("AP_MCP_ADMIN_TOOLS", "").strip().lower() in _TRUTHY
 
