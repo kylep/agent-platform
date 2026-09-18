@@ -643,7 +643,7 @@ dispatch subagents, verify their evidence, commit, and update this file.
   the visual reviewer specifically judges whether the empty, pending and
   result states each look intentional.
 
-- [ ] **T13 `[ui]` Markup: pen, arrow, rectangle, text, crop → derived artifact.** `[after T12 reports]` (AC-5)
+- [x] **T13 `[ui]` Markup: pen, arrow, rectangle, text, crop → derived artifact.** `[after T12 reports]` (AC-5) (commit `6129ba0`, with T12's review follow-ups; review: zero-op Save, click-only shapes, focus management, swatch-independent marquee, 16 MP working-canvas cap; visual reviewer drew with every tool by hand — arrow head, text and crop all read right)
   Design sections: "The Studio" (Markup paragraph), "Data model" (`meta`
   derived shape).
   Files: new `components/studio/Markup.tsx` (a `<canvas>` sized to the
@@ -783,6 +783,7 @@ dispatch subagents, verify their evidence, commit, and update this file.
 - (T10 review, low) `/artifacts` owner/tag dropdown options are derived from the currently filtered rows, so picking `kind=file` hides owners with no files until filters clear.
 - (T10 visual, low) a system-posted `#art` card renders without an author line, consistent with every other `kind: event` card (ticket cards too).
 - (T11 visual, pre-existing) `/agents/<name>` at 390 overflows by 1–2 px from the `.tabs` strip (seven tab buttons, no wrap) — present before this build.
+- (T12 review, low) the Studio stat row prints `$x / $0.00` when `image_gen_daily_usd` is 0; the setting means "cap at zero", not "no cap", so the reading is technically right but odd.
 - (T1 review, medium, pre-existing) `services/backend/agentplatform/secretverify.py:50-75` — declarative probes run `urlopen(timeout=8)` but DNS resolution (`getaddrinfo`) is not bounded by it and `verifierloop.verify_all` awaits probes sequentially, so a hung resolver stalls the whole heartbeat pass; scripts are safe (`subprocess.run(timeout=20)`). Fix later: wrap each `verify_one` in `asyncio.wait_for`.
 
 ## Definition of done
