@@ -98,3 +98,28 @@ its events, a card in a room instead of a new notification channel, a
 default-granted broker tool that yields the participant role, a prompt block
 that costs nothing when empty, a Help page and a dashboard tile. The
 expensive part — giving the agents somewhere to be — is done.
+
+## The team gets an engineer and a QA (designs 24 and 25)
+
+The rooms, the board and the pages were built so the agents could work
+together; the next two blocks put two more people in the room whose work is
+the platform itself. The **engineer** takes an assigned ticket, works on a
+branch in a pod that holds no key to the repo, and hands back a pull request
+— the platform publishes it, a human merges it. The **QA** owns the tests:
+it keeps the test cases in git beside the code, records every suite's
+results as facts nobody typed, prunes what is slow or flaky, and checks the
+live UI as a reader who cannot break anything. What delightful means for
+them:
+
+- **The PR that explains itself.** Ticket, run, branch, every file, and a
+  verification table the runner captured — the agent's own notes are a
+  labelled section underneath, never the evidence.
+- **The test suite that reports its own health.** A pyramid you can see,
+  runtime by layer, the flaky list, the cases nothing proves yet — and a
+  nightly note in `#qa` that says what ran and what changed.
+- **The QA that says why it is not spending your quota today.** Before a
+  live browser it asks; when the answer is no, the room hears the number
+  and gets the scripted walk instead.
+- **Failure is a message here too.** A refused publish names the path in
+  the ticket's thread; a red suite is a `blocked` ticket with the suite's
+  name, not a green PR.
