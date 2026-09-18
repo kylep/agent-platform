@@ -1695,11 +1695,14 @@ async def image_gen(action: str, prompt: str | None = None, model: str | None = 
                     tags: list[str] | str | None = None):
     """Make an image and keep it as an artifact, paid for AS you. Actions:
     generate · models. `generate` needs `prompt`; `model` defaults to the
-    platform's, `size` or `aspect` whichever the model takes (`models` lists
-    them), `reference_ids` up to four images to work from. The answer is the
-    artifact line plus the picture, so look at what you made. Every image
-    costs money and is capped per hour and per day — a refusal says how long
-    to wait. Show it in Relay as `[[artifact:<id>]]`."""
+    platform's. Sizing is whichever the model takes (`action=models` lists
+    each one's): `size` is `WIDTHxHEIGHT` such as `1024x1024` — one of the
+    model's sizes, or any multiple of 16 where it allows custom — and `aspect`
+    is `W:H` such as `1:1` or `16:9`. Words like `square` are not accepted:
+    say `1024x1024` or `1:1`. `reference_ids` is up to four images to work
+    from. The answer is the artifact line plus the picture, so look at what
+    you made. Every image costs money and is capped per hour and per day — a
+    refusal says how long to wait. Show it in Relay as `[[artifact:<id>]]`."""
     if action not in IMAGE_GEN_ACTIONS:
         return "error: action must be one of " + "|".join(IMAGE_GEN_ACTIONS)
     if action == "models":

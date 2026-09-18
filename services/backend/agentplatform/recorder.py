@@ -171,8 +171,12 @@ class Recorder:
         # part of such a chain — a human's turn restarts the count at 0.
         hop = trigger.hop + 1 if trigger is not None and run.trigger == "mention" else 0
         # Answer inside the triggering message's thread, so a room with several
-        # conversations running keeps them apart.
-        reply_to = (trigger.thread_root or trigger.id) if trigger is not None else None
+        # conversations running keeps them apart. A DM IS one conversation, so
+        # its answer goes top-level: threaded there it would sit behind a
+        # "replies" chip the DM pane never shows (QA-16).
+        reply_to = None
+        if trigger is not None and conv.kind != "dm":
+            reply_to = trigger.thread_root or trigger.id
         if failed:
             author, kind = SYSTEM_AUTHOR, "system"
             if state == RunState.SUCCEEDED:

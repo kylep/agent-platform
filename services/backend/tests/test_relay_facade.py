@@ -230,6 +230,31 @@ async def test_mention_reply_lands_one_hop_deeper_in_the_thread(sf, producer):
     assert reply.trigger_message_id == trig_id and reply.author == "agent:hello-world"
 
 
+async def test_dm_reply_is_top_level_not_threaded(sf, producer):
+    """QA-16: a DM is one conversation, so the agent's answer sits in the
+    transcript beside the human's message. Threading it under the trigger — right
+    for a room running several conversations — hid every DM reply behind a
+    thread the DM pane never opens."""
+    cid = await _dm(sf)
+    async with sf() as s:
+        conv = await s.get(Conversation, cid)
+        trig = RelayMessage(channel_id=cid, author="user:admin", body="hello?", hop=0)
+        s.add(trig); await s.flush()
+        run = Run(agent="hello-world", trigger="conversation", requested_by="user:admin",
+                  prompt="p", conversation_id=cid, state=RunState.RUNNING,
+                  trigger_message_id=trig.id)
+        s.add(run); await s.commit()
+        assert conv.kind == "dm"
+        rid, trig_id = run.id, trig.id
+    rec = Recorder(sf, producer)
+    await rec.handle(TOPIC_RUN_TRANSCRIPT, rid, {"seq": 1, "type": "result",
+                                                 "result": "hi there"})
+    reply = (await _rows(sf, cid))[-1]
+    assert (reply.reply_to, reply.thread_root) == (None, None)
+    # Provenance survives: the reply still knows which message it answers.
+    assert reply.trigger_message_id == trig_id and reply.author == "agent:hello-world"
+
+
 async def test_outbound_only_for_bound_or_legacy_channels(sf, producer):
     # A web DM nothing bridges: the message is the delivery, no outbound.
     rid, _ = await _turn(sf)

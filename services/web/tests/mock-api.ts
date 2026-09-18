@@ -388,11 +388,15 @@ const generalMessages = [
                  created_at: at(5) }),
 ];
 
+// The agent's answer is threaded under the human's message: that is how every
+// DM reply landed before QA-16, and a DM pane has to show that history inline
+// rather than behind a "replies" chip it never draws.
 const dmMessages = [
   relayMessage({ id: "d1", channel_id: "rd1", author: "user:kyle",
                  body: "What's my day look like?", created_at: at(90) }),
   relayMessage({ id: "d2", channel_id: "rd1", author: "agent:pai", face: FACES.pai,
-                 body: "Quiet. One deploy, one review.", run_id: runs[2].id, created_at: at(89) }),
+                 body: "Quiet. One deploy, one review.", run_id: runs[2].id,
+                 reply_to: "d1", thread_root: "d1", created_at: at(89) }),
 ];
 
 // The ops room is the OPS project (docs/design/20): every ticket opened there

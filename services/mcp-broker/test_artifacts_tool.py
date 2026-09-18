@@ -669,3 +669,13 @@ def test_the_docstrings_teach_the_card_syntax():
         doc = fn.__doc__
         assert len([line for line in doc.splitlines() if line.strip()]) <= 10
         assert "[[artifact:" in doc
+
+
+def test_image_gen_names_the_size_grammar():
+    """The artist once sent `size: "square"` and got a clean error — the
+    schema has to say what a size and an aspect look like, and that words
+    are not one."""
+    doc = broker.image_gen.__doc__
+    assert "WIDTHxHEIGHT" in doc and "1024x1024" in doc
+    assert "W:H" in doc and "16:9" in doc
+    assert "square" in doc and "multiple" in doc and "action=models" in doc

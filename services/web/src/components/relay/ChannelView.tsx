@@ -28,8 +28,16 @@ export default function ChannelView({ room, onThread, highlight, onHighlighted }
   // The room draws roots; the replies live in the thread pane, counted on the
   // root that opens it. A thread older than the loaded page can still be
   // opened from its root — it just does not advertise a count until the page
-  // reaches it.
-  const { roots, threads } = useMemo(() => splitThreads(messages), [messages]);
+  // reaches it. A DM is one conversation, so it inlines everything (QA-16):
+  // its replies pre-date the API answering top-level, and a pane with no
+  // thread beside it — AgentDetail's tab — would otherwise never show them.
+  const dm = channel?.kind === "dm";
+  const { roots, threads } = useMemo(
+    () => (dm ? { roots: messages, threads: new Map() } : splitThreads(messages)),
+    [messages, dm]);
+  // …and offers no way into one either, even where the host has a thread
+  // pane: a reply posted there would be drawn twice, inline and in the pane.
+  const openThread = dm ? undefined : onThread;
 
   const thinking = useMemo(
     () => presence.filter((p) => p.thinking_in.includes(room.channelId)),
@@ -71,7 +79,7 @@ export default function ChannelView({ room, onThread, highlight, onHighlighted }
 
       <Transcript rows={roots} me={me} loading={!loaded} highlight={highlight}
                   onHighlighted={onHighlighted} pin={pin}
-                  onReact={room.react} onThread={onThread} threads={threads}>
+                  onReact={room.react} onThread={openThread} threads={threads}>
         {empty && (
           <div className="relay-welcome">
             {avatar(44)}
