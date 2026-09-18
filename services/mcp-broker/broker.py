@@ -490,11 +490,14 @@ async def agents_edit(action: str, name: str | None = None,
     action='delete' (name) → remove it (its runs and change log survive).
 
     `definition` fields: prompt, description, model, entrypoints, enabled,
-    concurrency, timeout_seconds, result_topic, transcript_retention_days.
+    concurrency, timeout_seconds, result_topic, transcript_retention_days,
+    quota_5h_max_pct, quota_7d_max_pct (the usage percentages above which a
+    dev run declines to start).
     (`system` is admin-only and refused here — no tool can set it.)
 
     It can NEVER change what an agent may DO — tools, skills, secrets,
-    can_invoke, role — that is the agents_grant tool, and attempting it here is
+    can_invoke, role, push_path_globs, may_delete_tests — that is the
+    agents_grant tool, and attempting it here is
     refused. CARE: this permission is about the KIND of change, not the target,
     so you can rewrite the prompt (or add a cron) of an agent more privileged
     than you are. Every write is logged against your name."""
@@ -509,16 +512,24 @@ async def agents_grant(action: str, name: str, field: str | None = None,
                        platform_tools: list[str] | None = None,
                        skills: list[str] | None = None,
                        secrets: list[str] | None = None,
-                       can_invoke: bool | None = None) -> str:
+                       push_path_globs: list[str] | None = None,
+                       can_invoke: bool | None = None,
+                       may_delete_tests: bool | None = None) -> str:
     """Change what an agent may DO — GRANTS-EDITING, handle with care.
 
     action='get' (name) → that agent's current grants;
     action='set_grants' (name, + any of harness_tools/platform_tools/skills/
-      secrets/can_invoke) → replace those lists wholesale; omitted ones are
-      left exactly as they are;
+      secrets/push_path_globs/can_invoke/may_delete_tests) → replace those
+      lists wholesale; omitted ones are left exactly as they are;
     action='add_grant' (name, field, values) → add names to one list;
     action='remove_grant' (name, field, values) → take names off one list.
-    `field` is harness_tools | platform_tools | skills | secrets.
+    `field` is harness_tools | platform_tools | skills | secrets |
+    push_path_globs.
+
+    push_path_globs are the paths (fnmatch, relative to the checkout, e.g.
+    `docs/**`) a dev agent may land on main WITHOUT review; empty means every
+    publish is a pull request. may_delete_tests lets a publish delete a test
+    file; without it such a publish is refused.
 
     Use /api/help/tools names verbatim; a grant naming something the platform
     does not ship is refused at save time. It does not touch prompts or config
@@ -532,7 +543,8 @@ async def agents_grant(action: str, name: str, field: str | None = None,
     return await _guarded("agents_grant", agenttools.agents_grant, {
         "action": action, "name": name, "field": field, "values": values,
         "harness_tools": harness_tools, "platform_tools": platform_tools,
-        "skills": skills, "secrets": secrets, "can_invoke": can_invoke})
+        "skills": skills, "secrets": secrets, "push_path_globs": push_path_globs,
+        "can_invoke": can_invoke, "may_delete_tests": may_delete_tests})
 
 
 # --- relay (docs/design/19) --------------------------------------------------

@@ -12,7 +12,9 @@ module importable from the API, the tool executor, and the launcher alike.
 """
 from __future__ import annotations
 
-from pydantic import BaseModel, field_validator
+import re
+
+from pydantic import BaseModel, Field, field_validator
 
 from agentplatform.agentspec import CLAUDE_TOOLS, validate_agent_name
 from agentplatform.db import AgentDef, AgentVersion
@@ -22,8 +24,11 @@ from agentplatform.db import AgentDef, AgentVersion
 # session is the only admin) and `tools` (a DERIVED machine role the launcher's
 # ladder assigns from an agent's platform-tool grants, not something a
 # definition declares). A test pins this to a subset of auth.ROLES so the two
-# lists cannot drift apart silently.
-AGENT_ROLES: tuple[str, ...] = ("reader", "annotator", "operator", "coder")
+# lists cannot drift apart silently. `dev` (docs/design/24) is the run-profile
+# rung — a clone, a branch, the toolchain and publish — not an API scope: like
+# `tools` it satisfies no endpoint allow-list, and a dev run's token is minted
+# by the same ladder as everyone else's.
+AGENT_ROLES: tuple[str, ...] = ("reader", "annotator", "operator", "coder", "dev")
 
 # Harness tools are Claude Code's own fixed set, so unlike skills/secrets/
 # platform tools they are checked against a constant rather than a registry.
@@ -36,8 +41,18 @@ DEF_FIELDS: tuple[str, ...] = (
     "name", "prompt", "description", "model", "role", "system", "can_invoke",
     "concurrency", "timeout_seconds", "result_topic", "transcript_retention_days",
     "harness_tools", "platform_tools", "skills", "secrets", "entrypoints",
-    "enabled",
+    "enabled", "push_path_globs", "may_delete_tests", "quota_5h_max_pct",
+    "quota_7d_max_pct",
 )
+
+# A push path glob (docs/design/24) is an fnmatch pattern the path policy
+# matches a publish's changed paths against, so it is bounded the way a path
+# in a checkout is: relative, made of path characters and the glob
+# metacharacters, and never a `.` or `..` segment — a pattern that could name
+# something outside the clone is not a narrower permission, it is a wider one.
+PUSH_PATH_GLOB_RE = re.compile(r"^[A-Za-z0-9_./*?-]+$")
+PUSH_PATH_GLOB_MAX = 32
+PUSH_PATH_GLOB_MAX_LENGTH = 200
 
 
 def _clean_names(v):
@@ -147,6 +162,16 @@ class AgentDefModel(BaseModel):
     secrets: list[str] = []
     entrypoints: EntrypointsModel = EntrypointsModel()
     enabled: bool = True
+    # The Workbench (docs/design/24). The first two are grants — where the
+    # agent may land WITHOUT review (empty = a PR for everything), and whether
+    # a publish may delete a test file. The thresholds are behaviour: `quota_ok`
+    # says no to a dev run above either one.
+    push_path_globs: list[str] = []
+    may_delete_tests: bool = False
+    # Strict: lax coercion would read `true` as 1% and "55" as 55, and a
+    # threshold nobody typed is not a threshold.
+    quota_5h_max_pct: int = Field(default=80, ge=0, le=100, strict=True)
+    quota_7d_max_pct: int = Field(default=50, ge=0, le=100, strict=True)
 
     @field_validator("name")
     @classmethod
@@ -163,10 +188,33 @@ class AgentDefModel(BaseModel):
         return v
 
     @field_validator("harness_tools", "platform_tools", "skills", "secrets",
-                     mode="before")
+                     "push_path_globs", mode="before")
     @classmethod
     def _coerce_names(cls, v):
         return _clean_names(v)
+
+    @field_validator("push_path_globs")
+    @classmethod
+    def _bounded_globs(cls, v: list[str]) -> list[str]:
+        if len(v) > PUSH_PATH_GLOB_MAX:
+            raise ValueError(f"at most {PUSH_PATH_GLOB_MAX} push path globs")
+        for glob in v:
+            if len(glob) > PUSH_PATH_GLOB_MAX_LENGTH:
+                raise ValueError(f"push path glob is longer than "
+                                 f"{PUSH_PATH_GLOB_MAX_LENGTH} characters: "
+                                 f"{glob[:32]}...")
+            if not PUSH_PATH_GLOB_RE.match(glob):
+                raise ValueError(f"push path glob has characters outside "
+                                 f"[A-Za-z0-9_./*?-]: {glob!r}")
+            if glob.startswith("/"):
+                raise ValueError(f"push path glob must be relative: {glob!r}")
+            # An empty segment covers `a//b` and a trailing slash: the first
+            # is a path no checkout has, the second a grant that matches
+            # nothing, since a publish's paths are files.
+            if any(seg in ("", ".", "..") for seg in glob.split("/")):
+                raise ValueError(f"push path glob must not contain an empty, "
+                                 f". or .. segment: {glob!r}")
+        return v
 
 
 def validate_def(model: AgentDefModel, *, skill_names: set[str],

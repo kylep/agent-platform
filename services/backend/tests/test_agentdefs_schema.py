@@ -217,3 +217,55 @@ def test_snapshot_of_a_bare_row_uses_model_defaults():
     assert snap["entrypoints"] == {"crons": [], "webhooks": [], "topics": [],
                                    "timezone": ""}
     assert "created_at" not in snap
+
+
+# --- the Workbench fields (docs/design/24) ------------------------------------
+
+def test_dev_is_a_role_a_definition_may_declare():
+    assert "dev" in AGENT_ROLES
+    assert _model(role="dev").role == "dev"
+
+
+def test_workbench_fields_default_to_pr_only_and_the_quota_guard():
+    m = _model()
+    assert m.push_path_globs == [] and m.may_delete_tests is False
+    assert (m.quota_5h_max_pct, m.quota_7d_max_pct) == (80, 50)
+
+
+def test_push_path_globs_are_bounded_relative_patterns():
+    ok = ["services/backend/tests/**", "docs/*.md", "a-b_c.d/x?y"]
+    assert _model(push_path_globs=ok).push_path_globs == ok
+    for bad in (["../x"], ["/abs/path"], ["a/../b"], ["a/./b"], ["a b"],
+                ["a\\b"], ["a//b"], ["a/"], ["x" * 201],
+                [f"d{i}/**" for i in range(33)]):
+        with pytest.raises(ValidationError):
+            _model(push_path_globs=bad)
+
+
+def test_quota_thresholds_are_percentages():
+    assert _model(quota_5h_max_pct=0, quota_7d_max_pct=100).quota_7d_max_pct == 100
+    # Strict: a bool would coerce to 0/1 and a numeric string to its number,
+    # both of which are a threshold nobody meant.
+    for bad in ({"quota_5h_max_pct": -1}, {"quota_5h_max_pct": 101},
+                {"quota_7d_max_pct": -1}, {"quota_7d_max_pct": 101},
+                {"quota_5h_max_pct": True}, {"quota_7d_max_pct": "55"}):
+        with pytest.raises(ValidationError):
+            _model(**bad)
+
+
+async def test_workbench_fields_round_trip_through_the_row(sf):
+    src = AgentDef(name="engineer", role="dev", push_path_globs=["docs/**"],
+                   may_delete_tests=True, quota_5h_max_pct=70, quota_7d_max_pct=40)
+    snap = snapshot_of(src)
+    assert snap["push_path_globs"] == ["docs/**"] and snap["may_delete_tests"] is True
+    assert (snap["quota_5h_max_pct"], snap["quota_7d_max_pct"]) == (70, 40)
+    dst = AgentDef(name="other")
+    apply_snapshot(dst, snap)
+    assert dst.push_path_globs == ["docs/**"] and dst.may_delete_tests is True
+    assert (dst.quota_5h_max_pct, dst.quota_7d_max_pct) == (70, 40)
+    async with sf() as s:
+        s.add(AgentDef(name="plain")); await s.commit()
+    async with sf() as s:
+        got = await s.get(AgentDef, "plain")
+    assert got.push_path_globs == [] and got.may_delete_tests is False
+    assert (got.quota_5h_max_pct, got.quota_7d_max_pct) == (80, 50)

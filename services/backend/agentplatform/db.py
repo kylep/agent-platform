@@ -587,6 +587,16 @@ class AgentDef(Base):
     # Soft off-switch: a disabled agent keeps its definition and history but
     # takes no triggers. Deleting is the destructive option.
     enabled: Mapped[bool] = mapped_column(default=True)
+    # The Workbench (docs/design/24). Two GRANTS — the fnmatch globs a dev run
+    # may land without review (empty = every publish is a PR) and whether a
+    # publish may delete a test file — and two EDIT fields, the usage
+    # percentages above which `quota_ok` says no. Added to a live table by
+    # _ensure_columns, which cannot give existing rows these defaults:
+    # _ensure_workbench_defaults does.
+    push_path_globs: Mapped[list] = mapped_column(JSON, default=list)
+    may_delete_tests: Mapped[bool] = mapped_column(default=False)
+    quota_5h_max_pct: Mapped[int] = mapped_column(Integer, default=80)
+    quota_7d_max_pct: Mapped[int] = mapped_column(Integer, default=50)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
 
@@ -820,6 +830,23 @@ def _ensure_columns(conn) -> None:
                 ddl = col.type.compile(dialect=conn.dialect)
                 qualified = f'{schema}.{table.name}' if schema else table.name
                 conn.exec_driver_sql(f'ALTER TABLE {qualified} ADD COLUMN {col.name} {ddl}')
+
+
+def _ensure_workbench_defaults(conn) -> None:
+    """Give the agents that predate the Workbench (docs/design/24) its column
+    defaults. _ensure_columns adds a column but cannot backfill one, so every
+    row from before carries NULLs — and `quota_ok` comparing a percentage
+    against NULL is not a guard, while a NULL grant list is not "PR only",
+    it is a row the model refuses to read. Not mark-gated, like the
+    ticket_seq heal: it only ever touches NULLs, so a value an admin has set
+    since is never overruled, and it stays cheap enough to run every boot."""
+    from sqlalchemy import inspect as sa_inspect
+    if not sa_inspect(conn).has_table("agent_defs"):
+        return
+    t = AgentDef.__table__
+    for col, default in ((t.c.push_path_globs, []), (t.c.may_delete_tests, False),
+                         (t.c.quota_5h_max_pct, 80), (t.c.quota_7d_max_pct, 50)):
+        conn.execute(t.update().where(col.is_(None)).values({col.name: default}))
 
 
 def _ensure_memory_key_index(conn) -> None:
@@ -1898,6 +1925,7 @@ async def init_db(engine: AsyncEngine, default_grant: bool = True,
             await conn.execute(text(f'CREATE SCHEMA IF NOT EXISTS "{MEMORY_SCHEMA}"'))
         await conn.run_sync(Base.metadata.create_all)
         await conn.run_sync(_ensure_columns)
+        await conn.run_sync(_ensure_workbench_defaults)
         await conn.run_sync(_ensure_memory_key_index)
         await conn.run_sync(_ensure_relay_ddl)
         await conn.run_sync(_ensure_relay_backfill)

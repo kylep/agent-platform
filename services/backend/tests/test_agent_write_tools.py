@@ -281,7 +281,8 @@ async def test_agents_edit_refuses_grant_fields_by_name(client, sf, seed_agent,
     call = api(client, h)
     for field, value in (("skills", ["git"]), ("secrets", ["discord"]),
                          ("harness_tools", ["Bash"]), ("platform_tools", []),
-                         ("can_invoke", True), ("role", "coder")):
+                         ("can_invoke", True), ("role", "coder"),
+                         ("push_path_globs", ["docs/**"]), ("may_delete_tests", True)):
         for action in ("update", "create"):
             out = await agenttools.agents_edit(call, {
                 "action": action, "name": "hello-world" if action == "update" else "n1",
@@ -464,7 +465,8 @@ async def test_agents_grant_moves_grants_and_nothing_else(client, sf, seed_agent
     before = json.loads(await agenttools.agents_grant(
         call, {"action": "get", "name": "target"}))
     assert before == {"name": "target", "harness_tools": [], "platform_tools": [],
-                      "skills": [], "secrets": [], "can_invoke": False}
+                      "skills": [], "secrets": [], "push_path_globs": [],
+                      "can_invoke": False, "may_delete_tests": False}
 
     out = json.loads(await agenttools.agents_grant(call, {
         "action": "set_grants", "name": "target", "skills": ["git"],
@@ -532,7 +534,7 @@ async def test_agents_grant_cannot_rewrite_prose(client, sf, seed_agent,
     all, and the raw API refuses the same caller when it tries anyway."""
     h = await granted(sf, seed_agent, agent_store, "granter", [TOOL_AGENTS_GRANT])
     assert not (set(agenttools.EDITABLE_FIELDS) &
-                set(agenttools.GRANT_LIST_FIELDS + ("can_invoke",)))
+                set(agenttools.GRANT_LIST_FIELDS + agenttools.GRANT_FLAG_FIELDS))
     r = await client.put("/api/agents/hello-world",
                          json=a_def("hello-world", description="reworded"),
                          headers=h)
@@ -572,3 +574,46 @@ async def test_neither_tool_works_without_a_grant_at_all(client, sf, seed_agent,
         # Scoped by agent: the seeded `wiki` librarian brings a v1 of its own.
         assert (await s.execute(select(AgentVersion).where(
             AgentVersion.agent == "hello-world"))).scalars().all() == []
+
+
+async def test_agents_grant_sets_the_path_policy(client, sf, seed_agent,
+                                                  agent_store):
+    """The Workbench's two grants (docs/design/24) travel the same way
+    `can_invoke` does: a flag on set_grants, a list on add/remove_grant."""
+    await seed_agent("target")
+    h = await granted(sf, seed_agent, agent_store, "granter", [TOOL_AGENTS_GRANT])
+    call = api(client, h)
+    out = json.loads(await agenttools.agents_grant(call, {
+        "action": "set_grants", "name": "target", "may_delete_tests": True,
+        "push_path_globs": ["services/backend/tests/**"]}))
+    assert out["may_delete_tests"] is True
+    assert out["push_path_globs"] == ["services/backend/tests/**"]
+    out = json.loads(await agenttools.agents_grant(call, {
+        "action": "add_grant", "name": "target", "field": "push_path_globs",
+        "values": ["docs/**"]}))
+    assert out["push_path_globs"] == ["services/backend/tests/**", "docs/**"]
+    out = json.loads(await agenttools.agents_grant(call, {
+        "action": "remove_grant", "name": "target", "field": "push_path_globs",
+        "values": ["services/backend/tests/**"]}))
+    assert out["push_path_globs"] == ["docs/**"]
+    async with sf() as s:
+        row = await s.get(AgentDef, "target")
+        assert row.push_path_globs == ["docs/**"] and row.may_delete_tests is True
+    assert (await versions_of(sf, "target"))[-1].changed_via == "tool:agents_grant"
+    # The quota thresholds are behaviour, not authority: the edit tool's.
+    out = await agenttools.agents_grant(call, {
+        "action": "set_grants", "name": "target", "quota_5h_max_pct": 10})
+    assert out.startswith("error:")
+    assert "quota_5h_max_pct" in agenttools.EDITABLE_FIELDS
+
+
+async def test_a_bad_glob_from_the_grant_tool_is_an_error_not_a_write(
+        client, sf, seed_agent, agent_store):
+    await seed_agent("target")
+    h = await granted(sf, seed_agent, agent_store, "granter", [TOOL_AGENTS_GRANT])
+    out = await agenttools.agents_grant(api(client, h), {
+        "action": "add_grant", "name": "target", "field": "push_path_globs",
+        "values": ["../escape"]})
+    assert out.startswith("error:") and "422" in out
+    async with sf() as s:
+        assert (await s.get(AgentDef, "target")).push_path_globs == []

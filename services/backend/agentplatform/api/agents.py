@@ -69,7 +69,7 @@ DEFAULT_GRANTS = ((TOOL_RELAY, "relay_default_grant"),
 # one is an authorization decision (`agents_grant`); changing anything else is
 # an editorial one (`agents_edit`).
 #
-# Two of these are wider than design/15's four name lists, because privilege in
+# Four of these are wider than design/15's four name lists, because privilege in
 # this platform is not carried only by name lists:
 #
 #   `role`       — "coder" is the self-edit rung. The launcher hands a self-edit
@@ -82,10 +82,17 @@ DEFAULT_GRANTS = ((TOOL_RELAY, "relay_default_grant"),
 #                  of the narrow annotator one, i.e. the grant of "may start
 #                  other agents' runs".
 #
-# Both are the escalation the edit/grant split exists to prevent, so both need
-# `agents_grant`.
+#   `push_path_globs` — where a dev run may LAND without review (docs/design/24);
+#                  widening it is widening what reaches main unreviewed.
+#   `may_delete_tests` — whether a publish may delete a test file, i.e. whether
+#                  the agent may take down the thing that checks its work.
+#
+# All are the escalation the edit/grant split exists to prevent, so all need
+# `agents_grant`. The quota thresholds are deliberately NOT here: they only make
+# an agent MORE reluctant to run, so `agents_edit` may tune them.
 GRANT_FIELDS: tuple[str, ...] = ("harness_tools", "platform_tools", "skills",
-                                 "secrets", "can_invoke", "role")
+                                 "secrets", "can_invoke", "role",
+                                 "push_path_globs", "may_delete_tests")
 # Everything the definition holds except its identity — the two halves the
 # authorization split is drawn between, and the comparison surface for "did
 # this write actually change anything".

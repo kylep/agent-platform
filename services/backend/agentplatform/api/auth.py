@@ -59,7 +59,11 @@ def validate_session_cookie(app, cookie: str | None) -> str | None:
 # are the relay, tickets and wiki tools, which is most agents once the default
 # grants land, so it deliberately buys nothing beyond talking, tracking its own
 # work and writing down what it learned.
-ROLES = ("reader", "annotator", "operator", "coder", "admin", "tools", "relay")
+# `dev` (docs/design/24) is a run-PROFILE rung, not an API scope: it decides
+# that a run gets the Workbench (a clone, a branch, the toolchain, publish) and
+# nothing about which endpoints answer it — like `tools`, it is in NO allow-list
+# below. A dev agent's token is minted by the same ladder as everyone else's.
+ROLES = ("reader", "annotator", "operator", "coder", "admin", "tools", "relay", "dev")
 READ_ROLES = ("reader", "annotator", "operator", "coder")
 ANNOTATE_ROLES = ("annotator", "operator", "coder")
 # Who may request a run (POST /api/runs) — humans (operator+) and agents whose

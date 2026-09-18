@@ -24,7 +24,17 @@ def test_role_allows(role, allowed, ok):
 
 def test_roles_declared():
     assert set(ROLES) == {"reader", "annotator", "operator", "coder", "admin",
-                          "tools", "relay"}
+                          "tools", "relay", "dev"}
+
+
+def test_dev_is_a_run_profile_not_an_api_scope():
+    """`dev` (docs/design/24) decides what a run GETS, not what answers it:
+    like `tools`, it is in none of the endpoint allow-lists."""
+    from agentplatform.api import auth
+    lists = [v for k, v in vars(auth).items()
+             if k.endswith("_ROLES") and isinstance(v, tuple)]
+    assert lists, "no allow-lists found"
+    assert all("dev" not in roles for roles in lists)
 
 
 async def test_require_admin_still_gates(admin_client):

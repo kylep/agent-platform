@@ -119,6 +119,14 @@ class AgentDefIn(BaseModel):
     secrets: list[str] = []
     entrypoints: EntrypointsIn = EntrypointsIn()
     enabled: bool = True
+    # The Workbench (docs/design/24): the two path-policy grants, then the
+    # two quota thresholds. Bounds live on `AgentDefModel`, which every write
+    # goes through; here the shape only — strict, so `true` and "55" are 422
+    # here rather than 1 and 55 there.
+    push_path_globs: list[str] = []
+    may_delete_tests: bool = False
+    quota_5h_max_pct: int = Field(default=80, strict=True)
+    quota_7d_max_pct: int = Field(default=50, strict=True)
 
 
 class AgentCreateIn(AgentDefIn):
@@ -184,6 +192,10 @@ class AgentDefOut(BaseModel):
     # still strict: `AgentDefIn.entrypoints` is the validated shape.
     entrypoints: dict = {}
     enabled: bool = True
+    push_path_globs: list[str] = []
+    may_delete_tests: bool = False
+    quota_5h_max_pct: int = 80
+    quota_7d_max_pct: int = 50
     # The agent's picture (docs/design/23) and the face it makes: OUTSIDE the
     # definition (never in `AgentDefIn`, never in a snapshot), carried on every
     # read so the Agents pages need no second fetch. `face` is what every other

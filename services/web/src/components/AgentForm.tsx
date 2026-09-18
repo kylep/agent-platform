@@ -30,6 +30,7 @@ export function emptyDef(): AgentDef {
     result_topic: "", transcript_retention_days: null,
     harness_tools: [], platform_tools: [], skills: [], secrets: [],
     entrypoints: { ...EMPTY_ENTRYPOINTS }, enabled: true,
+    push_path_globs: [], may_delete_tests: false, quota_5h_max_pct: 80, quota_7d_max_pct: 50,
   };
 }
 
@@ -55,6 +56,7 @@ export function toDraft(def: Partial<AgentDef> & { name: string }): AgentDef {
     platform_tools: asList<string>(def.platform_tools),
     skills: asList<string>(def.skills),
     secrets: asList<string>(def.secrets),
+    push_path_globs: asList<string>(def.push_path_globs),
   };
 }
 

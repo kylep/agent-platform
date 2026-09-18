@@ -40,10 +40,14 @@ class AgentSummary:
             error (None | str | Unset):
             harness_tools (list[str] | Unset):
             image_artifact_id (None | str | Unset):
+            may_delete_tests (bool | Unset):  Default: False.
             model (str | Unset):  Default: ''.
             platform_tools (list[str] | Unset):
             prompt (str | Unset):  Default: ''.
+            push_path_globs (list[str] | Unset):
             quarantined (bool | Unset):  Default: False.
+            quota_5h_max_pct (int | Unset):  Default: 80.
+            quota_7d_max_pct (int | Unset):  Default: 50.
             result_topic (str | Unset):  Default: ''.
             role (str | Unset):  Default: 'operator'.
             schedule (str | Unset):  Default: ''.
@@ -66,10 +70,14 @@ class AgentSummary:
     error: None | str | Unset = UNSET
     harness_tools: list[str] | Unset = UNSET
     image_artifact_id: None | str | Unset = UNSET
+    may_delete_tests: bool | Unset = False
     model: str | Unset = ""
     platform_tools: list[str] | Unset = UNSET
     prompt: str | Unset = ""
+    push_path_globs: list[str] | Unset = UNSET
     quarantined: bool | Unset = False
+    quota_5h_max_pct: int | Unset = 80
+    quota_7d_max_pct: int | Unset = 50
     result_topic: str | Unset = ""
     role: str | Unset = "operator"
     schedule: str | Unset = ""
@@ -121,6 +129,8 @@ class AgentSummary:
         else:
             image_artifact_id = self.image_artifact_id
 
+        may_delete_tests = self.may_delete_tests
+
         model = self.model
 
         platform_tools: list[str] | Unset = UNSET
@@ -129,7 +139,15 @@ class AgentSummary:
 
         prompt = self.prompt
 
+        push_path_globs: list[str] | Unset = UNSET
+        if not isinstance(self.push_path_globs, Unset):
+            push_path_globs = self.push_path_globs
+
         quarantined = self.quarantined
+
+        quota_5h_max_pct = self.quota_5h_max_pct
+
+        quota_7d_max_pct = self.quota_7d_max_pct
 
         result_topic = self.result_topic
 
@@ -183,14 +201,22 @@ class AgentSummary:
             field_dict["harness_tools"] = harness_tools
         if image_artifact_id is not UNSET:
             field_dict["image_artifact_id"] = image_artifact_id
+        if may_delete_tests is not UNSET:
+            field_dict["may_delete_tests"] = may_delete_tests
         if model is not UNSET:
             field_dict["model"] = model
         if platform_tools is not UNSET:
             field_dict["platform_tools"] = platform_tools
         if prompt is not UNSET:
             field_dict["prompt"] = prompt
+        if push_path_globs is not UNSET:
+            field_dict["push_path_globs"] = push_path_globs
         if quarantined is not UNSET:
             field_dict["quarantined"] = quarantined
+        if quota_5h_max_pct is not UNSET:
+            field_dict["quota_5h_max_pct"] = quota_5h_max_pct
+        if quota_7d_max_pct is not UNSET:
+            field_dict["quota_7d_max_pct"] = quota_7d_max_pct
         if result_topic is not UNSET:
             field_dict["result_topic"] = result_topic
         if role is not UNSET:
@@ -266,13 +292,21 @@ class AgentSummary:
 
         image_artifact_id = _parse_image_artifact_id(d.pop("image_artifact_id", UNSET))
 
+        may_delete_tests = d.pop("may_delete_tests", UNSET)
+
         model = d.pop("model", UNSET)
 
         platform_tools = cast(list[str], d.pop("platform_tools", UNSET))
 
         prompt = d.pop("prompt", UNSET)
 
+        push_path_globs = cast(list[str], d.pop("push_path_globs", UNSET))
+
         quarantined = d.pop("quarantined", UNSET)
+
+        quota_5h_max_pct = d.pop("quota_5h_max_pct", UNSET)
+
+        quota_7d_max_pct = d.pop("quota_7d_max_pct", UNSET)
 
         result_topic = d.pop("result_topic", UNSET)
 
@@ -312,10 +346,14 @@ class AgentSummary:
             error=error,
             harness_tools=harness_tools,
             image_artifact_id=image_artifact_id,
+            may_delete_tests=may_delete_tests,
             model=model,
             platform_tools=platform_tools,
             prompt=prompt,
+            push_path_globs=push_path_globs,
             quarantined=quarantined,
+            quota_5h_max_pct=quota_5h_max_pct,
+            quota_7d_max_pct=quota_7d_max_pct,
             result_topic=result_topic,
             role=role,
             schedule=schedule,

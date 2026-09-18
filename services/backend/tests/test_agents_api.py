@@ -25,7 +25,8 @@ def a_def(name: str, **over) -> dict:
          "transcript_retention_days": None, "harness_tools": [],
          "platform_tools": [], "skills": [], "secrets": [],
          "entrypoints": {"crons": [], "webhooks": [], "topics": [], "timezone": ""},
-         "enabled": True}
+         "enabled": True, "push_path_globs": [], "may_delete_tests": False,
+         "quota_5h_max_pct": 80, "quota_7d_max_pct": 50}
     d.update(over)
     return d
 
@@ -1038,3 +1039,52 @@ async def test_deleting_the_artifact_undresses_the_agent(admin_client, sf, seed_
     assert (await admin_client.delete(f"/api/artifacts/{third['id']}")).status_code == 200
     assert (await admin_client.get("/api/agents/news")).json()["image_artifact_id"] == other["id"]
     assert not [e for e in producer.envelopes[before:] if e["data"].get("event") == "agent_image"]
+
+
+# --- the Workbench fields (docs/design/24) ------------------------------------
+
+async def test_the_path_policy_is_a_grant(client, sf, seed_agent, agent_store):
+    """Where an agent may LAND without review, and whether it may delete a
+    test, are what it may DO — `agents_edit` cannot widen either; the quota
+    thresholds are how it behaves, so the same token may set those."""
+    await seed_agent("editor", platform_tools=[AGENTS_EDIT])
+    await agent_store.reload()
+    h = await bearer(sf, "editor")
+    for field, value in (("push_path_globs", ["services/backend/tests/**"]),
+                         ("may_delete_tests", True)):
+        r = await client.put("/api/agents/hello-world",
+                             json=a_def("hello-world", **{field: value}), headers=h)
+        assert r.status_code == 403 and field in r.json()["detail"], field
+    r = await client.put("/api/agents/hello-world",
+                         json=a_def("hello-world", quota_5h_max_pct=60,
+                                    quota_7d_max_pct=30), headers=h)
+    assert r.status_code == 200, r.text
+    assert (r.json()["quota_5h_max_pct"], r.json()["quota_7d_max_pct"]) == (60, 30)
+    async with sf() as s:
+        row = await s.get(AgentDef, "hello-world")
+        assert row.push_path_globs == [] and row.may_delete_tests is False
+
+
+async def test_the_admin_sets_the_path_policy(admin_client, seed_agent):
+    r = await admin_client.put("/api/agents/hello-world", json=a_def(
+        "hello-world", role="dev", push_path_globs=["services/backend/tests/**"],
+        may_delete_tests=True))
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["role"] == "dev"
+    assert body["push_path_globs"] == ["services/backend/tests/**"]
+    assert body["may_delete_tests"] is True
+    r = await admin_client.get("/api/agents/hello-world")
+    assert r.json()["push_path_globs"] == ["services/backend/tests/**"]
+
+
+async def test_a_glob_that_escapes_the_checkout_is_refused(admin_client, seed_agent):
+    for bad in (["../x"], ["/abs"], ["a/../b"]):
+        r = await admin_client.put("/api/agents/hello-world",
+                                   json=a_def("hello-world", push_path_globs=bad))
+        assert r.status_code == 422, (bad, r.text)
+    for bad in ({"quota_5h_max_pct": 101}, {"quota_7d_max_pct": -1},
+                {"quota_5h_max_pct": True}, {"quota_7d_max_pct": "55"}):
+        r = await admin_client.put("/api/agents/hello-world",
+                                   json=a_def("hello-world", **bad))
+        assert r.status_code == 422, (bad, r.text)

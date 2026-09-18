@@ -207,3 +207,49 @@ async def test_artifacts_grant_backfill_honours_the_setting(bare):
     assert await _tools(sf, "news") == []
     async with sf() as s:
         assert await s.get(SchemaMark, ARTIFACTS_GRANT_MARK) is None
+
+
+# --- the Workbench columns on a live agents table (docs/design/24) -----------
+
+async def test_legacy_agent_rows_read_back_the_workbench_defaults():
+    """agent_defs predates the Workbench on the live DB: _ensure_columns ALTERs
+    the four columns in, but ADD COLUMN cannot give the rows that already
+    exist a default — without the backfill every pre-existing agent carries
+    NULL thresholds, and `quota_ok` comparing against NULL is not a guard."""
+    from agentplatform.db import AgentDef, init_db, make_engine, make_session_factory
+    e = make_engine("sqlite+aiosqlite:///:memory:")
+    async with e.begin() as c:
+        await c.exec_driver_sql(
+            "CREATE TABLE agent_defs (name VARCHAR(128) PRIMARY KEY, prompt TEXT, "
+            "description VARCHAR(512), model VARCHAR(64), role VARCHAR(32), "
+            "system BOOLEAN, can_invoke BOOLEAN, concurrency INTEGER, "
+            "timeout_seconds INTEGER, result_topic VARCHAR(256), "
+            "transcript_retention_days INTEGER, harness_tools JSON, "
+            "platform_tools JSON, skills JSON, secrets JSON, entrypoints JSON, "
+            "enabled BOOLEAN, created_at TIMESTAMP, updated_at TIMESTAMP)")
+        await c.exec_driver_sql(
+            "INSERT INTO agent_defs (name, prompt, role, system, can_invoke, "
+            "concurrency, timeout_seconds, harness_tools, platform_tools, skills, "
+            "secrets, entrypoints, enabled) VALUES ('old', 'p', 'operator', 0, 0, "
+            "1, 1800, '[]', '[]', '[]', '[]', '{}', 1)")
+    await init_db(e, **_participants())
+    sfl = make_session_factory(e)
+    async with sfl() as s:
+        row = await s.get(AgentDef, "old")
+        assert row.push_path_globs == [] and row.may_delete_tests is False
+        assert (row.quota_5h_max_pct, row.quota_7d_max_pct) == (80, 50)
+        # A value an admin has since set is not a NULL, so the heal leaves it.
+        row.quota_5h_max_pct = 20
+        row.push_path_globs = ["docs/**"]
+        await s.commit()
+    async with e.begin() as c:
+        before = {r[1] for r in (await c.exec_driver_sql("PRAGMA table_info(agent_defs)")).all()}
+    await init_db(e, **_participants())
+    async with e.begin() as c:
+        after = {r[1] for r in (await c.exec_driver_sql("PRAGMA table_info(agent_defs)")).all()}
+    assert after == before
+    async with sfl() as s:
+        row = await s.get(AgentDef, "old")
+        assert row.quota_5h_max_pct == 20 and row.push_path_globs == ["docs/**"]
+        assert row.quota_7d_max_pct == 50
+    await e.dispose()

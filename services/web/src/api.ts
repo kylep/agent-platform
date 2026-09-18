@@ -55,6 +55,14 @@ export type AgentDef = {
   secrets: string[];
   entrypoints: AgentEntrypoints;
   enabled: boolean;
+  // The Workbench (docs/design/24). Two grants: the fnmatch globs a dev run
+  // may land without review (empty = every publish is a PR) and whether a
+  // publish may delete a test file. Two edit fields: the usage percentages
+  // above which a dev run declines to start.
+  push_path_globs: string[];
+  may_delete_tests: boolean;
+  quota_5h_max_pct: number;
+  quota_7d_max_pct: number;
 };
 
 // The listing carries each agent's full definition plus server-derived
