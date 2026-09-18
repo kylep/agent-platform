@@ -117,7 +117,13 @@ dispatch subagents, verify their evidence, commit, and update this file.
    file within 30 s of launching. Terminal.app stops executing after ~20
    stale windows: quit and relaunch it. A Playwright spec that fails only
    under the full suite or under host load: rerun that file alone before
-   calling it red.
+   calling it red. Under host load (Kyle's game and the Rancher VM: load
+   average > 10) the full backend suite takes 15–20 min instead of 3; do
+   NOT kill a long run — `pytest-timeout` is installed in the venv, so run
+   with `--timeout=120` and a true hang fails by test name. If sonnet
+   subagents stall repeatedly ("no progress for 600s" at launch, the
+   classifier reporting sonnet unavailable), the endpoint is degraded: run
+   that one review on opus rather than losing hours — note it in the tick.
 9. If a Bash action is refused by the auto-mode classifier (kubectl
    apply/delete, helm upgrade), do not retry variants. Write the exact
    commands into "Handoff to Kyle" below, send a PushNotification saying the
@@ -373,7 +379,7 @@ dispatch subagents, verify their evidence, commit, and update this file.
 
 ### Phase 2 — generation (T5 alone, then T6; T7 and T8 parallel after T6 reports)
 
-- [ ] **T5 `tools/image_gen`: the port.** `[after T4 reports]` (AC-2)
+- [x] **T5 `tools/image_gen`: the port.** `[after T4 reports]` (AC-2) (commit `05adb09`; sidecar is `image.<ext>.meta.json`; BFL ids are the real paths `flux-kontext-pro/max`, `flux-pro-1.1`; review added no-redirect opener, polling-host check, a single 165 s budget, read cap, clean catch-all; a quota 429 killed the implementer once — resumed with context)
   Design sections: "`tools/image_gen` — the port", "Trust boundaries and
   guards" (Keys, Budget — the tool does no budgeting; it only reports cost).
   Source to port: `/Users/kp/gh/claude-ttrpg/tools/imagegen.py` and its
@@ -416,8 +422,8 @@ dispatch subagents, verify their evidence, commit, and update this file.
   `tools/` dir passes with `internal: true`); the CI `tools` job loop picks it
   up unchanged.
 
-- [ ] **T6 `POST /api/artifacts/generate`, `GET /api/artifacts/models`, budget, `#art`.**
-  `[after T2 and T3 are committed and T5 reports]` (AC-2)
+- [x] **T6 `POST /api/artifacts/generate`, `GET /api/artifacts/models`, budget, `#art`.**
+  `[after T2 and T3 are committed and T5 reports]` (AC-2) (commit `f978d32`; review: card kind=event (text rows get their @mentions re-parsed by the router), prompt cap before spend, reservation ledger for the concurrent-cap race, image_gen grant required on the route, `local_timezone` setting added)
   Design sections: "API" (`generate`, `models`, `stats` spend fields), "Trust
   boundaries and guards" (Budget and spend, Third parties, Untrusted text),
   "Relay" (the `#art` card text), "Data model" (Seeds — `#art`; settings
@@ -456,7 +462,7 @@ dispatch subagents, verify their evidence, commit, and update this file.
   `models` reflects secret status. Acceptance: suite green; design's
   `generate` paragraph satisfied line by line.
 
-- [ ] **T7 Broker core tools `artifacts` and `image_gen`.** `[after T6 reports; parallel with T8]` (AC-1, AC-3)
+- [x] **T7 Broker core tools `artifacts` and `image_gen`.** `[after T6 reports; parallel with T8]` (AC-1, AC-3) (commit `f2a1cfa`; review: generate waits 240 s (was the 20 s default — a double-spend path), byte/mime bounds on attached pictures, capped error bodies; facade KEEP 94 / 155 graded)
   Design sections: "Broker tools", "Relay" (the card syntax the tool
   results teach).
   Files: `services/mcp-broker/broker.py` (two core tools in the wiki shape:
@@ -481,7 +487,7 @@ dispatch subagents, verify their evidence, commit, and update this file.
   with a note; the facade tier test with the new exclusions. Acceptance:
   broker + facade suites green; the lockstep test passes.
 
-- [ ] **T8 Agent image: column, route, faces.** `[after T6 reports; parallel with T7]` (AC-4)
+- [x] **T8 Agent image: column, route, faces.** `[after T6 reports; parallel with T7]` (AC-4) (commit `f978d32`; review (on opus — sonnet stalled 3×): delete/prune undress agents + publish clears, feed passes clears, grant parity on the self path, `token_client` into conftest)
   Design sections: "Agent images and the Agents page" (backend paragraphs),
   "API" (the `PUT /api/agents/{name}/image` line), "Kafka" (`agent_image`).
   Files: `db.py` (`AgentDef.image_artifact_id`, `_ensure_columns` picks it
@@ -770,6 +776,10 @@ dispatch subagents, verify their evidence, commit, and update this file.
 - (T2 review, low) `PATCH /api/artifacts/{id}` publishes no event; the design lists only created/deleted/agent_image.
 - (T4 review, low) `TOOL_SCRATCH_DIR` is not validated at executor boot (a misconfigured dir → 500 per call instead of a boot failure).
 - (T4 review, low) the broker suite stubs `fastmcp`; a real-fastmcp incompatibility in `CustomTool` fields would only surface at deploy (the reviewer verified 3.4.7 by hand).
+- (T6 review, low) reference fetch holds up to 4 × 8 MiB blobs base64'd in memory per generate request (~43 MB); bounded per request, compounds only with concurrency — the reservation ledger bounds concurrency by budget, not memory.
+- (T6 review, medium, pre-existing) `secrets.py::K8sSecretStore.get` is a synchronous kubernetes call inside async routes (`api/secrets.py` too); the models route now wraps it in `to_thread` + a cache, the secrets page still does not.
+- (T8 review, low) `PUT /api/agents/{name}/image` publishes an `agent_image` event even when the value is unchanged (noise only).
+- (T8 review, low) the regenerated SDK's `AgentDefOut.from_dict` pops `face` unconditionally — against a pre-T8 server it KeyErrors; restart the facade after deploy (T15).
 - (T1 review, medium, pre-existing) `services/backend/agentplatform/secretverify.py:50-75` — declarative probes run `urlopen(timeout=8)` but DNS resolution (`getaddrinfo`) is not bounded by it and `verifierloop.verify_all` awaits probes sequentially, so a hung resolver stalls the whole heartbeat pass; scripts are safe (`subprocess.run(timeout=20)`). Fix later: wrap each `verify_one` in `asyncio.wait_for`.
 
 ## Definition of done
