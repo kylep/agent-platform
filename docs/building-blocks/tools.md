@@ -107,6 +107,10 @@ the broker's scan skips it, so no agent can declare or call it, and the
 platform API is its only caller (via `AP_EXECUTOR_URL`; under SPIRE the api
 pod carries the same ghostunnel client tunnel the broker does). `image_gen`
 is the first — the Studio drives it, agents never do.
+`tools/image_gen/` is the shipped reference: a stdlib `run.py` over a
+`models.json` registry, binding the optional `openai-api-key`,
+`gemini-api-key` and `bfl-api-key` blocks (an unset one degrades to
+"provider not configured", never a load error).
 
 ## The 300-second ceiling
 

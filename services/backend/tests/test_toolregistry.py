@@ -12,7 +12,7 @@ from agentplatform.api.app import create_app
 from agentplatform.config import Settings
 from agentplatform.toolregistry import CORE_TOOL_SUFFIXES, ToolManifest, ToolRegistry
 
-from .conftest import REPO_APPS, REPO_REPORTS, REPO_SECRETS, REPO_SKILLS
+from .conftest import REPO_APPS, REPO_REPORTS, REPO_SECRETS, REPO_SKILLS, REPO_TOOLS
 
 
 GOOD_YAML = """\
@@ -139,6 +139,19 @@ def test_internal_tool_may_share_a_core_tool_name():
     assert m.name == "image_gen" and m.internal
     with pytest.raises(ValueError, match="shadows a core"):
         ToolManifest(name="image_gen", description="Generate an image from a prompt.")
+
+
+def test_real_tools_dir_loads_image_gen_as_internal():
+    """The shipped `tools/image_gen` (docs/design/23) must parse under the
+    shadow check — its name IS a core suffix, allowed only via `internal` —
+    and stay off the grantable MCP surface."""
+    reg = ToolRegistry(REPO_TOOLS)
+    t = reg.get("image_gen")
+    assert t is not None and t.error is None, getattr(t, "error", "not found")
+    assert t.manifest.internal and t.has_entrypoint
+    assert t.manifest.infra.secrets == ["openai-api-key", "gemini-api-key", "bfl-api-key"]
+    assert "mcp__platform__image_gen" not in reg.mcp_names()
+    assert all(x.error is None for x in reg.list()), [(x.name, x.error) for x in reg.list()]
 
 
 def test_manifest_infra_defaults_and_secret_coercion():

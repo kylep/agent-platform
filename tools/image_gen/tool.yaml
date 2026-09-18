@@ -1,0 +1,45 @@
+name: image_gen
+description: >-
+  Generate one image from a text prompt (optionally guided by reference
+  images) with OpenAI gpt-image, Google Gemini image, or Black Forest Labs
+  FLUX models. Internal: the Studio drives it through the platform API;
+  agents never call it directly. action="generate" writes image.<ext> to the
+  file sink with a meta sidecar {provider, model, seed, cost_usd,
+  duration_ms, params}; action="models" lists models.json with a configured
+  flag per provider. A provider whose secret block is unset reports itself as
+  not configured rather than failing at load.
+params:
+  type: object
+  properties:
+    action:
+      type: string
+      enum: [generate, models]
+      default: generate
+    model:
+      type: string
+      description: "model id from models.json (default gpt-image-2.5-flare)"
+    prompt:
+      type: string
+    size:
+      type: string
+      description: "WIDTHxHEIGHT; bridged to the nearest aspect for aspect-only models"
+    aspect:
+      type: string
+      description: "W:H such as 16:9; bridged to ~1 MP pixels for size-only models"
+    quality:
+      type: string
+      description: "OpenAI quality tier, or Gemini imageSize (1K/2K/4K)"
+    seed:
+      type: integer
+    references:
+      type: array
+      items: {type: string}
+      description: "filenames sent as files_in, read from TOOL_IN_DIR"
+  required: []
+infra:
+  secrets:
+    - openai-api-key
+    - gemini-api-key
+    - bfl-api-key
+internal: true
+timeout_seconds: 180
