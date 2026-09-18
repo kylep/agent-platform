@@ -70,12 +70,27 @@ actually does; see the "Indirect escalation via editorial fields" note in
 Every write to a definition — from the UI, the raw API, or either tool —
 appends a full-snapshot row to `agent_versions` (`version`, `changed_by` the
 verified principal, `changed_via` — `admin` / `tool:agents_edit` /
-`tool:agents_grant` / `import` / `rollback`, `created_at`). There is no
-pending/approval state: edits go live the instant they're written. The
-History tab on an agent's page lists every version, lets you view an old
-snapshot, and roll back — which re-applies that snapshot as a *new* version,
-so the log only ever grows. Deleting an agent files a tombstone version
-(`changed_via` prefixed `delete:`) rather than erasing the log.
+`tool:agents_grant` / `import` / `rollback` / `seed` / `migration`,
+`created_at`). There is no pending/approval state: edits go live the
+instant they're written. The History tab on an agent's page lists every
+version, lets you view an old snapshot, and roll back — which re-applies
+that snapshot as a *new* version, so the log only ever grows. Deleting an
+agent files a tombstone version (`changed_via` prefixed `delete:`) rather
+than erasing the log.
 
 **How to add one:** the New Agent wizard in the UI, or `POST /api/agents`
 directly — no PR, no folder, no manifest file.
+
+## Seeded agents
+
+Two rows ship with the platform, written once at boot behind a schema mark
+and then left alone — edit or delete either and your version stays:
+
+- **`wiki`** — the [librarian](wiki.md#the-librarian). A `system` agent, so
+  `@all` passes it by; only `@wiki` wakes it.
+- **`artist`** — makes images on request (portraits, avatars, scene art,
+  icons) with `image_gen`, keeps them as artifacts and answers with an
+  `[[artifact:<id>]]` card. Summon it with `@artist` and a brief, in `#art`
+  or anywhere. Runs on `sonnet`, holds `image_gen`, `artifacts` and `relay`,
+  and is *not* `system`, so `@all` reaches it. Its first change-log row is
+  `changed_via: seed`.

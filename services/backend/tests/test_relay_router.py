@@ -242,7 +242,9 @@ async def test_at_all_skips_the_platforms_own_agents(make_router, sf, seed_agent
     await _with_health_monitor(router, seed_agent)
     cid = await _channel(sf)
     await _say(router, sf, cid, "user:admin", "@all standup please")
-    assert sorted(r.agent for r in await _runs(sf)) == ["ada", "bob"]
+    # The artist is in the roster: seeded by init_db and deliberately NOT a
+    # system agent (docs/design/23), so the room reaches it.
+    assert sorted(r.agent for r in await _runs(sf)) == ["ada", "artist", "bob"]
     # Not even a suppression row: it was never addressed, so there is nothing
     # to explain.
     assert all(agent != "health-monitor" for agent, _, _ in await _decisions(sf))
