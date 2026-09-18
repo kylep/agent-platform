@@ -59,5 +59,11 @@ def artifacts_feed(session_factory=None) -> TopicFeed:
     """The API's live artifact fan-out: the whole payload is the frame, since
     the strip wants the event name and who acted as much as the artifact."""
     return TopicFeed(TOPIC_ARTIFACTS_EVENTS, event="artifact",
-                     frame_of=lambda data: ((STREAM, data) if data.get("artifact") else None),
+                     frame_of=lambda data: ((STREAM, data) if _is_frame(data) else None),
                      session_factory=session_factory)
+
+
+def _is_frame(data: dict) -> bool:
+    """A record with an artifact, or an `agent_image` clear — the one record
+    whose whole meaning is that there is no artifact any more."""
+    return bool(data.get("artifact")) or data.get("event") == "agent_image"

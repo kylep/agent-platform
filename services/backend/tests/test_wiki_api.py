@@ -20,8 +20,7 @@ from agentplatform.db import (AgentDef, Conversation, Memory, RelayMessage,
 from agentplatform.events import TOPIC_WIKI_EVENTS
 from agentplatform.wiki import BUDGET_PREFIX
 
-from .test_relay_api import (_agent_token, _channel_id, _human_token, _seed,  # noqa: F401
-                             token_client)
+from .test_relay_api import _agent_token, _channel_id, _human_token, _seed
 from .test_relay_sse import StubConsumer, _msg, sse  # noqa: F401
 
 RELAY_GRANT = "mcp__platform__relay"

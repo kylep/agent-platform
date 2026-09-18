@@ -13,7 +13,7 @@ from agentplatform.events import TOPIC_ARTIFACTS_EVENTS
 
 from .test_artifact_store import png_bytes
 from .test_artifacts_api import _agent_headers, upload
-from .test_relay_api import _human_token, token_client  # noqa: F401
+from .test_relay_api import _human_token
 from .test_relay_sse import StubConsumer, _msg, sse  # noqa: F401
 
 RELAY_GRANT = "mcp__platform__relay"
@@ -102,6 +102,23 @@ async def test_a_record_without_an_artifact_is_not_a_frame(admin_client):
         await feed.run(StubConsumer([_msg(TOPIC_ARTIFACTS_EVENTS, "k", "artifacts.event",
                                           {"event": "created"})]))
         assert queue.empty()
+    finally:
+        feed.unsubscribe(STREAM, queue)
+
+
+async def test_a_face_clear_is_a_frame_without_an_artifact(admin_client):
+    """`agent_image` with `artifact: null` is a CLEAR — the one record whose
+    whole meaning is that there is no artifact — so it must pass the gate
+    that drops artifact-less garbage."""
+    feed = admin_client._transport.app.state.artifacts_feed
+    queue = feed.subscribe(STREAM)
+    try:
+        await feed.run(StubConsumer([_msg(TOPIC_ARTIFACTS_EVENTS, "news", "artifacts.event",
+                                          {"event": "agent_image", "artifact": None,
+                                           "agent": "news"})]))
+        event, data = queue.get_nowait()
+        assert (event, data["event"], data["artifact"], data["agent"]) == (
+            "artifact", "agent_image", None, "news")
     finally:
         feed.unsubscribe(STREAM, queue)
 

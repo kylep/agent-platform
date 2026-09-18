@@ -32,6 +32,7 @@ from pydantic import BaseModel, ValidationError, model_validator
 from starlette.datastructures import UploadFile
 
 from agentplatform import artifact_store as store
+from agentplatform import image_gen_service as image_gen
 from agentplatform.agentspec import TOOL_ARTIFACTS, TOOL_IMAGE_GEN
 from agentplatform.api import agents as agents_api
 from agentplatform.api import relay as relay_api
@@ -40,6 +41,7 @@ from agentplatform.api.auth import authenticate
 from agentplatform.api.relay import READ, WRITE, Caller, require_relay_access
 from agentplatform.api.tickets import _run_of
 from agentplatform.artifact_store import ArtifactRuleError
+from agentplatform.image_gen_service import ImageGenError
 
 router = APIRouter()
 
@@ -127,11 +129,49 @@ class ArtifactStats(BaseModel):
     count: int
     bytes: int
     total_cap: int               # artifacts_total_max_bytes
+    # Generation spend (docs/design/23): from `meta.cost_usd` on the generated
+    # rows, deleted ones included, since local midnight / the first of the month.
+    generated_this_month: int
+    spend_this_month_usd: float
+    spend_today_usd: float
+    daily_cap_usd: float         # image_gen_daily_usd
+
+
+class ImageModel(BaseModel):
+    """A registry entry × whether its provider's key is set: what the Studio's
+    model select shows greyed or live. `sizes` or `aspects`, never both — which
+    one says what geometry the model takes."""
+    id: str
+    provider: str
+    label: str
+    price_usd: float
+    sizes: list[str] | None
+    aspects: list[str] | None
+    custom_size: bool
+    qualities: list[str] | None
+    edits: bool
+    configured: bool
+    default: bool
+
+
+class GenerateIn(BaseModel):
+    """`model` defaults to the registry's default; `size` or `aspect` is
+    bridged by the tool when the model takes the other; `reference_ids` are
+    artifacts the caller can read, images only, at most four."""
+    prompt: str
+    model: str | None = None
+    size: str | None = None
+    aspect: str | None = None
+    quality: str | None = None
+    seed: int | None = None
+    reference_ids: list[str] | None = None
+    name: str | None = None
+    tags: list[str] | None = None
 
 
 # --- the seam ---------------------------------------------------------------------
 
-def _rule(e: ArtifactRuleError) -> HTTPException:
+def _rule(e: ArtifactRuleError | ImageGenError) -> HTTPException:
     return HTTPException(e.status, str(e))
 
 
@@ -292,7 +332,23 @@ async def artifact_stats(request: Request,
     st = request.app.state
     async with st.session_factory() as s:
         count, used = await store.usage(s)
-    return {"count": count, "bytes": used, "total_cap": st.settings.artifacts_total_max_bytes}
+        spend = await image_gen.spend_stats(s, st.settings)
+    return {"count": count, "bytes": used, "total_cap": st.settings.artifacts_total_max_bytes,
+            **spend}
+
+
+@router.get("/api/artifacts/models", response_model=list[ImageModel])
+async def image_models(request: Request,
+                       caller: Caller = Depends(require_artifacts_access(*READ))):
+    """The image registry (`tools/image_gen/models.json`) with each model's
+    `configured` read off its provider's secret block. Literal path, so it
+    sits above `/{artifact_id}`."""
+    st = request.app.state
+    async with st.session_factory() as s:
+        try:
+            return await image_gen.models(s, st.tool_registry, st.secret_store)
+        except ImageGenError as e:
+            raise _rule(e)
 
 
 @router.get("/api/artifacts/{artifact_id}", response_model=ArtifactView)
@@ -360,6 +416,39 @@ async def create_artifact(request: Request,
                                      run_id=run.id if run is not None else None,
                                      producer=st.producer, settings=st.settings, **fields)
         except ArtifactRuleError as e:
+            await s.rollback()
+            raise _rule(e)
+        return store.artifact_view(row)
+
+
+@router.post("/api/artifacts/generate", status_code=201, response_model=ArtifactView)
+async def generate_artifact(request: Request, body: GenerateIn,
+                            caller: Caller = Depends(require_artifacts_access(*WRITE))):
+    """Generate one image and keep it (docs/design/23): the ONE place a
+    generation happens is `image_gen_service.generate`; this is its door.
+    Synchronous — the executor's timeout plus a grace, so a caller waits up
+    to ~210 s — and the response is the artifact. The owner is the caller;
+    an agent's generation carries its run, and a token without one is
+    refused before anything is spent.
+
+    Behind `image_gen` itself for an agent, not the either-grant fence the
+    store's routes share: `artifacts` is default-granted to every agent so
+    that any of them can keep a file, and this is the one door that spends
+    money. Humans are bounded by their role, as everywhere else."""
+    st = request.app.state
+    if caller.agent is not None:
+        granted = await agents_api._caller_platform_tools(request, caller.agent)
+        if TOOL_IMAGE_GEN not in granted:
+            raise HTTPException(403, "image_gen is not granted to this agent")
+    async with st.session_factory() as s:
+        run = await _run_of(s, request, caller, writing=True)
+        try:
+            row = await image_gen.generate(
+                s, settings=st.settings, tool_registry=st.tool_registry, producer=st.producer,
+                owner=caller.participant, agent=caller.agent,
+                run_id=run.id if run is not None else None,
+                **body.model_dump())
+        except (ImageGenError, ArtifactRuleError) as e:
             await s.rollback()
             raise _rule(e)
         return store.artifact_view(row)

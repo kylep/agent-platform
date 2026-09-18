@@ -100,6 +100,20 @@ async def test_agentdef_icon_column(sfx):
         assert (await s.get(AgentDef, "news")).icon == "📰"
 
 
+async def test_agentdef_image_column_is_added_to_a_live_table(engine, sfx):
+    """`image_artifact_id` is `icon`'s sibling (docs/design/23): a plain
+    nullable column `_ensure_columns` adds on boot, so a table created before
+    it gains it without a migration file."""
+    from agentplatform.db import AgentDef
+    async with engine.begin() as conn:
+        await conn.execute(text("ALTER TABLE agent_defs DROP COLUMN image_artifact_id"))
+    await init_db(engine)
+    async with sfx() as s:
+        s.add(AgentDef(name="news", image_artifact_id="a" * 32)); await s.commit()
+    async with sfx() as s:
+        assert (await s.get(AgentDef, "news")).image_artifact_id == "a" * 32
+
+
 async def test_backfill_turns_legacy_conversation_into_a_dm(engine, sfx):
     cid, rids = await _mk_dm(sfx)
     await init_db(engine)
@@ -159,6 +173,7 @@ async def test_seeded_channels_exist_exactly_once(engine, sfx):
         rows = (await s.execute(select(Conversation)
                 .where(Conversation.kind == "channel").order_by(Conversation.name))).scalars().all()
     assert [(c.name, c.topic, c.open, c.agent) for c in rows] == [
+        ("art", "every generated image, as a card", True, None),
         ("general", "everyone", True, None),
         ("ops", "alerts and operations", True, None),
         ("standup", "what did you do today?", True, None),

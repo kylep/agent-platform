@@ -32,15 +32,15 @@ from agentplatform.agentdefs import (DEF_FIELDS, AgentDefModel, apply_snapshot,
                                      model_of, next_version, snapshot_of,
                                      validate_def)
 from agentplatform.agentspec import (GRANTABLE_PLATFORM_TOOLS, KNOWN_MODELS,
-                                     TOOL_ARTIFACTS, TOOL_QUOTA, TOOL_RELAY,
-                                     TOOL_TICKETS, TOOL_WIKI)
+                                     TOOL_ARTIFACTS, TOOL_IMAGE_GEN, TOOL_QUOTA,
+                                     TOOL_RELAY, TOOL_TICKETS, TOOL_WIKI)
 from agentplatform.api.auth import (READ_ROLES, authenticate, require_admin,
                                     require_role, role_allows)
 from agentplatform.api.schemas import (AgentCreateIn, AgentDefIn, AgentDefOut,
-                                       AgentImportResult, AgentModels,
-                                       AgentSummary, AgentVersionDetail,
-                                       AgentVersionRow, WebhookSecretIn,
-                                       WebhookSecretState)
+                                       AgentImageIn, AgentImportResult,
+                                       AgentModels, AgentSummary,
+                                       AgentVersionDetail, AgentVersionRow,
+                                       WebhookSecretIn, WebhookSecretState)
 from agentplatform.db import AgentDef, AgentVersion
 
 log = logging.getLogger("agents-api")
@@ -312,11 +312,22 @@ def _with_secret_state(payload: dict, secret_paths: set[str]) -> dict:
     return {**payload, "entrypoints": {**entrypoints, "webhooks": annotated}}
 
 
+def _with_face(payload: dict, row: AgentDef, faces: dict[str, dict]) -> dict:
+    """The picture and the face (docs/design/23), which are not definition
+    fields — `_payload` reads DEF_FIELDS — but ride out with every read so the
+    Agents pages need no second fetch. The face comes from `faces_for`, the
+    one renderer every room, ticket and wiki card also uses."""
+    return {**payload, "image_artifact_id": row.image_artifact_id, "face": faces[row.name]}
+
+
 async def _annotated(session, row: AgentDef) -> dict:
-    """One row as the API returns it, `secret_set` included."""
+    """One row as the API returns it, `secret_set` and the face included."""
     from agentplatform import webhooksecrets
-    return _with_secret_state(_payload(row),
-                              await webhooksecrets.paths_with_secrets(session, row.name))
+    from agentplatform.relay_store import faces_for
+    return _with_face(
+        _with_secret_state(_payload(row),
+                           await webhooksecrets.paths_with_secrets(session, row.name)),
+        row, await faces_for(session, {row.name}))
 
 
 async def _prune_webhook_secrets(session, model: AgentDefModel) -> None:
@@ -473,19 +484,22 @@ async def list_agents(request: Request):
     are things only the platform knows, so they ride alongside rather than
     pretending to be columns."""
     from agentplatform import webhooksecrets
+    from agentplatform.relay_store import faces_for
     store = request.app.state.agent_store
     await store.reload()
     blocked = await _blocked_reasons(request)
     infos = {a.name: a for a in store.list()}
     async with request.app.state.session_factory() as s:
         rows = (await s.execute(select(AgentDef).order_by(AgentDef.name))).scalars().all()
-        # One query for the whole listing rather than one per agent.
+        # One query each for the whole listing rather than one per agent.
         secret_paths = await webhooksecrets.secrets_by_agent(s)
+        faces = await faces_for(s, {row.name for row in rows})
     out = []
     for row in rows:
         info = infos.get(row.name)
-        out.append({**_with_secret_state(_payload(row),
-                                         secret_paths.get(row.name, set())),
+        out.append({**_with_face(_with_secret_state(_payload(row),
+                                                    secret_paths.get(row.name, set())),
+                                 row, faces),
                     "quarantined": info is not None and info.error is not None,
                     "error": info.error if info else None,
                     "blocked": row.name in blocked,
@@ -640,6 +654,77 @@ async def delete_agent(request: Request, name: str,
             await s.delete(row)
             await s.commit()
     await st.agent_store.reload()
+    return out
+
+
+# --- the agent's picture (docs/design/23) ------------------------------------
+#
+# Its own route, outside the definition, for `icon`'s reason: what an agent
+# looks like is not what it is. The picture never enters a snapshot, so a
+# rollback leaves it alone, and the change log stays about the definition.
+# Authority is wider than a definition edit on purpose — the agent ITSELF may
+# choose its face (that is what the artist does after it draws one), which is
+# harmless in a way that editing its own prompt or grants would not be.
+
+async def _may_set_image(s, request: Request, name: str) -> None:
+    """Admin, an `agents_edit` holder, or the agent itself — else 403.
+
+    "Itself" is the run token's run, not the token's agent claim alone: the
+    actor↔run invariant every participant block keeps (`tickets._run_of`), so
+    a token whose run is gone cannot dress anyone. And it needs an artifact
+    grant, as `require_artifacts_access` asks: the picture lives behind that
+    door, and choosing one is a use of it."""
+    from agentplatform.api.relay import Caller
+    from agentplatform.api.tickets import _run_of
+    from agentplatform.relay import participant_of
+    ident = await authenticate(request)
+    if ident is None:
+        raise HTTPException(401)
+    principal, role = ident
+    if role == "admin":
+        return
+    agent = getattr(request.state, "api_key_agent", None)
+    if agent is not None:
+        granted = await _caller_platform_tools(request, agent)
+        if TOOL_AGENTS_EDIT in granted:
+            return
+        run = await _run_of(s, request, Caller(participant_of(agent=agent), agent, principal),
+                            writing=True)
+        if run.agent == name and (TOOL_ARTIFACTS in granted or TOOL_IMAGE_GEN in granted):
+            return
+    raise HTTPException(403, "an agent's image is set by the admin session, an agents_edit "
+                             "holder, or the agent itself")
+
+
+@router.put("/api/agents/{name}/image", response_model=AgentDefOut)
+async def set_agent_image(request: Request, name: str, body: AgentImageIn):
+    """Set or clear the agent's picture. The artifact must be a live image:
+    a document would render nothing, and a deleted one is a 404 like every
+    other read of it. Publishes `agent_image` on `artifacts.events` — with
+    `artifact: null` for a clear — so the Studio and the #art feed see the
+    face change as they see the picture land."""
+    from agentplatform import artifact_store
+    st = request.app.state
+    async with st.session_factory() as s:
+        # Authority first, as a dependency would have it: a stranger learns
+        # nothing about which agents exist from a 401 versus a 404.
+        await _may_set_image(s, request, name)
+        row = await s.get(AgentDef, name)
+        if row is None:
+            raise HTTPException(404, "unknown agent")
+        view = None
+        if body.artifact_id is not None:
+            art = await artifact_store.get(s, body.artifact_id)
+            if art is None:
+                raise HTTPException(404, "unknown artifact")
+            if art.kind != "image":
+                raise HTTPException(422, "an agent's image must be an image artifact")
+            view = artifact_store.artifact_view(art)
+        row.image_artifact_id = body.artifact_id
+        await s.commit()
+        out = await _annotated(s, row)
+    await artifact_store.publish_artifact_event(st.producer, event="agent_image",
+                                               artifact=view, agent=name)
     return out
 
 

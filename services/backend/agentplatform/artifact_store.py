@@ -255,10 +255,37 @@ async def soft_delete(session, artifact_id: str, *, producer=None,
     if row is None:
         return None
     row.deleted_at = utcnow()
+    undressed = await unlink_agent_images(session, [artifact_id])
     await session.commit()
     await publish_artifact_event(producer, event="deleted", artifact=artifact_view(row),
                                  agent=agent)
+    await publish_face_clears(producer, undressed)
     return row
+
+
+async def unlink_agent_images(session, artifact_ids: list[str]) -> list[str]:
+    """Take the artifacts off every agent wearing one as its picture and name
+    the agents. A face must never point at a thumb that 404s, and the column
+    is deliberately not a foreign key (db.AgentDef), so the delete paths do by
+    hand what a cascade would: the soft delete here, the pruner's hard delete
+    again for a row that got its image by a path the store never saw. Flushed
+    into the caller's transaction, not committed — the clear lands with the
+    delete or not at all."""
+    from agentplatform.db import AgentDef
+    if not artifact_ids:
+        return []
+    rows = (await session.execute(select(AgentDef).where(
+        AgentDef.image_artifact_id.in_(artifact_ids)))).scalars().all()
+    for row in rows:
+        row.image_artifact_id = None
+    await session.flush()
+    return sorted(row.name for row in rows)
+
+
+async def publish_face_clears(producer, agents: list[str]) -> None:
+    """One `agent_image` clear per undressed agent, after the commit."""
+    for name in agents:
+        await publish_artifact_event(producer, event="agent_image", artifact=None, agent=name)
 
 
 # --- reads -----------------------------------------------------------------------
@@ -348,19 +375,21 @@ def artifact_view(a: Artifact) -> dict:
             "content_url": f"/api/artifacts/{a.id}/content"}
 
 
-async def publish_artifact_event(producer, *, event: str, artifact: dict,
+async def publish_artifact_event(producer, *, event: str, artifact: dict | None,
                                  agent: str | None = None) -> None:
     """Best-effort, after the commit: the row is the record, so a broker that
-    is down costs the Studio a live update and never the artifact."""
+    is down costs the Studio a live update and never the artifact. Keyed by
+    the artifact; an `agent_image` clear has none, so it keys by the agent
+    whose face changed."""
     if producer is None:
         return
+    key = artifact["id"] if artifact else agent
     try:
-        await producer.publish(TOPIC_ARTIFACTS_EVENTS, artifact["id"],
+        await producer.publish(TOPIC_ARTIFACTS_EVENTS, key,
                                {"event": event, "artifact": artifact, "agent": agent},
                                type="artifacts.event")
     except Exception:
-        log.warning("artifacts.events publish failed for %s %s", artifact.get("id"), event,
-                    exc_info=True)
+        log.warning("artifacts.events publish failed for %s %s", key, event, exc_info=True)
 
 
 def _agent_of(owner: str) -> str | None:

@@ -16,11 +16,19 @@ class ArtifactStats:
     Attributes:
         bytes_ (int):
         count (int):
+        daily_cap_usd (float):
+        generated_this_month (int):
+        spend_this_month_usd (float):
+        spend_today_usd (float):
         total_cap (int):
     """
 
     bytes_: int
     count: int
+    daily_cap_usd: float
+    generated_this_month: int
+    spend_this_month_usd: float
+    spend_today_usd: float
     total_cap: int
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
@@ -28,6 +36,14 @@ class ArtifactStats:
         bytes_ = self.bytes_
 
         count = self.count
+
+        daily_cap_usd = self.daily_cap_usd
+
+        generated_this_month = self.generated_this_month
+
+        spend_this_month_usd = self.spend_this_month_usd
+
+        spend_today_usd = self.spend_today_usd
 
         total_cap = self.total_cap
 
@@ -37,6 +53,10 @@ class ArtifactStats:
             {
                 "bytes": bytes_,
                 "count": count,
+                "daily_cap_usd": daily_cap_usd,
+                "generated_this_month": generated_this_month,
+                "spend_this_month_usd": spend_this_month_usd,
+                "spend_today_usd": spend_today_usd,
                 "total_cap": total_cap,
             }
         )
@@ -50,11 +70,23 @@ class ArtifactStats:
 
         count = d.pop("count")
 
+        daily_cap_usd = d.pop("daily_cap_usd")
+
+        generated_this_month = d.pop("generated_this_month")
+
+        spend_this_month_usd = d.pop("spend_this_month_usd")
+
+        spend_today_usd = d.pop("spend_today_usd")
+
         total_cap = d.pop("total_cap")
 
         artifact_stats = cls(
             bytes_=bytes_,
             count=count,
+            daily_cap_usd=daily_cap_usd,
+            generated_this_month=generated_this_month,
+            spend_this_month_usd=spend_this_month_usd,
+            spend_today_usd=spend_today_usd,
             total_cap=total_cap,
         )
 

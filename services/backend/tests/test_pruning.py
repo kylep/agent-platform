@@ -120,3 +120,25 @@ async def test_artifact_pruner_zero_keeps_the_soft_deleted_forever(sf):
     old = await _artifact(sf, deleted_days_ago=999)
     assert await ArtifactPruner(sf, Settings(artifacts_prune_days=0)).prune_once() == 0
     assert await _artifact_rows(sf, old) == (1, 1)
+
+
+async def test_artifact_pruner_undresses_an_agent_still_wearing_the_artifact(sf, producer):
+    """The soft delete already clears faces; the hard delete clears again for
+    the row that got its image by a path the store never saw (a raw write, a
+    restore), so no face outlives its bytes."""
+    from agentplatform.db import AgentDef
+    from agentplatform.pruning import ArtifactPruner
+    expired = await _artifact(sf, deleted_days_ago=40)
+    live = await _artifact(sf)
+    async with sf() as s:
+        s.add(AgentDef(name="news", image_artifact_id=expired))
+        s.add(AgentDef(name="pai", image_artifact_id=live))
+        await s.commit()
+    assert await ArtifactPruner(sf, Settings(artifacts_prune_days=30),
+                                producer=producer).prune_once() == 1
+    async with sf() as s:
+        assert (await s.get(AgentDef, "news")).image_artifact_id is None
+        assert (await s.get(AgentDef, "pai")).image_artifact_id == live
+    clears = [e["data"] for e in producer.envelopes if e["type"] == "artifacts.event"]
+    assert [(c["event"], c["agent"], c["artifact"]) for c in clears] == [
+        ("agent_image", "news", None)]

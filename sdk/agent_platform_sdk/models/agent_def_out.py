@@ -11,6 +11,7 @@ from ..types import UNSET, Unset
 
 if TYPE_CHECKING:
     from ..models.agent_def_out_entrypoints import AgentDefOutEntrypoints
+    from ..models.relay_face import RelayFace
 
 
 T = TypeVar("T", bound="AgentDefOut")
@@ -21,6 +22,11 @@ class AgentDefOut:
     """An agent definition as the API returns it.
 
     Attributes:
+        face (RelayFace): An agent's avatar: its own `AgentDef.icon` when set, else the
+            deterministic fallback so `news` looks the same in every client forever.
+            `image_url` is the agent's picture (docs/design/23) — the thumb route of
+            its `image_artifact_id` — which a client shows over the emoji when set.
+            Optional so every producer of a face keeps working; `faces_for` fills it.
         name (str):
         can_invoke (bool | Unset):  Default: False.
         concurrency (int | Unset):  Default: 1.
@@ -28,6 +34,7 @@ class AgentDefOut:
         enabled (bool | Unset):  Default: True.
         entrypoints (AgentDefOutEntrypoints | Unset):
         harness_tools (list[str] | Unset):
+        image_artifact_id (None | str | Unset):
         model (str | Unset):  Default: ''.
         platform_tools (list[str] | Unset):
         prompt (str | Unset):  Default: ''.
@@ -40,6 +47,7 @@ class AgentDefOut:
         transcript_retention_days (int | None | Unset):
     """
 
+    face: RelayFace
     name: str
     can_invoke: bool | Unset = False
     concurrency: int | Unset = 1
@@ -47,6 +55,7 @@ class AgentDefOut:
     enabled: bool | Unset = True
     entrypoints: AgentDefOutEntrypoints | Unset = UNSET
     harness_tools: list[str] | Unset = UNSET
+    image_artifact_id: None | str | Unset = UNSET
     model: str | Unset = ""
     platform_tools: list[str] | Unset = UNSET
     prompt: str | Unset = ""
@@ -60,6 +69,8 @@ class AgentDefOut:
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
+        face = self.face.to_dict()
+
         name = self.name
 
         can_invoke = self.can_invoke
@@ -77,6 +88,12 @@ class AgentDefOut:
         harness_tools: list[str] | Unset = UNSET
         if not isinstance(self.harness_tools, Unset):
             harness_tools = self.harness_tools
+
+        image_artifact_id: None | str | Unset
+        if isinstance(self.image_artifact_id, Unset):
+            image_artifact_id = UNSET
+        else:
+            image_artifact_id = self.image_artifact_id
 
         model = self.model
 
@@ -112,6 +129,7 @@ class AgentDefOut:
         field_dict.update(self.additional_properties)
         field_dict.update(
             {
+                "face": face,
                 "name": name,
             }
         )
@@ -127,6 +145,8 @@ class AgentDefOut:
             field_dict["entrypoints"] = entrypoints
         if harness_tools is not UNSET:
             field_dict["harness_tools"] = harness_tools
+        if image_artifact_id is not UNSET:
+            field_dict["image_artifact_id"] = image_artifact_id
         if model is not UNSET:
             field_dict["model"] = model
         if platform_tools is not UNSET:
@@ -153,8 +173,11 @@ class AgentDefOut:
     @classmethod
     def from_dict(cls, src_dict: Mapping[str, Any]) -> Self:
         from ..models.agent_def_out_entrypoints import AgentDefOutEntrypoints
+        from ..models.relay_face import RelayFace
 
         d = dict(src_dict)
+        face = RelayFace.from_dict(d.pop("face"))
+
         name = d.pop("name")
 
         can_invoke = d.pop("can_invoke", UNSET)
@@ -173,6 +196,15 @@ class AgentDefOut:
             entrypoints = AgentDefOutEntrypoints.from_dict(_entrypoints)
 
         harness_tools = cast(list[str], d.pop("harness_tools", UNSET))
+
+        def _parse_image_artifact_id(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        image_artifact_id = _parse_image_artifact_id(d.pop("image_artifact_id", UNSET))
 
         model = d.pop("model", UNSET)
 
@@ -204,6 +236,7 @@ class AgentDefOut:
         )
 
         agent_def_out = cls(
+            face=face,
             name=name,
             can_invoke=can_invoke,
             concurrency=concurrency,
@@ -211,6 +244,7 @@ class AgentDefOut:
             enabled=enabled,
             entrypoints=entrypoints,
             harness_tools=harness_tools,
+            image_artifact_id=image_artifact_id,
             model=model,
             platform_tools=platform_tools,
             prompt=prompt,

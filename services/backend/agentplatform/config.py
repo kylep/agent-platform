@@ -175,6 +175,23 @@ class Settings(BaseSettings):
     # Whether agent creation grants mcp__platform__artifacts. On for the
     # reason relay's is: an agent that cannot keep a file describes it instead.
     artifacts_default_grant: bool = True
+    # Image generation (docs/design/23). Every generation goes through
+    # `POST /api/artifacts/generate`, which runs the internal `image_gen` tool
+    # on the executor — the one service that holds provider keys.
+    executor_url: str = "http://agent-platform-tool-executor:8000"
+    # An image costs real money, so a looping agent is a bill and not just
+    # noise: generations get an hourly cap per agent, counted from the
+    # artifact rows. Humans are not metered — a person iterating in the Studio
+    # is the point of the Studio.
+    image_gen_agent_per_hour: int = 10
+    # The whole platform's daily spend, from `meta.cost_usd` (the registry's
+    # estimate), for everyone: past it the route answers 402 and `#art` says
+    # so once a day. The day turns at midnight in `local_timezone`.
+    image_gen_daily_usd: float = 5.0
+    # The platform's wall clock: the zone the seeded jobs fire in, and the one
+    # "today" is measured in wherever the platform counts a day. Not the
+    # scheduler's per-job field — that is each job's own.
+    local_timezone: str = "America/Toronto"
     # (The news pipeline settings are gone: news presentation lives in the news
     # APP now — the recorder just honors each manifest's `result_topic`.)
 

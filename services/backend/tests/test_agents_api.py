@@ -58,8 +58,11 @@ def test_wire_models_cover_every_definition_field():
     from agentplatform.agentdefs import DEF_FIELDS
     from agentplatform.api.schemas import AgentDefIn, AgentDefOut, AgentSummary
     assert set(AgentDefIn.model_fields) == set(DEF_FIELDS)
-    assert set(AgentDefOut.model_fields) == set(DEF_FIELDS)
+    # The picture rides OUT with the definition but is not part of it (design/23):
+    # unversioned like `icon`, it has its own route and never enters a snapshot.
+    assert set(AgentDefOut.model_fields) - set(DEF_FIELDS) == {"image_artifact_id", "face"}
     assert set(AgentSummary.model_fields) - set(DEF_FIELDS) == {
+        "image_artifact_id", "face",
         "quarantined", "error", "blocked", "blocked_reason", "schedule"}
 
 
@@ -854,3 +857,184 @@ async def test_import_grants_the_participant_tools_and_stays_idempotent(admin_cl
     assert r.json() == [{"name": "fresh", "status": "unchanged"},
                         {"name": "quiet", "status": "unchanged"}]
     assert [v.version for v in await versions_of(sf, "fresh")] == [1]
+
+
+# --- the agent's picture (docs/design/23) --------------------------------------
+# `image_artifact_id` is `icon`'s sibling: unversioned, its own route, read by
+# every face consumer through `faces_for`. What is held down here is that it
+# stays OUTSIDE the definition — a rollback must not undress an agent — and
+# the three callers who may set it.
+
+async def _image(client, **fields) -> dict:
+    from .test_artifact_store import png_bytes
+    from .test_artifacts_api import upload
+    return await upload(client, png_bytes(8, 8), **fields)
+
+
+async def _run_headers(sf, seed_agent, agent_store, name: str,
+                       grants=("mcp__platform__artifacts",)) -> dict:
+    """A per-run token for a seeded agent — the shape `_run_of` resolves —
+    holding the artifacts grant, as the agents that pick a picture do."""
+    from .test_relay_api import _agent_token, _seed
+    from .test_wiki_api import _run_id
+    await _seed(seed_agent, agent_store, name, platform_tools=list(grants))
+    return await _agent_token(sf, name, run_id=await _run_id(sf, name))
+
+
+async def test_set_and_clear_the_image(admin_client, sf, producer):
+    art = await _image(admin_client)
+    r = await admin_client.put("/api/agents/hello-world/image", json={"artifact_id": art["id"]})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["image_artifact_id"] == art["id"]
+    assert body["face"]["image_url"] == f"/api/artifacts/{art['id']}/thumb"
+    assert body["face"]["emoji"] and isinstance(body["face"]["hue"], int)
+    async with sf() as s:
+        assert (await s.get(AgentDef, "hello-world")).image_artifact_id == art["id"]
+    # Every read carries it, so the Agents page needs no second fetch.
+    got = (await admin_client.get("/api/agents/hello-world")).json()
+    assert got["image_artifact_id"] == art["id"]
+    assert got["face"]["image_url"] == f"/api/artifacts/{art['id']}/thumb"
+    listed = {a["name"]: a for a in (await admin_client.get("/api/agents")).json()}
+    assert listed["hello-world"]["image_artifact_id"] == art["id"]
+    assert listed["hello-world"]["face"]["image_url"] == f"/api/artifacts/{art['id']}/thumb"
+
+    r = await admin_client.put("/api/agents/hello-world/image", json={"artifact_id": None})
+    assert r.status_code == 200, r.text
+    assert r.json()["image_artifact_id"] is None and r.json()["face"]["image_url"] is None
+    async with sf() as s:
+        assert (await s.get(AgentDef, "hello-world")).image_artifact_id is None
+
+    evs = [e["data"] for e in producer.envelopes
+           if e["type"] == "artifacts.event" and e["data"]["event"] == "agent_image"]
+    assert [(e["agent"], e["artifact"] and e["artifact"]["id"]) for e in evs] == [
+        ("hello-world", art["id"]), ("hello-world", None)]
+    # The picture is not a definition change: nothing lands in the change log.
+    assert await versions_of(sf, "hello-world") == []
+
+
+async def test_the_image_must_be_a_live_image(admin_client):
+    doc = await _image(admin_client)
+    r = await admin_client.post("/api/artifacts", json={"name": "n.txt", "text": "x"})
+    assert r.status_code == 201
+    r = await admin_client.put("/api/agents/hello-world/image",
+                               json={"artifact_id": r.json()["id"]})
+    assert r.status_code == 422, r.text
+    gone = await _image(admin_client)
+    assert (await admin_client.delete(f"/api/artifacts/{gone['id']}")).status_code == 200
+    r = await admin_client.put("/api/agents/hello-world/image", json={"artifact_id": gone["id"]})
+    assert r.status_code == 404, r.text
+    r = await admin_client.put("/api/agents/hello-world/image", json={"artifact_id": "nope"})
+    assert r.status_code == 404, r.text
+    r = await admin_client.put("/api/agents/ghost/image", json={"artifact_id": doc["id"]})
+    assert r.status_code == 404, r.text
+    r = await admin_client.put("/api/agents/hello-world/image", json={})
+    assert r.status_code == 422, r.text
+
+
+async def test_the_image_is_set_by_admin_editor_or_the_agent_itself(
+        admin_client, token_client, sf, seed_agent, agent_store):
+    from .test_relay_api import _human_token
+    art = await _image(admin_client)
+    body = {"artifact_id": art["id"]}
+    # A different agent's run: 403. Its own run: 200. An editor: 200.
+    other = await _run_headers(sf, seed_agent, agent_store, "news")
+    r = await token_client.put("/api/agents/hello-world/image", json=body, headers=other)
+    assert r.status_code == 403, r.text
+    itself = await _run_headers(sf, seed_agent, agent_store, "hello-world")
+    r = await token_client.put("/api/agents/hello-world/image", json=body, headers=itself)
+    assert r.status_code == 200, r.text
+    assert r.json()["image_artifact_id"] == art["id"]
+    editor = await _run_headers(sf, seed_agent, agent_store, "ops", grants=(AGENTS_EDIT,))
+    r = await token_client.put("/api/agents/hello-world/image", json={"artifact_id": None},
+                               headers=editor)
+    assert r.status_code == 200 and r.json()["image_artifact_id"] is None
+    # Its own run, but no artifact grant: the picture lives behind the
+    # artifacts door, and choosing one is a use of it.
+    ungranted = await _run_headers(sf, seed_agent, agent_store, "hello-world",
+                                   grants=("mcp__platform__relay",))
+    r = await token_client.put("/api/agents/hello-world/image", json=body, headers=ungranted)
+    assert r.status_code == 403, r.text
+    # An agent token without a run cannot claim to be the agent.
+    no_run = await bearer(sf, "hello-world", role="relay")
+    r = await token_client.put("/api/agents/hello-world/image", json=body, headers=no_run)
+    assert r.status_code == 403, r.text
+    # A human below admin: 403; nobody: 401.
+    reader = await _human_token(sf, "kyle", "operator")
+    r = await token_client.put("/api/agents/hello-world/image", json=body, headers=reader)
+    assert r.status_code == 403, r.text
+    assert (await token_client.put("/api/agents/hello-world/image",
+                                   json=body)).status_code == 401
+
+
+async def test_a_rollback_keeps_the_image_and_no_snapshot_carries_it(admin_client, sf):
+    await admin_client.put("/api/agents/hello-world",
+                           json=a_def("hello-world", description="v1"))
+    art = await _image(admin_client)
+    r = await admin_client.put("/api/agents/hello-world/image", json={"artifact_id": art["id"]})
+    assert r.status_code == 200, r.text
+    await admin_client.put("/api/agents/hello-world",
+                           json=a_def("hello-world", description="v2"))
+    r = await admin_client.post("/api/agents/hello-world/rollback/1")
+    assert r.status_code == 200, r.text
+    assert r.json()["description"] == "v1"
+    assert r.json()["image_artifact_id"] == art["id"]
+    async with sf() as s:
+        assert (await s.get(AgentDef, "hello-world")).image_artifact_id == art["id"]
+    for v in await versions_of(sf, "hello-world"):
+        assert "image_artifact_id" not in v.snapshot and "face" not in v.snapshot
+
+
+async def test_a_definition_put_echoes_the_picture_but_cannot_move_it(admin_client, sf):
+    """The editor and the `agents_edit` tool PUT back what they GET, so the
+    read-only fields must be tolerated on the way in — and must be ONLY
+    tolerated: the image route is the one way to change the picture."""
+    art = await _image(admin_client)
+    await admin_client.put("/api/agents/hello-world/image", json={"artifact_id": art["id"]})
+    current = (await admin_client.get("/api/agents/hello-world")).json()
+    r = await admin_client.put("/api/agents/hello-world", json=current)
+    assert r.status_code == 200, r.text
+    assert await versions_of(sf, "hello-world") == []
+    r = await admin_client.put("/api/agents/hello-world", json={
+        **current, "description": "renamed", "image_artifact_id": "f" * 32,
+        "face": {"emoji": "🦊", "hue": 1, "image_url": "/nope"}})
+    assert r.status_code == 200, r.text
+    assert r.json()["description"] == "renamed"
+    assert r.json()["image_artifact_id"] == art["id"]
+    assert r.json()["face"]["image_url"] == f"/api/artifacts/{art['id']}/thumb"
+    async with sf() as s:
+        assert (await s.get(AgentDef, "hello-world")).image_artifact_id == art["id"]
+    (v,) = await versions_of(sf, "hello-world")
+    assert "image_artifact_id" not in v.snapshot and "face" not in v.snapshot
+
+
+async def test_deleting_the_artifact_undresses_the_agent(admin_client, sf, seed_agent,
+                                                          agent_store, producer):
+    """A face must never point at a thumb that 404s: the store's soft delete
+    clears every agent wearing the artifact and says so, once per agent."""
+    from agentplatform.relay_store import faces_for
+    await seed_agent("news")
+    await agent_store.reload()
+    art = await _image(admin_client)
+    for name in ("hello-world", "news"):
+        r = await admin_client.put(f"/api/agents/{name}/image", json={"artifact_id": art["id"]})
+        assert r.status_code == 200, r.text
+    other = await _image(admin_client)
+    before = len(producer.envelopes)
+    assert (await admin_client.delete(f"/api/artifacts/{art['id']}")).status_code == 200
+    for name in ("hello-world", "news"):
+        assert (await admin_client.get(f"/api/agents/{name}")).json()["image_artifact_id"] is None
+    async with sf() as s:
+        faces = await faces_for(s, {"hello-world", "news"})
+    assert {f["image_url"] for f in faces.values()} == {None}
+    clears = [e["data"] for e in producer.envelopes[before:]
+              if e["type"] == "artifacts.event" and e["data"]["event"] == "agent_image"]
+    assert sorted((c["agent"], c["artifact"]) for c in clears) == [
+        ("hello-world", None), ("news", None)]
+    # An unrelated artifact's deletion clears nobody.
+    r = await admin_client.put("/api/agents/news/image", json={"artifact_id": other["id"]})
+    third = await _image(admin_client)
+    before = len(producer.envelopes)
+    assert (await admin_client.delete(f"/api/artifacts/{third['id']}")).status_code == 200
+    assert (await admin_client.get("/api/agents/news")).json()["image_artifact_id"] == other["id"]
+    assert not [e for e in producer.envelopes[before:] if e["data"].get("event") == "agent_image"]

@@ -21,6 +21,9 @@ class RelayPresence:
         agent (str):
         face (RelayFace): An agent's avatar: its own `AgentDef.icon` when set, else the
             deterministic fallback so `news` looks the same in every client forever.
+            `image_url` is the agent's picture (docs/design/23) — the thumb route of
+            its `image_artifact_id` — which a client shows over the emoji when set.
+            Optional so every producer of a face keeps working; `faces_for` fills it.
         state (str):
         thinking_in (list[str]):
     """

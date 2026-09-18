@@ -26,7 +26,7 @@ from agentplatform.quota import (H_5H_RESET, H_5H_UTILIZATION, H_7D_RESET,
                                  H_7D_UTILIZATION, H_STATUS, parse_observation)
 from agentplatform.quota_store import STREAM
 
-from .test_relay_api import _agent_token, _human_token, _seed, token_client  # noqa: F401
+from .test_relay_api import _agent_token, _human_token, _seed
 from .test_relay_sse import StubConsumer, _msg, sse  # noqa: F401
 
 SECRET = "s" * 32

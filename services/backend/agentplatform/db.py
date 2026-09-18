@@ -547,6 +547,13 @@ class AgentDef(Base):
     # The agent's face in Relay (docs/design/19): one emoji, optional — unset
     # means the UI derives a stable one from the name.
     icon: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    # The agent's picture (docs/design/23): an image artifact's id, shown by
+    # every face consumer over the emoji. Unversioned like `icon` — a rollback
+    # restores what an agent IS, not what it looks like — so it is deliberately
+    # absent from agentdefs.DEF_FIELDS and has its own route. Not a foreign key:
+    # the artifact is soft-deleted and pruned on its own clock, and an agent's
+    # row must never be what stops the pruner.
+    image_artifact_id: Mapped[str | None] = mapped_column(String(32), nullable=True)
     model: Mapped[str] = mapped_column(String(64), default="")
     # Platform role the agent's tokens are minted at (see api.auth.ROLES);
     # `coder` is additionally what makes a run self-edit-capable.
@@ -867,6 +874,7 @@ WIKI_AGENT_MARK = "wiki-agent-v1"
 WIKI_GARDENER_MARK = "wiki-gardener-v1"
 QUOTA_GRANT_MARK = "quota-default-grant-v1"
 ARTIFACTS_GRANT_MARK = "artifacts-default-grant-v1"
+ART_CHANNEL_MARK = "art-channel-v1"
 
 # The channels that become PROJECTS when Tickets ships (docs/design/20), and
 # the prefix each one's keys are stamped with. #standup is deliberately absent:
@@ -902,6 +910,12 @@ HEALTH_MONITOR_TICKET_RULE = (
 # channels but on its own mark — it ships a release later — and deliberately
 # WITHOUT a ticket prefix: #wiki is a feed, and a feed is not a project.
 WIKI_SEED_CHANNEL = ("wiki", "every edit, as a diff card")
+# The room every generated image is posted into (docs/design/23), the wiki
+# room's twin: its own mark, no ticket prefix. It ships with one row of its own
+# so an empty feed still says how to fill it; the artist that row names is a
+# later seed, and a mention in a system row summons nobody either way.
+ART_SEED_CHANNEL = ("art", "every generated image, as a card")
+ART_WELCOME_BODY = "Summon @artist with a brief, or make images yourself in the Studio"
 
 # The one page the wiki ships with. It is the wiki explaining itself, so it is
 # also the worked example of the two things a writer has to know: `[[slug]]`
@@ -1133,6 +1147,40 @@ def _ensure_wiki_seed(conn) -> None:
             conn.execute(WikiLink.__table__.insert().values(
                 from_page_id=page_id, to_slug=slug))
     conn.execute(mark_t.insert().values(name=WIKI_SEED_MARK, applied_at=utcnow()))
+
+
+def _ensure_art_channel(conn) -> None:
+    """Ship `#art` and its welcome row. The wiki seed's shape and its bargain:
+    gated on the mark, the room looked up first all the same (a restored
+    backup, a hand-made #art), and what is already there is adopted without a
+    second welcome — a room somebody made has whatever they put in it.
+
+    The welcome is a system row written straight to the table, as the relay
+    backfill writes replayed history: nothing is live yet to publish it to,
+    and a seed that published would need a producer init_db does not have.
+
+    Not race-safe on its own: the check-then-write is serialized across
+    services by init_db's advisory lock (INIT_DB_LOCK_KEY)."""
+    mark_t = SchemaMark.__table__
+    if conn.execute(select(mark_t.c.name)
+                    .where(mark_t.c.name == ART_CHANNEL_MARK)).first():
+        return
+    conv_t = Conversation.__table__
+    name, topic = ART_SEED_CHANNEL
+    if not conn.execute(select(conv_t.c.id).where(conv_t.c.kind == "channel",
+                                                  conv_t.c.name == name)).first():
+        channel_id = uuid.uuid4().hex
+        now = utcnow()
+        conn.execute(conv_t.insert().values(
+            id=channel_id, connector="web", external_ref=None, agent=None,
+            kind="channel", name=name, topic=topic, open=True, archived_at=None,
+            ticket_prefix=None, ticket_seq=0, title=f"#{name}", status="active",
+            claude_session_id="", session_blob=None, created_at=now, updated_at=now))
+        # "system:relay" is relay.SYSTEM_AUTHOR, spelled out because relay
+        # imports this module.
+        welcome = _relay_message(channel_id, "system:relay", ART_WELCOME_BODY, now)
+        conn.execute(RelayMessage.__table__.insert().values(**{**welcome, "kind": "system"}))
+    conn.execute(mark_t.insert().values(name=ART_CHANNEL_MARK, applied_at=utcnow()))
 
 
 def _ensure_wiki_agent(conn) -> None:
@@ -1742,6 +1790,7 @@ async def init_db(engine: AsyncEngine, default_grant: bool = True,
         await conn.run_sync(_ensure_orphan_system_keys_revoked)
         await conn.run_sync(_ensure_wiki_ddl)
         await conn.run_sync(_ensure_wiki_seed)
+        await conn.run_sync(_ensure_art_channel)
         await conn.run_sync(_ensure_wiki_default_grant, wiki_grant)
         await conn.run_sync(_ensure_quota_default_grant, quota_grant)
         await conn.run_sync(_ensure_artifacts_default_grant, artifacts_grant)

@@ -17,7 +17,7 @@ from agentplatform.db import Artifact
 from agentplatform.events import TOPIC_ARTIFACTS_EVENTS
 
 from .test_artifact_store import bomb_png, jpeg_bytes, png_bytes
-from .test_relay_api import _agent_token, _human_token, _seed, token_client  # noqa: F401
+from .test_relay_api import _agent_token, _human_token, _seed
 from .test_wiki_api import _run_id
 
 EDIT_GRANT = "mcp__platform__agents_edit"

@@ -25,7 +25,7 @@ from agentplatform.events import (TOPIC_RELAY_MESSAGES, TOPIC_RUN_EVENTS,
 from agentplatform import relay_feed
 from agentplatform.relay_feed import OVERFLOW, RelayFeed
 
-from .test_relay_api import _agent_token, _channel_id, _seed, token_client  # noqa: F401
+from .test_relay_api import _agent_token, _channel_id, _seed
 
 
 @asynccontextmanager

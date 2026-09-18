@@ -84,6 +84,22 @@ class AgentDefIn(BaseModel):
     definition, so an omitted field RESETS to the default shown here rather
     than keeping whatever the row had."""
     model_config = ConfigDict(extra="forbid")
+
+    # The two read-only fields every GET carries (`AgentDefOut`) — the picture
+    # and its face (docs/design/23) — are discarded here, before validation,
+    # for `WebhookEntryIn.secret_set`'s reason: the editor and the `agents_edit`
+    # tool PUT back what they GET, and `extra="forbid"` would 422 the round
+    # trip. Discarded rather than declared, so they are not fields of the
+    # input at all (a test pins `AgentDefIn` to DEF_FIELDS): the image route
+    # is the only way to change the picture, and nothing echoed here can reach
+    # the column or a snapshot.
+    @model_validator(mode="before")
+    @classmethod
+    def _drop_read_only(cls, data):
+        if isinstance(data, dict) and ("image_artifact_id" in data or "face" in data):
+            return {k: v for k, v in data.items() if k not in ("image_artifact_id", "face")}
+        return data
+
     # Ignored on update: the path identifies the agent, so a payload can never
     # rename or retarget one.
     name: str = ""
@@ -135,6 +151,14 @@ class AgentCreateIn(AgentDefIn):
     artifacts: bool | None = None
 
 
+class AgentImageIn(BaseModel):
+    """`PUT /api/agents/{name}/image` (docs/design/23): the picture's artifact,
+    or null to take it off. The key is required so an empty body is a 422 and
+    not a silent clear."""
+    model_config = ConfigDict(extra="forbid")
+    artifact_id: str | None
+
+
 class AgentDefOut(BaseModel):
     """An agent definition as the API returns it."""
     name: str
@@ -160,6 +184,13 @@ class AgentDefOut(BaseModel):
     # still strict: `AgentDefIn.entrypoints` is the validated shape.
     entrypoints: dict = {}
     enabled: bool = True
+    # The agent's picture (docs/design/23) and the face it makes: OUTSIDE the
+    # definition (never in `AgentDefIn`, never in a snapshot), carried on every
+    # read so the Agents pages need no second fetch. `face` is what every other
+    # consumer of an agent's face gets — the same `faces_for`, so an agent
+    # looks the same on its own page as it does in a room.
+    image_artifact_id: str | None = None
+    face: RelayFace
 
 
 class AgentSummary(AgentDefOut):
@@ -647,9 +678,13 @@ class ChartSvg(BaseModel):
 
 class RelayFace(BaseModel):
     """An agent's avatar: its own `AgentDef.icon` when set, else the
-    deterministic fallback so `news` looks the same in every client forever."""
+    deterministic fallback so `news` looks the same in every client forever.
+    `image_url` is the agent's picture (docs/design/23) — the thumb route of
+    its `image_artifact_id` — which a client shows over the emoji when set.
+    Optional so every producer of a face keeps working; `faces_for` fills it."""
     emoji: str
     hue: int
+    image_url: str | None = None
 
 
 class RelayReactionView(BaseModel):

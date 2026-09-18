@@ -110,28 +110,35 @@ class ArtifactPruner:
     once it has been gone `artifacts_prune_days`. A window of <= 0 keeps the
     soft-deleted rows forever. Live rows are never touched."""
 
-    def __init__(self, session_factory, settings):
+    def __init__(self, session_factory, settings, producer=None):
         self.sf = session_factory
         self.settings = settings
+        self.producer = producer
 
     async def prune_once(self, now=None) -> int:
         """Hard-delete soft-deleted artifacts past the window. Returns the
         number of artifact rows deleted."""
+        from agentplatform import artifact_store
         from agentplatform.db import Artifact, ArtifactBlob
         days = self.settings.artifacts_prune_days
         if days <= 0:
             return 0
         cutoff = (now or utcnow()) - timedelta(days=days)
         deleted = 0
+        undressed: list[str] = []
         async with self.sf() as s:
             expired = (await s.execute(select(Artifact.id).where(
                 Artifact.deleted_at.isnot(None), Artifact.deleted_at < cutoff))).scalars().all()
             for i in range(0, len(expired), _CHUNK):
                 chunk = expired[i:i + _CHUNK]
+                # The soft delete already cleared these faces; this catches a
+                # row that was dressed by a path the store never saw.
+                undressed += await artifact_store.unlink_agent_images(s, chunk)
                 await s.execute(delete(ArtifactBlob).where(ArtifactBlob.artifact_id.in_(chunk)))
                 res = await s.execute(delete(Artifact).where(Artifact.id.in_(chunk)))
                 deleted += res.rowcount or 0
             await s.commit()
+        await artifact_store.publish_face_clears(self.producer, undressed)
         if deleted:
             log.info("pruned %d artifacts deleted more than %d days ago", deleted, days)
         return deleted

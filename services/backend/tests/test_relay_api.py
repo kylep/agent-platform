@@ -3,7 +3,6 @@ search, presence and stats. The authorship rules are the load-bearing part —
 who a message is from is decided by the token, never by the payload."""
 from datetime import timedelta
 
-import httpx
 import pytest
 from sqlalchemy import select
 
@@ -13,15 +12,6 @@ from agentplatform.db import (ApiKey, Conversation, RelayInvocation, RelayMessag
                               RelayParticipant, Run, RunState, utcnow)
 from agentplatform.events import TOPIC_RELAY_MESSAGES
 from agentplatform.relay_router import RelayRouter
-
-
-@pytest.fixture
-async def token_client(client):
-    """A second client over the same app carrying no session cookie:
-    `authenticate` tries the cookie before the bearer, so a bearer token is
-    only really under test on a request that has nothing else."""
-    async with httpx.AsyncClient(transport=client._transport, base_url="http://t") as c:
-        yield c
 
 
 async def _key(sf, *, name: str, role: str, agent: str | None = None,
@@ -427,6 +417,39 @@ async def test_presence_prefers_the_agents_own_icon(admin_client, seed_agent, ag
     await _seed(seed_agent, agent_store, "news", icon="📰")
     by_agent = {p["agent"]: p for p in (await admin_client.get("/api/relay/presence")).json()}
     assert by_agent["news"]["face"]["emoji"] == "📰"
+    assert by_agent["news"]["face"]["image_url"] is None
+
+
+async def test_a_face_carries_the_agents_picture(admin_client, sf, token_client,
+                                                 seed_agent, agent_store):
+    """One `faces_for` serves every consumer (docs/design/23): the picture set
+    through the agents API shows up on the room's roster, on presence and on
+    the message, with no per-consumer change."""
+    from agentplatform.relay_store import faces_for
+
+    from .test_artifact_store import png_bytes
+    from .test_artifacts_api import upload
+    await _seed(seed_agent, agent_store, "news", icon="📰")
+    art = await upload(admin_client, png_bytes(8, 8))
+    r = await admin_client.put("/api/agents/news/image", json={"artifact_id": art["id"]})
+    assert r.status_code == 200, r.text
+    thumb = f"/api/artifacts/{art['id']}/thumb"
+
+    async with sf() as s:
+        faces = await faces_for(s, {"news", "hello-world", "nobody"})
+    assert faces["news"]["emoji"] == "📰" and faces["news"]["image_url"] == thumb
+    assert faces["hello-world"]["image_url"] is None and faces["nobody"]["image_url"] is None
+
+    # A room's roster is its explicit members; a DM with the agent has one.
+    dm = (await admin_client.post("/api/relay/dm", json={"with": "agent:news"})).json()
+    detail = (await admin_client.get(f"/api/relay/channels/{dm['id']}")).json()
+    assert detail["faces"]["news"]["image_url"] == thumb
+    cid = await _channel_id(sf, "general")
+    by_agent = {p["agent"]: p for p in (await admin_client.get("/api/relay/presence")).json()}
+    assert by_agent["news"]["face"]["image_url"] == thumb
+    m = (await token_client.post(f"/api/relay/channels/{cid}/messages", json={"body": "hi"},
+                                 headers=await _agent_token(sf, "news"))).json()
+    assert m["face"] == {"emoji": "📰", "hue": faces["news"]["hue"], "image_url": thumb}
 
 
 async def test_stats_counts_the_last_day(admin_client, sf, token_client,
@@ -434,6 +457,8 @@ async def test_stats_counts_the_last_day(admin_client, sf, token_client,
     await _seed(seed_agent, agent_store, "news")
     cid = await _channel_id(sf, "general")
     headers = await _agent_token(sf, "news")
+    # The seeds already wrote today (#art's welcome row): count from there.
+    seeded = (await admin_client.get("/api/relay/stats")).json()["messages_24h"]
     await admin_client.post(f"/api/relay/channels/{cid}/messages", json={"body": "hi"})
     await token_client.post(f"/api/relay/channels/{cid}/messages",
                             json={"body": "hi back"}, headers=headers)
@@ -448,7 +473,7 @@ async def test_stats_counts_the_last_day(admin_client, sf, token_client,
         await s.commit()
 
     st = (await admin_client.get("/api/relay/stats")).json()
-    assert st["messages_24h"] == 2
+    assert st["messages_24h"] == seeded + 2
     assert st["agent_messages_24h"] == 1
     # Invoked only: the tile says "invocations", so a refusal must not raise it.
     assert st["invocations_24h"] == 1
@@ -530,8 +555,8 @@ async def test_channel_list_ordering_unread_and_last_message(admin_client, token
 
     listed = (await admin_client.get("/api/relay/channels")).json()
     # Channels by name, then the private rooms by last activity (the DM spoke last).
-    assert [c["name"] for c in listed[:4]] == ["general", "ops", "standup", "wiki"]
-    assert [c["id"] for c in listed[4:]] == [dm["id"], group["id"]]
+    assert [c["name"] for c in listed[:5]] == ["art", "general", "ops", "standup", "wiki"]
+    assert [c["id"] for c in listed[5:]] == [dm["id"], group["id"]]
 
     by_id = {c["id"]: c for c in listed}
     assert by_id[ops]["unread"] == 2

@@ -4,6 +4,7 @@ from .agent_create_in import AgentCreateIn
 from .agent_def_in import AgentDefIn
 from .agent_def_out import AgentDefOut
 from .agent_def_out_entrypoints import AgentDefOutEntrypoints
+from .agent_image_in import AgentImageIn
 from .agent_import_result import AgentImportResult
 from .agent_metrics import AgentMetrics
 from .agent_metrics_by_state import AgentMetricsByState
@@ -47,9 +48,11 @@ from .dlq_entry import DlqEntry
 from .edit_dispatch import EditDispatch
 from .edit_result import EditResult
 from .entrypoints_in import EntrypointsIn
+from .generate_in import GenerateIn
 from .help_topic import HelpTopic
 from .help_topic_detail import HelpTopicDetail
 from .http_validation_error import HTTPValidationError
+from .image_model import ImageModel
 from .integration import Integration
 from .job_in import JobIn
 from .job_patch import JobPatch
@@ -203,6 +206,7 @@ __all__ = (
     "AgentDefIn",
     "AgentDefOut",
     "AgentDefOutEntrypoints",
+    "AgentImageIn",
     "AgentImportResult",
     "AgentMetrics",
     "AgentMetricsByState",
@@ -244,9 +248,11 @@ __all__ = (
     "EditDispatch",
     "EditResult",
     "EntrypointsIn",
+    "GenerateIn",
     "HTTPValidationError",
     "HelpTopic",
     "HelpTopicDetail",
+    "ImageModel",
     "Integration",
     "JobIn",
     "JobPatch",

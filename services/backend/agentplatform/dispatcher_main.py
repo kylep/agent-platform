@@ -99,7 +99,7 @@ async def main() -> None:
     scheduler = Scheduler(session_factory, agent_store, producer)
     pruner = TranscriptPruner(session_factory, agent_store, settings)
     report_pruner = ReportPruner(session_factory, ReportTypeRegistry(settings.reports_root))
-    artifact_pruner = ArtifactPruner(session_factory, settings)
+    artifact_pruner = ArtifactPruner(session_factory, settings, producer)
     app_provisioner = AppProvisioner(AppRegistry(settings.apps_root), engine,
                                      session_factory,
                                      K8sSecretStore(core, settings.k8s_namespace),

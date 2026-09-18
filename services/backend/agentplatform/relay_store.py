@@ -263,13 +263,17 @@ async def faces_for(session, names: set[str]) -> dict[str, dict]:
     agent's prompt is two agents as far as a reader is concerned."""
     if not names:
         return {}
-    icons = dict((await session.execute(select(AgentDef.name, AgentDef.icon)
-                                        .where(AgentDef.name.in_(names)))).all())
+    rows = {name: (icon, image) for name, icon, image in (await session.execute(
+        select(AgentDef.name, AgentDef.icon, AgentDef.image_artifact_id)
+        .where(AgentDef.name.in_(names)))).all()}
     out = {}
     for name in names:
         face = face_for(name)
-        out[name] = ({"emoji": icons[name], "hue": face["hue"]}
-                     if icons.get(name) else face)
+        icon, image = rows.get(name, (None, None))
+        # The picture (docs/design/23) rides beside the emoji rather than
+        # replacing it: a client that cannot show the image still has a face.
+        out[name] = {"emoji": icon or face["emoji"], "hue": face["hue"],
+                     "image_url": f"/api/artifacts/{image}/thumb" if image else None}
     return out
 
 

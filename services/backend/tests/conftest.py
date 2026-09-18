@@ -86,3 +86,13 @@ async def admin_client(client):
     await client.post("/api/setup", json={"password": "pw12345678"})
     await client.post("/api/login", json={"password": "pw12345678"})
     return client
+
+@pytest.fixture
+async def token_client(client):
+    """A second client over the same app carrying no session cookie:
+    `authenticate` tries the cookie before the bearer, so a bearer token is
+    only really under test on a request that has nothing else. `client` and
+    `admin_client` share one cookie jar, so a test that logs in and then sends
+    a bearer through `client` is testing the cookie."""
+    async with httpx.AsyncClient(transport=client._transport, base_url="http://t") as c:
+        yield c
