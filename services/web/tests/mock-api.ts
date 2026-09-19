@@ -153,7 +153,14 @@ const reports = [
 // the two faces the block puts on other pages — a card in a room, a picture
 // on an agent. Ids are 32 hex chars, as the API mints them.
 const MINUTE = 60000;
-const at = (minsAgo: number) => new Date(Date.now() - minsAgo * MINUTE).toISOString();
+// The instant every `at(...)` row is measured from. It is read ONCE, when the
+// worker loads this module, so a page rendered later reads the rows as older
+// than they were built — and a minute-rounded "15m ago" turns into "16m" once
+// the suite has been running for half a minute. A test that asserts on a
+// relative time freezes the browser's clock here (`page.clock.setFixedTime`)
+// so the render measures from the same instant the rows were built.
+export const FIXTURE_NOW = Date.now();
+const at = (minsAgo: number) => new Date(FIXTURE_NOW - minsAgo * MINUTE).toISOString();
 const aid = (seed: string) => seed.repeat(32).slice(0, 32);
 
 // A real 1×1 PNG, so every <img> the suite draws off the thumb and content
