@@ -250,6 +250,11 @@ def _dom_clause(terms: list[Term]) -> str:
         return ", on the last day of the month"
     if len(terms) == 1 and terms[0][0] == "step" and terms[0][3] > 1:
         return f", on every {_ordinal(terms[0][3])} day of the month"
+    # Plain day numbers read best as ordinals — "the 1st", "the 1st and 15th" —
+    # in the order written. Ranges, steps and L are not bare values and keep
+    # their existing "day(s) …" wording via _unit_phrase below.
+    if terms and all(t[0] == "value" for t in terms):
+        return f", on the {_join([_ordinal(t[1]) for t in terms])} of the month"
     return f", on {_unit_phrase(terms, 'day', 1, 31)} of the month"
 
 
