@@ -468,7 +468,7 @@ dispatch subagents, verify their evidence, commit, and update this file.
   and writes `verify.json` (paste the summary); backend suite green with
   `pytest-cov` installed in the venv.
 
-- [ ] **T7 API: `workbench` and `publish` routes, `workbench.py` publish service, `GitHubClient` additions, the topic.** `[after T2 and T3 are committed; after T5 reports]` (AC-2)
+- [x] **T7 API: `workbench` and `publish` routes, `workbench.py` publish service, `GitHubClient` additions, the topic.** `[after T2 and T3 are committed; after T5 reports]` (AC-2) (commit `1e0ac44`; review: runner-attested publish nonce (one-shot from GET /workbench, hash on the run row, held in runner memory only), body bounded before parsing, @handles/#refs neutralised in notes, per-run lock)
   Design sections: "The dev run, step by step" (step 7), "Trust boundaries
   and guards" (publish is the single door; the path policy; never force;
   evidence is captured; untrusted text), "API", "Relay", "Kafka".
@@ -545,7 +545,7 @@ dispatch subagents, verify their evidence, commit, and update this file.
   `QA-3`; SSE replays a `published` envelope. Acceptance: backend + facade
   suites green; SDK diff clean; `ALL_TOPICS` and `values.yaml` agree.
 
-- [ ] **T8 The `runner-dev` image.** `[parallel with T7; after T5 reports]` (AC-1)
+- [x] **T8 The `runner-dev` image.** `[parallel with T7; after T5 reports]` (AC-1) (commit `c6444a8`; review: manifests-only stage keeps pip/npm cached, uid asserted, exact mcp pin, root .dockerignore; amd64 chrome/claude smoke deferred to T11 — qemu on this Mac segfaults the lean image identically, the arm64 build passed all four)
   Design sections: "The `runner-dev` image".
   Files: new `services/runner/Dockerfile.dev` (base
   `mcr.microsoft.com/playwright:v<X>-noble` with `<X>` copied from
