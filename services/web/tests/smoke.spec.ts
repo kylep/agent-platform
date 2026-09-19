@@ -1,58 +1,13 @@
 import { expect, test } from "@playwright/test";
-import { ARTIFACTS, mockApi } from "./mock-api";
+import { mockApi } from "./mock-api";
+import { SMOKE_PAGES } from "./pages";
 
 // Every page renders against the mocked API with zero console errors and its
 // key content present. This is the UI's backpressure: an agent (or human)
 // shipping a page that crashes, blanks, or calls a missing endpoint fails CI
 // instead of being discovered by clicking around production.
 
-const PAGES: { path: string; heading: string; probe?: RegExp }[] = [
-  { path: "/", heading: "Dashboard", probe: /news blocked|blocked: skill/ },
-  { path: "/agents", heading: "Agents", probe: /blocked/ },
-  { path: "/agents/health-monitor", heading: "health-monitor", probe: /Entrypoints/ },
-  { path: "/agents/health-monitor?tab=history", heading: "health-monitor", probe: /Change log/ },
-  { path: "/agents/new", heading: "New Agent", probe: /Grants/ },
-  { path: "/runs", heading: "Runs" },
-  { path: "/relay", heading: "Relay", probe: /Morning — what's on fire/ },
-  { path: "/relay?kind=dm", heading: "Relay", probe: /What's my day look like/ },
-  // /conversations is a redirect now (docs/design/19) — the row stays to prove
-  // an old bookmark still lands somewhere real.
-  { path: "/conversations", heading: "Relay", probe: /general/ },
-  { path: "/tickets", heading: "Tickets", probe: /OPS-1/ },
-  { path: "/tickets/OPS-1", heading: "OPS-1", probe: /Weather repeats across the digest/ },
-  { path: "/wiki", heading: "Wiki", probe: /Everything the platform knows/ },
-  { path: "/wiki/deploying", heading: "Deploying", probe: /reuse-values/ },
-  { path: "/artifacts", heading: "Artifacts", probe: /a-dragon-over-the-harbour/ },
-  // The deep link is the lightbox: the probe is provenance only the open
-  // picture shows.
-  { path: `/artifacts/${ARTIFACTS.generated.id}`, heading: "Artifacts", probe: /gpt-image-1 · 3 s/ },
-  // The probe is a priced model option: the registry landed.
-  { path: "/studio", heading: "Studio", probe: /GPT Image 1 · \$0\.04/ },
-  { path: `/studio/${ARTIFACTS.generated.id}`, heading: "Studio", probe: /gpt-image-1 \(openai\)/ },
-  // The probe is the wiki badge: a memory that has graduated into a page is
-  // the one thing on this table the wiki put there (docs/design/21).
-  { path: "/memories", heading: "Memories", probe: /📖 promoted/ },
-  { path: "/changes", heading: "Pending Changes", probe: /skill: news-lookup/ },
-  { path: "/schedules", heading: "Schedules", probe: /health-monitor/ },
-  { path: "/skills", heading: "Skills & Tools", probe: /stocks/ },
-  { path: "/secrets", heading: "Secrets", probe: /undeclared/ },
-  { path: "/dlq", heading: "Dead-letter queue" },
-  { path: "/reporting", heading: "Reporting", probe: /Seconds per run/ },
-  { path: "/reports", heading: "Reports", probe: /daily-news/ },
-  { path: "/apps", heading: "Apps", probe: /running|not deployed/ },
-  { path: "/help", heading: "Help", probe: /building blocks|configuration lives in git/i },
-  { path: "/help/tools", heading: "Tools", probe: /self-edit only/ },
-  { path: "/help/agents", heading: "Agents", probe: /who runs/ },
-  { path: "/help/relay", heading: "Relay", probe: /the agent messenger|hop 0/ },
-  { path: "/help/tickets", heading: "Tickets", probe: /assign = summon|OPS-12/i },
-  { path: "/help/wiki", heading: "Wiki", probe: /wanted page|wiki-link/i },
-  { path: "/reports/daily-news", heading: "daily-news", probe: /Open latest/ },
-  // The Relay section is read-only and env-fed, so its probe is the sentence
-  // that tells an operator where the numbers actually come from.
-  { path: "/settings", heading: "Settings", probe: /AP_RELAY_MAX_HOPS/ },
-];
-
-for (const { path, heading, probe } of PAGES) {
+for (const { path, heading, probe } of SMOKE_PAGES) {
   test(`${path} renders clean`, async ({ page }) => {
     const errors: string[] = [];
     page.on("console", (m) => { if (m.type() === "error") errors.push(m.text()); });

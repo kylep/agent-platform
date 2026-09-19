@@ -1,32 +1,11 @@
 import AxeBuilder from "@axe-core/playwright";
 import { expect, test } from "@playwright/test";
-import { ARTIFACTS, mockApi } from "./mock-api";
+import { mockApi } from "./mock-api";
+import { A11Y_PAGES, MOBILE_PAGES } from "./pages";
 
 // axe-core over every page: serious/critical violations fail the build.
 // (moderate/minor are reported in the failure message when the gate trips,
 // but don't gate — tighten later if the baseline stays clean.)
-
-const PAGES = ["/", "/agents", "/agents/health-monitor", "/agents/health-monitor?tab=history",
-               "/agents/new", "/runs", "/relay", "/relay?kind=dm",
-               // the thread pane is a second live region on the page
-               "/relay?channel=rc1&thread=m6",
-               "/tickets", "/tickets/OPS-1", "/wiki", "/wiki/deploying",
-               "/artifacts", `/artifacts/${ARTIFACTS.generated.id}`, "/studio",
-               `/studio/${ARTIFACTS.generated.id}`,
-               // the #art room: artifact cards inside the transcript
-               "/relay?channel=rc4",
-               "/memories", "/changes", "/schedules", "/skills", "/secrets",
-               "/dlq", "/reporting", "/reports", "/reports/daily-news", "/apps",
-               "/help", "/help/tools", "/help/tickets", "/help/wiki", "/settings"];
-
-/** The pages whose layout is a DIFFERENT layout on a phone: columns re-stack,
- * the rail becomes a drawer, wrapper boxes are dissolved to reorder what they
- * hold. A sweep that only ever ran at 1280 cannot see what any of that costs —
- * a landmark dropped by a mobile-only rule passed this file for months. */
-const MOBILE = ["/tickets", "/tickets/OPS-1", "/wiki", "/wiki/deploying",
-                "/relay", "/relay?channel=rc1&thread=m6",
-                "/artifacts", `/artifacts/${ARTIFACTS.generated.id}`, "/studio",
-                `/studio/${ARTIFACTS.generated.id}`];
 
 async function axe(page: import("@playwright/test").Page, path: string, where: string) {
   await mockApi(page);
@@ -39,13 +18,13 @@ async function axe(page: import("@playwright/test").Page, path: string, where: s
          `axe violations on ${path} ${where}`).toEqual([]);
 }
 
-for (const path of PAGES) {
+for (const { path } of A11Y_PAGES) {
   test(`${path} passes axe`, async ({ page }) => {
     await axe(page, path, "at 1280");
   });
 }
 
-for (const path of MOBILE) {
+for (const { path } of MOBILE_PAGES) {
   test(`${path} passes axe at 390`, async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await axe(page, path, "at 390");
