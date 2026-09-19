@@ -526,7 +526,7 @@ dispatch subagents, verify their evidence, commit, and update this file.
 
 ### Phase 2 — the agent (T9 after T3, T4 and T7 are committed; T10 with T6)
 
-- [ ] **T9 Seeds: `#qa`, the QA row, `qa-nightly`; the Handoff notification.** `[after T3, T4 and T7 are committed]` (AC-3, AC-4, AC-5)
+- [x] **T9 Seeds: `#qa`, the QA row, `qa-nightly`; the Handoff notification.** `[after T3, T4 and T7 are committed]` (AC-3, AC-4, AC-5) (commit `247fe90`; review: ship — prompt, grants and adoption match the design; readiness blocks only mid-rotation (the API mints the secret at boot) — pinned, not special-cased)
   Design sections: "The QA (seeded row)", "Jobs", "Trust boundaries and
   guards" (the publish policy is the fence).
   Files: `db.py` (`QA_CHANNEL_MARK = "qa-channel-v1"` — the `#qa` open
@@ -561,7 +561,7 @@ dispatch subagents, verify their evidence, commit, and update this file.
   `TEST_PATH_GLOBS` list from the code) and sends the PushNotification.
   Acceptance: backend suite green.
 
-- [ ] **T10 `[ui]` Login `principal` field; `PlaywrightMCP` in the harness picker; the app card.** `[parallel with T6]` (AC-4)
+- [x] **T10 `[ui]` Login `principal` field; `PlaywrightMCP` in the harness picker; the app card.** `[parallel with T6]` (AC-4) (commit `7659049`; code + visual review ship; `ToolHelp.dev_only` added so the help API carries it)
   Design sections: "API" (`POST /api/login`), "Broker" (`PlaywrightMCP`).
   Files: `services/web/src/pages/Login.tsx` (an `Input` "Username"
   defaulting to `admin` above the password; submits `{principal,
@@ -682,6 +682,8 @@ dispatch subagents, verify their evidence, commit, and update this file.
 
 ### Deferred
 
+- The readiness gate blocks any agent whose bound secret is unset, regardless of the secret's `required` flag (design 10's rule). For the QA that only bites mid-rotation (value cleared, mark not yet cleared); a per-binding "optional" severity would let it run without the browser instead. Not built.
+
 (low/medium findings the loop chose not to fix, with file:line)
 
 ## Definition of done
@@ -727,8 +729,11 @@ with the exact glob list when T9 commits)
    mode "Always" (so every bypass is logged) — NOT the PericakAI App.
    Rules: "Restrict file paths" with restricted path `**/*` and **allowed
    exceptions** = the `TEST_PATH_GLOBS` list from
-   `services/backend/agentplatform/testpaths.py` (T9 pastes the exact
-   entries here); "Require status checks to pass" with the CI job names
+   `services/backend/agentplatform/testpaths.py`, exactly these eight
+   entries: `services/backend/tests/**`, `services/web/tests/**`,
+   `services/claude-proxy/tests/**`, `services/*/test_*.py`,
+   `apps/*/backend/test_*.py`, `apps/*/backend/tests/**`,
+   `tools/*/test_run.py`, `tcms/cases/**`; "Require status checks to pass" with the CI job names
    `backend`, `runner`, `mcp-facade`, `apps`, `tools`, `web`, `helm`,
    `secret-scan` and "Require branches to be up to date" off. Effect: the
    App (which merges the QA's auto-merge PRs) can only land test paths;
