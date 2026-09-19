@@ -755,6 +755,8 @@ dispatch subagents, verify their evidence, commit, and update this file.
 
 ### Deferred
 
+- `PUT /api/agents/{name}` replaces the whole definition; a `PATCH` for single-field edits (or a `partial` flag) would remove the footgun T11 item 1 hit. Not needed by the UI.
+
 - T4 review (low): `tests/test_joblauncher.py::test_coder_job_is_unchanged_by_the_dev_profile` pins image/resources/volumes/named env only, not the full serialized Job (labels, deadlines, SA, securityContext for `role: coder`); a full-dict snapshot would be stronger.
 
 (low/medium findings the loop chose not to fix, with file:line)
@@ -779,6 +781,29 @@ above holds, write `PASS <date> helm rev <n>` as the first line of "Live
 verification" — design 25's plan reads that line before it starts.
 
 ## Live verification
+
+Deployed 2026-09-18 23:44 EDT, **helm rev 60** (`t11-deploy.sh`: backend, runner, web,
+mcp-broker, mcp-facade built and imported; `runner-dev` 1.29 GB imported at
+23:53 after its first scp hit the LAN's intermittent "No route to host").
+Post-deploy: all platform pods Running; `workbench.events` exists
+(3 partitions, retention.ms=2592000000); seeds ran once — `GET /api/agents/engineer`
+→ `role: dev`, 95/90, tools relay/tickets/wiki/quota_ok/artifacts, Glob+Grep,
+5400 s; `#eng` with prefix `ENG` beside general/ops/qa; job `eng-queue`
+`0 7 * * 1-5` America/Toronto.
+
+1. **Quota gate (AC-3)** — 23:50 EDT, admin through the forward:
+   `GET /api/quota/ok` → `{"ok":false,"five_hour_pct":93,"seven_day_pct":67,
+   "five_hour_max_pct":80,"seven_day_max_pct":50,"stale":false,"reason":"the
+   5-hour window is at 93%, over its 80% limit, and the 7-day window is at
+   67%, over its 50% limit"}` (a human gets the column defaults 80/50).
+   `PUT /api/agents/engineer {"quota_7d_max_pct":1}` → 200 with the field at
+   1; `PUT … {"quota_7d_max_pct":90}` → 200, 90; versions 2 and 3 by admin.
+   **Lesson recorded:** `PUT /api/agents/{name}` is a whole-definition
+   replace (the editor sends the full draft), so those two partial PUTs
+   reset every other field to its default (role → operator, grants → [],
+   timeout → 1800, prompt → ""); restored from `GET …/versions/1`'s
+   snapshot with a full PUT (version 4). Single-field edits belong to the
+   `agents_edit` broker tool, which merges. T12 documents this.
 
 (filled by T11: deploy record, helm revision, evidence per item 1–7 with
 commands, timestamps and screenshot paths)
