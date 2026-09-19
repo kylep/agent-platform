@@ -303,7 +303,7 @@ dispatch subagents, verify their evidence, commit, and update this file.
   Acceptance: backend suite green; `tools/tcms/cases.py` has no import from
   `agentplatform`.
 
-- [ ] **T3 `tools/tcms/` — the ingest parsers, the tool, its tests.** `[after T2 reports]` (AC-1)
+- [x] **T3 `tools/tcms/` — the ingest parsers, the tool, its tests.** `[after T2 reports]` (AC-1) (commit `c033c2d`; review: suite-depth cap, seconds/exit clamps, glob-escaped root probe, idempotent on run_id (ON CONFLICT), error triage; SQL proven on a throwaway Postgres)
   Design sections: "The `tcms` tool", "Data model" (Database), "Trust
   boundaries and guards" (results are machine-ingested).
   Files: new `tools/tcms/ingest.py` (pure: `parse_junit(bytes) ->
@@ -380,7 +380,7 @@ dispatch subagents, verify their evidence, commit, and update this file.
 
 ### Phase 1 — the app, the runner, the walk (T5 after T3 reports; T7 ∥ T8 with T5; T6 after T5 reports)
 
-- [ ] **T5 `apps/tcms` backend: manifest, schema, API, reconciler, Dockerfile.** `[after T3 reports; parallel with T7 and T8]` (AC-2)
+- [x] **T5 `apps/tcms` backend: manifest, schema, API, reconciler, Dockerfile.** `[after T3 reports; parallel with T7 and T8]` (AC-2) (commit `040a786`; app keys could not post to Relay → new `POST /api/relay/notify` (channels only, 60/h, system row as `app:tcms`); LIKE literals; area validated; 22 tests also green on Postgres 16)
   Design sections: "The app", "Data model" (Database), "Kafka", "Relay".
   Files: new `apps/tcms/app.yaml` (per the design; `icon: 🧪`), `apps/tcms/
   Dockerfile` (the `apps/running/Dockerfile` shape, built from the repo
@@ -420,7 +420,7 @@ dispatch subagents, verify their evidence, commit, and update this file.
   `.github/workflows/ci.yaml` `apps` job gains the tcms step (copy the news
   step); `tools/tcms/test_run.py` still green against the shared columns.
 
-- [ ] **T6 `[ui]` `apps/tcms/frontend` — Overview, Runs, Cases, Health.** `[after T5 reports]` (AC-2)
+- [x] **T6 `[ui]` `apps/tcms/frontend` — Overview, Runs, Cases, Health.** `[after T5 reports]` (AC-2) (commit `409a649`; visual review ship: 24 shots both themes/widths, pyramid reads as one, no overflow at 390; `overflow-wrap` polish applied)
   Design sections: "The app" (Frontend).
   Files: new `apps/tcms/frontend/{package.json (name tcms-frontend),
   index.html, vite.config.ts (base /apps/tcms/), tsconfig.json,
@@ -449,7 +449,7 @@ dispatch subagents, verify their evidence, commit, and update this file.
   all four pages at 1280 and 390, both themes; the pyramid reads as a
   pyramid.
 
-- [ ] **T7 Runner: `PlaywrightMCP`, the second MCP server, `bin/ap-web-login`, `ap-verify --all` junit merge.** `[parallel with T5 and T8]` (AC-4)
+- [x] **T7 Runner: `PlaywrightMCP`, the second MCP server, `bin/ap-web-login`, `ap-verify --all` junit merge.** `[parallel with T5 and T8]` (AC-4) (commit `12044e8`; review: the image's `playwright-mcp` bin not `npx`; `--allowed-origins` is advisory per the package's README → Chromium `--host-resolver-rules` via `--config` is the real boundary (design corrected); stderr fallback in the login frame)
   Design sections: "Trust boundaries and guards" (the browser is a reader;
   the MCP server is locked to the platform), "Broker" (`PlaywrightMCP`).
   Files: `agentspec.py` (`"PlaywrightMCP"` in `CLAUDE_TOOLS`; `TOOL_HELP`
@@ -489,7 +489,7 @@ dispatch subagents, verify their evidence, commit, and update this file.
   TOOL_HELP lockstep test; `bin/ap-verify` merge test with two fixture
   junit files. Acceptance: runner + backend suites green.
 
-- [ ] **T8 The scripted walk: `services/web/scripts/walk.mjs` and `tests/pages.ts`.** `[parallel with T5 and T7]` (AC-4)
+- [x] **T8 The scripted walk: `services/web/scripts/walk.mjs` and `tests/pages.ts`.** `[parallel with T5 and T7]` (AC-4) (commit `b3bd0ad`; review: route paths guarded against absolute/protocol-relative/file entries (host guard bypass), temp dirs cleaned; the two original spec lists disagreed on order, titles set-identical)
   Design sections: "The decision in one paragraph" (the two tiers), "The
   QA (seeded row)" (the walk paragraph).
   Files: new `services/web/tests/pages.ts` (export the route list that
