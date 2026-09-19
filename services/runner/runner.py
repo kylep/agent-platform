@@ -10,7 +10,8 @@ from aiokafka import AIOKafkaProducer
 # turn any agent into a token-exfil vector, so they are **self-edit-only**.
 _SENSITIVE_TOOLS = ["Bash", "Read", "Edit", "Write", "NotebookEdit"]
 
-def _permission_args(self_edit: bool, has_api_token: bool, agent: str) -> list[str]:
+def _permission_args(self_edit: bool, has_api_token: bool, agent: str,
+                     dev: bool = False) -> list[str]:
     """The claude permission flags for a run. Self-edit auto-accepts edits; every
     other agent — trusted or not — gets ONLY its declared tools unattended
     (`--allowedTools`), and the sensitive/token-reading tools are ALWAYS denied
@@ -29,6 +30,18 @@ def _permission_args(self_edit: bool, has_api_token: bool, agent: str) -> list[s
         # edits so the agent can actually modify the clone. Safe because the
         # work is an ephemeral sandbox and every change lands as a reviewable PR.
         return ["--permission-mode", "acceptEdits"]
+    if dev:
+        # A dev run (docs/design/24) is the other shell-capable profile, and
+        # the reason it is safe is the POD, not the flags: no App token, no
+        # AP_GITHUB_TOKEN, the Claude token behind the proxy, and the only way
+        # out is a bundle the API re-derives and polices. So the file and shell
+        # tools are allowed outright, the declared grants ride along, and
+        # `--strict-mcp-config` keeps every MCP server but the runner's own out.
+        # It sits BEFORE the variadic list so nothing can read it as a tool.
+        fixed = ["Bash", "Read", "Edit", "Write", "NotebookEdit", "Glob", "Grep"]
+        declared = [t for t in _agent_tools(agent) if t not in fixed]
+        return ["--permission-mode", "acceptEdits", "--strict-mcp-config",
+                "--allowedTools", *fixed, *declared, "mcp__platform__*"]
     tools = [t for t in _agent_tools(agent) if t not in _SENSITIVE_TOOLS]
     out: list[str] = []
     if tools:
@@ -458,19 +471,52 @@ async def _run(producer, run_id: str, agent: str, prompt: str) -> int:
     _install_skills()
 
     self_edit = os.environ.get("AP_SELF_EDIT") == "1"
+    dev = os.environ.get("AP_WORKSPACE") == "dev"
     cwd = None
     git_env = None
+    seq = 0
+    wb = None
     if self_edit:
         git_env = _git_env()
         repo_dir = Path("/workspace/repo")
         await asyncio.to_thread(self_edit_clone, repo_dir, git_env)
         cwd = str(repo_dir)
+    elif dev:
+        # The dev run (docs/design/24): an anonymous clone the agent works in,
+        # published as a bundle after a clean exit. Not being able to prepare
+        # it is the same kind of failure as having no definition — nothing to
+        # run — and is reported the same way.
+        # Imported here, not at the top: the backend seam test loads this file
+        # by path with no sibling on sys.path, so sibling imports stay inside
+        # the dev branch.
+        import workbench
+        git_env = workbench.dev_env(os.environ)
+        repo_dir = workbench.WORKSPACE / "repo"
+        notes: list[dict] = []
+        try:
+            wb = workbench.fetch_workbench(_api_req, run_id)
+            block = await asyncio.to_thread(workbench.prepare, repo_dir, wb, git_env, notes)
+        except Exception as e:
+            return await _abort(producer, run_id, f"workbench prepare failed: {e}")
+        for note in notes:
+            seq += 1
+            await producer.publish(TOPIC_TRANSCRIPT, run_id,
+                                   {"seq": seq, "type": "workbench", **note})
+        # The block is the platform's voice and goes LAST, after the summons.
+        prompt = prompt.rstrip("\n") + "\n\n" + block
+        cwd = str(repo_dir)
+        if "PATH" in git_env:
+            extra_env = {**extra_env, "PATH": git_env["PATH"]}   # the venv leads, for claude too
 
     claude = os.environ.get("CLAUDE_BIN", "claude")
     common = ["--output-format", "stream-json", "--verbose"]
     if os.environ.get("AP_MODEL"):
         common += ["--model", os.environ["AP_MODEL"]]
-    common += _permission_args(self_edit, bool(os.environ.get("AP_API_TOKEN")), agent)
+    common += _permission_args(self_edit, bool(os.environ.get("AP_API_TOKEN")), agent, dev=dev)
+    if dev:
+        # Always bounded: a dev run without a turn cap is an open-ended bill.
+        turns = os.environ.get("AP_MAX_TURNS", "")
+        common += ["--max-turns", turns if turns.isdigit() else "200"]
     # Broker the platform API as MCP tools (mcp__platform__*) for token-bearing
     # agents, so they can read/annotate runs, check health, use memory and post
     # notifications WITHOUT a shell. The agent opts in by declaring the tools.
@@ -496,7 +542,6 @@ async def _run(producer, run_id: str, agent: str, prompt: str) -> int:
             return [claude, "--agent", agent, "--resume", resume, "-p", user_message, *common]
         return [claude, "--agent", agent, "-p", prompt, *common]
 
-    seq = 0
     final_sid = None
 
     async def _invoke(args: list[str]) -> int:
@@ -544,6 +589,28 @@ async def _run(producer, run_id: str, agent: str, prompt: str) -> int:
             seq += 1
             await producer.publish(TOPIC_TRANSCRIPT, run_id,
                                    {"seq": seq, "type": "self_edit", "error": str(e)})
+            state = "failed"
+
+    # On a successful dev run, hand the branch to the platform as a bundle. The
+    # result — published, refused, or nothing to publish — is a frame the run
+    # page shows; a finalize that blows up fails the run the way self_edit does.
+    if dev and rc == 0:
+        try:
+            result = await asyncio.to_thread(workbench.finalize, Path(cwd), wb, git_env,
+                                             run_id, _api_req)
+            seq += 1
+            await producer.publish(TOPIC_TRANSCRIPT, run_id,
+                                   {"seq": seq, "type": "workbench", **result})
+            # The API refusing the branch (policy, ancestry, cap) means nothing
+            # landed; "no changes" means there was nothing to land. Only the
+            # first is a failed run.
+            status = result.get("status")
+            if result.get("published") is False and isinstance(status, int) and status >= 400:
+                state = "failed"
+        except Exception as e:
+            seq += 1
+            await producer.publish(TOPIC_TRANSCRIPT, run_id,
+                                   {"seq": seq, "type": "workbench", "error": str(e)})
             state = "failed"
 
     # Persist the (possibly new) session so the next turn can resume it. Best

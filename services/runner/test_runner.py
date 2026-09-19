@@ -2,6 +2,7 @@ import json, os, stat
 import urllib.error
 from pathlib import Path
 import runner
+import workbench
 
 class FakeProducer:
     def __init__(self): self.published = []
@@ -512,3 +513,182 @@ def test_resume_failure_falls_back(tmp_path, monkeypatch):
     types = [v.get("type") for _, _, v in p.published]
     assert "session_fallback" in types
     assert p.published[-1][2]["terminal"] is True and p.published[-1][2]["state"] == "succeeded"
+
+
+# --- the dev run (docs/design/24) ------------------------------------------
+
+def test_permission_args_dev_case_pinned(tmp_path, monkeypatch):
+    """A dev run is a shell-capable run in a credential-less pod: the file and
+    shell tools are allowed outright, the declared grants ride along, and
+    `--strict-mcp-config` sits BEFORE the variadic list so nothing can read it
+    as a tool name."""
+    _installed(tmp_path, monkeypatch, "engineer",
+               "---\nname: engineer\ntools: Glob, Grep, mcp__platform__relay\n---\nbody")
+    args = runner._permission_args(self_edit=False, has_api_token=True, agent="engineer", dev=True)
+    assert args == ["--permission-mode", "acceptEdits", "--strict-mcp-config",
+                    "--allowedTools", "Bash", "Read", "Edit", "Write", "NotebookEdit",
+                    "Glob", "Grep", "mcp__platform__relay", "mcp__platform__*"]
+    assert "--disallowedTools" not in args
+
+
+def test_permission_args_dev_default_is_off(tmp_path, monkeypatch):
+    """The three existing cases are byte-for-byte what they were: `dev` defaults
+    to False and the sensitive set stays denied for a non-dev run."""
+    _installed(tmp_path, monkeypatch, "news", "---\nname: news\ntools: WebFetch\n---\nbody")
+    assert runner._permission_args(False, False, "news") == [
+        "--allowedTools", "WebFetch", "--disallowedTools", *runner._SENSITIVE_TOOLS]
+    assert runner._SENSITIVE_TOOLS == ["Bash", "Read", "Edit", "Write", "NotebookEdit"]
+    assert runner._permission_args(True, False, "x", dev=True) == ["--permission-mode", "acceptEdits"]
+
+
+def _dev_env(monkeypatch, tmp_path, fake_body):
+    fake = tmp_path / "claude"; fake.write_text(fake_body)
+    fake.chmod(fake.stat().st_mode | stat.S_IEXEC)
+    creds = tmp_path / "secrets"; creds.mkdir()
+    (creds / "credentials.json").write_text("{}")
+    monkeypatch.setenv("AP_SECRETS_DIR", str(creds))
+    monkeypatch.delenv("AP_CLAUDE_PROXY_URL", raising=False)
+    monkeypatch.delenv("AP_USER_MESSAGE", raising=False)
+    monkeypatch.delenv("AP_SELF_EDIT", raising=False)
+    monkeypatch.setenv("AP_RUN_ID", "RID"); monkeypatch.setenv("AP_AGENT", "engineer")
+    monkeypatch.setenv("AP_PROMPT", "<ticket>ENG-12</ticket>\nWork the ticket.")
+    monkeypatch.setenv("CLAUDE_BIN", str(fake))
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("AP_WORKSPACE", "dev")
+    monkeypatch.setenv("AP_MAX_TURNS", "200")
+    monkeypatch.setenv("AP_SESSION_TOKEN", "ap_sess")
+    monkeypatch.setenv("AP_API_URL", "http://api:8090")
+    ws = tmp_path / "ws"; (ws / "repo").mkdir(parents=True)
+    monkeypatch.setattr(workbench, "WORKSPACE", ws)
+    monkeypatch.setattr(runner, "_agentdef", lambda: (
+        {"name": "engineer", "description": "Codes.", "prompt": "You code.",
+         "harness_tools": ["Glob", "Grep"], "platform_tools": []}, ""))
+    wb = {"branch": "coder/eng-12", "base": "main", "remote_url": "https://example.invalid/o/r.git", "ticket_key": "ENG-12",
+          "existing": False, "open_pr": None}
+    monkeypatch.setattr(runner, "_api_req", lambda m, p, body=None: wb)
+    seen = {}
+
+    def fake_prepare(repo_dir, wb, env, frames=None):
+        seen["prepare"] = (repo_dir, wb, dict(env))
+        frames.append({"step": "npm ci", "ok": False, "exit": 1, "tail": "boom"})
+        return '<workbench branch="coder/eng-12" base="main" commits_ahead="0">\nrules\n</workbench>\n'
+    monkeypatch.setattr(workbench, "prepare", fake_prepare)
+    real_popen = runner.subprocess.Popen
+
+    def spy(args, **kw):
+        seen["args"], seen["cwd"], seen["env"] = args, kw.get("cwd"), kw.get("env")
+        return real_popen(args, **kw)
+    monkeypatch.setattr(runner.subprocess, "Popen", spy)
+    return seen, ws
+
+
+OK_CLAUDE = '#!/bin/sh\necho \'{"type":"result","session_id":"sid-1","result":"ok"}\'\nexit 0\n'
+
+
+def test_dev_run_prepares_appends_the_block_and_finalizes(tmp_path, monkeypatch):
+    seen, ws = _dev_env(monkeypatch, tmp_path, OK_CLAUDE)
+    monkeypatch.setattr(workbench, "finalize",
+                        lambda repo_dir, wb, env, run_id, api_req: seen.update(finalize=(repo_dir, run_id))
+                        or {"published": True, "pr": {"number": 3, "url": "u"}})
+    p = FakeProducer()
+    assert runner.run(producer=p) == 0
+    repo_dir, wb, env = seen["prepare"]
+    assert repo_dir == ws / "repo" and wb["branch"] == "coder/eng-12"
+    assert "AP_GITHUB_TOKEN" not in env and "GIT_ASKPASS" not in env
+    assert env["GIT_TERMINAL_PROMPT"] == "0"
+    args = seen["args"]
+    prompt = args[args.index("-p") + 1]
+    assert prompt.startswith("<ticket>ENG-12</ticket>\nWork the ticket.")
+    assert prompt.rstrip().endswith("</workbench>")           # the block comes LAST
+    assert args[args.index("--max-turns") + 1] == "200"
+    assert "--strict-mcp-config" in args and "--allowedTools" in args and "Bash" in args
+    assert "--disallowedTools" not in args
+    assert seen["cwd"] == str(ws / "repo")
+    assert seen["finalize"] == (ws / "repo", "RID")
+    frames = [v for _, _, v in p.published if v.get("type") == "workbench"]
+    assert frames[0]["step"] == "npm ci" and frames[0]["ok"] is False   # prepare's note
+    assert frames[-1]["published"] is True and frames[-1]["pr"] == {"number": 3, "url": "u"}
+    assert p.published[-1][2]["state"] == "succeeded"
+    seqs = [v["seq"] for _, _, v in p.published if "seq" in v]
+    assert seqs == sorted(seqs) and len(seqs) == len(set(seqs))
+
+
+def test_dev_run_failed_finalize_is_a_frame_and_a_failed_run(tmp_path, monkeypatch):
+    seen, ws = _dev_env(monkeypatch, tmp_path, OK_CLAUDE)
+
+    def boom(*a, **k):
+        raise RuntimeError("git bundle failed")
+    monkeypatch.setattr(workbench, "finalize", boom)
+    p = FakeProducer()
+    assert runner.run(producer=p) == 0          # claude's own exit code is what is returned
+    frame = next(v for _, _, v in p.published if v.get("type") == "workbench" and "error" in v)
+    assert frame["error"] == "git bundle failed"
+    assert p.published[-1][2]["state"] == "failed"
+
+
+def test_dev_run_does_not_finalize_when_claude_fails(tmp_path, monkeypatch):
+    seen, ws = _dev_env(monkeypatch, tmp_path, "#!/bin/sh\nexit 3\n")
+    monkeypatch.setattr(workbench, "finalize",
+                        lambda *a, **k: pytest.fail("finalize runs only after a clean exit"))
+    p = FakeProducer()
+    assert runner.run(producer=p) == 3
+    assert p.published[-1][2]["state"] == "failed"
+
+
+def test_dev_run_aborts_in_words_when_prepare_fails(tmp_path, monkeypatch):
+    seen, ws = _dev_env(monkeypatch, tmp_path, OK_CLAUDE)
+
+    def boom(*a, **k):
+        raise workbench.WorkbenchError("git clone failed (exit 128)")
+    monkeypatch.setattr(workbench, "prepare", boom)
+    p = FakeProducer()
+    assert runner.run(producer=p) == 1
+    assert "args" not in seen                                   # claude never started
+    state = next(v for t, _, v in p.published if t == runner.TOPIC_EVENTS)
+    assert state["state"] == "failed" and "git clone failed" in state["detail"]
+
+
+def test_non_dev_run_never_touches_the_workbench(tmp_path, monkeypatch):
+    seen, ws = _dev_env(monkeypatch, tmp_path, OK_CLAUDE)
+    monkeypatch.delenv("AP_WORKSPACE")
+    monkeypatch.setattr(workbench, "prepare", lambda *a, **k: pytest.fail("not a dev run"))
+    monkeypatch.setattr(workbench, "finalize", lambda *a, **k: pytest.fail("not a dev run"))
+    p = FakeProducer()
+    assert runner.run(producer=p) == 0
+    assert "--max-turns" not in seen["args"] and "--disallowedTools" in seen["args"]
+    assert seen["cwd"] is None
+
+
+def test_dev_run_api_refusal_fails_the_run(tmp_path, monkeypatch):
+    """A 4xx/5xx from publish means the branch did NOT land; the run must say
+    failed, with the API's sentence in the frame, not quietly succeed."""
+    seen, ws = _dev_env(monkeypatch, tmp_path, OK_CLAUDE)
+    monkeypatch.setattr(workbench, "finalize", lambda *a, **k: {
+        "published": False, "status": 422, "reason": "refused: .github/ci.yaml is on the deny list"})
+    p = FakeProducer()
+    assert runner.run(producer=p) == 0
+    frame = next(v for _, _, v in p.published if v.get("type") == "workbench" and "status" in v)
+    assert frame["reason"].startswith("refused:") and frame["status"] == 422
+    assert p.published[-1][2]["state"] == "failed"
+
+
+def test_dev_run_with_no_changes_still_succeeds(tmp_path, monkeypatch):
+    seen, ws = _dev_env(monkeypatch, tmp_path, OK_CLAUDE)
+    monkeypatch.setattr(workbench, "finalize", lambda *a, **k: {"published": False, "reason": "no changes"})
+    p = FakeProducer()
+    assert runner.run(producer=p) == 0
+    assert p.published[-1][2]["state"] == "succeeded"
+
+
+@pytest.mark.parametrize("value, expected", [(None, "200"), ("abc", "200"), ("", "200"), ("50", "50")])
+def test_dev_run_max_turns_always_set(tmp_path, monkeypatch, value, expected):
+    seen, ws = _dev_env(monkeypatch, tmp_path, OK_CLAUDE)
+    if value is None:
+        monkeypatch.delenv("AP_MAX_TURNS")
+    else:
+        monkeypatch.setenv("AP_MAX_TURNS", value)
+    monkeypatch.setattr(workbench, "finalize", lambda *a, **k: {"published": False, "reason": "no changes"})
+    p = FakeProducer()
+    assert runner.run(producer=p) == 0
+    args = seen["args"]
+    assert args[args.index("--max-turns") + 1] == expected

@@ -52,7 +52,7 @@ jobs:
       - name: Install runner deps
         run: pip install aiokafka pytest pytest-asyncio
       - name: Run runner tests
-        run: cd services/runner && python -m pytest test_runner.py
+        run: cd services/runner && python -m pytest -q
 
   mcp-facade:
     # The external MCP facade (docs/design/17) generates its tools from the
