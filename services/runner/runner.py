@@ -10,6 +10,11 @@ from aiokafka import AIOKafkaProducer
 # turn any agent into a token-exfil vector, so they are **self-edit-only**.
 _SENSITIVE_TOOLS = ["Bash", "Read", "Edit", "Write", "NotebookEdit"]
 
+# What a dev run's agent file enables besides its grants — the same fixed list
+# `_permission_args`' dev case pre-approves. The CLI reads the file's `tools:`
+# as the ENABLED set; a flag cannot enable what the file left out.
+_DEV_SHELL_TOOLS = ["Bash", "Read", "Edit", "Write", "NotebookEdit", "Glob", "Grep"]
+
 def _permission_args(self_edit: bool, has_api_token: bool, agent: str,
                      dev: bool = False) -> list[str]:
     """The claude permission flags for a run. Self-edit auto-accepts edits; every
@@ -38,10 +43,9 @@ def _permission_args(self_edit: bool, has_api_token: bool, agent: str,
         # tools are allowed outright, the declared grants ride along, and
         # `--strict-mcp-config` keeps every MCP server but the runner's own out.
         # It sits BEFORE the variadic list so nothing can read it as a tool.
-        fixed = ["Bash", "Read", "Edit", "Write", "NotebookEdit", "Glob", "Grep"]
-        declared = [t for t in _agent_tools(agent) if t not in fixed]
+        declared = [t for t in _agent_tools(agent) if t not in _DEV_SHELL_TOOLS]
         return ["--permission-mode", "acceptEdits", "--strict-mcp-config",
-                "--allowedTools", *fixed, *declared, "mcp__platform__*"]
+                "--allowedTools", *_DEV_SHELL_TOOLS, *declared, "mcp__platform__*"]
     tools = [t for t in _agent_tools(agent) if t not in _SENSITIVE_TOOLS]
     out: list[str] = []
     if tools:
@@ -242,7 +246,7 @@ def _agent_description(d: dict) -> str:
     return json.dumps(first or f"The {d['name']} agent.")
 
 
-def _render_agent_md(d: dict) -> str:
+def _render_agent_md(d: dict, dev: bool = False) -> str:
     """A fetched definition as the file `claude --agent` reads: frontmatter
     naming and describing the agent plus its granted tools, then the prompt as
     the body. Name and description are the CLI's required fields — see
@@ -254,6 +258,12 @@ def _render_agent_md(d: dict) -> str:
     no line at all, which reads back as [] and pre-approves nothing; the
     sensitive set stays denied either way.
 
+    A dev run is the exception: the CLI treats `tools:` as the enabled SET, and
+    `--allowedTools` only pre-approves within it, so a file listing just the
+    grants leaves Bash "not enabled in this context" whatever the flags say.
+    There the line leads with `_DEV_SHELL_TOOLS`, then the grants that are not
+    already in it — the parsed-back list still filters to the same flags.
+
     Only bare tool names get written. The API validates grants against the
     registries, so this is defense in depth — but it is the layer that matters
     for a permission SPECIFIER like `Bash(cat /secrets/...)`, which
@@ -262,13 +272,15 @@ def _render_agent_md(d: dict) -> str:
     tools = [t for t in (*(d.get("harness_tools") or []),
                          *(d.get("platform_tools") or []))
              if isinstance(t, str) and re.fullmatch(r"[A-Za-z0-9_]+", t)]
+    if dev:
+        tools = [*_DEV_SHELL_TOOLS, *(t for t in tools if t not in _DEV_SHELL_TOOLS)]
     front = [f"name: {d['name']}", f"description: {_agent_description(d)}"]
     if tools:
         front.append("tools: " + ", ".join(tools))
     return "---\n" + "\n".join(front) + "\n---\n\n" + (d.get("prompt") or "")
 
 
-def _install_agent(agent: str) -> None:
+def _install_agent(agent: str, dev: bool = False) -> None:
     """Put this run's definition where `claude --agent <name>` finds it.
 
     One path (docs/design/15): fetch it from the platform — definitions are
@@ -283,7 +295,7 @@ def _install_agent(agent: str) -> None:
         raise AgentUnavailable(f"agent definition unavailable: api={api_error}")
     dst = _agent_path(agent)
     dst.parent.mkdir(parents=True, exist_ok=True)
-    dst.write_text(_render_agent_md(definition))
+    dst.write_text(_render_agent_md(definition, dev=dev))
 
 def _install_skills() -> None:
     # `claude` resolves skills from ~/.claude/skills/<name>/SKILL.md. Copy each
@@ -467,14 +479,14 @@ async def _run(producer, run_id: str, agent: str, prompt: str) -> int:
     # The producer comes up BEFORE the definition is installed: a pod with no
     # definition has to report that, and it can only report over Kafka.
     await producer.start()
+    self_edit = os.environ.get("AP_SELF_EDIT") == "1"
+    dev = os.environ.get("AP_WORKSPACE") == "dev"
     try:
-        _install_agent(agent)
+        _install_agent(agent, dev=dev)
     except AgentUnavailable as e:
         return await _abort(producer, run_id, str(e))
     _install_skills()
 
-    self_edit = os.environ.get("AP_SELF_EDIT") == "1"
-    dev = os.environ.get("AP_WORKSPACE") == "dev"
     cwd = None
     git_env = None
     seq = 0

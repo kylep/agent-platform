@@ -1610,7 +1610,7 @@ def _ensure_engineer_seed(conn) -> None:
                                              TOOL_TICKETS, TOOL_WIKI)
         snapshot = AgentDefModel(
             name=name, prompt=ENGINEER_PROMPT, description=ENGINEER_DESCRIPTION,
-            model="", role="dev", system=False, can_invoke=False,
+            model="opus", role="dev", system=False, can_invoke=False,
             concurrency=1, timeout_seconds=5400,
             quota_5h_max_pct=95, quota_7d_max_pct=90,
             platform_tools=[TOOL_RELAY, TOOL_TICKETS, TOOL_WIKI, TOOL_QUOTA_OK,

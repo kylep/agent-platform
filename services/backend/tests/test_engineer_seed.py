@@ -68,9 +68,10 @@ async def test_the_engineer_is_seeded_with_its_grants_role_and_thresholds(engine
         assert row is not None
         # Not `system`: the librarian hides from `@all`, the engineer does not.
         assert (row.system, row.enabled, row.can_invoke) == (False, True, False)
-        # The CLI default model: a coding run is where the strong one earns its
-        # cost. `dev` is the run-profile rung, not an API scope.
-        assert (row.model, row.role) == ("", "dev")
+        # Named, not the CLI default: the default resolved to sonnet live and
+        # a coding run is where the strong one earns its cost. `dev` is the
+        # run-profile rung, not an API scope.
+        assert (row.model, row.role) == ("opus", "dev")
         assert (row.timeout_seconds, row.concurrency) == (5400, 1)
         assert (row.quota_5h_max_pct, row.quota_7d_max_pct) == (95, 90)
         assert row.platform_tools == [TOOL_RELAY, TOOL_TICKETS, TOOL_WIKI,
@@ -119,7 +120,7 @@ async def test_the_engineer_has_exactly_one_version_after_a_fresh_init(engine, s
     snap = versions[0].snapshot
     assert snap["platform_tools"] == [TOOL_RELAY, TOOL_TICKETS, TOOL_WIKI,
                                       TOOL_QUOTA_OK, TOOL_ARTIFACTS]
-    assert (snap["system"], snap["role"], snap["model"]) == (False, "dev", "")
+    assert (snap["system"], snap["role"], snap["model"]) == (False, "dev", "opus")
     assert (snap["quota_5h_max_pct"], snap["quota_7d_max_pct"]) == (95, 90)
 
 

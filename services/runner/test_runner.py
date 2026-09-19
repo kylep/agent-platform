@@ -541,6 +541,58 @@ def test_permission_args_dev_default_is_off(tmp_path, monkeypatch):
     assert runner._permission_args(True, False, "x", dev=True) == ["--permission-mode", "acceptEdits"]
 
 
+_DEV_SHELL_TOOLS = ["Bash", "Read", "Edit", "Write", "NotebookEdit", "Glob", "Grep"]
+
+
+def test_dev_render_lists_the_shell_tools_in_the_tools_line():
+    """Claude Code reads the agent file's `tools:` as the ENABLED set, and
+    `--allowedTools` only pre-approves within it — so a dev agent file that
+    lists only its grants leaves Bash "not enabled in this context" no matter
+    what the flags say (found live: run b6738d261bc44e438ede46cdf0d33755). The
+    dev render therefore leads with the same fixed list the dev flags allow,
+    then the declared harness tools, then the declared platform tools —
+    deduplicated, in that order, and nothing else."""
+    d = _payload(name="engineer", harness_tools=["Glob", "WebFetch", "Grep"],
+                 platform_tools=["mcp__platform__relay", "mcp__platform__tickets"])
+    text = runner._render_agent_md(d, dev=True)
+    line = next(ln for ln in text.split("---")[1].splitlines() if ln.startswith("tools:"))
+    assert line == ("tools: Bash, Read, Edit, Write, NotebookEdit, Glob, Grep, "
+                    "WebFetch, mcp__platform__relay, mcp__platform__tickets")
+    assert text.count("tools:") == 1
+    # Nothing granted still gets the shell: the line is the fixed list alone.
+    bare = runner._render_agent_md(_payload(harness_tools=[], platform_tools=[]), dev=True)
+    assert "tools: " + ", ".join(_DEV_SHELL_TOOLS) + "\n" in bare
+
+
+def test_non_dev_render_is_byte_identical_with_the_dev_flag_off():
+    """`dev` defaults to False and the non-dev rendering is exactly what it was:
+    the grants alone, in declaration order, no shell tools smuggled in."""
+    d = _payload()
+    expected = ("---\nname: newsy\n"
+                'description: "Gathers the day\'s news."\n'
+                "tools: WebSearch, WebFetch, mcp__platform__memory\n"
+                "---\n\nYou are newsy.\n")
+    assert runner._render_agent_md(d) == expected
+    assert runner._render_agent_md(d, dev=False) == expected
+    assert runner._render_agent_md(d, dev=True) != expected
+
+
+def test_install_agent_dev_writes_the_shell_tools_and_the_flags_do_not_double(tmp_path, monkeypatch):
+    """The installed dev file carries the shell tools, and the flags built from
+    parsing it back out are the same pinned list as before — the fixed set is
+    filtered out of the declared tail, so nothing appears twice."""
+    _fetch_env(monkeypatch, tmp_path)
+    monkeypatch.setattr(runner, "_api_req", lambda m, p, body=None: _payload(
+        name="engineer", harness_tools=["Glob", "Grep"],
+        platform_tools=["mcp__platform__relay"]))
+    runner._install_agent("engineer", dev=True)
+    assert runner._agent_tools("engineer") == [*_DEV_SHELL_TOOLS, "mcp__platform__relay"]
+    args = runner._permission_args(self_edit=False, has_api_token=True, agent="engineer", dev=True)
+    assert args == ["--permission-mode", "acceptEdits", "--strict-mcp-config",
+                    "--allowedTools", *_DEV_SHELL_TOOLS, "mcp__platform__relay",
+                    "mcp__platform__*"]
+
+
 def _dev_env(monkeypatch, tmp_path, fake_body):
     fake = tmp_path / "claude"; fake.write_text(fake_body)
     fake.chmod(fake.stat().st_mode | stat.S_IEXEC)
@@ -623,6 +675,9 @@ def test_dev_run_prepares_appends_the_block_and_finalizes(tmp_path, monkeypatch)
     assert args[args.index("--max-turns") + 1] == "200"
     assert "--strict-mcp-config" in args and "--allowedTools" in args and "Bash" in args
     assert "--disallowedTools" not in args
+    # The installed file enables the shell too — the flags alone did not (R2).
+    installed = (tmp_path / ".claude" / "agents" / "engineer.md").read_text()
+    assert "\ntools: Bash, Read, Edit, Write, NotebookEdit, Glob, Grep\n" in installed
     assert seen["cwd"] == str(ws / "repo")
     assert seen["finalize"] == (ws / "repo", "RID")
     frames = [v for _, _, v in p.published if v.get("type") == "workbench"]
