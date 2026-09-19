@@ -1,0 +1,149 @@
+suite: wiki
+area: wiki
+cases:
+  - key: wiki.write-and-version
+    title: Writing a page creates version 1, an edit names the version it read, and a stale base is a mergeable conflict
+    layer: integration
+    priority: p0
+    steps: [PUT a page, edit it with the version it read, edit again with the old version]
+    expected: the first edit is a new version, the stale one is a 409 carrying what is needed to merge, restoring a version is itself a new version
+    automation:
+      - pytest:services/backend/tests/test_wiki_api.py::test_write_a_page_and_read_it_back
+      - pytest:services/backend/tests/test_wiki_api.py::test_an_edit_names_the_version_it_read
+      - pytest:services/backend/tests/test_wiki_api.py::test_a_stale_base_version_is_a_conflict_that_can_be_merged
+      - pytest:services/backend/tests/test_wiki_api.py::test_restoring_a_version_is_a_new_version
+    tags: [api, versions]
+
+  - key: wiki.append-never-conflicts
+    title: Append creates a missing page and never conflicts
+    layer: integration
+    priority: p2
+    steps: [append to a slug that does not exist, then to one that does]
+    expected: the first append creates the page, the second adds a version with no base-version check
+    automation:
+      - pytest:services/backend/tests/test_wiki_api.py::test_append_creates_the_page_and_never_conflicts
+    tags: [api]
+
+  - key: wiki.search-ors-the-words
+    title: The list searches with every word OR-ed and strips mentions from the query
+    layer: integration
+    priority: p1
+    steps: ["search for \"deploy helm\" with only one word present on a page"]
+    expected: the page is found; filters by area and archived state narrow the list
+    automation:
+      - pytest:services/backend/tests/test_wiki_api.py::test_the_list_searches_and_filters
+    tags: [api, search]
+
+  - key: wiki.agent-needs-grant-and-run
+    title: An agent writes the wiki as itself, only from its own run, and only with the wiki grant
+    layer: integration
+    priority: p1
+    steps: [write with a run token, with a run-less agent token, and with an agent that lacks the wiki grant]
+    expected: the run token writes as the agent, the other two are refused, a reader may read but not write
+    automation:
+      - pytest:services/backend/tests/test_wiki_api.py::test_an_agent_writes_as_itself_from_its_own_run
+      - pytest:services/backend/tests/test_wiki_api.py::test_an_agent_token_with_no_run_may_not_write
+      - pytest:services/backend/tests/test_wiki_api.py::test_an_agent_without_the_wiki_grant_is_refused
+      - pytest:services/backend/tests/test_wiki_api.py::test_a_reader_may_read_but_not_write
+    tags: [api, rbac]
+
+  - key: wiki.write-budget
+    title: The hourly write budget is a 429 and one line in the room
+    layer: integration
+    priority: p0
+    steps: [write pages past the actor's hourly budget]
+    expected: the refused write stores nothing, the API answers 429, the notice appears once in #wiki
+    automation:
+      - pytest:services/backend/tests/test_wiki_api.py::test_the_hourly_write_budget_is_a_429_and_a_line_in_the_room
+    tags: [loop-guards]
+
+  - key: wiki.promote-memory
+    title: A memory is promoted into a page with its provenance, by a human for any agent and by an agent only for itself
+    layer: integration
+    priority: p2
+    steps: [promote a memory by id as admin, then as the owning agent, then as another agent]
+    expected: the page body carries the memory's provenance, the other agent is refused, the memory is named exactly one way
+    automation:
+      - pytest:services/backend/tests/test_wiki_api.py::test_a_human_promotes_any_memory
+      - pytest:services/backend/tests/test_wiki_api.py::test_an_agent_promotes_only_its_own_memory
+      - pytest:services/backend/tests/test_wiki_lib.py::test_promoted_body_carries_its_provenance
+    tags: [api, memory]
+
+  - key: wiki.card-flattens-hostile-text
+    title: The diff card flattens a hostile title, reason and author and caps a ten-thousand-character reason
+    layer: unit
+    priority: p1
+    steps: [render the card for a page write whose fields carry newlines, mentions and 10k characters]
+    expected: one line, mentions defanged, the reason capped, links and summary survive a hostile body
+    automation:
+      - pytest:services/backend/tests/test_wiki_lib.py::test_card_flattens_a_hostile_title
+      - pytest:services/backend/tests/test_wiki_lib.py::test_card_flattens_and_caps_a_ten_thousand_character_reason
+      - pytest:services/backend/tests/test_wiki_lib.py::test_find_links_and_summary_survive_a_hostile_body
+    tags: [injection]
+
+  - key: wiki.slug-and-diff
+    title: Slugs are anchored and never end on a separator, and a unified diff names both versions
+    layer: unit
+    priority: p3
+    steps: [slugify a title past the cap, diff two bodies and an unchanged body]
+    expected: the slug ends on a word, the diff header names both versions, an unchanged body diffs to nothing
+    automation:
+      - pytest:services/backend/tests/test_wiki_lib.py::test_slug_re_is_anchored_against_a_careless_match_caller
+      - pytest:services/backend/tests/test_wiki_lib.py::test_slugify_never_ends_on_a_separator_after_the_cap
+      - pytest:services/backend/tests/test_wiki_lib.py::test_unified_diff_names_both_versions
+    tags: [parser]
+
+  - key: wiki.ui-edit-round-trip
+    title: An edit carries the version it read and a page that moved under it keeps the draft
+    layer: e2e
+    priority: p1
+    steps: [open /wiki/deploying, edit, save; push a newer version mid-edit and save again]
+    expected: the PUT carries base_version and the page re-renders; the conflict keeps the draft and says so
+    automation:
+      - "playwright:services/web/tests/wiki.spec.ts::an edit carries the version it read, and the page re-renders"
+      - "playwright:services/web/tests/wiki.spec.ts::a page that moved under an edit keeps the draft and says so"
+    tags: [ui]
+
+  - key: wiki.ui-links-are-chips
+    title: A [[slug]] is a chip in prose, plain text in code, red when unwritten, and cut like a ticket key
+    layer: e2e
+    priority: p2
+    steps: [render a room message and a page body with links in prose, in a fence and to a missing page]
+    expected: prose links are chips, fenced ones are text, a link to nothing is red and opens the editor
+    automation:
+      - "playwright:services/web/tests/wiki.spec.ts::a [[slug]] is a chip in prose and plain text in code"
+      - "playwright:services/web/tests/wiki.spec.ts::a red chip opens the editor to write the page"
+      - "playwright:services/web/tests/wiki-integrations.spec.ts::a link to a page nobody has written is red; one in a fence is not a link"
+    tags: [ui, markdown]
+
+  - key: wiki.ui-history-drawer
+    title: The history drawer shows who changed what and the diff marks the lines
+    layer: e2e
+    priority: p3
+    steps: [open a page's history, pick two versions]
+    expected: authors and reasons are listed, added and removed lines are marked, a diff that cannot be read says so
+    automation:
+      - "playwright:services/web/tests/wiki.spec.ts::the history drawer shows who changed what, and the diff marks the lines"
+      - "playwright:services/web/tests/wiki.spec.ts::a diff that cannot be read says so instead of loading forever"
+    tags: [ui]
+
+  - key: wiki.tool-write-and-conflict
+    title: The wiki tool writes a page and hands a conflict back with the merge instructions
+    layer: unit
+    priority: p2
+    steps: [call wiki write with a body, then again with a stale base version]
+    expected: the first call answers with the card line, the second explains the conflict rather than raising
+    automation:
+      - pytest:services/mcp-broker/test_wiki_tool.py::test_a_write_with_no_base_version_creates_the_page
+      - pytest:services/mcp-broker/test_wiki_tool.py::test_a_write_that_names_what_it_read_replaces_the_page
+      - pytest:services/mcp-broker/test_wiki_tool.py::test_a_conflict_with_no_version_in_it_still_reads_as_a_conflict
+    tags: [broker, tool]
+
+  - key: wiki.live-gardener-sunday
+    title: The Sunday gardener job walks the wiki on the live site and posts one diff card per page it touches
+    layer: manual
+    priority: p3
+    preconditions: [the live site is up, the gardener job is scheduled]
+    steps: [Run Now on the gardener job, "watch #wiki and the run's transcript"]
+    expected: one run, each edited page gets one card in #wiki with a reason, no page is rewritten without a reason
+    tags: [live, jobs]
