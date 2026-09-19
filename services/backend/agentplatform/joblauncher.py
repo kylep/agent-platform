@@ -66,6 +66,13 @@ class K8sJobLauncher(Launcher):
         return (manifest.role == "coder" and self.github_app is not None
                 and bool(self.settings.git_remote_url) and bool(self.settings.github_repo))
 
+    def _is_dev(self, manifest: Manifest) -> bool:
+        """The Workbench profile (docs/design/24). Keyed on the role alone:
+        unlike a self-edit it needs no GitHub App, because the pod is handed no
+        repository credential — its clone is anonymous and its one way out is
+        the API's publish route, which holds the App."""
+        return manifest.role == "dev"
+
     async def _platform_token_role(self, agent: str) -> str | None:
         """The per-run token role an agent's PLATFORM-TOOL GRANTS earn, or None
         for no token. No platform grant, no token — a token follows an explicit
@@ -156,7 +163,7 @@ class K8sJobLauncher(Launcher):
     def build_job(self, run: Run, manifest: Manifest, self_edit_token: str | None = None,
                   api_token: str | None = None, sa_identity: str | None = None,
                   run_token: str | None = None, pod_sa: str | None = None,
-                  session_token: str | None = None) -> k8s.V1Job:
+                  session_token: str | None = None, dev: bool = False) -> k8s.V1Job:
         name = f"run-{run.id[:12]}"
         env = [
             k8s.V1EnvVar(name="AP_RUN_ID", value=run.id),
@@ -210,6 +217,27 @@ class K8sJobLauncher(Launcher):
                 k8s.V1EnvVar(name="AP_DEFAULT_BRANCH", value=self.settings.default_branch),
                 k8s.V1EnvVar(name="AP_GITHUB_TOKEN", value=self_edit_token),
             ]
+        if dev:
+            # The Workbench (docs/design/24): the remote URL is for an ANONYMOUS
+            # clone, and no AP_GITHUB_TOKEN / AP_SELF_EDIT ever joins it — the
+            # pod cannot push; the API publishes the branch from a bundle.
+            env += [
+                k8s.V1EnvVar(name="AP_WORKSPACE", value="dev"),
+                k8s.V1EnvVar(name="AP_GIT_REMOTE_URL", value=self.settings.git_remote_url),
+                k8s.V1EnvVar(name="AP_DEFAULT_BRANCH", value=self.settings.default_branch),
+                k8s.V1EnvVar(name="AP_MAX_TURNS", value=str(self.settings.dev_max_turns)),
+                k8s.V1EnvVar(name="AP_VERIFY_TIMEOUT",
+                             value=str(self.settings.dev_verify_timeout_seconds)),
+                k8s.V1EnvVar(name="AP_WEB_URL", value=self.settings.web_internal_url),
+                # The runner refuses to bundle past this itself, so an
+                # oversized change is a clear line in the thread rather than a
+                # 413 from the publish route after the upload.
+                k8s.V1EnvVar(name="AP_PUBLISH_MAX_BYTES",
+                             value=str(self.settings.publish_max_bytes)),
+                # Where the dev image bakes Playwright's browsers; without it
+                # Playwright looks in $HOME, which is a fresh emptyDir.
+                k8s.V1EnvVar(name="PLAYWRIGHT_BROWSERS_PATH", value="/ms-playwright"),
+            ]
         # The run-scoped session token (docs/design/14, widened by design/15):
         # it unlocks this run's own endpoints and nothing else — the agent
         # DEFINITION the pod materializes, and, for a conversation turn, the
@@ -246,22 +274,37 @@ class K8sJobLauncher(Launcher):
             k8s.V1VolumeMount(name="workspace", mount_path="/workspace"),
             k8s.V1VolumeMount(name="tmp", mount_path="/tmp"),
         ]
+        if dev:
+            # Chromium's shared memory. Under a read-only rootfs the default
+            # 64Mi /dev/shm is what the browser crashes on, so the dev profile
+            # backs it with a bounded in-memory emptyDir — the same cage, one
+            # more scratch path.
+            volume_mounts.append(k8s.V1VolumeMount(name="dshm", mount_path="/dev/shm"))
         if not self.settings.claude_proxy_url:
             # Legacy direct-token mode only: the subscription token in the pod.
             volume_mounts.insert(0, k8s.V1VolumeMount(
                 name="claude-credentials", mount_path="/secrets/claude", read_only=True))
-        container = k8s.V1Container(
-            name="runner",
-            image=self.settings.runner_image,
-            env=env,
-            env_from=env_from or None,
-            volume_mounts=volume_mounts,
-            resources=k8s.V1ResourceRequirements(
+        if dev:
+            # A clone, `npm ci`, a pytest suite and a browser at once: the lean
+            # profile's ceiling would OOM the verify step, not the model.
+            resources = k8s.V1ResourceRequirements(
+                requests={"memory": "2Gi", "cpu": "500m"},
+                limits={"memory": "6Gi", "cpu": "3"},
+            )
+        else:
+            resources = k8s.V1ResourceRequirements(
                 # CPU limit contains a runaway/malicious agent from starving the
                 # single node; memory limit bounds its footprint.
                 requests={"memory": "1Gi", "cpu": "250m"},
                 limits={"memory": "3Gi", "cpu": "2"},
-            ),
+            )
+        container = k8s.V1Container(
+            name="runner",
+            image=self.settings.runner_dev_image if dev else self.settings.runner_image,
+            env=env,
+            env_from=env_from or None,
+            volume_mounts=volume_mounts,
+            resources=resources,
             security_context=k8s.V1SecurityContext(
                 allow_privilege_escalation=False,
                 run_as_non_root=True,
@@ -282,9 +325,16 @@ class K8sJobLauncher(Launcher):
                 ),
             ),
             k8s.V1Volume(name="home", empty_dir=k8s.V1EmptyDirVolumeSource()),
-            k8s.V1Volume(name="workspace", empty_dir=k8s.V1EmptyDirVolumeSource()),
+            # The workspace is unbounded for the lean profile (a --depth 1
+            # clone); a dev run's clone plus node_modules gets a size limit so
+            # a runaway build evicts the pod rather than filling the node.
+            k8s.V1Volume(name="workspace", empty_dir=k8s.V1EmptyDirVolumeSource(
+                size_limit=self.settings.dev_workspace_size_limit if dev else None)),
             k8s.V1Volume(name="tmp", empty_dir=k8s.V1EmptyDirVolumeSource()),
         ]
+        if dev:
+            volumes.append(k8s.V1Volume(name="dshm", empty_dir=k8s.V1EmptyDirVolumeSource(
+                medium="Memory", size_limit=self.settings.dev_shm_size_limit)))
         if not self.settings.claude_proxy_url:
             volumes.insert(0, k8s.V1Volume(
                 name="claude-credentials",
@@ -456,7 +506,7 @@ class K8sJobLauncher(Launcher):
                         or self.settings.run_timeout_seconds)
         job = self.build_job(run, manifest, self_edit_token=token, api_token=api_token,
                              sa_identity=sa_identity, run_token=run_token, pod_sa=pod_sa,
-                             session_token=session_token)
+                             session_token=session_token, dev=self._is_dev(manifest))
         await self._audit_secret_access(run, manifest)
         await asyncio.to_thread(self.batch.create_namespaced_job, self.settings.k8s_namespace, job)
 

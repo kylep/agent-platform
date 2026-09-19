@@ -8,6 +8,12 @@ images:
   runner:
     repository: agent-platform-runner
     tag: dev
+  # The Workbench image (docs/design/24): what a `role: dev` run's pod runs —
+  # Python 3.12 with every test dependency, Node 22, Playwright's Chromium.
+  # Built from the repository root with -f services/runner/Dockerfile.dev.
+  runnerDev:
+    repository: agent-platform-runner-dev
+    tag: dev
   web:
     repository: agent-platform-web
     tag: dev
@@ -177,9 +183,10 @@ agents:
 
 # Env vars applied to the api/dispatcher/recorder Deployments (AP_ prefix,
 # see services/backend/agentplatform/config.py). AP_DB_URL, AP_KAFKA_BOOTSTRAP,
-# AP_RUNNER_IMAGE and AP_CHECKOUT_ROOT are computed in the templates from other
-# values and are not set here. AP_SESSION_SECRET has intentionally no default
-# below -- the templates use `required` and installs fail without one, e.g.
+# AP_RUNNER_IMAGE, AP_RUNNER_DEV_IMAGE, AP_WEB_URL and AP_CHECKOUT_ROOT are
+# computed in the templates from other values and are not set here.
+# AP_SESSION_SECRET has intentionally no default below -- the templates use
+# `required` and installs fail without one, e.g.
 #   --set env.AP_SESSION_SECRET=... or -f a values file that sets it.
 # AP_INTERNAL_SECRET is the same kind of value: no default, required, and it
 # authenticates the claude-proxy's quota push to the API (docs/design/22).

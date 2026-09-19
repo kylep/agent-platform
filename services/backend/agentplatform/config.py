@@ -1,4 +1,5 @@
 from functools import lru_cache
+from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class Settings(BaseSettings):
@@ -7,6 +8,30 @@ class Settings(BaseSettings):
     kafka_bootstrap: str = "localhost:9092"
     k8s_namespace: str = "agent-platform"
     runner_image: str = "agent-platform-runner:dev"
+    # The Workbench (docs/design/24): a `role: dev` run gets a bigger pod on
+    # this second image — Python 3.12 with every test dependency, Node 22 and
+    # Playwright's Chromium — instead of the lean one every other agent runs.
+    runner_dev_image: str = "agent-platform-runner-dev:dev"
+    # The dev run's budgets. `dev_max_turns` is claude's --max-turns;
+    # `dev_verify_timeout_seconds` is the wall clock the runner gives
+    # `bin/ap-verify` after the model's turn has ended (a timeout is recorded
+    # as such, never hidden). The two size limits cap the pod's writable
+    # scratch: a clone with node_modules on the workspace emptyDir, and the
+    # in-memory /dev/shm Chromium needs (the default 64Mi makes it crash).
+    dev_max_turns: int = 200
+    dev_verify_timeout_seconds: int = 1800
+    dev_workspace_size_limit: str = "8Gi"
+    dev_shm_size_limit: str = "1Gi"
+    # Cap on the git bundle a dev run may POST to publish: the whole change
+    # travels through the API before a byte reaches GitHub, so this bounds
+    # what one run can make the API hold.
+    publish_max_bytes: int = 16 * 1024 * 1024
+    # In-cluster web URL a dev pod's browser targets (docs/design/25). The
+    # chart derives it from the release name and calls it AP_WEB_URL — the
+    # runner-side name that pairs with AP_API_URL — hence the alias here.
+    web_internal_url: str = Field(
+        "http://ap-web:8090",
+        validation_alias=AliasChoices("web_internal_url", "AP_WEB_URL"))
     # The synced git checkout itself (docs/design/10's building blocks live in
     # subdirectories of it). Agents used to be one of them and gave this
     # setting its old name, `agents_root`; definitions are rows now

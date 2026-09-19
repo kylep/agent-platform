@@ -400,3 +400,123 @@ async def test_a_relay_run_key_is_named_for_the_agent_that_holds_it(sf):
     async with sf() as s:
         key = (await s.execute(select(ApiKey).where(ApiKey.run_id == "r1"))).scalar_one()
     assert (key.name, key.role, key.agent) == ("relay:chatty", "relay", "chatty")
+
+
+def _dev_settings(**overrides):
+    return Settings(runner_image="r:1", runner_dev_image="rd:1", k8s_namespace="ap",
+                    git_remote_url="https://github.com/o/r.git", github_repo="o/r",
+                    api_internal_url="http://api:8090", web_internal_url="http://ap-web:8090",
+                    **overrides)
+
+
+def _dev_run():
+    run = Run(agent="engineer", trigger="relay", requested_by="t", prompt="fix ENG-12")
+    run.id = "d" * 32
+    return run
+
+
+def test_dev_run_gets_the_workbench_profile():
+    """docs/design/24: a `role: dev` run is a bigger pod on the dev image with
+    an anonymous clone target — and NO repository credential of any kind."""
+    launcher = K8sJobLauncher(batch=None, settings=_dev_settings(), github_app=_FakeApp())
+    m = Manifest(role="dev", timeout_seconds=5400)
+    assert launcher._is_dev(m) is True
+    spec = launcher.build_job(_dev_run(), m, dev=True).spec.template.spec
+    c = spec.containers[0]
+    assert c.image == "rd:1"
+    assert c.resources.requests == {"memory": "2Gi", "cpu": "500m"}
+    assert c.resources.limits == {"memory": "6Gi", "cpu": "3"}
+    env = {e.name: e.value for e in c.env}
+    assert env["AP_WORKSPACE"] == "dev"
+    assert env["AP_GIT_REMOTE_URL"] == "https://github.com/o/r.git"
+    assert env["AP_DEFAULT_BRANCH"] == "main"
+    assert env["AP_MAX_TURNS"] == "200"
+    assert env["AP_VERIFY_TIMEOUT"] == "1800"
+    assert env["AP_WEB_URL"] == "http://ap-web:8090"
+    assert env["AP_PUBLISH_MAX_BYTES"] == str(16 * 1024 * 1024)
+    assert env["PLAYWRIGHT_BROWSERS_PATH"] == "/ms-playwright"
+    assert "AP_GITHUB_TOKEN" not in env and "AP_SELF_EDIT" not in env
+    vols = {v.name: v for v in spec.volumes}
+    assert vols["workspace"].empty_dir.size_limit == "8Gi"
+    assert vols["dshm"].empty_dir.medium == "Memory"
+    assert vols["dshm"].empty_dir.size_limit == "1Gi"
+    mounts = {m.name: m.mount_path for m in c.volume_mounts}
+    assert mounts["dshm"] == "/dev/shm" and mounts["workspace"] == "/workspace"
+
+
+def test_dev_run_keeps_the_runner_cage():
+    """Pod hardening is unchanged for the dev profile: the same block the
+    hardening test above asserts, holding on a dev Job."""
+    launcher = K8sJobLauncher(batch=None, settings=_dev_settings())
+    spec = launcher.build_job(_dev_run(), Manifest(role="dev"), dev=True).spec.template.spec
+    sc = spec.containers[0].security_context
+    assert sc.allow_privilege_escalation is False
+    assert sc.run_as_non_root is True
+    assert sc.run_as_user == 1001 and sc.run_as_group == 1001
+    assert sc.capabilities.drop == ["ALL"]
+    assert sc.read_only_root_filesystem is True
+    assert spec.security_context.seccomp_profile.type == "RuntimeDefault"
+    assert spec.security_context.fs_group == 1001
+    assert spec.automount_service_account_token is False
+
+
+def test_dev_run_is_never_a_self_edit():
+    launcher = K8sJobLauncher(batch=None, settings=_dev_settings(), github_app=_FakeApp())
+    assert launcher._is_self_edit(Manifest(role="dev")) is False
+    assert launcher._is_dev(Manifest(role="coder")) is False
+    assert launcher._is_dev(Manifest(role="operator")) is False
+
+
+def test_coder_job_is_unchanged_by_the_dev_profile():
+    """The lean profile every other agent runs on — image, resources, the
+    three plain emptyDirs, the self-edit env — is byte-for-byte what it was."""
+    launcher = K8sJobLauncher(batch=None, settings=_dev_settings(), github_app=_FakeApp())
+    run = Run(agent="platform-coder", trigger="manual", requested_by="t", prompt="edit x")
+    run.id = "b" * 32
+    spec = launcher.build_job(run, Manifest(role="coder", timeout_seconds=600),
+                              self_edit_token="ghs_selfedit").spec.template.spec
+    c = spec.containers[0]
+    assert c.image == "r:1"
+    assert c.resources.requests == {"memory": "1Gi", "cpu": "250m"}
+    assert c.resources.limits == {"memory": "3Gi", "cpu": "2"}
+    assert [v.name for v in spec.volumes] == ["claude-credentials", "agents", "home",
+                                              "workspace", "tmp"]
+    for name in ("home", "workspace", "tmp"):
+        v = next(v for v in spec.volumes if v.name == name)
+        assert v.empty_dir.size_limit is None and v.empty_dir.medium is None
+    assert {m.name: m.mount_path for m in c.volume_mounts} == {
+        "claude-credentials": "/secrets/claude", "agents": "/agents",
+        "home": "/home/runner", "workspace": "/workspace", "tmp": "/tmp"}
+    env = {e.name: e.value for e in c.env}
+    assert env["AP_SELF_EDIT"] == "1" and env["AP_GITHUB_TOKEN"] == "ghs_selfedit"
+    for name in ("AP_WORKSPACE", "AP_MAX_TURNS", "AP_VERIFY_TIMEOUT", "AP_WEB_URL",
+                 "AP_PUBLISH_MAX_BYTES", "PLAYWRIGHT_BROWSERS_PATH"):
+        assert name not in env
+
+
+async def test_launch_never_mints_a_github_token_for_a_dev_run(sf):
+    """The pod holds no repository credential: with a GitHub App configured
+    and self-edit settings present, a dev launch must not touch the App."""
+    class _RaisingApp:
+        def installation_token(self):
+            raise AssertionError("a dev run must never mint an installation token")
+
+    class _FakeBatch:
+        def __init__(self): self.job = None
+        def create_namespaced_job(self, ns, job): self.job = job
+
+    batch = _FakeBatch()
+    launcher = K8sJobLauncher(batch=batch, settings=_dev_settings(), github_app=_RaisingApp(),
+                              session_factory=sf)
+    async with sf() as s:
+        s.add(run := Run(agent="engineer", trigger="relay", requested_by="t", prompt="go"))
+        await s.commit()
+        run_id = run.id
+    async with sf() as s:
+        run = await s.get(Run, run_id)
+    await launcher.launch(run, Manifest(role="dev"))
+    c = batch.job.spec.template.spec.containers[0]
+    env = {e.name: e.value for e in c.env}
+    assert c.image == "rd:1" and env["AP_WORKSPACE"] == "dev"
+    assert "AP_GITHUB_TOKEN" not in env and "AP_SELF_EDIT" not in env
+    assert env["AP_SESSION_TOKEN"]

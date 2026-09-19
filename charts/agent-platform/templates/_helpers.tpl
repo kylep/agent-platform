@@ -56,6 +56,12 @@ Env vars shared by the api/dispatcher/recorder backend Deployments.
   value: {{ .Values.env.AP_K8S_NAMESPACE | default .Release.Namespace | quote }}
 - name: AP_RUNNER_IMAGE
   value: "{{ .Values.images.runner.repository }}:{{ .Values.images.runner.tag }}"
+- name: AP_RUNNER_DEV_IMAGE
+  value: "{{ .Values.images.runnerDev.repository }}:{{ .Values.images.runnerDev.tag }}"
+# The in-cluster web URL a dev pod's browser targets (docs/design/24, 25) —
+# the web Service is release-name prefixed, so the backend cannot default it.
+- name: AP_WEB_URL
+  value: "http://{{ .Release.Name }}-web:{{ .Values.web.service.port }}"
 - name: AP_CHECKOUT_ROOT
   value: "/agents"
 - name: AP_SKILLS_ROOT
