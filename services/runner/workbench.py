@@ -31,6 +31,11 @@ PUBLISH_RETRY_DELAY = 2
 # What a dependency's postinstall script gets to see. It runs before the model
 # does, in the same pod, so the run's tokens and git's env are not for it.
 NPM_ENV_KEYS = ("PATH", "HOME", "TMPDIR", "LANG", "NODE_ENV", "PLAYWRIGHT_BROWSERS_PATH")
+# What `bin/ap-web-login` gets to see (docs/design/25): the credential the
+# `qa-web-login` secret bound, the web URL it posts to, and a PATH/HOME to run
+# with. Not the session token, not the run JWT — a login is not a run.
+LOGIN_ENV_KEYS = ("PATH", "HOME", "QA_WEB_USER", "QA_WEB_PASSWORD", "AP_WEB_URL")
+LOGIN_TIMEOUT = 60
 
 # The API validates the branch before it is used anywhere; this is the same
 # rule re-checked where the name becomes git argv, so a malformed response can
@@ -123,6 +128,45 @@ def _agent(wb: dict, env: dict) -> str:
 def _ahead(repo_dir: Path, wb: dict, env: dict) -> int:
     return int(_git(repo_dir, env, "rev-list", "--count",
                     f"origin/{wb['base']}..refs/heads/{wb['branch']}").strip() or 0)
+
+
+def qa_state_path() -> Path:
+    """Where `ap-web-login` writes the browser's storage state and where the
+    runner points the Playwright MCP server; its parent is also the server's
+    output directory. A function, not a constant, so the workspace root stays
+    the one thing to move."""
+    return WORKSPACE / "qa" / "state.json"
+
+
+def _web_login(repo_dir: Path, env: dict, frames: list | None) -> None:
+    """Turn the pod's `QA_WEB_USER`/`QA_WEB_PASSWORD` into the storage-state
+    file, with the checkout's own `bin/ap-web-login`, before the model exists.
+    Nothing is done without the credential (an engineer's pod has none). The
+    script's stdout is never echoed: a failure is a frame with the exit code
+    and the ONE word the script prints last (`ok`, or the HTTP status; its
+    stderr's last line when stdout is empty), capped short, so no line of it
+    can carry a cookie into a transcript."""
+    if not (env.get("QA_WEB_USER") and env.get("QA_WEB_PASSWORD")):
+        return
+    state = qa_state_path()
+    (state.parent / "mcp").mkdir(parents=True, exist_ok=True)
+    login_env = {k: v for k, v in env.items() if k in LOGIN_ENV_KEYS}
+    cmd = ["python3", "bin/ap-web-login", "--out", str(state)]
+    try:
+        r = subprocess.run(cmd, cwd=repo_dir, env=login_env, capture_output=True, text=True,
+                           timeout=LOGIN_TIMEOUT, check=False)
+    except (subprocess.TimeoutExpired, OSError) as e:
+        if frames is not None:
+            frames.append({"step": "web login", "ok": False, "exit": None,
+                           "tail": type(e).__name__})
+        return
+    if r.returncode != 0 and frames is not None:
+        # The status word is on stdout, capped to a word; a script that could
+        # not even try (no web URL) says why on stderr and nothing on stdout,
+        # and that reason is a sentence of its own, never a reply's.
+        out_lines, err_lines = r.stdout.strip().splitlines(), r.stderr.strip().splitlines()
+        tail = out_lines[-1][:16] if out_lines else (err_lines[-1][:80] if err_lines else "")
+        frames.append({"step": "web login", "ok": False, "exit": r.returncode, "tail": tail})
 
 
 def _npm_env(env: dict) -> dict:
@@ -218,6 +262,8 @@ def prepare(repo_dir: Path, wb: dict, env: dict, frames: list | None = None) -> 
     home = Path(env.get("HOME") or Path.home())
     (home / ".gitconfig").write_text(
         f"[user]\n\tname = {agent}\n\temail = {agent}@agent-platform.local\n")
+
+    _web_login(repo_dir, env, frames)
 
     if NPM_CACHE.is_dir():
         shutil.copytree(NPM_CACHE, home / ".npm", dirs_exist_ok=True)

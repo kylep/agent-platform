@@ -17,9 +17,18 @@ import re
 # The Claude Code tools an agent may be granted. Historically these were an
 # `agent.md` frontmatter `tools:` line, where omitting the line meant "all
 # tools"; a row's `harness_tools` is explicit, and empty means empty.
+#
+# `PlaywrightMCP` (docs/design/25) is the one entry that is a GRANT name rather
+# than a Claude tool name: it tells the runner to start the Playwright MCP
+# server for a `role: dev` run, and what the CLI then sees is that server's
+# `mcp__playwright__*` tools. It lives here because a row's `harness_tools`
+# is where an admin grants it; the runner never writes the word itself into
+# a `tools:` line or an `--allowedTools` flag.
+TOOL_PLAYWRIGHT_MCP = "PlaywrightMCP"
 CLAUDE_TOOLS: list[str] = [
     "Bash", "Read", "Write", "Edit", "Glob", "Grep",
     "WebSearch", "WebFetch", "Task", "TodoWrite", "NotebookEdit",
+    TOOL_PLAYWRIGHT_MCP,
 ]
 
 # Tools the platform's own MCP broker exposes (services/mcp-broker). Agents that
@@ -124,6 +133,9 @@ def platform_token_role(tools: list[str]) -> str | None:
 # without explaining what turning it on actually does. `sensitive: True`
 # marks the runner's always-denied set: declaring those does NOTHING for a
 # normal agent (they are self-edit only — the trifecta break, design/08).
+# `dev_only: True` marks the grant a `role: dev` run alone can use: the runner
+# filters it out of every other run with the sensitive set, so declaring it
+# elsewhere does nothing either.
 TOOL_HELP: list[dict] = [
     {"name": "Bash", "kind": "claude", "sensitive": True,
      "description": "Run shell commands inside the agent's pod."},
@@ -151,6 +163,23 @@ TOOL_HELP: list[dict] = [
                     "(harmless bookkeeping; helps long runs stay on track)."},
     {"name": "NotebookEdit", "kind": "claude", "sensitive": True,
      "description": "Edit Jupyter notebook cells."},
+    {"name": TOOL_PLAYWRIGHT_MCP, "kind": "claude", "dev_only": True,
+     "display_name": "Playwright browser",
+     "description": "A live browser through the Playwright MCP server, locked "
+                    "to the platform's own UI; only a `role: dev` agent can use "
+                    "it, and the runner starts the server. The agent sees the "
+                    "server's `mcp__playwright__*` tools (navigate, click, "
+                    "type, snapshot, screenshot) and nothing else runs them. "
+                    "Chromium resolves only the platform's web host; every "
+                    "other name is NOTFOUND (a host-resolver rule in the "
+                    "browser's own launch args — the MCP server's origin "
+                    "flags are advisory, not a boundary). It signs in with "
+                    "the reader-role `qa` cookie the pod's `qa-web-login` "
+                    "secret buys, so a page it renders is UNTRUSTED input in "
+                    "a pod with no credential worth stealing and no way to "
+                    "send one anywhere. For any other role it is filtered out with the "
+                    "sensitive set — declaring it does nothing. NOT granted by "
+                    "default: the QA holds it."},
     {"name": "mcp__platform__runs_read", "kind": "platform",
      "description": "Read run history: list recent runs (optionally just "
                     "those missing a summary), fetch one run's full detail, "

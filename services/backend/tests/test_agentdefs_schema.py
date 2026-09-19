@@ -269,3 +269,17 @@ async def test_workbench_fields_round_trip_through_the_row(sf):
         got = await s.get(AgentDef, "plain")
     assert got.push_path_globs == [] and got.may_delete_tests is False
     assert (got.quota_5h_max_pct, got.quota_7d_max_pct) == (80, 50)
+
+
+def test_the_playwright_grant_validates_as_a_harness_tool():
+    """docs/design/25: HARNESS_TOOLS follows CLAUDE_TOOLS, so the QA row's
+    `harness_tools: [Glob, Grep, PlaywrightMCP]` is a valid definition — the
+    grant is checked by name like any other harness tool, and the MCP tool
+    names it stands for (`mcp__playwright__*`) are the runner's business, not
+    a grant anyone can hold."""
+    from agentplatform.agentdefs import HARNESS_TOOLS, validate_def
+    assert "PlaywrightMCP" in HARNESS_TOOLS
+    m = _model(harness_tools=["Glob", "Grep", "PlaywrightMCP"])
+    assert validate_def(m, **REGISTRIES) == []
+    m = _model(harness_tools=["mcp__playwright__*"])
+    assert validate_def(m, **REGISTRIES) == ["unknown harness tool: 'mcp__playwright__*'"]

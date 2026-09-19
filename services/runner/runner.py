@@ -1,5 +1,6 @@
 import asyncio, base64, json, os, re, shutil, stat, subprocess, sys, tempfile, uuid
 import urllib.error
+import urllib.parse
 import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
@@ -14,6 +15,27 @@ _SENSITIVE_TOOLS = ["Bash", "Read", "Edit", "Write", "NotebookEdit"]
 # `_permission_args`' dev case pre-approves. The CLI reads the file's `tools:`
 # as the ENABLED set; a flag cannot enable what the file left out.
 _DEV_SHELL_TOOLS = ["Bash", "Read", "Edit", "Write", "NotebookEdit", "Glob", "Grep"]
+
+# The Playwright MCP server (docs/design/25). `PlaywrightMCP` is the GRANT an
+# admin puts on a `role: dev` row (agentspec.CLAUDE_TOOLS); what the CLI
+# knows is the server's tools, `mcp__playwright__*`. The grant name is never
+# written into a `tools:` line or an allow-list — the dev render turns it into
+# the pattern, and every other run drops it with the sensitive set: the
+# server is only ever started for a dev run, so elsewhere it enables nothing.
+PLAYWRIGHT_GRANT = "PlaywrightMCP"
+PLAYWRIGHT_TOOLS = "mcp__playwright__*"
+_DEV_ONLY_TOOLS = [PLAYWRIGHT_GRANT, PLAYWRIGHT_TOOLS]
+# The package's own bin, installed globally by Dockerfile.dev at the pinned
+# version (test_runner pins the pair). The bin, not `npx <spec>`: npx resolves
+# a spec against the registry, not the install, and the pod has no egress.
+PLAYWRIGHT_MCP_BIN = "playwright-mcp"
+CHROMIUM = "/opt/chromium/chrome"
+NO_WEB_LOGIN = "no web login — browser tools off"
+# One DNS name: what a Chromium host-resolver rule can EXCLUDE. The rule
+# separators (`,` and ` `), a `;`, or an empty name would open a hole in
+# the map, so a web URL whose host is anything else gets no browser.
+_HOST_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9.-]{0,252}$")
+_LOOPBACK = ("localhost", "127.0.0.1")
 
 def _permission_args(self_edit: bool, has_api_token: bool, agent: str,
                      dev: bool = False) -> list[str]:
@@ -43,10 +65,17 @@ def _permission_args(self_edit: bool, has_api_token: bool, agent: str,
         # tools are allowed outright, the declared grants ride along, and
         # `--strict-mcp-config` keeps every MCP server but the runner's own out.
         # It sits BEFORE the variadic list so nothing can read it as a tool.
-        declared = [t for t in _agent_tools(agent) if t not in _DEV_SHELL_TOOLS]
-        return ["--permission-mode", "acceptEdits", "--strict-mcp-config",
-                "--allowedTools", *_DEV_SHELL_TOOLS, *declared, "mcp__platform__*"]
-    tools = [t for t in _agent_tools(agent) if t not in _SENSITIVE_TOOLS]
+        installed = _agent_tools(agent)
+        declared = [t for t in installed if t not in _DEV_SHELL_TOOLS + _DEV_ONLY_TOOLS]
+        out = ["--permission-mode", "acceptEdits", "--strict-mcp-config",
+               "--allowedTools", *_DEV_SHELL_TOOLS, *declared, "mcp__platform__*"]
+        if PLAYWRIGHT_TOOLS in installed:
+            # The browser's tools, pre-approved as a pattern like the broker's:
+            # the render put the pattern in the file for the grant (and only
+            # then), so this is the grant, read back the way every flag is.
+            out.append(PLAYWRIGHT_TOOLS)
+        return out
+    tools = [t for t in _agent_tools(agent) if t not in _SENSITIVE_TOOLS + _DEV_ONLY_TOOLS]
     out: list[str] = []
     if tools:
         out += ["--allowedTools", *tools]
@@ -71,11 +100,61 @@ def _identity_token() -> str:
     return ""
 
 
-def _write_mcp_config() -> str:
+def _web_host(url: str) -> str | None:
+    try:
+        host = urllib.parse.urlsplit(url).hostname or ""
+    except ValueError:
+        return None
+    return host if _HOST_RE.match(host) else None
+
+
+def _browser_config(web_url: str) -> dict:
+    """The MCP server's `--config` file: the boundary that holds. The server's
+    `--allowed-origins` is documented as NOT a security boundary (redirects
+    and in-page navigation ignore it), so Chromium itself is told to resolve
+    the platform's web host and map every other name to NOTFOUND — a page
+    that redirects the browser off the platform gets a DNS failure, not a
+    request. A loopback web URL (a laptop) excludes both spellings, and only
+    then. `--no-sandbox` rides in the same list so the sandbox setting does
+    not depend on how the CLI merges its own flag with the file's args."""
+    host = _web_host(web_url)
+    exclude = list(_LOOPBACK) if host in _LOOPBACK else [host]
+    rules = "MAP * ~NOTFOUND, " + ", ".join(f"EXCLUDE {h}" for h in exclude)
+    return {"browser": {"launchOptions": {"args": [
+        f"--host-resolver-rules={rules}", "--no-sandbox"]}}}
+
+
+def _playwright_server(state: Path) -> dict:
+    """The Playwright MCP server entry (docs/design/25), a stdio process the
+    CLI spawns — never the model. Every argument is the runner's: the image's
+    global bin, the image's Chromium (the package bundles a different
+    playwright-core than the image's browsers, hence the explicit path), the
+    storage state `ap-web-login` wrote, the platform's own origin as the
+    advisory allow-list, and the config beside the state that makes the
+    browser unable to resolve anything else. Nothing from the definition or
+    the prompt is in this list, which is what makes it safe to pre-approve
+    `mcp__playwright__*` wholesale."""
+    return {"type": "stdio", "command": PLAYWRIGHT_MCP_BIN, "args": [
+        "--headless", "--isolated", "--no-sandbox",
+        "--executable-path", CHROMIUM,
+        "--storage-state", str(state),
+        "--allowed-origins", os.environ["AP_WEB_URL"],
+        "--image-responses", "allow",
+        "--output-dir", str(state.parent / "mcp"),
+        "--viewport-size", "1280x800",
+        "--config", str(state.parent / "mcp.json")]}
+
+
+def _write_mcp_config(playwright_state: Path | None = None) -> str:
     """Write a claude --mcp-config pointing at the platform MCP broker (an HTTP
     service), carrying this run's identity as the auth header the broker
     forwards/verifies. Returns the config path, or "" if no broker URL is
-    configured."""
+    configured.
+
+    `playwright_state` is the login state file of a dev run that holds the
+    `PlaywrightMCP` grant: when it EXISTS (and the pod knows the web URL to
+    lock the browser to) the config carries the second server. No cookie, no
+    browser — the caller frames that."""
     url = os.environ.get("AP_MCP_URL")
     if not url:
         return ""
@@ -86,6 +165,10 @@ def _write_mcp_config() -> str:
         headers["X-AP-Run-Token"] = os.environ["AP_RUN_TOKEN"]
     cfg = {"mcpServers": {"platform": {
         "type": "http", "url": url, "headers": headers}}}
+    web_url = os.environ.get("AP_WEB_URL", "")
+    if playwright_state is not None and playwright_state.is_file() and _web_host(web_url):
+        (playwright_state.parent / "mcp.json").write_text(json.dumps(_browser_config(web_url)))
+        cfg["mcpServers"]["playwright"] = _playwright_server(playwright_state)
     fd, path = tempfile.mkstemp(prefix="mcp-", suffix=".json")
     os.write(fd, json.dumps(cfg).encode())
     os.close(fd)
@@ -272,8 +355,15 @@ def _render_agent_md(d: dict, dev: bool = False) -> str:
     tools = [t for t in (*(d.get("harness_tools") or []),
                          *(d.get("platform_tools") or []))
              if isinstance(t, str) and re.fullmatch(r"[A-Za-z0-9_]+", t)]
+    # The Playwright grant is not a tool name the CLI knows. A dev file
+    # enables the server's tools as the pattern instead, last; any other
+    # file leaves it off, since no server will be there to enable.
+    playwright = PLAYWRIGHT_GRANT in tools
+    tools = [t for t in tools if t != PLAYWRIGHT_GRANT]
     if dev:
         tools = [*_DEV_SHELL_TOOLS, *(t for t in tools if t not in _DEV_SHELL_TOOLS)]
+        if playwright:
+            tools.append(PLAYWRIGHT_TOOLS)
     front = [f"name: {d['name']}", f"description: {_agent_description(d)}"]
     if tools:
         front.append("tools: " + ", ".join(tools))
@@ -492,6 +582,7 @@ async def _run(producer, run_id: str, agent: str, prompt: str) -> int:
     seq = 0
     wb = None
     block = ""
+    playwright_state = None
     if self_edit:
         git_env = _git_env()
         repo_dir = Path("/workspace/repo")
@@ -521,6 +612,18 @@ async def _run(producer, run_id: str, agent: str, prompt: str) -> int:
             block = await asyncio.to_thread(workbench.prepare, repo_dir, wb, git_env, notes)
         except Exception as e:
             return await _abort(producer, run_id, f"workbench prepare failed: {e}")
+        # The login is done (or was never possible): the password has no
+        # further reader in this pod. `claude`, the MCP server it spawns and
+        # finalize's subprocesses all inherit an environment, so it comes out
+        # of every one this process still holds — the state file is what the
+        # browser signs in with, not the credential.
+        os.environ.pop("QA_WEB_PASSWORD", None)
+        git_env.pop("QA_WEB_PASSWORD", None)
+        if PLAYWRIGHT_TOOLS in _agent_tools(agent):
+            playwright_state = workbench.qa_state_path()
+            if not playwright_state.is_file():
+                notes.append({"step": "web login", "ok": False, "exit": None,
+                              "tail": NO_WEB_LOGIN})
         for note in notes:
             seq += 1
             await producer.publish(TOPIC_TRANSCRIPT, run_id,
@@ -544,7 +647,7 @@ async def _run(producer, run_id: str, agent: str, prompt: str) -> int:
     # agents, so they can read/annotate runs, check health, use memory and post
     # notifications WITHOUT a shell. The agent opts in by declaring the tools.
     if _identity_token():
-        mcp_cfg = _write_mcp_config()
+        mcp_cfg = _write_mcp_config(playwright_state)
         if mcp_cfg:
             common += ["--mcp-config", mcp_cfg]
             # Load the broker's MCP tools UPFRONT into the model's context.

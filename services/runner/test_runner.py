@@ -1,4 +1,4 @@
-import json, os, stat
+import json, os, re, stat
 import urllib.error
 from pathlib import Path
 import runner
@@ -805,3 +805,254 @@ def test_dev_run_max_turns_always_set(tmp_path, monkeypatch, value, expected):
     assert runner.run(producer=p) == 0
     args = seen["args"]
     assert args[args.index("--max-turns") + 1] == expected
+
+
+# --- the Playwright MCP server (docs/design/25) ------------------------------
+
+PW_ARGS = ["--headless", "--isolated", "--no-sandbox",
+           "--executable-path", "/opt/chromium/chrome",
+           "--storage-state", "/workspace/qa/state.json",
+           "--allowed-origins", "http://ap-web:8090",
+           "--image-responses", "allow",
+           "--output-dir", "/workspace/qa/mcp",
+           "--viewport-size", "1280x800",
+           "--config", "/workspace/qa/mcp.json"]
+PW_CONFIG = {"browser": {"launchOptions": {"args": [
+    "--host-resolver-rules=MAP * ~NOTFOUND, EXCLUDE ap-web", "--no-sandbox"]}}}
+
+
+def test_playwright_mcp_is_the_dev_images_global_bin():
+    """The runner starts the package's own bin (`playwright-mcp`, the tarball's
+    `bin` entry), which the dev image installs globally at the pinned version
+    — never `npx <spec>`, which would resolve against the registry rather
+    than the install and fetch a second copy in a pod with no egress."""
+    text = (Path(__file__).parent / "Dockerfile.dev").read_text()
+    assert re.search(r"npm install -g .*@playwright/mcp@0\.0\.82", text)
+    assert runner.PLAYWRIGHT_MCP_BIN == "playwright-mcp"
+
+
+def test_dev_render_turns_the_grant_into_the_servers_tool_pattern():
+    """`PlaywrightMCP` is a grant name, not a Claude tool name: the CLI reads
+    `tools:` as the enabled set and knows the server's tools as
+    `mcp__playwright__*`, so that pattern is what the dev file enables — last,
+    after the grants, and the word itself never appears."""
+    d = _payload(name="qa", harness_tools=["Glob", "PlaywrightMCP", "Grep"],
+                 platform_tools=["mcp__platform__tickets"])
+    text = runner._render_agent_md(d, dev=True)
+    line = next(ln for ln in text.split("---")[1].splitlines() if ln.startswith("tools:"))
+    assert line == ("tools: Bash, Read, Edit, Write, NotebookEdit, Glob, Grep, "
+                    "mcp__platform__tickets, mcp__playwright__*")
+    assert "PlaywrightMCP" not in text
+
+
+def test_non_dev_render_drops_the_grant_entirely():
+    """Outside a dev run there is no server, so the grant enables nothing and
+    is left off the line — not written as a word the CLI would not know."""
+    d = _payload(harness_tools=["WebFetch", "PlaywrightMCP"], platform_tools=[])
+    text = runner._render_agent_md(d)
+    assert "\ntools: WebFetch\n" in text
+    assert "PlaywrightMCP" not in text and "playwright" not in text
+
+
+def test_permission_args_dev_with_the_grant_appends_the_pattern(tmp_path, monkeypatch):
+    """With the grant the dev allow-list gains `mcp__playwright__*` — appended
+    after the platform pattern, once — and without it the list is byte-for-byte
+    the pinned dev list."""
+    _fetch_env(monkeypatch, tmp_path)
+    monkeypatch.setattr(runner, "_api_req", lambda m, p, body=None: _payload(
+        name="qa", harness_tools=["Glob", "Grep", "PlaywrightMCP"],
+        platform_tools=["mcp__platform__tickets"]))
+    runner._install_agent("qa", dev=True)
+    args = runner._permission_args(self_edit=False, has_api_token=True, agent="qa", dev=True)
+    assert args == ["--permission-mode", "acceptEdits", "--strict-mcp-config",
+                    "--allowedTools", *_DEV_SHELL_TOOLS, "mcp__platform__tickets",
+                    "mcp__platform__*", "mcp__playwright__*"]
+    assert "PlaywrightMCP" not in args
+    monkeypatch.setattr(runner, "_api_req", lambda m, p, body=None: _payload(
+        name="eng", harness_tools=["Glob", "Grep"], platform_tools=["mcp__platform__tickets"]))
+    runner._install_agent("eng", dev=True)
+    args = runner._permission_args(self_edit=False, has_api_token=True, agent="eng", dev=True)
+    assert args == ["--permission-mode", "acceptEdits", "--strict-mcp-config",
+                    "--allowedTools", *_DEV_SHELL_TOOLS, "mcp__platform__tickets",
+                    "mcp__platform__*"]
+
+
+def test_permission_args_non_dev_strips_the_grant_like_the_sensitive_set(tmp_path, monkeypatch):
+    """A non-dev run that declares the grant — or a file that somehow carries
+    the server's pattern — gets neither in `--allowedTools`; the denied set is
+    exactly what it was (the grant is not sensitive: there is nothing to deny,
+    the server is never started)."""
+    _installed(tmp_path, monkeypatch, "sneaky",
+               "---\nname: sneaky\ntools: WebFetch, PlaywrightMCP, mcp__playwright__*, Bash\n---\nbody")
+    args = runner._permission_args(self_edit=False, has_api_token=False, agent="sneaky")
+    assert args == ["--allowedTools", "WebFetch", "--disallowedTools", *runner._SENSITIVE_TOOLS]
+    assert runner._SENSITIVE_TOOLS == ["Bash", "Read", "Edit", "Write", "NotebookEdit"]
+    # A non-dev row that holds ONLY the grant pre-approves nothing at all.
+    _installed(tmp_path, monkeypatch, "only", "---\nname: only\ntools: PlaywrightMCP\n---\nbody")
+    assert runner._permission_args(False, False, "only") == [
+        "--disallowedTools", *runner._SENSITIVE_TOOLS]
+
+
+def _mcp_env(monkeypatch):
+    monkeypatch.setenv("AP_MCP_URL", "http://broker:8080/mcp")
+    monkeypatch.setenv("AP_API_TOKEN", "apk_1")
+    monkeypatch.delenv("AP_RUN_TOKEN", raising=False)
+    monkeypatch.setenv("AP_WEB_URL", "http://ap-web:8090")
+
+
+def test_mcp_config_gains_the_playwright_server_only_with_a_state_file(tmp_path, monkeypatch):
+    """The second server is written when the run asks for it AND the login
+    state exists: no cookie, no browser. Its args are the runner's fixed list
+    with the pod's web URL substituted — nothing from the definition, nothing
+    from the model — and it is a stdio server the CLI spawns, locked to the
+    platform's origin."""
+    _mcp_env(monkeypatch)
+    state = tmp_path / "qa" / "state.json"
+    cfg = json.loads(Path(runner._write_mcp_config(playwright_state=state)).read_text())
+    assert list(cfg["mcpServers"]) == ["platform"]
+    state.parent.mkdir()
+    state.write_text('{"cookies": [], "origins": []}')
+    cfg = json.loads(Path(runner._write_mcp_config(playwright_state=state)).read_text())
+    assert list(cfg["mcpServers"]) == ["platform", "playwright"]
+    assert cfg["mcpServers"]["platform"]["url"] == "http://broker:8080/mcp"
+    pw = cfg["mcpServers"]["playwright"]
+    expected = [a.replace("/workspace/qa", str(tmp_path / "qa")) for a in PW_ARGS]
+    assert pw == {"type": "stdio", "command": "playwright-mcp", "args": expected}
+    # The browser's own boundary, beside the state: Chromium resolves the
+    # platform's web host and nothing else — the origin flags are advisory.
+    assert json.loads((tmp_path / "qa" / "mcp.json").read_text()) == PW_CONFIG
+    # Not asked for (no grant) → the platform server alone, file or no file.
+    (tmp_path / "qa" / "mcp.json").unlink()
+    cfg = json.loads(Path(runner._write_mcp_config()).read_text())
+    assert list(cfg["mcpServers"]) == ["platform"]
+    assert not (tmp_path / "qa" / "mcp.json").exists()
+
+
+def test_playwright_args_are_the_pinned_list(monkeypatch):
+    """The production paths, verbatim: what the design says the runner starts."""
+    monkeypatch.setenv("AP_WEB_URL", "http://ap-web:8090")
+    server = runner._playwright_server(Path("/workspace/qa/state.json"))
+    assert server == {"type": "stdio", "command": "playwright-mcp", "args": PW_ARGS}
+    assert workbench.WORKSPACE == Path("/workspace")
+
+
+@pytest.mark.parametrize("url, rules", [
+    ("http://ap-web:8090", "MAP * ~NOTFOUND, EXCLUDE ap-web"),
+    ("http://agent-platform-web.ap.svc.cluster.local:8090",
+     "MAP * ~NOTFOUND, EXCLUDE agent-platform-web.ap.svc.cluster.local"),
+    # A loopback web URL (a laptop) resolves both spellings, and only then.
+    ("http://localhost:8090", "MAP * ~NOTFOUND, EXCLUDE localhost, EXCLUDE 127.0.0.1"),
+    ("http://127.0.0.1:8090", "MAP * ~NOTFOUND, EXCLUDE localhost, EXCLUDE 127.0.0.1"),
+])
+def test_browser_config_resolves_only_the_web_host(url, rules):
+    """The config is built from AP_WEB_URL's hostname and nothing else — no
+    free text, no path from the definition — and the Chromium sandbox flag
+    rides in the same list so the boundary does not depend on how the CLI
+    merges its own `--no-sandbox` with the file's args."""
+    assert runner._browser_config(url) == {"browser": {"launchOptions": {"args": [
+        f"--host-resolver-rules={rules}", "--no-sandbox"]}}}
+
+
+@pytest.mark.parametrize("url", ["http://", "http://ap web:1", "http://a;b", "http://x,y",
+                                 "", "not a url"])
+def test_a_web_url_without_a_clean_hostname_means_no_server(tmp_path, monkeypatch, url):
+    """A hostname that is not one DNS name (a space, a comma or a semicolon —
+    the rule separators — or nothing at all) cannot be turned into a rule, so
+    the server is not written rather than written with a hole in its map."""
+    _mcp_env(monkeypatch)
+    monkeypatch.setenv("AP_WEB_URL", url)
+    state = tmp_path / "state.json"; state.write_text("{}")
+    cfg = json.loads(Path(runner._write_mcp_config(playwright_state=state)).read_text())
+    assert list(cfg["mcpServers"]) == ["platform"]
+    assert not (tmp_path / "mcp.json").exists()
+
+
+def test_playwright_server_needs_a_web_url(tmp_path, monkeypatch):
+    """No AP_WEB_URL means no origin to lock the browser to; the server is not
+    written rather than written open."""
+    _mcp_env(monkeypatch)
+    monkeypatch.delenv("AP_WEB_URL")
+    state = tmp_path / "state.json"; state.write_text("{}")
+    cfg = json.loads(Path(runner._write_mcp_config(playwright_state=state)).read_text())
+    assert list(cfg["mcpServers"]) == ["platform"]
+
+
+def _qa_env(monkeypatch, tmp_path, ws, with_grant=True, with_state=True):
+    _mcp_env(monkeypatch)
+    monkeypatch.setenv("QA_WEB_USER", "qa")
+    monkeypatch.setenv("QA_WEB_PASSWORD", "hunter2-hunter2")
+    tools = ["Glob", "Grep", "PlaywrightMCP"] if with_grant else ["Glob", "Grep"]
+    monkeypatch.setattr(runner, "_agentdef", lambda: (
+        {"name": "engineer", "description": "Tests.", "prompt": "You test.",
+         "harness_tools": tools, "platform_tools": ["mcp__platform__tickets"]}, ""))
+    if with_state:
+        (ws / "qa").mkdir()
+        (ws / "qa" / "state.json").write_text('{"cookies": [], "origins": []}')
+
+
+def test_dev_run_with_the_grant_starts_both_servers_and_hides_the_password(tmp_path, monkeypatch):
+    """The whole seam: a dev run holding the grant, after `prepare` logged in,
+    spawns `claude` with an MCP config naming both servers and an allow-list
+    ending in the playwright pattern — and with NO `QA_WEB_PASSWORD` in its
+    environment. `prepare` needed it (it ran `ap-web-login`); the model does
+    not, and the MCP server it starts inherits the model's env, so the
+    password leaves the environment the moment the login is done, like the
+    publish nonce never enters it. The user name is not a secret and stays."""
+    seen, ws = _dev_env(monkeypatch, tmp_path, OK_CLAUDE)
+    _qa_env(monkeypatch, tmp_path, ws)
+    monkeypatch.setattr(workbench, "finalize",
+                        lambda repo_dir, wb, env, run_id, api_req, nonce=None:
+                        seen.update(finalize_env=dict(env)) or {"published": False, "reason": "no changes"})
+    p = FakeProducer()
+    assert runner.run(producer=p) == 0
+    args = seen["args"]
+    allowed = args[args.index("--allowedTools") + 1:args.index("--max-turns")]
+    assert allowed[-2:] == ["mcp__platform__*", "mcp__playwright__*"]
+    cfg = json.loads(Path(args[args.index("--mcp-config") + 1]).read_text())
+    assert list(cfg["mcpServers"]) == ["platform", "playwright"]
+    assert cfg["mcpServers"]["playwright"]["args"][6] == str(ws / "qa" / "state.json")
+    assert cfg["mcpServers"]["playwright"]["args"][-1] == str(ws / "qa" / "mcp.json")
+    assert json.loads((ws / "qa" / "mcp.json").read_text()) == PW_CONFIG
+    # prepare saw the credentials; claude, finalize and the transcript did not.
+    assert seen["prepare"][2]["QA_WEB_PASSWORD"] == "hunter2-hunter2"
+    assert "QA_WEB_PASSWORD" not in seen["env"] and "QA_WEB_PASSWORD" not in seen["finalize_env"]
+    assert "hunter2" not in json.dumps(seen["env"]) and "hunter2" not in json.dumps(seen["args"])
+    assert "hunter2" not in json.dumps([v for _, _, v in p.published])
+    assert seen["env"]["QA_WEB_USER"] == "qa"
+    assert not any(v.get("tail") == runner.NO_WEB_LOGIN for _, _, v in p.published)
+
+
+def test_dev_run_with_the_grant_but_no_login_says_so_and_runs_on(tmp_path, monkeypatch):
+    """No state file (the secret is not bound, or the login failed — prepare
+    already framed that): the platform server alone, a frame that says the
+    browser tools are off, and the run goes on without them."""
+    seen, ws = _dev_env(monkeypatch, tmp_path, OK_CLAUDE)
+    _qa_env(monkeypatch, tmp_path, ws, with_state=False)
+    monkeypatch.setattr(workbench, "finalize", lambda *a, **k: {"published": False, "reason": "no changes"})
+    p = FakeProducer()
+    assert runner.run(producer=p) == 0
+    args = seen["args"]
+    cfg = json.loads(Path(args[args.index("--mcp-config") + 1]).read_text())
+    assert list(cfg["mcpServers"]) == ["platform"]
+    frame = next(v for _, _, v in p.published if v.get("type") == "workbench" and v.get("step") == "web login")
+    assert frame["ok"] is False and frame["tail"] == "no web login — browser tools off"
+    assert "QA_WEB_PASSWORD" not in seen["env"]
+    assert not (ws / "qa" / "mcp.json").exists()
+    assert p.published[-1][2]["state"] == "succeeded"
+
+
+def test_dev_run_without_the_grant_never_writes_the_server(tmp_path, monkeypatch):
+    """A state file on disk is not a grant: the engineer, with no
+    `PlaywrightMCP`, gets the platform server only and no frame about it."""
+    seen, ws = _dev_env(monkeypatch, tmp_path, OK_CLAUDE)
+    _qa_env(monkeypatch, tmp_path, ws, with_grant=False)
+    monkeypatch.setattr(workbench, "finalize", lambda *a, **k: {"published": False, "reason": "no changes"})
+    p = FakeProducer()
+    assert runner.run(producer=p) == 0
+    args = seen["args"]
+    assert "mcp__playwright__*" not in args
+    cfg = json.loads(Path(args[args.index("--mcp-config") + 1]).read_text())
+    assert list(cfg["mcpServers"]) == ["platform"]
+    assert not any(v.get("step") == "web login" for _, _, v in p.published)
+    assert "QA_WEB_PASSWORD" not in seen["env"]
+    assert not (ws / "qa" / "mcp.json").exists()

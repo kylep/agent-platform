@@ -327,3 +327,109 @@ def test_script_is_executable_and_stdlib_only():
                         "bad=[m for m in mods if m not in sys.stdlib_module_names];print(bad);sys.exit(bool(bad))",
                         str(SCRIPT)], capture_output=True, text=True)
     assert r.returncode == 0, r.stdout + r.stderr
+
+
+# ---------------------------------------------------------------- junit merge (--all)
+
+JUNIT_BACKEND = """<?xml version="1.0" encoding="utf-8"?>
+<testsuites><testsuite name="pytest" errors="0" failures="1" skipped="2" tests="5" time="1.500">
+<testcase classname="tests.test_a" name="test_one" time="0.1"/>
+<testcase classname="tests.test_a" name="test_two" time="0.2"><failure message="boom">x</failure></testcase>
+</testsuite></testsuites>
+"""
+JUNIT_WEB = """<testsuites id="" name="" tests="3" failures="0" skipped="1" errors="0" time="2.25">
+<testsuite name="smoke.spec.ts" timestamp="2026-09-19T01:02:03.000Z" hostname="chromium" tests="2" failures="0" skipped="0" time="1.0" errors="0">
+<testcase name="home renders" classname="smoke.spec.ts" time="0.5"/>
+</testsuite>
+<testsuite name="a11y.spec.ts" timestamp="2026-09-19T01:02:04.000Z" hostname="chromium" tests="1" failures="0" skipped="1" time="1.25" errors="0">
+<testcase name="axe" classname="a11y.spec.ts" time="1.25"><skipped/></testcase>
+</testsuite>
+</testsuites>
+"""
+
+
+def _junit_fixtures(out: Path) -> list[Path]:
+    out.mkdir(parents=True, exist_ok=True)
+    a, b = out / "junit-backend.xml", out / "junit-web.xml"
+    a.write_text(JUNIT_BACKEND)
+    b.write_text(JUNIT_WEB)
+    return [a, b]
+
+
+def test_merge_junit_concatenates_every_testsuite_under_one_root(apv, tmp_path):
+    """Two per-suite files — pytest's (one <testsuite> under <testsuites>)
+    and Playwright's (several) — become one <testsuites> carrying every
+    <testsuite> in file order, with the counts summed on the root so a reader
+    that only looks at the top line still gets the totals."""
+    import xml.etree.ElementTree as ET
+    out = tmp_path / "v"
+    files = _junit_fixtures(out)
+    merged = apv.merge_junit(files, out / "junit-all.xml")
+    assert merged == out / "junit-all.xml"
+    root = ET.parse(merged).getroot()
+    assert root.tag == "testsuites"
+    assert [s.get("name") for s in root] == ["pytest", "smoke.spec.ts", "a11y.spec.ts"]
+    assert all(s.tag == "testsuite" for s in root)
+    assert root.get("tests") == "8" and root.get("failures") == "1"
+    assert root.get("skipped") == "3" and root.get("errors") == "0"
+    assert root.get("time") == "3.75"
+    # The cases travel intact.
+    names = [c.get("name") for c in root.iter("testcase")]
+    assert names == ["test_one", "test_two", "home renders", "axe"]
+    assert root.find("./testsuite/testcase/failure").get("message") == "boom"
+
+
+def test_merge_junit_is_a_parser_of_untrusted_files(apv, tmp_path, capsys):
+    """The files are produced in the agent's workspace: a DOCTYPE or an ENTITY
+    is refused before parsing, an unparseable file is skipped with a line on
+    stderr, an oversized one likewise — and the good ones still merge."""
+    out = tmp_path / "v"
+    good, _ = _junit_fixtures(out)
+    evil = out / "junit-evil.xml"
+    evil.write_text('<?xml version="1.0"?><!DOCTYPE x [<!ENTITY e "x">]><testsuites/>')
+    broken = out / "junit-broken.xml"
+    broken.write_text("<testsuites><testsuite")
+    big = out / "junit-big.xml"
+    big.write_text("<testsuites>" + " " * (apv.JUNIT_MAX_BYTES + 1) + "</testsuites>")
+    merged = apv.merge_junit([evil, broken, big, good], out / "junit-all.xml")
+    import xml.etree.ElementTree as ET
+    root = ET.parse(merged).getroot()
+    assert [s.get("name") for s in root] == ["pytest"]
+    err = capsys.readouterr().err
+    assert "junit-evil.xml" in err and "junit-broken.xml" in err and "junit-big.xml" in err
+
+
+def test_merge_junit_with_nothing_to_merge_writes_nothing(apv, tmp_path):
+    out = tmp_path / "v"; out.mkdir()
+    assert apv.merge_junit([], out / "junit-all.xml") is None
+    assert apv.merge_junit([out / "absent.xml"], out / "junit-all.xml") is None
+    assert not (out / "junit-all.xml").exists()
+
+
+def test_all_writes_junit_all_and_lists_it(apv, tmp_path, monkeypatch):
+    """`--all` is the nightly: its report names the merged file beside the
+    per-suite ones, so the upload is three files (junit, Playwright JSON,
+    coverage) and the TCMS reads one JUnit document."""
+    out = tmp_path / "verify"
+    files = _junit_fixtures(out)
+    monkeypatch.setattr(apv, "suite_table", lambda root, out=None: [
+        _fake("backend", "pass", globs=["**"], artifacts=[files[0]]),
+        _fake("web-playwright", "pass", globs=["**"], artifacts=[files[1]])])
+    assert apv.main(["--all", "--out", str(out)]) == 0
+    data = json.loads((out / "verify.json").read_text())
+    assert data["files"] == ["junit-backend.xml", "junit-web.xml", "junit-all.xml"]
+    assert (out / "junit-all.xml").is_file()
+
+
+def test_changed_does_not_write_junit_all(apv, tmp_path, monkeypatch):
+    """`--changed` is the mid-run check and the publish's evidence: the
+    per-suite files as before, no merge (nothing ingests a partial run)."""
+    out = tmp_path / "verify"
+    files = _junit_fixtures(out)
+    monkeypatch.setattr(apv, "suite_table", lambda root, out=None: [
+        _fake("backend", "pass", globs=["**"], artifacts=[files[0]])])
+    monkeypatch.setattr(apv, "changed_paths", lambda root, base: (["x/y.py"], "abc123abc123"))
+    assert apv.main(["--changed", "--out", str(out)]) == 0
+    data = json.loads((out / "verify.json").read_text())
+    assert data["files"] == ["junit-backend.xml"]
+    assert not (out / "junit-all.xml").exists()

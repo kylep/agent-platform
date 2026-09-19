@@ -100,3 +100,26 @@ def test_the_quota_grant_survives_the_runners_allowed_tools_filter():
     from agentplatform.agentspec import GRANTABLE_PLATFORM_TOOLS
     for tool in GRANTABLE_PLATFORM_TOOLS:
         assert re.fullmatch(r"[A-Za-z0-9_]+", tool)
+
+
+def test_the_playwright_grant_is_a_dev_only_harness_tool():
+    """docs/design/25: `PlaywrightMCP` is a harness GRANT name — what a `role:
+    dev` agent declares to get the runner-started Playwright MCP server — and
+    not a Claude tool name. It sits in CLAUDE_TOOLS so a row may hold it, and
+    its help entry is marked `dev_only`: for any other run the runner drops
+    it the way it drops the sensitive set, so declaring it does nothing. It
+    is NOT sensitive — the sensitive set is the runner's always-denied list,
+    which `test_help` pins and this grant must not join."""
+    from agentplatform.agentspec import CLAUDE_TOOLS, TOOL_HELP, TOOL_PLAYWRIGHT_MCP
+    assert TOOL_PLAYWRIGHT_MCP == "PlaywrightMCP"
+    assert TOOL_PLAYWRIGHT_MCP in CLAUDE_TOOLS
+    assert TOOL_PLAYWRIGHT_MCP in AVAILABLE_TOOLS
+    entry = next(t for t in TOOL_HELP if t["name"] == TOOL_PLAYWRIGHT_MCP)
+    assert entry["kind"] == "claude" and entry["dev_only"] is True
+    assert not entry.get("sensitive")
+    assert "role: dev" in entry["description"]
+    # What is true of the boundary (docs/design/25 review): the browser's
+    # resolver, not the MCP server's origin flags, is what keeps it home.
+    assert "resolves only the platform's web host" in entry["description"]
+    assert "NOTFOUND" in entry["description"] and "advisory" in entry["description"]
+    assert [t["name"] for t in TOOL_HELP if t.get("dev_only")] == [TOOL_PLAYWRIGHT_MCP]
