@@ -654,7 +654,7 @@ dispatch subagents, verify their evidence, commit, and update this file.
 
 ### Phase 3 — ship it (T11 → T12)
 
-- [ ] **T11 Deploy and live verification.** `[after T9 and T10 are committed]` (AC-5, and the proof of AC-1…AC-4)
+- [x] **T11 Deploy and live verification.** `[after T9 and T10 are committed]` (AC-5, and the proof of AC-1…AC-4) (helm rev 60 → 61 (R2) → 62 (R3); items 1–7 recorded below — PR #13 (ENG-4, resume fast-forwarded), PR #14 (ENG-5, `[verify ✓]`, backend 1019.8 s), refusal by prompt (ENG-2) and by policy (ENG-3), lean runs unchanged; item 6 (merge) is Kyle's — see Handoff)
   The orchestrator does this task itself with the Terminal.app mechanics
   from protocol step 9, dispatching an **opus verify agent** for the
   through-the-forward steps if its own context is tight. First `git push
@@ -756,6 +756,9 @@ dispatch subagents, verify their evidence, commit, and update this file.
 (added by the loop when the definition of done fails)
 
 ### Deferred
+
+- Publish after a green verify posts `⚠️ ticket not moved: cannot move ENG-5 from review to review` when the agent already moved the ticket itself — a same-state move should be a silent no-op in `agentplatform/workbench.py` (live item 2c).
+- `bin/ap-verify`'s own `DEFAULT_TIMEOUT` is still 900 s, so the engineer's in-run `bin/ap-verify --changed` times out on the backend suite while finalize's pass (given `--timeout 2400`) succeeds; make the default read `AP_VERIFY_TIMEOUT` (live item 2c: ~15 min wasted per run). Both ride plan 2's runner rebuild.
 
 - `#standup`'s `@all` reaches the engineer (it is not a system agent, by design) and each wake is a full dev pod (clone + npm ci); during T11 the standup run even picked up ENG-1. Kyle's call: `system: true` for the engineer (then only assignment/mention summons it) or a cheaper standup path for `role: dev` rows.
 
@@ -967,6 +970,78 @@ Post-deploy: all platform pods Running; `workbench.events` exists
      this up itself as wiki page `[[ap-verify-backend-suite-timeout]]`.
      Options for the orchestrator: a higher per-suite budget in finalize, no
      coverage in the pod, or a faster/split backend suite.
+
+   - **2c. R3 (helm rev 62, 12:10 EDT; main at `50e8aa9`) — the clean pass:
+     `ENG-5`, PR #14, `verify ✓`.** 12:20:57 EDT `POST /api/tickets
+     {"channel":"#eng","title":"cronenglish: day-of-month as ordinals (\"on
+     the 1st of the month\")", …}` → 201 (id
+     `bfece8b111f54fe1a0ad6a648ac7a1b7`, root
+     `c1975fc1622d4cfaa4a084a7c98545ac`; `describe("0 0 1 * *")` really did
+     read "on day 1 of the month" while `_ordinal()` sat unused);
+     `POST …/ENG-5/assign {"to":"agent:engineer","notify":true}` → 200 at
+     16:20:57.12Z. Run `b7ba480a4466414d98fe2225784fbc1a` started
+     16:20:57.3Z. **Pod** `run-b7ba480a4466-sxslk`: `image:
+     agent-platform-runner-dev:dev`; env names `AP_RUN_ID AP_AGENT AP_PROMPT
+     AP_KAFKA_BOOTSTRAP AP_MODEL AP_CLAUDE_PROXY_URL AP_API_URL
+     AP_API_TOKEN_FILE AP_MCP_URL AP_RUN_TOKEN AP_WORKSPACE AP_GIT_REMOTE_URL
+     AP_DEFAULT_BRANCH AP_MAX_TURNS AP_VERIFY_TIMEOUT AP_WEB_URL
+     AP_PUBLISH_MAX_BYTES PLAYWRIGHT_BROWSERS_PATH AP_SESSION_TOKEN
+     AP_USER_MESSAGE` — **no `AP_GITHUB_TOKEN`, no `AP_SELF_EDIT`**;
+     `AP_VERIFY_TIMEOUT=2400`, `AP_MODEL=opus`; argv `--model opus
+     --permission-mode acceptEdits --strict-mcp-config --allowedTools Bash
+     Read …`; inside the pod `git log -1 origin/main` → `50e8aa9 docs: tick
+     R3; design 24 verify budget 2400 s`, so the clone carried R3's
+     `bin/ap-verify` (`KEEP = {"AP_VERIFY_PYTHON", "AP_WORKSPACE"}` scrub;
+     `DEFAULT_TIMEOUT` still 900 for a bare call — only finalize passes
+     `--timeout 2400`, so the engineer's own `bin/ap-verify --changed` still
+     timed out at 900 s and it said so in its notes; harmless, but a
+     `DEFAULT_TIMEOUT` bump or an `AP_VERIFY_TIMEOUT`-aware default would
+     stop the model from wasting 15 min waiting on it). Init event: tools
+     Bash/Read/Edit/Write/NotebookEdit/Glob/Grep + the five
+     `mcp__platform__*`, model `claude-opus-4-8`. Plan comment 16:22Z, `→ in
+     progress`, edit `_dom_clause`, `python -m pytest tests/test_cron_preview.py`
+     → 59 passed, commit `95b4e16`, `.ap/pr.md`, `→ review` 16:38:57Z, reply
+     16:39:03Z; claude 1 070 s / 27 turns. **Finalize verify 16:39–16:56Z →
+     publish 16:56:07Z: PR #14** https://github.com/kylep/agent-platform/pull/14,
+     title `engineer: ENG-5 cronenglish: day-of-month as ordinals ("on the 1st
+     of the month")` — **no `[verify ✗]` prefix** — author `app/pericakai`,
+     files `M services/backend/agentplatform/cronenglish.py +5 −0`, `M
+     services/backend/tests/test_cron_preview.py +12 −7`, 1 commit. **PR body
+     verification table (quoted):** `| suite | exit | seconds | result |` /
+     `| backend | 0 | 1019.8 | ✓ |` — **exit 0 in 1 019.8 s, inside the
+     2 400 s budget** (and past the old 900 s, which is why every earlier run
+     was ✗); the pod's env scrub also removed the six env-leak failures seen
+     under rev 61. **Frame** `{"seq":169,"type":"workbench","published":true,
+     "branch":"coder/eng-5","pr":{"number":14,"url":…/pull/14},"paths":[…],
+     "tests_removed":[],"ticket_state":"review","auto_merge":false,
+     "verify_ok":true,"warnings":["ticket not moved: cannot move ENG-5 from
+     review to review"]}`. **Ticket** `review` (the engineer's own move at
+     16:38:57Z; the platform's `move → review` after a green verify is a
+     same-state no-op that surfaces as that warning on the card — cosmetic,
+     worth swallowing). **Thread card** (`scratchpad/live/eng5-thread-dark.png`,
+     1280 dark): `🔀 engineer published coder/eng-5 → PR #14 · 2 files ·
+     verify ✓ backend · ⚠️ ticket not moved: cannot move ENG-5 from review to
+     review`, rendered `coder/eng-5 · PR #14 ↗ · 2 FILES · VERIFY ✓ · view
+     run ↗`; card `{"type":"publish","pr":14,"branch":"coder/eng-5","files":
+     2,"verify_ok":true,"refused_reason":null,"warnings":[…]}`. **Envelope
+     #4** on `workbench.events`: `{"type":"workbench.event","schema_version":1,
+     "id":"e76e1e37…","ts":"2026-09-19T16:56:07.975287+00:00","key":
+     "b7ba480a4466…","source":"api","data":{"event":"published","agent":
+     "engineer","run_id":"b7ba480a4466…","ticket_key":"ENG-5","branch":
+     "coder/eng-5","pr":{"number":14,…},"paths":[{"path":"services/backend/
+     agentplatform/cronenglish.py","status":"M","additions":5,"deletions":0,
+     "test":false},{"path":"services/backend/tests/test_cron_preview.py",
+     "status":"M","additions":12,"deletions":7,"test":true}],"tests_removed":
+     [],"verify":{"ok":true,"suites":[{"name":"backend","exit":0,"seconds":
+     1019.8}]},"reason":null}}`. `/changes` now lists #14 (no prefix) above
+     #13 (`scratchpad/live/changes-eng5-dark.png`). Run `succeeded`
+     16:20:57.3–16:56:08.1Z; Job `run-b7ba480a4466` `16:20:57Z → 16:56:11Z`
+     (**35 m 14 s wall; assignment → PR 35 m 10 s**: ~18 min model + 17 min
+     verify). **Item 7 peak (30 s sampler, 68 samples):** whole run `617Mi`
+     (16:37:17Z, the model's own ap-verify) / `1400m` (16:29:07Z); **verify
+     phase** (16:39Z→) `435Mi` / `1340m`. PR #14 is ready for Kyle to merge
+     (same handoff as item 6; verify ✓ so no `[verify ✗]` caveat this time);
+     ENG-5 then moves to `done` by hand.
 
 3. **Refusal (AC-2) — PASS, both outcomes observed.** (a) 09:08:49 EDT: `POST
    /api/tickets` → 201 `ENG-2` "Add a comment to .github/workflows/ci.yaml
