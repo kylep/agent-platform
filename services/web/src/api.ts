@@ -104,6 +104,7 @@ export type ToolHelp = {
   description: string;
   sensitive: boolean;           // runner denies it for non-self-edit agents
   display_name?: string | null;
+  dev_only?: boolean;           // only a `role: dev` run gets it (docs/design/25)
 };
 
 export type EditResult = {
@@ -640,6 +641,12 @@ export function generateArtifact(body: GenerateIn): Promise<Artifact> {
 export function setAgentImage(name: string, artifactId: string | null): Promise<AgentSummary> {
   return api<AgentSummary>(`/api/agents/${encodeURIComponent(name)}/image`,
                            { method: "PUT", body: JSON.stringify({ artifact_id: artifactId }) });
+}
+
+/** Sign in as a named principal (docs/design/25); the API answers a plain 401
+ *  for a bad name and a bad password alike. */
+export function login(principal: string, password: string): Promise<{ ok: boolean }> {
+  return api("/api/login", { method: "POST", body: JSON.stringify({ principal, password }) });
 }
 
 export async function api<T>(path: string, opts: RequestInit = {}): Promise<T> {

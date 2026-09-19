@@ -22,6 +22,11 @@ async def test_help_tools_endpoint(admin_client):
     assert all(t["description"] for t in tools)
     bash = next(t for t in tools if t["name"] == "Bash")
     assert bash["sensitive"] is True and bash["kind"] == "claude"
+    assert bash["dev_only"] is False
+    # The picker's "dev runs only" note (docs/design/25) reads this flag, so
+    # the schema must not drop it on the way out.
+    pw = next(t for t in tools if t["name"] == "PlaywrightMCP")
+    assert pw["dev_only"] is True and pw["display_name"] == "Playwright browser"
 
 
 async def test_help_topics_from_synced_docs(admin_client, tmp_checkout):

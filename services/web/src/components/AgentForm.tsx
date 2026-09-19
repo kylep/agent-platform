@@ -421,11 +421,12 @@ export function GrantsFields({ draft, patch, catalog }: {
       </p>
 
       <label className="field-label">Harness tools</label>
-      <ToolGrantPicker tools={catalog.harnessTools} selected={draft.harness_tools}
+      <ToolGrantPicker tools={catalog.harnessTools} selected={draft.harness_tools} role={draft.role}
                        onChange={(harness_tools) => patch({ harness_tools })} />
       <p className="muted check-note">
         ⚠ marks the tools the runner denies unconditionally for normal agents (Bash, Read, Write,
-        Edit, NotebookEdit) — they are self-edit only, so checking one changes nothing.
+        Edit, NotebookEdit) — they are self-edit only, so checking one changes nothing. A tool
+        marked "dev runs only" reaches a <code>dev</code> agent and nobody else.
       </p>
 
       <label className="field-label">Platform tools</label>

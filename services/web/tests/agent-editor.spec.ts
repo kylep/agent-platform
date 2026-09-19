@@ -41,6 +41,30 @@ test("saving the editor PUTs the whole definition, grants included", async ({ pa
   await expect(page.locator("body")).not.toContainText(/pull request|pending change|opens PR/i);
 });
 
+test("the harness picker offers PlaywrightMCP with its dev-only note", async ({ page }) => {
+  const writes = captureWrites(page);
+  await mockApi(page);
+  await page.goto("/agents/health-monitor");
+
+  // The grant shows under its display name with the help text and the
+  // "dev runs only" note (docs/design/25) — visible before it is ticked.
+  const row = page.locator(".check-item", { hasText: "Playwright browser" });
+  await expect(row).toBeVisible();
+  await expect(row).toContainText("dev runs only");
+  await expect(row).toHaveAttribute("title", /Playwright MCP server/);
+  await expect(row.locator(".text-warning")).toHaveCount(0);
+
+  // health-monitor is an operator: ticking it is allowed (the runner just
+  // ignores the grant) and the row says so as a warning, not an error.
+  await page.getByRole("checkbox", { name: "Playwright browser" }).check();
+  await expect(row.locator(".text-warning")).toHaveAttribute("aria-label", /role: dev/);
+
+  await page.getByRole("button", { name: "Save changes" }).first().click();
+  await expect(page.getByText("Saved — live now.").first()).toBeVisible();
+  const put = writes.find((w) => w.method() === "PUT");
+  expect(JSON.parse(put!.postData() ?? "{}").harness_tools).toContain("PlaywrightMCP");
+});
+
 test("entrypoints edit round-trips into the saved definition", async ({ page }) => {
   const writes = captureWrites(page);
   await mockApi(page);

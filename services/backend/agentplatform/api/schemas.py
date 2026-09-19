@@ -480,6 +480,9 @@ class ToolHelp(BaseModel):
     # Friendlier label for pickers/Help when the harness-fixed id is awkward
     # (e.g. TodoWrite → "Todo"). The id in `name` is what manifests declare.
     display_name: str | None = None
+    # Usable only by a `role: dev` run (docs/design/25): the runner filters it
+    # out for everyone else, so a picker shows it with a note, not an error.
+    dev_only: bool = False
 
 
 # --- integrations ------------------------------------------------------------

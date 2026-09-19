@@ -52,6 +52,9 @@ type PickOption = {
   label?: string;
   icon?: string;
   title?: string;
+  // A short qualifier that is always true of the option ("dev runs only"),
+  // shown beside the name so the row says it before anyone ticks it.
+  note?: string;
   // Granting it does nothing for a normal agent (the runner's always-denied
   // set) — flagged inline rather than hidden, so the row reads honestly.
   warn?: string;
@@ -71,6 +74,7 @@ function CheckGrid({ options, selected, onChange, empty }: {
                  onChange={() => onChange(toggle(selected, o.name))} />
           {o.icon && <span className="check-icon">{o.icon}</span>}
           <span className="check-name">{o.label ?? o.name}</span>
+          {o.note && <span className="check-tag muted">{o.note}</span>}
           {o.warn && <span className="text-warning" title={o.warn} aria-label={o.warn}>⚠</span>}
         </label>
       ))}
@@ -94,8 +98,23 @@ export function SkillPicker({ skills, selected, onChange }: {
 // section heading already says where it came from.
 const mcpLabel = (t: string) => t.split("__").slice(2).join("__") || t;
 
-export function ToolGrantPicker({ tools, selected, onChange, platform }: {
+// A `dev_only` tool (docs/design/25) is a grant only a `role: dev` run gets;
+// for anyone else the runner drops it with the sensitive set. Ticking it on
+// such an agent is allowed — it just does nothing — so the row warns once it
+// is ticked instead of refusing.
+function toolWarning(t: ToolHelp, ticked: boolean, role?: string): string | undefined {
+  if (t.sensitive) {
+    return "Always denied by the runner for normal agents (self-edit only) — granting it does nothing.";
+  }
+  if (t.dev_only && ticked && role !== "dev") {
+    return "Only a `role: dev` agent can use this — the runner ignores the grant for this role.";
+  }
+  return undefined;
+}
+
+export function ToolGrantPicker({ tools, selected, onChange, platform, role }: {
   tools: ToolHelp[]; selected: string[]; onChange: (next: string[]) => void; platform?: boolean;
+  role?: string;
 }) {
   // A grant the registry no longer knows about still shows (checked) so saving
   // can't silently drop it — unchecking is how you remove it.
@@ -105,9 +124,8 @@ export function ToolGrantPicker({ tools, selected, onChange, platform }: {
       name: t.name,
       label: t.display_name ?? (platform ? mcpLabel(t.name) : t.name),
       title: t.description,
-      warn: t.sensitive
-        ? "Always denied by the runner for normal agents (self-edit only) — granting it does nothing."
-        : undefined,
+      note: t.dev_only ? "dev runs only" : undefined,
+      warn: toolWarning(t, selected.includes(t.name), role),
     })),
     ...unknown.map((n) => ({ name: n, title: "Not in the registry — a stale grant.", warn: "Unknown tool." })),
   ];

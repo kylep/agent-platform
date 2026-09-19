@@ -20,6 +20,7 @@ class ToolHelp:
         kind (str):
         name (str):
         sensitive (bool):
+        dev_only (bool | Unset):  Default: False.
         display_name (None | str | Unset):
     """
 
@@ -27,6 +28,7 @@ class ToolHelp:
     kind: str
     name: str
     sensitive: bool
+    dev_only: bool | Unset = False
     display_name: None | str | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
@@ -38,6 +40,8 @@ class ToolHelp:
         name = self.name
 
         sensitive = self.sensitive
+
+        dev_only = self.dev_only
 
         display_name: None | str | Unset
         if isinstance(self.display_name, Unset):
@@ -55,6 +59,8 @@ class ToolHelp:
                 "sensitive": sensitive,
             }
         )
+        if dev_only is not UNSET:
+            field_dict["dev_only"] = dev_only
         if display_name is not UNSET:
             field_dict["display_name"] = display_name
 
@@ -71,6 +77,8 @@ class ToolHelp:
 
         sensitive = d.pop("sensitive")
 
+        dev_only = d.pop("dev_only", UNSET)
+
         def _parse_display_name(data: object) -> None | str | Unset:
             if data is None:
                 return data
@@ -85,6 +93,7 @@ class ToolHelp:
             kind=kind,
             name=name,
             sensitive=sensitive,
+            dev_only=dev_only,
             display_name=display_name,
         )
 
