@@ -555,9 +555,9 @@ async def test_channel_list_ordering_unread_and_last_message(admin_client, token
 
     listed = (await admin_client.get("/api/relay/channels")).json()
     # Channels by name, then the private rooms by last activity (the DM spoke last).
-    assert [c["name"] for c in listed[:6]] == ["art", "eng", "general", "ops",
-                                               "standup", "wiki"]
-    assert [c["id"] for c in listed[6:]] == [dm["id"], group["id"]]
+    assert [c["name"] for c in listed[:7]] == ["art", "eng", "general", "ops",
+                                               "qa", "standup", "wiki"]
+    assert [c["id"] for c in listed[7:]] == [dm["id"], group["id"]]
 
     by_id = {c["id"]: c for c in listed}
     assert by_id[ops]["unread"] == 2
@@ -1043,8 +1043,10 @@ async def test_an_app_key_notifies_a_room_as_a_system_row(admin_client, token_cl
     no summons, no membership check. The author is the key's principal, so the
     row says who really wrote it."""
     await _seed(seed_agent, agent_store, "engineer")
-    qa = (await admin_client.post("/api/relay/channels",
-                                  json={"kind": "channel", "name": "qa"})).json()
+    # The seeded #qa (docs/design/25): the room the app announces into is the
+    # one init_db ships, so nothing here has to make it.
+    qa = next(c for c in (await admin_client.get("/api/relay/channels")).json()
+              if c["name"] == "qa")
     headers = await _key(sf, name="app:tcms", role="annotator")
     r = await token_client.post("/api/relay/notify", headers=headers, json={
         "channel": "#qa", "text": "🧪 test run 4f2e… on a1b2c3d · 912 pass\n@engineer look"})
@@ -1056,7 +1058,8 @@ async def test_an_app_key_notifies_a_room_as_a_system_row(admin_client, token_cl
     # stores no mention, and the mention list is what the router routes on.
     assert "\n" not in m["body"] and "engineer look" in m["body"]
     rows = (await admin_client.get(f"/api/relay/channels/{qa['id']}/messages")).json()
-    assert [x["id"] for x in rows][-1] == m["id"]
+    # Newest first, above the seeded welcome row.
+    assert [x["id"] for x in rows][0] == m["id"]
     # Published like every other row, and the router has nothing to summon.
     envs = [e for e in producer.envelopes if e["type"] == "relay.message"]
     assert envs[-1]["data"]["id"] == m["id"] and envs[-1]["data"]["mentions"] == []

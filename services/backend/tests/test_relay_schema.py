@@ -177,6 +177,7 @@ async def test_seeded_channels_exist_exactly_once(engine, sfx):
         ("eng", "engineering: tickets for the engineer, and what it shipped", True, None),
         ("general", "everyone", True, None),
         ("ops", "alerts and operations", True, None),
+        ("qa", "quality: the QA's findings as tickets, and its nightly note", True, None),
         ("standup", "what did you do today?", True, None),
         ("wiki", "every edit, as a diff card", True, None)]
 

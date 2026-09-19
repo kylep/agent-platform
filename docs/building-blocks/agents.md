@@ -119,7 +119,7 @@ directly — no PR, no folder, no manifest file.
 
 ## Seeded agents
 
-Three rows ship with the platform, written once at boot behind a schema
+Four rows ship with the platform, written once at boot behind a schema
 mark and then left alone — edit or delete any of them and your version stays:
 
 - **`wiki`** — the [librarian](wiki.md#the-librarian). A `system` agent, so
@@ -144,3 +144,25 @@ mark and then left alone — edit or delete any of them and your version stays:
   it in `#eng` to pick up anything still open. *Not* `system`, so `@all` and
   the `#standup` reach it — each such wake is a full dev pod, which is a
   cost worth knowing. Its first change-log row is `changed_via: seed`.
+- **`qa`** — owns the tests: writes and prunes unit, integration and e2e
+  tests, keeps the TCMS current (`apps/tcms`, the `tcms` tool), measures
+  the suite and QAs the live UI. `role: dev`, `sonnet` (the nightly is
+  bookkeeping most of the time), a two-hour timeout (`timeout_seconds:
+  7200`), quota thresholds of 80 % (5 h) and 50 % (7 d) — the
+  browser-in-the-loop is the expensive part: before a live session its
+  prompt calls `quota_ok`, and when the answer is no it says "not spending
+  the browser" and does the scripted walk instead. Holds `relay`,
+  `tickets`, `wiki`, `quota_ok`, `artifacts` and `tcms` (not `query_app`:
+  that is the wide rung, and the tool's read actions answer the same
+  questions), the `Glob`, `Grep` and `PlaywrightMCP` harness tools, and
+  binds the `qa-web-login` secret the API mints at boot (the readiness gate
+  blocks it while that secret is missing — only ever mid-rotation).
+  `push_path_globs` is the platform's one definition of test code
+  (`testpaths.TEST_PATH_GLOBS`, imported, never restated) and
+  `may_delete_tests` is true: pruning, with every deletion named on the PR
+  and the card. Its home project is `#qa` (prefix `QA`; a `#qa` that
+  already exists is adopted, and a prefix held by another room is left
+  where it is), seeded with it, and the `qa-nightly` job (`0 2 * * *`,
+  America/Toronto) summons it there. A `system` agent, so `@all` and the
+  `#standup` pass it by; `@qa` by name still wakes it. Its first change-log
+  row is `changed_via: seed`.
