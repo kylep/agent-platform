@@ -84,6 +84,9 @@ from .pr_summary import PrSummary
 from .probe_in import ProbeIn
 from .probe_in_headers import ProbeInHeaders
 from .prune_result import PruneResult
+from .publish_out import PublishOut
+from .publish_run_publish_in import PublishRunPublishIn
+from .publish_run_publish_in_verify_type_0 import PublishRunPublishInVerifyType0
 from .pull_request import PullRequest
 from .pull_request_file import PullRequestFile
 from .quota import Quota
@@ -201,6 +204,8 @@ from .wiki_stats import WikiStats
 from .wiki_version_view import WikiVersionView
 from .wiki_wanted_row import WikiWantedRow
 from .wiki_write_in import WikiWriteIn
+from .workbench_pr import WorkbenchPr
+from .workbench_view import WorkbenchView
 
 __all__ = (
     "AgentCreateIn",
@@ -285,6 +290,9 @@ __all__ = (
     "ProbeIn",
     "ProbeInHeaders",
     "PruneResult",
+    "PublishOut",
+    "PublishRunPublishIn",
+    "PublishRunPublishInVerifyType0",
     "PullRequest",
     "PullRequestFile",
     "Quota",
@@ -402,4 +410,6 @@ __all__ = (
     "WikiVersionView",
     "WikiWantedRow",
     "WikiWriteIn",
+    "WorkbenchPr",
+    "WorkbenchView",
 )

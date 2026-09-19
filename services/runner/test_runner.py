@@ -564,8 +564,8 @@ def _dev_env(monkeypatch, tmp_path, fake_body):
         {"name": "engineer", "description": "Codes.", "prompt": "You code.",
          "harness_tools": ["Glob", "Grep"], "platform_tools": []}, ""))
     wb = {"branch": "coder/eng-12", "base": "main", "remote_url": "https://example.invalid/o/r.git", "ticket_key": "ENG-12",
-          "existing": False, "open_pr": None}
-    monkeypatch.setattr(runner, "_api_req", lambda m, p, body=None: wb)
+          "existing": False, "open_pr": None, "publish_nonce": NONCE}
+    monkeypatch.setattr(runner, "_api_req", lambda m, p, body=None, headers=None: wb)
     seen = {}
 
     def fake_prepare(repo_dir, wb, env, frames=None):
@@ -583,12 +583,32 @@ def _dev_env(monkeypatch, tmp_path, fake_body):
 
 
 OK_CLAUDE = '#!/bin/sh\necho \'{"type":"result","session_id":"sid-1","result":"ok"}\'\nexit 0\n'
+NONCE = "d3adb33f" * 8
+
+
+def test_dev_run_keeps_the_nonce_out_of_every_child_process(tmp_path, monkeypatch):
+    """The publish nonce is what makes a publish the runner's and not the
+    model's: it must reach `finalize` and nothing the model can read — not the
+    env `claude` is spawned with (the model's shell inherits it), not the env
+    `prepare` hands `npm ci` and git, not the prompt, not a transcript frame."""
+    seen, ws = _dev_env(monkeypatch, tmp_path, OK_CLAUDE)
+    monkeypatch.setattr(workbench, "finalize",
+                        lambda repo_dir, wb, env, run_id, api_req, nonce=None:
+                        seen.update(nonce=nonce, wb=wb) or {"published": True, "pr": None})
+    p = FakeProducer()
+    assert runner.run(producer=p) == 0
+    assert seen["nonce"] == NONCE
+    assert "publish_nonce" not in seen["wb"]
+    for env in (seen["env"], seen["prepare"][2]):
+        assert not any(NONCE in str(v) for v in env.values())
+    assert NONCE not in json.dumps(seen["args"])
+    assert NONCE not in json.dumps([v for _, _, v in p.published])
 
 
 def test_dev_run_prepares_appends_the_block_and_finalizes(tmp_path, monkeypatch):
     seen, ws = _dev_env(monkeypatch, tmp_path, OK_CLAUDE)
     monkeypatch.setattr(workbench, "finalize",
-                        lambda repo_dir, wb, env, run_id, api_req: seen.update(finalize=(repo_dir, run_id))
+                        lambda repo_dir, wb, env, run_id, api_req, nonce=None: seen.update(finalize=(repo_dir, run_id))
                         or {"published": True, "pr": {"number": 3, "url": "u"}})
     p = FakeProducer()
     assert runner.run(producer=p) == 0

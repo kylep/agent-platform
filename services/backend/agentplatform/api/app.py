@@ -37,6 +37,7 @@ from agentplatform.api import tickets as tickets_api
 from agentplatform.api import tools as tools_api
 from agentplatform.api import tail as tail_api
 from agentplatform.api import wiki as wiki_api
+from agentplatform.api import workbench_feed as workbench_feed_api
 from agentplatform import quota_store
 from agentplatform.db import make_engine, make_session_factory, init_db
 from agentplatform.relay_feed import RelayFeed
@@ -188,12 +189,35 @@ def artifacts_events_consumer_factory(settings):
     return factory
 
 
+def workbench_events_consumer_factory(settings):
+    """Production factory for the Changes page's live rows: `workbench.events`,
+    a fresh group per pod from `latest`. Its own consumer for the reason the
+    others have theirs — a feed falling behind must cost only its own
+    subscribers."""
+
+    def factory():
+        import socket
+        import uuid
+        from aiokafka import AIOKafkaConsumer
+        from agentplatform.events import TOPIC_WORKBENCH_EVENTS
+
+        return AIOKafkaConsumer(
+            TOPIC_WORKBENCH_EVENTS,
+            bootstrap_servers=settings.kafka_bootstrap,
+            group_id=f"api-workbench-{socket.gethostname() or uuid.uuid4().hex[:8]}",
+            auto_offset_reset="latest",
+        )
+
+    return factory
+
+
 def create_app(settings, session_factory, producer, secret_store=None, agent_store=None,
                 consumer_factory=None, feed_consumer_factory=None,
                 ticket_feed_consumer_factory=None,
                 wiki_feed_consumer_factory=None,
                 quota_feed_consumer_factory=None,
-                artifacts_feed_consumer_factory=None) -> FastAPI:
+                artifacts_feed_consumer_factory=None,
+                workbench_feed_consumer_factory=None) -> FastAPI:
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         st = app.state
@@ -212,6 +236,7 @@ def create_app(settings, session_factory, producer, secret_store=None, agent_sto
         st.wiki_feed.session_factory = st.session_factory
         st.quota_feed.session_factory = st.session_factory
         st.artifacts_feed.session_factory = st.session_factory
+        st.workbench_feed.session_factory = st.session_factory
         # Agent definitions are rows (docs/design/15): prime the cache once the
         # session factory exists, so the first request reads real agents rather
         # than an empty store waiting on its TTL refresh.
@@ -274,7 +299,9 @@ def create_app(settings, session_factory, producer, secret_store=None, agent_sto
                        ("wiki", st.wiki_feed, st.wiki_feed_consumer_factory),
                        ("quota", st.quota_feed, st.quota_feed_consumer_factory),
                        ("artifacts", st.artifacts_feed,
-                        st.artifacts_feed_consumer_factory))
+                        st.artifacts_feed_consumer_factory),
+                       ("workbench", st.workbench_feed,
+                        st.workbench_feed_consumer_factory))
                       if factory is not None]
         try:
             yield
@@ -315,6 +342,7 @@ def create_app(settings, session_factory, producer, secret_store=None, agent_sto
     st.wiki_feed_consumer_factory = wiki_feed_consumer_factory
     st.quota_feed_consumer_factory = quota_feed_consumer_factory
     st.artifacts_feed_consumer_factory = artifacts_feed_consumer_factory
+    st.workbench_feed_consumer_factory = workbench_feed_consumer_factory
     secret_store = secret_store or InMemorySecretStore()
     agent_store = agent_store or AgentStore(session_factory)
     st.secret_store, st.agent_store = secret_store, agent_store
@@ -326,6 +354,7 @@ def create_app(settings, session_factory, producer, secret_store=None, agent_sto
     st.wiki_feed = wiki_api.wiki_feed(session_factory)
     st.quota_feed = quota_store.quota_feed(session_factory)
     st.artifacts_feed = artifacts_feed_api.artifacts_feed(session_factory)
+    st.workbench_feed = workbench_feed_api.workbench_feed(session_factory)
     # The quota probe's HTTP client and its coalescing lock are made on
     # first use (api/quota.py). Named here because this is the seam a test
     # replaces with a MockTransport so the suite never dials Anthropic.
@@ -377,4 +406,5 @@ def create_app(settings, session_factory, producer, secret_store=None, agent_sto
     app.include_router(tools_api.router)
     app.include_router(tail_api.router)
     app.include_router(wiki_api.router)
+    app.include_router(workbench_feed_api.router)
     return app

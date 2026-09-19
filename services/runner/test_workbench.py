@@ -165,7 +165,7 @@ def test_prepare_skips_npm_without_a_lockfile(remote, tmp_path):
 
 def test_fetch_workbench_calls_the_run_scoped_route():
     seen = {}
-    wb = workbench.fetch_workbench(lambda m, p, body=None: seen.update(m=m, p=p) or _wb(), "RID")
+    wb = workbench.fetch_workbench(lambda m, p, body=None, headers=None: seen.update(m=m, p=p) or _wb(), "RID")
     assert seen == {"m": "GET", "p": "/api/runs/RID/workbench"}
     assert wb["branch"] == "coder/eng-12"
 
@@ -177,7 +177,26 @@ def test_fetch_workbench_calls_the_run_scoped_route():
 ])
 def test_fetch_workbench_refuses_a_malformed_response(bad):
     with pytest.raises(workbench.WorkbenchError):
-        workbench.fetch_workbench(lambda m, p, body=None: _wb(**bad), "RID")
+        workbench.fetch_workbench(lambda m, p, body=None, headers=None: _wb(**bad), "RID")
+
+
+def test_fetch_workbench_carries_the_publish_nonce_once(remote):
+    """The first GET of a run answers with the nonce the publish must present;
+    later ones (and a response without it) carry None. The nonce is a value in
+    the returned dict and nowhere else — never the env, never the block."""
+    wb = workbench.fetch_workbench(
+        lambda m, p, body=None, headers=None: _wb(publish_nonce="n0nce" * 12), "RID")
+    assert wb["publish_nonce"] == "n0nce" * 12
+    assert workbench.fetch_workbench(
+        lambda m, p, body=None, headers=None: _wb(publish_nonce=None), "RID")["publish_nonce"] is None
+    assert workbench.fetch_workbench(
+        lambda m, p, body=None, headers=None: _wb(), "RID")["publish_nonce"] is None
+    with pytest.raises(workbench.WorkbenchError):
+        workbench.fetch_workbench(
+            lambda m, p, body=None, headers=None: _wb(publish_nonce=12), "RID")
+    repo = remote["ws"] / "repo"
+    block = workbench.prepare(repo, wb, _env(remote))
+    assert "n0nce" not in block
 
 
 # --- finalize ----------------------------------------------------------------
@@ -191,6 +210,24 @@ def _prepared(remote, **wb_over):
 
 def _no_post(*a, **k):
     pytest.fail("must not POST")
+
+
+def test_finalize_posts_the_nonce_as_a_header_only(remote):
+    """The nonce reaches the API in `X-AP-Publish-Nonce` and nothing else:
+    not the body, not the bundle, not the env."""
+    repo, wb = _prepared(remote)
+    (repo / "feature.txt").write_text("x\n")
+    posted = {}
+    workbench.finalize(repo, wb, _env(remote), "RID",
+                       lambda m, p, body=None, headers=None: posted.update(body=body, headers=headers)
+                       or {"pr": None}, nonce="n0nce" * 12)
+    assert posted["headers"] == {"X-AP-Publish-Nonce": "n0nce" * 12}
+    assert "n0nce" not in json.dumps(posted["body"])
+    posted.clear()
+    workbench.finalize(repo, wb, _env(remote), "RID",
+                       lambda m, p, body=None, headers=None: posted.update(headers=headers)
+                       or {"pr": None})
+    assert posted["headers"] is None
 
 
 def test_finalize_clean_tree_and_no_commits_publishes_nothing(remote):
@@ -207,7 +244,7 @@ def test_finalize_checkpoints_and_posts_a_fetchable_bundle(remote, tmp_path):
     (repo / ".ap" / "pr.md").write_text("## What\nadds new.py\n")
     posted = {}
 
-    def api(m, p, body=None):
+    def api(m, p, body=None, headers=None):
         posted.update(m=m, p=p, body=body)
         return {"branch": "coder/eng-12", "pr": {"number": 9, "url": "u"}, "paths": ["new.py"]}
 
@@ -243,7 +280,7 @@ def test_finalize_verify_timeout_is_recorded_and_still_posts(remote):
     (repo / "x.txt").write_text("x\n")
     posted = {}
     workbench.finalize(repo, wb, _env(remote, FAKE_VERIFY="sleep", AP_VERIFY_TIMEOUT="1"), "RID",
-                       lambda m, p, body=None: posted.update(body=body) or {"pr": None})
+                       lambda m, p, body=None, headers=None: posted.update(body=body) or {"pr": None})
     assert posted["body"]["verify"] == {"ok": False, "error": "verify timed out"}
 
 
@@ -252,7 +289,7 @@ def test_finalize_verify_crash_is_recorded_and_still_posts(remote):
     (repo / "x.txt").write_text("x\n")
     posted = {}
     workbench.finalize(repo, wb, _env(remote, FAKE_VERIFY="crash"), "RID",
-                       lambda m, p, body=None: posted.update(body=body) or {"pr": None})
+                       lambda m, p, body=None, headers=None: posted.update(body=body) or {"pr": None})
     assert posted["body"]["verify"] == {"ok": False, "error": "verify crashed: 3"}
 
 
@@ -261,7 +298,7 @@ def test_finalize_failed_suites_travel_as_recorded(remote):
     (repo / "x.txt").write_text("x\n")
     posted = {}
     workbench.finalize(repo, wb, _env(remote, FAKE_VERIFY="fail"), "RID",
-                       lambda m, p, body=None: posted.update(body=body) or {"pr": None})
+                       lambda m, p, body=None, headers=None: posted.update(body=body) or {"pr": None})
     assert posted["body"]["verify"]["ok"] is False and "error" not in posted["body"]["verify"]
 
 
@@ -280,7 +317,7 @@ def test_finalize_truncates_oversized_notes(remote):
     (repo / ".ap" / "pr.md").write_text("n" * (40 * 1024))
     posted = {}
     workbench.finalize(repo, wb, _env(remote), "RID",
-                       lambda m, p, body=None: posted.update(body=body) or {"pr": None})
+                       lambda m, p, body=None, headers=None: posted.update(body=body) or {"pr": None})
     notes = posted["body"]["notes_md"]
     assert notes.startswith("n" * (32 * 1024)) and len(notes) < 33 * 1024
     assert notes.endswith("[truncated: .ap/pr.md was 40960 bytes, the cap is 32768]")
@@ -291,7 +328,7 @@ def test_finalize_without_notes_sends_empty_string(remote):
     (repo / "x.txt").write_text("x\n")
     posted = {}
     workbench.finalize(repo, wb, _env(remote), "RID",
-                       lambda m, p, body=None: posted.update(body=body) or {})
+                       lambda m, p, body=None, headers=None: posted.update(body=body) or {})
     assert posted["body"]["notes_md"] == ""
 
 
@@ -300,7 +337,7 @@ def test_finalize_reports_an_api_refusal_with_status_and_body(remote):
     (repo / "x.txt").write_text("x\n")
     import io
 
-    def refuse(m, p, body=None):
+    def refuse(m, p, body=None, headers=None):
         raise urllib.error.HTTPError("http://api/api/runs/RID/publish", 422, "Unprocessable", {},
                                      io.BytesIO(b'{"detail":"refused: .github/ci.yaml is on the deny list"}' + b"z" * 4096))
 
@@ -316,7 +353,7 @@ def test_finalize_on_an_existing_branch_bundles_only_the_new_work(remote):
     (repo / "more.txt").write_text("more\n")
     posted = {}
     workbench.finalize(repo, wb, _env(remote), "RID",
-                       lambda m, p, body=None: posted.update(body=body) or {})
+                       lambda m, p, body=None, headers=None: posted.update(body=body) or {})
     assert _git(repo, "rev-list", "--count", "origin/main..HEAD").strip() == "2"
     assert posted["body"]["base_sha"] == _git(repo, "rev-parse", "origin/main").strip()
 
@@ -327,17 +364,17 @@ def test_finalize_on_an_existing_branch_bundles_only_the_new_work(remote):
                                         "ssh://h/r", "https://h/r with space", ""])
 def test_fetch_workbench_refuses_a_remote_that_is_not_a_url(remote_url):
     with pytest.raises(workbench.WorkbenchError, match="remote_url"):
-        workbench.fetch_workbench(lambda m, p, body=None: _wb(remote_url=remote_url), "RID")
+        workbench.fetch_workbench(lambda m, p, body=None, headers=None: _wb(remote_url=remote_url), "RID")
 
 
 @pytest.mark.parametrize("remote_url", ["https://github.com/o/r.git", "file:///tmp/o.git"])
 def test_fetch_workbench_accepts_https_and_file_remotes(remote_url):
-    wb = workbench.fetch_workbench(lambda m, p, body=None: _wb(remote_url=remote_url), "RID")
+    wb = workbench.fetch_workbench(lambda m, p, body=None, headers=None: _wb(remote_url=remote_url), "RID")
     assert wb["remote_url"] == remote_url
 
 
 def test_fetch_workbench_tolerates_an_absent_remote_url():
-    wb = workbench.fetch_workbench(lambda m, p, body=None: {k: v for k, v in _wb().items() if k != "remote_url"}, "RID")
+    wb = workbench.fetch_workbench(lambda m, p, body=None, headers=None: {k: v for k, v in _wb().items() if k != "remote_url"}, "RID")
     assert wb["remote_url"] is None
 
 
@@ -456,7 +493,7 @@ def test_publish_post_retries_once_on_a_connection_error(remote, monkeypatch):
     monkeypatch.setattr(workbench.time, "sleep", lambda s: slept.append(s))
     calls = []
 
-    def flaky(m, p, body=None):
+    def flaky(m, p, body=None, headers=None):
         calls.append(m)
         if len(calls) == 1:
             raise urllib.error.URLError("connection refused")
@@ -471,7 +508,7 @@ def test_publish_post_second_connection_error_raises(remote, monkeypatch):
     monkeypatch.setattr(workbench.time, "sleep", lambda s: None)
     calls = []
 
-    def down(m, p, body=None):
+    def down(m, p, body=None, headers=None):
         calls.append(m)
         raise urllib.error.URLError("connection refused")
     with pytest.raises(urllib.error.URLError):
@@ -486,7 +523,7 @@ def test_an_http_refusal_is_not_retried(remote, monkeypatch):
     import io
     calls = []
 
-    def refuse(m, p, body=None):
+    def refuse(m, p, body=None, headers=None):
         calls.append(m)
         raise urllib.error.HTTPError("u", 409, "Conflict", {}, io.BytesIO(b"branch moved"))
     res = workbench.finalize(repo, wb, _env(remote), "RID", refuse)

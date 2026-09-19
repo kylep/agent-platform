@@ -60,6 +60,14 @@ class Run(Base):
     # triggering message was posted in a ticket's thread, so the work a run did
     # is reachable from the ticket and not only from the room it was asked in.
     ticket_id: Mapped[str | None] = mapped_column(String(32), nullable=True, index=True)
+    # The Workbench's publish attestation (docs/design/24): the sha256 of a
+    # nonce minted on the run's FIRST `GET /workbench` — the runner's prepare
+    # step, before the model exists — and served exactly once. A publish must
+    # present the nonce; the session token alone (which the model's shell
+    # holds) cannot. Only the hash is stored, so the row cannot leak it.
+    publish_nonce_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    publish_nonce_issued_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True)
     state: Mapped[str] = mapped_column(String(16), default=RunState.QUEUED)
     prompt: Mapped[str] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)

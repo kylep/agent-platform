@@ -35,6 +35,8 @@ TOPIC_WIKI_EVENTS = "wiki.events"              # every page write → wiki SSE, 
 TOPIC_QUOTA_EVENTS = "quota.events"            # usage snapshot changes → sidebar SSE, burn rate
 # Artifacts (docs/design/23)
 TOPIC_ARTIFACTS_EVENTS = "artifacts.events"    # every create/delete → Studio SSE, #art cards
+# Workbench (docs/design/24)
+TOPIC_WORKBENCH_EVENTS = "workbench.events"    # every publish/refusal with its file list → Changes SSE, audit
 # Infra
 TOPIC_TOOL_AUDIT = "platform.tool.audit"   # broker → audit trail (design/13 E)
 
@@ -46,7 +48,7 @@ ALL_TOPICS = [
     TOPIC_RUN_DLQ, TOPIC_CONVERSATION_INBOUND, TOPIC_CONVERSATION_OUTBOUND,
     TOPIC_CHANNEL_POST, TOPIC_RELAY_MESSAGES, TOPIC_RELAY_INVOCATIONS,
     TOPIC_TICKETS_EVENTS, TOPIC_WIKI_EVENTS, TOPIC_QUOTA_EVENTS,
-    TOPIC_ARTIFACTS_EVENTS,
+    TOPIC_ARTIFACTS_EVENTS, TOPIC_WORKBENCH_EVENTS,
     TOPIC_DEAD_LETTER,
 ]
 

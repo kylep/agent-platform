@@ -8,9 +8,13 @@ def _pr(n, ref):
 
 
 def test_view_shape():
+    """A building-block branch is not a ticket's and its body has no platform
+    header; a PR object without `auto_merge` says nothing either way — the
+    three Workbench chips (docs/design/24) are all None here."""
     v = _view(_pr(5, "coder/hello-abc"))
     assert v == {"number": 5, "title": "t5", "url": "http://x/5",
-                 "branch": "coder/hello-abc", "author": "app/pericakai", "created_at": "2026-07-20"}
+                 "branch": "coder/hello-abc", "author": "app/pericakai", "created_at": "2026-07-20",
+                 "ticket_key": None, "agent": None, "auto_merge": None}
 
 
 async def test_list_requires_github_app(admin_client):

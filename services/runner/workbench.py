@@ -49,7 +49,15 @@ def fetch_workbench(api_req, run_id: str) -> dict:
     """`GET /api/runs/{id}/workbench` with the run-scoped session token, shape-
     checked before any value reaches git: branch, base, existing, open_pr and
     ticket_key are the platform's facts, and everything else in the body is
-    ignored so a surprise field can never reach the prompt or a command."""
+    ignored so a surprise field can never reach the prompt or a command.
+
+    `publish_nonce` is the exception that proves it: the platform mints it on
+    a run's FIRST call — this one, made before `claude` is spawned — and the
+    publish must present it. It is returned here as a value in a dict and
+    must stay one: the caller keeps it in Python memory and hands it straight
+    to `finalize`. Never the environment (a child process inherits that, and
+    the model's shell is a child process), never a file in the workspace,
+    never the prompt, never a frame."""
     d = api_req("GET", f"/api/runs/{run_id}/workbench")
     if not isinstance(d, dict):
         raise WorkbenchError("workbench response is not an object")
@@ -71,9 +79,12 @@ def fetch_workbench(api_req, run_id: str) -> dict:
     remote = d.get("remote_url")
     if remote is not None and not (isinstance(remote, str) and REMOTE_RE.match(remote)):
         raise WorkbenchError("workbench response carries an invalid remote_url")
+    nonce = d.get("publish_nonce")
+    if nonce is not None and not isinstance(nonce, str):
+        raise WorkbenchError("workbench response carries an invalid publish_nonce")
     return {"branch": branch, "base": base, "existing": d["existing"], "ticket_key": ticket,
             "open_pr": None if pr is None else {"number": pr["number"], "url": pr["url"]},
-            "remote_url": remote}
+            "remote_url": remote, "publish_nonce": nonce or None}
 
 
 def dev_env(environ: dict) -> dict:
@@ -252,12 +263,21 @@ def _notes(repo_dir: Path) -> str:
             + f"\n\n[truncated: .ap/pr.md was {len(raw)} bytes, the cap is {NOTES_MAX_BYTES}]")
 
 
-def _post_publish(api_req, run_id: str, body: dict):
+PUBLISH_NONCE_HEADER = "X-AP-Publish-Nonce"
+
+
+def _post_publish(api_req, run_id: str, body: dict, nonce: str | None = None):
     """One retry on a connection-level failure (the API pod restarting under a
-    deploy is the case); an HTTP status is an answer and is never retried."""
+    deploy is the case); an HTTP status is an answer and is never retried.
+
+    The nonce travels as a header and nowhere else. It is what tells the API
+    this POST is the runner's: the session token is in the pod's environment,
+    where the model's shell can read it, but this process's memory is not —
+    a descendant process inherits the env, never the parent's variables."""
+    headers = {PUBLISH_NONCE_HEADER: nonce} if nonce else None
     for attempt in (1, 2):
         try:
-            return api_req("POST", f"/api/runs/{run_id}/publish", body)
+            return api_req("POST", f"/api/runs/{run_id}/publish", body, headers=headers)
         except urllib.error.HTTPError:
             raise
         except urllib.error.URLError:
@@ -266,10 +286,13 @@ def _post_publish(api_req, run_id: str, body: dict):
             time.sleep(PUBLISH_RETRY_DELAY)
 
 
-def finalize(repo_dir: Path, wb: dict, env: dict, run_id: str, api_req) -> dict:
+def finalize(repo_dir: Path, wb: dict, env: dict, run_id: str, api_req, *,
+             nonce: str | None = None) -> dict:
     """After a clean exit: checkpoint whatever is uncommitted, verify, bundle,
     and hand the bundle to the platform. Returns the API's body (with
-    `published: True`) or a `published: False` record naming why not."""
+    `published: True`) or a `published: False` record naming why not.
+    `nonce` is the publish nonce `fetch_workbench` was given, kept in the
+    runner's memory since — see `_post_publish`."""
     branch, base = wb["branch"], wb["base"]
     if _git(repo_dir, env, "status", "--porcelain", "-uall").strip():
         _git(repo_dir, env, "add", "-A")
@@ -295,7 +318,7 @@ def finalize(repo_dir: Path, wb: dict, env: dict, run_id: str, api_req) -> dict:
             "base_sha": _git(repo_dir, env, "rev-parse", f"origin/{base}").strip(),
             "verify": verify, "notes_md": _notes(repo_dir)}
     try:
-        result = _post_publish(api_req, run_id, body)
+        result = _post_publish(api_req, run_id, body, nonce)
     except urllib.error.HTTPError as e:
         try:
             text = e.read().decode("utf-8", "replace")

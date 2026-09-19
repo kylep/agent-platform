@@ -1,16 +1,26 @@
+import asyncio
 import base64
+import binascii
+import hashlib
+import hmac
 import logging
+import secrets
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from pydantic import BaseModel
-from sqlalchemy import select
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
+from pydantic import BaseModel, ValidationError
+from sqlalchemy import select, update
 from sqlalchemy.exc import IntegrityError
+from agentplatform import workbench
+from agentplatform.agentdefs import model_of
+from agentplatform.api.artifacts import _bounded_body
 from agentplatform.api.auth import (ANNOTATE_ROLES, INVOKE_ROLES, READ_ROLES,
                                      require_admin, require_role)
-from agentplatform.db import (ACTIVE_STATES, Conversation, RelaySession, Run,
-                              SecretAccess, TranscriptEvent)
+from agentplatform.api.gitedit import _github_app_token
+from agentplatform.db import (ACTIVE_STATES, AgentDef, Conversation, RelaySession, Run,
+                              SecretAccess, Ticket, TranscriptEvent, utcnow)
 from agentplatform.events import TOPIC_RUN_REQUESTS
+from agentplatform.github import GitHubClient
 from agentplatform.materialize import materialize_run
 
 log = logging.getLogger("runs")
@@ -288,3 +298,150 @@ async def kill_run(request: Request, run_id: str):
                                              {"type": "cancel", "run_id": run_id},
                                              type="run.request")
     return {"ok": True}
+
+
+# --- the Workbench (docs/design/24) ---------------------------------------------
+# Two run-scoped routes with the `get_agentdef` shape: the run's own session
+# token, `_own_run_or_403`, the agent off the store. The dev role is the
+# third check — a non-dev agent has no branch to prepare and nothing to
+# publish, and its token must not be able to make the API push on its behalf.
+
+async def _dev_run_or_403(request: Request, run_id: str):
+    """The run, its ticket and its definition, for a `role: dev` agent only."""
+    _own_run_or_403(request, run_id)
+    async with request.app.state.session_factory() as s:
+        run = await s.get(Run, run_id)
+        if run is None:
+            raise HTTPException(status_code=404, detail="unknown run")
+        ticket = await s.get(Ticket, run.ticket_id) if run.ticket_id else None
+        row = await s.get(AgentDef, run.agent)
+    store = request.app.state.agent_store
+    info = store.get(run.agent)
+    if info is None:
+        await store.reload()
+        info = store.get(run.agent)
+    if info is None or row is None:
+        raise HTTPException(status_code=404, detail="unknown agent")
+    if info.manifest is None:
+        raise HTTPException(status_code=409, detail="agent quarantined")
+    if info.manifest.role != "dev":
+        raise HTTPException(status_code=403, detail="not a dev agent")
+    # The grants (push_path_globs, may_delete_tests) are read off the row, not
+    # the store's projection: a fence an operator just narrowed applies to the
+    # publish that lands after it, not five seconds later.
+    return run, ticket, model_of(row)
+
+
+async def _gh_client(request: Request) -> GitHubClient | None:
+    """The GitHub REST side, or None when the App is not configured. A seam:
+    tests replace it with a recording fake."""
+    token = await _github_app_token(request)
+    repo = request.app.state.settings.github_repo
+    return GitHubClient(token, repo) if token and repo else None
+
+
+NONCE_HEADER = "X-AP-Publish-Nonce"
+
+
+def _nonce_hash(nonce: str) -> str:
+    return hashlib.sha256(nonce.encode()).hexdigest()
+
+
+async def _mint_nonce(request: Request, run_id: str) -> str | None:
+    """A fresh nonce for the run's first workbench GET, None on every later
+    one. The conditional UPDATE is the whole guarantee: two first calls racing
+    cannot both win the row, so exactly one caller ever holds a nonce whose
+    hash the row carries."""
+    nonce = secrets.token_hex(32)
+    async with request.app.state.session_factory() as s:
+        r = await s.execute(update(Run).where(Run.id == run_id, Run.publish_nonce_hash.is_(None))
+                            .values(publish_nonce_hash=_nonce_hash(nonce),
+                                    publish_nonce_issued_at=utcnow()))
+        await s.commit()
+    return nonce if r.rowcount == 1 else None
+
+
+def _require_nonce(request: Request, run: Run) -> None:
+    """The publish is the runner's, not the model's. The session token is in
+    the pod's environment, where the model's shell can read it and POST a
+    `verify: {ok: true}` of its own; the nonce was handed to the runner before
+    the model existed and lives only in the runner's memory. A run that never
+    prepared has no hash and can publish nothing."""
+    presented = request.headers.get(NONCE_HEADER, "")
+    expected = run.publish_nonce_hash or ""
+    if not presented or not expected or \
+            not hmac.compare_digest(_nonce_hash(presented), expected):
+        raise HTTPException(403, "publish requires the runner's nonce")
+
+
+@router.get("/api/runs/{run_id}/workbench", response_model=S.WorkbenchView,
+            dependencies=[Depends(require_role("session", "admin"))])
+async def get_workbench(run_id: str, request: Request):
+    """The facts a dev run's prepare step needs: its branch (named here, never
+    by the runner), the base, whether the branch already exists on the remote
+    and the PR open for it, if any — and, on the run's first call only, the
+    publish nonce."""
+    run, ticket, _ = await _dev_run_or_403(request, run_id)
+    settings = request.app.state.settings
+    branch = workbench.branch_for(run, ticket)
+    existing = await asyncio.to_thread(workbench.remote_branch_exists,
+                                       settings.git_remote_url, branch)
+    gh = await _gh_client(request)
+    open_pr = await asyncio.to_thread(gh.find_open_pull_request, branch) if gh else None
+    view = workbench.workbench_view(run, ticket, existing, open_pr,
+                                    base=settings.default_branch,
+                                    remote_url=settings.git_remote_url or None)
+    return {**view, "publish_nonce": await _mint_nonce(request, run_id)}
+
+
+def _publish_wire_bound(cap: int) -> int:
+    """The most a publish body may be on the wire: the bundle cap as base64,
+    4 KiB for the JSON fields and shas, the notes at their own cap, and room
+    for the verify record (its tails are capped again server-side, but they
+    arrive uncapped)."""
+    return cap * 4 // 3 + 4096 + workbench.NOTES_MAX_BYTES + 256 * 1024
+
+
+@router.post("/api/runs/{run_id}/publish", response_model=S.PublishOut, status_code=201,
+             dependencies=[Depends(require_role("session", "admin"))],
+             openapi_extra={"requestBody": {"required": True, "content": {
+                 "application/json": {"schema": S.PublishIn.model_json_schema()}}}})
+async def publish_run(run_id: str, request: Request, response: Response):
+    """The one door code leaves a dev pod through. The nonce is checked before
+    the body is touched; the body is bounded on the wire before any parser
+    sees it (413), then the bundle is decoded and checked against
+    `publish_max_bytes` again; everything else — ancestry, paths, policy,
+    push, PR, ticket, card, envelope — is `workbench.publish`'s. 201 when the
+    head landed, 200 when the same head was already the remote tip, 409 when
+    the remote disagrees, 422 when the policy refuses."""
+    run, ticket, agent_def = await _dev_run_or_403(request, run_id)
+    _require_nonce(request, run)
+    st = request.app.state
+    cap = st.settings.publish_max_bytes
+    request = await _bounded_body(request, _publish_wire_bound(cap))
+    try:
+        body = S.PublishIn.model_validate_json(await request.body())
+    except ValidationError as e:
+        raise HTTPException(422, e.errors(include_url=False, include_input=False))
+    # base64 is 4 chars per 3 bytes: a string this long decodes to over the cap
+    # whatever it holds, so it is refused before any decoding happens.
+    if len(body.bundle_b64) > (cap * 4 + 2) // 3 + 4:
+        raise HTTPException(413, f"bundle over the {cap} byte cap")
+    try:
+        bundle = base64.b64decode(body.bundle_b64, validate=True)
+    except (binascii.Error, ValueError):
+        raise HTTPException(422, "bundle_b64 is not base64")
+    if len(bundle) > cap:
+        raise HTTPException(413, f"bundle over the {cap} byte cap")
+    gh = await _gh_client(request)
+    if gh is None:
+        raise HTTPException(409, "github app is not configured")
+    try:
+        result = await workbench.publish(
+            st.session_factory, st.producer, st.settings, await _github_app_token(request), gh,
+            run=run, agent_def=agent_def, bundle=bundle, head_sha=body.head_sha,
+            base_sha=body.base_sha, verify=body.verify, notes_md=body.notes_md)
+    except workbench.PublishRefused as e:
+        raise HTTPException(e.status, e.reason)
+    response.status_code = result.status
+    return result.body()

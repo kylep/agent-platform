@@ -162,16 +162,19 @@ def _install_credentials() -> dict:
     return {}
 
 # --- the platform API, as this run --------------------------------------
-# AP_SESSION_TOKEN is a per-run key that reaches exactly two run-scoped
-# endpoints: this run's agent definition (docs/design/15) and, for conversation
-# turns, its session blob (docs/design/14). It authorizes nothing else.
+# AP_SESSION_TOKEN is a per-run key that reaches only this run's run-scoped
+# endpoints: its agent definition (docs/design/15), its session blob for
+# conversation turns (docs/design/14), and the Workbench's `workbench` and
+# `publish` routes (docs/design/24). It authorizes nothing else — and a publish
+# needs the nonce on top, which this process holds and the model never sees.
 
-def _api_req(method: str, path: str, body: dict | None = None) -> dict:
+def _api_req(method: str, path: str, body: dict | None = None,
+             headers: dict | None = None) -> dict:
     url = os.environ["AP_API_URL"].rstrip("/") + path
     req = urllib.request.Request(
         url, method=method,
         headers={"Authorization": "Bearer " + os.environ["AP_SESSION_TOKEN"],
-                 "Content-Type": "application/json"},
+                 "Content-Type": "application/json", **(headers or {})},
         data=json.dumps(body).encode() if body is not None else None)
     with urllib.request.urlopen(req, timeout=30) as r:
         return json.loads(r.read().decode())
@@ -495,6 +498,13 @@ async def _run(producer, run_id: str, agent: str, prompt: str) -> int:
         notes: list[dict] = []
         try:
             wb = workbench.fetch_workbench(_api_req, run_id)
+            # The publish nonce stays in THIS process's memory, popped out of
+            # the dict before anything else sees it: `claude` is spawned with
+            # an environment, and the model's shell (and every `npm`/`git` it
+            # runs) inherits that environment — but no child process can read
+            # its parent's variables. That asymmetry is the whole reason the
+            # API trusts a nonce over the session token, which IS in the env.
+            publish_nonce = wb.pop("publish_nonce", None)
             block = await asyncio.to_thread(workbench.prepare, repo_dir, wb, git_env, notes)
         except Exception as e:
             return await _abort(producer, run_id, f"workbench prepare failed: {e}")
@@ -597,7 +607,7 @@ async def _run(producer, run_id: str, agent: str, prompt: str) -> int:
     if dev and rc == 0:
         try:
             result = await asyncio.to_thread(workbench.finalize, Path(cwd), wb, git_env,
-                                             run_id, _api_req)
+                                             run_id, _api_req, nonce=publish_nonce)
             seq += 1
             await producer.publish(TOPIC_TRANSCRIPT, run_id,
                                    {"seq": seq, "type": "workbench", **result})

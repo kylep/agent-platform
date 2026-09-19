@@ -8,10 +8,14 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from agentplatform.api.gitedit import _github_app_token
 from agentplatform.api.auth import require_admin
 from agentplatform.github import GitHubClient
+from agentplatform.workbench import agent_from_body, ticket_key_of
 
 # Platform-authored PRs live on coder/* branches — one branch per building
-# block: coder/agent-<name>, coder/skill-<name>, coder/secret-<name>.
+# block: coder/agent-<name>, coder/skill-<name>, coder/secret-<name> — and,
+# since docs/design/24, one per ticket (coder/eng-12); design 25's QA runs
+# publish under qa/*. The Pending Changes view lists both.
 CODER_BRANCH_PREFIX = "coder/"
+PLATFORM_BRANCH_PREFIXES = (CODER_BRANCH_PREFIX, "qa/")
 
 from agentplatform.api import schemas as S
 router = APIRouter(dependencies=[Depends(require_admin)])
@@ -60,18 +64,23 @@ async def _client(request: Request) -> GitHubClient:
 
 
 def _view(pr: dict) -> dict:
+    branch = pr["head"]["ref"]
     return {"number": pr["number"], "title": pr["title"], "url": pr["html_url"],
-            "branch": pr["head"]["ref"], "author": pr["user"]["login"],
-            "created_at": pr["created_at"]}
+            "branch": branch, "author": pr["user"]["login"],
+            "created_at": pr["created_at"],
+            "ticket_key": ticket_key_of(branch), "agent": agent_from_body(pr.get("body")),
+            # GitHub's PR object carries `auto_merge: null | {…}`; a fake or an
+            # older shape without the key says nothing either way.
+            "auto_merge": (pr["auto_merge"] is not None) if "auto_merge" in pr else None}
 
 
 @router.get("/api/pull-requests", response_model=list[S.PullRequest])
 async def list_pull_requests(request: Request):
-    """Open pull requests the platform authored (coder/* branches) — the
-    Pending Changes view."""
+    """Open pull requests the platform authored (coder/* and qa/* branches) —
+    the Pending Changes view."""
     gh = await _client(request)
     prs = await asyncio.to_thread(gh.list_pull_requests)
-    return [_view(p) for p in prs if p["head"]["ref"].startswith(CODER_BRANCH_PREFIX)]
+    return [_view(p) for p in prs if p["head"]["ref"].startswith(PLATFORM_BRANCH_PREFIXES)]
 
 
 @router.get("/api/pull-requests/{number}/files", response_model=list[S.PullRequestFile])

@@ -6,7 +6,8 @@ from agentplatform.api.app import (artifacts_events_consumer_factory,
                                    relay_feed_consumer_factory,
                                    tickets_feed_consumer_factory,
                                    quota_events_consumer_factory,
-                                   wiki_events_consumer_factory)
+                                   wiki_events_consumer_factory,
+                                   workbench_events_consumer_factory)
 from agentplatform.config import get_settings
 from agentplatform.events import Producer
 from agentplatform.secrets import InMemorySecretStore, K8sSecretStore
@@ -36,6 +37,7 @@ def build_app():
         wiki_feed_consumer_factory=wiki_events_consumer_factory(settings),
         quota_feed_consumer_factory=quota_events_consumer_factory(settings),
         artifacts_feed_consumer_factory=artifacts_events_consumer_factory(settings),
+        workbench_feed_consumer_factory=workbench_events_consumer_factory(settings),
     )
     app.state.sa_validator = _make_sa_validator()
     return app

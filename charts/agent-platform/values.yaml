@@ -223,6 +223,7 @@ topics:
     - {name: wiki.events, partitions: 3, retentionMs: "2592000000"}          # 30d (every page write → the wiki's live feed)
     - {name: quota.events, partitions: 1, retentionMs: "604800000"}         # 7d (usage snapshot changes; the row in pg is the current value)
     - {name: artifacts.events, partitions: 3, retentionMs: "2592000000"}     # 30d (every artifact create/delete → the Studio's live strip)
+    - {name: workbench.events, partitions: 3, retentionMs: "2592000000"}     # 30d (every publish/refusal with its file list → the Changes page, the audit)
     - {name: platform.tool.audit, partitions: 3, retentionMs: "604800000"}  # 7d (audit; durable copy in pg)
     - {name: dead.letter, partitions: 1, retentionMs: "604800000"}     # 7d
   # Hand-pinned to match the kafka.image.tag the bitnami/kafka subchart

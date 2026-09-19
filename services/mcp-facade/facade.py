@@ -24,8 +24,8 @@ The surface is CURATED into three tiers (curation 2026-08-24; see
   not the kitchen.
 - **EXCLUDE** — UI form-feeders, reviewer digests the client can compute,
   git-edit conveniences redundant with having the repo, and system-agent
-  endpoints. Never tools. 19 of them, plus the 15 session/internal/streaming/
-  byte-serving operations below — 156 graded operations in all.
+  endpoints. Never tools. 19 of them, plus the 18 session/internal/streaming/
+  byte-serving operations below — 159 graded operations in all.
 
 It is deliberately NOT the mcp-broker. The broker authenticates in-cluster run
 identities and scopes tools to an agent's grants (design/13, design/15); this
@@ -90,6 +90,12 @@ EXCLUDED_PATHS = (
     ("*", r"^/api/quota/events$"),
     # And the Studio's (design/23).
     ("*", r"^/api/artifacts/events$"),
+    # And the Workbench's (design/24), plus its two run-scoped routes: a dev
+    # run's own session token is the only caller they answer, and an MCP
+    # client holds no run.
+    ("*", r"^/api/workbench/events$"),
+    ("*", r"^/api/runs/\{run_id\}/workbench$"),
+    ("*", r"^/api/runs/\{run_id\}/publish$"),
     # An artifact's two byte routes (design/23): a PNG has no place in an MCP
     # text result, and a client that wants the bytes has both URLs from the
     # metadata the artifact tools do return. Agents see a picture through the

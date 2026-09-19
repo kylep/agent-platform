@@ -601,6 +601,54 @@ class PullRequest(BaseModel):
     branch: str
     author: str
     created_at: str
+    # The Workbench's chips (docs/design/24): the ticket parsed from a
+    # `coder/<key>` or `qa/<key>` head, the agent from the PR body's platform
+    # header, and whether GitHub holds an auto-merge request for it (None when
+    # the PR object did not say).
+    ticket_key: str | None = None
+    agent: str | None = None
+    auto_merge: bool | None = None
+
+
+class WorkbenchPr(BaseModel):
+    number: int
+    url: str
+
+
+class WorkbenchView(BaseModel):
+    """`GET /api/runs/{id}/workbench` (docs/design/24): the facts the runner's
+    prepare step is built from. Nothing here is free text."""
+    branch: str
+    base: str
+    remote_url: str | None = None
+    ticket_key: str | None = None
+    existing: bool
+    open_pr: WorkbenchPr | None = None
+    # Served on the run's first call only (the runner's prepare step); the
+    # publish must present it in `X-AP-Publish-Nonce`.
+    publish_nonce: str | None = None
+
+
+class PublishIn(BaseModel):
+    """What `services/runner/workbench.py::finalize` POSTs. `verify` and
+    `notes_md` are untrusted: the route hands them to the publish service,
+    which shape-checks the one and strips the other."""
+    bundle_b64: str
+    head_sha: str
+    base_sha: str
+    verify: dict | None = None
+    notes_md: str = ""
+
+
+class PublishOut(BaseModel):
+    branch: str
+    pr: WorkbenchPr | None = None
+    paths: list[str]
+    tests_removed: list[str]
+    ticket_state: str | None = None
+    auto_merge: bool = False
+    verify_ok: bool | None = None
+    warnings: list[str] = []
 
 
 class PullRequestFile(BaseModel):
