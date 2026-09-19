@@ -100,6 +100,32 @@ optional `<name>.meta.json` sidecar merged into that file's `meta` rather than
 returned as a file. A file over the cap is skipped and named in the
 response's `warnings` list; the call itself still succeeds.
 
+## Files from artifacts
+
+An agent never fills `files_in` itself: base64 through a tool argument is
+transcript, and a path from model text is nothing the executor mounts. A file
+reaches a tool as an **artifact** ([artifacts.md](artifacts.md)). Every custom
+tool takes a reserved `files` argument — a list of at most 4 artifact ids, 32
+hex characters each — which the broker resolves before the forward: for each
+id it fetches `GET /api/artifacts/{id}` and `/content` with the **caller's
+own token**, so a tool can only ingest what its caller may read, refuses
+anything over 8 MiB (the executor's own cap) before the bytes travel, and
+sends the executor `files_in: [{name: <the artifact's name, as a basename>,
+mime, b64}]` with `files` dropped from the args. The broker adds `files` to
+every custom tool's advertised schema itself; a manifest that declares a
+`files` param is invalid (the registry refuses it, the broker skips it),
+because the tool never receives that argument — it reads the files by name
+from `TOOL_IN_DIR`. Names are basenames; one the executor would refuse (a
+separator, NUL, over 200 bytes) becomes the artifact id. A bad
+id, a fifth one, two artifacts with one name, or an artifact the caller cannot
+read (the API's 404 → `artifact <id> not found or not readable`) is an error
+string and no executor call. The audit row records the byte total as
+`files_bytes`, never the bytes. From inside a run, `bin/ap-upload FILE...`
+(stdlib; the pod's `AP_API_TOKEN` / `AP_API_TOKEN_FILE` identity, tag `tcms`
+by default) posts each file as an artifact and prints one id per file — the
+ids the tool call then names in `files` (design 25's `tcms record_results`
+is the first taker).
+
 ## Internal tools
 
 `internal: true` in the manifest keeps a tool off the MCP surface entirely:

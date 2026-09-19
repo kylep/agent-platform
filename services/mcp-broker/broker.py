@@ -192,7 +192,8 @@ def _args_digest(arguments: dict) -> str:
 
 async def _publish_audit(agent: str, run_id: str, initiated_by: str, tool: str,
                          arguments: dict, decision: str, t0: float,
-                         result_bytes: int = 0, action: str | None = None) -> None:
+                         result_bytes: int = 0, action: str | None = None,
+                         files_bytes: int = 0) -> None:
     global _audit_producer
     if not _KAFKA:
         return
@@ -218,7 +219,12 @@ async def _publish_audit(agent: str, run_id: str, initiated_by: str, tool: str,
                         # keeps the columns it has.
                         "action": action or None,
                         "latency_ms": int((_time.monotonic() - t0) * 1000),
-                        "result_bytes": result_bytes}}
+                        "result_bytes": result_bytes,
+                        # What went INTO a custom tool as artifacts (design/25):
+                        # a total, because the args are a digest and the bytes
+                        # are the artifacts' — the trail says how much, never
+                        # what.
+                        "files_bytes": files_bytes}}
         await _audit_producer.send_and_wait(
             _TOPIC_AUDIT, _json.dumps(env).encode(), key=agent.encode() or b"unknown")
     except Exception:
@@ -234,13 +240,13 @@ _AUDIT_TIMEOUT_S = 2.0
 
 async def _audit(agent: str, run_id: str, initiated_by: str, tool: str,
                  arguments: dict, decision: str, t0: float, result_bytes: int = 0,
-                 action: str | None = None) -> None:
+                 action: str | None = None, files_bytes: int = 0) -> None:
     """Fire-and-forget audit event; auditing must never break — or stall — a
     tool call. Every tool publishes through here, so the bound is here too."""
     try:
         await _asyncio.wait_for(
             _publish_audit(agent, run_id, initiated_by, tool, arguments, decision,
-                           t0, result_bytes, action), _AUDIT_TIMEOUT_S)
+                           t0, result_bytes, action, files_bytes), _AUDIT_TIMEOUT_S)
     except TimeoutError:
         log.warning("tool audit publish timed out after %ss (call unaffected): %s/%s",
                     _AUDIT_TIMEOUT_S, tool, decision)
@@ -382,6 +388,88 @@ def _metered(tool: str, grant: bool = False):
 # outlast it, plus the executor's staging and file collection around the run.
 _EXECUTOR_TIMEOUT_MARGIN = 30
 
+# --- files from artifacts (docs/design/25 "Broker") ---------------------------
+# A file reaches a custom tool as an ARTIFACT, never as base64 in a tool
+# argument (the transcript's bound) and never as a path from model text (the
+# executor mounts nothing a model names). `files` is reserved on every custom
+# tool: a list of artifact ids the broker turns into the executor's `files_in`
+# by fetching each one with the caller's own headers — so a tool can only
+# ingest what its caller may read. The caps are the executor's own
+# (`FILES_IN_MAX`, `FILE_CAP`), restated here so an over-cap call is refused
+# before megabytes are fetched.
+FILES_ARG = "files"
+FILES_MAX = 4
+FILE_BYTES_MAX = 8 * 1024 * 1024
+# The executor's `NAME_MAX`: `services/tool-executor/test_files_in_names.py`
+# holds the two sanitisers to one rule.
+_NAME_MAX = 200
+_FILES_RULE = f"`{FILES_ARG}` must be a list of at most {FILES_MAX} artifact ids (32 hex characters each)"
+# What every custom tool advertises for it — the model learns the argument
+# from the schema, beside the manifest's own params. A manifest may not
+# declare it itself (`toolregistry.RESERVED_PARAM`): the tool never sees it.
+_FILES_SCHEMA = {
+    "type": "array", "maxItems": FILES_MAX,
+    "items": {"type": "string", "pattern": "^[0-9a-f]{32}$"},
+    "description": (f"Up to {FILES_MAX} artifact ids (from `bin/ap-upload`, or the "
+                    "artifacts tool) the tool receives as files, read by their "
+                    "artifact names; each at most 8 MiB, and only what you can read."),
+}
+
+
+def _plain_filename(name, artifact_id: str) -> str:
+    """The name the tool reads the file by. The executor takes plain filenames
+    only (`_safe_name`: no separator, no NUL, at most 200 bytes, not `.` or
+    `..`), and a row's name is a label a caller chose — so the last segment,
+    and the id whenever the executor would refuse what is left: a name is
+    never a reason to fail a call on an artifact the caller may read."""
+    base = str(name or "").replace("\\", "/").rsplit("/", 1)[-1].strip()
+    if not base or base in (".", "..") or "\0" in base or len(base.encode()) > _NAME_MAX:
+        return artifact_id
+    return base
+
+
+async def _files_in(files) -> tuple[list[dict], int, str | None]:
+    """The reserved `files` argument resolved, as (files_in, bytes, error).
+    Every id is gated on its shape before it becomes a path segment, the
+    row's `size` refuses an over-cap artifact before its bytes are fetched,
+    and the bytes that arrive are measured again — the row is a claim."""
+    if not isinstance(files, list) or len(files) > FILES_MAX or not all(
+            isinstance(f, str) and _HEX_ID_RE.fullmatch(f) for f in files):
+        return [], 0, f"error: {_FILES_RULE}"
+    out, total, names = [], 0, set()
+    for artifact_id in dict.fromkeys(files):
+        r = await _request("GET", f"{_ARTIFACTS}/{artifact_id}")
+        if r.status_code == 404:
+            return [], 0, f"error: artifact {artifact_id} not found or not readable"
+        if r.status_code >= 400:
+            return [], 0, _plain_error(f"error: {r.status_code} {r.text}".rstrip())
+        row = _artifact_rows(r.text)
+        if not isinstance(row, dict):
+            return [], 0, f"error: the API answered with something other than artifact {artifact_id}"
+        size = int(row.get("size") or 0)
+        if size > FILE_BYTES_MAX:
+            return [], 0, (f"error: artifact {artifact_id} is {_size_text(size)}, over the "
+                           f"{_size_text(FILE_BYTES_MAX)} a tool may take per file")
+        r = await _request("GET", f"{_ARTIFACTS}/{artifact_id}/content")
+        if r.status_code == 404:
+            return [], 0, f"error: artifact {artifact_id} not found or not readable"
+        if r.status_code >= 400:
+            return [], 0, _plain_error(f"error: {r.status_code} {r.text}".rstrip())
+        if len(r.content) > FILE_BYTES_MAX:
+            return [], 0, (f"error: artifact {artifact_id} is {_size_text(len(r.content))}, "
+                           f"over the {_size_text(FILE_BYTES_MAX)} a tool may take per file")
+        name = _plain_filename(row.get("name"), artifact_id)
+        # The executor stages files by name into one directory: a second
+        # `junit.xml` would silently replace the first, and a tool that
+        # ingests results must not lose a file without a word.
+        if name in names:
+            return [], 0, f"error: two of the files are named {name!r}; rename one"
+        names.add(name)
+        total += len(r.content)
+        out.append({"name": name, "mime": str(row.get("mime") or ""),
+                    "b64": _b64.b64encode(r.content).decode()})
+    return out, total, None
+
 
 class CustomTool(Tool):
     """An MCP tool whose schema comes from tool.yaml and whose execution is a
@@ -410,25 +498,45 @@ class CustomTool(Tool):
             await _audit(agent, run_id, initiated_by, self.name, arguments, "deny:rate-limit", t0)
             return ToolResult(content=_RATE_LIMITED)
         caller = {"agent": agent, "run_id": run_id}
+        payload = {"tool": self.name, "args": arguments, "caller": caller}
+        files_bytes = 0
+        if FILES_ARG in arguments:
+            # Resolved after the guards above — the fetches are on the
+            # caller's token, and a call that was going to be refused should
+            # not first cost a fetch. `files` is the broker's argument: the
+            # executor validates the rest against the manifest.
+            try:
+                files_in, files_bytes, error = await _files_in(arguments[FILES_ARG])
+            except httpx.HTTPError as e:
+                await _audit(agent, run_id, initiated_by, self.name, arguments, "error:api-unreachable", t0)
+                return ToolResult(content=f"error: the platform API is unreachable ({e}) — retry shortly")
+            if error:
+                await _audit(agent, run_id, initiated_by, self.name, arguments, "error:files", t0)
+                return ToolResult(content=error)
+            payload["args"] = {k: v for k, v in arguments.items() if k != FILES_ARG}
+            payload["files_in"] = files_in
+
+        async def record(decision: str, result_bytes: int = 0) -> None:
+            await _audit(agent, run_id, initiated_by, self.name, arguments, decision, t0,
+                         result_bytes=result_bytes, files_bytes=files_bytes)
+
         try:
             async with httpx.AsyncClient(
                     base_url=_EXECUTOR,
                     timeout=self.timeout_seconds + _EXECUTOR_TIMEOUT_MARGIN) as c:
-                r = await c.post("/run", json={"tool": self.name, "args": arguments,
-                                               "caller": caller})
+                r = await c.post("/run", json=payload)
         except httpx.HTTPError as e:
-            await _audit(agent, run_id, initiated_by, self.name, arguments, "error:executor-unreachable", t0)
+            await record("error:executor-unreachable")
             return ToolResult(content=f"error: tool-executor unreachable ({e})")
         if r.status_code != 200:
-            await _audit(agent, run_id, initiated_by, self.name, arguments, f"error:http-{r.status_code}", t0)
+            await record(f"error:http-{r.status_code}")
             return ToolResult(content=f"error: tool-executor returned {r.status_code}: {r.text[:500]}")
         body = r.json()
         if not body.get("ok"):
-            await _audit(agent, run_id, initiated_by, self.name, arguments, "error:tool", t0)
+            await record("error:tool")
             return ToolResult(content=f"error: {body.get('error', 'unknown tool failure')}")
         output = body.get("output", "")
-        await _audit(agent, run_id, initiated_by, self.name, arguments, "allow", t0,
-                     result_bytes=len(output))
+        await record("allow", result_bytes=len(output))
         return ToolResult(content=output)
 
 
@@ -1875,6 +1983,11 @@ def _scan_custom_tools() -> dict[str, dict]:
         # agent's — it does not exist on the MCP surface at all.
         if m.get("internal"):
             continue
+        # `files` is the broker's (design/25); a manifest that declares it is
+        # invalid, and the registry says so where a human reads it.
+        params = m.get("params") if isinstance(m.get("params"), dict) else {}
+        if FILES_ARG in (params.get("properties") or {}) or FILES_ARG in (params.get("required") or []):
+            continue
         m["timeout_seconds"] = _clamp_timeout(m.get("timeout_seconds"))
         found[name] = m
     return found
@@ -1912,10 +2025,10 @@ def refresh_custom_tools() -> None:
             continue
         if name in _registered:
             mcp.local_provider.remove_tool(name)
-        mcp.add_tool(CustomTool(
-            name=name, description=desc,
-            parameters=m.get("params") or {"type": "object", "properties": {}},
-            timeout_seconds=timeout))
+        params = dict(m.get("params") or {"type": "object", "properties": {}})
+        params["properties"] = {**(params.get("properties") or {}), FILES_ARG: _FILES_SCHEMA}
+        mcp.add_tool(CustomTool(name=name, description=desc, parameters=params,
+                                timeout_seconds=timeout))
         _registered[name] = (desc, timeout)
         log.info("custom tool registered: %s", name)
 
