@@ -591,7 +591,7 @@ dispatch subagents, verify their evidence, commit, and update this file.
   succeed in the container with their output quoted in the report; the
   image is loaded locally for T11.
 
-- [ ] **T9 Seeds: `#eng`, the engineer, `eng-queue`.** `[after T7 is committed]` (AC-4)
+- [x] **T9 Seeds: `#eng`, the engineer, `eng-queue`.** `[after T7 is committed]` (AC-4) (commit `16d8f5b`; review: ship — the ticket's review/blocked move is the publish route's, not the prompt's)
   Design sections: "The engineer (seeded row)", "Data model" (Seeds).
   Files: `db.py` (`ENG_CHANNEL_MARK = "eng-channel-v1"` — the `#eng` open
   channel with `ticket_prefix="ENG"` and a welcome row "Assign a ticket to
@@ -619,7 +619,7 @@ dispatch subagents, verify their evidence, commit, and update this file.
 
 ### Phase 2 — the web (T10; starts when T7 reports)
 
-- [ ] **T10 `[ui]` Agent editor fields, `/changes` with both prefixes and live rows, the publish card, the `workbench` run frame.** `[after T7 reports]` (AC-3, AC-4)
+- [x] **T10 `[ui]` Agent editor fields, `/changes` with both prefixes and live rows, the publish card, the `workbench` run frame.** `[after T7 reports]` (AC-3, AC-4) (commit `864fc59`; code review ship; visual review: agent tab strip scrolls itself and Changes actions cell is sticky at 390; runner refusal reason unwrapped in `5445ba4`)
   Design sections: "Web", "Relay", "API" (`GET /api/pull-requests`).
   Files: `services/web/src/components/AgentForm.tsx` (two `NumberField`s
   "Quota gate: 5-hour max %" / "7-day max %" beside Timeout with a one-line
