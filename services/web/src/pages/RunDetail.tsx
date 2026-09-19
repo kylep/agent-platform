@@ -4,7 +4,7 @@ import { api, type RunDetailData, type RunEvent } from "../api";
 import type { TicketDetail } from "../lib/tickets";
 import { Banner } from "@ap/ui/banner";
 import { Button } from "@ap/ui/button";
-import { StatusChip } from "@ap/ui/chip";
+import { Chip, StatusChip } from "@ap/ui/chip";
 import { Markdown } from "@ap/ui/markdown";
 import { isActiveState } from "./Runs";
 import { useTitle } from "../lib/title";
@@ -82,6 +82,78 @@ function FinalResult({ frame }: { frame: RunEvent }) {
   );
 }
 
+type WorkbenchPr = { number?: number; url?: string };
+
+/** The runner's `workbench` frame (docs/design/24), which is the dev run's
+ * outcome and not a background event: what it published — branch, PR, how
+ * much, the flags a reviewer wants first — or why nothing landed. A prepare
+ * note (`npm ci` failing) is the same frame earlier in the run, and a
+ * finalize that blew up carries only `error`. */
+function WorkbenchFrame({ frame }: { frame: RunEvent }) {
+  if (typeof frame.error === "string") {
+    return (
+      <div className="wb-frame wb-frame-err">
+        <div className="final-label">Workbench</div>
+        <div>Publish failed: {frame.error}</div>
+      </div>
+    );
+  }
+  if (typeof frame.step === "string") {
+    return (
+      <div className="wb-frame wb-frame-warn">
+        <div className="final-label">Workbench</div>
+        <div><code>{frame.step}</code> failed{typeof frame.exit === "number" ? ` (exit ${frame.exit})` : ""}</div>
+        {typeof frame.tail === "string" && frame.tail && <pre className="tcall-result">{frame.tail}</pre>}
+      </div>
+    );
+  }
+  if (frame.published !== true) {
+    const status = typeof frame.status === "number" ? frame.status : null;
+    const reason = String(frame.reason ?? "");
+    // The API said no (policy, ancestry, cap): a failed run. "no changes" is
+    // simply a run that had nothing to land.
+    const refused = status !== null && status >= 400;
+    return (
+      <div className={`wb-frame${refused ? " wb-frame-err" : ""}`}>
+        <div className="final-label">Workbench</div>
+        <div>{refused ? "Publish refused" : "Nothing published"}{reason && ` — ${reason}`}</div>
+      </div>
+    );
+  }
+  const pr = (frame.pr ?? null) as WorkbenchPr | null;
+  const paths = Array.isArray(frame.paths) ? (frame.paths as string[]) : [];
+  const removed = Array.isArray(frame.tests_removed) ? (frame.tests_removed as string[]) : [];
+  const warnings = Array.isArray(frame.warnings) ? (frame.warnings as string[]) : [];
+  return (
+    <div className="wb-frame">
+      <div className="final-label">Workbench</div>
+      <div className="wb-row">
+        <span>Published</span>
+        {typeof frame.branch === "string" && <code>{frame.branch}</code>}
+        {pr?.number != null && pr.url && (
+          <a href={pr.url} target="_blank" rel="noreferrer" className="no-underline">
+            <Chip variant="accent">PR #{pr.number} ↗</Chip>
+          </a>
+        )}
+        <Chip>{paths.length} {paths.length === 1 ? "file" : "files"}</Chip>
+        {removed.length > 0 && <Chip variant="danger" title={removed.join("\n")}>removes tests</Chip>}
+        {frame.verify_ok === true && <Chip variant="ok">verify ✓</Chip>}
+        {frame.verify_ok === false && <Chip variant="danger">verify ✗</Chip>}
+        {frame.auto_merge === true && <Chip variant="ok">auto-merge</Chip>}
+        {typeof frame.ticket_state === "string" && frame.ticket_state && (
+          <span className="muted">ticket → {frame.ticket_state}</span>
+        )}
+      </div>
+      {paths.length > 0 && (
+        <details className="tcall-input"><summary>{paths.length === 1 ? "the file" : "the files"}</summary>
+          <pre>{paths.join("\n")}</pre>
+        </details>
+      )}
+      {warnings.map((w, i) => <div key={i} className="muted final-meta">⚠️ {w}</div>)}
+    </div>
+  );
+}
+
 // Readable transcript: agent prose, tool calls paired with their results, a
 // highlighted final reply, and background frames (system/lifecycle) collapsed.
 function ReadableTranscript({ events }: { events: RunEvent[] }) {
@@ -116,6 +188,8 @@ function ReadableTranscript({ events }: { events: RunEvent[] }) {
       });
     } else if (f.type === "result") {
       rendered.push(<FinalResult key={i} frame={f} />);
+    } else if (f.type === "workbench") {
+      rendered.push(<WorkbenchFrame key={i} frame={f} />);
     } else if (f.type !== "user") {
       noise++;   // system / lifecycle / rate_limit_event — collapsed below
     }
@@ -127,7 +201,7 @@ function ReadableTranscript({ events }: { events: RunEvent[] }) {
       {rendered}
       {noise > 0 && (
         <details className="transcript-noise"><summary>{noise} background events (system, lifecycle)</summary>
-          <pre>{JSON.stringify(events.filter((f) => f.type !== "assistant" && f.type !== "result" && f.type !== "user"), null, 2)}</pre>
+          <pre>{JSON.stringify(events.filter((f) => !["assistant", "result", "user", "workbench"].includes(f.type ?? "")), null, 2)}</pre>
         </details>
       )}
     </div>

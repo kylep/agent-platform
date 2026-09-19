@@ -5,14 +5,8 @@ import { Button } from "@ap/ui/button";
 import { Chip } from "@ap/ui/chip";
 import { Input, Select } from "@ap/ui/field";
 import { Table, TD, TH } from "@ap/ui/table";
+import { ROLE_DESC } from "../lib/roles";
 
-const ROLE_DESC: Record<string, string> = {
-  reader: "Read-only: view agents, runs, schedules, and changes.",
-  annotator: "Reader + annotate runs and write memories (system agents).",
-  operator: "Reader + trigger runs and fire webhooks.",
-  coder: "Operator + edit agents (self-edit / open PRs).",
-  admin: "Full control: secrets, API keys, merges, and settings.",
-};
 const ROLES = Object.keys(ROLE_DESC);
 
 function PasswordSection() {

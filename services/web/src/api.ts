@@ -173,6 +173,12 @@ export type PullRequest = {
   branch: string;
   author: string;
   created_at: string;
+  // The Workbench's chips (docs/design/24): the ticket parsed off a `coder/`
+  // or `qa/` head, the agent from the PR body's platform header, and whether
+  // GitHub holds an auto-merge request (null when the PR object did not say).
+  ticket_key?: string | null;
+  agent?: string | null;
+  auto_merge?: boolean | null;
 };
 
 export type PullRequestFile = {
@@ -389,6 +395,17 @@ export type RelayCard = {
   owner?: string;
   model?: string;
   prompt?: string;
+  // The publish card (docs/design/24): what a dev run landed, or why it was
+  // refused — `pr`/`url` null on a refusal, `verify_ok` null when nothing ran.
+  pr?: number | null;
+  branch?: string;
+  files?: number;
+  tests_removed?: string[];
+  verify_ok?: boolean | null;
+  refused_reason?: string | null;
+  run_id?: string | null;
+  agent?: string;
+  warnings?: string[];
 };
 
 export type RelayMessage = {

@@ -75,11 +75,50 @@ const secrets = [
 ];
 
 // Pending changes are platform CODE only now — agent definitions are rows and
-// save directly (docs/design/15).
+// save directly (docs/design/15). A Workbench publish (docs/design/24) lands
+// here too, under either prefix, with the ticket parsed off its head and the
+// agent read from the PR body; the self-edit row carries neither.
 const prs = [
   { number: 12, title: "Edit news-lookup: skill body", url: "https://github.com/x/y/pull/12",
-    branch: "coder/skill-news-lookup", author: "pericakai[bot]", created_at: new Date().toISOString() },
+    branch: "coder/skill-news-lookup", author: "pericakai[bot]", created_at: new Date().toISOString(),
+    ticket_key: null, agent: null, auto_merge: null },
+  { number: 13, title: "OPS-5: freshness gates, second pass", url: "https://github.com/x/y/pull/13",
+    branch: "coder/ops-5", author: "pericakai[bot]",
+    created_at: new Date(Date.now() - 30 * 60000).toISOString(),
+    ticket_key: "OPS-5", agent: "engineer", auto_merge: true },
+  { number: 14, title: "OPS-1: a test for the weather dedup", url: "https://github.com/x/y/pull/14",
+    branch: "qa/ops-1", author: "pericakai[bot]",
+    created_at: new Date(Date.now() - 20 * 60000).toISOString(),
+    ticket_key: "OPS-1", agent: "qa", auto_merge: false },
 ];
+
+// The `workbench` transcript frame the runner emits after a dev run
+// (services/runner/runner.py): the API's publish body on success, or a
+// `published: false` record naming why not. The run page's tail is a
+// WebSocket, which `page.route` never sees — `runTail` serves these.
+export const workbenchFrames = {
+  published: [
+    { seq: 1, type: "assistant", message: { content: [{ type: "text", text: "Done — publishing." }] } },
+    { seq: 2, type: "workbench", published: true, branch: "coder/ops-5",
+      pr: { number: 13, url: "https://github.com/x/y/pull/13" },
+      paths: ["services/web/src/pages/Tickets.tsx", "services/web/tests/tickets.spec.ts",
+              "services/backend/agentplatform/tickets.py", "docs/design/20-tickets.md"],
+      tests_removed: ["services/web/tests/old.spec.ts"], ticket_state: "review",
+      auto_merge: true, verify_ok: true, warnings: [] },
+    { seq: 3, type: "result", result: "Done — publishing.", terminal: true },
+  ],
+  refused: [
+    { seq: 1, type: "workbench", published: false, status: 422,
+      reason: "services/backend/agentplatform/relay.py is outside its test paths" },
+    { seq: 2, type: "result", result: "Tests added.", terminal: true },
+  ],
+};
+
+export async function runTail(page: Page, runId: string, frames: unknown[]): Promise<void> {
+  await page.routeWebSocket((url) => url.pathname === `/api/runs/${runId}/tail`, (ws) => {
+    for (const f of frames) ws.send(JSON.stringify(f));
+  });
+}
 
 const durations = agents.flatMap((a, i) =>
   [0, 1, 2].map((d) => ({
@@ -446,6 +485,26 @@ const opsMessages = [
                              created_at: at(300) }),
   ticketCard("OPS-6", "Back up the scheduler's state", "done", "p3", "agent:pai",
              { id: "k6", author: "agent:pai", face: FACES.pai, created_at: at(260) }),
+  // The Workbench's cards (docs/design/24), in the thread of the ticket they
+  // were published for: one landed publish that dropped a test file, and one
+  // refusal — the platform's voice, `system:relay`, with the reason in the
+  // body a bridge can read.
+  relayMessage({ id: "pub1", channel_id: "rc3", author: "system:relay", kind: "event",
+                 reply_to: "k5", thread_root: "k5", run_id: "r-eng-1", created_at: at(200),
+                 body: "🔀 engineer published coder/ops-5 → PR #13 · 4 files · verify ✓ backend ✓ web"
+                   + " · removes tests: services/web/tests/old.spec.ts",
+                 card: { type: "publish", pr: 13, url: "https://github.com/x/y/pull/13",
+                         branch: "coder/ops-5", files: 4,
+                         tests_removed: ["services/web/tests/old.spec.ts"], verify_ok: true,
+                         refused_reason: null, run_id: "r-eng-1", agent: "engineer",
+                         warnings: [] } }),
+  relayMessage({ id: "pub2", channel_id: "rc3", author: "system:relay", kind: "event",
+                 reply_to: "k5", thread_root: "k5", run_id: "r-qa-1", created_at: at(190),
+                 body: "⛔ publish refused for qa: services/backend/agentplatform/relay.py is outside its test paths",
+                 card: { type: "publish", pr: null, url: null, branch: "qa/ops-5", files: 0,
+                         tests_removed: [], verify_ok: null,
+                         refused_reason: "services/backend/agentplatform/relay.py is outside its test paths",
+                         run_id: "r-qa-1", agent: "qa", warnings: [] } }),
 ];
 
 // The #art room (docs/design/23): the card the API posts when an image is
@@ -993,6 +1052,12 @@ const FIXTURES: Record<string, unknown> = {
   "/api/runs/r-news-1": { ...runDetail, id: "r-news-1", agent: "news", trigger: "mention",
                           ticket_id: "t1", prompt: "Fix the weather duplication." },
   "/api/runs/r-news-1/transcript": [],
+  // The dev runs behind the publish cards (docs/design/24); their transcripts
+  // come over the tail socket, see `runTail`.
+  "/api/runs/r-eng-1": { ...runDetail, id: "r-eng-1", agent: "engineer", trigger: "mention",
+                         prompt: "Take OPS-5 through review." },
+  "/api/runs/r-qa-1": { ...runDetail, id: "r-qa-1", agent: "qa", trigger: "mention", exit_code: 1,
+                        state: "failed", prompt: "Write the test for OPS-5." },
   "/api/whoami": { principal: "kyle", role: "admin", agent: null, run_id: null, tools: null },
   "/api/relay/channels": relayChannels,
   "/api/relay/channels/rc1": detail("rc1", { news: FACES.news, "health-monitor": FACES["health-monitor"] }),

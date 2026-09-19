@@ -1,7 +1,8 @@
-import { Fragment, useEffect, useState } from "react";
+import { Fragment, useCallback, useEffect, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { api, type PullRequest, type PullRequestFile } from "../api";
 import { blockPath, DeployTracker, parseBranch } from "../components/ChangeFlow";
+import { Face } from "../components/relay/Face";
 import { Banner } from "@ap/ui/banner";
 import { Button } from "@ap/ui/button";
 import { Chip } from "@ap/ui/chip";
@@ -137,15 +138,90 @@ function FileView({ f }: { f: PullRequestFile }) {
   );
 }
 
-// "agent: news" chip linking to the building block the change touches.
+// "agent: news" chip linking to the building block the change touches. A
+// Workbench head (docs/design/24) is not a block: it is drawn as its branch,
+// beside the ticket it was cut for.
 function BlockChip({ branch }: { branch: string }) {
   const ref = parseBranch(branch);
-  if (!ref) return <span className="muted">{branch}</span>;
+  if (!ref) return <code className="change-branch">{branch}</code>;
   return (
     <Link to={blockPath(ref)} className="no-underline">
       <Chip variant="neutral">{ref.kind}: {ref.name}</Chip>
     </Link>
   );
+}
+
+/** The Workbench's chips on a row: the ticket the head was cut for and whether
+ * GitHub will merge it on green. Both are what the API read off the PR, so a
+ * row it could not read them from — a self-edit, a hand-made branch — shows
+ * nothing rather than a guess. */
+function WorkbenchChips({ pr }: { pr: PullRequest }) {
+  return (
+    <>
+      {pr.ticket_key && (
+        <Link to={`/tickets/${pr.ticket_key}`} className="no-underline">
+          <Chip variant="accent">{pr.ticket_key}</Chip>
+        </Link>
+      )}
+      {pr.auto_merge && <Chip variant="ok" title="GitHub merges this on green">auto-merge</Chip>}
+    </>
+  );
+}
+
+/** Who wrote it: the agent's face and name for a Workbench publish, the PR's
+ * author (the platform's app) otherwise. */
+function Author({ pr }: { pr: PullRequest }) {
+  if (!pr.agent) return <span className="text-muted">{pr.author}</span>;
+  return (
+    <Link to={`/agents/${encodeURIComponent(pr.agent)}`} className="change-agent no-underline">
+      <Face participant={`agent:${pr.agent}`} size={18} />
+      {pr.agent}
+    </Link>
+  );
+}
+
+// The Relay/tickets stream shape: reconnect on a widening delay, and let the
+// page's own poll cover the gap. There is no cursor: a frame means "re-list".
+const FIRST_RETRY_MS = 2000;
+const MAX_RETRY_MS = 30000;
+
+/** One EventSource on the workbench feed; `onFrame` on every publish or
+ * refusal. The page polls anyway, so this only shortens the wait between a
+ * card landing in a thread and its row landing here. */
+function useWorkbenchFeed(onFrame: () => void) {
+  useEffect(() => {
+    let stream: EventSource | null = null;
+    let retry: ReturnType<typeof setTimeout> | null = null;
+    let backoff = FIRST_RETRY_MS;
+    let stopped = false;
+
+    function connect() {
+      if (stopped) return;
+      const es = new EventSource("/api/workbench/events", { withCredentials: true });
+      stream = es;
+      es.addEventListener("open", () => { backoff = FIRST_RETRY_MS; });
+      es.addEventListener("workbench", () => onFrame());
+      es.addEventListener("overflow", () => onFrame());
+      es.onerror = () => {
+        if (stopped || stream !== es) return;
+        es.close();
+        stream = null;
+        if (retry) clearTimeout(retry);
+        retry = setTimeout(() => {
+          backoff = Math.min(backoff * 2, MAX_RETRY_MS);
+          connect();
+        }, backoff);
+      };
+    }
+
+    connect();
+    return () => {
+      stopped = true;
+      stream?.close();
+      stream = null;
+      if (retry) clearTimeout(retry);
+    };
+  }, [onFrame]);
 }
 
 export default function Changes() {
@@ -159,7 +235,7 @@ export default function Changes() {
   const [accepted, setAccepted] = useState<Accepted[]>([]);
   const [confirmDiscard, setConfirmDiscard] = useState<PullRequest | null>(null);
 
-  function load() {
+  const load = useCallback(() => {
     api<PullRequest[]>("/api/pull-requests")
       .then((rows) => {
         setPrs(rows);
@@ -168,12 +244,13 @@ export default function Changes() {
       })
       .catch((err) => setError(err instanceof Error ? err.message : "Failed to load changes."))
       .finally(() => setLoading(false));
-  }
+  }, []);
   useEffect(() => {
     load();
     const id = setInterval(load, 15000);   // keep the review queue fresh
     return () => clearInterval(id);
-  }, []);
+  }, [load]);
+  useWorkbenchFeed(load);
 
   async function accept(pr: PullRequest) {
     setBusy((b) => ({ ...b, [pr.number]: "merge" }));
@@ -209,8 +286,9 @@ export default function Changes() {
       <h1>Pending Changes</h1>
       <p className="muted">
         Every edit to a building block — agent, skill, or secret declaration — lands here as a
-        pull request. Review the diff, then <b>Accept</b> to make it live (the cluster syncs within
-        a minute — tracked below) or <b>Discard</b> to drop it.
+        pull request, and so does what a dev run publishes from the Workbench. Review the diff,
+        then <b>Accept</b> to make it live (the cluster syncs within a minute — tracked below) or
+        <b> Discard</b> to drop it.
       </p>
 
       {accepted.length > 0 && (
@@ -235,9 +313,9 @@ export default function Changes() {
         <p className="muted">No pending changes.</p>
       )}
       {!loading && prs.length > 0 && (
-        <Table className="table-fixed">
+        <Table className="table-fixed changes-table">
           <thead>
-            <tr><TH className="w-14">#</TH><TH>Title</TH><TH className="w-44">Building block</TH><TH className="w-32">Author</TH><TH className="w-44"></TH></tr>
+            <tr><TH className="w-14">#</TH><TH>Title</TH><TH className="w-52">Branch</TH><TH className="w-36">Author</TH><TH className="w-44"></TH></tr>
           </thead>
           <tbody>
             {prs.map((pr) => (
@@ -252,9 +330,14 @@ export default function Changes() {
                       {open === pr.number ? "▾ " : "▸ "}{pr.title}
                     </Button>
                   </TD>
-                  <TD className="pr-4"><BlockChip branch={pr.branch} /></TD>
-                  <TD className="text-muted">{pr.author}</TD>
-                  <TD>
+                  <TD className="pr-4">
+                    <div className="change-chips">
+                      <BlockChip branch={pr.branch} />
+                      <WorkbenchChips pr={pr} />
+                    </div>
+                  </TD>
+                  <TD><Author pr={pr} /></TD>
+                  <TD className="change-actions">
                     <div className="row-actions">
                       <Button size="sm" onClick={() => accept(pr)} disabled={!!busy[pr.number]}>
                         {busy[pr.number] === "merge" ? "Accepting…" : "Accept"}

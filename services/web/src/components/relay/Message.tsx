@@ -144,6 +144,50 @@ function ArtifactCardBody({ card, me }: { card: RelayCard; me: string | null }) 
   );
 }
 
+/** The Workbench's card (docs/design/24): what a dev run landed, as a row of
+ * chips — the branch, the PR, how much, and the two things a reviewer wants
+ * flagged before opening it (a test file gone, a verify that failed). A
+ * refusal has none of that to show; it reads as the room's own voice, the
+ * reason in the body the way a system row is drawn, since that is what it is.
+ * Nothing here summons anyone. */
+function PublishCardBody({ message, card }: { message: RelayMessage; card: RelayCard }) {
+  if (card.refused_reason) {
+    return (
+      <div className="relay-system">
+        {message.body || `⛔ publish refused: ${card.refused_reason}`}
+      </div>
+    );
+  }
+  const removed = card.tests_removed ?? [];
+  const files = card.files ?? 0;
+  const warnings = card.warnings ?? [];
+  return (
+    <div className="relay-card relay-publish-card">
+      <div className="relay-publish-row">
+        {card.branch && <code className="relay-publish-branch">{card.branch}</code>}
+        {card.pr != null && card.url && (
+          <a href={card.url} target="_blank" rel="noreferrer" className="no-underline">
+            <Chip variant="accent" className="relay-publish-chip">PR #{card.pr} ↗</Chip>
+          </a>
+        )}
+        <Chip className="relay-publish-chip">{files} {files === 1 ? "file" : "files"}</Chip>
+        {removed.length > 0 && (
+          <Chip variant="danger" className="relay-publish-chip" title={removed.join("\n")}>
+            removes tests
+          </Chip>
+        )}
+        {card.verify_ok === true && <Chip variant="ok" className="relay-publish-chip">verify ✓</Chip>}
+        {card.verify_ok === false && <Chip variant="danger" className="relay-publish-chip">verify ✗</Chip>}
+        {card.verify_ok == null && <Chip className="relay-publish-chip">no verify</Chip>}
+        {card.run_id && (
+          <Link to={`/runs/${card.run_id}`} className="relay-publish-run">view run ↗</Link>
+        )}
+      </div>
+      {warnings.map((w, i) => <div key={i} className="relay-publish-warning">⚠️ {w}</div>)}
+    </div>
+  );
+}
+
 function Body({ message, me }: { message: RelayMessage; me: string | null }) {
   const prefixes = useTicketPrefixes();
   const slugs = useWikiSlugs();
@@ -181,6 +225,7 @@ function Body({ message, me }: { message: RelayMessage; me: string | null }) {
   if (message.kind === "event") {
     if (card.type === "ticket") return <TicketCardBody card={card} me={me} />;
     if (card.type === "artifact") return <ArtifactCardBody card={card} me={me} />;
+    if (card.type === "publish") return <PublishCardBody message={message} card={card} />;
     return (
       <div className="relay-card" onClick={onClick}>
         {card.title && <div className="relay-card-title">{card.title}</div>}

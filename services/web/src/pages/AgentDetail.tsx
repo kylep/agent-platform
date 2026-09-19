@@ -394,7 +394,7 @@ export default function AgentDetail() {
         </Banner>
       )}
 
-      <div className="tabs">
+      <div className="tabs" tabIndex={0}>
         <button className={tab === "config" ? "tab active" : "tab"} onClick={() => setTab("config")}>Config</button>
         <button className={tab === "history" ? "tab active" : "tab"} onClick={() => setTab("history")}>History</button>
         <button className={tab === "conversations" ? "tab active" : "tab"} onClick={() => setTab("conversations")}>Conversations</button>

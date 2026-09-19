@@ -5,10 +5,11 @@ import {
   type WebhookSecrets,
 } from "../lib/webhook-secrets";
 import { zoneOptions } from "../lib/cron";
+import { ROLE_DESC } from "../lib/roles";
 import { SecretPicker, SkillPicker, ToolGrantPicker, type GrantCatalog } from "./CapabilityPickers";
 import { CronBuilder } from "./CronBuilder";
 import { Button } from "@ap/ui/button";
-import { CodeEditor, Input, Select } from "@ap/ui/field";
+import { CodeEditor, Input, Select, Textarea } from "@ap/ui/field";
 
 // The agent definition form, shared by the editor and the New-Agent wizard so
 // a field exists in exactly one place. Every field maps 1:1 to a column of the
@@ -16,8 +17,9 @@ import { CodeEditor, Input, Select } from "@ap/ui/field";
 
 // Mirrors agentplatform.agentdefs.AGENT_ROLES: the auth roles an agent may
 // declare (no `admin` — only the human session is admin; no `tools` — that one
-// is derived from platform-tool grants at launch).
-const AGENT_ROLES = ["reader", "annotator", "operator", "coder"];
+// is derived from platform-tool grants at launch). `dev` is the Workbench's
+// run profile (docs/design/24).
+const AGENT_ROLES = ["reader", "annotator", "operator", "coder", "dev"];
 
 const EMPTY_ENTRYPOINTS: AgentEntrypoints = { crons: [], webhooks: [], topics: [], timezone: "" };
 
@@ -78,13 +80,13 @@ export type Patch = (p: Partial<AgentDef>) => void;
 // A number field that keeps its own text so clearing it doesn't snap back
 // mid-typing. `nullable` (retention) treats blank as "platform default";
 // otherwise a blank/invalid entry simply doesn't move the draft.
-function NumberField({ label, value, onChange, nullable, min = 0, placeholder }: {
+function NumberField({ label, value, onChange, nullable, min = 0, max, placeholder }: {
   label: string; value: number | null; onChange: (n: number | null) => void;
-  nullable?: boolean; min?: number; placeholder?: string;
+  nullable?: boolean; min?: number; max?: number; placeholder?: string;
 }) {
   const [text, setText] = useState(value === null ? "" : String(value));
   return (
-    <Input type="number" aria-label={label} min={min} value={text} placeholder={placeholder}
+    <Input type="number" aria-label={label} min={min} max={max} value={text} placeholder={placeholder}
            onChange={(ev) => {
              const raw = ev.target.value;
              setText(raw);
@@ -107,6 +109,23 @@ function CsvField({ label, value, onChange, placeholder }: {
              setText(e.target.value);
              onChange(e.target.value.split(",").map((t) => t.trim()).filter(Boolean));
            }} />
+  );
+}
+
+// One item per line bound to a string[] — the shape a list of globs is read
+// in. Keeps its own text so a blank line survives while you type the next one;
+// the draft only ever holds the trimmed, non-empty lines.
+function LinesField({ label, value, onChange, placeholder }: {
+  label: string; value: string[]; onChange: (next: string[]) => void; placeholder?: string;
+}) {
+  const [text, setText] = useState(value.join("\n"));
+  return (
+    <Textarea className="w-full" aria-label={label} value={text} placeholder={placeholder}
+              rows={Math.min(8, Math.max(3, value.length + 1))} spellCheck={false}
+              onChange={(e) => {
+                setText(e.target.value);
+                onChange(e.target.value.split("\n").map((t) => t.trim()).filter(Boolean));
+              }} />
   );
 }
 
@@ -153,11 +172,12 @@ export function IdentityFields({ draft, patch, catalog }: {
             {catalog.models.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}
           </datalist>
         </Field>
-        <Field label="Role" hint="The API role this agent's run token carries.">
+        <Field label="Role"
+               hint={ROLE_DESC[draft.role] ?? "The API role this agent's run token carries."}>
           <Select className="w-full" aria-label="Role" value={draft.role}
                   onChange={(e) => patch({ role: e.target.value })}>
             {[...new Set([...AGENT_ROLES, draft.role])].filter(Boolean).map((r) => (
-              <option key={r} value={r}>{r}</option>
+              <option key={r} value={r} title={ROLE_DESC[r]}>{r}</option>
             ))}
           </Select>
         </Field>
@@ -173,6 +193,17 @@ export function IdentityFields({ draft, patch, catalog }: {
         <Field label="Concurrency" hint="How many runs of this agent may be in flight at once.">
           <NumberField label="Concurrency" value={draft.concurrency} min={1}
                        onChange={(n) => n !== null && patch({ concurrency: n })} />
+        </Field>
+        {/* The Workbench's quota gate (docs/design/24): a dev run asks
+            `quota_ok` before it clones, and the answer is these two numbers
+            against the live usage bars. */}
+        <Field label="Quota gate: 5-hour max %" hint="quota_ok refuses above these.">
+          <NumberField label="Quota gate: 5-hour max %" value={draft.quota_5h_max_pct} min={0} max={100}
+                       onChange={(n) => n !== null && patch({ quota_5h_max_pct: n })} />
+        </Field>
+        <Field label="Quota gate: 7-day max %" hint="quota_ok refuses above these.">
+          <NumberField label="Quota gate: 7-day max %" value={draft.quota_7d_max_pct} min={0} max={100}
+                       onChange={(n) => n !== null && patch({ quota_7d_max_pct: n })} />
         </Field>
         <Field label="Transcript retention (days)" hint="Blank uses the platform default.">
           <NumberField label="Transcript retention (days)" value={draft.transcript_retention_days}
@@ -417,6 +448,24 @@ export function GrantsFields({ draft, patch, catalog }: {
         Granted secrets are injected into the run pod's environment. A required secret that is
         missing or invalid blocks the agent until it's fixed.
       </p>
+
+      {/* The Workbench's two grants (docs/design/24). Like `can_invoke`, they
+          are GRANT fields server-side: the row's field-level guard decides
+          who may change them, and this form is the admin's. */}
+      <label className="field-label">Push path globs</label>
+      <LinesField label="Push path globs" value={draft.push_path_globs}
+                  placeholder={"docs/**\nservices/web/src/**"}
+                  onChange={(push_path_globs) => patch({ push_path_globs })} />
+      <p className="muted check-note">
+        One glob per line. A publish that stays inside them lands with auto-merge; anything
+        else — or an empty list — waits for review on Changes.
+      </p>
+
+      <div className="toggle-row">
+        <Toggle label="May delete tests" checked={draft.may_delete_tests}
+                title="A publish that removes a test file is refused unless this is on."
+                onChange={(may_delete_tests) => patch({ may_delete_tests })} />
+      </div>
     </>
   );
 }

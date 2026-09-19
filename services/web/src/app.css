@@ -111,12 +111,35 @@
 }
 
 /* route-driven tabs */
-.tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--ds-border); margin-bottom: 16px; }
+/* Seven tabs are wider than a phone. The strip scrolls within itself — the
+   page never scrolls sideways — and is focusable so a keyboard can reach the
+   overflow (axe: scrollable-region-focusable). */
+.tabs {
+  display: flex; flex-wrap: nowrap; gap: 4px; border-bottom: 1px solid var(--ds-border); margin-bottom: 16px;
+  overflow-x: auto; scrollbar-width: thin; -webkit-overflow-scrolling: touch;
+}
 .tab {
   appearance: none; background: none; border: none; border-bottom: 2px solid transparent;
   padding: 8px 14px; color: var(--ds-text-muted); cursor: pointer; font-size: 14px; font-family: inherit;
+  flex-shrink: 0; white-space: nowrap;
 }
 .tab.active { color: var(--ds-accent); border-bottom-color: var(--ds-accent); }
+
+/* The Changes row's chips: the block or branch, then the Workbench's ticket
+   and auto-merge (docs/design/24). They wrap rather than widen the column. */
+.change-chips { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+/* Fixed columns need a floor: below it the title column collapses onto the
+   chips. The Table primitive scrolls the excess inside its own container. */
+.changes-table { min-width: 640px; }
+/* The verbs stay on screen while the row scrolls under them: a change you
+   cannot accept from a phone is a change you cannot accept. The cell paints
+   the canvas it sits on, so scrolled-under text does not show through. */
+.changes-table .change-actions {
+  position: sticky; right: 0; background: var(--ds-canvas);
+  border-left: 1px solid var(--ds-border);
+}
+.change-branch { font-family: var(--font-mono); font-size: 12px; overflow-wrap: anywhere; }
+.change-agent { display: inline-flex; align-items: center; gap: 6px; color: var(--ds-text); }
 
 /* diff + impact (Changes review) */
 .diff-file { margin-bottom: 12px; }
@@ -203,6 +226,18 @@
 .final-label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--ds-text-muted); margin-bottom: 6px; }
 .final-text { white-space: pre-wrap; line-height: 1.55; }
 .final-meta { font-size: 12px; margin-top: 8px; }
+/* The dev run's outcome (docs/design/24): the `final` card's frame, with the
+   accent for a landed publish and the danger tone for a refusal. */
+.wb-frame {
+  border: 1px solid var(--ds-accent); border-radius: var(--radius-lg); padding: 10px 14px; margin: 10px 0;
+  background: color-mix(in srgb, var(--ds-accent) 7%, transparent); font-size: 13px;
+}
+.wb-frame-err { border-color: var(--ds-danger); background: color-mix(in srgb, var(--ds-danger) 7%, transparent); }
+.wb-frame-warn { border-color: var(--ds-warning); background: color-mix(in srgb, var(--ds-warning) 7%, transparent); }
+.wb-frame code { font-family: var(--font-mono); font-size: 12px; overflow-wrap: anywhere; }
+.wb-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.wb-frame .tcall-input { padding: 0; margin-top: 6px; }
+.wb-frame .tcall-result { margin-top: 6px; border: 1px solid var(--ds-border); border-radius: var(--radius-md); }
 .transcript-noise { margin-top: 12px; }
 .transcript-noise summary { font-size: 12px; color: var(--ds-text-muted); cursor: pointer; }
 .transcript-noise pre { font-size: 11px; margin-top: 6px; max-height: 300px; overflow: auto; }
@@ -1138,6 +1173,17 @@ a.relay-action { color: var(--ds-link); }
 .relay-message .artifact-card .artifact-card-meta { justify-content: center; }
 .relay-artifact-card { border-left-color: var(--ds-border); }
 .relay-artifact-card .relay-card-body { margin-top: 2px; }
+
+/* The publish card (docs/design/24): one wrapping row of chips at transcript
+   size. The branch is code, the rest are the chips the platform uses for
+   status everywhere, and the run link is the same action a message offers. */
+.relay-publish-row {
+  display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+  font-size: 12px; color: var(--ds-text-muted);
+}
+.relay-publish-branch { font-family: var(--font-mono); font-size: 12px; overflow-wrap: anywhere; }
+.relay-publish-run { font-size: 12px; color: var(--ds-link); white-space: nowrap; }
+.relay-publish-warning { font-size: 12px; color: var(--ds-text-muted); margin-top: 4px; }
 
 /* The bytes bar: the store's total against its cap, the quota bars' shape. */
 .artifact-usage { display: flex; align-items: center; gap: 10px; margin: 4px 0 8px; flex-wrap: wrap; }
