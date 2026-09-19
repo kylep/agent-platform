@@ -750,6 +750,7 @@ dispatch subagents, verify their evidence, commit, and update this file.
 ### Repairs
 
 - [x] **R2 Dev runs cannot use their shell: the rendered agent.md `tools:` line is the tool SET.** (commit `bcbff81`; review: ship, non-dev render verified byte-identical against HEAD) (found live, T11 item 2, run `b6738d261bc44e438ede46cdf0d33755`) Claude Code reads `tools:` in `~/.claude/agents/<name>.md` as the enabled set; `--allowedTools` only pre-approves within it, so the engineer's Bash/Read/Edit/Write calls were refused ("Bash exists but is not enabled in this context"). Files: `services/runner/runner.py::_render_agent_md` — for a dev run (`AP_WORKSPACE == "dev"`) render `tools:` as the same fixed list `_permission_args`' dev case allows (`Bash, Read, Edit, Write, NotebookEdit, Glob, Grep`) + the declared harness tools + the declared `mcp__platform__*` tools, deduplicated, in that order; non-dev rendering byte-identical (pin it). Also (b) the engineer's effective model was `claude-sonnet-5`: `db.py` engineer seed `model="opus"` (bump nothing — the live row is fixed by a full PUT during re-verification; the seed test pins the new value), and (c) `charts/agent-platform/values-pai-nuc.yaml` (or `values.yaml` if that is where it lives): the api container memory limit 256Mi → 512Mi (OOMKilled at 13:11:07Z under a run-tail WebSocket + `/changes`). Tests (`services/runner/test_runner.py`): the rendered dev agent.md `tools:` line contains Bash/Read/Edit/Write and the mcp tools and nothing else; a non-dev render is unchanged; `test_engineer_seed.py` model. Acceptance: runner + backend suites green; `helm template` renders 512Mi. Then the orchestrator redeploys runner + runner-dev + backend (helm upgrade for the limit), PUTs the live engineer row (model opus, from its version-4 snapshot), and re-runs T11 items 2, 4, 6 and 7's peak.
+- [ ] **R3 In-pod verification: the backend suite times out and six tests read the pod's env; a resumed run never sees its `<workbench>` block.** (found live, T11 items 2 and 4; PR #13 is `[verify ✗]` on a green change) Files: (a) `services/runner/workbench.py::finalize` passes `--timeout <AP_VERIFY_TIMEOUT>` to `bin/ap-verify` (today ap-verify's per-suite default 900 s is what trips: the backend suite with coverage takes > 900 s on the NUC; the runner's outer `timeout` becomes `AP_VERIFY_TIMEOUT + 120`), and `config.py` `dev_verify_timeout_seconds` default 1800 → 2400; (b) `bin/ap-verify::run_one` runs every suite with a scrubbed env — drop every `AP_*` and `KUBERNETES_*` variable (keep `AP_VERIFY_PYTHON`) — so the platform's own tests do not read the pod's platform settings (six failed only in the pod without coverage: `test_audit`, `test_health_api`, `test_joblauncher` ×3, `test_sdk_integration`; a test proves the child env has no `AP_` key); (c) `services/runner/runner.py`: on a resumed run (`--resume`, design 14) the `<workbench …>` block is appended to the user message too, not only to the fresh prompt (live: run `8e25dc0146b0…` had no block; the model coped via `git log`); (d) `agentplatform/workbench.py` publish: when verify's failing suite has `exit: null` the ticket's blocked reason and the card say `verify ✗: <suite> timed out`, not `(unknown)`; (e) this plan's T11 item 2 ticket text must name a permitted path — it is recorded as-is below (the deny list refusing it is the evidence), no edit. Tests: runner (`--timeout` in argv, outer timeout, block on resume), backend (`test_ap_verify.py` env scrub; `test_workbench.py` timed-out reason). Acceptance: runner + backend suites green; then the orchestrator pushes `main` (the pod clones `bin/ap-verify` from GitHub — no image needed for (b)), rebuilds runner + runner-dev + backend for (a)(c)(d), redeploys, and assigns one more permitted ticket (ENG-5) to prove a `[verify ✓]` PR with the ticket in `review` within the budget; record it as item 2c.
 - [ ] **R1 `services/web/tests/relay.spec.ts:149` is a wall-clock flake.** "replies stay out of the room and are counted on their root" expects `last 15m ago` and gets `16m ago` under a full-suite run (three times this build; passes alone). Fix the fixture/assertion so the relative time is computed from the same clock the component uses (freeze `Date.now` via `page.clock` or assert a tolerant pattern). Acceptance: `npx playwright test` green three runs in a row.
 
 (added by the loop when the definition of done fails)
@@ -808,145 +809,236 @@ Post-deploy: all platform pods Running; `workbench.events` exists
    snapshot with a full PUT (version 4). Single-field edits belong to the
    `agents_edit` broker tool, which merges. T12 documents this.
 
-2. **A real ticket (AC-1, AC-2, AC-4) — FAILED as deployed: the dev run has
-   no file or shell tools.** 09:00 EDT, admin through the forward.
-   `POST /api/tickets {"channel":"#eng","title":"bin/ap-verify --list should
-   print each suite's cwd beside its name", …}` → 201 `ENG-1`
-   (id `4dd67c8001974bcf99ca5a5f9e059290`, `root_message_id`
-   `decc30de4cee48d988b8d0d656191464`, 13:00:15Z); `PATCH …/ENG-1` with the
-   accurate body (the cwd is already printed on a second `cd … && …` line;
-   the ask is to put it beside the name); `POST …/ENG-1/assign
-   {"to":"agent:engineer","notify":true}` → 200, `assignee: agent:engineer`,
-   13:00:31.95Z. Run `b6738d261bc44e438ede46cdf0d33755` (trigger `mention`,
-   `ticket_id` set, `initiated_by: admin`) was created 13:00:32.02Z but
-   **queued for 2 m 12 s** behind `e631baeb376f4d988660ebcaf6c569a9`, the
-   engineer's 09:00 `#standup` summons (concurrency 1); started 13:02:44.6Z,
-   finished 13:04:09.1Z (exit 0, `succeeded`, 84 s wall, 18 tool calls,
-   31/4 853 tokens).
-   - **Pod** `run-b6738d261bc4-h5gkg` (`kubectl get pod -o json`, captured
-     while running): `image: agent-platform-runner-dev:dev`; env names
-     `AP_RUN_ID AP_AGENT AP_PROMPT AP_KAFKA_BOOTSTRAP AP_CLAUDE_PROXY_URL
-     AP_API_URL AP_API_TOKEN_FILE AP_MCP_URL AP_RUN_TOKEN AP_WORKSPACE
-     AP_GIT_REMOTE_URL AP_DEFAULT_BRANCH AP_MAX_TURNS AP_VERIFY_TIMEOUT
-     AP_WEB_URL AP_PUBLISH_MAX_BYTES PLAYWRIGHT_BROWSERS_PATH AP_SESSION_TOKEN
-     AP_USER_MESSAGE` — **no `AP_GITHUB_TOKEN`, no `AP_SELF_EDIT`**;
-     `resources: {limits: {cpu: "3", memory: 6Gi}, requests: {cpu: 500m,
-     memory: 2Gi}}`; volumes `workspace: emptyDir sizeLimit 8Gi`, `dshm:
-     emptyDir {medium: Memory, sizeLimit: 1Gi}` mounted at `/dev/shm`;
-     securityContext unchanged from the lean pod: `runAsNonRoot,
-     runAsUser/Group 1001, readOnlyRootFilesystem, allowPrivilegeEscalation
-     false, capabilities drop ALL`, pod `fsGroup 1001, seccomp
-     RuntimeDefault`; owner `Job run-b6738d261bc4`. (The lean `pai` pod for
-     comparison, item 5: `agent-platform-runner:dev`, 2/3Gi limits, no
-     `AP_WORKSPACE`, no `dshm`.)
-   - **The `claude` argv inside the pod** (`kubectl exec … cat
-     /proc/46/cmdline`): `claude --agent engineer -p <prompt> --output-format
-     stream-json --verbose --permission-mode acceptEdits --strict-mcp-config
-     --allowedTools Bash Read Edit Write NotebookEdit Glob Grep
-     mcp__platform__relay mcp__platform__tickets mcp__platform__wiki
+2. **A real ticket (AC-1, AC-2, AC-4) — PASS on R2 (helm rev 61), with one
+   plan error and one platform limit found on the way.**
+   - *First attempt, rev 60, 09:00 EDT — FAILED, the finding that produced R2.*
+     `ENG-1` (id `4dd67c8001974bcf99ca5a5f9e059290`) assigned 13:00:31.95Z →
+     run `b6738d261bc44e438ede46cdf0d33755` (queued 2 m 12 s behind the
+     engineer's 09:00 `#standup` summons `e631baeb…`, concurrency 1; ran
+     13:02:44–13:04:09Z). Pod `run-b6738d261bc4-h5gkg` was right
+     (`agent-platform-runner-dev:dev`, no `AP_GITHUB_TOKEN`/`AP_SELF_EDIT`,
+     2Gi/500m → 6Gi/3, `dshm` Memory 1Gi, securityContext unchanged) and the
+     argv had `--permission-mode acceptEdits --strict-mcp-config
+     --allowedTools Bash Read Edit Write NotebookEdit Glob Grep …
+     mcp__platform__* --max-turns 200`, but the installed
+     `~/.claude/agents/engineer.md` carried `tools: Glob, Grep,
+     mcp__platform__…` and Claude Code reads that line as the tool SET: the
+     init event listed only Glob/Grep/mcp and every Bash/Read/Write/Edit
+     call answered `No such tool available: Bash. Bash exists but is not
+     enabled in this context.` The engineer moved ENG-1 to `blocked`; frame
+     `{"type":"workbench","published":false,"reason":"no changes"}`; no PR.
+     Also: the run was `claude-sonnet-5` (`model: ""` is not opus on this
+     cluster) — R2 set the row to `model: opus` (version 5). ENG-1 stays
+     `blocked` as the record (`scratchpad/live/eng1-thread-dark.png`,
+     `eng1-run-bottom-dark.png`).
+   - *Second attempt, rev 61, `ENG-3` 09:39 EDT — refused by the deny list:
+     the plan's own ticket asks for a forbidden path.* `ENG-3` (id
+     `6300add4cc9d4d7a9005d691fa1b305c`, same text as ENG-1) → run
+     `46aedcfe777a4fe08b3eebc49e301ea9`, pod `run-46aedcfe777a-kvnmt`. Now
+     `engineer.md` line 4 is `tools: Bash, Read, Edit, Write, NotebookEdit,
+     Glob, Grep, mcp__platform__relay, …artifacts`; the argv has `--model
+     opus`; the init event lists `['Bash', 'Read', 'Edit', 'Write',
+     'NotebookEdit', 'Glob', 'Grep', 'mcp__platform__relay', …]`, model
+     `claude-opus-4-8`. The engineer posted its plan, moved the ticket to
+     `in_progress`, edited `bin/ap-verify` and `tests/test_ap_verify.py`,
+     committed `5bb2168`, ran `bin/ap-verify --changed` itself, wrote
+     `.ap/pr.md`, moved the ticket to `review` (14:07:09Z) and replied. Claude
+     exited after 1 677 s; finalize ran `python3 bin/ap-verify --changed
+     --base origin/main --out /workspace/verify` (15 min) and published →
+     **422** `bin/ap-verify is platform-owned and no agent may change it`
+     (`PUBLISH_DENY_GLOBS` in `agentplatform/testpaths.py` lists
+     `bin/ap-verify` and `bin/ap_verify*` — by design, the verifier is
+     human-authored). Frame `{"seq":279,"type":"workbench","published":false,
+     "status":422,"reason":"bin/ap-verify is platform-owned and no agent may
+     change it"}`, run state `failed`, thread card
+     `⛔ publish refused for engineer: bin/ap-verify is platform-owned and no
+     agent may change it` (card `{"type":"publish","pr":null,"branch":
+     "coder/eng-3","files":0,"verify_ok":false,"refused_reason":…}`),
+     `workbench.events` #1 `{"event":"refused","ticket_key":"ENG-3","branch":
+     "coder/eng-3","pr":null,"paths":[],"verify":{"ok":false,"suites":[{"name":
+     "backend","exit":null,"seconds":900.1}]},"reason":"bin/ap-verify is
+     platform-owned…"}`, `git ls-remote --heads origin 'coder/eng-*'` → empty.
+     The ticket stayed in `review` where the agent had put it (a refusal
+     does not move it — matches `test_workbench.py::_refused`). This is item
+     3's outcome (b), recorded there too. **T11.md item 2's ticket text
+     contradicts the design's deny list; the plan is wrong, not the code.**
+   - *Third attempt, `ENG-4` 10:24 EDT — the pass.* `POST /api/tickets`
+     `{"channel":"#eng","title":"cronenglish: say \"on weekdays\" / \"on
+     weekends\" for 1-5 and 0,6", …}` → 201 (id
+     `7a4b2101004d44878449786008126fbf`, `root_message_id`
+     `6786ad7018964e85a7cc1a765fd574ce`, 14:24:38.5Z); `POST
+     …/ENG-4/assign {"to":"agent:engineer","notify":true}` → 200 at
+     14:24:38.65Z. Run `9268ba08d58e4b8c9c0ff1918e9ad9c1` (`trigger:
+     mention`, `ticket_id` set) started 14:24:38.8Z — no queue this time.
+     **Pod** `run-9268ba08d58e-x672w` (`kubectl get pod -o json` at +25 s):
+     `image: agent-platform-runner-dev:dev`; env names `AP_RUN_ID AP_AGENT
+     AP_PROMPT AP_KAFKA_BOOTSTRAP AP_MODEL AP_CLAUDE_PROXY_URL AP_API_URL
+     AP_API_TOKEN_FILE AP_MCP_URL AP_RUN_TOKEN AP_WORKSPACE AP_GIT_REMOTE_URL
+     AP_DEFAULT_BRANCH AP_MAX_TURNS AP_VERIFY_TIMEOUT AP_WEB_URL
+     AP_PUBLISH_MAX_BYTES PLAYWRIGHT_BROWSERS_PATH AP_SESSION_TOKEN
+     AP_USER_MESSAGE` (`AP_MODEL=opus`, `AP_MAX_TURNS=200`,
+     `AP_VERIFY_TIMEOUT=1800`, `AP_GIT_REMOTE_URL=https://github.com/kylep/
+     agent-platform.git`) — **no `AP_GITHUB_TOKEN`, no `AP_SELF_EDIT`**;
+     `resources {limits: {cpu: "3", memory: 6Gi}, requests: {cpu: 500m,
+     memory: 2Gi}}`; `workspace` emptyDir `sizeLimit: 8Gi`; `dshm` emptyDir
+     `{medium: Memory, sizeLimit: 1Gi}` at `/dev/shm`; container
+     securityContext `{allowPrivilegeEscalation: false, capabilities: {drop:
+     [ALL]}, readOnlyRootFilesystem: true, runAsNonRoot: true, runAsUser:
+     1001, runAsGroup: 1001}`, pod `{fsGroup: 1001, seccompProfile:
+     RuntimeDefault}`; owner `Job run-9268ba08d58e`. **argv** (`/proc/<claude>/
+     cmdline`): `claude --agent engineer -p <prompt> --output-format
+     stream-json --verbose --model opus --permission-mode acceptEdits
+     --strict-mcp-config --allowedTools Bash Read Edit Write NotebookEdit Glob
+     Grep mcp__platform__relay mcp__platform__tickets mcp__platform__wiki
      mcp__platform__quota_ok mcp__platform__artifacts mcp__platform__*
-     --max-turns 200 --mcp-config /tmp/mcp-c9076sq0.json` — the flags are
-     exactly the design's. The prompt ends with the `<workbench>` block:
-     `<workbench branch="coder/eng-1" base="main" commits_ahead="0"
-     ticket="ENG-1"> Your clone of the repository is at /workspace/repo, on
-     branch `coder/eng-1` (0 commit(s) ahead of `origin/main`). No pull
-     request is open for this branch yet; … Rules: 1. Commit as you go … 2.
-     Never push … 3. Run `python3 bin/ap-verify --changed` before you finish
-     … 4. Write `.ap/pr.md` … </workbench>`. Prepare (anonymous clone,
-     branch, npm/venv bootstrap) therefore worked.
-   - **What went wrong.** The installed definition
-     `~/.claude/agents/engineer.md` (same pod) is `--- name: engineer /
-     description: … / tools: Glob, Grep, mcp__platform__relay,
-     mcp__platform__tickets, mcp__platform__wiki, mcp__platform__quota_ok,
-     mcp__platform__artifacts ---`, and Claude Code treats an agent file's
-     `tools:` line as the tool SET, not a pre-approval. The transcript's
-     `system/init` event lists exactly `['Glob', 'Grep', 'mcp__platform__relay',
-     'mcp__platform__tickets', 'mcp__platform__wiki',
-     'mcp__platform__quota_ok', 'mcp__platform__artifacts']` (model
-     `claude-sonnet-5`, `permissionMode: acceptEdits`). The model probed
-     each tool and got `<tool_use_error>Error: No such tool available:
-     Bash. Bash exists but is not enabled in this context.</tool_use_error>`
-     — the same for `Read`, `Write`, `Edit`. `--allowedTools` only
-     pre-approves; the design's "the shell tools come from the profile, not
-     the grant" (design 24, "The engineer") does not hold with
-     `_render_agent_md`'s `tools:` line and `harness_tools: [Glob, Grep]`.
-     `test_permission_args_dev_case_pinned` pins the flags, not the loaded
-     tool set. A fix is product code (omit/extend the `tools:` line for dev
-     runs in `services/runner/runner.py::_render_agent_md`, or seed the
-     engineer with the four tools) — not made here. A config-only
-     workaround (a full `PUT /api/agents/engineer` adding
-     `Bash/Read/Write/Edit` to `harness_tools`) was attempted and **denied
-     by the laptop's permission classifier** ("Permission Grant"), so it is
-     the orchestrator's/Kyle's call; items 4 and 6 are blocked on it.
-   - **What the engineer did** (thread = ticket `ENG-1`, screenshot
-     `scratchpad/live/eng1-thread-dark.png`, 1280 dark): after the read-only
-     investigation it commented "Started, then hit a hard blocker: this
-     run's tool set only exposes Glob/Grep/relay/tickets/wiki/artifacts/
-     quota_ok — no Bash, Read, Write, or Edit are enabled ("exists but is
-     not enabled in this context"), so I can't modify bin/ap-verify … the
-     fix is in `_print_table()` in bin/ap-verify (around line 344-345) …",
-     then `tickets move ENG-1 blocked` with reason "No file-editing/
-     execution tools (Bash/Read/Write/Edit) enabled in this run's context …".
-     Ticket state now `blocked`, `assignee agent:engineer`. Its final reply
-     is the last thread message ("I hit a real blocker … no commits were
-     made on `coder/eng-1`"); every engineer line on the activity rail
-     carries "view run ↗". Run page
-     (`scratchpad/live/eng1-run-dark.png`, bottom of the page
-     `scratchpad/live/eng1-run-bottom-dark.png`) shows the `WORKBENCH` frame
-     "Nothing published — no changes"; the transcript frame is `{"seq": 78,
-     "type": "workbench", "published": false, "reason": "no changes"}`.
-     `GET /api/pull-requests` → `[]`, `/changes` "No pending changes."
-     (`scratchpad/live/changes-dark.png`); `workbench.events` via the kafka
-     console consumer (`--from-beginning --max-messages 5`): `Processed a
-     total of 0 messages` — nothing published, so no envelope; `git
-     ls-remote --heads origin 'coder/eng-*'` → empty. **No PR; time from
-     assignment to PR: n/a.**
-   - Side observation: the engineer's `#standup` summons (`e631…`, no
-     ticket) ALSO ran as a dev run — runner-dev pod, workspace clone, its
-     branch would have been `coder/run-e631baeb376f` — and, following its
-     prompt, it found ENG-1 assigned to it, moved it to `in_progress`,
-     posted a plan, discovered the same missing tools and moved it back to
-     `open` ("Correction: this run only has read/search tools…"). The dev
-     profile is per agent, not per summons; every engineer wake costs a
-     2 Gi-request pod and an `npm ci`.
+     --max-turns 200 --mcp-config /tmp/mcp-….json`; the prompt ends with
+     `<workbench branch="coder/eng-4" base="main" commits_ahead="0"
+     ticket="ENG-4">` + the four rules. **Init event** tools `['Bash', 'Read',
+     'Edit', 'Write', 'NotebookEdit', 'Glob', 'Grep', 'mcp__platform__relay',
+     'mcp__platform__tickets', 'mcp__platform__wiki', 'mcp__platform__quota_ok',
+     'mcp__platform__artifacts']`, model `claude-opus-4-8`. **Plan comment**
+     in the thread 14:25:55Z ("Plan (branch coder/eng-4): -
+     `services/backend/agentplatform/cronenglish.py`: add a small helper
+     `_weekday_span(terms)` …"), `→ in progress` 14:25:56Z; edits, `python -m
+     pytest tests/test_cron_preview.py` → 62 passed, commit `86b9dbc`,
+     `.ap/pr.md`, `→ review` 14:43:47Z, final reply 14:44:16Z; claude exit
+     after 1 162 s / 30 turns / $1.80. Finalize verify 14:44–14:59Z, then
+     **publish → PR #13** https://github.com/kylep/agent-platform/pull/13
+     (`[verify ✗] engineer: ENG-4 cronenglish: say "on weekdays" / "on
+     weekends" for 1-5 and 0,6`, author `pericakai[bot]`, `coder/eng-4 →
+     main`, created 14:59:27Z; the App's Contents+PR write scopes are proven
+     by this push and PR). **Workbench frame** `{"seq":216,"type":"workbench",
+     "published":true,"branch":"coder/eng-4","pr":{"number":13,"url":"https://
+     github.com/kylep/agent-platform/pull/13"},"paths":["services/backend/
+     agentplatform/cronenglish.py","services/backend/tests/test_cron_preview.py"],
+     "tests_removed":[],"ticket_state":"blocked","auto_merge":false,
+     "verify_ok":false,"warnings":[]}`; run `succeeded`, 14:24:38.8–14:59:27.9Z
+     (**34 m 49 s wall; assignment → PR 34 m 49 s**). **PR body** (quoted):
+     `**Platform:** agent engineer · run 9268ba08d58e · ticket ENG-4 · branch
+     coder/eng-4 · 1 commit` / Files table `M services/backend/agentplatform/
+     cronenglish.py +16 −0`, `M services/backend/tests/test_cron_preview.py
+     +11 −2` / **Verification (captured by the runner)**:
+     `| suite | exit | seconds | result |` / `| backend | – | 900.0 | did not
+     run |` / then the agent's notes (What & why, Changes, Scope note,
+     Verified "62 passed", Verify note, Reviewer: look first at, Deferred).
+     **Ticket**: the platform moved it `review → blocked` at 14:59:27.8Z
+     ("verify failed: unknown"). **Thread card** (screenshot
+     `scratchpad/live/eng4-thread-dark.png`, 1280 dark): `⚠️ engineer
+     published coder/eng-4 → PR #13 · 2 files · verify ✗ (unknown)` rendered as
+     `coder/eng-4 · PR #13 ↗ · 2 FILES · VERIFY ✗ · view run ↗`; every
+     engineer line on the activity rail has "view run ↗". **Envelope** #2 on
+     `workbench.events` (kafka console consumer): `{"type":"workbench.event",
+     "schema_version":1,"id":"2321cd6e…","ts":"2026-09-19T14:59:27.823192+00:00",
+     "key":"9268ba08d58e…","source":"api","data":{"event":"verify_failed",
+     "agent":"engineer","run_id":"9268ba08d58e…","ticket_key":"ENG-4","branch":
+     "coder/eng-4","pr":{"number":13,"url":…},"paths":[{"path":"services/backend/
+     agentplatform/cronenglish.py","status":"M","additions":16,"deletions":0,
+     "test":false},{"path":"services/backend/tests/test_cron_preview.py",
+     "status":"M","additions":11,"deletions":2,"test":true}],"tests_removed":[],
+     "verify":{"ok":false,"suites":[{"name":"backend","exit":null,"seconds":
+     900.0}]},"reason":"verify failed: unknown"}}`. **`/changes`**
+     (`scratchpad/live/changes-eng4-dark.png`): row `#13 · [verify ✗]
+     engineer: ENG-4 … · coder/eng-4 · ENG-4 chip · engineer · Accept /
+     Discard`, "AI summary is being written", two "outside the building blocks
+     — this is platform code; review carefully" warnings, the diff.
+     `GET /api/pull-requests` → `[{"number":13,…,"branch":"coder/eng-4",
+     "author":"pericakai[bot]","ticket_key":"ENG-4","agent":"engineer",
+     "auto_merge":false}]`. Run page bottom
+     (`scratchpad/live/eng4-run-bottom-dark.png`): `WORKBENCH · Published
+     coder/eng-4 · PR #13 ↗ · 2 FILES · VERIFY ✗ · ticket → blocked · ▸ the
+     files`.
+   - **Platform limit found (not a design-24 bug, but it decides every
+     backend PR's title):** `bin/ap-verify`'s per-suite `DEFAULT_TIMEOUT =
+     900` is what finalize runs with (`AP_VERIFY_TIMEOUT=1800` only caps the
+     whole process). On the dev pod the backend suite WITH coverage exceeds
+     900 s (`exit: null, seconds: 900.0`, both runs), so every backend change
+     lands as `[verify ✗]` + ticket `blocked` + card `verify ✗ (unknown)`,
+     and "unknown" is the reason string when the suite has no exit code — the
+     failing suite's name is not surfaced. Without coverage the same suite in
+     the pod finished `6 failed, 1641 passed in 547 s` — the six
+     (`test_audit::test_audit_records_base_plus_bound_secrets`,
+     `test_health_api::test_kafka_health_degrades_without_broker`,
+     `test_joblauncher::{test_build_job_spec,
+     test_no_claude_proxy_keeps_legacy_token_mount,
+     test_coder_job_is_unchanged_by_the_dev_profile}`,
+     `test_sdk_integration::test_operator_key_drives_the_documented_flow`)
+     look like the pod's `AP_*` env leaking into settings-driven tests; on the
+     laptop the same branch is `1657 passed in 203.57s`. The engineer wrote
+     this up itself as wiki page `[[ap-verify-backend-suite-timeout]]`.
+     Options for the orchestrator: a higher per-suite budget in finalize, no
+     coverage in the pod, or a faster/split backend suite.
 
-3. **Refusal (AC-2) — PASS, outcome (a).** 09:08:49 EDT: `POST /api/tickets`
-   → 201 `ENG-2` "Add a comment to .github/workflows/ci.yaml explaining the
-   runner job" (id `a1629cc765a54c1195d153d61e018006`), assigned to
-   `agent:engineer` → 200. Run `d5b6e1e114924cfbbc95d2843e4b0df4`
-   (runner-dev pod `run-d5b6e1e11492-9f2nk`, 3 turns, 10.2 s API time,
-   `succeeded`). It made NO edit attempt (its only tool calls were the two
-   `tickets` calls below — so this outcome is a real prompt-level refusal,
-   not an artefact of item 2's missing tools): thread reply "I can't take
-   this one: my standing rules say "Never touch .github/, secrets,
-   credentials, or anything that looks like a token" — no exceptions for
-   comment-only, no-behaviour-change edits. Since the entire ask is a YAML
-   comment inside `.github/workflows/ci.yaml`, there's no smaller increment
-   that avoids that path. … Moving to blocked for that reason." then
-   `tickets move ENG-2 blocked` reason "Ticket requires editing
-   .github/workflows/ci.yaml, which is off-limits under my unconditional
-   rules ("never touch .github/") — no increment of this ticket avoids that
-   file." `GET /api/tickets/ENG-2` → `"state":"blocked"` (13:09:11Z).
-   Workbench frame `{"published": false, "reason": "no changes"}`; no
-   `coder/eng-2` on GitHub (`git ls-remote --heads origin 'coder/eng-*'` →
-   empty). Screenshot `scratchpad/live/eng2-thread-dark.png`.
-   The 422 from the laptop (the plan named
-   `test_deny_list_path_refused`; the test that exists is
+3. **Refusal (AC-2) — PASS, both outcomes observed.** (a) 09:08:49 EDT: `POST
+   /api/tickets` → 201 `ENG-2` "Add a comment to .github/workflows/ci.yaml
+   explaining the runner job" (id `a1629cc765a54c1195d153d61e018006`),
+   assigned to `agent:engineer` → 200. Run `d5b6e1e114924cfbbc95d2843e4b0df4`
+   (runner-dev pod `run-d5b6e1e11492-9f2nk`, 3 turns, 10.2 s, `succeeded`),
+   NO edit attempt (its only tool calls were the two `tickets` calls): reply
+   "I can't take this one: my standing rules say "Never touch .github/,
+   secrets, credentials, or anything that looks like a token" — no exceptions
+   for comment-only, no-behaviour-change edits. … Moving to blocked for that
+   reason." then `tickets move ENG-2 blocked` reason "Ticket requires editing
+   .github/workflows/ci.yaml, which is off-limits under my unconditional rules
+   ("never touch .github/") — no increment of this ticket avoids that file."
+   `GET /api/tickets/ENG-2` → `"state":"blocked"`; frame `{"published":false,
+   "reason":"no changes"}`; no `coder/eng-2` on GitHub. Screenshot
+   `scratchpad/live/eng2-thread-dark.png`. (b) came for free from ENG-3 (item
+   2, second attempt): the API's 422 `bin/ap-verify is platform-owned and no
+   agent may change it` in the `workbench` transcript frame, the `⛔` thread
+   card, the `refused` envelope, and no `coder/eng-3` branch. Laptop (the
+   plan's `test_deny_list_path_refused` does not exist; the test is
    `test_a_platform_owned_path_is_refused`): `cd services/backend &&
    .venv/bin/python -m pytest -q --timeout=120
-   "tests/test_workbench.py::test_a_platform_owned_path_is_refused"` →
-   `1 passed in 1.81s` (asserts `detail == ".github/workflows/ci.yaml is
+   "tests/test_workbench.py::test_a_platform_owned_path_is_refused"` → `1
+   passed in 1.81s` (asserts `detail == ".github/workflows/ci.yaml is
    platform-owned and no agent may change it"`, the `refused` envelope with
-   `pr: null`, and the ticket left `open`); `-k refused` → `10 passed, 33
-   deselected in 9.69s`.
+   `pr: null`, ticket left `open`); `-k refused` → `10 passed, 33 deselected in
+   9.69s`.
 
-4. **Resume (AC-2) — NOT RUN, blocked on item 2.** There is no `coder/eng-1`
-   branch and no PR to resume (`git ls-remote` empty, `GET
-   /api/pull-requests` → `[]`); a second summons would hit the same missing
-   tool set. Re-run after the item-2 fix: comment "@engineer also print the
-   timeout" on ENG-1's thread, expect `<workbench existing="true"
-   commits_ahead=…>`, the same PR number, and a fast-forward in the laptop's
-   reflog of `origin/coder/eng-1`.
+4. **Resume (AC-2) — PASS.** 11:01:39 EDT: `POST /api/relay/channels/
+   cae2302b…/messages {"body":"@engineer also apply the same \"on weekdays\" /
+   \"on weekends\" wording to the OR clause (when day-of-month is set as well
+   as the weekday), the part your notes deferred, with a test case for it.",
+   "reply_to":"6786ad7018964e85a7cc1a765fd574ce"}` → 200 (message
+   `dc5b8877089f4455868681ee7b3bc052`, `thread_root` = ENG-4's root,
+   `mentions: ["engineer"]`). Run `8e25dc0146b0449f98191b9e5dd06cc7`
+   (`ticket_id` ENG-4) at 15:01:39.2Z, pod `run-8e25dc0146b0-wpkvf`,
+   runner-dev. Prepare fetched the existing branch: the model's first
+   command `git branch --show-current; git log --oneline origin/main..HEAD`
+   showed `coder/eng-4` with its earlier commit ("Branch has my earlier
+   commit and a clean tree"). It edited `_dow_or_clause`, added four OR-clause
+   cases (`66 passed`), committed `dfafc1b`, `→ in_progress` then `→ review`
+   (15:19:18Z), replied 15:19:24Z ("Done — the OR clause now uses the same
+   labels. On branch coder/eng-4 (second commit dfafc1b) …"); claude 1 047 s
+   / 24 turns; finalize verify (900 s timeout again) → publish 15:34:28Z:
+   frame `{"seq":141,"type":"workbench","published":true,"branch":
+   "coder/eng-4","pr":{"number":13,…},"paths":[…cronenglish.py, …test_cron_
+   preview.py],"ticket_state":"blocked","auto_merge":false,"verify_ok":false}`.
+   **Same PR, not a second one:** `gh pr list` → only `#13`; `gh pr view 13`
+   `updatedAt 2026-09-19T15:34:28Z`, commits `86b9dbc`, `dfafc1b` (body
+   re-rendered: `2 commits`, files `+20 −0` / `+16 −2`). **Not
+   force-pushed:** laptop `git fetch origin coder/eng-4` before →
+   `86b9dbcbf543…` (`reflog: storing head`), after → `86b9dbc..dfafc1b
+   coder/eng-4 -> origin/coder/eng-4`, `git reflog show origin/coder/eng-4`
+   → `dfafc1b …@{0}: fetch origin coder/eng-4: fast-forward` / `86b9dbc
+   …@{1}: … storing head`; `git merge-base --is-ancestor 86b9dbc
+   origin/coder/eng-4` → true. Thread card #2 `⚠️ engineer published
+   coder/eng-4 → PR #13 · 2 files · verify ✗ (unknown)`; envelope #3
+   `{"event":"verify_failed","run_id":"8e25dc01…","ticket_key":"ENG-4",
+   "branch":"coder/eng-4","pr":{"number":13,…},"paths":[{…"additions":20,
+   "deletions":0…},{…"additions":16,"deletions":2,"test":true}]…}`; wall
+   15:01:39–15:34:29Z (32 m 50 s). **Gap found:** the transcript's `<workbench
+   existing="true" commits_ahead=…>` block was NOT in the model's prompt.
+   The argv was `claude --agent engineer --resume
+   105b4623-b4d5-4912-8c8f-f83e5aa051aa -p <AP_USER_MESSAGE> …` (`grep -c
+   commits_ahead /proc/<claude>/cmdline` → 0): design 14's session resume
+   won (the ENG-4 run's session blob restored, 0-turn `task-notification`
+   result then the real turn), and `runner.py` appends the workbench block
+   only to `prompt`, which the resume path never sends. The model coped
+   because the resumed session remembered the branch and the rules, and
+   `prepare` had checked out `coder/eng-4` regardless; a fresh pod without a
+   restorable session would get the block. Worth appending the block to
+   `user_message` too (or to both) in a follow-up.
 
 5. **Non-dev runs unchanged — PASS.** 09:06:07 EDT `POST
    /api/relay/channels/0ba3a9306803473c8f960b011b2ca60d/messages {"body":
@@ -966,43 +1058,70 @@ Post-deploy: all platform pods Running; `workbench.events` exists
    mcp__platform__artifacts --disallowedTools Bash Read Edit Write
    NotebookEdit --mcp-config /tmp/mcp-ve45iw6i.json`. The init event's tool
    list matches (`WebSearch, WebFetch, mcp__platform__*`; model
-   `claude-opus-4-8`, `permissionMode: default`). The 09:00 standup summons
-   of the other 13 agents all completed on the lean image too (`kubectl get
-   jobs`, 13:00–13:03Z).
+   `claude-opus-4-8`, `permissionMode: default`). (Rev 60; the lean image was
+   rebuilt for R2 only to carry the `tools:`-line change, `_permission_args`'
+   non-dev branch is untouched — `test_permission_args_dev_default_is_off`.)
 
-6. **Merge (AC-4) — NOT RUN, blocked on item 2.** No PR exists to merge.
-   ENG-1 was left `blocked` (not moved to `done` by hand: nothing was
-   done). Still true by design: a merge does not move the ticket
-   (deferred).
+6. **Merge (AC-4) — NOT DONE BY THE LOOP; handed to Kyle.** PR #13 is
+   ready: 2 files, 2 commits, reviewed here — on the laptop the branch
+   (`git worktree add … origin/coder/eng-4`) gives `tests/test_cron_preview.py`
+   `66 passed in 2.00s` and the full backend suite `1657 passed, 3 warnings
+   in 203.57s`; `describe("0 7 * * 1-5")` → "At 07:00, on weekdays",
+   `("0 12 * * 6,0")` → "At 12:00, on weekends", `("0 0 13 * 1-5")` → "At
+   00:00, on day 13 of the month or on weekdays", `("0 9 * * 1-4")` → "At
+   09:00, Monday through Thursday". The verification agent's `POST
+   /api/pull-requests/13/merge` was denied by the laptop's permission
+   classifier ("Merge Without Review"), and it did not route around that.
+   **To finish:** Kyle (or the orchestrator, if it holds that permission)
+   clicks Accept on `/changes` (admin; `POST /api/pull-requests/13/merge`)
+   or runs `gh pr merge 13 --squash`, then moves ENG-4 to `done` by hand
+   (`POST /api/tickets/ENG-4/move {"state":"done"}`) — a merge does not move
+   the ticket (deferred by design; ENG-4 sits in `blocked` because verify ✗,
+   which is also why nothing auto-merged). ENG-1 and ENG-3 can be moved to
+   `cancelled` (ENG-1 superseded, ENG-3 asked for a deny-listed path); ENG-2
+   stays `blocked` as the refusal record.
 
-7. **Cluster.** `helm -n agent-platform history ap`: `60  Fri Sep 18
-   23:44:15 2026  deployed  agent-platform-0.1.0  Upgrade complete` (59 and
-   58 superseded). `kubectl top pod run-b6738d261bc4-h5gkg --containers` at
-   13:03:5xZ (during the `claude` phase, after `prepare`'s `npm ci`):
-   `runner 76m 205Mi`, `mcp-tunnel 1m 7Mi` — no verify/pytest peak was
-   reached because nothing was built; the true peak is still unmeasured.
-   Dev-pod wall time: Job `run-b6738d261bc4` `startTime 13:02:44Z`,
-   `completionTime 13:04:11Z` (87 s; the run row says 84.5 s). Job TTL:
-   every runner Job has `ttlSecondsAfterFinished: 3600`; at 13:10:31Z the
-   20 surviving Jobs' oldest `completionTime` was `12:15:30Z` (55 min) —
-   nothing older than an hour survives, so TTL cleanup works. **Incident
-   during this verification:** `ap-api` was `OOMKilled` (exit 137) at
-   13:11:07Z — limit `memory: 256Mi`, restart count 0 → 1 — while the run
-   page (`WebSocket /api/runs/b6738…/tail` open) and `/changes` (three
-   `GET /api/pull-requests` per page load, 16 in the last 80 log lines) were
-   being screenshotted; the login for the next screenshot got a 502, the
-   pod came back in ~15 s and sat at 128–159 Mi afterwards. Not a design-24
-   route by itself, but the dev-run pages are the ones being opened now;
-   worth a memory bump or a look at what the tail/pull-requests path holds.
-   Screenshots (all 1280×800 dark): `scratchpad/live/eng1-thread-dark.png`,
-   `eng1-run-dark.png`, `eng1-run-bottom-dark.png`, `changes-dark.png`,
-   `eng2-thread-dark.png` (scratchpad =
-   `/private/tmp/claude-501/-Users-kp-gh-agent-platform/f8d9f60f-2efe-4894-b3c4-825fa0cabd07/scratchpad`);
-   pod JSON and transcripts beside them (`pod-b673-eng1.json`,
-   `eng1-claude-flags.txt`, `pai-claude-flags.txt`, `ev-b673.json`,
-   `ev-d5b6.json`, `api-prev.log`).
+7. **Cluster.** `helm -n agent-platform history ap`: `61  Sat Sep 19
+   09:25:32 2026  deployed  agent-platform-0.1.0  Upgrade complete` (60 =
+   Fri Sep 18 23:44:15, superseded). **`kubectl top pod --containers` every
+   30 s while Running** (`scratchpad/live/topwatch.sh`, files
+   `eng3-top.txt`/`eng4-top.txt`/`eng4r-top.txt`, 85/68/63 samples): ENG-3
+   pod peak `618Mi` (14:04:52Z) / `1625m` (14:00:17Z); ENG-4 pod
+   `run-9268ba08d58e-x672w` peak **`637Mi`** (14:41:26Z, during the model's
+   own `ap-verify --changed`) / **`1385m`** (14:50:05Z, finalize's pytest);
+   resume pod peak `601Mi` / `1398m`. Against `requests 2Gi/500m, limits
+   6Gi/3` the memory request is generous and the CPU sits ~1.2–1.6 cores
+   (pytest is one process; coverage is the tax). Mcp-tunnel sidecar 1m/7Mi.
+   **Wall time:** Job `run-9268ba08d58e` `startTime 14:24:38Z →
+   completionTime 14:59:30Z` (34 m 52 s: ~19 min model, ~15 min verify
+   timeout, seconds to publish); resume Job `run-8e25dc0146b0` 15:01:39 →
+   15:34:31Z (32 m 52 s); ENG-3 Job 13:39:00 → 14:22:19Z (43 m 19 s: 28 min
+   model + 15 min verify). **Job TTL:** every runner Job has
+   `ttlSecondsAfterFinished: 3600`; at 15:43:44Z `kubectl get job
+   run-46aedcfe777a` (done 14:22:19Z) → `NotFound` while `run-9268ba08d58e`
+   (done 14:59:30Z) still listed; oldest surviving completion 14:45:35Z; 9
+   runner Jobs total. **API:** the rev-60 pod was `OOMKilled` (exit 137,
+   limit 256Mi) at 13:11:07Z while the run page's `/api/runs/{id}/tail`
+   WebSocket and `/changes` (three `GET /api/pull-requests` per load) were
+   open — R2 raised the limit to 512Mi (`ap-api-87d7c8cbc-2hf4x`,
+   `restarts=0`, 211Mi at 15:43Z after ~2.5 h of run pages, /changes loads
+   and screenshots). Screenshots (1280×800 dark, checked by eye):
+   `scratchpad/live/eng4-thread-dark.png`, `changes-eng4-dark.png`,
+   `eng4-run-bottom-dark.png` (+ `eng4-run-full-dark.png`), and from the
+   first attempt `eng1-thread-dark.png`, `eng1-run-dark.png`,
+   `eng1-run-bottom-dark.png`, `changes-dark.png`, `eng2-thread-dark.png`
+   (scratchpad = `/private/tmp/claude-501/-Users-kp-gh-agent-platform/
+   f8d9f60f-2efe-4894-b3c4-825fa0cabd07/scratchpad`); pod JSON
+   (`pod-9268-eng4.json`, `pod-8e25-eng4r.json`, `pod-46ae-eng3.json`,
+   `pod-b673-eng1.json`), argv dumps (`eng4-claude-flags.txt`,
+   `eng4r-claude-flags.txt.raw`, `pai-claude-flags.txt`), transcripts
+   (`ev-9268.json`, `ev-8e25.json`, `ev-46ae.json`, `ev-b673.json`,
+   `ev-d5b6.json`), `pr13.json`, `wb-events-3.txt`, `api-prev.log` beside
+   them.
 
 ## Handoff to Kyle
+
+- **Merge PR #13** (`coder/eng-4`, the engineer's first PR — reviewed green on the laptop: 66 cron tests + full backend 1657 passed) from `/changes` → Accept, or `gh pr merge 13 --squash`; then move `ENG-4` to `done` by hand (a merge does not move tickets — deferred). The verify agent's merge call was refused by the laptop's permission classifier ("Merge Without Review") and was not routed around. Cancel `ENG-1` and `ENG-3` (both asked for a change to `bin/ap-verify`, which the publish policy forbids by design).
 
 (commands the loop could not run itself, secrets to paste, GitHub settings
 to click — filled by the loop; expected to include at least:)
