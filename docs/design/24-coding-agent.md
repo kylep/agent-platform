@@ -109,7 +109,7 @@ rows get the defaults by explicit backfill (it cannot apply an ORM default).
 
 Settings (`config.py`, env `AP_*`): `runner_dev_image`
 (`agent-platform-runner-dev:dev`), `dev_max_turns` (200, passed as
-`--max-turns`), `dev_verify_timeout_seconds` (1800, the wall clock for
+`--max-turns`), `dev_verify_timeout_seconds` (2400, the wall clock for
 `ap-verify` inside the runner), `dev_workspace_size_limit` (`8Gi`),
 `dev_shm_size_limit` (`1Gi`), `publish_max_bytes` (16 MiB, the bundle),
 `web_internal_url` (`http://ap-web:8090`, design 25's browser target, set by
