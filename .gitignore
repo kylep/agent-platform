@@ -25,3 +25,11 @@ run-*.png
 node_modules/
 dist/
 *.tsbuildinfo
+
+# The engineer agent's hand-off to the runner (bin/ap-verify reports, .ap/pr.md):
+# never part of the change.
+.ap/
+
+# pytest-cov leaves its data file beside the suite it measured.
+.coverage
+coverage.xml

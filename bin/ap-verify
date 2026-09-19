@@ -1,0 +1,401 @@
+#!/usr/bin/env python3
+"""ap-verify — run the CI suites that a change touches, and say what happened.
+
+One verifier for three callers: the engineer agent mid-run (`--changed` as it
+goes), the runner at finalize (`--changed --out /workspace/verify`, whose
+verify.json rides along with the publish request), and a laptop before a push.
+Stdlib only, so it runs wherever python3 does; it never edits the tree.
+
+The suite table below mirrors .github/workflows/ci.yaml — the same commands,
+the same working directories — so a green here means a green there. A suite
+whose tool is missing (helm, docker, npm) is *skipped*, which is not a failure:
+the runner image lacks helm, a laptop may lack docker, and neither should turn
+a correct change red. A suite that times out or crashes *is* a failure.
+
+The checkout's own copy of this file is what runs, which is why the publish
+policy (agentplatform.testpaths.PUBLISH_DENY_GLOBS) refuses any change to it:
+verify.json is evidence for a human and for CI, never proof.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import shlex
+import shutil
+import signal
+import subprocess
+import sys
+import threading
+import time
+from collections import deque
+from datetime import datetime, timezone
+from fnmatch import fnmatchcase
+from pathlib import Path
+
+REPO_ROOT = Path(__file__).resolve().parent.parent
+DEFAULT_BASE = "origin/main"
+DEFAULT_TIMEOUT = 900
+TAIL_LINES = 40
+
+# `dependency build` rather than CI's `dependency update`: build fetches what
+# Chart.lock pins and never rewrites the lock, so a mid-run verify cannot leave
+# a tracked file changed for the agent's next checkpoint commit to sweep up.
+HELM_DEPS = "helm dependency build charts/agent-platform"
+HELM_LINT = ("helm lint charts/agent-platform"
+             " --set env.AP_SESSION_SECRET=x --set env.AP_INTERNAL_SECRET=y")
+SDK_DRIFT_NOTE = ("[ap-verify] sdk/ differs from what the API generates: the regenerated"
+                  " files are left in the tree (commit them, or `git checkout -- sdk/`)")
+
+
+# ---------------------------------------------------------------- environment
+
+def python_for_suites() -> str:
+    """The interpreter that has the backend's deps. In the runner image
+    /opt/venv is first on PATH so it is the one already running us; on a
+    laptop it is the backend venv; AP_VERIFY_PYTHON overrides both."""
+    override = os.environ.get("AP_VERIFY_PYTHON")
+    if override:
+        return override
+    venv = REPO_ROOT / "services" / "backend" / ".venv" / "bin" / "python"
+    if venv.exists():
+        return str(venv)
+    return sys.executable
+
+
+def has_module(py: str, name: str) -> bool:
+    r = subprocess.run([py, "-c", f"import {name}"], capture_output=True)
+    return r.returncode == 0
+
+
+def _pythonpath(root: Path) -> dict:
+    """For suites that import agentplatform without installing it (the facade
+    in CI installs the backend; a bare checkout does not)."""
+    paths = [str(root / "services" / "backend"), str(root / "sdk")]
+    current = os.environ.get("PYTHONPATH")
+    if current:
+        paths.append(current)
+    return {"PYTHONPATH": ":".join(paths)}
+
+
+# ---------------------------------------------------------------- suite table
+
+def _suite(name, globs, cwd, cmd, *, env=None, requires=(), artifacts=(), on_fail_note=None):
+    return {"name": name, "globs": list(globs), "cwd": cwd, "cmd": list(cmd),
+            "env": dict(env or {}), "requires": list(requires),
+            "artifacts": list(artifacts), "on_fail_note": on_fail_note}
+
+
+def _sh(*steps: str) -> list[str]:
+    """CI's `a && b` steps, run by sh so a failing step stops the row."""
+    return ["sh", "-c", " && ".join(steps)]
+
+
+def suite_table(root: Path, out: Path | None = None) -> list[dict]:
+    """Every suite CI runs, in the order it should run here. `out` is where
+    the junit/coverage/json reports land; None means no report flags."""
+    root = Path(root)
+    out = Path(out) if out is not None else None
+    py = python_for_suites()
+    pp = _pythonpath(root)
+    pytest_q = [py, "-m", "pytest", "-q"]
+
+    backend_cmd = pytest_q + ["--timeout=120", "tests"]
+    backend_artifacts = []
+    if out is not None:
+        junit = out / "junit-backend.xml"
+        backend_cmd.append(f"--junitxml={junit}")
+        backend_artifacts.append(junit)
+        if has_module(py, "pytest_cov"):
+            cov = out / "coverage-backend.xml"
+            backend_cmd += ["--cov=agentplatform", f"--cov-report=xml:{cov}"]
+            backend_artifacts.append(cov)
+
+    pw_env, pw_artifacts = {}, []
+    if out is not None:
+        pw_env = {"PLAYWRIGHT_JUNIT_OUTPUT_NAME": str(out / "junit-web.xml"),
+                  "PLAYWRIGHT_JSON_OUTPUT_NAME": str(out / "playwright-web.json")}
+        pw_artifacts = [out / "junit-web.xml", out / "playwright-web.json"]
+
+    web_globs = ["services/web/**", "packages/ui/**"]
+    api_globs = ["services/backend/agentplatform/api/**"]
+    suites = [
+        _suite("backend", ["services/backend/**", "sdk/**", "bin/ap-verify", "bin/ap_verify*"],
+               "services/backend", backend_cmd, env=pp, artifacts=backend_artifacts),
+        # The SDK is generated from the API's OpenAPI document; CI fails on
+        # drift. A clean run leaves the tree untouched; a drifted one leaves
+        # the regenerated files in place, and the tail says so.
+        _suite("sdk", ["sdk/**"] + api_globs, ".",
+               _sh(f"{shlex.quote(py)} sdk/regenerate.py", "git diff --exit-code -- sdk/"),
+               env=pp, on_fail_note=SDK_DRIFT_NOTE),
+        _suite("broker", ["services/mcp-broker/**"], "services/mcp-broker", pytest_q, env=pp),
+        # The facade pins tier counts from the API's own OpenAPI document, so a
+        # route change is a facade change too (CI runs it on every push).
+        _suite("facade", ["services/mcp-facade/**"] + api_globs,
+               "services/mcp-facade", pytest_q, env=pp),
+        _suite("executor", ["services/tool-executor/**", "tools/**"],
+               "services/tool-executor", pytest_q),
+        _suite("runner", ["services/runner/**"], "services/runner", pytest_q, env=pp),
+        _suite("connector-discord", ["services/connector-discord/**"],
+               "services/connector-discord", pytest_q, env=pp),
+        _suite("web-lint", web_globs, "services/web", ["npm", "run", "-s", "lint"],
+               requires=["npm"]),
+        _suite("web-tokens", web_globs, "services/web", ["npm", "run", "-s", "check:tokens"],
+               requires=["npm"]),
+        _suite("web-build", web_globs, "services/web", ["npm", "run", "-s", "build"],
+               requires=["npm"]),
+        _suite("web-storybook", web_globs, "services/web", ["npm", "run", "-s", "build:storybook"],
+               requires=["npm"]),
+        _suite("web-playwright", web_globs, "services/web",
+               ["npx", "playwright", "test", "--reporter=line,junit,json"],
+               env=pw_env, requires=["npx"], artifacts=pw_artifacts),
+    ]
+
+    for app_dir in sorted((root / "apps").glob("*")):
+        app = app_dir.name
+        backend = app_dir / "backend"
+        if any(backend.glob("test_*.py")):
+            suites.append(_suite(f"app-{app}-backend", [f"apps/{app}/backend/**"],
+                                 f"apps/{app}/backend", pytest_q))
+        frontend = app_dir / "frontend" / "package.json"
+        if frontend.exists():
+            try:
+                pkg = json.loads(frontend.read_text()).get("name") or f"{app}-frontend"
+            except ValueError:
+                pkg = f"{app}-frontend"
+            suites.append(_suite(f"app-{app}-frontend", [f"apps/{app}/frontend/**"], ".",
+                                 ["npm", "run", "-s", "build", "-w", pkg], requires=["npm"]))
+
+    for test in sorted((root / "tools").glob("*/test_run.py")):
+        tool = test.parent.name
+        suites.append(_suite(f"tool-{tool}", [f"tools/{tool}/**"], f"tools/{tool}",
+                             pytest_q + ["test_run.py"]))
+
+    suites.append(_suite("helm", ["charts/**"], ".", _sh(HELM_DEPS, HELM_LINT), requires=["helm"]))
+    # The proxy's tests render the chart and run the real nginx image; without
+    # docker the behavioural half self-skips, so the suite needs both tools.
+    suites.append(_suite("claude-proxy", ["services/claude-proxy/**", "charts/**"], ".",
+                         _sh(HELM_DEPS, f"cd services/claude-proxy && {shlex.join(pytest_q)}"),
+                         requires=["helm", "docker"]))
+    return suites
+
+
+def _matches(path: str, glob: str) -> bool:
+    # fnmatch's `*` already crosses `/`, so `a/**` is "anything under a/".
+    if glob.endswith("/**"):
+        return path == glob[:-3] or path.startswith(glob[:-2])
+    return fnmatchcase(path, glob)
+
+
+def select(table: list[dict], changed: list[str] | None) -> list[dict]:
+    """Suites to run for these paths, in table order; None means all."""
+    if changed is None:
+        return list(table)
+    return [s for s in table
+            if any(_matches(p, g) for p in changed for g in s["globs"])]
+
+
+# ---------------------------------------------------------------- git
+
+def _git(root: Path, *args: str) -> str:
+    r = subprocess.run(["git", *args], cwd=root, capture_output=True, text=True)
+    if r.returncode != 0:
+        raise RuntimeError(f"git {' '.join(args)}: {r.stderr.strip()}")
+    return r.stdout
+
+
+def changed_paths(root: Path, base: str) -> tuple[list[str], str]:
+    """Paths that differ from the merge-base with `base` — committed,
+    staged, unstaged and untracked alike, so a mid-run check sees the work in
+    progress and finalize (everything committed) sees the same set."""
+    merge_base = _git(root, "merge-base", base, "HEAD").strip()
+    diff = _git(root, "diff", "--name-only", merge_base)
+    untracked = _git(root, "ls-files", "--others", "--exclude-standard")
+    paths = sorted({p for p in (diff + untracked).splitlines() if p})
+    return paths, merge_base
+
+
+# ---------------------------------------------------------------- running
+
+def _missing_tool(suite: dict) -> str | None:
+    for tool in suite["requires"]:
+        if shutil.which(tool) is None:
+            return f"{tool} not on PATH"
+    return None
+
+
+def _skip_reason(suite: dict, skip: set) -> str | None:
+    if suite["name"] in skip:
+        return "skipped by --skip"
+    return _missing_tool(suite)
+
+
+def run_one(suite: dict, root: Path, timeout: int, log_dir: Path | None = None,
+            skip: set = frozenset()) -> dict:
+    row = {"name": suite["name"], "cmd": suite["cmd"], "cwd": suite["cwd"],
+           "exit": None, "seconds": 0.0, "skipped_reason": None, "tail": ""}
+    reason = _skip_reason(suite, skip)
+    if reason:
+        row["skipped_reason"] = reason
+        return row
+
+    env = dict(os.environ)
+    env.update(suite["env"])
+    cwd = root / suite["cwd"]
+    started = time.monotonic()
+    # Output streams to the log as it arrives; only the tail stays in memory
+    # (a Playwright run or a coverage report is far larger than verify.json
+    # should ever be).
+    tail: deque = deque(maxlen=TAIL_LINES)
+    log = open(log_dir / f"{suite['name']}.log", "w") if log_dir is not None else None
+    try:
+        # Own process group so a timeout takes the children too (npm spawns
+        # vite preview; a survivor would hold port 4173 for the next suite).
+        proc = subprocess.Popen(suite["cmd"], cwd=cwd, env=env, text=True,
+                                errors="replace", stdout=subprocess.PIPE,
+                                stderr=subprocess.STDOUT, start_new_session=True)
+        reader = threading.Thread(target=_pump, args=(proc.stdout, tail, log), daemon=True)
+        reader.start()
+        try:
+            row["exit"] = proc.wait(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            _kill_group(proc)
+            proc.wait()
+            reader.join()
+            tail.append(f"[ap-verify] timed out after {timeout}s")
+        reader.join()
+    except OSError as exc:
+        tail.append(f"[ap-verify] could not start {suite['cmd'][0]}: {exc}")
+    finally:
+        if log is not None:
+            log.close()
+    if row["exit"] != 0 and suite.get("on_fail_note"):
+        tail.append(suite["on_fail_note"])
+    row["seconds"] = round(time.monotonic() - started, 2)
+    row["tail"] = "\n".join(tail)
+    return row
+
+
+def _pump(stream, tail: deque, log) -> None:
+    for line in stream:
+        if log is not None:
+            log.write(line)
+        tail.append(line.rstrip("\n"))
+    stream.close()
+
+
+def _kill_group(proc: subprocess.Popen) -> None:
+    try:
+        os.killpg(proc.pid, signal.SIGKILL)
+    except ProcessLookupError:
+        pass
+
+
+def run_suites(suites: list[dict], root: Path, timeout: int,
+               out: Path | None = None, echo=None, skip: set = frozenset()) -> dict:
+    root = Path(root)
+    if out is not None:
+        out = Path(out)
+        out.mkdir(parents=True, exist_ok=True)
+    rows = []
+    for suite in suites:
+        if echo:
+            echo(f"== {suite['name']}: {' '.join(suite['cmd'])}  (cwd {suite['cwd']})")
+        row = run_one(suite, root, timeout, out, skip)
+        rows.append(row)
+        if echo:
+            echo(f"   -> {_status(row)} in {row['seconds']}s")
+    # Relative to the report directory: the PR body quotes them, and the pod's
+    # absolute paths mean nothing to a reader.
+    files = [str(Path(p).relative_to(out)) if out is not None else str(p)
+             for s in suites for p in s.get("artifacts", ()) if Path(p).exists()]
+    ok = all(r["exit"] == 0 for r in rows if r["skipped_reason"] is None)
+    return {"ok": ok, "suites": rows, "files": files}
+
+
+def _status(row: dict) -> str:
+    if row["skipped_reason"]:
+        return f"skipped ({row['skipped_reason']})"
+    if row["exit"] == 0:
+        return "ok"
+    if row["exit"] is None:
+        return "FAILED (no exit status)"
+    return f"FAILED (exit {row['exit']})"
+
+
+def write_report(out: Path, result: dict) -> Path:
+    out = Path(out)
+    out.mkdir(parents=True, exist_ok=True)
+    path = out / "verify.json"
+    path.write_text(json.dumps(result, indent=2) + "\n")
+    return path
+
+
+# ---------------------------------------------------------------- cli
+
+def _print_table(table: list[dict], selected: list[dict], mode: str, skip: set) -> None:
+    chosen = {s["name"] for s in selected}
+    print(f"# suites ({mode}); * = would run")
+    for s in table:
+        mark = "*" if s["name"] in chosen else " "
+        reason = _skip_reason(s, skip)
+        note = f"  [skipped: {reason}]" if reason else ""
+        print(f"{mark} {s['name']:<24} {', '.join(s['globs'])}{note}")
+        print(f"    cd {s['cwd']} && {' '.join(s['cmd'])}")
+
+
+def main(argv: list[str] | None = None) -> int:
+    ap = argparse.ArgumentParser(prog="ap-verify", description=__doc__.split("\n\n")[0])
+    mode = ap.add_mutually_exclusive_group()
+    mode.add_argument("--changed", action="store_true",
+                      help="run the suites for paths changed since --base (default)")
+    mode.add_argument("--all", action="store_true", help="run every suite")
+    ap.add_argument("--base", default=DEFAULT_BASE, help=f"ref to diff against (default {DEFAULT_BASE})")
+    ap.add_argument("--out", default=None, help="report directory (default <repo>/.ap/verify)")
+    ap.add_argument("--list", action="store_true", help="print the suite table and what would run; run nothing")
+    ap.add_argument("--timeout", type=int, default=DEFAULT_TIMEOUT, help=f"seconds per suite (default {DEFAULT_TIMEOUT})")
+    ap.add_argument("--skip", action="append", default=[], metavar="SUITE",
+                    help="record this suite as skipped instead of running it (repeatable)")
+    args = ap.parse_args(argv)
+
+    root = REPO_ROOT
+    out = Path(args.out).resolve() if args.out else root / ".ap" / "verify"
+    head = _git(root, "rev-parse", "HEAD").strip()
+
+    changed, base_sha, base_error = None, None, None
+    if not args.all:
+        try:
+            changed, base_sha = changed_paths(root, args.base)
+        except RuntimeError as exc:
+            # No usable base (a shallow clone past its depth, a missing
+            # remote): run everything rather than guess and go green.
+            base_error = str(exc)
+            print(f"ap-verify: {exc}; running every suite", file=sys.stderr)
+
+    table = suite_table(root, out=out)
+    selected = select(table, changed)
+    mode_name = "all" if changed is None else f"changed vs {args.base}"
+
+    if args.list:
+        _print_table(table, selected, mode_name, set(args.skip))
+        return 0
+
+    if changed is not None:
+        print(f"# {len(changed)} changed path(s) vs {args.base} ({base_sha[:12]})")
+    if not selected:
+        print("# no suites for these paths")
+
+    result = run_suites(selected, root, args.timeout, out=out, echo=print, skip=set(args.skip))
+    result.update({
+        "base": args.base, "base_sha": base_sha, "base_error": base_error,
+        "head": head, "changed": changed, "python": python_for_suites(),
+        "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+    })
+    path = write_report(out, result)
+    print(f"# {'ok' if result['ok'] else 'FAILED'} — {path}")
+    return 0 if result["ok"] else 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

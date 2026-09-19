@@ -141,6 +141,8 @@ def test_publish_deny_globs_are_the_design_list():
         ".github/**",
         ".pre-commit-config.yaml",
         "bin/forbid-secret-files.sh",
+        "bin/ap-verify",
+        "bin/ap_verify*",
     ]
 
 
@@ -220,10 +222,22 @@ def test_deny_list_wins_over_everything():
 
 @pytest.mark.parametrize("path", [
     ".github/CODEOWNERS", ".pre-commit-config.yaml", "bin/forbid-secret-files.sh",
+    "bin/ap-verify", "bin/ap_verify.py",
 ])
 def test_every_deny_entry_refuses(path):
     v = check_policy([ch(path, "A", additions=1)], push_path_globs=[], may_delete_tests=False)
     assert not v.ok and path in v.reason
+
+
+def test_the_verifier_cannot_be_changed_by_what_it_verifies():
+    # verify.json is produced by the checkout's own copy of bin/ap-verify, so
+    # an agent that could edit it could make any change look green. Empty
+    # globs (the widest fence) still refuse it, by name.
+    v = check_policy(
+        [ch("services/backend/agentplatform/relay.py"),
+         ch("bin/ap-verify", "M", additions=1, deletions=1)],
+        push_path_globs=[], may_delete_tests=True)
+    assert not v.ok and "bin/ap-verify" in v.reason
 
 
 def test_deny_list_covers_the_old_side_of_a_rename():

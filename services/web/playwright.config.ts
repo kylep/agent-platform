@@ -12,6 +12,10 @@ export default defineConfig({
   use: {
     baseURL: "http://localhost:4173",
     trace: "on-first-retry",
+    // The dev-run pod (docs/design/24) runs as an unprivileged user with no
+    // user namespaces, where Chromium's sandbox cannot start; CI and laptops
+    // keep it.
+    chromiumSandbox: !process.env.AP_WORKSPACE,
   },
   webServer: {
     command: "npm run preview",

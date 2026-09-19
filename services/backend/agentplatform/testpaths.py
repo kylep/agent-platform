@@ -30,12 +30,16 @@ from dataclasses import dataclass, field
 from functools import lru_cache
 from typing import NamedTuple
 
-# The CI gate and the secret-leak prevention stay human-authored, for every
-# agent, always. Nothing an agent holds can lift this.
+# The CI gate, the secret-leak prevention and the verifier stay
+# human-authored, for every agent, always. Nothing an agent holds can lift
+# this. The verifier is on the list because the checkout's own copy produces
+# verify.json: an agent that could edit it could make any change look green.
 PUBLISH_DENY_GLOBS = [
     ".github/**",
     ".pre-commit-config.yaml",
     "bin/forbid-secret-files.sh",
+    "bin/ap-verify",
+    "bin/ap_verify*",
 ]
 
 # "Test code", inventoried from the tree. A conftest.py is test code because
