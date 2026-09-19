@@ -193,6 +193,33 @@ def test_timeout_is_a_failure_not_a_skip(apv):
     assert result["ok"] is False
 
 
+def test_suites_run_without_the_pods_platform_env(apv, monkeypatch):
+    """In the dev pod the platform's own settings are in the environment
+    (AP_API_URL, AP_SESSION_TOKEN, the Kubernetes service variables), and the
+    backend's tests read AP_* as configuration — six of them failed only in
+    the pod. Every suite runs with those scrubbed; AP_VERIFY_PYTHON stays, it
+    is ap-verify's own, and the suite table's env still lands."""
+    monkeypatch.setenv("AP_API_URL", "http://api:8090")
+    monkeypatch.setenv("AP_SESSION_TOKEN", "ap_secret")
+    monkeypatch.setenv("KUBERNETES_SERVICE_HOST", "10.0.0.1")
+    monkeypatch.setenv("AP_VERIFY_PYTHON", sys.executable)
+    monkeypatch.setenv("AP_WORKSPACE", "dev")
+    monkeypatch.setenv("UNRELATED_VAR", "kept")
+    suites = [_fake("env", "import json, os; print(json.dumps(dict(os.environ)))",
+                    env={"PYTHONPATH": "/x"})]
+    result = apv.run_suites(suites, root=REPO_ROOT, timeout=30)
+    child = json.loads(result["suites"][0]["tail"].splitlines()[-1])
+    assert not [k for k in child if k.startswith("AP_") and k not in ("AP_VERIFY_PYTHON", "AP_WORKSPACE")]
+    assert not [k for k in child if k.startswith("KUBERNETES_")]
+    assert "AP_SESSION_TOKEN" not in child and "AP_API_URL" not in child
+    assert "KUBERNETES_SERVICE_HOST" not in child
+    assert "ap_secret" not in json.dumps(child)
+    assert child["AP_VERIFY_PYTHON"] == sys.executable
+    assert child["AP_WORKSPACE"] == "dev"   # playwright.config.ts: no Chromium sandbox in the pod
+    assert child["UNRELATED_VAR"] == "kept" and child["PYTHONPATH"] == "/x"
+    assert "PATH" in child
+
+
 def test_missing_tool_is_skipped_not_failed(apv):
     suites = [_fake("needs-tool", "print('never')", requires=["definitely-not-a-real-binary-xyz"])]
     result = apv.run_suites(suites, root=REPO_ROOT, timeout=30)

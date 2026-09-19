@@ -10,10 +10,8 @@ import pytest
 import workbench
 
 FAKE_VERIFY = textwrap.dedent("""\
-    import json, os, sys, time, pathlib
+    import json, os, sys, pathlib
     mode = os.environ.get("FAKE_VERIFY", "ok")
-    if mode == "sleep":
-        time.sleep(30)
     if mode == "crash":
         sys.exit(3)
     out = pathlib.Path(sys.argv[sys.argv.index("--out") + 1])
@@ -275,12 +273,46 @@ def test_finalize_checkpoints_and_posts_a_fetchable_bundle(remote, tmp_path):
     assert ".ap" not in _git(fresh, "ls-tree", "-r", "--name-only", "refs/bundle/head")
 
 
+def test_finalize_hands_verify_its_per_suite_timeout(remote):
+    """`AP_VERIFY_TIMEOUT` is ap-verify's own `--timeout` (its 900 s default
+    is what a coverage run of the backend suite trips on the NUC); the
+    runner's outer wall clock is that plus a grace for the kill and the report."""
+    repo, wb = _prepared(remote)
+    (repo / "x.txt").write_text("x\n")
+    posted, seen = {}, {}
+    real = workbench.subprocess.run
+
+    def spy(cmd, **kw):
+        if cmd[:2] == ["python3", "bin/ap-verify"]:
+            seen["timeout"] = kw["timeout"]
+        return real(cmd, **kw)
+    workbench.subprocess.run = spy
+    try:
+        workbench.finalize(repo, wb, _env(remote, AP_VERIFY_TIMEOUT="30"), "RID",
+                           lambda m, p, body=None, headers=None: posted.update(body=body) or {"pr": None})
+    finally:
+        workbench.subprocess.run = real
+    argv = posted["body"]["verify"]["argv"]
+    assert argv[argv.index("--timeout") + 1] == "30"
+    assert seen["timeout"] == 30 + workbench.VERIFY_GRACE == 150
+
+
 def test_finalize_verify_timeout_is_recorded_and_still_posts(remote):
     repo, wb = _prepared(remote)
     (repo / "x.txt").write_text("x\n")
     posted = {}
-    workbench.finalize(repo, wb, _env(remote, FAKE_VERIFY="sleep", AP_VERIFY_TIMEOUT="1"), "RID",
-                       lambda m, p, body=None, headers=None: posted.update(body=body) or {"pr": None})
+    real = workbench.subprocess.run
+
+    def hang(cmd, **kw):
+        if cmd[:2] == ["python3", "bin/ap-verify"]:
+            raise subprocess.TimeoutExpired(cmd, kw["timeout"])
+        return real(cmd, **kw)
+    workbench.subprocess.run = hang
+    try:
+        workbench.finalize(repo, wb, _env(remote), "RID",
+                           lambda m, p, body=None, headers=None: posted.update(body=body) or {"pr": None})
+    finally:
+        workbench.subprocess.run = real
     assert posted["body"]["verify"] == {"ok": False, "error": "verify timed out"}
 
 

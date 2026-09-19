@@ -19,7 +19,7 @@ class Settings(BaseSettings):
     # scratch: a clone with node_modules on the workspace emptyDir, and the
     # in-memory /dev/shm Chromium needs (the default 64Mi makes it crash).
     dev_max_turns: int = 200
-    dev_verify_timeout_seconds: int = 1800
+    dev_verify_timeout_seconds: int = 2400
     dev_workspace_size_limit: str = "8Gi"
     dev_shm_size_limit: str = "1Gi"
     # Cap on the git bundle a dev run may POST to publish: the whole change

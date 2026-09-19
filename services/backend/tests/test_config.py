@@ -15,7 +15,7 @@ def test_dev_profile_defaults():
     s = Settings()
     assert s.runner_dev_image == "agent-platform-runner-dev:dev"
     assert s.dev_max_turns == 200
-    assert s.dev_verify_timeout_seconds == 1800
+    assert s.dev_verify_timeout_seconds == 2400
     assert s.dev_workspace_size_limit == "8Gi"
     assert s.dev_shm_size_limit == "1Gi"
     assert s.publish_max_bytes == 16 * 1024 * 1024

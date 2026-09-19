@@ -219,7 +219,14 @@ def normalise_verify(raw) -> dict:
 
 
 def failing_suites(verify: dict) -> list[dict]:
-    return [s for s in verify["suites"] if s["exit"] not in (0, None)]
+    """Every suite that ran and did not pass. `exit: null` without a
+    skipped_reason is ap-verify's record of a suite it had to kill."""
+    return [s for s in verify["suites"]
+            if s["exit"] != 0 and not (s["exit"] is None and s["skipped_reason"])]
+
+
+def _how_failed(suite: dict) -> str:
+    return "timed out" if suite["exit"] is None else f"exit {suite['exit']}"
 
 
 def verify_failure(verify: dict) -> str | None:
@@ -228,7 +235,9 @@ def verify_failure(verify: dict) -> str | None:
     if verify["ok"] is not False:
         return None
     failed = failing_suites(verify)
-    return f"verify failed: {failed[0]['name'] if failed else verify['reason'] or 'unknown'}"
+    if failed:
+        return f"verify failed: {failed[0]['name']} ({_how_failed(failed[0])})"
+    return f"verify failed: {verify['reason'] or 'unknown'}"
 
 
 # --- the pull request ----------------------------------------------------------------
@@ -277,14 +286,16 @@ def _verify_section(verify: dict) -> str:
             "| suite | exit | seconds | result |", "|---|---|---|---|"]
     details = []
     for s in verify["suites"]:
-        if s["exit"] is None:
-            result = f"skipped: {s['skipped_reason']}" if s["skipped_reason"] else "did not run"
+        if s["skipped_reason"]:
+            result = f"skipped: {s['skipped_reason']}"
+        elif s["exit"] is None:
+            result = "✗ timed out"
         else:
             result = "✓" if s["exit"] == 0 else "✗"
         code = "–" if s["exit"] is None else str(s["exit"])
         secs = "–" if s["seconds"] is None else str(s["seconds"])
         rows.append(f"| {s['name']} | {code} | {secs} | {result} |")
-        if s["exit"] not in (0, None) and s["tail"]:
+        if s["exit"] != 0 and not s["skipped_reason"] and s["tail"]:
             fence_safe = s["tail"].replace("```", "` ` `")
             details.append(f"<details><summary>{s['name']} — last lines</summary>\n\n"
                            f"```\n{fence_safe}\n```\n</details>")
@@ -505,7 +516,7 @@ def _verify_phrase(verify: dict) -> str:
             else "verify ✓ (nothing to run)"
     failed = failing_suites(verify)
     if failed:
-        return "verify ✗ " + " ".join(f"{s['name']} (exit {s['exit']})" for s in failed)
+        return "verify ✗ " + " ".join(f"{s['name']} ({_how_failed(s)})" for s in failed)
     return f"verify ✗ ({verify['reason'] or 'unknown'})"
 
 

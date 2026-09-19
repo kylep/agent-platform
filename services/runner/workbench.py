@@ -17,7 +17,12 @@ VENV_BIN = Path("/opt/venv/bin")
 
 NOTES_MAX_BYTES = 32 * 1024
 DEFAULT_PUBLISH_MAX_BYTES = 16 * 1024 * 1024
-DEFAULT_VERIFY_TIMEOUT = 1800
+DEFAULT_VERIFY_TIMEOUT = 2400
+# What the runner waits beyond ap-verify's per-suite clock: room for ap-verify's
+# own overhead (the kill, the report) once ONE suite has hit its cap. Several
+# slow suites can still exhaust the outer budget together; that is recorded as
+# "verify timed out" and the publish still goes out.
+VERIFY_GRACE = 120
 GIT_TIMEOUT = 600
 NPM_TIMEOUT = 900
 DEEPEN_STEP, DEEPEN_ROUNDS = 100, 5
@@ -234,14 +239,18 @@ def prepare(repo_dir: Path, wb: dict, env: dict, frames: list | None = None) -> 
 def _verify(repo_dir: Path, wb: dict, env: dict) -> dict:
     """Run `bin/ap-verify --changed` after the model's turn and capture what it
     recorded. A timeout or a crash is recorded AS that — the PR's verification
-    section is evidence, and "it did not run" is evidence too."""
+    section is evidence, and "it did not run" is evidence too.
+
+    `AP_VERIFY_TIMEOUT` is handed down as ap-verify's `--timeout`: the suite
+    clock is the platform's setting, not the script's default (a coverage run
+    of the backend suite outlives that default on the NUC)."""
     out = WORKSPACE / "verify"
     timeout = int(env.get("AP_VERIFY_TIMEOUT") or DEFAULT_VERIFY_TIMEOUT)
     cmd = ["python3", "bin/ap-verify", "--changed", "--base", f"origin/{wb['base']}",
-           "--out", str(out)]
+           "--out", str(out), "--timeout", str(timeout)]
     try:
         r = subprocess.run(cmd, cwd=repo_dir, env=env, capture_output=True, text=True,
-                           timeout=timeout, check=False)
+                           timeout=timeout + VERIFY_GRACE, check=False)
     except subprocess.TimeoutExpired:
         return {"ok": False, "error": "verify timed out"}
     try:

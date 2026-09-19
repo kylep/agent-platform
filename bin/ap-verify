@@ -240,7 +240,7 @@ def run_one(suite: dict, root: Path, timeout: int, log_dir: Path | None = None,
         row["skipped_reason"] = reason
         return row
 
-    env = dict(os.environ)
+    env = _suite_env(os.environ)
     env.update(suite["env"])
     cwd = root / suite["cwd"]
     started = time.monotonic()
@@ -275,6 +275,22 @@ def run_one(suite: dict, root: Path, timeout: int, log_dir: Path | None = None,
     row["seconds"] = round(time.monotonic() - started, 2)
     row["tail"] = "\n".join(tail)
     return row
+
+
+# The platform's own variables are configuration to the code under test: in
+# the dev pod AP_API_URL, AP_SESSION_TOKEN and the Kubernetes service variables
+# are set, and the backend's tests read them as the settings they are, so a
+# suite that is green on a laptop and in CI fails there alone. Two stay:
+# AP_VERIFY_PYTHON is ap-verify's, not the platform's; AP_WORKSPACE is how
+# services/web/playwright.config.ts knows it is in the pod (no Chromium
+# sandbox there — with it scrubbed the web suite breaks the same way).
+SCRUB_PREFIXES = ("AP_", "KUBERNETES_")
+KEEP = {"AP_VERIFY_PYTHON", "AP_WORKSPACE"}
+
+
+def _suite_env(environ) -> dict:
+    return {k: v for k, v in environ.items()
+            if k in KEEP or not k.startswith(SCRUB_PREFIXES)}
 
 
 def _pump(stream, tail: deque, log) -> None:

@@ -431,7 +431,7 @@ def test_dev_run_gets_the_workbench_profile():
     assert env["AP_GIT_REMOTE_URL"] == "https://github.com/o/r.git"
     assert env["AP_DEFAULT_BRANCH"] == "main"
     assert env["AP_MAX_TURNS"] == "200"
-    assert env["AP_VERIFY_TIMEOUT"] == "1800"
+    assert env["AP_VERIFY_TIMEOUT"] == "2400"
     assert env["AP_WEB_URL"] == "http://ap-web:8090"
     assert env["AP_PUBLISH_MAX_BYTES"] == str(16 * 1024 * 1024)
     assert env["PLAYWRIGHT_BROWSERS_PATH"] == "/ms-playwright"

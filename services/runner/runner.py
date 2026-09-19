@@ -491,6 +491,7 @@ async def _run(producer, run_id: str, agent: str, prompt: str) -> int:
     git_env = None
     seq = 0
     wb = None
+    block = ""
     if self_edit:
         git_env = _git_env()
         repo_dir = Path("/workspace/repo")
@@ -558,6 +559,10 @@ async def _run(producer, run_id: str, agent: str, prompt: str) -> int:
     claude_cwd = cwd or os.getcwd()
     user_message = os.environ.get("AP_USER_MESSAGE", "")
     resume_sid = _restore_session(claude_cwd) if user_message else None
+    if user_message and block:
+        # A resumed dev run sends only this message, so the block rides on it
+        # too — last, after the human's text, as it is in the prompt.
+        user_message = user_message.rstrip("\n") + "\n\n" + block
 
     def _args(resume: str | None) -> list[str]:
         if resume:

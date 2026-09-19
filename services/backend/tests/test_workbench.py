@@ -21,6 +21,8 @@ import yaml
 from sqlalchemy import select
 
 from agentplatform import workbench
+from agentplatform.workbench import (_verify_phrase, _verify_section, failing_suites,
+                                     normalise_verify, verify_failure)
 from agentplatform.api import runs as runs_api
 from agentplatform.api.app import create_app
 from agentplatform.apikeys import generate_token, hash_token, token_prefix
@@ -530,6 +532,45 @@ async def test_verify_failed_blocks_the_ticket_and_marks_the_title(wb, sf, remot
     assert card.card["verify_ok"] is False
     (env,) = _wb_events(producer)
     assert env["data"]["event"] == "verify_failed"
+
+
+VERIFY_TIMED_OUT = {"ok": False, "suites": [
+    {"name": "backend", "cmd": "pytest", "exit": None, "seconds": 900.0, "skipped_reason": None,
+     "tail": "tests/test_x.py .....\n[ap-verify] timed out after 900s"}]}
+
+
+def test_a_timed_out_suite_is_named_not_unknown():
+    """ap-verify records a suite it had to kill as `exit: null` with no
+    skipped_reason; that is a failure with a name, and the reason, the card
+    and the PR table all say which suite and why."""
+    verify = normalise_verify(VERIFY_TIMED_OUT)
+    assert verify["ran"] is True and verify["ok"] is False
+    assert [s["name"] for s in failing_suites(verify)] == ["backend"]
+    assert verify_failure(verify) == "verify failed: backend (timed out)"
+    assert _verify_phrase(verify) == "verify ✗ backend (timed out)"
+    section = _verify_section(verify)
+    assert "| backend | – | 900.0 | ✗ timed out |" in section
+    assert "[ap-verify] timed out after 900s" in section
+    # A skipped suite is still not a failure.
+    assert failing_suites(normalise_verify(VERIFY_OK)) == []
+
+
+async def test_a_timed_out_suite_blocks_the_ticket_by_name(wb, sf, remote, tmp_path, token_client):
+    rid, ticket, headers = await _dev_run(wb, sf)
+    c = clone_of(remote, tmp_path / "c")
+    git(c, "checkout", "-q", "-b", "coder/gen-1")
+    commit_files(c, {CODE_FILE: "X = 2\n"})
+    bundle, head, base = bundle_of(c, "coder/gen-1")
+    r = await token_client.post(f"/api/runs/{rid}/publish", headers=headers,
+                                json=_body(bundle, head, base, VERIFY_TIMED_OUT))
+    assert r.status_code == 201, r.text
+    assert r.json()["ticket_state"] == "blocked"
+    (_, _, _, title, _), = wb.gh.named("open")
+    assert title.startswith("[verify ✗]")
+    rows = await _thread_messages(sf, ticket)
+    assert any("verify failed: backend (timed out)" in m.body for m in rows if m.kind == "system")
+    card = await _publish_card(sf, ticket)
+    assert card.body.endswith("· verify ✗ backend (timed out)")
 
 
 async def test_a_verify_that_did_not_run_is_said_so(wb, sf, remote, tmp_path, token_client):

@@ -747,6 +747,44 @@ def test_dev_run_api_refusal_fails_the_run(tmp_path, monkeypatch):
     assert p.published[-1][2]["state"] == "failed"
 
 
+def test_resumed_dev_run_carries_the_block_in_its_user_message(tmp_path, monkeypatch):
+    """A conversation turn on a dev run resumes the session with just the new
+    user message (docs/design/14), so the block has to ride on THAT — the
+    fresh prompt it was appended to is never sent. Still last, after the
+    human's text, and still the runner's own facts."""
+    seen, ws = _dev_env(monkeypatch, tmp_path, OK_CLAUDE)
+    monkeypatch.setenv("AP_USER_MESSAGE", "continue please")
+    monkeypatch.setattr(runner, "_restore_session", lambda cwd: "sid-9")
+    monkeypatch.setattr(runner, "_upload_session", lambda cwd, run_id, sid: None)
+    monkeypatch.setattr(workbench, "finalize", lambda *a, **k: {"published": False, "reason": "no changes"})
+    p = FakeProducer()
+    assert runner.run(producer=p) == 0
+    args = seen["args"]
+    assert "--resume" in args and "sid-9" in args
+    message = args[args.index("-p") + 1]
+    assert message.startswith("continue please\n\n<workbench ")
+    assert message.rstrip().endswith("</workbench>")
+    assert "Work the ticket." not in message
+
+
+def test_resumed_plain_run_message_is_untouched(tmp_path, monkeypatch):
+    """The block is a dev-run thing: a resumed conversation on any other agent
+    sends the user's text and nothing else."""
+    _session_env(monkeypatch, tmp_path, OK_CLAUDE)
+    monkeypatch.setattr(runner, "_restore_session", lambda cwd: "sid-9")
+    monkeypatch.setattr(runner, "_upload_session", lambda cwd, run_id, sid: None)
+    seen = {}
+    real_popen = runner.subprocess.Popen
+
+    def spy(args, **kw):
+        seen["args"] = args
+        return real_popen(args, **kw)
+    monkeypatch.setattr(runner.subprocess, "Popen", spy)
+    assert runner.run(producer=FakeProducer()) == 0
+    args = seen["args"]
+    assert args[args.index("-p") + 1] == "continue please"
+
+
 def test_dev_run_with_no_changes_still_succeeds(tmp_path, monkeypatch):
     seen, ws = _dev_env(monkeypatch, tmp_path, OK_CLAUDE)
     monkeypatch.setattr(workbench, "finalize", lambda *a, **k: {"published": False, "reason": "no changes"})
