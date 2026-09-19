@@ -322,6 +322,10 @@ def _dow_or_clause(terms: list[Term]) -> str:
     day 13, only on Friday" — describes a schedule that fires a handful of
     times a year as one that fires most weeks, which is exactly the sort of
     quiet wrongness a preview exists to prevent."""
+    span = _weekday_span(terms)
+    if span is not None:
+        # "weekdays"/"weekends" already reads as a set of days, so no "any".
+        return f" or on {span}"
     parts = _dow_parts(terms)
     # "the 2nd Monday" is already definite; a plain weekday needs "any" or it
     # reads as one particular Friday. When every part is a plain weekday, one

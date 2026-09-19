@@ -77,6 +77,11 @@ def test_english_is_exact(expr, english):
                           "from January through March"),
     ("0 0 15 * 1,5", "At 00:00, on day 15 of the month or on any Monday or Friday"),
     ("0 0 1 * 1#2", "At 00:00, on day 1 of the month or on the 2nd Monday of the month"),
+    # The weekday/weekend labels apply to the OR clause too (dom also set).
+    ("0 0 13 * 1-5", "At 00:00, on day 13 of the month or on weekdays"),
+    ("0 0 13 * 1,2,3,4,5", "At 00:00, on day 13 of the month or on weekdays"),
+    ("0 0 13 * 0,6", "At 00:00, on day 13 of the month or on weekends"),
+    ("0 0 13 * 6,7", "At 00:00, on day 13 of the month or on weekends"),
 ])
 def test_day_of_month_and_weekday_read_as_or(expr, english):
     assert cronenglish.describe(expr) == english
