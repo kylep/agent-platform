@@ -286,6 +286,28 @@ def _post_publish(api_req, run_id: str, body: dict, nonce: str | None = None):
             time.sleep(PUBLISH_RETRY_DELAY)
 
 
+REASON_MAX_CHARS = 2048
+
+
+def _refusal_reason(e: urllib.error.HTTPError) -> str:
+    """The API's own sentence out of a refusal: FastAPI wraps it as
+    `{"detail": "..."}`, and the run page shows `reason` as it is, so the
+    wrapper comes off. Anything else — a proxy's error page, a validation
+    error list — stays as text, and an empty body falls back to the status
+    reason. Capped either way."""
+    try:
+        text = e.read().decode("utf-8", "replace")
+    except (OSError, ValueError):
+        text = ""
+    try:
+        detail = json.loads(text).get("detail")
+        if isinstance(detail, str):
+            text = detail
+    except (ValueError, AttributeError):
+        pass
+    return text[:REASON_MAX_CHARS] or str(e.reason)
+
+
 def finalize(repo_dir: Path, wb: dict, env: dict, run_id: str, api_req, *,
              nonce: str | None = None) -> dict:
     """After a clean exit: checkpoint whatever is uncommitted, verify, bundle,
@@ -320,9 +342,5 @@ def finalize(repo_dir: Path, wb: dict, env: dict, run_id: str, api_req, *,
     try:
         result = _post_publish(api_req, run_id, body, nonce)
     except urllib.error.HTTPError as e:
-        try:
-            text = e.read().decode("utf-8", "replace")
-        except (OSError, ValueError):
-            text = ""
-        return {"published": False, "status": e.code, "reason": text[:2048] or e.reason}
+        return {"published": False, "status": e.code, "reason": _refusal_reason(e)}
     return {"published": True, **(result if isinstance(result, dict) else {"response": result})}

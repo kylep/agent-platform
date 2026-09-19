@@ -339,12 +339,35 @@ def test_finalize_reports_an_api_refusal_with_status_and_body(remote):
 
     def refuse(m, p, body=None, headers=None):
         raise urllib.error.HTTPError("http://api/api/runs/RID/publish", 422, "Unprocessable", {},
-                                     io.BytesIO(b'{"detail":"refused: .github/ci.yaml is on the deny list"}' + b"z" * 4096))
+                                     io.BytesIO(b'{"detail":"refused: .github/ci.yaml is on the deny list"}'))
 
     res = workbench.finalize(repo, wb, _env(remote), "RID", refuse)
     assert res["published"] is False and res["status"] == 422
-    assert res["reason"].startswith('{"detail":"refused: .github/ci.yaml')
-    assert len(res["reason"]) <= 2048
+    # The API's sentence, not the JSON it came wrapped in: the run page shows
+    # `reason` as it is.
+    assert res["reason"] == "refused: .github/ci.yaml is on the deny list"
+
+
+@pytest.mark.parametrize("body, expected", [
+    (b"<html>502 Bad Gateway</html>" + b"z" * 4096, "<html>502 Bad Gateway</html>" + "z" * 2020),
+    (b'{"detail":[{"loc":["body"],"msg":"bad"}]}', '{"detail":[{"loc":["body"],"msg":"bad"}]}'),
+    (b'{"detail":"' + b"r" * 4096 + b'"}', "r" * 2048),
+    (b"", "Unprocessable"),
+])
+def test_finalize_keeps_a_non_sentence_refusal_as_text_capped(remote, body, expected):
+    """A proxy's error page, a validation error list, an over-long sentence,
+    an empty body: text as it came (or the status reason), never more than
+    2 KiB, never a crash."""
+    repo, wb = _prepared(remote)
+    (repo / "x.txt").write_text("x\n")
+    import io
+
+    def refuse(m, p, b=None, headers=None):
+        raise urllib.error.HTTPError("http://api/api/runs/RID/publish", 422, "Unprocessable", {},
+                                     io.BytesIO(body))
+
+    res = workbench.finalize(repo, wb, _env(remote), "RID", refuse)
+    assert res["status"] == 422 and res["reason"] == expected
 
 
 def test_finalize_on_an_existing_branch_bundles_only_the_new_work(remote):
