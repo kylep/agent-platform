@@ -1,26 +1,42 @@
+import secrets
+
 from argon2 import PasswordHasher
 from argon2.exceptions import VerifyMismatchError
 from fastapi import APIRouter, HTTPException, Request, Response, Depends
 from itsdangerous import BadSignature, URLSafeSerializer
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import select
 from agentplatform.agentspec import platform_token_role
 from agentplatform.apikeys import hash_token
 from agentplatform.db import ApiKey, Principal
 
 ph = PasswordHasher()
+# A hash no password matches, verified on the login path's miss branch so an
+# unknown principal name costs the same as a wrong password.
+_NO_SUCH_PRINCIPAL_HASH = ph.hash(secrets.token_urlsafe(32))
 from agentplatform.api import schemas as S
 router = APIRouter()
 
 class Creds(BaseModel):
     password: str
+    # Which Principal row the password opens (docs/design/25). The console's
+    # login form leaves it at `admin`; the QA's `bin/ap-web-login` names `qa`.
+    # Any row with a password_hash can be named — role comes from the row, so
+    # naming `qa` buys a reader cookie and nothing more. Bounded to a short
+    # lowercase slug so the lookup never sees an arbitrary string.
+    principal: str = Field(default="admin", min_length=1, max_length=64,
+                           pattern=r"^[a-z][a-z0-9_-]*$")
 
 def _signer(request: Request) -> URLSafeSerializer:
     return URLSafeSerializer(request.app.state.settings.session_secret, salt="ap-session")
 
-async def _admin(request: Request) -> Principal | None:
+async def _principal(request: Request, name: str) -> Principal | None:
     async with request.app.state.session_factory() as s:
-        return (await s.execute(select(Principal).where(Principal.name == "admin"))).scalar_one_or_none()
+        return (await s.execute(select(Principal).where(Principal.name == name))).scalar_one_or_none()
+
+
+async def _admin(request: Request) -> Principal | None:
+    return await _principal(request, "admin")
 
 def validate_session_cookie(app, cookie: str | None) -> str | None:
     """Validate an `ap_session` cookie against the app's session secret.
@@ -280,14 +296,19 @@ async def setup(request: Request, creds: Creds):
 
 @router.post("/api/login", response_model=S.Ok)
 async def login(request: Request, response: Response, creds: Creds):
-    admin = await _admin(request)
-    if admin is None:
-        raise HTTPException(401)
+    p = await _principal(request, creds.principal)
+    # One 401 for "no such row", "no password on the row" (an API-key-only
+    # principal is not a login) and "wrong password": the response must not
+    # tell a guesser which principal names exist — so a miss still pays for
+    # an argon2 verify rather than answering in a tenth of the time.
     try:
-        ph.verify(admin.password_hash, creds.password)
+        ph.verify(p.password_hash if p is not None and p.password_hash
+                  else _NO_SUCH_PRINCIPAL_HASH, creds.password)
     except VerifyMismatchError:
         raise HTTPException(401)
-    response.set_cookie("ap_session", _signer(request).dumps({"principal": "admin"}),
+    if p is None or not p.password_hash:
+        raise HTTPException(401)
+    response.set_cookie("ap_session", _signer(request).dumps({"principal": p.name}),
                         httponly=True, samesite="lax")
     return {"ok": True}
 

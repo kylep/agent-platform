@@ -7,6 +7,8 @@ from attrs import define as _attrs_define
 from attrs import field as _attrs_field
 from typing_extensions import Self
 
+from ..types import UNSET, Unset
+
 T = TypeVar("T", bound="Creds")
 
 
@@ -15,13 +17,17 @@ class Creds:
     """
     Attributes:
         password (str):
+        principal (str | Unset):  Default: 'admin'.
     """
 
     password: str
+    principal: str | Unset = "admin"
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         password = self.password
+
+        principal = self.principal
 
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
@@ -30,6 +36,8 @@ class Creds:
                 "password": password,
             }
         )
+        if principal is not UNSET:
+            field_dict["principal"] = principal
 
         return field_dict
 
@@ -38,8 +46,11 @@ class Creds:
         d = dict(src_dict)
         password = d.pop("password")
 
+        principal = d.pop("principal", UNSET)
+
         creds = cls(
             password=password,
+            principal=principal,
         )
 
         creds.additional_properties = d
