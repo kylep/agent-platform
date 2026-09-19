@@ -107,8 +107,8 @@ directly — no PR, no folder, no manifest file.
 
 ## Seeded agents
 
-Two rows ship with the platform, written once at boot behind a schema mark
-and then left alone — edit or delete either and your version stays:
+Three rows ship with the platform, written once at boot behind a schema
+mark and then left alone — edit or delete any of them and your version stays:
 
 - **`wiki`** — the [librarian](wiki.md#the-librarian). A `system` agent, so
   `@all` passes it by; only `@wiki` wakes it.
@@ -117,4 +117,14 @@ and then left alone — edit or delete either and your version stays:
   `[[artifact:<id>]]` card. Summon it with `@artist` and a brief, in `#art`
   or anywhere. Runs on `sonnet`, holds `image_gen`, `artifacts` and `relay`,
   and is *not* `system`, so `@all` reaches it. Its first change-log row is
+  `changed_via: seed`.
+- **`engineer`** — writes code for the platform: takes a ticket assigned to
+  it, works on a branch in its own clone, verifies, and opens a PR for a
+  human to merge — it never pushes, the platform publishes. `role: dev`
+  (the dev run profile), the CLI default model, a 90-minute timeout, quota
+  thresholds of 95 % (5 h) and 90 % (7 d), and `relay`, `tickets`, `wiki`,
+  `quota_ok` and `artifacts` plus the `Glob` and `Grep` harness tools. Its
+  home project is `#eng` (prefix `ENG`), seeded with it, and the weekday
+  `eng-queue` job at 07:00 asks it to pick up anything still open. *Not*
+  `system`, so `@all` and the standup reach it. Its first change-log row is
   `changed_via: seed`.

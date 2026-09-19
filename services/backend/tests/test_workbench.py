@@ -925,12 +925,11 @@ async def test_two_concurrent_publishes_of_one_run_land_once(wb, sf, remote, tmp
 async def test_a_run_without_a_ticket_posts_in_eng(wb, sf, remote, tmp_path, token_client,
                                                    producer):
     rid, _, headers = await _dev_run(wb, sf, with_ticket=False)
+    # The seeded #eng (docs/design/24): the room the publish door falls back
+    # to is the one init_db ships, so nothing here has to make it.
     async with sf() as s:
-        s.add(Conversation(connector="web", kind="channel", open=True, name="eng",
-                           topic="", title="#eng", ticket_prefix="ENG", ticket_seq=0))
-        await s.commit()
         eng = (await s.execute(select(Conversation.id).where(
-            Conversation.name == "eng"))).scalar_one()
+            Conversation.kind == "channel", Conversation.name == "eng"))).scalar_one()
     branch = f"coder/run-{rid[:12]}"
     c = clone_of(remote, tmp_path / "c")
     git(c, "checkout", "-q", "-b", branch)

@@ -94,10 +94,11 @@ async def test_prefixes_are_seeded_on_the_shipped_projects(engine, sfx):
                 .where(Conversation.kind == "channel").order_by(Conversation.name))).scalars().all()
         assert (await s.get(SchemaMark, TICKETS_SEED_MARK)) is not None
     # #standup gets none (it is the ceremony room) and #wiki and #art get
-    # none (they are feeds) — none of the three is a project.
+    # none (they are feeds) — none of the three is a project. #eng is one
+    # from birth (docs/design/24), on its own seed.
     assert [(c.name, c.ticket_prefix, c.ticket_seq) for c in rows] == [
-        ("art", None, 0), ("general", "GEN", 0), ("ops", "OPS", 0),
-        ("standup", None, 0), ("wiki", None, 0)]
+        ("art", None, 0), ("eng", "ENG", 0), ("general", "GEN", 0),
+        ("ops", "OPS", 0), ("standup", None, 0), ("wiki", None, 0)]
 
 
 async def test_the_seed_never_overrules_an_edited_prefix(engine, sfx):

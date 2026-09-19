@@ -351,9 +351,10 @@ async def test_an_agent_sees_only_the_rooms_it_is_in(admin_client, token_client,
     r = await token_client.post("/api/tickets", json={"channel": private, "title": "x"},
                                 headers=headers)
     assert r.status_code == 403
-    # The projects listing is scoped the same way.
+    # The projects listing is scoped the same way: the three open projects
+    # (#eng is seeded as one, docs/design/24), never the closed WAR room.
     assert {p["prefix"] for p in (await token_client.get(
-        "/api/tickets/projects", headers=headers)).json()} == {"GEN", "OPS"}
+        "/api/tickets/projects", headers=headers)).json()} == {"ENG", "GEN", "OPS"}
 
 
 async def test_an_agent_opens_a_ticket_as_itself(token_client, sf, seed_agent,

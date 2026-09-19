@@ -320,9 +320,9 @@ async def test_the_librarian_seeds_are_idempotent(engine, sfx):
             return [(await s.execute(select(func.count()).select_from(t))).scalar_one()
                     for t in (AgentDef.__table__, AgentVersion.__table__,
                               ScheduledJob.__table__)]
-    # The librarian and the artist (docs/design/23), one version each,
-    # standup + gardener.
-    assert await counts() == [2, 2, 2]
+    # The librarian, the artist (docs/design/23) and the engineer
+    # (docs/design/24), one version each; standup + gardener + eng-queue.
+    assert await counts() == [3, 3, 3]
 
 
 async def test_a_gardener_job_that_already_exists_is_adopted(engine, sfx):
