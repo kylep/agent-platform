@@ -1403,6 +1403,97 @@ async def get_quota_usage() -> str:
     return _quota_text(data, _quota_now()) if data is not None else _quota_unreadable(out)
 
 
+# --- the gate (docs/design/24) -----------------------------------------------
+# The reading above turned into one decision, made by the API against the
+# caller's own thresholds. The tool hands the JSON back untouched, first, so
+# the model decides on a FIELD; the sentence after it is for the transcript.
+_QUOTA_OK = "/api/quota/ok"
+# `db.AgentDef`'s column defaults for the two thresholds — mirrored, because
+# the broker cannot import the backend. Used on ONE path: the gate route being
+# unavailable, when the cached snapshot is judged here instead and the answer
+# says so. `services/backend/tests/test_quota_api.py` pins the same pair.
+_QUOTA_OK_DEFAULT_MAX = (80, 50)
+
+
+def _quota_gate(data: dict, max_5h: int, max_7d: int) -> dict:
+    """`api.quota.gate`, to the field: the same rule from a serialized snapshot,
+    for the fallback only. Compared on the rounded percent, above fails, at
+    passes, no reading fails closed."""
+    five = (data.get("five_hour") or {}).get("utilization")
+    seven = (data.get("seven_day") or {}).get("utilization")
+    pcts = tuple(None if u is None else _quota_percent(u) for u in (five, seven))
+    answer = {"five_hour_pct": pcts[0], "seven_day_pct": pcts[1],
+              "five_hour_max_pct": max_5h, "seven_day_max_pct": max_7d,
+              "stale": True}
+    if None in pcts:
+        return {"ok": False, "reason": "no reading yet", **answer}
+    over = [f"the {label} window is at {pct}%, over its {limit}% limit"
+            for label, pct, limit in (("5-hour", pcts[0], max_5h),
+                                      ("7-day", pcts[1], max_7d))
+            if pct > limit]
+    return {"ok": not over, "reason": ", and ".join(over) or "ok", **answer}
+
+
+def _quota_ok_sentence(gate: dict) -> str:
+    """The design's one sentence: "ok: 5h 22% ≤ 95, 7d 41% ≤ 90". A failing
+    window shows as `>` so the sentence names it without a second clause."""
+    p5, p7 = gate.get("five_hour_pct"), gate.get("seven_day_pct")
+    head = "ok" if gate.get("ok") else "no"
+    if p5 is None or p7 is None:
+        return f"{head}: {gate.get('reason') or 'no reading yet'}"
+
+    def compare(pct: int, limit) -> str:
+        return f"{pct}% {'≤' if pct <= limit else '>'} {limit}"
+
+    return (f"{head}: 5h {compare(p5, gate.get('five_hour_max_pct'))}, "
+            f"7d {compare(p7, gate.get('seven_day_max_pct'))}")
+
+
+def _quota_ok_answer(gate: dict, note: str = "") -> str:
+    """The JSON line, then the sentence. `note` qualifies a number — a stale
+    one — so it is dropped when there is no number to qualify."""
+    if gate.get("five_hour_pct") is None or gate.get("seven_day_pct") is None:
+        note = ""
+    return f"{_json.dumps(gate)}\n{_quota_ok_sentence(gate)}{note}"
+
+
+async def _quota_ok_cached() -> str:
+    """The gate route could not answer, so the last reading is judged here —
+    against the platform defaults, since the caller's own thresholds live on
+    a row only the API reads — and the answer says both things."""
+    out = await _call("GET", _QUOTA)
+    data = _quota_snapshot(out)
+    if data is None:
+        return _quota_unreadable(out)
+    gate = _quota_gate(data, *_QUOTA_OK_DEFAULT_MAX)
+    return _quota_ok_answer(gate, " (stale reading, judged against the platform defaults)")
+
+
+@mcp.tool
+@_metered("quota_ok", grant=True)
+async def quota_ok() -> str:
+    """Whether you may start expensive work right now — a coding run, a
+    browser session, a long sweep. Call it FIRST and obey it.
+
+    The first line is JSON: `ok` is the decision, made against YOUR agent's
+    own 5-hour and 7-day usage thresholds, with the percentages and limits it
+    was decided from beside it (`five_hour_pct`, `seven_day_pct`,
+    `five_hour_max_pct`, `seven_day_max_pct`), `stale` when the reading could
+    not be refreshed, and `reason` in one sentence. The second line is the
+    same thing in words.
+
+    Cheap: it reads the platform's cached usage and spends one tiny probe only
+    when that reading is stale. When `ok` is false, stop — say so in one line
+    where you were asked, and do not start a smaller version of the job."""
+    out = await _call("GET", _QUOTA_OK)
+    if out.startswith("error: 503"):
+        return await _quota_ok_cached()
+    data = _quota_snapshot(out)
+    if data is None or "ok" not in data:
+        return _quota_unreadable(out)
+    return _quota_ok_answer(data, " (stale reading)" if data.get("stale") else "")
+
+
 # --- artifacts + image generation (docs/design/23) ---------------------------
 # The store every agent can reach and the generator the artist alone holds.
 # Core tools for the participant reason — the owner of a saved file and the

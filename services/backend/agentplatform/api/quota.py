@@ -1,10 +1,10 @@
 """The usage snapshot's REST surface (docs/design/22): what everyone may read,
 what the proxy reports, and the one probe the platform will pay for.
 
-Three doors, and they differ in who may knock rather than in what they say —
-every one of them answers with `quota_store.serialize`, so the sidebar, the
+Four doors, and they differ in who may knock rather than in what they say —
+the first three answer with `quota_store.serialize`, so the sidebar, the
 stream, the tool and the proxy's own ack can never disagree about what `stale`
-means.
+means, and the fourth is that same snapshot reduced to one boolean.
 
 - READING is open to every participant (`READ_ROLES` + the per-run `relay`
   role). There is no grant behind it and no room to be a member of: a number
@@ -19,6 +19,11 @@ means.
   credential, because the proxy has no session, no API key and no service
   account. It is registered on its own router with NO auth dependency — the
   secret IS the authentication here — and is excluded from the facade.
+- DECIDING (`/api/quota/ok`, docs/design/24) is the reading turned into one
+  boolean for the caller in front of it. Open to the same set as reading, and
+  it spends a probe only when the reading is stale — through the same lock
+  and short-circuit as REFRESHING — so an agent that asks at the top of every
+  run costs the platform nothing most of the time.
 
 The probe runs HERE rather than in the broker or the runner because the
 subscription token lives in the claude-proxy (docs/design/09) and nowhere else:
@@ -40,9 +45,9 @@ from agentplatform import quota_store
 from agentplatform.api import relay as relay_api
 from agentplatform.api import schemas as S
 from agentplatform.api.auth import READ_ROLES, require_role
-from agentplatform.db import utcnow
-from agentplatform.quota import (Observation, is_stale, parse_observation,
-                                 parse_observed_at)
+from agentplatform.db import AgentDef, utcnow
+from agentplatform.quota import (Observation, _percent, is_stale,
+                                 parse_observation, parse_observed_at)
 from agentplatform.quota_store import STREAM
 from agentplatform.relay_feed import OVERFLOW
 
@@ -73,6 +78,11 @@ PROBE_HEADERS = {"Authorization": "Bearer placeholder",
 # response said nothing about usage.
 PROBE_MESSAGE = [{"role": "user", "content": "."}]
 COUNT_TOKENS, MESSAGES = "/v1/messages/count_tokens", "/v1/messages"
+# What a caller with no agent row is judged against: the column defaults, read
+# off the column so this file cannot hold a second opinion about them.
+_COLUMNS = AgentDef.__table__.c
+DEFAULT_MAX_PCT = (_COLUMNS.quota_5h_max_pct.default.arg,
+                   _COLUMNS.quota_7d_max_pct.default.arg)
 # The biggest report this route will read. A real one is a few hundred bytes;
 # this is four orders of magnitude of headroom and still a hard ceiling, so an
 # unauthenticated caller cannot make the API buffer a megabyte before the
@@ -161,15 +171,22 @@ async def refresh_quota(request: Request, caller: str = Depends(require_role(*VI
     that arrives during a probe waits for it and then finds the fresh snapshot
     it wrote, which is the same answer it would have got from its own probe and
     one fewer request to Anthropic."""
-    st = request.app.state
     async with _lock(request.app):
-        cached = await _cache_hit(request)
-        if cached is not None:
-            return {**cached, "probe": None}
-        obs, step = await _probe(request)
-        async with st.session_factory() as s:
-            row = await quota_store.observe(s, st.producer, obs)
-            return {**quota_store.serialize(row, utcnow()), "probe": step}
+        return await _refresh(request)
+
+
+async def _refresh(request: Request) -> dict:
+    """The refresh, which the caller runs UNDER THE LOCK: the cached answer
+    when the short-circuit allows it, else one probe and the row it wrote.
+    Raises the probe's 503s."""
+    st = request.app.state
+    cached = await _cache_hit(request)
+    if cached is not None:
+        return {**cached, "probe": None}
+    obs, step = await _probe(request)
+    async with st.session_factory() as s:
+        row = await quota_store.observe(s, st.producer, obs)
+        return {**quota_store.serialize(row, utcnow()), "probe": step}
 
 
 async def _cache_hit(request: Request) -> dict | None:
@@ -219,6 +236,72 @@ async def _probe(request: Request) -> tuple[Observation, str]:
         if obs is not None:
             return obs, step
     raise HTTPException(503, "the probe returned no usage headers")
+
+
+@router.get("/api/quota/ok", response_model=S.QuotaOk)
+async def quota_ok(request: Request, caller: str = Depends(require_role(*VIEW))):
+    """May the caller start expensive work now? One boolean, and what it was
+    made from (docs/design/24).
+
+    The reading is what the platform already holds unless that is stale, in
+    which case this is one `refresh` — the same lock and the same
+    short-circuit, so two engineers starting at once cost one probe and a
+    loop costs one per window. A refresh that cannot run is not a 503 here:
+    the row is still there, `ok` is computed from it, and `stale: true` says
+    how much that is worth. The thresholds are the caller's own row's when
+    the token names an agent, and the column defaults for a person — a
+    human asking is asking what an ordinary agent would be told."""
+    async with _lock(request.app):
+        body = await _snapshot(request)
+        if body["stale"]:
+            try:
+                body = await _refresh(request)
+            except HTTPException as exc:
+                if exc.status_code != 503:
+                    raise
+                log.warning("quota gate could not refresh a stale reading: %s",
+                            exc.detail)
+    max_5h, max_7d = await _thresholds(request)
+    return gate(body, max_5h, max_7d)
+
+
+async def _thresholds(request: Request) -> tuple[int, int]:
+    """The caller's limits: its agent row's when the token names an agent that
+    still exists, the column defaults otherwise. A row that predates the
+    columns has been backfilled (`db._ensure_workbench_defaults`), but a null
+    is still read as the default rather than as a comparison with None."""
+    agent = getattr(request.state, "api_key_agent", None)
+    if not agent:
+        return DEFAULT_MAX_PCT
+    async with request.app.state.session_factory() as s:
+        row = await s.get(AgentDef, agent)
+    if row is None:
+        return DEFAULT_MAX_PCT
+    return (DEFAULT_MAX_PCT[0] if row.quota_5h_max_pct is None else row.quota_5h_max_pct,
+            DEFAULT_MAX_PCT[1] if row.quota_7d_max_pct is None else row.quota_7d_max_pct)
+
+
+def gate(snapshot: dict, max_5h: int, max_7d: int) -> dict:
+    """The decision, from a serialized snapshot and two limits. Pure, so the
+    same rule can be pinned without a request.
+
+    Compared on the ROUNDED percent the answer reports, not the fraction under
+    it: a model that reads "80%" beside "80" and gets "no" would be right to
+    distrust the field. Above the limit fails, at it passes. A window with no
+    reading fails closed — there is nothing to be under."""
+    pcts = tuple(None if u is None else _percent(u)
+                 for u in (snapshot["five_hour"]["utilization"],
+                           snapshot["seven_day"]["utilization"]))
+    answer = {"five_hour_pct": pcts[0], "seven_day_pct": pcts[1],
+              "five_hour_max_pct": max_5h, "seven_day_max_pct": max_7d,
+              "stale": snapshot["stale"]}
+    if None in pcts:
+        return {"ok": False, "reason": "no reading yet", **answer}
+    over = [f"the {label} window is at {pct}%, over its {limit}% limit"
+            for label, pct, limit in (("5-hour", pcts[0], max_5h),
+                                      ("7-day", pcts[1], max_7d))
+            if pct > limit]
+    return {"ok": not over, "reason": ", and ".join(over) or "ok", **answer}
 
 
 # The request and response shapes, declared for the SPEC by hand.

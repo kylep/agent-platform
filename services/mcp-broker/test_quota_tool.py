@@ -185,3 +185,139 @@ def test_a_refusal_is_audited_as_an_error(calls, published):
     calls.replies[REFRESH] = 'error: 403 {"detail":"forbidden"}'
     usage()
     assert published[-1][1]["data"]["decision"] == "error:tool"
+
+
+# --- the gate (docs/design/24) ------------------------------------------------
+# `quota_ok` is the reading turned into a decision the API already made: the
+# tool's job is to hand the JSON back untouched — the model decides on a
+# FIELD, not on a reading of prose — and to add the one sentence the design
+# asks for after it. The only computing it does is the fallback: when the
+# gate route itself is unavailable, the cached snapshot is judged here against
+# the column defaults, and the answer says that is what happened.
+
+QUOTA_OK = "/api/quota/ok"
+
+GATE = {"ok": True, "five_hour_pct": 22, "seven_day_pct": 41,
+        "five_hour_max_pct": 95, "seven_day_max_pct": 90,
+        "stale": False, "reason": "ok"}
+
+
+def gate(**fields) -> str:
+    return json.dumps({**GATE, **fields})
+
+
+def ok():
+    return asyncio.run(broker.quota_ok())
+
+
+def test_the_gate_is_one_get_of_the_ok_route(calls):
+    calls.replies[QUOTA_OK] = gate()
+    ok()
+    assert calls == [("GET", QUOTA_OK, None, None)]
+
+
+def test_the_gate_tool_takes_no_arguments():
+    import inspect
+    assert not inspect.signature(broker.quota_ok).parameters
+
+
+def test_the_answer_is_the_json_line_then_the_sentence(calls):
+    """The design's shape: `{...}` on the first line, exactly the API's
+    answer, and "ok: 5h 22% ≤ 95, 7d 41% ≤ 90" on the second."""
+    calls.replies[QUOTA_OK] = gate()
+    first, second = ok().split("\n")
+    assert json.loads(first) == GATE
+    assert second == "ok: 5h 22% ≤ 95, 7d 41% ≤ 90"
+
+
+def test_a_no_shows_which_window_failed(calls):
+    calls.replies[QUOTA_OK] = gate(
+        ok=False, five_hour_pct=92, five_hour_max_pct=80, seven_day_max_pct=50,
+        reason="the 5-hour window is at 92%, over its 80% limit")
+    first, second = ok().split("\n")
+    assert json.loads(first)["ok"] is False
+    assert second == "no: 5h 92% > 80, 7d 41% ≤ 50"
+
+
+def test_a_stale_reading_says_so_in_the_sentence(calls):
+    calls.replies[QUOTA_OK] = gate(stale=True)
+    assert ok().endswith("ok: 5h 22% ≤ 95, 7d 41% ≤ 90 (stale reading)")
+
+
+def test_no_reading_is_a_no_with_the_reason(calls):
+    calls.replies[QUOTA_OK] = gate(ok=False, five_hour_pct=None, seven_day_pct=None,
+                                   stale=True, reason="no reading yet")
+    first, second = ok().split("\n")
+    assert json.loads(first)["reason"] == "no reading yet"
+    assert second == "no: no reading yet"
+
+
+def test_a_503_judges_the_cached_reading_against_the_defaults(calls):
+    """The route is the one that knows the caller's thresholds; when it cannot
+    answer, the cached snapshot is judged here against the column defaults
+    (80/50), marked stale, and the sentence says which thresholds it used."""
+    calls.replies[QUOTA_OK] = 'error: 503 {"detail":"service unavailable"}'
+    calls.replies[QUOTA] = json_body(
+        SNAPSHOT, five_hour={"utilization": 0.22, "resets_at": RESET_5H},
+        seven_day={"utilization": 0.81, "resets_at": RESET_7D})
+    out = ok()
+    assert [(c[0], c[1]) for c in calls] == [("GET", QUOTA_OK), ("GET", QUOTA)]
+    first, second = out.split("\n")
+    assert json.loads(first) == {
+        "ok": False, "five_hour_pct": 22, "seven_day_pct": 81,
+        "five_hour_max_pct": 80, "seven_day_max_pct": 50, "stale": True,
+        "reason": "the 7-day window is at 81%, over its 50% limit"}
+    assert second == ("no: 5h 22% ≤ 80, 7d 81% > 50 (stale reading, judged "
+                      "against the platform defaults)")
+
+
+def test_a_503_with_nothing_cached_is_a_no(calls):
+    calls.replies[QUOTA_OK] = "error: 503 service unavailable"
+    calls.replies[QUOTA] = json_body(EMPTY)
+    first, second = ok().split("\n")
+    assert json.loads(first)["ok"] is False
+    assert json.loads(first)["reason"] == "no reading yet"
+    assert second.startswith("no: no reading yet")
+
+
+def test_any_other_gate_refusal_comes_back_as_an_error(calls):
+    calls.replies[QUOTA_OK] = 'error: 403 {"detail":"forbidden"}'
+    assert ok() == 'error: 403 {"detail":"forbidden"}'
+    assert [c[1] for c in calls] == [QUOTA_OK]
+
+
+def test_an_unreadable_gate_answer_is_an_error_not_a_decision(calls):
+    calls.replies[QUOTA_OK] = "<html>gateway</html>"
+    assert ok().startswith("error: unreadable usage answer")
+    calls.replies[QUOTA_OK] = json_body(SNAPSHOT)      # a snapshot is not a decision
+    assert ok().startswith("error: unreadable usage answer")
+
+
+def test_the_gate_lands_in_the_audit_trail_as_quota_ok(calls, published):
+    calls.replies[QUOTA_OK] = gate()
+    ok()
+    topic, envelope, key = published[0]
+    assert topic == broker._TOPIC_AUDIT
+    assert envelope["data"]["tool"] == "quota_ok"
+    assert envelope["data"]["decision"] == "allow"
+
+
+@pytest.fixture
+def ungranted(monkeypatch):
+    """A caller whose grant set names the reader but not the gate: the two are
+    different grants on purpose (the gate is the engineer's and the QA's)."""
+    async def _whoami():
+        return {"agent": "news", "run_id": "r1", "initiated_by": "cron",
+                "tools": ["mcp__platform__relay", "mcp__platform__get_quota_usage"]}
+
+    monkeypatch.setattr(broker, "_whoami", _whoami)
+
+
+def test_an_agent_not_granted_the_gate_is_refused_before_the_api(calls, published, ungranted):
+    """Explicitly granted, so explicitly checked — the way `artifacts` and
+    `image_gen` are: the refusal is in the tool's own words, no request
+    reaches the API, and the attempt lands in the trail."""
+    calls.replies[QUOTA_OK] = gate()
+    assert ok() == "error: your agent does not declare the quota_ok tool"
+    assert calls == []
+    assert published[-1][1]["data"]["decision"] == "deny:undeclared"

@@ -33,7 +33,8 @@ def test_the_participant_grants_are_selectable_but_do_not_promote():
                                         "mcp__platform__wiki",
                                         "mcp__platform__get_quota_usage",
                                         "mcp__platform__artifacts",
-                                        "mcp__platform__image_gen"]
+                                        "mcp__platform__image_gen",
+                                        "mcp__platform__quota_ok"]
     for tool in PLATFORM_MCP_RELAY_TOOLS:
         assert tool in GRANTABLE_PLATFORM_TOOLS
         assert tool in AVAILABLE_TOOLS
@@ -69,6 +70,23 @@ def test_the_artifact_grants_ride_the_participant_rung():
     names = {t["name"]: t.get("display_name") for t in TOOL_HELP}
     assert names[TOOL_ARTIFACTS] == "Artifacts"
     assert names[TOOL_IMAGE_GEN] == "Image generation"
+
+
+def test_the_quota_gate_rides_the_participant_rung_and_is_explained():
+    """docs/design/24: `quota_ok` reaches `/api/quota/ok` as the agent itself —
+    the `relay` rung, never `annotator`, for the reason `get_quota_usage`
+    gives — and, unlike it, is NOT default-granted: the engineer and the QA
+    hold it because an admin decided they should. Grantable means explained:
+    the help entry is what the lockstep test in test_help pins."""
+    from agentplatform.agentspec import (PLATFORM_MCP_RELAY_TOOLS, TOOL_HELP,
+                                         TOOL_QUOTA_OK, platform_token_role)
+    assert TOOL_QUOTA_OK == "mcp__platform__quota_ok"
+    assert TOOL_QUOTA_OK in PLATFORM_MCP_RELAY_TOOLS
+    assert TOOL_QUOTA_OK in AVAILABLE_TOOLS
+    assert platform_token_role([TOOL_QUOTA_OK]) == "relay"
+    entry = next(t for t in TOOL_HELP if t["name"] == TOOL_QUOTA_OK)
+    assert entry["display_name"] == "Quota gate"
+    assert "NOT granted by default" in entry["description"]
 
 
 def test_the_quota_grant_survives_the_runners_allowed_tools_filter():

@@ -499,3 +499,147 @@ async def test_the_usage_default_can_be_turned_off_platform_wide(admin_client, s
                                                      "prompt": "# blind"})
     assert r.status_code == 201, r.text
     assert QUOTA_GRANT not in r.json()["platform_tools"]
+
+
+# --- the gate (docs/design/24) ------------------------------------------------
+# `GET /api/quota/ok` is the reading turned into a decision: one boolean, the
+# two percentages it was made from, and the thresholds it was made against —
+# the caller's own row when the caller is an agent, the column defaults when
+# it is a person. It reads what the platform already holds and spends a probe
+# only when that reading is stale, through the same lock and short-circuit the
+# refresh route uses, so an engineer asking at the top of every run costs the
+# platform nothing most of the time.
+
+def gate_headers(five="0.22", seven="0.41", **overrides) -> dict:
+    """A reading under the column defaults (80/50) unless told otherwise."""
+    return {**usage_headers(five), H_7D_UTILIZATION: seven, **overrides}
+
+
+async def _observe(client, headers) -> None:
+    r = await client.post("/api/internal/quota", json=observe_body(headers),
+                          headers=arm_internal(client))
+    assert r.status_code == 200, r.text
+
+
+async def _ok(client, headers=None) -> dict:
+    r = await client.get("/api/quota/ok", headers=headers or {})
+    assert r.status_code == 200, r.text
+    return r.json()
+
+
+async def test_the_gate_is_ok_under_both_thresholds(admin_client):
+    calls = arm_proxy(admin_client, gate_headers())
+    await _observe(admin_client, gate_headers())
+    body = await _ok(admin_client)
+    assert body == {"ok": True, "five_hour_pct": 22, "seven_day_pct": 41,
+                    "five_hour_max_pct": 80, "seven_day_max_pct": 50,
+                    "stale": False, "reason": "ok"}
+    # Fresh reading: nothing to spend.
+    assert calls == []
+
+
+async def test_the_gate_says_no_above_the_five_hour_threshold(admin_client):
+    await _observe(admin_client, gate_headers(five="0.92"))
+    body = await _ok(admin_client)
+    assert (body["ok"], body["five_hour_pct"]) == (False, 92)
+    assert body["reason"] == "the 5-hour window is at 92%, over its 80% limit"
+
+
+async def test_the_gate_says_no_above_the_seven_day_threshold(admin_client):
+    await _observe(admin_client, gate_headers(seven="0.81"))
+    body = await _ok(admin_client)
+    assert (body["ok"], body["seven_day_pct"]) == (False, 81)
+    assert body["reason"] == "the 7-day window is at 81%, over its 50% limit"
+
+
+async def test_the_gate_names_both_windows_when_both_fail(admin_client):
+    await _observe(admin_client, gate_headers(five="0.92", seven="0.81"))
+    body = await _ok(admin_client)
+    assert body["ok"] is False
+    assert body["reason"] == ("the 5-hour window is at 92%, over its 80% limit, "
+                              "and the 7-day window is at 81%, over its 50% limit")
+
+
+async def test_at_exactly_the_threshold_the_gate_is_ok(admin_client):
+    """Above, not at: 80 is the last percent the default still allows, and the
+    comparison is made on the rounded percent the answer reports, so the
+    number a model reads and the decision it gets can never disagree."""
+    await _observe(admin_client, gate_headers(five="0.80", seven="0.50"))
+    body = await _ok(admin_client)
+    assert (body["ok"], body["five_hour_pct"], body["seven_day_pct"]) == (True, 80, 50)
+    await _observe(admin_client, gate_headers(five="0.805", seven="0.50"))
+    assert (await _ok(admin_client))["ok"] is False
+
+
+async def test_an_agent_token_is_judged_by_its_own_rows_thresholds(
+        admin_client, token_client, sf, seed_agent, agent_store):
+    """The engineer's 95/90 (docs/design/24) lets it work through a week that
+    would stop an agent on the defaults."""
+    await _seed(seed_agent, agent_store, "engineer",
+                quota_5h_max_pct=95, quota_7d_max_pct=90)
+    await _observe(admin_client, gate_headers(five="0.92", seven="0.81"))
+    body = await _ok(token_client, await _agent_token(sf, "engineer"))
+    assert body == {"ok": True, "five_hour_pct": 92, "seven_day_pct": 81,
+                    "five_hour_max_pct": 95, "seven_day_max_pct": 90,
+                    "stale": False, "reason": "ok"}
+
+
+async def test_a_human_is_judged_by_the_column_defaults(admin_client, token_client, sf):
+    await _observe(admin_client, gate_headers(five="0.92", seven="0.81"))
+    body = await _ok(token_client, await _human_token(sf, "rita", "reader"))
+    assert (body["ok"], body["five_hour_max_pct"], body["seven_day_max_pct"]) == (False, 80, 50)
+
+
+async def test_an_unauthenticated_gate_call_is_401(token_client):
+    assert (await token_client.get("/api/quota/ok")).status_code == 401
+
+
+async def test_a_stale_reading_costs_exactly_one_probe(admin_client):
+    """The refresh route's lock and short-circuit, reused: stale means probe
+    once, and the answer is the fresh reading — a second call inside the
+    window is answered from it."""
+    await _observe(admin_client, gate_headers(five="0.92", **{H_5H_RESET: _epoch(-1)}))
+    calls = arm_proxy(admin_client, gate_headers())
+    body = await _ok(admin_client)
+    assert (body["ok"], body["five_hour_pct"], body["stale"]) == (True, 22, False)
+    assert len(calls) == 1
+    await _ok(admin_client)
+    assert len(calls) == 1
+
+
+async def test_two_concurrent_stale_calls_probe_once(admin_client):
+    await _observe(admin_client, gate_headers(**{H_5H_RESET: _epoch(-1)}))
+    calls = arm_proxy(admin_client, gate_headers(), delay=0.05)
+    first, second = await asyncio.gather(admin_client.get("/api/quota/ok"),
+                                         admin_client.get("/api/quota/ok"))
+    assert (first.status_code, second.status_code) == (200, 200)
+    assert first.json()["stale"] is False and second.json()["stale"] is False
+    assert len(calls) == 1
+
+
+async def test_no_reading_at_all_is_not_ok(admin_client):
+    """Before the first observation there is nothing to judge, and the gate
+    fails closed rather than 503ing: `ok: false` with a reason is what an
+    engineer at the top of a run can act on."""
+    admin_client._transport.app.state.settings.claude_proxy_url = ""
+    body = await _ok(admin_client)
+    assert body == {"ok": False, "five_hour_pct": None, "seven_day_pct": None,
+                    "five_hour_max_pct": 80, "seven_day_max_pct": 50,
+                    "stale": True, "reason": "no reading yet"}
+
+
+async def test_a_failed_refresh_answers_the_stale_reading_and_says_so(admin_client):
+    """The probe is the one part that can be unavailable; the row is not.
+    A stale reading the caller KNOWS is stale still answers, with `stale`
+    telling the model how much to trust the field."""
+    await _observe(admin_client, gate_headers(five="0.92", **{H_5H_RESET: _epoch(-1)}))
+
+    async def handler(request):
+        raise httpx.ConnectError("nope")
+
+    app = admin_client._transport.app
+    app.state.settings.claude_proxy_url = PROXY
+    app.state.quota_client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    body = await _ok(admin_client)
+    assert (body["ok"], body["five_hour_pct"], body["stale"]) == (False, 92, True)
+    assert body["reason"].startswith("the 5-hour window is at 92%")

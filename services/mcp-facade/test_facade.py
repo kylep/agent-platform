@@ -43,13 +43,13 @@ def build_tools(spec, admin_tools):
 
 @pytest.fixture(scope="module")
 def tools(spec):
-    """The DEFAULT (admin-off) tool surface — the 94-tool KEEP set."""
+    """The DEFAULT (admin-off) tool surface — the 95-tool KEEP set."""
     return build_tools(spec, admin_tools=False)
 
 
 @pytest.fixture(scope="module")
 def admin_tools(spec):
-    """The admin-on surface — KEEP + GATE (121 tools)."""
+    """The admin-on surface — KEEP + GATE (122 tools)."""
     return build_tools(spec, admin_tools=True)
 
 
@@ -97,23 +97,23 @@ def test_setup_state_is_not_caught_by_the_setup_exclusion():
 
 def test_everything_else_is_a_tool(spec, tools):
     """The default surface, by construction: exactly the operations that are
-    not design-17-excluded, not curated out, and not gated. Pinned at 94."""
+    not design-17-excluded, not curated out, and not gated. Pinned at 95."""
     hidden = {(m, p) for m, p in operations(spec) if matches(ALL_RULES, m, p)}
     expected = set(operations(spec)) - hidden
     assert {(t._route.method, t._route.path) for t in tools} == expected
-    assert len(tools) == len(expected) == 94, \
+    assert len(tools) == len(expected) == 95, \
         sorted({(t._route.method, t._route.path) for t in tools})
 
 
 def test_admin_flag_restores_gated(spec, admin_tools):
-    """With AP_MCP_ADMIN_TOOLS on, the gated set returns (121 total) but the
+    """With AP_MCP_ADMIN_TOOLS on, the gated set returns (122 total) but the
     design-17 exclusions and CURATED_OUT never come back."""
     still_hidden = facade.EXCLUDED_PATHS + facade.CURATED_OUT
     hidden = {(m, p) for m, p in operations(spec)
               if matches(still_hidden, m, p)}
     expected = set(operations(spec)) - hidden
     assert {(t._route.method, t._route.path) for t in admin_tools} == expected
-    assert len(admin_tools) == len(expected) == 121, \
+    assert len(admin_tools) == len(expected) == 122, \
         sorted({(t._route.method, t._route.path) for t in admin_tools})
     names = {t.name for t in admin_tools}
     for gated in ("mint_api_key", "put_secret", "delete_agent", "import_agents",
@@ -206,10 +206,13 @@ def test_the_wiki_is_tools_except_archiving_and_the_stream(spec, tools, admin_to
     assert ("GET", "/api/wiki/events") not in surface
 
 
-def test_quota_offers_the_read_and_nothing_else(spec, tools, admin_tools):
-    """Quota (design/22) contributes exactly ONE tool. Reading the snapshot is
-    free, so it is offered; the deliberate probe is not, because agents reach
-    it through the `quota` tool where the per-agent metering lives, and a raw
+def test_quota_offers_the_read_and_the_gate_and_nothing_else(spec, tools, admin_tools):
+    """Quota contributes exactly TWO tools. Reading the snapshot (design/22)
+    is free, so it is offered, and so is the gate (design/24): it spends a
+    probe only when the reading is stale and through the same short-circuit,
+    so a human asking "may an agent start" costs what the agent's own call
+    would. The deliberate probe is not offered, because agents reach it
+    through the `quota` tool where the per-agent metering lives, and a raw
     route beside it would be an unmetered second way to spend the probe. The
     stream is excluded like every stream, and the proxy's internal report is
     excluded with the admin flag ON as well — it authenticates on a secret this
@@ -217,6 +220,7 @@ def test_quota_offers_the_read_and_nothing_else(spec, tools, admin_tools):
     admin_surface = {(t._route.method, t._route.path) for t in admin_tools}
     surface = {(t._route.method, t._route.path) for t in tools}
     assert ("GET", "/api/quota") in surface
+    assert ("GET", "/api/quota/ok") in surface
     for op in (("POST", "/api/quota/refresh"), ("GET", "/api/quota/events"),
                ("POST", "/api/internal/quota")):
         assert op in operations(spec), f"{op} vanished from the API"

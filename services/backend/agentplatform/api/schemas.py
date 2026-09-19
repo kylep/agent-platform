@@ -1393,6 +1393,29 @@ class Quota(BaseModel):
     probe: str | None = None
 
 
+class QuotaOk(BaseModel):
+    """The reading turned into a decision (docs/design/24): whether the caller
+    may start expensive work now. `ok` is the field a model decides on; the
+    percentages and the thresholds beside it are what it was decided from, so
+    a "no" can be explained without re-reading the snapshot. The thresholds
+    are the caller's own row when the caller is an agent and the column
+    defaults when it is a person."""
+    ok: bool
+    # Whole percents, rounded half-up as `quota._percent` does, and null when
+    # the platform has no reading for that window — in which case `ok` is
+    # false and `reason` says so.
+    five_hour_pct: int | None
+    seven_day_pct: int | None
+    five_hour_max_pct: int
+    seven_day_max_pct: int
+    # The reading could not be refreshed and is a description of a window
+    # that has already turned over: `ok` was still computed from it, and this
+    # is how much to trust it.
+    stale: bool
+    # One sentence: "ok", "no reading yet", or which window is over its limit.
+    reason: str
+
+
 # What one report may carry. The body is capped in the route before it is
 # parsed at all; these bound the SHAPE inside that body, so a well-formed 64 KiB
 # document cannot still arrive as ten thousand one-byte headers.

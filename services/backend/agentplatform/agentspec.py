@@ -78,8 +78,14 @@ TOOL_QUOTA = "mcp__platform__get_quota_usage"
 # run/metrics surface for the sake of a picture.
 TOOL_ARTIFACTS = "mcp__platform__artifacts"
 TOOL_IMAGE_GEN = "mcp__platform__image_gen"
+# The gate (docs/design/24): the reading above turned into one boolean against
+# the holder's own thresholds. It reaches `/api/quota/ok` and nothing else, so
+# it rides the same rung as the reader — but it is NOT default-granted: the
+# engineer and the QA hold it because an admin put it on their rows.
+TOOL_QUOTA_OK = "mcp__platform__quota_ok"
 PLATFORM_MCP_RELAY_TOOLS: list[str] = [TOOL_RELAY, TOOL_TICKETS, TOOL_WIKI,
-                                       TOOL_QUOTA, TOOL_ARTIFACTS, TOOL_IMAGE_GEN]
+                                       TOOL_QUOTA, TOOL_ARTIFACTS, TOOL_IMAGE_GEN,
+                                       TOOL_QUOTA_OK]
 
 # Every code-defined broker tool an agent may be granted, whatever rung it
 # lands the holder on. This — not PLATFORM_MCP_TOOLS — is the grantability
@@ -258,6 +264,18 @@ TOOL_HELP: list[dict] = [
                     "capped platform-wide per day — a 429 or a 402 says which. "
                     "NOT granted by default: the artist holds it, and an agent "
                     "that should draw is one an admin decided should."},
+    {"name": "mcp__platform__quota_ok", "kind": "platform", "display_name": "Quota gate",
+     "description": "Ask whether this agent may start expensive work right "
+                    "now: one yes-or-no, decided against the agent's own "
+                    "5-hour and 7-day usage thresholds (the two quota fields "
+                    "on its definition), with the percentages and limits it "
+                    "was decided from. Reads the platform's cached usage and "
+                    "spends one probe only when that reading is stale, so "
+                    "asking at the top of every run costs nothing most of the "
+                    "time. Meant to be called first and obeyed: a no is a "
+                    "one-line reply and a stop, not a smaller version of the "
+                    "job. NOT granted by default: the engineer and the QA "
+                    "hold it."},
 ]
 
 # Models the UI offers for an agent's `model:` (runner passes it to

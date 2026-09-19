@@ -87,6 +87,7 @@ from .prune_result import PruneResult
 from .pull_request import PullRequest
 from .pull_request_file import PullRequestFile
 from .quota import Quota
+from .quota_ok import QuotaOk
 from .quota_window import QuotaWindow
 from .relay_binding_in import RelayBindingIn
 from .relay_binding_in_config import RelayBindingInConfig
@@ -287,6 +288,7 @@ __all__ = (
     "PullRequest",
     "PullRequestFile",
     "Quota",
+    "QuotaOk",
     "QuotaWindow",
     "RelayBindingIn",
     "RelayBindingInConfig",
