@@ -239,7 +239,7 @@ dispatch subagents, verify their evidence, commit, and update this file.
 
 ### Phase 0 — the principal, the cases, the parsers (T1 ∥ T2 ∥ T4; T3 after T2 reports)
 
-- [ ] **T1 The `qa` principal, `principal` on login, the `qa-web-login` secret block.** `[parallel with T2 and T4]` (AC-4)
+- [x] **T1 The `qa` principal, `principal` on login, the `qa-web-login` secret block.** `[parallel with T2 and T4]` (AC-4) (commit `df85fae`; review: the stored secret is the source of truth (rotation loud), principal bounded, timing-safe miss)
   Design sections: "Trust boundaries and guards" (the browser is a reader),
   "API" (`POST /api/login`).
   Files: `api/auth.py` (`Creds` gains `principal: str = "admin"`; `login`
@@ -271,7 +271,7 @@ dispatch subagents, verify their evidence, commit, and update this file.
   verify script maps 200 → valid, 401 → invalid. Acceptance: backend suite
   green; SDK regenerated (the login body changed); facade counts unchanged.
 
-- [ ] **T2 `tcms/cases/` — the schema, the validator, the first suites.** `[parallel with T1 and T4]` (AC-1)
+- [x] **T2 `tcms/cases/` — the schema, the validator, the first suites.** `[parallel with T1 and T4]` (AC-1) (commit `27ce105`; 98 cases / 291 refs verified; review: leading-`/` and empty/dot segments refused, control chars out of titles)
   Design sections: "Data model" (Git), "Naming".
   Files: new `tools/tcms/cases.py` (stdlib + `yaml` — PyYAML is in the
   executor image via the backend? It is NOT a tool requirement today: add
@@ -352,7 +352,7 @@ dispatch subagents, verify their evidence, commit, and update this file.
   `ToolRegistry` loads the manifest (the backend registry test that scans
   `tools/`); the CI `tools` job loop picks it up unchanged.
 
-- [ ] **T4 Broker: `files` from artifacts for custom tools; `bin/ap-upload`.** `[parallel with T1 and T2]` (AC-1)
+- [x] **T4 Broker: `files` from artifacts for custom tools; `bin/ap-upload`.** `[parallel with T1 and T2]` (AC-1) (commit `2b06fa4`; review: broker↔executor sanitiser cross-check (caught NUL/over-long), `files` reserved in manifests and advertised on every custom tool)
   Design sections: "Broker" (the `files` argument), "Trust boundaries and
   guards" (results are machine-ingested — the artifact path).
   Files: `services/mcp-broker/broker.py` (`CustomTool.run`: when `args`
