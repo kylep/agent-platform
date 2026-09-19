@@ -1,0 +1,93 @@
+# The Workbench image (docs/design/24): what a `role: dev` run executes on.
+# Build FROM THE REPO ROOT (`-f services/runner/Dockerfile.dev .`) — it warms
+# the npm and pip caches from the repo's own lockfiles so `npm ci` and pytest
+# inside a run pull nothing. The lean `Dockerfile` beside this one is every
+# other agent's image and does not change.
+#
+# The base tag is exactly the `@playwright/test` version in
+# services/web/package.json (tests/test_runner_dev_image.py pins the pair):
+# Ubuntu 24.04 with the prod Python (3.12) as the system interpreter, Node 24,
+# and Chromium with every OS dependency at /ms-playwright.
+
+# Dependency manifests only, paths preserved: the context is bind-mounted (no
+# source tree ever becomes a layer) and only the manifests are copied out, so
+# the pip and npm layers below are cache hits until a manifest itself changes
+# (plain COPY cannot glob without flattening).
+FROM mcr.microsoft.com/playwright:v1.62.1-noble AS manifests
+RUN --mount=type=bind,source=.,target=/src \
+    mkdir /out && cd /src \
+ && find tools apps packages services \
+      \( -name node_modules -o -name .venv \) -prune -o \
+      \( -name requirements.txt -o -name pyproject.toml -o -name package.json \) -print0 \
+    | xargs -0 cp --parents -t /out \
+ && cp package.json package-lock.json /out/
+
+FROM mcr.microsoft.com/playwright:v1.62.1-noble
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends git python3 python3-venv python3-pip ca-certificates curl \
+ && rm -rf /var/lib/apt/lists/*
+
+# The same claude-code tag the lean image pins. @playwright/mcp (design 25)
+# bundles its own playwright-core, a different minor than the image's
+# browsers, so it is launched with `--executable-path /opt/chromium/chrome`;
+# the symlink is resolved here because the versioned browser directory name
+# changes with every base tag.
+RUN PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 npm install -g @anthropic-ai/claude-code@2.1.214 @playwright/mcp@0.0.82 \
+ && npm cache clean --force \
+ && mkdir -p /opt/chromium \
+ && ln -s "$(ls -d /ms-playwright/chromium-*/chrome-linux*/chrome | head -n 1)" /opt/chromium/chrome \
+ && test -x "$(readlink -f /opt/chromium/chrome)"
+
+# One pip resolve for the whole workbench: the backend with its dev extras,
+# every service's requirements, the facade's, and the union of the tools'.
+# Only the manifests are present, so the backend installs as metadata only;
+# the .pth below puts the checked-out sources on sys.path at run time.
+WORKDIR /build
+COPY --from=manifests /out/services/backend/pyproject.toml services/backend/
+COPY --from=manifests /out/services/runner/requirements.txt services/runner/
+COPY --from=manifests /out/services/mcp-broker/requirements.txt services/mcp-broker/
+COPY --from=manifests /out/services/mcp-facade/requirements.txt services/mcp-facade/
+COPY --from=manifests /out/services/tool-executor/requirements.txt services/tool-executor/
+COPY --from=manifests /out/services/connector-discord/requirements.txt services/connector-discord/
+COPY --from=manifests /out/tools tools
+RUN python3 -m venv /opt/venv \
+ && /opt/venv/bin/pip install --no-cache-dir --upgrade pip \
+ && /opt/venv/bin/pip install --no-cache-dir \
+      "./services/backend[dev]" pytest-cov pytest-timeout \
+      -r services/runner/requirements.txt \
+      -r services/mcp-broker/requirements.txt \
+      -r services/mcp-facade/requirements.txt \
+      -r services/tool-executor/requirements.txt \
+      -r services/connector-discord/requirements.txt \
+      $(find tools -name requirements.txt -printf '-r %p ') \
+ && printf '/workspace/repo/services/backend\n/workspace/repo/sdk\n' \
+      > "$(/opt/venv/bin/python -c 'import sysconfig; print(sysconfig.get_paths()["purelib"])')/agent-platform.pth"
+
+# Warm the npm cache from the root lockfile with the workspace manifests in
+# place (npm ci refuses a lockfile whose workspaces are missing); the scratch
+# node_modules goes, the cache stays for workbench.py to copy into $HOME.
+COPY --from=manifests /out/package.json /out/package-lock.json /opt/npm-warm/
+COPY --from=manifests /out/packages /opt/npm-warm/packages
+COPY --from=manifests /out/apps /opt/npm-warm/apps
+COPY --from=manifests /out/services/web/package.json /opt/npm-warm/services/web/
+RUN cd /opt/npm-warm \
+ && npm_config_cache=/opt/npm-cache npm ci --ignore-scripts --no-audit --no-fund \
+ && rm -rf /opt/npm-warm /opt/npm-cache/_logs \
+ && chmod -R a+rX /opt/npm-cache
+
+# The venv leads PATH so `python3`, `pytest` and bin/ap-verify's `python3`
+# shebang resolve to the interpreter that has the repo's requirements.
+ENV PATH=/opt/venv/bin:$PATH
+WORKDIR /app
+COPY services/runner/runner.py services/runner/workbench.py /app/
+# The base ships `pwuser` at uid 1001 — the uid every runner pod runs as and
+# the launcher mounts /home/runner for — so it is renamed, not duplicated; the
+# test fails the build if a base bump ever moves it.
+RUN test "$(id -u pwuser)" = 1001 \
+ && usermod -l runner -d /home/runner -m pwuser && groupmod -n runner pwuser \
+ && mkdir /workspace && chown runner /workspace \
+ && rm -rf /build
+USER runner
+WORKDIR /workspace
+ENTRYPOINT ["python3", "/app/runner.py"]

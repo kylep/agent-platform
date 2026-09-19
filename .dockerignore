@@ -1,0 +1,9 @@
+# Applies to every image built from the repository root (services/runner/
+# Dockerfile.dev, services/tool-executor, apps/*). `dist` is deliberately NOT
+# here: apps/*/Dockerfile copy a host-prebuilt apps/<name>/frontend/dist.
+.git
+**/node_modules
+**/.venv
+**/__pycache__
+**/.coverage
+.ap

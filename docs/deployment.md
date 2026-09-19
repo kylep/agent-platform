@@ -76,6 +76,24 @@ App images build from the **repository root** with `-f apps/<name>/Dockerfile .`
 and expect the frontend prebuilt on the host first
 (`npm run build -w <name>-frontend`) — there is no node toolchain in the image.
 
+The Workbench image ([design/24](design/24-coding-agent.md)) also builds from
+the root — the pip and npm caches it warms come from the lockfiles there — and
+is the one image CI never builds (it is several GB), so it is always built here:
+
+```sh
+docker buildx build --platform linux/amd64 --provenance=false --load \
+  -t agent-platform-runner-dev:dev -f services/runner/Dockerfile.dev .
+```
+
+Expect tens of minutes on the first build; later builds reuse the dependency
+layers unless a lockfile, a `requirements.txt` or `services/backend/pyproject.toml`
+changed. Its base tag follows `@playwright/test` in `services/web/package.json`
+and its claude-code tag follows `services/runner/Dockerfile` — a backend test
+(`test_runner_dev_image.py`) fails when either drifts, so a Playwright or
+claude-code bump means rebuilding this image too. On an Apple Silicon host
+without Rosetta the amd64 image's Chromium and `claude` (a Bun binary) crash
+under qemu; smoke those two on pai, not locally.
+
 Two more deployments run stock upstream images and are never built here:
 `ap-agents-sync` (`alpine/git`) and `ap-claude-proxy` (nginx plus a config from
 the chart).

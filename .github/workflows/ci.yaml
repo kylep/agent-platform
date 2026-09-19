@@ -43,6 +43,7 @@ jobs:
             || (echo "::error::sdk/ is stale — run 'python sdk/regenerate.py' and commit" && exit 1)
 
   runner:
+    # No build job for services/runner/Dockerfile.dev (several GB — CI runners cannot afford it); tests/test_runner_dev_image.py is its drift guard.
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
