@@ -321,7 +321,7 @@ dispatch subagents, verify their evidence, commit, and update this file.
 
 ### Phase 1 — the run (T3 ∥ T4 ∥ T6; T5 after T4 reports; T7 after T2 and T3 are committed)
 
-- [ ] **T3 `GET /api/quota/ok` and the `quota_ok` broker tool.** `[parallel with T4 and T6; after T1 is committed]` (AC-3)
+- [x] **T3 `GET /api/quota/ok` and the `quota_ok` broker tool.** `[parallel with T4 and T6; after T1 is committed]` (AC-3) (commit `5f4a76f`; review: `grant=True` on the broker tool)
   Design sections: "Broker tools" (`quota_ok`), "Data model" (the quota
   fields).
   Files: `api/quota.py` (`GET /api/quota/ok`, `VIEW` roles; reads the
@@ -345,7 +345,7 @@ dispatch subagents, verify their evidence, commit, and update this file.
   shape of its answer; the TOOL_HELP lockstep test. Acceptance: backend,
   broker and facade suites green; SDK diff clean.
 
-- [ ] **T4 Launcher: the dev profile, the dev image, settings and chart wiring.** `[parallel with T3 and T6; after T1 is committed]` (AC-1)
+- [x] **T4 Launcher: the dev profile, the dev image, settings and chart wiring.** `[parallel with T3 and T6; after T1 is committed]` (AC-1) (commit `39b60be`; review: `AP_PUBLISH_MAX_BYTES` wired into the dev env)
   Design sections: "The dev run, step by step" (step 2), "Trust boundaries
   and guards" (the pod holds no repository credential; pod hardening is
   unchanged), "Data model" (settings).
@@ -376,7 +376,7 @@ dispatch subagents, verify their evidence, commit, and update this file.
   called). Acceptance: backend suite green; `helm template` renders in both
   spire modes with the two new env vars.
 
-- [ ] **T5 Runner: `workbench.py` — prepare, permissions, finalize, publish.** `[after T4 reports]` (AC-1, AC-2)
+- [x] **T5 Runner: `workbench.py` — prepare, permissions, finalize, publish.** `[after T4 reports]` (AC-1, AC-2) (commit `e8c7ee8`; review: remote_url validated + `--`, npm env allowlist, fork-point deepening, refused publish fails the run, max-turns default, POST retry, lazy import for the seam test, CI runs the runner dir)
   Design sections: "The dev run, step by step" (steps 3–6), "Trust
   boundaries and guards" (the pod holds no repository credential; untrusted
   text; evidence is captured), "The engineer" (only the `<workbench>` block
@@ -431,7 +431,7 @@ dispatch subagents, verify their evidence, commit, and update this file.
   cases pinned unchanged (do not edit their tests). Acceptance: runner suite
   green.
 
-- [ ] **T6 `bin/ap-verify`, `pytest-cov`, `.ap/` ignore, `chromiumSandbox`.** `[parallel with T3 and T4]` (AC-2)
+- [x] **T6 `bin/ap-verify`, `pytest-cov`, `.ap/` ignore, `chromiumSandbox`.** `[parallel with T3 and T4]` (AC-2) (commit `7a493e8`; review: verifier on the deny list, runner dir, sdk-drift + storybook suites, helm dependency build, streamed output, relative files)
   Design sections: "The dev run, step by step" (the `bin/ap-verify`
   paragraph).
   Files: new `bin/ap-verify` (executable, `#!/usr/bin/env python3`, stdlib
@@ -749,9 +749,13 @@ dispatch subagents, verify their evidence, commit, and update this file.
 
 ### Repairs
 
+- [ ] **R1 `services/web/tests/relay.spec.ts:149` is a wall-clock flake.** "replies stay out of the room and are counted on their root" expects `last 15m ago` and gets `16m ago` under a full-suite run (three times this build; passes alone). Fix the fixture/assertion so the relative time is computed from the same clock the component uses (freeze `Date.now` via `page.clock` or assert a tolerant pattern). Acceptance: `npx playwright test` green three runs in a row.
+
 (added by the loop when the definition of done fails)
 
 ### Deferred
+
+- T4 review (low): `tests/test_joblauncher.py::test_coder_job_is_unchanged_by_the_dev_profile` pins image/resources/volumes/named env only, not the full serialized Job (labels, deadlines, SA, securityContext for `role: coder`); a full-dict snapshot would be stronger.
 
 (low/medium findings the loop chose not to fix, with file:line)
 
