@@ -26,8 +26,17 @@ BASE = datetime(2026, 7, 20, 10, 2, tzinfo=timezone.utc)
     ("35 * * * *", "At minute 35 past every hour"),
     ("0 9 * * *", "At 09:00"),
     ("30 17 * * *", "At 17:30"),
-    ("0 9 * * 1-5", "At 09:00, Monday through Friday"),
+    # Exactly Mon-Fri reads as "on weekdays", exactly Sat+Sun as "on weekends",
+    # however each set is written; every other weekday set keeps its wording.
+    ("0 9 * * 1-5", "At 09:00, on weekdays"),
+    ("0 7 * * 1-5", "At 07:00, on weekdays"),
+    ("0 9 * * 1,2,3,4,5", "At 09:00, on weekdays"),
+    ("0 12 * * 6,0", "At 12:00, on weekends"),
+    ("0 12 * * 0,6", "At 12:00, on weekends"),
+    ("0 12 * * 6,7", "At 12:00, on weekends"),
     ("0 9 * * 1,5", "At 09:00, only on Monday and Friday"),
+    ("0 9 * * 1-4", "At 09:00, Monday through Thursday"),   # not all weekdays
+    ("0 9 * * 5,6", "At 09:00, only on Friday and Saturday"),  # not the weekend
     ("0 9 * * 0", "At 09:00, only on Sunday"),
     ("0 9 * * 7", "At 09:00, only on Sunday"),          # 7 is Sunday too
     ("0 9 15 * *", "At 09:00, on day 15 of the month"),
@@ -131,7 +140,7 @@ async def test_preview_endpoint_returns_english_and_the_next_three(admin_client,
     assert r.status_code == 200
     body = r.json()
     assert body["error"] is None
-    assert body["english"] == "At 09:00, Monday through Friday"
+    assert body["english"] == "At 09:00, on weekdays"
     # 09:00 Monday is already past at 10:02, so the list starts Tuesday — the
     # preview never promises a fire the scheduler has missed.
     assert body["next"] == ["2026-07-21T09:00:00Z", "2026-07-22T09:00:00Z",

@@ -284,11 +284,27 @@ def _dow_parts(terms: list[Term]) -> list[str]:
     return parts
 
 
+def _weekday_span(terms: list[Term]) -> str | None:
+    """"weekdays" for exactly Monday-Friday, "weekends" for exactly Saturday
+    and Sunday, else None. Reads the matched weekday values, so `1-5` and the
+    list `1,2,3,4,5` both count as weekdays, and `0,6`/`6,0`/`6,7` (which all
+    normalize to Sunday+Saturday) all count as weekends."""
+    values = _values(terms)
+    if values == [1, 2, 3, 4, 5]:
+        return "weekdays"
+    if values == [0, 6]:
+        return "weekends"
+    return None
+
+
 def _dow_clause(terms: list[Term]) -> str:
     """The weekday clause when day-of-month is `*` — i.e. when the weekday is
     the only thing narrowing which days run."""
     if _is_all(terms):
         return ""
+    span = _weekday_span(terms)
+    if span is not None:
+        return f", on {span}"
     parts = _dow_parts(terms)
     # "Monday through Friday" is a span and reads as one; "the 2nd Monday" is a
     # thing the run lands *on*; a set of separate days is a list of exceptions
