@@ -133,6 +133,10 @@ class Settings(BaseSettings):
     # gets finished, and an assignment is already a Relay mention paying the
     # relay budget.
     tickets_agent_creates_per_hour: int = 20
+    # `POST /api/relay/notify` (docs/design/25): a system row from a key that
+    # is a member of no room. Per principal per hour, counted from the rows it
+    # wrote, so an app stuck re-announcing cannot bury a room.
+    relay_notify_per_hour: int = 60
     # "in progress and nobody has touched it in this long" — the board's stale
     # badge and the stats. Days, because a ticket is a unit of work and not of
     # execution: an agent can legitimately be mid-ticket overnight.

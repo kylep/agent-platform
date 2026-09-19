@@ -281,6 +281,9 @@ COVERAGE_TOTALS = (
     "GROUP BY rc.id, rc.commit_sha, rc.started_at ORDER BY rc.started_at ASC, rc.id ASC"
 )
 
+# Every area the catalogue knows: what the cases page validates a filter against.
+AREAS = "SELECT DISTINCT area FROM cases ORDER BY area"
+
 # The newest status of every linked case, for the list page (a case page
 # reads per ref with RESULTS_FOR_REF).
 LAST_STATUS_BY_CASE = (

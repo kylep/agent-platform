@@ -914,6 +914,18 @@ class RelayMessageIn(BaseModel):
     reply_to: str | None = None
 
 
+RELAY_NOTIFY_MAX = 2000
+
+
+class RelayNotifyIn(BaseModel):
+    """A system row from something that is not a participant (docs/design/25):
+    an app key announcing what it recorded. `channel` is a name, `#name` or an
+    id; the text is flattened to one line and mentions in it summon nobody."""
+    model_config = ConfigDict(extra="forbid")
+    channel: str = Field(min_length=1, max_length=200)
+    text: str = Field(min_length=1, max_length=RELAY_NOTIFY_MAX)
+
+
 class RelayReactionIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
     # A glyph, not a string: the value is stored as given and echoed to every

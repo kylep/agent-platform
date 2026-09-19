@@ -111,6 +111,7 @@ from .relay_last_message import RelayLastMessage
 from .relay_message import RelayMessage
 from .relay_message_card_type_0 import RelayMessageCardType0
 from .relay_message_in import RelayMessageIn
+from .relay_notify_in import RelayNotifyIn
 from .relay_presence import RelayPresence
 from .relay_reaction_in import RelayReactionIn
 from .relay_reaction_view import RelayReactionView
@@ -317,6 +318,7 @@ __all__ = (
     "RelayMessage",
     "RelayMessageCardType0",
     "RelayMessageIn",
+    "RelayNotifyIn",
     "RelayPresence",
     "RelayReactionIn",
     "RelayReactionView",
