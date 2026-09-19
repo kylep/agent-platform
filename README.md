@@ -124,6 +124,14 @@ Postgres backup CronJob is the recovery story for that (see
   deterministic editors lock on their pending change; nothing an agent writes
   goes live unreviewed. Agent definitions don't use this loop — see
   [Agents](docs/building-blocks/agents.md)'s change log instead.
+- **[Workbench](docs/building-blocks/workbench.md)** — how dev agents change
+  the code: an agent with `role: dev` (the seeded `engineer`) runs on a second
+  runner image with a shell, an anonymous clone on `coder/<ticket>` and no git
+  credential; when its turn ends the runner runs `bin/ap-verify`, bundles the
+  branch and publishes it through the API, which enforces a path policy
+  (deny list, `push_path_globs`, `may_delete_tests`), pushes without force
+  and opens the PR with the captured verification. Assign a ticket, get a PR;
+  a human merges.
 
 Two more pages describe the platform itself:
 [Glossary](docs/building-blocks/glossary.md) (the components and vocabulary

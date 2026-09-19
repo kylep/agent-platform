@@ -64,6 +64,35 @@ currently hand-written or coder-authored (no wizard yet). Agent definitions
 never appear here — they aren't a change-loop block; see the note at the top
 of this page.
 
+## Dev-run PRs
+
+The [Workbench](workbench.md) is the second producer of changes, and its PRs
+sit in the same list with a different shape. A dev agent (the seeded
+`engineer`, or any `role: dev` row) works a **ticket**, not a block, so its
+branch is named after the ticket — `coder/<key>` (`coder/eng-12`) for a
+coding agent, `qa/<key>` for a QA agent, `coder/run-<id>` for a run with no
+ticket — one branch and one PR per ticket, however many runs it takes. The
+API names the branch; the model never does. A second run on the same ticket
+fetches the branch, adds commits and updates the same PR; the branch is
+**never force-pushed** (a branch that moved under the agent is a 409 and a
+line in the thread, not an overwrite).
+
+Every such PR carries, above the agent's own notes, a **Verification
+(captured by the runner)** table: one row per CI suite the change touched,
+with its exit code, seconds and ✓/✗/timed out, recorded by `bin/ap-verify`
+after the model's turn ended — never the agent's claim. A failed verify
+prefixes the title `[verify ✗]` and moves the ticket to `blocked`; a green
+one moves it to `review`. Auto-merge is on only for agents whose
+`push_path_globs` are set, and a repository ruleset is the backstop.
+
+On this page a dev-run row shows the ticket key as a chip (→ `/tickets/<key>`),
+the agent's face, and an **auto-merge** chip when GitHub will land it on
+green; rows refresh live from `GET /api/workbench/events`. Accept and Discard
+are the same buttons, and no editor locks on such a change — its unit is the
+ticket, not a block, so the impact digest usually says "outside the building
+blocks — this is platform code; review carefully", which is the point.
+Merging does not move the ticket; do that by hand.
+
 Secret **values** are deliberately outside the loop: they're set immediately
 via the API into k8s (nothing to review — values never enter git).
 

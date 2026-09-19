@@ -23,7 +23,7 @@ Every long-running piece of the platform. All of these are Deployments in the
 | **api** | `services/backend` | The HTTP API and the source of truth for authorization. The UI, the agents, and the broker all talk to it. |
 | **dispatcher** | `services/backend` | Consumes run commands from Kafka and launches a Kubernetes Job per run. Also runs the reconciliation heartbeat that provisions declared infrastructure (secrets, app and tool databases). |
 | **recorder** | `services/backend` | Consumes transcript events from Kafka and persists runs, events, and metrics to Postgres. |
-| **runner** | `services/runner` | The image an agent run *is*: it fetches the agent's definition from the API and mounts its skills, runs Claude Code inside the pod, and streams every event back to Kafka. One pod per run, then gone. |
+| **runner** | `services/runner` | The image an agent run *is*: it fetches the agent's definition from the API and mounts its skills, runs Claude Code inside the pod, and streams every event back to Kafka. One pod per run, then gone. Two images: the lean one (`Dockerfile`, every ordinary agent), and **`runner-dev`** (`Dockerfile.dev`, built from the repository root) for `role: dev` runs — the [Workbench](workbench.md) profile with a shell, a clone and the test toolchain. |
 | **web** | `services/web` | The React UI plus the nginx that serves it, terminates the login session, and proxies `/api` and `/apps/<name>/`. The only LAN-facing service. |
 | **mcp-broker** | `services/mcp-broker` | The single MCP server agents talk to. It verifies who is calling and that the caller's definition declares the tool, then performs the call itself — agent pods never hold platform credentials. See [tools.md](tools.md) and [security.md](security.md). |
 | **mcp-facade** | `services/mcp-facade` | The MCP server *external* clients talk to (Claude Code on a laptop), served at `/mcp` through web's nginx. Its tools are generated from the API's OpenAPI document, and it forwards the caller's own `Authorization: Bearer ap_…` on every call — and *only* that header, never a session cookie — so it holds no credential, grants no authority, and the API's role ladder decides everything. A request with no `Authorization` header at all is refused at the door, so a keyless client cannot even read the tool list. Distinct from the broker, which scopes tools to an in-cluster run's grants. |
@@ -71,6 +71,10 @@ Every long-running piece of the platform. All of these are Deployments in the
   agent-definition edits no longer go through it), **run-summarizer**
   (annotates finished runs), **health-monitor** (checks platform health and
   alerts), **change-summarizer** (explains pull requests in the Changes UI).
+  The **engineer** is deliberately *not* one: it is a colleague, not
+  plumbing — it takes tickets, answers `@all` and joins the `#standup` like
+  the artist does — so `system: false`, and it can be edited or deleted like
+  any seeded row.
 - **Relay** — the agent messenger: the rooms humans and agents talk in, the
   `@mention` that summons an agent, and the router that decides whether the
   summons happens. The block is [relay.md](relay.md); the design record is
@@ -196,6 +200,44 @@ Every long-running piece of the platform. All of these are Deployments in the
   the broker's `image_gen` core tool both reach it through
   `POST /api/artifacts/generate`, which is the one place a generation
   happens and where the budget lives.
+- **Workbench** — the run profile a `role: dev` agent gets: a bigger pod on
+  the `runner-dev` image with an unattended shell, an anonymous clone of the
+  repository on a branch named after its ticket, the test toolchain, and no
+  git credential of any kind. It keeps no table; the branch on GitHub is its
+  state. The block is [workbench.md](workbench.md); the design record is
+  `docs/design/24-coding-agent.md`.
+- **Dev run** — one run on the Workbench. Prepared by the runner (clone,
+  branch, `<workbench>` block), worked by the model with `Bash`/`Read`/`Edit`/
+  `Write` allowed, and finished by the runner: a checkpoint commit, the
+  verifier, a bundle, a publish. A run that produced no commits publishes
+  nothing.
+- **Publish** — the one door code leaves a dev pod through: one `POST
+  /api/runs/{id}/publish` from the runner (never from the model, and only
+  with the nonce the runner was handed before the model started) carrying a
+  git bundle of the branch, the verifier's record and the agent's notes. The
+  API checks the path policy, pushes without force, opens or updates the PR,
+  moves the ticket, posts the card in the thread and publishes a
+  `workbench.events` envelope. A refusal is a 422 and a `⛔` line in the
+  thread; nothing was pushed.
+- **Path policy** — what the API runs over a publish's changed paths, in
+  order: the platform **deny list** (`PUBLISH_DENY_GLOBS` — `.github/**`, the
+  pre-commit config, the secret-file guard, `bin/ap-verify` and `bin/ap_verify*` — no agent, ever),
+  the agent's **push path globs** (when set, every path must match one; also
+  what turns on auto-merge), and **test deletions** (a path under
+  `TEST_PATH_GLOBS` deleted or renamed away is refused unless the agent's
+  `may_delete_tests` is true).
+- **Verify** — `bin/ap-verify`, the repository's own verifier: maps changed
+  paths to the CI suites they touch, runs them, and writes `verify.json`. The
+  runner runs it after the model's turn and the PR's verification table is
+  rendered from its record — evidence captured, never claimed.
+- **Engineer** — the seeded dev agent (`agent:engineer`): assign it a ticket
+  and it works on `coder/<key>`, verifies, and hands back a PR for a human to
+  merge. `role: dev`, on `opus`, not a system agent. Its row is described in
+  [agents.md](agents.md#seeded-agents).
+- **`#eng`** — the open Relay channel seeded as the engineer's home project
+  (ticket prefix `ENG`): where its tickets live, where a publish card lands
+  when a run has no ticket, and where the weekday `eng-queue` job asks it
+  every morning what is still open.
 - **Kyle (project owner)** — the sole operator of the reference deployment.
   Design docs quote him directly; those quotes are the historical record of a
   decision, not instructions to the reader.
