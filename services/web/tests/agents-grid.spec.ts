@@ -37,6 +37,9 @@ test("the grid is the default view, and the table is a persisted choice", async 
   await expect(page.locator("table")).toHaveCount(2);
   await expect(page.locator(".agent-grid")).toHaveCount(0);
   await expect(toggle.getByRole("button", { name: "Table" })).toHaveAttribute("aria-pressed", "true");
+  await expect(page.getByRole("columnheader", { name: "Model" })).toHaveCount(2);
+  await expect(page.getByRole("row", { name: /news/ })).toContainText("platform default");
+  await expect(page.getByRole("row", { name: /health-monitor/ })).toContainText("sonnet");
 
   await page.reload();
   await expect(page.locator("table")).toHaveCount(2);
