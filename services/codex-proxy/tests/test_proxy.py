@@ -79,6 +79,111 @@ async def test_proxy_decodes_compressed_model_catalog(tmp_path):
         await server.close()
 
 
+async def test_proxy_forwards_subscription_image_generation(tmp_path):
+    observed = {}
+
+    async def images(request):
+        observed.update(request.headers)
+        payload = await request.json()
+        assert payload["prompt"] == "paint a garden"
+        return web.json_response({"data": [{"b64_json": "cG5n"}]})
+
+    upstream = web.Application()
+    upstream.router.add_post("/codex/images/generations", images)
+    server = TestServer(upstream)
+    await server.start_server()
+    client = TestClient(TestServer(create_app(_write_config(tmp_path, server))))
+    await client.start_server()
+    try:
+        response = await client.post("/images/generations",
+                                     json={"prompt": "paint a garden"})
+        assert response.status == 200
+        assert (await response.json())["data"][0]["b64_json"] == "cG5n"
+        assert observed["Authorization"].startswith("Bearer ey")
+    finally:
+        await client.close()
+        await server.close()
+
+
+async def test_proxy_tunnels_responses_websocket_with_oauth(tmp_path):
+    observed = {}
+
+    async def responses(request):
+        observed.update(request.headers)
+        socket = web.WebSocketResponse()
+        await socket.prepare(request)
+        async for message in socket:
+            if message.type == web.WSMsgType.TEXT:
+                await socket.send_str("brokered:" + message.data)
+                break
+        await socket.close()
+        return socket
+
+    upstream = web.Application()
+    upstream.router.add_get("/codex/responses", responses)
+    server = TestServer(upstream)
+    await server.start_server()
+    client = TestClient(TestServer(create_app(_write_config(tmp_path, server))))
+    await client.start_server()
+    try:
+        socket = await client.ws_connect("/responses", headers={
+            "Authorization": "Bearer placeholder"})
+        await socket.send_str("hello")
+        assert (await socket.receive()).data == "brokered:hello"
+        assert observed["Authorization"].startswith("Bearer ey")
+        assert observed["ChatGPT-Account-Id"] == "acct-1"
+    finally:
+        await client.close()
+        await server.close()
+
+
+async def test_proxy_exposes_only_the_codex_subscription_tool_mcp(tmp_path):
+    observed = {}
+
+    async def image_tools(request):
+        observed.update(request.headers)
+        return web.json_response({"jsonrpc": "2.0", "id": 1, "result": {"tools": []}})
+
+    upstream = web.Application()
+    upstream.router.add_post("/ps/mcp", image_tools)
+    server = TestServer(upstream)
+    await server.start_server()
+    client = TestClient(TestServer(create_app(_write_config(tmp_path, server))))
+    await client.start_server()
+    try:
+        response = await client.post("/backend-api/ps/mcp", json={
+            "jsonrpc": "2.0", "id": 1, "method": "tools/list"})
+        assert response.status == 200
+        assert observed["Authorization"].startswith("Bearer ey")
+        assert observed["ChatGPT-Account-Id"] == "acct-1"
+        # Adjacent ChatGPT backend routes remain closed.
+        assert (await client.get("/api/codex/settings/user")).status == 404
+    finally:
+        await client.close()
+        await server.close()
+
+
+async def test_proxy_exposes_read_only_codex_tool_discovery(tmp_path):
+    async def settings(request):
+        assert request.query.get("surface") == "codex"
+        return web.json_response({"code_mode": True})
+
+    upstream = web.Application()
+    upstream.router.add_get("/wham/settings/user", settings)
+    server = TestServer(upstream)
+    await server.start_server()
+    client = TestClient(TestServer(create_app(_write_config(tmp_path, server))))
+    await client.start_server()
+    try:
+        response = await client.get("/backend-api/wham/settings/user?surface=codex")
+        assert response.status == 200
+        assert await response.json() == {"code_mode": True}
+        assert (await client.post("/backend-api/wham/settings/user")).status == 404
+    finally:
+        await client.close()
+        await server.close()
+
+
 async def test_expired_token_refreshes_once_and_persists(tmp_path):
     calls = {"oauth": 0, "persist": 0}
     fresh = _jwt(int(time.time()) + 3600)

@@ -23,6 +23,7 @@ import logging
 import math
 import re
 import time
+import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -32,7 +33,8 @@ from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 
 from agentplatform import artifact_store as store
-from agentplatform.db import Artifact, SchemaMark, SecretMeta, utcnow
+from agentplatform.db import Artifact, Run, SchemaMark, SecretMeta, utcnow
+from agentplatform.materialize import materialize_run
 from agentplatform.relay import SYSTEM_AUTHOR, is_agent
 from agentplatform.relay_store import (channel_by_name, outbound_for_message,
                                        post_relay_message, publish_relay_message)
@@ -42,6 +44,25 @@ log = logging.getLogger("image_gen")
 
 TOOL = "image_gen"
 ART_CHANNEL = "art"
+CODEX_MODEL_ID = "codex-imagegen"
+CODEX_ARTIST = "codex-artist"
+CODEX_SECRET = "codex-credentials"
+CODEX_IMAGE_TIMEOUT_SECONDS = 390
+CODEX_TERMINAL_STATES = {"succeeded", "failed", "rejected", "dlq", "cancelled"}
+CODEX_ENTRY = {
+    "id": CODEX_MODEL_ID,
+    "provider": "codex",
+    "label": "Codex ImageGen · GPT Image 2",
+    "price_usd": 0.0,
+    "aspects": ["1:1", "16:9", "9:16", "4:3", "3:4"],
+    "sizes": None,
+    "custom_size": False,
+    "qualities": None,
+    "edits": True,
+    "default": True,
+    "billing": "codex",
+    "seeded": False,
+}
 REFERENCES_MAX = 4
 # The most prompt a generation takes, checked before anything is spent. The
 # artifact's meta keeps the prompt, and meta is capped at 8 KiB by the store —
@@ -151,7 +172,9 @@ def model_view(entry: dict, *, configured: bool) -> dict:
             "sizes": entry.get("sizes"), "aspects": entry.get("aspects"),
             "custom_size": bool(entry.get("custom_size", False)),
             "qualities": entry.get("qualities"), "edits": bool(entry.get("edits")),
-            "configured": configured, "default": bool(entry.get("default"))}
+            "configured": configured, "default": bool(entry.get("default")),
+            "billing": entry.get("billing", "api"),
+            "seeded": bool(entry.get("seeded", True))}
 
 
 async def provider_status(session, secret_store) -> dict[str, bool]:
@@ -187,12 +210,28 @@ async def _exists_off_loop(secret_store, block: str) -> bool:
     return await asyncio.to_thread(asyncio.run, secret_store.exists(block))
 
 
-async def models(session, tool_registry, secret_store) -> list[dict]:
+async def codex_available(session, secret_store, agent_store) -> bool:
+    """Whether the subscription artist and its brokered OAuth are usable."""
+    meta = await session.get(SecretMeta, CODEX_SECRET)
+    status = meta.status if meta is not None else "missing"
+    if status == "missing" and await _exists_off_loop(secret_store, CODEX_SECRET):
+        status = "unprobed"
+    info = agent_store.get(CODEX_ARTIST)
+    if info is None:
+        await agent_store.reload()
+        info = agent_store.get(CODEX_ARTIST)
+    return bool(status in CONFIGURED_STATUSES and info is not None and info.enabled
+                and info.error is None and info.manifest is not None
+                and info.manifest.runtime == "codex")
+
+
+async def models(session, tool_registry, secret_store, *, codex_configured: bool = False) -> list[dict]:
     """The registry × the secret status: what the Studio's model select and
     the broker's `models` action show."""
     configured = await provider_status(session, secret_store)
-    return [model_view(m, configured=configured.get(m["provider"], False))
-            for m in load_models(_tool(tool_registry).dir)]
+    direct = [model_view(m, configured=configured.get(m["provider"], False))
+              for m in load_models(_tool(tool_registry).dir)]
+    return [model_view(CODEX_ENTRY, configured=codex_configured), *direct]
 
 
 # --- the request -------------------------------------------------------------------
@@ -450,6 +489,108 @@ def _name_for(entry: dict, prompt: str, filename: str, given) -> str:
     return f"{entry['id']}-{slug}.{ext}" if slug else f"{entry['id']}.{ext}"
 
 
+CODEX_SPEC_PREFIX = "AP_CODEX_IMAGE_SPEC "
+
+
+def codex_image_prompt(*, prompt: str, owner: str, aspect: str | None,
+                       reference_ids: list[str], name, tags) -> str:
+    """A platform-authored brief with a machine-readable first line.
+
+    The runner-upload route reads that line back from the immutable Run row;
+    the model can see it but cannot change it. This keeps ownership and
+    provenance off the upload body while avoiding a one-off database column.
+    """
+    spec = {"owner": owner, "prompt": prompt, "aspect": aspect or "1:1",
+            "reference_ids": reference_ids, "name": name or "", "tags": tags or []}
+    encoded = base64.urlsafe_b64encode(
+        json.dumps(spec, separators=(",", ":")).encode()).decode()
+    refs = ("\nReference artifacts: " + ", ".join(reference_ids)
+            if reference_ids else "")
+    return (f"{CODEX_SPEC_PREFIX}{encoded}\n\n"
+            "Use $imagegen to generate exactly one image for this brief. "
+            "Use Codex's built-in image generator, not the platform image_gen tool.\n"
+            f"Aspect ratio: {spec['aspect']}.{refs}\n\nBrief:\n{prompt}\n\n"
+            "When the image is complete, answer with one short sentence and no local path.")
+
+
+def codex_image_spec(prompt: str) -> dict | None:
+    """Decode the trusted first line written by `codex_image_prompt`."""
+    first = (prompt or "").splitlines()[0] if prompt else ""
+    if not first.startswith(CODEX_SPEC_PREFIX):
+        return None
+    try:
+        data = json.loads(base64.urlsafe_b64decode(
+            first[len(CODEX_SPEC_PREFIX):].encode()).decode())
+        return data if isinstance(data, dict) else None
+    except (ValueError, TypeError, json.JSONDecodeError):
+        return None
+
+
+async def generate_codex(*, session_factory, producer, settings, agent_store,
+                         owner: str, principal: str, prompt, aspect=None,
+                         reference_ids=None, name=None, tags=None,
+                         parent_run: Run | None = None) -> Artifact:
+    """Dispatch the Codex artist and wait for the runner-ingested artifact.
+
+    The generation itself happens inside a normal Codex run, so OAuth remains
+    in codex-proxy and usage lands on the subscription allowance. The API only
+    coordinates and waits for the file the trusted runner uploads afterward.
+    """
+    prompt = str(prompt or "").strip()
+    reference_ids = list(dict.fromkeys(reference_ids or []))
+    _check_request(CODEX_ENTRY, prompt=prompt, size=None, aspect=aspect, quality=None,
+                   reference_count=len(reference_ids))
+    tags = store.clean_tags(tags)
+    # Refuse bad references before starting a quota-consuming run.
+    async with session_factory() as s:
+        for artifact_id in reference_ids:
+            row = await store.get(s, artifact_id)
+            if row is None:
+                raise ImageGenError(404, f"unknown reference artifact {artifact_id}")
+            if row.kind != "image":
+                raise ImageGenError(422, f"reference {artifact_id} is not an image")
+
+    info = agent_store.get(CODEX_ARTIST)
+    if info is None:
+        await agent_store.reload()
+        info = agent_store.get(CODEX_ARTIST)
+    if info is None or info.error is not None or not info.enabled:
+        raise ImageGenError(503, "the Codex artist is unavailable")
+    if info.manifest.runtime != "codex":
+        raise ImageGenError(503, "the Codex artist is not configured for Codex")
+
+    depth = (parent_run.depth or 0) + 1 if parent_run is not None else 0
+    if depth > settings.max_run_chain_depth:
+        raise ImageGenError(429, "run-chain depth limit exceeded")
+    run_id = uuid.uuid4().hex
+    await materialize_run(session_factory, producer, {
+        "run_id": run_id, "agent": CODEX_ARTIST,
+        "prompt": codex_image_prompt(prompt=prompt, owner=owner, aspect=aspect,
+                                      reference_ids=reference_ids, name=name, tags=tags),
+        "trigger": "agent" if parent_run is not None else "studio",
+        "requested_by": principal, "initiated_by": (
+            parent_run.initiated_by if parent_run is not None else principal),
+        "parent_run_id": parent_run.id if parent_run is not None else None,
+        "depth": depth,
+    })
+
+    deadline = time.monotonic() + CODEX_IMAGE_TIMEOUT_SECONDS
+    while time.monotonic() < deadline:
+        async with session_factory() as s:
+            artifact = (await s.execute(
+                select(Artifact).where(Artifact.run_id == run_id,
+                                       Artifact.deleted_at.is_(None))
+                .order_by(Artifact.created_at.desc()).limit(1))).scalar_one_or_none()
+            if artifact is not None:
+                return artifact
+            run = await s.get(Run, run_id)
+            if run is not None and run.state in CODEX_TERMINAL_STATES:
+                detail = (run.error or "Codex produced no image")[:500]
+                raise ImageGenError(502, detail)
+        await asyncio.sleep(1)
+    raise ImageGenError(504, "Codex image generation is still running; the result will appear in Artifacts")
+
+
 def card_body(artifact_id: str, owner: str, model: str, prompt: str) -> str:
     """The `#art` card's text: the chip, then one flattened line. `one_line`
     is where the prompt — somebody else's words — loses its newlines, its
@@ -572,3 +713,21 @@ async def _keep(session, producer, settings, file: dict, warnings: list[str], *,
     await _say_card(session, producer, row, prompt)
     return row
 
+
+async def keep_codex_image(session, producer, settings, *, data: bytes, filename: str,
+                           mime: str | None, owner: str, run_id: str, prompt: str,
+                           reference_ids=None, aspect: str | None = None,
+                           name=None, tags=None) -> Artifact:
+    """Keep one built-in Codex ImageGen output under the normal contract."""
+    file = {
+        "name": filename,
+        "mime": mime,
+        "b64": base64.b64encode(data).decode(),
+        "meta": {"provider": "codex", "model": "gpt-image-2",
+                 "billing": "codex_allowance", "cost_usd": 0.0,
+                 "params": {"aspect": aspect} if aspect else {}},
+    }
+    return await _keep(
+        session, producer, settings, file, [], entry=CODEX_ENTRY, owner=owner,
+        run_id=run_id, prompt=prompt[:PROMPT_LIMIT],
+        reference_ids=list(reference_ids or []), name=name, tags=tags)

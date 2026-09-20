@@ -10,7 +10,8 @@ from sqlalchemy import func, select
 from agentplatform.agents import AgentStore
 from agentplatform.agentspec import TOOL_ARTIFACTS, TOOL_IMAGE_GEN, TOOL_RELAY
 from agentplatform.config import Settings
-from agentplatform.db import (ARTIST_SEED_MARK, ARTIST_PROMPT, AgentDef, AgentVersion,
+from agentplatform.db import (ARTIST_SEED_MARK, ARTIST_PROMPT, CODEX_ARTIST_PROMPT,
+                              CODEX_ARTIST_SEED_MARK, AgentDef, AgentVersion,
                               Base, Conversation, RelayInvocation, Run, SchemaMark,
                               init_db, make_engine, make_session_factory)
 from agentplatform.relay_router import RelayRouter
@@ -58,6 +59,20 @@ async def test_the_artist_is_seeded_with_its_grants(engine, sfx):
         assert len(row.description) <= 512
         assert row.prompt == ARTIST_PROMPT
         assert await s.get(SchemaMark, ARTIST_SEED_MARK) is not None
+
+
+async def test_codex_artist_is_a_separate_subscription_backed_specialist(engine, sfx):
+    await init_db(engine)
+    async with sfx() as s:
+        row = await s.get(AgentDef, "codex-artist")
+        assert row is not None
+        assert (row.runtime, row.model, row.role) == ("codex", "gpt-5.6-luna", "operator")
+        assert row.platform_tools == [TOOL_ARTIFACTS, TOOL_RELAY]
+        assert TOOL_IMAGE_GEN not in row.platform_tools
+        assert row.skills == ["imagegen"]
+        assert row.prompt == CODEX_ARTIST_PROMPT
+        assert "$imagegen" in row.prompt and "mcp__platform__image_gen" in row.prompt
+        assert await s.get(SchemaMark, CODEX_ARTIST_SEED_MARK) is not None
 
 
 def test_the_prompt_carries_the_rules_that_matter():

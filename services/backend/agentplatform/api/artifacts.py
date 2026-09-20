@@ -152,6 +152,8 @@ class ImageModel(BaseModel):
     edits: bool
     configured: bool
     default: bool
+    billing: Literal["api", "codex"] = "api"
+    seeded: bool = True
 
 
 class GenerateIn(BaseModel):
@@ -346,7 +348,9 @@ async def image_models(request: Request,
     st = request.app.state
     async with st.session_factory() as s:
         try:
-            return await image_gen.models(s, st.tool_registry, st.secret_store)
+            codex = await image_gen.codex_available(s, st.secret_store, st.agent_store)
+            return await image_gen.models(s, st.tool_registry, st.secret_store,
+                                          codex_configured=codex)
         except ImageGenError as e:
             raise _rule(e)
 
@@ -440,6 +444,25 @@ async def generate_artifact(request: Request, body: GenerateIn,
         granted = await agents_api._caller_platform_tools(request, caller.agent)
         if TOOL_IMAGE_GEN not in granted:
             raise HTTPException(403, "image_gen is not granted to this agent")
+
+    # Subscription-backed generation is a normal Codex agent run. It has no
+    # provider key and no API-dollar reservation; the runner ingests the
+    # built-in ImageGen result through the run-scoped upload route.
+    if body.model == image_gen.CODEX_MODEL_ID:
+        async with st.session_factory() as s:
+            run = await _run_of(s, request, caller, writing=True)
+            if not await image_gen.codex_available(s, st.secret_store, st.agent_store):
+                raise HTTPException(503, "Codex image generation is not configured")
+        try:
+            row = await image_gen.generate_codex(
+                session_factory=st.session_factory, producer=st.producer,
+                settings=st.settings, agent_store=st.agent_store,
+                owner=caller.participant, principal=caller.principal,
+                parent_run=run, **body.model_dump(exclude={"model", "size", "quality", "seed"}))
+        except (ImageGenError, ArtifactRuleError) as e:
+            raise _rule(e)
+        return store.artifact_view(row)
+
     async with st.session_factory() as s:
         run = await _run_of(s, request, caller, writing=True)
         try:

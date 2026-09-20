@@ -1,4 +1,5 @@
 import json, os, re, stat
+import base64
 import urllib.error
 from pathlib import Path
 import runner
@@ -79,6 +80,30 @@ def test_codex_runtime_installs_oauth_and_normalizes_result(tmp_path, monkeypatc
     assert any(m == "PUT" and path.endswith("/codex-auth") for m, path, _ in calls)
 
 
+def test_codex_generated_images_are_uploaded_through_the_run_seam(tmp_path, monkeypatch):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    generated = tmp_path / ".codex" / "generated_images" / "thread"
+    generated.mkdir(parents=True)
+    # A complete 1x1 PNG; the runner treats bytes as opaque and the API does
+    # the authoritative raster sniff/measurement.
+    png = base64.b64decode(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wl6h9sAAAAASUVORK5CYII=")
+    (generated / "little-garden.png").write_bytes(png)
+    calls = []
+
+    def api(method, path, body=None, headers=None):
+        calls.append((method, path, body))
+        return {"id": "a" * 32, "name": body["name"]}
+
+    monkeypatch.setattr(runner, "_api_req", api)
+    uploaded = runner._upload_codex_generated("r" * 32)
+    assert uploaded == [{"id": "a" * 32, "name": "little-garden.png"}]
+    method, path, body = calls[0]
+    assert (method, path) == ("POST", f"/api/runs/{'r' * 32}/generated-images")
+    assert base64.b64decode(body["content_b64"]) == png
+    assert body["mime"] == "image/png"
+
+
 def test_codex_dev_profile_can_write_only_the_workspace(tmp_path, monkeypatch):
     monkeypatch.setenv("HOME", str(tmp_path))
     config = runner._write_codex_config(True).read_text()
@@ -87,16 +112,18 @@ def test_codex_dev_profile_can_write_only_the_workspace(tmp_path, monkeypatch):
     assert "sandbox_mode" not in config
 
 
-def test_codex_broker_mode_has_no_local_oauth_file(tmp_path, monkeypatch):
+def test_codex_broker_mode_uses_only_placeholder_login(tmp_path, monkeypatch):
     monkeypatch.setenv("HOME", str(tmp_path))
     monkeypatch.setenv("AP_CODEX_PROXY_URL", "http://agent-platform-codex-proxy:8000")
     config = runner._write_codex_config(False).read_text()
     assert 'sandbox_mode = "danger-full-access"' in config
-    assert 'model_provider = "agent-platform"' in config
-    assert 'base_url = "http://agent-platform-codex-proxy:8000"' in config
-    assert 'supports_websockets = false' in config
-    assert "agent-platform-placeholder" in config
-    assert not (tmp_path / ".codex" / "auth.json").exists()
+    assert 'model_provider = "openai"' in config
+    assert 'openai_base_url = "http://agent-platform-codex-proxy:8000"' in config
+    assert 'chatgpt_base_url = "http://agent-platform-codex-proxy:8000/backend-api/"' in config
+    auth = json.loads((tmp_path / ".codex" / "auth.json").read_text())
+    assert auth["auth_mode"] == "chatgpt"
+    assert auth["tokens"]["refresh_token"] == "agent-platform-placeholder"
+    assert "/Users/" not in json.dumps(auth)
 
 
 def test_install_credentials_prefers_claude_proxy(tmp_path, monkeypatch):

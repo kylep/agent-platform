@@ -77,9 +77,10 @@ claudeProxy:
     # cannot resolve). Set only to point the proxy somewhere else, e.g. a test.
     apiUrl: ""
 
-# Codex subscription OAuth broker (docs/design/26). Runner pods use a custom
-# provider with a harmless placeholder bearer; this service alone mounts and
-# refreshes the native Codex auth.json.
+# Codex subscription OAuth broker (docs/design/26). Runner pods retain Codex's
+# first-party provider identity but point its model and hosted-tool bases here,
+# with a harmless placeholder login; this service alone mounts and refreshes
+# the native Codex auth.json.
 codexProxy:
   enabled: true
   image:

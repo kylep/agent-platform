@@ -14,13 +14,16 @@ one provider-independent contract.
 ## Authentication
 
 `codex-credentials` contains the complete native `~/.codex/auth.json` created
-by `codex login`. Codex runners point a custom Responses provider at the
-in-cluster Codex broker
-and send a harmless placeholder bearer. The broker alone mounts `auth.json`,
-replaces authentication headers, refreshes OAuth under a single-flight lock,
-and persists rotated tokens through an authenticated internal API route. The
-runner therefore needs no nested filesystem sandbox or node-local AppArmor
-profile; Kubernetes remains the portable execution boundary.
+by `codex login`. Codex runners keep the first-party `openai` provider identity
+so hosted subscription tools remain available, but point `openai_base_url` and
+`chatgpt_base_url` at the in-cluster Codex broker and install a harmless
+placeholder login. The broker alone mounts the real `auth.json`, replaces
+authentication headers, refreshes OAuth under a single-flight lock, and
+persists rotated tokens through an authenticated internal API route. Its exact
+route allowlist covers the model catalog, Responses HTTP/WebSocket traffic,
+hosted-tool discovery, and ImageGen. The runner therefore needs no nested
+filesystem sandbox or node-local AppArmor profile; Kubernetes remains the
+portable execution boundary.
 
 The model does not receive OAuth tokens in its environment, filesystem, or
 request headers. Brokered deployments disable the legacy run-scoped credential

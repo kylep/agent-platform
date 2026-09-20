@@ -13,8 +13,10 @@ from pydantic import BaseModel, ValidationError
 from sqlalchemy import select, update
 from sqlalchemy.exc import IntegrityError
 from agentplatform import workbench
+from agentplatform import artifact_store, image_gen_service
 from agentplatform.agentdefs import model_of
-from agentplatform.api.artifacts import _bounded_body
+from agentplatform.agentspec import TOOL_ARTIFACTS
+from agentplatform.api.artifacts import ArtifactView, _bounded_body, _rule
 from agentplatform.api.auth import (ANNOTATE_ROLES, INVOKE_ROLES, READ_ROLES,
                                      require_admin, require_role)
 from agentplatform.api.gitedit import _github_app_token
@@ -64,6 +66,11 @@ class CodexAuth(BaseModel):
 
 class CodexThread(BaseModel):
     thread_id: str
+
+class CodexGeneratedImage(BaseModel):
+    name: str = "codex-image.png"
+    mime: str | None = None
+    content_b64: str
 
 def _summary(r: Run) -> dict:
     return {"id": r.id, "agent": r.agent, "state": r.state, "trigger": r.trigger,
@@ -198,6 +205,63 @@ def _own_run_or_403(request: Request, run_id: str) -> None:
     key_run = getattr(request.state, "api_key_run_id", None)
     if key_run is not None and key_run != run_id:
         raise HTTPException(status_code=403, detail="not this run's token")
+
+
+@router.post("/api/runs/{run_id}/generated-images", status_code=201,
+             response_model=ArtifactView,
+             dependencies=[Depends(require_role("session", "admin"))])
+async def keep_codex_generated_image(request: Request, run_id: str,
+                                     body: CodexGeneratedImage):
+    """Ingest a built-in ImageGen file from its own trusted runner.
+
+    The session credential is tied to this run, and the immutable Run prompt
+    carries the Studio's owner/provenance spec. The model never chooses who
+    owns the bytes or whether they count as generated.
+    """
+    _own_run_or_403(request, run_id)
+    st = request.app.state
+    # Reject an oversized base64 string before allocating its decoded form.
+    max_encoded = ((st.settings.artifacts_max_bytes + 2) // 3) * 4 + 16
+    if len(body.content_b64) > max_encoded:
+        raise HTTPException(413, f"an artifact is at most {st.settings.artifacts_max_bytes} bytes")
+    try:
+        data = base64.b64decode(body.content_b64, validate=True)
+    except (binascii.Error, ValueError):
+        raise HTTPException(422, "content_b64 is not valid base64")
+    if artifact_store.sniff(data, body.mime) not in artifact_store.RASTERS:
+        raise HTTPException(422, "generated image is not a supported raster")
+
+    async with st.session_factory() as s:
+        run = await s.get(Run, run_id)
+        if run is None:
+            raise HTTPException(404, "unknown run")
+        if run.runtime != "codex":
+            raise HTTPException(409, "generated-image upload belongs to a Codex run")
+        definition = await s.get(AgentDef, run.agent)
+        grants = set(definition.platform_tools or []) if definition is not None else set()
+        if TOOL_ARTIFACTS not in grants:
+            raise HTTPException(403, "this agent is not granted the artifacts tool")
+
+        spec = image_gen_service.codex_image_spec(run.prompt)
+        if spec is None:
+            raise HTTPException(409, "this run is not a Codex image generation")
+        owner = spec.get("owner") if isinstance(spec.get("owner"), str) else f"agent:{run.agent}"
+        if not (owner.startswith("user:") or owner.startswith("agent:")):
+            owner = f"agent:{run.agent}"
+        prompt = spec.get("prompt") if isinstance(spec.get("prompt"), str) else (run.user_message or run.prompt)
+        refs = spec.get("reference_ids") if isinstance(spec.get("reference_ids"), list) else []
+        tags = spec.get("tags") if isinstance(spec.get("tags"), list) else []
+        try:
+            row = await image_gen_service.keep_codex_image(
+                s, st.producer, st.settings, data=data, filename=body.name,
+                mime=body.mime, owner=owner, run_id=run.id, prompt=prompt,
+                reference_ids=refs, aspect=spec.get("aspect"),
+                name=spec.get("name") or None, tags=tags)
+        except (image_gen_service.ImageGenError,
+                artifact_store.ArtifactRuleError) as e:
+            await s.rollback()
+            raise _rule(e)
+        return artifact_store.artifact_view(row)
 
 
 def _session_key(run: Run) -> dict:

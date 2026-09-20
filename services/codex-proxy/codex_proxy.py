@@ -19,7 +19,20 @@ log = logging.getLogger("codex_proxy")
 logging.basicConfig(level=os.environ.get("LOG_LEVEL", "INFO"))
 
 CLIENT_ID = "app_EMoamEEZ73f0CkXaXp7hrann"
-ALLOWED = {("GET", "/models"), ("POST", "/responses")}
+CODEX_ROUTES = {("GET", "/models"), ("GET", "/responses"),
+                ("POST", "/responses"), ("POST", "/images/generations")}
+# Codex's built-in subscription tools (including ImageGen) are exposed by the
+# ChatGPT backend as an authenticated MCP endpoint. Keep this exact allowlist:
+# runners get the capability, not a general-purpose proxy into backend-api.
+CHATGPT_ROUTES = {("POST", "/backend-api/ps/mcp")}
+CHATGPT_READ_ROUTES = {
+    ("GET", "/backend-api/plugins/featured"),
+    ("GET", "/backend-api/ps/plugins/installed"),
+    ("GET", "/backend-api/ps/plugins/list"),
+    ("GET", "/backend-api/ps/plugins/suggested/codex"),
+    ("GET", "/backend-api/wham/settings/user"),
+}
+ALLOWED = CODEX_ROUTES | CHATGPT_ROUTES | CHATGPT_READ_ROUTES
 DROP_REQUEST = {
     "authorization", "chatgpt-account-id", "connection", "content-length",
     "cookie", "host", "openai-organization", "openai-project", "proxy-authorization",
@@ -44,7 +57,9 @@ class Config:
     upstream: str = "https://chatgpt.com/backend-api/codex"
     oauth_url: str = "https://auth.openai.com/oauth/token"
     refresh_window_seconds: int = 300
-    max_request_bytes: int = 16 * 1024 * 1024
+    # Four 8 MiB artifact references become roughly 43 MiB as base64 inside
+    # an ImageGen request. Leave enough envelope without an unbounded buffer.
+    max_request_bytes: int = 48 * 1024 * 1024
 
     @classmethod
     def from_env(cls) -> "Config":
@@ -177,12 +192,72 @@ async def _stream(request: web.Request, response) -> web.StreamResponse:
     return outgoing
 
 
+async def _websocket(request: web.Request, credentials: Credentials,
+                     session: ClientSession) -> web.WebSocketResponse:
+    """Tunnel Codex's first-party Responses WebSocket through the broker."""
+    headers = {k: v for k, v in request.headers.items()
+               if k.lower() not in DROP_REQUEST
+               and not k.lower().startswith("sec-websocket-")}
+    protocols = [part.strip() for part in
+                 request.headers.get("Sec-WebSocket-Protocol", "").split(",")
+                 if part.strip()]
+    config: Config = request.app["config"]
+    upstream_url = config.upstream.replace("https://", "wss://", 1).replace(
+        "http://", "ws://", 1) + str(request.rel_url)
+
+    async def connect(force_refresh: bool = False):
+        token, account = await credentials.current(force_refresh=force_refresh)
+        outgoing = {**headers, "Authorization": f"Bearer {token}",
+                    "ChatGPT-Account-Id": account}
+        return await session.ws_connect(upstream_url, headers=outgoing,
+                                        protocols=protocols)
+
+    try:
+        try:
+            upstream = await connect()
+        except Exception as exc:
+            if getattr(exc, "status", None) != 401:
+                raise
+            upstream = await connect(force_refresh=True)
+        selected = [upstream.protocol] if upstream.protocol else protocols
+        client = web.WebSocketResponse(protocols=selected)
+        await client.prepare(request)
+
+        async def relay(source, target):
+            async for message in source:
+                if message.type == web.WSMsgType.TEXT:
+                    await target.send_str(message.data)
+                elif message.type == web.WSMsgType.BINARY:
+                    await target.send_bytes(message.data)
+                elif message.type in (web.WSMsgType.CLOSE, web.WSMsgType.CLOSED,
+                                      web.WSMsgType.ERROR):
+                    break
+
+        left = asyncio.create_task(relay(client, upstream))
+        right = asyncio.create_task(relay(upstream, client))
+        done, pending = await asyncio.wait({left, right},
+                                           return_when=asyncio.FIRST_COMPLETED)
+        for task in pending:
+            task.cancel()
+        await upstream.close()
+        await client.close()
+        for task in done:
+            task.result()
+        return client
+    except CredentialError as exc:
+        log.error("credential broker failure: %s", exc)
+        raise web.HTTPBadGateway(text="Codex credential broker unavailable") from None
+
+
 async def proxy(request: web.Request) -> web.StreamResponse:
     if (request.method, request.path) not in ALLOWED:
         raise web.HTTPNotFound()
     body = await request.read()
     credentials: Credentials = request.app["credentials"]
     session: ClientSession = request.app["session"]
+    if request.method == "GET" and request.path == "/responses" \
+            and request.headers.get("Upgrade", "").lower() == "websocket":
+        return await _websocket(request, credentials, session)
     headers = {k: v for k, v in request.headers.items()
                if k.lower() not in DROP_REQUEST}
 
@@ -190,8 +265,16 @@ async def proxy(request: web.Request) -> web.StreamResponse:
         token, account = await credentials.current(force_refresh=force_refresh)
         outgoing = {**headers, "Authorization": f"Bearer {token}",
                     "ChatGPT-Account-Id": account}
+        upstream_root = request.app["config"].upstream
+        upstream_path = str(request.rel_url)
+        if ((request.method, request.path) in CHATGPT_ROUTES | CHATGPT_READ_ROUTES):
+            # Codex's default chatgpt_base_url is /backend-api/. Its MCP
+            # client appends /ps/mcp to that base, while model traffic uses
+            # the sibling /backend-api/codex base.
+            upstream_root = upstream_root.removesuffix("/codex")
+            upstream_path = str(request.rel_url).removeprefix("/backend-api")
         return await session.request(
-            request.method, request.app["config"].upstream + str(request.rel_url),
+            request.method, upstream_root + upstream_path,
             headers=outgoing, data=body, allow_redirects=False)
 
     try:

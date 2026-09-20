@@ -568,6 +568,8 @@ export type ImageModel = {
   edits: boolean;
   configured: boolean;
   default: boolean;
+  billing?: "api" | "codex";
+  seeded?: boolean;
 };
 
 export type GenerateIn = {

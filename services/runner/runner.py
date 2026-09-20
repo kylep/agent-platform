@@ -1,4 +1,4 @@
-import asyncio, base64, hashlib, json, os, re, shutil, stat, subprocess, sys, tempfile, uuid
+import asyncio, base64, hashlib, json, mimetypes, os, re, shutil, stat, subprocess, sys, tempfile, time, uuid
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -286,19 +286,40 @@ def _write_codex_config(dev: bool, instructions: str = "",
     lines = ['approval_policy = "never"',
              f'developer_instructions = {json.dumps(instructions)}']
     if proxy:
-        # Kubernetes is the execution sandbox. The custom provider carries no
-        # credential: the broker discards this placeholder and injects OAuth.
+        # Kubernetes is the execution sandbox. The first-party provider keeps
+        # its hosted tools, while the broker discards these placeholders and
+        # injects OAuth.
+        # A file-shaped ChatGPT login makes Codex register its hosted tools;
+        # it contains no usable secret and is scoped to this disposable pod.
+        def fake_jwt(claims: dict) -> str:
+            def part(value: dict) -> str:
+                return base64.urlsafe_b64encode(
+                    json.dumps(value, separators=(",", ":")).encode()
+                ).decode().rstrip("=")
+            return f"{part({'alg': 'none', 'typ': 'JWT'})}.{part(claims)}.placeholder"
+
+        now = int(time.time())
+        claims = {"exp": now + 86400, "sub": "agent-platform-runner",
+                  "email": "runner@agent-platform.invalid",
+                  "https://api.openai.com/auth": {
+                      "chatgpt_account_id": "agent-platform-placeholder",
+                      "chatgpt_plan_type": "plus"}}
+        (home / "auth.json").write_text(json.dumps({
+            "auth_mode": "chatgpt", "OPENAI_API_KEY": None,
+            "tokens": {"id_token": fake_jwt(claims),
+                       "access_token": fake_jwt(claims),
+                       "refresh_token": "agent-platform-placeholder",
+                       "account_id": "agent-platform-placeholder"},
+            "last_refresh": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(now)),
+        }, separators=(",", ":")))
+        (home / "auth.json").chmod(0o600)
         lines += ['sandbox_mode = "danger-full-access"',
-                  'model_provider = "agent-platform"', '',
-                  '[model_providers.agent-platform]',
-                  'name = "Agent Platform Codex Broker"',
-                  f'base_url = {json.dumps(proxy)}',
-                  'wire_api = "responses"',
-                  'supports_websockets = false',
-                  '', '[model_providers.agent-platform.auth]',
-                  'command = "/bin/echo"',
-                  'args = ["agent-platform-placeholder"]',
-                  'refresh_interval_ms = 0']
+                  # Keep the first-party provider identity so Codex exposes
+                  # hosted subscription tools; only its network base moves.
+                  'model_provider = "openai"',
+                  f'openai_base_url = {json.dumps(proxy)}',
+                  f'chatgpt_base_url = {json.dumps(proxy + "/backend-api/")}',
+                  'cli_auth_credentials_store = "file"']
     else:
         # Legacy direct-auth mode. This retains Codex's own filesystem sandbox
         # because auth.json is present in the runner's home.
@@ -643,6 +664,47 @@ def _upload_codex_thread(run_id: str, thread_id: str) -> None:
     _api_req("PUT", f"/api/runs/{run_id}/codex-session", {"thread_id": thread_id})
 
 
+_CODEX_IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".webp", ".gif"}
+
+
+def _codex_generated_files() -> list[Path]:
+    """Built-in ImageGen's outputs, in stable creation order.
+
+    A runner pod has a fresh HOME, so every file under this directory belongs
+    to this run. Resolve and reject symlinks anyway: the model must not turn
+    the trusted uploader into a reader for some other path in the pod.
+    """
+    root = Path(os.environ.get("CODEX_HOME", Path.home() / ".codex")) / "generated_images"
+    if not root.is_dir():
+        return []
+    resolved_root = root.resolve()
+    out = []
+    for path in root.rglob("*"):
+        if not path.is_file() or path.is_symlink() or path.suffix.lower() not in _CODEX_IMAGE_SUFFIXES:
+            continue
+        try:
+            path.resolve().relative_to(resolved_root)
+        except ValueError:
+            continue
+        out.append(path)
+    return sorted(out, key=lambda p: (p.stat().st_mtime_ns, str(p)))[:4]
+
+
+def _upload_codex_generated(run_id: str) -> list[dict]:
+    """Move native Codex images across the run-scoped API seam."""
+    uploaded = []
+    for path in _codex_generated_files():
+        data = path.read_bytes()
+        if not data:
+            continue
+        uploaded.append(_api_req(
+            "POST", f"/api/runs/{run_id}/generated-images",
+            {"name": path.name,
+             "mime": mimetypes.guess_type(path.name)[0] or "application/octet-stream",
+             "content_b64": base64.b64encode(data).decode()}))
+    return uploaded
+
+
 def run(producer=None) -> int:
     run_id, agent = os.environ["AP_RUN_ID"], os.environ["AP_AGENT"]
     prompt = os.environ["AP_PROMPT"]
@@ -839,6 +901,30 @@ async def _run(producer, run_id: str, agent: str, prompt: str) -> int:
                                 "detail": "resume failed; retrying with replayed history"})
         final_sid = None
         rc = await _invoke(_args(None))
+    if runtime == "codex" and rc == 0:
+        try:
+            generated = await asyncio.to_thread(_upload_codex_generated, run_id)
+            if generated:
+                markers = []
+                for artifact in generated:
+                    marker = f"[[artifact:{artifact.get('id')}]]"
+                    markers.append(marker)
+                    seq += 1
+                    await producer.publish(
+                        TOPIC_TRANSCRIPT, run_id,
+                        {"seq": seq, "type": "generated_image", "artifact": artifact,
+                         "runtime": "codex"})
+                final_text = "\n".join(markers + ([final_text] if final_text else []))
+        except Exception as e:
+            # A generated file that cannot be kept is a failed run: otherwise
+            # the model would claim success while its only deliverable dies
+            # with the pod's emptyDir.
+            final_error = f"generated image could not be stored: {e}"
+            rc = 1
+            seq += 1
+            await producer.publish(TOPIC_TRANSCRIPT, run_id,
+                                   {"seq": seq, "type": "generated_image",
+                                    "error": final_error, "runtime": "codex"})
     if runtime == "codex" and rc == 0 and final_text:
         seq += 1
         await producer.publish(TOPIC_TRANSCRIPT, run_id,

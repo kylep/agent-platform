@@ -14,6 +14,15 @@ building block [12](12-executable-capabilities.md) (the executor runs the
 provider code), and DB-first agents [15](15-db-first-agents.md) (the artist
 is a row).
 
+**Codex allowance addendum (2026-09-20).** Studio also offers **Codex
+ImageGen · GPT Image 2** whenever the stored Codex login is healthy. This
+dispatches a normal run to the seeded `codex-artist` instead of calling
+`tools/image_gen`, so it spends Codex subscription quota and never enters the
+API-dollar reservation ledger. The runner uses Codex's first-party image tool,
+uploads the raster through a run-scoped endpoint, and the API stores it under
+the same artifact, provenance, event, and `#art` card contract as provider
+images. The original `artist` and every API-priced model remain available.
+
 One of the numbered design records under `docs/design/`. The series index is
 `docs/design/00-overview.md`; component names are defined in
 `docs/building-blocks/glossary.md`, and Kyle is the project owner.
@@ -369,7 +378,30 @@ tiles), filters (kind, source, owner, tag, search), lightbox with provenance
 and the same actions, delete with confirm, the total-bytes bar against the
 cap. `/artifacts/<id>` deep-links the lightbox.
 
+The model picker groups **Codex allowance** above **API-priced models**. The
+Codex choice has aspect and reference controls but no seed or API price; its
+artifacts record `provider: codex`, `model: gpt-image-2`,
+`billing: codex_allowance`, and `cost_usd: 0`. API spend totals retain their
+original meaning.
+
+The Codex runner still contains no OAuth secret. In broker mode it receives a
+placeholder `auth.json` so the CLI enables first-party hosted tools, while
+`openai_base_url` and `chatgpt_base_url` point at `codex-proxy`. The proxy
+replaces every credential and exposes only the exact model, Responses
+WebSocket, ImageGen, hosted MCP, plugin-catalog, and settings routes Codex
+needs. The runner collects files from `$CODEX_HOME/generated_images` after a
+successful turn. The upload route accepts only raster bytes from that run's
+session token and only when the immutable run prompt contains the
+platform-authored image specification.
+
 ## The artist
+
+`codex-artist` is a second seeded agent with runtime `codex`, model
+`gpt-5.6-luna`, and `imagegen`, `artifacts`, and `relay` access. It is the
+execution engine behind the Studio's Codex choice and can also be summoned in
+Relay for conversational briefs. It generates one image, uses artifact
+references as visible inputs, and relies on the runner to create the artifact
+id after the turn.
 
 Seeded row `artist` (`model: sonnet`, not `system` so `@all` reaches it,
 grants `image_gen, artifacts, relay`), description "Makes images on request:

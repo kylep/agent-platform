@@ -181,11 +181,13 @@ async def test_relay_job_message_summons_every_enabled_agent(sf, producer, seed_
         decided = [(i.agent, i.decision) for i in
                    (await s.execute(select(RelayInvocation))).scalars()]
         runs = (await s.execute(select(Run))).scalars().all()
-    # The seeded artist and engineer are not system agents (docs/design/23,
-    # 24): the standup reaches them as it reaches every other enabled agent.
-    assert sorted(decided) == [("ada", "invoked"), ("artist", "invoked"),
-                               ("bob", "invoked"), ("engineer", "invoked")]
-    assert sorted(r.agent for r in runs) == ["ada", "artist", "bob", "engineer"]
+        # The seeded artists and engineer are not system agents (docs/design/23,
+        # 24): the standup reaches them as it reaches every other enabled agent.
+        assert sorted(decided) == [("ada", "invoked"), ("artist", "invoked"),
+                                   ("bob", "invoked"), ("codex-artist", "invoked"),
+                                   ("engineer", "invoked")]
+    assert sorted(r.agent for r in runs) == [
+        "ada", "artist", "bob", "codex-artist", "engineer"]
     assert all(r.trigger == "mention" for r in runs)
     # The summons still ADDRESSES the room — `*`, not a roster — so who it wakes
     # stays the router's decision and can change without rewriting the message.

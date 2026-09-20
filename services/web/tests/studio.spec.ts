@@ -58,6 +58,37 @@ test("the model picker offers every configured model, and the form follows the c
   expect(unmatched).toEqual([]);
 });
 
+test("Codex allowance is grouped, selected, and hides unsupported knobs", async ({ page }) => {
+  const writes = captureWrites(page);
+  await mockApi(page);
+  await page.route("**/api/artifacts/models", async (route: Route) => {
+    await route.fulfill({ json: [
+      { id: "codex-imagegen", provider: "codex", label: "Codex ImageGen · GPT Image 2",
+        price_usd: 0, sizes: null, aspects: ["1:1", "16:9", "9:16"],
+        custom_size: false, qualities: null, edits: true, configured: true, default: true,
+        billing: "codex", seeded: false },
+      { id: "gpt-image-1", provider: "openai", label: "GPT Image 1", price_usd: 0.04,
+        sizes: ["1024x1024"], aspects: null, custom_size: false, qualities: ["high"],
+        edits: true, configured: true, default: true, billing: "api", seeded: true },
+    ] });
+  });
+  await page.goto("/studio");
+  const model = page.getByLabel("Model");
+  await expect(model).toHaveValue("codex-imagegen");
+  await expect(model.locator("optgroup").nth(0)).toHaveAttribute("label", "Codex allowance");
+  await expect(model.locator("option", { hasText: "Codex ImageGen" }))
+    .toContainText("included allowance");
+  await expect(page.getByLabel("Aspect")).toHaveValue("1:1");
+  await expect(page.getByLabel("Seed")).toHaveCount(0);
+  await page.getByLabel("Prompt").fill("A cheerful circuit garden");
+  await expect(page.getByRole("button", { name: /^Generate/ })).toContainText("Codex allowance");
+  await page.getByRole("button", { name: /^Generate/ }).click();
+  const generated = writes.find((w) => w.method() === "POST")!;
+  expect(JSON.parse(generated.postData() ?? "{}")).toEqual({
+    model: "codex-imagegen", prompt: "A cheerful circuit garden", aspect: "1:1",
+  });
+});
+
 test("generate posts what the form shows, references included, and the result is the hero", async ({ page }) => {
   const writes = captureWrites(page);
   const unmatched = await mockApi(page);

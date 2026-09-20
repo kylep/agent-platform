@@ -20,7 +20,7 @@ from sqlalchemy import select
 
 from agentplatform import image_gen_service as svc
 from agentplatform.config import Settings
-from agentplatform.db import (ART_CHANNEL_MARK, Artifact, Conversation, RelayMessage,
+from agentplatform.db import (ART_CHANNEL_MARK, Artifact, Conversation, RelayMessage, Run,
                               SchemaMark, SecretMeta, utcnow)
 from agentplatform.events import TOPIC_ARTIFACTS_EVENTS, TOPIC_RELAY_MESSAGES
 from agentplatform.relay_router import RelayRouter
@@ -580,15 +580,45 @@ async def test_the_executor_decides_the_bytes(admin_client, executor):
     assert a["meta"]["model"] == DEFAULT_MODEL
 
 
+async def test_codex_runner_output_becomes_a_generated_artifact(admin_client, sf):
+    run_id = "c" * 32
+    run_prompt = svc.codex_image_prompt(
+        prompt="A tiny robot tending a circuit garden", owner="user:admin",
+        aspect="1:1", reference_ids=[], name="garden.png", tags=["demo"])
+    async with sf() as s:
+        s.add(Run(id=run_id, agent=svc.CODEX_ARTIST, prompt=run_prompt,
+                  trigger="studio", requested_by="admin", initiated_by="admin",
+                  runtime="codex", state="running"))
+        await s.commit()
+
+    data = png_bytes(64, 64)
+    r = await admin_client.post(
+        f"/api/runs/{run_id}/generated-images",
+        json={"name": "exec-output.png", "mime": "image/png",
+              "content_b64": base64.b64encode(data).decode()})
+    assert r.status_code == 201, r.text
+    artifact = r.json()
+    assert (artifact["owner"], artifact["source"], artifact["run_id"]) == (
+        "user:admin", "generated", run_id)
+    assert artifact["name"] == "garden.png" and artifact["tags"] == ["demo"]
+    assert artifact["meta"]["billing"] == "codex_allowance"
+    assert artifact["meta"]["model"] == "gpt-image-2"
+    cards = await _art_messages(sf)
+    assert cards[-1].card["artifact_id"] == artifact["id"]
+
+
 # --- models -------------------------------------------------------------------------
 
 async def test_models_reflects_secret_status(admin_client, secret_store, sf):
     r = await admin_client.get("/api/artifacts/models")
     assert r.status_code == 200, r.text
     models = r.json()
-    assert {m["provider"] for m in models} == {"openai", "gemini", "bfl"}
+    assert {m["provider"] for m in models} == {"codex", "openai", "gemini", "bfl"}
     assert not any(m["configured"] for m in models)
-    assert [m["id"] for m in models if m["default"]] == [DEFAULT_MODEL]
+    assert [m["id"] for m in models if m["default"]] == [svc.CODEX_MODEL_ID, DEFAULT_MODEL]
+    codex = models[0]
+    assert codex["id"] == svc.CODEX_MODEL_ID and codex["billing"] == "codex"
+    assert codex["price_usd"] == 0 and codex["seeded"] is False and codex["edits"]
     flare = next(m for m in models if m["id"] == DEFAULT_MODEL)
     assert flare["price_usd"] == 0.2 and flare["edits"] and flare["custom_size"]
     assert flare["sizes"] and flare["aspects"] is None
@@ -608,7 +638,8 @@ async def test_models_reflects_secret_status(admin_client, secret_store, sf):
     by_provider = {}
     for m in (await admin_client.get("/api/artifacts/models")).json():
         by_provider.setdefault(m["provider"], set()).add(m["configured"])
-    assert by_provider == {"openai": {True}, "gemini": {False}, "bfl": {True}}
+    assert by_provider == {"codex": {False}, "openai": {True},
+                           "gemini": {False}, "bfl": {True}}
 
 
 def test_provider_secrets_are_the_tools_own():
