@@ -78,6 +78,17 @@ cases:
       - pytest:services/backend/tests/test_tickets_lib.py::test_event_row_text_flattens_and_caps_a_reason
     tags: [injection]
 
+  - key: tickets.one-line-caps-large-body
+    title: one_line caps a 5 KB body and strips every room mention in it, not just the first
+    layer: unit
+    priority: p3
+    steps: [call one_line on a ~5 KB string that repeats "@all" dozens of times, at a limit below and at the string's own length]
+    expected: the result never exceeds the limit and ends in an ellipsis when cut; every "@all" in the body loses its "@", including ones past where a short-input test would stop looking
+    automation:
+      - pytest:services/backend/tests/test_tickets_lib.py::test_one_line_caps_and_strips_a_room_mention_in_a_5kb_body
+      - pytest:services/backend/tests/test_tickets_lib.py::test_one_line_strips_every_room_mention_when_the_5kb_body_fits
+    tags: [injection]
+
   - key: tickets.key-regex
     title: A ticket key matches PREFIX-n and nothing else
     layer: unit
