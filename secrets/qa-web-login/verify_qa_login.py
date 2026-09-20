@@ -5,8 +5,10 @@ call `bin/ap-web-login` makes in the QA pod, so "valid" here means the walk
 can log in. A 401 is the real failure (the row's hash and the stored value
 have drifted: rotate). Anything else — the API down, a 5xx — is inconclusive
 and fails CLOSED rather than call the credential good. Runs sandboxed with only
-this secret's keys in the environment; the API is the process running the
-check, so the default target is its own listener.
+this secret's keys in the environment plus AP_API_URL, which the platform
+supplies (the verifier hands down `settings.api_internal_url`; the heartbeat
+runs in the dispatcher pod, so this is NOT the local process). The loopback
+default is for a hand run on the API host only.
 Exit 0 = valid; stdout is the detail line and never carries the password.
 """
 import json

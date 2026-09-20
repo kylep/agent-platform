@@ -92,7 +92,8 @@ async def main() -> None:
     verifier = SecretVerifier(SecretRegistry(settings.secrets_root),
                               K8sSecretStore(core, settings.k8s_namespace),
                               session_factory,
-                              settings.secret_verify_interval_seconds)
+                              settings.secret_verify_interval_seconds,
+                              api_url=settings.api_internal_url)
     dispatcher = Dispatcher(settings, session_factory, producer, agent_store, launcher,
                             skill_store=skill_store, verifier=verifier)
     watcher = JobWatcher(batch, settings, session_factory, producer)

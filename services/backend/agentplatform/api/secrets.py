@@ -85,7 +85,9 @@ async def verify_secret(request: Request, name: str):
     if data is None:
         raise HTTPException(404, "secret is not set")
     info = _registry(request).get(name)
-    result = await secretverify.verify_secret(info, data) if info else None
+    result = (await secretverify.verify_secret(
+        info, data, api_url=request.app.state.settings.api_internal_url)
+        if info else None)
     if result is None:
         raise HTTPException(422, "this secret has no verify")
     async with request.app.state.session_factory() as s:

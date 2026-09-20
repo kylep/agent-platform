@@ -78,6 +78,61 @@ async def test_verify_script_pass_fail_and_env_isolation(tmp_path, monkeypatch):
     assert r.status == "invalid" and r.detail == "bad token"
 
 
+# The child env: PATH + this secret's data + at most ONE platform value, the
+# API's base URL. A verify that proves a credential against the platform's
+# own login (qa-web-login) needs it, and the heartbeat runs in the
+# DISPATCHER pod — where loopback is nothing and the pod env does not carry
+# AP_API_URL either — so the verifier hands the URL down from its settings.
+# (LC_CTYPE and __CF_* are the interpreter's own UTF-8 coercion and the macOS
+# runtime, injected after exec — not something the parent passed.)
+_ENV_DUMP = ("import os, json\n"
+             "print(json.dumps({k: v for k, v in os.environ.items()\n"
+             "                  if k not in ('PATH', 'LC_CTYPE') and not k.startswith('__CF_')}))\n")
+
+
+async def test_verify_script_env_carries_only_data_and_the_api_url(tmp_path, monkeypatch):
+    import json
+    monkeypatch.setenv("AP_DB_URL", "postgres://leak")
+    monkeypatch.setenv("AP_KAFKA_BOOTSTRAP", "kafka:9092")
+    monkeypatch.delenv("AP_API_URL", raising=False)
+    info = _script_secret(tmp_path, _ENV_DUMP)
+    # Nothing platform-side by default.
+    r = await verify_secret(info, {"token": "t"})
+    assert json.loads(r.detail) == {"token": "t"}
+    # An explicit api_url is the one extra key.
+    r = await verify_secret(info, {"token": "t"}, api_url="http://agent-platform-api:8000")
+    assert json.loads(r.detail) == {"token": "t", "AP_API_URL": "http://agent-platform-api:8000"}
+    # The process env supplies it when the caller does not (a pod that has it).
+    monkeypatch.setenv("AP_API_URL", "http://from-env:8000")
+    r = await verify_secret(info, {"token": "t"})
+    assert json.loads(r.detail) == {"token": "t", "AP_API_URL": "http://from-env:8000"}
+    # The explicit value wins over the env, and a secret cannot redirect the
+    # check by carrying a key of that name.
+    r = await verify_secret(info, {"token": "t", "AP_API_URL": "http://evil"},
+                            api_url="http://agent-platform-api:8000")
+    assert json.loads(r.detail)["AP_API_URL"] == "http://agent-platform-api:8000"
+
+
+async def test_verifier_hands_its_api_url_to_every_script(sf, tmp_path, monkeypatch):
+    import json
+    monkeypatch.delenv("AP_API_URL", raising=False)
+    _script_secret(tmp_path, _ENV_DUMP)
+    store = InMemorySecretStore()
+    await store.set("scripted", {"token": "t"})
+    v = SecretVerifier(SecretRegistry(tmp_path), store, sf,
+                       api_url="http://agent-platform-api:8000")
+    seen = {}
+    real = sv.verify_secret
+
+    async def spy(info, data, api_url=None):
+        r = await real(info, data, api_url=api_url)
+        seen[info.name] = json.loads(r.detail)
+        return r
+    monkeypatch.setattr(sv, "verify_secret", spy)
+    assert (await v.verify_all()) == {"scripted": "valid"}
+    assert seen["scripted"] == {"token": "t", "AP_API_URL": "http://agent-platform-api:8000"}
+
+
 async def test_verify_script_missing_file(tmp_path):
     d = tmp_path / "ghost"; d.mkdir()
     (d / "secret.yaml").write_text("verify:\n  script: verify_nope.py\n")

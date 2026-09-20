@@ -14,9 +14,13 @@ log = logging.getLogger("verifier")
 
 class SecretVerifier:
     def __init__(self, registry, secret_store, session_factory,
-                 interval_seconds: int = 600):
+                 interval_seconds: int = 600, api_url: str | None = None):
         self.registry, self.store, self.sf = registry, secret_store, session_factory
         self.interval = interval_seconds
+        # The heartbeat runs in the dispatcher, whose pod env carries no
+        # AP_API_URL; a script that checks its credential against the
+        # platform's own login gets the URL from here (settings.api_internal_url).
+        self.api_url = api_url
 
     async def verify_one(self, name: str) -> str | None:
         """Verify one secret now and record the result. Returns the fresh
@@ -33,7 +37,7 @@ class SecretVerifier:
             if data is None:
                 status, detail = "missing", "not set"
             else:
-                r = await verify_secret(info, data)
+                r = await verify_secret(info, data, api_url=self.api_url)
                 status, detail = r.status, r.detail
         except Exception:
             log.exception("verify pass failed for %s", name)
