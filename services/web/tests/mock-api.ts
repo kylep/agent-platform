@@ -68,6 +68,8 @@ const runDetail = {
 const secrets = [
   { name: "claude-credentials", status: "valid", declared: true, required: true,
     hint: "A `claude setup-token` value.", key: "", probeable: false },
+  { name: "codex-credentials", status: "valid", declared: true, required: true,
+    hint: "Codex ChatGPT OAuth credentials.", key: "", probeable: false },
   { name: "discord-webhook", status: "missing", declared: true, required: false,
     hint: "Discord incoming webhook URL", key: "DISCORD_WEBHOOK_URL", probeable: true },
   { name: "mystery-value", status: "unprobed", declared: false, required: false,
@@ -1326,6 +1328,12 @@ function quotaSnapshot(over: Record<string, unknown> = {}) {
     seven_day: { utilization: 0.81, resets_at: at(4.2 * 86400e3) },
     status: "allowed", observed_at: at(-120e3), source: "proxy",
     stale: false, age_seconds: 120, probe: null,
+    codex: {
+      five_hour: { utilization: 0.11, resets_at: at(2.5 * 3600e3) },
+      seven_day: { utilization: 0.95, resets_at: at(5 * 86400e3) },
+      status: "allowed", observed_at: at(-30e3), source: "refresh",
+      stale: false, age_seconds: 30, probe: "usage",
+    },
     ...over,
   };
 }

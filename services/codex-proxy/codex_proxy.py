@@ -6,6 +6,7 @@ import base64
 import json
 import logging
 import os
+import secrets
 import time
 from copy import deepcopy
 from dataclasses import dataclass
@@ -212,7 +213,53 @@ async def health(request: web.Request) -> web.Response:
     credentials: Credentials = request.app["credentials"]
     if credentials.dirty:
         raise web.HTTPServiceUnavailable(text="credential persistence pending")
+    try:
+        await credentials.current()
+    except CredentialError:
+        raise web.HTTPServiceUnavailable(text="credential unavailable") from None
     return web.json_response({"ok": True})
+
+
+async def quota(request: web.Request) -> web.Response:
+    """Private usage probe for the API; never exposed to runner workloads."""
+    config: Config = request.app["config"]
+    try:
+        expected = config.internal_secret_file.read_text().strip()
+    except OSError:
+        raise web.HTTPServiceUnavailable(text="internal credential unavailable") from None
+    presented = request.headers.get("X-AP-Internal-Secret", "")
+    if not expected or not secrets.compare_digest(presented, expected):
+        raise web.HTTPUnauthorized(text="unauthorized")
+    credentials: Credentials = request.app["credentials"]
+    session: ClientSession = request.app["session"]
+
+    async def send(force_refresh: bool = False):
+        token, account = await credentials.current(force_refresh=force_refresh)
+        # ChatGPT's current Codex client uses the WHAM usage route while model
+        # traffic remains under /codex. Keep both behind the same OAuth owner.
+        usage_url = (config.upstream.removesuffix("/codex") + "/wham/usage"
+                     if config.upstream.endswith("/codex")
+                     else config.upstream + "/usage")
+        return await session.get(usage_url, headers={
+            "Authorization": f"Bearer {token}", "ChatGPT-Account-Id": account,
+            "User-Agent": "codex-cli", "Accept": "application/json",
+        }, allow_redirects=False)
+
+    try:
+        upstream = await send()
+        if upstream.status == 401:
+            await upstream.read()
+            upstream.release()
+            upstream = await send(force_refresh=True)
+        try:
+            body = await upstream.read()
+            return web.Response(body=body, status=upstream.status,
+                                content_type="application/json")
+        finally:
+            upstream.release()
+    except CredentialError as exc:
+        log.error("credential broker failure: %s", exc)
+        raise web.HTTPBadGateway(text="Codex credential broker unavailable") from None
 
 
 def create_app(config: Config | None = None) -> web.Application:
@@ -230,6 +277,7 @@ def create_app(config: Config | None = None) -> web.Application:
     app["config"] = config
     app.cleanup_ctx.append(context)
     app.router.add_get("/healthz", health)
+    app.router.add_get("/internal/quota", quota)
     app.router.add_route("*", "/{tail:.*}", proxy)
     return app
 

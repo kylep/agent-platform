@@ -47,7 +47,8 @@ from agentplatform.api import schemas as S
 from agentplatform.api.auth import READ_ROLES, require_role
 from agentplatform.db import AgentDef, utcnow
 from agentplatform.quota import (Observation, _percent, is_stale,
-                                 parse_observation, parse_observed_at)
+                                 parse_codex_usage, parse_observation,
+                                 parse_observed_at)
 from agentplatform.quota_store import STREAM
 from agentplatform.relay_feed import OVERFLOW
 
@@ -151,7 +152,10 @@ def _client(app) -> httpx.AsyncClient:
 async def _snapshot(request: Request) -> dict:
     now = utcnow()
     async with request.app.state.session_factory() as s:
-        return quota_store.serialize(await quota_store.latest(s), now)
+        claude = quota_store.serialize(await quota_store.latest(s), now)
+        codex_row = await quota_store.latest(s, "codex")
+        codex = quota_store.serialize(codex_row, now) if codex_row else None
+        return {**claude, "codex": codex}
 
 
 @router.get("/api/quota", response_model=S.Quota)
@@ -172,7 +176,18 @@ async def refresh_quota(request: Request, caller: str = Depends(require_role(*VI
     it wrote, which is the same answer it would have got from its own probe and
     one fewer request to Anthropic."""
     async with _lock(request.app):
-        return await _refresh(request)
+        claude = await _refresh(request)
+        codex = None
+        if request.app.state.settings.codex_proxy_url:
+            try:
+                codex = await _refresh_codex(request)
+            except HTTPException as exc:
+                if exc.status_code != 503:
+                    raise
+                log.warning("Codex quota refresh unavailable: %s", exc.detail)
+        if codex is None:
+            codex = (await _snapshot(request)).get("codex")
+        return {**claude, "codex": codex}
 
 
 async def _refresh(request: Request) -> dict:
@@ -189,7 +204,7 @@ async def _refresh(request: Request) -> dict:
         return {**quota_store.serialize(row, utcnow()), "probe": step}
 
 
-async def _cache_hit(request: Request) -> dict | None:
+async def _cache_hit(request: Request, provider: str = "claude") -> dict | None:
     """The snapshot, when it is recent enough AND still believable — otherwise
     None, meaning "probe". Both halves are load-bearing: recency alone would
     keep serving a window that has already turned over, and freshness alone
@@ -197,7 +212,7 @@ async def _cache_hit(request: Request) -> dict | None:
     st = request.app.state
     now = utcnow()
     async with st.session_factory() as s:
-        row = await quota_store.latest(s)
+        row = await quota_store.latest(s, provider)
         body = quota_store.serialize(row, now)
     if row is None or is_stale(row, now):
         return None
@@ -238,6 +253,37 @@ async def _probe(request: Request) -> tuple[Observation, str]:
     raise HTTPException(503, "the probe returned no usage headers")
 
 
+async def _refresh_codex(request: Request) -> dict:
+    """Read subscription usage through the Codex credential boundary."""
+    st = request.app.state
+    cached = await _cache_hit(request, "codex")
+    if cached is not None:
+        return {**cached, "probe": None}
+    base = (st.settings.codex_proxy_url or "").rstrip("/")
+    if not base:
+        raise HTTPException(503, "no codex proxy configured")
+    try:
+        response = await _client(request.app).get(
+            base + "/internal/quota",
+            headers={SECRET_HEADER: st.settings.internal_secret},
+            timeout=st.settings.quota_probe_timeout_seconds)
+    except httpx.HTTPError:
+        log.warning("quota probe could not reach the codex proxy", exc_info=True)
+        raise HTTPException(503, "the codex proxy could not be reached")
+    if response.status_code != 200:
+        raise HTTPException(503, f"the codex usage probe returned {response.status_code}")
+    try:
+        payload = response.json()
+    except ValueError:
+        raise HTTPException(503, "the codex usage probe returned invalid JSON") from None
+    obs = parse_codex_usage(payload, utcnow(), "refresh")
+    if obs is None:
+        raise HTTPException(503, "the codex usage probe returned no known windows")
+    async with st.session_factory() as s:
+        row = await quota_store.observe(s, st.producer, obs, "codex")
+    return {**quota_store.serialize(row, utcnow()), "probe": "usage"}
+
+
 @router.get("/api/quota/ok", response_model=S.QuotaOk)
 async def quota_ok(request: Request, caller: str = Depends(require_role(*VIEW))):
     """May the caller start expensive work now? One boolean, and what it was
@@ -253,35 +299,39 @@ async def quota_ok(request: Request, caller: str = Depends(require_role(*VIEW)))
     human asking is asking what an ordinary agent would be told."""
     async with _lock(request.app):
         body = await _snapshot(request)
-        if body["stale"]:
+        max_5h, max_7d, runtime = await _thresholds(request)
+        reading = body.get("codex") if runtime == "codex" else body
+        if reading is None or reading["stale"]:
             try:
-                body = await _refresh(request)
+                reading = (await _refresh_codex(request) if runtime == "codex"
+                           else await _refresh(request))
             except HTTPException as exc:
                 if exc.status_code != 503:
                     raise
                 log.warning("quota gate could not refresh a stale reading: %s",
                             exc.detail)
-    max_5h, max_7d = await _thresholds(request)
-    return gate(body, max_5h, max_7d)
+    return gate(reading or quota_store.serialize(None, utcnow()), max_5h, max_7d,
+                runtime)
 
 
-async def _thresholds(request: Request) -> tuple[int, int]:
+async def _thresholds(request: Request) -> tuple[int, int, str]:
     """The caller's limits: its agent row's when the token names an agent that
     still exists, the column defaults otherwise. A row that predates the
     columns has been backfilled (`db._ensure_workbench_defaults`), but a null
     is still read as the default rather than as a comparison with None."""
     agent = getattr(request.state, "api_key_agent", None)
     if not agent:
-        return DEFAULT_MAX_PCT
+        return (*DEFAULT_MAX_PCT, "claude")
     async with request.app.state.session_factory() as s:
         row = await s.get(AgentDef, agent)
     if row is None:
-        return DEFAULT_MAX_PCT
+        return (*DEFAULT_MAX_PCT, "claude")
     return (DEFAULT_MAX_PCT[0] if row.quota_5h_max_pct is None else row.quota_5h_max_pct,
-            DEFAULT_MAX_PCT[1] if row.quota_7d_max_pct is None else row.quota_7d_max_pct)
+            DEFAULT_MAX_PCT[1] if row.quota_7d_max_pct is None else row.quota_7d_max_pct,
+            "codex" if row.runtime == "codex" else "claude")
 
 
-def gate(snapshot: dict, max_5h: int, max_7d: int) -> dict:
+def gate(snapshot: dict, max_5h: int, max_7d: int, provider: str = "claude") -> dict:
     """The decision, from a serialized snapshot and two limits. Pure, so the
     same rule can be pinned without a request.
 
@@ -294,13 +344,13 @@ def gate(snapshot: dict, max_5h: int, max_7d: int) -> dict:
                            snapshot["seven_day"]["utilization"]))
     answer = {"five_hour_pct": pcts[0], "seven_day_pct": pcts[1],
               "five_hour_max_pct": max_5h, "seven_day_max_pct": max_7d,
-              "stale": snapshot["stale"]}
-    if None in pcts:
+              "stale": snapshot["stale"], "provider": provider}
+    if all(p is None for p in pcts) or (provider == "claude" and None in pcts):
         return {"ok": False, "reason": "no reading yet", **answer}
     over = [f"the {label} window is at {pct}%, over its {limit}% limit"
             for label, pct, limit in (("5-hour", pcts[0], max_5h),
                                       ("7-day", pcts[1], max_7d))
-            if pct > limit]
+            if pct is not None and pct > limit]
     return {"ok": not over, "reason": ", and ".join(over) or "ok", **answer}
 
 

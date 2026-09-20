@@ -36,7 +36,10 @@ export function useQuota(): QuotaState {
   // the first read. These REPLACE, with no comparison — the snapshot is a
   // singleton and the server owns it.
   const absorb = useCallback((next: QuotaSnapshot) => {
-    if (live.current) setSnapshot(next);
+    if (!live.current) return;
+    setSnapshot((prev) => next.provider === "codex"
+      ? { ...prev, codex: next }
+      : { ...next, codex: next.codex ?? prev.codex });
   }, []);
 
   // The catch-up read: after a dropped stream, on the poll that covers the
@@ -59,7 +62,7 @@ export function useQuota(): QuotaState {
     api<QuotaSnapshot>("/api/quota")
       .then((body) => {
         absorb(body);
-        if (!body.stale || refreshed.current) return;
+        if ((!body.stale && body.codex && !body.codex.stale) || refreshed.current) return;
         refreshed.current = true;
         // Fire and forget: the refresh answers with the snapshot it wrote,
         // and the stream would have carried it anyway.

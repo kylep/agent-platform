@@ -10,32 +10,28 @@ from typing_extensions import Self
 from ..types import UNSET, Unset
 
 if TYPE_CHECKING:
-    from ..models.quota_reading import QuotaReading
     from ..models.quota_window import QuotaWindow
 
 
-T = TypeVar("T", bound="Quota")
+T = TypeVar("T", bound="QuotaReading")
 
 
 @_attrs_define
-class Quota:
-    """The snapshot, as `quota_store.serialize` produces it — the one shape the
-    REST body, the SSE frame and the `quota.events` payload share.
-
-        Attributes:
-            age_seconds (int | None):
-            five_hour (QuotaWindow): One rate-limit window. `utilization` is a FRACTION whichever form the
-                header arrived in (`quota.parse_utilization`), so a bar never has to guess
-                whether 22 means a fifth or everything.
-            observed_at (None | str):
-            seven_day (QuotaWindow): One rate-limit window. `utilization` is a FRACTION whichever form the
-                header arrived in (`quota.parse_utilization`), so a bar never has to guess
-                whether 22 means a fifth or everything.
-            source (None | str):
-            stale (bool):
-            status (None | str):
-            codex (None | QuotaReading | Unset):
-            probe (None | str | Unset):
+class QuotaReading:
+    """
+    Attributes:
+        age_seconds (int | None):
+        five_hour (QuotaWindow): One rate-limit window. `utilization` is a FRACTION whichever form the
+            header arrived in (`quota.parse_utilization`), so a bar never has to guess
+            whether 22 means a fifth or everything.
+        observed_at (None | str):
+        seven_day (QuotaWindow): One rate-limit window. `utilization` is a FRACTION whichever form the
+            header arrived in (`quota.parse_utilization`), so a bar never has to guess
+            whether 22 means a fifth or everything.
+        source (None | str):
+        stale (bool):
+        status (None | str):
+        probe (None | str | Unset):
     """
 
     age_seconds: int | None
@@ -45,13 +41,10 @@ class Quota:
     source: None | str
     stale: bool
     status: None | str
-    codex: None | QuotaReading | Unset = UNSET
     probe: None | str | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
-        from ..models.quota_reading import QuotaReading
-
         age_seconds: int | None
         age_seconds = self.age_seconds
 
@@ -69,14 +62,6 @@ class Quota:
 
         status: None | str
         status = self.status
-
-        codex: dict[str, Any] | None | Unset
-        if isinstance(self.codex, Unset):
-            codex = UNSET
-        elif isinstance(self.codex, QuotaReading):
-            codex = self.codex.to_dict()
-        else:
-            codex = self.codex
 
         probe: None | str | Unset
         if isinstance(self.probe, Unset):
@@ -97,8 +82,6 @@ class Quota:
                 "status": status,
             }
         )
-        if codex is not UNSET:
-            field_dict["codex"] = codex
         if probe is not UNSET:
             field_dict["probe"] = probe
 
@@ -106,7 +89,6 @@ class Quota:
 
     @classmethod
     def from_dict(cls, src_dict: Mapping[str, Any]) -> Self:
-        from ..models.quota_reading import QuotaReading
         from ..models.quota_window import QuotaWindow
 
         d = dict(src_dict)
@@ -145,23 +127,6 @@ class Quota:
 
         status = _parse_status(d.pop("status"))
 
-        def _parse_codex(data: object) -> None | QuotaReading | Unset:
-            if data is None:
-                return data
-            if isinstance(data, Unset):
-                return data
-            try:
-                if not isinstance(data, dict):
-                    raise TypeError()
-                codex_type_0 = QuotaReading.from_dict(data)
-
-                return codex_type_0
-            except (TypeError, ValueError, AttributeError, KeyError):
-                pass
-            return cast(None | QuotaReading | Unset, data)
-
-        codex = _parse_codex(d.pop("codex", UNSET))
-
         def _parse_probe(data: object) -> None | str | Unset:
             if data is None:
                 return data
@@ -171,7 +136,7 @@ class Quota:
 
         probe = _parse_probe(d.pop("probe", UNSET))
 
-        quota = cls(
+        quota_reading = cls(
             age_seconds=age_seconds,
             five_hour=five_hour,
             observed_at=observed_at,
@@ -179,12 +144,11 @@ class Quota:
             source=source,
             stale=stale,
             status=status,
-            codex=codex,
             probe=probe,
         )
 
-        quota.additional_properties = d
-        return quota
+        quota_reading.additional_properties = d
+        return quota_reading
 
     @property
     def additional_keys(self) -> list[str]:

@@ -19,14 +19,18 @@ async function fillRatio(page: import("@playwright/test").Page, name: string) {
 test("the bars sit under the brand and say what they are", async ({ page }) => {
   await mockApi(page);
   await page.goto("/");
-  const five = page.getByRole("meter", { name: /^5-hour window: 22% used/ });
-  const seven = page.getByRole("meter", { name: /^7-day window: 81% used/ });
+  const five = page.getByRole("meter", { name: /^Claude 5-hour window: 22% used/ });
+  const seven = page.getByRole("meter", { name: /^Claude 7-day window: 81% used/ });
   await expect(five).toBeVisible();
   await expect(seven).toBeVisible();
   await expect(five).toContainText("22%");
   await expect(seven).toContainText("81%");
   await expect(five).toHaveAttribute("aria-valuenow", "22");
   await expect(seven).toHaveAttribute("aria-valuenow", "81");
+  await expect(page.getByRole("meter", { name: /^Codex 5-hour window: 11% used/ }))
+    .toBeVisible();
+  await expect(page.getByRole("meter", { name: /^Codex 7-day window: 95% used/ }))
+    .toBeVisible();
   // The window name and the countdown ride in the label, since the bar itself
   // is only ever NN%.
   await expect(five).toHaveAttribute("title", /5-hour window: 22% used, resets in/);
@@ -38,8 +42,8 @@ test("the bars sit under the brand and say what they are", async ({ page }) => {
   expect(bar.y).toBeGreaterThan(brand.y);
   expect(bar.y).toBeLessThan(firstLink.y);
 
-  expect(await fillRatio(page, "5-hour window")).toBeCloseTo(0.22, 2);
-  expect(await fillRatio(page, "7-day window")).toBeCloseTo(0.81, 2);
+  expect(await fillRatio(page, "Claude 5-hour window")).toBeCloseTo(0.22, 2);
+  expect(await fillRatio(page, "Claude 7-day window")).toBeCloseTo(0.81, 2);
 });
 
 test("a stale snapshot is refreshed exactly once, and the bars follow",
@@ -49,9 +53,9 @@ test("a stale snapshot is refreshed exactly once, and the bars follow",
   await page.goto("/");
   // The stale snapshot is what the GET answered; the refreshed one is what
   // the bars end up drawing.
-  await expect(page.getByRole("meter", { name: /^5-hour window: 22% used/ }))
+  await expect(page.getByRole("meter", { name: /^Claude 5-hour window: 22% used/ }))
     .toBeVisible();
-  await expect(page.getByRole("meter", { name: /^7-day window: 81% used/ }))
+  await expect(page.getByRole("meter", { name: /^Claude 7-day window: 81% used/ }))
     .toBeVisible();
   await page.waitForTimeout(500);
   expect(refresh.count()).toBe(1);
@@ -103,12 +107,13 @@ test("a late read never walks the bars back, but a frame is the server's word",
   // The frame is older than what the mount read and still wins: the server
   // owns the snapshot, and a clock that stepped backwards must not wedge the
   // bars for the life of the mount.
-  await expect(page.getByRole("meter", { name: /^5-hour window: 66% used/ })).toBeVisible();
+  await expect(page.getByRole("meter", { name: /^Claude 5-hour window: 66% used/ })).toBeVisible();
   // The catch-up read that the dropped stream triggered answered with an older
   // snapshot, and it is ignored.
   await expect.poll(() => reads).toBeGreaterThan(1);
-  await expect(page.getByRole("meter", { name: /^5-hour window: 66% used/ })).toBeVisible();
-  await expect(page.getByRole("meter", { name: /5% used/ })).toHaveCount(0);
+  await expect(page.getByRole("meter", { name: /^Claude 5-hour window: 66% used/ })).toBeVisible();
+  await expect(page.getByRole("meter", { name: /^Claude 5-hour window: 5% used/ }))
+    .toHaveCount(0);
 });
 
 for (const theme of ["dark", "light"] as const) {
@@ -132,7 +137,7 @@ test("on a phone the bars stay under the brand and span the strip", async ({ pag
   await mockApi(page);
   await page.goto("/");
   const brand = (await page.locator(".nav-brand").boundingBox())!;
-  const bar = (await page.getByRole("meter", { name: /^5-hour/ }).boundingBox())!;
+  const bar = (await page.getByRole("meter", { name: /^Claude 5-hour/ }).boundingBox())!;
   expect(bar.y).toBeGreaterThan(brand.y);
   // The nav is a full-width strip at this size; the bars are as wide as it.
   expect(bar.width).toBeCloseTo(brand.width, 0);

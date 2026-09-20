@@ -78,6 +78,13 @@ test("tailwind utilities are actually generated (source-detection canary)", asyn
              "the @source declaration in packages/ui/src/tokens.css").not.toBe("0px");
 });
 
+test("dashboard reports both subscription credentials", async ({ page }) => {
+  await mockApi(page);
+  await page.goto("/");
+  await expect(page.getByText("claude token: valid", { exact: true })).toBeVisible();
+  await expect(page.getByText("codex token: valid", { exact: true })).toBeVisible();
+});
+
 test("report viewer renders the sanitized fragment in a sandboxed frame", async ({ page }) => {
   const unmatched = await mockApi(page);
   await page.goto("/reports/daily-news");

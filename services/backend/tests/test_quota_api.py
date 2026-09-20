@@ -238,6 +238,32 @@ async def test_refresh_falls_through_to_a_one_token_message(admin_client):
     assert calls[1][1]["max_tokens"] == 1
 
 
+async def test_refresh_adds_codex_usage_and_tolerates_a_missing_5h_window(admin_client):
+    app = admin_client._transport.app
+    app.state.settings.claude_proxy_url = PROXY
+    app.state.settings.codex_proxy_url = "http://codex-proxy:8000"
+    app.state.settings.internal_secret = SECRET
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/internal/quota":
+            assert request.headers["X-AP-Internal-Secret"] == SECRET
+            return httpx.Response(200, json={"plan_type": "pro", "rate_limit": {
+                "allowed": True,
+                "primary_window": {"used_percent": 95,
+                                   "limit_window_seconds": 7 * 86400,
+                                   "reset_at": int((utcnow() + timedelta(days=5)).timestamp())},
+            }})
+        return httpx.Response(200, headers=usage_headers(), json={})
+
+    app.state.quota_client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    response = await admin_client.post("/api/quota/refresh")
+    assert response.status_code == 200, response.text
+    codex = response.json()["codex"]
+    assert codex["five_hour"]["utilization"] is None
+    assert codex["seven_day"]["utilization"] == 0.95
+    assert codex["probe"] == "usage"
+
+
 async def test_refresh_sends_the_placeholder_bearer_and_the_beta_header(admin_client):
     """The proxy replaces the credential (docs/design/09): the API never holds
     the token, so what it sends is a placeholder plus the two version headers
@@ -533,7 +559,7 @@ async def test_the_gate_is_ok_under_both_thresholds(admin_client):
     body = await _ok(admin_client)
     assert body == {"ok": True, "five_hour_pct": 22, "seven_day_pct": 41,
                     "five_hour_max_pct": 80, "seven_day_max_pct": 50,
-                    "stale": False, "reason": "ok"}
+                    "stale": False, "reason": "ok", "provider": "claude"}
     # Fresh reading: nothing to spend.
     assert calls == []
 
@@ -581,7 +607,7 @@ async def test_an_agent_token_is_judged_by_its_own_rows_thresholds(
     body = await _ok(token_client, await _agent_token(sf, "engineer"))
     assert body == {"ok": True, "five_hour_pct": 92, "seven_day_pct": 81,
                     "five_hour_max_pct": 95, "seven_day_max_pct": 90,
-                    "stale": False, "reason": "ok"}
+                    "stale": False, "reason": "ok", "provider": "claude"}
 
 
 async def test_a_human_is_judged_by_the_column_defaults(admin_client, token_client, sf):
@@ -625,7 +651,7 @@ async def test_no_reading_at_all_is_not_ok(admin_client):
     body = await _ok(admin_client)
     assert body == {"ok": False, "five_hour_pct": None, "seven_day_pct": None,
                     "five_hour_max_pct": 80, "seven_day_max_pct": 50,
-                    "stale": True, "reason": "no reading yet"}
+                    "stale": True, "reason": "no reading yet", "provider": "claude"}
 
 
 async def test_a_failed_refresh_answers_the_stale_reading_and_says_so(admin_client):

@@ -1439,24 +1439,28 @@ class QuotaWindow(BaseModel):
     resets_at: str | None
 
 
-class Quota(BaseModel):
-    """The snapshot, as `quota_store.serialize` produces it — the one shape the
-    REST body, the SSE frame and the `quota.events` payload share."""
+class QuotaReading(BaseModel):
     five_hour: QuotaWindow
     seven_day: QuotaWindow
     status: str | None
     observed_at: str | None
     source: str | None
-    # Whether the observation can still be believed: no row at all, or a window
-    # that has reset since it was taken.
     stale: bool
     age_seconds: int | None
+    probe: str | None = None
+
+
+class Quota(QuotaReading):
+    """The snapshot, as `quota_store.serialize` produces it — the one shape the
+    REST body, the SSE frame and the `quota.events` payload share."""
+    # Whether the observation can still be believed: no row at all, or a window
+    # that has reset since it was taken.
     # Which probe step answered, on the refresh route only: `count_tokens` when
     # the free step carried the headers, `message` when it took a real
     # completion, null when the call was answered from the cache. Anthropic's
     # behaviour here was not observable before implementation, so the platform
     # records what actually happened rather than asserting it.
-    probe: str | None = None
+    codex: QuotaReading | None = None
 
 
 class QuotaOk(BaseModel):
@@ -1467,6 +1471,7 @@ class QuotaOk(BaseModel):
     are the caller's own row when the caller is an agent and the column
     defaults when it is a person."""
     ok: bool
+    provider: str = "claude"
     # Whole percents, rounded half-up as `quota._percent` does, and null when
     # the platform has no reading for that window — in which case `ok` is
     # false and `reason` says so.

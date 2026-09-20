@@ -129,3 +129,29 @@ async def test_proxy_rejects_unneeded_paths(tmp_path):
     finally:
         await client.close()
         await upstream.close()
+
+
+async def test_internal_quota_requires_secret_and_uses_oauth(tmp_path):
+    observed = {}
+
+    async def usage(request):
+        observed.update(request.headers)
+        return web.json_response({"rate_limit": {"allowed": True}})
+
+    upstream = web.Application()
+    upstream.router.add_get("/wham/usage", usage)
+    server = TestServer(upstream)
+    await server.start_server()
+    client = TestClient(TestServer(create_app(_write_config(tmp_path, server))))
+    await client.start_server()
+    try:
+        assert (await client.get("/internal/quota")).status == 401
+        response = await client.get("/internal/quota", headers={
+            "X-AP-Internal-Secret": "internal-secret"})
+        assert response.status == 200
+        assert (await response.json())["rate_limit"]["allowed"] is True
+        assert observed["Authorization"].startswith("Bearer ey")
+        assert observed["ChatGPT-Account-Id"] == "acct-1"
+    finally:
+        await client.close()
+        await server.close()

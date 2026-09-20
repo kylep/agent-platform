@@ -1453,6 +1453,15 @@ def _quota_text(data: dict, now: datetime) -> str:
     return "\n".join(lines)
 
 
+def _quota_all_text(data: dict, now: datetime) -> str:
+    """Both subscription pools, named so an agent knows what it can spend."""
+    codex = data.get("codex")
+    if not isinstance(codex, dict):
+        return _quota_text(data, now)
+    return (f"Claude:\n{_quota_text(data, now)}\n\n"
+            f"Codex:\n{_quota_text(codex, now)}")
+
+
 def _quota_snapshot(out: str) -> dict | None:
     """The snapshot in a quota response, or None when the answer was not one —
     an `error:` string from `_call`, or a body nothing can read."""
@@ -1482,7 +1491,7 @@ async def _quota_cached() -> str:
     if observed is None:
         return ("error: usage could not be refreshed and nothing has been "
                 "observed yet")
-    return (f"{_quota_text(data, now)}\nThe usage probe is unavailable, so "
+    return (f"{_quota_all_text(data, now)}\nThe usage probe is unavailable, so "
             f"this is the cached reading from {_quota_delta(now - observed)} "
             f"ago.")
 
@@ -1490,7 +1499,7 @@ async def _quota_cached() -> str:
 @mcp.tool
 @_metered("quota")
 async def get_quota_usage() -> str:
-    """How much of the shared Claude usage allowance is left right now.
+    """How much of the shared Claude and Codex allowances is left right now.
 
     Two rolling windows: a 5-hour one that refills several times a day, and a
     7-day one that does not. The percentages are how much of each is already
@@ -1508,7 +1517,7 @@ async def get_quota_usage() -> str:
     if out.startswith("error: 503"):
         return await _quota_cached()
     data = _quota_snapshot(out)
-    return _quota_text(data, _quota_now()) if data is not None else _quota_unreadable(out)
+    return _quota_all_text(data, _quota_now()) if data is not None else _quota_unreadable(out)
 
 
 # --- the gate (docs/design/24) -----------------------------------------------
@@ -1546,15 +1555,22 @@ def _quota_ok_sentence(gate: dict) -> str:
     """The design's one sentence: "ok: 5h 22% ≤ 95, 7d 41% ≤ 90". A failing
     window shows as `>` so the sentence names it without a second clause."""
     p5, p7 = gate.get("five_hour_pct"), gate.get("seven_day_pct")
+    provider = gate.get("provider")
     head = "ok" if gate.get("ok") else "no"
-    if p5 is None or p7 is None:
+    if provider:
+        head += f" ({provider})"
+    if p5 is None and p7 is None:
         return f"{head}: {gate.get('reason') or 'no reading yet'}"
 
     def compare(pct: int, limit) -> str:
         return f"{pct}% {'≤' if pct <= limit else '>'} {limit}"
 
-    return (f"{head}: 5h {compare(p5, gate.get('five_hour_max_pct'))}, "
-            f"7d {compare(p7, gate.get('seven_day_max_pct'))}")
+    parts = []
+    if p5 is not None:
+        parts.append(f"5h {compare(p5, gate.get('five_hour_max_pct'))}")
+    if p7 is not None:
+        parts.append(f"7d {compare(p7, gate.get('seven_day_max_pct'))}")
+    return f"{head}: {', '.join(parts)}"
 
 
 def _quota_ok_answer(gate: dict, note: str = "") -> str:

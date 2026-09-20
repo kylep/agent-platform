@@ -10,7 +10,7 @@ export type QuotaWindow = { utilization: number | null; resets_at: string | null
 /** `quota_store.serialize` — the one shape the REST body, the SSE frame and
  * the Kafka payload all carry. Every field is optional here because the
  * component is spread from a hook that may hold nothing yet. */
-export type QuotaSnapshot = {
+export type QuotaReading = {
   five_hour?: QuotaWindow | null;
   seven_day?: QuotaWindow | null;
   status?: string | null;
@@ -19,7 +19,10 @@ export type QuotaSnapshot = {
   stale?: boolean;
   age_seconds?: number | null;
   probe?: string | null;
+  provider?: "claude" | "codex";
 };
+
+export type QuotaSnapshot = QuotaReading & { codex?: QuotaReading | null };
 
 // The backend rounds the same way (half up on a 0..1 fraction), so the number
 // in the bar and the number in a Relay post about it are never one apart.
@@ -83,19 +86,37 @@ function Bar({ name, fill, window: w, observed_at, stale, now }: {
   );
 }
 
-export function QuotaBars({ five_hour, seven_day, observed_at, stale }: QuotaSnapshot) {
+function known(window: QuotaWindow | null | undefined): window is QuotaWindow {
+  return typeof window?.utilization === "number";
+}
+
+export function QuotaBars({ five_hour, seven_day, observed_at, stale, codex }: QuotaSnapshot) {
   // Nothing known at all — before the first fetch, or after one that failed.
   // Placeholder bars would be a claim about usage; absence is not.
   if (!five_hour && !seven_day) return null;
   const now = Date.now();
   return (
     <div className="quota">
-      <Bar name="5-hour window" fill="var(--ds-quota-5h)" now={now}
+      <Bar name="Claude 5-hour window" fill="var(--ds-quota-5h)" now={now}
            window={five_hour ?? { utilization: null, resets_at: null }}
            observed_at={observed_at} stale={stale} />
-      <Bar name="7-day window" fill="var(--ds-quota-7d)" now={now}
+      <Bar name="Claude 7-day window" fill="var(--ds-quota-7d)" now={now}
            window={seven_day ?? { utilization: null, resets_at: null }}
            observed_at={observed_at} stale={stale} />
+      {codex && (known(codex.five_hour) || known(codex.seven_day)) && (
+        <div className="quota-provider">
+          {known(codex.five_hour) && (
+            <Bar name="Codex 5-hour window" fill="var(--ds-quota-codex-5h)" now={now}
+                 window={codex.five_hour} observed_at={codex.observed_at}
+                 stale={codex.stale} />
+          )}
+          {known(codex.seven_day) && (
+            <Bar name="Codex 7-day window" fill="var(--ds-quota-codex-7d)" now={now}
+                 window={codex.seven_day} observed_at={codex.observed_at}
+                 stale={codex.stale} />
+          )}
+        </div>
+      )}
     </div>
   );
 }

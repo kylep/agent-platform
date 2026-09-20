@@ -475,6 +475,27 @@ class QuotaSnapshot(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
 
 
+class CodexQuotaSnapshot(Base):
+    """The Codex subscription's current usage, separate from Claude's row.
+
+    The providers reset independently and can report different window sets, so
+    sharing columns would let one observation erase the other provider. Codex
+    sometimes reports only its weekly window; nullable columns preserve that
+    as an absent bar rather than inventing a zero-percent 5-hour allowance.
+    """
+    __tablename__ = "codex_quota_snapshot"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    five_hour_utilization: Mapped[float | None] = mapped_column(Float, nullable=True)
+    five_hour_resets_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    seven_day_utilization: Mapped[float | None] = mapped_column(Float, nullable=True)
+    seven_day_resets_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    status: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    raw: Mapped[dict] = mapped_column(JSON, default=dict)
+    observed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    source: Mapped[str] = mapped_column(String(16), default="refresh")
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+
+
 class Artifact(Base):
     """A named blob the platform keeps (docs/design/23): a screenshot an agent
     saved, an image it generated, a file a person dropped on the Studio.

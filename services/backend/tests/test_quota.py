@@ -6,7 +6,7 @@ from agentplatform.db import QuotaSnapshot
 from agentplatform.quota import (H_5H_RESET, H_5H_UTILIZATION, H_7D_RESET,
                                  H_7D_UTILIZATION, H_STATUS, changed,
                                  humanize_delta, is_stale, parse_observation,
-                                 parse_observed_at, render_text)
+                                 parse_codex_usage, parse_observed_at, render_text)
 
 NOW = datetime(2026, 9, 14, 15, 2, 11, tzinfo=timezone.utc)
 RESET_5H = datetime(2026, 9, 14, 19, 0, tzinfo=timezone.utc)
@@ -87,6 +87,19 @@ def test_no_known_header_is_no_observation():
     # Same prefix, none of the five the platform reads: nothing to record.
     assert parse_observation(
         {"anthropic-ratelimit-unified-overage-status": "off"}, NOW, "proxy") is None
+
+
+def test_codex_windows_are_named_by_duration_and_missing_five_hour_is_ok():
+    obs = parse_codex_usage({"plan_type": "pro", "rate_limit": {
+        "allowed": True,
+        "primary_window": {"used_percent": 95, "limit_window_seconds": 604800,
+                           "reset_at": int(RESET_7D.timestamp())},
+    }}, NOW, "refresh")
+    assert obs is not None
+    assert obs.five_hour_utilization is None
+    assert obs.seven_day_utilization == 0.95
+    assert obs.seven_day_resets_at == RESET_7D
+    assert obs.status == "allowed"
 
 
 def test_headers_match_case_insensitively():

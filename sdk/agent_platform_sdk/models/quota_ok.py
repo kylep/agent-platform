@@ -7,6 +7,8 @@ from attrs import define as _attrs_define
 from attrs import field as _attrs_field
 from typing_extensions import Self
 
+from ..types import UNSET, Unset
+
 T = TypeVar("T", bound="QuotaOk")
 
 
@@ -27,6 +29,7 @@ class QuotaOk:
             seven_day_max_pct (int):
             seven_day_pct (int | None):
             stale (bool):
+            provider (str | Unset):  Default: 'claude'.
     """
 
     five_hour_max_pct: int
@@ -36,6 +39,7 @@ class QuotaOk:
     seven_day_max_pct: int
     seven_day_pct: int | None
     stale: bool
+    provider: str | Unset = "claude"
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -55,6 +59,8 @@ class QuotaOk:
 
         stale = self.stale
 
+        provider = self.provider
+
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
@@ -68,6 +74,8 @@ class QuotaOk:
                 "stale": stale,
             }
         )
+        if provider is not UNSET:
+            field_dict["provider"] = provider
 
         return field_dict
 
@@ -98,6 +106,8 @@ class QuotaOk:
 
         stale = d.pop("stale")
 
+        provider = d.pop("provider", UNSET)
+
         quota_ok = cls(
             five_hour_max_pct=five_hour_max_pct,
             five_hour_pct=five_hour_pct,
@@ -106,6 +116,7 @@ class QuotaOk:
             seven_day_max_pct=seven_day_max_pct,
             seven_day_pct=seven_day_pct,
             stale=stale,
+            provider=provider,
         )
 
         quota_ok.additional_properties = d

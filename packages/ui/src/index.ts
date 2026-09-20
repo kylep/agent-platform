@@ -6,7 +6,7 @@ export { Chip, ChipButton, chipStatusVariant, chipVariants, StatusChip } from ".
 export { ConfirmDialog, FormDialog } from "./dialog";
 export { CodeEditor, Input, Select, Textarea } from "./field";
 export { Markdown } from "./markdown";
-export { QuotaBars, type QuotaSnapshot, type QuotaWindow } from "./quota";
+export { QuotaBars, type QuotaReading, type QuotaSnapshot, type QuotaWindow } from "./quota";
 export { buildPlatformNav, SideNav, ThemeToggle, useTheme,
          type AppNavInfo, type NavEntry, type NavItem } from "./sidenav";
 export { Stat, StatRow } from "./stat";

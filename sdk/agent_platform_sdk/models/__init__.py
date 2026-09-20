@@ -93,6 +93,7 @@ from .pull_request import PullRequest
 from .pull_request_file import PullRequestFile
 from .quota import Quota
 from .quota_ok import QuotaOk
+from .quota_reading import QuotaReading
 from .quota_window import QuotaWindow
 from .relay_binding_in import RelayBindingIn
 from .relay_binding_in_config import RelayBindingInConfig
@@ -302,6 +303,7 @@ __all__ = (
     "PullRequestFile",
     "Quota",
     "QuotaOk",
+    "QuotaReading",
     "QuotaWindow",
     "RelayBindingIn",
     "RelayBindingInConfig",

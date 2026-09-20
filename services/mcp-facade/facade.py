@@ -15,7 +15,7 @@ The surface is CURATED into three tiers (curation 2026-08-24; see
   read, edit, move, assign, comment, stats — and the wiki: read, search, write,
   append, history, restore, promote, wanted — the usage snapshot and its
   gate — and the artifacts: list, read, save, edit, delete, generate, the
-  model registry and the stats). Always tools. 95 of them.
+  model registry and the stats). Always tools. 99 of them.
 - **GATE** — authorized-but-sharp: the credential/secret plane, admin audit
   reads, destructive/bulk ops, the relay channel lifecycle (creating, renaming
   and archiving rooms), a system row into a room one is not in, and
@@ -26,7 +26,7 @@ The surface is CURATED into three tiers (curation 2026-08-24; see
 - **EXCLUDE** — UI form-feeders, reviewer digests the client can compute,
   git-edit conveniences redundant with having the repo, and system-agent
   endpoints. Never tools. 19 of them, plus the 18 session/internal/streaming/
-  byte-serving operations below — 160 graded operations in all.
+  byte-serving operations below — 164 graded operations in all.
 
 It is deliberately NOT the mcp-broker. The broker authenticates in-cluster run
 identities and scopes tools to an agent's grants (design/13, design/15); this
@@ -205,7 +205,7 @@ _TRUTHY = ("1", "true", "yes", "on")
 
 def admin_tools_enabled() -> bool:
     """Whether the sharp/admin tier is OFFERED (default off — a fresh facade
-    serves the 95-tool KEEP surface). Offering-only: the API's role ladder
+    serves the 99-tool KEEP surface). Offering-only: the API's role ladder
     authorizes every call regardless of this flag."""
     return os.environ.get("AP_MCP_ADMIN_TOOLS", "").strip().lower() in _TRUTHY
 

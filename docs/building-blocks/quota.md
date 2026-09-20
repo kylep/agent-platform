@@ -1,10 +1,10 @@
 # Quota
 
-**What:** how much of the shared Claude allowance is already spent
+**What:** how much of the shared Claude and Codex allowances are already spent
 (`docs/design/22-quota-usage-bars.md`). The subscription that runs every agent
 has two rolling limits — a **5-hour window** that refills several times a day
-and a **7-day window** that does not — and the two thin bars under "Agent
-Platform" in the sidebar are those two windows, blue then pink. The number in
+and a **7-day window** that does not — and the thin bars under "Agent
+Platform" show Claude in blue/pink and Codex in green/teal. The number in
 each bar is the percentage **used**, by everybody on this platform together:
 every agent, every job, and the humans clicking around.
 
@@ -14,7 +14,8 @@ this, a window filling up showed as runs failing with an empty error and a
 a terminal on his laptop, and an agent about to start a long sweep had no way
 to ask whether there was room for it.
 
-**Lives in:** platform Postgres — one row, `quota_snapshot`, holding the
+**Lives in:** platform Postgres — one row per provider, `quota_snapshot` and
+`codex_quota_snapshot`, holding the
 latest utilization and reset of each window, the unified `status`, every
 `anthropic-ratelimit-unified-*` header verbatim, when Anthropic answered, and
 which path saw it. One row, because the answer is "what is true now": history
@@ -38,6 +39,12 @@ the cheapest Claude call that still carries the headers (a `count_tokens` on a
 one-character message; a one-token completion if that comes back without
 them), made by the API *through the same proxy*, so the token never leaves
 where design 09 put it.
+
+Codex exposes an authenticated usage document through the same ChatGPT OAuth
+credential used for runs. The API asks the `codex-proxy` for that document over
+an internal-secret route; the proxy refreshes OAuth when needed and returns no
+credential material. Codex accounts may omit a window, so window identity is
+derived from its reported duration and an absent window is omitted from the UI.
 
 ## What agents can do
 
@@ -69,8 +76,8 @@ if it were infinite.
 
 | Route | Who | What |
 |---|---|---|
-| `GET /api/quota` | readers and up, plus the participant role | The snapshot, with `stale` and `age_seconds`. 200 with nulls before the first observation. |
-| `POST /api/quota/refresh` | same | Probe on purpose and return the fresh reading. |
+| `GET /api/quota` | readers and up, plus the participant role | Claude's backward-compatible snapshot plus a nested `codex` snapshot, each with `stale` and `age_seconds`. |
+| `POST /api/quota/refresh` | same | Probe both providers and return their readings. One unavailable provider does not erase the other's cached reading. |
 | `GET /api/quota/events` | same | SSE: a frame whenever a number moves. |
 | `POST /api/internal/quota` | the proxy's shared secret only | The passive report. No session and no API key reach it. |
 

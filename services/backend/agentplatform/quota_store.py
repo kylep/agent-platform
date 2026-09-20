@@ -17,7 +17,7 @@ from datetime import datetime, timezone
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
-from agentplatform.db import QuotaSnapshot, utcnow
+from agentplatform.db import CodexQuotaSnapshot, QuotaSnapshot, utcnow
 from agentplatform.events import TOPIC_QUOTA_EVENTS
 from agentplatform.quota import FUTURE_SKEW, Observation, changed, is_stale
 from agentplatform.relay_feed import TopicFeed
@@ -37,8 +37,11 @@ def _aware(ts: datetime) -> datetime:
     return ts.replace(tzinfo=timezone.utc) if ts.tzinfo is None else ts
 
 
-async def latest(session) -> QuotaSnapshot | None:
-    return await session.get(QuotaSnapshot, SNAPSHOT_ID)
+MODELS = {"claude": QuotaSnapshot, "codex": CodexQuotaSnapshot}
+
+
+async def latest(session, provider: str = "claude"):
+    return await session.get(MODELS[provider], SNAPSHOT_ID)
 
 
 def _for_update(session, stmt):
@@ -49,7 +52,7 @@ def _for_update(session, stmt):
             if session.get_bind().dialect.name == "postgresql" else stmt)
 
 
-def _apply(row: QuotaSnapshot, obs: Observation) -> None:
+def _apply(row, obs: Observation) -> None:
     row.five_hour_utilization = obs.five_hour_utilization
     row.five_hour_resets_at = obs.five_hour_resets_at
     row.seven_day_utilization = obs.seven_day_utilization
@@ -61,7 +64,7 @@ def _apply(row: QuotaSnapshot, obs: Observation) -> None:
     row.updated_at = utcnow()
 
 
-def _superseded(row: QuotaSnapshot, obs: Observation, now: datetime) -> bool:
+def _superseded(row, obs: Observation, now: datetime) -> bool:
     """Whether the row already knows something newer. Two proxy reports can
     cross on the wire, and the older one landing last would roll the numbers
     backwards and publish a drop in usage that never happened. Equal timestamps
@@ -83,7 +86,7 @@ def _superseded(row: QuotaSnapshot, obs: Observation, now: datetime) -> bool:
     return _aware(obs.observed_at) < stored
 
 
-async def _record(session, obs: Observation) -> tuple[QuotaSnapshot, bool]:
+async def _record(session, obs: Observation, provider: str = "claude"):
     """Write the singleton, returning it and whether a number moved.
 
     The loop is the whole point: before the row exists there is nothing for
@@ -96,8 +99,8 @@ async def _record(session, obs: Observation) -> tuple[QuotaSnapshot, bool]:
     session before calling."""
     now = utcnow()
     while True:
-        stmt = _for_update(session, select(QuotaSnapshot)
-                           .where(QuotaSnapshot.id == SNAPSHOT_ID))
+        model = MODELS[provider]
+        stmt = _for_update(session, select(model).where(model.id == SNAPSHOT_ID))
         row = (await session.execute(stmt)).scalar_one_or_none()
         if row is not None:
             if _superseded(row, obs, now):
@@ -106,7 +109,7 @@ async def _record(session, obs: Observation) -> tuple[QuotaSnapshot, bool]:
             _apply(row, obs)
             await session.commit()
             return row, moved
-        fresh = QuotaSnapshot(id=SNAPSHOT_ID)
+        fresh = model(id=SNAPSHOT_ID)
         _apply(fresh, obs)
         try:
             async with session.begin_nested():
@@ -118,13 +121,14 @@ async def _record(session, obs: Observation) -> tuple[QuotaSnapshot, bool]:
         return fresh, True
 
 
-async def observe(session, producer, obs: Observation) -> QuotaSnapshot:
+async def observe(session, producer, obs: Observation, provider: str = "claude"):
     """Record an observation and, if it moved, announce it."""
-    row, moved = await _record(session, obs)
+    row, moved = await _record(session, obs, provider)
     if moved and producer is not None:
         try:
             await producer.publish(TOPIC_QUOTA_EVENTS, QUOTA_KEY,
-                                   serialize(row, utcnow()), type="quota.event")
+                                   {**serialize(row, utcnow()), "provider": provider},
+                                   type="quota.event")
         except Exception:
             # The row is the current answer and it is already committed; a
             # broker that is down costs the history, never the snapshot.

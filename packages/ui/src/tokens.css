@@ -68,6 +68,8 @@
      colours has to be a constant rather than a themed one. */
   --color-blue-400: #2f6fe0;
   --color-pink-400: #c2379b;
+  --color-codex-green: #16794f;
+  --color-codex-teal: #0f766e;
   --color-white: #ffffff;
 
   /* radius — tight, terminal */
@@ -126,6 +128,8 @@
      flips to white where a fill passes under it. */
   --ds-quota-5h: var(--color-blue-400);
   --ds-quota-7d: var(--color-pink-400);
+  --ds-quota-codex-5h: var(--color-codex-green);
+  --ds-quota-codex-7d: var(--color-codex-teal);
   --ds-quota-track: var(--color-white);
   --ds-quota-label-on: var(--color-white);
 }
@@ -160,6 +164,8 @@
      is no track at all. */
   --ds-quota-5h: var(--color-blue-400);
   --ds-quota-7d: var(--color-pink-400);
+  --ds-quota-codex-5h: var(--color-codex-green);
+  --ds-quota-codex-7d: var(--color-codex-teal);
   --ds-quota-track: var(--ds-raised);
   --ds-quota-label-on: var(--color-white);
 }
