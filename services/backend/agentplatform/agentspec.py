@@ -324,6 +324,18 @@ KNOWN_MODELS: list[dict[str, str]] = [
     {"id": "claude-opus-4-5", "label": "Opus 4.5 (legacy)"},
 ]
 
+# Models offered by the ChatGPT-backed Codex CLI. This is the user-selectable
+# catalog, not every internal model returned by Codex's /models endpoint
+# (`gpt-reserve` and `codex-auto-review` are service machinery). Verified
+# against the official OpenAI model catalog and Codex CLI catalog 2026-09-20.
+CODEX_MODELS: list[dict[str, str]] = [
+    {"id": "gpt-6-astra", "label": "GPT-6 Astra — most capable"},
+    {"id": "gpt-5.6-sol", "label": "GPT-5.6 Sol — complex professional work"},
+    {"id": "gpt-5.6-terra", "label": "GPT-5.6 Terra — balanced"},
+    {"id": "gpt-5.6-luna", "label": "GPT-5.6 Luna — fast and efficient"},
+    {"id": "gpt-5.5", "label": "GPT-5.5 — previous generation"},
+]
+
 _NAME_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,62}$")
 # Words that already mean something when they follow an `@` or name a sender.
 # Relay (docs/design/19) reads `@all`/`@channel`/`@here`/`@everyone` as "the

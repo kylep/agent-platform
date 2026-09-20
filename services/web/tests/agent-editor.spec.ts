@@ -133,6 +133,9 @@ test("the wizard POSTs a full definition — no PR flow", async ({ page }) => {
   await expect(page.getByRole("button", { name: /Create agent/ })).toBeDisabled();
   await page.getByLabel("Name").fill("scratch-agent");
   await page.getByLabel("Description").fill("A scratch agent.");
+  await page.getByLabel("Runtime").selectOption("codex");
+  await expect(page.getByLabel("Model")).toHaveJSProperty("tagName", "SELECT");
+  await page.getByLabel("Model").selectOption("gpt-5.6-sol");
   await page.getByLabel("Agent prompt").fill("You are a scratch agent.");
   await page.getByRole("checkbox", { name: "news-lookup" }).check();
   await page.getByRole("button", { name: "Create agent" }).click();
@@ -143,6 +146,8 @@ test("the wizard POSTs a full definition — no PR flow", async ({ page }) => {
   expect(body.name).toBe("scratch-agent");
   expect(body.description).toBe("A scratch agent.");
   expect(body.prompt).toBe("You are a scratch agent.");
+  expect(body.runtime).toBe("codex");
+  expect(body.model).toBe("gpt-5.6-sol");
   expect(body.skills).toEqual(["news-lookup"]);
   expect(body.role).toBe("operator");
   expect(body.enabled).toBe(true);

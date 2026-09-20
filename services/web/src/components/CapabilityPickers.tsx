@@ -9,7 +9,8 @@ export type GrantCatalog = {
   harnessTools: ToolHelp[];    // Claude Code tools (kind: claude)
   platformTools: ToolHelp[];   // brokered mcp__…__ tools (kind: platform)
   secrets: SecretStatus[];
-  models: ModelOption[];
+  claudeModels: ModelOption[];
+  codexModels: ModelOption[];
   ready: boolean;
 };
 
@@ -17,19 +18,22 @@ export function useGrantCatalog(): GrantCatalog {
   const [skills, setSkills] = useState<Skill[]>([]);
   const [tools, setTools] = useState<ToolHelp[]>([]);
   const [secrets, setSecrets] = useState<SecretStatus[]>([]);
-  const [models, setModels] = useState<ModelOption[]>([]);
+  const [claudeModels, setClaudeModels] = useState<ModelOption[]>([]);
+  const [codexModels, setCodexModels] = useState<ModelOption[]>([]);
   const [ready, setReady] = useState(false);
   useEffect(() => {
     Promise.all([
       api<Skill[]>("/api/skills").catch(() => []),
       api<ToolHelp[]>("/api/help/tools").catch(() => []),
       api<SecretStatus[]>("/api/secrets").catch(() => []),
-      api<{ models: ModelOption[] }>("/api/agent-models").catch(() => ({ models: [] })),
+      api<{ models: ModelOption[]; codex_models: ModelOption[] }>("/api/agent-models")
+        .catch(() => ({ models: [], codex_models: [] })),
     ]).then(([sk, tl, se, mo]) => {
       setSkills(sk);
       setTools(tl);
       setSecrets(se);
-      setModels(mo.models.filter((m) => m.id));
+      setClaudeModels(mo.models.filter((m) => m.id));
+      setCodexModels(mo.codex_models.filter((m) => m.id));
       setReady(true);
     });
   }, []);
@@ -38,7 +42,8 @@ export function useGrantCatalog(): GrantCatalog {
     harnessTools: tools.filter((t) => t.kind === "claude"),
     platformTools: tools.filter((t) => t.kind !== "claude"),
     secrets,
-    models,
+    claudeModels,
+    codexModels,
     ready,
   };
 }

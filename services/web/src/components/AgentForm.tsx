@@ -156,6 +156,8 @@ function Field({ label, hint, children }: { label: string; hint?: string; childr
 export function IdentityFields({ draft, patch, catalog }: {
   draft: AgentDef; patch: Patch; catalog: GrantCatalog;
 }) {
+  const models = draft.runtime === "codex" ? catalog.codexModels : catalog.claudeModels;
+  const savedCustomModel = draft.model && !models.some((model) => model.id === draft.model);
   return (
     <>
       <div className="grid gap-3 sm:grid-cols-2">
@@ -171,14 +173,13 @@ export function IdentityFields({ draft, patch, catalog }: {
             <option value="codex">OpenAI Codex</option>
           </Select>
         </Field>
-        <Field label="Model" hint="Blank uses the platform default. Any model string is accepted.">
-          <Input className="w-full" aria-label="Model" list="agent-model-options" value={draft.model}
-                 placeholder="platform default"
-                 onChange={(e) => patch({ model: e.target.value.trim() })} />
-          <datalist id="agent-model-options">
-            {draft.runtime === "claude" && catalog.models.map((m) =>
-              <option key={m.id} value={m.id}>{m.label}</option>)}
-          </datalist>
+        <Field label="Model" hint={`Models available to the ${draft.runtime === "codex" ? "Codex" : "Claude Code"} runtime.`}>
+          <Select className="w-full" aria-label="Model" value={draft.model}
+                  onChange={(e) => patch({ model: e.target.value })}>
+            <option value="">Platform default</option>
+            {savedCustomModel && <option value={draft.model}>{draft.model} — saved custom value</option>}
+            {models.map((model) => <option key={model.id} value={model.id}>{model.label}</option>)}
+          </Select>
         </Field>
         <Field label="Role"
                hint={ROLE_DESC[draft.role] ?? "The API role this agent's run token carries."}>

@@ -39,6 +39,7 @@ A failed resume falls back once to the platform's flattened conversation
 prompt. The same declared skills are copied to `~/.claude/skills` for Claude
 and `~/.agents/skills` for Codex.
 
-The runner images pin both CLIs. The agent editor selects the runtime and keeps
-the model field free-form, because model availability follows each subscription
-and CLI release.
+The runner images pin both CLIs. The agent editor selects the runtime and offers
+that runtime's supported models in a dropdown. The catalog follows the
+subscription-backed CLI model names; an existing custom value remains selectable
+when editing an older agent.

@@ -1050,7 +1050,13 @@ const FIXTURES: Record<string, unknown> = {
   "/api/agents/health-monitor/versions": versions,
   "/api/agents/health-monitor/versions/1": { ...versions[1], snapshot: def({ name: "health-monitor" }) },
   "/api/agents/health-monitor/versions/2": { ...versions[0], snapshot: healthMonitor },
-  "/api/agent-models": { models: [{ id: "", label: "CLI default" }, { id: "sonnet", label: "Sonnet" }] },
+  "/api/agent-models": {
+    models: [{ id: "", label: "CLI default" }, { id: "sonnet", label: "Sonnet" }],
+    codex_models: [
+      { id: "gpt-6-astra", label: "GPT-6 Astra — most capable" },
+      { id: "gpt-5.6-sol", label: "GPT-5.6 Sol — complex professional work" },
+    ],
+  },
   "/api/runs": runs,
   [`/api/runs/${runs[0].id}`]: runDetail,
   [`/api/runs/${runs[0].id}/transcript`]: [],

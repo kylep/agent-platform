@@ -268,6 +268,7 @@ class ModelOption(BaseModel):
 
 class AgentModels(BaseModel):
     models: list[ModelOption]
+    codex_models: list[ModelOption] = []
 
 
 class PrRef(BaseModel):
