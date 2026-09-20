@@ -105,6 +105,7 @@ class AgentDefIn(BaseModel):
     name: str = ""
     prompt: str = ""
     description: str = ""
+    runtime: str = "claude"
     model: str = ""
     role: str = "operator"
     system: bool = False
@@ -172,6 +173,7 @@ class AgentDefOut(BaseModel):
     name: str
     prompt: str = ""
     description: str = ""
+    runtime: str = "claude"
     model: str = ""
     role: str = "operator"
     system: bool = False

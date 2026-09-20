@@ -1,4 +1,4 @@
-import asyncio, base64, json, os, re, shutil, stat, subprocess, sys, tempfile, uuid
+import asyncio, base64, hashlib, json, os, re, shutil, stat, subprocess, sys, tempfile, uuid
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -248,6 +248,95 @@ def _install_credentials() -> dict:
     shutil.copy(src, dst)  # copy: never write back to the mount
     return {}
 
+
+def _install_codex_auth(run_id: str) -> tuple[Path, str]:
+    """Install native, refreshable Codex OAuth state for this run."""
+    data = _api_req("GET", f"/api/runs/{run_id}/codex-auth")
+    raw = data["auth_json"]
+    if not isinstance(json.loads(raw), dict):
+        raise ValueError("codex auth.json is not a JSON object")
+    home = Path.home() / ".codex"
+    home.mkdir(parents=True, exist_ok=True, mode=0o700)
+    home.chmod(0o700)
+    auth = home / "auth.json"
+    auth.write_text(raw)
+    auth.chmod(0o600)
+    return auth, data.get("sha256", "")
+
+
+def _upload_codex_auth(run_id: str, auth: Path, original_hash: str) -> None:
+    try:
+        raw = auth.read_text()
+        if original_hash and hashlib.sha256(raw.encode()).hexdigest() == original_hash:
+            return
+        _api_req("PUT", f"/api/runs/{run_id}/codex-auth",
+                 {"auth_json": raw, "sha256": original_hash})
+    except Exception as e:
+        # The run result is still useful. A concurrent run may have won the
+        # optimistic update, in which case its newer credential remains stored.
+        print(f"codex credential refresh upload skipped: {e}", flush=True)
+
+
+def _write_codex_config(dev: bool, instructions: str = "",
+                        playwright_state: Path | None = None) -> Path:
+    """Write the noninteractive policy and broker config used by Codex."""
+    home = Path.home() / ".codex"
+    home.mkdir(parents=True, exist_ok=True)
+    proxy = os.environ.get("AP_CODEX_PROXY_URL", "").rstrip("/")
+    lines = ['approval_policy = "never"',
+             f'developer_instructions = {json.dumps(instructions)}']
+    if proxy:
+        # Kubernetes is the execution sandbox. The custom provider carries no
+        # credential: the broker discards this placeholder and injects OAuth.
+        lines += ['sandbox_mode = "danger-full-access"',
+                  'model_provider = "agent-platform"', '',
+                  '[model_providers.agent-platform]',
+                  'name = "Agent Platform Codex Broker"',
+                  f'base_url = {json.dumps(proxy)}',
+                  'wire_api = "responses"',
+                  'supports_websockets = false',
+                  '', '[model_providers.agent-platform.auth]',
+                  'command = "/bin/echo"',
+                  'args = ["agent-platform-placeholder"]',
+                  'refresh_interval_ms = 0']
+    else:
+        # Legacy direct-auth mode. This retains Codex's own filesystem sandbox
+        # because auth.json is present in the runner's home.
+        lines += ['cli_auth_credentials_store = "file"',
+                  'default_permissions = "agent-platform"', '',
+                  '[permissions.agent-platform]',
+                  '[permissions.agent-platform.filesystem]',
+                  '":root" = "deny"', '":minimal" = "read"',
+                  f'{json.dumps(str(home))} = "deny"',
+                  f'{json.dumps(str(Path.home() / ".agents" / "skills"))} = "read"',
+                  '', '[permissions.agent-platform.filesystem.":workspace_roots"]',
+                  f'"." = {json.dumps("write" if dev else "read")}']
+    lines += ['', '[shell_environment_policy]', 'inherit = "core"', '',
+              '[shell_environment_policy.filters]', '"AP_*" = "exclude"',
+              '"*TOKEN*" = "exclude"', '"*SECRET*" = "exclude"',
+              '"*KEY*" = "exclude"']
+    url = os.environ.get("AP_MCP_URL", "")
+    if url and _identity_token():
+        os.environ["AP_CODEX_MCP_BEARER"] = _identity_token()
+        lines += ['', '[mcp_servers.platform]', f'url = {json.dumps(url)}',
+                  'bearer_token_env_var = "AP_CODEX_MCP_BEARER"']
+        if os.environ.get("AP_RUN_TOKEN"):
+            lines.append('http_headers = { "X-AP-Run-Token" = '
+                         + json.dumps(os.environ["AP_RUN_TOKEN"]) + ' }')
+    web_url = os.environ.get("AP_WEB_URL", "")
+    if (playwright_state is not None and playwright_state.is_file()
+            and _web_host(web_url)):
+        (playwright_state.parent / "mcp.json").write_text(
+            json.dumps(_browser_config(web_url)))
+        server = _playwright_server(playwright_state)
+        lines += ['', '[mcp_servers.playwright]',
+                  f'command = {json.dumps(server["command"])}',
+                  f'args = {json.dumps(server["args"])}']
+    path = home / "config.toml"
+    path.write_text("\n".join(lines) + "\n")
+    path.chmod(0o600)
+    return path
+
 # --- the platform API, as this run --------------------------------------
 # AP_SESSION_TOKEN is a per-run key that reaches only this run's run-scoped
 # endpoints: its agent definition (docs/design/15), its session blob for
@@ -370,7 +459,7 @@ def _render_agent_md(d: dict, dev: bool = False) -> str:
     return "---\n" + "\n".join(front) + "\n---\n\n" + (d.get("prompt") or "")
 
 
-def _install_agent(agent: str, dev: bool = False) -> None:
+def _install_agent(agent: str, dev: bool = False) -> dict:
     """Put this run's definition where `claude --agent <name>` finds it.
 
     One path (docs/design/15): fetch it from the platform — definitions are
@@ -386,8 +475,9 @@ def _install_agent(agent: str, dev: bool = False) -> None:
     dst = _agent_path(agent)
     dst.parent.mkdir(parents=True, exist_ok=True)
     dst.write_text(_render_agent_md(definition, dev=dev))
+    return definition
 
-def _install_skills() -> None:
+def _install_skills(runtime: str = "claude") -> None:
     # `claude` resolves skills from ~/.claude/skills/<name>/SKILL.md. Copy each
     # skill named in AP_SKILLS (set by the launcher from the agent's manifest)
     # from the synced skills tree into place. Unknown names are skipped.
@@ -395,7 +485,8 @@ def _install_skills() -> None:
     if not names:
         return
     src_root = Path(os.environ.get("AP_SKILLS_DIR", "/agents/skills"))
-    dst_root = Path.home() / ".claude" / "skills"
+    dst_root = (Path.home() / ".agents" / "skills" if runtime == "codex"
+                else Path.home() / ".claude" / "skills")
     for name in names:
         src = src_root / name
         if src.is_dir():
@@ -539,6 +630,19 @@ def _upload_session(cwd: str, run_id: str, session_id: str) -> None:
               "blob_b64": base64.b64encode(p.read_bytes()).decode()})
 
 
+def _restore_codex_thread(run_id: str) -> str | None:
+    try:
+        data = _api_req("GET", f"/api/runs/{run_id}/codex-session")
+        return data.get("thread_id") or None
+    except Exception as e:
+        print(f"codex session restore failed, falling back: {e}", flush=True)
+        return None
+
+
+def _upload_codex_thread(run_id: str, thread_id: str) -> None:
+    _api_req("PUT", f"/api/runs/{run_id}/codex-session", {"thread_id": thread_id})
+
+
 def run(producer=None) -> int:
     run_id, agent = os.environ["AP_RUN_ID"], os.environ["AP_AGENT"]
     prompt = os.environ["AP_PROMPT"]
@@ -565,17 +669,19 @@ async def _abort(producer, run_id: str, detail: str) -> int:
 
 
 async def _run(producer, run_id: str, agent: str, prompt: str) -> int:
-    extra_env = _install_credentials()
+    runtime = os.environ.get("AP_RUNTIME", "claude")
+    extra_env = _install_credentials() if runtime == "claude" else {}
     # The producer comes up BEFORE the definition is installed: a pod with no
     # definition has to report that, and it can only report over Kafka.
     await producer.start()
     self_edit = os.environ.get("AP_SELF_EDIT") == "1"
     dev = os.environ.get("AP_WORKSPACE") == "dev"
     try:
-        _install_agent(agent, dev=dev)
+        definition = _install_agent(agent, dev=dev)
     except AgentUnavailable as e:
         return await _abort(producer, run_id, str(e))
-    _install_skills()
+    runtime = definition.get("runtime", runtime)
+    _install_skills(runtime)
 
     cwd = None
     git_env = None
@@ -634,48 +740,60 @@ async def _run(producer, run_id: str, agent: str, prompt: str) -> int:
         if "PATH" in git_env:
             extra_env = {**extra_env, "PATH": git_env["PATH"]}   # the venv leads, for claude too
 
-    claude = os.environ.get("CLAUDE_BIN", "claude")
-    common = ["--output-format", "stream-json", "--verbose"]
-    if os.environ.get("AP_MODEL"):
-        common += ["--model", os.environ["AP_MODEL"]]
-    common += _permission_args(self_edit, bool(os.environ.get("AP_API_TOKEN")), agent, dev=dev)
-    if dev:
-        # Always bounded: a dev run without a turn cap is an open-ended bill.
-        turns = os.environ.get("AP_MAX_TURNS", "")
-        common += ["--max-turns", turns if turns.isdigit() else "200"]
-    # Broker the platform API as MCP tools (mcp__platform__*) for token-bearing
-    # agents, so they can read/annotate runs, check health, use memory and post
-    # notifications WITHOUT a shell. The agent opts in by declaring the tools.
-    if _identity_token():
-        mcp_cfg = _write_mcp_config(playwright_state)
-        if mcp_cfg:
-            common += ["--mcp-config", mcp_cfg]
-            # Load the broker's MCP tools UPFRONT into the model's context.
-            # Default tool-search defers them behind a search tool, so an agent
-            # that calls a tool by name (e.g. run-summarizer → runs_read) never
-            # sees it and emits the call as plain text. Upfront loading fixes it.
-            os.environ["ENABLE_TOOL_SEARCH"] = "false"
-
-    # Conversation session resume (docs/design/14): with a restorable session
-    # the prompt is JUST the new user message (prior turns live in the resumed
-    # session); otherwise fall back to the flattened text-replay prompt.
-    claude_cwd = cwd or os.getcwd()
     user_message = os.environ.get("AP_USER_MESSAGE", "")
-    resume_sid = _restore_session(claude_cwd) if user_message else None
+    run_cwd = cwd or os.getcwd()
     if user_message and block:
-        # A resumed dev run sends only this message, so the block rides on it
-        # too — last, after the human's text, as it is in the prompt.
         user_message = user_message.rstrip("\n") + "\n\n" + block
 
-    def _args(resume: str | None) -> list[str]:
-        if resume:
-            return [claude, "--agent", agent, "--resume", resume, "-p", user_message, *common]
-        return [claude, "--agent", agent, "-p", prompt, *common]
-
     final_sid = None
+    final_text = ""
+    final_error = ""
+    codex_auth = None
+    codex_auth_hash = ""
+
+    if runtime == "codex":
+        try:
+            if not os.environ.get("AP_CODEX_PROXY_URL"):
+                codex_auth, codex_auth_hash = _install_codex_auth(run_id)
+            _write_codex_config(dev or self_edit, definition.get("prompt") or "",
+                                playwright_state)
+        except Exception as e:
+            return await _abort(producer, run_id, f"codex credential unavailable: {e}")
+        resume_sid = _restore_codex_thread(run_id) if user_message else None
+        codex = os.environ.get("CODEX_BIN", "codex")
+        common = ["--json", "--skip-git-repo-check"]
+        if os.environ.get("AP_MODEL"):
+            common += ["--model", os.environ["AP_MODEL"]]
+        initial = prompt
+
+        def _args(resume: str | None) -> list[str]:
+            if resume:
+                return [codex, "exec", "resume", *common, resume, user_message]
+            return [codex, "exec", *common, initial]
+    else:
+        claude = os.environ.get("CLAUDE_BIN", "claude")
+        common = ["--output-format", "stream-json", "--verbose"]
+        if os.environ.get("AP_MODEL"):
+            common += ["--model", os.environ["AP_MODEL"]]
+        common += _permission_args(self_edit, bool(os.environ.get("AP_API_TOKEN")), agent, dev=dev)
+        if dev:
+            turns = os.environ.get("AP_MAX_TURNS", "")
+            common += ["--max-turns", turns if turns.isdigit() else "200"]
+        if _identity_token():
+            mcp_cfg = _write_mcp_config(playwright_state)
+            if mcp_cfg:
+                common += ["--mcp-config", mcp_cfg]
+                os.environ["ENABLE_TOOL_SEARCH"] = "false"
+        resume_sid = _restore_session(run_cwd) if user_message else None
+
+        def _args(resume: str | None) -> list[str]:
+            if resume:
+                return [claude, "--agent", agent, "--resume", resume,
+                        "-p", user_message, *common]
+            return [claude, "--agent", agent, "-p", prompt, *common]
 
     async def _invoke(args: list[str]) -> int:
-        nonlocal seq, final_sid
+        nonlocal seq, final_sid, final_text, final_error
         proc = subprocess.Popen(
             args, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, cwd=cwd,
             env={**os.environ, **extra_env})
@@ -690,9 +808,24 @@ async def _run(producer, run_id: str, agent: str, prompt: str) -> int:
                 payload = json.loads(line)
             except json.JSONDecodeError:
                 payload = {"type": "raw", "text": line}
+            payload["runtime"] = runtime
             payload["seq"] = seq
             if payload.get("type") == "result" and payload.get("session_id"):
                 final_sid = payload["session_id"]
+            if runtime == "codex":
+                if payload.get("type") == "thread.started":
+                    final_sid = payload.get("thread_id")
+                item = payload.get("item") or {}
+                if (payload.get("type") == "item.completed"
+                        and item.get("type") == "agent_message"):
+                    final_text = item.get("text") or final_text
+                if payload.get("type") in ("turn.failed", "error"):
+                    error = payload.get("error") or payload.get("message") or ""
+                    final_error = (error.get("message", "") if isinstance(error, dict)
+                                   else str(error))
+                    if any(word in final_error.lower()
+                           for word in ("unauthorized", "authentication failed", "401")):
+                        payload["error"] = "authentication_failed"
             await producer.publish(TOPIC_TRANSCRIPT, run_id, payload)
         return await asyncio.to_thread(proc.wait)
 
@@ -706,6 +839,12 @@ async def _run(producer, run_id: str, agent: str, prompt: str) -> int:
                                 "detail": "resume failed; retrying with replayed history"})
         final_sid = None
         rc = await _invoke(_args(None))
+    if runtime == "codex" and rc == 0 and final_text:
+        seq += 1
+        await producer.publish(TOPIC_TRANSCRIPT, run_id,
+                               {"seq": seq, "type": "result", "result": final_text,
+                                "session_id": final_sid, "runtime": "codex",
+                                "is_error": False})
     state = "succeeded" if rc == 0 else "failed"
 
     # On a successful self-edit run, open a PR for whatever the agent changed.
@@ -751,15 +890,23 @@ async def _run(producer, run_id: str, agent: str, prompt: str) -> int:
     # for the API to decode and 404, once per pod, drowning the real failures.
     if rc == 0 and final_sid and user_message:
         try:
-            await asyncio.to_thread(_upload_session, claude_cwd, run_id, final_sid)
+            if runtime == "codex":
+                await asyncio.to_thread(_upload_codex_thread, run_id, final_sid)
+            else:
+                await asyncio.to_thread(_upload_session, run_cwd, run_id, final_sid)
         except Exception as e:
             print(f"session upload failed (non-fatal): {e}", flush=True)
+
+    if runtime == "codex" and codex_auth is not None:
+        await asyncio.to_thread(_upload_codex_auth, run_id, codex_auth, codex_auth_hash)
 
     await producer.publish(TOPIC_TRANSCRIPT, run_id,
                            {"seq": seq + 1, "type": "lifecycle", "terminal": True, "state": state})
     await producer.publish(TOPIC_EVENTS, run_id,
                            {"run_id": run_id, "type": "state", "state": state,
-                            "exit_code": rc, "terminal": True}, type="run.state")
+                            "exit_code": rc, "terminal": True, "runtime": runtime,
+                            "detail": final_error if rc else ""},
+                           type="run.state")
     await producer.stop()
     return rc
 

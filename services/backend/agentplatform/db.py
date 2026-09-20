@@ -34,6 +34,8 @@ class Run(Base):
     __tablename__ = "runs"
     id: Mapped[str] = mapped_column(String(32), primary_key=True, default=lambda: uuid.uuid4().hex)
     agent: Mapped[str] = mapped_column(String(128))
+    # Provider selected by the dispatcher, frozen before the pod launches.
+    runtime: Mapped[str] = mapped_column(String(16), default="")
     trigger: Mapped[str] = mapped_column(String(32))
     requested_by: Mapped[str] = mapped_column(String(128))
     # docs/design/13 D: the PRINCIPAL at the root of the chain — who this work
@@ -182,6 +184,7 @@ class Conversation(Base):
     # Restored into the run pod so `claude --resume` continues the real session
     # (full fidelity + prompt-cache hits); empty/null = text-replay fallback.
     claude_session_id: Mapped[str] = mapped_column(String(64), default="")
+    codex_thread_id: Mapped[str] = mapped_column(String(64), default="")
     session_blob: Mapped[bytes | None] = mapped_column(LargeBinary, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
@@ -562,6 +565,7 @@ class AgentDef(Base):
     # the artifact is soft-deleted and pruned on its own clock, and an agent's
     # row must never be what stops the pruner.
     image_artifact_id: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    runtime: Mapped[str] = mapped_column(String(16), default="claude")
     model: Mapped[str] = mapped_column(String(64), default="")
     # Platform role the agent's tokens are minted at (see api.auth.ROLES);
     # `coder` is additionally what makes a run self-edit-capable.
@@ -852,7 +856,8 @@ def _ensure_workbench_defaults(conn) -> None:
     if not sa_inspect(conn).has_table("agent_defs"):
         return
     t = AgentDef.__table__
-    for col, default in ((t.c.push_path_globs, []), (t.c.may_delete_tests, False),
+    for col, default in ((t.c.runtime, "claude"),
+                         (t.c.push_path_globs, []), (t.c.may_delete_tests, False),
                          (t.c.quota_5h_max_pct, 80), (t.c.quota_7d_max_pct, 50)):
         conn.execute(t.update().where(col.is_(None)).values({col.name: default}))
 

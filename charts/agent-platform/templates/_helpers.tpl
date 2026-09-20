@@ -104,4 +104,8 @@ Env vars shared by the api/dispatcher/recorder backend Deployments.
 - name: AP_CLAUDE_PROXY_URL
   value: "http://agent-platform-claude-proxy:8000"
 {{- end }}
+{{- if .Values.codexProxy.enabled }}
+- name: AP_CODEX_PROXY_URL
+  value: "http://agent-platform-codex-proxy:8000"
+{{- end }}
 {{- end -}}

@@ -184,6 +184,10 @@ def suite_table(root: Path, out: Path | None = None) -> list[dict]:
     suites.append(_suite("claude-proxy", ["services/claude-proxy/**", "charts/**"], ".",
                          _sh(HELM_DEPS, f"cd services/claude-proxy && {shlex.join(pytest_q)}"),
                          requires=["helm", "docker"]))
+    suites.append(_suite("codex-proxy", ["services/codex-proxy/**", "charts/**"], ".",
+                         pytest_q + ["services/codex-proxy/tests"],
+                         env={**pp, "PYTHONPATH": str(root / "services/codex-proxy")
+                              + ":" + pp["PYTHONPATH"]}))
     return suites
 
 

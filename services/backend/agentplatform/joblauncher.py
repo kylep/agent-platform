@@ -153,10 +153,13 @@ class K8sJobLauncher(Launcher):
         """The de-duplicated union of secret names an agent's pod may receive:
         its manifest `secrets` plus the secrets required by its skills. This is
         the whole allow-list — the pod is bound to these and nothing else."""
-        names = list(manifest.secrets)
+        # Provider credentials have dedicated delivery paths and may never be
+        # smuggled into an agent through an explicit manifest/skill binding.
+        reserved = {"claude-credentials", "codex-credentials"}
+        names = [name for name in manifest.secrets if name not in reserved]
         if self.skill_store is not None:
             for s in self.skill_store.secrets_for(manifest.skills):
-                if s not in names:
+                if s not in reserved and s not in names:
                     names.append(s)
         return names
 
@@ -168,6 +171,7 @@ class K8sJobLauncher(Launcher):
         env = [
             k8s.V1EnvVar(name="AP_RUN_ID", value=run.id),
             k8s.V1EnvVar(name="AP_AGENT", value=run.agent),
+            k8s.V1EnvVar(name="AP_RUNTIME", value=manifest.runtime),
             k8s.V1EnvVar(name="AP_PROMPT", value=run.prompt),
             k8s.V1EnvVar(name="AP_KAFKA_BOOTSTRAP", value=self.settings.kafka_bootstrap),
         ]
@@ -176,7 +180,7 @@ class K8sJobLauncher(Launcher):
         # Token brokering (docs/design/09): with a claude-proxy configured the
         # runner is pointed at it instead of being handed the real token, and
         # the claude-credentials secret is not mounted at all (see volumes).
-        if self.settings.claude_proxy_url:
+        if manifest.runtime == "claude" and self.settings.claude_proxy_url:
             env.append(k8s.V1EnvVar(name="AP_CLAUDE_PROXY_URL", value=self.settings.claude_proxy_url))
         if manifest.skills:
             # The runner copies each named skill from the synced /agents/skills
@@ -253,6 +257,11 @@ class K8sJobLauncher(Launcher):
                                         value=run.user_message or ""))
             if not any(e.name == "AP_API_URL" for e in env):
                 env.append(k8s.V1EnvVar(name="AP_API_URL", value=self.settings.api_internal_url))
+        if manifest.runtime == "codex" and self.settings.codex_proxy_url:
+            # The broker owns OAuth. The runner receives only this service URL
+            # and configures Codex with a harmless placeholder bearer.
+            env.append(k8s.V1EnvVar(name="AP_CODEX_PROXY_URL",
+                                    value=self.settings.codex_proxy_url))
         # Secret-binding: inject each bound secret's key/values as env vars via
         # envFrom. `optional` so a not-yet-configured secret doesn't wedge the
         # pod; the agent simply runs without it (the skill degrades). Unbound
@@ -280,7 +289,7 @@ class K8sJobLauncher(Launcher):
             # backs it with a bounded in-memory emptyDir — the same cage, one
             # more scratch path.
             volume_mounts.append(k8s.V1VolumeMount(name="dshm", mount_path="/dev/shm"))
-        if not self.settings.claude_proxy_url:
+        if manifest.runtime == "claude" and not self.settings.claude_proxy_url:
             # Legacy direct-token mode only: the subscription token in the pod.
             volume_mounts.insert(0, k8s.V1VolumeMount(
                 name="claude-credentials", mount_path="/secrets/claude", read_only=True))
@@ -335,7 +344,7 @@ class K8sJobLauncher(Launcher):
         if dev:
             volumes.append(k8s.V1Volume(name="dshm", empty_dir=k8s.V1EmptyDirVolumeSource(
                 medium="Memory", size_limit=self.settings.dev_shm_size_limit)))
-        if not self.settings.claude_proxy_url:
+        if manifest.runtime == "claude" and not self.settings.claude_proxy_url:
             volumes.insert(0, k8s.V1Volume(
                 name="claude-credentials",
                 secret=k8s.V1SecretVolumeSource(secret_name="claude-credentials"),
@@ -425,6 +434,7 @@ class K8sJobLauncher(Launcher):
                 metadata=k8s.V1ObjectMeta(labels={
                     "app.kubernetes.io/name": "agent-platform",
                     "app.kubernetes.io/component": "runner",
+                    "agent-platform/runtime": manifest.runtime,
                 }),
                 spec=pod_spec,
             ),
@@ -517,7 +527,9 @@ class K8sJobLauncher(Launcher):
         auditing must never block a launch."""
         if self.sf is None:
             return
-        base = [] if self.settings.claude_proxy_url else ["claude-credentials"]
+        base = (["codex-credentials"] if manifest.runtime == "codex"
+                and not self.settings.codex_proxy_url else
+                ([] if self.settings.claude_proxy_url else ["claude-credentials"]))
         granted = [*base, *self.bound_secrets(manifest)]
         try:
             async with self.sf() as s:

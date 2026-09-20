@@ -154,6 +154,25 @@ def test_no_claude_proxy_keeps_legacy_token_mount():
     assert {v.name for v in spec.volumes} >= {"claude-credentials"}
 
 
+def test_codex_job_selects_runtime_without_mounting_claude_credentials():
+    launcher = K8sJobLauncher(batch=None, settings=Settings(
+        runner_image="r:1", k8s_namespace="ap",
+        claude_proxy_url="http://agent-platform-claude-proxy:8000",
+        codex_proxy_url="http://agent-platform-codex-proxy:8000"))
+    run = Run(agent="hello-world", trigger="manual", requested_by="t", prompt="x")
+    run.id = "a" * 32
+    spec = launcher.build_job(run, Manifest(runtime="codex")).spec.template.spec
+    env = {e.name: e.value for e in spec.containers[0].env}
+    assert env["AP_RUNTIME"] == "codex"
+    assert "AP_CLAUDE_PROXY_URL" not in env
+    assert env["AP_CODEX_PROXY_URL"] == "http://agent-platform-codex-proxy:8000"
+    assert "claude-credentials" not in {m.name for m in spec.containers[0].volume_mounts}
+    assert spec.security_context.seccomp_profile.type == "RuntimeDefault"
+    assert spec.containers[0].security_context.allow_privilege_escalation is False
+    assert (launcher.build_job(run, Manifest(runtime="codex")).spec.template.metadata
+            .labels["agent-platform/runtime"] == "codex")
+
+
 def test_writable_scratch_volumes_are_emptydirs():
     """Read-only rootfs needs the three writable paths backed by emptyDirs."""
     launcher = K8sJobLauncher(batch=None, settings=Settings(runner_image="r:1", k8s_namespace="ap"))
@@ -291,6 +310,13 @@ def test_bound_secrets_union_of_manifest_and_skills(tmp_path):
                               skill_store=_skill_store(tmp_path))
     m = Manifest(skills=["git"], secrets=["extra", "github-token"])  # dedupe github-token
     assert launcher.bound_secrets(m) == ["extra", "github-token"]
+
+
+def test_provider_credentials_cannot_be_bound_as_agent_secrets(tmp_path):
+    launcher = K8sJobLauncher(batch=None, settings=Settings(runner_image="r:1", k8s_namespace="ap"),
+                              skill_store=_skill_store(tmp_path))
+    manifest = Manifest(secrets=["claude-credentials", "codex-credentials", "extra"])
+    assert launcher.bound_secrets(manifest) == ["extra"]
 
 
 def test_build_job_binds_secrets_via_envfrom(tmp_path):

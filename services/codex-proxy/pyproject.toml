@@ -1,0 +1,18 @@
+[project]
+name = "agent-platform-codex-proxy"
+version = "0.1.0"
+requires-python = ">=3.12"
+dependencies = ["aiohttp>=3.12"]
+
+[build-system]
+requires = ["setuptools>=75"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+py-modules = ["codex_proxy"]
+
+[project.optional-dependencies]
+test = ["pytest>=8", "pytest-asyncio>=0.24"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"

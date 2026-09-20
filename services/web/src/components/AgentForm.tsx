@@ -27,7 +27,7 @@ const EMPTY_ENTRYPOINTS: AgentEntrypoints = { crons: [], webhooks: [], topics: [
 // shape an update does.
 export function emptyDef(): AgentDef {
   return {
-    name: "", prompt: "", description: "", model: "", role: "operator",
+    name: "", prompt: "", description: "", runtime: "claude", model: "", role: "operator",
     system: false, can_invoke: false, concurrency: 1, timeout_seconds: 1800,
     result_topic: "", transcript_retention_days: null,
     harness_tools: [], platform_tools: [], skills: [], secrets: [],
@@ -164,12 +164,20 @@ export function IdentityFields({ draft, patch, catalog }: {
                  placeholder="What does this agent do?"
                  onChange={(e) => patch({ description: e.target.value })} />
         </Field>
+        <Field label="Runtime" hint="Subscription-backed CLI used for this agent's runs.">
+          <Select className="w-full" aria-label="Runtime" value={draft.runtime}
+                  onChange={(e) => patch({ runtime: e.target.value as AgentDef["runtime"], model: "" })}>
+            <option value="claude">Claude Code</option>
+            <option value="codex">OpenAI Codex</option>
+          </Select>
+        </Field>
         <Field label="Model" hint="Blank uses the platform default. Any model string is accepted.">
           <Input className="w-full" aria-label="Model" list="agent-model-options" value={draft.model}
                  placeholder="platform default"
                  onChange={(e) => patch({ model: e.target.value.trim() })} />
           <datalist id="agent-model-options">
-            {catalog.models.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}
+            {draft.runtime === "claude" && catalog.models.map((m) =>
+              <option key={m.id} value={m.id}>{m.label}</option>)}
           </datalist>
         </Field>
         <Field label="Role"
@@ -443,7 +451,9 @@ export function GrantsFields({ draft, patch, catalog }: {
       <p className="muted check-note">Skills mount into the agent's pod and bind their required secrets.</p>
 
       <label className="field-label">Secrets</label>
-      <SecretPicker secrets={catalog.secrets} selected={draft.secrets}
+      <SecretPicker secrets={catalog.secrets.filter(
+        (secret) => !["claude-credentials", "codex-credentials"].includes(secret.name),
+      )} selected={draft.secrets}
                     onChange={(secrets) => patch({ secrets })} />
       <p className="muted check-note">
         Granted secrets are injected into the run pod's environment. A required secret that is

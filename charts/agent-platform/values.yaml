@@ -77,6 +77,19 @@ claudeProxy:
     # cannot resolve). Set only to point the proxy somewhere else, e.g. a test.
     apiUrl: ""
 
+# Codex subscription OAuth broker (docs/design/26). Runner pods use a custom
+# provider with a harmless placeholder bearer; this service alone mounts and
+# refreshes the native Codex auth.json.
+codexProxy:
+  enabled: true
+  image:
+    repository: agent-platform-codex-proxy
+    tag: dev
+    pullPolicy: IfNotPresent
+  upstream: https://chatgpt.com/backend-api/codex
+  oauthUrl: https://auth.openai.com/oauth/token
+  refreshWindowSeconds: 300
+
 # Per-service resource requests/limits for the agent-platform-owned Deployments
 # (api, dispatcher, recorder, web). Subchart (postgresql/kafka) resources are
 # configured under the `postgresql:` and `kafka:` keys below.

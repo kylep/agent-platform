@@ -51,7 +51,7 @@ GRANT_LIST_FIELDS: tuple[str, ...] = ("harness_tools", "platform_tools",
 GRANT_FLAG_FIELDS: tuple[str, ...] = ("can_invoke", "may_delete_tests")
 GRANT_FIELDS: tuple[str, ...] = GRANT_LIST_FIELDS + GRANT_FLAG_FIELDS + ("role",)
 API_EDIT_FIELDS: tuple[str, ...] = (
-    "prompt", "description", "model", "system", "concurrency",
+    "prompt", "description", "runtime", "model", "system", "concurrency",
     "timeout_seconds", "result_topic", "transcript_retention_days",
     "entrypoints", "enabled", "quota_5h_max_pct", "quota_7d_max_pct",
 )
@@ -67,7 +67,7 @@ EDITABLE_FIELDS: tuple[str, ...] = tuple(f for f in API_EDIT_FIELDS
 # The compact projection `action="list"` returns. A listing of full definitions
 # is mostly prompts — kilobytes of context to answer "which agents exist?" —
 # so the listing names them and `action="get"` fetches the one you want.
-_LIST_ALWAYS = ("name", "description", "role", "enabled")
+_LIST_ALWAYS = ("name", "description", "runtime", "role", "enabled")
 # Carried only when set, because "nothing wrong with it" is the common case and
 # an empty key per agent per row is noise. `enabled: false` is NOT one of these
 # — a switched-off agent is exactly what a caller is looking for.

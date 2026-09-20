@@ -35,6 +35,70 @@ def test_relays_stream_and_terminal(tmp_path, monkeypatch):
     assert (tmp_path / ".claude" / "agents" / "hello-world.md").exists()
 
 
+def test_codex_runtime_installs_oauth_and_normalizes_result(tmp_path, monkeypatch):
+    fake = tmp_path / "codex"
+    fake.write_text("#!/bin/sh\n"
+                    "echo '{\"type\":\"thread.started\",\"thread_id\":\"thread-1\"}'\n"
+                    "echo '{\"type\":\"item.completed\",\"item\":{\"type\":\"agent_message\",\"text\":\"hello from codex\"}}'\n"
+                    "exit 0\n")
+    fake.chmod(fake.stat().st_mode | stat.S_IEXEC)
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("AP_RUN_ID", "RID")
+    monkeypatch.setenv("AP_AGENT", "hello-world")
+    monkeypatch.setenv("AP_PROMPT", "do it")
+    monkeypatch.setenv("AP_RUNTIME", "codex")
+    monkeypatch.setenv("AP_SESSION_TOKEN", "ap_sess")
+    monkeypatch.setenv("AP_API_URL", "http://api:8090")
+    monkeypatch.setenv("CODEX_BIN", str(fake))
+    monkeypatch.delenv("AP_USER_MESSAGE", raising=False)
+    calls = []
+
+    def api(method, path, body=None, headers=None):
+        calls.append((method, path, body))
+        if path.endswith("/agentdef"):
+            return {"name": "hello-world", "description": "Says hi.",
+                    "prompt": "Be concise.", "skills": []}
+        if method == "GET":
+            return {"auth_json": '{"tokens":{"access_token":"x"}}', "sha256": "old"}
+        return {"ok": True}
+
+    monkeypatch.setattr(runner, "_api_req", api)
+    p = FakeProducer()
+    assert runner.run(producer=p) == 0
+    assert json.loads((tmp_path / ".codex" / "auth.json").read_text())["tokens"]
+    config = (tmp_path / ".codex" / "config.toml").read_text()
+    assert 'approval_policy = "never"' in config
+    assert "sandbox_mode" not in config  # legacy sandbox would override the profile below
+    assert '":root" = "deny"' in config
+    assert '":minimal" = "read"' in config
+    assert '"." = "read"' in config
+    assert f'{json.dumps(str(tmp_path / ".codex"))} = "deny"' in config
+    assert f'{json.dumps(str(tmp_path / ".agents" / "skills"))} = "read"' in config
+    result = next(v for _, _, v in p.published if v.get("type") == "result")
+    assert result["result"] == "hello from codex" and result["runtime"] == "codex"
+    assert any(m == "PUT" and path.endswith("/codex-auth") for m, path, _ in calls)
+
+
+def test_codex_dev_profile_can_write_only_the_workspace(tmp_path, monkeypatch):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    config = runner._write_codex_config(True).read_text()
+    assert '":root" = "deny"' in config
+    assert '"." = "write"' in config
+    assert "sandbox_mode" not in config
+
+
+def test_codex_broker_mode_has_no_local_oauth_file(tmp_path, monkeypatch):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("AP_CODEX_PROXY_URL", "http://agent-platform-codex-proxy:8000")
+    config = runner._write_codex_config(False).read_text()
+    assert 'sandbox_mode = "danger-full-access"' in config
+    assert 'model_provider = "agent-platform"' in config
+    assert 'base_url = "http://agent-platform-codex-proxy:8000"' in config
+    assert 'supports_websockets = false' in config
+    assert "agent-platform-placeholder" in config
+    assert not (tmp_path / ".codex" / "auth.json").exists()
+
+
 def test_install_credentials_prefers_claude_proxy(tmp_path, monkeypatch):
     """Token brokering (docs/design/09): with a proxy URL the pod holds no real
     credential — claude gets the proxy as base URL plus a placeholder token

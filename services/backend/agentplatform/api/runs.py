@@ -3,6 +3,7 @@ import base64
 import binascii
 import hashlib
 import hmac
+import json
 import logging
 import secrets
 import uuid
@@ -21,6 +22,7 @@ from agentplatform.db import (ACTIVE_STATES, AgentDef, Conversation, RelaySessio
                               SecretAccess, Ticket, TranscriptEvent, utcnow)
 from agentplatform.events import TOPIC_RUN_REQUESTS
 from agentplatform.github import GitHubClient
+from agentplatform.secrets import CODEX_CREDENTIAL
 from agentplatform.materialize import materialize_run
 
 log = logging.getLogger("runs")
@@ -55,6 +57,13 @@ class RunAgentDef(BaseModel):
     platform_tools: list[str] = []
     skills: list[str] = []
     model: str = ""
+
+class CodexAuth(BaseModel):
+    auth_json: str
+    sha256: str = ""
+
+class CodexThread(BaseModel):
+    thread_id: str
 
 def _summary(r: Run) -> dict:
     return {"id": r.id, "agent": r.agent, "state": r.state, "trigger": r.trigger,
@@ -246,6 +255,95 @@ async def get_agentdef(run_id: str, request: Request):
                        platform_tools=info.platform_tools,
                        skills=list(m.skills) if m else [],
                        model=m.model if m else "")
+
+
+async def _codex_run_or_404(request: Request, run_id: str) -> Run:
+    _own_run_or_403(request, run_id)
+    async with request.app.state.session_factory() as s:
+        run = await s.get(Run, run_id)
+    if run is None:
+        raise HTTPException(404, "unknown run")
+    info = request.app.state.agent_store.get(run.agent)
+    if info is None:
+        await request.app.state.agent_store.reload()
+        info = request.app.state.agent_store.get(run.agent)
+    runtime = run.runtime or (info.manifest.runtime if info and info.manifest else "")
+    if runtime != "codex":
+        raise HTTPException(404, "not a codex run")
+    return run
+
+
+@router.get("/api/runs/{run_id}/codex-auth",
+            dependencies=[Depends(require_role("session", "admin"))])
+async def get_codex_auth(run_id: str, request: Request):
+    """Hand native Codex OAuth state only to the runner that owns this run."""
+    if request.app.state.settings.codex_proxy_url:
+        raise HTTPException(404, "Codex credentials are brokered")
+    await _codex_run_or_404(request, run_id)
+    data = await request.app.state.secret_store.get(CODEX_CREDENTIAL)
+    raw = (data or {}).get("auth.json", "")
+    if not raw:
+        raise HTTPException(404, "codex credentials are not set")
+    try:
+        parsed = json.loads(raw)
+    except json.JSONDecodeError:
+        raise HTTPException(409, "codex auth.json is invalid") from None
+    if not isinstance(parsed, dict):
+        raise HTTPException(409, "codex auth.json is invalid")
+    return {"auth_json": raw, "sha256": hashlib.sha256(raw.encode()).hexdigest()}
+
+
+@router.put("/api/runs/{run_id}/codex-auth",
+            dependencies=[Depends(require_role("session", "admin"))])
+async def put_codex_auth(run_id: str, body: CodexAuth, request: Request):
+    """Persist token refreshes made by Codex, with optimistic concurrency."""
+    if request.app.state.settings.codex_proxy_url:
+        raise HTTPException(404, "Codex credentials are brokered")
+    await _codex_run_or_404(request, run_id)
+    if len(body.auth_json.encode()) > 128 * 1024:
+        raise HTTPException(413, "codex auth.json is too large")
+    try:
+        parsed = json.loads(body.auth_json)
+    except json.JSONDecodeError:
+        raise HTTPException(422, "codex auth.json must be a JSON object") from None
+    if not isinstance(parsed, dict):
+        raise HTTPException(422, "codex auth.json must be a JSON object")
+    current = await request.app.state.secret_store.get(CODEX_CREDENTIAL)
+    current_raw = (current or {}).get("auth.json", "")
+    current_hash = hashlib.sha256(current_raw.encode()).hexdigest()
+    if body.sha256 and current_hash != body.sha256:
+        raise HTTPException(409, "codex credentials changed during the run")
+    await request.app.state.secret_store.set(CODEX_CREDENTIAL,
+                                             {"auth.json": body.auth_json})
+    return {"ok": True}
+
+
+@router.get("/api/runs/{run_id}/codex-session",
+            dependencies=[Depends(require_role("session", "admin"))])
+async def get_codex_session(run_id: str, request: Request):
+    run = await _codex_run_or_404(request, run_id)
+    if not run.conversation_id:
+        raise HTTPException(404, "no conversation")
+    async with request.app.state.session_factory() as s:
+        row = await s.get(RelaySession, _session_key(run))
+    return {"thread_id": row.codex_thread_id if row else ""}
+
+
+@router.put("/api/runs/{run_id}/codex-session",
+            dependencies=[Depends(require_role("session", "admin"))])
+async def put_codex_session(run_id: str, body: CodexThread, request: Request):
+    run = await _codex_run_or_404(request, run_id)
+    if not run.conversation_id:
+        raise HTTPException(404, "no conversation")
+    async with request.app.state.session_factory() as s:
+        key = _session_key(run)
+        row = await s.get(RelaySession, key)
+        if row is None:
+            row = RelaySession(**key)
+            s.add(row)
+        row.codex_thread_id = body.thread_id[:64]
+        await s.commit()
+    return {"ok": True}
 
 
 async def _store_session(s, key: dict, session_id: str, blob: bytes | None) -> None:

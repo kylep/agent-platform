@@ -23,6 +23,7 @@ async def test_agent_def_defaults_round_trip(sf):
             AgentDef.name == "hello-world"))).scalar_one()
     assert got.name == "hello-world"
     assert got.prompt == "" and got.description == "" and got.model == ""
+    assert got.runtime == "claude"
     assert got.role == "operator" and got.system is False and got.can_invoke is False
     assert got.concurrency == 1 and got.timeout_seconds == 1800
     assert got.result_topic == "" and got.transcript_retention_days is None
@@ -107,11 +108,18 @@ def _model(**over) -> AgentDefModel:
 def test_model_defaults_mirror_the_row():
     m = _model()
     assert m.prompt == "" and m.role == "operator" and m.concurrency == 1
+    assert m.runtime == "claude"
     assert m.timeout_seconds == 1800 and m.enabled is True
     assert m.transcript_retention_days is None
     assert m.harness_tools == [] and m.platform_tools == []
     assert m.entrypoints.crons == [] and m.entrypoints.webhooks == []
     assert m.entrypoints.topics == []
+
+
+def test_runtime_is_closed_to_the_two_supported_harnesses():
+    assert _model(runtime="codex").runtime == "codex"
+    with pytest.raises(ValidationError, match="runtime"):
+        _model(runtime="other")
 
 
 def test_agent_roles_are_a_subset_of_the_auth_roles():

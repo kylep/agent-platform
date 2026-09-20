@@ -29,6 +29,8 @@ from .change_impact_item import ChangeImpactItem
 from .chart_series import ChartSeries
 from .chart_spec import ChartSpec
 from .chart_svg import ChartSvg
+from .codex_auth import CodexAuth
+from .codex_thread import CodexThread
 from .connector import Connector
 from .conversation_detail import ConversationDetail
 from .conversation_in import ConversationIn
@@ -238,6 +240,8 @@ __all__ = (
     "ChartSeries",
     "ChartSpec",
     "ChartSvg",
+    "CodexAuth",
+    "CodexThread",
     "Connector",
     "ConversationDetail",
     "ConversationIn",

@@ -14,6 +14,7 @@ from agentplatform.api import artifacts_feed as artifacts_feed_api
 from agentplatform.api import audit as audit_api
 from agentplatform.api import auth
 from agentplatform.api import conversations as conversations_api
+from agentplatform.api import codex_proxy as codex_proxy_api
 from agentplatform.api import cron as cron_api
 from agentplatform.api import dlq as dlq_api
 from agentplatform.api import health as health_api
@@ -385,6 +386,7 @@ def create_app(settings, session_factory, producer, secret_store=None, agent_sto
     app.include_router(artifacts_api.router)
     app.include_router(audit_api.router)
     app.include_router(conversations_api.router)
+    app.include_router(codex_proxy_api.router)
     app.include_router(cron_api.router)
     app.include_router(dlq_api.router)
     app.include_router(health_api.router)

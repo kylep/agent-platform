@@ -1,0 +1,87 @@
+{{- if .Values.codexProxy.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}-codex-proxy
+  labels:
+    {{- include "agent-platform.selectorLabels" (dict "Release" .Release "Chart" .Chart "component" "codex-proxy") | nindent 4 }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "agent-platform.selectorLabels" (dict "Release" .Release "Chart" .Chart "component" "codex-proxy") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "agent-platform.selectorLabels" (dict "Release" .Release "Chart" .Chart "component" "codex-proxy") | nindent 8 }}
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: codex-proxy
+          image: "{{ .Values.codexProxy.image.repository }}:{{ .Values.codexProxy.image.tag }}"
+          imagePullPolicy: {{ .Values.codexProxy.image.pullPolicy | default "IfNotPresent" }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            runAsNonRoot: true
+            runAsUser: 1001
+            runAsGroup: 1001
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          env:
+            - name: PYTHONDONTWRITEBYTECODE
+              value: "1"
+            - name: AP_API_URL
+              value: "http://agent-platform-api.{{ .Release.Namespace }}.svc.cluster.local:8000"
+            - name: CODEX_UPSTREAM
+              value: {{ .Values.codexProxy.upstream | quote }}
+            - name: CODEX_OAUTH_URL
+              value: {{ .Values.codexProxy.oauthUrl | quote }}
+            - name: CODEX_REFRESH_WINDOW_SECONDS
+              value: {{ .Values.codexProxy.refreshWindowSeconds | quote }}
+          ports:
+            - name: http
+              containerPort: 8000
+          volumeMounts:
+            - name: codex-credentials
+              mountPath: /secrets/codex
+              readOnly: true
+            - name: internal-secret
+              mountPath: /secrets/internal
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
+          readinessProbe:
+            httpGet: {path: /healthz, port: 8000}
+            initialDelaySeconds: 2
+            periodSeconds: 10
+          resources:
+            requests: {memory: 64Mi, cpu: 50m}
+            limits: {memory: 256Mi}
+      volumes:
+        - name: codex-credentials
+          secret:
+            secretName: codex-credentials
+        - name: internal-secret
+          secret:
+            secretName: {{ .Release.Name }}-internal
+        - name: tmp
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: agent-platform-codex-proxy
+  labels:
+    {{- include "agent-platform.selectorLabels" (dict "Release" .Release "Chart" .Chart "component" "codex-proxy") | nindent 4 }}
+spec:
+  selector:
+    {{- include "agent-platform.selectorLabels" (dict "Release" .Release "Chart" .Chart "component" "codex-proxy") | nindent 4 }}
+  ports:
+    - name: http
+      port: 8000
+      targetPort: 8000
+{{- end }}

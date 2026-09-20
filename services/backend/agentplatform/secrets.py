@@ -6,6 +6,7 @@ import base64
 from kubernetes import client as k8s
 
 CLAUDE_CREDENTIAL = "claude-credentials"
+CODEX_CREDENTIAL = "codex-credentials"
 
 
 class SecretStore:

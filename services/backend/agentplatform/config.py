@@ -104,6 +104,9 @@ class Settings(BaseSettings):
     # token lives only in the claude-proxy pod, which injects the Authorization
     # header on the way out. Empty = legacy direct mount.
     claude_proxy_url: str = ""
+    # Auth-injecting egress broker for Codex. When set, Codex runners carry no
+    # auth.json; their custom provider sends a placeholder bearer here.
+    codex_proxy_url: str = ""
     # MCP broker service URL injected into token-bearing runs (the runner points
     # claude at it so agents get brokered API tools instead of a shell).
     mcp_broker_url: str = "http://agent-platform-mcp-broker:8000/mcp"

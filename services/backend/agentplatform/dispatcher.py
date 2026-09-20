@@ -5,7 +5,7 @@ from agentplatform.agents import AgentStore, Manifest
 from agentplatform.apikeys import revoke_run_keys
 from agentplatform.db import ACTIVE_STATES, Run, RunState, SecretMeta, utcnow
 from agentplatform.events import (TOPIC_RUN_DLQ, TOPIC_RUN_EVENTS, TOPIC_RUN_REQUESTS)
-from agentplatform.secrets import CLAUDE_CREDENTIAL
+from agentplatform.secrets import CLAUDE_CREDENTIAL, CODEX_CREDENTIAL
 
 log = logging.getLogger("dispatcher")
 
@@ -35,9 +35,12 @@ class Dispatcher:
         self.skills, self.verifier = skill_store, verifier
         # Circuit breaker for the Claude credential: monotonic time at/after
         # which one run may probe a known-bad token (half-open). 0 = probe now.
-        self._cred_probe_at = 0.0
+        # Keep a half-open window per provider. One bad subscription must not
+        # consume the other provider's chance to recover.
+        self._cred_probe_at: dict[str, float] = {}
 
-    async def _credential_blocks(self, monotonic=time.monotonic) -> str | None:
+    async def _credential_blocks(self, manifest: Manifest,
+                                 monotonic=time.monotonic) -> str | None:
         """Pre-flight gate. When the Claude token is known-invalid (a prior run
         got a 401 → recorder marked it), reject further runs up front rather than
         launch pods that can only fail — EXCEPT one run every
@@ -48,16 +51,19 @@ class Dispatcher:
         if recheck <= 0:
             return None
         async with self.sf() as s:
-            meta = await s.get(SecretMeta, CLAUDE_CREDENTIAL)
+            credential = (CODEX_CREDENTIAL if manifest.runtime == "codex"
+                          else CLAUDE_CREDENTIAL)
+            meta = await s.get(SecretMeta, credential)
         if meta is None or meta.status != "invalid":
             return None
         now = monotonic()
-        if now >= self._cred_probe_at:
+        if now >= self._cred_probe_at.get(credential, 0.0):
             # Half-open: allow this one through to re-probe; hold the rest.
-            self._cred_probe_at = now + recheck
-            log.warning("Claude credential is invalid — letting one run through to re-probe")
+            self._cred_probe_at[credential] = now + recheck
+            log.warning("%s credential is invalid — letting one run through to re-probe",
+                        manifest.runtime)
             return None
-        return ("Claude credential is invalid (a recent run failed to "
+        return (f"{manifest.runtime.title()} credential is invalid (a recent run failed to "
                 "authenticate). Update it in Settings → Secrets; runs resume "
                 "automatically once a token works.")
 
@@ -136,11 +142,11 @@ class Dispatcher:
             # actually stop.
             await self._set_state(run, RunState.REJECTED, "agent is disabled")
             return
-        blocked = await self._credential_blocks()
+        manifest = info.manifest
+        blocked = await self._credential_blocks(manifest)
         if blocked is not None:
             await self._set_state(run, RunState.REJECTED, blocked)
             return
-        manifest = info.manifest
         blocked = await self._readiness_blocks(manifest)
         if blocked is not None:
             await self._set_state(run, RunState.REJECTED, blocked)
@@ -155,6 +161,13 @@ class Dispatcher:
             await asyncio.sleep(5)
             await self.producer.publish(TOPIC_RUN_REQUESTS, run_id, message, type="run.request")
             return
+        # Freeze the provider before launch. Run-scoped credential endpoints
+        # must not change meaning if an admin edits the agent during this run.
+        async with self.sf() as s:
+            db_run = await s.get(Run, run.id)
+            db_run.runtime = manifest.runtime
+            await s.commit()
+        run.runtime = manifest.runtime
         try:
             await self.launcher.launch(run, manifest)
         except Exception as e:

@@ -41,6 +41,7 @@ export type AgentDef = {
   name: string;
   prompt: string;               // the agent's context/personality (former agent.md body)
   description: string;
+  runtime: "claude" | "codex";
   model: string;                // "" = platform default
   role: string;
   system: boolean;

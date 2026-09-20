@@ -41,6 +41,7 @@ class AgentCreateIn:
             relay (bool | None | Unset):
             result_topic (str | Unset):  Default: ''.
             role (str | Unset):  Default: 'operator'.
+            runtime (str | Unset):  Default: 'claude'.
             secrets (list[str] | Unset):
             skills (list[str] | Unset):
             system (bool | Unset):  Default: False.
@@ -69,6 +70,7 @@ class AgentCreateIn:
     relay: bool | None | Unset = UNSET
     result_topic: str | Unset = ""
     role: str | Unset = "operator"
+    runtime: str | Unset = "claude"
     secrets: list[str] | Unset = UNSET
     skills: list[str] | Unset = UNSET
     system: bool | Unset = False
@@ -135,6 +137,8 @@ class AgentCreateIn:
         result_topic = self.result_topic
 
         role = self.role
+
+        runtime = self.runtime
 
         secrets: list[str] | Unset = UNSET
         if not isinstance(self.secrets, Unset):
@@ -209,6 +213,8 @@ class AgentCreateIn:
             field_dict["result_topic"] = result_topic
         if role is not UNSET:
             field_dict["role"] = role
+        if runtime is not UNSET:
+            field_dict["runtime"] = runtime
         if secrets is not UNSET:
             field_dict["secrets"] = secrets
         if skills is not UNSET:
@@ -295,6 +301,8 @@ class AgentCreateIn:
 
         role = d.pop("role", UNSET)
 
+        runtime = d.pop("runtime", UNSET)
+
         secrets = cast(list[str], d.pop("secrets", UNSET))
 
         skills = cast(list[str], d.pop("skills", UNSET))
@@ -352,6 +360,7 @@ class AgentCreateIn:
             relay=relay,
             result_topic=result_topic,
             role=role,
+            runtime=runtime,
             secrets=secrets,
             skills=skills,
             system=system,
