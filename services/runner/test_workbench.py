@@ -4,6 +4,7 @@ a file:// URL (so --depth is honoured the way it is over https); the API is a
 fake `_api_req`; `bin/ap-verify` is a stub committed into the seed repo."""
 import json, os, stat, subprocess, textwrap
 import urllib.error
+from types import SimpleNamespace
 
 import pytest
 
@@ -545,7 +546,12 @@ def test_publish_post_retries_once_on_a_connection_error(remote, monkeypatch):
     repo, wb = _prepared(remote)
     (repo / "x.txt").write_text("x\n")
     slept = []
-    monkeypatch.setattr(workbench.time, "sleep", lambda s: slept.append(s))
+    # Rebind the name `time` inside the workbench module, not the real stdlib
+    # module's `sleep` attribute — the latter is the same object process-wide
+    # (modules are cached in sys.modules), so patching it directly collides
+    # with anything else calling time.sleep concurrently, e.g. CPython's own
+    # subprocess-reaping poll loop under load.
+    monkeypatch.setattr(workbench, "time", SimpleNamespace(sleep=lambda s: slept.append(s)))
     calls = []
 
     def flaky(m, p, body=None, headers=None):
@@ -560,7 +566,7 @@ def test_publish_post_retries_once_on_a_connection_error(remote, monkeypatch):
 def test_publish_post_second_connection_error_raises(remote, monkeypatch):
     repo, wb = _prepared(remote)
     (repo / "x.txt").write_text("x\n")
-    monkeypatch.setattr(workbench.time, "sleep", lambda s: None)
+    monkeypatch.setattr(workbench, "time", SimpleNamespace(sleep=lambda s: None))
     calls = []
 
     def down(m, p, body=None, headers=None):
@@ -574,7 +580,8 @@ def test_publish_post_second_connection_error_raises(remote, monkeypatch):
 def test_an_http_refusal_is_not_retried(remote, monkeypatch):
     repo, wb = _prepared(remote)
     (repo / "x.txt").write_text("x\n")
-    monkeypatch.setattr(workbench.time, "sleep", lambda s: pytest.fail("no retry on an HTTP status"))
+    monkeypatch.setattr(workbench, "time",
+                        SimpleNamespace(sleep=lambda s: pytest.fail("no retry on an HTTP status")))
     import io
     calls = []
 

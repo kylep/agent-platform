@@ -1,8 +1,21 @@
 import json, os, re, stat
 import urllib.error
 from pathlib import Path
+import pytest
 import runner
 import workbench
+
+
+@pytest.fixture(autouse=True)
+def _no_ambient_workspace(monkeypatch):
+    """This pod is itself a dev workspace, so AP_WORKSPACE=dev is set in the real
+    environment ap-verify runs tests in. Left alone that leaks into every test
+    here, silently switching runner.run() onto the dev-run branch (workbench
+    prepare, a real network call) even for tests that never meant to exercise
+    it. Clear it before each test; a test that wants the dev branch still sets
+    it itself via monkeypatch, which runs after this fixture and wins."""
+    monkeypatch.delenv("AP_WORKSPACE", raising=False)
+
 
 class FakeProducer:
     def __init__(self): self.published = []
