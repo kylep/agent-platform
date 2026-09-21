@@ -635,7 +635,7 @@ async def delete_agent(request: Request, name: str,
     `delete:tool:agents_edit`). The prefix is the whole marker — snapshots stay
     uniformly parseable as definitions, with no synthetic keys inside them — and
     it means the log alone is enough to say who removed an agent and to
-    recreate it. System agents are platform-internal and refuse deletion.
+    recreate it. System agents are platform-managed and refuse deletion.
 
     Its webhook secrets do NOT survive: they are credentials for paths that no
     longer exist, and the change log's tombstone snapshot deliberately doesn't
@@ -650,7 +650,7 @@ async def delete_agent(request: Request, name: str,
         if row is None:
             raise HTTPException(404, "unknown agent")
         if row.system:
-            raise HTTPException(409, "system agents are platform-internal and "
+            raise HTTPException(409, "system agents are platform-managed and "
                                      "cannot be deleted")
         out = await _annotated(s, row)
         async with _conflict_as_409(s):

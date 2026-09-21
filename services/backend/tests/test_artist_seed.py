@@ -11,7 +11,8 @@ from agentplatform.agents import AgentStore
 from agentplatform.agentspec import TOOL_ARTIFACTS, TOOL_IMAGE_GEN, TOOL_RELAY
 from agentplatform.config import Settings
 from agentplatform.db import (ARTIST_SEED_MARK, ARTIST_PROMPT, CODEX_ARTIST_PROMPT,
-                              CODEX_ARTIST_SEED_MARK, AgentDef, AgentVersion,
+                              CODEX_ARTIST_SEED_MARK, CODEX_ARTIST_SYSTEM_MARK,
+                              AgentDef, AgentVersion,
                               Base, Conversation, RelayInvocation, Run, SchemaMark,
                               init_db, make_engine, make_session_factory)
 from agentplatform.relay_router import RelayRouter
@@ -67,12 +68,39 @@ async def test_codex_artist_is_a_separate_subscription_backed_specialist(engine,
         row = await s.get(AgentDef, "codex-artist")
         assert row is not None
         assert (row.runtime, row.model, row.role) == ("codex", "gpt-5.6-luna", "operator")
+        assert (row.system, row.enabled, row.can_invoke) == (True, True, False)
         assert row.platform_tools == [TOOL_ARTIFACTS, TOOL_RELAY]
         assert TOOL_IMAGE_GEN not in row.platform_tools
         assert row.skills == ["imagegen"]
         assert row.prompt == CODEX_ARTIST_PROMPT
         assert "$imagegen" in row.prompt and "mcp__platform__image_gen" in row.prompt
         assert await s.get(SchemaMark, CODEX_ARTIST_SEED_MARK) is not None
+        assert await s.get(SchemaMark, CODEX_ARTIST_SYSTEM_MARK) is not None
+    versions = await _versions(sfx, "codex-artist")
+    assert [(v.version, v.changed_by, v.changed_via) for v in versions] == [
+        (1, "system:codex-artist", "seed")]
+    assert versions[0].snapshot["system"] is True
+
+
+async def test_an_existing_codex_artist_becomes_system_once(engine, sfx):
+    """The shipped non-system row moves with a versioned, one-time migration."""
+    async with sfx() as s:
+        s.add(AgentDef(name="codex-artist", runtime="codex", system=False))
+        s.add(SchemaMark(name=CODEX_ARTIST_SEED_MARK))
+        await s.commit()
+    await init_db(engine)
+    async with sfx() as s:
+        row = await s.get(AgentDef, "codex-artist")
+        assert row.system is True
+        assert await s.get(SchemaMark, CODEX_ARTIST_SYSTEM_MARK) is not None
+    versions = await _versions(sfx, "codex-artist")
+    system_versions = [v for v in versions
+                       if v.changed_by == "platform:codex-artist-system"]
+    assert [(v.changed_via, v.snapshot["system"]) for v in system_versions] == [
+        ("migration", True)]
+    await init_db(engine)
+    assert len([v for v in await _versions(sfx, "codex-artist")
+                if v.changed_by == "platform:codex-artist-system"]) == 1
 
 
 def test_the_prompt_carries_the_rules_that_matter():

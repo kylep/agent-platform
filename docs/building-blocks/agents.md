@@ -19,7 +19,7 @@ model: sonnet                 # claude model override; empty = CLI default
 role: operator                 # reader | annotator | operator | coder | dev
                                 # (coder gets the github-app + acceptEdits for platform self-edit PRs;
                                 #  dev gets the Workbench: a shell + a credential-less clone, see workbench.md)
-system: true                   # platform-internal; protected from UI deletion
+system: true                   # platform-managed; skipped by @all, directly summonable, not deletable
 can_invoke: true               # may trigger other agents (depth-guarded)
 enabled: true                  # false = no new runs from any trigger (409)
 concurrency: 1
@@ -119,7 +119,7 @@ directly — no PR, no folder, no manifest file.
 
 ## Seeded agents
 
-Four rows ship with the platform, written once at boot behind a schema
+The platform ships several agent rows, written once at boot behind a schema
 mark and then left alone — edit or delete any of them and your version stays:
 
 - **`wiki`** — the [librarian](wiki.md#the-librarian). A `system` agent, so
@@ -130,6 +130,10 @@ mark and then left alone — edit or delete any of them and your version stays:
   or anywhere. Runs on `sonnet`, holds `image_gen`, `artifacts` and `relay`,
   and is *not* `system`, so `@all` reaches it. Its first change-log row is
   `changed_via: seed`.
+- **`codex-artist`** — runs Codex's built-in ImageGen for the Studio and for
+  direct `@codex-artist` briefs, spending the Codex subscription allowance.
+  It is `system`: Studio dispatch and direct mentions still reach it, while
+  `@all` skips the utility worker and does not spend a Codex run at standup.
 - **`engineer`** — writes code for the platform: takes a ticket assigned to
   it, works on a branch in its own clone, verifies, and opens a PR for a
   human to merge — it never pushes, the platform publishes

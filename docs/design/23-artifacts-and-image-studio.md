@@ -396,12 +396,13 @@ platform-authored image specification.
 
 ## The artist
 
-`codex-artist` is a second seeded agent with runtime `codex`, model
+`codex-artist` is a second seeded, `system` agent with runtime `codex`, model
 `gpt-5.6-luna`, and `imagegen`, `artifacts`, and `relay` access. It is the
 execution engine behind the Studio's Codex choice and can also be summoned in
 Relay for conversational briefs. It generates one image, uses artifact
 references as visible inputs, and relies on the runner to create the artifact
-id after the turn.
+id after the turn. Its system classification keeps it out of `@all` and the
+daily standup while preserving Studio dispatch and direct mentions.
 
 Seeded row `artist` (`model: sonnet`, not `system` so `@all` reaches it,
 grants `image_gen, artifacts, relay`), description "Makes images on request:

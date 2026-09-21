@@ -397,7 +397,7 @@ class RelayRouter:
         return sorted(n for n in room if not self._is_system(n))
 
     def _is_system(self, name: str) -> bool:
-        """Whether the agent's definition declares it platform-internal. A
+        """Whether the agent's definition declares it platform-managed. A
         quarantined row has no manifest to ask, and it is not summonable anyway
         (`_live_agents` drops it), so the missing answer is simply `False`."""
         info = self.agents.get(name)

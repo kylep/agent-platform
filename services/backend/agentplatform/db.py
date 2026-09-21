@@ -591,8 +591,9 @@ class AgentDef(Base):
     # Platform role the agent's tokens are minted at (see api.auth.ROLES);
     # `coder` is additionally what makes a run self-edit-capable.
     role: Mapped[str] = mapped_column(String(32), default="operator")
-    # System agents are platform-internal (run-summarizer, health-monitor):
-    # they get API access injected and are protected from deletion in the UI.
+    # System agents are platform-managed workers (run-summarizer,
+    # health-monitor, codex-artist): they get narrow API access injected, are
+    # skipped by Relay @all, and are protected from deletion.
     system: Mapped[bool] = mapped_column(default=False)
     # Grants an operator-scoped per-run token so the agent can invoke agents.
     can_invoke: Mapped[bool] = mapped_column(default=False)
@@ -938,6 +939,7 @@ ARTIFACTS_GRANT_MARK = "artifacts-default-grant-v1"
 ART_CHANNEL_MARK = "art-channel-v1"
 ARTIST_SEED_MARK = "artist-seed-v1"
 CODEX_ARTIST_SEED_MARK = "codex-artist-seed-v1"
+CODEX_ARTIST_SYSTEM_MARK = "codex-artist-system-v1"
 ENG_CHANNEL_MARK = "eng-channel-v1"
 ENGINEER_SEED_MARK = "engineer-seed-v1"
 ENG_QUEUE_MARK = "eng-queue-job-v1"
@@ -1697,7 +1699,7 @@ def _ensure_codex_artist_seed(conn) -> None:
         snapshot = AgentDefModel(
             name=name, prompt=CODEX_ARTIST_PROMPT, description=CODEX_ARTIST_DESCRIPTION,
             runtime="codex", model="gpt-5.6-luna", role="operator",
-            system=False, can_invoke=False,
+            system=True, can_invoke=False,
             platform_tools=[TOOL_ARTIFACTS, TOOL_RELAY], skills=["imagegen"],
             timeout_seconds=420,
         ).model_dump(mode="json")
@@ -1715,6 +1717,49 @@ def _ensure_codex_artist_seed(conn) -> None:
             log.warning("codex artist was created concurrently; leaving it alone")
             return
     conn.execute(mark_t.insert().values(name=CODEX_ARTIST_SEED_MARK,
+                                        applied_at=utcnow()))
+
+
+def _ensure_codex_artist_system(conn) -> None:
+    """Classify the Codex-backed Studio worker as platform infrastructure.
+
+    The original seed made both artists ordinary Relay participants. That is
+    useful for `artist`, which can report its recent work at standup, but the
+    Codex artist is also Studio's execution backend: waking it for every
+    `@all` spends subscription quota just to decline a non-image request.
+
+    Fresh databases get the flag from the seed above. This one-time migration
+    moves the already-seeded row without recreating a deleted agent, and records
+    the classification change like every other live definition edit.
+    """
+    from sqlalchemy import func, inspect as sa_inspect
+    if not sa_inspect(conn).has_table("agent_defs"):
+        return
+    mark_t = SchemaMark.__table__
+    if conn.execute(select(mark_t.c.name)
+                    .where(mark_t.c.name == CODEX_ARTIST_SYSTEM_MARK)).first():
+        return
+    def_t, ver_t = AgentDef.__table__, AgentVersion.__table__
+    row = conn.execute(select(def_t).where(def_t.c.name == "codex-artist")).first()
+    if row is not None and row.system is not True:
+        from pydantic import ValidationError
+        from agentplatform.agentdefs import model_of
+        try:
+            snapshot = {**model_of(row).model_dump(mode="json"), "system": True}
+        except ValidationError:
+            # Quarantined definitions remain an admin repair, not a reason for
+            # every service to crashloop while running a classification sweep.
+            snapshot = None
+        if snapshot is not None:
+            conn.execute(def_t.update().where(def_t.c.name == row.name)
+                         .values(system=True))
+            version = (conn.execute(select(func.max(ver_t.c.version)).where(
+                ver_t.c.agent == row.name)).scalar() or 0) + 1
+            conn.execute(ver_t.insert().values(
+                id=uuid.uuid4().hex, agent=row.name, version=version,
+                snapshot=snapshot, changed_by="platform:codex-artist-system",
+                changed_via="migration", created_at=utcnow()))
+    conn.execute(mark_t.insert().values(name=CODEX_ARTIST_SYSTEM_MARK,
                                         applied_at=utcnow()))
 
 
@@ -2521,6 +2566,7 @@ async def init_db(engine: AsyncEngine, default_grant: bool = True,
         # one version — the seed's — rather than a migration stamp on top.
         await conn.run_sync(_ensure_artist_seed)
         await conn.run_sync(_ensure_codex_artist_seed)
+        await conn.run_sync(_ensure_codex_artist_system)
         # The Workbench's three (docs/design/24), in dependency order: the
         # room first, because the engineer's publish card and the queue job
         # both name #eng; the engineer after the grant sweeps, for the

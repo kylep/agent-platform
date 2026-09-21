@@ -57,8 +57,9 @@ class Manifest(BaseModel):
     # Optional claude model override (e.g. "sonnet" for cheap background work);
     # empty = the CLI default.
     model: str = ""
-    # System agents are platform-internal (e.g. the run summarizer): they get
-    # API access injected and are protected from deletion in the UI.
+    # System agents are platform-managed workers (e.g. the run summarizer or a
+    # Studio execution backend): they get narrow API access injected, are
+    # skipped by Relay @all, and are protected from deletion.
     system: bool = False
     # When set, the agent gets an operator-scoped, per-run API token injected so
     # it can invoke other agents (agent-invokes-agent). Without it a system

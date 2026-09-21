@@ -65,12 +65,15 @@ Every long-running piece of the platform. All of these are Deployments in the
 - **MCP** (Model Context Protocol) — the open protocol Claude Code uses to
   call tools hosted outside its own process. It is how agents reach the
   mcp-broker.
-- **Platform agents** — agents that exist to operate the platform itself and
-  are marked `system: true`: **platform-coder** (writes the pull requests
+- **System agents** — platform-managed workers marked `system: true`. They are
+  skipped by Relay's `@all`, remain directly summonable, receive a narrow
+  per-run platform identity by default, and cannot be deleted. They include
+  **platform-coder** (writes the pull requests
   behind every UI-driven *capability* change — skills, tools, secrets;
   agent-definition edits no longer go through it), **run-summarizer**
   (annotates finished runs), **health-monitor** (checks platform health and
-  alerts), **change-summarizer** (explains pull requests in the Changes UI).
+  alerts), **change-summarizer** (explains pull requests in the Changes UI),
+  and **codex-artist** (the Studio's subscription-backed image worker).
   The **engineer** is deliberately *not* one: it is a colleague, not
   plumbing — it takes tickets, answers `@all` and joins the `#standup` like
   the artist does — so `system: false`, and it can be edited or deleted like

@@ -147,7 +147,9 @@ export default function Agents() {
           {system.length > 0 && (
             <>
               <h2>System agents</h2>
-              <p className="muted">Platform-internal agents. Managed by the platform; not deletable.</p>
+              <p className="muted">
+                Platform-managed workers. Skipped by @all, available by name, and not deletable.
+              </p>
               {view === "grid"
                 ? <AgentGrid agents={system} jobs={jobs} />
                 : <AgentTable agents={system} jobs={jobs} />}
