@@ -62,6 +62,34 @@ test("a card carries the row's status chip and its picture", async ({ page }) =>
   await expect(pai).toContainText("ok");
 });
 
+test("the card grid fills its pane and collapses as the viewport narrows", async ({ page }) => {
+  await page.setViewportSize({ width: 1200, height: 800 });
+  await mockApi(page);
+  await page.goto("/agents");
+
+  const regular = page.locator(".agent-grid").first();
+  const pageBox = await page.locator(".page-agents").boundingBox();
+  const gridBox = await regular.boundingBox();
+  expect(pageBox).not.toBeNull();
+  expect(gridBox).not.toBeNull();
+  expect(Math.abs(gridBox!.width - pageBox!.width)).toBeLessThan(2);
+
+  const cards = regular.locator(".agent-card");
+  const wideFirst = await cards.nth(0).boundingBox();
+  const wideSecond = await cards.nth(1).boundingBox();
+  expect(wideFirst).not.toBeNull();
+  expect(wideSecond).not.toBeNull();
+  expect(Math.abs(wideFirst!.y - wideSecond!.y)).toBeLessThan(2);
+  expect(wideFirst!.width).toBeGreaterThan(350);
+
+  await page.setViewportSize({ width: 700, height: 800 });
+  const narrowFirst = await cards.nth(0).boundingBox();
+  const narrowSecond = await cards.nth(1).boundingBox();
+  expect(narrowFirst).not.toBeNull();
+  expect(narrowSecond).not.toBeNull();
+  expect(narrowSecond!.y).toBeGreaterThan(narrowFirst!.y + narrowFirst!.height);
+});
+
 test("uploading a picture posts the file, then puts the returned id on the agent", async ({ page }) => {
   const writes = captureWrites(page);
   await mockApi(page);

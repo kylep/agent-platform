@@ -1265,10 +1265,14 @@ a.relay-action { color: var(--ds-link); }
 }
 
 /* agents as cards (docs/design/23): the report-type grid's shape, with a
-   face where the report type has an icon. minmax(260px) puts one column on a
-   phone with nothing to scroll sideways for. */
+   face where the report type has an icon. This listing uses the whole main
+   pane; auto-fit removes empty tracks so a short final row stretches too.
+   The capped minimum gives a wide screen more columns and naturally steps
+   down to one without a horizontal scrollbar. */
+.page-agents { max-width: none; width: 100%; }
 .agent-grid {
-  display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(320px, 100%), 1fr));
   gap: 12px; margin-top: 16px;
 }
 .agent-card {

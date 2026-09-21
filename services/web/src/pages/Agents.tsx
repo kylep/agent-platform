@@ -126,7 +126,7 @@ export default function Agents() {
   const regular = agents.filter((a) => !a.system);
 
   return (
-    <div className="page">
+    <div className="page page-agents">
       <div className="page-header">
         <h1>Agents</h1>
         <div className="row-actions">
