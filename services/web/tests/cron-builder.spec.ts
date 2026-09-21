@@ -227,6 +227,7 @@ test("the Jobs form edits its cron with the same builder", async ({ page }) => {
   await page.getByLabel("Job prompt").fill("Write the brief.");
   await page.getByLabel("Job schedule frequency").selectOption("daily");
   await page.getByLabel("Time of day").fill("07:15");
+  await page.getByLabel("Job model").selectOption("sonnet");
   await page.getByRole("button", { name: "Create job" }).click();
 
   const post = writes.find((w) => w.method() === "POST");
@@ -234,4 +235,5 @@ test("the Jobs form edits its cron with the same builder", async ({ page }) => {
   const body = JSON.parse(post!.postData() ?? "{}");
   expect(body.cron).toBe("15 7 * * *");
   expect(body.name).toBe("morning-brief");
+  expect(body.model).toBe("sonnet");
 });

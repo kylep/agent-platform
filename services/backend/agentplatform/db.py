@@ -36,6 +36,10 @@ class Run(Base):
     agent: Mapped[str] = mapped_column(String(128))
     # Provider selected by the dispatcher, frozen before the pod launches.
     runtime: Mapped[str] = mapped_column(String(16), default="")
+    requested_model: Mapped[str] = mapped_column(String(64), default="")
+    model: Mapped[str] = mapped_column(String(64), default="")
+    agent_version: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    definition_snapshot: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     trigger: Mapped[str] = mapped_column(String(32))
     requested_by: Mapped[str] = mapped_column(String(128))
     # docs/design/13 D: the PRINCIPAL at the root of the chain — who this work
@@ -591,10 +595,10 @@ class AgentDef(Base):
     # Platform role the agent's tokens are minted at (see api.auth.ROLES);
     # `coder` is additionally what makes a run self-edit-capable.
     role: Mapped[str] = mapped_column(String(32), default="operator")
-    # System agents are platform-managed workers (run-summarizer,
-    # health-monitor, codex-artist): they get narrow API access injected, are
-    # skipped by Relay @all, and are protected from deletion.
+    # Platform-managed lifecycle. Authority follows explicit grants and Relay
+    # broadcast participation is the separate flag below (design 27).
     system: Mapped[bool] = mapped_column(default=False)
+    responds_to_all: Mapped[bool] = mapped_column(default=True)
     # Grants an operator-scoped per-run token so the agent can invoke agents.
     can_invoke: Mapped[bool] = mapped_column(default=False)
     concurrency: Mapped[int] = mapped_column(Integer, default=1)
@@ -800,6 +804,7 @@ class ScheduledJob(Base):
     # pinned to market open doesn't drift an hour across daylight saving.
     timezone: Mapped[str] = mapped_column(String(64), default="", server_default="")
     prompt: Mapped[str] = mapped_column(Text)
+    model: Mapped[str] = mapped_column(String(64), default="", server_default="")
     enabled: Mapped[bool] = mapped_column(default=True)
     last_fire: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     next_fire: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
@@ -879,6 +884,7 @@ def _ensure_workbench_defaults(conn) -> None:
         return
     t = AgentDef.__table__
     for col, default in ((t.c.runtime, "claude"),
+                         (t.c.responds_to_all, True),
                          (t.c.push_path_globs, []), (t.c.may_delete_tests, False),
                          (t.c.quota_5h_max_pct, 80), (t.c.quota_7d_max_pct, 50)):
         conn.execute(t.update().where(col.is_(None)).values({col.name: default}))
@@ -940,6 +946,7 @@ ART_CHANNEL_MARK = "art-channel-v1"
 ARTIST_SEED_MARK = "artist-seed-v1"
 CODEX_ARTIST_SEED_MARK = "codex-artist-seed-v1"
 CODEX_ARTIST_SYSTEM_MARK = "codex-artist-system-v1"
+AGENT_POLICY_SPLIT_MARK = "agent-policy-split-v1"
 ENG_CHANNEL_MARK = "eng-channel-v1"
 ENGINEER_SEED_MARK = "engineer-seed-v1"
 ENG_QUEUE_MARK = "eng-queue-job-v1"
@@ -1013,9 +1020,10 @@ changed in the reason, and cite what you used.
 """
 
 
-# The librarian (docs/design/21). A system agent, so `@all` passes it by and
-# only a direct `@wiki` — or an assignment — wakes it: the wiki is answered
-# when it is asked about, not every time somebody pages the room.
+# The librarian (docs/design/21). It opts out of `@all`, so only a direct
+# `@wiki` — or an assignment — wakes it: the wiki is answered when it is asked
+# about, not every time somebody pages the room. `system` separately protects
+# the platform-seeded definition's lifecycle (docs/design/27).
 #
 # The prompt is long because the job is narrow. Everything it says is either
 # "how to use the tool" or "what an answer looks like", and the two rules that
@@ -1175,7 +1183,8 @@ ENG_WELCOME_BODY = ("Assign a ticket to @engineer and it opens a PR; the platfor
                     "publishes, humans merge")
 
 # The engineer (docs/design/24). `role: dev` — the run-profile rung, not an
-# API scope — and NOT a system agent, so `@all` and the #standup reach it.
+# API scope — and not a system agent, so an administrator may retire it. It
+# opts out of `@all`: a broadcast must not launch a full development pod.
 # `model: ""` is the CLI default: a coding run is where the strong model
 # earns its cost. 95/90 rather than the QA's 50/80 because it should work
 # most of the week; the expensive-browser gate is design 25's.
@@ -1269,9 +1278,9 @@ QA_TICKET_PREFIX = "QA"
 QA_WELCOME_BODY = ("QA findings land here as QA-n tickets; the nightly note says "
                    "what ran")
 
-# The QA (docs/design/25). `role: dev` for the run profile, and — unlike the
-# engineer — a SYSTEM agent: `@all` and the #standup pass it by, its own
-# nightly job summons it, and `@qa` by name still works. `sonnet` because
+# The QA (docs/design/25). `role: dev` for the run profile and `system` for
+# platform-managed lifecycle. Its independent `responds_to_all` policy is
+# false: its nightly job summons it, and `@qa` by name still works. `sonnet` because
 # the nightly is bookkeeping most of the time. 80/50 rather than the
 # engineer's 95/90: the browser-in-the-loop is the expensive part, and the
 # prompt's session rule spends it only when `quota_ok` says so. Its fence is
@@ -1361,7 +1370,7 @@ QA_DESCRIPTION = ("Owns the tests: writes and prunes unit, integration and e2e t
 
 # The nightly (docs/design/25). A relay-post job, not an agent run: the
 # summons has to come from the platform — an agent's own `@qa` would carry a
-# hop, and `@all` skips a system agent. 02:00 in Kyle's zone, after the day's
+# hop, and QA opts out of `@all`. 02:00 in Kyle's zone, after the day's
 # merges and before the standup.
 QA_NIGHTLY_JOB = dict(
     name="qa-nightly", relay_channel="qa", cron="0 2 * * *",
@@ -1600,7 +1609,7 @@ def _ensure_wiki_agent(conn) -> None:
         # rather than a copy of it that drifts.
         snapshot = AgentDefModel(
             name=name, prompt=WIKI_AGENT_PROMPT,
-            description=WIKI_AGENT_DESCRIPTION, system=True,
+            description=WIKI_AGENT_DESCRIPTION, system=True, responds_to_all=False,
             platform_tools=[TOOL_RELAY, TOOL_TICKETS, TOOL_WIKI, TOOL_QUOTA,
                             TOOL_ARTIFACTS],
         ).model_dump(mode="json")
@@ -1656,7 +1665,7 @@ def _ensure_artist_seed(conn) -> None:
         from agentplatform.agentspec import TOOL_ARTIFACTS, TOOL_IMAGE_GEN, TOOL_RELAY
         snapshot = AgentDefModel(
             name=name, prompt=ARTIST_PROMPT, description=ARTIST_DESCRIPTION,
-            model="sonnet", system=False, can_invoke=False,
+            model="sonnet", system=False, responds_to_all=False, can_invoke=False,
             platform_tools=[TOOL_IMAGE_GEN, TOOL_ARTIFACTS, TOOL_RELAY],
         ).model_dump(mode="json")
         version = (conn.execute(select(func.max(ver_t.c.version))
@@ -1699,7 +1708,7 @@ def _ensure_codex_artist_seed(conn) -> None:
         snapshot = AgentDefModel(
             name=name, prompt=CODEX_ARTIST_PROMPT, description=CODEX_ARTIST_DESCRIPTION,
             runtime="codex", model="gpt-5.6-luna", role="operator",
-            system=True, can_invoke=False,
+            system=True, responds_to_all=False, can_invoke=False,
             platform_tools=[TOOL_ARTIFACTS, TOOL_RELAY], skills=["imagegen"],
             timeout_seconds=420,
         ).model_dump(mode="json")
@@ -1760,6 +1769,64 @@ def _ensure_codex_artist_system(conn) -> None:
                 snapshot=snapshot, changed_by="platform:codex-artist-system",
                 changed_via="migration", created_at=utcnow()))
     conn.execute(mark_t.insert().values(name=CODEX_ARTIST_SYSTEM_MARK,
+                                        applied_at=utcnow()))
+
+
+def _ensure_agent_policy_split(conn) -> None:
+    """Move room participation and lifecycle retirement into explicit fields.
+
+    System agents previously inherited their exclusion from ``@all``. Focused
+    utility agents should also stay quiet at standup, while ordinary assistants
+    remain participants. The two legacy/demo definitions are retained disabled
+    so their history and rollback surface remain visible.
+    """
+    from sqlalchemy import func, inspect as sa_inspect
+    if not sa_inspect(conn).has_table("agent_defs"):
+        return
+    mark_t = SchemaMark.__table__
+    if conn.execute(select(mark_t.c.name)
+                    .where(mark_t.c.name == AGENT_POLICY_SPLIT_MARK)).first():
+        return
+    def_t, ver_t = AgentDef.__table__, AgentVersion.__table__
+    quiet = {"artist", "change-summarizer", "codex-artist", "engineer",
+             "health-monitor", "news", "news-librarian", "qa", "run-summarizer",
+             "running", "stockmarket", "stockmarket-data", "wiki"}
+    retire = {"demo-agent", "platform-coder"}
+    # These pipeline workers consume hostile or machine-produced input. Their
+    # result delivery is platform-owned, so ambient participant grants add no
+    # function and turn prompt injection into unrelated write authority.
+    focused_tools = {
+        "news": [],
+        "news-librarian": ["mcp__platform__query_app"],
+        "running": ["mcp__platform__strava", "mcp__platform__query_app"],
+        "stockmarket": ["mcp__platform__index_movers"],
+        "stockmarket-data": ["mcp__platform__prices"],
+    }
+    from pydantic import ValidationError
+    from agentplatform.agentdefs import model_of
+    for row in conn.execute(select(def_t)).fetchall():
+        updates = {}
+        if row.name in quiet or row.system is True:
+            updates["responds_to_all"] = False
+        if row.name in retire:
+            updates.update(enabled=False, responds_to_all=False)
+        if row.name in focused_tools:
+            updates["platform_tools"] = focused_tools[row.name]
+        if not updates or all(getattr(row, key, None) == value
+                              for key, value in updates.items()):
+            continue
+        try:
+            snapshot = {**model_of(row).model_dump(mode="json"), **updates}
+        except ValidationError:
+            continue
+        conn.execute(def_t.update().where(def_t.c.name == row.name).values(**updates))
+        version = (conn.execute(select(func.max(ver_t.c.version)).where(
+            ver_t.c.agent == row.name)).scalar() or 0) + 1
+        conn.execute(ver_t.insert().values(
+            id=uuid.uuid4().hex, agent=row.name, version=version,
+            snapshot=snapshot, changed_by="platform:agent-policy-split",
+            changed_via="migration", created_at=utcnow()))
+    conn.execute(mark_t.insert().values(name=AGENT_POLICY_SPLIT_MARK,
                                         applied_at=utcnow()))
 
 
@@ -1863,7 +1930,8 @@ def _ensure_engineer_seed(conn) -> None:
                                              TOOL_TICKETS, TOOL_WIKI)
         snapshot = AgentDefModel(
             name=name, prompt=ENGINEER_PROMPT, description=ENGINEER_DESCRIPTION,
-            model="opus", role="dev", system=False, can_invoke=False,
+            model="opus", role="dev", system=False, responds_to_all=False,
+            can_invoke=False,
             concurrency=1, timeout_seconds=5400,
             quota_5h_max_pct=95, quota_7d_max_pct=90,
             platform_tools=[TOOL_RELAY, TOOL_TICKETS, TOOL_WIKI, TOOL_QUOTA_OK,
@@ -1992,7 +2060,8 @@ def _ensure_qa_seed(conn) -> None:
         # questions.
         snapshot = AgentDefModel(
             name=name, prompt=QA_PROMPT, description=QA_DESCRIPTION,
-            model="sonnet", role="dev", system=True, can_invoke=False,
+            model="sonnet", role="dev", system=True, responds_to_all=False,
+            can_invoke=False,
             concurrency=1, timeout_seconds=7200,
             quota_5h_max_pct=80, quota_7d_max_pct=50,
             platform_tools=[TOOL_RELAY, TOOL_TICKETS, TOOL_WIKI, TOOL_QUOTA_OK,
@@ -2254,7 +2323,8 @@ def _ensure_tickets_health_monitor(conn) -> None:
         return
     prompt = (row.prompt or "").rstrip() + "\n\n" + HEALTH_MONITOR_TICKET_RULE
     try:
-        snapshot = {**model_of(row).model_dump(mode="json"), "prompt": prompt}
+        snapshot = {**model_of(row).model_dump(mode="json"), "prompt": prompt,
+                    "responds_to_all": False}
     except ValidationError:
         return
     version = (conn.execute(select(func.max(ver_t.c.version))
@@ -2272,7 +2342,7 @@ def _ensure_tickets_health_monitor(conn) -> None:
     try:
         with conn.begin_nested():
             conn.execute(def_t.update().where(def_t.c.name == row.name)
-                         .values(prompt=prompt))
+                         .values(prompt=prompt, responds_to_all=False))
             conn.execute(ver_t.insert().values(
                 id=uuid.uuid4().hex, agent=row.name, version=version,
                 snapshot=snapshot, changed_by="system:tickets",
@@ -2579,3 +2649,4 @@ async def init_db(engine: AsyncEngine, default_grant: bool = True,
         await conn.run_sync(_ensure_qa_channel)
         await conn.run_sync(_ensure_qa_seed)
         await conn.run_sync(_ensure_qa_nightly_job)
+        await conn.run_sync(_ensure_agent_policy_split)

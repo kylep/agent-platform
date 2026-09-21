@@ -31,7 +31,7 @@ def _declaring(store, path: str) -> tuple[AgentInfo, WebhookEntry] | tuple[None,
     return None, None
 
 
-async def _authorize(request: Request, path: str) -> tuple[AgentInfo, str]:
+async def _authorize(request: Request, path: str) -> tuple[AgentInfo, WebhookEntry, str]:
     """Authenticate an inbound webhook and resolve which agent it fires.
 
     Two doors (docs/design/16). A platform API key with the operator role is
@@ -56,7 +56,7 @@ async def _authorize(request: Request, path: str) -> tuple[AgentInfo, str]:
     if ident is not None and role_allows(ident[1], KEY_ROLES):
         if info is None:
             raise HTTPException(404, "no agent declares this webhook path")
-        return info, ident[0]
+        return info, entry, ident[0]
 
     if info is not None and entry.auth == "secret":
         presented = request.headers.get(webhooksecrets.WEBHOOK_SECRET_HEADER, "")
@@ -65,7 +65,7 @@ async def _authorize(request: Request, path: str) -> tuple[AgentInfo, str]:
         if ok:
             # Not a platform principal: attribute the run to the path that was
             # authenticated, never to anything the caller claims about itself.
-            return info, f"webhook:{path}"
+            return info, entry, f"webhook:{path}"
         if ok is None:
             # Mode says `secret`, no secret is set — a rollback restored the
             # mode, or an edit stopped half-way. Fail CLOSED either way; the
@@ -110,7 +110,7 @@ async def webhook(request: Request, path: str):
     consumer materializes the run. The pre-assigned id is returned so the
     caller can follow the run."""
     st = request.app.state
-    info, principal = await _authorize(request, path)
+    info, entry, principal = await _authorize(request, path)
     # State checks come AFTER auth: whether an agent is quarantined or switched
     # off is platform state, and an unauthenticated caller has no business
     # probing it.
@@ -131,5 +131,6 @@ async def webhook(request: Request, path: str):
     await st.producer.publish(TOPIC_RUN_INBOUND, run_id, {
         "run_id": run_id, "agent": agent, "prompt": prompt,
         "trigger": "webhook", "requested_by": principal,
+        "model": entry.model,
     }, type="run.requested")
     return {"id": run_id, "state": "accepted"}

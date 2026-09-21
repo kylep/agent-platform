@@ -57,13 +57,14 @@ class Manifest(BaseModel):
     # Optional claude model override (e.g. "sonnet" for cheap background work);
     # empty = the CLI default.
     model: str = ""
-    # System agents are platform-managed workers (e.g. the run summarizer or a
-    # Studio execution backend): they get narrow API access injected, are
-    # skipped by Relay @all, and are protected from deletion.
+    platform_tools: list[str] = []
+    # Platform-managed lifecycle. Room participation and API authority are
+    # separate explicit policies (docs/design/27).
     system: bool = False
+    responds_to_all: bool = True
     # When set, the agent gets an operator-scoped, per-run API token injected so
-    # it can invoke other agents (agent-invokes-agent). Without it a system
-    # agent only gets the narrow `annotator` token (read runs + annotate).
+    # it can invoke other agents. Otherwise its explicit platform tools decide
+    # whether it receives a token and which narrow role that token carries.
     can_invoke: bool = False
     # Per-agent transcript retention override (days). None = use the platform
     # default; <= 0 = keep this agent's transcripts forever.

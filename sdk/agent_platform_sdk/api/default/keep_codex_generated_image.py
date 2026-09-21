@@ -1,25 +1,29 @@
 from http import HTTPStatus
 from typing import Any
+from urllib.parse import quote
 
 import httpx
 
 from ... import errors
 from ...client import AuthenticatedClient, Client
-from ...models.edit_dispatch import EditDispatch
+from ...models.artifact_view import ArtifactView
+from ...models.codex_generated_image import CodexGeneratedImage
 from ...models.http_validation_error import HTTPValidationError
-from ...models.tool_wizard_in import ToolWizardIn
 from ...types import Response
 
 
 def _get_kwargs(
+    run_id: str,
     *,
-    body: ToolWizardIn,
+    body: CodexGeneratedImage,
 ) -> dict[str, Any]:
     headers: dict[str, Any] = {}
 
     _kwargs: dict[str, Any] = {
         "method": "post",
-        "url": "/api/tools/new",
+        "url": "/api/runs/{run_id}/generated-images".format(
+            run_id=quote(str(run_id), safe=""),
+        ),
     }
 
     _kwargs["json"] = body.to_dict()
@@ -32,11 +36,11 @@ def _get_kwargs(
 
 def _parse_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> EditDispatch | HTTPValidationError | None:
-    if response.status_code == 202:
-        response_202 = EditDispatch.from_dict(response.json())
+) -> ArtifactView | HTTPValidationError | None:
+    if response.status_code == 201:
+        response_201 = ArtifactView.from_dict(response.json())
 
-        return response_202
+        return response_201
 
     if response.status_code == 422:
         response_422 = HTTPValidationError.from_dict(response.json())
@@ -51,7 +55,7 @@ def _parse_response(
 
 def _build_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> Response[EditDispatch | HTTPValidationError]:
+) -> Response[ArtifactView | HTTPValidationError]:
     return Response(
         status_code=HTTPStatus(response.status_code),
         content=response.content,
@@ -61,28 +65,33 @@ def _build_response(
 
 
 def sync_detailed(
+    run_id: str,
     *,
     client: AuthenticatedClient | Client,
-    body: ToolWizardIn,
-) -> Response[EditDispatch | HTTPValidationError]:
-    """Tool Wizard
+    body: CodexGeneratedImage,
+) -> Response[ArtifactView | HTTPValidationError]:
+    """Keep Codex Generated Image
 
-     The New-Tool wizard: the engineer Workbench authors tool.yaml + run.py (+ test,
-    + requirements.txt when deps are needed) as a pending change. The prompt
-    teaches it the executor contract so authored tools actually run.
+     Ingest a built-in ImageGen file from its own trusted runner.
+
+    The session credential is tied to this run, and the immutable Run prompt
+    carries the Studio's owner/provenance spec. The model never chooses who
+    owns the bytes or whether they count as generated.
 
     Args:
-        body (ToolWizardIn):
+        run_id (str):
+        body (CodexGeneratedImage):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[EditDispatch | HTTPValidationError]
+        Response[ArtifactView | HTTPValidationError]
     """
 
     kwargs = _get_kwargs(
+        run_id=run_id,
         body=body,
     )
 
@@ -94,56 +103,66 @@ def sync_detailed(
 
 
 def sync(
+    run_id: str,
     *,
     client: AuthenticatedClient | Client,
-    body: ToolWizardIn,
-) -> EditDispatch | HTTPValidationError | None:
-    """Tool Wizard
+    body: CodexGeneratedImage,
+) -> ArtifactView | HTTPValidationError | None:
+    """Keep Codex Generated Image
 
-     The New-Tool wizard: the engineer Workbench authors tool.yaml + run.py (+ test,
-    + requirements.txt when deps are needed) as a pending change. The prompt
-    teaches it the executor contract so authored tools actually run.
+     Ingest a built-in ImageGen file from its own trusted runner.
+
+    The session credential is tied to this run, and the immutable Run prompt
+    carries the Studio's owner/provenance spec. The model never chooses who
+    owns the bytes or whether they count as generated.
 
     Args:
-        body (ToolWizardIn):
+        run_id (str):
+        body (CodexGeneratedImage):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        EditDispatch | HTTPValidationError
+        ArtifactView | HTTPValidationError
     """
 
     return sync_detailed(
+        run_id=run_id,
         client=client,
         body=body,
     ).parsed
 
 
 async def asyncio_detailed(
+    run_id: str,
     *,
     client: AuthenticatedClient | Client,
-    body: ToolWizardIn,
-) -> Response[EditDispatch | HTTPValidationError]:
-    """Tool Wizard
+    body: CodexGeneratedImage,
+) -> Response[ArtifactView | HTTPValidationError]:
+    """Keep Codex Generated Image
 
-     The New-Tool wizard: the engineer Workbench authors tool.yaml + run.py (+ test,
-    + requirements.txt when deps are needed) as a pending change. The prompt
-    teaches it the executor contract so authored tools actually run.
+     Ingest a built-in ImageGen file from its own trusted runner.
+
+    The session credential is tied to this run, and the immutable Run prompt
+    carries the Studio's owner/provenance spec. The model never chooses who
+    owns the bytes or whether they count as generated.
 
     Args:
-        body (ToolWizardIn):
+        run_id (str):
+        body (CodexGeneratedImage):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[EditDispatch | HTTPValidationError]
+        Response[ArtifactView | HTTPValidationError]
     """
 
     kwargs = _get_kwargs(
+        run_id=run_id,
         body=body,
     )
 
@@ -153,29 +172,34 @@ async def asyncio_detailed(
 
 
 async def asyncio(
+    run_id: str,
     *,
     client: AuthenticatedClient | Client,
-    body: ToolWizardIn,
-) -> EditDispatch | HTTPValidationError | None:
-    """Tool Wizard
+    body: CodexGeneratedImage,
+) -> ArtifactView | HTTPValidationError | None:
+    """Keep Codex Generated Image
 
-     The New-Tool wizard: the engineer Workbench authors tool.yaml + run.py (+ test,
-    + requirements.txt when deps are needed) as a pending change. The prompt
-    teaches it the executor contract so authored tools actually run.
+     Ingest a built-in ImageGen file from its own trusted runner.
+
+    The session credential is tied to this run, and the immutable Run prompt
+    carries the Studio's owner/provenance spec. The model never chooses who
+    owns the bytes or whether they count as generated.
 
     Args:
-        body (ToolWizardIn):
+        run_id (str):
+        body (CodexGeneratedImage):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        EditDispatch | HTTPValidationError
+        ArtifactView | HTTPValidationError
     """
 
     return (
         await asyncio_detailed(
+            run_id=run_id,
             client=client,
             body=body,
         )

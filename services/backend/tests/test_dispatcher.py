@@ -20,6 +20,26 @@ async def test_dispatches_queued_run(sf, disp):
     async with sf() as s:
         assert (await s.get(Run, rid)).state == RunState.DISPATCHED
 
+
+async def test_dispatch_freezes_definition_and_effective_model(sf, disp):
+    from agentplatform.db import AgentDef
+    async with sf() as s:
+        run = Run(agent="hello-world", trigger="schedule", requested_by="scheduler",
+                  prompt="x", requested_model="opus")
+        s.add(run); await s.commit(); rid = run.id
+    await disp.handle({"type": "run", "run_id": rid})
+    async with sf() as s:
+        frozen = await s.get(Run, rid)
+        assert frozen.runtime == "claude" and frozen.model == "opus"
+        assert frozen.requested_model == "opus" and frozen.agent_version is not None
+        assert frozen.definition_snapshot["model"] == "opus"
+        original_prompt = frozen.definition_snapshot["prompt"]
+        (await s.get(AgentDef, "hello-world")).prompt = "changed later"
+        await s.commit()
+    manifest, error = await disp._freeze_definition(frozen)
+    assert error is None and manifest.model == "opus"
+    assert frozen.definition_snapshot["prompt"] == original_prompt
+
 async def test_terminal_run_is_noop(sf, disp):
     rid = await make_run(sf, state=RunState.SUCCEEDED)
     await disp.handle({"type": "run", "run_id": rid})

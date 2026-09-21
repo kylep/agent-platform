@@ -10,7 +10,7 @@ import type { Page, Route } from "@playwright/test";
 // definition plus server-derived readiness.
 const def = (over: Record<string, unknown>) => ({
   prompt: "You are a platform agent.", description: "", model: "", role: "operator",
-  system: false, can_invoke: false, concurrency: 1, timeout_seconds: 1800,
+  system: false, responds_to_all: true, can_invoke: false, concurrency: 1, timeout_seconds: 1800,
   result_topic: "", transcript_retention_days: null,
   harness_tools: [], platform_tools: [], skills: [], secrets: [],
   entrypoints: { crons: [], webhooks: [], topics: [], timezone: "" }, enabled: true,

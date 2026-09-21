@@ -119,8 +119,12 @@ def _due_prompt(crons: list["CronEntry"], now: datetime, tz: str = "") -> str:
     rhythms says two different things — a morning brief is not an evening wrap.
     The entry that fired is the one whose most recent occurrence is latest;
     ties (the same expression twice) go to the first declared."""
-    due = max(crons, key=lambda c: prev_fire(c.schedule, now, tz))
+    due = _due_entry(crons, now, tz)
     return due.prompt.strip() or GENERIC_PROMPT
+
+
+def _due_entry(crons: list["CronEntry"], now: datetime, tz: str = "") -> "CronEntry":
+    return max(crons, key=lambda c: prev_fire(c.schedule, now, tz))
 
 
 class Scheduler:
@@ -168,7 +172,8 @@ class Scheduler:
             if not sched.enabled or now < as_utc(sched.next_fire):
                 return
             run_id = uuid.uuid4().hex
-            prompt = _due_prompt(crons, now, tz)
+            due = _due_entry(crons, now, tz)
+            prompt, model = due.prompt.strip() or GENERIC_PROMPT, due.model
             sched.last_fire = now
             sched.next_fire = soonest  # from now → skip any missed fires
             await s.commit()
@@ -178,6 +183,7 @@ class Scheduler:
             await self.producer.publish(TOPIC_RUN_INBOUND, run_id, {
                 "run_id": run_id, "agent": name, "prompt": prompt,
                 "trigger": "schedule", "requested_by": "scheduler",
+                "model": model,
             }, type="run.requested")
         except Exception:
             log.warning("publish failed for scheduled run %s", run_id)
@@ -185,7 +191,7 @@ class Scheduler:
     async def _tick_job(self, job_id: str, now: datetime) -> None:
         """Fire one Scheduled Job when due — either as a run on its own agent,
         or as a message in its own Relay channel."""
-        run_id = agent = prompt = channel = None
+        run_id = agent = prompt = channel = model = None
         async with self.sf() as s:
             job = await s.get(ScheduledJob, job_id)
             if job is None:
@@ -198,6 +204,7 @@ class Scheduler:
             if not job.enabled or now < as_utc(job.next_fire):
                 return
             run_id, agent, prompt = uuid.uuid4().hex, job.agent, job.prompt
+            model = job.model or ""
             channel = job.relay_channel
             job.last_fire = now
             # from now → skip missed fires
@@ -223,6 +230,7 @@ class Scheduler:
             await self.producer.publish(TOPIC_RUN_INBOUND, run_id, {
                 "run_id": run_id, "agent": agent, "prompt": prompt,
                 "trigger": "schedule", "requested_by": f"job:{job_id}",
+                "model": model,
             }, type="run.requested")
         except Exception:
             log.warning("publish failed for scheduled job run %s", run_id)

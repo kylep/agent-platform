@@ -42,7 +42,11 @@ class RunDetail:
         tokens_out (int):
         tool_calls (int):
         trigger (str):
+        agent_version (int | None | Unset):
         initiated_by (None | str | Unset):
+        model (str | Unset):  Default: ''.
+        requested_model (str | Unset):  Default: ''.
+        runtime (str | Unset):  Default: ''.
         ticket_id (None | str | Unset):
     """
 
@@ -66,7 +70,11 @@ class RunDetail:
     tokens_out: int
     tool_calls: int
     trigger: str
+    agent_version: int | None | Unset = UNSET
     initiated_by: None | str | Unset = UNSET
+    model: str | Unset = ""
+    requested_model: str | Unset = ""
+    runtime: str | Unset = ""
     ticket_id: None | str | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
@@ -121,11 +129,23 @@ class RunDetail:
 
         trigger = self.trigger
 
+        agent_version: int | None | Unset
+        if isinstance(self.agent_version, Unset):
+            agent_version = UNSET
+        else:
+            agent_version = self.agent_version
+
         initiated_by: None | str | Unset
         if isinstance(self.initiated_by, Unset):
             initiated_by = UNSET
         else:
             initiated_by = self.initiated_by
+
+        model = self.model
+
+        requested_model = self.requested_model
+
+        runtime = self.runtime
 
         ticket_id: None | str | Unset
         if isinstance(self.ticket_id, Unset):
@@ -159,8 +179,16 @@ class RunDetail:
                 "trigger": trigger,
             }
         )
+        if agent_version is not UNSET:
+            field_dict["agent_version"] = agent_version
         if initiated_by is not UNSET:
             field_dict["initiated_by"] = initiated_by
+        if model is not UNSET:
+            field_dict["model"] = model
+        if requested_model is not UNSET:
+            field_dict["requested_model"] = requested_model
+        if runtime is not UNSET:
+            field_dict["runtime"] = runtime
         if ticket_id is not UNSET:
             field_dict["ticket_id"] = ticket_id
 
@@ -255,6 +283,15 @@ class RunDetail:
 
         trigger = d.pop("trigger")
 
+        def _parse_agent_version(data: object) -> int | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(int | None | Unset, data)
+
+        agent_version = _parse_agent_version(d.pop("agent_version", UNSET))
+
         def _parse_initiated_by(data: object) -> None | str | Unset:
             if data is None:
                 return data
@@ -263,6 +300,12 @@ class RunDetail:
             return cast(None | str | Unset, data)
 
         initiated_by = _parse_initiated_by(d.pop("initiated_by", UNSET))
+
+        model = d.pop("model", UNSET)
+
+        requested_model = d.pop("requested_model", UNSET)
+
+        runtime = d.pop("runtime", UNSET)
 
         def _parse_ticket_id(data: object) -> None | str | Unset:
             if data is None:
@@ -294,7 +337,11 @@ class RunDetail:
             tokens_out=tokens_out,
             tool_calls=tool_calls,
             trigger=trigger,
+            agent_version=agent_version,
             initiated_by=initiated_by,
+            model=model,
+            requested_model=requested_model,
+            runtime=runtime,
             ticket_id=ticket_id,
         )
 

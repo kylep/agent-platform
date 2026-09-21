@@ -67,7 +67,7 @@ def sync_detailed(
 ) -> Response[EditDispatch | HTTPValidationError]:
     """Skill Wizard
 
-     The New-Skill wizard: turn interview answers into a platform-coder run
+     The New-Skill wizard: turn interview answers into an engineer Workbench run
     that AUTHORS the skill (and, when a new credential is involved, scaffolds
     its `secrets/<name>/secret.yaml`). The result lands as a pull request under
     Changes — agent-authored, human-reviewed.
@@ -101,7 +101,7 @@ def sync(
 ) -> EditDispatch | HTTPValidationError | None:
     """Skill Wizard
 
-     The New-Skill wizard: turn interview answers into a platform-coder run
+     The New-Skill wizard: turn interview answers into an engineer Workbench run
     that AUTHORS the skill (and, when a new credential is involved, scaffolds
     its `secrets/<name>/secret.yaml`). The result lands as a pull request under
     Changes — agent-authored, human-reviewed.
@@ -130,7 +130,7 @@ async def asyncio_detailed(
 ) -> Response[EditDispatch | HTTPValidationError]:
     """Skill Wizard
 
-     The New-Skill wizard: turn interview answers into a platform-coder run
+     The New-Skill wizard: turn interview answers into an engineer Workbench run
     that AUTHORS the skill (and, when a new credential is involved, scaffolds
     its `secrets/<name>/secret.yaml`). The result lands as a pull request under
     Changes — agent-authored, human-reviewed.
@@ -162,7 +162,7 @@ async def asyncio(
 ) -> EditDispatch | HTTPValidationError | None:
     """Skill Wizard
 
-     The New-Skill wizard: turn interview answers into a platform-coder run
+     The New-Skill wizard: turn interview answers into an engineer Workbench run
     that AUTHORS the skill (and, when a new credential is involved, scaffolds
     its `secrets/<name>/secret.yaml`). The result lands as a pull request under
     Changes — agent-authored, human-reviewed.

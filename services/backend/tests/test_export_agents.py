@@ -138,17 +138,17 @@ def test_a_market_pinned_agent_keeps_its_cron_and_its_zone(migrated):
     the expression rather than being assumed UTC."""
     b = migrated["briefer"]
     assert b["entrypoints"] == {
-        "crons": [{"schedule": "35 9 * * 1-5", "prompt": ""}],
+        "crons": [{"schedule": "35 9 * * 1-5", "prompt": "", "model": ""}],
         "webhooks": [], "topics": [], "timezone": "America/Toronto"}
     assert b["result_topic"] == "app.demo.inbound"
 
 
-def test_a_system_agent_keeps_the_flag_that_injects_its_token(migrated):
-    """`system: true` is the difference between an agent that gets an API token
-    injected and one that does not — losing it would silently break its run."""
+def test_a_system_agent_keeps_its_lifecycle_flag(migrated):
+    """`system: true` preserves platform-managed lifecycle across import."""
     k = migrated["keeper"]
     assert k["system"] is True
-    assert k["entrypoints"]["crons"] == [{"schedule": "0 * * * *", "prompt": ""}]
+    assert k["entrypoints"]["crons"] == [
+        {"schedule": "0 * * * *", "prompt": "", "model": ""}]
     assert k["entrypoints"]["timezone"] == ""       # UTC, unlike the market one
     assert k["harness_tools"] == []
     assert k["platform_tools"] == ["mcp__platform__runs_read",

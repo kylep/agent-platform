@@ -20,6 +20,7 @@ class JobIn:
         name (str):
         prompt (str):
         agent (None | str | Unset):
+        model (str | Unset):  Default: ''.
         relay_channel (None | str | Unset):
         timezone (str | Unset):  Default: ''.
     """
@@ -28,6 +29,7 @@ class JobIn:
     name: str
     prompt: str
     agent: None | str | Unset = UNSET
+    model: str | Unset = ""
     relay_channel: None | str | Unset = UNSET
     timezone: str | Unset = ""
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
@@ -44,6 +46,8 @@ class JobIn:
             agent = UNSET
         else:
             agent = self.agent
+
+        model = self.model
 
         relay_channel: None | str | Unset
         if isinstance(self.relay_channel, Unset):
@@ -64,6 +68,8 @@ class JobIn:
         )
         if agent is not UNSET:
             field_dict["agent"] = agent
+        if model is not UNSET:
+            field_dict["model"] = model
         if relay_channel is not UNSET:
             field_dict["relay_channel"] = relay_channel
         if timezone is not UNSET:
@@ -89,6 +95,8 @@ class JobIn:
 
         agent = _parse_agent(d.pop("agent", UNSET))
 
+        model = d.pop("model", UNSET)
+
         def _parse_relay_channel(data: object) -> None | str | Unset:
             if data is None:
                 return data
@@ -105,6 +113,7 @@ class JobIn:
             name=name,
             prompt=prompt,
             agent=agent,
+            model=model,
             relay_channel=relay_channel,
             timezone=timezone,
         )

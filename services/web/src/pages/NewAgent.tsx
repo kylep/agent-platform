@@ -75,7 +75,7 @@ export default function NewAgent() {
 
       <IdentityFields draft={draft} patch={patch} catalog={catalog} />
       <PromptField draft={draft} patch={patch} />
-      <EntrypointsFields draft={draft} patch={patch} secrets={secrets} />
+      <EntrypointsFields draft={draft} patch={patch} secrets={secrets} catalog={catalog} />
       <GrantsFields draft={draft} patch={patch} catalog={catalog} />
 
       {error && <div className="error">{error}</div>}

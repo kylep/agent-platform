@@ -42,6 +42,7 @@ class AgentDefOut:
         push_path_globs (list[str] | Unset):
         quota_5h_max_pct (int | Unset):  Default: 80.
         quota_7d_max_pct (int | Unset):  Default: 50.
+        responds_to_all (bool | Unset):  Default: True.
         result_topic (str | Unset):  Default: ''.
         role (str | Unset):  Default: 'operator'.
         runtime (str | Unset):  Default: 'claude'.
@@ -68,6 +69,7 @@ class AgentDefOut:
     push_path_globs: list[str] | Unset = UNSET
     quota_5h_max_pct: int | Unset = 80
     quota_7d_max_pct: int | Unset = 50
+    responds_to_all: bool | Unset = True
     result_topic: str | Unset = ""
     role: str | Unset = "operator"
     runtime: str | Unset = "claude"
@@ -122,6 +124,8 @@ class AgentDefOut:
         quota_5h_max_pct = self.quota_5h_max_pct
 
         quota_7d_max_pct = self.quota_7d_max_pct
+
+        responds_to_all = self.responds_to_all
 
         result_topic = self.result_topic
 
@@ -183,6 +187,8 @@ class AgentDefOut:
             field_dict["quota_5h_max_pct"] = quota_5h_max_pct
         if quota_7d_max_pct is not UNSET:
             field_dict["quota_7d_max_pct"] = quota_7d_max_pct
+        if responds_to_all is not UNSET:
+            field_dict["responds_to_all"] = responds_to_all
         if result_topic is not UNSET:
             field_dict["result_topic"] = result_topic
         if role is not UNSET:
@@ -252,6 +258,8 @@ class AgentDefOut:
 
         quota_7d_max_pct = d.pop("quota_7d_max_pct", UNSET)
 
+        responds_to_all = d.pop("responds_to_all", UNSET)
+
         result_topic = d.pop("result_topic", UNSET)
 
         role = d.pop("role", UNSET)
@@ -294,6 +302,7 @@ class AgentDefOut:
             push_path_globs=push_path_globs,
             quota_5h_max_pct=quota_5h_max_pct,
             quota_7d_max_pct=quota_7d_max_pct,
+            responds_to_all=responds_to_all,
             result_topic=result_topic,
             role=role,
             runtime=runtime,

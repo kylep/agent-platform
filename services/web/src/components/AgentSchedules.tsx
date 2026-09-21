@@ -2,10 +2,11 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { cronTitle, isSingleExpression, useCronPreview, zoneOptions } from "../lib/cron";
 import { CronBuilder, DEFAULT_CRON } from "./CronBuilder";
-import { api, type Job, type ScheduleEntry } from "../api";
+import { api, type AgentDef, type Job, type ScheduleEntry } from "../api";
+import { useGrantCatalog } from "./CapabilityPickers";
 import { Button } from "@ap/ui/button";
 import { Chip } from "@ap/ui/chip";
-import { Input, Textarea } from "@ap/ui/field";
+import { Input, Select, Textarea } from "@ap/ui/field";
 import { Table, TD, TH } from "@ap/ui/table";
 
 const when = (ts: string | null) => (ts ? new Date(ts).toLocaleString() : "—");
@@ -30,6 +31,14 @@ function JobForm({ agent, job, onDone, onCancel }: {
   const [cron, setCron] = useState(job?.cron || DEFAULT_CRON);
   const [timezone, setTimezone] = useState(job?.timezone ?? "");
   const [prompt, setPrompt] = useState(job?.prompt ?? "");
+  const [model, setModel] = useState(job?.model ?? "");
+  const [runtime, setRuntime] = useState<AgentDef["runtime"]>("claude");
+  const catalog = useGrantCatalog();
+  useEffect(() => {
+    api<AgentDef>(`/api/agents/${encodeURIComponent(agent)}`)
+      .then((def) => setRuntime(def.runtime)).catch(() => undefined);
+  }, [agent]);
+  const models = runtime === "codex" ? catalog.codexModels : catalog.claudeModels;
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const zones = zoneOptions();
@@ -50,7 +59,7 @@ function JobForm({ agent, job, onDone, onCancel }: {
   async function save() {
     setBusy(true); setError(null);
     try {
-      const body = { name, agent, cron, timezone: zone, prompt };
+      const body = { name, agent, cron, timezone: zone, prompt, model };
       if (job) await api(`/api/jobs/${job.id}`, { method: "PATCH", body: JSON.stringify(body) });
       else await api("/api/jobs", { method: "POST", body: JSON.stringify(body) });
       onDone();
@@ -76,6 +85,13 @@ function JobForm({ agent, job, onDone, onCancel }: {
       <label className="field-label">Prompt</label>
       <Textarea placeholder="What the agent should do each run…" aria-label="Job prompt" value={prompt} rows={4}
                 onChange={(e) => setPrompt(e.target.value)} />
+      <label className="field-label">Model</label>
+      <Select aria-label="Job model" value={model} onChange={(e) => setModel(e.target.value)}>
+        <option value="">Agent default</option>
+        {model && !models.some((m) => m.id === model) &&
+          <option value={model}>{model} — saved custom value</option>}
+        {models.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}
+      </Select>
       {error && <div className="error">{error}</div>}
       <div className="row-actions" style={{ marginTop: 8 }}>
         <Button onClick={save} disabled={busy || !name.trim() || !cronOk || !zoneOk || !prompt.trim()}>
@@ -146,11 +162,12 @@ export default function AgentSchedules({ agent }: { agent: string }) {
       {!loading && jobs.length === 0 && editing !== "new" && <p className="muted">No jobs for this agent.</p>}
       {!loading && jobs.length > 0 && (
         <Table>
-          <thead><tr><TH>Name</TH><TH>Cron</TH><TH>Next fire</TH><TH>Status</TH><TH></TH></tr></thead>
+          <thead><tr><TH>Name</TH><TH>Model</TH><TH>Cron</TH><TH>Next fire</TH><TH>Status</TH><TH></TH></tr></thead>
           <tbody>
             {jobs.map((j) => (
               <tr key={j.id}>
                 <TD>{j.name}</TD>
+                <TD className="text-muted">{j.model || "agent default"}</TD>
                 <TD><Cron cron={j.cron} timezone={j.timezone} /></TD>
                 <TD className="text-muted">{when(j.next_fire)}</TD>
                 <TD>{j.enabled ? <Chip variant="ok">enabled</Chip> : <Chip variant="danger">disabled</Chip>}</TD>

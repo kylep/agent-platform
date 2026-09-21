@@ -421,11 +421,11 @@ async def test_an_agent_token_with_no_run_may_not_write(token_client, sf, seed_a
     assert (await token_client.get("/api/tickets", headers=headers)).status_code == 200
 
 
-async def test_a_system_agents_launcher_token_opens_a_ticket(token_client, sf,
-                                                             seed_agent, agent_store):
+async def test_an_explicitly_granted_agents_launcher_token_opens_a_ticket(
+        token_client, sf, seed_agent, agent_store):
     """The live failure (docs/design/20): `agent:health-monitor` is told to open
-    OPS tickets, and every one of them was a 403 because the token its own
-    launcher hands it named no run. The launcher is driven here rather than
+    OPS tickets, and every one of them was a 403 because its granted token
+    named no run. The launcher is driven here rather than
     imitated — a per-run key written by hand would pass whatever the launcher
     actually mints."""
     from agentplatform.agents import Manifest
@@ -446,7 +446,8 @@ async def test_a_system_agents_launcher_token_opens_a_ticket(token_client, sf,
     launcher = K8sJobLauncher(batch=batch, settings=Settings(),
                               session_factory=sf)
     async with sf() as s:
-        await launcher.launch(await s.get(Run, run_id), Manifest(system=True))
+        await launcher.launch(await s.get(Run, run_id), Manifest(
+            system=True, platform_tools=["mcp__platform__tickets"]))
     env = {e.name: e.value for e in batch.job.spec.template.spec.containers[0].env}
     headers = {"Authorization": f"Bearer {env['AP_API_TOKEN']}"}
 

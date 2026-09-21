@@ -7,7 +7,7 @@ export type SetupState = { needs_admin: boolean; secrets: SecretStatus[] };
 // `agent_defs` and are edited directly (no PR round-trip). Every write appends
 // a snapshot to the change log below.
 
-export type CronEntry = { schedule: string; prompt: string };
+export type CronEntry = { schedule: string; prompt: string; model: string };
 
 // How a declared webhook path authenticates callers (docs/design/16).
 // `none` = a platform operator key, as before; `secret` additionally accepts
@@ -18,7 +18,7 @@ export type WebhookAuth = "none" | "secret";
 // write-only endpoint and never on the definition, which is snapshotted into
 // the change log on every write. `secret_set` is derived by the API on GET;
 // the editor echoes it back on PUT, where the server accepts and drops it.
-export type WebhookEntry = { path: string; auth: WebhookAuth; secret_set?: boolean };
+export type WebhookEntry = { path: string; auth: WebhookAuth; model: string; secret_set?: boolean };
 
 export type AgentEntrypoints = {
   crons: CronEntry[];
@@ -45,6 +45,7 @@ export type AgentDef = {
   model: string;                // "" = platform default
   role: string;
   system: boolean;
+  responds_to_all: boolean;
   can_invoke: boolean;
   concurrency: number;
   timeout_seconds: number;
@@ -144,6 +145,10 @@ export type RunDetailData = RunSummary & {
   depth: number;
   requested_by: string;
   initiated_by?: string | null;
+  runtime: string;
+  requested_model: string;
+  model: string;
+  agent_version: number | null;
   secrets_granted: string[];
   permission_denials?: Array<Record<string, unknown>>;
 };
@@ -223,6 +228,7 @@ export type Job = {
   cron: string;
   timezone: string;       // IANA zone the cron is read in; "" = UTC
   prompt: string;
+  model: string;
   enabled: boolean;
   last_fire: string | null;
   next_fire: string | null;

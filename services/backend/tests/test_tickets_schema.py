@@ -174,19 +174,19 @@ OTHER_SWEEPS = dict(wiki_grant=False, quota_grant=False, artifacts_grant=False)
 
 async def test_tickets_grant_backfill_covers_the_agents_that_already_exist(engine, sfx):
     async with sfx() as s:
-        s.add(AgentDef(name="news", prompt="p", description="d",
+        s.add(AgentDef(name="reporter", prompt="p", description="d",
                        platform_tools=["mcp__platform__relay"]))
         s.add(AgentDef(name="retired", prompt="p", description="d",
                        platform_tools=[], enabled=False))
         await s.commit()
     await init_db(engine, **OTHER_SWEEPS)
-    assert await _grants(sfx, "news") == ["mcp__platform__relay",
+    assert await _grants(sfx, "reporter") == ["mcp__platform__relay",
                                           "mcp__platform__tickets"]
     assert await _grants(sfx, "retired") == []      # disabled agents are left alone
     async with sfx() as s:
         assert await s.get(SchemaMark, TICKETS_GRANT_MARK) is not None
         versions = list((await s.execute(select(AgentVersion).where(
-            AgentVersion.agent == "news"))).scalars())
+            AgentVersion.agent == "reporter"))).scalars())
     # The sweep continues the design-15 change log, attributed to itself, so an
     # operator can find out later why an agent holds a tool nobody granted it.
     assert [(v.changed_by, v.changed_via) for v in versions] == [
@@ -197,21 +197,21 @@ async def test_tickets_grant_backfill_honours_the_setting_and_runs_once(engine, 
     """Off means the sweep does not run AND does not mark itself, so turning it
     on later still backfills; on means exactly one pass, ever."""
     async with sfx() as s:
-        s.add(AgentDef(name="news", prompt="p", description="d", platform_tools=[]))
+        s.add(AgentDef(name="reporter", prompt="p", description="d", platform_tools=[]))
         await s.commit()
     await init_db(engine, tickets_grant=False, **OTHER_SWEEPS)
-    assert await _grants(sfx, "news") == ["mcp__platform__relay"]
+    assert await _grants(sfx, "reporter") == ["mcp__platform__relay"]
     async with sfx() as s:
         assert await s.get(SchemaMark, TICKETS_GRANT_MARK) is None
     await init_db(engine, tickets_grant=True, **OTHER_SWEEPS)
-    assert await _grants(sfx, "news") == ["mcp__platform__relay",
+    assert await _grants(sfx, "reporter") == ["mcp__platform__relay",
                                           "mcp__platform__tickets"]
     # An admin taking it away afterwards is not undone by the next boot.
     async with sfx() as s:
-        (await s.get(AgentDef, "news")).platform_tools = []
+        (await s.get(AgentDef, "reporter")).platform_tools = []
         await s.commit()
     await init_db(engine, **OTHER_SWEEPS)
-    assert await _grants(sfx, "news") == []
+    assert await _grants(sfx, "reporter") == []
 
 
 # --- standup v2 and the health-monitor prompt (docs/design/20) ---------------

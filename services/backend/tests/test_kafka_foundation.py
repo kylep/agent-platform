@@ -12,13 +12,15 @@ from agentplatform.materialize import materialize_run
 async def test_materialize_run_creates_and_is_idempotent(sf):
     producer = FakeProducer()
     spec = {"run_id": "r" * 32, "agent": "echo", "prompt": "hi",
-            "trigger": "webhook", "requested_by": "op"}
+            "trigger": "webhook", "requested_by": "op", "model": "gpt-5.6-sol"}
     await materialize_run(sf, producer, spec)
     await materialize_run(sf, producer, spec)  # redelivery
     async with sf() as s:
         n = (await s.execute(select(func.count()).select_from(Run)
              .where(Run.id == "r" * 32))).scalar_one()
     assert n == 1  # created once despite two calls
+    async with sf() as s:
+        assert (await s.get(Run, "r" * 32)).requested_model == "gpt-5.6-sol"
     # both calls publish run.requests (dispatcher.handle is itself idempotent)
     reqs = [p for p in producer.published if p[0] == TOPIC_RUN_REQUESTS]
     assert len(reqs) == 2 and reqs[0][1] == "r" * 32

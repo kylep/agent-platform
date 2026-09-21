@@ -14,7 +14,7 @@ from sqlalchemy import select, update
 from sqlalchemy.exc import IntegrityError
 from agentplatform import workbench
 from agentplatform import artifact_store, image_gen_service
-from agentplatform.agentdefs import model_of
+from agentplatform.agentdefs import AgentDefModel, model_of
 from agentplatform.agentspec import TOOL_ARTIFACTS
 from agentplatform.api.artifacts import ArtifactView, _bounded_body, _rule
 from agentplatform.api.auth import (ANNOTATE_ROLES, INVOKE_ROLES, READ_ROLES,
@@ -35,6 +35,7 @@ router = APIRouter()
 class RunIn(BaseModel):
     agent: str
     prompt: str
+    model: str = ""
 
 class AnnotateIn(BaseModel):
     summary: str | None = None
@@ -88,6 +89,8 @@ async def create_run(request: Request, body: RunIn,
         info = store.get(body.agent)
     if info is None: raise HTTPException(404, "unknown agent")
     if info.error is not None: raise HTTPException(409, "agent quarantined")
+    if body.model and getattr(request.state, "api_key_agent", None):
+        raise HTTPException(403, "agents cannot override another agent's model")
     # `enabled` is the soft off-switch (docs/design/15): the definition and its
     # history stay, but the agent takes no work. Refused here as well as in the
     # dispatcher so a disabled agent never even gets a queued run to explain.
@@ -117,6 +120,7 @@ async def create_run(request: Request, body: RunIn,
         "trigger": trigger, "requested_by": principal,
         "initiated_by": initiated_by,
         "parent_run_id": parent_run_id if trigger == "agent" else None, "depth": depth,
+        "model": body.model,
     })
     return {"id": run_id, "state": "queued"}
 
@@ -173,6 +177,10 @@ async def get_run(request: Request, run_id: str):
                   "parent_run_id": run.parent_run_id, "depth": run.depth or 0,
                   "requested_by": run.requested_by,
                   "initiated_by": run.initiated_by,
+                  "runtime": run.runtime or "",
+                  "requested_model": run.requested_model or "",
+                  "model": run.model or "",
+                  "agent_version": run.agent_version,
                   "started_at": run.started_at.isoformat() if run.started_at else None,
                   "finished_at": run.finished_at.isoformat() if run.finished_at else None})
         return d
@@ -237,8 +245,14 @@ async def keep_codex_generated_image(request: Request, run_id: str,
             raise HTTPException(404, "unknown run")
         if run.runtime != "codex":
             raise HTTPException(409, "generated-image upload belongs to a Codex run")
-        definition = await s.get(AgentDef, run.agent)
-        grants = set(definition.platform_tools or []) if definition is not None else set()
+        if run.definition_snapshot:
+            try:
+                grants = set(AgentDefModel(**run.definition_snapshot).platform_tools)
+            except Exception:
+                grants = set()
+        else:
+            definition = await s.get(AgentDef, run.agent)
+            grants = set(definition.platform_tools or []) if definition is not None else set()
         if TOOL_ARTIFACTS not in grants:
             raise HTTPException(403, "this agent is not granted the artifacts tool")
 
@@ -303,6 +317,17 @@ async def get_agentdef(run_id: str, request: Request):
         run = await s.get(Run, run_id)
     if run is None:
         raise HTTPException(status_code=404, detail="unknown run")
+    if run.definition_snapshot:
+        try:
+            frozen = AgentDefModel(**run.definition_snapshot)
+        except Exception:
+            raise HTTPException(status_code=409, detail="invalid frozen agent definition")
+        return RunAgentDef(name=frozen.name, prompt=frozen.prompt,
+                           description=frozen.description,
+                           harness_tools=frozen.harness_tools,
+                           platform_tools=frozen.platform_tools,
+                           skills=frozen.skills, model=frozen.model)
+    # Compatibility for runs queued before design 27 was deployed.
     store = request.app.state.agent_store
     info = store.get(run.agent)
     if info is None:

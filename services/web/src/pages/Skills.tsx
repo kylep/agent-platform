@@ -77,7 +77,7 @@ function SkillEditor({ name }: { name: string }) {
   );
 }
 
-// The New-Skill interview: a few key questions, then platform-coder authors
+// The New-Skill interview: a few key questions, then the engineer Workbench authors
 // the skill (and scaffolds a secrets/ folder if a credential is involved) as
 // a pending change under Changes.
 function SkillWizard({ onCancel }: { onCancel: () => void }) {
@@ -234,7 +234,7 @@ function ToolEditor({ name }: { name: string }) {
   );
 }
 
-// The New-Tool interview: platform-coder authors tool.yaml + run.py (+ test)
+// The New-Tool interview: the engineer Workbench authors tool.yaml + run.py (+ test)
 // against the executor contract, as a pending change under Changes.
 function ToolWizard({ onCancel }: { onCancel: () => void }) {
   const navigate = useNavigate();

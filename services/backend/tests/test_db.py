@@ -127,19 +127,19 @@ async def test_quota_grant_backfill_covers_the_agents_that_already_exist(bare):
                                   SchemaMark)
     sf = make_session_factory(bare)
     async with sf() as s:
-        s.add(AgentDef(name="news", prompt="p", description="d",
+        s.add(AgentDef(name="reporter", prompt="p", description="d",
                        platform_tools=["mcp__platform__relay"]))
         s.add(AgentDef(name="retired", prompt="p", description="d",
                        platform_tools=[], enabled=False))
         await s.commit()
     await init_db(bare, **_participants(quota_grant=True))
-    assert await _tools(sf, "news") == ["mcp__platform__relay",
+    assert await _tools(sf, "reporter") == ["mcp__platform__relay",
                                         "mcp__platform__get_quota_usage"]
     assert await _tools(sf, "retired") == []     # disabled agents are left alone
     async with sf() as s:
         assert await s.get(SchemaMark, QUOTA_GRANT_MARK) is not None
         versions = list((await s.execute(select(AgentVersion).where(
-            AgentVersion.agent == "news"))).scalars())
+            AgentVersion.agent == "reporter"))).scalars())
     # The sweep continues the design-15 change log, attributed to itself, so an
     # operator can find out later why an agent holds a tool nobody granted it.
     assert [(v.changed_by, v.changed_via) for v in versions] == [
@@ -152,20 +152,20 @@ async def test_quota_grant_backfill_honours_the_setting_and_runs_once(bare):
     from agentplatform.db import QUOTA_GRANT_MARK, AgentDef, SchemaMark
     sf = make_session_factory(bare)
     async with sf() as s:
-        s.add(AgentDef(name="news", prompt="p", description="d", platform_tools=[]))
+        s.add(AgentDef(name="reporter", prompt="p", description="d", platform_tools=[]))
         await s.commit()
     await init_db(bare, **_participants(quota_grant=False))
-    assert await _tools(sf, "news") == []
+    assert await _tools(sf, "reporter") == []
     async with sf() as s:
         assert await s.get(SchemaMark, QUOTA_GRANT_MARK) is None
     await init_db(bare, **_participants(quota_grant=True))
-    assert await _tools(sf, "news") == ["mcp__platform__get_quota_usage"]
+    assert await _tools(sf, "reporter") == ["mcp__platform__get_quota_usage"]
     # An admin taking it away afterwards is not undone by the next boot.
     async with sf() as s:
-        (await s.get(AgentDef, "news")).platform_tools = []
+        (await s.get(AgentDef, "reporter")).platform_tools = []
         await s.commit()
     await init_db(bare, **_participants(quota_grant=True))
-    assert await _tools(sf, "news") == []
+    assert await _tools(sf, "reporter") == []
 
 
 async def test_artifacts_grant_backfill_covers_the_agents_that_already_exist(bare):
@@ -175,38 +175,64 @@ async def test_artifacts_grant_backfill_covers_the_agents_that_already_exist(bar
                                   SchemaMark)
     sf = make_session_factory(bare)
     async with sf() as s:
-        s.add(AgentDef(name="news", prompt="p", description="d",
+        s.add(AgentDef(name="reporter", prompt="p", description="d",
                        platform_tools=["mcp__platform__relay"]))
         s.add(AgentDef(name="retired", prompt="p", description="d",
                        platform_tools=[], enabled=False))
         await s.commit()
     await init_db(bare, **_participants(artifacts_grant=True))
-    assert await _tools(sf, "news") == ["mcp__platform__relay",
+    assert await _tools(sf, "reporter") == ["mcp__platform__relay",
                                         "mcp__platform__artifacts"]
     assert await _tools(sf, "retired") == []
     async with sf() as s:
         assert await s.get(SchemaMark, ARTIFACTS_GRANT_MARK) is not None
         versions = list((await s.execute(select(AgentVersion).where(
-            AgentVersion.agent == "news"))).scalars())
+            AgentVersion.agent == "reporter"))).scalars())
     assert [(v.changed_by, v.changed_via) for v in versions] == [
         ("platform:artifacts-default-grant", "migration")]
     # Exactly once: the next boot finds the mark and leaves the rows alone.
     await init_db(bare, **_participants(artifacts_grant=True))
     async with sf() as s:
         assert len(list((await s.execute(select(AgentVersion).where(
-            AgentVersion.agent == "news"))).scalars())) == 1
+            AgentVersion.agent == "reporter"))).scalars())) == 1
 
 
 async def test_artifacts_grant_backfill_honours_the_setting(bare):
     from agentplatform.db import ARTIFACTS_GRANT_MARK, AgentDef, SchemaMark
     sf = make_session_factory(bare)
     async with sf() as s:
-        s.add(AgentDef(name="news", prompt="p", description="d", platform_tools=[]))
+        s.add(AgentDef(name="reporter", prompt="p", description="d", platform_tools=[]))
         await s.commit()
     await init_db(bare, **_participants())
-    assert await _tools(sf, "news") == []
+    assert await _tools(sf, "reporter") == []
     async with sf() as s:
         assert await s.get(SchemaMark, ARTIFACTS_GRANT_MARK) is None
+
+
+async def test_agent_policy_split_focuses_workers_and_retires_legacy_rows(bare):
+    from agentplatform.db import AgentDef, AgentVersion, SchemaMark, AGENT_POLICY_SPLIT_MARK
+    sf = make_session_factory(bare)
+    broad = ["mcp__platform__relay", "mcp__platform__tickets",
+             "mcp__platform__wiki", "mcp__platform__artifacts"]
+    async with sf() as s:
+        s.add(AgentDef(name="news", platform_tools=broad))
+        s.add(AgentDef(name="news-librarian", platform_tools=broad + [
+            "mcp__platform__query_app"]))
+        s.add(AgentDef(name="platform-coder", role="coder", platform_tools=broad))
+        await s.commit()
+    await init_db(bare, **_participants())
+    async with sf() as s:
+        news = await s.get(AgentDef, "news")
+        librarian = await s.get(AgentDef, "news-librarian")
+        coder = await s.get(AgentDef, "platform-coder")
+        assert news.platform_tools == [] and news.responds_to_all is False
+        assert librarian.platform_tools == ["mcp__platform__query_app"]
+        assert librarian.responds_to_all is False
+        assert coder.enabled is False and coder.responds_to_all is False
+        assert await s.get(SchemaMark, AGENT_POLICY_SPLIT_MARK) is not None
+        versions = list((await s.execute(select(AgentVersion).where(
+            AgentVersion.changed_by == "platform:agent-policy-split"))).scalars())
+        assert {v.agent for v in versions} >= {"news", "news-librarian", "platform-coder"}
 
 
 # --- the Workbench columns on a live agents table (docs/design/24) -----------

@@ -7,6 +7,9 @@ from attrs import define as _attrs_define
 from attrs import field as _attrs_field
 from typing_extensions import Self
 
+from ..models.image_model_billing import ImageModelBilling
+from ..types import UNSET, Unset
+
 T = TypeVar("T", bound="ImageModel")
 
 
@@ -28,6 +31,8 @@ class ImageModel:
             provider (str):
             qualities (list[str] | None):
             sizes (list[str] | None):
+            billing (ImageModelBilling | Unset):  Default: ImageModelBilling.API.
+            seeded (bool | Unset):  Default: True.
     """
 
     aspects: list[str] | None
@@ -41,6 +46,8 @@ class ImageModel:
     provider: str
     qualities: list[str] | None
     sizes: list[str] | None
+    billing: ImageModelBilling | Unset = ImageModelBilling.API
+    seeded: bool | Unset = True
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -81,6 +88,12 @@ class ImageModel:
         else:
             sizes = self.sizes
 
+        billing: str | Unset = UNSET
+        if not isinstance(self.billing, Unset):
+            billing = self.billing.value
+
+        seeded = self.seeded
+
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
@@ -98,6 +111,10 @@ class ImageModel:
                 "sizes": sizes,
             }
         )
+        if billing is not UNSET:
+            field_dict["billing"] = billing
+        if seeded is not UNSET:
+            field_dict["seeded"] = seeded
 
         return field_dict
 
@@ -166,6 +183,15 @@ class ImageModel:
 
         sizes = _parse_sizes(d.pop("sizes"))
 
+        _billing = d.pop("billing", UNSET)
+        billing: ImageModelBilling | Unset
+        if isinstance(_billing, Unset):
+            billing = UNSET
+        else:
+            billing = ImageModelBilling(_billing)
+
+        seeded = d.pop("seeded", UNSET)
+
         image_model = cls(
             aspects=aspects,
             configured=configured,
@@ -178,6 +204,8 @@ class ImageModel:
             provider=provider,
             qualities=qualities,
             sizes=sizes,
+            billing=billing,
+            seeded=seeded,
         )
 
         image_model.additional_properties = d

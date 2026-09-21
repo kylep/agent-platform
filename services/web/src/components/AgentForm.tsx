@@ -28,7 +28,7 @@ const EMPTY_ENTRYPOINTS: AgentEntrypoints = { crons: [], webhooks: [], topics: [
 export function emptyDef(): AgentDef {
   return {
     name: "", prompt: "", description: "", runtime: "claude", model: "", role: "operator",
-    system: false, can_invoke: false, concurrency: 1, timeout_seconds: 1800,
+    system: false, responds_to_all: true, can_invoke: false, concurrency: 1, timeout_seconds: 1800,
     result_topic: "", transcript_retention_days: null,
     harness_tools: [], platform_tools: [], skills: [], secrets: [],
     entrypoints: { ...EMPTY_ENTRYPOINTS }, enabled: true,
@@ -48,7 +48,8 @@ export function toDraft(def: Partial<AgentDef> & { name: string }): AgentDef {
     entrypoints: {
       // Non-object entries are dropped, not rendered: a cron that is a bare
       // string would give the row's inputs an undefined value apiece.
-      crons: asList<CronEntry>(e?.crons).filter((c) => c && typeof c === "object"),
+      crons: asList<CronEntry>(e?.crons).filter((c) => c && typeof c === "object")
+        .map((c) => ({ ...c, model: typeof c.model === "string" ? c.model : "" })),
       webhooks: asList<unknown>(e?.webhooks)
         .filter((w) => w && typeof w === "object").map(toWebhook),
       topics: asList<string>(e?.topics).filter((t) => typeof t === "string"),
@@ -71,6 +72,7 @@ function toWebhook(raw: unknown): WebhookEntry {
   return {
     path: typeof w.path === "string" ? w.path : "",
     auth: w.auth === "secret" ? "secret" : "none",
+    model: typeof w.model === "string" ? w.model : "",
     secret_set: w.secret_set === true,
   };
 }
@@ -230,6 +232,9 @@ export function IdentityFields({ draft, patch, catalog }: {
         <Toggle label="Can invoke agents" checked={draft.can_invoke}
                 title="May dispatch runs of other agents (depth-guarded)."
                 onChange={(can_invoke) => patch({ can_invoke })} />
+        <Toggle label="Responds to @all" checked={draft.responds_to_all}
+                title="Include this agent when a human mentions everyone in a Relay room."
+                onChange={(responds_to_all) => patch({ responds_to_all })} />
       </div>
     </>
   );
@@ -254,17 +259,31 @@ export function PromptField({ draft, patch }: { draft: AgentDef; patch: Patch })
   );
 }
 
-function CronRow({ entry, zone, onChange, onRemove }: {
-  entry: CronEntry; zone: string; onChange: (e: CronEntry) => void; onRemove: () => void;
+function InvocationModel({ value, models, onChange }: {
+  value: string; models: GrantCatalog["claudeModels"]; onChange: (model: string) => void;
+}) {
+  const custom = value && !models.some((m) => m.id === value);
+  return <Select aria-label="Invocation model" value={value} onChange={(e) => onChange(e.target.value)}>
+    <option value="">Agent default</option>
+    {custom && <option value={value}>{value} — saved custom value</option>}
+    {models.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}
+  </Select>;
+}
+
+function CronRow({ entry, zone, models, onChange, onRemove }: {
+  entry: CronEntry; zone: string; models: GrantCatalog["claudeModels"];
+  onChange: (e: CronEntry) => void; onRemove: () => void;
 }) {
   return (
     <div className="cron-entry">
       <CronBuilder value={entry.schedule} timezone={zone}
                    onChange={(schedule) => onChange({ ...entry, schedule })} />
-      <div className="grid gap-2 sm:grid-cols-[1fr_auto] items-start">
+      <div className="grid gap-2 sm:grid-cols-[1fr_13rem_auto] items-start">
         <Input className="w-full" aria-label="Cron prompt" value={entry.prompt}
                placeholder="Prompt for this scheduled run (optional)"
                onChange={(e) => onChange({ ...entry, prompt: e.target.value })} />
+        <InvocationModel value={entry.model} models={models}
+                         onChange={(model) => onChange({ ...entry, model })} />
         <Button variant="secondary" size="sm" onClick={onRemove} aria-label="Remove cron">Remove</Button>
       </div>
     </div>
@@ -273,8 +292,9 @@ function CronRow({ entry, zone, onChange, onRemove }: {
 
 const AUTH_LABELS: Record<WebhookAuth, string> = { none: "None", secret: "Secret" };
 
-function WebhookRow({ entry, secrets, onChange, onRemove }: {
+function WebhookRow({ entry, secrets, models, onChange, onRemove }: {
   entry: WebhookEntry; secrets: WebhookSecrets;
+  models: GrantCatalog["claudeModels"];
   onChange: (next: WebhookEntry) => void; onRemove: () => void;
 }) {
   // The eye is purely local: whether the field is masked says nothing about
@@ -288,7 +308,7 @@ function WebhookRow({ entry, secrets, onChange, onRemove }: {
 
   return (
     <div className="grid gap-2" title={entry.auth === "secret" ? WEBHOOK_SECRET_HEADER : undefined}>
-      <div className="grid gap-2 sm:grid-cols-[1fr_9rem_auto] items-start">
+      <div className="grid gap-2 sm:grid-cols-[1fr_9rem_13rem_auto] items-start">
         <div>
           <Input className="w-full" aria-label="Webhook path" value={entry.path} placeholder="my-hook"
                  onChange={(e) => {
@@ -306,6 +326,8 @@ function WebhookRow({ entry, secrets, onChange, onRemove }: {
             <option key={m} value={m}>{AUTH_LABELS[m]}</option>
           ))}
         </Select>
+        <InvocationModel value={entry.model} models={models}
+                         onChange={(model) => onChange({ ...entry, model })} />
         <Button variant="secondary" size="sm" aria-label="Remove webhook"
                 onClick={() => { secrets.forget(entry.path); onRemove(); }}>
           Remove
@@ -344,8 +366,8 @@ function WebhookRow({ entry, secrets, onChange, onRemove }: {
   );
 }
 
-export function EntrypointsFields({ draft, patch, secrets }: {
-  draft: AgentDef; patch: Patch; secrets: WebhookSecrets;
+export function EntrypointsFields({ draft, patch, secrets, catalog }: {
+  draft: AgentDef; patch: Patch; secrets: WebhookSecrets; catalog: GrantCatalog;
 }) {
   const ep = draft.entrypoints;
   const set = (next: Partial<AgentEntrypoints>) => patch({ entrypoints: { ...ep, ...next } });
@@ -356,6 +378,7 @@ export function EntrypointsFields({ draft, patch, secrets }: {
   // cron rows are asked in UTC meanwhile, so every row under it doesn't answer
   // "what does this schedule mean?" with a complaint about a different field.
   const previewZone = zoneOk ? zone : "";
+  const models = draft.runtime === "codex" ? catalog.codexModels : catalog.claudeModels;
   return (
     <>
       <h2>Entrypoints</h2>
@@ -367,14 +390,14 @@ export function EntrypointsFields({ draft, patch, secrets }: {
       <label className="field-label">Crons</label>
       <div className="grid gap-2">
         {ep.crons.map((c, i) => (
-          <CronRow key={i} entry={c} zone={previewZone}
+          <CronRow key={i} entry={c} zone={previewZone} models={models}
                    onChange={(next) => set({ crons: ep.crons.map((x, j) => (j === i ? next : x)) })}
                    onRemove={() => set({ crons: ep.crons.filter((_, j) => j !== i) })} />
         ))}
       </div>
       <div className="row-actions" style={{ marginTop: 6 }}>
         <Button variant="secondary" size="sm"
-                onClick={() => set({ crons: [...ep.crons, { schedule: "", prompt: "" }] })}>
+                onClick={() => set({ crons: [...ep.crons, { schedule: "", prompt: "", model: "" }] })}>
           + Add cron
         </Button>
       </div>
@@ -394,7 +417,7 @@ export function EntrypointsFields({ draft, patch, secrets }: {
       <label className="field-label">Webhooks</label>
       <div className="grid gap-2">
         {ep.webhooks.map((w, i) => (
-          <WebhookRow key={i} entry={w} secrets={secrets}
+          <WebhookRow key={i} entry={w} secrets={secrets} models={models}
                       onChange={(next) => set({ webhooks: ep.webhooks.map((x, j) => (j === i ? next : x)) })}
                       onRemove={() => set({ webhooks: ep.webhooks.filter((_, j) => j !== i) })} />
         ))}
@@ -406,7 +429,7 @@ export function EntrypointsFields({ draft, patch, secrets }: {
       </p>
       <div className="row-actions" style={{ marginTop: 6 }}>
         <Button variant="secondary" size="sm"
-                onClick={() => set({ webhooks: [...ep.webhooks, { path: "", auth: "none", secret_set: false }] })}>
+                onClick={() => set({ webhooks: [...ep.webhooks, { path: "", auth: "none", model: "", secret_set: false }] })}>
           + Add webhook
         </Button>
       </div>

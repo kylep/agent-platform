@@ -31,7 +31,8 @@ router = APIRouter(dependencies=[Depends(require_admin)])
 def _view(j: ScheduledJob) -> dict:
     return {"id": j.id, "name": j.name, "agent": j.agent, "cron": j.cron,
             "relay_channel": j.relay_channel,
-            "timezone": j.timezone or "", "prompt": j.prompt, "enabled": j.enabled,
+            "timezone": j.timezone or "", "prompt": j.prompt, "model": j.model or "",
+            "enabled": j.enabled,
             "last_fire": j.last_fire.isoformat() if j.last_fire else None,
             "next_fire": j.next_fire.isoformat() if j.next_fire else None}
 
@@ -44,6 +45,7 @@ class JobIn(BaseModel):
     agent: str | None = None
     relay_channel: str | None = None
     timezone: str = ""          # IANA zone; empty = UTC
+    model: str = ""             # empty = agent default
 
 
 class JobPatch(BaseModel):
@@ -53,6 +55,7 @@ class JobPatch(BaseModel):
     timezone: str | None = None
     prompt: str | None = None
     enabled: bool | None = None
+    model: str | None = None
 
 
 async def _check(request: Request, *, cron: str | None, agent: str | None,
@@ -88,7 +91,7 @@ async def create_job(request: Request, body: JobIn):
     async with request.app.state.session_factory() as s:
         job = ScheduledJob(name=body.name, agent=body.agent, cron=body.cron,
                            relay_channel=body.relay_channel,
-                           timezone=body.timezone, prompt=body.prompt)
+                           timezone=body.timezone, prompt=body.prompt, model=body.model)
         s.add(job)
         await s.commit()
         return _view(job)
@@ -107,7 +110,7 @@ async def edit_job(request: Request, job_id: str, body: JobPatch):
         if body.agent is not None and job.relay_channel:
             raise HTTPException(422, "a relay job has no agent; delete it and "
                                      "create an agent job instead")
-        for field in ("name", "agent", "cron", "timezone", "prompt", "enabled"):
+        for field in ("name", "agent", "cron", "timezone", "prompt", "enabled", "model"):
             val = getattr(body, field)
             if val is not None:
                 setattr(job, field, val)
@@ -137,7 +140,7 @@ async def run_job_now(request: Request, job_id: str, principal: str = Depends(re
         job = await s.get(ScheduledJob, job_id)
         if job is None:
             raise HTTPException(404, "unknown job")
-        agent, prompt, channel = job.agent, job.prompt, job.relay_channel
+        agent, prompt, channel, model = job.agent, job.prompt, job.relay_channel, job.model
     if channel:
         # Authored `system:scheduler`, exactly as the tick would write it: a
         # summons a human could distinguish from the 09:00 one would be a
@@ -160,5 +163,6 @@ async def run_job_now(request: Request, job_id: str, principal: str = Depends(re
         "run_id": run_id, "agent": agent, "prompt": prompt,
         "trigger": "manual", "requested_by": f"{principal} (job:{job_id})",
         "initiated_by": principal,
+        "model": model or "",
     })
     return {"id": run_id, "agent": agent, "relay_channel": None}

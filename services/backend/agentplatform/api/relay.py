@@ -57,8 +57,8 @@ WRITE = (*INVOKE_ROLES, RELAY_ROLE)
 # route's human tuple. `tools` reaches nothing but /api/whoami by design,
 # `session` exists only to move a resume blob, and `reader` is a human scope:
 # none of them earns a voice in a room merely by naming an agent. T5 mints
-# `relay` for an agent that holds the grant, `annotator` is what a system agent
-# already carries, and the broker checks the grant besides.
+# `relay` for a participant grant and `annotator` for core API tools; the broker
+# checks the exact frozen tool grant besides.
 AGENT_ROLES = ("relay", "annotator", "operator", "coder", "admin")
 
 _NAME_RE = re.compile(r"[a-z0-9][a-z0-9-]{0,62}")

@@ -51,12 +51,12 @@ GRANT_LIST_FIELDS: tuple[str, ...] = ("harness_tools", "platform_tools",
 GRANT_FLAG_FIELDS: tuple[str, ...] = ("can_invoke", "may_delete_tests")
 GRANT_FIELDS: tuple[str, ...] = GRANT_LIST_FIELDS + GRANT_FLAG_FIELDS + ("role",)
 API_EDIT_FIELDS: tuple[str, ...] = (
-    "prompt", "description", "runtime", "model", "system", "concurrency",
+    "prompt", "description", "runtime", "model", "system", "responds_to_all", "concurrency",
     "timeout_seconds", "result_topic", "transcript_retention_days",
     "entrypoints", "enabled", "quota_5h_max_pct", "quota_7d_max_pct",
 )
 # `system` is enforced admin-only by the API (it protects an agent from
-# deletion and gets it platform credentials injected), so no tool call can ever
+# deletion), so no tool call can ever
 # land it. Refusing it here by name — rather than forwarding it into a 403 the
 # model did not see coming — keeps the tool's advertised surface and its real
 # surface the same thing.

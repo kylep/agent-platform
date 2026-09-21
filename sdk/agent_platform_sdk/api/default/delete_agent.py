@@ -70,7 +70,7 @@ def sync_detailed(
     `delete:tool:agents_edit`). The prefix is the whole marker — snapshots stay
     uniformly parseable as definitions, with no synthetic keys inside them — and
     it means the log alone is enough to say who removed an agent and to
-    recreate it. System agents are platform-internal and refuse deletion.
+    recreate it. System agents are platform-managed and refuse deletion.
 
     Its webhook secrets do NOT survive: they are credentials for paths that no
     longer exist, and the change log's tombstone snapshot deliberately doesn't
@@ -114,7 +114,7 @@ def sync(
     `delete:tool:agents_edit`). The prefix is the whole marker — snapshots stay
     uniformly parseable as definitions, with no synthetic keys inside them — and
     it means the log alone is enough to say who removed an agent and to
-    recreate it. System agents are platform-internal and refuse deletion.
+    recreate it. System agents are platform-managed and refuse deletion.
 
     Its webhook secrets do NOT survive: they are credentials for paths that no
     longer exist, and the change log's tombstone snapshot deliberately doesn't
@@ -153,7 +153,7 @@ async def asyncio_detailed(
     `delete:tool:agents_edit`). The prefix is the whole marker — snapshots stay
     uniformly parseable as definitions, with no synthetic keys inside them — and
     it means the log alone is enough to say who removed an agent and to
-    recreate it. System agents are platform-internal and refuse deletion.
+    recreate it. System agents are platform-managed and refuse deletion.
 
     Its webhook secrets do NOT survive: they are credentials for paths that no
     longer exist, and the change log's tombstone snapshot deliberately doesn't
@@ -195,7 +195,7 @@ async def asyncio(
     `delete:tool:agents_edit`). The prefix is the whole marker — snapshots stay
     uniformly parseable as definitions, with no synthetic keys inside them — and
     it means the log alone is enough to say who removed an agent and to
-    recreate it. System agents are platform-internal and refuse deletion.
+    recreate it. System agents are platform-managed and refuse deletion.
 
     Its webhook secrets do NOT survive: they are credentials for paths that no
     longer exist, and the change log's tombstone snapshot deliberately doesn't

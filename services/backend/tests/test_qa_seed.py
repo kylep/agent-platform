@@ -62,9 +62,9 @@ async def test_the_qa_is_seeded_with_its_grants_role_and_thresholds(engine, sfx)
     async with sfx() as s:
         row = await s.get(AgentDef, "qa")
         assert row is not None
-        # `system`: a platform agent, so `@all` and the standup pass it by;
-        # its own job summons it.
+        # Lifecycle ownership and broadcast participation are explicit.
         assert (row.system, row.enabled, row.can_invoke) == (True, True, False)
+        assert row.responds_to_all is False
         # sonnet: the nightly is bookkeeping most of the time. `dev` is the
         # run-profile rung, not an API scope.
         assert (row.model, row.role) == ("sonnet", "dev")
@@ -232,7 +232,7 @@ async def test_the_nightly_job_is_seeded(engine, sfx):
     job = jobs[0]
     assert (job.cron, job.timezone) == ("0 2 * * *", "America/Toronto")
     # A relay-post job: the summons comes from the platform, because an
-    # agent's own @mention carries a hop and `@all` skips a system agent.
+    # agent's own @mention carries a hop; QA independently opts out of `@all`.
     assert (job.relay_channel, job.agent) == ("qa", None)
     assert job.prompt == ("@qa — run the nightly: sync cases, run everything, record "
                           "the results, fix or file what you find, and leave a note here.")
@@ -303,17 +303,15 @@ async def test_at_qa_in_qa_summons_the_qa_as_a_dev_run(sf, producer):
     assert [(r.agent, r.trigger, r.depth) for r in runs] == [("qa", "mention", 0)]
 
 
-async def test_at_all_in_standup_skips_the_qa(sf, producer):
-    """The 09:00 standup's `@all` must not buy a QA run every morning: it is
-    infrastructure, not a participant. The engineer, which is not `system`,
-    proves the roster was expanded at all."""
+async def test_at_all_in_standup_skips_focused_dev_agents(sf, producer):
+    """The 09:00 standup must not buy full QA or engineer dev pods."""
     store = AgentStore(sf)
     await store.reload()
     payload = await _post(sf, "standup", "@all — what did you do?")
     await RelayRouter(Settings(), sf, producer, store).handle(payload)
     async with sf() as s:
         agents = sorted(r.agent for r in (await s.execute(select(Run))).scalars())
-    assert "engineer" in agents and "qa" not in agents
+    assert "engineer" not in agents and "qa" not in agents
 
 
 # --- the readiness gate ------------------------------------------------------

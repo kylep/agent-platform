@@ -3,8 +3,8 @@ ticket, works on a branch and opens a PR for a human to merge — with its
 home project `#eng` and the weekday `eng-queue` job that gives a run deferred
 for quota another chance. Three one-time seeds behind their own marks, in the
 artist's, the art channel's and the gardener's shapes: an admin who edits or
-deletes any of them keeps their version. NOT a system agent: `@all` and the
-#standup are meant to reach it."""
+deletes any of them keeps their version. It is deletable but opts out of
+`@all`, because a broadcast should not launch a full development pod."""
 import uuid
 
 import pytest
@@ -66,8 +66,9 @@ async def test_the_engineer_is_seeded_with_its_grants_role_and_thresholds(engine
     async with sfx() as s:
         row = await s.get(AgentDef, "engineer")
         assert row is not None
-        # Not `system`: the librarian hides from `@all`, the engineer does not.
+        # Lifecycle and broadcast participation are independent policies.
         assert (row.system, row.enabled, row.can_invoke) == (False, True, False)
+        assert row.responds_to_all is False
         # Named, not the CLI default: the default resolved to sonnet live and
         # a coding run is where the strong one earns its cost. `dev` is the
         # run-profile rung, not an API scope.

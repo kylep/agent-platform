@@ -267,7 +267,7 @@ function AgentConfig({ agent, onSaved }: { agent: AgentRow; onSaved: (next: Agen
       <PromptField draft={draft} patch={patch} />
       {actions}
 
-      <EntrypointsFields draft={draft} patch={patch} secrets={secrets} />
+      <EntrypointsFields draft={draft} patch={patch} secrets={secrets} catalog={catalog} />
       <GrantsFields draft={draft} patch={patch} catalog={catalog} />
       {actions}
 

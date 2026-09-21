@@ -2,8 +2,10 @@ import asyncio, json, logging, time
 from sqlalchemy import func, select
 from agentplatform import readiness
 from agentplatform.agents import AgentStore, Manifest
+from agentplatform.agentdefs import AgentDefModel, model_of
 from agentplatform.apikeys import revoke_run_keys
-from agentplatform.db import ACTIVE_STATES, Run, RunState, SecretMeta, utcnow
+from agentplatform.db import (ACTIVE_STATES, AgentDef, AgentVersion, Run, RunState,
+                              SecretMeta, utcnow)
 from agentplatform.events import (TOPIC_RUN_DLQ, TOPIC_RUN_EVENTS, TOPIC_RUN_REQUESTS)
 from agentplatform.secrets import CLAUDE_CREDENTIAL, CODEX_CREDENTIAL
 
@@ -104,6 +106,52 @@ class Dispatcher:
             {"run_id": run_id, "type": "state", "state": state, "detail": detail},
             type="run.state")
 
+    @staticmethod
+    def _manifest(model: AgentDefModel) -> Manifest:
+        return Manifest(**{name: getattr(model, name) for name in Manifest.model_fields})
+
+    async def _freeze_definition(self, run: Run) -> tuple[Manifest | None, str | None]:
+        """Return the immutable definition for this run, freezing it once.
+
+        A queued run may be redriven after an outage or wait behind concurrency.
+        Once the first dispatch attempt sees a valid definition, every later
+        attempt must see that same prompt, grants, runtime, and effective model.
+        """
+        if run.definition_snapshot:
+            try:
+                return self._manifest(AgentDefModel(**run.definition_snapshot)), None
+            except Exception:
+                return None, "run has an invalid frozen agent definition"
+
+        await self.agents.reload()
+        info = self.agents.get(run.agent)
+        if info is None or info.error is not None:
+            return None, "unknown or quarantined agent"
+        if not info.enabled:
+            return None, "agent is disabled"
+        async with self.sf() as s:
+            row = await s.get(AgentDef, run.agent)
+            if row is None:
+                return None, "unknown or quarantined agent"
+            try:
+                model = model_of(row)
+            except Exception:
+                return None, "unknown or quarantined agent"
+            if run.requested_model:
+                model.model = run.requested_model
+            snapshot = model.model_dump(mode="json")
+            version = ((await s.execute(select(func.max(AgentVersion.version)).where(
+                AgentVersion.agent == run.agent))).scalar() or 0)
+            db_run = await s.get(Run, run.id)
+            db_run.runtime = model.runtime
+            db_run.model = model.model
+            db_run.agent_version = version
+            db_run.definition_snapshot = snapshot
+            await s.commit()
+        run.runtime, run.model = model.runtime, model.model
+        run.agent_version, run.definition_snapshot = version, snapshot
+        return self._manifest(model), None
+
     async def _set_state(self, run: Run, state: RunState, error: str | None = None) -> None:
         async with self.sf() as s:
             db_run = await s.get(Run, run.id)
@@ -127,22 +175,10 @@ class Dispatcher:
                 await self._set_state(run, RunState.KILLED)
             return
         if run.state != RunState.QUEUED: return  # idempotency
-        # Definitions are rows an admin/tool can change at any moment; re-read
-        # so an agent created (or edited) after boot dispatches correctly.
-        await self.agents.reload()
-        info = self.agents.get(run.agent)
-        if info is None or info.error is not None:
-            await self._set_state(run, RunState.REJECTED, "unknown or quarantined agent")
+        manifest, definition_error = await self._freeze_definition(run)
+        if definition_error is not None:
+            await self._set_state(run, RunState.REJECTED, definition_error)
             return
-        if not info.enabled:
-            # The soft off-switch (docs/design/15): definition and history stay,
-            # the agent takes no work. POST /api/runs refuses one up front, but
-            # the async triggers — schedule, webhook, kafka, connector —
-            # materialize runs without passing through it, so this is where they
-            # actually stop.
-            await self._set_state(run, RunState.REJECTED, "agent is disabled")
-            return
-        manifest = info.manifest
         blocked = await self._credential_blocks(manifest)
         if blocked is not None:
             await self._set_state(run, RunState.REJECTED, blocked)
@@ -161,13 +197,6 @@ class Dispatcher:
             await asyncio.sleep(5)
             await self.producer.publish(TOPIC_RUN_REQUESTS, run_id, message, type="run.request")
             return
-        # Freeze the provider before launch. Run-scoped credential endpoints
-        # must not change meaning if an admin edits the agent during this run.
-        async with self.sf() as s:
-            db_run = await s.get(Run, run.id)
-            db_run.runtime = manifest.runtime
-            await s.commit()
-        run.runtime = manifest.runtime
         try:
             await self.launcher.launch(run, manifest)
         except Exception as e:

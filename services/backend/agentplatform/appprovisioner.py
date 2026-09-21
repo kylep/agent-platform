@@ -7,7 +7,8 @@ checkout) with the resources its manifest claims:
   ONLY its schema — isolation by grant, not by trust.
 - `agent_key` → a single-owner platform API key (`app:<name>`, scoped by the
   declared role), delivered as k8s secret `app-<name>-key`. Stale same-name
-  keys are revoked on mint — the joblauncher's system-token discipline.
+  keys are revoked on mint — the same single-owner credential discipline used
+  by other provisioned services.
 - `needs.kafka_topics` → topics created if missing (namespace-validated
   app.<name>.* by the registry).
 

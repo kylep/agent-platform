@@ -42,6 +42,7 @@ async def materialize_run(session_factory, producer, spec: dict,
                 user_message=spec.get("user_message"),
                 trigger_message_id=spec.get("trigger_message_id"),
                 ticket_id=spec.get("ticket_id"),
+                requested_model=spec.get("model") or "",
             ))
             await s.commit()
     try:

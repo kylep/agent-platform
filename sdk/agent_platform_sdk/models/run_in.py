@@ -7,6 +7,8 @@ from attrs import define as _attrs_define
 from attrs import field as _attrs_field
 from typing_extensions import Self
 
+from ..types import UNSET, Unset
+
 T = TypeVar("T", bound="RunIn")
 
 
@@ -16,16 +18,20 @@ class RunIn:
     Attributes:
         agent (str):
         prompt (str):
+        model (str | Unset):  Default: ''.
     """
 
     agent: str
     prompt: str
+    model: str | Unset = ""
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         agent = self.agent
 
         prompt = self.prompt
+
+        model = self.model
 
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
@@ -35,6 +41,8 @@ class RunIn:
                 "prompt": prompt,
             }
         )
+        if model is not UNSET:
+            field_dict["model"] = model
 
         return field_dict
 
@@ -45,9 +53,12 @@ class RunIn:
 
         prompt = d.pop("prompt")
 
+        model = d.pop("model", UNSET)
+
         run_in = cls(
             agent=agent,
             prompt=prompt,
+            model=model,
         )
 
         run_in.additional_properties = d

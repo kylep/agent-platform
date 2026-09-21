@@ -2,7 +2,7 @@
 registry. Tools are git-defined executables the MCP broker serves and the
 tool-executor runs; this API is what the Skills & Tools page renders. Writes
 ride the standard change loop: quick-edit = deterministic PR on
-`coder/tool-<name>`, the wizard = platform-coder authors the tool."""
+`coder/tool-<name>`, while the wizard dispatches the engineer Workbench."""
 import logging
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -121,7 +121,7 @@ class ToolWizardIn(BaseModel):
 @router.post("/api/tools/new", status_code=202, response_model=S.EditDispatch)
 async def tool_wizard(request: Request, body: ToolWizardIn,
                       principal: str = Depends(require_admin)):
-    """The New-Tool wizard: platform-coder authors tool.yaml + run.py (+ test,
+    """The New-Tool wizard: the engineer Workbench authors tool.yaml + run.py (+ test,
     + requirements.txt when deps are needed) as a pending change. The prompt
     teaches it the executor contract so authored tools actually run."""
     st = request.app.state
@@ -133,9 +133,10 @@ async def tool_wizard(request: Request, body: ToolWizardIn,
     if st.tool_registry.get(name) is not None:
         raise HTTPException(409, "a tool with this name already exists")
     await st.agent_store.reload()
-    coder = st.agent_store.get("platform-coder")
-    if coder is None or coder.error is not None:
-        raise HTTPException(409, "platform-coder agent is unavailable")
+    coder = st.agent_store.get("engineer")
+    if (coder is None or coder.error is not None or not coder.enabled
+            or coder.manifest.role != "dev"):
+        raise HTTPException(409, "engineer Workbench is unavailable")
     scope = f"`tools/{name}/`"
     secret_part = ""
     if body.secret:
@@ -154,6 +155,10 @@ async def tool_wizard(request: Request, body: ToolWizardIn,
                f"pg role+schema `tool_{name}` and run.py gets TOOL_DB_URL (psycopg URL). "
                "Qualify tables with the schema name.") if body.needs_database else ""
     prompt = (
+        "This is a platform-authored wizard run, not a ticket. Skip the ticket/thread "
+        "steps in your standing prompt. Work only in the paths named below, run the "
+        "relevant focused tests plus bin/ap-verify --changed, commit the result, and "
+        "write .ap/pr.md so the Workbench opens a reviewable pull request.\n\n"
         f"Author a new custom platform tool `{name}` under {scope} — read "
         f"`tools/README.md` and mirror an existing tool (e.g. `tools/stocks/`).\n"
         f"What it does: {body.purpose}\n"
@@ -168,7 +173,7 @@ async def tool_wizard(request: Request, body: ToolWizardIn,
         f"{('Notes: ' + body.notes) if body.notes else ''}")
     from agentplatform.db import Run
     from agentplatform.events import TOPIC_RUN_REQUESTS
-    run = Run(agent="platform-coder", trigger="self-edit", requested_by=principal,
+    run = Run(agent="engineer", trigger="wizard", requested_by=principal,
               initiated_by=principal, prompt=prompt)
     async with st.session_factory() as s:
         s.add(run)

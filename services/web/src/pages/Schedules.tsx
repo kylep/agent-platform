@@ -19,7 +19,7 @@ type Row = {
   // The agent whose page this row opens — null for a relay job, which belongs
   // to a room rather than to an agent, and so has nowhere to click through to.
   agent: string | null; target: string; name: string; kind: "Job" | "Entrypoint";
-  cron: string; next_fire: string | null; enabled: boolean;
+  cron: string; model: string; next_fire: string | null; enabled: boolean;
 };
 
 /** Global schedules: every cron job and entrypoint cron across all agents,
@@ -39,10 +39,10 @@ export default function Schedules() {
     ]).then(([jobs, scheds]) => {
       const j: Row[] = jobs.map((x) => ({
         agent: x.agent, target: jobTarget(x), name: x.name, kind: "Job", cron: x.cron,
-        next_fire: x.next_fire, enabled: x.enabled }));
+        model: x.model, next_fire: x.next_fire, enabled: x.enabled }));
       const s: Row[] = scheds.map((x) => ({
         agent: x.agent, target: x.agent, name: "(entrypoint cron)", kind: "Entrypoint",
-        cron: x.cron, next_fire: x.next_fire, enabled: x.enabled }));
+        cron: x.cron, model: "", next_fire: x.next_fire, enabled: x.enabled }));
       const all = [...j, ...s].sort((a, b) =>
         (a.next_fire ?? "9999").localeCompare(b.next_fire ?? "9999"));
       setRows(all);
@@ -76,7 +76,7 @@ export default function Schedules() {
       {!loading && shown.length > 0 && (
         <Table>
           <thead>
-            <tr><TH>Agent</TH><TH>Name</TH><TH>Type</TH><TH>Cron</TH><TH>Next fire</TH><TH>Status</TH></tr>
+            <tr><TH>Agent</TH><TH>Name</TH><TH>Type</TH><TH>Model</TH><TH>Cron</TH><TH>Next fire</TH><TH>Status</TH></tr>
           </thead>
           <tbody>
             {shown.map((r, i) => (
@@ -87,6 +87,7 @@ export default function Schedules() {
                 <TD>{r.target}</TD>
                 <TD>{r.name}</TD>
                 <TD className="text-muted">{r.kind}</TD>
+                <TD className="text-muted">{r.model || "agent default"}</TD>
                 <TD><Cron cron={r.cron} /></TD>
                 <TD className="text-muted">{when(r.next_fire)}</TD>
                 <TD>{r.enabled ? <Chip variant="ok">enabled</Chip> : <Chip variant="danger">disabled</Chip>}</TD>

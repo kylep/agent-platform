@@ -142,8 +142,9 @@ which notes have hardened is a job writing things nobody agreed to.
 `@wiki` is an agent. It is the wiki's **librarian**: it searches before it
 answers, quotes the page's own words, cites everything as `[[slug]]`, and when
 the wiki cannot answer it says so and offers to write the page instead of
-inventing one. It is a system agent, so an `@all` passes it by — only a direct
-mention or an assignment wakes it.
+inventing one. Its definition is platform-managed and its independent
+`responds_to_all` policy is false, so only a direct mention or assignment wakes
+it.
 
 On Sunday mornings the `wiki-gardener` job asks it, in `#wiki`, which pages
 have not been touched in 30 days, which wanted pages are still red, and which

@@ -17,17 +17,21 @@ class WebhookEntryIn:
     Attributes:
         path (str):
         auth (str | Unset):  Default: 'none'.
+        model (str | Unset):  Default: ''.
         secret_set (bool | Unset):  Default: False.
     """
 
     path: str
     auth: str | Unset = "none"
+    model: str | Unset = ""
     secret_set: bool | Unset = False
 
     def to_dict(self) -> dict[str, Any]:
         path = self.path
 
         auth = self.auth
+
+        model = self.model
 
         secret_set = self.secret_set
 
@@ -40,6 +44,8 @@ class WebhookEntryIn:
         )
         if auth is not UNSET:
             field_dict["auth"] = auth
+        if model is not UNSET:
+            field_dict["model"] = model
         if secret_set is not UNSET:
             field_dict["secret_set"] = secret_set
 
@@ -52,11 +58,14 @@ class WebhookEntryIn:
 
         auth = d.pop("auth", UNSET)
 
+        model = d.pop("model", UNSET)
+
         secret_set = d.pop("secret_set", UNSET)
 
         webhook_entry_in = cls(
             path=path,
             auth=auth,
+            model=model,
             secret_set=secret_set,
         )
 

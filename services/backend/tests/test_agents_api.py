@@ -151,7 +151,7 @@ async def test_a_shape_broken_entrypoints_row_still_renders(admin_client, sf, ag
                                           "timezone": ""}))
     assert fixed.status_code == 200
     assert fixed.json()["entrypoints"]["crons"] == [{"schedule": "0 9 * * *",
-                                                     "prompt": ""}]
+                                                     "prompt": "", "model": ""}]
 
 
 async def test_get_returns_the_definition(admin_client):

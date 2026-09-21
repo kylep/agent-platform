@@ -109,6 +109,7 @@ class AgentDefIn(BaseModel):
     model: str = ""
     role: str = "operator"
     system: bool = False
+    responds_to_all: bool = True
     can_invoke: bool = False
     concurrency: int = 1
     timeout_seconds: int = 1800
@@ -177,6 +178,7 @@ class AgentDefOut(BaseModel):
     model: str = ""
     role: str = "operator"
     system: bool = False
+    responds_to_all: bool = True
     can_invoke: bool = False
     concurrency: int = 1
     timeout_seconds: int = 1800
@@ -318,6 +320,10 @@ class RunDetail(RunSummary):
     depth: int
     requested_by: str
     initiated_by: str | None = None
+    runtime: str = ""
+    requested_model: str = ""
+    model: str = ""
+    agent_version: int | None = None
     started_at: str | None
     finished_at: str | None
 
@@ -512,6 +518,7 @@ class JobView(BaseModel):
     cron: str
     timezone: str = ""          # IANA zone the cron is read in; empty = UTC
     prompt: str
+    model: str = ""
     enabled: bool
     last_fire: str | None
     next_fire: str | None

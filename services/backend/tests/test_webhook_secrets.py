@@ -197,7 +197,8 @@ async def test_secret_set_never_reaches_the_stored_definition(admin_client, sf, 
     assert r.status_code == 200
     async with sf() as s:
         row = await s.get(AgentDef, "hello-world")
-        assert row.entrypoints["webhooks"] == [{"path": "hello-world", "auth": "secret"}]
+        assert row.entrypoints["webhooks"] == [
+            {"path": "hello-world", "model": "", "auth": "secret"}]
         versions = (await s.execute(select(AgentVersion))).scalars().all()
     assert versions
     for v in versions:

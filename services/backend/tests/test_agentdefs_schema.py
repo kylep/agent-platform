@@ -213,8 +213,11 @@ def test_snapshot_apply_round_trip():
     for field in ("prompt", "description", "model", "role", "system", "can_invoke",
                   "concurrency", "timeout_seconds", "result_topic",
                   "transcript_retention_days", "harness_tools", "platform_tools",
-                  "skills", "secrets", "entrypoints", "enabled"):
+                      "skills", "secrets", "enabled"):
         assert getattr(dst, field) == getattr(src, field), field
+    assert dst.entrypoints == {"crons": [{"schedule": "0 * * * *", "prompt": "go",
+                                          "model": ""}],
+                               "webhooks": [], "topics": [], "timezone": ""}
 
 
 def test_snapshot_of_a_bare_row_uses_model_defaults():

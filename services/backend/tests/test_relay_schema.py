@@ -321,14 +321,14 @@ OTHER_SWEEPS = dict(tickets_grant=False, wiki_grant=False, quota_grant=False,
 
 async def test_default_grant_backfill_covers_the_agents_that_already_exist(engine, sfx):
     await _defs(sfx,
-                news={"platform_tools": ["mcp__platform__query_app"]},
+                reporter={"platform_tools": ["mcp__platform__query_app"]},
                 chatty={"platform_tools": [RELAY]},
                 retired={"platform_tools": [], "enabled": False})
     await init_db(engine, **OTHER_SWEEPS)
-    assert await _grants(sfx, "news") == ["mcp__platform__query_app", RELAY]
+    assert await _grants(sfx, "reporter") == ["mcp__platform__query_app", RELAY]
     assert await _grants(sfx, "chatty") == [RELAY]      # already held it
     assert await _grants(sfx, "retired") == []          # disabled agents are left alone
-    assert await _versions(sfx, "news") == [
+    assert await _versions(sfx, "reporter") == [
         (1, "platform:relay-default-grant", "migration",
          ("mcp__platform__query_app", RELAY))]
     # An agent that needed no change files no version.
@@ -338,24 +338,24 @@ async def test_default_grant_backfill_covers_the_agents_that_already_exist(engin
 
 async def test_default_grant_backfill_continues_the_agents_change_log(engine, sfx):
     from agentplatform.db import AgentVersion
-    await _defs(sfx, news={"platform_tools": []})
+    await _defs(sfx, reporter={"platform_tools": []})
     async with sfx() as s:
-        s.add(AgentVersion(agent="news", version=7, snapshot={"name": "news"},
+        s.add(AgentVersion(agent="reporter", version=7, snapshot={"name": "reporter"},
                            changed_by="admin", changed_via="admin"))
         await s.commit()
     await init_db(engine, **OTHER_SWEEPS)
-    assert [v for v, *_ in await _versions(sfx, "news")] == [7, 8]
+    assert [v for v, *_ in await _versions(sfx, "reporter")] == [7, 8]
 
 
 async def test_default_grant_backfill_runs_once_and_marks_itself(engine, sfx):
     from agentplatform.db import RELAY_GRANT_MARK
-    await _defs(sfx, news={"platform_tools": []})
+    await _defs(sfx, reporter={"platform_tools": []})
     await init_db(engine, **OTHER_SWEEPS)
     async with sfx() as s:
         assert await s.get(SchemaMark, RELAY_GRANT_MARK) is not None
-    before = await _versions(sfx, "news")
+    before = await _versions(sfx, "reporter")
     await init_db(engine, **OTHER_SWEEPS)
-    assert await _versions(sfx, "news") == before
+    assert await _versions(sfx, "reporter") == before
     # An agent created after the migration belongs to the create path, not to
     # a second sweep.
     await _defs(sfx, later={"platform_tools": []})
@@ -365,27 +365,27 @@ async def test_default_grant_backfill_runs_once_and_marks_itself(engine, sfx):
 
 async def test_a_removed_relay_grant_is_not_re_added(engine, sfx):
     from agentplatform.db import AgentDef
-    await _defs(sfx, news={"platform_tools": []})
+    await _defs(sfx, reporter={"platform_tools": []})
     await init_db(engine, **OTHER_SWEEPS)
     async with sfx() as s:
-        row = await s.get(AgentDef, "news")
+        row = await s.get(AgentDef, "reporter")
         row.platform_tools = []          # an admin takes it away via agents_grant
         await s.commit()
     await init_db(engine, **OTHER_SWEEPS)
-    assert await _grants(sfx, "news") == []
+    assert await _grants(sfx, "reporter") == []
 
 
 async def test_default_grant_backfill_honours_the_setting(engine, sfx):
     """`relay_default_grant` off means the migration does not run — and does
     not mark itself either, so turning the setting on later still backfills."""
     from agentplatform.db import RELAY_GRANT_MARK
-    await _defs(sfx, news={"platform_tools": []})
+    await _defs(sfx, reporter={"platform_tools": []})
     await init_db(engine, default_grant=False, **OTHER_SWEEPS)
-    assert await _grants(sfx, "news") == []
+    assert await _grants(sfx, "reporter") == []
     async with sfx() as s:
         assert await s.get(SchemaMark, RELAY_GRANT_MARK) is None
     await init_db(engine, default_grant=True, **OTHER_SWEEPS)
-    assert await _grants(sfx, "news") == [RELAY]
+    assert await _grants(sfx, "reporter") == [RELAY]
 
 
 async def test_default_grant_backfill_survives_a_quarantined_row(engine, sfx):
@@ -393,12 +393,12 @@ async def test_default_grant_backfill_survives_a_quarantined_row(engine, sfx):
     boot-time migration must step over it rather than crashloop every service
     on it. The agents around it are still backfilled."""
     from agentplatform.db import AgentDef
-    await _defs(sfx, news={"platform_tools": []})
+    await _defs(sfx, reporter={"platform_tools": []})
     async with sfx() as s:
         s.add(AgentDef(name="broken", role="not-a-role", platform_tools=[]))
         await s.commit()
     await init_db(engine, **OTHER_SWEEPS)
-    assert await _grants(sfx, "news") == [RELAY]
+    assert await _grants(sfx, "reporter") == [RELAY]
     assert await _grants(sfx, "broken") == []
     assert await _versions(sfx, "broken") == []
 
@@ -407,7 +407,7 @@ async def test_default_grant_backfill_reads_a_null_enabled_as_enabled(engine, sf
     """`enabled` is an ADD COLUMN away from being NULL on rows written before
     it existed, and every other reader takes NULL as the column default. A
     backfill that tested for `= true` would silently skip the entire estate."""
-    await _defs(sfx, news={"platform_tools": []})
+    await _defs(sfx, reporter={"platform_tools": []})
     # The pre-`enabled` shape: drop the column so init_db's own additive
     # migration re-adds it — nullable, and NULL on the row already there.
     async with engine.begin() as c:
@@ -415,8 +415,8 @@ async def test_default_grant_backfill_reads_a_null_enabled_as_enabled(engine, sf
     await init_db(engine, **OTHER_SWEEPS)
     async with sfx() as s:
         assert (await s.execute(text(
-            "SELECT enabled FROM agent_defs WHERE name = 'news'"))).scalar() is None
-    assert await _grants(sfx, "news") == [RELAY]
+            "SELECT enabled FROM agent_defs WHERE name = 'reporter'"))).scalar() is None
+    assert await _grants(sfx, "reporter") == [RELAY]
 
 
 # --- the seeded #standup job (docs/design/19) --------------------------------

@@ -607,8 +607,8 @@ async def update_agent(request: Request, name: str, body: AgentDefIn,
         edits = _changed_fields(row, model, EDIT_FIELDS)
         scope.authorize(grant_fields=grants, edit_fields=edits)
         if "system" in edits and not scope.admin:
-            # The system flag is what protects an agent from deletion and gets
-            # it platform credentials injected — an agent must not set it.
+            # The system flag protects platform-managed lifecycle. It grants no
+            # authority, but an agent still must not make itself undeletable.
             raise HTTPException(403, "only an admin may change the system flag")
         if not (grants or edits):
             return await _annotated(s, row)

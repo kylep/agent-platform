@@ -48,12 +48,9 @@ class K8sJobLauncher(Launcher):
         terminates (revoke_run_keys).
 
         The label is what the keys page and the audit trail call the key. Only
-        the two roles whose name is not self-explanatory are translated; the
+        the roles whose name is not self-explanatory are translated; the
         rest — `tools`, `relay` — already say what they are, so they fall
-        through as `relay:<agent>` rather than needing an entry each. A caller
-        names one explicitly where the role does not say WHY the key exists: a
-        system agent's is an annotator by scope but `system:<agent>` in the
-        trail, which is what an operator reading the keys page looks for."""
+        through as `relay:<agent>` rather than needing an entry each."""
         token = generate_token()
         label = label or {"operator": "invoke", "annotator": "memory"}.get(role, role)
         async with self.sf() as s:
@@ -73,7 +70,7 @@ class K8sJobLauncher(Launcher):
         the API's publish route, which holds the App."""
         return manifest.role == "dev"
 
-    async def _platform_token_role(self, agent: str) -> str | None:
+    def _platform_token_role(self, manifest: Manifest) -> str | None:
         """The per-run token role an agent's PLATFORM-TOOL GRANTS earn, or None
         for no token. No platform grant, no token — a token follows an explicit
         grant, never an agent merely existing.
@@ -85,17 +82,10 @@ class K8sJobLauncher(Launcher):
         Relay-only `relay` (docs/design/19), anything else custom earns the
         whoami-only `tools`.
 
-        docs/design/15: the grants are `agent_defs.platform_tools`. The
-        launcher no longer parses agent.md frontmatter, which a DB-sourced
-        definition does not have."""
-        if self.agent_store is None:
-            return None
+        The manifest is the run's frozen definition snapshot (design 27), so a
+        grant edit cannot change a queued retry or a live run."""
         from agentplatform.agentspec import platform_token_role
-        await self.agent_store.reload()
-        info = self.agent_store.get(agent)
-        if info is None:
-            return None
-        return platform_token_role(info.platform_tools)
+        return platform_token_role(manifest.platform_tools)
 
     def _ensure_service_account(self, agent: str) -> str:
         """Idempotently create the agent's ServiceAccount (`agent-<name>`) so
@@ -141,13 +131,10 @@ class K8sJobLauncher(Launcher):
         self._runjwt_private = creds["private_key"]
         return self._runjwt_private
 
-    def _frozen_tools(self, agent: str) -> list[str]:
+    def _frozen_tools(self, manifest: Manifest) -> list[str]:
         """The mcp__platform__* grant set to freeze into a run JWT (design/13
-        C), read off the agent's row — a grant added mid-run cannot widen a
-        live run. Reads the cache `_platform_token_role` just refreshed."""
-        info = self.agent_store.get(agent) if self.agent_store else None
-        granted = info.platform_tools if info else []
-        return [t for t in granted if t.startswith("mcp__platform__")]
+        C), read from the run's frozen definition snapshot."""
+        return [t for t in manifest.platform_tools if t.startswith("mcp__platform__")]
 
     def bound_secrets(self, manifest: Manifest) -> list[str]:
         """The de-duplicated union of secret names an agent's pod may receive:
@@ -465,14 +452,6 @@ class K8sJobLauncher(Launcher):
                 # Operator-scoped, per-run token: can invoke other agents (and,
                 # as operator, save/recall its own memories).
                 api_token = await self._invoke_token(run)
-            elif manifest.system:
-                # Narrow annotator token: read runs + annotate only, and
-                # per-run like every other. A platform write is refused unless
-                # the token names the run it acts from — a system agent opens
-                # tickets (docs/design/20) — and the run's own end revokes it,
-                # where a process-wide key outlived every run that used it.
-                api_token = await self._invoke_token(run, role="annotator",
-                                                     label="system")
             else:
                 # docs/design/12: declaring platform tools IS the grant. Core
                 # tools (they forward the token to our API) earn annotator;
@@ -483,7 +462,7 @@ class K8sJobLauncher(Launcher):
                 # docs/design/13 A: these agents carry IDENTITY, not a secret —
                 # a projected SA token the API resolves back to the same role
                 # ladder. Falls back to a minted key without a core client.
-                role = await self._platform_token_role(run.agent)
+                role = self._platform_token_role(manifest)
                 if role is not None:
                     if self.core is not None:
                         sa_identity = await asyncio.to_thread(
@@ -511,7 +490,7 @@ class K8sJobLauncher(Launcher):
                 run_token = runjwt.mint(
                     key, run_id=run.id, agent=run.agent,
                     initiated_by=run.initiated_by or "admin",
-                    tools=self._frozen_tools(run.agent), sa_name=sa_identity,
+                    tools=self._frozen_tools(manifest), sa_name=sa_identity,
                     timeout_seconds=manifest.timeout_seconds
                         or self.settings.run_timeout_seconds)
         job = self.build_job(run, manifest, self_edit_token=token, api_token=api_token,

@@ -16,14 +16,18 @@ class CronEntryIn:
     """
     Attributes:
         schedule (str):
+        model (str | Unset):  Default: ''.
         prompt (str | Unset):  Default: ''.
     """
 
     schedule: str
+    model: str | Unset = ""
     prompt: str | Unset = ""
 
     def to_dict(self) -> dict[str, Any]:
         schedule = self.schedule
+
+        model = self.model
 
         prompt = self.prompt
 
@@ -34,6 +38,8 @@ class CronEntryIn:
                 "schedule": schedule,
             }
         )
+        if model is not UNSET:
+            field_dict["model"] = model
         if prompt is not UNSET:
             field_dict["prompt"] = prompt
 
@@ -44,10 +50,13 @@ class CronEntryIn:
         d = dict(src_dict)
         schedule = d.pop("schedule")
 
+        model = d.pop("model", UNSET)
+
         prompt = d.pop("prompt", UNSET)
 
         cron_entry_in = cls(
             schedule=schedule,
+            model=model,
             prompt=prompt,
         )
 

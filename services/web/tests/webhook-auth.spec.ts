@@ -130,7 +130,7 @@ test("saving PUTs the definition first, then the secret on its own call", async 
   // The definition carries the MODE and nothing else — no secret rides along
   // into `agent_versions`.
   const body = JSON.parse(writes[defPut].postData() ?? "{}");
-  expect(body.entrypoints.webhooks).toEqual([{ path: "deploy-done", auth: "secret", secret_set: false }]);
+  expect(body.entrypoints.webhooks).toEqual([{ path: "deploy-done", auth: "secret", model: "", secret_set: false }]);
   expect(writes[defPut].postData() ?? "").not.toContain(SECRET);
 
   expect(writes[secretPut].method()).toBe("PUT");
@@ -237,7 +237,7 @@ test("the agents listing marks who has a webhook", async ({ page }) => {
   await page.getByRole("button", { name: "Table" }).click();
 
   const cell = (agent: string) => page.locator("tr", { has: page.getByRole("link", { name: agent, exact: true }) })
-    .locator("td").nth(3);
+    .locator("td").nth(4);
   await expect(cell("pai")).toHaveText("✓");
   await expect(cell("news")).toHaveText("—");
   await expect(cell("health-monitor")).toHaveText("—");   // system table too

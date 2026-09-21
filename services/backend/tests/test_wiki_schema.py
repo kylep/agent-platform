@@ -174,19 +174,19 @@ async def _grants(sfx, name: str) -> list[str]:
 async def test_wiki_grant_backfill_covers_the_agents_that_already_exist(engine, sfx):
     from agentplatform.db import AgentDef, AgentVersion, WIKI_GRANT_MARK
     async with sfx() as s:
-        s.add(AgentDef(name="news", prompt="p", description="d",
+        s.add(AgentDef(name="reporter", prompt="p", description="d",
                        platform_tools=["mcp__platform__relay"]))
         s.add(AgentDef(name="retired", prompt="p", description="d",
                        platform_tools=[], enabled=False))
         await s.commit()
     await init_db(engine, **OTHER_SWEEPS)
-    assert await _grants(sfx, "news") == ["mcp__platform__relay",
+    assert await _grants(sfx, "reporter") == ["mcp__platform__relay",
                                           "mcp__platform__wiki"]
     assert await _grants(sfx, "retired") == []      # disabled agents are left alone
     async with sfx() as s:
         assert await s.get(SchemaMark, WIKI_GRANT_MARK) is not None
         versions = list((await s.execute(select(AgentVersion).where(
-            AgentVersion.agent == "news"))).scalars())
+            AgentVersion.agent == "reporter"))).scalars())
     # The sweep continues the design-15 change log, attributed to itself, so an
     # operator can find out later why an agent holds a tool nobody granted it.
     assert [(v.changed_by, v.changed_via) for v in versions] == [
@@ -198,20 +198,20 @@ async def test_wiki_grant_backfill_honours_the_setting_and_runs_once(engine, sfx
     on later still backfills; on means exactly one pass, ever."""
     from agentplatform.db import AgentDef, WIKI_GRANT_MARK
     async with sfx() as s:
-        s.add(AgentDef(name="news", prompt="p", description="d", platform_tools=[]))
+        s.add(AgentDef(name="reporter", prompt="p", description="d", platform_tools=[]))
         await s.commit()
     await init_db(engine, wiki_grant=False, **OTHER_SWEEPS)
-    assert await _grants(sfx, "news") == []
+    assert await _grants(sfx, "reporter") == []
     async with sfx() as s:
         assert await s.get(SchemaMark, WIKI_GRANT_MARK) is None
     await init_db(engine, **OTHER_SWEEPS)
-    assert await _grants(sfx, "news") == ["mcp__platform__wiki"]
+    assert await _grants(sfx, "reporter") == ["mcp__platform__wiki"]
     # An admin taking it away afterwards is not undone by the next boot.
     async with sfx() as s:
-        (await s.get(AgentDef, "news")).platform_tools = []
+        (await s.get(AgentDef, "reporter")).platform_tools = []
         await s.commit()
     await init_db(engine, **OTHER_SWEEPS)
-    assert await _grants(sfx, "news") == []
+    assert await _grants(sfx, "reporter") == []
 
 
 # --- the librarian and the gardener (docs/design/21) -------------------------

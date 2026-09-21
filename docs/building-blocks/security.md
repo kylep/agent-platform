@@ -11,14 +11,8 @@ chat messages. Anything it reads can try to talk it into misbehaving
 (prompt injection). So the platform never gives a normal agent the three
 things an attacker needs all at once: untrusted input, a credential worth
 stealing, and a way to send data out. Shell and file tools (Bash, Read,
-Write, Edit) are hard-denied for every agent, with two exceptions, and
-neither one puts a credential next to the shell:
-
-- **the platform-coder**, the agent that writes the platform's own pull
-  requests behind the UI wizards, whose workspace is a throwaway clone with
-  no secrets in it beyond the repository token it needs to push — and whose
-  input is prose the API wrote, never a ticket or a chat message;
-- **dev runs** — any agent with `role: dev`, such as the seeded engineer —
+Write, Edit) are hard-denied for ordinary runs. **Dev runs** — agents with
+`role: dev`, such as the seeded engineer —
   which get a real shell on the [Workbench](workbench.md): a bigger pod on
   the `runner-dev` image, an *anonymous* clone of the public repository on a
   branch, the test toolchain, and **no git credential of any kind**. The pod
@@ -28,7 +22,8 @@ neither one puts a credential next to the shell:
   without force. What a dev pod holds is what every agent's pod holds — the
   run's own platform identity and session token, revoked when the run ends —
   so a prompt-injected dev agent can do what any agent can (speak as itself)
-  plus propose code, as a PR a human reads.
+  plus propose code, as a PR a human reads. Skill and tool wizards use this
+  same Workbench path with a platform-authored, path-scoped prompt.
 
 (Unfamiliar component names — broker, executor, runner — are defined in the
 [Glossary](glossary.md).)

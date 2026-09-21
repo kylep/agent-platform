@@ -19,6 +19,7 @@ class JobPatch:
         agent (None | str | Unset):
         cron (None | str | Unset):
         enabled (bool | None | Unset):
+        model (None | str | Unset):
         name (None | str | Unset):
         prompt (None | str | Unset):
         timezone (None | str | Unset):
@@ -27,6 +28,7 @@ class JobPatch:
     agent: None | str | Unset = UNSET
     cron: None | str | Unset = UNSET
     enabled: bool | None | Unset = UNSET
+    model: None | str | Unset = UNSET
     name: None | str | Unset = UNSET
     prompt: None | str | Unset = UNSET
     timezone: None | str | Unset = UNSET
@@ -50,6 +52,12 @@ class JobPatch:
             enabled = UNSET
         else:
             enabled = self.enabled
+
+        model: None | str | Unset
+        if isinstance(self.model, Unset):
+            model = UNSET
+        else:
+            model = self.model
 
         name: None | str | Unset
         if isinstance(self.name, Unset):
@@ -78,6 +86,8 @@ class JobPatch:
             field_dict["cron"] = cron
         if enabled is not UNSET:
             field_dict["enabled"] = enabled
+        if model is not UNSET:
+            field_dict["model"] = model
         if name is not UNSET:
             field_dict["name"] = name
         if prompt is not UNSET:
@@ -118,6 +128,15 @@ class JobPatch:
 
         enabled = _parse_enabled(d.pop("enabled", UNSET))
 
+        def _parse_model(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        model = _parse_model(d.pop("model", UNSET))
+
         def _parse_name(data: object) -> None | str | Unset:
             if data is None:
                 return data
@@ -149,6 +168,7 @@ class JobPatch:
             agent=agent,
             cron=cron,
             enabled=enabled,
+            model=model,
             name=name,
             prompt=prompt,
             timezone=timezone,

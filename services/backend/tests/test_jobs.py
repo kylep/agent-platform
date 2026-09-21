@@ -54,13 +54,15 @@ async def test_job_timezone_defaults_to_utc_and_is_validated(admin_client):
 
 
 async def test_run_now_materializes_a_run(admin_client):
-    job = (await _mk(admin_client)).json()
+    job = (await _mk(admin_client, model="opus")).json()
+    assert job["model"] == "opus"
     r = await admin_client.post(f"/api/jobs/{job['id']}/run")
     assert r.status_code == 200
     run_id = r.json()["id"]
     run = await admin_client.get(f"/api/runs/{run_id}")
     assert run.status_code == 200
     assert run.json()["agent"] == "hello-world" and run.json()["trigger"] == "manual"
+    assert run.json()["requested_model"] == "opus"
 
 
 # --- scheduler fires jobs (not just manifest schedules) ---------------------
@@ -72,7 +74,8 @@ async def test_scheduler_fires_due_job(sf, agent_store):
     async with sf() as s:
         # A job already past due (next_fire in the past) fires this tick.
         s.add(ScheduledJob(id="j1", name="n", agent="hello-world", cron="* * * * *",
-                           prompt="go", enabled=True, next_fire=now - timedelta(minutes=1)))
+                           prompt="go", model="sonnet", enabled=True,
+                           next_fire=now - timedelta(minutes=1)))
         # A disabled job does not fire.
         s.add(ScheduledJob(id="j2", name="n2", agent="hello-world", cron="* * * * *",
                            prompt="no", enabled=False, next_fire=now - timedelta(minutes=1)))
@@ -82,6 +85,7 @@ async def test_scheduler_fires_due_job(sf, agent_store):
     fired = [data for _, _, data in producer.published if data.get("prompt") == "go"]
     assert len(fired) == 1
     assert fired[0]["agent"] == "hello-world" and fired[0]["trigger"] == "schedule"
+    assert fired[0]["model"] == "sonnet"
     assert all(data.get("prompt") != "no" for _, _, data in producer.published)
 
 
@@ -166,7 +170,8 @@ async def test_relay_job_message_summons_every_enabled_agent(sf, producer, seed_
     # answers to its own name, not to a question addressed to everybody, and a
     # standup that woke it every morning would buy a Claude run to report work
     # nobody asked it about.
-    await seed_agent("health-monitor", description="t", system=True)
+        await seed_agent("health-monitor", description="t", system=True,
+                         responds_to_all=False)
     store = AgentStore(sf)
     await store.reload()
     await _standup(sf)

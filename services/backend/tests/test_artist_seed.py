@@ -1,7 +1,7 @@
 """The artist (docs/design/23): the seeded agent that answers `@artist` with
 an image. One-time seed behind its own mark, in the librarian's shape, so an
-admin who edits or deletes it keeps their version — and, unlike the
-librarian, NOT a system agent: `@all` is meant to reach it."""
+admin who edits or deletes it keeps their version. It is not lifecycle
+protected, and independently opts out of room-wide broadcasts."""
 import uuid
 
 import pytest
@@ -48,8 +48,9 @@ async def test_the_artist_is_seeded_with_its_grants(engine, sfx):
     async with sfx() as s:
         row = await s.get(AgentDef, "artist")
         assert row is not None
-        # Not `system`: the librarian hides from `@all`, the artist does not.
+        # Lifecycle and broadcast participation are independent policies.
         assert (row.system, row.enabled, row.can_invoke) == (False, True, False)
+        assert row.responds_to_all is False
         assert (row.model, row.role) == ("sonnet", "operator")
         assert row.platform_tools == [TOOL_IMAGE_GEN, TOOL_ARTIFACTS, TOOL_RELAY]
         assert (row.harness_tools, row.skills, row.secrets) == ([], [], [])
@@ -118,10 +119,7 @@ def test_the_prompt_carries_the_rules_that_matter():
 
 
 def test_the_prompt_tells_it_when_not_to_draw():
-    """The artist is not `system`, so the 09:00 `@all` standup reaches it every
-    morning. Without a branch for a summons that is not a brief, the model
-    either asks the room what to draw daily or, worse, spends money answering
-    a roll call with a picture."""
+    """Direct mentions can still be conversation rather than image briefs."""
     assert "do NOT call `image_gen`" in ARTIST_PROMPT
     assert 'artifacts(action="list", owner="agent:artist")' in ARTIST_PROMPT
     assert "nothing today" in ARTIST_PROMPT

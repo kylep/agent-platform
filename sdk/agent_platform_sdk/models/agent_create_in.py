@@ -39,6 +39,7 @@ class AgentCreateIn:
             quota_5h_max_pct (int | Unset):  Default: 80.
             quota_7d_max_pct (int | Unset):  Default: 50.
             relay (bool | None | Unset):
+            responds_to_all (bool | Unset):  Default: True.
             result_topic (str | Unset):  Default: ''.
             role (str | Unset):  Default: 'operator'.
             runtime (str | Unset):  Default: 'claude'.
@@ -68,6 +69,7 @@ class AgentCreateIn:
     quota_5h_max_pct: int | Unset = 80
     quota_7d_max_pct: int | Unset = 50
     relay: bool | None | Unset = UNSET
+    responds_to_all: bool | Unset = True
     result_topic: str | Unset = ""
     role: str | Unset = "operator"
     runtime: str | Unset = "claude"
@@ -133,6 +135,8 @@ class AgentCreateIn:
             relay = UNSET
         else:
             relay = self.relay
+
+        responds_to_all = self.responds_to_all
 
         result_topic = self.result_topic
 
@@ -209,6 +213,8 @@ class AgentCreateIn:
             field_dict["quota_7d_max_pct"] = quota_7d_max_pct
         if relay is not UNSET:
             field_dict["relay"] = relay
+        if responds_to_all is not UNSET:
+            field_dict["responds_to_all"] = responds_to_all
         if result_topic is not UNSET:
             field_dict["result_topic"] = result_topic
         if role is not UNSET:
@@ -297,6 +303,8 @@ class AgentCreateIn:
 
         relay = _parse_relay(d.pop("relay", UNSET))
 
+        responds_to_all = d.pop("responds_to_all", UNSET)
+
         result_topic = d.pop("result_topic", UNSET)
 
         role = d.pop("role", UNSET)
@@ -358,6 +366,7 @@ class AgentCreateIn:
             quota_5h_max_pct=quota_5h_max_pct,
             quota_7d_max_pct=quota_7d_max_pct,
             relay=relay,
+            responds_to_all=responds_to_all,
             result_topic=result_topic,
             role=role,
             runtime=runtime,

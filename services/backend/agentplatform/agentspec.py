@@ -201,6 +201,7 @@ TOOL_HELP: list[dict] = [
     {"name": "mcp__platform__agents_edit", "kind": "platform",
      "description": "Read and write agent DEFINITIONS: list agents, read one, "
                     "create, update (prompt, description, model, entrypoints, "
+                    "Relay broadcast participation, "
                     "timeouts, enabled) and delete. It can never change grants "
                     "— tools, skills, secrets, can_invoke and role need "
                     "agents_grant — nor the admin-only `system` flag. "

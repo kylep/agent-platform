@@ -19,7 +19,8 @@ model: sonnet                 # claude model override; empty = CLI default
 role: operator                 # reader | annotator | operator | coder | dev
                                 # (coder gets the github-app + acceptEdits for platform self-edit PRs;
                                 #  dev gets the Workbench: a shell + a credential-less clone, see workbench.md)
-system: true                   # platform-managed; skipped by @all, directly summonable, not deletable
+system: true                   # platform-managed lifecycle; not deletable
+responds_to_all: false         # excluded from room-wide mentions; direct mentions still work
 can_invoke: true               # may trigger other agents (depth-guarded)
 enabled: true                  # false = no new runs from any trigger (409)
 concurrency: 1
@@ -122,18 +123,18 @@ directly — no PR, no folder, no manifest file.
 The platform ships several agent rows, written once at boot behind a schema
 mark and then left alone — edit or delete any of them and your version stays:
 
-- **`wiki`** — the [librarian](wiki.md#the-librarian). A `system` agent, so
-  `@all` passes it by; only `@wiki` wakes it.
+- **`wiki`** — the [librarian](wiki.md#the-librarian). It is platform-managed
+  (`system`) and separately opts out of `@all`; only `@wiki` wakes it.
 - **`artist`** — makes images on request (portraits, avatars, scene art,
   icons) with `image_gen`, keeps them as artifacts and answers with an
   `[[artifact:<id>]]` card. Summon it with `@artist` and a brief, in `#art`
   or anywhere. Runs on `sonnet`, holds `image_gen`, `artifacts` and `relay`,
-  and is *not* `system`, so `@all` reaches it. Its first change-log row is
-  `changed_via: seed`.
+  is deletable (`system: false`) and opts out of `@all`; direct mentions still
+  reach it. Its first change-log row is `changed_via: seed`.
 - **`codex-artist`** — runs Codex's built-in ImageGen for the Studio and for
   direct `@codex-artist` briefs, spending the Codex subscription allowance.
-  It is `system`: Studio dispatch and direct mentions still reach it, while
-  `@all` skips the utility worker and does not spend a Codex run at standup.
+  It is `system` and has `responds_to_all: false`: Studio dispatch and direct
+  mentions still reach it without spending a Codex run at standup.
 - **`engineer`** — writes code for the platform: takes a ticket assigned to
   it, works on a branch in its own clone, verifies, and opens a PR for a
   human to merge — it never pushes, the platform publishes
@@ -145,9 +146,9 @@ mark and then left alone — edit or delete any of them and your version stays:
   `push_path_globs` empty and `may_delete_tests` false: PR only, any path,
   no test deletions. Its home project is `#eng` (prefix `ENG`), seeded with
   it, and the weekday `eng-queue` job (`0 7 * * 1-5`, America/Toronto) asks
-  it in `#eng` to pick up anything still open. *Not* `system`, so `@all` and
-  the `#standup` reach it — each such wake is a full dev pod, which is a
-  cost worth knowing. Its first change-log row is `changed_via: seed`.
+  it in `#eng` to pick up anything still open. It opts out of `@all`, because
+  each wake is a full dev pod; direct mentions and assignments still reach it.
+  Its first change-log row is `changed_via: seed`.
 - **`qa`** — owns the tests: writes and prunes unit, integration and e2e
   tests, keeps the TCMS current (`apps/tcms`, the `tcms` tool), measures
   the suite and QAs the live UI. `role: dev`, `sonnet` (the nightly is
@@ -167,6 +168,7 @@ mark and then left alone — edit or delete any of them and your version stays:
   and the card. Its home project is `#qa` (prefix `QA`; a `#qa` that
   already exists is adopted, and a prefix held by another room is left
   where it is), seeded with it, and the `qa-nightly` job (`0 2 * * *`,
-  America/Toronto) summons it there. A `system` agent, so `@all` and the
-  `#standup` pass it by; `@qa` by name still wakes it. Its first change-log
+  America/Toronto) summons it there. It is `system` with
+  `responds_to_all: false`, so `@all` and the `#standup` pass it by; `@qa` by
+  name still wakes it. Its first change-log
   row is `changed_via: seed`.

@@ -38,7 +38,8 @@ HARNESS_TOOLS: tuple[str, ...] = tuple(CLAUDE_TOOLS)
 # rollback restores. Deliberately excludes created_at/updated_at: timestamps
 # are row bookkeeping, not part of what an agent *is*.
 DEF_FIELDS: tuple[str, ...] = (
-    "name", "prompt", "description", "runtime", "model", "role", "system", "can_invoke",
+    "name", "prompt", "description", "runtime", "model", "role", "system",
+    "responds_to_all", "can_invoke",
     "concurrency", "timeout_seconds", "result_topic", "transcript_retention_days",
     "harness_tools", "platform_tools", "skills", "secrets", "entrypoints",
     "enabled", "push_path_globs", "may_delete_tests", "quota_5h_max_pct",
@@ -77,6 +78,7 @@ class CronEntry(BaseModel):
     ScheduledJob, so an agent can have two rhythms with different asks."""
     schedule: str
     prompt: str = ""
+    model: str = ""
 
     @field_validator("schedule")
     @classmethod
@@ -104,6 +106,7 @@ WEBHOOK_PATH_MAX_LENGTH = 256
 
 class WebhookEntry(BaseModel):
     path: str
+    model: str = ""
     # The MODE only. The secret VALUE lives in `webhook_secrets` and never on
     # the definition — see webhooksecrets.py and docs/design/16: this blob is
     # snapshotted into `agent_versions` on every write, so anything stored here
@@ -152,6 +155,7 @@ class AgentDefModel(BaseModel):
     model: str = ""
     role: str = "operator"
     system: bool = False
+    responds_to_all: bool = True
     can_invoke: bool = False
     concurrency: int = 1
     timeout_seconds: int = 1800

@@ -100,7 +100,7 @@ class SkillWizardIn(BaseModel):
 @router.post("/api/skills/new", status_code=202, response_model=S.EditDispatch)
 async def skill_wizard(request: Request, body: SkillWizardIn,
                        principal: str = Depends(require_admin)):
-    """The New-Skill wizard: turn interview answers into a platform-coder run
+    """The New-Skill wizard: turn interview answers into an engineer Workbench run
     that AUTHORS the skill (and, when a new credential is involved, scaffolds
     its `secrets/<name>/secret.yaml`). The result lands as a pull request under
     Changes — agent-authored, human-reviewed."""
@@ -112,10 +112,11 @@ async def skill_wizard(request: Request, body: SkillWizardIn,
     st.skill_store.reload()
     if st.skill_store.get(body.name) is not None:
         raise HTTPException(409, "a skill with this name already exists")
-    await st.agent_store.reload()   # platform-coder may have synced after boot
-    coder = st.agent_store.get("platform-coder")
-    if coder is None or coder.error is not None:
-        raise HTTPException(409, "platform-coder agent is unavailable")
+    await st.agent_store.reload()
+    coder = st.agent_store.get("engineer")
+    if (coder is None or coder.error is not None or not coder.enabled
+            or coder.manifest.role != "dev"):
+        raise HTTPException(409, "engineer Workbench is unavailable")
     scope = f"`skills/{body.name}/`"
     secret_part = ""
     if body.secret:
@@ -134,6 +135,10 @@ async def skill_wizard(request: Request, body: SkillWizardIn,
             f"Reference the secret from the skill's frontmatter `secrets:` list with "
             f"an appropriate state/severity.\n")
     prompt = (
+        "This is a platform-authored wizard run, not a ticket. Skip the ticket/thread "
+        "steps in your standing prompt. Work only in the paths named below, run the "
+        "relevant focused tests plus bin/ap-verify --changed, commit the result, and "
+        "write .ap/pr.md so the Workbench opens a reviewable pull request.\n\n"
         f"Create a new skill `{body.name}` for the agent platform.\n\n"
         f"Purpose: {body.purpose}\n"
         + (f"When agents should use it: {body.when_to_use}\n" if body.when_to_use else "")
@@ -144,7 +149,7 @@ async def skill_wizard(request: Request, body: SkillWizardIn,
         "secrets with state/severity) followed by concise, imperative usage "
         "instructions an agent can follow without guessing. Match the style of "
         f"the existing skills under `skills/`. Only create/modify files under {scope}.")
-    run = Run(agent="platform-coder", trigger="self-edit", requested_by=principal,
+    run = Run(agent="engineer", trigger="wizard", requested_by=principal,
               initiated_by=principal, prompt=prompt)
     async with st.session_factory() as s:
         s.add(run); await s.commit()

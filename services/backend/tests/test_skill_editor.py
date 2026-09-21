@@ -21,8 +21,7 @@ async def test_skill_quick_edit_unconfigured_409(admin_client):
 
 
 async def test_wizard_validates_and_dispatches(admin_client, seed_agent, producer):
-    # platform-coder must exist for the wizard to dispatch
-    await seed_agent("platform-coder", role="coder")
+    # The seeded engineer Workbench authors wizard changes.
 
     r = await admin_client.post("/api/skills/new", json={"name": "Bad Name", "purpose": "x"})
     assert r.status_code == 422
@@ -43,9 +42,14 @@ async def test_wizard_validates_and_dispatches(admin_client, seed_agent, produce
     runs = await admin_client.get(f"/api/runs/{rid}")
     prompt = runs.json()["prompt"]
     assert "skills/notion/" in prompt and "secrets/notion-token/secret.yaml" in prompt
-    assert "$NOTION_TOKEN" in prompt and runs.json()["agent"] == "platform-coder"
+    assert "$NOTION_TOKEN" in prompt and runs.json()["agent"] == "engineer"
 
 
-async def test_wizard_without_coder_409(admin_client):
+async def test_wizard_without_engineer_409(admin_client, sf, agent_store):
+    from agentplatform.db import AgentDef
+    async with sf() as s:
+        (await s.get(AgentDef, "engineer")).enabled = False
+        await s.commit()
+    await agent_store.reload()
     r = await admin_client.post("/api/skills/new", json={"name": "notion", "purpose": "x"})
     assert r.status_code == 409

@@ -148,7 +148,7 @@ export default function Agents() {
             <>
               <h2>System agents</h2>
               <p className="muted">
-                Platform-managed workers. Skipped by @all, available by name, and not deletable.
+                Platform-managed workers. Protected from deletion; broadcast participation is configured per agent.
               </p>
               {view === "grid"
                 ? <AgentGrid agents={system} jobs={jobs} />

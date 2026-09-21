@@ -20,7 +20,7 @@ Propose  →  Review  →  Accept  →  Deploying  →  Live
 
 ## The loop, stage by stage
 
-1. **Propose.** An editor save, a wizard, or a platform-coder run opens a PR
+1. **Propose.** An editor save or engineer Workbench wizard run opens a PR
    on the block's **deterministic branch**: `coder/skill-<name>`,
    `coder/secret-<name>`, `coder/tool-<name>`, `coder/report-<name>`.
    Deterministic editors validate

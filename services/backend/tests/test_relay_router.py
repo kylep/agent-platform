@@ -227,25 +227,20 @@ async def test_a_human_at_all_invokes_every_agent_member(make_router, sf):
 
 
 async def _with_health_monitor(router, seed_agent):
-    """A PLATFORM agent in the room: enabled, valid, and `system` — which is the
-    one thing `@all` has to notice."""
-    await seed_agent("health-monitor", description="t", system=True)
+    """A platform agent in the room that explicitly opts out of broadcasts."""
+    await seed_agent("health-monitor", description="t", system=True,
+                     responds_to_all=False)
     await router.agents.reload()
 
 
-async def test_at_all_skips_the_platforms_own_agents(make_router, sf, seed_agent):
-    """A system agent is infrastructure, not a participant. Left in the roster,
-    the 09:00 #standup would buy a Claude run from the health monitor every
-    morning to report work nobody asked it about — and so would any human's
-    `@all` in any open channel."""
+async def test_at_all_only_targets_agents_that_opt_in(make_router, sf, seed_agent):
+    """Lifecycle ownership does not decide room-wide participation."""
     router = await make_router()
     await _with_health_monitor(router, seed_agent)
     cid = await _channel(sf)
     await _say(router, sf, cid, "user:admin", "@all standup please")
-    # The provider artist and engineer are participants. The Codex artist is
-    # Studio infrastructure, so the room-wide mention skips it.
-    assert sorted(r.agent for r in await _runs(sf)) == [
-        "ada", "artist", "bob", "engineer"]
+    # Utility workers opt out independently; the conversational fixtures stay.
+    assert sorted(r.agent for r in await _runs(sf)) == ["ada", "bob"]
     # Not even a suppression row: it was never addressed, so there is nothing
     # to explain.
     assert all(agent != "health-monitor" for agent, _, _ in await _decisions(sf))

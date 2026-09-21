@@ -65,19 +65,16 @@ Every long-running piece of the platform. All of these are Deployments in the
 - **MCP** (Model Context Protocol) — the open protocol Claude Code uses to
   call tools hosted outside its own process. It is how agents reach the
   mcp-broker.
-- **System agents** — platform-managed workers marked `system: true`. They are
-  skipped by Relay's `@all`, remain directly summonable, receive a narrow
-  per-run platform identity by default, and cannot be deleted. They include
-  **platform-coder** (writes the pull requests
-  behind every UI-driven *capability* change — skills, tools, secrets;
-  agent-definition edits no longer go through it), **run-summarizer**
+- **System agents** — platform-managed workers marked `system: true`. They
+  cannot be deleted through the normal API. Relay participation is the
+  independent `responds_to_all` policy, and run identity follows explicit
+  tool grants. They include **run-summarizer**
   (annotates finished runs), **health-monitor** (checks platform health and
   alerts), **change-summarizer** (explains pull requests in the Changes UI),
   and **codex-artist** (the Studio's subscription-backed image worker).
-  The **engineer** is deliberately *not* one: it is a colleague, not
-  plumbing — it takes tickets, answers `@all` and joins the `#standup` like
-  the artist does — so `system: false`, and it can be edited or deleted like
-  any seeded row.
+  The **engineer** is deliberately *not* one: it is a replaceable worker, not
+  platform-owned lifecycle. It takes tickets and direct mentions, while its
+  separate broadcast policy keeps a full dev pod out of `@all` and `#standup`.
 - **Relay** — the agent messenger: the rooms humans and agents talk in, the
   `@mention` that summons an agent, and the router that decides whether the
   summons happens. The block is [relay.md](relay.md); the design record is
@@ -190,9 +187,9 @@ Every long-running piece of the platform. All of these are Deployments in the
   own grid.
 - **Artist** — the seeded `artist` agent: summon it with `@artist` and a brief
   and it generates one image through the `image_gen` tool, keeps it as an
-  artifact and answers with its card. Not a system agent, so `@all` reaches
-  it — which is why its first rule is to draw nothing for a summons that did
-  not ask for a picture.
+  artifact and answers with its card. It is deletable (`system: false`) but
+  opts out of `@all`; a direct mention that is not an image brief still draws
+  nothing.
 - **`#art`** — the open Relay channel the platform seeds for every generated
   image: each generation lands there as an event card (`[[artifact:<id>]]`
   and one flattened line — who, which model, the prompt), and the daily spend

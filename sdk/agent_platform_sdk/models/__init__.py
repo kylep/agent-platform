@@ -30,6 +30,7 @@ from .chart_series import ChartSeries
 from .chart_spec import ChartSpec
 from .chart_svg import ChartSvg
 from .codex_auth import CodexAuth
+from .codex_generated_image import CodexGeneratedImage
 from .codex_thread import CodexThread
 from .connector import Connector
 from .conversation_detail import ConversationDetail
@@ -55,6 +56,7 @@ from .help_topic import HelpTopic
 from .help_topic_detail import HelpTopicDetail
 from .http_validation_error import HTTPValidationError
 from .image_model import ImageModel
+from .image_model_billing import ImageModelBilling
 from .integration import Integration
 from .job_in import JobIn
 from .job_patch import JobPatch
@@ -242,6 +244,7 @@ __all__ = (
     "ChartSpec",
     "ChartSvg",
     "CodexAuth",
+    "CodexGeneratedImage",
     "CodexThread",
     "Connector",
     "ConversationDetail",
@@ -265,6 +268,7 @@ __all__ = (
     "HelpTopic",
     "HelpTopicDetail",
     "ImageModel",
+    "ImageModelBilling",
     "Integration",
     "JobIn",
     "JobPatch",

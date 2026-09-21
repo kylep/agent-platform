@@ -337,13 +337,8 @@ def test_build_job_no_secrets_means_no_envfrom(tmp_path):
     assert job.spec.template.spec.containers[0].env_from is None
 
 
-async def test_a_system_agents_token_carries_the_run_it_acts_from(sf):
-    """A system agent writes tickets, and every ticket write is refused unless
-    the token names the run it is acting from. So its token is per-run like
-    every other — one process-wide key with a null run left the agent design/20
-    tells to open OPS tickets unable to open any."""
+async def test_system_lifecycle_does_not_implicitly_grant_a_token(sf):
     from sqlalchemy import select
-    from agentplatform.apikeys import hash_token
     from agentplatform.db import ApiKey
 
     class _FakeBatch:
@@ -363,14 +358,9 @@ async def test_a_system_agents_token_carries_the_run_it_acts_from(sf):
         run = await s.get(Run, run_id)
     await launcher.launch(run, Manifest(system=True))
 
-    env = {e.name: e.value for e in batch.job.spec.template.spec.containers[0].env}
     async with sf() as s:
-        keys = {k.role: k for k in (await s.execute(select(ApiKey))).scalars()}
-    key = keys["annotator"]
-    assert (key.run_id, key.agent, key.name) == (run_id, "health-monitor",
-                                                 "system:health-monitor")
-    assert hash_token(env["AP_API_TOKEN"]) == key.key_hash
-    assert env["AP_API_URL"] == "http://api:8090"
+        keys = list((await s.execute(select(ApiKey))).scalars())
+    assert [key.role for key in keys] == ["session"]
 
 
 async def test_platform_token_role_ladder(sf, seed_agent):
@@ -382,7 +372,6 @@ async def test_platform_token_role_ladder(sf, seed_agent):
     custom is the whoami-only `tools` rung, and harness-only grants / no
     platform grant / an unknown agent earn no token at all. The grants are
     ROWS now (docs/design/15), not agent.md frontmatter."""
-    from agentplatform.agents import AgentStore
     RELAY = "mcp__platform__relay"
     table = [
         ("stocky", ["mcp__platform__stocks"], [], "tools"),
@@ -396,17 +385,16 @@ async def test_platform_token_role_ladder(sf, seed_agent):
         ("shelly", [], ["WebFetch"], None),
         ("openy", [], [], None),
     ]
-    for name, platform, harness, _ in table:
-        await seed_agent(name, platform_tools=platform, harness_tools=harness)
     launcher = K8sJobLauncher(batch=None, settings=Settings(runner_image="r:1", k8s_namespace="ap"),
-                              agent_store=AgentStore(sf))
-    for name, _, _, expected in table:
-        assert await launcher._platform_token_role(name) == expected, name
-    assert await launcher._platform_token_role("ghost") is None
-    # The frozen JWT grant set comes off the same rows.
-    assert launcher._frozen_tools("libby") == ["mcp__platform__query_app",
-                                               "mcp__platform__memory"]
-    assert launcher._frozen_tools("shelly") == []
+                              agent_store=None)
+    for name, platform, _, expected in table:
+        manifest = Manifest(platform_tools=platform)
+        assert launcher._platform_token_role(manifest) == expected, name
+    assert launcher._platform_token_role(Manifest()) is None
+    # The run snapshot, not a mutable live row, supplies the JWT grant set.
+    assert launcher._frozen_tools(Manifest(platform_tools=table[1][1])) == [
+        "mcp__platform__query_app", "mcp__platform__memory"]
+    assert launcher._frozen_tools(Manifest()) == []
 
 
 async def test_a_relay_run_key_is_named_for_the_agent_that_holds_it(sf):
