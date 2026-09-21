@@ -17,6 +17,19 @@ from agentplatform.events import FakeProducer
 from agentplatform.secrets import InMemorySecretStore
 from agentplatform.api.app import create_app
 
+@pytest.fixture(autouse=True)
+def _no_ambient_settings_env(monkeypatch):
+    """This pod's own real environment sets AP_CLAUDE_PROXY_URL (it runs behind
+    a claude-proxy) and AP_KAFKA_BOOTSTRAP (it points at a real broker). Left
+    alone, `Settings()` picks both up in tests that build one with no override,
+    flipping K8sJobLauncher onto the proxied-credentials branch and
+    kafka_health onto a real (unreachable from here) broker — failures that
+    have nothing to do with the code under test. A test that wants either
+    non-default still sets it itself via monkeypatch or an explicit Settings()
+    kwarg, which wins over this fixture."""
+    monkeypatch.delenv("AP_CLAUDE_PROXY_URL", raising=False)
+    monkeypatch.delenv("AP_KAFKA_BOOTSTRAP", raising=False)
+
 @pytest.fixture
 async def sf():
     engine = make_engine("sqlite+aiosqlite:///:memory:")
