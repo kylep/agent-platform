@@ -39,7 +39,12 @@ BASE = datetime(2026, 7, 20, 10, 2, tzinfo=timezone.utc)
     ("0 9 * * 5,6", "At 09:00, only on Friday and Saturday"),  # not the weekend
     ("0 9 * * 0", "At 09:00, only on Sunday"),
     ("0 9 * * 7", "At 09:00, only on Sunday"),          # 7 is Sunday too
-    ("0 9 15 * *", "At 09:00, on day 15 of the month"),
+    # Plain day-of-month values read as ordinals; ranges/steps/L keep their wording.
+    ("0 9 15 * *", "At 09:00, on the 15th of the month"),
+    ("0 0 1 * *", "At 00:00, on the 1st of the month"),
+    ("0 0 1,15 * *", "At 00:00, on the 1st and 15th of the month"),
+    ("0 0 1,15,31 * *", "At 00:00, on the 1st, 15th and 31st of the month"),
+    ("0 0 1-5 * *", "At 00:00, on days 1 through 5 of the month"),   # range unchanged
     # Hand-written expressions still get a reading, not a shrug.
     ("*/7 3-5 * * 1#2", "Every 7 minutes of hours 03 through 05, "
                         "on the 2nd Monday of the month"),
@@ -47,8 +52,8 @@ BASE = datetime(2026, 7, 20, 10, 2, tzinfo=timezone.utc)
     ("0 22 * * 5L", "At 22:00, on the last Friday of the month"),
     ("0 9,17 * * *", "At 09:00 and 17:00"),
     ("0,30 9 * * *", "At 09:00 and 09:30"),
-    ("0 0 1 1 *", "At 00:00, on day 1 of the month, in January"),
-    ("0 0 1 */3 *", "At 00:00, on day 1 of the month, every 3rd month"),
+    ("0 0 1 1 *", "At 00:00, on the 1st of the month, in January"),
+    ("0 0 1 */3 *", "At 00:00, on the 1st of the month, every 3rd month"),
     ("15 2 */2 * *", "At 02:15, on every 2nd day of the month"),
     ("* 9 * * *", "Every minute of hour 09"),
     ("0 9-17/2 * * *", "At minute 00 past every 2nd hour from 09 through 17"),
@@ -72,16 +77,16 @@ def test_english_is_exact(expr, english):
 
 @pytest.mark.parametrize("expr,english", [
     # Cron ORs day-of-month against day-of-week whenever BOTH are restricted.
-    ("0 0 13 * 5", "At 00:00, on day 13 of the month or on any Friday"),
-    ("0 0 1 JAN-MAR MON", "At 00:00, on day 1 of the month or on any Monday, "
+    ("0 0 13 * 5", "At 00:00, on the 13th of the month or on any Friday"),
+    ("0 0 1 JAN-MAR MON", "At 00:00, on the 1st of the month or on any Monday, "
                           "from January through March"),
-    ("0 0 15 * 1,5", "At 00:00, on day 15 of the month or on any Monday or Friday"),
-    ("0 0 1 * 1#2", "At 00:00, on day 1 of the month or on the 2nd Monday of the month"),
+    ("0 0 15 * 1,5", "At 00:00, on the 15th of the month or on any Monday or Friday"),
+    ("0 0 1 * 1#2", "At 00:00, on the 1st of the month or on the 2nd Monday of the month"),
     # The weekday/weekend labels apply to the OR clause too (dom also set).
-    ("0 0 13 * 1-5", "At 00:00, on day 13 of the month or on weekdays"),
-    ("0 0 13 * 1,2,3,4,5", "At 00:00, on day 13 of the month or on weekdays"),
-    ("0 0 13 * 0,6", "At 00:00, on day 13 of the month or on weekends"),
-    ("0 0 13 * 6,7", "At 00:00, on day 13 of the month or on weekends"),
+    ("0 0 13 * 1-5", "At 00:00, on the 13th of the month or on weekdays"),
+    ("0 0 13 * 1,2,3,4,5", "At 00:00, on the 13th of the month or on weekdays"),
+    ("0 0 13 * 0,6", "At 00:00, on the 13th of the month or on weekends"),
+    ("0 0 13 * 6,7", "At 00:00, on the 13th of the month or on weekends"),
 ])
 def test_day_of_month_and_weekday_read_as_or(expr, english):
     assert cronenglish.describe(expr) == english
