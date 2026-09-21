@@ -48,6 +48,7 @@ class Manifest(BaseModel):
     because `Launcher.launch(run, manifest)` is the contract those components
     were built against."""
     role: str = "operator"
+    runtime: str = "claude"
     concurrency: int = 1
     timeout_seconds: int = 1800
     skills: list[str] = []

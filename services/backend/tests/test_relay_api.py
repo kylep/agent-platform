@@ -555,9 +555,9 @@ async def test_channel_list_ordering_unread_and_last_message(admin_client, token
 
     listed = (await admin_client.get("/api/relay/channels")).json()
     # Channels by name, then the private rooms by last activity (the DM spoke last).
-    assert [c["name"] for c in listed[:6]] == ["art", "eng", "general", "ops",
-                                               "standup", "wiki"]
-    assert [c["id"] for c in listed[6:]] == [dm["id"], group["id"]]
+    assert [c["name"] for c in listed[:7]] == ["art", "eng", "general", "ops",
+                                               "qa", "standup", "wiki"]
+    assert [c["id"] for c in listed[7:]] == [dm["id"], group["id"]]
 
     by_id = {c["id"]: c for c in listed}
     assert by_id[ops]["unread"] == 2
@@ -1030,3 +1030,103 @@ async def test_a_channel_carries_its_title(admin_client, sf):
     assert group["title"] == "Launch plan" and group["bindings"] == []
     listed = {c["id"]: c for c in (await admin_client.get("/api/relay/channels")).json()}
     assert listed[group["id"]]["title"] == "Launch plan"
+
+
+# --- POST /api/relay/notify: a system row from an app key (design/25) -----------
+
+async def test_an_app_key_notifies_a_room_as_a_system_row(admin_client, token_client, sf,
+                                                          producer, seed_agent, agent_store):
+    """The tcms app announces a recorded run into `#qa` with its `app:tcms` key
+    (role annotator, no agent). That key cannot post a message — posting is a
+    participant's act and an app is not in any room — so it posts an EVENT row
+    the way the platform's own cards are posted: system-authored, no mentions,
+    no summons, no membership check. The author is the key's principal, so the
+    row says who really wrote it."""
+    await _seed(seed_agent, agent_store, "engineer")
+    # The seeded #qa (docs/design/25): the room the app announces into is the
+    # one init_db ships, so nothing here has to make it.
+    qa = next(c for c in (await admin_client.get("/api/relay/channels")).json()
+              if c["name"] == "qa")
+    headers = await _key(sf, name="app:tcms", role="annotator")
+    r = await token_client.post("/api/relay/notify", headers=headers, json={
+        "channel": "#qa", "text": "🧪 test run 4f2e… on a1b2c3d · 912 pass\n@engineer look"})
+    assert r.status_code == 201, r.text
+    m = r.json()
+    assert m["author"] == "app:tcms" and m["kind"] == "event"
+    assert m["mentions"] == [] and m["run_id"] is None
+    # One line in the room; the words survive, the address does not — the row
+    # stores no mention, and the mention list is what the router routes on.
+    assert "\n" not in m["body"] and "engineer look" in m["body"]
+    rows = (await admin_client.get(f"/api/relay/channels/{qa['id']}/messages")).json()
+    # Newest first, above the seeded welcome row.
+    assert [x["id"] for x in rows][0] == m["id"]
+    # Published like every other row, and the router has nothing to summon.
+    envs = [e for e in producer.envelopes if e["type"] == "relay.message"]
+    assert envs[-1]["data"]["id"] == m["id"] and envs[-1]["data"]["mentions"] == []
+    router = RelayRouter(Settings(), sf, producer, agent_store)
+    await router.handle(producer.published[-1][2])
+    assert await _all_runs(sf) == []
+    async with sf() as s:
+        assert (await s.execute(select(RelayInvocation))).scalars().all() == []
+    # The bare name and the id resolve the same room; a room that is not there
+    # is a 404, not a silent drop.
+    assert (await token_client.post("/api/relay/notify", headers=headers, json={
+        "channel": qa["id"], "text": "by id"})).status_code == 201
+    assert (await token_client.post("/api/relay/notify", headers=headers, json={
+        "channel": "nowhere", "text": "x"})).status_code == 404
+    assert (await token_client.post("/api/relay/notify", headers=headers, json={
+        "channel": "qa", "text": "x" * 2001})).status_code == 422
+
+
+async def test_notify_is_refused_to_a_reader(admin_client, token_client, sf):
+    await admin_client.post("/api/relay/channels", json={"kind": "channel", "name": "qa"})
+    headers = await _human_token(sf, "viewer", "reader")
+    r = await token_client.post("/api/relay/notify", headers=headers,
+                                json={"channel": "qa", "text": "hi"})
+    assert r.status_code == 403
+    # A human with a voice may use it too, and is named as themselves.
+    r = await admin_client.post("/api/relay/notify", json={"channel": "qa", "text": "hi"})
+    assert r.status_code == 201 and r.json()["author"] == "user:admin"
+
+
+async def test_notify_reaches_channels_only(admin_client, token_client, sf, seed_agent,
+                                            agent_store):
+    """A DM or a group is a closed room: its id must not let a non-member put
+    the platform's voice inside it. `channel_by_ref` accepts any conversation
+    id, so the route itself insists on a channel."""
+    await _seed(seed_agent, agent_store, "news")
+    dm = (await admin_client.post("/api/relay/dm", json={"with": "agent:news"})).json()
+    group = (await admin_client.post("/api/relay/channels", json={
+        "kind": "group", "participants": ["user:admin", "agent:news"]})).json()
+    headers = await _key(sf, name="app:tcms", role="annotator")
+    for cid in (dm["id"], group["id"]):
+        r = await token_client.post("/api/relay/notify", headers=headers,
+                                    json={"channel": cid, "text": "psst"})
+        assert r.status_code == 404, (cid, r.text)
+    async with sf() as s:
+        rows = (await s.execute(select(RelayMessage).where(
+            RelayMessage.channel_id.in_([dm["id"], group["id"]])))).scalars().all()
+    assert rows == []
+
+
+async def test_notify_is_capped_per_principal_per_hour(admin_client, token_client, sf):
+    """An app in a loop must not bury a room: the hourly cap is counted from
+    the route's own rows, so it survives a restart, and is per principal, so
+    one noisy key does not silence another."""
+    admin_client._transport.app.state.settings.relay_notify_per_hour = 3
+    await admin_client.post("/api/relay/channels", json={"kind": "channel", "name": "qa"})
+    tcms = await _key(sf, name="app:tcms", role="annotator")
+    other = await _key(sf, name="app:running", role="annotator")
+    for i in range(3):
+        assert (await token_client.post("/api/relay/notify", headers=tcms, json={
+            "channel": "qa", "text": f"run {i}"})).status_code == 201
+    r = await token_client.post("/api/relay/notify", headers=tcms,
+                                json={"channel": "qa", "text": "run 3"})
+    assert r.status_code == 429 and "3/hour" in r.json()["detail"]
+    assert (await token_client.post("/api/relay/notify", headers=other, json={
+        "channel": "qa", "text": "mine"})).status_code == 201
+    # A refused post left nothing behind; the room holds exactly the four.
+    async with sf() as s:
+        bodies = [m.body for m in (await s.execute(select(RelayMessage).where(
+            RelayMessage.kind == "event").order_by(RelayMessage.created_at))).scalars()]
+    assert bodies == ["run 0", "run 1", "run 2", "mine"]

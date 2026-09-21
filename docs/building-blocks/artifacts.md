@@ -136,6 +136,13 @@ to 240 s and, when that runs out, tells the model not to retry blindly — the
 request it gave up on is still being served, and a retry would be a second
 image and a second charge.
 
+Studio also has a virtual `codex-imagegen` model backed by the seeded
+`codex-artist`. It uses Codex's hosted ImageGen through `codex-proxy`, so its
+usage comes from the Codex subscription allowance rather than provider API
+keys. The resulting file enters through a run-scoped upload and becomes the
+same generated artifact and `#art` card; provenance marks
+`billing: codex_allowance` and API spend totals ignore it.
+
 Somebody else's artifact — its name, its prompt, a text file's contents — is
 **untrusted** input, the posture of `docs/design/08-news-and-injection-hardening.md`: data,
 never instructions.

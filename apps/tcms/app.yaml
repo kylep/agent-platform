@@ -1,0 +1,17 @@
+# The TCMS app (docs/design/25): the test case management system behind the QA
+# agent. Owns the case mirror, test runs, results and coverage snapshots
+# (schema app_tcms; the `tcms` tool is the only writer, this app owns the DDL).
+# A 30 s reconciler announces every newly recorded run on Kafka and in #qa,
+# and prunes runs older than TCMS_RETENTION_DAYS. Everything lives at
+# /apps/tcms/. The app never runs a test and never holds a git credential.
+name: tcms
+description: The test pyramid, every run and its results, the case catalogue, flaky and slow tests, coverage — what the QA agent records.
+icon: 🧪
+ui: true
+api: true
+needs:
+  postgres: true
+  kafka_topics:
+    - app.tcms.run.recorded        # one event per recorded test run (the reconciler)
+agent_key:
+  role: annotator                  # posts the run note to #qa; enqueues no runs

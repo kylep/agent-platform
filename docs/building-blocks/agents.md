@@ -16,8 +16,9 @@ database while capability (tools, skills, secret declarations) stayed code.
 prompt: You are ...          # the agent's context/personality (was agent.md's body)
 description: One line for listings.
 model: sonnet                 # claude model override; empty = CLI default
-role: operator                 # reader | annotator | operator | coder
-                                # (coder gets the github-app + acceptEdits for platform self-edit PRs)
+role: operator                 # reader | annotator | operator | coder | dev
+                                # (coder gets the github-app + acceptEdits for platform self-edit PRs;
+                                #  dev gets the Workbench: a shell + a credential-less clone, see workbench.md)
 system: true                   # platform-internal; protected from UI deletion
 can_invoke: true               # may trigger other agents (depth-guarded)
 enabled: true                  # false = no new runs from any trigger (409)
@@ -32,7 +33,17 @@ platform_tools: [mcp__platform__memory]      # mcp__platform__* grants
 skills: [git]                                # mounted into the pod; their secrets get bound
 secrets: [my-secret]                         # extra direct secret bindings
 entrypoints: {crons: [], webhooks: [], topics: [], timezone: ""}   # see entrypoints.md
+push_path_globs: []                          # GRANT: paths a dev agent may land without review
+                                              # (empty = any non-denied path, PR only; see workbench.md)
+may_delete_tests: false                      # GRANT: a publish that deletes a test file is refused otherwise
+quota_5h_max_pct: 80                         # `quota_ok` says no above these (the agent's own thresholds)
+quota_7d_max_pct: 50
 ```
+
+The last four are the [Workbench](workbench.md) fields. They exist on every
+row but only mean something for `role: dev` (the two globs/tests fields) or
+an agent that holds `quota_ok` (the two thresholds). `role: dev` joins no
+endpoint allow-list — it is the run-profile rung, not an API scope.
 
 **Readiness (derived, never declared):** an agent's secret dependencies are
 computed from `secrets` plus each of its skills' declared secrets. An unmet
@@ -47,10 +58,11 @@ Two platform tools split write authority, so a definition being editable does
 not mean it is grantable:
 
 - **`agents_edit`** — create/update/delete a definition's prose and config
-  (prompt, description, model, entrypoints, timeout, …). Cannot touch any
-  grant field.
+  (prompt, description, model, entrypoints, timeout, the two quota
+  thresholds, …). Cannot touch any grant field.
 - **`agents_grant`** — assign/revoke `harness_tools`, `platform_tools`,
-  `skills`, `secrets`, `can_invoke`, and `role` on any agent. This is the
+  `skills`, `secrets`, `can_invoke`, `push_path_globs`, `may_delete_tests`,
+  and `role` on any agent. This is the
   escalation-capable tool: granting it is granting the keys to every agent's
   capabilities, including its own.
 
@@ -107,7 +119,7 @@ directly — no PR, no folder, no manifest file.
 
 ## Seeded agents
 
-Three rows ship with the platform, written once at boot behind a schema
+Four rows ship with the platform, written once at boot behind a schema
 mark and then left alone — edit or delete any of them and your version stays:
 
 - **`wiki`** — the [librarian](wiki.md#the-librarian). A `system` agent, so
@@ -120,11 +132,37 @@ mark and then left alone — edit or delete any of them and your version stays:
   `changed_via: seed`.
 - **`engineer`** — writes code for the platform: takes a ticket assigned to
   it, works on a branch in its own clone, verifies, and opens a PR for a
-  human to merge — it never pushes, the platform publishes. `role: dev`
-  (the dev run profile), the CLI default model, a 90-minute timeout, quota
-  thresholds of 95 % (5 h) and 90 % (7 d), and `relay`, `tickets`, `wiki`,
-  `quota_ok` and `artifacts` plus the `Glob` and `Grep` harness tools. Its
-  home project is `#eng` (prefix `ENG`), seeded with it, and the weekday
-  `eng-queue` job at 07:00 asks it to pick up anything still open. *Not*
-  `system`, so `@all` and the standup reach it. Its first change-log row is
-  `changed_via: seed`.
+  human to merge — it never pushes, the platform publishes
+  ([workbench.md](workbench.md)). `role: dev` (the dev run profile), `opus`
+  (a coding run is where the strong model earns its cost), a 90-minute
+  timeout (`timeout_seconds: 5400`), quota thresholds of 95 % (5 h) and 90 %
+  (7 d), and `relay`, `tickets`, `wiki`, `quota_ok` and `artifacts` plus the
+  `Glob` and `Grep` harness tools (the shell tools come with the profile).
+  `push_path_globs` empty and `may_delete_tests` false: PR only, any path,
+  no test deletions. Its home project is `#eng` (prefix `ENG`), seeded with
+  it, and the weekday `eng-queue` job (`0 7 * * 1-5`, America/Toronto) asks
+  it in `#eng` to pick up anything still open. *Not* `system`, so `@all` and
+  the `#standup` reach it — each such wake is a full dev pod, which is a
+  cost worth knowing. Its first change-log row is `changed_via: seed`.
+- **`qa`** — owns the tests: writes and prunes unit, integration and e2e
+  tests, keeps the TCMS current (`apps/tcms`, the `tcms` tool), measures
+  the suite and QAs the live UI. `role: dev`, `sonnet` (the nightly is
+  bookkeeping most of the time), a two-hour timeout (`timeout_seconds:
+  7200`), quota thresholds of 80 % (5 h) and 50 % (7 d) — the
+  browser-in-the-loop is the expensive part: before a live session its
+  prompt calls `quota_ok`, and when the answer is no it says "not spending
+  the browser" and does the scripted walk instead. Holds `relay`,
+  `tickets`, `wiki`, `quota_ok`, `artifacts` and `tcms` (not `query_app`:
+  that is the wide rung, and the tool's read actions answer the same
+  questions), the `Glob`, `Grep` and `PlaywrightMCP` harness tools, and
+  binds the `qa-web-login` secret the API mints at boot (the readiness gate
+  blocks it while that secret is missing — only ever mid-rotation).
+  `push_path_globs` is the platform's one definition of test code
+  (`testpaths.TEST_PATH_GLOBS`, imported, never restated) and
+  `may_delete_tests` is true: pruning, with every deletion named on the PR
+  and the card. Its home project is `#qa` (prefix `QA`; a `#qa` that
+  already exists is adopted, and a prefix held by another room is left
+  where it is), seeded with it, and the `qa-nightly` job (`0 2 * * *`,
+  America/Toronto) summons it there. A `system` agent, so `@all` and the
+  `#standup` pass it by; `@qa` by name still wakes it. Its first change-log
+  row is `changed_via: seed`.

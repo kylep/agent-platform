@@ -66,8 +66,9 @@ export function Provenance({ artifact: a, me }: { artifact: Artifact; me: string
         <Row label="seed"><code>{String(meta.seed)}</code></Row>
       )}
       {(typeof meta.cost_usd === "number" || typeof meta.duration_ms === "number") && (
-        <Row label="cost">
-          {typeof meta.cost_usd === "number" ? `$${meta.cost_usd.toFixed(2)}` : ""}
+        <Row label={meta.billing === "codex_allowance" ? "usage" : "cost"}>
+          {meta.billing === "codex_allowance" ? "Codex allowance" :
+            (typeof meta.cost_usd === "number" ? `$${meta.cost_usd.toFixed(2)}` : "")}
           {typeof meta.cost_usd === "number" && typeof meta.duration_ms === "number" ? " · " : ""}
           {typeof meta.duration_ms === "number" ? `${(meta.duration_ms / 1000).toFixed(1)} s` : ""}
         </Row>

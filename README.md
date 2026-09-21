@@ -1,6 +1,6 @@
 # Agent Platform
 
-Define Claude Code agents as code, run them on Kubernetes, and drive the whole
+Define Claude Code or OpenAI Codex agents, run them on Kubernetes, and drive the whole
 thing from a web UI — whose own edit button is itself a coding agent opening a
 pull request against this repo.
 
@@ -8,8 +8,8 @@ Git is the source of truth for capability — tools, skills, secret
 declarations. Agent *identity* (prompt, grants, entrypoints, config) is a
 Postgres row instead, mutable immediately with its own append-only change
 log — see [docs/design/15-db-first-agents.md](docs/design/15-db-first-agents.md).
-Agents authenticate with a Claude subscription token; there are no
-Anthropic API keys anywhere, and CI greps to keep it that way.
+Agents use subscription OAuth from either Claude or ChatGPT; API keys are not
+needed for either runtime.
 
 ```
 trigger (UI · cron · webhook · Discord · agent · API)
@@ -72,7 +72,7 @@ Postgres backup CronJob is the recovery story for that (see
 [docs/building-blocks/](docs/building-blocks/):
 
 - **[Agents](docs/building-blocks/agents.md)** — a Postgres row (`agent_defs`):
-  prompt, role, skills, secrets, harness/platform-tool grants, model, limits.
+  prompt, runtime, role, skills, secrets, harness/platform-tool grants, model, limits.
   No PR — edits apply immediately, through the UI/API or the `agents_edit`/
   `agents_grant` platform tools, with every change appended to a version log
   (`agent_versions`). Readiness is still *derived*: an unmet required secret
@@ -124,6 +124,14 @@ Postgres backup CronJob is the recovery story for that (see
   deterministic editors lock on their pending change; nothing an agent writes
   goes live unreviewed. Agent definitions don't use this loop — see
   [Agents](docs/building-blocks/agents.md)'s change log instead.
+- **[Workbench](docs/building-blocks/workbench.md)** — how dev agents change
+  the code: an agent with `role: dev` (the seeded `engineer`) runs on a second
+  runner image with a shell, an anonymous clone on `coder/<ticket>` and no git
+  credential; when its turn ends the runner runs `bin/ap-verify`, bundles the
+  branch and publishes it through the API, which enforces a path policy
+  (deny list, `push_path_globs`, `may_delete_tests`), pushes without force
+  and opens the PR with the captured verification. Assign a ticket, get a PR;
+  a human merges.
 
 Two more pages describe the platform itself:
 [Glossary](docs/building-blocks/glossary.md) (the components and vocabulary
@@ -169,7 +177,7 @@ agent-platform/
 ├── services/
 │   ├── backend/               # one image, three processes: api, dispatcher (+scheduler,
 │   │                          #   verifier heartbeat, ingest), recorder — FastAPI/SQLAlchemy/Kafka
-│   ├── runner/                # the agent pod: wraps `claude`, streams every event to Kafka
+│   ├── runner/                # agent pod: wraps Claude or Codex, streams every event to Kafka
 │   ├── web/                   # React SPA (Vite + Tailwind v4) consuming @ap/ui;
 │   │                          #   Storybook workshop ships with the site at /storybook/;
 │   │                          #   Playwright smoke+axe gate in tests/ (runs in CI);

@@ -1,0 +1,159 @@
+suite: tickets
+area: tickets
+cases:
+  - key: tickets.open-and-read-back
+    title: Opening a ticket mints the next key in its project and posts exactly one card
+    layer: integration
+    priority: p0
+    preconditions: [a channel with a prefix exists]
+    steps: [POST a ticket into the project, read it back]
+    expected: the key is sequential per prefix, one card lands in the channel thread, the card summons nobody
+    automation:
+      - pytest:services/backend/tests/test_tickets_api.py::test_open_a_ticket_and_read_it_back
+      - pytest:services/backend/tests/test_ticket_store.py::test_keys_are_sequential_per_prefix
+      - pytest:services/backend/tests/test_ticket_store.py::test_create_posts_exactly_one_card
+      - pytest:services/backend/tests/test_ticket_store.py::test_a_card_summons_nobody
+    tags: [api, store]
+
+  - key: tickets.state-machine
+    title: A move follows the board's state machine and an illegal move is a conflict
+    layer: integration
+    priority: p1
+    steps: [move a ticket open → in_progress → done, then try done → in_progress]
+    expected: legal moves edit the card in place and track closed_at; the illegal one is 409 and writes nothing; a done ticket only reopens
+    automation:
+      - pytest:services/backend/tests/test_tickets_api.py::test_move_assign_comment_and_edit
+      - pytest:services/backend/tests/test_tickets_api.py::test_an_illegal_move_is_a_conflict
+      - pytest:services/backend/tests/test_ticket_store.py::test_a_move_decides_against_the_ticket_as_it_is_now
+    tags: [api, store]
+
+  - key: tickets.assign-is-a-summon
+    title: Assigning a ticket to an agent with notify is a mention that carries the actor's hop
+    layer: integration
+    priority: p1
+    steps: [assign by a human with notify, assign from an agent run, assign without notify, assign to a human]
+    expected: the human's assign is a hop-0 mention, the agent's carries its run's hop, no notify and human assignees post no mention
+    automation:
+      - pytest:services/backend/tests/test_ticket_store.py::test_assign_with_notify_by_a_human_is_a_hop_0_mention
+      - pytest:services/backend/tests/test_ticket_store.py::test_assign_by_an_agent_run_carries_the_runs_hop
+      - pytest:services/backend/tests/test_ticket_store.py::test_assign_without_notify_posts_no_mention
+      - pytest:services/backend/tests/test_ticket_store.py::test_assigning_a_human_never_mentions
+    tags: [store, relay, loop-guards]
+
+  - key: tickets.create-budget
+    title: The hourly create budget refuses with a 429 and one line in the room
+    layer: integration
+    priority: p0
+    steps: [create tickets past the actor's hourly budget]
+    expected: the refused create writes nothing, the API answers 429, the notice is said once an hour and counts only that actor's creates
+    automation:
+      - pytest:services/backend/tests/test_tickets_api.py::test_the_hourly_create_budget_is_a_429_and_a_line_in_the_room
+      - pytest:services/backend/tests/test_ticket_store.py::test_the_create_budget_refuses_and_writes_nothing
+      - pytest:services/backend/tests/test_ticket_store.py::test_the_budget_notice_is_said_once_an_hour
+    tags: [loop-guards]
+
+  - key: tickets.agent-writes-from-own-run
+    title: An agent writes tickets only from its own run and sees only the rooms it is in
+    layer: integration
+    priority: p1
+    steps: [open a ticket with an agent run token, then with an agent token that has no run, then list as an agent outside the project]
+    expected: the run token opens the ticket as the agent, the run-less token is refused, the listing stops at the agent's rooms; a reader may read but not write
+    automation:
+      - pytest:services/backend/tests/test_tickets_api.py::test_an_agent_opens_a_ticket_as_itself
+      - pytest:services/backend/tests/test_tickets_api.py::test_an_agent_token_with_no_run_may_not_write
+      - pytest:services/backend/tests/test_tickets_api.py::test_an_agent_sees_only_the_rooms_it_is_in
+      - pytest:services/backend/tests/test_tickets_api.py::test_a_reader_may_read_but_not_write
+    tags: [api, rbac]
+
+  - key: tickets.card-flattens-hostile-text
+    title: A ticket card flattens and caps a hostile title, reason and assignee
+    layer: unit
+    priority: p1
+    steps: [render a card and event rows for a ticket whose title carries newlines, mentions and 10k characters]
+    expected: one line each, mentions defanged, lengths capped, the body reads as a sentence without the card
+    automation:
+      - pytest:services/backend/tests/test_tickets_lib.py::test_card_body_flattens_a_hostile_title
+      - pytest:services/backend/tests/test_tickets_lib.py::test_card_title_is_flattened_and_capped
+      - pytest:services/backend/tests/test_tickets_lib.py::test_event_row_text_flattens_a_hostile_assignee
+      - pytest:services/backend/tests/test_tickets_lib.py::test_event_row_text_flattens_and_caps_a_reason
+    tags: [injection]
+
+  - key: tickets.one-line-caps-large-body
+    title: one_line caps a 5 KB body and strips every room mention in it, not just the first
+    layer: unit
+    priority: p3
+    steps: [call one_line on a ~5 KB string that repeats "@all" dozens of times, at a limit below and at the string's own length]
+    expected: the result never exceeds the limit and ends in an ellipsis when cut; every "@all" in the body loses its "@", including ones past where a short-input test would stop looking
+    automation:
+      - pytest:services/backend/tests/test_tickets_lib.py::test_one_line_caps_and_strips_a_room_mention_in_a_5kb_body
+      - pytest:services/backend/tests/test_tickets_lib.py::test_one_line_strips_every_room_mention_when_the_5kb_body_fits
+    tags: [injection]
+
+  - key: tickets.key-regex
+    title: A ticket key matches PREFIX-n and nothing else
+    layer: unit
+    priority: p2
+    steps: [match KEY_RE against keys, lowercase words and prefixed nonsense]
+    expected: only PREFIX-n shapes match; a derived prefix keeps the six-char cap and gives up rather than dropping letters
+    automation:
+      - pytest:services/backend/tests/test_tickets_lib.py::test_key_re_matches_a_key_and_nothing_else
+      - pytest:services/backend/tests/test_tickets_lib.py::test_derive_prefix_keeps_the_six_char_cap_when_it_disambiguates
+      - pytest:services/backend/tests/test_tickets_lib.py::test_derive_prefix_gives_up_rather_than_dropping_the_letters
+    tags: [parser]
+
+  - key: tickets.ui-board
+    title: The board is a column per state, filters live in the URL, and a streamed frame moves a card
+    layer: e2e
+    priority: p1
+    steps: [open /tickets, filter by assignee, push a ticket frame over the stream]
+    expected: five columns with the work in them, the filter is in the URL, the card moves without a reload
+    automation:
+      - "playwright:services/web/tests/tickets.spec.ts::the board is a column per state, with the work in them"
+      - "playwright:services/web/tests/tickets.spec.ts::filters narrow the board and live in the URL"
+      - "playwright:services/web/tests/tickets.spec.ts::a streamed ticket frame moves a card without a reload"
+    tags: [ui, sse]
+
+  - key: tickets.ui-move-paths
+    title: The move menu and the drag are the same move, and the board never offers a move the API refuses
+    layer: e2e
+    priority: p2
+    steps: [move a card with the keyboard menu, drag another onto a column, open the menu on a closed ticket]
+    expected: both paths send the same PATCH, a card with a move in flight holds still, a closed ticket only offers reopen
+    automation:
+      - "playwright:services/web/tests/tickets.spec.ts::the move menu is the keyboard path to the drag, and the card moves"
+      - "playwright:services/web/tests/tickets.spec.ts::dragging a card onto a column is the same move as the menu"
+      - "playwright:services/web/tests/tickets.spec.ts::a closed ticket only reopens — the board never offers a move the API refuses"
+      - "playwright:services/web/tests/tickets.spec.ts::a card with a move in flight holds still"
+    tags: [ui, a11y]
+
+  - key: tickets.ui-detail-page
+    title: The ticket page is its fields and its thread, and a move made elsewhere lands without a reload
+    layer: e2e
+    priority: p2
+    steps: [open /tickets/OPS-1, assign it, push a move frame]
+    expected: fields and thread render, assigning hands the ticket over and wakes the assignee by default, the streamed move updates the page
+    automation:
+      - "playwright:services/web/tests/tickets-detail.spec.ts::the ticket page is its fields and its thread"
+      - "playwright:services/web/tests/tickets-detail.spec.ts::assigning hands the ticket over and wakes the assignee by default"
+      - "playwright:services/web/tests/tickets-detail.spec.ts::a move somebody else made lands on the page without a reload"
+    tags: [ui]
+
+  - key: tickets.ui-mobile-columns
+    title: At 390 the columns scroll inside the board and the ticket page stacks without sideways scroll
+    layer: e2e
+    priority: p3
+    steps: [open /tickets and /tickets/OPS-1 at 390px]
+    expected: the page never scrolls horizontally, the columns scroll inside the board, the fields stack above the thread
+    automation:
+      - "playwright:services/web/tests/tickets.spec.ts::at 390 the columns scroll inside the board, never the page"
+      - "playwright:services/web/tests/tickets-detail.spec.ts::at 390 the fields stack above the thread and nothing scrolls sideways"
+    tags: [ui, mobile]
+
+  - key: tickets.live-assign-wakes-agent
+    title: Assigning a real ticket to an agent on the live site produces one run that comments on it
+    layer: manual
+    priority: p1
+    preconditions: [the live site is up, an ordinary agent is a member of the project's channel]
+    steps: [open a ticket in the console, assign it to the agent with notify on, watch /runs]
+    expected: one run for the agent starts within a minute, it comments on the ticket from its own run, no second run follows without a new mention
+    tags: [live, loop-guards]

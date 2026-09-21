@@ -10,6 +10,7 @@ from typing_extensions import Self
 from ..types import UNSET, Unset
 
 if TYPE_CHECKING:
+    from ..models.quota_reading import QuotaReading
     from ..models.quota_window import QuotaWindow
 
 
@@ -33,6 +34,7 @@ class Quota:
             source (None | str):
             stale (bool):
             status (None | str):
+            codex (None | QuotaReading | Unset):
             probe (None | str | Unset):
     """
 
@@ -43,10 +45,13 @@ class Quota:
     source: None | str
     stale: bool
     status: None | str
+    codex: None | QuotaReading | Unset = UNSET
     probe: None | str | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
+        from ..models.quota_reading import QuotaReading
+
         age_seconds: int | None
         age_seconds = self.age_seconds
 
@@ -64,6 +69,14 @@ class Quota:
 
         status: None | str
         status = self.status
+
+        codex: dict[str, Any] | None | Unset
+        if isinstance(self.codex, Unset):
+            codex = UNSET
+        elif isinstance(self.codex, QuotaReading):
+            codex = self.codex.to_dict()
+        else:
+            codex = self.codex
 
         probe: None | str | Unset
         if isinstance(self.probe, Unset):
@@ -84,6 +97,8 @@ class Quota:
                 "status": status,
             }
         )
+        if codex is not UNSET:
+            field_dict["codex"] = codex
         if probe is not UNSET:
             field_dict["probe"] = probe
 
@@ -91,6 +106,7 @@ class Quota:
 
     @classmethod
     def from_dict(cls, src_dict: Mapping[str, Any]) -> Self:
+        from ..models.quota_reading import QuotaReading
         from ..models.quota_window import QuotaWindow
 
         d = dict(src_dict)
@@ -129,6 +145,23 @@ class Quota:
 
         status = _parse_status(d.pop("status"))
 
+        def _parse_codex(data: object) -> None | QuotaReading | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            try:
+                if not isinstance(data, dict):
+                    raise TypeError()
+                codex_type_0 = QuotaReading.from_dict(data)
+
+                return codex_type_0
+            except (TypeError, ValueError, AttributeError, KeyError):
+                pass
+            return cast(None | QuotaReading | Unset, data)
+
+        codex = _parse_codex(d.pop("codex", UNSET))
+
         def _parse_probe(data: object) -> None | str | Unset:
             if data is None:
                 return data
@@ -146,6 +179,7 @@ class Quota:
             source=source,
             stale=stale,
             status=status,
+            codex=codex,
             probe=probe,
         )
 

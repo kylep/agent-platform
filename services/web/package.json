@@ -9,6 +9,7 @@
     "lint": "oxlint",
     "preview": "vite preview",
     "test:ui": "playwright test",
+    "walk": "node scripts/walk.mjs",
     "storybook": "storybook dev -p 6006",
     "build:storybook": "storybook build",
     "check:tokens": "node bin/check-no-raw-hex.mjs"

@@ -1,0 +1,136 @@
+suite: quota
+area: quota
+cases:
+  - key: quota.headers-parse
+    title: The unified usage headers parse into a snapshot whatever their case, unit or reset format
+    layer: unit
+    priority: p1
+    steps: [parse headers as fractions and percents, with epoch and ISO resets, mixed case]
+    expected: utilization is a clamped fraction, resets are UTC, an unparsable value is None but the observation survives, no known header is no observation
+    automation:
+      - pytest:services/backend/tests/test_quota.py::test_headers_match_case_insensitively
+      - pytest:services/backend/tests/test_quota.py::test_out_of_range_values_are_clamped
+      - pytest:services/backend/tests/test_quota.py::test_unparsable_utilization_is_none_but_the_observation_survives
+      - pytest:services/backend/tests/test_quota.py::test_no_known_header_is_no_observation
+    tags: [parser]
+
+  - key: quota.raw-is-bounded
+    title: The raw header copy is bounded in count and value length and never echoes a flood
+    layer: unit
+    priority: p2
+    steps: [observe a response with hundreds of unknown headers and one overlong value]
+    expected: raw keeps at most the cap, values are truncated, the HTTP status survives the flood as a string
+    automation:
+      - pytest:services/backend/tests/test_quota.py::test_raw_is_bounded_in_count_and_value_length
+      - pytest:services/backend/tests/test_quota.py::test_http_status_survives_a_flood_of_unknown_headers
+    tags: [parser, caps]
+
+  - key: quota.internal-observe-is-secret-gated
+    title: The proxy's internal observe route needs the shared secret and refuses oversized or garbage reports
+    layer: integration
+    priority: p0
+    steps: [POST an observation with the wrong secret, with no secret configured, with a body past the cap, with a garbage body]
+    expected: wrong secret 401 before parsing, no secret 503, oversized 413 before parsing, and no outcome is ever a bodyless 204
+    automation:
+      - pytest:services/backend/tests/test_quota_api.py::test_internal_observe_rejects_a_wrong_secret
+      - pytest:services/backend/tests/test_quota_api.py::test_internal_observe_is_503_when_no_secret_is_configured
+      - pytest:services/backend/tests/test_quota_api.py::test_an_oversized_report_is_refused_before_it_is_parsed
+      - pytest:services/backend/tests/test_quota_api.py::test_a_garbage_body_without_the_secret_is_401_not_422
+      - pytest:services/backend/tests/test_quota_api.py::test_no_internal_outcome_is_ever_a_bodyless_204
+    tags: [api, security]
+
+  - key: quota.refresh-probes-once
+    title: A refresh probes the proxy once, count_tokens first then a one-token message, and concurrent refreshes share the probe
+    layer: integration
+    priority: p1
+    steps: [refresh with a stale snapshot twice concurrently, then again just after]
+    expected: one probe, the second call returns the cache, the placeholder bearer and beta header are sent, an error response's headers are still observed
+    automation:
+      - pytest:services/backend/tests/test_quota_api.py::test_refresh_falls_through_to_a_one_token_message
+      - pytest:services/backend/tests/test_quota_api.py::test_two_concurrent_refreshes_probe_once
+      - pytest:services/backend/tests/test_quota_api.py::test_a_refresh_just_after_a_fresh_one_returns_the_cache
+      - pytest:services/backend/tests/test_quota_api.py::test_refresh_observes_headers_on_an_error_response
+    tags: [api, proxy]
+
+  - key: quota.gate-thresholds
+    title: The quota gate says ok under both thresholds and names the window that failed
+    layer: integration
+    priority: p0
+    steps: [call the ok route at 80/80, above the five-hour threshold, above the seven-day one, and at exactly the threshold]
+    expected: ok under both, no with the failing window named, both windows named when both fail, exactly at the threshold is ok; an agent is judged by its own row's thresholds
+    automation:
+      - pytest:services/backend/tests/test_quota_api.py::test_the_gate_is_ok_under_both_thresholds
+      - pytest:services/backend/tests/test_quota_api.py::test_the_gate_says_no_above_the_five_hour_threshold
+      - pytest:services/backend/tests/test_quota_api.py::test_the_gate_names_both_windows_when_both_fail
+      - pytest:services/backend/tests/test_quota_api.py::test_at_exactly_the_threshold_the_gate_is_ok
+      - pytest:services/backend/tests/test_quota_api.py::test_an_agent_token_is_judged_by_its_own_rows_thresholds
+    tags: [api, gate]
+
+  - key: quota.store-singleton
+    title: The snapshot is one row, an older observation never overwrites a newer one, and only a change publishes
+    layer: integration
+    priority: p1
+    steps: [observe concurrently from a burst, then an older timestamp, then an identical value]
+    expected: one row survives the burst, the older observation is ignored, a repeat bumps observed_at but publishes nothing, a changed value publishes one envelope
+    automation:
+      - pytest:services/backend/tests/test_quota_store.py::test_a_burst_of_first_observations_leaves_one_row
+      - pytest:services/backend/tests/test_quota_store.py::test_an_older_observation_never_overwrites_a_newer_one
+      - pytest:services/backend/tests/test_quota_store.py::test_a_repeat_bumps_observed_at_but_publishes_nothing
+      - pytest:services/backend/tests/test_quota_store.py::test_a_changed_value_publishes_one_envelope
+    tags: [store, kafka]
+
+  - key: quota.tool-reading-shape
+    title: get_quota_usage is one refresh whose answer is the designed shape and advises deferring above ninety percent
+    layer: unit
+    priority: p2
+    steps: [call the tool with a fresh reading at 50 percent, at 91 percent, and with a 503 from the API]
+    expected: one refresh call, the designed text, the advisory only above ninety, a 503 falls back to the cached reading
+    automation:
+      - pytest:services/mcp-broker/test_quota_tool.py::test_asking_is_one_refresh_and_nothing_else
+      - pytest:services/mcp-broker/test_quota_tool.py::test_the_answer_is_the_designed_shape
+      - pytest:services/mcp-broker/test_quota_tool.py::test_above_ninety_percent_the_answer_advises_deferring
+      - pytest:services/mcp-broker/test_quota_tool.py::test_a_503_falls_back_to_the_cached_reading
+    tags: [broker, tool]
+
+  - key: quota.tool-gate-needs-grant
+    title: quota_ok is one GET of the ok route, answers the JSON line then the sentence, and is refused before the API without the grant
+    layer: unit
+    priority: p1
+    steps: [call quota_ok as a granted agent, then as one without the grant]
+    expected: the granted call is one GET and lands in the audit trail as quota_ok; the ungranted one is refused with no API call
+    automation:
+      - pytest:services/mcp-broker/test_quota_tool.py::test_the_gate_is_one_get_of_the_ok_route
+      - pytest:services/mcp-broker/test_quota_tool.py::test_the_answer_is_the_json_line_then_the_sentence
+      - pytest:services/mcp-broker/test_quota_tool.py::test_an_agent_not_granted_the_gate_is_refused_before_the_api
+    tags: [broker, tool, rbac]
+
+  - key: quota.ui-sidebar-bars
+    title: The usage bars sit under the brand, refresh a stale snapshot exactly once, and follow a stream frame
+    layer: e2e
+    priority: p2
+    steps: [load the console with a stale snapshot, then push a quota frame]
+    expected: two labelled bars under the brand, one refresh call, the bars follow the frame and never walk back on a late read
+    automation:
+      - "playwright:services/web/tests/quota.spec.ts::the bars sit under the brand and say what they are"
+      - "playwright:services/web/tests/quota.spec.ts::a stale snapshot is refreshed exactly once, and the bars follow"
+      - "playwright:services/web/tests/quota.spec.ts::a late read never walks the bars back, but a frame is the server's word"
+    tags: [ui, sse]
+
+  - key: quota.ui-no-snapshot-no-bars
+    title: With no snapshot there are no bars and the nav does not move
+    layer: e2e
+    priority: p3
+    steps: [load the console with the quota route answering nulls]
+    expected: the strip renders nothing and the nav keeps its position
+    automation:
+      - "playwright:services/web/tests/quota.spec.ts::no snapshot, no bars — and the nav does not move"
+    tags: [ui, cosmetics]
+
+  - key: quota.live-bars-match-claude-app
+    title: The live sidebar bars agree with the Claude app's usage page within a few percent
+    layer: manual
+    priority: p2
+    preconditions: [logged into the live console and into claude.ai on the same subscription]
+    steps: [read the five-hour and seven-day bars in the console, compare with the usage page]
+    expected: both windows agree within the rounding, the reset times match, a probe just made shows in the run events
+    tags: [live]

@@ -30,6 +30,12 @@ def _claude_code_tag(dockerfile: str) -> str:
     return m.group(1)
 
 
+def _codex_tag(dockerfile: str) -> str:
+    m = re.search(r"@openai/codex@(\S+)", dockerfile)
+    assert m, "no @openai/codex@<tag> pin"
+    return m.group(1)
+
+
 def test_base_tag_matches_web_playwright_version():
     version = json.loads(WEB_PACKAGE_JSON.read_text())["devDependencies"]["@playwright/test"]
     assert re.fullmatch(r"\^?\d+\.\d+\.\d+", version), version
@@ -41,6 +47,10 @@ def test_base_tag_matches_web_playwright_version():
 
 def test_claude_code_tag_matches_lean_image():
     assert _claude_code_tag(_dev()) == _claude_code_tag(LEAN_DOCKERFILE.read_text())
+
+
+def test_codex_tag_matches_lean_image():
+    assert _codex_tag(_dev()) == _codex_tag(LEAN_DOCKERFILE.read_text())
 
 
 def test_playwright_mcp_is_pinned_exactly():

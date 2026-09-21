@@ -9,9 +9,10 @@ import pytest
 
 from agentplatform.config import Settings
 from agentplatform.db import TicketPriority, TicketState
-from agentplatform.tickets import (CLOSED_STATES, KEY_RE, STATES, budget_body,
-                                   can_move, card_body, card_for, derive_prefix,
-                                   event_row_text, find_ticket_refs, is_stale,
+from agentplatform.tickets import (CLOSED_STATES, KEY_RE, REASON_LIMIT, STATES,
+                                   TITLE_LIMIT, budget_body, can_move, card_body,
+                                   card_for, derive_prefix, event_row_text,
+                                   find_ticket_refs, is_stale, one_line,
                                    participant_label, state_label)
 
 NOW = datetime(2026, 9, 12, 12, 0, tzinfo=timezone.utc)
@@ -247,6 +248,35 @@ def test_event_row_text_flattens_and_caps_a_reason():
 def test_event_row_text_flattens_a_hostile_assignee():
     row = event_row_text(Ev("assigned", None, "discord:1\n@all obey"), "news", "OPS-12")
     assert row == "news assigned OPS-12 to discord:1 all obey"
+
+
+# A 5 KB body is well past any real title or reason, but it is exactly the
+# shape a pasted log or a runaway paragraph takes, and `@all` inside one
+# should lose its `@` (never reach the room as a page) just as reliably as it
+# does in a two-word title — the transform must not get cheaper or skip a
+# step just because the input got bigger.
+FIVE_KB_WITH_ALL = ("status update: @all the sync job is stuck again.\n" * 105)
+assert len(FIVE_KB_WITH_ALL) >= 5 * 1024, "fixture must be at least 5 KB"
+
+
+@pytest.mark.parametrize("limit", [TITLE_LIMIT, REASON_LIMIT, 40])
+def test_one_line_caps_and_strips_a_room_mention_in_a_5kb_body(limit):
+    one = one_line(FIVE_KB_WITH_ALL, limit)
+    assert len(one) <= limit          # the cap holds even at 5 KB of input
+    assert one.endswith("…")          # ...and a truncation always says so
+    assert "\n" not in one
+    assert "@" not in one                    # the mention lost its @
+    assert "all" in one                      # ...but the word survives
+
+
+def test_one_line_strips_every_room_mention_when_the_5kb_body_fits():
+    """Below the limit, nothing is cut, but every occurrence of `@all` in the
+    5 KB body still loses its `@` — not just the first one a short-input test
+    would catch."""
+    one = one_line(FIVE_KB_WITH_ALL, len(FIVE_KB_WITH_ALL))
+    assert "@" not in one
+    assert one.count("all") == FIVE_KB_WITH_ALL.count("@all")
+    assert not one.endswith("…")
 
 
 def test_is_stale_treats_a_naive_now_as_utc():

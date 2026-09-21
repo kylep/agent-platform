@@ -105,6 +105,7 @@ class AgentDefIn(BaseModel):
     name: str = ""
     prompt: str = ""
     description: str = ""
+    runtime: str = "claude"
     model: str = ""
     role: str = "operator"
     system: bool = False
@@ -172,6 +173,7 @@ class AgentDefOut(BaseModel):
     name: str
     prompt: str = ""
     description: str = ""
+    runtime: str = "claude"
     model: str = ""
     role: str = "operator"
     system: bool = False
@@ -266,6 +268,7 @@ class ModelOption(BaseModel):
 
 class AgentModels(BaseModel):
     models: list[ModelOption]
+    codex_models: list[ModelOption] = []
 
 
 class PrRef(BaseModel):
@@ -480,6 +483,9 @@ class ToolHelp(BaseModel):
     # Friendlier label for pickers/Help when the harness-fixed id is awkward
     # (e.g. TodoWrite → "Todo"). The id in `name` is what manifests declare.
     display_name: str | None = None
+    # Usable only by a `role: dev` run (docs/design/25): the runner filters it
+    # out for everyone else, so a picker shows it with a note, not an error.
+    dev_only: bool = False
 
 
 # --- integrations ------------------------------------------------------------
@@ -912,6 +918,18 @@ class RelayMessageIn(BaseModel):
     # No author field, deliberately: authorship comes from the token.
     body: str = Field(min_length=1, max_length=8000)
     reply_to: str | None = None
+
+
+RELAY_NOTIFY_MAX = 2000
+
+
+class RelayNotifyIn(BaseModel):
+    """A system row from something that is not a participant (docs/design/25):
+    an app key announcing what it recorded. `channel` is a name, `#name` or an
+    id; the text is flattened to one line and mentions in it summon nobody."""
+    model_config = ConfigDict(extra="forbid")
+    channel: str = Field(min_length=1, max_length=200)
+    text: str = Field(min_length=1, max_length=RELAY_NOTIFY_MAX)
 
 
 class RelayReactionIn(BaseModel):
@@ -1421,24 +1439,28 @@ class QuotaWindow(BaseModel):
     resets_at: str | None
 
 
-class Quota(BaseModel):
-    """The snapshot, as `quota_store.serialize` produces it — the one shape the
-    REST body, the SSE frame and the `quota.events` payload share."""
+class QuotaReading(BaseModel):
     five_hour: QuotaWindow
     seven_day: QuotaWindow
     status: str | None
     observed_at: str | None
     source: str | None
-    # Whether the observation can still be believed: no row at all, or a window
-    # that has reset since it was taken.
     stale: bool
     age_seconds: int | None
+    probe: str | None = None
+
+
+class Quota(QuotaReading):
+    """The snapshot, as `quota_store.serialize` produces it — the one shape the
+    REST body, the SSE frame and the `quota.events` payload share."""
+    # Whether the observation can still be believed: no row at all, or a window
+    # that has reset since it was taken.
     # Which probe step answered, on the refresh route only: `count_tokens` when
     # the free step carried the headers, `message` when it took a real
     # completion, null when the call was answered from the cache. Anthropic's
     # behaviour here was not observable before implementation, so the platform
     # records what actually happened rather than asserting it.
-    probe: str | None = None
+    codex: QuotaReading | None = None
 
 
 class QuotaOk(BaseModel):
@@ -1449,6 +1471,7 @@ class QuotaOk(BaseModel):
     are the caller's own row when the caller is an agent and the column
     defaults when it is a person."""
     ok: bool
+    provider: str = "claude"
     # Whole percents, rounded half-up as `quota._percent` does, and null when
     # the platform has no reading for that window — in which case `ok` is
     # false and `reason` says so.

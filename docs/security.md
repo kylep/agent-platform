@@ -27,11 +27,20 @@ stealing, and (c) an exfiltration channel.
 
 ## Containment today [LIVE]
 
-- **No shell, ever:** the runner unconditionally denies
-  Bash/Read/Write/Edit/NotebookEdit for every non-self-edit agent
+- **No shell, ever — two exceptions:** the runner unconditionally denies
+  Bash/Read/Write/Edit/NotebookEdit for every ordinary agent
   (`--disallowedTools`, not a default). Declaring them does nothing.
-  Self-edit (platform-coder) runs in an ephemeral clone pod holding no
-  external secrets.
+  Self-edit (platform-coder, `role: coder`) runs in an ephemeral clone pod
+  holding no external secrets — it does hold the repository token, and its
+  prompt is API-authored prose, never attacker-reachable text. Dev runs
+  (`role: dev`, `docs/design/24-coding-agent.md`) run `acceptEdits` on the
+  `runner-dev` image with an anonymous clone and **no repository credential
+  at all**: the pod cannot push, and the branch leaves it only as a bundle
+  the runner POSTs to the API, which re-derives the changed paths in its own
+  clone, runs the path policy (`agentplatform/testpaths.py`: the platform
+  deny list, the agent's `push_path_globs`, `may_delete_tests`), pushes
+  without force and opens the PR — the trifecta is broken by keeping the
+  credential on the API side of one door.
 - **Execution is centralized:** anything executable is platform code —
   the broker's built-in tools, app services, and the git-reviewed custom
   tools (`docs/design/12-executable-capabilities.md`) that run in the
@@ -41,9 +50,18 @@ stealing, and (c) an exfiltration channel.
   key; the claude-proxy injects it per-request from an njs (nginx JavaScript)
   hook that re-reads the secret each time, so rotation is instant and pods
   have nothing to leak.
-- **Default-deny NetworkPolicy:** agent pods have no internet egress; the
-  tool-executor is the single third-party-egress point. The per-component
-  allowlists are **ingress** rules: the API accepts ingress only from
+- **Default-deny NetworkPolicy, with one pre-existing gap:** the
+  tool-executor is the single third-party-egress point for **tools** — a
+  tool's code and its call-time secret reach the outside from there and
+  nowhere else. Runner pods, however, *can* reach any host on port 443: the
+  live `allow-egress-https` rule is port-scoped, not host-scoped, and the
+  earlier claim here that agent pods "have no internet egress" was wrong
+  (found while designing the Workbench, design 24, which relies on that
+  reach for its anonymous clone and does not widen it). What contains it is
+  that a runner pod holds nothing worth exfiltrating — no Anthropic key, no
+  tool secret, no git token. An egress allow-list or proxy for runner pods
+  is listed under Deferred in `docs/design/24-coding-agent.md`. The
+  per-component allowlists are **ingress** rules: the API accepts ingress only from
   web/runner/mcp-broker/mcp-facade, app pods only from web/api, and the
   mcp-facade only from web — so `/mcp` is the only way *in* to the facade.
   In-namespace *egress* is deliberately not partitioned (one chart-wide

@@ -50,8 +50,8 @@ export function Compose({
     <section className="studio-compose" aria-label="Compose">
       {none && (
         <Banner variant="info">
-          No image provider is configured — add a key under{" "}
-          <Link to="/secrets">Settings → Secrets</Link> and the models appear here.
+          Image generation is not connected — add Codex credentials or a provider key under{" "}
+          <Link to="/secrets">Settings → Secrets</Link>.
         </Banner>
       )}
 
@@ -95,12 +95,12 @@ export function Compose({
             </Select>
           </div>
         ) : null}
-        <div className="studio-knob">
+        {chosen?.seeded !== false && <div className="studio-knob">
           <label className="field-label" htmlFor="studio-seed">Seed</label>
           <Input id="studio-seed" type="number" inputMode="numeric" min={0} step={1}
                  value={draft.seed} disabled={pending} placeholder="random"
                  onChange={(e) => onDraft({ seed: e.target.value })} />
-        </div>
+        </div>}
       </div>
 
       <ReferenceStrip references={references} enabled={!!chosen?.edits}
@@ -112,7 +112,9 @@ export function Compose({
       <div className="studio-generate">
         <Button disabled={!ready} onClick={onGenerate}>
           {pending ? `Generating… ${elapsed} s` : "Generate"}
-          {!pending && chosen && <span className="studio-price">· ${chosen.price_usd.toFixed(2)}</span>}
+          {!pending && chosen && <span className="studio-price">
+            · {chosen.billing === "codex" ? "Codex allowance" : `$${chosen.price_usd.toFixed(2)}`}
+          </span>}
         </Button>
         <span className="muted studio-hint">⌘⏎ / Ctrl⏎</span>
       </div>
@@ -120,8 +122,8 @@ export function Compose({
       {stats && (
         <StatRow>
           <Stat label="images this month" value={stats.generated_this_month} />
-          <Stat label="spend this month" value={`$${stats.spend_this_month_usd.toFixed(2)}`} />
-          <Stat label="spend today / cap"
+          <Stat label="API spend this month" value={`$${stats.spend_this_month_usd.toFixed(2)}`} />
+          <Stat label="API spend today / cap"
                 value={`$${stats.spend_today_usd.toFixed(2)} / $${stats.daily_cap_usd.toFixed(2)}`}
                 warn={stats.daily_cap_usd > 0 && stats.spend_today_usd >= stats.daily_cap_usd * 0.9} />
         </StatRow>

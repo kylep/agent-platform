@@ -75,7 +75,8 @@ def _run_probe(probe: ProbeSpec, data: dict[str, str]) -> VerifyResult:
     return VerifyResult("valid" if ok else "invalid", code, detail)
 
 
-def _run_script(info: SecretInfo, data: dict[str, str]) -> VerifyResult:
+def _run_script(info: SecretInfo, data: dict[str, str],
+                api_url: str | None = None) -> VerifyResult:
     script = (info.dir / info.spec.verify.script).resolve()
     root = info.dir.resolve()
     if not script.is_file() or root not in script.parents:
@@ -83,8 +84,14 @@ def _run_script(info: SecretInfo, data: dict[str, str]) -> VerifyResult:
     # Sandbox: a fresh env holding ONLY this secret's data (plus PATH so the
     # interpreter works); -I ignores PYTHONPATH/user-site. The script keeps the
     # backend image's installed packages (it needs e.g. PyJWT) but sees no other
-    # secret, no DB URL, no platform config.
+    # secret, no DB URL, no platform config — with ONE exception, the API's
+    # own base URL (not a secret), for a verify that proves its credential
+    # against the platform's login (qa-web-login). Set last, so a secret
+    # cannot point the check somewhere else by carrying a key of that name.
     env = {"PATH": os.environ.get("PATH", "/usr/local/bin:/usr/bin:/bin"), **data}
+    api_url = api_url or os.environ.get("AP_API_URL", "")
+    if api_url:
+        env["AP_API_URL"] = api_url
     try:
         p = subprocess.run([sys.executable, "-I", str(script)], env=env,
                            capture_output=True, text=True,
@@ -95,12 +102,14 @@ def _run_script(info: SecretInfo, data: dict[str, str]) -> VerifyResult:
     return VerifyResult("valid" if p.returncode == 0 else "invalid", None, detail)
 
 
-async def verify_secret(info: SecretInfo, data: dict[str, str]) -> VerifyResult | None:
+async def verify_secret(info: SecretInfo, data: dict[str, str],
+                        api_url: str | None = None) -> VerifyResult | None:
     """Run the secret's declared verification. None when there is nothing the
-    platform can run (no spec, `verify: run`, or no verify at all)."""
+    platform can run (no spec, `verify: run`, or no verify at all). `api_url`
+    is the platform's in-cluster API base, handed to scripts as AP_API_URL."""
     spec = info.spec
     if spec is None or not spec.verifiable:
         return None
     if spec.verify.probe is not None:
         return await asyncio.to_thread(_run_probe, spec.verify.probe, data)
-    return await asyncio.to_thread(_run_script, info, data)
+    return await asyncio.to_thread(_run_script, info, data, api_url)

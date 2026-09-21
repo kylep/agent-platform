@@ -1,0 +1,71 @@
+name: tcms
+description: >-
+  The test-case management system: what the suites cover, what the last runs
+  said, and where the gaps are. Reads answer in lines (≤ 4 KiB, "showing N of
+  M"). action=cases lists cases (filter by layer, area, status, q; unlinked
+  lists automated cases with no result yet); action=case key=... shows one case
+  with its refs and their last 10 results; coverage_gaps (threshold_pct, 70),
+  runtime_report (runs, 10), flaky (runs, 20) and prune_candidates (runs, 50)
+  are the reports. action=sync_cases loads tcms/cases/*.yaml from the checkout
+  (absent keys retire) and returns counts plus validation errors by file.
+  action=record_results is how a run's results get in, and the ONLY way: it
+  never accepts counts or statuses as arguments. Upload ap-verify's report
+  files (junit XML, Playwright JSON, coverage.xml) with `bin/ap-upload FILE...`
+  and pass the printed artifact ids in `files` (at most 4), with commit_sha
+  (required), branch and verify (the verify.json object); the tool parses the
+  files, links each result to a case by its automation ref, and returns the
+  run id, totals by status and the unlinked count. A file that is not one of
+  those three formats is refused by name and nothing is recorded.
+params:
+  type: object
+  properties:
+    action:
+      type: string
+      enum: [sync_cases, record_results, cases, case, coverage_gaps, runtime_report, flaky, prune_candidates]
+    commit_sha:
+      type: string
+      description: "record_results: the sha the reports were produced on (required)"
+    branch:
+      type: string
+      description: "record_results: the branch name, if any"
+    verify:
+      type: object
+      description: "record_results: ap-verify's verify.json object ({ok, suites: [{name, exit, seconds}]})"
+    key:
+      type: string
+      description: "case: the case key, e.g. relay.mention-summons"
+    layer:
+      type: string
+      enum: [unit, integration, e2e, manual]
+      description: "cases: filter by layer"
+    area:
+      type: string
+      description: "cases: filter by building block (the suite's area)"
+    status:
+      type: string
+      enum: [active, retired]
+      description: "cases: filter by status"
+    unlinked:
+      type: boolean
+      description: "cases: only automated cases no recorded result has ever matched"
+    q:
+      type: string
+      description: "cases: substring of the key or title"
+    limit:
+      type: integer
+      default: 40
+      description: "cases: lines to show (max 200)"
+    threshold_pct:
+      type: number
+      default: 70
+      description: "coverage_gaps: packages under this line coverage are listed"
+    runs:
+      type: integer
+      description: "runtime_report (10) / flaky (20) / prune_candidates (50): how many recent runs to look across"
+  required: [action]
+infra:
+  # The app's provisioned DB secret (docs/design/11, the `prices` pattern):
+  # this tool writes the tcms app's tables directly and the executor envs
+  # APP_DB_* from it. The app owns the DDL; the tool creates nothing.
+  secrets: [app-tcms-db]
+timeout_seconds: 120

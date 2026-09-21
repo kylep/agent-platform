@@ -50,6 +50,7 @@ class AgentSummary:
             quota_7d_max_pct (int | Unset):  Default: 50.
             result_topic (str | Unset):  Default: ''.
             role (str | Unset):  Default: 'operator'.
+            runtime (str | Unset):  Default: 'claude'.
             schedule (str | Unset):  Default: ''.
             secrets (list[str] | Unset):
             skills (list[str] | Unset):
@@ -80,6 +81,7 @@ class AgentSummary:
     quota_7d_max_pct: int | Unset = 50
     result_topic: str | Unset = ""
     role: str | Unset = "operator"
+    runtime: str | Unset = "claude"
     schedule: str | Unset = ""
     secrets: list[str] | Unset = UNSET
     skills: list[str] | Unset = UNSET
@@ -153,6 +155,8 @@ class AgentSummary:
 
         role = self.role
 
+        runtime = self.runtime
+
         schedule = self.schedule
 
         secrets: list[str] | Unset = UNSET
@@ -221,6 +225,8 @@ class AgentSummary:
             field_dict["result_topic"] = result_topic
         if role is not UNSET:
             field_dict["role"] = role
+        if runtime is not UNSET:
+            field_dict["runtime"] = runtime
         if schedule is not UNSET:
             field_dict["schedule"] = schedule
         if secrets is not UNSET:
@@ -312,6 +318,8 @@ class AgentSummary:
 
         role = d.pop("role", UNSET)
 
+        runtime = d.pop("runtime", UNSET)
+
         schedule = d.pop("schedule", UNSET)
 
         secrets = cast(list[str], d.pop("secrets", UNSET))
@@ -356,6 +364,7 @@ class AgentSummary:
             quota_7d_max_pct=quota_7d_max_pct,
             result_topic=result_topic,
             role=role,
+            runtime=runtime,
             schedule=schedule,
             secrets=secrets,
             skills=skills,

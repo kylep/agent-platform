@@ -289,11 +289,27 @@ def _dow_parts(terms: list[Term]) -> list[str]:
     return parts
 
 
+def _weekday_span(terms: list[Term]) -> str | None:
+    """"weekdays" for exactly Monday-Friday, "weekends" for exactly Saturday
+    and Sunday, else None. Reads the matched weekday values, so `1-5` and the
+    list `1,2,3,4,5` both count as weekdays, and `0,6`/`6,0`/`6,7` (which all
+    normalize to Sunday+Saturday) all count as weekends."""
+    values = _values(terms)
+    if values == [1, 2, 3, 4, 5]:
+        return "weekdays"
+    if values == [0, 6]:
+        return "weekends"
+    return None
+
+
 def _dow_clause(terms: list[Term]) -> str:
     """The weekday clause when day-of-month is `*` — i.e. when the weekday is
     the only thing narrowing which days run."""
     if _is_all(terms):
         return ""
+    span = _weekday_span(terms)
+    if span is not None:
+        return f", on {span}"
     parts = _dow_parts(terms)
     # "Monday through Friday" is a span and reads as one; "the 2nd Monday" is a
     # thing the run lands *on*; a set of separate days is a list of exceptions
@@ -311,6 +327,10 @@ def _dow_or_clause(terms: list[Term]) -> str:
     day 13, only on Friday" — describes a schedule that fires a handful of
     times a year as one that fires most weeks, which is exactly the sort of
     quiet wrongness a preview exists to prevent."""
+    span = _weekday_span(terms)
+    if span is not None:
+        # "weekdays"/"weekends" already reads as a set of days, so no "any".
+        return f" or on {span}"
     parts = _dow_parts(terms)
     # "the 2nd Monday" is already definite; a plain weekday needs "any" or it
     # reads as one particular Friday. When every part is a plain weekday, one

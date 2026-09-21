@@ -55,6 +55,17 @@ jobs:
       - name: Run runner tests
         run: cd services/runner && python -m pytest -q
 
+  codex-proxy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -e 'services/codex-proxy[test]'
+      - run: pytest -q services/codex-proxy/tests
+      - run: docker build -t agent-platform-codex-proxy:test services/codex-proxy
+
   mcp-facade:
     # The external MCP facade (docs/design/17) generates its tools from the
     # API's own OpenAPI document, so its tests need BOTH the backend (to build
@@ -88,6 +99,10 @@ jobs:
         run: |
           pip install -q -r apps/stockmarket/backend/requirements.txt aiosqlite pytest pytest-asyncio
           cd apps/stockmarket/backend && python -m pytest -q
+      - name: tcms app backend tests
+        run: |
+          pip install -q -r apps/tcms/backend/requirements.txt aiosqlite pytest pytest-asyncio
+          cd apps/tcms/backend && python -m pytest -q
 
   tools:
     # Custom platform tools (docs/design/12): executor invariants + every
@@ -128,6 +143,7 @@ jobs:
         run: |
           npm run build -w news-frontend
           npm run build -w stockmarket-frontend
+          npm run build -w tcms-frontend
       - name: Design-system token gate
         # No raw hex outside packages/ui/src/tokens.css — see packages/ui/README.md
         run: cd services/web && npm run check:tokens

@@ -26,6 +26,11 @@ def test_deps_derived_from_manifest_and_skills(skills):
     assert readiness.Dep("nice-to-have", "poster", "present", "optional") in deps
 
 
+def test_codex_runtime_requires_its_oauth_state(skills):
+    deps = readiness.deps_for(Manifest(runtime="codex"), skills)
+    assert deps == [readiness.Dep("codex-credentials", None, "present", "required")]
+
+
 def test_blocking_reason_states_and_severities(skills):
     m = Manifest(skills=["poster"])
     # verified-required: anything but valid blocks, with the exact reason

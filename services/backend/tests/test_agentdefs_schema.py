@@ -23,6 +23,7 @@ async def test_agent_def_defaults_round_trip(sf):
             AgentDef.name == "hello-world"))).scalar_one()
     assert got.name == "hello-world"
     assert got.prompt == "" and got.description == "" and got.model == ""
+    assert got.runtime == "claude"
     assert got.role == "operator" and got.system is False and got.can_invoke is False
     assert got.concurrency == 1 and got.timeout_seconds == 1800
     assert got.result_topic == "" and got.transcript_retention_days is None
@@ -107,11 +108,18 @@ def _model(**over) -> AgentDefModel:
 def test_model_defaults_mirror_the_row():
     m = _model()
     assert m.prompt == "" and m.role == "operator" and m.concurrency == 1
+    assert m.runtime == "claude"
     assert m.timeout_seconds == 1800 and m.enabled is True
     assert m.transcript_retention_days is None
     assert m.harness_tools == [] and m.platform_tools == []
     assert m.entrypoints.crons == [] and m.entrypoints.webhooks == []
     assert m.entrypoints.topics == []
+
+
+def test_runtime_is_closed_to_the_two_supported_harnesses():
+    assert _model(runtime="codex").runtime == "codex"
+    with pytest.raises(ValidationError, match="runtime"):
+        _model(runtime="other")
 
 
 def test_agent_roles_are_a_subset_of_the_auth_roles():
@@ -269,3 +277,17 @@ async def test_workbench_fields_round_trip_through_the_row(sf):
         got = await s.get(AgentDef, "plain")
     assert got.push_path_globs == [] and got.may_delete_tests is False
     assert (got.quota_5h_max_pct, got.quota_7d_max_pct) == (80, 50)
+
+
+def test_the_playwright_grant_validates_as_a_harness_tool():
+    """docs/design/25: HARNESS_TOOLS follows CLAUDE_TOOLS, so the QA row's
+    `harness_tools: [Glob, Grep, PlaywrightMCP]` is a valid definition — the
+    grant is checked by name like any other harness tool, and the MCP tool
+    names it stands for (`mcp__playwright__*`) are the runner's business, not
+    a grant anyone can hold."""
+    from agentplatform.agentdefs import HARNESS_TOOLS, validate_def
+    assert "PlaywrightMCP" in HARNESS_TOOLS
+    m = _model(harness_tools=["Glob", "Grep", "PlaywrightMCP"])
+    assert validate_def(m, **REGISTRIES) == []
+    m = _model(harness_tools=["mcp__playwright__*"])
+    assert validate_def(m, **REGISTRIES) == ["unknown harness tool: 'mcp__playwright__*'"]

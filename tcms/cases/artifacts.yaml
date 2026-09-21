@@ -1,0 +1,146 @@
+suite: artifacts
+area: artifacts
+cases:
+  - key: artifacts.bytes-decide-the-type
+    title: The claimed mime never wins over the bytes, and text is kept only when the bytes are UTF-8
+    layer: integration
+    priority: p0
+    steps: [upload HTML claiming image/png, an SVG, a PNG claiming text, and binary claiming text/plain]
+    expected: the stored kind follows the bytes, HTML and SVG are served as attachments with nosniff, only real UTF-8 keeps a text mime
+    automation:
+      - pytest:services/backend/tests/test_artifact_store.py::test_the_claimed_mime_never_wins_over_the_bytes
+      - pytest:services/backend/tests/test_artifact_store.py::test_a_text_mime_is_kept_only_when_the_bytes_are_utf8
+      - pytest:services/backend/tests/test_artifacts_api.py::test_html_claiming_png_and_svg_are_served_as_attachments
+    tags: [store, security]
+
+  - key: artifacts.size-caps
+    title: Size, total and decompression-bomb caps refuse an upload before it is decoded
+    layer: integration
+    priority: p0
+    steps: [upload past the per-file cap, past the total cap, a PNG claiming 80 megapixels, a chunked body past the bound]
+    expected: 413 each time, the bomb is refused from its header not by decoding, a Content-Length past the bound is refused unparsed
+    automation:
+      - pytest:services/backend/tests/test_artifact_store.py::test_a_claimed_80mp_png_is_a_413_not_a_decode
+      - pytest:services/backend/tests/test_artifacts_api.py::test_size_total_and_bomb_caps
+      - pytest:services/backend/tests/test_artifacts_api.py::test_a_content_length_past_the_bound_is_refused_unparsed
+      - pytest:services/backend/tests/test_artifacts_api.py::test_a_chunked_body_past_the_bound_is_refused
+    tags: [api, caps]
+
+  - key: artifacts.owner-from-the-token
+    title: The body never names the owner; an agent writes as itself from its run and only owner, editor or admin may patch or delete
+    layer: integration
+    priority: p1
+    steps: [upload with an owner field in the body, upload from an agent run, patch and delete as a stranger]
+    expected: the owner comes from the token, the agent's artifact is the agent's, the stranger gets 403 on patch and delete
+    automation:
+      - pytest:services/backend/tests/test_artifacts_api.py::test_the_body_never_names_the_owner
+      - pytest:services/backend/tests/test_artifacts_api.py::test_an_agent_writes_as_itself_from_its_run
+      - pytest:services/backend/tests/test_artifacts_api.py::test_delete_is_owner_editor_or_admin
+      - pytest:services/backend/tests/test_artifacts_api.py::test_patch_is_owner_editor_or_admin
+    tags: [api, rbac]
+
+  - key: artifacts.soft-delete
+    title: Deleting hides the row and the bytes but keeps the record, and the list never loads blobs
+    layer: integration
+    priority: p2
+    steps: [delete an artifact, list and fetch it, list a page of images]
+    expected: 404 on the content, the record survives for provenance, a listing query touches no blob column
+    automation:
+      - pytest:services/backend/tests/test_artifact_store.py::test_soft_delete_hides_the_row_and_the_bytes_but_keeps_the_record
+      - pytest:services/backend/tests/test_artifact_store.py::test_list_filters_and_pages_without_loading_blobs
+      - pytest:services/backend/tests/test_artifact_store.py::test_view_never_carries_bytes
+    tags: [store]
+
+  - key: artifacts.generate-budgets
+    title: Image generation holds a reservation so a concurrent call cannot slip under the daily cap, and the hourly budget is a 429
+    layer: integration
+    priority: p1
+    steps: [generate twice concurrently one under the daily cap, generate past an agent's hourly budget, fail a generation]
+    expected: the daily cap is a 402 with one notice a day, the hourly one a 429, a failed generation releases its reservation
+    automation:
+      - pytest:services/backend/tests/test_image_gen.py::test_a_concurrent_generate_cannot_slip_under_the_cap
+      - pytest:services/backend/tests/test_image_gen.py::test_an_agent_over_its_hourly_budget_is_429
+      - pytest:services/backend/tests/test_image_gen.py::test_the_daily_cap_is_402_with_one_notice_a_day
+      - pytest:services/backend/tests/test_image_gen.py::test_a_reservation_is_released_on_failure
+    tags: [api, loop-guards, image-gen]
+
+  - key: artifacts.references-travel-as-files
+    title: A reference image reaches the executor as a file, never as base64 through the model
+    layer: integration
+    priority: p1
+    steps: [generate with two reference artifact ids, one the caller cannot read]
+    expected: readable references arrive as files_in, an unreadable one is 404 before any provider call, rule breaches are 422 before any call
+    automation:
+      - pytest:services/backend/tests/test_image_gen.py::test_references_reach_the_executor_as_files
+      - pytest:services/backend/tests/test_image_gen.py::test_a_reference_the_caller_cannot_read_is_404_before_any_call
+      - pytest:services/backend/tests/test_image_gen.py::test_reference_rules_are_422_before_any_call
+    tags: [api, executor]
+
+  - key: artifacts.tool-save-and-get
+    title: The artifacts tool saves text and bytes, refuses oversize or undecodable base64 before posting, and attaches a thumb on get
+    layer: unit
+    priority: p2
+    steps: [save text, save bytes past the limit, save bad base64, get an image with and without full]
+    expected: saves answer with the card syntax, refusals happen before any POST, get attaches the thumb and falls back from a big original with a note
+    automation:
+      - pytest:services/mcp-broker/test_artifacts_tool.py::test_save_text_posts_json_and_answers_with_the_card
+      - pytest:services/mcp-broker/test_artifacts_tool.py::test_save_refuses_bytes_over_the_limit_before_posting
+      - pytest:services/mcp-broker/test_artifacts_tool.py::test_save_refuses_base64_that_does_not_decode
+      - pytest:services/mcp-broker/test_artifacts_tool.py::test_get_with_full_on_a_big_image_falls_back_to_the_thumb_with_a_note
+    tags: [broker, tool]
+
+  - key: artifacts.image-gen-tool-providers
+    title: The image_gen tool builds the right request per provider and never echoes the key in an error
+    layer: unit
+    priority: p2
+    steps: [generate against the OpenAI, Gemini and BFL stubs, then make each fail]
+    expected: each request matches its provider's shape, error bodies are capped and the key never appears, a redirect with credentials is refused
+    automation:
+      - pytest:tools/image_gen/test_run.py::test_openai_generations_request_and_response
+      - pytest:tools/image_gen/test_run.py::test_gemini_request_uses_header_key_and_inline_reference
+      - pytest:tools/image_gen/test_run.py::test_bfl_flux2_submit_poll_download
+      - pytest:tools/image_gen/test_run.py::test_error_body_is_capped_and_never_echoes_the_key
+      - pytest:tools/image_gen/test_run.py::test_redirects_are_refused_with_credentials
+    tags: [tool, providers]
+
+  - key: artifacts.ui-grid-and-lightbox
+    title: The grid draws images as thumbs and files as glyphs, a filter is a link, and a tile opens the lightbox
+    layer: e2e
+    priority: p2
+    steps: [open /artifacts, filter by kind, click a tile, open /artifacts/<id> directly]
+    expected: thumbs and glyph tiles, the filter in the URL, the same lightbox from a tile and from the deep link
+    automation:
+      - "playwright:services/web/tests/artifacts.spec.ts::the grid draws an image as a thumb and a file as a glyph tile"
+      - "playwright:services/web/tests/artifacts.spec.ts::a filter lives in the URL, so a filtered view is a link"
+      - "playwright:services/web/tests/artifacts.spec.ts::a tile opens the lightbox, and /artifacts/<id> is the same lightbox"
+    tags: [ui]
+
+  - key: artifacts.ui-byte-urls-stay-on-route
+    title: Byte URLs off the artifacts routes are never put in src or href
+    layer: e2e
+    priority: p1
+    steps: [render a room card and the lightbox for an artifact whose fields carry a foreign URL]
+    expected: every src and href points at the artifacts routes, the foreign URL is text
+    automation:
+      - "playwright:services/web/tests/artifacts.spec.ts::byte URLs off the artifacts routes are never put in src or href"
+    tags: [ui, security]
+
+  - key: artifacts.ui-studio-generate
+    title: Studio generates what the form shows, references included, and the result is the hero
+    layer: e2e
+    priority: p2
+    steps: [open /studio, pick a model, drop a reference, generate]
+    expected: the POST carries the form's fields and reference ids, the result fills the stage, a refusal is shown as the server wrote it
+    automation:
+      - "playwright:services/web/tests/studio.spec.ts::generate posts what the form shows, references included, and the result is the hero"
+      - "playwright:services/web/tests/studio.spec.ts::a refusal from the generate route is shown as the server wrote it"
+    tags: [ui, studio]
+
+  - key: artifacts.live-generate-round-trip
+    title: A real generation on the live site lands as an artifact, a card in #art, and a picture on the agent that asked
+    layer: manual
+    priority: p2
+    preconditions: [a provider key is configured, the artist agent is enabled, quota allows a run]
+    steps: ["ask the artist in #art for a small image", open /artifacts and the agent's card]
+    expected: the image renders in the grid with its provenance, one card in #art, Use as agent image puts it on the face
+    tags: [live, image-gen]

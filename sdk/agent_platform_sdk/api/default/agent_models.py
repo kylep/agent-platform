@@ -50,8 +50,7 @@ def sync_detailed(
 ) -> Response[AgentModels]:
     """Agent Models
 
-     Models the UI offers in the model picker. Advisory — the server accepts
-    any model string, so new models work before this list is updated.
+     Runtime-specific model catalogs for the agent editor.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -76,8 +75,7 @@ def sync(
 ) -> AgentModels | None:
     """Agent Models
 
-     Models the UI offers in the model picker. Advisory — the server accepts
-    any model string, so new models work before this list is updated.
+     Runtime-specific model catalogs for the agent editor.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -98,8 +96,7 @@ async def asyncio_detailed(
 ) -> Response[AgentModels]:
     """Agent Models
 
-     Models the UI offers in the model picker. Advisory — the server accepts
-    any model string, so new models work before this list is updated.
+     Runtime-specific model catalogs for the agent editor.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -122,8 +119,7 @@ async def asyncio(
 ) -> AgentModels | None:
     """Agent Models
 
-     Models the UI offers in the model picker. Advisory — the server accepts
-    any model string, so new models work before this list is updated.
+     Runtime-specific model catalogs for the agent editor.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.

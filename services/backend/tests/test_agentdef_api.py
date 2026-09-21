@@ -79,6 +79,42 @@ async def test_ungranted_agent_carries_empty_lists(client, sf, seed_agent):
     assert body["description"] == ""
 
 
+async def test_codex_auth_is_run_scoped_and_refreshable(
+        client, sf, seed_agent, secret_store):
+    await seed_agent("codexer", runtime="codex")
+    await secret_store.set("codex-credentials", {"auth.json": '{"tokens":{"a":1}}'})
+    rid = await _run(sf, "codexer")
+    tok = await _session_key(sf, rid, "codexer")
+    headers = _auth(tok)
+    got = await client.get(f"/api/runs/{rid}/codex-auth", headers=headers)
+    assert got.status_code == 200
+    first = got.json()
+    assert first["auth_json"] == '{"tokens":{"a":1}}' and len(first["sha256"]) == 64
+    updated = '{"tokens":{"a":2}}'
+    put = await client.put(f"/api/runs/{rid}/codex-auth", headers=headers,
+                           json={"auth_json": updated, "sha256": first["sha256"]})
+    assert put.status_code == 200
+    assert await secret_store.get("codex-credentials") == {"auth.json": updated}
+    stale = await client.put(f"/api/runs/{rid}/codex-auth", headers=headers,
+                             json={"auth_json": '{"tokens":{}}',
+                                   "sha256": first["sha256"]})
+    assert stale.status_code == 409
+
+
+async def test_brokered_codex_run_cannot_download_oauth(
+        client, sf, seed_agent, secret_store):
+    await seed_agent("codexer", runtime="codex")
+    await secret_store.set("codex-credentials", {"auth.json": '{"secret":"value"}'})
+    rid = await _run(sf, "codexer")
+    tok = await _session_key(sf, rid, "codexer")
+    client._transport.app.state.settings.codex_proxy_url = "http://codex-proxy:8000"
+    headers = _auth(tok)
+    assert (await client.get(f"/api/runs/{rid}/codex-auth", headers=headers)).status_code == 404
+    assert (await client.put(f"/api/runs/{rid}/codex-auth", headers=headers,
+                             json={"auth_json": "{}", "sha256": ""})).status_code == 404
+    assert await secret_store.get("codex-credentials") == {"auth.json": '{"secret":"value"}'}
+
+
 async def test_another_runs_token_is_forbidden(client, sf):
     run_a = await _run(sf)
     run_b = await _run(sf)

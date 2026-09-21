@@ -108,3 +108,31 @@ def test_scan_clamps_the_manifest_timeout(tools_root, raw, clamped):
     must not let a bad number become a near-infinite forward timeout."""
     _tool(tools_root, "stocks", f"timeout_seconds: {raw}\n")
     assert broker._scan_custom_tools()["stocks"]["timeout_seconds"] == clamped
+
+
+def test_scan_skips_a_manifest_that_declares_files(tools_root):
+    """`files` is reserved (docs/design/25): the broker resolves it into
+    `files_in` and the executor never sees it, so a manifest describing it is
+    invalid — the registry says so in the UI; here it is simply not a tool."""
+    _tool(tools_root, "stocks")
+    _tool(tools_root, "tcms_bad",
+          "params: {type: object, properties: {files: {type: array}}}\n")
+    assert set(broker._scan_custom_tools()) == {"stocks"}
+
+
+def test_every_custom_tool_advertises_the_files_argument(tools_root, monkeypatch):
+    """The model learns `files` from the schema, not from a description: the
+    broker adds it to what it registers, beside the manifest's own params."""
+    _tool(tools_root, "stocks", "params: {type: object, properties: {symbol: {type: string}}}\n")
+    added = []
+    monkeypatch.setattr(broker.mcp, "add_tool", added.append)
+    monkeypatch.setattr(broker, "_registered", {})
+    broker.refresh_custom_tools()
+    props = added[0].parameters["properties"]
+    assert props["symbol"] == {"type": "string"}
+    assert props["files"]["type"] == "array"
+    assert props["files"]["items"] == {"type": "string", "pattern": "^[0-9a-f]{32}$"}
+    assert props["files"]["maxItems"] == 4
+    assert "ap-upload" in props["files"]["description"]
+    # The scan's own dict is not what was mutated.
+    assert "files" not in broker._scan_custom_tools()["stocks"]["params"]["properties"]

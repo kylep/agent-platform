@@ -1,0 +1,176 @@
+suite: workbench
+area: workbench
+cases:
+  - key: workbench.deny-list-is-the-design
+    title: The publish deny list is exactly the design's and it wins over every grant
+    layer: unit
+    priority: p0
+    steps: [publish a change under .github/, to bin/ap-verify, and to a renamed-away test path with wide push_path_globs]
+    expected: every one is refused by name; the deny list is checked before the fence and covers the old side of a rename; the verifier cannot be changed by what it verifies
+    automation:
+      - pytest:services/backend/tests/test_testpaths.py::test_publish_deny_globs_are_the_design_list
+      - pytest:services/backend/tests/test_testpaths.py::test_deny_list_wins_over_everything
+      - pytest:services/backend/tests/test_testpaths.py::test_the_verifier_cannot_be_changed_by_what_it_verifies
+      - pytest:services/backend/tests/test_testpaths.py::test_deny_list_covers_the_old_side_of_a_rename
+    tags: [policy, security]
+
+  - key: workbench.path-fence
+    title: Non-empty push_path_globs refuse the first path that misses and allow when every path matches
+    layer: unit
+    priority: p0
+    steps: [publish paths inside the globs, then one outside, then an unsafe path and a bad glob]
+    expected: allowed only when every path matches one glob, the first miss is named, an unsafe path is refused before the deny list, a bad glob is a refusal not a crash
+    automation:
+      - pytest:services/backend/tests/test_testpaths.py::test_non_empty_globs_refuse_the_first_miss_by_name
+      - pytest:services/backend/tests/test_testpaths.py::test_non_empty_globs_allow_when_every_path_matches_one
+      - pytest:services/backend/tests/test_testpaths.py::test_unsafe_path_beats_the_deny_list_in_order
+      - pytest:services/backend/tests/test_testpaths.py::test_bad_push_path_glob_is_a_refusal_not_a_crash
+    tags: [policy]
+
+  - key: workbench.deleted-tests-need-the-flag
+    title: Deleting or renaming away a test is refused without the flag and flagged with it
+    layer: unit
+    priority: p1
+    steps: [delete a test file, rename one out of the test paths, shrink a test by net lines; repeat with the flag]
+    expected: without the flag the deletion is refused, with it the publish goes through and still reports the removal; net-negative test lines are flagged not refused
+    automation:
+      - pytest:services/backend/tests/test_testpaths.py::test_deleted_test_refused_without_the_flag
+      - pytest:services/backend/tests/test_testpaths.py::test_deleted_test_allowed_with_the_flag_and_still_flagged
+      - pytest:services/backend/tests/test_testpaths.py::test_rename_away_from_a_test_path_counts_as_removed
+      - pytest:services/backend/tests/test_testpaths.py::test_net_negative_test_lines_are_flagged_not_refused
+    tags: [policy, tests]
+
+  - key: workbench.publish-opens-pr
+    title: A publish opens the PR, moves the ticket, posts the card and the envelope, and a second publish updates the same PR
+    layer: integration
+    priority: p0
+    preconditions: [a dev agent with a run token and the runner's nonce]
+    steps: [publish a bundle from a ticket branch, publish again with new commits, publish the same head a third time]
+    expected: one PR opened then updated, the ticket moves to review, one card per publish, the same head twice is idempotent
+    automation:
+      - pytest:services/backend/tests/test_workbench.py::test_publish_opens_a_pr_moves_the_ticket_posts_the_card_and_the_envelope
+      - pytest:services/backend/tests/test_workbench.py::test_a_second_publish_updates_the_open_pr
+      - pytest:services/backend/tests/test_workbench.py::test_the_same_head_twice_is_idempotent
+    tags: [api, git, tickets]
+
+  - key: workbench.publish-needs-nonce-and-dev
+    title: The workbench routes refuse a non-dev agent, another run's token, and a publish without the runner's nonce
+    layer: integration
+    priority: p0
+    steps: [call the workbench routes as a non-dev agent, with a different run's token, and without the nonce header]
+    expected: 403 each time and nothing is pushed
+    automation:
+      - pytest:services/backend/tests/test_workbench.py::test_workbench_routes_refuse_a_non_dev_agent
+      - pytest:services/backend/tests/test_workbench.py::test_workbench_routes_refuse_another_runs_token
+      - pytest:services/backend/tests/test_workbench.py::test_publish_requires_the_runners_nonce
+    tags: [api, rbac]
+
+  - key: workbench.verify-failure-blocks
+    title: A failed or timed-out verify blocks the ticket and names the suite in the PR title
+    layer: integration
+    priority: p1
+    steps: [publish with a verify.json whose backend suite failed, then one that timed out, then one that did not run]
+    expected: the ticket is blocked with the suite named, the title is marked, a verify that did not run is said so rather than read as unknown
+    automation:
+      - pytest:services/backend/tests/test_workbench.py::test_verify_failed_blocks_the_ticket_and_marks_the_title
+      - pytest:services/backend/tests/test_workbench.py::test_a_timed_out_suite_blocks_the_ticket_by_name
+      - pytest:services/backend/tests/test_workbench.py::test_a_verify_that_did_not_run_is_said_so
+    tags: [api, verify]
+
+  - key: workbench.ap-verify-selects-suites
+    title: ap-verify maps changed paths to the CI suites in CI order and a docs-only change runs nothing
+    layer: unit
+    priority: p1
+    steps: [select suites for a tool change, a web change, a mixed change and a docs change; list them all]
+    expected: the tool change also runs the executor, the web steps run in CI order, docs map to nothing, --all is the whole table in order
+    automation:
+      - pytest:services/backend/tests/test_ap_verify.py::test_tool_change_also_runs_executor
+      - pytest:services/backend/tests/test_ap_verify.py::test_web_change_runs_the_web_steps_in_ci_order
+      - pytest:services/backend/tests/test_ap_verify.py::test_docs_map_to_nothing
+      - pytest:services/backend/tests/test_ap_verify.py::test_select_all_returns_whole_table_in_order
+    tags: [verify, cli]
+
+  - key: workbench.ap-verify-outputs
+    title: ap-verify writes junit, coverage and Playwright reports under --out and a timeout is a failure not a skip
+    layer: unit
+    priority: p1
+    steps: [run a passing suite, a failing one and a hung one under a tmp --out]
+    expected: verify.json has the designed shape with files relative to out, the failing suite is ok false with exit and tail, the timeout is a failure
+    automation:
+      - pytest:services/backend/tests/test_ap_verify.py::test_backend_gets_junit_and_cov_only_when_pytest_cov_imports
+      - pytest:services/backend/tests/test_ap_verify.py::test_playwright_reporters_point_into_out
+      - pytest:services/backend/tests/test_ap_verify.py::test_verify_json_shape
+      - pytest:services/backend/tests/test_ap_verify.py::test_timeout_is_a_failure_not_a_skip
+      - pytest:services/backend/tests/test_ap_verify.py::test_script_is_executable_and_stdlib_only
+    tags: [verify, cli]
+
+  - key: workbench.runner-non-dev-never-touches-it
+    title: A non-dev run never prepares or finalizes a workbench and keeps the sensitive-tool denial
+    layer: unit
+    priority: p0
+    steps: [run the runner without AP_WORKSPACE, then as a credential-less agent, then with declared Bash on a non-selfedit run]
+    expected: prepare and finalize are never called, --disallowedTools is present, no agent bypass even with a token, Bash is stripped
+    automation:
+      - pytest:services/runner/test_runner.py::test_non_dev_run_never_touches_the_workbench
+      - pytest:services/runner/test_runner.py::test_permission_args_credential_less_agent_is_least_privilege
+      - pytest:services/runner/test_runner.py::test_permission_args_no_agent_bypass_even_with_token
+      - pytest:services/runner/test_runner.py::test_permission_args_declared_bash_is_stripped_for_non_selfedit
+      - pytest:services/runner/test_runner.py::test_permission_args_dev_case_pinned
+    tags: [runner, security]
+
+  - key: workbench.runner-finalize-bundle
+    title: Finalize checkpoints the branch, posts a fetchable bundle with the nonce as a header only, and refuses a bundle over the cap
+    layer: unit
+    priority: p1
+    steps: [finalize a workbench with commits, one with a clean tree, one whose bundle exceeds the cap]
+    expected: the bundle is posted and fetchable, the nonce travels only as a header, a clean tree publishes nothing, the oversized bundle is refused with a frame
+    automation:
+      - pytest:services/runner/test_workbench.py::test_finalize_checkpoints_and_posts_a_fetchable_bundle
+      - pytest:services/runner/test_workbench.py::test_finalize_posts_the_nonce_as_a_header_only
+      - pytest:services/runner/test_workbench.py::test_finalize_clean_tree_and_no_commits_publishes_nothing
+      - pytest:services/runner/test_workbench.py::test_finalize_refuses_a_bundle_over_the_cap
+    tags: [runner, git]
+
+  - key: workbench.runner-verify-outcomes-travel
+    title: A verify timeout or crash inside finalize is recorded and the publish still posts
+    layer: unit
+    priority: p1
+    steps: [finalize with a verify that times out, one that raises, one with failed suites]
+    expected: the outcome is in the posted verify object, the publish is still attempted, failed suites travel as recorded
+    automation:
+      - pytest:services/runner/test_workbench.py::test_finalize_verify_timeout_is_recorded_and_still_posts
+      - pytest:services/runner/test_workbench.py::test_finalize_verify_crash_is_recorded_and_still_posts
+      - pytest:services/runner/test_workbench.py::test_finalize_failed_suites_travel_as_recorded
+    tags: [runner, verify]
+
+  - key: workbench.ui-editor-and-changes
+    title: The agent editor shows the four workbench fields, /changes lists both prefixes, and a published frame refreshes the rows
+    layer: e2e
+    priority: p2
+    steps: [open an agent's editor, save the workbench fields, open /changes, push a published frame]
+    expected: the PUT carries the four fields, both branch prefixes list with ticket chip and face, the rows refresh without a reload
+    automation:
+      - "playwright:services/web/tests/workbench.spec.ts::the editor shows the four workbench fields and saves them"
+      - "playwright:services/web/tests/workbench.spec.ts::/changes lists both prefixes with the ticket chip, the face and auto-merge"
+      - "playwright:services/web/tests/workbench.spec.ts::a published frame on the workbench stream refreshes the rows"
+    tags: [ui]
+
+  - key: workbench.ui-run-page-frame
+    title: The run page renders the workbench frame as branch, PR or the refusal, and a publish card in a thread says why it was refused
+    layer: e2e
+    priority: p2
+    steps: [open a run with a published branch, one with a PR, one refused; open the thread with the publish card]
+    expected: each state renders its own row, the refused card carries the reason in plain words
+    automation:
+      - "playwright:services/web/tests/workbench.spec.ts::the run page renders the workbench frame: branch, PR, or the refusal"
+      - "playwright:services/web/tests/workbench.spec.ts::a publish card in a thread is a chip row; a refused one says why"
+    tags: [ui]
+
+  - key: workbench.live-publish-lands-a-pr
+    title: A dev run on the live site publishes a real PR with a green verify and the ticket moves to review
+    layer: manual
+    priority: p1
+    preconditions: [the live site is up, a dev agent with push_path_globs covering a test path, a ticket in its project]
+    steps: [assign the ticket asking for a one-line test comment change, wait for the run, open the PR on GitHub]
+    expected: one PR from the ticket branch, verify green in the PR body, the ticket in review with the card in its thread, no file outside the globs touched
+    tags: [live, git]

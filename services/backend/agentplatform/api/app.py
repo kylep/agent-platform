@@ -14,6 +14,7 @@ from agentplatform.api import artifacts_feed as artifacts_feed_api
 from agentplatform.api import audit as audit_api
 from agentplatform.api import auth
 from agentplatform.api import conversations as conversations_api
+from agentplatform.api import codex_proxy as codex_proxy_api
 from agentplatform.api import cron as cron_api
 from agentplatform.api import dlq as dlq_api
 from agentplatform.api import health as health_api
@@ -40,6 +41,7 @@ from agentplatform.api import wiki as wiki_api
 from agentplatform.api import workbench_feed as workbench_feed_api
 from agentplatform import quota_store
 from agentplatform.db import make_engine, make_session_factory, init_db
+from agentplatform.qaprincipal import ensure_qa_principal
 from agentplatform.relay_feed import RelayFeed
 from agentplatform.secrets import InMemorySecretStore
 
@@ -229,6 +231,11 @@ def create_app(settings, session_factory, producer, secret_store=None, agent_sto
                           quota_grant=settings.quota_default_grant,
                           artifacts_grant=settings.artifacts_default_grant)
             st.session_factory = make_session_factory(engine)
+            # After init_db, and here rather than in it: the `qa` row's
+            # password lives in the secret store, which only the API holds
+            # (docs/design/25). A test that hands create_app a session factory
+            # seeds the row itself, the way it seeds the admin.
+            await ensure_qa_principal(st.session_factory, st.secret_store)
         # The feed only needs a session for presence (a run event names a run,
         # not a room), so it is handed the factory here, once it is real.
         st.feed.session_factory = st.session_factory
@@ -379,6 +386,7 @@ def create_app(settings, session_factory, producer, secret_store=None, agent_sto
     app.include_router(artifacts_api.router)
     app.include_router(audit_api.router)
     app.include_router(conversations_api.router)
+    app.include_router(codex_proxy_api.router)
     app.include_router(cron_api.router)
     app.include_router(dlq_api.router)
     app.include_router(health_api.router)

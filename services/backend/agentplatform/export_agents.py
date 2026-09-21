@@ -47,6 +47,9 @@ REPO_ROOT = Path(__file__).resolve().parents[3]
 # The harness tools the runner ALWAYS denies (`runner._SENSITIVE_TOOLS`), read
 # off the same help table the /help/tools page renders so the two cannot drift.
 SENSITIVE_TOOLS: set[str] = {t["name"] for t in TOOL_HELP if t.get("sensitive")}
+# And the grants only a `role: dev` run can use (docs/design/25): the file era
+# had no such run, so "all tools" never meant them either.
+DEV_ONLY_TOOLS: set[str] = {t["name"] for t in TOOL_HELP if t.get("dev_only")}
 
 # manifest.yaml keys that became columns of the same name.
 MANIFEST_FIELDS: tuple[str, ...] = (
@@ -96,7 +99,7 @@ def split_tools(declared: list[str] | None) -> tuple[list[str], list[str]]:
     row's `harness_tools` is explicit — there is no "unset" to migrate — so the
     choice is between the effective set and something the agent never had."""
     if declared is None:
-        return [t for t in CLAUDE_TOOLS if t not in SENSITIVE_TOOLS], []
+        return [t for t in CLAUDE_TOOLS if t not in SENSITIVE_TOOLS | DEV_ONLY_TOOLS], []
     harness = [t for t in declared if not t.startswith("mcp__")]
     platform = [t for t in declared if t.startswith("mcp__")]
     return harness, platform

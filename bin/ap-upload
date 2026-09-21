@@ -1,0 +1,151 @@
+#!/usr/bin/env python3
+"""ap-upload — save a run's files as platform artifacts, and print their ids.
+
+A file reaches a tool as an ARTIFACT (docs/design/25): the pod uploads it
+here with the run's own identity, then names the printed id in the tool
+call's `files` argument, and the broker fetches it back with that same
+identity. Nothing is base64'd through the model and no path from model text
+is ever opened by a tool. Stdlib only, so it runs in any pod that has
+python3; it reads exactly the identity the runner hands `claude` —
+`AP_API_TOKEN` (a dispatcher-minted key) or `AP_API_TOKEN_FILE` (the
+projected ServiceAccount token, design/13), plus `AP_RUN_TOKEN` when the
+run has one — and never prints it.
+
+    ap-upload /workspace/verify/junit.xml /workspace/verify/playwright.json
+    01ab…                      ← one id per file argument, in order
+    45cd…
+
+Exit 1 on the first refusal, with the API's own words on stderr; the ids
+already printed stand.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import mimetypes
+import os
+import sys
+import urllib.error
+import urllib.request
+import uuid
+from pathlib import Path
+
+ROUTE = "/api/artifacts"
+DEFAULT_TAGS = ["tcms"]
+TIMEOUT = 60
+
+
+class UploadError(Exception):
+    """Something to say on stderr, and no more: the message is built from the
+    file's name and the API's reply, never from the request's headers."""
+
+
+def identity_token() -> str:
+    """This run's platform identity, read as `runner._identity_token` reads it:
+    the inline key first, else the projected token file, else nothing."""
+    tok = os.environ.get("AP_API_TOKEN", "")
+    if tok:
+        return tok
+    path = os.environ.get("AP_API_TOKEN_FILE", "")
+    if path:
+        try:
+            return Path(path).read_text().strip()
+        except OSError:
+            return ""
+    return ""
+
+
+def identity_headers() -> dict[str, str]:
+    token = identity_token()
+    if not token:
+        raise UploadError("no platform identity: set AP_API_TOKEN or AP_API_TOKEN_FILE")
+    headers = {"Authorization": f"Bearer {token}"}
+    # The sender-constrained run JWT (design/13 C): without it the API sees
+    # the workload but not the run, and the artifact would carry no run_id.
+    if os.environ.get("AP_RUN_TOKEN"):
+        headers["X-AP-Run-Token"] = os.environ["AP_RUN_TOKEN"]
+    return headers
+
+
+def multipart(fields: dict[str, str], filename: str, mime: str, data: bytes) -> tuple[bytes, str]:
+    """A multipart/form-data body with the text fields first and the file
+    last, as the artifacts route reads it (`file`, `name`, `tags`)."""
+    boundary = uuid.uuid4().hex
+    quoted = filename.replace("\\", "\\\\").replace('"', '\\"')
+    out = bytearray()
+    for name, value in fields.items():
+        out += (f"--{boundary}\r\nContent-Disposition: form-data; name=\"{name}\"\r\n\r\n"
+                f"{value}\r\n").encode()
+    out += (f"--{boundary}\r\nContent-Disposition: form-data; name=\"file\"; "
+            f"filename=\"{quoted}\"\r\nContent-Type: {mime}\r\n\r\n").encode()
+    out += data + b"\r\n"
+    out += f"--{boundary}--\r\n".encode()
+    return bytes(out), f"multipart/form-data; boundary={boundary}"
+
+
+def api_message(err: urllib.error.HTTPError) -> str:
+    """The API's refusal in its own words: the `detail` when the body is the
+    platform's JSON, else the status line."""
+    try:
+        detail = json.loads(err.read().decode("utf-8", "replace")).get("detail")
+    except (ValueError, AttributeError, OSError):
+        detail = None
+    if isinstance(detail, list):
+        detail = "; ".join(str(e.get("msg", e)) if isinstance(e, dict) else str(e) for e in detail)
+    return str(detail) if detail else f"HTTP {err.code} {err.reason}"
+
+
+def upload(path: Path, tags: list[str], headers: dict[str, str], api_url: str) -> str:
+    try:
+        data = path.read_bytes()
+    except OSError as e:
+        raise UploadError(f"{path}: {e.strerror or e}")
+    mime = mimetypes.guess_type(path.name)[0] or "application/octet-stream"
+    body, ctype = multipart({"name": path.name, "tags": json.dumps(tags)}, path.name, mime, data)
+    req = urllib.request.Request(api_url + ROUTE, data=body, method="POST",
+                                 headers={**headers, "Content-Type": ctype,
+                                          "Content-Length": str(len(body))})
+    try:
+        with urllib.request.urlopen(req, timeout=TIMEOUT) as r:
+            reply = json.loads(r.read().decode())
+    except urllib.error.HTTPError as e:
+        raise UploadError(f"{path.name}: {api_message(e)}")
+    except urllib.error.URLError as e:
+        raise UploadError(f"{path.name}: {api_url} unreachable ({e.reason})")
+    except (ValueError, OSError) as e:
+        raise UploadError(f"{path.name}: the API's answer was not an artifact ({e})")
+    artifact_id = reply.get("id") if isinstance(reply, dict) else None
+    if not artifact_id:
+        raise UploadError(f"{path.name}: the API's answer carried no artifact id")
+    return str(artifact_id)
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(
+        prog="ap-upload",
+        description="Save files as platform artifacts and print one artifact id per file, "
+                    "in order — the ids a tool call then names in its `files` argument.",
+        epilog="Identity: AP_API_TOKEN, or the token in AP_API_TOKEN_FILE (the run pod's "
+               "projected ServiceAccount token), plus AP_RUN_TOKEN when set; the API is "
+               "AP_API_URL. The token is never printed. Exit 1 on the first refusal, with "
+               "the API's message on stderr.")
+    parser.add_argument("files", nargs="+", metavar="FILE",
+                        help="a file to upload (its basename becomes the artifact's name)")
+    parser.add_argument("--tag", action="append", metavar="TAG",
+                        help="a tag for every artifact (repeatable; default: tcms)")
+    args = parser.parse_args(argv)
+    tags = args.tag or list(DEFAULT_TAGS)
+    api_url = os.environ.get("AP_API_URL", "http://agent-platform-api:8000").rstrip("/")
+    try:
+        headers = identity_headers()
+        for name in args.files:
+            print(upload(Path(name), tags, headers, api_url), flush=True)
+    except UploadError as e:
+        print(f"ap-upload: {e}", file=sys.stderr)
+        return 1
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

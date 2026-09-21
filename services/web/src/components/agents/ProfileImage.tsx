@@ -248,7 +248,7 @@ function GenerateDialog({ name, description, applying, onUse, onCancel }: {
       {error && <Banner variant="danger">{error}</Banner>}
       {none && (
         <Banner variant="info">
-          No image provider is configured — add a key under{" "}
+          Image generation is not connected — add Codex credentials or a provider key under{" "}
           <Link to="/secrets">Settings → Secrets</Link>.
         </Banner>
       )}
@@ -257,7 +257,7 @@ function GenerateDialog({ name, description, applying, onUse, onCancel }: {
           <div className="profile-image-shimmer" aria-hidden="true" />
           <p className="muted">
             Generating… {elapsed} s. A portrait can take a minute or two, and once started it
-            is painted (and billed) whether or not you wait — it lands in Artifacts and #art.
+            keeps painting whether or not you wait — it lands in Artifacts and #art.
           </p>
         </div>
       )}

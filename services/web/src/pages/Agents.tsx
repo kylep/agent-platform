@@ -58,7 +58,7 @@ function AgentTable({ agents, jobs }: { agents: AgentSummary[]; jobs: Map<string
   return (
     <Table>
       <thead>
-        <tr><TH>Name</TH><TH>Description</TH><TH>Schedule</TH><TH>Webhook</TH><TH>Status</TH></tr>
+        <tr><TH>Name</TH><TH>Description</TH><TH>Model</TH><TH>Schedule</TH><TH>Webhook</TH><TH>Status</TH></tr>
       </thead>
       <tbody>
         {agents.map((a) => {
@@ -68,6 +68,11 @@ function AgentTable({ agents, jobs }: { agents: AgentSummary[]; jobs: Map<string
             <tr key={a.name}>
               <TD><Link to={`/agents/${encodeURIComponent(a.name)}`}>{a.name}</Link></TD>
               <TD className="text-muted"><span className="line-clamp-1" title={a.description}>{a.description}</span></TD>
+              <TD className="text-muted whitespace-nowrap">
+                <code title={`${a.runtime === "codex" ? "OpenAI Codex" : "Claude Code"} runtime`}>
+                  {a.model?.trim() || "platform default"}
+                </code>
+              </TD>
               <TD className="text-muted whitespace-nowrap">
                 {schedule
                   ? <CronCell schedule={schedule} zone={a.entrypoints?.timezone} />
@@ -121,7 +126,7 @@ export default function Agents() {
   const regular = agents.filter((a) => !a.system);
 
   return (
-    <div className="page">
+    <div className="page page-agents">
       <div className="page-header">
         <h1>Agents</h1>
         <div className="row-actions">

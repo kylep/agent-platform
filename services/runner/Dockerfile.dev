@@ -33,7 +33,7 @@ RUN apt-get update \
 # browsers, so it is launched with `--executable-path /opt/chromium/chrome`;
 # the symlink is resolved here because the versioned browser directory name
 # changes with every base tag.
-RUN PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 npm install -g @anthropic-ai/claude-code@2.1.214 @playwright/mcp@0.0.82 \
+RUN PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 npm install -g @anthropic-ai/claude-code@2.1.214 @openai/codex@0.155.1 @playwright/mcp@0.0.82 \
  && npm cache clean --force \
  && mkdir -p /opt/chromium \
  && ln -s "$(ls -d /ms-playwright/chromium-*/chrome-linux*/chrome | head -n 1)" /opt/chromium/chrome \

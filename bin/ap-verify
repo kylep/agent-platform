@@ -29,6 +29,7 @@ import subprocess
 import sys
 import threading
 import time
+import xml.etree.ElementTree as ET
 from collections import deque
 from datetime import datetime, timezone
 from fnmatch import fnmatchcase
@@ -38,6 +39,11 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_BASE = "origin/main"
 DEFAULT_TIMEOUT = 900
 TAIL_LINES = 40
+# A per-suite JUnit file larger than this is not merged: the files come out
+# of the agent's workspace, and a parser of them is a parser of untrusted
+# input (docs/design/25) — bounded, and DTD-free (below).
+JUNIT_MAX_BYTES = 32 * 1024 * 1024
+JUNIT_TOTALS = ("tests", "failures", "errors", "skipped")
 
 # `dependency build` rather than CI's `dependency update`: build fetches what
 # Chart.lock pins and never rewrites the lock, so a mid-run verify cannot leave
@@ -178,6 +184,10 @@ def suite_table(root: Path, out: Path | None = None) -> list[dict]:
     suites.append(_suite("claude-proxy", ["services/claude-proxy/**", "charts/**"], ".",
                          _sh(HELM_DEPS, f"cd services/claude-proxy && {shlex.join(pytest_q)}"),
                          requires=["helm", "docker"]))
+    suites.append(_suite("codex-proxy", ["services/codex-proxy/**", "charts/**"], ".",
+                         pytest_q + ["services/codex-proxy/tests"],
+                         env={**pp, "PYTHONPATH": str(root / "services/codex-proxy")
+                              + ":" + pp["PYTHONPATH"]}))
     return suites
 
 
@@ -348,6 +358,63 @@ def write_report(out: Path, result: dict) -> Path:
     return path
 
 
+# ---------------------------------------------------------------- junit merge
+
+def _junit_suites(path: Path) -> list:
+    """The <testsuite> elements of one per-suite file: pytest wraps its one in
+    <testsuites>, Playwright wraps several, an older tool may emit a bare
+    <testsuite>. A document that carries a DOCTYPE or an ENTITY is refused
+    before it reaches the parser; anything that will not parse is skipped —
+    one line on stderr, never a crash, because the merge runs at the end of
+    the nightly and the per-suite files stand on their own."""
+    try:
+        if path.stat().st_size > JUNIT_MAX_BYTES:
+            raise ValueError(f"over {JUNIT_MAX_BYTES} bytes")
+        text = path.read_text(encoding="utf-8", errors="replace")
+        if "<!DOCTYPE" in text or "<!ENTITY" in text:
+            raise ValueError("carries a DOCTYPE or ENTITY declaration")
+        root = ET.fromstring(text)
+    except (OSError, ValueError, ET.ParseError) as exc:
+        print(f"ap-verify: not merging {path.name}: {exc}", file=sys.stderr)
+        return []
+    if root.tag == "testsuite":
+        return [root]
+    if root.tag == "testsuites":
+        return [s for s in root if s.tag == "testsuite"]
+    print(f"ap-verify: not merging {path.name}: root is <{root.tag}>", file=sys.stderr)
+    return []
+
+
+def merge_junit(files: list, out: Path) -> Path | None:
+    """Every <testsuite> of every JUnit file, in order, under one <testsuites>
+    whose counts are the suites' summed — one document for the TCMS to ingest
+    (`tcms record_results`) in place of one per suite. None, and no file,
+    when there was nothing to merge."""
+    suites = [s for f in files if Path(f).is_file() for s in _junit_suites(Path(f))]
+    if not suites:
+        return None
+    root = ET.Element("testsuites")
+    totals = {k: 0 for k in JUNIT_TOTALS}
+    seconds = 0.0
+    for suite in suites:
+        for key in JUNIT_TOTALS:
+            try:
+                totals[key] += int(suite.get(key) or 0)
+            except ValueError:
+                pass
+        try:
+            seconds += float(suite.get("time") or 0)
+        except ValueError:
+            pass
+        root.append(suite)
+    for key, value in totals.items():
+        root.set(key, str(value))
+    root.set("time", f"{seconds:g}")
+    out = Path(out)
+    ET.ElementTree(root).write(out, encoding="utf-8", xml_declaration=True)
+    return out
+
+
 # ---------------------------------------------------------------- cli
 
 def _print_table(table: list[dict], selected: list[dict], mode: str, skip: set) -> None:
@@ -366,7 +433,8 @@ def main(argv: list[str] | None = None) -> int:
     mode = ap.add_mutually_exclusive_group()
     mode.add_argument("--changed", action="store_true",
                       help="run the suites for paths changed since --base (default)")
-    mode.add_argument("--all", action="store_true", help="run every suite")
+    mode.add_argument("--all", action="store_true",
+                      help="run every suite, and merge the per-suite JUnit files into <out>/junit-all.xml")
     ap.add_argument("--base", default=DEFAULT_BASE, help=f"ref to diff against (default {DEFAULT_BASE})")
     ap.add_argument("--out", default=None, help="report directory (default <repo>/.ap/verify)")
     ap.add_argument("--list", action="store_true", help="print the suite table and what would run; run nothing")
@@ -403,6 +471,13 @@ def main(argv: list[str] | None = None) -> int:
         print("# no suites for these paths")
 
     result = run_suites(selected, root, args.timeout, out=out, echo=print, skip=set(args.skip))
+    if args.all:
+        # The nightly's one JUnit document, beside the per-suite files; a
+        # `--changed` run is partial and nothing should ingest it as a whole.
+        merged = merge_junit([out / f for f in result["files"] if f.startswith("junit-")],
+                             out / "junit-all.xml")
+        if merged is not None:
+            result["files"].append(merged.name)
     result.update({
         "base": args.base, "base_sha": base_sha, "base_error": base_error,
         "head": head, "changed": changed, "python": python_for_suites(),

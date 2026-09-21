@@ -1,0 +1,187 @@
+/* TCMS app composites — design tokens only (no raw hex; the platform gate
+   scans app frontends too). Generic vocabulary comes from @ap/ui. */
+
+@layer base {
+  h1 { font-size: 20px; font-weight: 600; margin: 0 0 12px; }
+  h2 { font-size: 15px; font-weight: 600; margin: 0; }
+  a { color: var(--ds-link); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  a:focus-visible, button:focus-visible {
+    outline: 2px solid var(--ds-accent);
+    outline-offset: 2px;
+  }
+  code, pre { font-family: var(--font-mono, monospace); }
+}
+
+.muted { color: var(--ds-text-muted); }
+.error { color: var(--ds-danger); }
+
+.tc-shell { max-width: 1100px; margin: 0 auto; padding-bottom: 48px; }
+.tc-top {
+  display: flex; align-items: center; gap: 20px; padding: 14px 0; flex-wrap: wrap;
+  border-bottom: 1px solid var(--ds-border); margin-bottom: 20px;
+}
+.tc-brand { font-weight: 700; font-size: 16px; color: var(--ds-text); }
+.tc-brand:hover { text-decoration: none; }
+.tc-tabs { display: flex; gap: 4px; flex-wrap: wrap; }
+.tc-tab {
+  padding: 5px 10px; border-radius: var(--radius-md); font-size: 13px;
+  color: var(--ds-text-muted);
+}
+.tc-tab:hover { color: var(--ds-text); text-decoration: none;
+  background: color-mix(in srgb, var(--ds-text) 5%, transparent); }
+.tc-tab.active { color: var(--ds-accent);
+  background: color-mix(in srgb, var(--ds-accent) 12%, transparent); }
+
+.tc-card {
+  background: var(--ds-surface); border: 1px solid var(--ds-border);
+  border-radius: var(--radius-lg); padding: 16px 18px; margin-bottom: 16px;
+  min-width: 0;
+}
+.tc-card-head {
+  display: flex; align-items: baseline; justify-content: space-between;
+  gap: 12px; margin-bottom: 12px; flex-wrap: wrap;
+}
+.tc-card-head .muted { font-size: 12px; }
+.tc-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; align-items: start; }
+@media (max-width: 820px) { .tc-cols { grid-template-columns: 1fr; } }
+.tc-stack { display: flex; flex-direction: column; min-width: 0; }
+.tc-crumb { margin: 0 0 4px; font-size: 13px; color: var(--ds-text-muted); }
+.tc-h3 { font-size: 12px; font-weight: 600; margin: 12px 0 4px; color: var(--ds-text-subtle);
+  text-transform: uppercase; letter-spacing: .04em; }
+.tc-h3:first-child { margin-top: 0; }
+
+.tc-nowrap { white-space: nowrap; }
+.tc-num { font-variant-numeric: tabular-nums; }
+.tc-sha, .tc-key { font-size: 12px; }
+.tc-branch { font-size: 12px; }
+.tc-chips { display: inline-flex; gap: 4px; flex-wrap: wrap; }
+.tc-verify-ok { color: var(--ds-success); font-weight: 700; }
+.tc-verify-bad { color: var(--ds-danger); font-weight: 700; }
+.tc-up { color: var(--ds-success); }
+.tc-down { color: var(--ds-danger); }
+
+/* --- faces (the console's disc, read from /api/agents) ------------------- */
+.tc-agent { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+.tc-face {
+  display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0;
+  border-radius: 999px; line-height: 1;
+  background: hsl(var(--face-hue) 55% 50% / 0.18);
+  border: 1px solid hsl(var(--face-hue) 55% 55% / 0.45);
+}
+.tc-face img { display: block; width: 100%; height: 100%; object-fit: cover; border-radius: 999px; }
+/* No face on the platform's roster: a neutral disc, never a made-up hue. */
+.tc-face-plain { background: var(--ds-canvas); border-color: var(--ds-border);
+  color: var(--ds-text-muted); font-weight: 600; }
+
+/* --- the pyramid ----------------------------------------------------------- */
+/* Three centred bars: the widest layer fills the card, the others take their
+   share of it. Each layer keeps one chart hue in both themes. */
+.tc-pyramid { display: flex; flex-direction: column; gap: 10px; padding: 8px 0; }
+.tc-pyramid-row { display: flex; flex-direction: column; align-items: center; gap: 4px; }
+.tc-pyramid-bar { height: 34px; border-radius: var(--radius-md); transition: width .2s ease; }
+.tc-pyramid-1 { background: var(--ds-chart-1); }
+.tc-pyramid-2 { background: var(--ds-chart-2); }
+.tc-pyramid-3 { background: var(--ds-chart-3); }
+.tc-pyramid-label { font-size: 12px; color: var(--ds-text-muted); font-variant-numeric: tabular-nums; }
+.tc-pyramid-label b { color: var(--ds-text); }
+.tc-pyramid-empty { margin: 4px 0 0; text-align: center; }
+
+/* --- metrics + sparklines ------------------------------------------------- */
+.tc-metric { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; margin-bottom: 8px; }
+.tc-metric-value {
+  font-size: 30px; font-weight: 700; color: var(--ds-text); line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+.tc-metric-sub { font-size: 12px; }
+.tc-spark { display: block; overflow: visible; }
+.tc-spark-wide { width: 100%; height: 56px; }
+.tc-spark-line { fill: none; stroke: var(--ds-chart-1); stroke-width: 1.5; vector-effect: non-scaling-stroke; }
+.tc-spark-pt { fill: var(--ds-chart-1); opacity: 0.6; }
+.tc-spark-last { fill: var(--ds-accent); }
+
+/* --- runs ------------------------------------------------------------------ */
+.tc-runline { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; font-size: 13px; }
+.tc-suites { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 10px; }
+.tc-group-failing { border-color: color-mix(in srgb, var(--ds-danger) 45%, var(--ds-border)); }
+.tc-results { list-style: none; margin: 0; padding: 0; }
+.tc-result { padding: 6px 0; border-top: 1px solid var(--ds-border); }
+.tc-result:first-child { border-top: 0; }
+.tc-result-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-size: 13px; }
+.tc-result-name { color: var(--ds-text); overflow-wrap: break-word; }
+.tc-case-key { font-size: 12px; margin-left: auto; }
+.tc-result-head .tc-num { font-size: 12px; }
+/* A failure's message, capped: the tail scrolls inside the box, the page
+   keeps its shape however long the traceback. */
+.tc-msg {
+  margin: 6px 0 2px; padding: 8px 10px; font-size: 12px; line-height: 1.45;
+  background: var(--ds-canvas); border: 1px solid var(--ds-border);
+  border-radius: var(--radius-md); color: var(--ds-text-muted);
+  max-height: 220px; overflow: auto; white-space: pre-wrap; overflow-wrap: break-word;
+}
+
+/* --- cases ------------------------------------------------------------------ */
+.tc-filters { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 16px; }
+.tc-filters > input:first-child { flex: 1 1 220px; }
+.tc-filter-area { width: 120px; }
+.tc-check { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; white-space: nowrap; }
+.tc-check input { accent-color: var(--ds-accent); }
+.tc-clear { font-size: 13px; }
+.tc-case-chips { margin-bottom: 16px; }
+/* Tailwind's preflight unlists every ol/ul; steps are numbered on purpose. */
+.tc-list { margin: 0 0 4px; padding-left: 20px; line-height: 1.5; list-style: disc; }
+.tc-steps { list-style: decimal; }
+.tc-list li { margin: 2px 0; }
+.tc-steps li::marker { color: var(--ds-accent); font-weight: 600; }
+.tc-expected { margin: 0; line-height: 1.5; }
+.tc-refs { list-style: none; margin: 0; padding: 0; }
+.tc-refs li { padding: 8px 0; border-top: 1px solid var(--ds-border);
+  display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.tc-refs li:first-child { border-top: 0; padding-top: 0; }
+.tc-ref-name { display: flex; flex-direction: column; min-width: 0; font-size: 13px; }
+.tc-ref-name .muted { font-size: 11px; font-family: var(--font-mono, monospace); overflow-wrap: break-word; }
+.tc-ref-name b { font-weight: 500; color: var(--ds-text); overflow-wrap: break-word; }
+.tc-tickets, .tc-synced { margin: 10px 0 0; font-size: 12px; }
+
+/* One result as a dot; the ten in a row are a ref's recent history, oldest
+   on the left. */
+.tc-dots { display: inline-flex; gap: 4px; align-items: center; }
+.tc-dot { width: 10px; height: 10px; border-radius: 999px; display: inline-block; background: var(--ds-border); }
+.tc-dot-pass { background: var(--ds-success); }
+.tc-dot-fail, .tc-dot-error { background: var(--ds-danger); }
+.tc-dot-flaky { background: var(--ds-warning); }
+.tc-dot-skip { background: var(--ds-text-subtle); }
+.tc-dot-none { background: transparent; border: 1px solid var(--ds-border); }
+
+/* --- health ------------------------------------------------------------------ */
+.tc-bar-cell { min-width: 140px; }
+.tc-durbar { position: relative; height: 18px; border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--ds-chart-1) 12%, transparent); overflow: hidden; }
+.tc-durbar-fill { position: absolute; inset: 0 auto 0 0; background: var(--ds-chart-1); opacity: 0.55; }
+.tc-durbar-text { position: relative; padding: 0 6px; font-size: 12px; line-height: 18px;
+  color: var(--ds-text); font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+/* --- phone widths ------------------------------------------------------------ */
+/* The shell's sidebar is a fixed 200px; on a 390px screen that leaves nothing
+   for the page. Lay the nav across the top as a wrapped strip instead — the
+   console's own rule, restated here because the app renders the same sidebar
+   in its own shell and @ap/ui's flat `.nav` rules would otherwise win. */
+@media (max-width: 560px) {
+  .layout { flex-direction: column; }
+  .layout > .nav {
+    width: auto; padding: 8px 12px;
+    border-right: none; border-bottom: 1px solid var(--ds-border);
+    flex-direction: row; flex-wrap: wrap; align-items: center; gap: 0 2px;
+  }
+  .layout > .nav .nav-brand { width: 100%; padding: 0 0 4px; }
+  .layout > .nav .nav-below-brand { width: 100%; margin: 0; padding: 0 0 6px; }
+  .layout > .nav .nav-group { flex-direction: row; flex-wrap: wrap; align-items: center; }
+  .layout > .nav .nav-link { padding: 5px 7px; font-size: 13px; }
+  .layout > .nav .nav-child { padding-left: 0; }
+  .layout > .nav .nav-foot { width: 100%; margin: 0; padding: 6px 0 0; }
+  .layout > .main { padding: 14px 12px; }
+  .tc-top { gap: 10px; padding: 10px 0; margin-bottom: 14px; }
+  .tc-card { padding: 12px; }
+  .tc-metric-value { font-size: 24px; }
+  .tc-filters > input:first-child { flex-basis: 100%; }
+}

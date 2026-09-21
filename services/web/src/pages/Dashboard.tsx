@@ -238,6 +238,7 @@ export default function Dashboard() {
   }
 
   const claude = secrets.find((s) => s.name === "claude-credentials");
+  const codex = secrets.find((s) => s.name === "codex-credentials");
 
   return (
     <div className="page page-wide">
@@ -250,6 +251,9 @@ export default function Dashboard() {
         </Chip>
         <Chip variant={claude?.status === "valid" ? "ok" : "danger"}>
           claude token: {claude?.status ?? "…"}
+        </Chip>
+        <Chip variant={codex?.status === "valid" ? "ok" : "danger"}>
+          codex token: {codex?.status ?? "…"}
         </Chip>
         <Chip>active runs: {ov?.active ?? "…"}</Chip>
         {(ov?.dlq ?? 0) > 0 && (

@@ -68,6 +68,8 @@ const runDetail = {
 const secrets = [
   { name: "claude-credentials", status: "valid", declared: true, required: true,
     hint: "A `claude setup-token` value.", key: "", probeable: false },
+  { name: "codex-credentials", status: "valid", declared: true, required: true,
+    hint: "Codex ChatGPT OAuth credentials.", key: "", probeable: false },
   { name: "discord-webhook", status: "missing", declared: true, required: false,
     hint: "Discord incoming webhook URL", key: "DISCORD_WEBHOOK_URL", probeable: true },
   { name: "mystery-value", status: "unprobed", declared: false, required: false,
@@ -153,7 +155,14 @@ const reports = [
 // the two faces the block puts on other pages — a card in a room, a picture
 // on an agent. Ids are 32 hex chars, as the API mints them.
 const MINUTE = 60000;
-const at = (minsAgo: number) => new Date(Date.now() - minsAgo * MINUTE).toISOString();
+// The instant every `at(...)` row is measured from. It is read ONCE, when the
+// worker loads this module, so a page rendered later reads the rows as older
+// than they were built — and a minute-rounded "15m ago" turns into "16m" once
+// the suite has been running for half a minute. A test that asserts on a
+// relative time freezes the browser's clock here (`page.clock.setFixedTime`)
+// so the render measures from the same instant the rows were built.
+export const FIXTURE_NOW = Date.now();
+const at = (minsAgo: number) => new Date(FIXTURE_NOW - minsAgo * MINUTE).toISOString();
 const aid = (seed: string) => seed.repeat(32).slice(0, 32);
 
 // A real 1×1 PNG, so every <img> the suite draws off the thumb and content
@@ -1043,7 +1052,13 @@ const FIXTURES: Record<string, unknown> = {
   "/api/agents/health-monitor/versions": versions,
   "/api/agents/health-monitor/versions/1": { ...versions[1], snapshot: def({ name: "health-monitor" }) },
   "/api/agents/health-monitor/versions/2": { ...versions[0], snapshot: healthMonitor },
-  "/api/agent-models": { models: [{ id: "", label: "CLI default" }, { id: "sonnet", label: "Sonnet" }] },
+  "/api/agent-models": {
+    models: [{ id: "", label: "CLI default" }, { id: "sonnet", label: "Sonnet" }],
+    codex_models: [
+      { id: "gpt-6-astra", label: "GPT-6 Astra — most capable" },
+      { id: "gpt-5.6-sol", label: "GPT-5.6 Sol — complex professional work" },
+    ],
+  },
   "/api/runs": runs,
   [`/api/runs/${runs[0].id}`]: runDetail,
   [`/api/runs/${runs[0].id}/transcript`]: [],
@@ -1193,6 +1208,9 @@ const FIXTURES: Record<string, unknown> = {
     { name: "scratch", description: "A declared-but-undeployed app.", icon: "🧩",
       ui: false, api: true, postgres: false, kafka_topics: [], redis: false,
       agent_key_role: null, error: null, ready: null, ready_replicas: 0 },
+    { name: "tcms", description: "Test cases, runs and the platform's own health, as the QA sees them.",
+      icon: "🧪", ui: true, api: true, postgres: true, kafka_topics: ["app.tcms.run.finished"],
+      redis: false, agent_key_role: "operator", error: null, ready: true, ready_replicas: 1 },
   ],
   "/api/metrics/tools": [
     { tool: "stocks", calls: 12, denials: 0, errors: 1, avg_latency_ms: 900.5 },
@@ -1235,6 +1253,10 @@ const FIXTURES: Record<string, unknown> = {
       description: "Search the public web." },
     { name: "TodoWrite", kind: "claude", sensitive: false, display_name: "Todo",
       description: "Keep an internal working task list during a run." },
+    { name: "PlaywrightMCP", kind: "claude", sensitive: false, dev_only: true,
+      display_name: "Playwright browser",
+      description: "A live browser through the Playwright MCP server, locked to the platform's"
+        + " own UI; only a `role: dev` agent can use it, and the runner starts the server." },
     { name: "mcp__platform__query_app", kind: "platform", sensitive: false,
       description: "Call a read-only API endpoint of an installed platform app." },
   ],
@@ -1306,6 +1328,12 @@ function quotaSnapshot(over: Record<string, unknown> = {}) {
     seven_day: { utilization: 0.81, resets_at: at(4.2 * 86400e3) },
     status: "allowed", observed_at: at(-120e3), source: "proxy",
     stale: false, age_seconds: 120, probe: null,
+    codex: {
+      five_hour: { utilization: 0.11, resets_at: at(2.5 * 3600e3) },
+      seven_day: { utilization: 0.95, resets_at: at(5 * 86400e3) },
+      status: "allowed", observed_at: at(-30e3), source: "refresh",
+      stale: false, age_seconds: 30, probe: "usage",
+    },
     ...over,
   };
 }
@@ -1413,6 +1441,20 @@ export async function mockApi(page: Page): Promise<string[]> {
         await route.fulfill({ json: posted });
         return;
       }
+    }
+    // Login names a principal (docs/design/25). One 401 for a bad name and a
+    // bad password alike, as the real route answers; the mock's password is
+    // anything but "wrong", so a spec can pick either outcome.
+    if (path === "/api/login" && route.request().method() === "POST") {
+      const { principal = "admin", password = "" } = route.request().postDataJSON() ?? {};
+      if (!/^[a-z][a-z0-9_-]{0,63}$/.test(principal)) {
+        await route.fulfill({ status: 422, json: { detail: "invalid principal" } });
+      } else if (password === "wrong") {
+        await route.fulfill({ status: 401, json: { detail: "Unauthorized" } });
+      } else {
+        await route.fulfill({ json: { ok: true } });
+      }
+      return;
     }
     if (route.request().method() === "PUT" && path.endsWith("/image")) {
       const row = agentImageWrite(path, route.request().postDataJSON() ?? {});

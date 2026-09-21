@@ -31,7 +31,7 @@ from sqlalchemy.exc import IntegrityError
 from agentplatform.agentdefs import (DEF_FIELDS, AgentDefModel, apply_snapshot,
                                      model_of, next_version, snapshot_of,
                                      validate_def)
-from agentplatform.agentspec import (GRANTABLE_PLATFORM_TOOLS, KNOWN_MODELS,
+from agentplatform.agentspec import (CODEX_MODELS, GRANTABLE_PLATFORM_TOOLS, KNOWN_MODELS,
                                      TOOL_ARTIFACTS, TOOL_IMAGE_GEN, TOOL_QUOTA,
                                      TOOL_RELAY, TOOL_TICKETS, TOOL_WIKI)
 from agentplatform.api.auth import (READ_ROLES, authenticate, require_admin,
@@ -528,9 +528,8 @@ async def get_agent(request: Request, name: str):
 @router.get("/api/agent-models", response_model=AgentModels,
             dependencies=[Depends(require_role(*READ_ROLES))])
 async def agent_models():
-    """Models the UI offers in the model picker. Advisory — the server accepts
-    any model string, so new models work before this list is updated."""
-    return {"models": KNOWN_MODELS}
+    """Runtime-specific model catalogs for the agent editor."""
+    return {"models": KNOWN_MODELS, "codex_models": CODEX_MODELS}
 
 
 # --- write -------------------------------------------------------------------

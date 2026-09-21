@@ -114,6 +114,13 @@ plus its own row-level grants.
   thumb for images) in one table and the bytes in another. Since
   [23](23-artifacts-and-image-studio.md); see
   `docs/building-blocks/artifacts.md`.
+- `agent_defs` also carries the four Workbench fields since
+  [24](24-coding-agent.md): `push_path_globs` and `may_delete_tests` (grant
+  fields — the path policy a dev agent's publish must pass) and
+  `quota_5h_max_pct` / `quota_7d_max_pct` (edit fields — what `quota_ok`
+  measures the agent against). The Workbench keeps no table of its own; the
+  run row gains only a publish-nonce hash. See
+  `docs/building-blocks/workbench.md`.
 
 Run states: `queued → dispatched → running → succeeded | failed |
 timed_out | killed`, plus `rejected` and `dlq`. Guardrails on every run:
@@ -124,7 +131,9 @@ pool.
 ## RBAC and the tiered git write path
 
 Roles: `admin` (Kyle), `operator` (trigger runs, toggle schedules),
-`coder` (operator + git writes; the platform-coder agent), `reader`.
+`coder` (operator + git writes; the platform-coder agent), `dev` (the
+Workbench run profile — a shell and a clone, no API scope of its own;
+[24](24-coding-agent.md)), `reader`.
 The API enforces scopes; the dispatcher re-checks at dispatch time.
 
 Git writes are tiered by the *diff*, not the request — this now applies to
@@ -170,10 +179,13 @@ the secrets the agent's definition earns, a default-deny NetworkPolicy, a non-ro
 securityContext with capabilities dropped, and a **scoped tool allow-list
 derived from the agent's own declaration** — no agent runs with permissions
 bypassed (see [08](08-news-and-injection-hardening.md)). Denied tool calls are
-recorded on the run and surfaced in the UI. The one self-edit exception is
-platform-coder, which gets `acceptEdits` on an ephemeral clone.
-Workspaces are ephemeral `emptyDir`; persistent per-agent workspaces are a
-later opt-in.
+recorded on the run and surfaced in the UI. Two exceptions get `acceptEdits`
+and a shell: platform-coder (self-edit, an ephemeral clone with the
+repository token) and, since [24](24-coding-agent.md), any `role: dev` agent
+on the Workbench — a bigger pod on the `runner-dev` image with an anonymous
+clone and no git credential at all, whose code leaves only through the API's
+publish route. Workspaces are ephemeral `emptyDir`; persistent per-agent
+workspaces are a later opt-in.
 
 **Subscription token (resolved in M01 verification):** sharing the
 laptop's session credentials fails fast — the laptop's own claude rotates
@@ -222,3 +234,4 @@ hardening milestone.
 | [21](21-wiki-shared-knowledge.md) | Wiki — the shared knowledge base (shipped 2026-09-13) | Markdown pages with `[[slug]]` links, full version history and search; every write is a `wiki.events` event and a diff card in `#wiki`; a default-granted `wiki` tool; memories promote into pages; summoned agents get a `<wiki>` block and cite; a seeded `wiki` librarian agent answers `@wiki` |
 | [22](22-quota-usage-bars.md) | Quota — the account's usage windows (built 2026-09-14) | Anthropic reports both rolling windows on every response and the claude-proxy already sees every response: it captures them into a `quota_snapshot` row and a `quota.events` topic, the sidebar draws them as two thin bars under the brand, and a default-granted `get_quota_usage` tool lets an agent ask how much of the shared allowance is left before committing to expensive work — refreshed by the cheapest Claude call that still carries the headers, coalesced platform-wide so the tool cannot become a token drain |
 | [23](23-artifacts-and-image-studio.md) | Artifacts, image generation and the Image Studio (built 2026-09-18, live verification pending) | Files become a block: an artifact is a row plus a blob in Postgres, served with `nosniff` and inline only for raster images, every change an `artifacts.events` event; the tool-executor gains a generic file sink and `internal` tools, and the api becomes its second client; one internal `image_gen` tool ports Kyle's OpenAI/Gemini/BFL generator behind three secret blocks, and `POST /api/artifacts/generate` is the one place a generation happens — per-agent hourly budget, platform-wide daily cap, a card in `#art`; a default-granted `artifacts` tool whose `get` hands the model a picture as an image block; agents wear an image artifact as their face and `/agents` becomes a card grid; the Studio (`/studio`) generates, iterates on a reference, marks up and saves a derived artifact with no agent in the loop; a seeded `artist` agent answers `@artist` with a card |
+| [24](24-coding-agent.md) | The engineer and the Workbench (shipped 2026-09-19, helm rev 62) | A coding agent that runs inside the platform without the trifecta: `role: dev` selects a dev run — a bigger pod on a second runner image (`runner-dev`: Python 3.12, Node 24, Playwright's Chromium, every test dependency) with an unattended shell, an anonymous clone on `coder/<ticket>` and no git credential; the runner, not the model, commits, runs `bin/ap-verify --changed`, bundles the branch and publishes it with a one-shot nonce; the API re-derives the changed paths, runs the path policy (`PUBLISH_DENY_GLOBS`, `push_path_globs`, `may_delete_tests`), pushes without force, opens or updates the PR with the runner's captured verification table, moves the ticket to `review`/`blocked`, posts the card and a `workbench.events` envelope; a `quota_ok` gate; the seeded `engineer` (opus) in `#eng` with the weekday `eng-queue` job; PR #14 was its first green one |

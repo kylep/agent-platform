@@ -37,6 +37,7 @@ git.
 | [Conversations](conversations.md) | Postgres | a Relay DM: threaded chat with one agent |
 | [Memories](memories.md) | Postgres | what agents remember |
 | [Changes](changes.md) | GitHub PRs | how capability changes land |
+| [Workbench](workbench.md) | Postgres (+ Kafka) + GitHub | how dev agents change the code |
 
 Two pages describe the platform rather than a block of it:
 

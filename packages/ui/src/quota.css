@@ -3,6 +3,7 @@
    a snapshot. */
 
 .quota { display: flex; flex-direction: column; gap: 3px; }
+.quota-provider { display: flex; flex-direction: column; gap: 3px; margin-top: 3px; }
 
 .quota-bar {
   position: relative; height: 12px; overflow: hidden;

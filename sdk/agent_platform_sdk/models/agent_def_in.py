@@ -38,6 +38,7 @@ class AgentDefIn:
             quota_7d_max_pct (int | Unset):  Default: 50.
             result_topic (str | Unset):  Default: ''.
             role (str | Unset):  Default: 'operator'.
+            runtime (str | Unset):  Default: 'claude'.
             secrets (list[str] | Unset):
             skills (list[str] | Unset):
             system (bool | Unset):  Default: False.
@@ -61,6 +62,7 @@ class AgentDefIn:
     quota_7d_max_pct: int | Unset = 50
     result_topic: str | Unset = ""
     role: str | Unset = "operator"
+    runtime: str | Unset = "claude"
     secrets: list[str] | Unset = UNSET
     skills: list[str] | Unset = UNSET
     system: bool | Unset = False
@@ -107,6 +109,8 @@ class AgentDefIn:
         result_topic = self.result_topic
 
         role = self.role
+
+        runtime = self.runtime
 
         secrets: list[str] | Unset = UNSET
         if not isinstance(self.secrets, Unset):
@@ -161,6 +165,8 @@ class AgentDefIn:
             field_dict["result_topic"] = result_topic
         if role is not UNSET:
             field_dict["role"] = role
+        if runtime is not UNSET:
+            field_dict["runtime"] = runtime
         if secrets is not UNSET:
             field_dict["secrets"] = secrets
         if skills is not UNSET:
@@ -216,6 +222,8 @@ class AgentDefIn:
 
         role = d.pop("role", UNSET)
 
+        runtime = d.pop("runtime", UNSET)
+
         secrets = cast(list[str], d.pop("secrets", UNSET))
 
         skills = cast(list[str], d.pop("skills", UNSET))
@@ -252,6 +260,7 @@ class AgentDefIn:
             quota_7d_max_pct=quota_7d_max_pct,
             result_topic=result_topic,
             role=role,
+            runtime=runtime,
             secrets=secrets,
             skills=skills,
             system=system,

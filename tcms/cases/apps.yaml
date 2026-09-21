@@ -1,0 +1,121 @@
+suite: apps
+area: apps
+cases:
+  - key: apps.registry-validates
+    title: The app registry parses every shipped app.yaml and refuses a bad postgres identifier
+    layer: integration
+    priority: p1
+    steps: [load the real apps/ tree, then a manifest with a hostile schema name]
+    expected: every shipped app loads, the identifier rules refuse the hostile name, /api/apps lists what is declared
+    automation:
+      - pytest:services/backend/tests/test_apps.py::test_registry_parses_and_validates
+      - pytest:services/backend/tests/test_apps.py::test_pg_ident_rules
+      - pytest:services/backend/tests/test_apps.py::test_apps_endpoint_lists_declared
+    tags: [registry]
+
+  - key: apps.key-minted-once
+    title: An app's key is minted once with a single owner and re-minted only when the secret is lost
+    layer: integration
+    priority: p1
+    steps: [provision an app twice, then delete its secret and provision again]
+    expected: one key row with one owner after two provisions, a fresh key only after the secret is gone
+    automation:
+      - pytest:services/backend/tests/test_apps.py::test_key_minted_once_and_single_owner
+      - pytest:services/backend/tests/test_apps.py::test_key_reminted_when_secret_lost
+    tags: [provisioner, secrets]
+
+  - key: apps.query-app-gate
+    title: query_app forwards scalar params to the app and rejects a traversing path
+    layer: integration
+    priority: p0
+    steps: ["query an app route with params, then a path containing .."]
+    expected: the params reach the app as given, the traversal is refused before any call, the auth check gates the call
+    automation:
+      - pytest:services/backend/tests/test_apps.py::test_query_app_rejects_traversal
+      - pytest:services/backend/tests/test_apps.py::test_query_app_forwards_params
+      - pytest:services/backend/tests/test_apps.py::test_auth_check_gates
+    tags: [api, security]
+
+  - key: apps.news-ingest-gates
+    title: The news app rejects stale, undated and duplicate items and treats garbage as a no-op
+    layer: unit
+    priority: p1
+    steps: [ingest a digest with a stale item, an undated one, a duplicate story and one that is not JSON]
+    expected: only fresh dated new items are stored and tagged, rejections are counted for the footer, garbage stores nothing
+    automation:
+      - pytest:apps/news/backend/test_newsapp.py::test_ingest_rejects_stale_and_undated_items
+      - pytest:apps/news/backend/test_newsapp.py::test_ingest_dedups_and_tags
+      - pytest:apps/news/backend/test_newsapp.py::test_ingest_garbage_is_noop
+      - pytest:apps/news/backend/test_newsapp.py::test_format_post_footer_counts_filtered_items
+    tags: [news, freshness]
+
+  - key: apps.running-sanitizes-and-rolls-up
+    title: The running app clamps and dedupes activities, defangs mentions, and rolls up a dense heatmap and weekly buckets
+    layer: unit
+    priority: p2
+    steps: [clean a payload with absurd distances, duplicates and an @mention; build the heatmap and weekly rollup]
+    expected: bad rows are dropped, mentions are defanged, the heatmap starts on Monday with no gaps, weeks are ISO weeks
+    automation:
+      - pytest:apps/running/backend/test_runningapp.py::test_clean_activities_clamps_and_dedupes
+      - pytest:apps/running/backend/test_runningapp.py::test_sanitize_defangs_mentions
+      - pytest:apps/running/backend/test_runningapp.py::test_heatmap_is_dense_and_starts_on_monday
+      - pytest:apps/running/backend/test_runningapp.py::test_weekly_buckets_by_iso_week
+    tags: [running]
+
+  - key: apps.stockmarket-brief-cleaning
+    title: The stockmarket app keeps the good parts of a brief, drops absurd numbers and unknown tags, and stores one row per session
+    layer: unit
+    priority: p2
+    steps: [ingest a brief with prose around the JSON, an absurd mover, an unknown tag; ingest the same session twice]
+    expected: the fenced JSON parses, the absurd number and unknown tag are dropped not created, one row per session
+    automation:
+      - pytest:apps/stockmarket/backend/test_stockmarketapp.py::test_parse_brief_tolerates_fences_and_prose
+      - pytest:apps/stockmarket/backend/test_stockmarketapp.py::test_absurd_numbers_are_dropped
+      - pytest:apps/stockmarket/backend/test_stockmarketapp.py::test_unknown_tags_are_dropped_not_created
+      - pytest:apps/stockmarket/backend/test_stockmarketapp.py::test_ingest_stores_one_row_per_session
+    tags: [stockmarket]
+
+  - key: apps.reports-sanitize
+    title: A report body is sanitized of scripts, styles and foreign classes but keeps chart SVG without paint URLs
+    layer: integration
+    priority: p1
+    steps: [save a report whose body carries a script tag, an inline style, a foreign class and a chart with a url() fill]
+    expected: script and style are gone, the class is stripped, the chart survives with the paint URL removed, labels are escaped
+    automation:
+      - pytest:services/backend/tests/test_reports.py::test_sanitize_strips_scripts_styles_and_foreign_classes
+      - pytest:services/backend/tests/test_reports.py::test_sanitize_keeps_chart_svg_but_blocks_paint_urls
+      - pytest:services/backend/tests/test_reports.py::test_chart_escapes_labels
+    tags: [reports, security]
+
+  - key: apps.readiness-blocks-dispatch
+    title: An agent whose declared dependency is unmet is blocked at dispatch with a failed run that says why
+    layer: integration
+    priority: p1
+    steps: [dispatch an agent whose skill needs a secret that is invalid, then one whose transient failure recovers on the retry]
+    expected: the blocked dispatch records a failed run with the reason, the listing shows blocked, the transient one runs
+    automation:
+      - pytest:services/backend/tests/test_readiness.py::test_dispatch_blocked_records_failed_run_with_reason
+      - pytest:services/backend/tests/test_readiness.py::test_try_before_block_recovers_transient_failure
+      - pytest:services/backend/tests/test_readiness.py::test_agents_listing_shows_blocked
+    tags: [readiness, dispatch]
+
+  - key: apps.ui-report-viewer-sandboxed
+    title: The report viewer renders the sanitized fragment in a sandboxed frame sized to its content
+    layer: e2e
+    priority: p1
+    steps: [open /reports/daily-news]
+    expected: the fragment is inside an iframe whose sandbox never pairs allow-scripts with allow-same-origin, the frame is sized to the content, the report kit's base rule holds
+    automation:
+      - "playwright:services/web/tests/smoke.spec.ts::report viewer renders the sanitized fragment in a sandboxed frame"
+      - "playwright:services/web/tests/smoke.spec.ts::the report frame is sized to its content, not to a fixed guess"
+      - "playwright:services/web/tests/smoke.spec.ts::the report kit's base rule survives — reports are not serif and full-bleed"
+    tags: [ui, reports, security]
+
+  - key: apps.live-app-frame-renders
+    title: Each enabled app's frontend loads inside the console frame on the live site in both themes
+    layer: manual
+    priority: p2
+    preconditions: [the live site is up with news, running and stockmarket enabled]
+    steps: [open each app from /apps in light and dark theme, resize to 390px]
+    expected: the frame loads with the console's theme, no mixed-content or CSP error in the console, the shell does not break on a phone
+    tags: [live, ui]

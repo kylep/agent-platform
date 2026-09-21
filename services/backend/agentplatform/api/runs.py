@@ -3,6 +3,7 @@ import base64
 import binascii
 import hashlib
 import hmac
+import json
 import logging
 import secrets
 import uuid
@@ -12,8 +13,10 @@ from pydantic import BaseModel, ValidationError
 from sqlalchemy import select, update
 from sqlalchemy.exc import IntegrityError
 from agentplatform import workbench
+from agentplatform import artifact_store, image_gen_service
 from agentplatform.agentdefs import model_of
-from agentplatform.api.artifacts import _bounded_body
+from agentplatform.agentspec import TOOL_ARTIFACTS
+from agentplatform.api.artifacts import ArtifactView, _bounded_body, _rule
 from agentplatform.api.auth import (ANNOTATE_ROLES, INVOKE_ROLES, READ_ROLES,
                                      require_admin, require_role)
 from agentplatform.api.gitedit import _github_app_token
@@ -21,6 +24,7 @@ from agentplatform.db import (ACTIVE_STATES, AgentDef, Conversation, RelaySessio
                               SecretAccess, Ticket, TranscriptEvent, utcnow)
 from agentplatform.events import TOPIC_RUN_REQUESTS
 from agentplatform.github import GitHubClient
+from agentplatform.secrets import CODEX_CREDENTIAL
 from agentplatform.materialize import materialize_run
 
 log = logging.getLogger("runs")
@@ -55,6 +59,18 @@ class RunAgentDef(BaseModel):
     platform_tools: list[str] = []
     skills: list[str] = []
     model: str = ""
+
+class CodexAuth(BaseModel):
+    auth_json: str
+    sha256: str = ""
+
+class CodexThread(BaseModel):
+    thread_id: str
+
+class CodexGeneratedImage(BaseModel):
+    name: str = "codex-image.png"
+    mime: str | None = None
+    content_b64: str
 
 def _summary(r: Run) -> dict:
     return {"id": r.id, "agent": r.agent, "state": r.state, "trigger": r.trigger,
@@ -191,6 +207,63 @@ def _own_run_or_403(request: Request, run_id: str) -> None:
         raise HTTPException(status_code=403, detail="not this run's token")
 
 
+@router.post("/api/runs/{run_id}/generated-images", status_code=201,
+             response_model=ArtifactView,
+             dependencies=[Depends(require_role("session", "admin"))])
+async def keep_codex_generated_image(request: Request, run_id: str,
+                                     body: CodexGeneratedImage):
+    """Ingest a built-in ImageGen file from its own trusted runner.
+
+    The session credential is tied to this run, and the immutable Run prompt
+    carries the Studio's owner/provenance spec. The model never chooses who
+    owns the bytes or whether they count as generated.
+    """
+    _own_run_or_403(request, run_id)
+    st = request.app.state
+    # Reject an oversized base64 string before allocating its decoded form.
+    max_encoded = ((st.settings.artifacts_max_bytes + 2) // 3) * 4 + 16
+    if len(body.content_b64) > max_encoded:
+        raise HTTPException(413, f"an artifact is at most {st.settings.artifacts_max_bytes} bytes")
+    try:
+        data = base64.b64decode(body.content_b64, validate=True)
+    except (binascii.Error, ValueError):
+        raise HTTPException(422, "content_b64 is not valid base64")
+    if artifact_store.sniff(data, body.mime) not in artifact_store.RASTERS:
+        raise HTTPException(422, "generated image is not a supported raster")
+
+    async with st.session_factory() as s:
+        run = await s.get(Run, run_id)
+        if run is None:
+            raise HTTPException(404, "unknown run")
+        if run.runtime != "codex":
+            raise HTTPException(409, "generated-image upload belongs to a Codex run")
+        definition = await s.get(AgentDef, run.agent)
+        grants = set(definition.platform_tools or []) if definition is not None else set()
+        if TOOL_ARTIFACTS not in grants:
+            raise HTTPException(403, "this agent is not granted the artifacts tool")
+
+        spec = image_gen_service.codex_image_spec(run.prompt)
+        if spec is None:
+            raise HTTPException(409, "this run is not a Codex image generation")
+        owner = spec.get("owner") if isinstance(spec.get("owner"), str) else f"agent:{run.agent}"
+        if not (owner.startswith("user:") or owner.startswith("agent:")):
+            owner = f"agent:{run.agent}"
+        prompt = spec.get("prompt") if isinstance(spec.get("prompt"), str) else (run.user_message or run.prompt)
+        refs = spec.get("reference_ids") if isinstance(spec.get("reference_ids"), list) else []
+        tags = spec.get("tags") if isinstance(spec.get("tags"), list) else []
+        try:
+            row = await image_gen_service.keep_codex_image(
+                s, st.producer, st.settings, data=data, filename=body.name,
+                mime=body.mime, owner=owner, run_id=run.id, prompt=prompt,
+                reference_ids=refs, aspect=spec.get("aspect"),
+                name=spec.get("name") or None, tags=tags)
+        except (image_gen_service.ImageGenError,
+                artifact_store.ArtifactRuleError) as e:
+            await s.rollback()
+            raise _rule(e)
+        return artifact_store.artifact_view(row)
+
+
 def _session_key(run: Run) -> dict:
     """A resume blob belongs to (channel, agent), not to the channel: a Relay
     room holds several agents and each keeps its own CLI session
@@ -246,6 +319,95 @@ async def get_agentdef(run_id: str, request: Request):
                        platform_tools=info.platform_tools,
                        skills=list(m.skills) if m else [],
                        model=m.model if m else "")
+
+
+async def _codex_run_or_404(request: Request, run_id: str) -> Run:
+    _own_run_or_403(request, run_id)
+    async with request.app.state.session_factory() as s:
+        run = await s.get(Run, run_id)
+    if run is None:
+        raise HTTPException(404, "unknown run")
+    info = request.app.state.agent_store.get(run.agent)
+    if info is None:
+        await request.app.state.agent_store.reload()
+        info = request.app.state.agent_store.get(run.agent)
+    runtime = run.runtime or (info.manifest.runtime if info and info.manifest else "")
+    if runtime != "codex":
+        raise HTTPException(404, "not a codex run")
+    return run
+
+
+@router.get("/api/runs/{run_id}/codex-auth",
+            dependencies=[Depends(require_role("session", "admin"))])
+async def get_codex_auth(run_id: str, request: Request):
+    """Hand native Codex OAuth state only to the runner that owns this run."""
+    if request.app.state.settings.codex_proxy_url:
+        raise HTTPException(404, "Codex credentials are brokered")
+    await _codex_run_or_404(request, run_id)
+    data = await request.app.state.secret_store.get(CODEX_CREDENTIAL)
+    raw = (data or {}).get("auth.json", "")
+    if not raw:
+        raise HTTPException(404, "codex credentials are not set")
+    try:
+        parsed = json.loads(raw)
+    except json.JSONDecodeError:
+        raise HTTPException(409, "codex auth.json is invalid") from None
+    if not isinstance(parsed, dict):
+        raise HTTPException(409, "codex auth.json is invalid")
+    return {"auth_json": raw, "sha256": hashlib.sha256(raw.encode()).hexdigest()}
+
+
+@router.put("/api/runs/{run_id}/codex-auth",
+            dependencies=[Depends(require_role("session", "admin"))])
+async def put_codex_auth(run_id: str, body: CodexAuth, request: Request):
+    """Persist token refreshes made by Codex, with optimistic concurrency."""
+    if request.app.state.settings.codex_proxy_url:
+        raise HTTPException(404, "Codex credentials are brokered")
+    await _codex_run_or_404(request, run_id)
+    if len(body.auth_json.encode()) > 128 * 1024:
+        raise HTTPException(413, "codex auth.json is too large")
+    try:
+        parsed = json.loads(body.auth_json)
+    except json.JSONDecodeError:
+        raise HTTPException(422, "codex auth.json must be a JSON object") from None
+    if not isinstance(parsed, dict):
+        raise HTTPException(422, "codex auth.json must be a JSON object")
+    current = await request.app.state.secret_store.get(CODEX_CREDENTIAL)
+    current_raw = (current or {}).get("auth.json", "")
+    current_hash = hashlib.sha256(current_raw.encode()).hexdigest()
+    if body.sha256 and current_hash != body.sha256:
+        raise HTTPException(409, "codex credentials changed during the run")
+    await request.app.state.secret_store.set(CODEX_CREDENTIAL,
+                                             {"auth.json": body.auth_json})
+    return {"ok": True}
+
+
+@router.get("/api/runs/{run_id}/codex-session",
+            dependencies=[Depends(require_role("session", "admin"))])
+async def get_codex_session(run_id: str, request: Request):
+    run = await _codex_run_or_404(request, run_id)
+    if not run.conversation_id:
+        raise HTTPException(404, "no conversation")
+    async with request.app.state.session_factory() as s:
+        row = await s.get(RelaySession, _session_key(run))
+    return {"thread_id": row.codex_thread_id if row else ""}
+
+
+@router.put("/api/runs/{run_id}/codex-session",
+            dependencies=[Depends(require_role("session", "admin"))])
+async def put_codex_session(run_id: str, body: CodexThread, request: Request):
+    run = await _codex_run_or_404(request, run_id)
+    if not run.conversation_id:
+        raise HTTPException(404, "no conversation")
+    async with request.app.state.session_factory() as s:
+        key = _session_key(run)
+        row = await s.get(RelaySession, key)
+        if row is None:
+            row = RelaySession(**key)
+            s.add(row)
+        row.codex_thread_id = body.thread_id[:64]
+        await s.commit()
+    return {"ok": True}
 
 
 async def _store_session(s, key: dict, session_id: str, blob: bytes | None) -> None:

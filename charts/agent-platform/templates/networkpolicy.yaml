@@ -33,7 +33,8 @@ spec:
 # api: from web (UI proxy), runner pods (system/memory agents call the API),
 # the mcp-broker (it forwards every brokered tool call here with the caller's
 # own token), the mcp-facade (same, for external clients — design/17), and the
-# claude-proxy (its quota snapshot push — design/22).
+# claude-proxy (its quota snapshot push — design/22), and codex-proxy (OAuth
+# token rotation persistence — design/26).
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -51,7 +52,7 @@ spec:
         - podSelector:
             matchExpressions:
               - {key: app.kubernetes.io/name, operator: In, values: [agent-platform]}
-              - {key: app.kubernetes.io/component, operator: In, values: [web, runner, mcp-broker, mcp-facade, claude-proxy]}
+              - {key: app.kubernetes.io/component, operator: In, values: [web, runner, mcp-broker, mcp-facade, claude-proxy, codex-proxy]}
       ports:
         - port: 8000
           protocol: TCP
@@ -64,6 +65,37 @@ spec:
       ports:
         - port: 8000
           protocol: TCP
+{{- if .Values.codexProxy.enabled }}
+---
+# codex-proxy: Codex runners send model traffic and the API performs the
+# authenticated usage probe.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ .Release.Name }}-allow-codex-proxy
+  labels:
+    {{- include "agent-platform.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: agent-platform
+      app.kubernetes.io/component: codex-proxy
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchExpressions:
+              - {key: app.kubernetes.io/name, operator: In, values: [agent-platform]}
+              - {key: app.kubernetes.io/component, operator: In, values: [api]}
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: agent-platform
+              app.kubernetes.io/component: runner
+              agent-platform/runtime: codex
+      ports:
+        - port: 8000
+          protocol: TCP
+{{- end }}
 ---
 # apps (docs/design/11): only web's nginx reaches an app pod — /apps/<name>/
 # is the sole doorway, so the auth_request session guard can't be bypassed
@@ -310,7 +342,7 @@ spec:
       - {key: app.kubernetes.io/name, operator: In, values: [agent-platform]}
       # tool-executor: the designated third-party-egress point for custom
       # tools (docs/design/12 — Yahoo, Discord, Linear, …).
-      - {key: app.kubernetes.io/component, operator: In, values: [api, dispatcher, runner, agents-sync, connector-discord, claude-proxy, tool-executor]}
+      - {key: app.kubernetes.io/component, operator: In, values: [api, dispatcher, runner, agents-sync, connector-discord, claude-proxy, codex-proxy, tool-executor]}
   policyTypes: [Egress]
   egress:
     - ports:

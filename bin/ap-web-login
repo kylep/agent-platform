@@ -1,0 +1,128 @@
+#!/usr/bin/env python3
+"""ap-web-login — sign the QA's browser in, as a Playwright storage state.
+
+The QA pod holds `QA_WEB_USER` and `QA_WEB_PASSWORD` (the `qa-web-login`
+secret, docs/design/25) and nothing here ever shows them to the model: the
+runner calls this before `claude` starts, it POSTs the credential to
+`$AP_WEB_URL/api/login`, and the `ap_session` cookie the API sets becomes a
+storage-state file — the file the Playwright MCP server and the walk read to
+render every page as the reader-role `qa` principal. Stdlib only, so it runs
+in any pod that has python3.
+
+    ap-web-login --out /workspace/qa/state.json
+    ok
+
+It prints ONE word: `ok`, or what went wrong (`401`, `unreachable`) — never
+the cookie, never the password. Exit 0 on `ok`, 1 on a refusal or a bad
+reply, 2 with no credential in the environment — unless the state file is
+already there, which is the case after the runner's own login, and then the
+job is done and it says `ok`.
+"""
+
+from __future__ import annotations
+
+import argparse
+import http.cookies
+import json
+import os
+import stat
+import sys
+import urllib.error
+import urllib.parse
+import urllib.request
+from pathlib import Path
+
+ROUTE = "/api/login"
+COOKIE = "ap_session"
+DEFAULT_OUT = "/workspace/qa/state.json"
+TIMEOUT = 30
+
+
+def session_cookie(headers) -> str | None:
+    """The `ap_session` value out of the reply's Set-Cookie headers, or None.
+    Each header is one cookie; parsed, not split on `;`, so a value that
+    carries `=` survives."""
+    for raw in headers.get_all("Set-Cookie") or []:
+        jar = http.cookies.SimpleCookie()
+        try:
+            jar.load(raw)
+        except http.cookies.CookieError:
+            continue
+        if COOKIE in jar:
+            return jar[COOKIE].value
+    return None
+
+
+def storage_state(host: str, value: str) -> dict:
+    """Playwright's storage-state shape for the one cookie, scoped to the web
+    host the way the API set it: HttpOnly, SameSite=Lax, the whole site, a
+    session cookie (`expires: -1`), plain http in-cluster."""
+    return {"cookies": [{"name": COOKIE, "value": value, "domain": host, "path": "/",
+                         "expires": -1, "httpOnly": True, "secure": False,
+                         "sameSite": "Lax"}],
+            "origins": []}
+
+
+def write_state(out: Path, state: dict) -> None:
+    """Owner-only from the first byte: the file is a credential."""
+    out.parent.mkdir(parents=True, exist_ok=True)
+    fd = os.open(out, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, stat.S_IRUSR | stat.S_IWUSR)
+    with os.fdopen(fd, "w") as f:
+        json.dump(state, f)
+    os.chmod(out, stat.S_IRUSR | stat.S_IWUSR)
+
+
+def login(url: str, principal: str, password: str) -> tuple[str | None, str]:
+    """(cookie value, status word). The word is what gets printed on failure:
+    the HTTP status, `unreachable`, or the reply's own status when it came
+    back 2xx without the cookie."""
+    body = json.dumps({"principal": principal, "password": password}).encode()
+    req = urllib.request.Request(url.rstrip("/") + ROUTE, data=body, method="POST",
+                                 headers={"Content-Type": "application/json"})
+    try:
+        with urllib.request.urlopen(req, timeout=TIMEOUT) as r:
+            return session_cookie(r.headers), str(r.status)
+    except urllib.error.HTTPError as e:
+        return None, str(e.code)
+    except (urllib.error.URLError, OSError, ValueError):
+        return None, "unreachable"
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(
+        prog="ap-web-login",
+        description="POST the pod's QA credential to the platform's login route and write "
+                    "the session cookie as a Playwright storage-state file.",
+        epilog="The password comes from QA_WEB_PASSWORD only — there is no flag for it. "
+               "Prints `ok` or one status word; exit 0/1, or 2 with no credential.")
+    parser.add_argument("--out", default=DEFAULT_OUT, metavar="FILE",
+                        help=f"the storage-state file to write (default {DEFAULT_OUT})")
+    parser.add_argument("--url", default=os.environ.get("AP_WEB_URL", ""),
+                        help="the web URL to log in to (default $AP_WEB_URL)")
+    parser.add_argument("--user", default=os.environ.get("QA_WEB_USER", ""),
+                        help="the principal to log in as (default $QA_WEB_USER)")
+    args = parser.parse_args(argv)
+    out = Path(args.out)
+    password = os.environ.get("QA_WEB_PASSWORD", "")
+    if not (args.user and password):
+        if out.is_file():
+            print("ok", flush=True)
+            return 0
+        print("ap-web-login: QA_WEB_USER/QA_WEB_PASSWORD not set and no state file at "
+              f"{out}", file=sys.stderr)
+        return 2
+    if not args.url:
+        print("ap-web-login: AP_WEB_URL not set", file=sys.stderr)
+        return 2
+    value, status = login(args.url, args.user, password)
+    if value is None:
+        print(status, flush=True)
+        return 1
+    host = urllib.parse.urlsplit(args.url).hostname or ""
+    write_state(out, storage_state(host, value))
+    print("ok", flush=True)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

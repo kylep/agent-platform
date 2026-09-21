@@ -49,7 +49,7 @@ def tools(spec):
 
 @pytest.fixture(scope="module")
 def admin_tools(spec):
-    """The admin-on surface — KEEP + GATE (122 tools)."""
+    """The admin-on surface — KEEP + GATE (123 tools)."""
     return build_tools(spec, admin_tools=True)
 
 
@@ -97,27 +97,27 @@ def test_setup_state_is_not_caught_by_the_setup_exclusion():
 
 def test_everything_else_is_a_tool(spec, tools):
     """The default surface, by construction: exactly the operations that are
-    not design-17-excluded, not curated out, and not gated. Pinned at 95."""
+    not design-17-excluded, not curated out, and not gated. Pinned at 99."""
     hidden = {(m, p) for m, p in operations(spec) if matches(ALL_RULES, m, p)}
     expected = set(operations(spec)) - hidden
     assert {(t._route.method, t._route.path) for t in tools} == expected
-    assert len(tools) == len(expected) == 95, \
+    assert len(tools) == len(expected) == 99, \
         sorted({(t._route.method, t._route.path) for t in tools})
 
 
 def test_admin_flag_restores_gated(spec, admin_tools):
-    """With AP_MCP_ADMIN_TOOLS on, the gated set returns (122 total) but the
+    """With AP_MCP_ADMIN_TOOLS on, the gated set returns (127 total) but the
     design-17 exclusions and CURATED_OUT never come back."""
     still_hidden = facade.EXCLUDED_PATHS + facade.CURATED_OUT
     hidden = {(m, p) for m, p in operations(spec)
               if matches(still_hidden, m, p)}
     expected = set(operations(spec)) - hidden
     assert {(t._route.method, t._route.path) for t in admin_tools} == expected
-    assert len(admin_tools) == len(expected) == 122, \
+    assert len(admin_tools) == len(expected) == 127, \
         sorted({(t._route.method, t._route.path) for t in admin_tools})
     names = {t.name for t in admin_tools}
     for gated in ("mint_api_key", "put_secret", "delete_agent", "import_agents",
-                  "prune_transcripts", "discard_dlq", "change_password"):
+                  "prune_transcripts", "discard_dlq", "change_password", "relay_notify"):
         assert gated in names, f"{gated} not restored by the flag"
     for curated in ("tool_wizard", "save_report", "setup_state"):
         assert curated not in names, f"{curated} came back with the flag"
@@ -128,7 +128,7 @@ def test_gated_tools_hidden_by_default(tools):
     names = {t.name for t in tools}
     for gated in ("mint_api_key", "revoke_api_key", "put_secret", "delete_agent",
                   "import_agents", "prune_transcripts", "discard_dlq",
-                  "change_password"):
+                  "change_password", "relay_notify"):
         assert gated not in names, f"{gated} leaked into the default surface"
     for kept in ("list_agents", "create_run"):
         assert kept in names, f"{kept} missing from the default surface"

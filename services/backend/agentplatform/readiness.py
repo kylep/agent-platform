@@ -21,7 +21,10 @@ def deps_for(manifest, skill_store) -> list[Dep]:
     """The derived dependency set. Direct manifest secrets are required-present
     (the agent asked for the binding by name; a missing secret means the pod
     silently gets nothing). Skill secrets carry the skill's declared strictness."""
-    deps = [Dep(s, None, "present", "required") for s in manifest.secrets]
+    runtime_secret = "codex-credentials" if manifest.runtime == "codex" else None
+    deps = ([Dep(runtime_secret, None, "present", "required")]
+            if runtime_secret else [])
+    deps += [Dep(s, None, "present", "required") for s in manifest.secrets]
     for skill_name in manifest.skills:
         info = skill_store.get(skill_name)
         if info is None or info.skill is None:

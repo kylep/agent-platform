@@ -59,6 +59,10 @@ class ToolInfra(BaseModel):
         return [s["name"] if isinstance(s, dict) else s for s in (v or [])]
 
 
+# `broker.FILES_ARG`: the one argument name no manifest may claim.
+RESERVED_PARAM = "files"
+
+
 class ToolManifest(BaseModel):
     name: str
     # What the model sees as the MCP tool description — write it for the model.
@@ -102,6 +106,16 @@ class ToolManifest(BaseModel):
     def _params_object_schema(cls, v: dict) -> dict:
         if not isinstance(v, dict) or v.get("type") != "object":
             raise ValueError("params must be a JSON Schema with type: object")
+        # The broker's argument on every custom tool (docs/design/25): artifact
+        # ids it resolves into the executor's `files_in` and strips before the
+        # forward. A manifest describing it would describe an argument the
+        # tool never receives — and its own shape would be the wrong one.
+        props = v.get("properties") if isinstance(v.get("properties"), dict) else {}
+        required = v.get("required") if isinstance(v.get("required"), list) else []
+        if RESERVED_PARAM in props or RESERVED_PARAM in required:
+            raise ValueError(f"params must not declare {RESERVED_PARAM!r}: it is reserved for "
+                             "the artifact ids the broker resolves into files_in "
+                             "(docs/building-blocks/tools.md, \"Files from artifacts\")")
         return v
 
     @field_validator("timeout_seconds")

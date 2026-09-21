@@ -1,0 +1,181 @@
+suite: relay
+area: relay
+cases:
+  - key: relay.human-mention-summons
+    title: A human @mention in an open channel summons each named agent once, at hop 0
+    layer: integration
+    priority: p0
+    preconditions: [the agent is enabled and a member of the room]
+    steps: ["post \"@news hello\" in #general as a human"]
+    expected: exactly one run for news with hop 0 and initiated_by the human; nobody else is woken
+    automation:
+      - pytest:services/backend/tests/test_relay_router.py::test_a_human_mention_invokes_each_agent_at_hop_zero
+      - pytest:services/backend/tests/test_relay_router.py::test_nothing_is_summoned_without_a_mention
+    tags: [router]
+
+  - key: relay.ping-pong-stops
+    title: Two agents mentioning each other stop at the hop cap
+    layer: integration
+    priority: p0
+    preconditions: [cooldown off so the hop counter is the only fence]
+    steps: [ada mentions bob, bob mentions ada, repeat past the cap]
+    expected: runs stop at max hops, the suppression is said once in the thread, a human reply re-arms it
+    automation:
+      - pytest:services/backend/tests/test_relay_router.py::test_a_ping_pong_stops_after_max_hops
+      - pytest:services/backend/tests/test_relay_router.py::test_an_agent_at_the_hop_limit_is_suppressed_and_said_once
+      - pytest:services/backend/tests/test_relay_router.py::test_a_human_in_the_thread_re_arms_the_hop_notice
+    tags: [router, loop-guards]
+
+  - key: relay.budgets-bind
+    title: The per-channel and global hourly budgets suppress summons and say so once an hour
+    layer: integration
+    priority: p0
+    steps: [exhaust a channel's hourly budget with mentions, then a quiet channel's share of the global one]
+    expected: no run is created past the budget, one system line per hour explains it, an hour later the count resets
+    automation:
+      - pytest:services/backend/tests/test_relay_router.py::test_the_channel_budget_suppresses_and_says_so_once_an_hour
+      - pytest:services/backend/tests/test_relay_router.py::test_the_global_budget_binds_a_quiet_channel_too
+      - pytest:services/backend/tests/test_relay_router.py::test_an_old_hour_does_not_count
+    tags: [router, loop-guards]
+
+  - key: relay.busy-agent-coalesces
+    title: Mentions of a busy agent become one pending wake and then one run
+    layer: integration
+    priority: p1
+    steps: [mention an agent that is mid-run three times, let its run finish]
+    expected: one wake row, one follow-up run; a redelivered message or terminal state never wakes twice
+    automation:
+      - pytest:services/backend/tests/test_relay_router.py::test_mentions_of_a_busy_agent_become_one_wake_then_one_run
+      - pytest:services/backend/tests/test_relay_router.py::test_a_redelivered_message_does_not_invoke_twice
+      - pytest:services/backend/tests/test_relay_router.py::test_a_redelivered_terminal_state_wakes_nobody_twice
+    tags: [router, kafka]
+
+  - key: relay.at-all-skips-system
+    title: "@all wakes every agent member except the platform's own agents"
+    layer: integration
+    priority: p1
+    steps: ["a human posts \"@all\" in an open room and in a closed one"]
+    expected: every ordinary agent member is invoked once; system agents are skipped but still answer their own name
+    automation:
+      - pytest:services/backend/tests/test_relay_router.py::test_a_human_at_all_invokes_every_agent_member
+      - pytest:services/backend/tests/test_relay_router.py::test_at_all_skips_the_platforms_own_agents
+      - pytest:services/backend/tests/test_relay_router.py::test_a_system_agent_still_answers_its_own_name
+    tags: [router]
+
+  - key: relay.closed-room-membership
+    title: A closed room is membership-only and a mention cannot reach outside it
+    layer: integration
+    priority: p1
+    steps: [create a closed channel with one agent, mention another agent in it, read it as a non-member agent]
+    expected: the outsider is not summoned, the non-member gets 403 on read and react, a disabled member counts as absent
+    automation:
+      - pytest:services/backend/tests/test_relay_api.py::test_a_closed_channel_is_membership_only
+      - pytest:services/backend/tests/test_relay_api.py::test_a_mention_cannot_reach_outside_a_closed_room
+      - pytest:services/backend/tests/test_relay_api.py::test_a_non_member_agent_cannot_read_or_react
+      - pytest:services/backend/tests/test_relay_api.py::test_a_disabled_member_is_not_a_member
+    tags: [api, rbac]
+
+  - key: relay.token-roles
+    title: Only the relay, annotator and operator token roles reach the Relay routes
+    layer: integration
+    priority: p1
+    steps: [call the channel list with a token of each role]
+    expected: relay/annotator/operator get 200; tools, session and reader tokens are refused; a revoked token is shut out
+    automation:
+      - pytest:services/backend/tests/test_relay_api.py::test_which_agent_token_roles_reach_relay[tools-403]
+      - pytest:services/backend/tests/test_relay_api.py::test_which_agent_token_roles_reach_relay[session-403]
+      - pytest:services/backend/tests/test_relay_api.py::test_a_revoked_token_is_shut_out
+      - pytest:services/backend/tests/test_relay_api.py::test_a_reader_may_look_but_not_speak
+    tags: [api, rbac]
+
+  - key: relay.prompt-escapes-hostile-fields
+    title: The summoning prompt keeps every untrusted string inside the untrusted block, escaped
+    layer: unit
+    priority: p0
+    steps: [build a mention prompt from a room whose names, titles and bodies carry markup and fake tags]
+    expected: the golden prompt matches, the body appears only inside the untrusted block, every hostile field is escaped
+    automation:
+      - pytest:services/backend/tests/test_relay_lib.py::test_build_mention_prompt_is_golden
+      - pytest:services/backend/tests/test_relay_lib.py::test_the_summoning_body_appears_only_inside_the_untrusted_block
+      - pytest:services/backend/tests/test_relay_lib.py::test_prompt_escapes_every_hostile_field
+    tags: [prompt, injection]
+
+  - key: relay.mention-in-code-is-text
+    title: An @name inside a code fence is not a mention
+    layer: unit
+    priority: p2
+    steps: ["parse a message with \"@ada\" inside ``` fences and one outside"]
+    expected: only the one outside the fence is a mention, in first-seen order
+    automation:
+      - pytest:services/backend/tests/test_relay_lib.py::test_room_mention_in_code_is_not_a_mention
+      - pytest:services/backend/tests/test_relay_lib.py::test_room_mention_keeps_first_seen_order_with_agents
+    tags: [parser]
+
+  - key: relay.facade-reply-once
+    title: A DM turn posts the agent's reply exactly once however the run frames race
+    layer: integration
+    priority: p1
+    steps: [start a DM turn, deliver the state and result frames in both orders and twice]
+    expected: one reply row with the real text; a failed run posts one system line; a lost reply is not read as a failure
+    automation:
+      - pytest:services/backend/tests/test_relay_facade.py::test_reply_is_posted_once_however_the_frames_race
+      - pytest:services/backend/tests/test_relay_facade.py::test_state_first_then_result_posts_the_real_text_once
+      - pytest:services/backend/tests/test_relay_facade.py::test_failed_run_posts_a_system_message
+    tags: [facade, kafka]
+
+  - key: relay.tool-post-resolves-name
+    title: The relay tool posts by channel name or id and surfaces the API's refusal in plain words
+    layer: unit
+    priority: p2
+    steps: ["call relay post with channel \"#general\" and again with an unknown name"]
+    expected: the name is resolved with one lookup, an unknown name is an error with no call, an unknown action lists the real ones
+    automation:
+      - pytest:services/mcp-broker/test_relay_tool.py::test_post_resolves_a_name_and_keeps_the_reply
+      - pytest:services/mcp-broker/test_relay_tool.py::test_an_unknown_name_is_an_error_not_a_call
+      - pytest:services/mcp-broker/test_relay_tool.py::test_an_unknown_action_lists_the_real_ones
+    tags: [broker, tool]
+
+  - key: relay.ui-room-reads-oldest-first
+    title: The Relay page lists the rail, reads a room oldest-first and links an agent message to its run
+    layer: e2e
+    priority: p1
+    steps: [open /relay, pick a channel with agent messages]
+    expected: channels and DMs are in the rail, messages read oldest-first with each author named once, an agent message links to the run that wrote it
+    automation:
+      - "playwright:services/web/tests/relay.spec.ts::the rail lists channels and direct messages"
+      - "playwright:services/web/tests/relay.spec.ts::a channel reads oldest-first, with each author named once"
+      - "playwright:services/web/tests/relay.spec.ts::an agent message links to the run that wrote it"
+    tags: [ui]
+
+  - key: relay.ui-thread-beside-room
+    title: A thread opens beside the room, replies stay out of the room, and at 390 it is a sheet
+    layer: e2e
+    priority: p2
+    steps: [open a thread from a root message, reply from the pane, close it; repeat at 390px]
+    expected: the room stays put with the thread beside it, replies are counted on their root, closing clears the URL parameter, on a phone the thread is a sheet with a way back
+    automation:
+      - "playwright:services/web/tests/relay.spec.ts::a thread opens beside the room, not instead of it"
+      - "playwright:services/web/tests/relay.spec.ts::replies stay out of the room and are counted on their root"
+      - "playwright:services/web/tests/relay.spec.ts::closing the thread clears the parameter, and the room stays put"
+      - "playwright:services/web/tests/relay.spec.ts::at 390 the thread is a sheet with a way back"
+    tags: [ui, mobile]
+
+  - key: relay.ui-stream-catches-up
+    title: A dropped SSE stream resumes from its cursor, and an arrival does not yank a reader up in the history
+    layer: e2e
+    priority: p2
+    steps: [scroll up in a busy room while a message arrives, then drop and restore the stream]
+    expected: the reader's scroll position holds, the reconnect replays from the last cursor rather than the top
+    automation:
+      - "playwright:services/web/tests/relay.spec.ts::a dropped stream catches up from the cursor, not from the top"
+      - "playwright:services/web/tests/relay.spec.ts::an arrival does not yank a reader who is up in the history"
+    tags: [ui, sse]
+
+  - key: relay.discord-bridge-round-trip
+    title: A message posted in the bound Discord channel lands in its Relay room and the agent's reply goes back
+    layer: manual
+    priority: p2
+    preconditions: [the Discord bridge is bound to a Relay channel on the live site, the bot is online]
+    steps: ["post \"@news what is new\" in the bound Discord channel", wait for the run to finish]
+    expected: the message appears in the Relay room authored by the external user, the agent's reply appears in Discord under the bot with the thread intact
+    tags: [discord, live]

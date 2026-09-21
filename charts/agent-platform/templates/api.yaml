@@ -48,17 +48,10 @@ spec:
               {{- else }}
               value: "http://agent-platform-tool-executor:8000"
               {{- end }}
-            {{- if and .Values.claudeProxy.enabled .Values.claudeProxy.quota.enabled }}
-            # The claude-proxy's credential for POST /api/internal/quota
-            # (docs/design/22), gated on the same two values as the Secret the
-            # proxy mounts — the two halves of one credential, so neither can be
-            # configured without the other. `required` inside the gate rather
-            # than a default: with quota capture on, an empty value would ship a
-            # usage sidebar that silently never updates. With it off the env is
-            # omitted entirely and the internal route fails closed (503), which
-            # is what the legacy direct-mount deployment wants.
+            {{- if or (and .Values.claudeProxy.enabled .Values.claudeProxy.quota.enabled) .Values.codexProxy.enabled }}
+            # Shared credential for the broker-only internal API routes.
             - name: AP_INTERNAL_SECRET
-              value: {{ required "env.AP_INTERNAL_SECRET is required when claudeProxy.quota.enabled (e.g. --set env.AP_INTERNAL_SECRET=...)" .Values.env.AP_INTERNAL_SECRET | quote }}
+              value: {{ required "env.AP_INTERNAL_SECRET is required when an OAuth/quota broker is enabled (e.g. --set env.AP_INTERNAL_SECRET=...)" .Values.env.AP_INTERNAL_SECRET | quote }}
             {{- end }}
           volumeMounts:
             - name: agent-definitions

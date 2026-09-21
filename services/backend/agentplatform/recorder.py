@@ -15,7 +15,7 @@ from agentplatform.relay import (SYSTEM_AUTHOR, mentionable_in, parse_mentions,
 from agentplatform.relay_store import (enabled_agents, explicit_members,
                                        outbound_for_message, post_relay_message,
                                        publish_relay_message)
-from agentplatform.secrets import CLAUDE_CREDENTIAL
+from agentplatform.secrets import CLAUDE_CREDENTIAL, CODEX_CREDENTIAL
 
 # How much of a run's error a reader needs to know what went wrong. The run
 # page holds the rest.
@@ -32,12 +32,13 @@ class Recorder:
         self.producer = producer
         self.agent_store = agent_store
 
-    async def _probe_credential(self, s, status: str) -> None:
+    async def _probe_credential(self, s, status: str, runtime: str = "claude") -> None:
         """Record the observed validity of the Claude credential. This is the
         token "probe": a run cannot reach `succeeded` without authenticating,
         and the CLI reports auth failures with error=authentication_failed, so
         real run outcomes tell us whether the stored token works."""
-        meta = await s.get(SecretMeta, CLAUDE_CREDENTIAL) or SecretMeta(name=CLAUDE_CREDENTIAL)
+        name = CODEX_CREDENTIAL if runtime == "codex" else CLAUDE_CREDENTIAL
+        meta = await s.get(SecretMeta, name) or SecretMeta(name=name)
         if meta.status != status:
             meta.status = status
             s.add(meta)
@@ -129,7 +130,7 @@ class Recorder:
             # A 401 / authentication_failed frame proves the stored token is
             # bad, regardless of how the run ultimately terminates.
             if value.get("error") == "authentication_failed" or value.get("error_status") == 401:
-                await self._probe_credential(s, "invalid")
+                await self._probe_credential(s, "invalid", value.get("runtime", "claude"))
             await s.commit()
         # Publish outside the DB session (see _handle_state's note).
         await self._publish_reply(posted)
@@ -273,7 +274,7 @@ class Recorder:
                 # A run that reached `succeeded` necessarily authenticated, so
                 # the stored Claude token is known-good.
                 if new_state == RunState.SUCCEEDED:
-                    await self._probe_credential(s, "valid")
+                    await self._probe_credential(s, "valid", value.get("runtime", "claude"))
             posted = None
             if new_terminal and run.conversation_id:
                 # Only publish from here when this consumer actually holds the

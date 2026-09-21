@@ -62,8 +62,9 @@ namespace are invisible to kubelet.
 | Image | Build context | Runs as |
 |---|---|---|
 | `agent-platform-backend` | `services/backend` | `deploy/ap-api`, `deploy/ap-dispatcher`, `deploy/ap-recorder` — **one image, three deployments**; restart all three |
-| `agent-platform-runner` | `services/runner` | no deployment — the dispatcher launches it as a Job per run, so a new image applies to the *next* run with no restart |
+| `agent-platform-runner` | `services/runner` (it copies `workbench.py` too, so a change there means rebuilding both runner images) | no deployment — the dispatcher launches it as a Job per run, so a new image applies to the *next* run with no restart |
 | `agent-platform-runner-dev` | **the repository root** with `-f services/runner/Dockerfile.dev .` (it warms the npm and pip caches from the lockfiles) | no deployment — the dispatcher launches it as the Job for every `role: dev` run (the Workbench, design 24), so a new image applies to the *next* dev run with no restart |
+| `agent-platform-codex-proxy` | `services/codex-proxy` | `deploy/ap-codex-proxy` — owns Codex OAuth, token refresh, and upstream Responses streaming (design 26) |
 | `agent-platform-web` | `services/web`, using `Dockerfile.prebuilt` after `npm run build -w web` | `deploy/ap-web` |
 | `agent-platform-mcp-broker` | `services/mcp-broker` | `deploy/ap-mcp-broker` |
 | `agent-platform-mcp-facade` | `services/mcp-facade` | `deploy/ap-mcp-facade` — **also restart it after every `ap-api` deploy** (see below) |

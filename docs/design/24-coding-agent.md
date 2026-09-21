@@ -1,7 +1,10 @@
 # 24 — The engineer: a coding agent inside the platform (and the Workbench it runs on)
 
-Status: **designed 2026-09-18**, plan at
-`docs/superpowers/plans/2026-09-18-coding-agent.md`. Builds on Tickets
+Status: **shipped 2026-09-19, helm rev 62** (designed 2026-09-18; plan at
+`docs/superpowers/plans/2026-09-18-coding-agent.md`, whose "Live
+verification" holds the evidence — PR #13 and #14 on GitHub are the
+engineer's first two; the "AS BUILT" section at the end lists what deviated
+from the text below and why). Builds on Tickets
 [20](20-tickets-agent-work-tracker.md) (assignment is the summons), Relay
 [19](19-relay-agent-messenger.md) (the thread is the report), the Wiki
 [21](21-wiki-shared-knowledge.md) (durable notes), Quota
@@ -490,20 +493,131 @@ SSE feed. `/runs/<id>`: the `workbench` transcript frame renders as the
 
 ## Deferred (noted, not built)
 
-Moving `platform-coder` and the wizards onto the Workbench (retiring the
-token-in-pod path); a `#eng` intake job that turns a Relay request into a
-ticket automatically; WebFetch for the engineer (docs lookups) behind a
-grant; an egress allow-list or proxy for runner pods (pre-existing gap —
-`docs/security.md`'s "no internet egress" claim is corrected in the docs
-task, not fixed); a private-repo clone credential (read-only deploy key) —
-the repo is public today; PR review comments feeding a follow-up run
-(re-entry on review is a fresh summons in the thread for now); a diff-size
-budget enforced server-side (prompt-only in v1); mutation testing; the
-Playwright a11y sweep as a verify suite on every web change (it is part of
-the web suite already).
+From the design, still open: moving `platform-coder` and the wizards onto
+the Workbench (retiring the token-in-pod path); a `#eng` intake job that
+turns a Relay request into a ticket automatically; WebFetch for the engineer
+(docs lookups) behind a grant; an egress allow-list or proxy for runner pods
+(pre-existing gap — `docs/security.md` and `docs/building-blocks/security.md`
+now say so, corrected in the docs task, not fixed); a private-repo clone
+credential (read-only deploy key) — the repo is public today; PR review
+comments feeding a follow-up run (re-entry on review is a fresh summons in
+the thread for now); a diff-size budget enforced server-side (prompt-only in
+v1); mutation testing; the Playwright a11y sweep as a verify suite on every
+web change (it is part of the web suite already).
+
+Found during the build and the live runs (the plan's "Deferred" is the
+source):
+
+- **A same-state ticket move should be a silent no-op.** After a green
+  verify the publish moves the ticket to `review`; when the agent already
+  did, the card carries `⚠️ ticket not moved: cannot move ENG-5 from review
+  to review`. Cosmetic; `agentplatform/workbench.py::_move` should swallow it.
+- **`bin/ap-verify`'s own `DEFAULT_TIMEOUT` is 900 s.** Finalize passes
+  `--timeout 2400`, so its run is fine, but the engineer's mid-run
+  `bin/ap-verify --changed` still times out on the backend suite (~1 000 s
+  with coverage on the NUC) and the model waits 15 min for nothing. The
+  default should read `AP_VERIFY_TIMEOUT`.
+- **`#standup`'s `@all` reaches the engineer**, by design (not a system
+  agent), and every such wake is a full dev pod — clone, `npm ci`, and in
+  T11 the standup run even picked up ENG-1 ahead of its assignment. Kyle's
+  call: `system: true` for the engineer (then only an assignment or a direct
+  mention summons it) or a cheaper standup path for `role: dev` rows.
+- **`PUT /api/agents/{name}` is a whole-definition replace.** Two partial
+  PUTs during live item 1 reset the engineer's role, grants, timeout and
+  prompt to their defaults (restored from a version snapshot). Single-field
+  edits belong to `agents_edit`, which merges; a `PATCH` or a `partial` flag
+  would remove the footgun. Not needed by the UI, which sends the full draft.
+- **A merge does not move the ticket.** After Accept on `/changes` the
+  ticket is moved to `done` by hand.
+- **`tests/test_joblauncher.py::test_coder_job_is_unchanged_by_the_dev_profile`**
+  pins image, resources, volumes and named env only, not the whole serialized
+  Job; a full-dict snapshot would be a stronger guard that non-dev runs are
+  byte-identical.
+- **`services/web/tests/relay.spec.ts`** ("replies stay out of the room …")
+  was a wall-clock flake under a full-suite run (`15m ago` vs `16m ago`);
+  found by this build, fixed in `fd9c898` (the fixture exports its epoch and
+  the spec pins the browser clock to it). Not a Workbench defect.
 
 ## AS BUILT
 
-To be written by the plan's docs task from the ticked tasks and the
-implementer reports: deltas from the design above, each forced by a review,
-a test or the live run.
+What shipped differs from the text above in these places; each was forced by
+a review, a test or a live run. Everything not listed here is as designed.
+
+- **A publish nonce (T7 review).** The session token lives in the pod's
+  environment, where the model's shell can read it — so a model could have
+  POSTed its own `verify: {ok: true}`. `GET /api/runs/{id}/workbench` now
+  mints a one-shot nonce on the run's *first* call (a conditional `UPDATE`
+  on `runs.publish_nonce_hash`, so two racing first calls cannot both win),
+  hands it to the runner's `prepare`, and `POST /api/runs/{id}/publish`
+  requires it in `X-AP-Publish-Nonce`. The nonce lives only in the runner's
+  memory; a run that never prepared can publish nothing. Two columns on
+  `runs` (`publish_nonce_hash`, `publish_nonce_issued_at`) — the "no new
+  columns" line above is no longer true.
+- **The rendered `tools:` line is the tool set (R2, found live).** Claude
+  Code reads `tools:` in `~/.claude/agents/<name>.md` as the *enabled* set;
+  `--allowedTools` only pre-approves within it. The first live run had
+  `tools: Glob, Grep, mcp__platform__…` and every `Bash`/`Read`/`Edit`/`Write`
+  call was refused ("Bash exists but is not enabled in this context").
+  `runner._render_agent_md` now writes, for a dev run only, `Bash, Read,
+  Edit, Write, NotebookEdit, Glob, Grep` + the declared harness tools + the
+  declared `mcp__platform__*` tools; a non-dev render is pinned byte-identical.
+- **The engineer runs on `opus`, not the CLI default (R2).** `model: ""`
+  resolved to `claude-sonnet-5` on the cluster; the seed and the live row
+  say `model: opus`.
+- **The verify budget is 2400 s and the suites run in a scrubbed env (R3).**
+  `bin/ap-verify`'s per-suite default (900 s) was what finalize hit — the
+  backend suite with coverage takes ~1 000 s on the NUC — so every backend PR
+  was `[verify ✗]`. Finalize now passes `--timeout $AP_VERIFY_TIMEOUT` and
+  `config.py`'s `dev_verify_timeout_seconds` default went 1800 → 2400 (the
+  Settings paragraph above was updated to match). Six backend tests also
+  failed only in the pod because they read the pod's `AP_*` settings:
+  `run_one` now drops every `AP_*` and `KUBERNETES_*` variable from a suite's
+  environment, keeping `AP_VERIFY_PYTHON` and `AP_WORKSPACE` (the latter so
+  the pod's Playwright stays sandbox-less). A timed-out suite is reported as
+  `verify ✗: <suite> timed out`, not "(unknown)".
+- **The `<workbench>` block on a resumed run (R3).** With session resume
+  (design 14) the runner sends `user_message`, not `prompt`, and the block
+  was only appended to the latter; the resumed ENG-4 run saw no block and
+  coped from `git log`. The block is now appended to both.
+- **The deny list has five entries, not three.** `bin/ap-verify` and
+  `bin/ap_verify*` joined `PUBLISH_DENY_GLOBS` (T6 review): the checkout's
+  own copy of the verifier produces `verify.json`, so an agent that could
+  edit it could make any change look green. The plan's own live ticket
+  (ENG-1/ENG-3, "change `bin/ap-verify`") was refused by exactly this rule —
+  the plan was wrong, not the code.
+- **The glob matcher is a wildcard walk, not a regex (T2 review).** A
+  backtracking regex handed `*a*a*a…` or a run of `**` from an agent's
+  `push_path_globs` could stall the API; `testpaths.match` is a two-pointer
+  walk over normalised segments, bounded at 200 chars and 16 segments.
+- **`ap-verify` grew `--skip <suite>`**, an `sdk` drift suite and a
+  `web-storybook` suite, streams output to per-suite logs, and runs `helm
+  dependency build` (never `update`) so a mid-run verify cannot dirty
+  `Chart.lock` for the next checkpoint commit to sweep up.
+- **`runner-dev` is `mcr.microsoft.com/playwright:v1.62.1-noble`** with
+  `@playwright/mcp@0.0.82` (the current version on the registry at build
+  time; the plan said 0.0.81) — and that base ships **Node 24**, not the
+  Node 22 written above. The image is 1.29 GB compressed; its pip and npm
+  layers cache across source changes because a manifests-only stage copies
+  just the lockfiles and requirement files. The lean runner image also
+  carries `workbench.py` (one `COPY` line), so a change to that file means
+  rebuilding both images.
+- **`PUT /api/agents/{name}` is whole-definition.** Not a change — it always
+  was — but it bit live item 1 (see Deferred). The two quota fields are
+  `EDIT_FIELDS`, strict ints 0–100; the globs validator refuses empty
+  segments, `..`, a leading `/` and more than 32 entries.
+- **The api pod's memory limit is 512Mi on pai (R2).** At 256Mi it was
+  OOMKilled under a run-tail WebSocket plus three `GET /api/pull-requests`
+  per `/changes` load (`charts/agent-platform/values-pai-nuc.yaml`).
+- **`#standup` reaches the engineer.** As designed (`system: false`), and it
+  costs a dev pod per standup; see Deferred.
+- **Publish holds a per-run lock, bounds the body before parsing, and
+  neutralises `@handles` and `#refs` in the agent's notes** (T7 review), so a
+  note cannot ping a GitHub user or link an issue; a refused publish fails
+  the run (T5 review), while "no changes" does not.
+- **Live numbers (rev 62, ENG-5 → PR #14):** assignment → PR 35 m 10 s (~18
+  min model, 17 min verify, backend suite exit 0 in 1 019.8 s); dev pod
+  peak 617Mi / 1.4 CPU against requests 2Gi/500m; a resumed run (ENG-4 →
+  PR #13, second commit) fast-forwarded the branch and updated the same PR;
+  a refusal by prompt (ENG-2, `.github/`) took 10 s and three turns; the
+  lean image's argv still carries `--disallowedTools Bash Read Edit Write
+  NotebookEdit`.

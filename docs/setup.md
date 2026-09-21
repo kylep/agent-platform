@@ -20,8 +20,8 @@ the chart is NUC-specific except the values.
   real one is the classic mistake here.
 - A cluster with a **default StorageClass** (Postgres and Kafka both want
   volumes); k3s ships the local-path provisioner.
-- A **Claude Pro/Max subscription** — agents run Claude Code, so the platform
-  needs a credential to run anything.
+- A **Claude Pro/Max and/or ChatGPT subscription** for the runtimes you plan
+  to use.
 - The repository itself, since the chart and the skill/tool/secret
   definitions live in it (agent definitions live in Postgres, seeded through
   the UI once the cluster is up — see `docs/design/15-db-first-agents.md`):
@@ -117,6 +117,20 @@ rm /tmp/claude-creds.json
 ```
 
 After running, refresh the browser to clear the gate.
+
+### 3. Set Codex credentials (optional)
+
+Run `codex login` locally, then copy its native OAuth state into the platform:
+
+```bash
+KUBECONFIG=~/.kube/pai-nuc.yaml bin/set-codex-auth.sh kubectl agent-platform
+```
+
+The script reads `~/.codex/auth.json` by default. You can instead set
+`CODEX_AUTH_FILE`, or use its `api` mode like the Claude helper. Codex agents
+are blocked until this secret exists; Claude agents remain available without
+it. The in-cluster broker alone reads it, refreshes it, and writes rotated
+OAuth state back to the encrypted secret store.
 
 ## Smoke Test
 

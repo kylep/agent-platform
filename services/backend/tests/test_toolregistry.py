@@ -100,6 +100,22 @@ def test_manifest_rejects_bad_names_and_bounds():
                      params={"type": "string"})
 
 
+@pytest.mark.parametrize("params", [
+    {"type": "object", "properties": {"files": {"type": "array"}}},
+    {"type": "object", "properties": {}, "required": ["files"]},
+])
+def test_manifest_rejects_a_files_param(params):
+    """`files` is the broker's argument on every custom tool (docs/design/25):
+    artifact ids it resolves into the executor's `files_in` and strips before
+    the forward. A manifest declaring it would describe an argument the tool
+    never receives."""
+    with pytest.raises(ValueError, match="reserved"):
+        ToolManifest(name="ok_tool", description="A perfectly valid description here.",
+                     params=params)
+    ToolManifest(name="ok_tool", description="A perfectly valid description here.",
+                 params={"type": "object", "properties": {"file_kind": {"type": "string"}}})
+
+
 def test_manifest_timeout_ceiling_is_300():
     """Image generation polls; the executor clamps at 300 s and the manifest
     must be allowed to ask for it (docs/design/23)."""

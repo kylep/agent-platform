@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { mockApi } from "./mock-api";
+import { FIXTURE_NOW, mockApi } from "./mock-api";
 
 // Relay is the one page where the platform is a conversation rather than a
 // table, so these gate the things that make it readable: who said what, in
@@ -148,6 +148,10 @@ test("a thread opens beside the room, not instead of it", async ({ page }) => {
 
 test("replies stay out of the room and are counted on their root", async ({ page }) => {
   await mockApi(page);
+  // "last 15m ago" is the reply's age as the page measures it: pin the
+  // browser's Date to the instant the fixture was built, so a slow suite
+  // cannot walk the render across a minute boundary. Timers keep running.
+  await page.clock.setFixedTime(FIXTURE_NOW);
   await page.goto("/relay");
   const room = page.getByRole("region", { name: /^Channel/ });
   await expect(room).toContainText("@news dig into that one.");

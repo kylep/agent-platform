@@ -16,12 +16,12 @@ from typing import NamedTuple
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
-from sqlalchemy import case, func, or_, select
+from sqlalchemy import Text, case, cast, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import aliased
 
-from agentplatform.api.auth import (INVOKE_ROLES, READ_ROLES, authenticate,
-                                    require_role, role_allows)
+from agentplatform.api.auth import (ANNOTATE_ROLES, INVOKE_ROLES, READ_ROLES,
+                                    authenticate, require_role, role_allows)
 from agentplatform.conversation import continue_conversation
 from agentplatform.db import (ACTIVE_STATES, Conversation, RELAY_SEED_CHANNELS,
                               RelayInvocation, dm_key_of)
@@ -41,7 +41,7 @@ from agentplatform.relay_store import (bindings_of, channel_by_ref, faces_for,
                                        message_view, outbound_for_message,
                                        relay_message_payload,
                                        publish_relay_message)
-from agentplatform.tickets import KEY_RE, derive_prefix
+from agentplatform.tickets import KEY_RE, derive_prefix, one_line
 
 log = logging.getLogger("relay")
 
@@ -759,6 +759,70 @@ async def post_relay_message(request: Request, channel_id: str, body: S.RelayMes
                                    relay_message_payload(row, conv, face=face))
     await publish_relay_message(request.app.state.producer, conv, row, face=face,
                                 outbound=outbound)
+    return view
+
+
+# An app key is `app:<name>` (appprovisioner), which is already a well-formed
+# participant of the connector shape — the app IS the connector for its own
+# rows — so the row names the key itself, never a string the caller chose.
+_APP_KEY_PREFIX = "app:"
+
+
+def _notify_author(request: Request, principal: str) -> str:
+    if principal.startswith(_APP_KEY_PREFIX) and is_participant(principal):
+        return principal
+    agent = getattr(request.state, "api_key_agent", None)
+    return _participant(agent=agent) if agent else _participant(principal=principal)
+
+
+async def _notify_count(s, author: str, since) -> int:
+    """This route's rows by `author` in the window: the hourly ledger, kept in
+    the messages themselves so it survives a restart. An event row with no
+    card is this route's alone — every other event writer (tickets, the wiki,
+    the workbench) attaches a card."""
+    # `card=None` lands as a JSON null, not a SQL NULL (the column's
+    # none_as_null default), so both spellings of "no card" are counted — by
+    # text, since Postgres has no equality on its `json` type.
+    return (await s.execute(select(func.count()).select_from(MessageRow).where(
+        MessageRow.author == author, MessageRow.kind == "event",
+        or_(MessageRow.card.is_(None), cast(MessageRow.card, Text) == "null"),
+        MessageRow.created_at >= since))).scalar() or 0
+
+
+@router.post("/api/relay/notify", status_code=201, response_model=S.RelayMessage)
+async def relay_notify(request: Request, body: S.RelayNotifyIn,
+                       principal: str = Depends(require_role(*ANNOTATE_ROLES))):
+    """A system row into a room from a caller that is not a participant of it
+    (docs/design/25): the tcms app's `app:tcms` key announcing a recorded run
+    in `#qa`. Posting a MESSAGE is a member's act — an app is in no room and
+    holds no voice there — so this is the platform's own card shape instead:
+    `kind=event`, no mentions, so the text summons nobody and the router has
+    nothing to route; no membership check, as none of the platform's cards
+    have one; one line, so the room's most trusted voice cannot be made to say
+    a second sentence by the text it relays. The author is the caller's
+    principal, so the row still says who really wrote it."""
+    author = _notify_author(request, principal)
+    text = one_line(body.text, S.RELAY_NOTIFY_MAX)
+    if not text:
+        raise HTTPException(422, "text is empty once flattened")
+    limit = request.app.state.settings.relay_notify_per_hour
+    async with request.app.state.session_factory() as s:
+        conv = await channel_by_ref(s, body.channel)
+        # A channel only: `channel_by_ref` also answers to a DM's or a group's
+        # id, and those are closed rooms whose walls a non-member's voice must
+        # not pass through — 404, the same answer as for a room that is not
+        # there, so an id cannot be probed for its kind either.
+        if conv is None or conv.kind != "channel" or conv.archived_at is not None:
+            raise HTTPException(404, "unknown channel")
+        if await _notify_count(s, author, utcnow() - timedelta(hours=1)) >= limit:
+            raise HTTPException(429, f"notify budget spent ({limit}/hour); try again later")
+        row = await _insert_message(s, conv, author=author, body=text, kind="event",
+                                    mentions=[])
+        await s.commit()
+        view = _message(row)
+        outbound = await outbound_for_message(s, conv, row)
+    request.app.state.feed.publish(conv.id, "message", relay_message_payload(row, conv))
+    await publish_relay_message(request.app.state.producer, conv, row, outbound=outbound)
     return view
 
 

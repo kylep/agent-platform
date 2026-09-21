@@ -186,9 +186,12 @@ def test_no_tools_line_materializes_the_effective_set(tmp_path):
                                         "Task", "TodoWrite"]
     for denied in ("Bash", "Read", "Write", "Edit", "NotebookEdit"):
         assert denied not in payload["harness_tools"]
-    # and it is genuinely the non-sensitive half of the harness set, not a
-    # hand-copied list that could drift from CLAUDE_TOOLS.
-    assert set(payload["harness_tools"]) | export_agents.SENSITIVE_TOOLS == set(CLAUDE_TOOLS)
+    # and it is genuinely the harness set minus the always-denied tools and
+    # the dev-only grants (docs/design/25) — not a hand-copied list that could
+    # drift from CLAUDE_TOOLS.
+    assert "PlaywrightMCP" not in payload["harness_tools"]
+    assert (set(payload["harness_tools"]) | export_agents.SENSITIVE_TOOLS
+            | export_agents.DEV_ONLY_TOOLS) == set(CLAUDE_TOOLS)
 
 
 def test_an_empty_tools_line_stays_empty(tmp_path):

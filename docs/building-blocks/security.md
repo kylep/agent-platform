@@ -11,10 +11,27 @@ chat messages. Anything it reads can try to talk it into misbehaving
 (prompt injection). So the platform never gives a normal agent the three
 things an attacker needs all at once: untrusted input, a credential worth
 stealing, and a way to send data out. Shell and file tools (Bash, Read,
-Write, Edit) are hard-denied for every agent except the platform-coder,
-the agent that writes the platform's own pull requests, whose workspace is a
-throwaway clone with no secrets in it. (Unfamiliar component names —
-broker, executor, runner — are defined in the [Glossary](glossary.md).)
+Write, Edit) are hard-denied for every agent, with two exceptions, and
+neither one puts a credential next to the shell:
+
+- **the platform-coder**, the agent that writes the platform's own pull
+  requests behind the UI wizards, whose workspace is a throwaway clone with
+  no secrets in it beyond the repository token it needs to push — and whose
+  input is prose the API wrote, never a ticket or a chat message;
+- **dev runs** — any agent with `role: dev`, such as the seeded engineer —
+  which get a real shell on the [Workbench](workbench.md): a bigger pod on
+  the `runner-dev` image, an *anonymous* clone of the public repository on a
+  branch, the test toolchain, and **no git credential of any kind**. The pod
+  cannot push. Its code leaves through one door, a publish the runner (not
+  the model) makes to the API, which holds the GitHub App, checks every
+  touched path against a deny list and the agent's grants, and pushes
+  without force. What a dev pod holds is what every agent's pod holds — the
+  run's own platform identity and session token, revoked when the run ends —
+  so a prompt-injected dev agent can do what any agent can (speak as itself)
+  plus propose code, as a PR a human reads.
+
+(Unfamiliar component names — broker, executor, runner — are defined in the
+[Glossary](glossary.md).)
 
 ## So how does an agent DO anything? MCP tools.
 
@@ -63,9 +80,15 @@ started.
 
 ## The other guardrails, briefly
 
-- **Network walls:** agent pods can't reach the internet at all; the
-  tool-executor is the single door out. Services only accept traffic
-  from the specific services that need them.
+- **Network walls:** the tool-executor is the single door out for
+  **tools** — a tool's code reaches a third-party API from there, with its
+  secret injected for that one call, never from an agent's pod. Agent pods
+  themselves *can* reach any host on port 443 (the egress rule is scoped to
+  the port, not to hosts — the Workbench's anonymous clone and `npm ci`
+  depend on it), and narrowing that is a known, deferred gap. What keeps it
+  safe is that there is nothing in the pod worth sending: no Anthropic key,
+  no tool secret, no git token. Services only accept traffic from the
+  specific services that need them.
 - **Anthropic key:** never in agent pods — a proxy injects it
   per-request, so agents literally have nothing to leak.
 - **Everything is reviewed or logged:** skills, tools, and secret

@@ -985,6 +985,9 @@ a.relay-action { color: var(--ds-link); }
 /* Mono because every label in a grant picker is a literal identifier (Bash,
    query_app, agent-platform) — it is code, and it reads as code. */
 .check-name { font-family: var(--font-mono); }
+/* The always-true qualifier beside a name ("dev runs only"): quieter than the
+   name, louder than the tooltip nobody hovers. */
+.check-tag { font-size: 11px; }
 
 /* Section rhythm on the agent form (editor + New-Agent wizard). Prompt,
    Entrypoints, Grants and Delete are a screen apart on a form that scrolls for
@@ -1262,10 +1265,14 @@ a.relay-action { color: var(--ds-link); }
 }
 
 /* agents as cards (docs/design/23): the report-type grid's shape, with a
-   face where the report type has an icon. minmax(260px) puts one column on a
-   phone with nothing to scroll sideways for. */
+   face where the report type has an icon. This listing uses the whole main
+   pane; auto-fit removes empty tracks so a short final row stretches too.
+   The capped minimum gives a wide screen more columns and naturally steps
+   down to one without a horizontal scrollbar. */
+.page-agents { max-width: none; width: 100%; }
 .agent-grid {
-  display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(320px, 100%), 1fr));
   gap: 12px; margin-top: 16px;
 }
 .agent-card {

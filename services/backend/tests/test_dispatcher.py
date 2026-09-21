@@ -119,18 +119,20 @@ async def test_agent_added_after_boot_is_dispatchable(sf, disp, seed_agent):
 
 # --- pre-flight credential gate ----------------------------------------------
 
-async def _set_cred(sf, status):
+async def _set_cred(sf, status, name=None):
     from agentplatform.db import SecretMeta
     from agentplatform.secrets import CLAUDE_CREDENTIAL
+    name = name or CLAUDE_CREDENTIAL
     async with sf() as s:
-        s.add(SecretMeta(name=CLAUDE_CREDENTIAL, status=status)); await s.commit()
+        s.add(SecretMeta(name=name, status=status)); await s.commit()
 
 
 async def test_invalid_credential_rejects_up_front(sf, disp):
     """After the first half-open probe is spent, a known-bad token rejects runs
     without launching a doomed pod."""
     await _set_cred(sf, "invalid")
-    disp._cred_probe_at = 1e18            # probe window closed → hard block
+    from agentplatform.secrets import CLAUDE_CREDENTIAL
+    disp._cred_probe_at[CLAUDE_CREDENTIAL] = 1e18  # probe window closed → hard block
     rid = await make_run(sf)
     await disp.handle({"type": "run", "run_id": rid})
     assert disp.launcher.launched == []
@@ -143,7 +145,7 @@ async def test_invalid_credential_half_open_lets_one_through(sf, disp):
     """When the recheck window opens, exactly one run is let through to re-probe,
     and the next is held again."""
     await _set_cred(sf, "invalid")
-    disp._cred_probe_at = 0.0             # window open
+    disp._cred_probe_at.clear()           # window open
     r1 = await make_run(sf)
     await disp.handle({"type": "run", "run_id": r1})
     assert disp.launcher.launched == [r1]     # probe allowed
@@ -152,6 +154,22 @@ async def test_invalid_credential_half_open_lets_one_through(sf, disp):
     assert disp.launcher.launched == [r1]     # next is held
     async with sf() as s:
         assert (await s.get(Run, r2)).state == RunState.REJECTED
+
+
+async def test_credential_probe_windows_are_independent_per_runtime(
+        sf, disp, seed_agent):
+    from agentplatform.secrets import CLAUDE_CREDENTIAL, CODEX_CREDENTIAL
+    await seed_agent("codexer", runtime="codex")
+    await disp.agents.reload()
+    await _set_cred(sf, "invalid", CLAUDE_CREDENTIAL)
+    await _set_cred(sf, "invalid", CODEX_CREDENTIAL)
+
+    claude = await make_run(sf)
+    await disp.handle({"type": "run", "run_id": claude})
+    codex = await make_run(sf, agent="codexer")
+    await disp.handle({"type": "run", "run_id": codex})
+
+    assert disp.launcher.launched == [claude, codex]
 
 
 async def test_valid_and_unprobed_credentials_dispatch(sf, disp):

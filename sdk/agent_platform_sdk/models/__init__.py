@@ -29,6 +29,8 @@ from .change_impact_item import ChangeImpactItem
 from .chart_series import ChartSeries
 from .chart_spec import ChartSpec
 from .chart_svg import ChartSvg
+from .codex_auth import CodexAuth
+from .codex_thread import CodexThread
 from .connector import Connector
 from .conversation_detail import ConversationDetail
 from .conversation_in import ConversationIn
@@ -91,6 +93,7 @@ from .pull_request import PullRequest
 from .pull_request_file import PullRequestFile
 from .quota import Quota
 from .quota_ok import QuotaOk
+from .quota_reading import QuotaReading
 from .quota_window import QuotaWindow
 from .relay_binding_in import RelayBindingIn
 from .relay_binding_in_config import RelayBindingInConfig
@@ -111,6 +114,7 @@ from .relay_last_message import RelayLastMessage
 from .relay_message import RelayMessage
 from .relay_message_card_type_0 import RelayMessageCardType0
 from .relay_message_in import RelayMessageIn
+from .relay_notify_in import RelayNotifyIn
 from .relay_presence import RelayPresence
 from .relay_reaction_in import RelayReactionIn
 from .relay_reaction_view import RelayReactionView
@@ -237,6 +241,8 @@ __all__ = (
     "ChartSeries",
     "ChartSpec",
     "ChartSvg",
+    "CodexAuth",
+    "CodexThread",
     "Connector",
     "ConversationDetail",
     "ConversationIn",
@@ -297,6 +303,7 @@ __all__ = (
     "PullRequestFile",
     "Quota",
     "QuotaOk",
+    "QuotaReading",
     "QuotaWindow",
     "RelayBindingIn",
     "RelayBindingInConfig",
@@ -317,6 +324,7 @@ __all__ = (
     "RelayMessage",
     "RelayMessageCardType0",
     "RelayMessageIn",
+    "RelayNotifyIn",
     "RelayPresence",
     "RelayReactionIn",
     "RelayReactionView",

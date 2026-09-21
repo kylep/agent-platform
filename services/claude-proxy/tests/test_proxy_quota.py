@@ -41,7 +41,8 @@ def test_a_proxyless_install_needs_no_internal_secret():
     for off in ("claudeProxy.enabled=false", "claudeProxy.quota.enabled=false"):
         result = subprocess.run(
             ["helm", "template", "test", str(CHART),
-             "--set", "env.AP_SESSION_SECRET=x", "--set", off],
+             "--set", "env.AP_SESSION_SECRET=x",
+             "--set", "codexProxy.enabled=false", "--set", off],
             capture_output=True, text=True)
         assert result.returncode == 0, result.stderr
         assert "secretName: test-internal" not in result.stdout

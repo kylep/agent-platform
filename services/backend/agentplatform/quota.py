@@ -174,6 +174,45 @@ def parse_observation(headers, observed_at: datetime, source: str,
         observed_at=_aware(observed_at), source=source)
 
 
+def parse_codex_usage(payload, observed_at: datetime, source: str) -> Observation | None:
+    """Codex's usage document → the same provider-neutral observation.
+
+    Window names are derived from their duration. Codex accounts do not all
+    expose both windows, and primary/secondary ordering is not a stable label.
+    """
+    if not isinstance(payload, dict) or not isinstance(payload.get("rate_limit"), dict):
+        return None
+    rate = payload["rate_limit"]
+    values = {}
+    raw = {}
+    for name in ("primary_window", "secondary_window"):
+        window = rate.get(name)
+        if not isinstance(window, dict):
+            continue
+        try:
+            seconds = int(window.get("limit_window_seconds"))
+        except (TypeError, ValueError):
+            continue
+        key = "five" if seconds == 5 * 3600 else "seven" if seconds == 7 * 86400 else None
+        if key is None:
+            continue
+        values[key] = (parse_utilization(window.get("used_percent")),
+                       parse_reset(window.get("reset_at")))
+        raw[f"{name}_seconds"] = str(seconds)
+    if not values:
+        return None
+    allowed = rate.get("allowed")
+    status = "allowed" if allowed is True else "limited" if allowed is False else None
+    if isinstance(payload.get("plan_type"), str):
+        raw["plan_type"] = payload["plan_type"][:RAW_MAX_VALUE]
+    if allowed is not None:
+        raw["allowed"] = str(bool(allowed)).lower()
+    five = values.get("five", (None, None))
+    seven = values.get("seven", (None, None))
+    return Observation(five[0], five[1], seven[0], seven[1], status, raw,
+                       _aware(observed_at), source)
+
+
 def _raw_of(lowered: dict) -> dict[str, str]:
     """Every `anthropic-ratelimit-unified-*` header, verbatim but bounded. The
     five the platform reads come first so a flood of unknown headers can only

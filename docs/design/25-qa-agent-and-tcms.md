@@ -167,16 +167,20 @@ by the app.
   password and never types it into a page. `/api/login` learns an optional
   `principal` (default `admin`); `/api/setup` is unchanged.
 - **The MCP server is locked to the platform.** The runner starts it (never
-  the model): `npx @playwright/mcp@<pinned> --headless --isolated
+  the model): the image's `playwright-mcp` bin with `--headless --isolated
   --no-sandbox --executable-path /opt/chromium/chrome --storage-state
   /workspace/qa/state.json --allowed-origins <web_internal_url>
-  --image-responses allow --output-dir
-  /workspace/qa/mcp --viewport-size 1280x800`, under
-  `--strict-mcp-config`, with `--allowedTools mcp__playwright__*` added to
-  the dev allow-list only when the agent holds the `PlaywrightMCP` grant. It
-  cannot navigate off the platform's own hostname. Page content it renders is
-  untrusted input in a pod that holds no credential worth stealing (design
-  24), and screenshots are model turns bounded by `--max-turns`.
+  --image-responses allow --output-dir /workspace/qa/mcp --viewport-size
+  1280x800 --config /workspace/qa/mcp.json`, under `--strict-mcp-config`,
+  with `--allowedTools mcp__playwright__*` added to the dev allow-list only
+  when the agent holds the `PlaywrightMCP` grant. The origin flags are
+  advisory (the package documents them as not a security boundary); the real
+  boundary is Chromium's own resolver: the config file's launch args carry
+  `--host-resolver-rules=MAP * ~NOTFOUND, EXCLUDE <web host>`, so every name
+  but the platform's web service fails to resolve inside the browser,
+  redirects included. Page content it renders is untrusted input in a pod
+  that holds no credential worth stealing (design 24), and screenshots are
+  model turns bounded by `--max-turns`.
 - **Quota.** `quota_ok` is checked before every MCP session, with the QA
   row's thresholds (defaults 80 / 50, editable in the agent editor and
   through `agents_edit`). The nightly suite run, the walk and the tool calls

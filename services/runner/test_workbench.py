@@ -583,3 +583,81 @@ def test_an_http_refusal_is_not_retried(remote, monkeypatch):
         raise urllib.error.HTTPError("u", 409, "Conflict", {}, io.BytesIO(b"branch moved"))
     res = workbench.finalize(repo, wb, _env(remote), "RID", refuse)
     assert res == {"published": False, "status": 409, "reason": "branch moved"} and calls == ["POST"]
+
+
+# --- the web login (docs/design/25) ------------------------------------------
+
+FAKE_LOGIN = textwrap.dedent("""\
+    import json, os, pathlib, sys
+    out = pathlib.Path(sys.argv[sys.argv.index("--out") + 1])
+    if os.environ["QA_WEB_PASSWORD"].startswith("silent"):
+        print("ap-web-login: AP_WEB_URL not set", file=sys.stderr); sys.exit(2)
+    print("secret-cookie-value-do-not-echo")
+    if os.environ["QA_WEB_PASSWORD"].startswith("wrong"):
+        print("401"); sys.exit(1)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(json.dumps({"seen": sorted(k for k in os.environ if k.startswith(("QA_", "AP_")))}))
+    print("ok")
+    """)
+
+
+def _seed_login(remote):
+    (remote["seed"] / "bin" / "ap-web-login").write_text(FAKE_LOGIN)
+    _commit_all(remote["seed"], "login script")
+    _git(remote["seed"], "push", "-q", "origin", "main")
+
+
+def test_prepare_logs_the_browser_in_when_the_pod_has_the_credential(remote):
+    """With `QA_WEB_USER`/`QA_WEB_PASSWORD` bound, `prepare` runs the
+    checkout's `bin/ap-web-login --out <workspace>/qa/state.json` before the
+    model starts — with the credential and the web URL, and nothing else the
+    pod holds — and its stdout goes nowhere: a frame carries the status only
+    when it failed, and the state file is what the browser reads."""
+    _seed_login(remote)
+    frames = []
+    env = _env(remote, QA_WEB_USER="qa", QA_WEB_PASSWORD="hunter2-hunter2",
+               AP_WEB_URL="http://ap-web:8090", AP_SESSION_TOKEN="ap_secret",
+               AP_API_URL="http://api", AP_RUN_TOKEN="jwt")
+    workbench.prepare(remote["ws"] / "repo", _wb(), env, frames)
+    state = workbench.qa_state_path()
+    assert state == remote["ws"] / "qa" / "state.json"
+    seen = json.loads(state.read_text())["seen"]
+    assert seen == ["AP_WEB_URL", "QA_WEB_PASSWORD", "QA_WEB_USER"]
+    assert frames == []
+    assert (remote["ws"] / "qa" / "mcp").is_dir()
+
+
+def test_prepare_skips_the_login_without_the_credential(remote):
+    _seed_login(remote)
+    frames = []
+    env = _env(remote, AP_WEB_URL="http://ap-web:8090")
+    env.pop("QA_WEB_USER", None); env.pop("QA_WEB_PASSWORD", None)
+    workbench.prepare(remote["ws"] / "repo", _wb(), env, frames)
+    assert not workbench.qa_state_path().exists()
+    assert frames == []
+
+
+def test_prepare_frames_a_failed_login_without_its_output(remote):
+    """A refused login is a frame naming the step and the exit — the script's
+    stdout is not in it (the status the script prints is one word; anything
+    else it might print is not for a transcript), and the run goes on."""
+    _seed_login(remote)
+    frames = []
+    env = _env(remote, QA_WEB_USER="qa", QA_WEB_PASSWORD="wrong-wrong-wrong",
+               AP_WEB_URL="http://ap-web:8090")
+    workbench.prepare(remote["ws"] / "repo", _wb(), env, frames)
+    assert not workbench.qa_state_path().exists()
+    assert frames == [{"step": "web login", "ok": False, "exit": 1, "tail": "401"}]
+    assert "secret-cookie" not in json.dumps(frames)
+
+
+def test_prepare_frames_a_login_that_said_nothing_on_stdout_with_its_stderr(remote):
+    """`ap-web-login` exits 2 with its reason on stderr and nothing on stdout
+    (no AP_WEB_URL, say): the frame carries that last stderr line rather than
+    a blank."""
+    _seed_login(remote)
+    frames = []
+    env = _env(remote, QA_WEB_USER="qa", QA_WEB_PASSWORD="silent-silent-silent",
+               AP_WEB_URL="http://ap-web:8090")
+    workbench.prepare(remote["ws"] / "repo", _wb(), env, frames)
+    assert frames == [{"step": "web login", "ok": False, "exit": 2, "tail": "ap-web-login: AP_WEB_URL not set"}]

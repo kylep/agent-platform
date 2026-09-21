@@ -104,6 +104,9 @@ class Settings(BaseSettings):
     # token lives only in the claude-proxy pod, which injects the Authorization
     # header on the way out. Empty = legacy direct mount.
     claude_proxy_url: str = ""
+    # Auth-injecting egress broker for Codex. When set, Codex runners carry no
+    # auth.json; their custom provider sends a placeholder bearer here.
+    codex_proxy_url: str = ""
     # MCP broker service URL injected into token-bearing runs (the runner points
     # claude at it so agents get brokered API tools instead of a shell).
     mcp_broker_url: str = "http://agent-platform-mcp-broker:8000/mcp"
@@ -133,6 +136,10 @@ class Settings(BaseSettings):
     # gets finished, and an assignment is already a Relay mention paying the
     # relay budget.
     tickets_agent_creates_per_hour: int = 20
+    # `POST /api/relay/notify` (docs/design/25): a system row from a key that
+    # is a member of no room. Per principal per hour, counted from the rows it
+    # wrote, so an app stuck re-announcing cannot bury a room.
+    relay_notify_per_hour: int = 60
     # "in progress and nobody has touched it in this long" — the board's stale
     # badge and the stats. Days, because a ticket is a unit of work and not of
     # execution: an agent can legitimately be mid-ticket overnight.

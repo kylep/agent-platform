@@ -57,3 +57,12 @@ export const Unknown: StoryObj = {
 export const Light: StoryObj = {
   render: () => <Frame theme="light"><QuotaBars {...snapshot(0.22, 0.81)} /></Frame>,
 };
+
+export const BothProviders: StoryObj = {
+  render: () => <Frame><QuotaBars {...snapshot(0.22, 0.81, { codex: {
+    five_hour: { utilization: 0.11, resets_at: iso(2 * 3600e3) },
+    seven_day: { utilization: 0.95, resets_at: iso(5 * 86400e3) },
+    status: "allowed", observed_at: iso(-30e3), source: "refresh",
+    stale: false, age_seconds: 30,
+  } })} /></Frame>,
+};
