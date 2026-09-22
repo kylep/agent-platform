@@ -1374,7 +1374,7 @@ export async function staleQuota(page: Page): Promise<{ count: () => number }> {
   await page.route("**/api/quota", async (route: Route) => {
     await route.fulfill({ json: stale });
   });
-  await page.route("**/api/quota/refresh", async (route: Route) => {
+  await page.route("**/api/quota/refresh*", async (route: Route) => {
     refreshes += 1;
     await route.fulfill({ json: quotaSnapshot({ source: "refresh", probe: "count_tokens" }) });
   });

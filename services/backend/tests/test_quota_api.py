@@ -264,6 +264,30 @@ async def test_refresh_adds_codex_usage_and_tolerates_a_missing_5h_window(admin_
     assert codex["probe"] == "usage"
 
 
+async def test_codex_only_refresh_never_probes_claude(admin_client):
+    app = admin_client._transport.app
+    app.state.settings.claude_proxy_url = PROXY
+    app.state.settings.codex_proxy_url = "http://codex-proxy:8000"
+    app.state.settings.internal_secret = SECRET
+    calls: list[str] = []
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(request.url.path)
+        assert request.url.path == "/internal/quota"
+        return httpx.Response(200, json={"plan_type": "pro", "rate_limit": {
+            "allowed": True,
+            "secondary_window": {"used_percent": 30,
+                                 "limit_window_seconds": 7 * 86400,
+                                 "reset_at": int((utcnow() + timedelta(days=3)).timestamp())},
+        }})
+
+    app.state.quota_client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    response = await admin_client.post("/api/quota/refresh?provider=codex")
+    assert response.status_code == 200, response.text
+    assert response.json()["codex"]["seven_day"]["utilization"] == 0.30
+    assert calls == ["/internal/quota"]
+
+
 async def test_refresh_sends_the_placeholder_bearer_and_the_beta_header(admin_client):
     """The proxy replaces the credential (docs/design/09): the API never holds
     the token, so what it sends is a placeholder plus the two version headers

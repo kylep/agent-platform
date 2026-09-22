@@ -35,6 +35,7 @@ import hashlib
 import hmac
 import json
 import logging
+from typing import Literal
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -167,7 +168,9 @@ async def get_quota(request: Request, caller: str = Depends(require_role(*VIEW))
 
 
 @router.post("/api/quota/refresh", response_model=S.Quota)
-async def refresh_quota(request: Request, caller: str = Depends(require_role(*VIEW))):
+async def refresh_quota(request: Request,
+                        provider: Literal["all", "claude", "codex"] = "all",
+                        caller: str = Depends(require_role(*VIEW))):
     """Ask on purpose. Coalesced and rate-limited platform-wide, so this is
     safe to put behind a button and behind a tool.
 
@@ -176,17 +179,18 @@ async def refresh_quota(request: Request, caller: str = Depends(require_role(*VI
     it wrote, which is the same answer it would have got from its own probe and
     one fewer request to Anthropic."""
     async with _lock(request.app):
-        claude = await _refresh(request)
-        codex = None
-        if request.app.state.settings.codex_proxy_url:
+        snapshot = await _snapshot(request)
+        claude = (await _refresh(request) if provider in ("all", "claude")
+                  else snapshot)
+        codex = snapshot.get("codex")
+        if (provider in ("all", "codex")
+                and request.app.state.settings.codex_proxy_url):
             try:
                 codex = await _refresh_codex(request)
             except HTTPException as exc:
                 if exc.status_code != 503:
                     raise
                 log.warning("Codex quota refresh unavailable: %s", exc.detail)
-        if codex is None:
-            codex = (await _snapshot(request)).get("codex")
         return {**claude, "codex": codex}
 
 

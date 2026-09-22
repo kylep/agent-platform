@@ -61,6 +61,31 @@ test("a stale snapshot is refreshed exactly once, and the bars follow",
   expect(refresh.count()).toBe(1);
 });
 
+test("a fresh page still refreshes Codex without probing Claude", async ({ page }) => {
+  let provider = "";
+  let refreshes = 0;
+  await mockApi(page);
+  await page.route("**/api/quota/refresh*", async (route) => {
+    refreshes += 1;
+    provider = new URL(route.request().url()).searchParams.get("provider") ?? "";
+    await route.fulfill({ json: {
+      five_hour: { utilization: 0.22, resets_at: null },
+      seven_day: { utilization: 0.81, resets_at: null },
+      observed_at: new Date().toISOString(), stale: false,
+      codex: {
+        five_hour: { utilization: null, resets_at: null },
+        seven_day: { utilization: 0.30, resets_at: null },
+        observed_at: new Date().toISOString(), stale: false, provider: "codex",
+      },
+    } });
+  });
+  await page.goto("/");
+  await expect(page.getByRole("meter", { name: /^Codex 7-day window: 30% used/ }))
+    .toBeVisible();
+  expect(refreshes).toBe(1);
+  expect(provider).toBe("codex");
+});
+
 test("no snapshot, no bars — and the nav does not move", async ({ page }) => {
   await mockApi(page);
   await unfixtured(page, "**/api/quota");

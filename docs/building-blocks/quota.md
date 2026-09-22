@@ -77,7 +77,7 @@ if it were infinite.
 | Route | Who | What |
 |---|---|---|
 | `GET /api/quota` | readers and up, plus the participant role | Claude's backward-compatible snapshot plus a nested `codex` snapshot, each with `stale` and `age_seconds`. |
-| `POST /api/quota/refresh` | same | Probe both providers and return their readings. One unavailable provider does not erase the other's cached reading. |
+| `POST /api/quota/refresh` | same | Probe both providers and return their readings. `?provider=codex` refreshes only Codex, and `?provider=claude` only Claude. One unavailable provider does not erase the other's cached reading. |
 | `GET /api/quota/events` | same | SSE: a frame whenever a number moves. |
 | `POST /api/internal/quota` | the proxy's shared secret only | The passive report. No session and no API key reach it. |
 
@@ -97,9 +97,12 @@ reading with no reset time at all is thin, not stale; it has nothing to expire
 against.) A stale bar dims, track and label together, so it reads as the last
 thing Anthropic said rather than as a live number.
 
-On load the sidebar reads `GET /api/quota`, fires **one** refresh if what came
-back is stale, then follows `quota.events` over SSE, with a 60-second poll if
-the stream is down and a re-read whenever the tab becomes visible again.
+On load the sidebar reads `GET /api/quota`, fires **one** full refresh if what
+came back is stale, and otherwise refreshes Codex alone. It then follows
+`quota.events` over SSE, with a 60-second poll if the stream is down. While the
+tab is visible it refreshes the token-free Codex usage reading every five minutes;
+returning to the tab also refreshes it. This keeps a week-long Codex window from
+looking current for days without spending Claude tokens.
 Stream frames and the refresh's own answer always win; only a catch-up read is
 ordered by `observed_at`, so a read that started before a refresh and landed
 after it cannot walk the bars backwards. With nothing known at all the bars

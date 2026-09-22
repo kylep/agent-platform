@@ -18,6 +18,7 @@ import type { QuotaSnapshot } from "@ap/ui/quota";
 //   that are not drawn.
 
 const POLL_MS = 60000;
+const CODEX_REFRESH_MS = 5 * 60000;
 const FIRST_RETRY_MS = 2000;
 const MAX_RETRY_MS = 30000;
 
@@ -31,6 +32,7 @@ export function useQuota(): QuotaState {
   // One probe per page load, tracked here rather than in state: it must not
   // re-arm when a stale frame arrives on the stream.
   const refreshed = useRef(false);
+  const codexRefreshed = useRef(false);
 
   // What the server just decided: a stream frame, the refresh's own answer,
   // the first read. These REPLACE, with no comparison — the snapshot is a
@@ -57,21 +59,35 @@ export function useQuota(): QuotaState {
     })
     .catch(() => {}), []);
 
+  // Codex's usage endpoint is a read: unlike the Claude fallback probe it
+  // spends no model tokens. Refresh it while the console is open so a weekly
+  // window does not remain "fresh" (and frozen) until its reset several days
+  // later. The API still coalesces callers across tabs.
+  const refreshCodex = useCallback(() => api<QuotaSnapshot>(
+    "/api/quota/refresh?provider=codex", { method: "POST" })
+    .then(absorb).catch(() => {}), [absorb]);
+
   useEffect(() => {
     live.current = true;
     api<QuotaSnapshot>("/api/quota")
       .then((body) => {
         absorb(body);
-        if ((!body.stale && body.codex && !body.codex.stale) || refreshed.current) return;
-        refreshed.current = true;
-        // Fire and forget: the refresh answers with the snapshot it wrote,
-        // and the stream would have carried it anyway.
-        return api<QuotaSnapshot>("/api/quota/refresh", { method: "POST" })
-          .then(absorb).catch(() => {});
+        if (body.stale && !refreshed.current) {
+          refreshed.current = true;
+          codexRefreshed.current = true;
+          // A stale Claude reading needs the model probe. Its default `all`
+          // refresh also updates Codex, so do not immediately ask twice.
+          return api<QuotaSnapshot>("/api/quota/refresh", { method: "POST" })
+            .then(absorb).catch(() => {});
+        }
+        if (body.codex && !codexRefreshed.current) {
+          codexRefreshed.current = true;
+          return refreshCodex();
+        }
       })
       .catch(() => {});
     return () => { live.current = false; };
-  }, [absorb]);
+  }, [absorb, refreshCodex]);
 
   useEffect(() => {
     let stream: EventSource | null = null;
@@ -112,18 +128,29 @@ export function useQuota(): QuotaState {
     // A tab that was in the background missed every frame the stream sent
     // while it was throttled; one read on the way back is cheaper than
     // keeping it awake.
-    const onVisible = () => { if (document.visibilityState === "visible") catchUp(); };
+    const onVisible = () => {
+      if (document.visibilityState !== "visible") return;
+      catchUp();
+      refreshCodex();
+    };
     document.addEventListener("visibilitychange", onVisible);
+
+    // GET polling covers dropped SSE frames; this refresh creates a new Codex
+    // reading even when no other platform process has asked for one.
+    const codexRefresh = setInterval(() => {
+      if (document.visibilityState === "visible") refreshCodex();
+    }, CODEX_REFRESH_MS);
 
     connect();
     return () => {
       stopped = true;
       document.removeEventListener("visibilitychange", onVisible);
+      clearInterval(codexRefresh);
       stream?.close();
       stopPolling();
       if (retry) clearTimeout(retry);
     };
-  }, [absorb, catchUp]);
+  }, [absorb, catchUp, refreshCodex]);
 
   return snapshot;
 }
