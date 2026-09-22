@@ -55,6 +55,10 @@ class Settings(BaseSettings):
     # The broker's ServiceAccount (release-name prefixed) — what run-pod
     # tunnels pin as the expected server identity.
     broker_service_account: str = "ap-mcp-broker"
+    # Read-only connector identity. The Discord bridge presents a projected,
+    # audience-bound ServiceAccount token to fetch its endpoint bindings; it
+    # never needs a long-lived platform API key.
+    connector_service_account: str = "ap-connector-discord"
     mcp_broker_mtls_target: str = "agent-platform-mcp-broker:8443"
     agents_volume_claim: str = "agent-definitions"
     session_secret: str = "dev-insecure"

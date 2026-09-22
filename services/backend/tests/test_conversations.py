@@ -138,16 +138,23 @@ async def test_connector_ingest_maps_ref_to_conversation(sf):
     producer = FakeProducer()
     ing = ConversationIngestor(Settings(), sf, producer)
     ev = {"connector": "discord", "external_ref": "thread-1", "external_user": "kyle",
+          "external_kind": "thread", "external_message_id": "m1",
           "text": "hey pai", "agent": "hello-world"}
     await ing.handle(ev)
-    await ing.handle({**ev, "text": "you there?"})   # same ref → same conversation
+    await ing.handle({**ev, "external_message_id": "m2", "text": "you there?"})
     async with sf() as s:
         convs = (await s.execute(select(Conversation).where(
             Conversation.kind == "dm"))).scalars().all()
         runs = (await s.execute(select(Run))).scalars().all()
+        from agentplatform.db import RelayMessage
+        messages = (await s.execute(select(RelayMessage).where(
+            RelayMessage.external_message_id.is_not(None)))).scalars().all()
     assert len(convs) == 1 and convs[0].external_ref == "thread-1" and convs[0].connector == "discord"
-    # first turn created a run; the second is blocked (a turn is still in flight)
-    assert len(runs) == 1 and runs[0].conversation_id == convs[0].id
+    # Ingestion durably records both messages. The shared Relay router owns
+    # dispatch and will coalesce the second while the first run is active.
+    assert runs == []
+    assert [(m.external_message_id, m.body) for m in messages] == [
+        ("m1", "hey pai"), ("m2", "you there?")]
 
 
 async def test_recorder_emits_outbound_on_terminal(sf):

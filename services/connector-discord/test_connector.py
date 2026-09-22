@@ -224,6 +224,8 @@ def test_a_message_in_a_bound_channel_is_published_inbound(bridge):
     assert envelope["type"] == "conversation.message"
     assert envelope["data"] == {
         "connector": "discord", "external_ref": "100",
+        "external_kind": "channel", "external_title": "",
+        "external_url": "", "external_message_id": "999",
         # The id, not the name: `discord:<id>` is the platform's participant.
         "external_user": "55", "display_name": "Kyle",
         # Verbatim: `@news` is the mention the platform's router parses.
@@ -252,6 +254,17 @@ def test_an_unbound_channel_still_needs_a_mention(bridge):
     (topic, key, envelope), = bridge.producer.sent
     assert (topic, key) == (connector.TOPIC_IN, "200")
     assert envelope["data"]["external_ref"] == "200"
+
+
+def test_a_known_thread_survives_a_connector_restart(bridge):
+    bridge._active_threads = {200, 300}
+    bridge._set_bindings([{"channel_id": "chat", "external_ref": "200",
+                           "external_kind": "thread", "config": {}}])
+    assert bridge._active_threads == {300}
+    thread = bridge.client._channels[200]
+    run(bridge.on_message(Message(thread, Author(55), "still here")))
+    assert bridge.producer.sent[0][2]["data"]["external_message_id"] == "999"
+    assert bridge.producer.sent[0][2]["data"]["external_user"] == "55"
 
 
 # --- outbound ----------------------------------------------------------------
@@ -305,9 +318,19 @@ def test_a_thread_reply_still_goes_out_as_the_bot(bridge):
     assert bridge.client._channels[200].sent == ["the wire is quiet"]
 
 
-def test_a_message_that_came_from_discord_is_not_sent_back(bridge):
+def test_a_long_thread_reply_is_not_truncated(bridge):
+    text = "\n".join(["x" * 1000] * 3)
+    run(bridge._deliver_outbound(_outbound(external_ref="200", external_kind="thread",
+                                           text=text)))
+    assert [len(part) for part in bridge.client._channels[200].sent] == [1000] * 3
+
+
+def test_the_platform_can_forward_between_two_discord_endpoints(bridge):
+    """Source-binding suppression belongs to the platform. If it emits a
+    Discord-authored message for this endpoint, this is the *other* Discord
+    endpoint and the connector must deliver it."""
     run(bridge._deliver_outbound(_outbound(author="discord:55")))
-    assert bridge.client._channels[100].hooks == []
+    assert bridge.client._channels[100].hooks[0].posts[0][0] == "the wire is quiet"
 
 
 def test_another_connectors_message_is_not_ours(bridge):
@@ -322,6 +345,8 @@ def test_another_connectors_message_is_not_ours(bridge):
 def test_the_bindings_refresh_parses_the_api_response(bridge, monkeypatch):
     rows = [{"channel_id": "aa", "external_ref": "100", "config": {"guild": "g"}},
             {"channel_id": "bb", "external_ref": "101", "config": {}},
+            {"channel_id": "chat", "external_ref": "200",
+             "external_kind": "thread", "config": {}},
             # A thread ref from the legacy flow, or somebody else's idea of a
             # channel: not a snowflake, so not ours to mirror.
             {"channel_id": "cc", "external_ref": "thread-9", "config": {}}]
@@ -332,6 +357,7 @@ def test_the_bindings_refresh_parses_the_api_response(bridge, monkeypatch):
     monkeypatch.setattr(bridge, "_fetch_bindings", _fetch)
     run(bridge.refresh_bindings())
     assert sorted(bridge.bound) == [100, 101]
+    assert sorted(bridge.threads) == [200]
     assert bridge.bound[100]["config"] == {"guild": "g"}
 
 
@@ -356,8 +382,21 @@ def test_without_an_api_token_nothing_is_mirrored(monkeypatch):
     are the platform's answer, and unauthenticated there is no answer."""
     monkeypatch.setenv("DISCORD_BOT_TOKEN", "t0ken")
     monkeypatch.delenv("AP_API_TOKEN", raising=False)
+    monkeypatch.delenv("AP_API_TOKEN_FILE", raising=False)
     c = connector.DiscordConnector()
-    assert c.api_token == "" and c.bound == {}
+    assert c._api_bearer() == "" and c.bound == {}
+
+
+def test_projected_api_identity_is_read_from_disk_on_each_request(monkeypatch, tmp_path):
+    monkeypatch.setenv("DISCORD_BOT_TOKEN", "t0ken")
+    monkeypatch.delenv("AP_API_TOKEN", raising=False)
+    token = tmp_path / "token"
+    token.write_text("first\n")
+    monkeypatch.setenv("AP_API_TOKEN_FILE", str(token))
+    c = connector.DiscordConnector()
+    assert c._api_bearer() == "first"
+    token.write_text("rotated\n")
+    assert c._api_bearer() == "rotated"
 
 
 def test_a_deleted_webhook_is_replaced_and_the_message_still_lands(bridge):

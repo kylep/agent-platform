@@ -5,7 +5,6 @@ from typing import TYPE_CHECKING, Any, TypeVar, cast
 
 from attrs import define as _attrs_define
 from attrs import field as _attrs_field
-from typing_extensions import Self
 
 from ..types import UNSET, Unset
 
@@ -36,7 +35,9 @@ class RelayMessage:
         reply_to (None | str):
         run_id (None | str):
         thread_root (None | str):
+        external_message_id (None | str | Unset):
         reactions (list[RelayReactionView] | Unset):
+        source_binding_id (None | str | Unset):
     """
 
     author: str
@@ -53,7 +54,9 @@ class RelayMessage:
     reply_to: None | str
     run_id: None | str
     thread_root: None | str
+    external_message_id: None | str | Unset = UNSET
     reactions: list[RelayReactionView] | Unset = UNSET
+    source_binding_id: None | str | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -101,12 +104,24 @@ class RelayMessage:
         thread_root: None | str
         thread_root = self.thread_root
 
+        external_message_id: None | str | Unset
+        if isinstance(self.external_message_id, Unset):
+            external_message_id = UNSET
+        else:
+            external_message_id = self.external_message_id
+
         reactions: list[dict[str, Any]] | Unset = UNSET
         if not isinstance(self.reactions, Unset):
             reactions = []
             for reactions_item_data in self.reactions:
                 reactions_item = reactions_item_data.to_dict()
                 reactions.append(reactions_item)
+
+        source_binding_id: None | str | Unset
+        if isinstance(self.source_binding_id, Unset):
+            source_binding_id = UNSET
+        else:
+            source_binding_id = self.source_binding_id
 
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
@@ -128,13 +143,17 @@ class RelayMessage:
                 "thread_root": thread_root,
             }
         )
+        if external_message_id is not UNSET:
+            field_dict["external_message_id"] = external_message_id
         if reactions is not UNSET:
             field_dict["reactions"] = reactions
+        if source_binding_id is not UNSET:
+            field_dict["source_binding_id"] = source_binding_id
 
         return field_dict
 
     @classmethod
-    def from_dict(cls, src_dict: Mapping[str, Any]) -> Self:
+    def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
         from ..models.relay_face import RelayFace
         from ..models.relay_message_card_type_0 import RelayMessageCardType0
         from ..models.relay_reaction_view import RelayReactionView
@@ -219,6 +238,17 @@ class RelayMessage:
 
         thread_root = _parse_thread_root(d.pop("thread_root"))
 
+        def _parse_external_message_id(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        external_message_id = _parse_external_message_id(
+            d.pop("external_message_id", UNSET)
+        )
+
         _reactions = d.pop("reactions", UNSET)
         reactions: list[RelayReactionView] | Unset = UNSET
         if _reactions is not UNSET:
@@ -227,6 +257,15 @@ class RelayMessage:
                 reactions_item = RelayReactionView.from_dict(reactions_item_data)
 
                 reactions.append(reactions_item)
+
+        def _parse_source_binding_id(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        source_binding_id = _parse_source_binding_id(d.pop("source_binding_id", UNSET))
 
         relay_message = cls(
             author=author,
@@ -243,7 +282,9 @@ class RelayMessage:
             reply_to=reply_to,
             run_id=run_id,
             thread_root=thread_root,
+            external_message_id=external_message_id,
             reactions=reactions,
+            source_binding_id=source_binding_id,
         )
 
         relay_message.additional_properties = d

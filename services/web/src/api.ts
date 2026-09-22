@@ -366,6 +366,10 @@ export type RelayLastMessage = {
 export type RelayChannel = {
   id: string;
   kind: string;             // dm | channel | group
+  home?: string;             // relay | external
+  reply_mode?: string;       // linear | threaded
+  dispatch_mode?: string;    // facade | mentions | default
+  default_agent?: string | null;
   name: string | null;      // slug, channels only
   // A group's given name, when it has one. Absent on older API builds, which
   // is why the UI can still name a group by who is in it.
@@ -382,7 +386,23 @@ export type RelayChannel = {
   unread: number;
 };
 
-export type RelayChannelDetail = RelayChannel & { faces: Record<string, RelayFace> };
+export type RelayBinding = {
+  id: string;
+  connector: string;
+  external_ref: string;
+  external_kind: string;
+  parent_external_ref?: string | null;
+  display_name?: string;
+  external_url?: string;
+  status?: string;
+  config: Record<string, unknown>;
+};
+
+export type RelayChannelDetail = RelayChannel & {
+  faces: Record<string, RelayFace>;
+  bindings?: RelayBinding[];
+  display_names?: Record<string, string>;
+};
 
 /** An event row's card. `type` names the shape the rest is in: the platform's
  * own `ticket` cards (docs/design/20) carry the board fields below, and

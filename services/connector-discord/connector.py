@@ -31,6 +31,7 @@ import json
 import logging
 import os
 import re
+from pathlib import Path
 import uuid
 from datetime import datetime, timezone
 
@@ -117,15 +118,6 @@ def _speaker(author: str) -> str:
     return RESERVED_IN_USERNAME.sub("", name).strip()[:USERNAME_LIMIT] or "Relay"
 
 
-def _from_discord(author: str) -> bool:
-    """Whether this message originated on this bridge. The platform drops these
-    before they are ever published (the author's namespace is the network it
-    arrived from), so this is belt and braces — but it is one line, and the
-    failure it prevents is every human message in a bound channel being echoed
-    back at the person who typed it."""
-    return (author or "").startswith("discord:")
-
-
 class DiscordConnector:
     def __init__(self):
         self.bootstrap = os.environ.get("AP_KAFKA_BOOTSTRAP", "ap-kafka:9092")
@@ -134,6 +126,7 @@ class DiscordConnector:
         self.api_url = os.environ.get("AP_API_URL",
                                       "http://agent-platform-api:8000").rstrip("/")
         self.api_token = os.environ.get("AP_API_TOKEN", "")
+        self.api_token_file = os.environ.get("AP_API_TOKEN_FILE", "")
         intents = discord.Intents.default()
         intents.message_content = True
         self.client = discord.Client(intents=intents)
@@ -142,6 +135,10 @@ class DiscordConnector:
         # Discord channel id → its binding row. The map IS the answer to "is
         # this channel mirrored?", on both the inbound and the outbound side.
         self.bound: dict[int, dict] = {}
+        # Assistant threads are endpoint bindings too, but are never channel
+        # mirrors: they use bot replies rather than webhooks. Hydrating this at
+        # startup is what makes an existing conversation survive a restart.
+        self.threads: dict[int, dict] = {}
         self._webhooks: dict[int, object] = {}
         self.client.event(self.on_ready)
         self.client.event(self.on_message)
@@ -151,8 +148,19 @@ class DiscordConnector:
 
     # --- bindings ------------------------------------------------------------
 
+    def _api_bearer(self) -> str:
+        if self.api_token:
+            return self.api_token
+        if not self.api_token_file:
+            return ""
+        try:
+            return Path(self.api_token_file).read_text().strip()
+        except OSError:
+            log.warning("could not read AP_API_TOKEN_FILE", exc_info=True)
+            return ""
+
     async def _fetch_bindings(self) -> list:
-        headers = {"Authorization": f"Bearer {self.api_token}"}
+        headers = {"Authorization": f"Bearer {self._api_bearer()}"}
         async with aiohttp.ClientSession(headers=headers) as session:
             async with session.get(self.api_url + BINDINGS_PATH,
                                    params={"connector": "discord"},
@@ -165,16 +173,25 @@ class DiscordConnector:
         Discord snowflake is skipped rather than guessed at: the thread flow's
         refs live in the same table, and an id this connector cannot resolve is
         a binding for somebody else's idea of a channel."""
-        bound = {}
+        bound, threads = {}, {}
         for row in rows or []:
             ref = str((row or {}).get("external_ref") or "")
             if ref.isdigit():
-                bound[int(ref)] = row
+                if (row or {}).get("external_kind") == "thread":
+                    threads[int(ref)] = row
+                else:
+                    bound[int(ref)] = row
             else:
                 log.warning("ignoring binding with a non-numeric external_ref %r", ref)
         if bound.keys() != self.bound.keys():
             log.info("mirroring %d discord channel(s): %s", len(bound), sorted(bound))
         self.bound = bound
+        # Once a locally-created thread has appeared in the authoritative
+        # endpoint list, stop remembering it independently. A later unbind
+        # must make it inactive again rather than leave a stale process-local
+        # exemption behind.
+        self._active_threads.difference_update(set(self.threads) | set(threads))
+        self.threads = threads
         # A channel we no longer mirror keeps no cached webhook: the next bind
         # of it should look the room up again rather than post through a handle
         # that may have been deleted in the meantime.
@@ -215,7 +232,9 @@ class DiscordConnector:
             await self._publish_channel_message(message)
             return
         mentioned = self.client.user in message.mentions
-        in_active_thread = isinstance(message.channel, discord.Thread) and message.channel.id in self._active_threads
+        in_active_thread = (isinstance(message.channel, discord.Thread)
+                            and (message.channel.id in self._active_threads
+                                 or message.channel.id in self.threads))
         if not (mentioned or in_active_thread):
             return
         # Converse in a thread; create one off a channel mention so each
@@ -231,8 +250,15 @@ class DiscordConnector:
         await self.producer.send_and_wait(TOPIC_IN, key=str(thread.id).encode(),
             value=_envelope("conversation.message", str(thread.id), {
                 "connector": "discord", "external_ref": str(thread.id),
-                "external_user": message.author.name, "text": text, "agent": self.agent}))
-        log.info("→ conversation.inbound thread=%s user=%s", thread.id, message.author.name)
+                "external_kind": "thread",
+                "external_parent_ref": str(getattr(thread, "parent_id", "") or "") or None,
+                "external_title": getattr(thread, "name", "") or f"Discord thread {thread.id}",
+                "external_url": getattr(message, "jump_url", "") or "",
+                "external_message_id": str(message.id),
+                "external_user": str(message.author.id),
+                "display_name": getattr(message.author, "display_name", message.author.name),
+                "text": text, "agent": self.agent}))
+        log.info("→ conversation.inbound thread=%s user=%s", thread.id, message.author.id)
 
     async def _publish_channel_message(self, message: discord.Message):
         """A message in a bound channel, published verbatim.
@@ -246,6 +272,10 @@ class DiscordConnector:
         await self.producer.send_and_wait(TOPIC_IN, key=ref.encode(),
             value=_envelope("conversation.message", ref, {
                 "connector": "discord", "external_ref": ref,
+                "external_kind": "channel",
+                "external_title": getattr(message.channel, "name", "") or "",
+                "external_url": getattr(message, "jump_url", "") or "",
+                "external_message_id": str(message.id),
                 "external_user": str(message.author.id),
                 "display_name": getattr(message.author, "display_name", ""),
                 "text": message.clean_content, "agent": self.agent}))
@@ -319,17 +349,17 @@ class DiscordConnector:
         tid = int(data["external_ref"])
         channel = self.client.get_channel(tid) or await self.client.fetch_channel(tid)
         if channel is not None:
-            await channel.send((data.get("text") or "")[:1900])
+            for chunk in _chunks(data.get("text") or ""):
+                await channel.send(chunk)
             log.info("← posted reply to thread=%s", tid)
 
     async def _deliver_outbound(self, data: dict):
         """One outbound message to whichever kind of room it names."""
         if data.get("connector") != "discord" or not data.get("external_ref"):
             return
-        if _from_discord(data.get("author") or ""):
-            return
         ref = str(data["external_ref"])
-        if ref.isdigit() and int(ref) in self.bound:
+        if data.get("external_kind") == "channel" or (
+                not data.get("external_kind") and ref.isdigit() and int(ref) in self.bound):
             await self._deliver_channel_message(data)
         else:
             await self._deliver_thread_reply(data)
@@ -374,14 +404,14 @@ class DiscordConnector:
             bootstrap_servers=self.bootstrap, enable_idempotence=True,
             acks="all", compression_type="gzip")
         await self.producer.start()
-        if self.api_token:
+        if self._api_bearer():
             # Before the gateway connects: the map decides how the very first
             # message is handled, and a mirrored channel must not spend its
             # first minute being read as a bot mention.
             await self.refresh_bindings()
             asyncio.create_task(self.bindings_loop())
         else:
-            log.warning("AP_API_TOKEN is unset: channel mirroring is off, only the "
+            log.warning("API identity is unavailable: binding recovery is off, only the "
                         "mention-the-bot thread flow runs")
         asyncio.create_task(self.consume_outbound())
         await self.client.start(self.token)

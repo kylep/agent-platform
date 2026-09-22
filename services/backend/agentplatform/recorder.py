@@ -11,7 +11,7 @@ from agentplatform.db import (ACTIVE_STATES, Conversation, RelayMessage, Run,
 from agentplatform.events import (TOPIC_RUN_DLQ, TOPIC_RUN_EVENTS,
                                   TOPIC_RUN_TRANSCRIPT)
 from agentplatform.relay import (SYSTEM_AUTHOR, mentionable_in, parse_mentions,
-                                 participant_of)
+                                 participant_of, room_reply_mode)
 from agentplatform.relay_store import (enabled_agents, explicit_members,
                                        outbound_for_message, post_relay_message,
                                        publish_relay_message)
@@ -176,7 +176,7 @@ class Recorder:
         # its answer goes top-level: threaded there it would sit behind a
         # "replies" chip the DM pane never shows (QA-16).
         reply_to = None
-        if trigger is not None and conv.kind != "dm":
+        if trigger is not None and room_reply_mode(conv) != "linear":
             reply_to = trigger.thread_root or trigger.id
         if failed:
             author, kind = SYSTEM_AUTHOR, "system"

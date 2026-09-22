@@ -981,6 +981,8 @@ async def test_the_cross_channel_list_is_what_a_connector_reads(admin_client, sf
                             json={"connector": "slack", "external_ref": "222"})
     rows = (await admin_client.get("/api/relay/bindings?connector=discord")).json()
     assert rows == [{"channel_id": general, "external_ref": "111",
+                     "external_kind": "channel", "parent_external_ref": None,
+                     "display_name": "", "external_url": "", "status": "active",
                      "config": {"guild": "g"}}]
     assert [r["external_ref"] for r in
             (await admin_client.get("/api/relay/bindings?connector=slack")).json()] == ["222"]

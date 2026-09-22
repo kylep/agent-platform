@@ -36,9 +36,10 @@ from agentplatform.events import (TOPIC_RELAY_INVOCATIONS, TOPIC_RELAY_MESSAGES,
                                   TOPIC_RUN_EVENTS, consume_forever)
 from agentplatform.materialize import materialize_run
 from agentplatform.relay import (AGENT_PREFIX, ALL, SYSTEM_AUTHOR, USER_PREFIX,
+                                 address_tokens,
                                  agent_name, build_mention_prompt, is_agent,
                                  is_member, is_open_channel, mentionable_in,
-                                 parse_mentions, strip_mentions)
+                                 parse_mentions, room_dispatch_mode, strip_mentions)
 from agentplatform.relay_store import (context_window, explicit_members, faces_for,
                                        outbound_for_message, post_relay_message,
                                        publish_relay_message)
@@ -168,7 +169,7 @@ class RelayRouter:
             run_id, limit = None, None
             if not is_member(conv, AGENT_PREFIX + agent, enabled, explicit):
                 decision, reason = "suppressed", "not_member"
-            elif kind == "mention" and self._facade_owns(conv, msg, agent):
+            elif kind in ("mention", "default") and self._facade_owns(conv, msg, agent):
                 # Recorded BEFORE the "already answered" skip below: it is
                 # true of the room rather than of a particular run, so it
                 # is the same answer whether the facade's run exists yet or
@@ -185,7 +186,7 @@ class RelayRouter:
             elif (limit := self._exhausted(channel_used, global_used)) is not None:
                 decision, reason = "suppressed", "budget"
                 paused_limit = limit
-            elif kind == "mention" and await self._occupied(s, conv, msg, agent):
+            elif kind in ("mention", "default") and await self._occupied(s, conv, msg, agent):
                 decision, reason = "suppressed", "coalesced"
                 await self._coalesce(s, conv.id, agent, wake, msg)
             else:
@@ -313,11 +314,13 @@ class RelayRouter:
                 out.append((freed, anchor if anchor is not None else msg, wake, "wake"))
         if msg.kind != "text":
             return out
-        for target in self._targets(conv, msg, enabled, explicit):
+        raw_addresses = address_tokens(msg.body or "")
+        kind = "mention" if raw_addresses else "default"
+        for target in self._targets(conv, msg, enabled, explicit, raw_addresses):
             # A target that is still carrying a wake and is free now gets its
             # backlog with this mention: the person asking again should not
             # have to wait for the agent's own next reply to unstick the room.
-            out.append((target, msg, await s.get(RelayWake, (conv.id, target)), "mention"))
+            out.append((target, msg, await s.get(RelayWake, (conv.id, target)), kind))
         return out
 
     async def _freed_by(self, s, msg) -> str | None:
@@ -361,13 +364,16 @@ class RelayRouter:
         for one turn. Only a human's mention of the DM's own agent is the
         facade's; a wake's backlog is not a turn, and an agent-authored message
         never went through the facade at all."""
-        return (conv.kind == "dm" and agent == conv.agent
+        return (room_dispatch_mode(conv) == "facade" and agent == conv.agent
                 and not is_agent(msg.author))
 
-    def _targets(self, conv, msg, enabled, explicit) -> list[str]:
+    def _targets(self, conv, msg, enabled, explicit,
+                 raw_addresses: list[str] | None = None) -> list[str]:
         room = mentionable_in(conv, enabled, explicit)
         author = agent_name(msg.author)
         out: list[str] = []
+        raw_addresses = (address_tokens(msg.body or "")
+                         if raw_addresses is None else raw_addresses)
         for token in parse_mentions(msg.body or "", room, msg.author):
             # ALL only ever comes from a human — `parse_mentions` drops an
             # agent's room mention, because an agent that can page everyone is
@@ -376,6 +382,15 @@ class RelayRouter:
             for name in (self._room_roster(room) if token == ALL else [token]):
                 if name != author and name not in out:
                     out.append(name)
+        # An explicit address always replaces the fallback, even if it was
+        # misspelled, disabled or not admitted to this room. Falling through
+        # here would make `@artist help` wake pai after refusing artist.
+        if raw_addresses or out or is_agent(msg.author):
+            return out
+        if room_dispatch_mode(conv) == "default":
+            fallback = conv.default_agent or conv.agent
+            if fallback:
+                out.append(fallback)
         return out
 
     def _room_roster(self, room: set[str]) -> list[str]:

@@ -29,6 +29,8 @@ def message_view(row, *, face=None, reactions=None) -> dict:
             "kind": row.kind, "body": row.body, "card": row.card,
             "reply_to": row.reply_to, "thread_root": row.thread_root,
             "run_id": row.run_id, "hop": row.hop, "mentions": row.mentions or [],
+            "source_binding_id": row.source_binding_id,
+            "external_message_id": row.external_message_id,
             "created_at": row.created_at.isoformat() if row.created_at else None,
             "edited_at": row.edited_at.isoformat() if row.edited_at else None,
             "face": face, "reactions": reactions or []}
@@ -44,7 +46,9 @@ async def post_relay_message(session, conv, *, author: str, body: str,
                              kind: str = "text", run_id: str | None = None,
                              hop: int = 0, trigger_message_id: str | None = None,
                              reply_to: str | None = None,
-                             mentions=None, card: dict | None = None) -> RelayMessage:
+                             mentions=None, card: dict | None = None,
+                             source_binding_id: str | None = None,
+                             external_message_id: str | None = None) -> RelayMessage:
     """Insert a message into `conv`. Flushed but NOT committed: the caller owns
     the transaction, so a turn's message and the run that answers it land
     together or not at all."""
@@ -57,7 +61,9 @@ async def post_relay_message(session, conv, *, author: str, body: str,
     row = RelayMessage(channel_id=conv.id, author=author, kind=kind, body=body,
                        card=card, reply_to=reply_to, thread_root=thread_root,
                        run_id=run_id, trigger_message_id=trigger_message_id,
-                       hop=hop, mentions=list(mentions or []))
+                       hop=hop, mentions=list(mentions or []),
+                       source_binding_id=source_binding_id,
+                       external_message_id=external_message_id)
     session.add(row)
     # Posting is the activity the rail sorts private rooms by, and a room whose
     # only message was just written has nothing else to sort on.
@@ -127,13 +133,23 @@ async def outbound_for_message(session, conv, msg, *,
 
     `state` is the run outcome the recorder holds before the Run row does; left
     out, it is read off the run that authored the message."""
-    bridges = [(b.connector, b.external_ref) for b in await bindings_of(session, conv.id)]
+    bridges = list(await bindings_of(session, conv.id))
     if not bridges:
         if conv.connector == "web" or not conv.external_ref:
             return []
-        bridges = [(conv.connector, conv.external_ref)]
-    origin = (msg.author or "").partition(":")[0]
-    bridges = [(connector, ref) for connector, ref in bridges if connector != origin]
+        # The compatibility fallback has no binding id. A tiny duck-typed row
+        # keeps the payload construction below identical to the normal path.
+        from types import SimpleNamespace
+        bridges = [SimpleNamespace(id=None, connector=conv.connector,
+                                   external_ref=conv.external_ref,
+                                   external_kind="thread", config={})]
+    if msg.source_binding_id:
+        bridges = [b for b in bridges if b.id != msg.source_binding_id]
+    else:
+        # Historical messages predate source endpoint identity. Keep the old
+        # namespace guard for those rows only.
+        origin = (msg.author or "").partition(":")[0]
+        bridges = [b for b in bridges if b.connector != origin]
     if not bridges:
         return []
     if state is None:
@@ -144,10 +160,11 @@ async def outbound_for_message(session, conv, msg, *,
              # still read `conversation_id`, and a bridge is not the place to
              # break a wire format over a rename.
              "conversation_id": conv.id,
-             "connector": connector, "external_ref": ref,
+             "connector": binding.connector, "external_ref": binding.external_ref,
+             "external_kind": binding.external_kind or "channel",
              "author": msg.author, "kind": msg.kind, "message_id": msg.id,
              "run_id": msg.run_id, "text": msg.body or "", "state": state}
-            for connector, ref in bridges]
+            for binding in bridges]
 
 
 async def publish_relay_message(producer, conv, msg, *, face=None,

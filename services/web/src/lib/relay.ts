@@ -45,6 +45,7 @@ export function participantLabel(participant: string, me: string | null): string
  * and for a group its given title — falling back to who is in it, which is the
  * only thing that distinguishes one untitled group from another. */
 export function channelLabel(channel: RelayChannel, me: string | null): string {
+  if (channel.home === "external") return channel.title || "Discord thread";
   if (channel.kind === "channel") return `#${channel.name ?? "channel"}`;
   if (channel.kind === "group") {
     if (channel.title) return channel.title;

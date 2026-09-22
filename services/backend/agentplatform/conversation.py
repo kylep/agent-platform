@@ -16,7 +16,7 @@ from agentplatform.db import (ACTIVE_STATES, Conversation, RelayMessage,
                               RelayParticipant, Run, dm_key_of)
 from agentplatform.materialize import materialize_run
 from agentplatform.relay import (is_agent, mentionable_in, parse_mentions,
-                                 participant_of)
+                                 participant_of, room_dispatch_mode)
 from agentplatform.relay_store import (enabled_agents, explicit_members,
                                        outbound_for_message, post_relay_message,
                                        publish_relay_message)
@@ -162,7 +162,7 @@ async def continue_conversation(session_factory, producer, conversation_id: str,
         # A channel or group is the router's to answer (docs/design/19): there
         # is no single agent to hand the turn to, and mentions decide who
         # speaks. This path stays the DM path.
-        if conv.kind != "dm":
+        if conv.kind != "dm" or room_dispatch_mode(conv) != "facade":
             return None
         # Serialize turns: don't start a new one while a run is still active.
         active = (await s.execute(select(Run).where(

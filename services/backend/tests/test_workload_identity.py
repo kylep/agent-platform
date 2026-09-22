@@ -68,6 +68,22 @@ async def test_sa_token_without_validator_rejected(tool_client):
     assert (await tool_client.get("/api/whoami", headers=_auth())).status_code == 401
 
 
+async def test_connector_sa_can_read_only_its_binding_feed(tool_client):
+    """The bridge recovers durable endpoints without a minted API secret, but
+    its machine role does not become a general reader credential."""
+    app_state = tool_client._transport.app.state
+    app_state.sa_validator = _fake_validator(
+        "system:serviceaccount:ap:ap-connector-discord")
+    tool_client.cookies.clear()
+    who = await tool_client.get("/api/whoami", headers=_auth())
+    assert who.status_code == 200
+    assert (who.json()["principal"], who.json()["role"], who.json()["agent"]) == (
+        "connector-discord", "connector", None)
+    assert (await tool_client.get(
+        "/api/relay/bindings?connector=discord", headers=_auth())).status_code == 200
+    assert (await tool_client.get("/api/runs", headers=_auth())).status_code == 403
+
+
 # --- launcher side -----------------------------------------------------------
 
 class _FakeCore:

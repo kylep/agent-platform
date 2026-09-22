@@ -51,14 +51,14 @@ cases:
     tags: [router, kafka]
 
   - key: relay.at-all-skips-system
-    title: "@all wakes every agent member except the platform's own agents"
+    title: "@all wakes every agent member that opts in"
     layer: integration
     priority: p1
     steps: ["a human posts \"@all\" in an open room and in a closed one"]
-    expected: every ordinary agent member is invoked once; system agents are skipped but still answer their own name
+    expected: opted-in agent members are invoked once; opted-out agents are skipped but still answer their own name
     automation:
       - pytest:services/backend/tests/test_relay_router.py::test_a_human_at_all_invokes_every_agent_member
-      - pytest:services/backend/tests/test_relay_router.py::test_at_all_skips_the_platforms_own_agents
+      - pytest:services/backend/tests/test_relay_router.py::test_at_all_skips_system_agents_in_a_closed_room_too
       - pytest:services/backend/tests/test_relay_router.py::test_a_system_agent_still_answers_its_own_name
     tags: [router]
 

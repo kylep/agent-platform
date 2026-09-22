@@ -32,6 +32,7 @@ from agentplatform.db import RelayReaction as ReactionRow
 from agentplatform.db import Run, Ticket, utcnow
 from agentplatform.relay import (agent_name, is_agent, is_member, is_participant,
                                  mentionable_in, parse_mentions, participant_of,
+                                 room_dispatch_mode, room_home, room_reply_mode,
                                  strip_room_mentions)
 # Aliased: the route below is the HTTP name for the same act, and the store
 # helper is what actually writes the row.
@@ -214,6 +215,9 @@ _message = message_view
 def _channel(conv: Conversation, *, participants: set[str], last=None,
              count: int = 0, unread: int = 0) -> dict:
     return {"id": conv.id, "kind": conv.kind, "name": conv.name,
+            "home": room_home(conv), "reply_mode": room_reply_mode(conv),
+            "dispatch_mode": room_dispatch_mode(conv),
+            "default_agent": conv.default_agent or conv.agent,
             "title": conv.title, "topic": conv.topic,
             "open": bool(conv.open), "archived_at": _iso(conv.archived_at),
             "agent": conv.agent, "ticket_prefix": conv.ticket_prefix,
@@ -417,6 +421,8 @@ async def create_relay_channel(request: Request, body: S.RelayChannelIn,
         if is_channel and await _name_taken(s, name):
             raise HTTPException(409, f"#{name} already exists")
         conv = Conversation(connector="web", agent=None, kind=body.kind, name=name,
+                            home="relay", reply_mode="threaded",
+                            dispatch_mode="mentions",
                             topic=body.topic.strip()[:256], open=is_open,
                             title=f"#{name}" if is_channel
                                   else (body.name or "group").strip()[:256])
@@ -512,36 +518,40 @@ CONNECTORS = ("discord", "slack", "telegram")
 
 def _binding(row) -> dict:
     return {"id": row.id, "connector": row.connector,
-            "external_ref": row.external_ref, "config": row.config or {}}
+            "external_ref": row.external_ref,
+            "external_kind": row.external_kind or "channel",
+            "parent_external_ref": row.parent_external_ref,
+            "display_name": row.display_name or "",
+            "external_url": row.external_url or "",
+            "status": row.status or "active", "config": row.config or {}}
 
 
 @router.get("/api/relay/bindings", response_model=list[S.RelayBindingRef],
-            dependencies=[Depends(require_relay_access(*READ_ROLES, agents=False))])
+            dependencies=[Depends(require_relay_access(*READ_ROLES, "connector",
+                                                       agents=False))])
 async def list_bindings_for_connector(request: Request,
                                       connector: str = Query(max_length=32)):
-    """Every CHANNEL this connector mirrors. A bridge asks the platform which
+    """Every endpoint this connector owns. A bridge asks the platform which
     rooms it is responsible for rather than being told in its environment: a
     binding made in the UI has to reach it without a redeploy, and the
     connector holds no state of its own worth trusting.
 
-    DMs are excluded, and that exclusion is load-bearing. `conversation_ingest`
-    writes a binding for every thread it meets on first contact, and a Discord
-    thread id is a snowflake exactly like a channel id — so handing those back
-    would have the bridge treat every private thread as a mirrored room:
-    inbound would stop requiring a mention of the bot and would re-author the
-    thread's history under a second participant, and outbound would try to hang
-    a webhook on a thread, which Discord does not allow — a 404 the connector
-    swallows, and the reply is simply never delivered. The thread flow is the
-    connector's own; the platform only names the rooms it mirrors."""
+    Endpoint kind is explicit: the connector hydrates channel mirrors and
+    assistant threads into separate maps, so a restart can resume a known
+    thread without trying to attach a channel webhook to it."""
     async with request.app.state.session_factory() as s:
         rows = list((await s.execute(
             select(BindingRow)
-            .join(Conversation, Conversation.id == BindingRow.channel_id)
             .where(BindingRow.connector == connector,
-                   Conversation.kind.in_(("channel", "group")))
+                   BindingRow.status == "active")
             .order_by(BindingRow.external_ref))).scalars())
     return [{"channel_id": r.channel_id, "external_ref": r.external_ref,
-             "config": r.config or {}} for r in rows]
+             "external_kind": r.external_kind or "channel",
+             "parent_external_ref": r.parent_external_ref,
+             "display_name": r.display_name or "",
+             "external_url": r.external_url or "",
+             "status": r.status or "active", "config": r.config or {}}
+            for r in rows]
 
 
 @router.get("/api/relay/channels/{channel_id}/bindings",
@@ -563,6 +573,8 @@ async def create_relay_binding(request: Request, channel_id: str, body: S.RelayB
     external_ref = body.external_ref.strip()
     if not external_ref:
         raise HTTPException(422, "external_ref must name a room on that network")
+    if body.external_kind not in ("channel", "thread", "dm"):
+        raise HTTPException(422, "external_kind must be channel, thread, or dm")
     async with request.app.state.session_factory() as s:
         conv = await s.get(Conversation, channel_id)
         if conv is None:
@@ -574,7 +586,12 @@ async def create_relay_binding(request: Request, channel_id: str, body: S.RelayB
             # connector then mirrors twice.
             raise HTTPException(409, "DMs are bound by the connector's own thread flow")
         row = BindingRow(channel_id=channel_id, connector=body.connector,
-                         external_ref=external_ref, config=dict(body.config))
+                         external_ref=external_ref,
+                         external_kind=body.external_kind,
+                         parent_external_ref=body.parent_external_ref,
+                         display_name=body.display_name.strip(),
+                         external_url=body.external_url.strip(),
+                         config=dict(body.config))
         s.add(row)
         try:
             await s.commit()
@@ -727,7 +744,8 @@ async def post_relay_message(request: Request, channel_id: str, body: S.RelayMes
         # A person's message in an agent DM is a TURN, and turns belong to the
         # facade (see _dm_turn). Everything else — every channel and group, and
         # an agent's own posts anywhere — is a plain message.
-        turn_agent = (conv.agent if caller.agent is None and conv.kind == "dm"
+        turn_agent = (conv.agent if caller.agent is None
+                      and room_dispatch_mode(conv) == "facade"
                       and conv.agent else None)
         if turn_agent is None:
             text = body.body if caller.agent is None else strip_room_mentions(body.body)
@@ -1025,6 +1043,8 @@ async def open_relay_dm(request: Request, body: S.RelayDmIn,
             # /api/conversations facade and the design-14 resume path keep
             # working over the same row.
             conv = Conversation(connector="web", kind="dm", agent=target or caller.agent,
+                                home="relay", reply_mode="linear",
+                                dispatch_mode="facade", default_agent=target or caller.agent,
                                 topic="", open=False, dm_key=dm_key_of(pair),
                                 title="dm:" + ":".join(pair))
             s.add(conv)

@@ -780,6 +780,11 @@ class RelayBindingView(BaseModel):
     id: str
     connector: str       # discord | slack | telegram
     external_ref: str
+    external_kind: str
+    parent_external_ref: str | None = None
+    display_name: str = ""
+    external_url: str = ""
+    status: str = "active"
     config: dict
 
 
@@ -789,12 +794,21 @@ class RelayBindingRef(BaseModel):
     repeated on every row."""
     channel_id: str
     external_ref: str
+    external_kind: str
+    parent_external_ref: str | None = None
+    display_name: str = ""
+    external_url: str = ""
+    status: str = "active"
     config: dict
 
 
 class RelayChannel(BaseModel):
     id: str
     kind: str            # dm | channel | group
+    home: str            # relay | external
+    reply_mode: str      # linear | threaded
+    dispatch_mode: str   # facade | mentions | default
+    default_agent: str | None
     name: str | None     # slug, channels only
     # The room's display name: `#general` for a channel, the group's name, the
     # pair for a dm. `name` is the slug and is null off channels, so this is
@@ -843,6 +857,8 @@ class RelayMessage(BaseModel):
     run_id: str | None
     hop: int
     mentions: list[str]
+    source_binding_id: str | None = None
+    external_message_id: str | None = None
     created_at: str | None
     edited_at: str | None
     face: RelayFace | None
@@ -957,6 +973,10 @@ class RelayBindingIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
     connector: str = Field(max_length=32)
     external_ref: str = Field(min_length=1, max_length=256)
+    external_kind: str = Field(default="channel", max_length=24)
+    parent_external_ref: str | None = Field(default=None, max_length=256)
+    display_name: str = Field(default="", max_length=256)
+    external_url: str = Field(default="", max_length=1024)
     # Connector-specific detail (a guild id, a webhook name). Opaque here: the
     # platform never interprets it, the bridge does.
     config: dict = {}

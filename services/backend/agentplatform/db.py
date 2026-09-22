@@ -3,7 +3,7 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from enum import StrEnum
 from sqlalchemy import (JSON, DateTime, Float, Index, Integer, LargeBinary, String,
-                        Text, UniqueConstraint, select, text)
+                        Text, UniqueConstraint, case, select, text)
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
@@ -29,6 +29,14 @@ class TicketPriority(StrEnum):
     P0 = "p0"; P1 = "p1"; P2 = "p2"; P3 = "p3"
 
 class Base(DeclarativeBase): pass
+
+
+def _reply_mode_default(context) -> str:
+    return "linear" if context.get_current_parameters().get("kind", "dm") == "dm" else "threaded"
+
+
+def _dispatch_mode_default(context) -> str:
+    return "facade" if context.get_current_parameters().get("kind", "dm") == "dm" else "mentions"
 
 class Run(Base):
     __tablename__ = "runs"
@@ -160,6 +168,19 @@ class Conversation(Base):
     external_ref: Mapped[str | None] = mapped_column(String(256), nullable=True, index=True)
     agent: Mapped[str | None] = mapped_column(String(128), nullable=True)
     kind: Mapped[str] = mapped_column(String(16), default="dm")   # dm | channel | group
+    # Where the room's lifecycle lives. `external` means the room was created
+    # from a connector-owned conversation (for example a Discord thread). It
+    # is provenance, not an access-control claim: a Discord public thread is
+    # still external even though everybody in its parent channel may read it.
+    home: Mapped[str] = mapped_column(String(16), default="relay")  # relay | external
+    # Transcript layout and invocation are independent of kind. Connected
+    # Discord threads are linear even though they are not Relay DMs; channels
+    # remain threaded. `default` routes eligible unaddressed human text to the
+    # default agent, while `mentions` only routes explicit addresses and
+    # `facade` preserves the synchronous legacy web-DM contract.
+    reply_mode: Mapped[str] = mapped_column(String(16), default=_reply_mode_default)
+    dispatch_mode: Mapped[str] = mapped_column(String(16), default=_dispatch_mode_default)
+    default_agent: Mapped[str | None] = mapped_column(String(128), nullable=True)
     # Slug, channels only (`general`), unique among them — enforced by the
     # partial index _ensure_relay_ddl creates, since dms leave it null.
     name: Mapped[str | None] = mapped_column(String(128), nullable=True)
@@ -220,7 +241,11 @@ class RelayMessage(Base):
     its reply at h+1 — and trigger_message_id is the message that caused it,
     so a chain is walkable in both directions."""
     __tablename__ = "relay_messages"
-    __table_args__ = (Index("ix_relay_messages_channel_created", "channel_id", "created_at"),)
+    __table_args__ = (
+        Index("ix_relay_messages_channel_created", "channel_id", "created_at"),
+        UniqueConstraint("source_binding_id", "external_message_id",
+                         name="uq_relay_messages_external"),
+    )
     id: Mapped[str] = mapped_column(String(32), primary_key=True, default=lambda: uuid.uuid4().hex)
     channel_id: Mapped[str] = mapped_column(String(32))
     author: Mapped[str] = mapped_column(String(128))
@@ -239,6 +264,12 @@ class RelayMessage(Base):
     # Agent names the router resolved from the body's @mentions, not the raw
     # tokens: routing reads this, never the text.
     mentions: Mapped[list] = mapped_column(JSON, default=list)
+    # Immutable transport identity. Together these make connector ingestion
+    # idempotent across Kafka replay and reconnect. Null on Relay-authored and
+    # historical rows whose source message was never recorded.
+    source_binding_id: Mapped[str | None] = mapped_column(String(32), nullable=True,
+                                                          index=True)
+    external_message_id: Mapped[str | None] = mapped_column(String(256), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     edited_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     # Soft delete: a deleted message keeps its id so replies and threads that
@@ -262,6 +293,7 @@ class RelaySession(Base):
     channel_id: Mapped[str] = mapped_column(String(32), primary_key=True)
     agent: Mapped[str] = mapped_column(String(128), primary_key=True)
     claude_session_id: Mapped[str] = mapped_column(String(64), default="")
+    codex_thread_id: Mapped[str] = mapped_column(String(64), default="")
     session_blob: Mapped[bytes | None] = mapped_column(LargeBinary, nullable=True)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
 
@@ -277,6 +309,11 @@ class RelayBinding(Base):
     channel_id: Mapped[str] = mapped_column(String(32), index=True)
     connector: Mapped[str] = mapped_column(String(32))    # discord | slack | telegram
     external_ref: Mapped[str] = mapped_column(String(256))
+    external_kind: Mapped[str] = mapped_column(String(24), default="channel")
+    parent_external_ref: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    display_name: Mapped[str] = mapped_column(String(256), default="")
+    external_url: Mapped[str] = mapped_column(String(1024), default="")
+    status: Mapped[str] = mapped_column(String(16), default="active")
     config: Mapped[dict] = mapped_column(JSON, default=dict)
 
 
@@ -929,6 +966,7 @@ INIT_DB_LOCK_KEY = -7077053083107605676
 
 RELAY_BACKFILL_MARK = "relay-backfill-v1"
 RELAY_DM_KEY_MARK = "relay-dm-keys-v1"
+CONNECTED_CHAT_MARK = "connected-chat-endpoints-v1"
 RELAY_GRANT_MARK = "relay-default-grant-v1"
 TICKETS_GRANT_MARK = "tickets-default-grant-v1"
 RELAY_STANDUP_MARK = "relay-standup-job-v1"
@@ -1406,6 +1444,10 @@ def _ensure_relay_ddl(conn) -> None:
     conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uq_conversations_dm_key "
                       "ON conversations (dm_key) "
                       "WHERE kind = 'dm' AND dm_key IS NOT NULL"))
+    conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uq_relay_messages_external "
+                      "ON relay_messages (source_binding_id, external_message_id) "
+                      "WHERE source_binding_id IS NOT NULL "
+                      "AND external_message_id IS NOT NULL"))
     if conn.dialect.name == "postgresql":
         # DROP NOT NULL takes an ACCESS EXCLUSIVE lock even when the column is
         # already nullable, and this runs on every boot of every service — so
@@ -1419,6 +1461,78 @@ def _ensure_relay_ddl(conn) -> None:
                     f"ALTER TABLE {table} ALTER COLUMN agent DROP NOT NULL")
         conn.exec_driver_sql("CREATE INDEX IF NOT EXISTS ix_relay_messages_body_fts "
                              "ON relay_messages USING GIN (to_tsvector('english', body))")
+
+
+def _ensure_connected_chat_defaults(conn) -> None:
+    """Fill metadata added by design 28 without changing established rooms.
+
+    `_ensure_columns` necessarily adds nullable columns to live tables. These
+    updates only fill nulls, so an operator's later choice always wins and the
+    repair is safe on every boot. Historical Discord single-agent rows are the
+    mention-created thread flow; shared rooms were created by Relay and merely
+    mirrored, so they stay Relay-owned.
+    """
+    conv_t = Conversation.__table__
+    conn.execute(conv_t.update().where(conv_t.c.home.is_(None)).values(
+        home=case(
+            ((conv_t.c.kind == "dm") & (conv_t.c.connector != "web")
+             & conv_t.c.external_ref.is_not(None), "external"),
+            else_="relay")))
+    conn.execute(conv_t.update().where(conv_t.c.reply_mode.is_(None)).values(
+        reply_mode=case((conv_t.c.kind == "dm", "linear"), else_="threaded")))
+    conn.execute(conv_t.update().where(conv_t.c.dispatch_mode.is_(None)).values(
+        dispatch_mode=case(
+            ((conv_t.c.kind == "dm") & (conv_t.c.connector != "web")
+             & conv_t.c.external_ref.is_not(None), "default"),
+            (conv_t.c.kind == "dm", "facade"), else_="mentions")))
+    conn.execute(conv_t.update().where(conv_t.c.default_agent.is_(None),
+                                       conv_t.c.agent.is_not(None))
+                 .values(default_agent=conv_t.c.agent))
+    # A source-created chat is never the canonical Relay DM for its participant
+    # pair. Design 19 assigned dm_key before provenance existed, so the oldest
+    # Discord thread could otherwise steal the Agent page's Conversations tab.
+    conn.execute(conv_t.update().where(conv_t.c.home == "external",
+                                       conv_t.c.dm_key.is_not(None))
+                 .values(dm_key=None))
+    # Pre-design-28 rows were titled `discord:<snowflake>`. Until the next
+    # inbound message supplies Discord's real thread name, give the UI a short,
+    # readable fallback while preserving every operator/provider title.
+    for row in conn.execute(select(conv_t.c.id, conv_t.c.title,
+                                   conv_t.c.external_ref).where(
+            conv_t.c.home == "external")).fetchall():
+        ref = row.external_ref or ""
+        if ref and row.title == f"discord:{ref}":
+            conn.execute(conv_t.update().where(conv_t.c.id == row.id).values(
+                title=f"Discord thread · {ref[-6:]}"))
+
+    bind_t = RelayBinding.__table__
+    rows = conn.execute(select(bind_t.c.id, bind_t.c.channel_id,
+                               bind_t.c.external_kind)).fetchall()
+    external_rooms = set(conn.execute(select(conv_t.c.id).where(
+        conv_t.c.home == "external")).scalars())
+    mark_t = SchemaMark.__table__
+    first_endpoint_pass = not conn.execute(select(mark_t.c.name).where(
+        mark_t.c.name == CONNECTED_CHAT_MARK)).first()
+    for row in rows:
+        values = {}
+        if first_endpoint_pass and row.channel_id in external_rooms:
+            # The design-19 backfill inserted these through the ORM column's
+            # then-current default (`channel`). Their owning conversation is
+            # the trustworthy evidence that they are assistant threads.
+            values["external_kind"] = "thread"
+        elif row.external_kind is None:
+            values["external_kind"] = "thread" if row.channel_id in external_rooms else "channel"
+        if values:
+            conn.execute(bind_t.update().where(bind_t.c.id == row.id).values(**values))
+    if first_endpoint_pass:
+        conn.execute(mark_t.insert().values(name=CONNECTED_CHAT_MARK, applied_at=utcnow()))
+    conn.execute(bind_t.update().where(bind_t.c.display_name.is_(None)).values(display_name=""))
+    conn.execute(bind_t.update().where(bind_t.c.external_url.is_(None)).values(external_url=""))
+    conn.execute(bind_t.update().where(bind_t.c.status.is_(None)).values(status="active"))
+
+    session_t = RelaySession.__table__
+    conn.execute(session_t.update().where(session_t.c.codex_thread_id.is_(None))
+                 .values(codex_thread_id=""))
 
 
 def _ensure_tickets_ddl(conn) -> None:
@@ -2381,7 +2495,8 @@ def _ensure_dm_keys(conn) -> None:
     # order: where two rows hold the same pair, the original is the real DM and
     # the duplicate stays keyless rather than failing the boot.
     for conv in conn.execute(select(conv_t.c.id).where(
-            conv_t.c.kind == "dm", conv_t.c.dm_key.is_(None))
+            conv_t.c.kind == "dm", conv_t.c.home != "external",
+            conv_t.c.dm_key.is_(None))
             .order_by(conv_t.c.created_at, conv_t.c.id)).fetchall():
         pair = members.get(conv.id, [])
         if len(pair) != 2:
@@ -2603,6 +2718,7 @@ async def init_db(engine: AsyncEngine, default_grant: bool = True,
         await conn.run_sync(_ensure_memory_key_index)
         await conn.run_sync(_ensure_relay_ddl)
         await conn.run_sync(_ensure_relay_backfill)
+        await conn.run_sync(_ensure_connected_chat_defaults)
         # After the channel seeds: the job names #standup, and a job pointing at
         # a room that does not exist yet is a warning in the log every morning.
         await conn.run_sync(_ensure_relay_standup_job)

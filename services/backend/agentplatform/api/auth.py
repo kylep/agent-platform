@@ -139,10 +139,10 @@ async def authenticate(request: Request) -> tuple[str, str] | None:
             # audience-bound ServiceAccount JWT instead of a minted secret.
             ident = await _validate_sa_token(request, token)
             if ident is not None:
-                agent, role = ident
+                principal, role, agent = ident
                 run_id, frozen = None, None
                 run_token = request.headers.get("x-ap-run-token", "")
-                if run_token:
+                if agent is not None and run_token:
                     # Sender-constrained run JWT (design/13 C): must match
                     # the workload that presented it. A PRESENT-but-invalid
                     # token is a red flag, not a fallback — reject outright.
@@ -161,7 +161,7 @@ async def authenticate(request: Request) -> tuple[str, str] | None:
                 request.state.api_key_run_id = run_id
                 request.state.api_key_agent = agent
                 request.state.frozen_tools = frozen
-                return (f"sa:{agent}", role)
+                return (principal, role)
     return None
 
 
@@ -186,10 +186,13 @@ async def _verify_run_token(request: Request, token: str, agent: str) -> dict | 
 _SA_CACHE_TTL = 60.0
 
 
-async def _validate_sa_token(request: Request, token: str) -> tuple[str, str] | None:
-    """Resolve a projected SA token to (agent, ladder_role) via TokenReview.
-    The role is recomputed from the agent's CURRENT declared tools — identity
-    comes from the cluster, authorization from the definition in git."""
+async def _validate_sa_token(request: Request, token: str) -> tuple[str, str, str | None] | None:
+    """Resolve a projected SA token to (principal, role, agent) via TokenReview.
+
+    Agent authorization is recomputed from its current grants. The connector
+    has one fixed, narrow machine role so it can discover endpoint bindings
+    without carrying a minted secret.
+    """
     import time
     from agentplatform.apikeys import hash_token
     if not hasattr(request.app.state, "_sa_cache"):
@@ -206,6 +209,10 @@ async def _validate_sa_token(request: Request, token: str) -> tuple[str, str] | 
     if not username:
         return None
     sa_name = username.rsplit(":", 1)[-1]
+    if sa_name == request.app.state.settings.connector_service_account:
+        out = ("connector-discord", "connector", None)
+        cache[h] = (time.monotonic() + _SA_CACHE_TTL, out)
+        return out
     if not sa_name.startswith("agent-"):
         return None
     agent = sa_name[len("agent-"):]
@@ -217,7 +224,7 @@ async def _validate_sa_token(request: Request, token: str) -> tuple[str, str] | 
     role = platform_token_role(info.platform_tools)
     if role is None:
         return None       # no platform grant: nothing for this identity to be
-    out = (agent, role)
+    out = (f"sa:{agent}", role, agent)
     cache[h] = (time.monotonic() + _SA_CACHE_TTL, out)
     return out
 

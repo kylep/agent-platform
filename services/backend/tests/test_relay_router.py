@@ -191,6 +191,56 @@ async def test_nothing_is_summoned_without_a_mention(make_router, sf, producer):
     assert _invocation_events(producer) == []
 
 
+async def test_a_connected_chat_routes_plain_human_text_to_its_default(make_router, sf):
+    router = await make_router(agents=("ada", "bob"))
+    cid = await _channel(sf, kind="dm", open=False, agent="ada",
+                         participants=("discord:42", "agent:ada"))
+    async with sf() as s:
+        conv = await s.get(Conversation, cid)
+        conv.home = "external"
+        conv.reply_mode = "linear"
+        conv.dispatch_mode = "default"
+        conv.default_agent = "ada"
+        await s.commit()
+
+    mid = await _say(router, sf, cid, "discord:42", "can you check this?")
+    run = (await _runs(sf))[0]
+    assert (run.agent, run.trigger_message_id, run.conversation_id) == ("ada", mid, cid)
+    assert await _decisions(sf, cid) == [("ada", "invoked", "default")]
+
+
+async def test_an_explicit_unavailable_address_never_falls_back(make_router, sf):
+    router = await make_router(agents=("ada", "bob"))
+    cid = await _channel(sf, kind="dm", open=False, agent="ada",
+                         participants=("discord:42", "agent:ada"))
+    async with sf() as s:
+        conv = await s.get(Conversation, cid)
+        conv.home, conv.dispatch_mode, conv.default_agent = "external", "default", "ada"
+        await s.commit()
+
+    await _say(router, sf, cid, "discord:42", "@bob can you check this?")
+    assert await _runs(sf) == []
+    assert await _decisions(sf, cid) == []
+
+
+async def test_connected_followups_coalesce_while_the_default_is_busy(make_router, sf):
+    router = await make_router(agents=("ada",))
+    cid = await _channel(sf, kind="dm", open=False, agent="ada",
+                         participants=("discord:42", "agent:ada"))
+    async with sf() as s:
+        conv = await s.get(Conversation, cid)
+        conv.home, conv.dispatch_mode, conv.default_agent = "external", "default", "ada"
+        await s.commit()
+
+    await _say(router, sf, cid, "discord:42", "first")
+    second = await _say(router, sf, cid, "discord:42", "and one more thing")
+    assert len(await _runs(sf)) == 1
+    assert await _decisions(sf, cid) == [
+        ("ada", "invoked", "default"), ("ada", "suppressed", "coalesced")]
+    assert [(w.channel_id, w.agent, w.since_message_id) for w in await _wakes(sf)] == [
+        (cid, "ada", second)]
+
+
 async def test_an_agent_does_not_summon_itself(make_router, sf):
     router = await make_router()
     cid = await _channel(sf)

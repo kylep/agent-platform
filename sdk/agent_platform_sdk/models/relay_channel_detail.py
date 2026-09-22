@@ -5,7 +5,6 @@ from typing import TYPE_CHECKING, Any, TypeVar, cast
 
 from attrs import define as _attrs_define
 from attrs import field as _attrs_field
-from typing_extensions import Self
 
 from ..types import UNSET, Unset
 
@@ -27,7 +26,10 @@ class RelayChannelDetail:
     Attributes:
         agent (None | str):
         archived_at (None | str):
+        default_agent (None | str):
+        dispatch_mode (str):
         faces (RelayChannelDetailFaces):
+        home (str):
         id (str):
         kind (str):
         last_message (None | RelayLastMessage):
@@ -35,6 +37,7 @@ class RelayChannelDetail:
         name (None | str):
         open_ (bool):
         participants (list[str]):
+        reply_mode (str):
         ticket_prefix (None | str):
         title (None | str):
         topic (str):
@@ -45,7 +48,10 @@ class RelayChannelDetail:
 
     agent: None | str
     archived_at: None | str
+    default_agent: None | str
+    dispatch_mode: str
     faces: RelayChannelDetailFaces
+    home: str
     id: str
     kind: str
     last_message: None | RelayLastMessage
@@ -53,6 +59,7 @@ class RelayChannelDetail:
     name: None | str
     open_: bool
     participants: list[str]
+    reply_mode: str
     ticket_prefix: None | str
     title: None | str
     topic: str
@@ -70,7 +77,14 @@ class RelayChannelDetail:
         archived_at: None | str
         archived_at = self.archived_at
 
+        default_agent: None | str
+        default_agent = self.default_agent
+
+        dispatch_mode = self.dispatch_mode
+
         faces = self.faces.to_dict()
+
+        home = self.home
 
         id = self.id
 
@@ -90,6 +104,8 @@ class RelayChannelDetail:
         open_ = self.open_
 
         participants = self.participants
+
+        reply_mode = self.reply_mode
 
         ticket_prefix: None | str
         ticket_prefix = self.ticket_prefix
@@ -118,7 +134,10 @@ class RelayChannelDetail:
             {
                 "agent": agent,
                 "archived_at": archived_at,
+                "default_agent": default_agent,
+                "dispatch_mode": dispatch_mode,
                 "faces": faces,
+                "home": home,
                 "id": id,
                 "kind": kind,
                 "last_message": last_message,
@@ -126,6 +145,7 @@ class RelayChannelDetail:
                 "name": name,
                 "open": open_,
                 "participants": participants,
+                "reply_mode": reply_mode,
                 "ticket_prefix": ticket_prefix,
                 "title": title,
                 "topic": topic,
@@ -140,7 +160,7 @@ class RelayChannelDetail:
         return field_dict
 
     @classmethod
-    def from_dict(cls, src_dict: Mapping[str, Any]) -> Self:
+    def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
         from ..models.relay_binding_view import RelayBindingView
         from ..models.relay_channel_detail_display_names import (
             RelayChannelDetailDisplayNames,
@@ -164,7 +184,18 @@ class RelayChannelDetail:
 
         archived_at = _parse_archived_at(d.pop("archived_at"))
 
+        def _parse_default_agent(data: object) -> None | str:
+            if data is None:
+                return data
+            return cast(None | str, data)
+
+        default_agent = _parse_default_agent(d.pop("default_agent"))
+
+        dispatch_mode = d.pop("dispatch_mode")
+
         faces = RelayChannelDetailFaces.from_dict(d.pop("faces"))
+
+        home = d.pop("home")
 
         id = d.pop("id")
 
@@ -197,6 +228,8 @@ class RelayChannelDetail:
         open_ = d.pop("open")
 
         participants = cast(list[str], d.pop("participants"))
+
+        reply_mode = d.pop("reply_mode")
 
         def _parse_ticket_prefix(data: object) -> None | str:
             if data is None:
@@ -235,7 +268,10 @@ class RelayChannelDetail:
         relay_channel_detail = cls(
             agent=agent,
             archived_at=archived_at,
+            default_agent=default_agent,
+            dispatch_mode=dispatch_mode,
             faces=faces,
+            home=home,
             id=id,
             kind=kind,
             last_message=last_message,
@@ -243,6 +279,7 @@ class RelayChannelDetail:
             name=name,
             open_=open_,
             participants=participants,
+            reply_mode=reply_mode,
             ticket_prefix=ticket_prefix,
             title=title,
             topic=topic,

@@ -197,12 +197,25 @@ async def test_legacy_table_gains_the_channel_columns_and_backfills():
         await c.exec_driver_sql(
             "INSERT INTO conversations VALUES ('old1', 'web', NULL, 'hello-world', 't', "
             "'active', 'sess-old', NULL, '2026-01-01 00:00:00', '2026-01-01 00:00:00')")
+        await c.exec_driver_sql(
+            "INSERT INTO conversations VALUES ('old2', 'discord', '778899', 'hello-world', 'chat', "
+            "'active', '', NULL, '2026-01-02 00:00:00', '2026-01-02 00:00:00')")
     await init_db(e)
     sfl = make_session_factory(e)
     async with sfl() as s:
         conv = await s.get(Conversation, "old1")
         assert conv.kind == "dm" and conv.open is False and conv.topic == ""
+        assert (conv.home, conv.reply_mode, conv.dispatch_mode, conv.default_agent) == (
+            "relay", "linear", "facade", "hello-world")
+        connected = await s.get(Conversation, "old2")
+        assert (connected.home, connected.reply_mode, connected.dispatch_mode,
+                connected.default_agent) == ("external", "linear", "default", "hello-world")
+        assert connected.dm_key is None
         assert (await s.get(RelaySession, ("old1", "hello-world"))).claude_session_id == "sess-old"
+        assert (await s.get(RelaySession, ("old1", "hello-world"))).codex_thread_id == ""
+        binding = (await s.execute(select(RelayBinding).where(
+            RelayBinding.channel_id == "old2"))).scalars().one()
+        assert binding.external_kind == "thread"
         parts = {p.participant for p in (await s.execute(select(RelayParticipant))).scalars()}
     assert parts == {"user:admin", "agent:hello-world"}
     await e.dispose()
@@ -264,6 +277,25 @@ async def test_dm_key_backfills_and_is_unique(engine, sfx):
     async with sfx() as s:
         assert (await s.get(Conversation, cid)).dm_key == dm_key_of(
             ["agent:hello-world", "user:kyle"])
+
+
+async def test_an_external_chat_cannot_claim_the_canonical_dm_key(engine, sfx):
+    pair = ["discord:42", "agent:hello-world"]
+    async with sfx() as s:
+        conv = Conversation(connector="discord", external_ref="778899", kind="dm",
+                            home="external", reply_mode="linear",
+                            dispatch_mode="default", agent="hello-world",
+                            default_agent="hello-world", dm_key=dm_key_of(pair),
+                            title="discord:778899")
+        s.add(conv); await s.flush()
+        for participant in pair:
+            s.add(RelayParticipant(channel_id=conv.id, participant=participant))
+        await s.commit(); cid = conv.id
+    await init_db(engine)
+    async with sfx() as s:
+        migrated = await s.get(Conversation, cid)
+        assert migrated.dm_key is None
+        assert migrated.title == "Discord thread · 778899"
 
 
 async def test_a_duplicate_dm_pair_leaves_the_younger_row_keyless(engine, sfx):

@@ -11,10 +11,13 @@ test("the rail lists channels and direct messages", async ({ page }) => {
   const rail = page.getByRole("complementary", { name: "Channels" });
   await expect(rail.getByRole("heading", { name: "Channels" })).toBeVisible();
   await expect(rail.getByRole("heading", { name: "Direct messages" })).toBeVisible();
+  await expect(rail.getByRole("heading", { name: "Group conversations" })).toBeVisible();
+  await expect(rail.getByRole("heading", { name: "Connected chats" })).toBeVisible();
   await expect(rail.getByRole("button", { name: /general/ })).toBeVisible();
   await expect(rail.getByRole("button", { name: /quiet/ })).toBeVisible();
   // A dm is listed as who it is with, never as its row id.
   await expect(rail.getByRole("button", { name: /^pai/ })).toBeVisible();
+  await expect(rail.getByRole("button", { name: /chat-8675309/ })).toBeVisible();
 });
 
 test("a rail row carries its full name, however narrow the rail is",
@@ -116,6 +119,22 @@ test("?kind=dm opens the direct messages side", async ({ page }) => {
   await mockApi(page);
   await page.goto("/relay?kind=dm");
   await expect(page.locator(".relay-messages")).toContainText("What's my day look like?");
+});
+
+test("a connected Discord chat is labelled honestly and stays linear", async ({ page }) => {
+  await mockApi(page);
+  await page.goto("/relay?kind=connected");
+  await expect(page.getByRole("region", { name: "Channel chat-8675309" }))
+    .toContainText("Can you check the deploy?");
+  await expect(page.getByRole("region", { name: "Channel chat-8675309" }))
+    .toContainText("It is healthy.");
+  await expect(page.getByText("discord thread", { exact: true })).toBeVisible();
+  await expect(page.getByRole("link", { name: "open ↗" }))
+    .toHaveAttribute("href", "https://discord.com/channels/1/2/3");
+  // The provider thread is the room. Its answer must not become a second,
+  // nested Relay thread merely because the room no longer sits under DMs.
+  await expect(page.getByRole("button", { name: /reply in thread|repl/ })).toHaveCount(0);
+  await expect(page.getByRole("region", { name: "Thread" })).toHaveCount(0);
 });
 
 test("/conversations redirects to Relay's dm side", async ({ page }) => {

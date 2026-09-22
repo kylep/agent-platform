@@ -8,7 +8,7 @@ from agentplatform.api.auth import INVOKE_ROLES, READ_ROLES, require_role
 from agentplatform.connectors import CONNECTORS, IMPLEMENTED
 from agentplatform.conversation import continue_conversation
 from agentplatform.db import Conversation, RelayParticipant, Run
-from agentplatform.relay import is_agent
+from agentplatform.relay import is_agent, room_dispatch_mode
 
 log = logging.getLogger("conversations")
 
@@ -53,7 +53,8 @@ async def _dm_or_404(s, conv: Conversation | None) -> Conversation:
     """These endpoints are the DM surface. Relay channels share the table
     (docs/design/19) but have no single agent, so one reached through here is a
     miss — not a conversation with holes in it. So is an agent-to-agent DM."""
-    if conv is None or conv.kind != "dm" or conv.id in await _agent_only_dms(s, [conv.id]):
+    if (conv is None or conv.kind != "dm" or room_dispatch_mode(conv) != "facade"
+            or conv.id in await _agent_only_dms(s, [conv.id])):
         raise HTTPException(404, "unknown conversation")
     return conv
 
@@ -88,6 +89,8 @@ async def create_conversation(request: Request, body: ConversationIn):
     if not info.enabled:
         raise HTTPException(409, "agent is disabled")
     conv = Conversation(connector=body.connector, agent=body.agent,
+                        home="relay", reply_mode="linear",
+                        dispatch_mode="facade", default_agent=body.agent,
                         title=body.title or f"Conversation with {body.agent}")
     async with request.app.state.session_factory() as s:
         s.add(conv); await s.commit()
@@ -98,7 +101,8 @@ async def create_conversation(request: Request, body: ConversationIn):
 async def list_conversations(request: Request):
     async with request.app.state.session_factory() as s:
         # DMs only, for the same reason _dm_or_404 exists.
-        rows = (await s.execute(select(Conversation).where(Conversation.kind == "dm")
+        rows = (await s.execute(select(Conversation).where(
+                Conversation.kind == "dm", Conversation.dispatch_mode == "facade")
                 .order_by(Conversation.updated_at.desc()))).scalars().all()
         hidden = await _agent_only_dms(s, [c.id for c in rows])
     return [_view(c) for c in rows if c.id not in hidden]

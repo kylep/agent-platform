@@ -72,20 +72,14 @@ def sync_detailed(
 ) -> Response[HTTPValidationError | list[RelayBindingRef]]:
     """List Bindings For Connector
 
-     Every CHANNEL this connector mirrors. A bridge asks the platform which
+     Every endpoint this connector owns. A bridge asks the platform which
     rooms it is responsible for rather than being told in its environment: a
     binding made in the UI has to reach it without a redeploy, and the
     connector holds no state of its own worth trusting.
 
-    DMs are excluded, and that exclusion is load-bearing. `conversation_ingest`
-    writes a binding for every thread it meets on first contact, and a Discord
-    thread id is a snowflake exactly like a channel id — so handing those back
-    would have the bridge treat every private thread as a mirrored room:
-    inbound would stop requiring a mention of the bot and would re-author the
-    thread's history under a second participant, and outbound would try to hang
-    a webhook on a thread, which Discord does not allow — a 404 the connector
-    swallows, and the reply is simply never delivered. The thread flow is the
-    connector's own; the platform only names the rooms it mirrors.
+    Endpoint kind is explicit: the connector hydrates channel mirrors and
+    assistant threads into separate maps, so a restart can resume a known
+    thread without trying to attach a channel webhook to it.
 
     Args:
         connector (str):
@@ -116,20 +110,14 @@ def sync(
 ) -> HTTPValidationError | list[RelayBindingRef] | None:
     """List Bindings For Connector
 
-     Every CHANNEL this connector mirrors. A bridge asks the platform which
+     Every endpoint this connector owns. A bridge asks the platform which
     rooms it is responsible for rather than being told in its environment: a
     binding made in the UI has to reach it without a redeploy, and the
     connector holds no state of its own worth trusting.
 
-    DMs are excluded, and that exclusion is load-bearing. `conversation_ingest`
-    writes a binding for every thread it meets on first contact, and a Discord
-    thread id is a snowflake exactly like a channel id — so handing those back
-    would have the bridge treat every private thread as a mirrored room:
-    inbound would stop requiring a mention of the bot and would re-author the
-    thread's history under a second participant, and outbound would try to hang
-    a webhook on a thread, which Discord does not allow — a 404 the connector
-    swallows, and the reply is simply never delivered. The thread flow is the
-    connector's own; the platform only names the rooms it mirrors.
+    Endpoint kind is explicit: the connector hydrates channel mirrors and
+    assistant threads into separate maps, so a restart can resume a known
+    thread without trying to attach a channel webhook to it.
 
     Args:
         connector (str):
@@ -155,20 +143,14 @@ async def asyncio_detailed(
 ) -> Response[HTTPValidationError | list[RelayBindingRef]]:
     """List Bindings For Connector
 
-     Every CHANNEL this connector mirrors. A bridge asks the platform which
+     Every endpoint this connector owns. A bridge asks the platform which
     rooms it is responsible for rather than being told in its environment: a
     binding made in the UI has to reach it without a redeploy, and the
     connector holds no state of its own worth trusting.
 
-    DMs are excluded, and that exclusion is load-bearing. `conversation_ingest`
-    writes a binding for every thread it meets on first contact, and a Discord
-    thread id is a snowflake exactly like a channel id — so handing those back
-    would have the bridge treat every private thread as a mirrored room:
-    inbound would stop requiring a mention of the bot and would re-author the
-    thread's history under a second participant, and outbound would try to hang
-    a webhook on a thread, which Discord does not allow — a 404 the connector
-    swallows, and the reply is simply never delivered. The thread flow is the
-    connector's own; the platform only names the rooms it mirrors.
+    Endpoint kind is explicit: the connector hydrates channel mirrors and
+    assistant threads into separate maps, so a restart can resume a known
+    thread without trying to attach a channel webhook to it.
 
     Args:
         connector (str):
@@ -197,20 +179,14 @@ async def asyncio(
 ) -> HTTPValidationError | list[RelayBindingRef] | None:
     """List Bindings For Connector
 
-     Every CHANNEL this connector mirrors. A bridge asks the platform which
+     Every endpoint this connector owns. A bridge asks the platform which
     rooms it is responsible for rather than being told in its environment: a
     binding made in the UI has to reach it without a redeploy, and the
     connector holds no state of its own worth trusting.
 
-    DMs are excluded, and that exclusion is load-bearing. `conversation_ingest`
-    writes a binding for every thread it meets on first contact, and a Discord
-    thread id is a snowflake exactly like a channel id — so handing those back
-    would have the bridge treat every private thread as a mirrored room:
-    inbound would stop requiring a mention of the bot and would re-author the
-    thread's history under a second participant, and outbound would try to hang
-    a webhook on a thread, which Discord does not allow — a 404 the connector
-    swallows, and the reply is simply never delivered. The thread flow is the
-    connector's own; the platform only names the rooms it mirrors.
+    Endpoint kind is explicit: the connector hydrates channel mirrors and
+    assistant threads into separate maps, so a restart can resume a known
+    thread without trying to attach a channel webhook to it.
 
     Args:
         connector (str):

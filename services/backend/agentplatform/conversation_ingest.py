@@ -18,10 +18,10 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
 from agentplatform.conversation import author_of, continue_conversation
-from agentplatform.db import (Conversation, RelayBinding, RelayParticipant,
+from agentplatform.db import (Conversation, RelayBinding, RelayMessage, RelayParticipant,
                               utcnow)
 from agentplatform.events import TOPIC_CONVERSATION_INBOUND, consume_forever
-from agentplatform.relay import mentionable_in, parse_mentions
+from agentplatform.relay import mentionable_in, parse_mentions, room_dispatch_mode
 from agentplatform.relay_store import (enabled_agents, explicit_members,
                                        outbound_for_message, post_relay_message,
                                        publish_relay_message)
@@ -50,10 +50,14 @@ class ConversationIngestor:
             conv, binding = await self._resolve(s, connector, external_ref)
             if conv is None:
                 conv = Conversation(connector=connector, external_ref=external_ref,
-                                    agent=agent, title=f"{connector}:{external_ref}")
+                                    agent=agent, default_agent=agent,
+                                    home="external", reply_mode="linear",
+                                    dispatch_mode="default",
+                                    title=(data.get("external_title")
+                                           or f"{connector} thread {external_ref}"))
                 s.add(conv)
                 await s.flush()
-                self._bind(s, conv, connector, external_ref, author)
+                binding = await self._bind(s, conv, connector, external_ref, author, data)
                 try:
                     await s.commit()
                 except IntegrityError:
@@ -65,20 +69,50 @@ class ConversationIngestor:
                     conv, binding = await self._resolve(s, connector, external_ref)
                     if conv is None:
                         raise
+            elif binding is None and external_ref:
+                # A pre-Relay conversation found through its legacy columns.
+                # Promote its connector identity before accepting another
+                # message so reconnect recovery and deduplication work now.
+                binding = await self._bind(s, conv, connector, external_ref, author, data)
+                conv.home = "external"
+                conv.reply_mode = "linear"
+                conv.dispatch_mode = "default"
+                conv.default_agent = conv.default_agent or conv.agent or agent
+                await s.commit()
+            if binding is not None:
+                # The first design-19 rows knew only a snowflake. Let ordinary
+                # traffic repair their endpoint label/link, and keep them
+                # current when a Discord thread is renamed.
+                title = (data.get("external_title") or "").strip()
+                external_url = (data.get("external_url") or "").strip()
+                if title:
+                    binding.display_name = title
+                    if conv.home == "external":
+                        conv.title = title
+                if external_url:
+                    binding.external_url = external_url
+                if data.get("external_parent_ref"):
+                    binding.parent_external_ref = str(data["external_parent_ref"])
+                if data.get("external_kind"):
+                    binding.external_kind = data["external_kind"]
             conv_id = conv.id
-            # A bound CHANNEL is a room, not a DM (docs/design/19 T10): several
-            # agents and several humans are in it, and `@news` in Discord has to
-            # mean what `@news` means in the web pane. So the message is posted
-            # as a message and the router decides who — if anyone — it summons.
-            # Handing it to `continue_conversation` instead would give every
-            # line in the channel to the connector's default agent, one run per
-            # line. A dm (the mention-the-bot thread flow) keeps its turns.
-            if binding is not None and conv.kind != "dm":
+            # Every router-owned room enters through the same durable message
+            # path. Connected threads differ only in having a default target;
+            # the connector no longer materializes their run itself.
+            if binding is not None and room_dispatch_mode(conv) != "facade":
                 msg = await self._post(s, conv, text, author,
-                                       data.get("display_name"))
+                                       data.get("display_name"), binding,
+                                       data.get("external_message_id"))
                 if msg is None:
                     return
-                await s.commit()
+                try:
+                    await s.commit()
+                except IntegrityError:
+                    # Kafka replay or a reconnect delivered the same source
+                    # message twice. The unique endpoint/message identity is
+                    # the arbiter; the first copy already owns routing.
+                    await s.rollback()
+                    return
                 posted = (msg, await outbound_for_message(s, conv, msg))
         if posted is not None:
             msg, outbound = posted
@@ -87,7 +121,8 @@ class ConversationIngestor:
         await continue_conversation(self.sf, self.producer, conv_id, text, requested_by)
 
     async def _post(self, s, conv: Conversation, text: str, author: str,
-                    display_name: str | None):
+                    display_name: str | None, binding: RelayBinding,
+                    external_message_id: str | None):
         """The bridged message as a plain Relay message, at hop 0 — it came
         from a person, so it starts a fresh chain. Mentions are resolved
         against the room's own mentionable set, exactly as the API resolves a
@@ -102,9 +137,15 @@ class ConversationIngestor:
         if conv.archived_at is not None:
             log.warning("dropping a bridged message for archived channel %s", conv.id)
             return None
+        if external_message_id and (await s.execute(select(RelayMessage.id).where(
+                RelayMessage.source_binding_id == binding.id,
+                RelayMessage.external_message_id == external_message_id))).first():
+            return None
         await self._admit(s, conv, author, display_name)
         return await post_relay_message(
             s, conv, author=author, body=text,
+            source_binding_id=binding.id,
+            external_message_id=external_message_id,
             mentions=parse_mentions(
                 text, mentionable_in(conv, await enabled_agents(s),
                                      await explicit_members(s, conv.id)), author))
@@ -161,17 +202,26 @@ class ConversationIngestor:
             Conversation.external_ref == external_ref,
             Conversation.status == "active"))).scalars().first(), None
 
-    def _bind(self, s, conv: Conversation, connector: str, external_ref,
-              author: str) -> None:
+    async def _bind(self, s, conv: Conversation, connector: str, external_ref,
+                    author: str, data: dict) -> RelayBinding | None:
         """A room seen for the first time joins Relay properly: bound to its
         external ref, with the two participants that make it a DM. Without them
         it is a channel with no members, which every membership rule reads as
         nobody being allowed to speak."""
+        binding = None
         if external_ref:
-            s.add(RelayBinding(channel_id=conv.id, connector=connector,
-                               external_ref=external_ref))
+            binding = RelayBinding(
+                channel_id=conv.id, connector=connector, external_ref=external_ref,
+                external_kind=data.get("external_kind") or "thread",
+                parent_external_ref=data.get("external_parent_ref"),
+                display_name=data.get("external_title") or "",
+                external_url=data.get("external_url") or "")
+            s.add(binding)
         for participant in [author] + ([f"agent:{conv.agent}"] if conv.agent else []):
-            s.add(RelayParticipant(channel_id=conv.id, participant=participant))
+            if await s.get(RelayParticipant, {"channel_id": conv.id,
+                                              "participant": participant}) is None:
+                s.add(RelayParticipant(channel_id=conv.id, participant=participant))
+        return binding
 
     async def run_forever(self) -> None:
         consumer = AIOKafkaConsumer(

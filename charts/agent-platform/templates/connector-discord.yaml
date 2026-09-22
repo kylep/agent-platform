@@ -17,7 +17,8 @@ spec:
       labels:
         {{- include "agent-platform.selectorLabels" (dict "Release" .Release "Chart" .Chart "component" "connector-discord") | nindent 8 }}
     spec:
-      # This pod never calls the k8s API — don't mount a ServiceAccount token.
+      serviceAccountName: {{ .Release.Name }}-connector-discord
+      # Only the explicit audience-bound projection below is mounted.
       automountServiceAccountToken: false
       securityContext:
         seccompProfile:
@@ -49,17 +50,21 @@ spec:
             # so they must reach the connector without a redeploy.
             - name: AP_API_URL
               value: "http://agent-platform-api:8000"
-            # A platform API token with a read role. OPTIONAL, and the chart
-            # does not create the secret: without it the connector cannot ask
-            # for bindings, so channel mirroring stays off and the
-            # mention-the-bot thread flow runs alone.
-            - name: AP_API_TOKEN
-              valueFrom:
-                secretKeyRef:
-                  name: connector-discord-api
-                  key: token
-                  optional: true
+            - name: AP_API_TOKEN_FILE
+              value: /var/run/ap-identity/token
+          volumeMounts:
+            - name: ap-identity
+              mountPath: /var/run/ap-identity
+              readOnly: true
           resources:
             requests: {memory: 128Mi, cpu: 50m}
             limits: {memory: 256Mi}
+      volumes:
+        - name: ap-identity
+          projected:
+            sources:
+              - serviceAccountToken:
+                  audience: agent-platform
+                  expirationSeconds: 3600
+                  path: token
 {{- end }}

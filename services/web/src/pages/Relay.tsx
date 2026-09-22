@@ -49,8 +49,10 @@ export default function Relay() {
   const selected = useMemo(() => {
     if (chosen && channels.some((c) => c.id === chosen)) return chosen;
     const wanted = kind === "dm"
-      ? channels.filter((c) => c.kind !== "channel")
-      : channels.filter((c) => c.kind === "channel");
+      ? channels.filter((c) => c.home !== "external" && c.kind !== "channel")
+      : kind === "connected"
+        ? channels.filter((c) => c.home === "external")
+        : channels.filter((c) => c.home !== "external" && c.kind === "channel");
     return (wanted[0] ?? channels[0])?.id ?? null;
   }, [chosen, kind, channels]);
 

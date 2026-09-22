@@ -1,6 +1,16 @@
 import { useMemo, useState } from "react";
 import { Chip } from "@ap/ui/chip";
 import { agentName, channelLabel, mentionableIn, otherParticipant } from "../../lib/relay";
+
+function safeExternalUrl(value: string | undefined): string | null {
+  if (!value) return null;
+  try {
+    const url = new URL(value);
+    return url.protocol === "https:" || url.protocol === "http:" ? url.href : null;
+  } catch {
+    return null;
+  }
+}
 import Compose from "./Compose";
 import { Face } from "./Face";
 import { Thinking } from "./Presence";
@@ -31,13 +41,14 @@ export default function ChannelView({ room, onThread, highlight, onHighlighted }
   // reaches it. A DM is one conversation, so it inlines everything (QA-16):
   // its replies pre-date the API answering top-level, and a pane with no
   // thread beside it — AgentDetail's tab — would otherwise never show them.
-  const dm = channel?.kind === "dm";
+  const linear = channel?.reply_mode === "linear"
+    || (channel?.reply_mode == null && channel?.kind === "dm");
   const { roots, threads } = useMemo(
-    () => (dm ? { roots: messages, threads: new Map() } : splitThreads(messages)),
-    [messages, dm]);
+    () => (linear ? { roots: messages, threads: new Map() } : splitThreads(messages)),
+    [messages, linear]);
   // …and offers no way into one either, even where the host has a thread
   // pane: a reply posted there would be drawn twice, inline and in the pane.
-  const openThread = dm ? undefined : onThread;
+  const openThread = linear ? undefined : onThread;
 
   const thinking = useMemo(
     () => presence.filter((p) => p.thinking_in.includes(room.channelId)),
@@ -47,12 +58,19 @@ export default function ChannelView({ room, onThread, highlight, onHighlighted }
   const archived = channel?.archived_at != null;
   const title = channel ? channelLabel(channel, me) : "…";
   const group = channel?.kind === "group";
-  const other = channel && channel.kind === "dm" ? otherParticipant(channel, me) : null;
+  const connected = channel?.home === "external";
+  const endpoint = connected ? channel?.bindings?.[0] : null;
+  const externalUrl = safeExternalUrl(endpoint?.external_url);
+  const other = channel && channel.kind === "dm" && !connected
+    ? otherParticipant(channel, me) : null;
   const faceOf = (participant: string) =>
     channel?.faces[agentName(participant) ?? ""] ?? null;
   const empty = loaded && !error && messages.length === 0 && channel !== null;
 
   const avatar = (size: number) => {
+    if (connected) {
+      return <span className={size > 30 ? "relay-hash big" : "relay-hash"} aria-hidden="true">◈</span>;
+    }
     if (group) {
       return (
         <span className="relay-faces">
@@ -70,7 +88,13 @@ export default function ChannelView({ room, onThread, highlight, onHighlighted }
     <section className={`relay-pane${empty ? " empty" : ""}`} aria-label={`Channel ${title}`}>
       <header className="relay-pane-head">
         {avatar(24)}
-        <strong>{channel?.kind === "channel" ? channel.name : title}</strong>
+        <strong>{channel?.kind === "channel" && !connected ? channel.name : title}</strong>
+        {endpoint && (
+          <Chip>{`${endpoint.connector} ${endpoint.external_kind}`}</Chip>
+        )}
+        {externalUrl && (
+          <a href={externalUrl} target="_blank" rel="noreferrer">open ↗</a>
+        )}
         {channel?.topic && <span className="relay-topic muted">{channel.topic}</span>}
         {archived && <Chip variant="warn">archived</Chip>}
       </header>
@@ -83,7 +107,7 @@ export default function ChannelView({ room, onThread, highlight, onHighlighted }
         {empty && (
           <div className="relay-welcome">
             {avatar(44)}
-            <h2>{channel!.kind === "channel" ? channel!.name : title}</h2>
+            <h2>{channel!.kind === "channel" && !connected ? channel!.name : title}</h2>
             <p className="muted">{channel!.topic || "No topic yet."}</p>
             <p className="muted">Say something, or @mention an agent to wake it up.</p>
           </div>

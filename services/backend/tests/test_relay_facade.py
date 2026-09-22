@@ -18,6 +18,7 @@ from agentplatform.db import (ApiKey, Conversation, RelayBinding, RelayMessage,
 from agentplatform.events import (TOPIC_CONVERSATION_OUTBOUND, TOPIC_RELAY_MESSAGES,
                                   TOPIC_RUN_TRANSCRIPT)
 from agentplatform.recorder import Recorder
+from agentplatform.relay_store import outbound_for_message, post_relay_message
 
 
 def _messages(producer):
@@ -396,8 +397,25 @@ async def test_ingest_binds_a_first_contact_ref(ingestor, sf):
             RelayParticipant.channel_id == binding.channel_id))).scalars())
     assert binding.connector == "discord" and binding.external_ref == "t-new"
     assert conv.external_ref == "t-new" and conv.kind == "dm"
+    assert (conv.home, conv.reply_mode, conv.dispatch_mode, conv.default_agent) == (
+        "external", "linear", "default", "hello-world")
+    assert binding.external_kind == "thread"
     assert parts == {"discord:kyle", "agent:hello-world"}
     assert [m.author for m in await _rows(sf, conv.id)] == ["discord:kyle"]
+
+
+async def test_ingest_deduplicates_an_external_message(ingestor, sf, producer):
+    event = {"connector": "discord", "external_ref": "7788",
+             "external_kind": "thread", "external_message_id": "9911",
+             "external_user": "42", "display_name": "Kyle",
+             "text": "once", "agent": "hello-world"}
+    await ingestor.handle(event)
+    await ingestor.handle(event)
+    async with sf() as s:
+        messages = (await s.execute(select(RelayMessage).where(
+            RelayMessage.external_message_id.is_not(None)))).scalars().all()
+    assert [(m.external_message_id, m.body) for m in messages] == [("9911", "once")]
+    assert len(_messages(producer)) == 1
 
 
 async def test_ingest_reopens_a_closed_bound_room(ingestor, sf):
@@ -417,9 +435,12 @@ async def test_ingest_reopens_a_closed_bound_room(ingestor, sf):
     async with sf() as s:
         convs = (await s.execute(select(Conversation).where(
             Conversation.kind == "dm"))).scalars().all()
-        run = (await s.execute(select(Run))).scalars().one()
+        runs = (await s.execute(select(Run))).scalars().all()
     assert [(c.id, c.status) for c in convs] == [(cid, "active")]
-    assert run.conversation_id == cid
+    # Existing facade-owned DMs retain their synchronous turn contract. Live
+    # historical Discord rows are reclassified by the design-28 migration;
+    # this newly constructed compatibility row deliberately is not.
+    assert len(runs) == 1 and runs[0].conversation_id == cid
 
 
 async def test_ingest_resolves_an_existing_binding(ingestor, sf):
@@ -511,7 +532,8 @@ async def test_a_human_post_in_a_bound_channel_reaches_the_bridge(admin_client, 
                                  json={"body": "morning"})).json()
     assert _outbound(producer) == [
         {"channel_id": cid, "conversation_id": cid, "connector": "discord",
-         "external_ref": "chan-9", "author": "user:admin", "kind": "text",
+         "external_ref": "chan-9", "external_kind": "channel",
+         "author": "user:admin", "kind": "text",
          "message_id": m["id"], "run_id": None, "text": "morning", "state": "posted"}]
 
 
@@ -557,6 +579,26 @@ async def test_a_room_with_two_bridges_is_mirrored_to_both(sf):
             ("discord", "chan-d"), ("slack", "chan-s")]
         assert [(o["connector"], o["external_ref"]) for o in
                 await outbound_for_message(s, conv, theirs)] == [("slack", "chan-s")]
+
+
+async def test_source_binding_suppresses_only_that_endpoint(sf):
+    """A Discord message can cross into another Discord endpoint attached to
+    the room; provider-wide author suppression used to discard it."""
+    cid = await _dm(sf)
+    async with sf() as s:
+        first = RelayBinding(channel_id=cid, connector="discord",
+                             external_ref="chan-a", external_kind="channel")
+        second = RelayBinding(channel_id=cid, connector="discord",
+                              external_ref="chan-b", external_kind="channel")
+        s.add_all([first, second]); await s.flush()
+        conv = await s.get(Conversation, cid)
+        msg = await post_relay_message(
+            s, conv, author="discord:123", body="hello",
+            source_binding_id=first.id, external_message_id="m-1")
+        await s.commit()
+        out = await outbound_for_message(s, conv, msg)
+    assert [(row["connector"], row["external_ref"]) for row in out] == [
+        ("discord", "chan-b")]
 
 
 async def test_both_bridges_get_the_published_envelope(admin_client, sf, producer):
@@ -605,21 +647,34 @@ async def _bound_channel(sf, *, name="bridged", ref="c-1", open=True,
         return conv.id
 
 
-async def test_a_dm_binding_is_not_a_room_the_connector_mirrors(ingestor, sf,
-                                                                admin_client):
-    """The ingestor binds every thread it meets, and a thread id is a snowflake
-    exactly like a channel id. Handing those to the connector would have it
-    mirror every private thread: inbound would stop requiring a mention of the
-    bot, and outbound would try to hang a webhook on a thread — which Discord
-    refuses, silently, forever."""
+async def test_connector_listing_distinguishes_threads_from_channels(ingestor, sf,
+                                                                      admin_client):
+    """Both endpoint kinds hydrate after restart, without treating a thread as
+    a webhook-backed channel mirror."""
     await ingestor.handle({"connector": "discord", "external_ref": "778899",
                            "external_user": "kyle", "text": "hey",
+                           "external_title": "deploy help",
+                           "agent": "hello-world"})
+    await ingestor.handle({"connector": "discord", "external_ref": "778899",
+                           "external_user": "kyle", "text": "renamed it",
+                           "external_title": "release room",
+                           "external_url": "https://discord.com/channels/1/2/778899",
                            "agent": "hello-world"})
     channel = await _bound_channel(sf, ref="112233")
     async with sf() as s:
         assert len((await s.execute(select(RelayBinding))).scalars().all()) == 2
     rows = (await admin_client.get("/api/relay/bindings?connector=discord")).json()
-    assert rows == [{"channel_id": channel, "external_ref": "112233", "config": {}}]
+    by_ref = {r["external_ref"]: r for r in rows}
+    assert set(by_ref) == {"112233", "778899"}
+    assert (by_ref["112233"]["channel_id"], by_ref["112233"]["external_kind"]) == (
+        channel, "channel")
+    assert (by_ref["778899"]["external_kind"],
+            by_ref["778899"]["display_name"],
+            by_ref["778899"]["external_url"]) == (
+        "thread", "release room", "https://discord.com/channels/1/2/778899")
+    detail = (await admin_client.get(
+        f"/api/relay/channels/{by_ref['778899']['channel_id']}")).json()
+    assert detail["title"] == "release room"
 
 
 async def test_an_archived_bound_room_takes_no_bridged_messages(ingestor, sf):

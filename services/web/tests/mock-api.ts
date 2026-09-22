@@ -448,6 +448,14 @@ const dmMessages = [
                  reply_to: "d1", thread_root: "d1", created_at: at(89) }),
 ];
 
+const connectedMessages = [
+  relayMessage({ id: "x1", channel_id: "rx1", author: "discord:55",
+                 body: "Can you check the deploy?", created_at: at(12) }),
+  relayMessage({ id: "x2", channel_id: "rx1", author: "agent:pai", face: FACES.pai,
+                 body: "It is healthy.", run_id: runs[2].id,
+                 reply_to: "x1", thread_root: "x1", created_at: at(11) }),
+];
+
 // The ops room is the OPS project (docs/design/20): every ticket opened there
 // left an event card behind, and the card is the root of the ticket's thread —
 // which is why the detail page can show a discussion without storing one.
@@ -537,6 +545,7 @@ const artMessages = [
 
 const relayChannel = (over: Record<string, unknown>) => ({
   id: "rc1", kind: "channel", name: null, topic: "", open: true, archived_at: null,
+  home: "relay", reply_mode: "threaded", dispatch_mode: "mentions", default_agent: null,
   agent: null, participants: [], last_message: null, message_count: 0, unread: 0,
   ...over,
 });
@@ -557,8 +566,14 @@ const relayChannels = [
                  message_count: artMessages.length,
                  last_message: preview(artMessages[artMessages.length - 1]) }),
   relayChannel({ id: "rd1", kind: "dm", topic: "", open: false, agent: "pai",
+                 reply_mode: "linear", dispatch_mode: "facade", default_agent: "pai",
                  participants: ["agent:pai", "user:kyle"], message_count: 2,
                  last_message: preview(dmMessages[1]) }),
+  relayChannel({ id: "rx1", kind: "dm", home: "external", title: "chat-8675309",
+                 topic: "Discord thread", open: false, agent: "pai",
+                 reply_mode: "linear", dispatch_mode: "default", default_agent: "pai",
+                 participants: ["agent:pai", "discord:55"], message_count: 2,
+                 last_message: preview(connectedMessages[1]) }),
   // An untitled group: the UI has to name it by who is in it, and only its
   // members are mentionable inside it.
   relayChannel({ id: "rg1", kind: "group", topic: "", open: false,
@@ -572,6 +587,7 @@ const relayChannels = [
 // two cursors the pane actually pages with.
 const relayLog: Record<string, typeof generalMessages> = {
   rc1: generalMessages, rc2: [], rc3: opsMessages, rc4: artMessages, rd1: dmMessages,
+  rx1: connectedMessages,
   rg1: [], rg2: [],
 };
 
@@ -606,8 +622,9 @@ function relaySearch(params: URLSearchParams) {
   return [...rows].reverse().slice(0, limit);
 }
 
-const detail = (id: string, faces: Record<string, { emoji: string; hue: number }>) =>
-  ({ ...relayChannels.find((c) => c.id === id)!, faces });
+const detail = (id: string, faces: Record<string, { emoji: string; hue: number }>,
+                extra: Record<string, unknown> = {}) =>
+  ({ ...relayChannels.find((c) => c.id === id)!, faces, ...extra });
 
 
 // --- Tickets (docs/design/20) ------------------------------------------------
@@ -1081,6 +1098,11 @@ const FIXTURES: Record<string, unknown> = {
                                              "health-monitor": FACES["health-monitor"] }),
   "/api/relay/channels/rc4": detail("rc4", { pai: FACES.pai }),
   "/api/relay/channels/rd1": detail("rd1", { pai: FACES.pai }),
+  "/api/relay/channels/rx1": detail("rx1", { pai: FACES.pai }, { bindings: [{
+    id: "bind-x", connector: "discord", external_ref: "8675309", external_kind: "thread",
+    parent_external_ref: "1234", display_name: "chat-8675309",
+    external_url: "https://discord.com/channels/1/2/3", status: "active", config: {},
+  }] }),
   "/api/relay/channels/rg1": detail("rg1", { news: FACES.news, pai: FACES.pai }),
   "/api/relay/channels/rg2": detail("rg2", { pai: FACES.pai }),
   // Two of the day's mentions were REFUSED (a hop cap, an hour over budget),

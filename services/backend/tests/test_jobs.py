@@ -186,12 +186,10 @@ async def test_relay_job_message_summons_every_enabled_agent(sf, producer, seed_
         decided = [(i.agent, i.decision) for i in
                    (await s.execute(select(RelayInvocation))).scalars()]
         runs = (await s.execute(select(Run))).scalars().all()
-        # The provider artist and engineer are participants; the Codex artist
-        # is Studio infrastructure and is deliberately skipped by `@all`.
-        assert sorted(decided) == [("ada", "invoked"), ("artist", "invoked"),
-                                   ("bob", "invoked"), ("engineer", "invoked")]
-    assert sorted(r.agent for r in runs) == [
-        "ada", "artist", "bob", "engineer"]
+        # Seeded specialists opt out of broad summons independently of their
+        # lifecycle classification. Only the conversational participants wake.
+        assert sorted(decided) == [("ada", "invoked"), ("bob", "invoked")]
+    assert sorted(r.agent for r in runs) == ["ada", "bob"]
     assert all(r.trigger == "mention" for r in runs)
     # The summons still ADDRESSES the room — `*`, not a roster — so who it wakes
     # stays the router's decision and can change without rewriting the message.

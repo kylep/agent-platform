@@ -39,6 +39,8 @@ spec:
             {{- include "agent-platform.backendEnv" . | nindent 12 }}
             - name: AP_SESSION_SECRET
               value: {{ required "env.AP_SESSION_SECRET is required (e.g. --set env.AP_SESSION_SECRET=...)" .Values.env.AP_SESSION_SECRET | quote }}
+            - name: AP_CONNECTOR_SERVICE_ACCOUNT
+              value: {{ printf "%s-connector-discord" .Release.Name | quote }}
             # The tool-executor, for `internal` tools the api runs itself
             # (docs/design/23). Under SPIRE the hop leaves through the local
             # client tunnel below, the same shape as the broker's.

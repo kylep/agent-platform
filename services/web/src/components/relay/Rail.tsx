@@ -19,7 +19,8 @@ function Row({ channel, me, selected, onSelect }: {
   // A group is drawn by its title when the API gave it one, and otherwise by
   // who is in it — the only other thing that tells one group from another.
   const group = channel.kind === "group";
-  const other = channel.kind === "dm" ? otherParticipant(channel, me) : null;
+  const connected = channel.home === "external";
+  const other = channel.kind === "dm" && !connected ? otherParticipant(channel, me) : null;
   // The rail is narrow by design and the name is clipped to fit it, so the
   // full one rides along as the row's tooltip — for a group that member list
   // IS the name, and "3 members: news, pai, y…" names nothing. It sits on the
@@ -31,7 +32,9 @@ function Row({ channel, me, selected, onSelect }: {
             aria-current={selected ? "true" : undefined}
             title={name ?? undefined}
             onClick={() => onSelect(channel.id)}>
-      {group
+      {connected
+        ? <span className="relay-hash" aria-hidden="true">◈</span>
+        : group
         ? (
           <span className="relay-faces">
             {channel.participants.map((p) => <Face key={p} participant={p} size={18} />)}
@@ -69,8 +72,10 @@ export default function Rail({ channels, selected, me, loaded, onSelect, onCreat
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const rooms = channels.filter((c) => c.kind === "channel");
-  const dms = channels.filter((c) => c.kind !== "channel");
+  const connected = channels.filter((c) => c.home === "external");
+  const rooms = channels.filter((c) => c.home !== "external" && c.kind === "channel");
+  const groups = channels.filter((c) => c.home !== "external" && c.kind === "group");
+  const dms = channels.filter((c) => c.home !== "external" && c.kind === "dm");
 
   async function create() {
     setBusy(true); setError(null);
@@ -104,6 +109,11 @@ export default function Rail({ channels, selected, me, loaded, onSelect, onCreat
         ))}
         {loaded && rooms.length === 0 && <p className="relay-rail-empty muted">No channels yet.</p>}
 
+        {groups.length > 0 && <h2 className="relay-rail-head">Group conversations</h2>}
+        {groups.map((c) => (
+          <Row key={c.id} channel={c} me={me} selected={c.id === selected} onSelect={onSelect} />
+        ))}
+
         <h2 className="relay-rail-head">Direct messages</h2>
         {dms.map((c) => (
           <Row key={c.id} channel={c} me={me} selected={c.id === selected} onSelect={onSelect} />
@@ -113,6 +123,11 @@ export default function Rail({ channels, selected, me, loaded, onSelect, onCreat
             None yet — open an agent and use its Conversations tab.
           </p>
         )}
+
+        {connected.length > 0 && <h2 className="relay-rail-head">Connected chats</h2>}
+        {connected.map((c) => (
+          <Row key={c.id} channel={c} me={me} selected={c.id === selected} onSelect={onSelect} />
+        ))}
       </aside>
 
       <FormDialog

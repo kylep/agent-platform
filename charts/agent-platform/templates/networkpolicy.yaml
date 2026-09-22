@@ -52,7 +52,7 @@ spec:
         - podSelector:
             matchExpressions:
               - {key: app.kubernetes.io/name, operator: In, values: [agent-platform]}
-              - {key: app.kubernetes.io/component, operator: In, values: [web, runner, mcp-broker, mcp-facade, claude-proxy, codex-proxy]}
+              - {key: app.kubernetes.io/component, operator: In, values: [web, runner, mcp-broker, mcp-facade, claude-proxy, codex-proxy, connector-discord]}
       ports:
         - port: 8000
           protocol: TCP

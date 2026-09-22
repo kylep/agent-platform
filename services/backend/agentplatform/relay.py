@@ -139,6 +139,44 @@ def parse_mentions(body: str, agents: set[str], author: str) -> list[str]:
     return out
 
 
+def address_tokens(body: str) -> list[str]:
+    """Raw, non-code `@name` addresses in first-seen order.
+
+    Routing needs this separately from `parse_mentions`: an explicit but
+    unavailable `@artist` must not collapse to an empty resolved list and then
+    accidentally invoke a room's default agent.
+    """
+    out: list[str] = []
+    for match in _MENTION_RE.finditer(_CODE_RE.sub(" ", body or "")):
+        token = match.group(1).lower()
+        if token not in out:
+            out.append(token)
+    return out
+
+
+def room_home(channel) -> str:
+    value = getattr(channel, "home", None)
+    if value:
+        return value
+    return ("external" if getattr(channel, "kind", "") == "dm"
+            and getattr(channel, "connector", "web") != "web"
+            and getattr(channel, "external_ref", None) else "relay")
+
+
+def room_reply_mode(channel) -> str:
+    return (getattr(channel, "reply_mode", None)
+            or ("linear" if getattr(channel, "kind", "") == "dm" else "threaded"))
+
+
+def room_dispatch_mode(channel) -> str:
+    value = getattr(channel, "dispatch_mode", None)
+    if value:
+        return value
+    if getattr(channel, "kind", "") != "dm":
+        return "mentions"
+    return "default" if room_home(channel) == "external" else "facade"
+
+
 def strip_room_mentions(body: str) -> str:
     """Drop the `@` from room mentions, keeping the word so the sentence still
     reads. Applied to agent-authored text at post time: the message survives

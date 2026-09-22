@@ -5,7 +5,6 @@ from typing import TYPE_CHECKING, Any, TypeVar, cast
 
 from attrs import define as _attrs_define
 from attrs import field as _attrs_field
-from typing_extensions import Self
 
 if TYPE_CHECKING:
     from ..models.relay_last_message import RelayLastMessage
@@ -20,6 +19,9 @@ class RelayChannel:
     Attributes:
         agent (None | str):
         archived_at (None | str):
+        default_agent (None | str):
+        dispatch_mode (str):
+        home (str):
         id (str):
         kind (str):
         last_message (None | RelayLastMessage):
@@ -27,6 +29,7 @@ class RelayChannel:
         name (None | str):
         open_ (bool):
         participants (list[str]):
+        reply_mode (str):
         ticket_prefix (None | str):
         title (None | str):
         topic (str):
@@ -35,6 +38,9 @@ class RelayChannel:
 
     agent: None | str
     archived_at: None | str
+    default_agent: None | str
+    dispatch_mode: str
+    home: str
     id: str
     kind: str
     last_message: None | RelayLastMessage
@@ -42,6 +48,7 @@ class RelayChannel:
     name: None | str
     open_: bool
     participants: list[str]
+    reply_mode: str
     ticket_prefix: None | str
     title: None | str
     topic: str
@@ -56,6 +63,13 @@ class RelayChannel:
 
         archived_at: None | str
         archived_at = self.archived_at
+
+        default_agent: None | str
+        default_agent = self.default_agent
+
+        dispatch_mode = self.dispatch_mode
+
+        home = self.home
 
         id = self.id
 
@@ -76,6 +90,8 @@ class RelayChannel:
 
         participants = self.participants
 
+        reply_mode = self.reply_mode
+
         ticket_prefix: None | str
         ticket_prefix = self.ticket_prefix
 
@@ -92,6 +108,9 @@ class RelayChannel:
             {
                 "agent": agent,
                 "archived_at": archived_at,
+                "default_agent": default_agent,
+                "dispatch_mode": dispatch_mode,
+                "home": home,
                 "id": id,
                 "kind": kind,
                 "last_message": last_message,
@@ -99,6 +118,7 @@ class RelayChannel:
                 "name": name,
                 "open": open_,
                 "participants": participants,
+                "reply_mode": reply_mode,
                 "ticket_prefix": ticket_prefix,
                 "title": title,
                 "topic": topic,
@@ -109,7 +129,7 @@ class RelayChannel:
         return field_dict
 
     @classmethod
-    def from_dict(cls, src_dict: Mapping[str, Any]) -> Self:
+    def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
         from ..models.relay_last_message import RelayLastMessage
 
         d = dict(src_dict)
@@ -127,6 +147,17 @@ class RelayChannel:
             return cast(None | str, data)
 
         archived_at = _parse_archived_at(d.pop("archived_at"))
+
+        def _parse_default_agent(data: object) -> None | str:
+            if data is None:
+                return data
+            return cast(None | str, data)
+
+        default_agent = _parse_default_agent(d.pop("default_agent"))
+
+        dispatch_mode = d.pop("dispatch_mode")
+
+        home = d.pop("home")
 
         id = d.pop("id")
 
@@ -160,6 +191,8 @@ class RelayChannel:
 
         participants = cast(list[str], d.pop("participants"))
 
+        reply_mode = d.pop("reply_mode")
+
         def _parse_ticket_prefix(data: object) -> None | str:
             if data is None:
                 return data
@@ -181,6 +214,9 @@ class RelayChannel:
         relay_channel = cls(
             agent=agent,
             archived_at=archived_at,
+            default_agent=default_agent,
+            dispatch_mode=dispatch_mode,
+            home=home,
             id=id,
             kind=kind,
             last_message=last_message,
@@ -188,6 +224,7 @@ class RelayChannel:
             name=name,
             open_=open_,
             participants=participants,
+            reply_mode=reply_mode,
             ticket_prefix=ticket_prefix,
             title=title,
             topic=topic,

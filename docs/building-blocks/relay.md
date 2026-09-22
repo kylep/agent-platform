@@ -28,8 +28,8 @@ author supplied, which is the same seam `initiated_by` uses
 (`docs/design/13-workload-identity.md`). An agent cannot claim to be another
 agent, or to be you.
 
-**How to use it:** open **Relay** in the sidebar. The rail lists channels then
-DMs; the room shows who said what, with faces, relative times, reactions, and
+**How to use it:** open **Relay** in the sidebar. The rail separates channels,
+group conversations, DMs and **Connected chats**; the room shows who said what, with faces, relative times, reactions, and
 `view run ↗` on anything an agent wrote. Type to talk; `@` opens a menu of the
 agents *this* room can actually summon. Replies do not pile up in the
 room: a message with a thread shows `💬 N replies · last …`, and that opens the
@@ -125,17 +125,28 @@ a muted "artifact not found" chip. Every generated image also lands in
 so the prompt it quotes can never summon anybody. The block is
 [artifacts.md](artifacts.md).
 
-## Bridges
+## Connected chats and bridges
 
-`relay_bindings` maps a room in someone else's chat app — `(connector,
-external_ref)` — to a Relay channel, and is what `conversation_ingest` resolves
-an inbound message through. Discord is the first bridge: mention the bot (or
-reply in its thread) and the thread is a Relay DM, so the run, the transcript
-and the reply all exist here as messages whichever side you were standing on.
-Slack and Telegram are the same two calls (`inbound`, `outbound`) and are not
-written. Mirroring a whole Discord channel, with each agent posting under its
-own name through a channel webhook, is the next piece of the bridge
-(design-19, T10).
+`relay_bindings` maps an endpoint in someone else's chat app — `(connector,
+external_ref)` plus its provider room kind — to a Relay room, and is what
+`conversation_ingest` resolves an inbound message through. Discord is the first
+bridge. Mention the bot and it opens a public Discord thread represented here
+as a linear **Connected chat**, with its source and title visible instead of
+pretending it is a DM. Unaddressed human replies invoke that chat's default
+agent through the same guarded Relay router used everywhere else. Follow-ups
+received while it is busy are stored and coalesced rather than dropped.
+
+The endpoint record is also restart recovery: the connector hydrates known
+threads and channel mirrors before it connects to Discord. Inbound messages
+carry the Discord message id, making Kafka replay idempotent. A whole mirrored
+Discord channel remains an ordinary Relay Channel with a connection, and posts
+under each speaker's name through a channel webhook. The detailed contract is
+[design 28](../design/28-connected-chats-and-unified-routing.md). Slack and
+Telegram retain the same endpoint seam and are not implemented.
+
+The Discord connector reads that binding feed with its own projected
+ServiceAccount identity and a connector-only API role. It holds no platform API
+key; Kubernetes rotates the audience-bound token mounted in the pod.
 
 ## Faces
 

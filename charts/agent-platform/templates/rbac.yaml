@@ -147,3 +147,12 @@ metadata:
   name: {{ .Release.Name }}-mcp-broker
   labels:
     {{- include "agent-platform.labels" . | nindent 4 }}
+---
+# Identity-only SA for the Discord bridge. Its projected token is accepted only
+# as the connector role; the account has no Kubernetes RBAC permissions.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ .Release.Name }}-connector-discord
+  labels:
+    {{- include "agent-platform.labels" . | nindent 4 }}
