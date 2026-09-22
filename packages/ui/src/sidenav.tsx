@@ -19,7 +19,7 @@ export type NavItem = {
 };
 export type NavEntry = NavItem & { children?: NavItem[] };
 
-export type AppNavInfo = { name: string; icon: string };
+export type AppNavInfo = { name: string; icon: string; display_name?: string };
 
 // The platform's information architecture — single source, so the console
 // and app shells never drift. Deployed apps slot in under Apps.
@@ -42,7 +42,7 @@ export function buildPlatformNav(apps: AppNavInfo[] = []): NavEntry[] {
       { to: "/schedules", label: "Schedules" },
     ] },
     { to: "/apps", label: "Apps", children: apps.map((a) => (
-      { to: `/apps/${a.name}/`, label: `${a.icon || "🧩"} ${a.name}`, external: true }
+      { to: `/apps/${a.name}/`, label: `${a.icon || "🧩"} ${a.display_name || a.name}`, external: true }
     )) },
     { to: "/skills", label: "Skills" },
     { to: "/settings", label: "Settings", children: [

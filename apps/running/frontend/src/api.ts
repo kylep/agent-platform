@@ -21,6 +21,20 @@ export type Summary = {
   tags: string[];
 };
 
+export type Health = {
+  ok: boolean;
+  activity_count: number;
+  brief_count: number;
+  latest_activity_day: string | null;
+  pipeline: {
+    consumer_started: boolean;
+    consumer_assigned: boolean;
+    last_message_at: string | null;
+    last_activity_sync_at: string | null;
+    last_error: string | null;
+  };
+};
+
 export type HeatDay = { day: string; distance_km: number; count: number };
 export type Calendar = { weeks: number; days: HeatDay[] };
 

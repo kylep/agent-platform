@@ -19,6 +19,8 @@ import json
 import os
 import sys
 import time
+import asyncio
+from datetime import datetime, timezone
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
@@ -26,6 +28,7 @@ from urllib.request import Request, urlopen
 BASE = "https://www.strava.com/api/v3"
 TOKEN_URL = "https://www.strava.com/oauth/token"
 UA = "agent-platform-strava-tool"
+SYNC_TOPIC = "app.running.inbound"
 EXPIRY_BUFFER = 60  # refresh this many seconds before Strava's stated expiry
 
 
@@ -291,6 +294,38 @@ def _epoch(day: str | None):
         raise SystemExit(2)
 
 
+def _activity_page(conn, args: dict, page: int = 1) -> list[dict]:
+    rows = _get(conn, "/athlete/activities", {
+        "per_page": _clamp_per_page(args.get("per_page") or 50),
+        "after": _epoch(args.get("after")),
+        "before": _epoch(args.get("before")), "page": page})
+    return [_activity_row(a) for a in rows]
+
+
+async def _publish_activities(rows: list[dict], after: str | None) -> None:
+    bootstrap = os.environ.get("AP_KAFKA_BOOTSTRAP", "").strip()
+    if not bootstrap:
+        print("strava sync needs AP_KAFKA_BOOTSTRAP (infra.kafka: true)",
+              file=sys.stderr)
+        raise SystemExit(2)
+    from aiokafka import AIOKafkaProducer
+    envelope = {
+        "type": "running.activities.synced", "schema_version": 1,
+        "id": f"strava-sync-{int(time.time() * 1000)}",
+        "ts": datetime.now(timezone.utc).isoformat(),
+        "key": rows[-1]["date"] if rows else (after or "empty"),
+        "source": "tool-strava",
+        "data": {"activities": rows, "after": after,
+                 "synced_at": datetime.now(timezone.utc).isoformat()},
+    }
+    producer = AIOKafkaProducer(bootstrap_servers=bootstrap)
+    await producer.start()
+    try:
+        await producer.send_and_wait(SYNC_TOPIC, json.dumps(envelope).encode())
+    finally:
+        await producer.stop()
+
+
 def act(conn, args: dict) -> dict:
     action = args["action"]
     if action == "athlete":
@@ -313,11 +348,22 @@ def act(conn, args: dict) -> dict:
             "biggest_run_km": _km(s.get("biggest_run_distance")),
         }
     if action == "activities":
-        rows = _get(conn, "/athlete/activities", {
-            "per_page": _clamp_per_page(args.get("per_page") or 30),
-            "after": _epoch(args.get("after")),
-            "before": _epoch(args.get("before")), "page": 1})
-        return {"count": len(rows), "activities": [_activity_row(a) for a in rows]}
+        rows = _activity_page(conn, args)
+        return {"count": len(rows), "activities": rows}
+    if action == "sync":
+        # A first backfill may exceed one Strava page. Keep fetching until the
+        # API returns a short page; normal daily syncs stop after page one.
+        rows: list[dict] = []
+        per_page = _clamp_per_page(args.get("per_page") or 50)
+        sync_args = {**args, "per_page": per_page}
+        for page in range(1, 11):
+            batch = _activity_page(conn, sync_args, page)
+            rows.extend(batch)
+            if len(batch) < per_page:
+                break
+        asyncio.run(_publish_activities(rows, args.get("after")))
+        return {"synced": len(rows), "after": args.get("after"),
+                "latest": max((row["date"] for row in rows), default=None)}
     if action == "activity":
         aid = (args.get("id") or "").strip()
         if not aid:

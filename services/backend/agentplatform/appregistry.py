@@ -42,6 +42,7 @@ class AppAgentKey(BaseModel):
 
 class AppSpec(BaseModel):
     name: str
+    display_name: str = ""
     description: str = ""
     icon: str = ""
     ui: bool = False           # serves a UI at /apps/<name>/

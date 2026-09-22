@@ -17,7 +17,7 @@ function Shell({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     fetch("/api/apps", { credentials: "include" })
       .then((r) => (r.ok ? r.json() : []))
-      .then((all: { name: string; icon: string; ui: boolean; ready: boolean | null }[]) =>
+      .then((all: (AppNavInfo & { ui: boolean; ready: boolean | null })[]) =>
         setApps(all.filter((a) => a.ui && a.ready)))
       .catch(() => {});
   }, []);

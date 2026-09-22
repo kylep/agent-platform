@@ -985,6 +985,7 @@ ARTIST_SEED_MARK = "artist-seed-v1"
 CODEX_ARTIST_SEED_MARK = "codex-artist-seed-v1"
 CODEX_ARTIST_SYSTEM_MARK = "codex-artist-system-v1"
 AGENT_POLICY_SPLIT_MARK = "agent-policy-split-v1"
+RUNNING_COACH_MARK = "running-coach-v1"
 CODER_PROFILE_REMOVAL_MARK = "coder-profile-removal-v1"
 ENG_CHANNEL_MARK = "eng-channel-v1"
 ENGINEER_SEED_MARK = "engineer-seed-v1"
@@ -1946,6 +1947,89 @@ def _ensure_agent_policy_split(conn) -> None:
                                         applied_at=utcnow()))
 
 
+RUNNING_COACH_PROMPT = """You are **Running Coach**, Kyle's concise, practical running companion.
+
+Your trigger tells you which mode to use:
+
+- **SYNC**: call `query_app` with app `running`, path `summary`; then call
+  `strava` with action `sync`, after the returned `sync_after`, and per_page 50.
+  The tool publishes activities directly to the app. Return one short JSON
+  receipt with `synced`, `after`, and `latest`; never copy activities yourself.
+- **COACH**: call `query_app` with app `running`, path `coach-context`. Return
+  only fenced JSON with a `brief` object containing `body` (1–3 warm, specific,
+  actionable sentences), up to four `highlights`, and up to four `tags` from
+  `allowed_tags`. Use only the supplied facts. Prefer a useful next step over
+  applause. Do not make medical diagnoses.
+- **Conversation**: answer naturally as a coach. Use `coach-context`, Strava
+  detail, or both when the question needs current facts. Be candid and brief.
+
+Never transcribe the activity archive into your answer. The Running app owns
+the data and computes all totals and records deterministically."""
+
+
+def _ensure_running_coach(conn) -> None:
+    """Replace the quota-heavy Running ETL agent with a coach persona.
+
+    The old row is retained disabled so its run history stays intelligible.
+    The new row uses Codex Luna for the tiny daily sync call and Terra only for
+    Monday coaching; activities travel tool→Kafka rather than through a model.
+    """
+    from sqlalchemy import func, inspect as sa_inspect
+    if not sa_inspect(conn).has_table("agent_defs"):
+        return
+    mark_t = SchemaMark.__table__
+    if conn.execute(select(mark_t.c.name)
+                    .where(mark_t.c.name == RUNNING_COACH_MARK)).first():
+        return
+    def_t, ver_t = AgentDef.__table__, AgentVersion.__table__
+    old = conn.execute(select(def_t).where(def_t.c.name == "running")).first()
+    if old is None:
+        # This installation never had the optional Running app worker.
+        conn.execute(mark_t.insert().values(name=RUNNING_COACH_MARK,
+                                            applied_at=utcnow()))
+        return
+    if not conn.execute(select(def_t.c.name).where(
+            def_t.c.name == "running-coach")).first():
+        coach = {
+            "name": "running-coach", "prompt": RUNNING_COACH_PROMPT,
+            "description": "Syncs Strava without copying activities through a model, then turns deterministic training trends into a useful weekly coaching note.",
+            "runtime": "codex", "model": "gpt-5.6-luna", "role": "operator",
+            "system": False, "responds_to_all": False, "can_invoke": False,
+            "concurrency": 1, "timeout_seconds": 300,
+            "result_topic": "app.running.inbound",
+            "transcript_retention_days": None, "harness_tools": [],
+            "platform_tools": ["mcp__platform__strava", "mcp__platform__query_app"],
+            "skills": [], "secrets": [],
+            "entrypoints": {"crons": [
+                {"schedule": "10 7 * * *", "prompt": "SYNC today's Strava activities.",
+                 "model": "gpt-5.6-luna"},
+                {"schedule": "20 7 * * 1", "prompt": "COACH the completed week and give one useful next step.",
+                 "model": "gpt-5.6-terra"}],
+                "webhooks": [], "topics": [], "timezone": "America/Toronto"},
+            "enabled": True, "push_path_globs": [], "may_delete_tests": False,
+            "quota_5h_max_pct": 80, "quota_7d_max_pct": 50,
+        }
+        conn.execute(def_t.insert().values(**coach, icon="🏃"))
+        conn.execute(ver_t.insert().values(
+            id=uuid.uuid4().hex, agent="running-coach", version=1,
+            snapshot=coach, changed_by="platform:running-coach",
+            changed_via="migration", created_at=utcnow()))
+    if old.enabled is not False:
+        from agentplatform.agentdefs import model_of
+        snapshot = {**model_of(old).model_dump(mode="json"), "enabled": False,
+                    "responds_to_all": False}
+        conn.execute(def_t.update().where(def_t.c.name == "running")
+                     .values(enabled=False, responds_to_all=False))
+        version = (conn.execute(select(func.max(ver_t.c.version)).where(
+            ver_t.c.agent == "running")).scalar() or 0) + 1
+        conn.execute(ver_t.insert().values(
+            id=uuid.uuid4().hex, agent="running", version=version,
+            snapshot=snapshot, changed_by="platform:running-coach",
+            changed_via="migration", created_at=utcnow()))
+    conn.execute(mark_t.insert().values(name=RUNNING_COACH_MARK,
+                                        applied_at=utcnow()))
+
+
 def _remove_coder_profile(conn) -> None:
     """Safely retire definitions left on the credential-bearing runner mode.
 
@@ -2847,4 +2931,5 @@ async def init_db(engine: AsyncEngine, default_grant: bool = True,
         await conn.run_sync(_ensure_qa_normal_agent)
         await conn.run_sync(_ensure_qa_nightly_job)
         await conn.run_sync(_ensure_agent_policy_split)
+        await conn.run_sync(_ensure_running_coach)
         await conn.run_sync(_remove_coder_profile)

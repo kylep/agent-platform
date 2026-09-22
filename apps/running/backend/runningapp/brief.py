@@ -1,4 +1,4 @@
-"""Parse + validate the `running` agent's inbound payload.
+"""Parse + validate the `running-coach` agent's inbound payload.
 
 Everything here is UNTRUSTED, agent-produced text. The agent pulls activities
 through the strava tool and writes an encouraging weekly note; both arrive as a

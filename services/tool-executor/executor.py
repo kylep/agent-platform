@@ -11,6 +11,7 @@ PR-reviewed `run.py` as a subprocess with a minimal environment:
     baked into this pod's env),
   - TOOL_DB_URL when the tool declares `database: true` (from the
     provisioner-managed `tool-<name>-db` secret),
+  - AP_KAFKA_BOOTSTRAP when the tool explicitly declares `kafka: true`,
   - TOOL_IN_DIR / TOOL_OUT_DIR (docs/design/23): a per-call scratch pair. The
     caller's `files_in` land in the first by name; whatever the tool writes to
     the second comes back as `files` — the way a tool returns something that
@@ -292,6 +293,10 @@ async def build_env(manifest: dict, caller: Caller, in_dir: Path, out_dir: Path)
             env["TOOL_DB_URL"] = db["TOOL_DB_URL"]
         elif "APP_DB_URL" in db:  # provisioner reuses the app secret shape
             env["TOOL_DB_URL"] = db["APP_DB_URL"]
+    if infra.get("kafka"):
+        bootstrap = os.environ.get("AP_KAFKA_BOOTSTRAP", "").strip()
+        if bootstrap:
+            env["AP_KAFKA_BOOTSTRAP"] = bootstrap
     return env
 
 

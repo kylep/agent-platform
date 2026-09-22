@@ -353,6 +353,7 @@ class ApiKeyCreated(ApiKeyView):
 
 class AppView(BaseModel):
     name: str
+    display_name: str
     description: str
     icon: str
     ui: bool

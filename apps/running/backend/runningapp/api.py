@@ -3,7 +3,7 @@
 Auth mirrors stockmarket: nginx's auth_request has vetted the session/key and
 stamps X-AP-User; we require it as a defense-in-depth marker that the request
 came through the guarded route. Reads are open to any authenticated identity —
-the `running` agent reaches /summary through the platform's query_app proxy as
+the `running-coach` agent reaches /summary through the platform's query_app proxy as
 `reader` to learn its `sync_after` cue. There are no write endpoints here: the
 only writer is the Kafka ingest path.
 """
@@ -22,8 +22,8 @@ from runningapp.db import Activity, Brief
 router = APIRouter(prefix="/apps/running/api")
 
 # How far back a first (empty-archive) sync reaches, and the overlap re-pulled
-# each run to catch edited/renamed activities. Kept modest so the agent never
-# has to transcribe an unbounded list through the LLM in one pass.
+# each run to catch edited/renamed activities. Kept modest so the tool's direct
+# Kafka sync stays bounded.
 BACKFILL_DAYS = 90
 OVERLAP_DAYS = 3
 
@@ -74,6 +74,47 @@ async def summary(request: Request, user: str = Depends(require_gateway)):
     return {"totals": st.totals(acts), "latest_day": latest_day,
             "latest_brief_week": latest_brief, "sync_after": sync_after,
             "today": today.isoformat(), "tags": bf.TAGS}
+
+
+@router.get("/health")
+async def health(request: Request, user: str = Depends(require_gateway)):
+    async with _sf(request)() as s:
+        activity_count = (await s.execute(select(func.count(Activity.id)))).scalar() or 0
+        brief_count = (await s.execute(select(func.count(Brief.week_start)))).scalar() or 0
+        latest_day = (await s.execute(select(func.max(Activity.day)))).scalar()
+    ingest = getattr(request.app.state, "ingest", None)
+    pipeline = dict(ingest.status) if ingest else {
+        "consumer_started": False, "consumer_assigned": False,
+        "last_message_at": None, "last_activity_sync_at": None,
+        "last_error": "ingest loop is not running"}
+    return {"ok": bool(pipeline.get("consumer_assigned")),
+            "activity_count": activity_count, "brief_count": brief_count,
+            "latest_activity_day": latest_day, "pipeline": pipeline}
+
+
+@router.get("/coach-context")
+async def coach_context(request: Request, user: str = Depends(require_gateway)):
+    """Small deterministic context for the weekly coach. Raw Strava history
+    stays in the app; the model receives trends and recent runs, not a backfill."""
+    today = date.today()
+    async with _sf(request)() as s:
+        acts = await _all_activities(s)
+        recent_rows = (await s.execute(select(Activity).order_by(
+            Activity.day.desc(), Activity.id.desc()).limit(12))).scalars().all()
+    return {
+        "today": today.isoformat(),
+        "totals": st.totals(acts),
+        "weeks": st.weekly(acts, today, 8),
+        "records": st.prs(acts, today),
+        "recent_runs": [
+            {"day": r.day, "name": r.name, "type": r.type,
+             "distance_km": round(r.distance_m / 1000, 2),
+             "moving_time_s": r.moving_time_s, "avg_hr": r.avg_hr,
+             "elevation_m": r.elevation_m}
+            for r in recent_rows if r.type in st.RUN_TYPES
+        ],
+        "allowed_tags": bf.TAGS,
+    }
 
 
 @router.get("/calendar")

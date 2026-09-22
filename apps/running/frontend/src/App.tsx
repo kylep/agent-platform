@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { api, type Activity, type Brief, type Calendar, type Prs,
+import { api, type Activity, type Brief, type Calendar, type Health, type Prs,
          type Summary, type WeekBar } from "./api";
 import { Heatmap } from "./heatmap";
 import { WeeklyBars } from "./charts";
@@ -10,11 +10,11 @@ import { SideNav, buildPlatformNav, type AppNavInfo } from "@ap/ui/sidenav";
 // mileage, personal records, the latest coach's brief, and recent activities.
 
 function Shell({ children }: { children: React.ReactNode }) {
-  const [apps, setApps] = useState<AppNavInfo[]>([{ name: "running", icon: "🏃" }]);
+  const [apps, setApps] = useState<AppNavInfo[]>([{ name: "running", icon: "🏃", display_name: "Running Coach" }]);
   useEffect(() => {
     fetch("/api/apps", { credentials: "include" })
       .then((r) => (r.ok ? r.json() : []))
-      .then((all: { name: string; icon: string; ui: boolean; ready: boolean | null }[]) =>
+      .then((all: (AppNavInfo & { ui: boolean; ready: boolean | null })[]) =>
         setApps(all.filter((a) => a.ui && a.ready)))
       .catch(() => {});
   }, []);
@@ -24,7 +24,7 @@ function Shell({ children }: { children: React.ReactNode }) {
       <main className="main">
         <div className="rn-shell">
           <header className="rn-top">
-            <span className="rn-brand">🏃 Running</span>
+            <span className="rn-brand">🏃 Running Coach</span>
           </header>
           {children}
         </div>
@@ -40,6 +40,7 @@ export default function App() {
   const [prs, setPrs] = useState<Prs | null>(null);
   const [brief, setBrief] = useState<Brief | null>(null);
   const [activities, setActivities] = useState<Activity[]>([]);
+  const [health, setHealth] = useState<Health | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loaded, setLoaded] = useState(false);
 
@@ -51,9 +52,10 @@ export default function App() {
       api<Prs>("/prs"),
       api<Brief[]>("/briefs?limit=1"),
       api<Activity[]>("/activities?limit=12"),
-    ]).then(([s, c, w, p, b, a]) => {
+      api<Health>("/health"),
+    ]).then(([s, c, w, p, b, a, h]) => {
       setSummary(s); setCalendar(c); setWeekly(w.weeks); setPrs(p);
-      setBrief(b[0] ?? null); setActivities(a); setError(null);
+      setBrief(b[0] ?? null); setActivities(a); setHealth(h); setError(null);
     }).catch((e) => setError(e instanceof Error ? e.message : "Failed to load."))
       .finally(() => setLoaded(true));
   }, []);
@@ -67,28 +69,33 @@ export default function App() {
 
       {empty && (
         <div className="rn-card rn-empty">
-          <h2>No runs yet</h2>
+          <div className="rn-card-head">
+            <h2>{health?.ok ? "Ready for the first sync" : "Activity sync is offline"}</h2>
+            <span className={`rn-state ${health?.ok ? "ok" : "bad"}`}>
+              {health?.ok ? "CONNECTED" : "DEGRADED"}
+            </span>
+          </div>
           <p className="muted">
-            Once the <code>strava</code> secret is set, the running agent
-            backfills your recent activities and this fills in — a calendar,
-            weekly mileage, your records, and a weekly coach's brief. Ask{" "}
-            <b>pai</b> about your runs in Discord any time.
+            {health?.ok
+              ? "The ingestion pipeline is connected and waiting for Running Coach to sync Strava."
+              : "The app cannot currently consume activity updates. The dashboard is hidden because zeroes would be misleading."}
           </p>
+          {health?.pipeline.last_error && <p className="error">{health.pipeline.last_error}</p>}
         </div>
       )}
 
-      {summary && <TotalsCard totals={summary.totals} />}
-      {calendar && calendar.days.length > 0 && <Heatmap days={calendar.days} />}
+      {!empty && summary && <TotalsCard totals={summary.totals} />}
+      {!empty && calendar && calendar.days.length > 0 && <Heatmap days={calendar.days} />}
 
-      <div className="rn-cols">
+      {!empty && <div className="rn-cols">
         {weekly.length > 0 && <WeeklyBars weeks={weekly} />}
         {prs && <PRBoard prs={prs} />}
-      </div>
+      </div>}
 
-      <div className="rn-cols">
+      {!empty && <div className="rn-cols rn-coach-row">
         <BriefCard brief={brief} />
         <ActivityList activities={activities} />
-      </div>
+      </div>}
     </Shell>
   );
 }

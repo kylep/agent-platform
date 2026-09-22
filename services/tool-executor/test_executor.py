@@ -68,6 +68,15 @@ def test_env_minimalism_canary(tools_root):
         del os.environ["LEAKY_PARENT_SECRET"]
 
 
+def test_kafka_is_opt_in(tools_root, monkeypatch):
+    make_tool(tools_root, yaml_extra="infra:\n  kafka: true\n")
+    monkeypatch.setenv("AP_KAFKA_BOOTSTRAP", "broker:9092")
+    body = TestClient(executor.app).post(
+        "/run", json={"tool": "envdump", "args": {"x": "1"}}).json()
+    env = json.loads(body["output"])["env"]
+    assert env["AP_KAFKA_BOOTSTRAP"] == "broker:9092"
+
+
 def test_schema_rejection_before_execution(tools_root):
     make_tool(tools_root, run_py="import sys; sys.exit(99)\n",
               yaml_extra="  required: [x]\n")

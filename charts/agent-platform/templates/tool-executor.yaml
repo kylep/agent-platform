@@ -40,6 +40,8 @@ spec:
           env:
             - name: AP_TOOLS_ROOT
               value: "/agents/tools"
+            - name: AP_KAFKA_BOOTSTRAP
+              value: "{{ .Release.Name }}-kafka:9092"
             {{- if .Values.spire.enabled }}
             # mTLS mode (design/13 B): only the ghostunnel sidecar reaches this.
             - name: AP_BIND_HOST

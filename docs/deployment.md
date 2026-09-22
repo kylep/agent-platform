@@ -72,6 +72,7 @@ namespace are invisible to kubelet.
 | `agent-platform-connector-discord` | `services/connector-discord` | `deploy/ap-connector-discord` |
 | `agent-platform-app-news` | `apps/news` | `deploy/ap-app-news` |
 | `agent-platform-app-stockmarket` | `apps/stockmarket` | `deploy/ap-app-stockmarket` |
+| `agent-platform-app-running` | repository root with `-f apps/running/Dockerfile .` | `deploy/ap-app-running` |
 
 App images build from the **repository root** with `-f apps/<name>/Dockerfile .`
 and expect the frontend prebuilt on the host first

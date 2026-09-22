@@ -4,6 +4,7 @@ from datetime import date
 
 from runningapp import brief as bf
 from runningapp import stats as st
+from runningapp.ingest import _unwrap
 
 
 # --------------------------------------------------------------------------
@@ -15,6 +16,15 @@ def test_parse_payload_tolerates_fences_and_prose():
     p = bf.parse_payload(txt)
     assert p and p["brief"]["body"] == "hi"
     assert bf.parse_payload("no json here") is None
+
+
+def test_direct_sync_envelope_unwraps_without_model_text():
+    import json
+    raw = json.dumps({"schema_version": 1, "type": "running.activities.synced",
+                      "data": {"activities": [{"id": 1}],
+                               "synced_at": "2026-09-22T00:00:00Z"}}).encode()
+    assert _unwrap(raw)["activities"] == [{"id": 1}]
+    assert _unwrap(raw)["_event_ts"] is None
 
 
 def test_clean_activities_clamps_and_dedupes():

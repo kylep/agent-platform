@@ -39,7 +39,7 @@ export default function Layout() {
 
   const entries = useMemo(() =>
     buildPlatformNav(apps.filter((a) => a.ui && a.ready)
-      .map((a) => ({ name: a.name, icon: a.icon }))), [apps]);
+      .map((a) => ({ name: a.name, icon: a.icon, display_name: a.display_name }))), [apps]);
 
   return (
     <div className="layout">

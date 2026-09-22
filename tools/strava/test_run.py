@@ -59,6 +59,20 @@ def test_action_activities_dispatch(monkeypatch):
     assert out["count"] == 1 and out["activities"][0]["pace"] == "5:00/km"
 
 
+def test_sync_publishes_without_returning_activities(monkeypatch):
+    payload = [{"id": 1, "type": "Run", "distance": 5000,
+                "moving_time": 1500, "start_date_local": "2026-08-11T06:00:00Z",
+                "name": "AM"}]
+    monkeypatch.setattr(run, "_get", lambda conn, path, params=None: payload)
+    published = []
+    async def capture(rows, after):
+        published.append((rows, after))
+    monkeypatch.setattr(run, "_publish_activities", capture)
+    out = run.act(None, {"action": "sync", "after": "2026-08-01", "per_page": 50})
+    assert out == {"synced": 1, "after": "2026-08-01", "latest": "2026-08-11"}
+    assert published[0][0][0]["distance_m"] == 5000
+
+
 def test_unknown_action_exits():
     import pytest
     with pytest.raises(SystemExit):

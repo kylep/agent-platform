@@ -10,7 +10,8 @@ from sqlalchemy import select
 
 from agentplatform.agentdefs import (AGENT_ROLES, AgentDefModel, apply_snapshot,
                                      next_version, snapshot_of)
-from agentplatform.db import AgentDef, AgentVersion
+from agentplatform.db import (AgentDef, AgentVersion, RUNNING_COACH_MARK,
+                              SchemaMark, _ensure_running_coach)
 
 
 async def test_agent_def_defaults_round_trip(sf):
@@ -31,6 +32,26 @@ async def test_agent_def_defaults_round_trip(sf):
     assert got.skills == [] and got.secrets == []
     assert got.entrypoints == {} and got.enabled is True
     assert got.created_at is not None and got.updated_at is not None
+
+
+async def test_running_worker_migrates_to_codex_coach(sf):
+    async with sf() as s:
+        await s.delete(await s.get(SchemaMark, RUNNING_COACH_MARK))
+        s.add(AgentDef(name="running", prompt="old", enabled=True,
+                       platform_tools=["mcp__platform__strava"]))
+        await s.commit()
+    async with sf.kw["bind"].begin() as conn:
+        await conn.run_sync(_ensure_running_coach)
+    async with sf() as s:
+        old = await s.get(AgentDef, "running")
+        coach = await s.get(AgentDef, "running-coach")
+        versions = (await s.execute(select(AgentVersion).where(
+            AgentVersion.agent == "running-coach"))).scalars().all()
+    assert old.enabled is False
+    assert coach.runtime == "codex" and coach.model == "gpt-5.6-luna"
+    assert len(coach.entrypoints["crons"]) == 2
+    assert coach.entrypoints["crons"][1]["model"] == "gpt-5.6-terra"
+    assert versions[0].snapshot["name"] == "running-coach"
 
 
 async def test_agent_def_stores_grants_and_entrypoints(sf):

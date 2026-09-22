@@ -26,6 +26,7 @@ async def lifespan(app: FastAPI):
     loop = IngestLoop(app.state.sf,
                       os.environ.get("AP_KAFKA_BOOTSTRAP", "kafka:9092"),
                       channel=os.environ.get("RUNNING_CHANNEL", "running"))
+    app.state.ingest = loop
     task = asyncio.create_task(loop.run_forever())
     try:
         yield

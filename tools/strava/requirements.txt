@@ -2,3 +2,4 @@
 # the executor image by the memory tool — declared here so the dependency is
 # explicit and survives if that tool ever changes.
 psycopg[binary]>=3.1,<4
+aiokafka>=0.11,<1

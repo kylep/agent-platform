@@ -525,6 +525,7 @@ export type ReportDetail = ReportMeta & { html: string };
 
 export type AppView = {
   name: string;
+  display_name: string;
   description: string;
   icon: string;
   ui: boolean;

@@ -7,7 +7,8 @@
 # /apps/running/. The app itself has NO third-party egress — it never holds
 # Strava credentials.
 name: running
-description: Your Strava runs — a calendar heatmap, weekly mileage, personal records, and a weekly coach's brief.
+display_name: Running Coach
+description: A useful next step from your Strava history — training trends, recent efforts, and a weekly coach's brief.
 icon: 🏃
 ui: true
 api: true

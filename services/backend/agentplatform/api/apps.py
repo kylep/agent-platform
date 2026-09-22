@@ -47,6 +47,7 @@ async def list_apps(request: Request):
         ready, replicas = _deployment_ready(request, info.name)
         out.append({
             "name": info.name,
+            "display_name": sp.display_name if sp else "",
             "description": sp.description if sp else "",
             "icon": sp.icon if sp else "",
             "ui": sp.ui if sp else False,

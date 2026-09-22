@@ -22,7 +22,7 @@ def _app(tmp_path, name, yaml_text):
 
 def test_registry_parses_and_validates(tmp_path):
     _app(tmp_path, "news", (
-        "description: Browse news.\nicon: X\nui: true\napi: true\n"
+        "display_name: Newsroom\ndescription: Browse news.\nicon: X\nui: true\napi: true\n"
         "needs:\n  postgres: true\n  kafka_topics: [app.news.item.ingested]\n"
         "agent_key:\n  role: operator\n"))
     _app(tmp_path, "badtopic", "needs:\n  kafka_topics: [news.item]\n")
@@ -30,6 +30,7 @@ def test_registry_parses_and_validates(tmp_path):
     reg = AppRegistry(tmp_path)
     news = reg.get("news")
     assert news.spec.ui and news.spec.needs.postgres
+    assert news.spec.display_name == "Newsroom"
     assert news.spec.needs.kafka_topics == ["app.news.item.ingested"]
     assert news.spec.agent_key.role == "operator"
     assert "namespaced app.badtopic" in reg.get("badtopic").error

@@ -1,7 +1,8 @@
 """Activity + brief ingestion: the app.running.inbound consumer and write path.
 
-Flow: the recorder republishes each successful `running` run's result text
-here. We parse it defensively (brief.py), upsert one row per Strava activity
+Flow: the Strava tool publishes normalized activities directly, while the
+recorder publishes each successful `running-coach` note. We parse either shape
+defensively (brief.py), upsert one row per Strava activity
 id (a re-send corrects, never duplicates), and — when the payload carries a
 weekly note — store it under THIS week's Monday (the app's clock, not the
 agent's), posting to Discord and writing the report only the first time that
@@ -39,7 +40,8 @@ def _envelope(type_: str, key: str, data: dict) -> bytes:
 def _unwrap(raw: bytes) -> dict:
     value = json.loads(raw)
     if isinstance(value, dict) and "data" in value and "schema_version" in value:
-        return value["data"]
+        data = value["data"] if isinstance(value["data"], dict) else {}
+        return {**data, "_event_ts": value.get("ts")}
     return value if isinstance(value, dict) else {}
 
 
@@ -112,19 +114,42 @@ class IngestLoop:
         self.sf = sf
         self.bootstrap = kafka_bootstrap
         self.channel = channel
+        self.started_at = datetime.now(timezone.utc)
+        self.status = {"consumer_started": False, "consumer_assigned": False,
+                       "last_message_at": None, "last_activity_sync_at": None,
+                       "last_error": None}
 
     async def handle(self, producer, raw: bytes) -> None:
         data = _unwrap(raw)
-        payload = bf.parse_payload(data.get("result"))
+        # Direct sync events already contain validated tool output. Coach runs
+        # arrive through the recorder as result text and retain the old parser.
+        payload = (data if isinstance(data.get("activities"), list)
+                   else bf.parse_payload(data.get("result")))
         if payload is None:
             log.info("inbound result held no usable payload; skipped")
             return
         n = await store_activities(self.sf, bf.clean_activities(payload.get("activities")))
+        self.status["last_message_at"] = datetime.now(timezone.utc).isoformat()
+        if "synced_at" in data or data.get("activities") is not None:
+            self.status["last_activity_sync_at"] = (
+                data.get("synced_at") or self.status["last_message_at"])
         if n:
             log.info("stored/updated %d activities", n)
 
         cleaned = bf.clean_brief(payload.get("brief"))
         if cleaned is None:
+            return
+        # A new consumer group intentionally replays the activity archive, but
+        # old coaching prose belongs to its original week. The legacy envelope
+        # did not carry that week, so silently discard replayed briefs rather
+        # than relabel one as current or post it again.
+        event_ts = data.get("_event_ts")
+        try:
+            event_at = datetime.fromisoformat(str(event_ts).replace("Z", "+00:00"))
+        except (TypeError, ValueError):
+            event_at = self.started_at
+        if event_at < self.started_at:
+            log.info("discarded replayed brief with no trustworthy week")
             return
         week_start = _monday(datetime.now(timezone.utc).date())
         stats = await _week_stats(self.sf, week_start)
@@ -154,23 +179,36 @@ class IngestLoop:
             try:
                 consumer = AIOKafkaConsumer(
                     TOPIC_INBOUND, bootstrap_servers=self.bootstrap,
-                    group_id="running-app", enable_auto_commit=False,
+                    group_id="running-coach-app-v2", enable_auto_commit=False,
                     auto_offset_reset="earliest")
                 producer = AIOKafkaProducer(bootstrap_servers=self.bootstrap)
                 await consumer.start()
                 await producer.start()
+                self.status.update(consumer_started=True, last_error=None)
                 try:
-                    async for msg in consumer:
-                        try:
-                            await self.handle(producer, msg.value)
-                        except Exception:
-                            log.exception("payload handling failed; skipping")
-                        await consumer.commit()
+                    while True:
+                        batches = await consumer.getmany(timeout_ms=1000)
+                        self.status["consumer_assigned"] = bool(consumer.assignment())
+                        handled = False
+                        for messages in batches.values():
+                            for msg in messages:
+                                handled = True
+                                try:
+                                    await self.handle(producer, msg.value)
+                                except Exception:
+                                    log.exception("payload handling failed; skipping")
+                        if handled:
+                            await consumer.commit()
                 finally:
+                    self.status.update(consumer_started=False,
+                                       consumer_assigned=False)
                     await consumer.stop()
                     await producer.stop()
             except asyncio.CancelledError:
                 raise
             except Exception:
+                self.status.update(consumer_started=False,
+                                   consumer_assigned=False,
+                                   last_error="Kafka ingest loop failed; retrying")
                 log.exception("ingest loop crashed; restarting in 10s")
                 await asyncio.sleep(10)

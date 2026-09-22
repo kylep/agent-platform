@@ -39,7 +39,7 @@ export default function Apps() {
           <div key={a.name} className="app-card">
             <div className="report-type-head">
               <span className="report-type-icon" aria-hidden>{a.icon || "🧩"}</span>
-              <span className="report-type-name">{a.name}</span>
+              <span className="report-type-name">{a.display_name || a.name}</span>
               <ReadyChip app={a} />
             </div>
             <p className="muted report-type-desc">{a.description || "—"}</p>
