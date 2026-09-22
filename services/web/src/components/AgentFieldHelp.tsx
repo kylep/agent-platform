@@ -16,7 +16,7 @@ const HELP: Record<AgentHelpKey, Help> = {
   runtime: { title: "Runtime", body: <><p>The subscription-backed CLI that executes each run.</p><p><strong>Claude Code</strong> uses Claude models and its selectable built-in tools. <strong>OpenAI Codex</strong> uses Codex models and capabilities. Both runtimes receive the same prompt, skills, platform tools, and granted secrets.</p></> },
   model: { title: "Model", body: <>The runtime model for this agent. Platform default follows the configured default for the selected runtime. A cron, webhook, or other invocation may override it for that run.</> },
   profile: { title: "Execution profile", body: <>
-    <p>This chooses the workspace around the model. It does not change the runtime, model, or grants.</p>
+    <p>The execution profile controls the agent's workspace and publishing workflow. It does not change its runtime, model, tools, skills, secrets, or invocation permissions.</p>
     <table className="profile-help-table">
       <thead><tr><th>Profile</th><th>What happens</th></tr></thead>
       <tbody>
@@ -24,7 +24,6 @@ const HELP: Record<AgentHelpKey, Help> = {
         <tr><td><strong>Workbench developer</strong></td><td>Clones the repository into a larger development pod with Python, Node, Playwright, and test tooling. At the end, the platform verifies its changes and opens or updates a pull request.</td></tr>
       </tbody>
     </table>
-    <p>Platform API access comes from Platform tool grants. “Can invoke other agents” is a separate grant.</p>
   </> },
   prompt: { title: "Prompt", body: <>The durable instructions and personality sent to the selected runtime on every run. Trigger-specific text is added as the user's request; it does not replace this prompt.</> },
   "result-topic": { title: "App output topic", body: <><p>After a successful run, the recorder publishes the final text to this Kafka topic as an <code>agent.result</code> event with the run and agent IDs.</p><p>Use it when an app consumes structured agent output. Leave it blank when the result belongs only in run history or Relay.</p></> },
