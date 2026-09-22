@@ -256,6 +256,22 @@ async def test_handle_with_only_rejections_posts_nothing(sf):
     assert TOPIC_REJECTED in topics and TOPIC_CHANNEL_POST not in topics
 
 
+async def test_handle_emits_diagnostic_for_empty_digest(sf):
+    loop = IngestLoop(sf, "kafka:9092")
+    producer = _Producer()
+    await loop.handle(producer, json.dumps({
+        "result": json.dumps({"date": "2026-09-22", "items": []}),
+        "run_id": "empty-run",
+    }).encode())
+    assert producer.sent == [(TOPIC_REJECTED, {
+        "type": "news.digest.rejected", "schema_version": 1,
+        "id": producer.sent[0][1]["id"], "ts": producer.sent[0][1]["ts"],
+        "key": "empty-run", "source": "app-news",
+        "data": {"day": "2026-09-22", "reason": "empty-digest",
+                 "run_id": "empty-run"},
+    })]
+
+
 # --- schema migration --------------------------------------------------------
 
 async def test_init_db_adds_missing_columns():

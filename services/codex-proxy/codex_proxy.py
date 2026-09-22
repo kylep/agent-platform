@@ -20,7 +20,12 @@ logging.basicConfig(level=os.environ.get("LOG_LEVEL", "INFO"))
 
 CLIENT_ID = "app_EMoamEEZ73f0CkXaXp7hrann"
 CODEX_ROUTES = {("GET", "/models"), ("GET", "/responses"),
-                ("POST", "/responses"), ("POST", "/images/generations")}
+                ("POST", "/responses"), ("POST", "/images/generations"),
+                # Codex 0.155+ executes its standalone web tool against the
+                # configured provider base instead of embedding it in a
+                # Responses turn. This maps to /backend-api/codex/alpha/search
+                # upstream and remains a single-purpose, authenticated route.
+                ("POST", "/alpha/search")}
 # Codex's built-in subscription tools (including ImageGen) are exposed by the
 # ChatGPT backend as an authenticated MCP endpoint. Keep this exact allowlist:
 # runners get the capability, not a general-purpose proxy into backend-api.
@@ -251,6 +256,11 @@ async def _websocket(request: web.Request, credentials: Credentials,
 
 async def proxy(request: web.Request) -> web.StreamResponse:
     if (request.method, request.path) not in ALLOWED:
+        # Codex telemetry is intentionally outside the capability allowlist
+        # and is expected once per turn; keep unexpected route drift visible
+        # without filling the broker log with that known refusal.
+        report = log.debug if request.path.endswith("/analytics-events/events") else log.warning
+        report("rejected proxy route method=%s path=%s", request.method, request.path)
         raise web.HTTPNotFound()
     body = await request.read()
     credentials: Credentials = request.app["credentials"]
@@ -283,6 +293,9 @@ async def proxy(request: web.Request) -> web.StreamResponse:
             await upstream.read()
             upstream.release()
             upstream = await send(force_refresh=True)
+        if upstream.status >= 400:
+            log.warning("upstream request failed method=%s path=%s status=%d",
+                        request.method, request.path, upstream.status)
         try:
             return await _stream(request, upstream)
         finally:

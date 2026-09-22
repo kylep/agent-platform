@@ -163,6 +163,30 @@ async def test_proxy_exposes_only_the_codex_subscription_tool_mcp(tmp_path):
         await server.close()
 
 
+async def test_proxy_exposes_standalone_web_search_on_codex_upstream(tmp_path):
+    observed = {}
+
+    async def search(request):
+        observed.update(request.headers)
+        return web.json_response({"output": "result", "results": []})
+
+    upstream = web.Application()
+    upstream.router.add_post("/codex/alpha/search", search)
+    server = TestServer(upstream)
+    await server.start_server()
+    client = TestClient(TestServer(create_app(_write_config(tmp_path, server))))
+    await client.start_server()
+    try:
+        response = await client.post("/alpha/search", json={"commands": {}})
+        assert response.status == 200
+        assert observed["Authorization"].startswith("Bearer ey")
+        assert observed["ChatGPT-Account-Id"] == "acct-1"
+        assert (await client.get("/alpha/search")).status == 404
+    finally:
+        await client.close()
+        await server.close()
+
+
 async def test_proxy_exposes_read_only_codex_tool_discovery(tmp_path):
     async def settings(request):
         assert request.query.get("surface") == "codex"

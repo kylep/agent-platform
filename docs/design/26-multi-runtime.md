@@ -30,6 +30,11 @@ request headers. Brokered deployments disable the legacy run-scoped credential
 download and upload routes, and provider credentials are reserved from normal
 agent secret bindings. Codex runner pods never mount either provider credential.
 
+The allowlist also includes `POST /alpha/search`, the standalone web-search
+endpoint used by Codex 0.155 and later. It maps only to the Codex upstream's
+matching route. Rejected routes and upstream HTTP failures are logged as
+method, path, and status without request bodies or authentication headers.
+
 Add the credential in Settings → Secrets by copying the contents of
 `~/.codex/auth.json` from a machine where `codex login` completed. A Codex agent
 is blocked before dispatch while that secret is absent. Credential health is

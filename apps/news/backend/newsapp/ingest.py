@@ -45,6 +45,7 @@ class IngestResult:
     new: list[dict] = field(default_factory=list)      # accepted, digest shape
     day: str = ""
     rejected: list[tuple[dict, str]] = field(default_factory=list)  # (item, reason)
+    issue: str | None = None
 
     def counts(self) -> dict[str, int]:
         out: dict[str, int] = {}
@@ -88,10 +89,11 @@ async def ingest_digest(sf, result_text: str | None, run_id: str | None = None,
         max_age_days = int(os.environ.get("NEWS_MAX_AGE_DAYS", DEFAULT_MAX_AGE_DAYS))
     digest = dg.parse_digest(result_text)
     if digest is None:
-        return IngestResult()
+        return IngestResult(issue="invalid-digest")
     items = dg.valid_items(digest)
     if not items:
-        return IngestResult()
+        day = dg.parse_day(digest.get("date"))
+        return IngestResult(day=day.isoformat() if day else "", issue="empty-digest")
     day_date = dg.parse_day(digest.get("date")) or datetime.now(timezone.utc).date()
     day = day_date.isoformat()
     window_start = (day_date - timedelta(days=STORY_WINDOW_DAYS)).isoformat()
@@ -158,6 +160,20 @@ class IngestLoop:
         data = _unwrap(raw)
         run_id = data.get("run_id")
         res = await ingest_digest(self.sf, data.get("result"), run_id)
+        if res.issue:
+            # A malformed or empty gather is operationally different from a
+            # valid digest whose stories were all filtered. Put that failure
+            # on the rejection stream so health tooling can see it, and retain
+            # the run id needed to diagnose the originating agent turn.
+            try:
+                await producer.send_and_wait(
+                    TOPIC_REJECTED, _envelope("news.digest.rejected", run_id or "unknown", {
+                        "day": res.day, "reason": res.issue, "run_id": run_id}))
+            except Exception:
+                log.exception("digest rejection publish failed (%s)", res.issue)
+            log.warning("rejected news digest run=%s day=%s reason=%s",
+                        run_id, res.day, res.issue)
+            return
         for it, reason in res.rejected:
             url = dg.norm_url(it["url"])
             try:
