@@ -51,10 +51,49 @@ function PasswordSection() {
   );
 }
 
+function KeyRoleCell({ apiKey, onChanged }: { apiKey: ApiKey; onChanged: () => void }) {
+  const [role, setRole] = useState(apiKey.role);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function save() {
+    setSaving(true);
+    setError(null);
+    try {
+      await api(`/api/api-keys/${apiKey.id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ role }),
+      });
+      onChanged();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not change role.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  if (apiKey.revoked_at) return <>{apiKey.role}</>;
+  return (
+    <div>
+      <div className="row-actions">
+        <Select aria-label={`Role for ${apiKey.name}`} value={role} disabled={saving}
+                onChange={(e) => setRole(e.target.value)}>
+          {!API_KEY_ROLES.some((r) => r === apiKey.role) &&
+            <option value={apiKey.role}>{apiKey.role} (legacy)</option>}
+          {API_KEY_ROLES.map((r) => <option key={r} value={r}>{r}</option>)}
+        </Select>
+        {role !== apiKey.role &&
+          <Button size="sm" onClick={save} disabled={saving}>{saving ? "Saving…" : "Save"}</Button>}
+      </div>
+      {error && <div className="error">{error}</div>}
+    </div>
+  );
+}
+
 function ApiKeysSection() {
   const [keys, setKeys] = useState<ApiKey[]>([]);
   const [name, setName] = useState("");
-  const [role, setRole] = useState<(typeof API_KEY_ROLES)[number]>("reader");
+  const [role, setRole] = useState<(typeof API_KEY_ROLES)[number]>("operator");
   const [minted, setMinted] = useState<ApiKeyMinted | null>(null);
   const [showRevoked, setShowRevoked] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -102,15 +141,7 @@ function ApiKeysSection() {
         </Select>
         <Button onClick={mint} disabled={name.trim() === ""}>Create key</Button>
       </div>
-      <p className="muted">New keys start at reader access. Choose a broader role only for the actions the client needs. A key's role is fixed after creation; revoke and replace it to change access.</p>
-      <Table>
-        <thead><tr><TH>Role</TH><TH>What the key can do</TH></tr></thead>
-        <tbody>
-          {API_KEY_ROLES.map((r) => (
-            <tr key={r}><TD><strong>{r}</strong>{r === role ? " · selected" : ""}</TD><TD>{API_KEY_ROLE_DESC[r]}</TD></tr>
-          ))}
-        </tbody>
-      </Table>
+      <p className="muted"><strong>{role}</strong> — {API_KEY_ROLE_DESC[role]}</p>
       {error && <div className="error">{error}</div>}
       <Table>
         <thead>
@@ -120,7 +151,7 @@ function ApiKeysSection() {
           {keys.filter((k) => showRevoked || !k.revoked_at).map((k) => (
             <tr key={k.id}>
               <TD>{k.name}</TD>
-              <TD>{k.role}</TD>
+              <TD><KeyRoleCell apiKey={k} onChanged={load} /></TD>
               <TD className="text-muted">{k.prefix}…</TD>
               <TD className="text-muted whitespace-nowrap">{k.created_at ? new Date(k.created_at).toLocaleString() : "—"}</TD>
               <TD>{k.revoked_at

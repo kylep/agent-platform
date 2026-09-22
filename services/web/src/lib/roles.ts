@@ -10,10 +10,9 @@ export const ROLE_DESC: Record<string, string> = {
 };
 
 // Long-lived keys use API authorization roles, not agent execution profiles.
-export const API_KEY_ROLES = ["reader", "annotator", "operator", "admin"] as const;
+export const API_KEY_ROLES = ["reader", "operator", "admin"] as const;
 export const API_KEY_ROLE_DESC: Record<(typeof API_KEY_ROLES)[number], string> = {
-  reader: "View agents, runs, schedules, reports, and other platform data. Cannot change anything.",
-  annotator: "Reader access, plus run annotations, reports, notifications, and memories. Cannot start runs.",
-  operator: "Annotator access, plus start runs and send Relay messages. Cannot manage platform settings.",
-  admin: "Full platform access, including agents, secrets, API keys, schedules, and merges.",
+  reader: "View platform data without changing it.",
+  operator: "View data, start agent runs, and send Relay messages. Best for an MCP client.",
+  admin: "Manage everything, including agents, secrets, API keys, and schedules.",
 };

@@ -19,6 +19,10 @@ class ApiKeyIn(BaseModel):
     # doesn't exist.
 
 
+class ApiKeyRoleIn(BaseModel):
+    role: str
+
+
 def _view(k: ApiKey) -> dict:
     return {"id": k.id, "name": k.name, "role": k.role, "agent": k.agent,
             "prefix": k.prefix, "created_at": k.created_at,
@@ -55,3 +59,18 @@ async def revoke_api_key(request: Request, key_id: str):
             key.revoked_at = utcnow()
             await s.commit()
     return {"ok": True}
+
+
+@router.patch("/api/api-keys/{key_id}", response_model=S.ApiKeyView)
+async def change_api_key_role(request: Request, key_id: str, body: ApiKeyRoleIn):
+    if body.role not in API_KEY_ROLES:
+        raise HTTPException(422, f"role must be one of {API_KEY_ROLES}")
+    async with request.app.state.session_factory() as s:
+        key = await s.get(ApiKey, key_id)
+        if key is None:
+            raise HTTPException(404, "unknown key")
+        if key.revoked_at is not None:
+            raise HTTPException(409, "revoked key cannot be edited")
+        key.role = body.role
+        await s.commit()
+        return _view(key)

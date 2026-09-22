@@ -2,22 +2,23 @@
 
 ## API key roles
 
-Settings can mint a bearer key for a script or external client. Its role is
-fixed when the key is created; revoke and replace the key to change access.
+Settings can mint a bearer key for a script or external client. An admin can
+change its role in Settings without changing the token; the new access applies
+on the next request. Revoked keys cannot be edited.
 Choose the narrowest role that covers the client's actions:
 
 | Role | Access |
 | --- | --- |
 | `reader` | Read agents, runs, schedules, reports, and other platform data. No writes. |
-| `annotator` | Reader access, plus run annotations, reports, notifications, and memories. Cannot start runs. |
-| `operator` | Annotator access, plus start runs and send Relay messages. Cannot manage settings or secrets. |
+| `operator` | Read and write operational data, start runs, and send Relay messages. Cannot manage settings or secrets. |
 | `admin` | Full platform control, including agents, secrets, API keys, schedules, and merges. |
 
 Agent **execution profiles** are a separate setting. In particular, `dev` is
 the Workbench profile, not an API-key permission. The platform assigns its
 internal `tools` and `relay` roles to agent runs from their grants; they are
-not available for manually created keys. Existing keys keep their role until
-revoked.
+not available for manually created keys. The `annotator` role is also used by
+system agents and is not offered for new user keys. Existing keys keep their
+role until changed or revoked.
 
 **The one-sentence version:** agents never hold credentials or a shell —
 everything an agent *does* goes through platform code that checks who is

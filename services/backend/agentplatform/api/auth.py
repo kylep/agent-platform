@@ -82,7 +82,7 @@ def validate_session_cookie(app, cookie: str | None) -> str | None:
 ROLES = ("reader", "annotator", "operator", "admin", "tools", "relay", "dev")
 # Only these roles make sense for long-lived, user-created API keys. The other
 # roles above are derived for individual agent runs, or describe a run profile.
-API_KEY_ROLES = ("reader", "annotator", "operator", "admin")
+API_KEY_ROLES = ("reader", "operator", "admin")
 READ_ROLES = ("reader", "annotator", "operator")
 ANNOTATE_ROLES = ("annotator", "operator")
 # Who may request a run (POST /api/runs) — humans (operator+) and agents whose
