@@ -70,8 +70,8 @@ export function BriefCard({ brief }: { brief: Brief | null }) {
       <section className="rn-card" aria-label="Weekly brief">
         <div className="rn-card-head"><h2>Coach's brief</h2></div>
         <p className="muted">
-          No brief yet — the first weekly recap posts after the running agent's
-          next run (and lands in Discord #running).
+          No brief yet — Running Coach writes the first weekly recap on Monday
+          (and posts it in Discord #running).
         </p>
       </section>
     );
@@ -110,8 +110,8 @@ export function ActivityList({ activities }: { activities: Activity[] }) {
       <section className="rn-card" aria-label="Recent activities">
         <div className="rn-card-head"><h2>Recent</h2></div>
         <p className="muted">
-          No activities yet. Once the strava secret is set, the running agent
-          backfills your recent runs.
+          No activities yet. Once the Strava connection is ready, Running Coach
+          backfills your recent runs on its next sync.
         </p>
       </section>
     );
