@@ -29,7 +29,7 @@ def render_weekly(brief: Brief) -> tuple[str, dict]:
         '<header class="rk-header">',
         f'<h1 class="rk-title">Running week — {_esc(brief.week_start)}</h1>',
         f'<p class="rk-meta">{_esc(" · ".join(brief.tags or [])) or "weekly recap"}'
-        ' · by the running agent</p>',
+        ' · by Running Coach</p>',
         "</header>",
         '<div class="rk-stat-row">',
         f'<div class="rk-stat"><span class="rk-stat-value">{km:.1f} km</span>'

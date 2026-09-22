@@ -36,9 +36,10 @@ The `running-coach` persona has two scheduled invocations:
 - A daily Codex Luna sync reads the app's overlap cursor and calls the tool's
   deterministic sync action.
 - A Monday Codex Terra coaching run reads `/coach-context`, which contains
-  totals, eight weekly buckets, records, and twelve recent runs. It produces a
-  short note from this bounded context. The app validates and stores the note,
-  and its existing first-post guard controls Discord delivery.
+  the last completed Monday–Sunday week's running totals and runs, plus bounded
+  longer trends. It produces a short note from this context. The app validates
+  and stores the note under that completed week's Monday. Its existing
+  first-post guard controls Discord delivery.
 
 The former `running` agent is disabled rather than deleted so historical runs
 remain attributable. It does not answer `@all`. The replacement is a normal

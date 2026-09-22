@@ -4,8 +4,8 @@ Flow: the Strava tool publishes normalized activities directly, while the
 recorder publishes each successful `running-coach` note. We parse either shape
 defensively (brief.py), upsert one row per Strava activity
 id (a re-send corrects, never duplicates), and — when the payload carries a
-weekly note — store it under THIS week's Monday (the app's clock, not the
-agent's), posting to Discord and writing the report only the first time that
+weekly note — store it under the last completed week's Monday (the app's clock,
+not the agent's), posting to Discord and writing the report only the first time that
 week is seen. Subsequent same-week sends refresh the text silently.
 """
 from __future__ import annotations
@@ -15,10 +15,12 @@ import json
 import logging
 import uuid
 from datetime import date, datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 
 from sqlalchemy import select
 
 from runningapp import brief as bf
+from runningapp import stats as st
 from runningapp.db import RUN_TYPES, Activity, Brief
 from runningapp.report import write_weekly_report
 
@@ -43,10 +45,6 @@ def _unwrap(raw: bytes) -> dict:
         data = value["data"] if isinstance(value["data"], dict) else {}
         return {**data, "_event_ts": value.get("ts")}
     return value if isinstance(value, dict) else {}
-
-
-def _monday(d: date) -> str:
-    return (d - timedelta(days=d.weekday())).isoformat()
 
 
 async def store_activities(sf, acts: list[dict]) -> int:
@@ -78,7 +76,7 @@ async def _week_stats(sf, week_start: str) -> dict:
         rows = (await s.execute(
             select(Activity.type, Activity.distance_m)
             .where(Activity.day >= week_start, Activity.day <= end))).all()
-    dist = sum(r[1] or 0 for r in rows)
+    dist = sum((r[1] or 0) for r in rows if r[0] in RUN_TYPES)
     runs = sum(1 for r in rows if r[0] in RUN_TYPES)
     return {"distance_m": dist, "distance_km": round(dist / 1000, 2), "runs": runs}
 
@@ -151,7 +149,8 @@ class IngestLoop:
         if event_at < self.started_at:
             log.info("discarded replayed brief with no trustworthy week")
             return
-        week_start = _monday(datetime.now(timezone.utc).date())
+        week_start = st.completed_week_start(
+            event_at.astimezone(ZoneInfo("America/Toronto")).date()).isoformat()
         stats = await _week_stats(self.sf, week_start)
         row, first_post = await store_brief(self.sf, cleaned, week_start,
                                             data.get("run_id"), stats)

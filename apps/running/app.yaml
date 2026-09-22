@@ -1,9 +1,10 @@
 # The running app: a Strava activity log, calendar heatmap, weekly mileage,
 # PR board, fun totals, and a weekly coach's brief. Owns the activity archive
-# (schema app_running). Activities and the brief arrive over Kafka: the
-# `running` agent pulls them through the read-only `strava` tool and its result
-# is published to app.running.inbound; this app parses, stores, computes the
-# stats, posts the weekly recap and writes the report. Everything lives at
+# (schema app_running). The `running-coach` agent calls the read-only Strava
+# tool, which publishes normalized activities directly to app.running.inbound.
+# The agent's weekly note reaches the same topic through the recorder. This app
+# parses, stores, computes stats, posts the completed-week recap, and writes the
+# report. Everything lives at
 # /apps/running/. The app itself has NO third-party egress — it never holds
 # Strava credentials.
 name: running

@@ -28,6 +28,11 @@ def _monday(d: date) -> date:
     return d - timedelta(days=d.weekday())
 
 
+def completed_week_start(d: date) -> date:
+    """Monday of the last fully completed Monday–Sunday week."""
+    return _monday(d) - timedelta(days=7)
+
+
 def _pace_s_per_km(a: dict) -> float | None:
     if a["distance_m"] <= 0 or a["moving_time_s"] <= 0:
         return None

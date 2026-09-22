@@ -9,7 +9,8 @@ only writer is the Kafka ingest path.
 """
 from __future__ import annotations
 
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
+from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from pydantic import BaseModel
@@ -96,13 +97,33 @@ async def health(request: Request, user: str = Depends(require_gateway)):
 async def coach_context(request: Request, user: str = Depends(require_gateway)):
     """Small deterministic context for the weekly coach. Raw Strava history
     stays in the app; the model receives trends and recent runs, not a backfill."""
-    today = date.today()
+    today = datetime.now(ZoneInfo("America/Toronto")).date()
+    week_start = st.completed_week_start(today)
+    week_end = week_start + timedelta(days=6)
     async with _sf(request)() as s:
         acts = await _all_activities(s)
         recent_rows = (await s.execute(select(Activity).order_by(
             Activity.day.desc(), Activity.id.desc()).limit(12))).scalars().all()
+        week_runs = (await s.execute(select(Activity).where(
+            Activity.day >= week_start.isoformat(),
+            Activity.day <= week_end.isoformat(),
+            Activity.type.in_(st.RUN_TYPES)).order_by(
+                Activity.day.desc(), Activity.id.desc()).limit(30))).scalars().all()
+    week_acts = [a for a in acts if week_start.isoformat()
+                 <= a["day"] <= week_end.isoformat() and a["type"] in st.RUN_TYPES]
     return {
         "today": today.isoformat(),
+        "completed_week": {
+            "week_start": week_start.isoformat(),
+            "week_end": week_end.isoformat(),
+            "totals": st.totals(week_acts),
+            "runs": [
+                {"day": r.day, "name": r.name, "type": r.type,
+                 "distance_km": round(r.distance_m / 1000, 2),
+                 "moving_time_s": r.moving_time_s, "avg_hr": r.avg_hr}
+                for r in week_runs
+            ],
+        },
         "totals": st.totals(acts),
         "weeks": st.weekly(acts, today, 8),
         "records": st.prs(acts, today),

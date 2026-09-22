@@ -2,9 +2,13 @@
 (stats.py). Pure functions — no DB, no Kafka."""
 from datetime import date
 
+import pytest
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+
 from runningapp import brief as bf
 from runningapp import stats as st
-from runningapp.ingest import _unwrap
+from runningapp.db import Activity, Base
+from runningapp.ingest import _unwrap, _week_stats
 
 
 # --------------------------------------------------------------------------
@@ -87,6 +91,29 @@ def test_weekly_buckets_by_iso_week():
     assert byweek["2026-08-10"]["distance_km"] == 13.0
     assert byweek["2026-08-10"]["runs"] == 2
     assert byweek["2026-08-03"]["distance_km"] == 10.0
+
+
+def test_completed_week_is_previous_monday_even_on_monday():
+    assert st.completed_week_start(date(2026, 9, 21)).isoformat() == "2026-09-14"
+    assert st.completed_week_start(date(2026, 9, 22)).isoformat() == "2026-09-14"
+
+
+@pytest.mark.asyncio
+async def test_weekly_brief_counts_only_runs_in_completed_week():
+    engine = create_async_engine("sqlite+aiosqlite://")
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    sf = async_sessionmaker(engine, expire_on_commit=False)
+    async with sf() as s:
+        s.add_all([
+            Activity(id=1, day="2026-09-14", type="Run", distance_m=5000),
+            Activity(id=2, day="2026-09-19", type="Ride", distance_m=47000),
+            Activity(id=3, day="2026-09-21", type="Run", distance_m=10000),
+        ])
+        await s.commit()
+    assert await _week_stats(sf, "2026-09-14") == {
+        "distance_m": 5000, "distance_km": 5.0, "runs": 1}
+    await engine.dispose()
 
 
 def test_prs_pace_and_streaks():
