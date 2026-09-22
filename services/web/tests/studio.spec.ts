@@ -13,7 +13,8 @@ const fresh = ARTIFACTS.fresh;
 function captureWrites(page: Page): Request[] {
   const writes: Request[] = [];
   page.on("request", (r) => {
-    if (r.method() !== "GET" && r.url().includes("/api/")) writes.push(r);
+    if (r.method() !== "GET" && r.url().includes("/api/")
+        && !r.url().includes("/api/quota/refresh")) writes.push(r);
   });
   return writes;
 }
@@ -189,6 +190,20 @@ test("a refusal from the generate route is shown as the server wrote it", async 
   await expect(page.getByText(detail)).toBeVisible();
   await expect(page.getByRole("button", { name: /^Generate/ })).toBeEnabled();
   await expect(page.locator(".studio-stage img")).toHaveCount(0);
+});
+
+test("a proxy disconnect is explained without dumping nginx HTML", async ({ page }) => {
+  await mockApi(page);
+  await page.route("**/api/artifacts/generate", async (route: Route) => {
+    await route.fulfill({ status: 502, contentType: "text/html",
+                         body: "<html><body><h1>502 Bad Gateway</h1></body></html>" });
+  });
+  await page.goto("/studio");
+  await page.getByLabel("Prompt").fill("A picture whose connection is interrupted");
+  await page.getByRole("button", { name: /^Generate/ }).click();
+  await expect(page.getByText(
+    "The connection was interrupted. The image may still finish and appear in Artifacts.")).toBeVisible();
+  await expect(page.locator("body")).not.toContainText("<html>");
 });
 
 test("⌘Enter generates, and the wait shows the model and the seconds over a shimmer", async ({ page }) => {

@@ -120,6 +120,12 @@ resources:
     limits:
       memory: 128Mi
 
+# The API has one intentionally long synchronous request: Codex Image Studio
+# waits up to 390 seconds for the run-owned artifact. Keep a small drain margin
+# so a rolling deployment does not cut that connection while the run survives.
+api:
+  terminationGracePeriodSeconds: 420
+
 web:
   service:
     type: LoadBalancer

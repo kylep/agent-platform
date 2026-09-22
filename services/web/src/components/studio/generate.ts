@@ -50,6 +50,13 @@ export function errorDetail(err: unknown, fallback: string): string {
   if (!(err instanceof Error)) return fallback;
   const m = /^\d{3}: ([\s\S]*)$/.exec(err.message);
   if (m) {
+    // nginx owns this body, not the API. It appears when a long generation's
+    // waiting connection is cut even though the durable Codex run can finish
+    // and upload its artifact afterward. Raw HTML is neither useful nor an
+    // accurate claim that the image itself failed.
+    if (/^\s*<html[\s>]/i.test(m[1])) {
+      return "The connection was interrupted. The image may still finish and appear in Artifacts.";
+    }
     try {
       const detail = (JSON.parse(m[1]) as { detail?: unknown }).detail;
       if (typeof detail === "string" && detail) return detail;

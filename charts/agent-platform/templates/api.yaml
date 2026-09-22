@@ -14,6 +14,11 @@ spec:
       labels:
         {{- include "agent-platform.selectorLabels" (dict "Release" .Release "Chart" .Chart "component" "api") | nindent 8 }}
     spec:
+      # Image Studio holds this request open while a Codex run paints and
+      # uploads its artifact (390 s max). Let uvicorn drain that request on a
+      # rollout instead of kubelet killing it at the 30-second default and
+      # turning a successful generation into an nginx 502 for the browser.
+      terminationGracePeriodSeconds: {{ .Values.api.terminationGracePeriodSeconds }}
       serviceAccountName: {{ .Release.Name }}-api
       securityContext:
         seccompProfile:
