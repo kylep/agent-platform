@@ -28,8 +28,8 @@ test("the editor shows the four workbench fields and saves them", async ({ page 
   await page.getByLabel("Execution profile").selectOption("dev");
   await expect(page.locator("body")).toContainText("holds no git credential");
   // One glob per line; blank lines and stray spaces never reach the row.
-  await page.getByLabel("Automatic publish paths").fill("docs/**\n\n  services/web/**  \n");
-  await page.getByRole("checkbox", { name: "Allow test deletion" }).check();
+  await page.getByLabel("Auto-merge paths").fill("docs/**\n\n  services/web/**  \n");
+  await page.getByRole("checkbox", { name: "Permit test-file deletion" }).check();
 
   await page.getByRole("button", { name: "Save changes" }).first().click();
   await expect(page.getByText("Saved — live now.").first()).toBeVisible();

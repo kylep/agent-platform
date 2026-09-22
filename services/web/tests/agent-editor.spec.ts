@@ -73,8 +73,11 @@ test("field help explains execution and multi-runtime grants", async ({ page }) 
   await page.locator(".help-label", { hasText: "Execution profile" })
     .getByRole("button", { name: "Explain this setting" }).click();
   const dialog = page.getByRole("dialog", { name: "Execution profile" });
-  await expect(dialog).toContainText("does not grant API access");
+  await expect(dialog).toContainText("does not change the runtime, model, or grants");
+  await expect(dialog.getByRole("table")).toBeVisible();
+  await expect(dialog).toContainText("There is no repository checkout or code handoff");
   await expect(dialog).toContainText("Workbench developer");
+  await expect(dialog).toContainText("opens or updates a pull request");
   await expect(dialog.getByRole("link", { name: /Agents guide/ })).toHaveAttribute("href", "/help/agents");
   await dialog.getByRole("button", { name: "Close" }).click();
 

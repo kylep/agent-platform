@@ -15,7 +15,17 @@ const HELP: Record<AgentHelpKey, Help> = {
   description: { title: "Description", body: <>A short summary shown in agent lists and pickers. It does not enter the agent's prompt.</> },
   runtime: { title: "Runtime", body: <><p>The subscription-backed CLI that executes each run.</p><p><strong>Claude Code</strong> uses Claude models and its selectable built-in tools. <strong>OpenAI Codex</strong> uses Codex models and capabilities. Both runtimes receive the same prompt, skills, platform tools, and granted secrets.</p></> },
   model: { title: "Model", body: <>The runtime model for this agent. Platform default follows the configured default for the selected runtime. A cron, webhook, or other invocation may override it for that run.</> },
-  profile: { title: "Execution profile", body: <><p>This selects the environment a run starts in. It does not grant API access.</p><p><strong>Standard agent</strong> runs in the ordinary isolated pod. <strong>Workbench developer</strong> receives a credential-free repository clone, development toolchain, and the platform publishing workflow.</p><p>Platform API authority is derived from Platform tool grants. “Can invoke other agents” separately grants run-launch authority.</p></> },
+  profile: { title: "Execution profile", body: <>
+    <p>This chooses the workspace around the model. It does not change the runtime, model, or grants.</p>
+    <table className="profile-help-table">
+      <thead><tr><th>Profile</th><th>What happens</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Standard agent</strong></td><td>Runs in a lightweight isolated pod for chat, research, schedules, and platform tools. There is no repository checkout or code handoff.</td></tr>
+        <tr><td><strong>Workbench developer</strong></td><td>Clones the repository into a larger development pod with Python, Node, Playwright, and test tooling. At the end, the platform verifies its changes and opens or updates a pull request.</td></tr>
+      </tbody>
+    </table>
+    <p>Platform API access comes from Platform tool grants. “Can invoke other agents” is a separate grant.</p>
+  </> },
   prompt: { title: "Prompt", body: <>The durable instructions and personality sent to the selected runtime on every run. Trigger-specific text is added as the user's request; it does not replace this prompt.</> },
   "result-topic": { title: "App output topic", body: <><p>After a successful run, the recorder publishes the final text to this Kafka topic as an <code>agent.result</code> event with the run and agent IDs.</p><p>Use it when an app consumes structured agent output. Leave it blank when the result belongs only in run history or Relay.</p></> },
   timeout: { title: "Run time limit", body: <>The hard wall-clock limit for one run, including pod startup and model/tool work. Kubernetes stops the job when it expires. A queued run has not started this clock.</> },
@@ -30,8 +40,8 @@ const HELP: Record<AgentHelpKey, Help> = {
   secrets: { title: "Secrets", body: <>Extra encrypted values injected into the run pod. Provider credentials are managed by the runtime proxies and are intentionally absent here.</> },
   invoke: { title: "Can invoke other agents", body: <>Allows this agent to launch other agents through the platform. Relay hop and budget guards still apply. This is an authority grant, so it is grouped with tools and secrets.</> },
   quota: { title: "Quota gate thresholds", body: <>Thresholds used by the <code>quota_ok</code> platform tool. They have no effect unless that tool is granted and the agent calls it before expensive work.</> },
-  "push-paths": { title: "Automatic publish paths", body: <>Workbench-only globs for files the platform may land without review. A change outside them becomes a reviewable pull request. An empty list means every change requires review.</> },
-  "delete-tests": { title: "Allow test deletion", body: <>Workbench-only permission to publish a change that removes test files. Without it, the publishing service refuses such a change.</> },
+  "push-paths": { title: "Auto-merge paths", body: <><p>Workbench always opens or updates a pull request; the agent never pushes or merges code itself.</p><p>Leave this blank to require human review for every PR. Add path globs only when a PR may auto-merge after verification if <strong>every</strong> changed file matches one of them. A non-matching file makes the PR wait for review.</p><p>Platform-protected files are always refused.</p></> },
+  "delete-tests": { title: "Permit test-file deletion", body: <><p>Controls whether a Workbench handoff may delete a test file or rename it out of a test path.</p><p>When off, the platform refuses the entire handoff before updating the pull request. When on, the deletion is allowed but still follows the normal review or auto-merge path rules.</p></> },
   crons: { title: "Built-in schedules", body: <>Durable schedules that are part of this agent's identity. Each can supply a prompt and model override. Use the Schedules page for operational jobs that should be managed separately.</> },
   timezone: { title: "Schedule timezone", body: <>The IANA timezone used by all built-in cron schedules. Blank means UTC. Named zones preserve wall-clock intent across daylight saving changes.</> },
   webhooks: { title: "Webhooks", body: <>HTTP entrypoints that launch this agent. A secret-authenticated webhook can be called without a platform API key; an unsecreted one still requires an operator key.</> },

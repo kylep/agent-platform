@@ -516,17 +516,17 @@ export function GrantsFields({ draft, patch, catalog }: {
           are GRANT fields server-side: the row's field-level guard decides
           who may change them, and this form is the admin's. */}
       {draft.role === "dev" && <>
-      <HelpLabel label="Automatic publish paths" help="push-paths" />
-      <LinesField label="Automatic publish paths" value={draft.push_path_globs}
+      <HelpLabel label="Auto-merge paths" help="push-paths" />
+      <LinesField label="Auto-merge paths" value={draft.push_path_globs}
                   placeholder={"docs/**\nservices/web/src/**"}
                   onChange={(push_path_globs) => patch({ push_path_globs })} />
       <p className="muted check-note">
-        One glob per line. Changes outside them — or every change when blank — wait for review.
+        One glob per line. Blank means every PR waits for review. Auto-merge is enabled only when every changed file matches.
       </p>
 
       <div className="toggle-row">
-        <Toggle label="Allow test deletion" checked={draft.may_delete_tests} help="delete-tests"
-                title="A publish that removes a test file is refused unless this is on."
+        <Toggle label="Permit test-file deletion" checked={draft.may_delete_tests} help="delete-tests"
+                title="When off, deleting or renaming away a test file rejects the entire Workbench handoff."
                 onChange={(may_delete_tests) => patch({ may_delete_tests })} />
       </div>
       </>}

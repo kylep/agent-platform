@@ -105,6 +105,12 @@
 }
 .field-help:hover, .field-help:focus-visible { color: var(--ds-accent); border-color: var(--ds-accent); }
 .agent-field-help-body p { margin: 0 0 10px; }
+.profile-help-table { width: 100%; margin: 4px 0 12px; border-collapse: collapse; }
+.profile-help-table th, .profile-help-table td {
+  padding: 7px 8px; border-bottom: 1px solid var(--ds-border); text-align: left; vertical-align: top;
+}
+.profile-help-table th { color: var(--ds-text); font-weight: 600; }
+.profile-help-table td:first-child { width: 34%; }
 .toggle-with-help { display: inline-flex; align-items: center; gap: 4px; }
 .toggle-with-help .help-only { margin: 0; }
 

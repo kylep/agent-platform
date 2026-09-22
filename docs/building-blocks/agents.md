@@ -60,13 +60,36 @@ The editor separates **how a run executes** from **what it may access**:
 | Parallel runs | `concurrency` | Per-agent dispatched/running limit. Extra work remains queued; the global cap may be lower. |
 | Transcript retention | `transcript_retention_days` | Detailed event retention; blank uses the platform default. |
 
-Execution profiles shown in the editor are:
+An execution profile chooses the workspace around the model. It does not
+change the runtime, model, platform-tool grants, secrets, or invocation
+authority.
 
-- **Standard agent** (`operator`) — the ordinary isolated runner. This is the
-  default for conversational, scheduled, and app-facing agents.
-- **Workbench developer** (`dev`) — a credential-free clone, development
-  toolchain, and platform-mediated publishing. Its path and test-deletion
-  controls appear only for this profile; see [Workbench](workbench.md).
+| Behaviour | Standard agent (`operator`) | Workbench developer (`dev`) |
+|---|---|---|
+| Intended work | Chat, research, schedules, image generation, and platform-tool calls | Editing, testing, and proposing changes to this repository |
+| Pod image | Lean runner | Development runner with Python, Node, Playwright, browsers, and project dependencies |
+| CPU | 250m requested; 2 cores maximum | 500m requested; 3 cores maximum |
+| RAM | 1 GiB requested; 3 GiB maximum | 2 GiB requested; 6 GiB maximum |
+| Startup | Starts the selected CLI in an empty scratch workspace | Clones the repository, checks out the ticket branch or a new branch, and prepares dependencies before starting the CLI |
+| Repository | No checkout | Anonymous checkout with no GitHub credential |
+| Editing and tests | No repository workflow | May edit and commit; receives the repository's test and browser tooling |
+| End of run | Saves the transcript and delivers the final result normally | Commits leftover changes, runs the repository verifier, and sends a bundle to the platform API |
+| GitHub result | None | The API checks the bundle and opens or updates a pull request; the agent itself cannot push or merge |
+| Cost and latency | Lower pod overhead | Higher startup, CPU, RAM, and verification time |
+
+Workbench publishing has two additional controls:
+
+- **Auto-merge paths** is blank by default. The platform still opens or
+  updates a pull request, but it waits for human review. When path globs are
+  present, the platform enables GitHub auto-merge only if verification passes
+  and every changed file matches one of those globs. A non-matching file leaves
+  the PR waiting for review. Platform-protected files are always refused.
+- **Permit test-file deletion** is off by default. If a handoff deletes a test
+  or renames it out of a test path, the platform refuses the whole handoff
+  before updating the PR. Turning it on permits the deletion; the ordinary
+  review or auto-merge rules still apply.
+
+See [Workbench](workbench.md) for the full publishing and verification flow.
 
 Old definitions may contain `reader` or `annotator`. They execute like a
 standard agent and remain editable, but the editor does not offer them for new
