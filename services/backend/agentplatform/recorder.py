@@ -112,10 +112,16 @@ class Recorder:
                 # can act on it (docs/design/11 — e.g. the news app ingests
                 # the gatherer's digest). Done here, on the result frame, so
                 # the text is in hand with no cross-topic ordering dependency.
-                if (self.agent_store is not None and value.get("is_error") is not True
-                        and value.get("result")):
-                    info = self.agent_store.get(run.agent)
-                    topic = info.manifest.result_topic if info and info.manifest else ""
+                if value.get("is_error") is not True and value.get("result"):
+                    # Routing is part of the frozen invocation contract. An
+                    # edit made while a run is active must not redirect that
+                    # run's result. Old rows without a snapshot retain the
+                    # pre-snapshot lookup as a compatibility fallback.
+                    snapshot = run.definition_snapshot or {}
+                    topic = snapshot.get("result_topic", "")
+                    if not snapshot and self.agent_store is not None:
+                        info = self.agent_store.get(run.agent)
+                        topic = info.manifest.result_topic if info and info.manifest else ""
                     if topic:
                         result_event = (topic, {"run_id": run_id, "agent": run.agent,
                                                 "result": value.get("result")})

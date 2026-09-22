@@ -96,6 +96,17 @@
 .form-row input { flex: 1; min-width: 180px; }
 .field-label { display: block; font-size: 13px; color: var(--ds-text-muted); margin: 12px 0 4px; }
 .field-label:first-of-type { margin-top: 0; }
+.help-label { display: flex; align-items: center; gap: 5px; }
+.help-heading { display: flex; align-items: center; gap: 7px; }
+.field-help {
+  display: inline-grid; place-items: center; width: 17px; height: 17px; padding: 0;
+  border: 1px solid var(--ds-border); border-radius: 50%; background: transparent;
+  color: var(--ds-text-muted); font: 600 11px/1 var(--ds-font-mono); cursor: pointer;
+}
+.field-help:hover, .field-help:focus-visible { color: var(--ds-accent); border-color: var(--ds-accent); }
+.agent-field-help-body p { margin: 0 0 10px; }
+.toggle-with-help { display: inline-flex; align-items: center; gap: 4px; }
+.toggle-with-help .help-only { margin: 0; }
 
 /* definition lists */
 .def-list { display: grid; grid-template-columns: max-content 1fr; gap: 6px 16px; margin: 0 0 16px; font-size: 14px; }

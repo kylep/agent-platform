@@ -1281,6 +1281,9 @@ const FIXTURES: Record<string, unknown> = {
         + " own UI; only a `role: dev` agent can use it, and the runner starts the server." },
     { name: "mcp__platform__query_app", kind: "platform", sensitive: false,
       description: "Call a read-only API endpoint of an installed platform app." },
+    { name: "mcp__platform__quota_ok", kind: "platform", sensitive: false,
+      display_name: "Quota guard",
+      description: "Check current subscription usage against this agent's thresholds." },
   ],
   "/api/report-types": [
     { name: "daily-news", description: "Morning digest of gathered news.", icon: "📰",

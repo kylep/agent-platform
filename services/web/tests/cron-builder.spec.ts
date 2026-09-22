@@ -11,7 +11,8 @@ import { mockApi } from "./mock-api";
 function captureWrites(page: Page): Request[] {
   const writes: Request[] = [];
   page.on("request", (r) => {
-    if (r.method() !== "GET" && r.url().includes("/api/")) writes.push(r);
+    if (r.method() !== "GET" && r.url().includes("/api/")
+        && !r.url().includes("/api/quota/refresh")) writes.push(r);
   });
   return writes;
 }

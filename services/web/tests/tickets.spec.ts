@@ -139,7 +139,9 @@ test("dragging a card onto a column is the same move as the menu", async ({ page
   await mockApi(page);
   const posted: { url: string; body: unknown }[] = [];
   page.on("request", (r) => {
-    if (r.method() === "POST") posted.push({ url: r.url(), body: r.postDataJSON() });
+    if (r.method() === "POST" && !r.url().includes("/api/quota/refresh")) {
+      posted.push({ url: r.url(), body: r.postDataJSON() });
+    }
   });
   await page.goto("/tickets");
   await expect(page.locator('[data-key="OPS-1"]')).toBeVisible();

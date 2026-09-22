@@ -204,19 +204,28 @@ async def test_result_topic_publishes_agent_result(sf, producer):
     rec = Recorder(sf, producer, agent_store=store)
     async with sf() as s:
         run = Run(agent="news", trigger="schedule", requested_by="t",
-                  prompt="x", state=RunState.RUNNING)
+                  prompt="x", state=RunState.RUNNING,
+                  definition_snapshot={"result_topic": "app.news.original"})
         other = Run(agent="hello-world", trigger="manual", requested_by="t",
                     prompt="x", state=RunState.RUNNING)
         s.add(run); s.add(other); await s.commit()
         rid, oid = run.id, other.id
+    # The definition changed after dispatch. The run keeps the output route it
+    # was launched with rather than being redirected in flight.
+    async with sf() as s:
+        live = await s.get(AgentDef, "news")
+        live.result_topic = "app.news.changed"
+        await s.commit()
+    await store.reload()
     await rec.handle(TOPIC_RUN_TRANSCRIPT, rid, {"seq": 1, "type": "result",
                                                  "result": '{"items": []}'})
-    feed = [(t, d) for t, _, d in producer.published if t == "app.news.inbound"]
-    assert feed == [("app.news.inbound",
+    feed = [(t, d) for t, _, d in producer.published if t == "app.news.original"]
+    assert feed == [("app.news.original",
                      {"run_id": rid, "agent": "news", "result": '{"items": []}'})]
     # an erroring result is NOT fed; an agent without result_topic is NOT fed
     await rec.handle(TOPIC_RUN_TRANSCRIPT, rid, {"seq": 2, "type": "result",
                                                  "result": "boom", "is_error": True})
     await rec.handle(TOPIC_RUN_TRANSCRIPT, oid, {"seq": 1, "type": "result",
                                                  "result": "hi"})
-    assert len([1 for t, _, _ in producer.published if t == "app.news.inbound"]) == 1
+    assert len([1 for t, _, _ in producer.published if t == "app.news.original"]) == 1
+    assert not [1 for t, _, _ in producer.published if t == "app.news.changed"]

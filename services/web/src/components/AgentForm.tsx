@@ -5,9 +5,9 @@ import {
   type WebhookSecrets,
 } from "../lib/webhook-secrets";
 import { zoneOptions } from "../lib/cron";
-import { ROLE_DESC } from "../lib/roles";
 import { SecretPicker, SkillPicker, ToolGrantPicker, type GrantCatalog } from "./CapabilityPickers";
 import { CronBuilder } from "./CronBuilder";
+import { HelpLabel, type AgentHelpKey } from "./AgentFieldHelp";
 import { Button } from "@ap/ui/button";
 import { CodeEditor, Input, Select, Textarea } from "@ap/ui/field";
 
@@ -19,7 +19,11 @@ import { CodeEditor, Input, Select, Textarea } from "@ap/ui/field";
 // declare (no `admin` — only the human session is admin; no `tools` — that one
 // is derived from platform-tool grants at launch). `dev` is the Workbench's
 // run profile (docs/design/24).
-const AGENT_ROLES = ["reader", "annotator", "operator", "coder", "dev"];
+const EXECUTION_PROFILES = [
+  { value: "operator", label: "Standard agent" },
+  { value: "dev", label: "Workbench developer" },
+  { value: "coder", label: "Legacy self-editor" },
+];
 
 const EMPTY_ENTRYPOINTS: AgentEntrypoints = { crons: [], webhooks: [], topics: [], timezone: "" };
 
@@ -134,21 +138,27 @@ function LinesField({ label, value, onChange, placeholder }: {
 // A boolean the agent carries, written as words. The grants pickers' checkbox
 // chips look almost the same on purpose — same box, same accent-on-when-checked
 // — but their labels are code names and stay mono; these are sentences.
-function Toggle({ label, checked, title, onChange }: {
-  label: string; checked: boolean; title: string; onChange: (v: boolean) => void;
+function Toggle({ label, checked, title, help, onChange }: {
+  label: string; checked: boolean; title: string; help?: AgentHelpKey;
+  onChange: (v: boolean) => void;
 }) {
   return (
-    <label className={checked ? "check-item on" : "check-item"} title={title}>
-      <input type="checkbox" checked={checked} onChange={(e) => onChange(e.target.checked)} />
-      <span className="toggle-name">{label}</span>
-    </label>
+    <span className="toggle-with-help">
+      <label className={checked ? "check-item on" : "check-item"} title={title}>
+        <input type="checkbox" checked={checked} onChange={(e) => onChange(e.target.checked)} />
+        <span className="toggle-name">{label}</span>
+      </label>
+      {help && <HelpLabel label="" help={help} />}
+    </span>
   );
 }
 
-function Field({ label, hint, children }: { label: string; hint?: string; children: ReactNode }) {
+function Field({ label, hint, help, children }: {
+  label: string; hint?: string; help?: AgentHelpKey; children: ReactNode;
+}) {
   return (
     <div>
-      <label className="field-label">{label}</label>
+      {help ? <HelpLabel label={label} help={help} /> : <label className="field-label">{label}</label>}
       {children}
       {hint && <p className="muted check-note">{hint}</p>}
     </div>
@@ -163,19 +173,19 @@ export function IdentityFields({ draft, patch, catalog }: {
   return (
     <>
       <div className="grid gap-3 sm:grid-cols-2">
-        <Field label="Description" hint="One line — shown in listings and the agent picker.">
+        <Field label="Description" help="description" hint="One line — shown in listings and the agent picker.">
           <Input className="w-full" aria-label="Description" value={draft.description}
                  placeholder="What does this agent do?"
                  onChange={(e) => patch({ description: e.target.value })} />
         </Field>
-        <Field label="Runtime" hint="Subscription-backed CLI used for this agent's runs.">
+        <Field label="Runtime" help="runtime" hint="Subscription-backed CLI used for this agent's runs.">
           <Select className="w-full" aria-label="Runtime" value={draft.runtime}
                   onChange={(e) => patch({ runtime: e.target.value as AgentDef["runtime"], model: "" })}>
             <option value="claude">Claude Code</option>
             <option value="codex">OpenAI Codex</option>
           </Select>
         </Field>
-        <Field label="Model" hint={`Models available to the ${draft.runtime === "codex" ? "Codex" : "Claude Code"} runtime.`}>
+        <Field label="Model" help="model" hint={`Models available to the ${draft.runtime === "codex" ? "Codex" : "Claude Code"} runtime.`}>
           <Select className="w-full" aria-label="Model" value={draft.model}
                   onChange={(e) => patch({ model: e.target.value })}>
             <option value="">Platform default</option>
@@ -183,40 +193,33 @@ export function IdentityFields({ draft, patch, catalog }: {
             {models.map((model) => <option key={model.id} value={model.id}>{model.label}</option>)}
           </Select>
         </Field>
-        <Field label="Role"
-               hint={ROLE_DESC[draft.role] ?? "The API role this agent's run token carries."}>
-          <Select className="w-full" aria-label="Role" value={draft.role}
+        <Field label="Execution profile" help="profile"
+               hint={draft.role === "dev"
+                 ? "Workbench checkout holds no git credential; the platform publishes verified changes."
+                 : draft.role === "coder"
+                   ? "Legacy self-edit environment with GitHub publishing credentials."
+                   : "Standard isolated run; tool grants determine access."}>
+          <Select className="w-full" aria-label="Execution profile" value={draft.role}
                   onChange={(e) => patch({ role: e.target.value })}>
-            {[...new Set([...AGENT_ROLES, draft.role])].filter(Boolean).map((r) => (
-              <option key={r} value={r} title={ROLE_DESC[r]}>{r}</option>
-            ))}
+            {EXECUTION_PROFILES.map((p) => <option key={p.value} value={p.value}>{p.label}</option>)}
+            {["reader", "annotator"].includes(draft.role) &&
+              <option value={draft.role}>Legacy {draft.role} (standard execution)</option>}
           </Select>
         </Field>
-        <Field label="Result topic" hint="Kafka topic each run's result is published to. Blank = none.">
-          <Input className="w-full" aria-label="Result topic" value={draft.result_topic}
+        <Field label="App output topic" help="result-topic" hint="Successful final results are published here. Usually blank.">
+          <Input className="w-full" aria-label="App output topic" value={draft.result_topic}
                  placeholder="e.g. app.news.item.ingested"
-                 onChange={(e) => patch({ result_topic: e.target.value.trim() })} />
+                 onChange={(e) => patch({ result_topic: e.target.value })} />
         </Field>
-        <Field label="Timeout (seconds)" hint="Hard cap on one run.">
-          <NumberField label="Timeout (seconds)" value={draft.timeout_seconds} min={1}
+        <Field label="Run time limit (seconds)" help="timeout" hint="Hard wall-clock cap for one run.">
+          <NumberField label="Run time limit (seconds)" value={draft.timeout_seconds} min={1}
                        onChange={(n) => n !== null && patch({ timeout_seconds: n })} />
         </Field>
-        <Field label="Concurrency" hint="How many runs of this agent may be in flight at once.">
-          <NumberField label="Concurrency" value={draft.concurrency} min={1}
+        <Field label="Parallel runs" help="concurrency" hint="Extra runs wait when this many are active.">
+          <NumberField label="Parallel runs" value={draft.concurrency} min={1}
                        onChange={(n) => n !== null && patch({ concurrency: n })} />
         </Field>
-        {/* The Workbench's quota gate (docs/design/24): a dev run asks
-            `quota_ok` before it clones, and the answer is these two numbers
-            against the live usage bars. */}
-        <Field label="Quota gate: 5-hour max %" hint="quota_ok refuses above these.">
-          <NumberField label="Quota gate: 5-hour max %" value={draft.quota_5h_max_pct} min={0} max={100}
-                       onChange={(n) => n !== null && patch({ quota_5h_max_pct: n })} />
-        </Field>
-        <Field label="Quota gate: 7-day max %" hint="quota_ok refuses above these.">
-          <NumberField label="Quota gate: 7-day max %" value={draft.quota_7d_max_pct} min={0} max={100}
-                       onChange={(n) => n !== null && patch({ quota_7d_max_pct: n })} />
-        </Field>
-        <Field label="Transcript retention (days)" hint="Blank uses the platform default.">
+        <Field label="Transcript retention (days)" help="retention" hint="Blank uses the platform default.">
           <NumberField label="Transcript retention (days)" value={draft.transcript_retention_days}
                        nullable placeholder="platform default"
                        onChange={(n) => patch({ transcript_retention_days: n })} />
@@ -226,13 +229,10 @@ export function IdentityFields({ draft, patch, catalog }: {
       {/* `.toggle-row`, not the grants pickers' `.check-grid`: these two labels
           are prose, not grant identifiers, so they stay in the body font. */}
       <div className="toggle-row" style={{ marginTop: 12 }}>
-        <Toggle label="Enabled" checked={draft.enabled}
+        <Toggle label="Accept new runs" checked={draft.enabled} help="enabled"
                 title="Disabled agents keep their definition but reject runs."
                 onChange={(enabled) => patch({ enabled })} />
-        <Toggle label="Can invoke agents" checked={draft.can_invoke}
-                title="May dispatch runs of other agents (depth-guarded)."
-                onChange={(can_invoke) => patch({ can_invoke })} />
-        <Toggle label="Responds to @all" checked={draft.responds_to_all}
+        <Toggle label="Include in @all" checked={draft.responds_to_all} help="responds-all"
                 title="Include this agent when a human mentions everyone in a Relay room."
                 onChange={(responds_to_all) => patch({ responds_to_all })} />
       </div>
@@ -243,9 +243,9 @@ export function IdentityFields({ draft, patch, catalog }: {
 export function PromptField({ draft, patch }: { draft: AgentDef; patch: Patch }) {
   return (
     <>
-      <h2>Prompt</h2>
+      <HelpLabel label="Prompt" help="prompt" heading />
       <p className="muted">
-        The agent's context and personality — exactly what the runner gives Claude. Saving applies
+        The agent's context and personality — exactly what the runner gives the selected runtime. Saving applies
         it to the live agent immediately; the previous text stays in the change log.
       </p>
       <CodeEditor
@@ -387,7 +387,7 @@ export function EntrypointsFields({ draft, patch, secrets, catalog }: {
         (the Schedules tab) — these are part of what the agent <em>is</em>.
       </p>
 
-      <label className="field-label">Crons</label>
+      <HelpLabel label="Built-in schedules" help="crons" />
       <div className="grid gap-2">
         {ep.crons.map((c, i) => (
           <CronRow key={i} entry={c} zone={previewZone} models={models}
@@ -402,7 +402,7 @@ export function EntrypointsFields({ draft, patch, secrets, catalog }: {
         </Button>
       </div>
 
-      <label className="field-label">Timezone</label>
+      <HelpLabel label="Schedule timezone" help="timezone" />
       <Input className="w-full sm:w-80" aria-label="Entrypoints timezone" list="agent-tz-options"
              value={ep.timezone} placeholder="UTC"
              onChange={(e) => set({ timezone: e.target.value.trim() })} />
@@ -414,7 +414,7 @@ export function EntrypointsFields({ draft, patch, secrets, catalog }: {
           : "Unknown timezone — use an IANA name like America/Toronto. Saving this quarantines the agent."}
       </p>
 
-      <label className="field-label">Webhooks</label>
+      <HelpLabel label="Webhooks" help="webhooks" />
       <div className="grid gap-2">
         {ep.webhooks.map((w, i) => (
           <WebhookRow key={i} entry={w} secrets={secrets} models={models}
@@ -434,7 +434,7 @@ export function EntrypointsFields({ draft, patch, secrets, catalog }: {
         </Button>
       </div>
 
-      <label className="field-label">Kafka topics</label>
+      <HelpLabel label="Input topics (Kafka)" help="topics" />
       <CsvField label="Kafka topics" value={ep.topics} onChange={(topics) => set({ topics })}
                 placeholder="comma-separated topics this agent consumes" />
     </>
@@ -452,16 +452,26 @@ export function GrantsFields({ draft, patch, catalog }: {
         change applies to the next run, not one already in flight.
       </p>
 
-      <label className="field-label">Harness tools</label>
-      <ToolGrantPicker tools={catalog.harnessTools} selected={draft.harness_tools} role={draft.role}
-                       onChange={(harness_tools) => patch({ harness_tools })} />
-      <p className="muted check-note">
-        ⚠ marks the tools the runner denies unconditionally for normal agents (Bash, Read, Write,
-        Edit, NotebookEdit) — they are self-edit only, so checking one changes nothing. A tool
-        marked "dev runs only" reaches a <code>dev</code> agent and nobody else.
-      </p>
+      {draft.runtime === "claude" ? <>
+        <HelpLabel label="Claude Code tools" help="harness-tools" />
+        <ToolGrantPicker tools={catalog.harnessTools} selected={draft.harness_tools} role={draft.role}
+                         onChange={(harness_tools) => patch({ harness_tools })} />
+        <p className="muted check-note">
+          ⚠ marks tools denied for standard agents. A “dev runs only” tool reaches a Workbench
+          developer and nobody else.
+        </p>
+      </> : <>
+        <HelpLabel label="Codex capabilities" help="codex-capabilities" />
+        <p className="muted check-note">
+          Codex capabilities come from the Codex runtime, selected skills, and the platform grants
+          below. Claude Code tool switches do not apply.
+        </p>
+        {draft.harness_tools.length > 0 && <p className="text-warning check-note">
+          This agent retains {draft.harness_tools.length} inactive Claude Code tool grant{draft.harness_tools.length === 1 ? "" : "s"} for compatibility.
+        </p>}
+      </>}
 
-      <label className="field-label">Platform tools</label>
+      <HelpLabel label="Platform tools" help="platform-tools" />
       <ToolGrantPicker tools={catalog.platformTools} selected={draft.platform_tools} platform
                        onChange={(platform_tools) => patch({ platform_tools })} />
       <p className="muted check-note">
@@ -469,12 +479,12 @@ export function GrantsFields({ draft, patch, catalog }: {
         calls instead of a shell. Some of them also decide the agent's machine role.
       </p>
 
-      <label className="field-label">Skills</label>
+      <HelpLabel label="Skills" help="skills" />
       <SkillPicker skills={catalog.skills} selected={draft.skills}
                    onChange={(skills) => patch({ skills })} />
       <p className="muted check-note">Skills mount into the agent's pod and bind their required secrets.</p>
 
-      <label className="field-label">Secrets</label>
+      <HelpLabel label="Secrets" help="secrets" />
       <SecretPicker secrets={catalog.secrets.filter(
         (secret) => !["claude-credentials", "codex-credentials"].includes(secret.name),
       )} selected={draft.secrets}
@@ -484,23 +494,41 @@ export function GrantsFields({ draft, patch, catalog }: {
         missing or invalid blocks the agent until it's fixed.
       </p>
 
+      <div className="toggle-row">
+        <Toggle label="Can invoke other agents" checked={draft.can_invoke} help="invoke"
+                title="May dispatch runs of other agents (depth-guarded)."
+                onChange={(can_invoke) => patch({ can_invoke })} />
+      </div>
+
+      {draft.platform_tools.includes("mcp__platform__quota_ok") && <div className="grid gap-3 sm:grid-cols-2">
+        <Field label="5-hour quota ceiling (%)" help="quota" hint="quota_ok refuses above this usage.">
+          <NumberField label="5-hour quota ceiling (%)" value={draft.quota_5h_max_pct} min={0} max={100}
+                       onChange={(n) => n !== null && patch({ quota_5h_max_pct: n })} />
+        </Field>
+        <Field label="Weekly quota ceiling (%)" help="quota" hint="quota_ok refuses above this usage.">
+          <NumberField label="Weekly quota ceiling (%)" value={draft.quota_7d_max_pct} min={0} max={100}
+                       onChange={(n) => n !== null && patch({ quota_7d_max_pct: n })} />
+        </Field>
+      </div>}
+
       {/* The Workbench's two grants (docs/design/24). Like `can_invoke`, they
           are GRANT fields server-side: the row's field-level guard decides
           who may change them, and this form is the admin's. */}
-      <label className="field-label">Push path globs</label>
-      <LinesField label="Push path globs" value={draft.push_path_globs}
+      {draft.role === "dev" && <>
+      <HelpLabel label="Automatic publish paths" help="push-paths" />
+      <LinesField label="Automatic publish paths" value={draft.push_path_globs}
                   placeholder={"docs/**\nservices/web/src/**"}
                   onChange={(push_path_globs) => patch({ push_path_globs })} />
       <p className="muted check-note">
-        One glob per line. A publish that stays inside them lands with auto-merge; anything
-        else — or an empty list — waits for review on Changes.
+        One glob per line. Changes outside them — or every change when blank — wait for review.
       </p>
 
       <div className="toggle-row">
-        <Toggle label="May delete tests" checked={draft.may_delete_tests}
+        <Toggle label="Allow test deletion" checked={draft.may_delete_tests} help="delete-tests"
                 title="A publish that removes a test file is refused unless this is on."
                 onChange={(may_delete_tests) => patch({ may_delete_tests })} />
       </div>
+      </>}
     </>
   );
 }

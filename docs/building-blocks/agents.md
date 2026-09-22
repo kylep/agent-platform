@@ -1,6 +1,7 @@
 # Agents
 
-**What:** the unit of work — a Claude Code agent the platform can run in a pod.
+**What:** the unit of work — an agent the platform runs through Claude Code or
+OpenAI Codex in an isolated pod.
 
 **Lives in:** Postgres, one row per agent (`agent_defs`). An agent's identity
 — prompt, config, grants, entrypoints — is a row, not a file: it is mutable
@@ -15,19 +16,18 @@ database while capability (tools, skills, secret declarations) stayed code.
 ```yaml
 prompt: You are ...          # the agent's context/personality (was agent.md's body)
 description: One line for listings.
-model: sonnet                 # claude model override; empty = CLI default
-role: operator                 # reader | annotator | operator | coder | dev
-                                # (coder gets the github-app + acceptEdits for platform self-edit PRs;
-                                #  dev gets the Workbench: a shell + a credential-less clone, see workbench.md)
+runtime: claude                # claude | codex
+model: sonnet                  # runtime model override; empty = platform default
+role: operator                 # execution profile; see below
 system: true                   # platform-managed lifecycle; not deletable
 responds_to_all: false         # excluded from room-wide mentions; direct mentions still work
 can_invoke: true               # may trigger other agents (depth-guarded)
 enabled: true                  # false = no new runs from any trigger (409)
-concurrency: 1
-timeout_seconds: 1800
-result_topic: ""
+concurrency: 1                 # maximum parallel runs of this agent; minimum 1
+timeout_seconds: 1800          # wall-clock run limit including pod startup; minimum 1
+result_topic: ""               # successful final result destination; blank = no event
 transcript_retention_days: null
-harness_tools: [WebFetch]                    # Claude Code built-ins; the sensitive
+harness_tools: [WebFetch]                    # Claude Code built-ins (ignored by Codex); the sensitive
                                               # set (Bash/Read/Edit/Write/NotebookEdit)
                                               # stays hard-denied regardless
 platform_tools: [mcp__platform__memory]      # mcp__platform__* grants
@@ -45,6 +45,49 @@ The last four are the [Workbench](workbench.md) fields. They exist on every
 row but only mean something for `role: dev` (the two globs/tests fields) or
 an agent that holds `quota_ok` (the two thresholds). `role: dev` joins no
 endpoint allow-list — it is the run-profile rung, not an API scope.
+
+## Editor terminology and execution model
+
+The editor separates **how a run executes** from **what it may access**:
+
+| Editor setting | Stored field | Meaning |
+|---|---|---|
+| Runtime | `runtime` | Claude Code or OpenAI Codex. It chooses the CLI and model catalog. |
+| Model | `model` | The default model within that runtime. Invocation entrypoints may override it for one run. |
+| Execution profile | `role` | The pod shape and publishing workflow. It is not the run's API role. |
+| App output topic | `result_topic` | Kafka destination for the successful final result. It is frozen when the run launches. |
+| Run time limit | `timeout_seconds` | Hard wall-clock limit, including pod startup. Queued time is outside the limit. |
+| Parallel runs | `concurrency` | Per-agent dispatched/running limit. Extra work remains queued; the global cap may be lower. |
+| Transcript retention | `transcript_retention_days` | Detailed event retention; blank uses the platform default. |
+
+Execution profiles shown in the editor are:
+
+- **Standard agent** (`operator`) — the ordinary isolated runner. This is the
+  default for conversational, scheduled, and app-facing agents.
+- **Workbench developer** (`dev`) — a credential-free clone, development
+  toolchain, and platform-mediated publishing. Its path and test-deletion
+  controls appear only for this profile; see [Workbench](workbench.md).
+- **Legacy self-editor** (`coder`) — the older GitHub App credential and
+  self-edit path, retained for compatibility.
+
+Old definitions may contain `reader` or `annotator`. They execute like a
+standard agent and remain editable, but the editor does not offer them for new
+definitions. Those words are meaningful for human/API keys, not agent run
+profiles.
+
+Authority comes from **Grants**. Platform tools work in both runtimes and the
+launcher derives the run token's least-privileged API role from them.
+**Can invoke other agents** separately adds run-launch authority. Skills and
+secrets also work in both runtimes. **Claude Code tools** are CLI built-ins and
+apply only to Claude; Codex capabilities come from its runtime plus the shared
+skills and platform tools. Provider credentials remain behind the runtime
+proxies and cannot be selected as ordinary secrets.
+
+Entrypoints are input routes: built-in schedules, webhooks, and Kafka input
+topics. **App output topic** is the separate output route. Kafka names accept
+letters, numbers, `.`, `_`, and `-`, up to 249 characters. A successful result
+is published as an `agent.result` event containing `run_id`, `agent`, and
+`result`; failed runs do not publish there.
 
 **Readiness (derived, never declared):** an agent's secret dependencies are
 computed from `secrets` plus each of its skills' declared secrets. An unmet

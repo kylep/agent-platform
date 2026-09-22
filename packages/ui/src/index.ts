@@ -3,7 +3,7 @@
 export { Banner, bannerVariants } from "./banner";
 export { Button, buttonVariants, type ButtonProps } from "./button";
 export { Chip, ChipButton, chipStatusVariant, chipVariants, StatusChip } from "./chip";
-export { ConfirmDialog, FormDialog } from "./dialog";
+export { ConfirmDialog, FormDialog, InfoDialog } from "./dialog";
 export { CodeEditor, Input, Select, Textarea } from "./field";
 export { Markdown } from "./markdown";
 export { QuotaBars, type QuotaReading, type QuotaSnapshot, type QuotaWindow } from "./quota";

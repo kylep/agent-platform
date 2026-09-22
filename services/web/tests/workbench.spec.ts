@@ -10,7 +10,8 @@ import { mockApi, runTail, workbenchFrames } from "./mock-api";
 function captureWrites(page: Page): Request[] {
   const writes: Request[] = [];
   page.on("request", (r) => {
-    if (r.method() !== "GET" && r.url().includes("/api/")) writes.push(r);
+    if (r.method() !== "GET" && r.url().includes("/api/")
+        && !r.url().includes("/api/quota/refresh")) writes.push(r);
   });
   return writes;
 }
@@ -20,15 +21,15 @@ test("the editor shows the four workbench fields and saves them", async ({ page 
   await mockApi(page);
   await page.goto("/agents/health-monitor");
 
-  await expect(page.locator("body")).toContainText("quota_ok refuses above these");
-  await page.getByLabel("Quota gate: 5-hour max %").fill("60");
-  await page.getByLabel("Quota gate: 7-day max %").fill("30");
-  // `dev` is a role the editor offers, and says what it means.
-  await page.getByLabel("Role").selectOption("dev");
+  await page.getByRole("checkbox", { name: "Quota guard" }).check();
+  await page.getByLabel("5-hour quota ceiling (%)").fill("60");
+  await page.getByLabel("Weekly quota ceiling (%)").fill("30");
+  // `dev` is an execution profile, and selecting it reveals its grants.
+  await page.getByLabel("Execution profile").selectOption("dev");
   await expect(page.locator("body")).toContainText("holds no git credential");
   // One glob per line; blank lines and stray spaces never reach the row.
-  await page.getByLabel("Push path globs").fill("docs/**\n\n  services/web/**  \n");
-  await page.getByRole("checkbox", { name: "May delete tests" }).check();
+  await page.getByLabel("Automatic publish paths").fill("docs/**\n\n  services/web/**  \n");
+  await page.getByRole("checkbox", { name: "Allow test deletion" }).check();
 
   await page.getByRole("button", { name: "Save changes" }).first().click();
   await expect(page.getByText("Saved — live now.").first()).toBeVisible();

@@ -154,6 +154,21 @@ def test_entrypoints_accepts_the_real_shape():
     assert m.entrypoints.webhooks[0].path == "ping"
 
 
+def test_run_limits_and_kafka_topics_are_validated():
+    with pytest.raises(ValidationError, match="concurrency"):
+        _model(concurrency=0)
+    with pytest.raises(ValidationError, match="timeout_seconds"):
+        _model(timeout_seconds=-1)
+    with pytest.raises(ValidationError, match="result_topic"):
+        _model(result_topic="app topic")
+    with pytest.raises(ValidationError, match="topics"):
+        _model(entrypoints={"topics": [""]})
+    m = _model(result_topic=" app.news.result ",
+               entrypoints={"topics": ["relay.in", "relay.in"]})
+    assert m.result_topic == "app.news.result"
+    assert m.entrypoints.topics == ["relay.in"]
+
+
 def test_list_fields_must_be_strings():
     with pytest.raises(ValidationError):
         _model(skills=[{"name": "git"}])

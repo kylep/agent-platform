@@ -59,3 +59,16 @@ export function FormDialog({ open, title, children, submitLabel, disabled, onSub
     }>{children}</Shell>
   );
 }
+
+// Read-only contextual help. Keeping this in the shared dialog primitive gives
+// field help the same focus trap, Escape handling and screen-reader naming as
+// every consequential dialog in the platform.
+export function InfoDialog({ open, title, children, onClose }: {
+  open: boolean; title: string; children: ReactNode; onClose: () => void;
+}) {
+  return (
+    <Shell open={open} title={title} onCancel={onClose} actions={
+      <Button variant="secondary" onClick={onClose}>Close</Button>
+    }>{children}</Shell>
+  );
+}

@@ -8,7 +8,8 @@ import { mockApi } from "./mock-api";
 function captureWrites(page: Page): Request[] {
   const writes: Request[] = [];
   page.on("request", (r) => {
-    if (r.method() !== "GET" && r.url().includes("/api/")) writes.push(r);
+    if (r.method() !== "GET" && r.url().includes("/api/")
+        && !r.url().includes("/api/quota/refresh")) writes.push(r);
   });
   return writes;
 }
@@ -19,7 +20,7 @@ test("saving the editor PUTs the whole definition, grants included", async ({ pa
   await page.goto("/agents/health-monitor");
 
   await page.getByLabel("Description").fill("Watches everything.");
-  await page.getByLabel("Timeout (seconds)").fill("900");
+  await page.getByLabel("Run time limit (seconds)").fill("900");
   // A grant lives in the same draft as the config fields.
   await page.getByRole("checkbox", { name: "Todo" }).check();
 
@@ -65,6 +66,25 @@ test("the harness picker offers PlaywrightMCP with its dev-only note", async ({ 
   expect(JSON.parse(put!.postData() ?? "{}").harness_tools).toContain("PlaywrightMCP");
 });
 
+test("field help explains execution and multi-runtime grants", async ({ page }) => {
+  await mockApi(page);
+  await page.goto("/agents/health-monitor");
+
+  await page.locator(".help-label", { hasText: "Execution profile" })
+    .getByRole("button", { name: "Explain this setting" }).click();
+  const dialog = page.getByRole("dialog", { name: "Execution profile" });
+  await expect(dialog).toContainText("does not grant API access");
+  await expect(dialog).toContainText("Workbench developer");
+  await expect(dialog.getByRole("link", { name: /Agents guide/ })).toHaveAttribute("href", "/help/agents");
+  await dialog.getByRole("button", { name: "Close" }).click();
+
+  await page.getByLabel("Runtime").selectOption("codex");
+  await expect(page.getByText("Claude Code tool switches do not apply.")).toBeVisible();
+  await expect(page.getByText(/retains 1 inactive Claude Code tool grant/)).toBeVisible();
+  await expect(page.getByRole("checkbox", { name: "Web search" })).toHaveCount(0);
+  await expect(page.getByText("Platform tools")).toBeVisible();
+});
+
 test("entrypoints edit round-trips into the saved definition", async ({ page }) => {
   const writes = captureWrites(page);
   await mockApi(page);
@@ -95,7 +115,7 @@ test("version history lists the change log and rolls back after confirming", asy
   await page.getByRole("button", { name: "Roll back" }).first().click();
   await page.getByRole("button", { name: "Roll back" }).last().click();   // confirm dialog
 
-  const post = writes.find((w) => w.method() === "POST");
+  const post = writes.find((w) => new URL(w.url()).pathname.includes("/rollback/"));
   expect(new URL(post!.url()).pathname).toBe("/api/agents/health-monitor/rollback/1");
 });
 
@@ -141,7 +161,7 @@ test("the wizard POSTs a full definition — no PR flow", async ({ page }) => {
   await page.getByRole("checkbox", { name: "news-lookup" }).check();
   await page.getByRole("button", { name: "Create agent" }).click();
 
-  const post = writes.find((w) => w.method() === "POST");
+  const post = writes.find((w) => w.method() === "POST" && new URL(w.url()).pathname === "/api/agents");
   expect(new URL(post!.url()).pathname).toBe("/api/agents");
   const body = JSON.parse(post!.postData() ?? "{}");
   expect(body.name).toBe("scratch-agent");

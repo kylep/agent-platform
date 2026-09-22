@@ -54,6 +54,22 @@ DEF_FIELDS: tuple[str, ...] = (
 PUSH_PATH_GLOB_RE = re.compile(r"^[A-Za-z0-9_./*?-]+$")
 PUSH_PATH_GLOB_MAX = 32
 PUSH_PATH_GLOB_MAX_LENGTH = 200
+KAFKA_TOPIC_RE = re.compile(r"^[A-Za-z0-9._-]+$")
+KAFKA_TOPIC_MAX_LENGTH = 249
+
+
+def _valid_kafka_topic(v: str, *, blank: bool = False) -> str:
+    """Validate a Kafka topic name before a run can fail far downstream."""
+    v = v.strip()
+    if blank and not v:
+        return ""
+    if not v:
+        raise ValueError("Kafka topic must not be blank")
+    if len(v) > KAFKA_TOPIC_MAX_LENGTH:
+        raise ValueError(f"Kafka topic is longer than {KAFKA_TOPIC_MAX_LENGTH} characters")
+    if not KAFKA_TOPIC_RE.fullmatch(v):
+        raise ValueError("Kafka topic may contain only letters, numbers, '.', '_' and '-'")
+    return v
 
 
 def _clean_names(v):
@@ -135,6 +151,11 @@ class EntrypointsModel(BaseModel):
     # so market-pinned crons don't drift an hour across daylight saving.
     timezone: str = ""
 
+    @field_validator("topics")
+    @classmethod
+    def _valid_topics(cls, values: list[str]) -> list[str]:
+        return list(dict.fromkeys(_valid_kafka_topic(v) for v in values))
+
     @field_validator("timezone")
     @classmethod
     def _valid_timezone(cls, v: str) -> str:
@@ -157,8 +178,8 @@ class AgentDefModel(BaseModel):
     system: bool = False
     responds_to_all: bool = True
     can_invoke: bool = False
-    concurrency: int = 1
-    timeout_seconds: int = 1800
+    concurrency: int = Field(default=1, ge=1, strict=True)
+    timeout_seconds: int = Field(default=1800, ge=1, strict=True)
     result_topic: str = ""
     transcript_retention_days: int | None = None
     harness_tools: list[str] = []
@@ -198,6 +219,11 @@ class AgentDefModel(BaseModel):
         if v not in ("claude", "codex"):
             raise ValueError("runtime must be 'claude' or 'codex'")
         return v
+
+    @field_validator("result_topic")
+    @classmethod
+    def _valid_result_topic(cls, v: str) -> str:
+        return _valid_kafka_topic(v, blank=True)
 
     @field_validator("harness_tools", "platform_tools", "skills", "secrets",
                      "push_path_globs", mode="before")
