@@ -27,7 +27,13 @@ async def test_mint_returns_token_once_and_lists_without_it(admin_client):
 
 
 async def test_invalid_role_rejected(admin_client):
-    assert (await _mint(admin_client, "bad", "wizard")).status_code == 422
+    for role in ("wizard", "dev", "tools", "relay", "coder"):
+        assert (await _mint(admin_client, "bad", role)).status_code == 422
+
+
+async def test_human_api_key_roles_are_accepted(admin_client):
+    for role in ("reader", "annotator", "operator", "admin"):
+        assert (await _mint(admin_client, role, role)).status_code == 201
 
 
 async def test_bearer_key_authenticates_and_role_is_enforced(admin_client):

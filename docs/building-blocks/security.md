@@ -1,5 +1,24 @@
 # Security
 
+## API key roles
+
+Settings can mint a bearer key for a script or external client. Its role is
+fixed when the key is created; revoke and replace the key to change access.
+Choose the narrowest role that covers the client's actions:
+
+| Role | Access |
+| --- | --- |
+| `reader` | Read agents, runs, schedules, reports, and other platform data. No writes. |
+| `annotator` | Reader access, plus run annotations, reports, notifications, and memories. Cannot start runs. |
+| `operator` | Annotator access, plus start runs and send Relay messages. Cannot manage settings or secrets. |
+| `admin` | Full platform control, including agents, secrets, API keys, schedules, and merges. |
+
+Agent **execution profiles** are a separate setting. In particular, `dev` is
+the Workbench profile, not an API-key permission. The platform assigns its
+internal `tools` and `relay` roles to agent runs from their grants; they are
+not available for manually created keys. Existing keys keep their role until
+revoked.
+
 **The one-sentence version:** agents never hold credentials or a shell —
 everything an agent *does* goes through platform code that checks who is
 asking, and everything it *knows* about you stays out of its reach.

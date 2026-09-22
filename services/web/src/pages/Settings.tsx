@@ -5,9 +5,7 @@ import { Button } from "@ap/ui/button";
 import { Chip } from "@ap/ui/chip";
 import { Input, Select } from "@ap/ui/field";
 import { Table, TD, TH } from "@ap/ui/table";
-import { ROLE_DESC } from "../lib/roles";
-
-const ROLES = Object.keys(ROLE_DESC);
+import { API_KEY_ROLES, API_KEY_ROLE_DESC } from "../lib/roles";
 
 function PasswordSection() {
   const [oldPw, setOldPw] = useState("");
@@ -56,7 +54,7 @@ function PasswordSection() {
 function ApiKeysSection() {
   const [keys, setKeys] = useState<ApiKey[]>([]);
   const [name, setName] = useState("");
-  const [role, setRole] = useState("operator");
+  const [role, setRole] = useState<(typeof API_KEY_ROLES)[number]>("reader");
   const [minted, setMinted] = useState<ApiKeyMinted | null>(null);
   const [showRevoked, setShowRevoked] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -71,7 +69,7 @@ function ApiKeysSection() {
     try {
       const k = await api<ApiKeyMinted>("/api/api-keys", {
         method: "POST",
-        body: JSON.stringify({ name, role, agent: null }),
+        body: JSON.stringify({ name, role }),
       });
       setMinted(k);
       setName("");
@@ -98,12 +96,21 @@ function ApiKeysSection() {
       )}
       <div className="form-row">
         <Input placeholder="Key name" value={name} onChange={(e) => setName(e.target.value)} />
-        <Select aria-label="API key role" value={role} onChange={(e) => setRole(e.target.value)}>
-          {ROLES.map((r) => <option key={r} value={r} title={ROLE_DESC[r]}>{r}</option>)}
+        <Select aria-label="API key role" value={role}
+                onChange={(e) => setRole(e.target.value as (typeof API_KEY_ROLES)[number])}>
+          {API_KEY_ROLES.map((r) => <option key={r} value={r}>{r}</option>)}
         </Select>
         <Button onClick={mint} disabled={name.trim() === ""}>Create key</Button>
       </div>
-      <p className="muted"><strong>{role}</strong> — {ROLE_DESC[role]}</p>
+      <p className="muted">New keys start at reader access. Choose a broader role only for the actions the client needs. A key's role is fixed after creation; revoke and replace it to change access.</p>
+      <Table>
+        <thead><tr><TH>Role</TH><TH>What the key can do</TH></tr></thead>
+        <tbody>
+          {API_KEY_ROLES.map((r) => (
+            <tr key={r}><TD><strong>{r}</strong>{r === role ? " · selected" : ""}</TD><TD>{API_KEY_ROLE_DESC[r]}</TD></tr>
+          ))}
+        </tbody>
+      </Table>
       {error && <div className="error">{error}</div>}
       <Table>
         <thead>

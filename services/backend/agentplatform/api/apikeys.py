@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 from sqlalchemy import select
 
-from agentplatform.api.auth import ROLES, require_admin
+from agentplatform.api.auth import API_KEY_ROLES, require_admin
 from agentplatform.apikeys import generate_token, hash_token, token_prefix
 from agentplatform.db import ApiKey, utcnow
 
@@ -34,8 +34,8 @@ async def list_api_keys(request: Request):
 
 @router.post("/api/api-keys", status_code=201, response_model=S.ApiKeyCreated)
 async def mint_api_key(request: Request, body: ApiKeyIn):
-    if body.role not in ROLES:
-        raise HTTPException(422, f"role must be one of {ROLES}")
+    if body.role not in API_KEY_ROLES:
+        raise HTTPException(422, f"role must be one of {API_KEY_ROLES}")
     token = generate_token()
     key = ApiKey(name=body.name, role=body.role,
                  key_hash=hash_token(token), prefix=token_prefix(token))
