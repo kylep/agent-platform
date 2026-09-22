@@ -38,7 +38,7 @@ async def test_agent_def_stores_grants_and_entrypoints(sf):
           "webhooks": [{"path": "ping"}], "topics": ["app.news.items"]}
     async with sf() as s:
         s.add(AgentDef(name="news", prompt="You are news.", description="d",
-                       model="claude-sonnet-5", role="coder", system=True,
+                       model="claude-sonnet-5", role="dev", system=True,
                        can_invoke=True, concurrency=2, timeout_seconds=60,
                        result_topic="app.news.result", transcript_retention_days=7,
                        harness_tools=["WebFetch"],
@@ -209,7 +209,7 @@ def test_validate_def_reports_unknown_grants():
 
 def test_snapshot_apply_round_trip():
     src = AgentDef(name="news", prompt="You are news.", description="d",
-                   model="claude-sonnet-5", role="coder", system=True,
+                   model="claude-sonnet-5", role="dev", system=True,
                    can_invoke=True, concurrency=3, timeout_seconds=90,
                    result_topic="app.news.result", transcript_retention_days=7,
                    harness_tools=["WebFetch"], platform_tools=["mcp__platform__metrics"],

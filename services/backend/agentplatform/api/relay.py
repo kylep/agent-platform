@@ -60,7 +60,7 @@ WRITE = (*INVOKE_ROLES, RELAY_ROLE)
 # none of them earns a voice in a room merely by naming an agent. T5 mints
 # `relay` for a participant grant and `annotator` for core API tools; the broker
 # checks the exact frozen tool grant besides.
-AGENT_ROLES = ("relay", "annotator", "operator", "coder", "admin")
+AGENT_ROLES = ("relay", "annotator", "operator", "admin")
 
 _NAME_RE = re.compile(r"[a-z0-9][a-z0-9-]{0,62}")
 def _is_ticket_prefix(prefix: str) -> bool:

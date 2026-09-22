@@ -93,9 +93,10 @@ class Settings(BaseSettings):
     # after finishing, the recorder's sweep publishes with what it has, so a lost
     # frame can't leave a thread waiting forever. <= 0 disables the sweep.
     reply_reconcile_seconds: int = 60
-    # Self-hosting git target. git_remote_url is what the platform clones and
+    # Repository target for Workbench publishing and reviewed config edits.
+    # git_remote_url is what the platform clones and
     # pushes to (a local bare repo in tests, the real repo over HTTPS in prod);
-    # github_repo ("owner/name") is used for the PR API. Empty = self-edit off.
+    # github_repo ("owner/name") is used for the PR API. Empty disables them.
     git_remote_url: str = ""
     github_repo: str = ""
     default_branch: str = "main"

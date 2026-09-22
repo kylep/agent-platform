@@ -72,12 +72,9 @@ DEFAULT_GRANTS = ((TOOL_RELAY, "relay_default_grant"),
 # Four of these are wider than design/15's four name lists, because privilege in
 # this platform is not carried only by name lists:
 #
-#   `role`       — "coder" is the self-edit rung. The launcher hands a self-edit
-#                  run the GitHub App token, and the runner drops the
-#                  --disallowedTools guard entirely for it (acceptEdits, Bash
-#                  and Read included). Writing `role` is therefore writing the
-#                  trifecta break: an agents_edit-only caller that could set it,
-#                  plus a cron entrypoint it may already set, owns the cluster.
+#   `role`       — "dev" enables the Workbench development toolchain and its
+#                  platform-mediated publishing path. Writing `role` therefore
+#                  changes what an agent can modify and attempt to publish.
 #   `can_invoke` — makes the launcher mint an OPERATOR-scoped run token instead
 #                  of the narrow annotator one, i.e. the grant of "may start
 #                  other agents' runs".

@@ -94,7 +94,7 @@ def split_tools(declared: list[str] | None) -> tuple[list[str], list[str]]:
 
     NO line materializes the EFFECTIVE set rather than the literal one: the
     file rules read it as "all tools", but the runner denies the sensitive set
-    unconditionally on every non-self-edit run, so what such an agent could
+    unconditionally outside Workbench runs, so what such an agent could
     actually use is the non-sensitive harness tools and no platform tools. A
     row's `harness_tools` is explicit — there is no "unset" to migrate — so the
     choice is between the effective set and something the agent never had."""

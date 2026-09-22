@@ -67,13 +67,16 @@ Execution profiles shown in the editor are:
 - **Workbench developer** (`dev`) — a credential-free clone, development
   toolchain, and platform-mediated publishing. Its path and test-deletion
   controls appear only for this profile; see [Workbench](workbench.md).
-- **Legacy self-editor** (`coder`) — the older GitHub App credential and
-  self-edit path, retained for compatibility.
 
 Old definitions may contain `reader` or `annotator`. They execute like a
 standard agent and remain editable, but the editor does not offer them for new
 definitions. Those words are meaningful for human/API keys, not agent run
 profiles.
+
+The retired `coder` profile is rejected on write and cannot launch. On upgrade,
+old rows are moved to Standard and disabled for an administrator to review;
+they are never promoted to Workbench implicitly. The editor also labels an
+unmigrated value as retired rather than silently displaying another profile.
 
 Authority comes from **Grants**. Platform tools work in both runtimes and the
 launcher derives the run token's least-privileged API role from them.

@@ -108,13 +108,13 @@ cases:
     title: A non-dev run never prepares or finalizes a workbench and keeps the sensitive-tool denial
     layer: unit
     priority: p0
-    steps: [run the runner without AP_WORKSPACE, then as a credential-less agent, then with declared Bash on a non-selfedit run]
+    steps: [run the runner without AP_WORKSPACE, then as a credential-less agent, then with declared Bash on a Standard run]
     expected: prepare and finalize are never called, --disallowedTools is present, no agent bypass even with a token, Bash is stripped
     automation:
       - pytest:services/runner/test_runner.py::test_non_dev_run_never_touches_the_workbench
       - pytest:services/runner/test_runner.py::test_permission_args_credential_less_agent_is_least_privilege
       - pytest:services/runner/test_runner.py::test_permission_args_no_agent_bypass_even_with_token
-      - pytest:services/runner/test_runner.py::test_permission_args_declared_bash_is_stripped_for_non_selfedit
+      - pytest:services/runner/test_runner.py::test_permission_args_declared_bash_is_stripped_for_standard_run
       - pytest:services/runner/test_runner.py::test_permission_args_dev_case_pinned
     tags: [runner, security]
 

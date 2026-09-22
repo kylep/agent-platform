@@ -22,7 +22,6 @@ import { CodeEditor, Input, Select, Textarea } from "@ap/ui/field";
 const EXECUTION_PROFILES = [
   { value: "operator", label: "Standard agent" },
   { value: "dev", label: "Workbench developer" },
-  { value: "coder", label: "Legacy self-editor" },
 ];
 
 const EMPTY_ENTRYPOINTS: AgentEntrypoints = { crons: [], webhooks: [], topics: [], timezone: "" };
@@ -197,11 +196,13 @@ export function IdentityFields({ draft, patch, catalog }: {
                hint={draft.role === "dev"
                  ? "Workbench checkout holds no git credential; the platform publishes verified changes."
                  : draft.role === "coder"
-                   ? "Legacy self-edit environment with GitHub publishing credentials."
-                   : "Standard isolated run; tool grants determine access."}>
+                   ? "This retired profile cannot run. Choose Standard or Workbench before saving."
+                 : "Standard isolated run; tool grants determine access."}>
           <Select className="w-full" aria-label="Execution profile" value={draft.role}
                   onChange={(e) => patch({ role: e.target.value })}>
             {EXECUTION_PROFILES.map((p) => <option key={p.value} value={p.value}>{p.label}</option>)}
+            {draft.role === "coder" &&
+              <option value="coder" disabled>Retired self-editor — choose a replacement</option>}
             {["reader", "annotator"].includes(draft.role) &&
               <option value={draft.role}>Legacy {draft.role} (standard execution)</option>}
           </Select>

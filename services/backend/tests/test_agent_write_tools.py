@@ -260,7 +260,7 @@ async def test_an_update_leaves_the_agents_grants_exactly_as_they_were(
     from the caller's fields alone would blank every grant — which is a grant
     change, which `agents_edit` may not make, so the edit would 403 on agents
     that hold anything at all."""
-    await seed_agent("target", skills=["git"], can_invoke=True, role="coder",
+    await seed_agent("target", skills=["git"], can_invoke=True, role="dev",
                      platform_tools=["mcp__platform__runs_read"])
     h = await granted(sf, seed_agent, agent_store, "editor", [TOOL_AGENTS_EDIT])
     out = json.loads(await agenttools.agents_edit(api(client, h), {
@@ -268,7 +268,7 @@ async def test_an_update_leaves_the_agents_grants_exactly_as_they_were(
         "definition": {"description": "new words"}}))
     assert out["description"] == "new words"
     assert out["skills"] == ["git"] and out["can_invoke"] is True
-    assert out["role"] == "coder"
+    assert out["role"] == "dev"
     assert out["platform_tools"] == ["mcp__platform__runs_read"]
     assert (await versions_of(sf, "target"))[-1].changed_via == "tool:agents_edit"
 
@@ -281,7 +281,7 @@ async def test_agents_edit_refuses_grant_fields_by_name(client, sf, seed_agent,
     call = api(client, h)
     for field, value in (("skills", ["git"]), ("secrets", ["discord"]),
                          ("harness_tools", ["Bash"]), ("platform_tools", []),
-                         ("can_invoke", True), ("role", "coder"),
+                         ("can_invoke", True), ("role", "dev"),
                          ("push_path_globs", ["docs/**"]), ("may_delete_tests", True)):
         for action in ("update", "create"):
             out = await agenttools.agents_edit(call, {
@@ -458,7 +458,7 @@ async def test_bad_calls_get_usable_errors(client, sf, seed_agent, agent_store):
 
 async def test_agents_grant_moves_grants_and_nothing_else(client, sf, seed_agent,
                                                           agent_store):
-    await seed_agent("target", description="untouched prose", role="coder")
+    await seed_agent("target", description="untouched prose", role="dev")
     h = await granted(sf, seed_agent, agent_store, "granter", [TOOL_AGENTS_GRANT])
     call = api(client, h)
 
@@ -477,7 +477,7 @@ async def test_agents_grant_moves_grants_and_nothing_else(client, sf, seed_agent
         row = await s.get(AgentDef, "target")
         # The prose and the role the grant tool may not touch came back
         # unchanged, because the write was built on a fresh read.
-        assert row.description == "untouched prose" and row.role == "coder"
+        assert row.description == "untouched prose" and row.role == "dev"
     assert (await versions_of(sf, "target"))[-1].changed_via == "tool:agents_grant"
 
 

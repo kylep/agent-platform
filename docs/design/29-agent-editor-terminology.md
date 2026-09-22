@@ -3,7 +3,7 @@
 ## Problem
 
 The DB-first editor exposed storage names directly. `role` implied API RBAC
-even though only `coder` and `dev` change execution, `result_topic` hid its
+even though `dev` changes execution, `result_topic` hid its
 Kafka/app purpose, and timeout/concurrency lacked enough context to predict
 queueing and termination. Runtime-specific and shared grants were mixed into
 one long form.
@@ -13,8 +13,9 @@ one long form.
 Keep the database and API compatible while presenting the concepts people
 operate:
 
-- `role` is **Execution profile**: Standard, Workbench developer, or Legacy
-  self-editor. API authority is derived from platform-tool grants.
+- `role` is **Execution profile**: Standard or Workbench developer. API
+  authority is derived from platform-tool grants. The credential-bearing
+  legacy self-editor was removed rather than presented as a supported choice.
 - `result_topic` is **App output topic**, distinct from Kafka input topics.
 - `timeout_seconds` is **Run time limit** and `concurrency` is **Parallel runs**.
 - Claude Code tool switches appear only for Claude agents. Skills, platform
@@ -27,6 +28,10 @@ operate:
 
 The API continues accepting legacy `reader` and `annotator` definitions. The
 editor preserves and labels them, but does not create new ones.
+
+The API rejects legacy `coder` definitions. The upgrade migration maps any old
+row to Standard and disables it for review rather than implicitly granting
+Workbench access. The editor retains a migration label for any unmigrated row.
 
 ## Semantic repairs
 

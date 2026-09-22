@@ -5,11 +5,9 @@ from agentplatform.api.auth import ROLES, role_allows
 @pytest.mark.parametrize("role,allowed,ok", [
     ("admin", ("reader",), True),        # admin passes any scope
     ("admin", (), True),                 # admin passes even an empty scope
-    ("coder", ("coder", "operator"), True),
     ("operator", ("operator",), True),
     ("reader", ("reader",), True),
     ("reader", ("operator",), False),    # under-privileged
-    ("operator", ("coder",), False),
     (None, ("reader",), False),          # unauthenticated
     ("bogus", ("reader",), False),       # unknown role, not listed
     # `relay` satisfies only the allow-lists that name it (the Relay routes);
@@ -23,7 +21,7 @@ def test_role_allows(role, allowed, ok):
 
 
 def test_roles_declared():
-    assert set(ROLES) == {"reader", "annotator", "operator", "coder", "admin",
+    assert set(ROLES) == {"reader", "annotator", "operator", "admin",
                           "tools", "relay", "dev"}
 
 

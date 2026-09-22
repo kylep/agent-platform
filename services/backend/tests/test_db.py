@@ -210,7 +210,8 @@ async def test_artifacts_grant_backfill_honours_the_setting(bare):
 
 
 async def test_agent_policy_split_focuses_workers_and_retires_legacy_rows(bare):
-    from agentplatform.db import AgentDef, AgentVersion, SchemaMark, AGENT_POLICY_SPLIT_MARK
+    from agentplatform.db import (AgentDef, AgentVersion, ApiKey, SchemaMark,
+                                  AGENT_POLICY_SPLIT_MARK, CODER_PROFILE_REMOVAL_MARK)
     sf = make_session_factory(bare)
     broad = ["mcp__platform__relay", "mcp__platform__tickets",
              "mcp__platform__wiki", "mcp__platform__artifacts"]
@@ -219,20 +220,31 @@ async def test_agent_policy_split_focuses_workers_and_retires_legacy_rows(bare):
         s.add(AgentDef(name="news-librarian", platform_tools=broad + [
             "mcp__platform__query_app"]))
         s.add(AgentDef(name="platform-coder", role="coder", platform_tools=broad))
+        s.add(AgentDef(name="custom-coder", role="coder"))
+        s.add(ApiKey(name="old-coder", role="coder", key_hash="h" * 64,
+                     prefix="apk_old"))
         await s.commit()
     await init_db(bare, **_participants())
     async with sf() as s:
         news = await s.get(AgentDef, "news")
         librarian = await s.get(AgentDef, "news-librarian")
         coder = await s.get(AgentDef, "platform-coder")
+        custom = await s.get(AgentDef, "custom-coder")
+        old_key = (await s.execute(select(ApiKey).where(
+            ApiKey.name == "old-coder"))).scalar_one()
         assert news.platform_tools == [] and news.responds_to_all is False
         assert librarian.platform_tools == ["mcp__platform__query_app"]
         assert librarian.responds_to_all is False
-        assert coder.enabled is False and coder.responds_to_all is False
+        assert coder.role == "operator" and coder.enabled is False
+        assert coder.responds_to_all is False
+        assert custom.role == "operator" and custom.enabled is False
+        assert old_key.revoked_at is not None
         assert await s.get(SchemaMark, AGENT_POLICY_SPLIT_MARK) is not None
+        assert await s.get(SchemaMark, CODER_PROFILE_REMOVAL_MARK) is not None
         versions = list((await s.execute(select(AgentVersion).where(
-            AgentVersion.changed_by == "platform:agent-policy-split"))).scalars())
-        assert {v.agent for v in versions} >= {"news", "news-librarian", "platform-coder"}
+            AgentVersion.changed_via == "migration"))).scalars())
+        assert {v.agent for v in versions} >= {
+            "news", "news-librarian", "platform-coder", "custom-coder"}
 
 
 # --- the Workbench columns on a live agents table (docs/design/24) -----------

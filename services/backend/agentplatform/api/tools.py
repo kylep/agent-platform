@@ -133,9 +133,9 @@ async def tool_wizard(request: Request, body: ToolWizardIn,
     if st.tool_registry.get(name) is not None:
         raise HTTPException(409, "a tool with this name already exists")
     await st.agent_store.reload()
-    coder = st.agent_store.get("engineer")
-    if (coder is None or coder.error is not None or not coder.enabled
-            or coder.manifest.role != "dev"):
+    engineer = st.agent_store.get("engineer")
+    if (engineer is None or engineer.error is not None or not engineer.enabled
+            or engineer.manifest.role != "dev"):
         raise HTTPException(409, "engineer Workbench is unavailable")
     scope = f"`tools/{name}/`"
     secret_part = ""

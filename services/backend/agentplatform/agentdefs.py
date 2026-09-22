@@ -28,7 +28,7 @@ from agentplatform.db import AgentDef, AgentVersion
 # rung — a clone, a branch, the toolchain and publish — not an API scope: like
 # `tools` it satisfies no endpoint allow-list, and a dev run's token is minted
 # by the same ladder as everyone else's.
-AGENT_ROLES: tuple[str, ...] = ("reader", "annotator", "operator", "coder", "dev")
+AGENT_ROLES: tuple[str, ...] = ("reader", "annotator", "operator", "dev")
 
 # Harness tools are Claude Code's own fixed set, so unlike skills/secrets/
 # platform tools they are checked against a constant rather than a registry.

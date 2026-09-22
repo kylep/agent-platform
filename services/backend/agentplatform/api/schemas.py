@@ -483,8 +483,8 @@ class ToolHelp(BaseModel):
     name: str
     kind: str         # claude | platform
     description: str
-    # Always denied by the runner for non-self-edit agents (trifecta break) —
-    # checking it on a normal agent does nothing.
+    # Always denied outside Workbench runs (trifecta break) — checking it on a
+    # standard agent does nothing.
     sensitive: bool
     # Friendlier label for pickers/Help when the harness-fixed id is awkward
     # (e.g. TodoWrite → "Todo"). The id in `name` is what manifests declare.

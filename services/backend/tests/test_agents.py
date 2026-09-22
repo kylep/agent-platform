@@ -21,7 +21,7 @@ async def test_list_and_defaults(sf, seed_agent):
 
 
 async def test_row_fields_project_onto_the_manifest(sf, seed_agent):
-    await seed_agent("busy", description="d", role="coder", concurrency=3,
+    await seed_agent("busy", description="d", role="dev", concurrency=3,
                      timeout_seconds=60, model="sonnet", system=True,
                      can_invoke=True, result_topic="app.news.digest",
                      transcript_retention_days=7, skills=["git"],
@@ -29,7 +29,7 @@ async def test_row_fields_project_onto_the_manifest(sf, seed_agent):
     store = AgentStore(sf)
     await store.reload()
     m = store.get("busy").manifest
-    assert (m.role, m.concurrency, m.timeout_seconds) == ("coder", 3, 60)
+    assert (m.role, m.concurrency, m.timeout_seconds) == ("dev", 3, 60)
     assert (m.model, m.system, m.can_invoke) == ("sonnet", True, True)
     assert m.result_topic == "app.news.digest" and m.transcript_retention_days == 7
     assert m.skills == ["git"] and m.secrets == ["github-token"]

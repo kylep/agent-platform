@@ -109,7 +109,7 @@ const mcpLabel = (t: string) => t.split("__").slice(2).join("__") || t;
 // is ticked instead of refusing.
 function toolWarning(t: ToolHelp, ticked: boolean, role?: string): string | undefined {
   if (t.sensitive) {
-    return "Always denied by the runner for normal agents (self-edit only) — granting it does nothing.";
+    return "Always denied by the runner for standard agents (Workbench only) — granting it does nothing.";
   }
   if (t.dev_only && ticked && role !== "dev") {
     return "Only a `role: dev` agent can use this — the runner ignores the grant for this role.";

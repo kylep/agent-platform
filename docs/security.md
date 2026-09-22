@@ -27,20 +27,19 @@ stealing, and (c) an exfiltration channel.
 
 ## Containment today [LIVE]
 
-- **No shell, ever — two exceptions:** the runner unconditionally denies
+- **No shell in Standard runs; Workbench is the one exception:** the runner unconditionally denies
   Bash/Read/Write/Edit/NotebookEdit for every ordinary agent
   (`--disallowedTools`, not a default). Declaring them does nothing.
-  Self-edit (platform-coder, `role: coder`) runs in an ephemeral clone pod
-  holding no external secrets — it does hold the repository token, and its
-  prompt is API-authored prose, never attacker-reachable text. Dev runs
-  (`role: dev`, `docs/design/24-coding-agent.md`) run `acceptEdits` on the
+  Workbench runs (`role: dev`, `docs/design/24-coding-agent.md`) run `acceptEdits` on the
   `runner-dev` image with an anonymous clone and **no repository credential
   at all**: the pod cannot push, and the branch leaves it only as a bundle
   the runner POSTs to the API, which re-derives the changed paths in its own
   clone, runs the path policy (`agentplatform/testpaths.py`: the platform
   deny list, the agent's `push_path_globs`, `may_delete_tests`), pushes
   without force and opens the PR — the trifecta is broken by keeping the
-  credential on the API side of one door.
+  credential on the API side of one door. The earlier `role: coder` runner,
+  which carried a GitHub token into the pod, was removed after Workbench
+  replaced it.
 - **Execution is centralized:** anything executable is platform code —
   the broker's built-in tools, app services, and the git-reviewed custom
   tools (`docs/design/12-executable-capabilities.md`) that run in the

@@ -260,42 +260,6 @@ async def test_poll_once_still_transitions_dispatched_to_running(sf):
     assert producer.published[-1][2]["state"] == RunState.RUNNING
 
 
-class _FakeApp:
-    def installation_token(self):
-        return "ghs_selfedit"
-
-
-def _selfedit_settings():
-    return Settings(runner_image="r:1", k8s_namespace="ap",
-                    git_remote_url="https://github.com/o/r.git", github_repo="o/r")
-
-
-def test_self_edit_env_injected_for_coder_run():
-    launcher = K8sJobLauncher(batch=None, settings=_selfedit_settings(), github_app=_FakeApp())
-    run = Run(agent="platform-coder", trigger="manual", requested_by="t", prompt="edit x")
-    run.id = "b" * 32
-    m = Manifest(role="coder", timeout_seconds=600)
-    assert launcher._is_self_edit(m) is True
-    job = launcher.build_job(run, m, self_edit_token="ghs_selfedit")
-    env = {e.name: e.value for e in job.spec.template.spec.containers[0].env}
-    assert env["AP_SELF_EDIT"] == "1" and env["AP_GITHUB_TOKEN"] == "ghs_selfedit"
-    assert env["AP_GIT_REMOTE_URL"] == "https://github.com/o/r.git" and env["AP_GITHUB_REPO"] == "o/r"
-
-
-def test_non_coder_run_is_not_self_edit():
-    launcher = K8sJobLauncher(batch=None, settings=_selfedit_settings(), github_app=_FakeApp())
-    assert launcher._is_self_edit(Manifest(role="operator")) is False
-    # and no self-edit env when no token passed
-    run = Run(agent="hello-world", trigger="manual", requested_by="t", prompt="hi"); run.id = "c" * 32
-    env = {e.name: e.value for e in launcher.build_job(run, Manifest()).spec.template.spec.containers[0].env}
-    assert "AP_SELF_EDIT" not in env
-
-
-def test_self_edit_off_without_app():
-    launcher = K8sJobLauncher(batch=None, settings=_selfedit_settings(), github_app=None)
-    assert launcher._is_self_edit(Manifest(role="coder")) is False
-
-
 def _skill_store(tmp_path, name="git", secrets=("github-token",)):
     from agentplatform.skills import SkillStore
     d = tmp_path / name
@@ -432,7 +396,7 @@ def _dev_run():
 def test_dev_run_gets_the_workbench_profile():
     """docs/design/24: a `role: dev` run is a bigger pod on the dev image with
     an anonymous clone target — and NO repository credential of any kind."""
-    launcher = K8sJobLauncher(batch=None, settings=_dev_settings(), github_app=_FakeApp())
+    launcher = K8sJobLauncher(batch=None, settings=_dev_settings())
     m = Manifest(role="dev", timeout_seconds=5400)
     assert launcher._is_dev(m) is True
     spec = launcher.build_job(_dev_run(), m, dev=True).spec.template.spec
@@ -474,54 +438,20 @@ def test_dev_run_keeps_the_runner_cage():
     assert spec.automount_service_account_token is False
 
 
-def test_dev_run_is_never_a_self_edit():
-    launcher = K8sJobLauncher(batch=None, settings=_dev_settings(), github_app=_FakeApp())
-    assert launcher._is_self_edit(Manifest(role="dev")) is False
-    assert launcher._is_dev(Manifest(role="coder")) is False
+def test_only_dev_role_gets_the_workbench_profile():
+    launcher = K8sJobLauncher(batch=None, settings=_dev_settings())
+    assert launcher._is_dev(Manifest(role="dev")) is True
     assert launcher._is_dev(Manifest(role="operator")) is False
 
 
-def test_coder_job_is_unchanged_by_the_dev_profile():
-    """The lean profile every other agent runs on — image, resources, the
-    three plain emptyDirs, the self-edit env — is byte-for-byte what it was."""
-    launcher = K8sJobLauncher(batch=None, settings=_dev_settings(), github_app=_FakeApp())
-    run = Run(agent="platform-coder", trigger="manual", requested_by="t", prompt="edit x")
-    run.id = "b" * 32
-    spec = launcher.build_job(run, Manifest(role="coder", timeout_seconds=600),
-                              self_edit_token="ghs_selfedit").spec.template.spec
-    c = spec.containers[0]
-    assert c.image == "r:1"
-    assert c.resources.requests == {"memory": "1Gi", "cpu": "250m"}
-    assert c.resources.limits == {"memory": "3Gi", "cpu": "2"}
-    assert [v.name for v in spec.volumes] == ["claude-credentials", "agents", "home",
-                                              "workspace", "tmp"]
-    for name in ("home", "workspace", "tmp"):
-        v = next(v for v in spec.volumes if v.name == name)
-        assert v.empty_dir.size_limit is None and v.empty_dir.medium is None
-    assert {m.name: m.mount_path for m in c.volume_mounts} == {
-        "claude-credentials": "/secrets/claude", "agents": "/agents",
-        "home": "/home/runner", "workspace": "/workspace", "tmp": "/tmp"}
-    env = {e.name: e.value for e in c.env}
-    assert env["AP_SELF_EDIT"] == "1" and env["AP_GITHUB_TOKEN"] == "ghs_selfedit"
-    for name in ("AP_WORKSPACE", "AP_MAX_TURNS", "AP_VERIFY_TIMEOUT", "AP_WEB_URL",
-                 "AP_PUBLISH_MAX_BYTES", "PLAYWRIGHT_BROWSERS_PATH"):
-        assert name not in env
-
-
-async def test_launch_never_mints_a_github_token_for_a_dev_run(sf):
-    """The pod holds no repository credential: with a GitHub App configured
-    and self-edit settings present, a dev launch must not touch the App."""
-    class _RaisingApp:
-        def installation_token(self):
-            raise AssertionError("a dev run must never mint an installation token")
-
+async def test_launch_never_injects_a_github_token_for_a_dev_run(sf):
+    """The pod holds no repository credential; publishing stays API-side."""
     class _FakeBatch:
         def __init__(self): self.job = None
         def create_namespaced_job(self, ns, job): self.job = job
 
     batch = _FakeBatch()
-    launcher = K8sJobLauncher(batch=batch, settings=_dev_settings(), github_app=_RaisingApp(),
-                              session_factory=sf)
+    launcher = K8sJobLauncher(batch=batch, settings=_dev_settings(), session_factory=sf)
     async with sf() as s:
         s.add(run := Run(agent="engineer", trigger="relay", requested_by="t", prompt="go"))
         await s.commit()

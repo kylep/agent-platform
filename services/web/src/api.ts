@@ -104,7 +104,7 @@ export type ToolHelp = {
   name: string;
   kind: string;                 // claude (harness) | platform (brokered)
   description: string;
-  sensitive: boolean;           // runner denies it for non-self-edit agents
+  sensitive: boolean;           // runner permits it only in Workbench runs
   display_name?: string | null;
   dev_only?: boolean;           // only a `role: dev` run gets it (docs/design/25)
 };

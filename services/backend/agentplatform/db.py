@@ -629,8 +629,8 @@ class AgentDef(Base):
     image_artifact_id: Mapped[str | None] = mapped_column(String(32), nullable=True)
     runtime: Mapped[str] = mapped_column(String(16), default="claude")
     model: Mapped[str] = mapped_column(String(64), default="")
-    # Platform role the agent's tokens are minted at (see api.auth.ROLES);
-    # `coder` is additionally what makes a run self-edit-capable.
+    # Execution profile. API authority is derived separately from grants;
+    # `dev` selects the credential-free Workbench runner.
     role: Mapped[str] = mapped_column(String(32), default="operator")
     # Platform-managed lifecycle. Authority follows explicit grants and Relay
     # broadcast participation is the separate flag below (design 27).
@@ -647,7 +647,7 @@ class AgentDef(Base):
     # <= 0 = keep forever.
     transcript_retention_days: Mapped[int | None] = mapped_column(Integer, nullable=True)
     # Grants. harness_tools = Claude Code's own tools (WebFetch, Glob, …); the
-    # sensitive set stays denied in the runner for non-self-edit runs no matter
+    # sensitive set stays denied outside Workbench runs no matter
     # what is stored here. platform_tools = mcp__platform__* names, which is
     # also what the design-12 role ladder now derives from (not frontmatter).
     harness_tools: Mapped[list] = mapped_column(JSON, default=list)
@@ -985,6 +985,7 @@ ARTIST_SEED_MARK = "artist-seed-v1"
 CODEX_ARTIST_SEED_MARK = "codex-artist-seed-v1"
 CODEX_ARTIST_SYSTEM_MARK = "codex-artist-system-v1"
 AGENT_POLICY_SPLIT_MARK = "agent-policy-split-v1"
+CODER_PROFILE_REMOVAL_MARK = "coder-profile-removal-v1"
 ENG_CHANNEL_MARK = "eng-channel-v1"
 ENGINEER_SEED_MARK = "engineer-seed-v1"
 ENG_QUEUE_MARK = "eng-queue-job-v1"
@@ -1945,6 +1946,46 @@ def _ensure_agent_policy_split(conn) -> None:
                                         applied_at=utcnow()))
 
 
+def _remove_coder_profile(conn) -> None:
+    """Safely retire definitions left on the credential-bearing runner mode.
+
+    Workbench replaced that mode. Mapping an old row to Workbench would grant
+    shell and publishing authority implicitly, so upgrades move it to Standard
+    and disable it until an administrator deliberately reviews and enables it.
+    """
+    from sqlalchemy import func, inspect as sa_inspect
+    if not sa_inspect(conn).has_table("agent_defs"):
+        return
+    mark_t = SchemaMark.__table__
+    if conn.execute(select(mark_t.c.name)
+                    .where(mark_t.c.name == CODER_PROFILE_REMOVAL_MARK)).first():
+        return
+    def_t, ver_t = AgentDef.__table__, AgentVersion.__table__
+    from agentplatform.agentdefs import AgentDefModel, DEF_FIELDS
+    for row in conn.execute(select(def_t).where(def_t.c.role == "coder")).fetchall():
+        updates = {"role": "operator", "enabled": False}
+        if row.name == "platform-coder":
+            updates["responds_to_all"] = False
+        values = {field: getattr(row, field) for field in DEF_FIELDS}
+        snapshot = AgentDefModel(**{**values, **updates}).model_dump(mode="json")
+        conn.execute(def_t.update().where(def_t.c.name == row.name).values(**updates))
+        version = (conn.execute(select(func.max(ver_t.c.version)).where(
+            ver_t.c.agent == row.name)).scalar() or 0) + 1
+        conn.execute(ver_t.insert().values(
+            id=uuid.uuid4().hex, agent=row.name, version=version,
+            snapshot=snapshot, changed_by="platform:coder-profile-removal",
+            changed_via="migration", created_at=utcnow()))
+    # The same string was once also offered as a human/API-key scope. It has no
+    # endpoint allow-list now; explicitly revoke old keys instead of leaving
+    # misleading active credentials in Settings.
+    key_t = ApiKey.__table__
+    conn.execute(key_t.update().where(key_t.c.role == "coder",
+                                      key_t.c.revoked_at.is_(None))
+                 .values(revoked_at=utcnow()))
+    conn.execute(mark_t.insert().values(name=CODER_PROFILE_REMOVAL_MARK,
+                                        applied_at=utcnow()))
+
+
 def _ensure_wiki_gardener_job(conn) -> None:
     """Seed the weekly gardening summons as a ScheduledJob row (docs/design/21).
 
@@ -2806,3 +2847,4 @@ async def init_db(engine: AsyncEngine, default_grant: bool = True,
         await conn.run_sync(_ensure_qa_normal_agent)
         await conn.run_sync(_ensure_qa_nightly_job)
         await conn.run_sync(_ensure_agent_policy_split)
+        await conn.run_sync(_remove_coder_profile)

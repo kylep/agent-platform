@@ -54,7 +54,7 @@ def validate_session_cookie(app, cookie: str | None) -> str | None:
         return None
     return data["principal"]
 
-# Roles. reader/operator/coder/admin are the human/agent scopes; `annotator`
+# Roles. reader/operator/admin are the human scopes; `annotator`
 # is a narrow machine role (read runs + annotate only) for system agents, so a
 # prompt-injected system agent can't mint runs or mutate unrelated state.
 # admin is a superset of every scope. NOTE: role checks are an explicit
@@ -79,17 +79,17 @@ def validate_session_cookie(app, cookie: str | None) -> str | None:
 # that a run gets the Workbench (a clone, a branch, the toolchain, publish) and
 # nothing about which endpoints answer it — like `tools`, it is in NO allow-list
 # below. A dev agent's token is minted by the same ladder as everyone else's.
-ROLES = ("reader", "annotator", "operator", "coder", "admin", "tools", "relay", "dev")
-READ_ROLES = ("reader", "annotator", "operator", "coder")
-ANNOTATE_ROLES = ("annotator", "operator", "coder")
+ROLES = ("reader", "annotator", "operator", "admin", "tools", "relay", "dev")
+READ_ROLES = ("reader", "annotator", "operator")
+ANNOTATE_ROLES = ("annotator", "operator")
 # Who may request a run (POST /api/runs) — humans (operator+) and agents whose
 # injected token is operator-scoped (agent-invokes-agent). `annotator` (the
 # default system-agent role) deliberately can't, so a prompt-injected summarizer
 # can't spawn runs.
-INVOKE_ROLES = ("operator", "coder", "admin")
+INVOKE_ROLES = ("operator", "admin")
 # Who may use the memory API. Agents (annotator+) manage their own namespace;
 # the namespace itself (not the role) is the isolation boundary.
-MEMORY_ROLES = ("annotator", "operator", "coder", "admin")
+MEMORY_ROLES = ("annotator", "operator", "admin")
 
 
 def role_allows(role: str | None, allowed: tuple[str, ...]) -> bool:

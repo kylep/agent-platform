@@ -283,8 +283,7 @@ async def test_a_rows_grants_survive_the_launcher_the_api_and_the_runner(
     def _pod_side():
         runner._install_agent("newsy")
         return (runner._agent_path("newsy").read_text(),
-                runner._permission_args(self_edit=False, has_api_token=True,
-                                        agent="newsy"))
+                runner._permission_args(agent="newsy"))
 
     installed, args = await asyncio.to_thread(_pod_side)
 

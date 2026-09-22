@@ -544,17 +544,14 @@ async def test_a_mixed_change_needs_both_tools(client, sf, seed_agent, agent_sto
     assert (await versions_of(sf, "hello-world"))[-1].changed_via == "tool:agents_grant"
 
 
-async def test_agents_edit_may_not_promote_an_agent_to_coder(client, sf, seed_agent,
-                                                             agent_store):
-    """The sharpest edge of the split. `role: "coder"` is the self-edit rung:
-    the launcher hands that run the GitHub App token and the runner drops its
-    --disallowedTools guard, so Bash/Read (and the mounted Claude token) come
-    with it. An agents_edit-only caller that could set it — and it may already
-    set a cron entrypoint — would break the trifecta on itself."""
+async def test_agents_edit_may_not_promote_an_agent_to_dev(client, sf, seed_agent,
+                                                           agent_store):
+    """Workbench access is a grant because it enables the development toolchain
+    and publishing path; an editorial-only caller may not assign it."""
     await seed_agent("editor", platform_tools=[AGENTS_EDIT])
     await seed_agent("granter", platform_tools=[AGENTS_GRANT])
     await agent_store.reload()
-    promote = a_def("hello-world", description="test", role="coder")
+    promote = a_def("hello-world", description="test", role="dev")
 
     r = await client.put("/api/agents/hello-world", json=promote,
                          headers=await bearer(sf, "editor"))
@@ -566,7 +563,7 @@ async def test_agents_edit_may_not_promote_an_agent_to_coder(client, sf, seed_ag
                          headers=await bearer(sf, "granter"))
     assert r.status_code == 200, r.text
     async with sf() as s:
-        assert (await s.get(AgentDef, "hello-world")).role == "coder"
+        assert (await s.get(AgentDef, "hello-world")).role == "dev"
     assert (await versions_of(sf, "hello-world"))[-1].changed_via == "tool:agents_grant"
 
 
@@ -579,9 +576,14 @@ async def test_agents_edit_may_still_create_an_ordinary_agent(client, sf, seed_a
     h = await bearer(sf, "editor")
     assert (await client.post("/api/agents", json=a_def("ordinary"),
                               headers=h)).status_code == 201
-    r = await client.post("/api/agents", json=a_def("privileged", role="coder"),
+    r = await client.post("/api/agents", json=a_def("privileged", role="dev"),
                           headers=h)
     assert r.status_code == 403 and "role" in r.json()["detail"]
+
+
+async def test_retired_coder_profile_is_rejected(admin_client):
+    r = await admin_client.post("/api/agents", json=a_def("old-editor", role="coder"))
+    assert r.status_code == 422
 
 
 async def test_an_agent_may_not_flip_the_system_flag(client, sf, seed_agent, agent_store):

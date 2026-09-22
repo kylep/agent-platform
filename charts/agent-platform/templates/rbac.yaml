@@ -25,7 +25,7 @@ rules:
   - apiGroups: [""]
     resources: ["serviceaccounts"]
     verbs: ["get", "create"]
-  # Read the github-app secret to mint installation tokens for self-edit runs;
+  # Read the github-app secret for Workbench/config PRs and PR summaries;
   # create/update the app-<name>-db / app-<name>-key secrets the app
   # provisioner materializes from apps/<name>/app.yaml (docs/design/11).
   - apiGroups: [""]

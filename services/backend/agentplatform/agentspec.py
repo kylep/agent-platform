@@ -132,7 +132,7 @@ def platform_token_role(tools: list[str]) -> str | None:
 # A test asserts this covers AVAILABLE_TOOLS exactly — a tool cannot be added
 # without explaining what turning it on actually does. `sensitive: True`
 # marks the runner's always-denied set: declaring those does NOTHING for a
-# normal agent (they are self-edit only — the trifecta break, design/08).
+# standard agent (they are Workbench-only — the trifecta break, design/24).
 # `dev_only: True` marks the grant a `role: dev` run alone can use: the runner
 # filters it out of every other run with the sensitive set, so declaring it
 # elsewhere does nothing either.

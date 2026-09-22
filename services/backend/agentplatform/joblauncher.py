@@ -17,7 +17,7 @@ class K8sJobLauncher(Launcher):
     # but our own broker/API, and the kubelet rotates it automatically.
     IDENTITY_AUDIENCE = "agent-platform"
 
-    def __init__(self, batch, settings, github_app=None, session_factory=None, skill_store=None,
+    def __init__(self, batch, settings, session_factory=None, skill_store=None,
                  agent_store=None, core=None, secret_store=None):
         self.batch = batch
         self.core = core
@@ -25,10 +25,6 @@ class K8sJobLauncher(Launcher):
         # For the run-JWT signing key (design/13 C); generated on first use.
         self.secret_store = secret_store
         self._runjwt_private: str | None = None
-        # When set, coder-role runs are launched as self-edits: the runner
-        # clones the repo, lets the agent edit it, and opens a PR using a
-        # freshly minted App installation token.
-        self.github_app = github_app
         self.sf = session_factory
         # Resolves an agent's skills → the secrets it may be bound. When set, a
         # pod gets exactly the union of its manifest + skill secrets (and the
@@ -59,15 +55,10 @@ class K8sJobLauncher(Launcher):
             await s.commit()
         return token
 
-    def _is_self_edit(self, manifest: Manifest) -> bool:
-        return (manifest.role == "coder" and self.github_app is not None
-                and bool(self.settings.git_remote_url) and bool(self.settings.github_repo))
-
     def _is_dev(self, manifest: Manifest) -> bool:
         """The Workbench profile (docs/design/24). Keyed on the role alone:
-        unlike a self-edit it needs no GitHub App, because the pod is handed no
-        repository credential — its clone is anonymous and its one way out is
-        the API's publish route, which holds the App."""
+        the pod is handed no repository credential — its clone is anonymous
+        and its one way out is the API's publish route, which holds the App."""
         return manifest.role == "dev"
 
     def _platform_token_role(self, manifest: Manifest) -> str | None:
@@ -150,8 +141,8 @@ class K8sJobLauncher(Launcher):
                     names.append(s)
         return names
 
-    def build_job(self, run: Run, manifest: Manifest, self_edit_token: str | None = None,
-                  api_token: str | None = None, sa_identity: str | None = None,
+    def build_job(self, run: Run, manifest: Manifest, api_token: str | None = None,
+                  sa_identity: str | None = None,
                   run_token: str | None = None, pod_sa: str | None = None,
                   session_token: str | None = None, dev: bool = False) -> k8s.V1Job:
         name = f"run-{run.id[:12]}"
@@ -200,14 +191,6 @@ class K8sJobLauncher(Launcher):
                 # Sender-constrained run JWT (design/13 C): proves WHICH run
                 # with a frozen grant set, useless without this pod's SA.
                 env.append(k8s.V1EnvVar(name="AP_RUN_TOKEN", value=run_token))
-        if self_edit_token:
-            env += [
-                k8s.V1EnvVar(name="AP_SELF_EDIT", value="1"),
-                k8s.V1EnvVar(name="AP_GIT_REMOTE_URL", value=self.settings.git_remote_url),
-                k8s.V1EnvVar(name="AP_GITHUB_REPO", value=self.settings.github_repo),
-                k8s.V1EnvVar(name="AP_DEFAULT_BRANCH", value=self.settings.default_branch),
-                k8s.V1EnvVar(name="AP_GITHUB_TOKEN", value=self_edit_token),
-            ]
         if dev:
             # The Workbench (docs/design/24): the remote URL is for an ANONYMOUS
             # clone, and no AP_GITHUB_TOKEN / AP_SELF_EDIT ever joins it — the
@@ -260,7 +243,7 @@ class K8sJobLauncher(Launcher):
         # Tighten the runner's cage: non-root, no privilege escalation, all
         # Linux capabilities dropped, and a READ-ONLY root filesystem — the only
         # writable paths are three explicit emptyDirs (the CLI writes $HOME/.claude,
-        # clones self-edits to /workspace, and uses /tmp). A compromised agent
+        # uses /workspace for Workbench checkouts, and uses /tmp). A compromised agent
         # can't tamper with binaries or persist onto the root fs.
         volume_mounts = [
             k8s.V1VolumeMount(name="agents", mount_path="/agents", read_only=True),
@@ -442,9 +425,6 @@ class K8sJobLauncher(Launcher):
         # bindings reflect the current definitions.
         if self.skill_store is not None:
             self.skill_store.reload()
-        token = None
-        if self._is_self_edit(manifest):
-            token = await asyncio.to_thread(self.github_app.installation_token)
         api_token = None
         sa_identity = None
         if self.sf:
@@ -493,7 +473,7 @@ class K8sJobLauncher(Launcher):
                     tools=self._frozen_tools(manifest), sa_name=sa_identity,
                     timeout_seconds=manifest.timeout_seconds
                         or self.settings.run_timeout_seconds)
-        job = self.build_job(run, manifest, self_edit_token=token, api_token=api_token,
+        job = self.build_job(run, manifest, api_token=api_token,
                              sa_identity=sa_identity, run_token=run_token, pod_sa=pod_sa,
                              session_token=session_token, dev=self._is_dev(manifest))
         await self._audit_secret_access(run, manifest)

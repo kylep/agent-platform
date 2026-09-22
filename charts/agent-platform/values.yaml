@@ -215,8 +215,8 @@ env:
   AP_GLOBAL_CONCURRENCY: "3"
   AP_RUN_TIMEOUT_SECONDS: "1800"
   AP_AGENTS_VOLUME_CLAIM: "agent-definitions"
-  # Self-hosting git target (M2). Empty git_remote_url disables self-edit.
-  # The push/PR credential is the `github-token` secret (key: token).
+  # Repository target for Workbench publishing and reviewed config edits.
+  # Empty disables those flows; the API obtains its credential from github-app.
   AP_GIT_REMOTE_URL: ""
   AP_GITHUB_REPO: ""
   AP_DEFAULT_BRANCH: "main"

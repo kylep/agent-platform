@@ -50,14 +50,12 @@ async def integrations(request: Request):
                     configured_msg="Token set. Enable the connector (helm) and mention the bot to confirm.",
                     missing="Set the discord-bot secret, then enable the connector."))
 
-    # GitHub App (self-edit / PRs) — working if a self-edit run succeeded lately.
-    gha_active = await count(
-        select(func.count()).select_from(Run)
-        .where(Run.trigger == "self-edit", Run.state == RunState.SUCCEEDED,
-               Run.created_at >= now - timedelta(days=7))) > 0
-    out.append(_row("GitHub App", "git", ["github-app"], await present("github-app"), gha_active,
-                    working="Opened a self-edit PR within the last 7d.",
-                    configured_msg="Configured — no recent self-edit runs to confirm it.",
-                    missing="Set the github-app secret to enable PR-based self-edits."))
+    # GitHub App backs API-side Workbench/config publishing and PR summaries.
+    # A successful agent run does not prove that a PR was pushed, so report the
+    # credential's configuration state rather than inventing an activity proxy.
+    out.append(_row("GitHub App", "git", ["github-app"], await present("github-app"), False,
+                    working="GitHub App is configured.",
+                    configured_msg="Configured for Workbench publishing, config PRs, and PR summaries.",
+                    missing="Set the github-app secret to enable repository publishing."))
 
     return out

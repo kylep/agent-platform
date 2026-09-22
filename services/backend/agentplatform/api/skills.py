@@ -113,9 +113,9 @@ async def skill_wizard(request: Request, body: SkillWizardIn,
     if st.skill_store.get(body.name) is not None:
         raise HTTPException(409, "a skill with this name already exists")
     await st.agent_store.reload()
-    coder = st.agent_store.get("engineer")
-    if (coder is None or coder.error is not None or not coder.enabled
-            or coder.manifest.role != "dev"):
+    engineer = st.agent_store.get("engineer")
+    if (engineer is None or engineer.error is not None or not engineer.enabled
+            or engineer.manifest.role != "dev"):
         raise HTTPException(409, "engineer Workbench is unavailable")
     scope = f"`skills/{body.name}/`"
     secret_part = ""

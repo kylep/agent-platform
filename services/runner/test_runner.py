@@ -166,93 +166,6 @@ def test_kafka_wrapper_constructible_outside_event_loop():
     assert w._p is None
 
 
-import subprocess
-import pytest
-
-
-def _git(cwd, *a):
-    subprocess.run(["git", "-C", str(cwd), *a], check=True, capture_output=True, text=True)
-
-
-def test_title_takes_first_nonblank_line():
-    assert runner._title("\n  Add a greeting\nmore\n") == "Add a greeting"
-    assert runner._title("   ") == "edit"
-    assert len(runner._title("x" * 200)) == 60
-
-
-@pytest.fixture
-def bare_and_clone(tmp_path):
-    bare = tmp_path / "origin.git"
-    _git(tmp_path, "init", "--bare", "-b", "main", "-q", str(bare))
-    seed = tmp_path / "seed"
-    _git(tmp_path, "clone", "-q", str(bare), str(seed))
-    _git(seed, "config", "user.email", "s@s"); _git(seed, "config", "user.name", "s")
-    (seed / "agents" / "demo").mkdir(parents=True)
-    (seed / "agents" / "demo" / "agent.md").write_text("demo\n")
-    _git(seed, "add", "-A"); _git(seed, "commit", "-qm", "init"); _git(seed, "push", "-q", "origin", "main")
-    clone = tmp_path / "clone"
-    _git(tmp_path, "clone", "-q", str(bare), str(clone))
-    return bare, clone
-
-
-def test_target_block_from_status():
-    assert runner._target_block(" M agents/demo/agent.md\n?? other.txt") == ("agent", "demo")
-    assert runner._target_block("?? skills/linear/SKILL.md") == ("skill", "linear")
-    assert runner._target_block("?? secrets/linear-api-key/secret.yaml") == ("secret", "linear-api-key")
-    # skill + its secret (the New-Skill wizard) → the SKILL's branch, even
-    # though git status lists secrets/ first alphabetically
-    assert runner._target_block(
-        "?? secrets/linear-api-key/secret.yaml\n?? skills/linear/SKILL.md"
-    ) == ("skill", "linear")
-    # an agent edit outranks both
-    assert runner._target_block(
-        "?? secrets/x/secret.yaml\n M agents/demo/agent.md\n?? skills/y/SKILL.md"
-    ) == ("agent", "demo")
-    assert runner._target_block(" M services/x.py") is None
-
-
-def test_self_edit_publish_uses_per_agent_branch(bare_and_clone, monkeypatch):
-    bare, clone = bare_and_clone
-    monkeypatch.setenv("AP_GITHUB_TOKEN", "ghs_x")
-    monkeypatch.setenv("AP_GITHUB_REPO", "o/r")
-    calls = {}
-    monkeypatch.setattr(runner, "_open_or_find_pr",
-                        lambda branch, run_id, prompt: calls.update(branch=branch) or {"number": 7, "url": "u"})
-    (clone / "agents" / "demo" / "agent.md").write_text("demo improved\n")
-    env = {**os.environ}   # local remote needs no real auth
-    res = runner.self_edit_publish(clone, env, "abcd1234efgh", "platform-coder", "improve demo")
-    # deterministic branch derived from the edited agent, not the run id
-    assert res["changed"] and res["branch"] == "coder/agent-demo" and res["target"] == "demo"
-    assert res["pr"] == {"number": 7, "url": "u"} and calls["branch"] == "coder/agent-demo"
-    out = subprocess.run(["git", "-C", str(bare), "branch", "--format=%(refname:short)"],
-                         capture_output=True, text=True, check=True).stdout
-    assert "coder/agent-demo" in out.split()
-
-
-def test_self_edit_publish_wizard_skill_lands_on_skill_branch(bare_and_clone, monkeypatch):
-    # The New-Skill wizard's coder run touches skills/<name>/ + secrets/<name>/ —
-    # the PR must land on coder/skill-<name>, not the authoring agent's branch.
-    bare, clone = bare_and_clone
-    monkeypatch.setenv("AP_GITHUB_TOKEN", "ghs_x")
-    monkeypatch.setenv("AP_GITHUB_REPO", "o/r")
-    monkeypatch.setattr(runner, "_open_or_find_pr",
-                        lambda branch, run_id, prompt: {"number": 8, "url": "u"})
-    (clone / "skills" / "linear").mkdir(parents=True)
-    (clone / "skills" / "linear" / "SKILL.md").write_text("linear\n")
-    (clone / "secrets" / "linear-api-key").mkdir(parents=True)
-    (clone / "secrets" / "linear-api-key" / "secret.yaml").write_text("name: linear-api-key\n")
-    res = runner.self_edit_publish(clone, {**os.environ}, "abcd1234efgh",
-                                   "platform-coder", "Create a new skill `linear`")
-    assert res["changed"] and res["branch"] == "coder/skill-linear" and res["target"] == "linear"
-
-
-def test_self_edit_publish_noop_when_no_change(bare_and_clone, monkeypatch):
-    bare, clone = bare_and_clone
-    monkeypatch.setattr(runner, "_open_or_find_pr", lambda *a, **k: pytest.fail("should not open PR"))
-    res = runner.self_edit_publish(clone, {**os.environ}, "abcd1234", "platform-coder", "noop")
-    assert res == {"changed": False}
-
-
 def _installed(tmp_path, monkeypatch, name, agent_md, home=None):
     """Put an already-rendered definition where `_install_agent` would have
     written it, so the flag tests exercise the parser/permission seam alone."""
@@ -274,7 +187,7 @@ def test_agent_tools_parses_the_installed_definition(tmp_path, monkeypatch):
 def test_permission_args_credential_less_agent_is_least_privilege(tmp_path, monkeypatch):
     _installed(tmp_path, monkeypatch, "news",
                "---\nname: news\ntools: WebSearch, WebFetch\n---\nbody")
-    args = runner._permission_args(self_edit=False, has_api_token=False, agent="news")
+    args = runner._permission_args(agent="news")
     # Web tools pre-approved; Bash/Read/etc stripped from context; no bypass.
     assert "--allowedTools" in args and "WebSearch" in args and "WebFetch" in args
     assert "--disallowedTools" in args and "Bash" in args and "Read" in args
@@ -285,29 +198,25 @@ def test_permission_args_no_agent_bypass_even_with_token(tmp_path, monkeypatch):
     # No bypassPermissions for a token-bearing agent — scoped like everyone else.
     _installed(tmp_path, monkeypatch, "mon",
                "---\nname: mon\ntools: mcp__platform__runs_read\n---\nbody")
-    args = runner._permission_args(self_edit=False, has_api_token=True, agent="mon")
+    args = runner._permission_args(agent="mon")
     assert "bypassPermissions" not in args
     assert args[:2] == ["--allowedTools", "mcp__platform__runs_read"]
     assert "--disallowedTools" in args and "Bash" in args and "Read" in args
 
 
-def test_permission_args_declared_bash_is_stripped_for_non_selfedit(tmp_path, monkeypatch):
-    """The trifecta-break is enforced, not merely conventional: a non-self-edit
+def test_permission_args_declared_bash_is_stripped_for_standard_run(tmp_path, monkeypatch):
+    """The trifecta-break is enforced, not merely conventional: a standard
     agent that DECLARES a token-reading tool still doesn't get it. Otherwise a
     mis-declared (or injection-altered) definition could hand a web agent Bash
     and let it read the mounted Claude token."""
     _installed(tmp_path, monkeypatch, "sneaky",
                "---\nname: sneaky\ntools: WebFetch, Bash, Read\n---\nbody")
-    args = runner._permission_args(self_edit=False, has_api_token=False, agent="sneaky")
+    args = runner._permission_args(agent="sneaky")
     allowed = args[args.index("--allowedTools") + 1:args.index("--disallowedTools")]
     assert "WebFetch" in allowed
     assert "Bash" not in allowed and "Read" not in allowed          # declared, still stripped
     disallowed = args[args.index("--disallowedTools") + 1:]
     assert "Bash" in disallowed and "Read" in disallowed
-
-
-def test_permission_args_selfedit():
-    assert runner._permission_args(True, False, "x") == ["--permission-mode", "acceptEdits"]
 
 
 # --- DB-first definition delivery (docs/design/15) -------------------------
@@ -400,7 +309,7 @@ def test_install_agent_omits_the_tools_line_when_nothing_is_granted(tmp_path, mo
     text = (tmp_path / ".claude" / "agents" / "newsy.md").read_text()
     assert "tools:" not in text
     assert runner._agent_tools("newsy") == []
-    args = runner._permission_args(self_edit=False, has_api_token=False, agent="newsy")
+    args = runner._permission_args(agent="newsy")
     assert "--allowedTools" not in args
     assert args[0] == "--disallowedTools" and "Bash" in args     # still hard-denied
 
@@ -416,7 +325,7 @@ def test_a_fetched_grant_is_filtered_the_same_way_a_file_one_was(tmp_path, monke
     runner._install_agent("twin")
     assert runner._agent_tools("twin") == ["WebFetch", "Bash",
                                            "mcp__platform__runs_read"]
-    args = runner._permission_args(self_edit=False, has_api_token=True, agent="twin")
+    args = runner._permission_args(agent="twin")
     allowed = args[args.index("--allowedTools") + 1:args.index("--disallowedTools")]
     assert allowed == ["WebFetch", "mcp__platform__runs_read"]
     assert "Bash" in args[args.index("--disallowedTools") + 1:]
@@ -503,7 +412,7 @@ def test_install_agent_drops_grant_tokens_that_arent_tool_names(tmp_path, monkey
         platform_tools=["mcp__platform__memory", "mcp__x__y --flag"]))
     runner._install_agent("newsy")
     assert runner._agent_tools("newsy") == ["WebFetch", "mcp__platform__memory"]
-    args = runner._permission_args(self_edit=False, has_api_token=False, agent="newsy")
+    args = runner._permission_args(agent="newsy")
     allowed = args[args.index("--allowedTools") + 1:args.index("--disallowedTools")]
     assert allowed == ["WebFetch", "mcp__platform__memory"]
 
@@ -628,7 +537,7 @@ def test_permission_args_dev_case_pinned(tmp_path, monkeypatch):
     as a tool name."""
     _installed(tmp_path, monkeypatch, "engineer",
                "---\nname: engineer\ntools: Glob, Grep, mcp__platform__relay\n---\nbody")
-    args = runner._permission_args(self_edit=False, has_api_token=True, agent="engineer", dev=True)
+    args = runner._permission_args(agent="engineer", dev=True)
     assert args == ["--permission-mode", "acceptEdits", "--strict-mcp-config",
                     "--allowedTools", "Bash", "Read", "Edit", "Write", "NotebookEdit",
                     "Glob", "Grep", "mcp__platform__relay", "mcp__platform__*"]
@@ -636,13 +545,12 @@ def test_permission_args_dev_case_pinned(tmp_path, monkeypatch):
 
 
 def test_permission_args_dev_default_is_off(tmp_path, monkeypatch):
-    """The three existing cases are byte-for-byte what they were: `dev` defaults
+    """The standard case remains least-privileged: `dev` defaults
     to False and the sensitive set stays denied for a non-dev run."""
     _installed(tmp_path, monkeypatch, "news", "---\nname: news\ntools: WebFetch\n---\nbody")
-    assert runner._permission_args(False, False, "news") == [
+    assert runner._permission_args("news") == [
         "--allowedTools", "WebFetch", "--disallowedTools", *runner._SENSITIVE_TOOLS]
     assert runner._SENSITIVE_TOOLS == ["Bash", "Read", "Edit", "Write", "NotebookEdit"]
-    assert runner._permission_args(True, False, "x", dev=True) == ["--permission-mode", "acceptEdits"]
 
 
 _DEV_SHELL_TOOLS = ["Bash", "Read", "Edit", "Write", "NotebookEdit", "Glob", "Grep"]
@@ -691,7 +599,7 @@ def test_install_agent_dev_writes_the_shell_tools_and_the_flags_do_not_double(tm
         platform_tools=["mcp__platform__relay"]))
     runner._install_agent("engineer", dev=True)
     assert runner._agent_tools("engineer") == [*_DEV_SHELL_TOOLS, "mcp__platform__relay"]
-    args = runner._permission_args(self_edit=False, has_api_token=True, agent="engineer", dev=True)
+    args = runner._permission_args(agent="engineer", dev=True)
     assert args == ["--permission-mode", "acceptEdits", "--strict-mcp-config",
                     "--allowedTools", *_DEV_SHELL_TOOLS, "mcp__platform__relay",
                     "mcp__platform__*"]
@@ -705,7 +613,6 @@ def _dev_env(monkeypatch, tmp_path, fake_body):
     monkeypatch.setenv("AP_SECRETS_DIR", str(creds))
     monkeypatch.delenv("AP_CLAUDE_PROXY_URL", raising=False)
     monkeypatch.delenv("AP_USER_MESSAGE", raising=False)
-    monkeypatch.delenv("AP_SELF_EDIT", raising=False)
     monkeypatch.setenv("AP_RUN_ID", "RID"); monkeypatch.setenv("AP_AGENT", "engineer")
     monkeypatch.setenv("AP_PROMPT", "<ticket>ENG-12</ticket>\nWork the ticket.")
     monkeypatch.setenv("CLAUDE_BIN", str(fake))
@@ -967,7 +874,7 @@ def test_permission_args_dev_with_the_grant_appends_the_pattern(tmp_path, monkey
         name="qa", harness_tools=["Glob", "Grep", "PlaywrightMCP"],
         platform_tools=["mcp__platform__tickets"]))
     runner._install_agent("qa", dev=True)
-    args = runner._permission_args(self_edit=False, has_api_token=True, agent="qa", dev=True)
+    args = runner._permission_args(agent="qa", dev=True)
     assert args == ["--permission-mode", "acceptEdits", "--strict-mcp-config",
                     "--allowedTools", *_DEV_SHELL_TOOLS, "mcp__platform__tickets",
                     "mcp__platform__*", "mcp__playwright__*"]
@@ -975,7 +882,7 @@ def test_permission_args_dev_with_the_grant_appends_the_pattern(tmp_path, monkey
     monkeypatch.setattr(runner, "_api_req", lambda m, p, body=None: _payload(
         name="eng", harness_tools=["Glob", "Grep"], platform_tools=["mcp__platform__tickets"]))
     runner._install_agent("eng", dev=True)
-    args = runner._permission_args(self_edit=False, has_api_token=True, agent="eng", dev=True)
+    args = runner._permission_args(agent="eng", dev=True)
     assert args == ["--permission-mode", "acceptEdits", "--strict-mcp-config",
                     "--allowedTools", *_DEV_SHELL_TOOLS, "mcp__platform__tickets",
                     "mcp__platform__*"]
@@ -988,12 +895,12 @@ def test_permission_args_non_dev_strips_the_grant_like_the_sensitive_set(tmp_pat
     the server is never started)."""
     _installed(tmp_path, monkeypatch, "sneaky",
                "---\nname: sneaky\ntools: WebFetch, PlaywrightMCP, mcp__playwright__*, Bash\n---\nbody")
-    args = runner._permission_args(self_edit=False, has_api_token=False, agent="sneaky")
+    args = runner._permission_args(agent="sneaky")
     assert args == ["--allowedTools", "WebFetch", "--disallowedTools", *runner._SENSITIVE_TOOLS]
     assert runner._SENSITIVE_TOOLS == ["Bash", "Read", "Edit", "Write", "NotebookEdit"]
     # A non-dev row that holds ONLY the grant pre-approves nothing at all.
     _installed(tmp_path, monkeypatch, "only", "---\nname: only\ntools: PlaywrightMCP\n---\nbody")
-    assert runner._permission_args(False, False, "only") == [
+    assert runner._permission_args("only") == [
         "--disallowedTools", *runner._SENSITIVE_TOOLS]
 
 

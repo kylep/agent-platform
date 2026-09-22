@@ -1,5 +1,4 @@
-import asyncio, base64, hashlib, json, mimetypes, os, re, shutil, stat, subprocess, sys, tempfile, time, uuid
-import urllib.error
+import asyncio, base64, hashlib, json, mimetypes, os, re, shutil, subprocess, sys, tempfile, time, uuid
 import urllib.parse
 import urllib.request
 from datetime import datetime, timezone
@@ -8,7 +7,8 @@ from aiokafka import AIOKafkaProducer
 
 # Tools that can read the pod's mounted Claude token (/secrets/claude/token),
 # read other secrets, or run arbitrary code. These are the tools that could
-# turn any agent into a token-exfil vector, so they are **self-edit-only**.
+# turn any standard agent into a token-exfil vector, so they are available
+# only inside the credential-free Workbench profile.
 _SENSITIVE_TOOLS = ["Bash", "Read", "Edit", "Write", "NotebookEdit"]
 
 # What a dev run's agent file enables besides its grants — the same fixed list
@@ -37,26 +37,20 @@ NO_WEB_LOGIN = "no web login — browser tools off"
 _HOST_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9.-]{0,252}$")
 _LOOPBACK = ("localhost", "127.0.0.1")
 
-def _permission_args(self_edit: bool, has_api_token: bool, agent: str,
-                     dev: bool = False) -> list[str]:
-    """The claude permission flags for a run. Self-edit auto-accepts edits; every
-    other agent — trusted or not — gets ONLY its declared tools unattended
+def _permission_args(agent: str, dev: bool = False) -> list[str]:
+    """The claude permission flags for a run. Every standard agent — trusted
+    or not — gets ONLY its declared tools unattended
     (`--allowedTools`), and the sensitive/token-reading tools are ALWAYS denied
     (`--disallowedTools`), even if the manifest declares them.
 
     Denying them unconditionally (rather than only when undeclared) is what
     hard-enforces the trifecta break: the shared Claude token is mounted in
     every runner pod, so if a manifest — mis-configured, or altered by a
-    prompt-injected self-edit — could grant Bash/Read to a web-facing agent,
+    prompt-injected editor — could grant Bash/Read to a web-facing agent,
     that agent (untrusted input + open egress) could read and exfiltrate the
-    token. Making Bash/Read/Edit/Write self-edit-only removes that path by
+    token. Making Bash/Read/Edit/Write Workbench-only removes that path by
     construction, no matter what the tool list says. No blanket
     `bypassPermissions` anywhere."""
-    if self_edit:
-        # Headless runs can't approve tool use interactively; auto-accept file
-        # edits so the agent can actually modify the clone. Safe because the
-        # work is an ephemeral sandbox and every change lands as a reviewable PR.
-        return ["--permission-mode", "acceptEdits"]
     if dev:
         # A dev run (docs/design/24) is the other shell-capable profile, and
         # the reason it is safe is the POD, not the flags: no App token, no
@@ -513,104 +507,6 @@ def _install_skills(runtime: str = "claude") -> None:
         if src.is_dir():
             shutil.copytree(src, dst_root / name, dirs_exist_ok=True)
 
-# --- self-edit (coder) support -------------------------------------------
-
-def _git_env() -> dict:
-    """Env that feeds the App token to git via GIT_ASKPASS — the token never
-    appears in a URL, argv, or subprocess error/log."""
-    d = Path(tempfile.mkdtemp())
-    askpass = d / "askpass.sh"
-    askpass.write_text('#!/bin/sh\nprintf "%s" "$AP_GIT_TOKEN"\n')
-    askpass.chmod(stat.S_IRWXU)
-    return {**os.environ, "AP_GIT_TOKEN": os.environ["AP_GITHUB_TOKEN"],
-            "GIT_ASKPASS": str(askpass), "GIT_TERMINAL_PROMPT": "0"}
-
-def _clone_url() -> str:
-    # username-only https URL; the password (token) comes from GIT_ASKPASS.
-    return os.environ["AP_GIT_REMOTE_URL"].replace("https://", "https://x-access-token@", 1)
-
-def _title(prompt: str) -> str:
-    first = next((l for l in prompt.strip().splitlines() if l.strip()), "edit")
-    return first.strip()[:60]
-
-def self_edit_clone(repo_dir: Path, env: dict) -> None:
-    subprocess.run(["git", "clone", "--depth", "1", _clone_url(), str(repo_dir)],
-                   check=True, env=env, capture_output=True, text=True)
-
-def _gh(method: str, path: str, body: dict | None = None):
-    repo = os.environ["AP_GITHUB_REPO"]
-    data = json.dumps(body).encode() if body is not None else None
-    req = urllib.request.Request(f"https://api.github.com/repos/{repo}{path}",
-                                 method=method, data=data)
-    req.add_header("Authorization", f"Bearer {os.environ['AP_GITHUB_TOKEN']}")
-    req.add_header("Accept", "application/vnd.github+json")
-    req.add_header("X-GitHub-Api-Version", "2022-11-28")
-    with urllib.request.urlopen(req) as r:
-        return json.load(r)
-
-def _open_or_find_pr(branch: str, run_id: str, prompt: str) -> dict:
-    base = os.environ.get("AP_DEFAULT_BRANCH", "main")
-    try:
-        d = _gh("POST", "/pulls", {
-            "head": branch, "base": base, "title": f"platform-coder: {_title(prompt)}",
-            "body": f"Automated edit by platform-coder (run `{run_id}`).\n\nInstruction:\n\n> {prompt}"})
-    except urllib.error.HTTPError as e:
-        if e.code != 422:  # 422 = a PR already exists for this (force-updated) branch
-            raise
-        owner = os.environ["AP_GITHUB_REPO"].split("/")[0]
-        found = _gh("GET", f"/pulls?state=open&head={owner}:{branch}")
-        if not found:
-            raise
-        d = found[0]
-    return {"number": d["number"], "url": d["html_url"]}
-
-_BLOCK_KINDS = {"agents": "agent", "skills": "skill", "secrets": "secret",
-                "reports": "report", "tools": "tool"}
-
-
-def _target_block(status: str) -> tuple[str, str] | None:
-    """(kind, name) of the building block the change targets, from the changed
-    paths. A change spanning kinds (a new skill + the secret it declares)
-    belongs to the highest-precedence kind — agent > skill > secret > report —
-    NOT the first path in the status, which git sorts alphabetically (secrets/
-    would beat skills/)."""
-    found: dict[str, str] = {}
-    for line in status.splitlines():
-        parts = line[3:].strip().split("/")
-        if len(parts) >= 2 and parts[0] in _BLOCK_KINDS and parts[1]:
-            found.setdefault(_BLOCK_KINDS[parts[0]], parts[1])
-    for kind in ("agent", "skill", "tool", "secret", "report"):
-        if kind in found:
-            return kind, found[kind]
-    return None
-
-def self_edit_publish(repo_dir: Path, env: dict, run_id: str, agent: str, prompt: str) -> dict:
-    """Commit the agent's edits to the target block's deterministic branch
-    (coder/agent-<name>, coder/skill-<name>, coder/tool-<name>, …), force-push,
-    and open (or update) its PR. Freeform edits always go through a PR; one
-    open PR per block. Edits outside the blocks fall back to the running
-    agent's own branch."""
-    def git(*a):
-        return subprocess.run(["git", "-C", str(repo_dir), *a],
-                              check=True, env=env, capture_output=True, text=True).stdout
-    # -uall lists untracked FILES; the default collapses a brand-new directory
-    # to `?? skills/`, hiding the block name the branch is derived from.
-    status = git("status", "--porcelain", "-uall")
-    if not status.strip():
-        return {"changed": False}
-    kind, target = _target_block(status) or ("agent", agent)
-    branch = f"coder/{kind}-{target}"
-    git("checkout", "-b", branch)
-    git("add", "-A")
-    git("-c", "user.name=platform-coder", "-c",
-        "user.email=platform-coder@agent-platform.local", "commit", "-m",
-        f"platform-coder: {_title(prompt)}")
-    git("push", "origin", f"+HEAD:{branch}")   # force → overwrite the per-agent branch
-    return {"changed": True, "branch": branch, "target": target,
-            "pr": _open_or_find_pr(branch, run_id, prompt)}
-
-# -------------------------------------------------------------------------
-
 # --- conversation session resume (docs/design/14) --------------------------
 # A conversation turn restores the Claude CLI session blob from the platform,
 # resumes it (full fidelity + prompt-cache hits), and uploads the updated blob.
@@ -736,7 +632,6 @@ async def _run(producer, run_id: str, agent: str, prompt: str) -> int:
     # The producer comes up BEFORE the definition is installed: a pod with no
     # definition has to report that, and it can only report over Kafka.
     await producer.start()
-    self_edit = os.environ.get("AP_SELF_EDIT") == "1"
     dev = os.environ.get("AP_WORKSPACE") == "dev"
     try:
         definition = _install_agent(agent, dev=dev)
@@ -751,12 +646,7 @@ async def _run(producer, run_id: str, agent: str, prompt: str) -> int:
     wb = None
     block = ""
     playwright_state = None
-    if self_edit:
-        git_env = _git_env()
-        repo_dir = Path("/workspace/repo")
-        await asyncio.to_thread(self_edit_clone, repo_dir, git_env)
-        cwd = str(repo_dir)
-    elif dev:
+    if dev:
         # The dev run (docs/design/24): an anonymous clone the agent works in,
         # published as a bundle after a clean exit. Not being able to prepare
         # it is the same kind of failure as having no definition — nothing to
@@ -817,7 +707,7 @@ async def _run(producer, run_id: str, agent: str, prompt: str) -> int:
         try:
             if not os.environ.get("AP_CODEX_PROXY_URL"):
                 codex_auth, codex_auth_hash = _install_codex_auth(run_id)
-            _write_codex_config(dev or self_edit, definition.get("prompt") or "",
+            _write_codex_config(dev, definition.get("prompt") or "",
                                 playwright_state)
         except Exception as e:
             return await _abort(producer, run_id, f"codex credential unavailable: {e}")
@@ -837,7 +727,7 @@ async def _run(producer, run_id: str, agent: str, prompt: str) -> int:
         common = ["--output-format", "stream-json", "--verbose"]
         if os.environ.get("AP_MODEL"):
             common += ["--model", os.environ["AP_MODEL"]]
-        common += _permission_args(self_edit, bool(os.environ.get("AP_API_TOKEN")), agent, dev=dev)
+        common += _permission_args(agent, dev=dev)
         if dev:
             turns = os.environ.get("AP_MAX_TURNS", "")
             common += ["--max-turns", turns if turns.isdigit() else "200"]
@@ -933,22 +823,9 @@ async def _run(producer, run_id: str, agent: str, prompt: str) -> int:
                                 "is_error": False})
     state = "succeeded" if rc == 0 else "failed"
 
-    # On a successful self-edit run, open a PR for whatever the agent changed.
-    if self_edit and rc == 0:
-        try:
-            result = await asyncio.to_thread(self_edit_publish, Path(cwd), git_env, run_id, agent, prompt)
-            seq += 1
-            await producer.publish(TOPIC_TRANSCRIPT, run_id,
-                                   {"seq": seq, "type": "self_edit", **result})
-        except Exception as e:
-            seq += 1
-            await producer.publish(TOPIC_TRANSCRIPT, run_id,
-                                   {"seq": seq, "type": "self_edit", "error": str(e)})
-            state = "failed"
-
     # On a successful dev run, hand the branch to the platform as a bundle. The
     # result — published, refused, or nothing to publish — is a frame the run
-    # page shows; a finalize that blows up fails the run the way self_edit does.
+    # page shows; a finalize that blows up fails the run.
     if dev and rc == 0:
         try:
             result = await asyncio.to_thread(workbench.finalize, Path(cwd), wb, git_env,

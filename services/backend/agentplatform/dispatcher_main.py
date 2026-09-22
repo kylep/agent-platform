@@ -41,8 +41,7 @@ def _load_k8s_config() -> None:
 
 
 def _load_github_app(core, namespace: str) -> GitHubApp | None:
-    """Build a GitHubApp from the `github-app` secret so coder runs can open
-    PRs. Returns None if the secret is absent or incomplete (self-edit off)."""
+    """Load the App used by the dispatcher-side pending-change summarizer."""
     try:
         sec = core.read_namespaced_secret("github-app", namespace)
     except ApiException as e:
@@ -63,8 +62,6 @@ async def main() -> None:
     batch = k8s.BatchV1Api()
     core = k8s.CoreV1Api()
     github_app = _load_github_app(core, settings.k8s_namespace)
-    log.info("self-edit %s", "enabled (github-app loaded)" if github_app else "disabled")
-
     engine = make_engine(settings.db_url)
     await init_db(engine, settings.relay_default_grant,
                   settings.tickets_default_grant, settings.wiki_default_grant,
@@ -84,7 +81,7 @@ async def main() -> None:
     agent_store = AgentStore(session_factory)
     await agent_store.reload()
     skill_store = SkillStore(settings.skills_root)
-    launcher = K8sJobLauncher(batch, settings, github_app=github_app,
+    launcher = K8sJobLauncher(batch, settings,
                               session_factory=session_factory, skill_store=skill_store,
                               agent_store=agent_store, core=core,
                               secret_store=K8sSecretStore(core, settings.k8s_namespace))
@@ -115,8 +112,7 @@ async def main() -> None:
     # connector ingest, because both are consumers that materialize work.
     relay_router = RelayRouter(settings, session_factory, producer, agent_store)
 
-    # Auto AI summaries on pending changes: needs the GitHub App (comments)
-    # and only makes sense when self-edit is configured.
+    # Auto AI summaries on pending changes need the GitHub App to comment.
     def _gh_client():
         if github_app is None or not settings.github_repo:
             return None

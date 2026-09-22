@@ -328,7 +328,7 @@ spec:
 # External HTTPS on 443: the k8s API server (in-cluster ClusterIP :443, for
 # dispatcher job creation + api secret access), the Anthropic API (claude-proxy
 # forwards runner traffic; runners also keep 443 for client-side WebFetch and
-# self-edit git), and github.com (agents-sync, self-edit, skills). Scoped to
+# Workbench's anonymous clone), and github.com (config PRs, Workbench, skills). Scoped to
 # the pods that need outbound 443 — recorder/web do not.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy

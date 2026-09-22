@@ -23,7 +23,7 @@ function ToolsPage() {
     <div key={t.name} className="help-tool">
       <div className="help-tool-head">
         <code>{t.display_name ?? t.name.replace("mcp__platform__", "")}</code>
-        {t.sensitive && <Chip variant="warn">self-edit only</Chip>}
+        {t.sensitive && <Chip variant="warn">Workbench only</Chip>}
       </div>
       <p className="muted">{t.description}</p>
     </div>
@@ -37,11 +37,10 @@ function ToolsPage() {
       </p>
       <h2>Claude Code tools</h2>
       <p className="muted">
-        Run inside the agent's pod. The ones marked <em>self-edit only</em> are
+        Run inside the agent's pod. The ones marked <em>Workbench only</em> are
         unconditionally denied for every other agent no matter what is
         declared — a shell or file access could read mounted credentials, so
-        only the platform-coder (whose workspace is an ephemeral clone) gets
-        them.
+        only a credential-free Workbench checkout gets them.
       </p>
       <div className="help-tools">{claude.map(row)}</div>
       <h2>Platform tools (MCP broker)</h2>
