@@ -2,9 +2,9 @@
 the TCMS current and QAs the live UI — with its home project `#qa` and the
 02:00 `qa-nightly` job that summons it. Three one-time seeds behind their own
 marks, in the engineer's, #eng's and eng-queue's shapes: an admin who edits
-or deletes any of them keeps their version. A `system` agent, unlike the
-engineer: `@all` and the #standup pass it by, and only its own job or a
-`@qa` by name wakes it."""
+or deletes any of them keeps their version. A normal, replaceable worker like
+engineer; `responds_to_all` independently keeps it out of `@all` and standup,
+while its own job or an `@qa` by name wakes it."""
 import pytest
 from sqlalchemy import func, select
 
@@ -12,8 +12,8 @@ from agentplatform.agents import AgentStore
 from agentplatform.agentspec import (TOOL_ARTIFACTS, TOOL_PLAYWRIGHT_MCP, TOOL_QUOTA_OK,
                                      TOOL_RELAY, TOOL_TICKETS, TOOL_WIKI)
 from agentplatform.config import Settings
-from agentplatform.db import (QA_CHANNEL_MARK, QA_NIGHTLY_MARK, QA_PROMPT, QA_SEED_MARK,
-                              QA_WELCOME_BODY, AgentDef, AgentVersion, Base,
+from agentplatform.db import (QA_CHANNEL_MARK, QA_NIGHTLY_MARK, QA_NORMAL_AGENT_MARK,
+                              QA_PROMPT, QA_SEED_MARK, QA_WELCOME_BODY, AgentDef, AgentVersion, Base,
                               Conversation, RelayMessage, Run, ScheduledJob, SchemaMark,
                               init_db, make_engine, make_session_factory)
 from agentplatform.relay_router import RelayRouter
@@ -63,7 +63,7 @@ async def test_the_qa_is_seeded_with_its_grants_role_and_thresholds(engine, sfx)
         row = await s.get(AgentDef, "qa")
         assert row is not None
         # Lifecycle ownership and broadcast participation are explicit.
-        assert (row.system, row.enabled, row.can_invoke) == (True, True, False)
+        assert (row.system, row.enabled, row.can_invoke) == (False, True, False)
         assert row.responds_to_all is False
         # sonnet: the nightly is bookkeeping most of the time. `dev` is the
         # run-profile rung, not an API scope.
@@ -123,7 +123,7 @@ async def test_the_qa_has_exactly_one_version_after_a_fresh_init(engine, sfx):
         (1, "system:qa", "seed")]
     snap = versions[0].snapshot
     assert snap["platform_tools"][-1] == "mcp__platform__tcms"
-    assert (snap["system"], snap["role"], snap["model"]) == (True, "dev", "sonnet")
+    assert (snap["system"], snap["role"], snap["model"]) == (False, "dev", "sonnet")
     assert (snap["quota_5h_max_pct"], snap["quota_7d_max_pct"]) == (80, 50)
     assert (snap["push_path_globs"], snap["may_delete_tests"]) == (TEST_PATH_GLOBS, True)
 
@@ -138,6 +138,22 @@ async def test_an_existing_qa_is_adopted_not_overwritten(engine, sfx):
         assert (row.prompt, row.role, row.system) == ("mine", "operator", False)
         assert await s.get(SchemaMark, QA_SEED_MARK) is not None
     assert "system:qa" not in [v.changed_by for v in await _versions(sfx, "qa")]
+
+
+async def test_an_existing_system_qa_is_reclassified_with_history(engine, sfx):
+    async with sfx() as s:
+        s.add(AgentDef(name="qa", prompt="mine", description="mine", system=True,
+                       responds_to_all=False, platform_tools=[]))
+        await s.commit()
+    await init_db(engine)
+    async with sfx() as s:
+        row = await s.get(AgentDef, "qa")
+        assert row.system is False
+        assert await s.get(SchemaMark, QA_NORMAL_AGENT_MARK) is not None
+    versions = await _versions(sfx, "qa")
+    assert (versions[-1].changed_by, versions[-1].changed_via) == (
+        "platform:qa-normal-agent", "migration")
+    assert versions[-1].snapshot["system"] is False
 
 
 async def test_the_qa_mark_is_the_off_switch(engine, sfx):
@@ -290,7 +306,7 @@ async def _post(sf, channel_name: str, body: str):
 
 
 async def test_at_qa_in_qa_summons_the_qa_as_a_dev_run(sf, producer):
-    """AC-4 through the real store and the real router: a system agent is
+    """AC-4 through the real store and the real router: a focused agent is
     filtered from `@all`'s roster, not from its own name — the nightly's
     `@qa` in `#qa` is exactly how the job wakes it."""
     store = AgentStore(sf)

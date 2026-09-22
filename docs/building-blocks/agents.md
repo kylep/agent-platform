@@ -168,7 +168,8 @@ mark and then left alone — edit or delete any of them and your version stays:
   and the card. Its home project is `#qa` (prefix `QA`; a `#qa` that
   already exists is adopted, and a prefix held by another room is left
   where it is), seeded with it, and the `qa-nightly` job (`0 2 * * *`,
-  America/Toronto) summons it there. It is `system` with
-  `responds_to_all: false`, so `@all` and the `#standup` pass it by; `@qa` by
+  America/Toronto) summons it there. It is a normal, deletable worker like
+  `engineer`, with `responds_to_all: false`,
+  so `@all` and the `#standup` pass it by; `@qa` by
   name still wakes it. Its first change-log
   row is `changed_via: seed`.

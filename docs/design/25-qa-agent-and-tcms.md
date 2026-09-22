@@ -265,8 +265,9 @@ Theme follows `localStorage.theme` as the other apps do.
 
 ## The QA (seeded row)
 
-`qa`: `role: dev`, `system: true` (it is a platform agent; `@all` and the
-standup pass it by — its own job summons it), `model: sonnet` (the nightly
+`qa`: `role: dev`, `system: false` (it is a replaceable worker like engineer;
+`responds_to_all: false` independently keeps it out of `@all` and standup —
+its own job summons it), `model: sonnet` (the nightly
 is bookkeeping most of the time; it may request a stronger run by ticket),
 `timeout_seconds: 7200`, `concurrency: 1`, `quota_5h_max_pct: 80`,
 `quota_7d_max_pct: 50`, `platform_tools: [relay, tickets, wiki, quota_ok,

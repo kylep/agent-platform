@@ -991,6 +991,7 @@ ENG_QUEUE_MARK = "eng-queue-job-v1"
 QA_CHANNEL_MARK = "qa-channel-v1"
 QA_SEED_MARK = "qa-seed-v1"
 QA_NIGHTLY_MARK = "qa-nightly-job-v1"
+QA_NORMAL_AGENT_MARK = "qa-normal-agent-v1"
 
 # The channels that become PROJECTS when Tickets ships (docs/design/20), and
 # the prefix each one's keys are stamped with. #standup is deliberately absent:
@@ -1316,9 +1317,9 @@ QA_TICKET_PREFIX = "QA"
 QA_WELCOME_BODY = ("QA findings land here as QA-n tickets; the nightly note says "
                    "what ran")
 
-# The QA (docs/design/25). `role: dev` for the run profile and `system` for
-# platform-managed lifecycle. Its independent `responds_to_all` policy is
-# false: its nightly job summons it, and `@qa` by name still works. `sonnet` because
+# The QA (docs/design/25). `role: dev` selects the Workbench profile; it is a
+# normal, replaceable worker like engineer. Its independent `responds_to_all`
+# policy is false: its nightly job summons it, and `@qa` by name still works. `sonnet` because
 # the nightly is bookkeeping most of the time. 80/50 rather than the
 # engineer's 95/90: the browser-in-the-loop is the expensive part, and the
 # prompt's session rule spends it only when `quota_ok` says so. Its fence is
@@ -2174,7 +2175,7 @@ def _ensure_qa_seed(conn) -> None:
         # questions.
         snapshot = AgentDefModel(
             name=name, prompt=QA_PROMPT, description=QA_DESCRIPTION,
-            model="sonnet", role="dev", system=True, responds_to_all=False,
+            model="sonnet", role="dev", system=False, responds_to_all=False,
             can_invoke=False,
             concurrency=1, timeout_seconds=7200,
             quota_5h_max_pct=80, quota_7d_max_pct=50,
@@ -2198,6 +2199,44 @@ def _ensure_qa_seed(conn) -> None:
             log.warning("qa agent was created concurrently; leaving it alone")
             return
     conn.execute(mark_t.insert().values(name=QA_SEED_MARK, applied_at=utcnow()))
+
+
+def _ensure_qa_normal_agent(conn) -> None:
+    """Make the seeded QA a replaceable worker, matching engineer.
+
+    QA's dev profile, test-only publish fence, nightly summons and browser
+    credential are explicit policies of their own. Protecting the row from
+    deletion adds no execution safety and incorrectly classifies that worker as
+    platform infrastructure. Fresh databases get ``system=False`` from the
+    seed; this migration fixes existing rows and records the change.
+    """
+    from sqlalchemy import func, inspect as sa_inspect
+    if not sa_inspect(conn).has_table("agent_defs"):
+        return
+    mark_t = SchemaMark.__table__
+    if conn.execute(select(mark_t.c.name)
+                    .where(mark_t.c.name == QA_NORMAL_AGENT_MARK)).first():
+        return
+    def_t, ver_t = AgentDef.__table__, AgentVersion.__table__
+    row = conn.execute(select(def_t).where(def_t.c.name == "qa")).first()
+    if row is not None and row.system is True:
+        from pydantic import ValidationError
+        from agentplatform.agentdefs import model_of
+        try:
+            snapshot = {**model_of(row).model_dump(mode="json"), "system": False}
+        except ValidationError:
+            snapshot = None
+        if snapshot is not None:
+            conn.execute(def_t.update().where(def_t.c.name == row.name)
+                         .values(system=False, updated_at=utcnow()))
+            version = (conn.execute(select(func.max(ver_t.c.version)).where(
+                ver_t.c.agent == row.name)).scalar() or 0) + 1
+            conn.execute(ver_t.insert().values(
+                id=uuid.uuid4().hex, agent=row.name, version=version,
+                snapshot=snapshot, changed_by="platform:qa-normal-agent",
+                changed_via="migration", created_at=utcnow()))
+    conn.execute(mark_t.insert().values(name=QA_NORMAL_AGENT_MARK,
+                                        applied_at=utcnow()))
 
 
 def _ensure_qa_nightly_job(conn) -> None:
@@ -2764,5 +2803,6 @@ async def init_db(engine: AsyncEngine, default_grant: bool = True,
         # reasons: the room, then the row, then the job that names both.
         await conn.run_sync(_ensure_qa_channel)
         await conn.run_sync(_ensure_qa_seed)
+        await conn.run_sync(_ensure_qa_normal_agent)
         await conn.run_sync(_ensure_qa_nightly_job)
         await conn.run_sync(_ensure_agent_policy_split)
