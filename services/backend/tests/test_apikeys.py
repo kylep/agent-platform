@@ -1,4 +1,5 @@
 from agentplatform.apikeys import TOKEN_PREFIX, generate_token, hash_token, token_prefix
+from agentplatform.db import ApiKey
 
 
 def test_token_helpers():
@@ -91,3 +92,18 @@ async def test_key_role_changes_take_effect_without_rotation(admin_client):
 
     assert (await admin_client.delete(f"/api/api-keys/{key_id}", headers=admin_hdr)).status_code == 200
     assert (await admin_client.patch(f"/api/api-keys/{key_id}", json={"role": "operator"}, headers=admin_hdr)).status_code == 409
+
+
+async def test_platform_managed_keys_are_not_edited_as_user_keys(admin_client, sf):
+    assert (await _mint(admin_client, "app:fake", "operator")).status_code == 422
+    token = generate_token()
+    async with sf() as s:
+        key = ApiKey(name="app:running", role="annotator",
+                     key_hash=hash_token(token), prefix=token_prefix(token))
+        s.add(key)
+        await s.commit()
+        key_id = key.id
+
+    rows = (await admin_client.get("/api/api-keys")).json()
+    assert rows[0]["managed"] is True and rows[0]["role"] == "annotator"
+    assert (await admin_client.patch(f"/api/api-keys/{key_id}", json={"role": "operator"})).status_code == 409

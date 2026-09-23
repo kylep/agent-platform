@@ -20,6 +20,13 @@ not available for manually created keys. The `annotator` role is also used by
 system agents and is not offered for new user keys. Existing keys keep their
 role until changed or revoked.
 
+App keys such as `app:running` are managed from each app's declaration, and
+short-lived run keys are managed by the launcher. Settings lists active managed
+keys separately without an edit control. An app that only writes reports may
+legitimately use the internal `annotator` role; changing it to `operator`
+would give that app permission to start runs. Change app permissions in its
+`app.yaml` declaration instead of editing the key row.
+
 **The one-sentence version:** agents never hold credentials or a shell —
 everything an agent *does* goes through platform code that checks who is
 asking, and everything it *knows* about you stays out of its reach.

@@ -25,8 +25,13 @@ class ApiKeyRoleIn(BaseModel):
 
 def _view(k: ApiKey) -> dict:
     return {"id": k.id, "name": k.name, "role": k.role, "agent": k.agent,
+            "managed": _managed(k),
             "prefix": k.prefix, "created_at": k.created_at,
             "revoked_at": k.revoked_at}
+
+
+def _managed(k: ApiKey) -> bool:
+    return k.run_id is not None or k.name.startswith("app:")
 
 
 @router.get("/api/api-keys", response_model=list[S.ApiKeyView])
@@ -40,6 +45,8 @@ async def list_api_keys(request: Request):
 async def mint_api_key(request: Request, body: ApiKeyIn):
     if body.role not in API_KEY_ROLES:
         raise HTTPException(422, f"role must be one of {API_KEY_ROLES}")
+    if body.name.startswith("app:"):
+        raise HTTPException(422, "app: names are reserved for platform-managed keys")
     token = generate_token()
     key = ApiKey(name=body.name, role=body.role,
                  key_hash=hash_token(token), prefix=token_prefix(token))
@@ -71,6 +78,8 @@ async def change_api_key_role(request: Request, key_id: str, body: ApiKeyRoleIn)
             raise HTTPException(404, "unknown key")
         if key.revoked_at is not None:
             raise HTTPException(409, "revoked key cannot be edited")
+        if _managed(key):
+            raise HTTPException(409, "platform-managed key role comes from its declaration")
         key.role = body.role
         await s.commit()
         return _view(key)

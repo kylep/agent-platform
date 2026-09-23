@@ -78,8 +78,6 @@ function KeyRoleCell({ apiKey, onChanged }: { apiKey: ApiKey; onChanged: () => v
       <div className="row-actions">
         <Select aria-label={`Role for ${apiKey.name}`} value={role} disabled={saving}
                 onChange={(e) => setRole(e.target.value)}>
-          {!API_KEY_ROLES.some((r) => r === apiKey.role) &&
-            <option value={apiKey.role}>{apiKey.role} (legacy)</option>}
           {API_KEY_ROLES.map((r) => <option key={r} value={r}>{r}</option>)}
         </Select>
         {role !== apiKey.role &&
@@ -97,6 +95,8 @@ function ApiKeysSection() {
   const [minted, setMinted] = useState<ApiKeyMinted | null>(null);
   const [showRevoked, setShowRevoked] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const userKeys = keys.filter((k) => !k.managed);
+  const managedKeys = keys.filter((k) => k.managed && !k.revoked_at);
 
   function load() {
     api<ApiKey[]>("/api/api-keys").then(setKeys).catch(() => {});
@@ -148,7 +148,7 @@ function ApiKeysSection() {
           <tr><TH>Name</TH><TH>Role</TH><TH>Prefix</TH><TH>Created</TH><TH>Status</TH><TH></TH></tr>
         </thead>
         <tbody>
-          {keys.filter((k) => showRevoked || !k.revoked_at).map((k) => (
+          {userKeys.filter((k) => showRevoked || !k.revoked_at).map((k) => (
             <tr key={k.id}>
               <TD>{k.name}</TD>
               <TD><KeyRoleCell apiKey={k} onChanged={load} /></TD>
@@ -161,15 +161,29 @@ function ApiKeysSection() {
                 <Button variant="secondary" size="sm" onClick={() => revoke(k.id)}>Revoke</Button>}</TD>
             </tr>
           ))}
-          {keys.filter((k) => !k.revoked_at).length === 0 && (
+          {userKeys.filter((k) => !k.revoked_at).length === 0 && (
             <tr><TD colSpan={6} className="text-muted">No active keys.</TD></tr>
           )}
         </tbody>
       </Table>
-      {keys.some((k) => k.revoked_at) && (
+      {userKeys.some((k) => k.revoked_at) && (
         <Button variant="link" className="text-muted mt-2" onClick={() => setShowRevoked(!showRevoked)}>
-          {showRevoked ? "Hide" : "Show"} {keys.filter((k) => k.revoked_at).length} revoked keys
+          {showRevoked ? "Hide" : "Show"} {userKeys.filter((k) => k.revoked_at).length} revoked keys
         </Button>
+      )}
+      {managedKeys.length > 0 && (
+        <details className="mt-2">
+          <summary>Platform-managed keys ({managedKeys.length})</summary>
+          <p className="muted">App and run keys get their permissions from platform declarations. Change an app's declaration to change its key.</p>
+          <Table>
+            <thead><tr><TH>Name</TH><TH>Internal role</TH><TH>Status</TH></tr></thead>
+            <tbody>
+              {managedKeys.map((k) => (
+                <tr key={k.id}><TD>{k.name}</TD><TD>{k.role}</TD><TD><Chip variant="ok">active</Chip></TD></tr>
+              ))}
+            </tbody>
+          </Table>
+        </details>
       )}
     </section>
   );

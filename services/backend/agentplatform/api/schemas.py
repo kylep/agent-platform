@@ -340,6 +340,7 @@ class ApiKeyView(BaseModel):
     name: str
     role: str
     agent: str | None
+    managed: bool = False
     prefix: str
     created_at: datetime | None
     revoked_at: datetime | None

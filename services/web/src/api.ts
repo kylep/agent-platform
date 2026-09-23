@@ -201,6 +201,7 @@ export type ApiKey = {
   name: string;
   role: string;
   agent: string | null;
+  managed: boolean;
   prefix: string;
   created_at: string;
   revoked_at: string | null;
