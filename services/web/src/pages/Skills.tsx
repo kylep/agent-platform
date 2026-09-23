@@ -352,15 +352,15 @@ export default function Skills() {
     <div className="page">
       <h1>Skills &amp; Tools</h1>
       <p className="muted">
-        <strong>Skills are knowledge</strong> — markdown instructions agents follow, granted per
-        agent under <em>Config → Grants</em>. <strong>Tools are execution</strong> — reviewed code the MCP
+        <strong>Skills teach optional workflows</strong> that can be shared by agents. An agent's
+        job belongs in its definition; a tool or app explains its own API. <strong>Tools are execution</strong> — reviewed code the MCP
         broker serves and the tool-executor runs; agents check them like any capability and control
         arguments only, never the code. Expand either to read or edit it — saves become pending changes.
       </p>
       <h2>Skills</h2>
       {loading && <p className="muted">Loading…</p>}
       {error && <div className="error">{error}</div>}
-      {!loading && !error && skills.length === 0 && <p className="muted">No skills defined.</p>}
+      {!loading && !error && skills.length === 0 && <p className="muted">No optional workflows yet. Create a skill when several agents need the same step-by-step method.</p>}
       {!loading && skills.length > 0 && (
         <Table>
           <thead>

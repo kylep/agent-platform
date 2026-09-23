@@ -61,6 +61,25 @@ def _sf(request):
 from fastapi import Request  # noqa: E402
 
 
+@router.get("/help", dependencies=[Depends(require_gateway)])
+async def help_query():
+    """The app owns its query contract; agents need no companion skill."""
+    return {
+        "paths": {
+            "summary": "Counts and latest_day; start here for relative dates.",
+            "topics": "Topic slugs, counts, and a 14-day trend.",
+            "items": "Filter by day, topic, q, day_from, day_to; limit and offset paginate. "
+                     "Rows include title, source, URL, summary, day, and published date.",
+            "calendar": "Per-day volume for month=YYYY-MM.",
+        },
+        "guidance": "Resolve relative dates before querying. Cite story title, source, URL, "
+                    "and day. If the archive has no matching stories, say so; do not invent coverage.",
+        "views": {"day": "/apps/news/day/<YYYY-MM-DD>",
+                  "topic": "/apps/news/topic/<slug>",
+                  "digest": "/reports/daily-news/<YYYY-MM-DD>"},
+    }
+
+
 @router.get("/summary", response_model=Summary, dependencies=[Depends(require_gateway)])
 async def summary(request: Request):
     from datetime import date, timedelta

@@ -25,11 +25,12 @@ context is frozen on each Run for accurate history. An agent's memory stays
 private to that agent, while notes saved during a scoped run inherit its Team
 and Project tags. The memory tool can filter reads to the current scope.
 
-Every agent has the `project-context` skill. To find earlier conversations,
-it searches Relay with a project slug and query terms, then reads relevant
-rooms or threads. Results are limited to rooms the caller can already read;
-project membership alone does not open a private room. Old untagged rooms,
-runs, and memories remain available without guessed assignments.
+The platform includes Project lookup guidance in a scoped run's context,
+including resumed conversation turns. An agent can search Relay with the
+Project slug and specific terms, then read relevant rooms or threads. Results
+are limited to rooms the caller can already read; Project membership alone
+does not open a private room. Old untagged rooms, runs, and memories remain
+available without guessed assignments.
 
 The `#eng` ticket channel is still the coding workroom; ticket prefixes such
 as `ENG-12` are separate from Projects. The coding worker is named `coder`.

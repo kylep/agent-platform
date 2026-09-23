@@ -31,7 +31,7 @@ harness_tools: [WebFetch]                    # Claude Code built-ins (ignored by
                                               # set (Bash/Read/Edit/Write/NotebookEdit)
                                               # stays hard-denied regardless
 platform_tools: [mcp__platform__memory]      # mcp__platform__* grants
-skills: [git]                                # mounted into the pod; their secrets get bound
+skills: []                                   # optional reusable workflow guides
 secrets: [my-secret]                         # extra direct secret bindings
 entrypoints: {crons: [], webhooks: [], topics: [], timezone: ""}   # see entrypoints.md
 push_path_globs: []                          # GRANT: paths a dev agent may land without review

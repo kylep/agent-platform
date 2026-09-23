@@ -12,6 +12,7 @@ from agentplatform.agentspec import TOOL_ARTIFACTS, TOOL_IMAGE_GEN, TOOL_RELAY
 from agentplatform.config import Settings
 from agentplatform.db import (ARTIST_SEED_MARK, ARTIST_PROMPT, CODEX_ARTIST_PROMPT,
                               CODEX_ARTIST_SEED_MARK, CODEX_ARTIST_SYSTEM_MARK,
+                              RETIRED_SKILLS_MARK,
                               AgentDef, AgentVersion,
                               Base, Conversation, RelayInvocation, Run, SchemaMark,
                               init_db, make_engine, make_session_factory)
@@ -72,9 +73,9 @@ async def test_codex_artist_is_a_separate_subscription_backed_specialist(engine,
         assert (row.system, row.enabled, row.can_invoke) == (True, True, False)
         assert row.platform_tools == [TOOL_ARTIFACTS, TOOL_RELAY, "mcp__platform__memory"]
         assert TOOL_IMAGE_GEN not in row.platform_tools
-        assert row.skills == ["imagegen"]
+        assert row.skills == []
         assert row.prompt == CODEX_ARTIST_PROMPT
-        assert "$imagegen" in row.prompt and "mcp__platform__image_gen" in row.prompt
+        assert "`image_gen` tool" in row.prompt and "mcp__platform__image_gen" in row.prompt
         assert await s.get(SchemaMark, CODEX_ARTIST_SEED_MARK) is not None
         assert await s.get(SchemaMark, CODEX_ARTIST_SYSTEM_MARK) is not None
     versions = await _versions(sfx, "codex-artist")
@@ -102,6 +103,31 @@ async def test_an_existing_codex_artist_becomes_system_once(engine, sfx):
     await init_db(engine)
     assert len([v for v in await _versions(sfx, "codex-artist")
                 if v.changed_by == "platform:codex-artist-system"]) == 1
+
+
+async def test_retired_skills_migrate_without_losing_custom_work(engine, sfx):
+    async with sfx() as s:
+        s.add(AgentDef(name="codex-artist", runtime="codex", system=True,
+                       prompt="My custom brief. Use the `$imagegen` skill.",
+                       skills=["imagegen", "future-workflow"]))
+        s.add(AgentDef(name="news-librarian", runtime="codex",
+                       prompt="Read through your `news-lookup` skill. My own rule.",
+                       skills=["news-lookup", "reports"]))
+        await s.commit()
+    await init_db(engine)
+    async with sfx() as s:
+        artist = await s.get(AgentDef, "codex-artist")
+        news = await s.get(AgentDef, "news-librarian")
+        assert artist.skills == ["future-workflow"]
+        assert artist.prompt == "My custom brief. Use the built-in `image_gen` tool."
+        assert news.skills == []
+        assert news.prompt == "Read through your `mcp__platform__query_app` tool. My own rule."
+        assert await s.get(SchemaMark, RETIRED_SKILLS_MARK) is not None
+    versions = await _versions(sfx, "codex-artist")
+    assert len([v for v in versions if v.changed_by == "platform:retire-skills"]) == 1
+    await init_db(engine)
+    assert len([v for v in await _versions(sfx, "codex-artist")
+                if v.changed_by == "platform:retire-skills"]) == 1
 
 
 def test_the_prompt_carries_the_rules_that_matter():

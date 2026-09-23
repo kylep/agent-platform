@@ -507,7 +507,7 @@ def codex_image_prompt(*, prompt: str, owner: str, aspect: str | None,
     refs = ("\nReference artifacts: " + ", ".join(reference_ids)
             if reference_ids else "")
     return (f"{CODEX_SPEC_PREFIX}{encoded}\n\n"
-            "Use $imagegen to generate exactly one image for this brief. "
+            "Use Codex's built-in image_gen tool to generate exactly one image for this brief. "
             "Use Codex's built-in image generator, not the platform image_gen tool.\n"
             f"Aspect ratio: {spec['aspect']}.{refs}\n\nBrief:\n{prompt}\n\n"
             "When the image is complete, answer with one short sentence and no local path.")

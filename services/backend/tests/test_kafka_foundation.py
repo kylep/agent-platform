@@ -48,6 +48,7 @@ async def test_room_and_child_runs_inherit_frozen_work_context(sf):
             assert (run.team_id, run.project_id) == ("t" * 32, "p" * 32)
             assert "Team: RPG team (rpg)" in run.prompt
             assert "Project: Family game (family)" in run.prompt
+            assert "Relay search with project='family'" in run.prompt
 
 
 async def test_materialize_run_survives_a_hanging_publish(sf):

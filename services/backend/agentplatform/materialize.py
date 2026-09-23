@@ -46,6 +46,11 @@ async def materialize_run(session_factory, producer, spec: dict,
                 project = await s.get(Project, project_id)
                 if project:
                     context.append(f"Project: {project.name} ({project.slug}). {project.description}".strip())
+                    context.append(
+                        "To recall earlier Project conversations, use Relay search with "
+                        f"project={project.slug!r} and specific terms, then read relevant "
+                        "rooms or threads. Search respects room visibility. If Relay is "
+                        "unavailable, continue with current context and say so.")
             prompt = spec["prompt"]
             if context:
                 prompt = "<work-context>\n" + "\n".join(context) + "\n</work-context>\n\n" + prompt

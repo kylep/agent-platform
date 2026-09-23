@@ -24,6 +24,16 @@ class FakeProducer:
     async def stop(self): pass
     async def publish(self, topic, key, value, type="run.transcript"): self.published.append((topic, key, value))
 
+
+def test_project_lookup_guidance_survives_resume():
+    prompt = ("<work-context>\nProject: Family 1 (family1).\n"
+              "Use Relay search with project='family1'.\n</work-context>\n\nFirst turn")
+    resumed = runner._resume_work_context(prompt, "What happened next?")
+    assert "project='family1'" in resumed
+    assert resumed.endswith("What happened next?")
+    assert runner._resume_work_context(prompt, "") == ""
+    assert runner._resume_work_context("Ordinary run", "Next") == "Next"
+
 def test_relays_stream_and_terminal(tmp_path, monkeypatch):
     fake = tmp_path / "claude"
     fake.write_text("#!/bin/sh\necho '{\"type\":\"assistant\",\"text\":\"hi\"}'\nexit 0\n")

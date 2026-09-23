@@ -153,7 +153,7 @@ succeeded.
 
 ```
 agent-platform/
-├── skills/                    # building block: WHAT agents can do (granted via an agent's `skills:` list)
+├── skills/                    # optional reusable workflows for agents
 │   └── <name>/SKILL.md        #   frontmatter (secrets + strictness) + usage instructions
 ├── tools/                     # building block: WHAT agents can EXECUTE (run by the tool-executor)
 │   └── <name>/

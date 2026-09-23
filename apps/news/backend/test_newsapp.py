@@ -314,6 +314,9 @@ async def test_api_requires_gateway_identity(sf, client):
 
 async def test_api_browse_axes(sf, client):
     await ingest_digest(sf, DIGEST)
+    help_text = (await client.get("/apps/news/api/help")).json()
+    assert "day_from" in help_text["paths"]["items"]
+    assert help_text["views"]["digest"].startswith("/reports/")
     s = (await client.get("/apps/news/api/summary")).json()
     assert s["total"] == 2 and s["latest_day"] == "2026-08-03"
     topics = (await client.get("/apps/news/api/topics")).json()

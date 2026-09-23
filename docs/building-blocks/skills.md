@@ -1,16 +1,23 @@
 # Skills
 
-**What:** reusable capabilities an agent opts into via its manifest `skills:`
+**What:** optional, reusable workflows an agent opts into via its `skills:`
 list. The runner — the pod one agent run happens in, see the
 [Glossary](glossary.md) — mounts each referenced skill into the pod
 (`~/.claude/skills`), and the pod is granted the union of those skills'
 secrets and nothing more.
 
-A skill is *knowledge*: instructions (and optional helper scripts) the agent
-reads and follows itself, so using one means the agent needs the underlying
-access. A [tool](tools.md) is *execution* by the platform on the agent's
-behalf. When a capability needs a credential the agent should never hold,
-it wants to be a tool, not a skill.
+A skill teaches a repeatable task spanning several steps, often shared by
+multiple agents. It is not where an agent's job or personality lives: those
+belong in its [definition](agents.md). A tool or app owns its argument schema,
+endpoint details, and execution; the platform owns always-on behavior and
+execution profiles. A [tool](tools.md) executes on the agent's behalf. When a
+capability needs a credential the agent should never hold, it wants to be a
+tool, not a skill. A rule is an obligation, not an optional skill.
+
+The catalogue is currently empty. Workbench handles Git without handing
+developer agents a GitHub credential; Studio's Codex artist uses its runtime's
+built-in image generator. Project conversation lookup is provided in scoped
+run context. Those are not skills an agent needs to select.
 
 **Lives in:** git, one folder per skill:
 
@@ -20,16 +27,16 @@ skills/<name>/
   *.sh, *.py    # optional helper scripts the instructions reference
 ```
 
-**Frontmatter shape** (this is the shipped `git` skill):
+**Frontmatter shape** (example for a future workflow):
 
 ```yaml
-name: git
-description: Clone, branch, commit, and push over HTTPS… (written as a when-to-use trigger)
-icon: 🔀
+name: release-review
+description: Review a release candidate against its changelog and test evidence.
+icon: 🧩
 secrets:
-  - name: github-token
-    state: verified      # present | verified   — what must be true of the secret
-    severity: required   # required | optional  — required blocks the agent, optional degrades
+  - name: example-readonly-source
+    state: verified      # present | verified
+    severity: optional  # required | optional
 ```
 
 A bare string in `secrets:` is shorthand for `{state: present, severity:

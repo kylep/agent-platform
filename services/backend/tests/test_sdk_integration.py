@@ -7,8 +7,8 @@ drives the real ASGI app over httpx with a genuine `ap_` key — routing, auth,
 RBAC, and typed (de)serialization for real. The async path is used because the
 in-process app is served via httpx's ASGI transport.
 
-The platform skill (`skills/agent-platform/SKILL.md`) documents this same API,
-so `test_skill_documented_paths_exist_in_openapi` holds it to the live OpenAPI.
+The external API guide documents this same API, so the documented-path test
+holds it to the live OpenAPI.
 """
 import re
 import sys
@@ -95,10 +95,10 @@ async def test_bad_key_is_rejected(app, sf):
     assert (await list_runs.asyncio_detailed(client=c)).status_code == 401
 
 
-# --- the skill must not drift from the API either -----------------------------
+# --- the external guide must not drift from the API either --------------------
 
-def _skill_paths() -> set[str]:
-    text = (REPO / "skills" / "agent-platform" / "SKILL.md").read_text()
+def _documented_paths() -> set[str]:
+    text = (REPO / "docs" / "building-blocks" / "external-api.md").read_text()
     paths = set()
     for m in re.finditer(r"/api/[A-Za-z0-9/_<>{}-]+", text):
         p = m.group(0).rstrip("/`\"'")
@@ -108,11 +108,11 @@ def _skill_paths() -> set[str]:
     return paths
 
 
-def test_skill_documented_paths_exist_in_openapi(app):
-    documented = _skill_paths()
-    assert documented, "no /api paths parsed from SKILL.md — parser drift?"
+def test_external_api_documented_paths_exist_in_openapi(app):
+    documented = _documented_paths()
+    assert documented, "no /api paths parsed from external-api.md — parser drift?"
     spec = app.openapi()["paths"]
     live = {"/".join("{}" if seg.startswith("{") else seg
                      for seg in tmpl.split("/")) for tmpl in spec}
     missing = {p for p in documented if p not in live}
-    assert not missing, f"SKILL.md documents endpoints absent from the API: {missing}"
+    assert not missing, f"external-api.md documents endpoints absent from the API: {missing}"

@@ -38,6 +38,7 @@ git.
 | [Memories](memories.md) | Postgres | what agents remember |
 | [Changes](changes.md) | GitHub PRs | how capability changes land |
 | [Workbench](workbench.md) | Postgres (+ Kafka) + GitHub | how dev agents change the code |
+| [External API](external-api.md) | HTTP + generated SDK | how outside clients access the platform |
 
 Two pages describe the platform rather than a block of it:
 

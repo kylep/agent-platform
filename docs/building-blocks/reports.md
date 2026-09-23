@@ -29,7 +29,7 @@ retention_days: 365       # 0 = keep forever; pruned by the dispatcher
 - ReportTypes do **not** schedule anything: the generator's entrypoints/jobs
   fire whatever run produces the report.
 
-## Authoring (agents: use the `reports` skill)
+## Authoring
 
 - Send a **fragment** (no html/head/style); the viewer wraps it in the
   report-kit shell at render time, so old reports restyle as the kit evolves.
@@ -41,6 +41,39 @@ retention_days: 365       # 0 = keep forever; pruned by the dispatcher
 - **Charts are server-rendered SVG** (`POST /api/report-kit/chart`): reports
   carry no JavaScript — the viewer iframe is sandboxed script-free — and the
   SVG uses `var(--ds-chart-*)`, so charts are theme-aware.
+
+Use report-kit classes (`rk-*`) and ordinary `h2`, `p`, `ul`, `table`,
+`blockquote`, and `code` elements. For example:
+
+```html
+<header class="rk-header"><h1 class="rk-title">Daily news</h1>
+  <p class="rk-meta">2026-08-03 · 12 stories</p></header>
+<div class="rk-stat-row"><div class="rk-stat">
+  <span class="rk-stat-value">12</span><span class="rk-stat-label">stories</span>
+</div></div>
+<section class="rk-section"><h2>Highlights</h2>
+  <div class="rk-item"><span class="rk-item-title">Headline</span>
+    <p class="rk-item-sum">One-sentence summary.</p></div>
+</section>
+```
+
+The kit also provides `rk-callout` (`-warning`, `-danger`, `-success`),
+`rk-grid`, `rk-chip`, and `rk-footer`. Links must use HTTPS and images must
+be `data:` URIs. The renderer strips unknown classes and styles rather than
+showing them. Generate a themed chart with `POST /api/report-kit/chart`, for
+example `{"kind":"bar","series":[{"values":[9,3,5]}],"labels":["AI","business","infra"]}`,
+then embed the returned SVG directly in the fragment.
+
+Save with `POST /api/reports` and the run's platform token:
+
+```json
+{"type":"daily-news","date":"2026-08-03","title":"Daily news","html":"<header class=\"rk-header\">…</header>"}
+```
+
+`date` is `YYYY-MM-DD`; intraday report types also require `time` as
+`HH-MM`. An optional `meta` object stores structured provenance. The type
+must be declared and its `generator` must match the caller's agent or app key.
+The API rejects an undeclared type or unauthorized generator.
 
 ## Viewing
 

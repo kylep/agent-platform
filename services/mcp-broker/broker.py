@@ -136,8 +136,8 @@ async def query_app(app: str, path: str, params: dict | None = None) -> str:
     """Call a read-only API endpoint of an installed platform app (GET only,
     through the platform's traversal-guarded proxy — mutations stay with the
     app's own flows). `app` is the app's name from /apps, `path` the endpoint
-    within its API, `params` the query string. The app's companion skill
-    documents its endpoints. e.g. query_app(app='news', path='items',
+    within its API, `params` the query string. Ask an app for `path='help'`
+    to discover its endpoints. e.g. query_app(app='news', path='items',
     params={'topic': 'ai-industry', 'day_from': '2026-08-01'})."""
     return await _call("GET", f"/api/apps/{app}/query/{path}", params or {})
 

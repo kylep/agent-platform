@@ -497,9 +497,6 @@ def _install_skills(runtime: str = "claude") -> None:
     # skill named in AP_SKILLS (set by the launcher from the agent's manifest)
     # from the synced skills tree into place. Unknown names are skipped.
     names = [n.strip() for n in os.environ.get("AP_SKILLS", "").split(",") if n.strip()]
-    # Every agent can discover project history, regardless of its curated
-    # job-specific skill list. The Relay grant still controls actual access.
-    names = list(dict.fromkeys([*names, "project-context"]))
     src_root = Path(os.environ.get("AP_SKILLS_DIR", "/agents/skills"))
     dst_root = (Path.home() / ".agents" / "skills" if runtime == "codex"
                 else Path.home() / ".claude" / "skills")
@@ -507,6 +504,18 @@ def _install_skills(runtime: str = "claude") -> None:
         src = src_root / name
         if src.is_dir():
             shutil.copytree(src, dst_root / name, dirs_exist_ok=True)
+
+
+def _resume_work_context(prompt: str, user_message: str) -> str:
+    """Restate run-scoped context on a resumed CLI turn, where the initial
+    prompt is replaced by AP_USER_MESSAGE. Keep it out of stored chat history.
+    """
+    if not user_message or not prompt.startswith("<work-context>\n"):
+        return user_message
+    end = prompt.find("\n</work-context>")
+    if end < 0:
+        return user_message
+    return prompt[:end + len("\n</work-context>")] + "\n\n" + user_message
 
 # --- conversation session resume (docs/design/14) --------------------------
 # A conversation turn restores the Claude CLI session blob from the platform,
@@ -695,6 +704,7 @@ async def _run(producer, run_id: str, agent: str, prompt: str) -> int:
 
     user_message = os.environ.get("AP_USER_MESSAGE", "")
     run_cwd = cwd or os.getcwd()
+    user_message = _resume_work_context(prompt, user_message)
     if user_message and block:
         user_message = user_message.rstrip("\n") + "\n\n" + block
 

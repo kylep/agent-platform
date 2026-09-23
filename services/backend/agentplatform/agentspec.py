@@ -196,8 +196,8 @@ TOOL_HELP: list[dict] = [
      "description": "Call a read-only API endpoint of an installed platform "
                     "app through the traversal-guarded proxy — e.g. query "
                     "the news archive by day/topic/keyword. GET only; "
-                    "mutations stay with the app's own flows. Each app's "
-                    "companion skill documents its endpoints."},
+                    "mutations stay with the app's own flows. Query "
+                    "path='help' to discover an app's endpoints."},
     {"name": "mcp__platform__agents_edit", "kind": "platform",
      "description": "Read and write agent DEFINITIONS: list agents, read one, "
                     "create, update (prompt, description, model, entrypoints, "

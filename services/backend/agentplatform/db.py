@@ -1041,6 +1041,7 @@ ART_CHANNEL_MARK = "art-channel-v1"
 ARTIST_SEED_MARK = "artist-seed-v1"
 CODEX_ARTIST_SEED_MARK = "codex-artist-seed-v1"
 CODEX_ARTIST_SYSTEM_MARK = "codex-artist-system-v1"
+RETIRED_SKILLS_MARK = "retired-seeded-skills-v1"
 AGENT_POLICY_SPLIT_MARK = "agent-policy-split-v1"
 RUNNING_COACH_MARK = "running-coach-v1"
 CODER_PROFILE_REMOVAL_MARK = "coder-profile-removal-v1"
@@ -1248,7 +1249,7 @@ ARTIST_DESCRIPTION = ("Makes images on request: portraits, avatars, scene art, i
 
 CODEX_ARTIST_PROMPT = """\
 You are the platform's Codex artist. You make images with Codex's built-in
-`$imagegen` skill, paid from the signed-in Codex allowance. The runner saves
+`image_gen` tool, paid from the signed-in Codex allowance. The runner saves
 every generated file as a platform artifact after you finish.
 
 For a clear brief, act immediately. Shape it into a compact production prompt:
@@ -1884,7 +1885,7 @@ def _ensure_codex_artist_seed(conn) -> None:
             name=name, prompt=CODEX_ARTIST_PROMPT, description=CODEX_ARTIST_DESCRIPTION,
             runtime="codex", model="gpt-5.6-luna", role="operator",
             system=True, responds_to_all=False, can_invoke=False,
-            platform_tools=[TOOL_ARTIFACTS, TOOL_RELAY, "mcp__platform__memory"], skills=["imagegen"],
+            platform_tools=[TOOL_ARTIFACTS, TOOL_RELAY, "mcp__platform__memory"], skills=[],
             timeout_seconds=420,
         ).model_dump(mode="json")
         version = (conn.execute(select(func.max(ver_t.c.version))
@@ -1901,6 +1902,53 @@ def _ensure_codex_artist_seed(conn) -> None:
             log.warning("codex artist was created concurrently; leaving it alone")
             return
     conn.execute(mark_t.insert().values(name=CODEX_ARTIST_SEED_MARK,
+                                        applied_at=utcnow()))
+
+
+def _retire_seeded_skills(conn) -> None:
+    """Remove the old catalogue entries from live definitions without replacing
+    an admin's prompt or any future skill. Keep an agent version for each edit.
+    The seed above already creates new installations without these entries.
+    """
+    from sqlalchemy import func, inspect as sa_inspect
+    from sqlalchemy.exc import IntegrityError
+    if not sa_inspect(conn).has_table("agent_defs"):
+        return
+    mark_t = SchemaMark.__table__
+    if conn.execute(select(mark_t.c.name).where(
+            mark_t.c.name == RETIRED_SKILLS_MARK)).first():
+        return
+    from agentplatform.agentdefs import model_of
+    retired = {"agent-platform", "git", "imagegen", "news-lookup",
+               "project-context", "reports"}
+    def_t, ver_t = AgentDef.__table__, AgentVersion.__table__
+    for row in conn.execute(select(def_t)).all():
+        skills = [name for name in (row.skills or []) if name not in retired]
+        prompt = row.prompt or ""
+        if row.name == "codex-artist":
+            prompt = prompt.replace("`$imagegen` skill", "built-in `image_gen` tool")
+        elif row.name == "news-librarian":
+            prompt = prompt.replace("through your `news-lookup` skill",
+                                    "through your `mcp__platform__query_app` tool")
+        if skills == (row.skills or []) and prompt == (row.prompt or ""):
+            continue
+        snapshot = {**model_of(row).model_dump(mode="json"),
+                    "skills": skills, "prompt": prompt}
+        version = (conn.execute(select(func.max(ver_t.c.version))
+                                .where(ver_t.c.agent == row.name)).scalar() or 0) + 1
+        try:
+            with conn.begin_nested():
+                conn.execute(def_t.update().where(def_t.c.name == row.name)
+                             .values(skills=skills, prompt=prompt))
+                conn.execute(ver_t.insert().values(
+                    id=uuid.uuid4().hex, agent=row.name, version=version,
+                    snapshot=snapshot, changed_by="platform:retire-skills",
+                    changed_via="migration", created_at=utcnow()))
+        except IntegrityError:
+            # An admin save won a version race. Retry on the next boot.
+            log.warning("skill retirement lost a version race for %s", row.name)
+            return
+    conn.execute(mark_t.insert().values(name=RETIRED_SKILLS_MARK,
                                         applied_at=utcnow()))
 
 
@@ -3072,3 +3120,6 @@ async def init_db(engine: AsyncEngine, default_grant: bool = True,
         # memory. The mark makes this a one-time migration, so later opt-outs
         # are never re-granted on service restart.
         await conn.run_sync(_ensure_memory_default_grant, memory_grant)
+        # Existing definitions are DB-first, so retiring repository skills
+        # also requires clearing their stored grants before git-sync drops them.
+        await conn.run_sync(_retire_seeded_skills)
