@@ -42,6 +42,13 @@ def main() -> None:
             request = Request(BASE + "/view", headers=headers)
         elif action == "gm_view":
             request = Request(BASE + "/gm-view", headers=headers)
+        elif action == "roll":
+            count = args.get("count", 1)
+            if type(count) is not int or count not in (1, 2):
+                raise ValueError("roll count must be 1 or 2")
+            request = Request(BASE + "/roll",
+                              headers={**headers, "X-Tool-Run-ID": run_id},
+                              data=json.dumps({"count": count}).encode(), method="POST")
         elif action == "command":
             request_id = args.get("request_id", "")
             argv = args.get("argv")
@@ -51,7 +58,7 @@ def main() -> None:
             request = Request(BASE + "/command", headers=headers,
                               data=json.dumps(payload).encode(), method="POST")
         else:
-            raise ValueError("action must be view, gm_view, help, or command")
+            raise ValueError("action must be view, gm_view, roll, help, or command")
         with urlopen(request, timeout=95) as response:
             result = json.load(response)
         print(json.dumps(result, separators=(",", ":")))
