@@ -66,6 +66,22 @@
 .relay-popout .relay-pane { max-height: none; min-height: 0; }
 /* Five columns of cards want more room than a document does. */
 .page-tickets { max-width: 1400px; }
+.page-scopes { max-width: 1400px; }
+.page-scopes > section { margin-top: 32px; }
+.page-scopes h2 { margin-bottom: 12px; }
+.scope-create { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-bottom: 16px; }
+.scope-create input { flex: 1 1 200px; max-width: 320px; }
+.scope-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 360px), 1fr)); gap: 16px; }
+.scope-card { border: 1px solid var(--ds-border); border-radius: 12px; padding: 20px; background: var(--ds-surface); min-width: 0; }
+.scope-card h3 { margin: 0 0 8px; }
+.scope-card p { margin: 8px 0; }
+.scope-meta { color: var(--ds-text-muted); }
+.scope-details { border-top: 1px solid var(--ds-border); margin-top: 16px; padding-top: 12px; }
+.scope-details summary { cursor: pointer; color: var(--ds-link); }
+.scope-details label { display: block; margin-top: 12px; color: var(--ds-text-muted); font-size: 13px; }
+.scope-details label input:not([type="checkbox"]), .scope-details label select { display: block; width: 100%; margin-top: 4px; }
+.scope-members { display: flex; flex-wrap: wrap; gap: 4px 16px; }
+.scope-members label { white-space: nowrap; }
 .page-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 
 /* Phone widths. The shell's sidebar is a fixed 200px, which on a 390px screen
