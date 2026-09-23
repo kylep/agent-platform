@@ -395,6 +395,11 @@ async def test_project_search_keeps_room_visibility(
     theirs = (await token_client.get("/api/relay/search", params={
         "q": "budget", "project": "newsroom"}, headers=headers)).json()
     assert [m["channel_id"] for m in theirs] == [cid]
+    assert (await admin_client.patch("/api/projects/newsroom", json={
+        "archived": True})).status_code == 200
+    archived = (await token_client.get("/api/relay/search", params={
+        "q": "budget", "project": "newsroom"}, headers=headers)).json()
+    assert [m["channel_id"] for m in archived] == [cid]
 
 
 async def test_search_takes_a_channel_by_name_as_well_as_by_id(admin_client, sf):

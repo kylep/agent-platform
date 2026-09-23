@@ -1086,8 +1086,8 @@ async def search_relay_messages(request: Request, q: str = Query(min_length=1, m
         visible, _ = await _visible(s, caller, agents)
         if project is not None:
             from agentplatform.db import Project, ProjectAgent
-            project_row = (await s.execute(select(Project).where(Project.slug == project,
-                Project.archived_at.is_(None)))).scalar_one_or_none()
+            project_row = (await s.execute(select(Project).where(
+                Project.slug == project))).scalar_one_or_none()
             if project_row is None:
                 raise HTTPException(404, "unknown project")
             if caller.agent and not (await s.execute(select(ProjectAgent).where(
