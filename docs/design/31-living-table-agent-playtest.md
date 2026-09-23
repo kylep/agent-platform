@@ -59,6 +59,12 @@ summons; a later session verified that Spike acted on Spike's turn and Fluffy
 was invited again after an out-of-range action. TT-2 is closed. The GM then
 ended the encounter through the engine, awarding 50 XP per PC and 9 party gold.
 
+TT-3 came from the exploration session reaching Relay's hourly room budget.
+The old coordinator waited for the suppressed Squakee summons forever. The
+deployed fix detected even the refusal notice consumed before its rollout,
+paused with its remaining active time intact, and showed the reason and
+Resume/End controls in the viewer. TT-3 is closed.
+
 The first pilot improvement batch also added player-safe positions, a linear
 Relay stream, viewer controls, short spectator-friendly summons, and command
 help. The next session can be started from the viewer without a code change.
