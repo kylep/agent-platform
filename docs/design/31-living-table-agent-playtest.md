@@ -67,9 +67,11 @@ help. The next session can be started from the viewer without a code change.
 
 Player agents use the same **player-state API** as the hosted viewer through
 the brokered tool; they do not yet drive Chromium or click the web interface.
-The engine currently rolls for them. Manual dice entry already exists in the
-CLI, but per-player roll preference and a player-owned dice tool are future
-product work. This phase also does not install an unattended engineer/QA team
+Meowcicles is piloting a player-owned d20: `ttrpg(action=roll)` records one
+verifiable throw per agent run, and the GM can feed it to the engine's manual
+`--roll` option. Other players still let the engine roll. This does not yet
+provide a full human dice preference UI or cover every multi-die mechanic.
+This phase also does not install an unattended engineer/QA team
 for the second repository: the live Tickets drove the first changes, which
 were implemented and browser-verified before the next play session. The
 private world copy is persistent on its PVC, while the source and deployment
