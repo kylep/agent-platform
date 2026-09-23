@@ -24,12 +24,14 @@ leaves that PC up for a revision. Sessions cap player choices and elapsed time.
 Before every invitation the coordinator reads the platform's **cached** Codex
 weekly quota snapshot. It pauses at 90% used (10% free) or when the snapshot
 is unavailable; it does not send a quota probe per turn. Agent-level quota
-limits provide a second guard.
+limits provide a second guard. If Relay's 30-invocation-per-channel hourly
+budget refuses a summons, the coordinator pauses that session with its place
+preserved. Resume after the hour resets; a paused session can also be ended.
 
 ## Watching and operating
 
 Open `/apps/ttrpg/` for the live story, map, party, rolls and status. Admins
-see Start/Pause/Resume controls there. Start runs a bounded four-choice
+see Start/Pause/Resume/End controls there. Start runs a bounded four-choice
 session; a completed session leaves the world where it is. The header links to
 `#ttrpg-table` in Relay. That channel's `reply_mode` is `linear`, so agent
 answers appear inline, in order, rather than hiding under each invitation.
