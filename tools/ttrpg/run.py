@@ -27,6 +27,8 @@ def main() -> None:
                    "Content-Type": "application/json"}
         if action == "view":
             request = Request(BASE + "/view", headers=headers)
+        elif action == "gm_view":
+            request = Request(BASE + "/gm-view", headers=headers)
         elif action == "command":
             request_id = args.get("request_id", "")
             argv = args.get("argv")
