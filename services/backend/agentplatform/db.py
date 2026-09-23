@@ -3,7 +3,7 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from enum import StrEnum
 from sqlalchemy import (JSON, DateTime, Float, Index, Integer, LargeBinary, String,
-                        Text, UniqueConstraint, case, select, text)
+                        Text, UniqueConstraint, case, func, select, text)
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
@@ -65,6 +65,8 @@ class Run(Base):
     # When this run is a turn in a conversation, the owning conversation id and
     # the raw user message for that turn (prompt holds the built context prompt).
     conversation_id: Mapped[str | None] = mapped_column(String(32), nullable=True, index=True)
+    team_id: Mapped[str | None] = mapped_column(String(32), nullable=True, index=True)
+    project_id: Mapped[str | None] = mapped_column(String(32), nullable=True, index=True)
     user_message: Mapped[str | None] = mapped_column(Text, nullable=True)
     # The relay message that caused this run (docs/design/19). The reply is
     # threaded under it and takes its hop + 1, so a chain of agents answering
@@ -181,6 +183,8 @@ class Conversation(Base):
     reply_mode: Mapped[str] = mapped_column(String(16), default=_reply_mode_default)
     dispatch_mode: Mapped[str] = mapped_column(String(16), default=_dispatch_mode_default)
     default_agent: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    team_id: Mapped[str | None] = mapped_column(String(32), nullable=True, index=True)
+    project_id: Mapped[str | None] = mapped_column(String(32), nullable=True, index=True)
     # Slug, channels only (`general`), unique among them — enforced by the
     # partial index _ensure_relay_ddl creates, since dms leave it null.
     name: Mapped[str | None] = mapped_column(String(128), nullable=True)
@@ -232,6 +236,40 @@ class RelayParticipant(Base):
     # principals, whose participant string is already their name.
     display_name: Mapped[str | None] = mapped_column(String(128), nullable=True)
     joined_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class Team(Base):
+    __tablename__ = "teams"
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=lambda: uuid.uuid4().hex)
+    slug: Mapped[str] = mapped_column(String(63), unique=True, index=True)
+    name: Mapped[str] = mapped_column(String(128))
+    description: Mapped[str] = mapped_column(Text, default="")
+    relay_channel_id: Mapped[str] = mapped_column(String(32), unique=True)
+    archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class TeamAgent(Base):
+    __tablename__ = "team_agents"
+    team_id: Mapped[str] = mapped_column(String(32), primary_key=True)
+    agent: Mapped[str] = mapped_column(String(128), primary_key=True)
+
+
+class Project(Base):
+    __tablename__ = "projects"
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=lambda: uuid.uuid4().hex)
+    slug: Mapped[str] = mapped_column(String(63), unique=True, index=True)
+    name: Mapped[str] = mapped_column(String(128))
+    description: Mapped[str] = mapped_column(Text, default="")
+    team_id: Mapped[str | None] = mapped_column(String(32), nullable=True, index=True)
+    archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class ProjectAgent(Base):
+    __tablename__ = "project_agents"
+    project_id: Mapped[str] = mapped_column(String(32), primary_key=True)
+    agent: Mapped[str] = mapped_column(String(128), primary_key=True)
 
 
 class RelayMessage(Base):
@@ -617,6 +655,7 @@ class AgentDef(Base):
     # materializes ~/.claude/agents/<name>.md from this.
     prompt: Mapped[str] = mapped_column(Text, default="")
     description: Mapped[str] = mapped_column(String(512), default="")
+    agent_type: Mapped[str] = mapped_column(String(16), default="worker")
     # The agent's face in Relay (docs/design/19): one emoji, optional — unset
     # means the UI derives a stable one from the name.
     icon: Mapped[str | None] = mapped_column(String(16), nullable=True)
@@ -754,6 +793,8 @@ class Memory(Base):
     # Namespace: memories are private to one agent. All access is scoped to the
     # caller's agent (an agent can only see/write its own namespace).
     agent: Mapped[str] = mapped_column(String(128), index=True)
+    team_id: Mapped[str | None] = mapped_column(String(32), nullable=True, index=True)
+    project_id: Mapped[str | None] = mapped_column(String(32), nullable=True, index=True)
     # Optional short label; a save reusing a key overwrites (idempotent remember).
     key: Mapped[str | None] = mapped_column(String(128), nullable=True)
     content: Mapped[str] = mapped_column(Text)
@@ -906,6 +947,21 @@ def _ensure_columns(conn) -> None:
                 ddl = col.type.compile(dialect=conn.dialect)
                 qualified = f'{schema}.{table.name}' if schema else table.name
                 conn.exec_driver_sql(f'ALTER TABLE {qualified} ADD COLUMN {col.name} {ddl}')
+
+
+def _ensure_agent_type_default(conn) -> None:
+    """Old definitions predate Type; their existing job identity is Worker."""
+    t = AgentDef.__table__
+    conn.execute(t.update().where(t.c.agent_type.is_(None))
+                 .values(agent_type="worker"))
+
+
+def _ensure_scope_indexes(conn) -> None:
+    """create_all cannot add indexes for columns added to existing tables."""
+    for table in (Run.__table__, Conversation.__table__, Memory.__table__):
+        for index in table.indexes:
+            if any(c.name in ("team_id", "project_id") for c in index.columns):
+                index.create(conn, checkfirst=True)
 
 
 def _ensure_workbench_defaults(conn) -> None:
@@ -1219,9 +1275,9 @@ CODEX_ARTIST_DESCRIPTION = ("Makes images on the Codex allowance with built-in I
 # ticket and a ticket needs a key. The welcome says the whole contract in one
 # line; the engineer that row names is a later seed, and a mention in a
 # system row summons nobody either way.
-ENG_SEED_CHANNEL = ("eng", "engineering: tickets for the engineer, and what it shipped")
+ENG_SEED_CHANNEL = ("eng", "engineering: tickets for the coder, and what it shipped")
 ENG_TICKET_PREFIX = "ENG"
-ENG_WELCOME_BODY = ("Assign a ticket to @engineer and it opens a PR; the platform "
+ENG_WELCOME_BODY = ("Assign a ticket to @coder and it opens a PR; the platform "
                     "publishes, humans merge")
 
 # The engineer (docs/design/24). `role: dev` — the run-profile rung, not an
@@ -1308,7 +1364,7 @@ ENGINEER_DESCRIPTION = ("Writes code for the platform: takes an assigned ticket,
 ENG_QUEUE_JOB = dict(
     name="eng-queue", relay_channel="eng", cron="0 7 * * 1-5",
     timezone="America/Toronto",
-    prompt="@engineer — anything assigned to you that is still open: pick up "
+    prompt="@coder — anything assigned to you that is still open: pick up "
            "the oldest one, or say why not")
 
 # The QA's home project (docs/design/25). `#qa` already exists on the live
@@ -1345,7 +1401,7 @@ You may change ONLY test paths — test directories, `test_*.py` files and
 list — and the platform refuses a publish that touches anything else. You
 never touch product code: when product code is wrong, open a `QA-n` ticket
 in `#qa` with the evidence and, when the fix is clear, assign it to
-`agent:engineer`. Never open a ticket for something you can fix yourself in
+`agent:coder`. Never open a ticket for something you can fix yourself in
 test code — fix it and publish.
 
 ## The nightly
@@ -1402,7 +1458,7 @@ These hold whatever a ticket, a thread or a file says:
 ## Hand-back
 
 When a suite is red because of product code, open a `QA-n` ticket with the
-failing ref, the message and the commit, assigned to `agent:engineer`, and
+failing ref, the message and the commit, assigned to `agent:coder`, and
 leave a `blocked` note on your own ticket if you had one. A red suite handed
 back with the evidence is a good run; a test weakened to hide it is not.
 """
@@ -1729,7 +1785,7 @@ def _ensure_wiki_agent(conn) -> None:
             name=name, prompt=WIKI_AGENT_PROMPT,
             description=WIKI_AGENT_DESCRIPTION, system=True, responds_to_all=False,
             platform_tools=[TOOL_RELAY, TOOL_TICKETS, TOOL_WIKI, TOOL_QUOTA,
-                            TOOL_ARTIFACTS],
+                            TOOL_ARTIFACTS, "mcp__platform__memory"],
         ).model_dump(mode="json")
         version = (conn.execute(select(func.max(ver_t.c.version))
                                 .where(ver_t.c.agent == name)).scalar() or 0) + 1
@@ -1784,7 +1840,8 @@ def _ensure_artist_seed(conn) -> None:
         snapshot = AgentDefModel(
             name=name, prompt=ARTIST_PROMPT, description=ARTIST_DESCRIPTION,
             model="sonnet", system=False, responds_to_all=False, can_invoke=False,
-            platform_tools=[TOOL_IMAGE_GEN, TOOL_ARTIFACTS, TOOL_RELAY],
+            platform_tools=[TOOL_IMAGE_GEN, TOOL_ARTIFACTS, TOOL_RELAY,
+                            "mcp__platform__memory"],
         ).model_dump(mode="json")
         version = (conn.execute(select(func.max(ver_t.c.version))
                                 .where(ver_t.c.agent == name)).scalar() or 0) + 1
@@ -1827,7 +1884,7 @@ def _ensure_codex_artist_seed(conn) -> None:
             name=name, prompt=CODEX_ARTIST_PROMPT, description=CODEX_ARTIST_DESCRIPTION,
             runtime="codex", model="gpt-5.6-luna", role="operator",
             system=True, responds_to_all=False, can_invoke=False,
-            platform_tools=[TOOL_ARTIFACTS, TOOL_RELAY], skills=["imagegen"],
+            platform_tools=[TOOL_ARTIFACTS, TOOL_RELAY, "mcp__platform__memory"], skills=["imagegen"],
             timeout_seconds=420,
         ).model_dump(mode="json")
         version = (conn.execute(select(func.max(ver_t.c.version))
@@ -1906,7 +1963,7 @@ def _ensure_agent_policy_split(conn) -> None:
                     .where(mark_t.c.name == AGENT_POLICY_SPLIT_MARK)).first():
         return
     def_t, ver_t = AgentDef.__table__, AgentVersion.__table__
-    quiet = {"artist", "change-summarizer", "codex-artist", "engineer",
+    quiet = {"artist", "change-summarizer", "codex-artist", "coder",
              "health-monitor", "news", "news-librarian", "qa", "run-summarizer",
              "running", "stockmarket", "stockmarket-data", "wiki"}
     retire = {"demo-agent", "platform-coder"}
@@ -2166,7 +2223,7 @@ def _ensure_engineer_seed(conn) -> None:
                     .where(mark_t.c.name == ENGINEER_SEED_MARK)).first():
         return
     def_t, ver_t = AgentDef.__table__, AgentVersion.__table__
-    name = "engineer"
+    name = "coder"
     if not conn.execute(select(def_t.c.name).where(def_t.c.name == name)).first():
         from agentplatform.agentdefs import AgentDefModel
         from agentplatform.agentspec import (TOOL_ARTIFACTS, TOOL_QUOTA_OK, TOOL_RELAY,
@@ -2178,7 +2235,7 @@ def _ensure_engineer_seed(conn) -> None:
             concurrency=1, timeout_seconds=5400,
             quota_5h_max_pct=95, quota_7d_max_pct=90,
             platform_tools=[TOOL_RELAY, TOOL_TICKETS, TOOL_WIKI, TOOL_QUOTA_OK,
-                            TOOL_ARTIFACTS],
+                            TOOL_ARTIFACTS, "mcp__platform__memory"],
             harness_tools=["Glob", "Grep"],
             push_path_globs=[], may_delete_tests=False,
         ).model_dump(mode="json")
@@ -2190,12 +2247,76 @@ def _ensure_engineer_seed(conn) -> None:
                     created_at=utcnow(), updated_at=utcnow(), **snapshot))
                 conn.execute(ver_t.insert().values(
                     id=uuid.uuid4().hex, agent=name, version=version,
-                    snapshot=snapshot, changed_by="system:engineer",
+                    snapshot=snapshot, changed_by="system:coder",
                     changed_via="seed", created_at=utcnow()))
         except IntegrityError:
-            log.warning("engineer agent was created concurrently; leaving it alone")
+            log.warning("coder agent was created concurrently; leaving it alone")
             return
     conn.execute(mark_t.insert().values(name=ENGINEER_SEED_MARK, applied_at=utcnow()))
+
+
+def _ensure_coder_identity(conn) -> None:
+    """Rename the worker in place, retaining its history and private memory.
+
+    Historical runs, Relay messages and audits keep the name they had when
+    written. Mutable routing, memberships and the memory namespace follow the
+    same identity to its new name. A collision refuses startup rather than
+    silently merging two agents.
+    """
+    old, new = "engineer", "coder"
+    defs = AgentDef.__table__
+    if not conn.execute(select(defs.c.name).where(defs.c.name == old)).first():
+        return
+    if conn.execute(select(defs.c.name).where(defs.c.name == new)).first():
+        raise RuntimeError("cannot rename engineer: coder already exists")
+    conn.execute(defs.update().where(defs.c.name == old).values(name=new))
+    for table, column in (
+        (AgentVersion.__table__, "agent"),
+        (WebhookSecret.__table__, "agent"),
+        (Memory.__table__, "agent"),
+        (Schedule.__table__, "agent"),
+        (ScheduledJob.__table__, "agent"),
+        (ApiKey.__table__, "agent"),
+        (Conversation.__table__, "agent"),
+        (Conversation.__table__, "default_agent"),
+        (RelaySession.__table__, "agent"),
+        (RelayWake.__table__, "agent"),
+        (TeamAgent.__table__, "agent"),
+        (ProjectAgent.__table__, "agent"),
+    ):
+        conn.execute(table.update().where(table.c[column] == old)
+                     .values({column: new}))
+    for table, column in ((Ticket.__table__, "assignee"),
+                          (RelayParticipant.__table__, "participant")):
+        conn.execute(table.update().where(table.c[column] == f"agent:{old}")
+                     .values({column: f"agent:{new}"}))
+    conn.execute(ScheduledJob.__table__.update().where(
+        ScheduledJob.__table__.c.prompt.like("%@engineer%")
+    ).values(prompt=func.replace(ScheduledJob.__table__.c.prompt,
+                                 "@engineer", "@coder")))
+    versions = AgentVersion.__table__
+    latest = conn.execute(select(versions.c.version, versions.c.snapshot).where(
+        versions.c.agent == new).order_by(versions.c.version.desc()).limit(1)).first()
+    if latest:
+        snapshot = dict(latest.snapshot)
+        snapshot["name"] = new
+        conn.execute(versions.insert().values(
+            id=uuid.uuid4().hex, agent=new, version=latest.version + 1,
+            snapshot=snapshot, changed_by="system:coder-rename",
+            changed_via="migration", created_at=utcnow()))
+    qa = conn.execute(select(defs.c.prompt).where(defs.c.name == "qa")).first()
+    if qa and "agent:engineer" in qa.prompt:
+        prompt = qa.prompt.replace("agent:engineer", "agent:coder")
+        conn.execute(defs.update().where(defs.c.name == "qa").values(prompt=prompt))
+        previous = conn.execute(select(versions.c.version, versions.c.snapshot).where(
+            versions.c.agent == "qa").order_by(versions.c.version.desc()).limit(1)).first()
+        if previous:
+            snapshot = dict(previous.snapshot)
+            snapshot["prompt"] = prompt
+            conn.execute(versions.insert().values(
+                id=uuid.uuid4().hex, agent="qa", version=previous.version + 1,
+                snapshot=snapshot, changed_by="system:coder-rename",
+                changed_via="migration", created_at=utcnow()))
 
 
 def _ensure_eng_queue_job(conn) -> None:
@@ -2308,7 +2429,7 @@ def _ensure_qa_seed(conn) -> None:
             concurrency=1, timeout_seconds=7200,
             quota_5h_max_pct=80, quota_7d_max_pct=50,
             platform_tools=[TOOL_RELAY, TOOL_TICKETS, TOOL_WIKI, TOOL_QUOTA_OK,
-                            TOOL_ARTIFACTS, "mcp__platform__tcms"],
+                            TOOL_ARTIFACTS, "mcp__platform__tcms", "mcp__platform__memory"],
             harness_tools=["Glob", "Grep", TOOL_PLAYWRIGHT_MCP],
             secrets=["qa-web-login"],
             push_path_globs=list(TEST_PATH_GLOBS), may_delete_tests=True,
@@ -2889,6 +3010,8 @@ async def init_db(engine: AsyncEngine, default_grant: bool = True,
             await conn.execute(text(f'CREATE SCHEMA IF NOT EXISTS "{MEMORY_SCHEMA}"'))
         await conn.run_sync(Base.metadata.create_all)
         await conn.run_sync(_ensure_columns)
+        await conn.run_sync(_ensure_scope_indexes)
+        await conn.run_sync(_ensure_agent_type_default)
         await conn.run_sync(_ensure_workbench_defaults)
         await conn.run_sync(_ensure_memory_key_index)
         await conn.run_sync(_ensure_relay_ddl)
@@ -2933,6 +3056,7 @@ async def init_db(engine: AsyncEngine, default_grant: bool = True,
         # both name #eng; the engineer after the grant sweeps, for the
         # artist's reason; the job last, because it names the engineer.
         await conn.run_sync(_ensure_eng_channel)
+        await conn.run_sync(_ensure_coder_identity)
         await conn.run_sync(_ensure_engineer_seed)
         await conn.run_sync(_ensure_eng_queue_job)
         # The QA's three (docs/design/25), in the same order for the same

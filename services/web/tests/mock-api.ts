@@ -386,7 +386,7 @@ const FACES = {
 
 // The listing and the row both wear the face (docs/design/23), so the Agents
 // pages draw a picture without a second fetch — news's is the artifact above.
-const agentRows = agents.map((a) => ({
+export const agentRows = agents.map((a) => ({
   ...a, face: FACES[a.name as keyof typeof FACES] ?? null,
   image_artifact_id: a.name === "news" ? ARTIFACTS.face.id : null,
 }));

@@ -3,7 +3,7 @@ import json
 
 from sqlalchemy import func, select
 
-from agentplatform.db import Run
+from agentplatform.db import Conversation, Project, Run, Team
 from agentplatform.events import (FakeProducer, TOPIC_DEAD_LETTER, TOPIC_RUN_REQUESTS,
                                   consume_forever, make_envelope)
 from agentplatform.materialize import materialize_run
@@ -24,6 +24,30 @@ async def test_materialize_run_creates_and_is_idempotent(sf):
     # both calls publish run.requests (dispatcher.handle is itself idempotent)
     reqs = [p for p in producer.published if p[0] == TOPIC_RUN_REQUESTS]
     assert len(reqs) == 2 and reqs[0][1] == "r" * 32
+
+
+async def test_room_and_child_runs_inherit_frozen_work_context(sf):
+    producer = FakeProducer()
+    async with sf() as s:
+        s.add(Team(id="t" * 32, slug="rpg", name="RPG team", description="Playtest",
+                   relay_channel_id="c" * 32))
+        s.add(Project(id="p" * 32, slug="family", name="Family game",
+                      description="Make play smoother", team_id="t" * 32))
+        s.add(Conversation(id="c" * 32, connector="web", kind="group",
+                           team_id="t" * 32, project_id="p" * 32))
+        await s.commit()
+    await materialize_run(sf, producer, {"run_id": "a" * 32, "agent": "echo",
+        "prompt": "take a turn", "trigger": "relay", "requested_by": "op",
+        "conversation_id": "c" * 32})
+    await materialize_run(sf, producer, {"run_id": "b" * 32, "agent": "echo",
+        "prompt": "follow up", "trigger": "agent", "requested_by": "echo",
+        "parent_run_id": "a" * 32})
+    async with sf() as s:
+        for rid in ("a" * 32, "b" * 32):
+            run = await s.get(Run, rid)
+            assert (run.team_id, run.project_id) == ("t" * 32, "p" * 32)
+            assert "Team: RPG team (rpg)" in run.prompt
+            assert "Project: Family game (family)" in run.prompt
 
 
 async def test_materialize_run_survives_a_hanging_publish(sf):

@@ -97,7 +97,7 @@ async def test_a_definition_may_grant_them(admin_client):
         # Out of the participant defaults' way: what is under test is that
         # these two names save at all, not what else a new agent is born holding.
         "relay": False, "tickets": False, "wiki": False,
-        "get_quota_usage": False, "artifacts": False})
+        "get_quota_usage": False, "artifacts": False, "memory": False})
     assert r.status_code == 201, r.text
     assert r.json()["platform_tools"] == [TOOL_AGENTS_EDIT, TOOL_AGENTS_GRANT]
 

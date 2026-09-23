@@ -236,6 +236,21 @@ class ToolProvisioner:
                 await conn.execute(text(
                     f'ALTER DEFAULT PRIVILEGES IN SCHEMA "{ident}" '
                     f'GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO "{ident}"'))
+            if tool == "memory":
+                # Expose only the current run's scope to the memory subprocess.
+                # Its database role never receives SELECT on runs or prompts.
+                await conn.execute(text("""
+                    CREATE OR REPLACE FUNCTION public.memory_run_scope(p_run text, p_agent text)
+                    RETURNS TABLE(team_id text, project_id text)
+                    LANGUAGE sql SECURITY DEFINER SET search_path = public AS $$
+                      SELECT r.team_id::text, r.project_id::text FROM public.runs r
+                      WHERE r.id = p_run AND r.agent = p_agent
+                    $$
+                """))
+                await conn.execute(text(
+                    "REVOKE ALL ON FUNCTION public.memory_run_scope(text, text) FROM PUBLIC"))
+                await conn.execute(text(
+                    f'GRANT EXECUTE ON FUNCTION public.memory_run_scope(text, text) TO "{ident}"'))
         if existing is None:
             from sqlalchemy.engine.url import make_url
             u = make_url(self.settings.db_url)

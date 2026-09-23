@@ -30,7 +30,7 @@ const EMPTY_ENTRYPOINTS: AgentEntrypoints = { crons: [], webhooks: [], topics: [
 // shape an update does.
 export function emptyDef(): AgentDef {
   return {
-    name: "", prompt: "", description: "", runtime: "claude", model: "", role: "operator",
+    name: "", prompt: "", description: "", agent_type: "worker", runtime: "claude", model: "", role: "operator",
     system: false, responds_to_all: true, can_invoke: false, concurrency: 1, timeout_seconds: 1800,
     result_topic: "", transcript_retention_days: null,
     harness_tools: [], platform_tools: ["mcp__platform__memory"], skills: [], secrets: [],
@@ -176,6 +176,13 @@ export function IdentityFields({ draft, patch, catalog }: {
           <Input className="w-full" aria-label="Description" value={draft.description}
                  placeholder="What does this agent do?"
                  onChange={(e) => patch({ description: e.target.value })} />
+        </Field>
+        <Field label="Type" hint="Persona grows an identity across activities; Worker specializes in a job. This does not change permissions.">
+          <Select className="w-full" aria-label="Type" value={draft.agent_type}
+                  onChange={(e) => patch({ agent_type: e.target.value as AgentDef["agent_type"] })}>
+            <option value="persona">Persona</option>
+            <option value="worker">Worker</option>
+          </Select>
         </Field>
         <Field label="Runtime" help="runtime" hint="Subscription-backed CLI used for this agent's runs.">
           <Select className="w-full" aria-label="Runtime" value={draft.runtime}

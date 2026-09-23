@@ -29,7 +29,7 @@ from datetime import timedelta
 from aiokafka import AIOKafkaConsumer
 from sqlalchemy import func, or_, select
 
-from agentplatform.db import (ACTIVE_STATES, Conversation, RelayInvocation,
+from agentplatform.db import (ACTIVE_STATES, Conversation, Team, TeamAgent, RelayInvocation,
                               RelayMessage, RelayWake, Run, Ticket, TicketEvent,
                               utcnow)
 from agentplatform.events import (TOPIC_RELAY_INVOCATIONS, TOPIC_RELAY_MESSAGES,
@@ -39,7 +39,8 @@ from agentplatform.relay import (AGENT_PREFIX, ALL, SYSTEM_AUTHOR, USER_PREFIX,
                                  address_tokens,
                                  agent_name, build_mention_prompt, is_agent,
                                  is_member, is_open_channel, mentionable_in,
-                                 parse_mentions, room_dispatch_mode, strip_mentions)
+                                 parse_mentions, room_dispatch_mode, strip_mentions,
+                                 team_address_tokens, mask_team_mentions)
 from agentplatform.relay_store import (context_window, explicit_members, faces_for,
                                        outbound_for_message, post_relay_message,
                                        publish_relay_message)
@@ -315,8 +316,20 @@ class RelayRouter:
         if msg.kind != "text":
             return out
         raw_addresses = address_tokens(msg.body or "")
-        kind = "mention" if raw_addresses else "default"
-        for target in self._targets(conv, msg, enabled, explicit, raw_addresses):
+        team_slugs = set(team_address_tokens(msg.body or ""))
+        team_targets: set[str] = set()
+        if team_slugs and not is_agent(msg.author):
+            rows = (await s.execute(select(TeamAgent.agent).join(
+                Team, TeamAgent.team_id == Team.id).where(
+                Team.slug.in_(team_slugs), Team.archived_at.is_(None)))).scalars()
+            room = mentionable_in(conv, enabled, explicit)
+            team_targets = {name for name in rows if name in room}
+        kind = "mention" if raw_addresses or team_slugs else "default"
+        targets = self._targets(conv, msg, enabled, explicit, raw_addresses)
+        for target in sorted(team_targets):
+            if target not in targets:
+                targets.append(target)
+        for target in targets:
             # A target that is still carrying a wake and is free now gets its
             # backlog with this mention: the person asking again should not
             # have to wait for the agent's own next reply to unstick the room.
@@ -374,7 +387,7 @@ class RelayRouter:
         out: list[str] = []
         raw_addresses = (address_tokens(msg.body or "")
                          if raw_addresses is None else raw_addresses)
-        for token in parse_mentions(msg.body or "", room, msg.author):
+        for token in parse_mentions(mask_team_mentions(msg.body or ""), room, msg.author):
             # ALL only ever comes from a human — `parse_mentions` drops an
             # agent's room mention, because an agent that can page everyone is
             # a storm. It expands to the room's agent roster: every enabled

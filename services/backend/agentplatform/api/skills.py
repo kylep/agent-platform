@@ -113,10 +113,10 @@ async def skill_wizard(request: Request, body: SkillWizardIn,
     if st.skill_store.get(body.name) is not None:
         raise HTTPException(409, "a skill with this name already exists")
     await st.agent_store.reload()
-    engineer = st.agent_store.get("engineer")
+    engineer = st.agent_store.get("coder")
     if (engineer is None or engineer.error is not None or not engineer.enabled
             or engineer.manifest.role != "dev"):
-        raise HTTPException(409, "engineer Workbench is unavailable")
+        raise HTTPException(409, "coder Workbench is unavailable")
     scope = f"`skills/{body.name}/`"
     secret_part = ""
     if body.secret:
@@ -149,7 +149,7 @@ async def skill_wizard(request: Request, body: SkillWizardIn,
         "secrets with state/severity) followed by concise, imperative usage "
         "instructions an agent can follow without guessing. Match the style of "
         f"the existing skills under `skills/`. Only create/modify files under {scope}.")
-    run = Run(agent="engineer", trigger="wizard", requested_by=principal,
+    run = Run(agent="coder", trigger="wizard", requested_by=principal,
               initiated_by=principal, prompt=prompt)
     async with st.session_factory() as s:
         s.add(run); await s.commit()

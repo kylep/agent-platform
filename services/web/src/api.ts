@@ -41,6 +41,7 @@ export type AgentDef = {
   name: string;
   prompt: string;               // the agent's context/personality (former agent.md body)
   description: string;
+  agent_type: "persona" | "worker";
   runtime: "claude" | "codex";
   model: string;                // "" = platform default
   role: string;
@@ -129,6 +130,8 @@ export type RunSummary = {
   // The ticket this run was summoned from (docs/design/20); null for every
   // other trigger.
   ticket_id?: string | null;
+  team_id?: string | null;
+  project_id?: string | null;
 };
 
 export type RunDetailData = RunSummary & {
@@ -151,6 +154,8 @@ export type RunDetailData = RunSummary & {
   agent_version: number | null;
   secrets_granted: string[];
   permission_denials?: Array<Record<string, unknown>>;
+  team_name?: string | null;
+  project_name?: string | null;
 };
 
 export type DlqEntry = {
@@ -385,7 +390,12 @@ export type RelayChannel = {
   last_message: RelayLastMessage | null;
   message_count: number;
   unread: number;
+  team_id?: string | null;
+  project_id?: string | null;
 };
+
+export type Team = { id: string; slug: string; name: string; description: string; agents: string[]; relay_channel_id: string; archived: boolean };
+export type Project = { id: string; slug: string; name: string; description: string; team_slug: string | null; agents: string[]; archived: boolean };
 
 export type RelayBinding = {
   id: string;

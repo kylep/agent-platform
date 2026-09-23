@@ -1,4 +1,4 @@
-"""The engineer (docs/design/24): the seeded dev agent that takes an assigned
+"""The coder (docs/design/24): the seeded dev agent that takes an assigned
 ticket, works on a branch and opens a PR for a human to merge — with its
 home project `#eng` and the weekday `eng-queue` job that gives a run deferred
 for quota another chance. Three one-time seeds behind their own marks, in the
@@ -16,7 +16,7 @@ from agentplatform.agentspec import (TOOL_ARTIFACTS, TOOL_QUOTA_OK, TOOL_RELAY,
 from agentplatform.config import Settings
 from agentplatform.db import (ENG_CHANNEL_MARK, ENG_QUEUE_MARK, ENG_WELCOME_BODY,
                               ENGINEER_PROMPT, ENGINEER_SEED_MARK, AgentDef,
-                              AgentVersion, Base, Conversation, RelayMessage,
+                              AgentVersion, Base, Conversation, Memory, RelayMessage,
                               Run, ScheduledJob, SchemaMark, Ticket, init_db,
                               make_engine, make_session_factory)
 from agentplatform.relay_router import RelayRouter
@@ -61,10 +61,23 @@ async def _eng_queue_jobs(sfx) -> list[ScheduledJob]:
 # --- the row ------------------------------------------------------------------
 
 
-async def test_the_engineer_is_seeded_with_its_grants_role_and_thresholds(engine, sfx):
+async def test_legacy_engineer_renames_without_losing_memory(engine, sfx):
+    async with sfx() as s:
+        s.add(AgentDef(name="engineer", prompt="my custom prompt", description="mine"))
+        s.add(Memory(agent="engineer", content="learned something", tags=[]))
+        await s.commit()
     await init_db(engine)
     async with sfx() as s:
-        row = await s.get(AgentDef, "engineer")
+        assert await s.get(AgentDef, "engineer") is None
+        assert (await s.get(AgentDef, "coder")).prompt == "my custom prompt"
+        memories = (await s.execute(select(Memory))).scalars().all()
+        assert [(m.agent, m.content) for m in memories] == [("coder", "learned something")]
+
+
+async def test_the_coder_is_seeded_with_its_grants_role_and_thresholds(engine, sfx):
+    await init_db(engine)
+    async with sfx() as s:
+        row = await s.get(AgentDef, "coder")
         assert row is not None
         # Lifecycle and broadcast participation are independent policies.
         assert (row.system, row.enabled, row.can_invoke) == (False, True, False)
@@ -76,7 +89,7 @@ async def test_the_engineer_is_seeded_with_its_grants_role_and_thresholds(engine
         assert (row.timeout_seconds, row.concurrency) == (5400, 1)
         assert (row.quota_5h_max_pct, row.quota_7d_max_pct) == (95, 90)
         assert row.platform_tools == [TOOL_RELAY, TOOL_TICKETS, TOOL_WIKI,
-                                      TOOL_QUOTA_OK, TOOL_ARTIFACTS]
+                                      TOOL_QUOTA_OK, TOOL_ARTIFACTS, "mcp__platform__memory"]
         # The shell tools come from the profile, not the grant; WebFetch is
         # deliberately absent — the repo and the wiki are its sources.
         assert row.harness_tools == ["Glob", "Grep"]
@@ -110,44 +123,44 @@ def test_the_prompt_orders_process_rules_and_hand_back():
     assert 0 < i_process < i_rules < i_handback
 
 
-async def test_the_engineer_has_exactly_one_version_after_a_fresh_init(engine, sfx):
+async def test_the_coder_has_exactly_one_version_after_a_fresh_init(engine, sfx):
     """The seed runs AFTER the default-grant sweeps, which have marked
-    themselves by then: born holding every grant it needs, the engineer's
+    themselves by then: born holding every grant it needs, the coder's
     change log opens with one row, the seed's own."""
     await init_db(engine)
-    versions = await _versions(sfx, "engineer")
+    versions = await _versions(sfx, "coder")
     assert [(v.version, v.changed_by, v.changed_via) for v in versions] == [
-        (1, "system:engineer", "seed")]
+        (1, "system:coder", "seed")]
     snap = versions[0].snapshot
     assert snap["platform_tools"] == [TOOL_RELAY, TOOL_TICKETS, TOOL_WIKI,
-                                      TOOL_QUOTA_OK, TOOL_ARTIFACTS]
+                                      TOOL_QUOTA_OK, TOOL_ARTIFACTS, "mcp__platform__memory"]
     assert (snap["system"], snap["role"], snap["model"]) == (False, "dev", "opus")
     assert (snap["quota_5h_max_pct"], snap["quota_7d_max_pct"]) == (95, 90)
 
 
-async def test_an_existing_engineer_is_adopted_not_overwritten(engine, sfx):
+async def test_an_existing_coder_is_adopted_not_overwritten(engine, sfx):
     async with sfx() as s:
-        s.add(AgentDef(name="engineer", prompt="mine", description="mine",
+        s.add(AgentDef(name="coder", prompt="mine", description="mine",
                        platform_tools=[]))
         await s.commit()
     await init_db(engine)
     async with sfx() as s:
-        row = await s.get(AgentDef, "engineer")
+        row = await s.get(AgentDef, "coder")
         # The grant sweeps still reach an adopted row — that is their job, not
         # the seed's — so what proves adoption is the prompt and the role.
         assert (row.prompt, row.role) == ("mine", "operator")
         assert await s.get(SchemaMark, ENGINEER_SEED_MARK) is not None
-    assert "system:engineer" not in [v.changed_by for v in await _versions(sfx, "engineer")]
+    assert "system:coder" not in [v.changed_by for v in await _versions(sfx, "coder")]
 
 
-async def test_the_engineer_mark_is_the_off_switch(engine, sfx):
+async def test_the_coder_mark_is_the_off_switch(engine, sfx):
     await init_db(engine)
     async with sfx() as s:
-        await s.delete(await s.get(AgentDef, "engineer"))
+        await s.delete(await s.get(AgentDef, "coder"))
         await s.commit()
     await init_db(engine)
     async with sfx() as s:
-        assert await s.get(AgentDef, "engineer") is None
+        assert await s.get(AgentDef, "coder") is None
 
 
 # --- #eng ---------------------------------------------------------------------
@@ -160,14 +173,14 @@ async def test_eng_is_seeded_as_a_project_with_a_welcome(engine, sfx):
     room = rooms[0]
     assert (room.open, room.agent, room.ticket_prefix, room.ticket_seq) == (
         True, None, "ENG", 0)
-    assert room.topic == "engineering: tickets for the engineer, and what it shipped"
+    assert room.topic == "engineering: tickets for the coder, and what it shipped"
     async with sfx() as s:
         msgs = list((await s.execute(select(RelayMessage).where(
             RelayMessage.channel_id == room.id))).scalars())
         assert [(m.kind, m.author, m.body) for m in msgs] == [
             ("system", "system:relay", ENG_WELCOME_BODY)]
         assert await s.get(SchemaMark, ENG_CHANNEL_MARK) is not None
-    assert ENG_WELCOME_BODY == ("Assign a ticket to @engineer and it opens a PR; the "
+    assert ENG_WELCOME_BODY == ("Assign a ticket to @coder and it opens a PR; the "
                                 "platform publishes, humans merge")
 
 
@@ -216,7 +229,7 @@ async def test_the_eng_queue_job_is_seeded(engine, sfx):
     # A relay-post job, not an agent run: the summons has to come from the
     # platform, because an agent's own @mention carries a hop.
     assert (job.relay_channel, job.agent) == ("eng", None)
-    assert job.prompt == ("@engineer — anything assigned to you that is still open: "
+    assert job.prompt == ("@coder — anything assigned to you that is still open: "
                           "pick up the oldest one, or say why not")
     assert (job.enabled, job.next_fire) == (True, None)
     async with sfx() as s:
@@ -249,26 +262,26 @@ async def test_the_eng_queue_mark_is_the_off_switch(engine, sfx):
 async def test_the_three_seeds_are_idempotent(engine, sfx):
     await init_db(engine)
     await init_db(engine)
-    assert len(await _versions(sfx, "engineer")) == 1
+    assert len(await _versions(sfx, "coder")) == 1
     assert len(await _eng_channels(sfx)) == 1
     assert len(await _eng_queue_jobs(sfx)) == 1
     async with sfx() as s:
         assert (await s.execute(select(func.count()).select_from(AgentDef.__table__)
-                                .where(AgentDef.__table__.c.name == "engineer"))
+                                .where(AgentDef.__table__.c.name == "coder"))
                 ).scalar_one() == 1
 
 
 # --- summonable ---------------------------------------------------------------
 
 
-async def test_assigning_a_ticket_to_the_engineer_yields_a_dev_run_about_it(sf, producer):
+async def test_assigning_a_ticket_to_the_coder_yields_a_dev_run_about_it(sf, producer):
     """AC-4 through the real store and the real router: the seeded row is a
     live, valid agent, so an assignment in a project is a mention in the
     ticket's thread, and the run it summons names the ticket and carries the
     dev profile."""
     store = AgentStore(sf)
     await store.reload()
-    assert store.get("engineer").manifest.role == "dev"
+    assert store.get("coder").manifest.role == "dev"
     async with sf() as s:
         conv = Conversation(connector="web", kind="channel", open=True,
                             name=f"proj-{uuid.uuid4().hex[:8]}", title="#proj",
@@ -277,7 +290,7 @@ async def test_assigning_a_ticket_to_the_engineer_yields_a_dev_run_about_it(sf, 
         await s.flush()
         t = await create_ticket(s, producer, conv, actor="user:admin",
                                 title="Fix the stale dedup", body="the forecast repeats",
-                                assignee="agent:engineer", notify=True)
+                                assignee="agent:coder", notify=True)
         ticket_id, root = t.id, t.root_message_id
         mention = (await s.execute(select(RelayMessage).where(
             RelayMessage.channel_id == conv.id, RelayMessage.id != root))).scalar_one()
@@ -285,7 +298,7 @@ async def test_assigning_a_ticket_to_the_engineer_yields_a_dev_run_about_it(sf, 
     await RelayRouter(Settings(), sf, producer, store).handle(payload)
     async with sf() as s:
         runs = list((await s.execute(select(Run))).scalars())
-        assert (await s.get(Ticket, ticket_id)).assignee == "agent:engineer"
+        assert (await s.get(Ticket, ticket_id)).assignee == "agent:coder"
     assert [(r.agent, r.trigger, r.depth, r.ticket_id) for r in runs] == [
-        ("engineer", "mention", 0, ticket_id)]
+        ("coder", "mention", 0, ticket_id)]
     assert "<body>the forecast repeats</body>" in runs[0].prompt

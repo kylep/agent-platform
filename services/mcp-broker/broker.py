@@ -738,7 +738,7 @@ async def relay(action: str, channel: str | None = None, body: str | None = None
                 reply_to: str | None = None, limit: int = 30,
                 before: str | None = None, to: str | None = None,
                 message_id: str | None = None, emoji: str | None = None,
-                q: str | None = None) -> str:
+                q: str | None = None, project: str | None = None) -> str:
     """Relay chat — you are `agent:<you>`; authorship is your token, not text.
     Actions: post · read · channels · dm · react · search; `channel` is a
     `#name` or a channel id. `@name` in a body summons that agent: each costs
@@ -768,9 +768,11 @@ async def relay(action: str, channel: str | None = None, body: str | None = None
         channel_id, error = await _relay_channel(channel) if channel else ("", None)
         if error:
             return error
-        return await _call("GET", "/api/relay/search",
-                           {"q": q, "channel": channel_id or None,
-                            "limit": _clamp(limit, 100)})
+        params = {"q": q, "channel": channel_id or None,
+                  "limit": _clamp(limit, 100)}
+        if project:
+            params["project"] = project
+        return await _call("GET", "/api/relay/search", params)
     if action == "dm":
         if not to:
             return "error: action='dm' requires to, e.g. agent:news or user:admin"

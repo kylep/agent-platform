@@ -16,7 +16,7 @@ from sqlalchemy import select
 
 from agentplatform.agents import AgentStore
 from agentplatform.config import Settings
-from agentplatform.db import (ACTIVE_STATES, Conversation, RelayInvocation,
+from agentplatform.db import (ACTIVE_STATES, Conversation, Team, TeamAgent, RelayInvocation,
                               RelayMessage, RelayParticipant, RelayWake, Run,
                               RunState, utcnow)
 from agentplatform.events import (TOPIC_RELAY_INVOCATIONS, TOPIC_RUN_EVENTS,
@@ -116,6 +116,22 @@ def _invocation_events(producer) -> list[dict]:
 
 
 # --- the ordinary case -------------------------------------------------------
+
+
+async def test_team_mention_only_summons_members_already_in_room(make_router, sf):
+    router = await make_router(agents=("ada", "bob", "eve"))
+    room = await _channel(sf, open=False, participants=("user:admin", "agent:ada", "agent:eve"))
+    async with sf() as s:
+        s.add(Team(id="team-1", slug="rpg", name="RPG", description="",
+                   relay_channel_id=room))
+        s.add_all([TeamAgent(team_id="team-1", agent="ada"),
+                   TeamAgent(team_id="team-1", agent="bob")])
+        await s.commit()
+    await _say(router, sf, room, "user:admin", "@team:rpg ready?")
+    assert [r.agent for r in await _runs(sf)] == ["ada"]
+    await _say(router, sf, room, "agent:eve", "@team:rpg please reply")
+    await _say(router, sf, room, "user:admin", "`@team:rpg` is the syntax")
+    assert [r.agent for r in await _runs(sf)] == ["ada"]
 
 
 async def test_a_human_mention_invokes_each_agent_at_hop_zero(make_router, sf, producer):

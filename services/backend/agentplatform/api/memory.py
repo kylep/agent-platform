@@ -6,7 +6,7 @@ from sqlalchemy import and_, func, or_, select
 from sqlalchemy.exc import IntegrityError
 
 from agentplatform.api.auth import MEMORY_ROLES, READ_ROLES, require_role
-from agentplatform.db import Memory
+from agentplatform.db import Memory, Project, Run, Team
 
 log = logging.getLogger("memory")
 
@@ -31,6 +31,8 @@ class MemoryIn(BaseModel):
     # Only honored for human/admin callers; an agent key is pinned to its own
     # namespace and may not target another agent.
     agent: str | None = Field(default=None, max_length=_NAME_MAX)
+    team_slug: str | None = None
+    project_slug: str | None = None
 
     @field_validator("content", "key", "agent")
     @classmethod
@@ -43,6 +45,7 @@ class MemoryIn(BaseModel):
 def _view(m: Memory) -> dict:
     return {"id": m.id, "agent": m.agent, "key": m.key, "content": m.content,
             "tags": m.tags or [],
+            "team_id": m.team_id, "project_id": m.project_id,
             "created_at": m.created_at.isoformat() if m.created_at else None,
             "updated_at": m.updated_at.isoformat() if m.updated_at else None}
 
@@ -67,17 +70,33 @@ async def save_memory(request: Request, body: MemoryIn):
     `key` overwrites it (idempotent remember); otherwise a new memory is added."""
     ns = _resolve_ns(request, body.agent)
     async with request.app.state.session_factory() as s:
+        run = await s.get(Run, request.state.api_key_run_id) if getattr(request.state, "api_key_run_id", None) else None
+        team_id = run.team_id if run else None
+        project_id = run.project_id if run else None
+        if body.team_slug:
+            team = (await s.execute(select(Team).where(Team.slug == body.team_slug))).scalar_one_or_none()
+            if not team: raise HTTPException(422, "unknown team")
+            if run and team_id != team.id: raise HTTPException(403, "team differs from current run")
+            team_id = team.id
+        if body.project_slug:
+            project = (await s.execute(select(Project).where(Project.slug == body.project_slug))).scalar_one_or_none()
+            if not project: raise HTTPException(422, "unknown project")
+            if run and project_id != project.id: raise HTTPException(403, "project differs from current run")
+            project_id = project.id
         existing = None
         if body.key:
             existing = (await s.execute(select(Memory).where(
                 Memory.agent == ns, Memory.key == body.key))).scalar_one_or_none()
         if existing is not None:
             existing.content = body.content
+            existing.team_id = team_id
+            existing.project_id = project_id
             if body.tags is not None:
                 existing.tags = body.tags
             m = existing
         else:
-            m = Memory(agent=ns, key=body.key, content=body.content, tags=body.tags or [])
+            m = Memory(agent=ns, key=body.key, content=body.content, tags=body.tags or [],
+                       team_id=team_id, project_id=project_id)
             s.add(m)
         try:
             await s.commit()
@@ -88,6 +107,8 @@ async def save_memory(request: Request, body: MemoryIn):
             winner = (await s.execute(select(Memory).where(
                 Memory.agent == ns, Memory.key == body.key))).scalar_one()
             winner.content = body.content
+            winner.team_id = team_id
+            winner.project_id = project_id
             if body.tags is not None:
                 winner.tags = body.tags
             await s.commit()
@@ -99,6 +120,7 @@ async def save_memory(request: Request, body: MemoryIn):
 async def list_memories(request: Request,
                         agent: str | None = Query(None, max_length=_NAME_MAX),
                         q: str | None = Query(None, max_length=1000),
+                        team_slug: str | None = None, project_slug: str | None = None,
                         limit: int = Query(50, ge=1, le=500)):
     """List or search memories, newest first. Scope: an agent-scoped key is
     locked to its own namespace; a human/admin caller may pass `agent` to scope
@@ -122,6 +144,14 @@ async def list_memories(request: Request,
         conds.append(or_(func.lower(Memory.content).like(needle),
                          func.lower(func.coalesce(Memory.key, "")).like(needle)))
     async with request.app.state.session_factory() as s:
+        if team_slug:
+            team = (await s.execute(select(Team).where(Team.slug == team_slug))).scalar_one_or_none()
+            if not team: raise HTTPException(404, "unknown team")
+            conds.append(Memory.team_id == team.id)
+        if project_slug:
+            project = (await s.execute(select(Project).where(Project.slug == project_slug))).scalar_one_or_none()
+            if not project: raise HTTPException(404, "unknown project")
+            conds.append(Memory.project_id == project.id)
         stmt = select(Memory)
         if conds:
             stmt = stmt.where(and_(*conds))

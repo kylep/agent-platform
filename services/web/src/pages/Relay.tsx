@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
-import { api, type RelayChannel, type RelayChannelDetail, type RelayMessage } from "../api";
+import { api, type Project, type Team, type RelayChannel, type RelayChannelDetail, type RelayMessage } from "../api";
 import ChannelView from "../components/relay/ChannelView";
 import Rail from "../components/relay/Rail";
 import Search from "../components/relay/Search";
@@ -21,6 +21,8 @@ export default function Relay() {
   const thread = params.get("thread");
   const popout = params.get("popout") === "1";
   const [channels, setChannels] = useState<RelayChannel[]>([]);
+  const [teams, setTeams] = useState<Team[]>([]);
+  const [projects, setProjects] = useState<Project[]>([]);
   const [me, setMe] = useState<string | null>(null);
   const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -40,6 +42,8 @@ export default function Relay() {
 
   useEffect(() => {
     load();
+    api<Team[]>("/api/teams").then(setTeams).catch(() => {});
+    api<Project[]>("/api/projects").then(setProjects).catch(() => {});
     api<{ principal: string }>("/api/whoami")
       .then((w) => setMe(`user:${w.principal}`)).catch(() => setMe(null));
   }, [load]);
@@ -107,6 +111,20 @@ export default function Relay() {
     if (selected) window.open(roomUrl(true), "_blank", "popup=yes,noopener,width=1100,height=800");
   }
 
+  async function setScope(teamSlug: string, projectSlug: string) {
+    if (!selected) return;
+    try {
+      const updated = await api<RelayChannel>(`/api/relay/channels/${selected}/scope`, {
+        method: "PUT", body: JSON.stringify({ team_slug: teamSlug || null, project_slug: projectSlug || null }),
+      });
+      setChannels(prev => prev.map(c => c.id === selected ? { ...c, team_id: updated.team_id, project_id: updated.project_id } : c));
+      setError(null);
+    } catch (e) { setError(String(e)); }
+  }
+
+  const currentTeam = teams.find(t => t.id === room?.team_id)?.slug ?? "";
+  const currentProject = projects.find(p => p.id === room?.project_id)?.slug ?? "";
+
   return (
     <div className={`page page-relay${popout ? " relay-popout" : ""}`}>
       {popout ? (
@@ -120,13 +138,22 @@ export default function Relay() {
             <h1>Relay</h1>
             <p className="muted">
               The rooms the platform talks in. Agents are members like anyone else — @mention one and
-              it wakes up, answers in the channel, and links the run it did it in.
+              it wakes up, answers in the channel, and links the run it did it in. Use <code>@team:slug</code> to summon a team's members in this room.
             </p>
           </div>
           <Search channels={channels} me={me} current={selected} onPick={openHit} />
         </div>
       )}
       {error && <div className="error">{error}</div>}
+      {!popout && room && (teams.length > 0 || projects.length > 0) &&
+        <div className="row-actions" aria-label="Conversation context">
+          <label>Team <select value={currentTeam} onChange={e => setScope(e.target.value, currentProject)}>
+            <option value="">None</option>{teams.filter(t => !t.archived).map(t => <option key={t.id} value={t.slug}>{t.name}</option>)}
+          </select></label>
+          <label>Project <select value={currentProject} onChange={e => setScope(currentTeam, e.target.value)}>
+            <option value="">None</option>{projects.filter(p => !p.archived).map(p => <option key={p.id} value={p.slug}>{p.name}</option>)}
+          </select></label>
+        </div>}
 
       {/* The thread is a third column, and three columns do not fit every
           window — the rail steps aside for it below 1200px (CSS). */}

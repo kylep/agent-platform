@@ -575,7 +575,8 @@ async def test_a_new_agent_holds_all_three_participant_grants(admin_client, sf):
     # The fourth and fifth default grants (docs/design/22, docs/design/23) ride
     # along; they are not this file's subject, and `tests/test_quota_api.py` and
     # `tests/test_artifacts_feed.py` are where they are asserted.
-    born = [RELAY_GRANT, TICKETS_GRANT, WIKI_GRANT, QUOTA_GRANT, ARTIFACTS_GRANT]
+    born = [RELAY_GRANT, TICKETS_GRANT, WIKI_GRANT, QUOTA_GRANT, ARTIFACTS_GRANT,
+            "mcp__platform__memory"]
     r = await admin_client.post("/api/agents", json={"name": "newbie",
                                                      "description": "test",
                                                      "prompt": "# newbie"})
@@ -592,4 +593,4 @@ async def test_the_wiki_default_can_be_turned_off_platform_wide(admin_client, sf
                                                      "prompt": "# quiet"})
     assert r.status_code == 201, r.text
     assert r.json()["platform_tools"] == [RELAY_GRANT, TICKETS_GRANT, QUOTA_GRANT,
-                                          ARTIFACTS_GRANT]
+                                          ARTIFACTS_GRANT, "mcp__platform__memory"]

@@ -133,10 +133,10 @@ async def tool_wizard(request: Request, body: ToolWizardIn,
     if st.tool_registry.get(name) is not None:
         raise HTTPException(409, "a tool with this name already exists")
     await st.agent_store.reload()
-    engineer = st.agent_store.get("engineer")
+    engineer = st.agent_store.get("coder")
     if (engineer is None or engineer.error is not None or not engineer.enabled
             or engineer.manifest.role != "dev"):
-        raise HTTPException(409, "engineer Workbench is unavailable")
+        raise HTTPException(409, "coder Workbench is unavailable")
     scope = f"`tools/{name}/`"
     secret_part = ""
     if body.secret:
@@ -173,7 +173,7 @@ async def tool_wizard(request: Request, body: ToolWizardIn,
         f"{('Notes: ' + body.notes) if body.notes else ''}")
     from agentplatform.db import Run
     from agentplatform.events import TOPIC_RUN_REQUESTS
-    run = Run(agent="engineer", trigger="wizard", requested_by=principal,
+    run = Run(agent="coder", trigger="wizard", requested_by=principal,
               initiated_by=principal, prompt=prompt)
     async with st.session_factory() as s:
         s.add(run)

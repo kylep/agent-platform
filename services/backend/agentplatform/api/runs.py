@@ -20,8 +20,8 @@ from agentplatform.api.artifacts import ArtifactView, _bounded_body, _rule
 from agentplatform.api.auth import (ANNOTATE_ROLES, INVOKE_ROLES, READ_ROLES,
                                      require_admin, require_role)
 from agentplatform.api.gitedit import _github_app_token
-from agentplatform.db import (ACTIVE_STATES, AgentDef, Conversation, RelaySession, Run,
-                              SecretAccess, Ticket, TranscriptEvent, utcnow)
+from agentplatform.db import (ACTIVE_STATES, AgentDef, Conversation, Project, RelaySession, Run,
+                              SecretAccess, Team, Ticket, TranscriptEvent, utcnow)
 from agentplatform.events import TOPIC_RUN_REQUESTS
 from agentplatform.github import GitHubClient
 from agentplatform.secrets import CODEX_CREDENTIAL
@@ -77,7 +77,8 @@ def _summary(r: Run) -> dict:
     return {"id": r.id, "agent": r.agent, "state": r.state, "trigger": r.trigger,
             "created_at": r.created_at.isoformat() if r.created_at else None,
             "summary": r.summary, "tags": r.tags or [],
-            "ticket_id": r.ticket_id}
+            "ticket_id": r.ticket_id, "team_id": r.team_id,
+            "project_id": r.project_id}
 
 @router.post("/api/runs", response_model=S.RunAccepted)
 async def create_run(request: Request, body: RunIn,
@@ -168,6 +169,8 @@ async def get_run(request: Request, run_id: str):
         run = await s.get(Run, run_id)
         if run is None: raise HTTPException(404)
         d = _summary(run)
+        team = await s.get(Team, run.team_id) if run.team_id else None
+        project = await s.get(Project, run.project_id) if run.project_id else None
         granted = (await s.execute(select(SecretAccess.secret)
                    .where(SecretAccess.run_id == run_id))).scalars().all()
         d.update({"prompt": run.prompt, "exit_code": run.exit_code, "error": run.error,
@@ -181,6 +184,8 @@ async def get_run(request: Request, run_id: str):
                   "requested_model": run.requested_model or "",
                   "model": run.model or "",
                   "agent_version": run.agent_version,
+                  "team_name": team.name if team else None,
+                  "project_name": project.name if project else None,
                   "started_at": run.started_at.isoformat() if run.started_at else None,
                   "finished_at": run.finished_at.isoformat() if run.finished_at else None})
         return d

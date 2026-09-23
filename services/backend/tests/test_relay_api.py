@@ -373,6 +373,30 @@ async def test_search_finds_a_word_and_respects_visibility(
     assert [m["channel_id"] for m in scoped] == [cid]
 
 
+async def test_project_search_keeps_room_visibility(
+        admin_client, token_client, sf, seed_agent, agent_store):
+    await _seed(seed_agent, agent_store, "news")
+    headers = await _agent_token(sf, "news")
+    cid = await _channel_id(sf, "general")
+    project = (await admin_client.post("/api/projects", json={
+        "slug": "newsroom", "name": "Newsroom", "agents": ["news"]})).json()
+    assert project["slug"] == "newsroom"
+    group = (await admin_client.post("/api/relay/channels", json={
+        "kind": "group", "participants": ["user:admin"]})).json()
+    for room in (cid, group["id"]):
+        scoped = await admin_client.put(f"/api/relay/channels/{room}/scope",
+                                         json={"project_slug": "newsroom"})
+        assert scoped.status_code == 200, scoped.text
+        await admin_client.post(f"/api/relay/channels/{room}/messages",
+                                json={"body": "newsroom budget"})
+    mine = (await admin_client.get("/api/relay/search", params={
+        "q": "budget", "project": "newsroom"})).json()
+    assert {m["channel_id"] for m in mine} == {cid, group["id"]}
+    theirs = (await token_client.get("/api/relay/search", params={
+        "q": "budget", "project": "newsroom"}, headers=headers)).json()
+    assert [m["channel_id"] for m in theirs] == [cid]
+
+
 async def test_search_takes_a_channel_by_name_as_well_as_by_id(admin_client, sf):
     """`channel=#general` answered `[]` — indistinguishable from "nothing
     matched" — while the same room by id answered fine. A channel reference is

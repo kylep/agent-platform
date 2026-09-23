@@ -38,7 +38,7 @@ HARNESS_TOOLS: tuple[str, ...] = tuple(CLAUDE_TOOLS)
 # rollback restores. Deliberately excludes created_at/updated_at: timestamps
 # are row bookkeeping, not part of what an agent *is*.
 DEF_FIELDS: tuple[str, ...] = (
-    "name", "prompt", "description", "runtime", "model", "role", "system",
+    "name", "prompt", "description", "agent_type", "runtime", "model", "role", "system",
     "responds_to_all", "can_invoke",
     "concurrency", "timeout_seconds", "result_topic", "transcript_retention_days",
     "harness_tools", "platform_tools", "skills", "secrets", "entrypoints",
@@ -172,6 +172,7 @@ class AgentDefModel(BaseModel):
     name: str
     prompt: str = ""
     description: str = ""
+    agent_type: str = "worker"
     runtime: str = "claude"
     model: str = ""
     role: str = "operator"
@@ -211,6 +212,13 @@ class AgentDefModel(BaseModel):
     def _known_role(cls, v: str) -> str:
         if v not in AGENT_ROLES:
             raise ValueError(f"role must be one of {AGENT_ROLES}")
+        return v
+
+    @field_validator("agent_type")
+    @classmethod
+    def _known_type(cls, v: str) -> str:
+        if v not in ("persona", "worker"):
+            raise ValueError("agent_type must be persona or worker")
         return v
 
     @field_validator("runtime")

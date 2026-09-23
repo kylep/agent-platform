@@ -1,5 +1,5 @@
 import { expect, test, type Page, type Request } from "@playwright/test";
-import { ARTIFACTS, mockApi } from "./mock-api";
+import { ARTIFACTS, agentRows, mockApi } from "./mock-api";
 
 // The Agents page as a card grid, and an agent's picture (docs/design/23).
 // The grid is the table said another way — the same chip, the same schedule
@@ -46,6 +46,20 @@ test("the grid is the default view, and the table is a persisted choice", async 
   await expect(page.locator("table")).toHaveCount(2);
   await expect(page.getByRole("group", { name: "View" }).getByRole("button", { name: "Table" }))
     .toHaveAttribute("aria-pressed", "true");
+});
+
+test("personas lead, followed by workers and system agents", async ({ page }) => {
+  await mockApi(page);
+  await page.route("**/api/agents", route => route.fulfill({ json: agentRows.map(a => ({
+    ...a, agent_type: a.name === "pai" ? "persona" : "worker",
+  })) }));
+  await page.goto("/agents");
+  const sections = page.locator(".page-agents > section");
+  await expect(sections).toHaveCount(3);
+  await expect(sections.nth(0).getByRole("heading")).toHaveText("Personas");
+  await expect(sections.nth(0).locator(".agent-card")).toHaveCount(1);
+  await expect(sections.nth(1).getByRole("heading")).toHaveText("Workers");
+  await expect(sections.nth(2).getByRole("heading")).toHaveText("System agents");
 });
 
 test("a card carries the row's status chip and its picture", async ({ page }) => {

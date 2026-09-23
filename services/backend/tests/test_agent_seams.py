@@ -95,7 +95,7 @@ async def test_a_grant_written_through_the_api_reaches_the_agents_own_token(
     created = await admin_client.post(
         "/api/agents", json={**a_def("worker"), "relay": False, "tickets": False,
                              "wiki": False, "get_quota_usage": False,
-                             "artifacts": False})
+                                 "artifacts": False, "memory": False})
     assert created.status_code == 201 and created.json()["platform_tools"] == []
 
     worker_token = await bearer(sf, "worker")
@@ -151,7 +151,7 @@ async def test_the_change_log_covers_a_definitions_whole_life(two_callers, sf,
     assert (await admin_client.post("/api/agents", json={
         **a_def("shortlived", description="v1"), "relay": False,
         "tickets": False, "wiki": False,
-        "get_quota_usage": False, "artifacts": False})).status_code == 201
+        "get_quota_usage": False, "artifacts": False, "memory": False})).status_code == 201
     assert (await admin_client.put("/api/agents/shortlived", json=a_def(
         "shortlived", description="v2"))).status_code == 200
     assert (await client.put("/api/agents/shortlived", json=a_def(

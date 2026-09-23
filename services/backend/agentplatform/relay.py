@@ -48,6 +48,17 @@ _MENTION_RE = re.compile(r"(?<![^\s(\[\"])@([A-Za-z0-9][A-Za-z0-9-]*)(?![A-Za-z0
 # live mention".
 _FENCE = r"```.*?(?:```|\Z)"
 _CODE_RE = re.compile(_FENCE + r"|`[^`]*`", re.DOTALL)
+_TEAM_RE = re.compile(r"(?<![^\s(\[\"])@team:([a-z0-9][a-z0-9-]{0,62})(?![a-z0-9-])")
+
+
+def team_address_tokens(body: str) -> list[str]:
+    """Team slugs addressed outside fenced/inline code."""
+    return _TEAM_RE.findall(_CODE_RE.sub(" ", body or ""))
+
+
+def mask_team_mentions(body: str) -> str:
+    """Prevent `@team:slug` from also addressing an agent named `team`."""
+    return _TEAM_RE.sub(" ", body or "")
 # Mentions to drop, code spans to KEEP — the same alternation trick as the
 # rule below, matching code first. `parse_mentions` blanks code because a
 # quoted `@news` must not summon; a search over the same text wants the words

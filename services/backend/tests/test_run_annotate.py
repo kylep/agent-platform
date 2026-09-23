@@ -51,16 +51,10 @@ async def test_reader_key_can_read_operator_key_can_annotate(admin_client, sf):
             headers={"Authorization": f"Bearer {operator}"})).status_code == 200
 
 
-async def test_annotator_role_can_read_and_annotate_only(admin_client, sf):
-    rid = await _seed(sf)
-    tok = (await admin_client.post("/api/api-keys", json={"name": "sum", "role": "annotator", "agent": None})).json()["token"]
-    admin_client.cookies.clear()
-    h = {"Authorization": f"Bearer {tok}"}
-    assert (await admin_client.get("/api/runs", headers=h)).status_code == 200
-    assert (await admin_client.post(f"/api/runs/{rid}/annotate", json={"summary": "s"}, headers=h)).status_code == 200
-    # but cannot trigger a run or kill
-    assert (await admin_client.post("/api/webhooks/hello-world", json={}, headers=h)).status_code == 403
-    assert (await admin_client.post(f"/api/runs/{rid}/kill", headers=h)).status_code == 403
+async def test_legacy_annotator_role_is_not_mintable(admin_client):
+    response = await admin_client.post("/api/api-keys", json={
+        "name": "sum", "role": "annotator", "agent": None})
+    assert response.status_code == 422
 
 
 async def test_negative_limit_rejected(admin_client):

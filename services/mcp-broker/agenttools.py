@@ -51,7 +51,7 @@ GRANT_LIST_FIELDS: tuple[str, ...] = ("harness_tools", "platform_tools",
 GRANT_FLAG_FIELDS: tuple[str, ...] = ("can_invoke", "may_delete_tests")
 GRANT_FIELDS: tuple[str, ...] = GRANT_LIST_FIELDS + GRANT_FLAG_FIELDS + ("role",)
 API_EDIT_FIELDS: tuple[str, ...] = (
-    "prompt", "description", "runtime", "model", "system", "responds_to_all", "concurrency",
+    "prompt", "description", "agent_type", "runtime", "model", "system", "responds_to_all", "concurrency",
     "timeout_seconds", "result_topic", "transcript_retention_days",
     "entrypoints", "enabled", "quota_5h_max_pct", "quota_7d_max_pct",
 )

@@ -330,6 +330,8 @@ export default function RunDetail() {
       <dl className="def-list">
         <dt>Agent</dt>
         <dd><Link to={`/agents/${encodeURIComponent(run.agent)}`}>{run.agent}</Link></dd>
+        {run.team_name && <><dt>Team</dt><dd>{run.team_name}</dd></>}
+        {run.project_name && <><dt>Project</dt><dd>{run.project_name}</dd></>}
         <dt>State</dt>
         <dd>
           <StatusChip status={run.state} />

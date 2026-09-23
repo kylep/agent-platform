@@ -117,7 +117,8 @@ async def test_an_exported_tree_imports_into_a_fresh_platform(admin_client, migr
                                      "mcp__platform__tickets",
                                      "mcp__platform__wiki",
                                      "mcp__platform__get_quota_usage",
-                                     "mcp__platform__artifacts"]
+                                         "mcp__platform__artifacts",
+                                         "mcp__platform__memory"]
     assert got["model"] == "opus" and got["timeout_seconds"] == 180
 
 

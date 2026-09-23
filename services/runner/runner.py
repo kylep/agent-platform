@@ -497,8 +497,9 @@ def _install_skills(runtime: str = "claude") -> None:
     # skill named in AP_SKILLS (set by the launcher from the agent's manifest)
     # from the synced skills tree into place. Unknown names are skipped.
     names = [n.strip() for n in os.environ.get("AP_SKILLS", "").split(",") if n.strip()]
-    if not names:
-        return
+    # Every agent can discover project history, regardless of its curated
+    # job-specific skill list. The Relay grant still controls actual access.
+    names = list(dict.fromkeys([*names, "project-context"]))
     src_root = Path(os.environ.get("AP_SKILLS_DIR", "/agents/skills"))
     dst_root = (Path.home() / ".agents" / "skills" if runtime == "codex"
                 else Path.home() / ".claude" / "skills")

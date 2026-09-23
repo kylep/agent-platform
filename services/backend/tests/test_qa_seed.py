@@ -1,9 +1,9 @@
 """The QA (docs/design/25): the seeded dev agent that owns the tests, keeps
 the TCMS current and QAs the live UI — with its home project `#qa` and the
 02:00 `qa-nightly` job that summons it. Three one-time seeds behind their own
-marks, in the engineer's, #eng's and eng-queue's shapes: an admin who edits
+marks, in the coder's, #eng's and eng-queue's shapes: an admin who edits
 or deletes any of them keeps their version. A normal, replaceable worker like
-engineer; `responds_to_all` independently keeps it out of `@all` and standup,
+coder; `responds_to_all` independently keeps it out of `@all` and standup,
 while its own job or an `@qa` by name wakes it."""
 import pytest
 from sqlalchemy import func, select
@@ -69,13 +69,13 @@ async def test_the_qa_is_seeded_with_its_grants_role_and_thresholds(engine, sfx)
         # run-profile rung, not an API scope.
         assert (row.model, row.role) == ("sonnet", "dev")
         assert (row.timeout_seconds, row.concurrency) == (7200, 1)
-        # The expensive-browser gate: tighter than the engineer's 95/90.
+        # The expensive-browser gate: tighter than the coder's 95/90.
         assert (row.quota_5h_max_pct, row.quota_7d_max_pct) == (80, 50)
         # No `query_app`: that is the wide `annotator` rung, and the tcms
         # tool's read actions answer the same questions.
         assert row.platform_tools == [TOOL_RELAY, TOOL_TICKETS, TOOL_WIKI,
                                       TOOL_QUOTA_OK, TOOL_ARTIFACTS,
-                                      "mcp__platform__tcms"]
+                                      "mcp__platform__tcms", "mcp__platform__memory"]
         assert "mcp__platform__query_app" not in row.platform_tools
         assert row.harness_tools == ["Glob", "Grep", TOOL_PLAYWRIGHT_MCP]
         assert (row.skills, row.secrets) == ([], ["qa-web-login"])
@@ -98,7 +98,7 @@ def test_the_prompt_carries_the_rules_that_cost_trust():
     for phrase in ("not spending the browser", "never weaken", "quota_ok",
                    "tcms", "sync_cases", "record_results", "bin/ap-verify --all",
                    "bin/ap-verify --changed", "bin/ap-upload", "bin/ap-web-login",
-                   "walk.mjs", "index.json", ".ap/pr.md", "agent:engineer",
+                   "walk.mjs", "index.json", ".ap/pr.md", "agent:coder",
                    "three times", "runtime_report", "flaky", "coverage_gaps",
                    "prune_candidates", "tcms/cases/", "UNTRUSTED", "blocked"):
         assert phrase in QA_PROMPT, phrase
@@ -122,7 +122,8 @@ async def test_the_qa_has_exactly_one_version_after_a_fresh_init(engine, sfx):
     assert [(v.version, v.changed_by, v.changed_via) for v in versions] == [
         (1, "system:qa", "seed")]
     snap = versions[0].snapshot
-    assert snap["platform_tools"][-1] == "mcp__platform__tcms"
+    assert "mcp__platform__tcms" in snap["platform_tools"]
+    assert "mcp__platform__memory" in snap["platform_tools"]
     assert (snap["system"], snap["role"], snap["model"]) == (False, "dev", "sonnet")
     assert (snap["quota_5h_max_pct"], snap["quota_7d_max_pct"]) == (80, 50)
     assert (snap["push_path_globs"], snap["may_delete_tests"]) == (TEST_PATH_GLOBS, True)
@@ -151,8 +152,8 @@ async def test_an_existing_system_qa_is_reclassified_with_history(engine, sfx):
         assert row.system is False
         assert await s.get(SchemaMark, QA_NORMAL_AGENT_MARK) is not None
     versions = await _versions(sfx, "qa")
-    assert (versions[-1].changed_by, versions[-1].changed_via) == (
-        "platform:qa-normal-agent", "migration")
+    assert ("platform:qa-normal-agent", "migration") in [
+        (v.changed_by, v.changed_via) for v in versions]
     assert versions[-1].snapshot["system"] is False
 
 
@@ -320,14 +321,14 @@ async def test_at_qa_in_qa_summons_the_qa_as_a_dev_run(sf, producer):
 
 
 async def test_at_all_in_standup_skips_focused_dev_agents(sf, producer):
-    """The 09:00 standup must not buy full QA or engineer dev pods."""
+    """The 09:00 standup must not buy full QA or coder dev pods."""
     store = AgentStore(sf)
     await store.reload()
     payload = await _post(sf, "standup", "@all — what did you do?")
     await RelayRouter(Settings(), sf, producer, store).handle(payload)
     async with sf() as s:
         agents = sorted(r.agent for r in (await s.execute(select(Run))).scalars())
-    assert "engineer" not in agents and "qa" not in agents
+    assert "coder" not in agents and "qa" not in agents
 
 
 # --- the readiness gate ------------------------------------------------------

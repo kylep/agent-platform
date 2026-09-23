@@ -221,6 +221,7 @@ def _channel(conv: Conversation, *, participants: set[str], last=None,
             "title": conv.title, "topic": conv.topic,
             "open": bool(conv.open), "archived_at": _iso(conv.archived_at),
             "agent": conv.agent, "ticket_prefix": conv.ticket_prefix,
+            "team_id": conv.team_id, "project_id": conv.project_id,
             "participants": sorted(participants),
             "last_message": None if last is None else {
                 "id": last.id, "author": last.author,
@@ -1070,6 +1071,7 @@ async def open_relay_dm(request: Request, body: S.RelayDmIn,
 @router.get("/api/relay/search", response_model=list[S.RelayMessage])
 async def search_relay_messages(request: Request, q: str = Query(min_length=1, max_length=200),
                                 channel: str | None = None,
+                                project: str | None = None,
                                 limit: int = Query(50, ge=1, le=100),
                                 caller: Caller = Depends(require_relay_access(*READ))):
     agents = _agent_set(request)
@@ -1082,6 +1084,17 @@ async def search_relay_messages(request: Request, q: str = Query(min_length=1, m
         if channel is not None and scope is None:
             raise HTTPException(404, "unknown channel")
         visible, _ = await _visible(s, caller, agents)
+        if project is not None:
+            from agentplatform.db import Project, ProjectAgent
+            project_row = (await s.execute(select(Project).where(Project.slug == project,
+                Project.archived_at.is_(None)))).scalar_one_or_none()
+            if project_row is None:
+                raise HTTPException(404, "unknown project")
+            if caller.agent and not (await s.execute(select(ProjectAgent).where(
+                ProjectAgent.project_id == project_row.id,
+                ProjectAgent.agent == caller.agent))).scalar_one_or_none():
+                return []
+            visible = [c for c in visible if c.project_id == project_row.id]
         # Visibility still decides the answer, not the reference: a room the
         # caller cannot see searches as empty rather than as a 403, which is
         # the same thing an unscoped search tells them about it.

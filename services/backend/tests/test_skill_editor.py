@@ -42,13 +42,13 @@ async def test_wizard_validates_and_dispatches(admin_client, seed_agent, produce
     runs = await admin_client.get(f"/api/runs/{rid}")
     prompt = runs.json()["prompt"]
     assert "skills/notion/" in prompt and "secrets/notion-token/secret.yaml" in prompt
-    assert "$NOTION_TOKEN" in prompt and runs.json()["agent"] == "engineer"
+    assert "$NOTION_TOKEN" in prompt and runs.json()["agent"] == "coder"
 
 
 async def test_wizard_without_engineer_409(admin_client, sf, agent_store):
     from agentplatform.db import AgentDef
     async with sf() as s:
-        (await s.get(AgentDef, "engineer")).enabled = False
+        (await s.get(AgentDef, "coder")).enabled = False
         await s.commit()
     await agent_store.reload()
     r = await admin_client.post("/api/skills/new", json={"name": "notion", "purpose": "x"})

@@ -105,6 +105,7 @@ class AgentDefIn(BaseModel):
     name: str = ""
     prompt: str = ""
     description: str = ""
+    agent_type: str = "worker"
     runtime: str = "claude"
     model: str = ""
     role: str = "operator"
@@ -177,6 +178,7 @@ class AgentDefOut(BaseModel):
     name: str
     prompt: str = ""
     description: str = ""
+    agent_type: str = "worker"
     runtime: str = "claude"
     model: str = ""
     role: str = "operator"
@@ -308,9 +310,13 @@ class RunSummary(BaseModel):
     # The ticket this run was summoned from (docs/design/20), so a run always
     # points back at what asked for it. Null for every other trigger.
     ticket_id: str | None = None
+    team_id: str | None = None
+    project_id: str | None = None
 
 
 class RunDetail(RunSummary):
+    team_name: str | None = None
+    project_name: str | None = None
     prompt: str
     exit_code: int | None
     error: str | None
@@ -553,6 +559,8 @@ class MemoryView(BaseModel):
     key: str | None
     content: str
     tags: list[str]
+    team_id: str | None = None
+    project_id: str | None = None
     created_at: str | None
     updated_at: str | None
 
@@ -829,9 +837,10 @@ class RelayChannel(BaseModel):
     # a member), which is why `open` travels alongside rather than being
     # inferred from an empty list.
     participants: list[str]
-    # A channel with a prefix IS a project (docs/design/20). Null on groups and
-    # DMs, and on a channel whose prefix an operator never gave it.
+    # Ticket-prefix ownership is independent of the Project grouping.
     ticket_prefix: str | None
+    team_id: str | None = None
+    project_id: str | None = None
     last_message: RelayLastMessage | None
     message_count: int
     # Messages newer than the caller's own last message here; 0 when they have

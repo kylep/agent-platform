@@ -52,7 +52,7 @@ async def test_the_artist_is_seeded_with_its_grants(engine, sfx):
         assert (row.system, row.enabled, row.can_invoke) == (False, True, False)
         assert row.responds_to_all is False
         assert (row.model, row.role) == ("sonnet", "operator")
-        assert row.platform_tools == [TOOL_IMAGE_GEN, TOOL_ARTIFACTS, TOOL_RELAY]
+        assert row.platform_tools == [TOOL_IMAGE_GEN, TOOL_ARTIFACTS, TOOL_RELAY, "mcp__platform__memory"]
         assert (row.harness_tools, row.skills, row.secrets) == ([], [], [])
         assert row.entrypoints == {"crons": [], "webhooks": [], "topics": [],
                                    "timezone": ""}
@@ -70,7 +70,7 @@ async def test_codex_artist_is_a_separate_subscription_backed_specialist(engine,
         assert row is not None
         assert (row.runtime, row.model, row.role) == ("codex", "gpt-5.6-luna", "operator")
         assert (row.system, row.enabled, row.can_invoke) == (True, True, False)
-        assert row.platform_tools == [TOOL_ARTIFACTS, TOOL_RELAY]
+        assert row.platform_tools == [TOOL_ARTIFACTS, TOOL_RELAY, "mcp__platform__memory"]
         assert TOOL_IMAGE_GEN not in row.platform_tools
         assert row.skills == ["imagegen"]
         assert row.prompt == CODEX_ARTIST_PROMPT
@@ -135,7 +135,7 @@ async def test_the_artist_has_exactly_one_version_after_a_fresh_init(engine, sfx
     assert [(v.version, v.changed_by, v.changed_via) for v in versions] == [
         (1, "system:artist", "seed")]
     assert versions[0].snapshot["platform_tools"] == [TOOL_IMAGE_GEN, TOOL_ARTIFACTS,
-                                                      TOOL_RELAY]
+                                                       TOOL_RELAY, "mcp__platform__memory"]
     assert versions[0].snapshot["system"] is False
     assert versions[0].snapshot["model"] == "sonnet"
 

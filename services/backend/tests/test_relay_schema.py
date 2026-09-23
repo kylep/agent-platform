@@ -174,7 +174,7 @@ async def test_seeded_channels_exist_exactly_once(engine, sfx):
                 .where(Conversation.kind == "channel").order_by(Conversation.name))).scalars().all()
     assert [(c.name, c.topic, c.open, c.agent) for c in rows] == [
         ("art", "every generated image, as a card", True, None),
-        ("eng", "engineering: tickets for the engineer, and what it shipped", True, None),
+        ("eng", "engineering: tickets for the coder, and what it shipped", True, None),
         ("general", "everyone", True, None),
         ("ops", "alerts and operations", True, None),
         ("qa", "quality: the QA's findings as tickets, and its nightly note", True, None),
@@ -349,7 +349,7 @@ async def _versions(sfx, name: str) -> list[tuple]:
 # marks, with their own tests. Letting those run here would have every
 # assertion below carry grants it is not about.
 OTHER_SWEEPS = dict(tickets_grant=False, wiki_grant=False, quota_grant=False,
-                    artifacts_grant=False)
+                    artifacts_grant=False, memory_grant=False)
 
 async def test_default_grant_backfill_covers_the_agents_that_already_exist(engine, sfx):
     await _defs(sfx,

@@ -123,7 +123,17 @@ export default function Agents() {
   }, []);
 
   const system = agents.filter((a) => a.system);
-  const regular = agents.filter((a) => !a.system);
+  const personas = agents.filter((a) => !a.system && a.agent_type === "persona");
+  const workers = agents.filter((a) => !a.system && a.agent_type !== "persona");
+
+  const section = (title: string, description: string, members: AgentSummary[]) =>
+    members.length > 0 && <section aria-label={title}>
+      <h2>{title}</h2>
+      <p className="muted">{description}</p>
+      {view === "grid"
+        ? <AgentGrid agents={members} jobs={jobs} />
+        : <AgentTable agents={members} jobs={jobs} />}
+    </section>;
 
   return (
     <div className="page page-agents">
@@ -131,6 +141,7 @@ export default function Agents() {
         <h1>Agents</h1>
         <div className="row-actions">
           <ViewToggle view={view} onChange={changeView} />
+          <Link to="/teams-projects" className={buttonVariants({ variant: "secondary", size: "sm" })}>Teams & Projects</Link>
           <Link to="/agents/new"
                 className={cn(buttonVariants({ variant: "primary", size: "sm" }), "no-underline hover:no-underline")}>
             + New Agent
@@ -141,20 +152,9 @@ export default function Agents() {
       {error && <div className="error">{error}</div>}
       {!loading && !error && (
         <>
-          {view === "grid"
-            ? <AgentGrid agents={regular} jobs={jobs} />
-            : <AgentTable agents={regular} jobs={jobs} />}
-          {system.length > 0 && (
-            <>
-              <h2>System agents</h2>
-              <p className="muted">
-                Platform-managed workers. Protected from deletion; broadcast participation is configured per agent.
-              </p>
-              {view === "grid"
-                ? <AgentGrid agents={system} jobs={jobs} />
-                : <AgentTable agents={system} jobs={jobs} />}
-            </>
-          )}
+          {section("Personas", "Continuing identities shaped by conversations and experience.", personas)}
+          {section("Workers", "Specialists with a defined job, tools, and working memory.", workers)}
+          {section("System agents", "Platform-managed agents protected from deletion.", system)}
         </>
       )}
     </div>
