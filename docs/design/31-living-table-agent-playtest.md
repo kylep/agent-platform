@@ -104,6 +104,27 @@ relationship changes. Engine state and campaign canon remain the authority
 for game facts. A later multi-game personality system can assign one agent to
 different PCs without copying campaign state into its identity memory.
 
+The deployed second pass finished four player choices and five GM turns
+without operator intervention. The GM used `floor` for each exploration
+handoff, the last Spike action recorded a real mage-hand cast, and Relay's
+compact turn markers rendered in a live Chromium check. Run events confirm
+that each agent read its empty private memory at the start. None saved during
+the short scene; that is consistent with the instruction to avoid recording
+every turn. A private end-of-session reflection then produced one concise
+memory for each of the four players and one GM identity note, confirmed both
+in the memory store and in tool-call events. The four players' notes are keyed
+to `campaign:family-main`; the GM note is keyed to `identity`.
+
+In a subsequent private continuity check, Squakee read his saved note and
+applied it to his stated next choice: help the field mouse's family, but look
+for a safe approach. This verifies retrieval across runs; a later game session
+should show whether recall affects actual play. The reflection was
+manually prompted in private Relay DMs; an automatic, configurable session
+wrap is future work. The agent identity should remain stable across games,
+while character sheets, campaign canon, and scene facts stay scoped to each
+game. Memory should accumulate selective perspective and relationships, not
+replace the engine's state or manufacture a biography.
+
 ## Boundaries of this pilot
 
 Player agents use the same **player-state API** as the hosted viewer through
