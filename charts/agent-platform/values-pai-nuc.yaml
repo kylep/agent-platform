@@ -84,4 +84,7 @@ connectors:
 # provisioned from apps/<name>/app.yaml by the dispatcher before the
 # Deployment first starts.
 apps:
-  enabled: [news, stockmarket, running, tcms]
+  enabled: [news, stockmarket, running, tcms, ttrpg]
+  ttrpg:
+    storage: 2Gi
+    storageClass: local-path

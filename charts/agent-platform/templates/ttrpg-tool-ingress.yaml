@@ -1,0 +1,22 @@
+{{- if and .Values.networkPolicy.enabled (has "ttrpg" .Values.apps.enabled) }}
+# Only the identity-checked tool executor may reach the TTRPG command bridge.
+# Other apps retain the usual web/API-only ingress contract.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ .Release.Name }}-ttrpg-tool-ingress
+  labels:
+    {{- include "agent-platform.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/component: app-ttrpg
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/component: tool-executor
+      ports:
+        - {port: 8000, protocol: TCP}
+{{- end }}

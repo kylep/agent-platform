@@ -1,0 +1,16 @@
+{{- if has "ttrpg" .Values.apps.enabled }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ .Release.Name }}-ttrpg-world
+  labels:
+    {{- include "agent-platform.labels" . | nindent 4 }}
+spec:
+  accessModes: [ReadWriteOnce]
+  {{- if .Values.apps.ttrpg.storageClass }}
+  storageClassName: {{ .Values.apps.ttrpg.storageClass }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.apps.ttrpg.storage }}
+{{- end }}

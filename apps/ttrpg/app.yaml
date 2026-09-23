@@ -1,0 +1,11 @@
+# The engine and viewer image is built from the separate claude-ttrpg repo.
+# This manifest enrolls it in the platform's app registry and provisions its
+# app key; the chart mounts a dedicated, single-writer world PVC.
+name: ttrpg
+display_name: The Living Table
+description: Watch an agent-run tabletop adventure through its player-safe story, map, and sheets.
+icon: 🎲
+ui: true
+api: true
+agent_key:
+  role: operator

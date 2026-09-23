@@ -32,6 +32,9 @@ spec:
           type: RuntimeDefault
         runAsNonRoot: true
         runAsUser: 10001
+        {{- if eq . "ttrpg" }}
+        fsGroup: 10001
+        {{- end }}
       containers:
         - name: app
           image: "agent-platform-app-{{ . }}:{{ $.Values.apps.tag }}"
@@ -47,6 +50,16 @@ spec:
               value: "{{ $.Release.Name }}-kafka:9092"
             - name: APP_NAME
               value: {{ . | quote }}
+            {{- if eq . "ttrpg" }}
+            - name: TTRPG_COORDINATOR
+              value: "1"
+            - name: TTRPG_CHANNEL
+              value: {{ $.Values.apps.ttrpg.channel | quote }}
+            - name: TTRPG_GM_AGENT
+              value: {{ $.Values.apps.ttrpg.gmAgent | quote }}
+            - name: TTRPG_PLAYERS
+              value: {{ join "," $.Values.apps.ttrpg.players | quote }}
+            {{- end }}
           envFrom:
             # Provisioned by the app-provisioner from app.yaml `needs` —
             # optional so an app without postgres or a key still deploys.
@@ -61,6 +74,17 @@ spec:
               containerPort: 8000
           resources:
             {{- toYaml $.Values.apps.resources | nindent 12 }}
+          {{- if eq . "ttrpg" }}
+          volumeMounts:
+            - name: world
+              mountPath: /world
+          {{- end }}
+      {{- if eq . "ttrpg" }}
+      volumes:
+        - name: world
+          persistentVolumeClaim:
+            claimName: {{ $.Release.Name }}-ttrpg-world
+      {{- end }}
 ---
 apiVersion: v1
 kind: Service

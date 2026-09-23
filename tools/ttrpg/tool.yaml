@@ -1,0 +1,25 @@
+name: ttrpg
+description: >-
+  Participate in the hosted family RPG. action=view reads the actual player's
+  current scene, map, sheets and recent story (never GM secrets). action=command
+  is GM-only: execute one engine CLI command with an idempotent request_id;
+  the engine, not the model, owns dice and state. Use Relay for dialogue and
+  Tickets for in-play product feedback. Never claim that an unrun command
+  changed the world.
+params:
+  type: object
+  properties:
+    action:
+      type: string
+      enum: [view, command]
+    request_id:
+      type: string
+      description: "command: stable unique ID for this engine action; retry with the same ID"
+    argv:
+      type: array
+      items: {type: string}
+      description: "command: engine CLI arguments after `engine`, for example [story, scene, --title, The Cellar]"
+  required: [action]
+infra:
+  secrets: [app-ttrpg-key]
+timeout_seconds: 100

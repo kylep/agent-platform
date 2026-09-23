@@ -141,6 +141,12 @@ apps:
   enabled: []
   tag: dev
   pullPolicy: IfNotPresent
+  ttrpg:
+    storage: 2Gi
+    storageClass: ""
+    channel: ttrpg-table
+    gmAgent: ttrpg-gm
+    players: [ttrpg-meowcicles, ttrpg-squakee, ttrpg-spike, ttrpg-fluffy]
   resources:
     requests:
       memory: 128Mi
