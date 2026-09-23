@@ -52,8 +52,8 @@ router = APIRouter()
 TOOL_AGENTS_EDIT = "mcp__platform__agents_edit"
 TOOL_AGENTS_GRANT = "mcp__platform__agents_grant"
 # The grants new agents are born holding while their setting says so: the three
-# participant ones (docs/design/19, docs/design/20, docs/design/21), reading
-# how much usage is left (docs/design/22) and the file store (docs/design/23).
+# participant ones (docs/design/19, docs/design/20, docs/design/21), quota,
+# artifacts, and private memory.
 # A setting each and not one between them: an operator who wants the messenger
 # without the work tracker is asking a reasonable question, and a single switch
 # could not answer it. Each entry is (tool, setting), and the payload knob is
@@ -63,7 +63,8 @@ DEFAULT_GRANTS = ((TOOL_RELAY, "relay_default_grant"),
                   (TOOL_TICKETS, "tickets_default_grant"),
                   (TOOL_WIKI, "wiki_default_grant"),
                   (TOOL_QUOTA, "quota_default_grant"),
-                  (TOOL_ARTIFACTS, "artifacts_default_grant"))
+                  (TOOL_ARTIFACTS, "artifacts_default_grant"),
+                  ("mcp__platform__memory", "memory_default_grant"))
 
 # The definition fields that are GRANTS — capability, not identity. Changing
 # one is an authorization decision (`agents_grant`); changing anything else is

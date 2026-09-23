@@ -73,7 +73,7 @@ test("field help explains execution and multi-runtime grants", async ({ page }) 
   await page.locator(".help-label", { hasText: "Execution profile" })
     .getByRole("button", { name: "Explain this setting" }).click();
   const dialog = page.getByRole("dialog", { name: "Execution profile" });
-  await expect(dialog).toContainText("does not change the runtime, model, or grants");
+  await expect(dialog).toContainText("does not change its runtime, model, tools, skills, secrets, or invocation permissions");
   await expect(dialog.getByRole("table")).toBeVisible();
   await expect(dialog).toContainText("There is no repository checkout or code handoff");
   await expect(dialog).toContainText("Workbench developer");
@@ -175,6 +175,23 @@ test("the wizard POSTs a full definition — no PR flow", async ({ page }) => {
   expect(body.skills).toEqual(["news-lookup"]);
   expect(body.role).toBe("operator");
   expect(body.enabled).toBe(true);
+  expect(body.platform_tools).toContain("mcp__platform__memory");
+});
+
+test("the wizard can opt a new agent out of memory", async ({ page }) => {
+  const writes = captureWrites(page);
+  await mockApi(page);
+  await page.goto("/agents/new");
+  const memory = page.getByRole("checkbox", { name: "Memory" });
+  await expect(memory).toBeChecked();
+  await memory.uncheck();
+  await page.getByLabel("Name").fill("forgetful");
+  await page.getByLabel("Description").fill("A stateless agent.");
+  await page.getByRole("button", { name: "Create agent" }).click();
+  const post = writes.find((w) => w.method() === "POST" && new URL(w.url()).pathname === "/api/agents");
+  const body = JSON.parse(post!.postData() ?? "{}");
+  expect(body.platform_tools).not.toContain("mcp__platform__memory");
+  expect(body.memory).toBe(false);
 });
 
 test("a row whose entrypoints blob is warped still lists and still opens", async ({ page }) => {

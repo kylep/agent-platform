@@ -33,7 +33,7 @@ export function emptyDef(): AgentDef {
     name: "", prompt: "", description: "", runtime: "claude", model: "", role: "operator",
     system: false, responds_to_all: true, can_invoke: false, concurrency: 1, timeout_seconds: 1800,
     result_topic: "", transcript_retention_days: null,
-    harness_tools: [], platform_tools: [], skills: [], secrets: [],
+    harness_tools: [], platform_tools: ["mcp__platform__memory"], skills: [], secrets: [],
     entrypoints: { ...EMPTY_ENTRYPOINTS }, enabled: true,
     push_path_globs: [], may_delete_tests: false, quota_5h_max_pct: 80, quota_7d_max_pct: 50,
   };
@@ -477,7 +477,8 @@ export function GrantsFields({ draft, patch, catalog }: {
                        onChange={(platform_tools) => patch({ platform_tools })} />
       <p className="muted check-note">
         Brokered MCP tools — an agent with these acts on the platform through token-scoped API
-        calls instead of a shell. Some of them also decide the agent's machine role.
+        calls instead of a shell. Some of them also decide the agent's machine role. Memory starts
+        on for new agents, stores notes in this agent's private namespace, and can be unchecked.
       </p>
 
       <HelpLabel label="Skills" help="skills" />

@@ -31,7 +31,12 @@ export default function NewAgent() {
     setError(null);
     const detail = `/agents/${encodeURIComponent(draft.name)}`;
     try {
-      await api<AgentDef>("/api/agents", { method: "POST", body: JSON.stringify(draft) });
+      await api<AgentDef>("/api/agents", { method: "POST", body: JSON.stringify({
+        ...draft,
+        // The platform grants memory by default. An unchecked box must be an
+        // explicit opt-out; merely omitting it from the list would re-add it.
+        memory: draft.platform_tools.includes("mcp__platform__memory") ? undefined : false,
+      }) });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to create agent.");
       setSaving(false);

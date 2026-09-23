@@ -41,6 +41,14 @@ quota_5h_max_pct: 80                         # `quota_ok` says no above these (t
 quota_7d_max_pct: 50
 ```
 
+New agents receive `mcp__platform__memory` by default, regardless of runtime.
+It reads and writes only that agent's private namespace; granting the tool
+does not make the agent remember automatically. The New Agent wizard starts
+with **Memory** checked. Uncheck it to opt out, or remove the grant in the
+agent editor later. API clients can send `memory: false` on `POST /api/agents`;
+updates remove the name from `platform_tools`. The initial backfill grants
+memory to existing agents once, so a later opt-out survives restarts.
+
 The last four are the [Workbench](workbench.md) fields. They exist on every
 row but only mean something for `role: dev` (the two globs/tests fields) or
 an agent that holds `quota_ok` (the two thresholds). `role: dev` joins no

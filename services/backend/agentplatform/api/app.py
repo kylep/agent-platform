@@ -229,7 +229,8 @@ def create_app(settings, session_factory, producer, secret_store=None, agent_sto
                           settings.tickets_default_grant,
                           settings.wiki_default_grant,
                           quota_grant=settings.quota_default_grant,
-                          artifacts_grant=settings.artifacts_default_grant)
+                  artifacts_grant=settings.artifacts_default_grant,
+                  memory_grant=settings.memory_default_grant)
             st.session_factory = make_session_factory(engine)
             # After init_db, and here rather than in it: the `qa` row's
             # password lives in the secret store, which only the API holds

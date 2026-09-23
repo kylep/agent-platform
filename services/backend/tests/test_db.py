@@ -113,7 +113,30 @@ def _participants(**kw):
     """init_db with every other participant sweep off, so what a test reads
     back is the one sweep under test and nobody else's."""
     return {**dict(default_grant=False, tickets_grant=False, wiki_grant=False,
-                   quota_grant=False, artifacts_grant=False), **kw}
+                   quota_grant=False, artifacts_grant=False, memory_grant=False), **kw}
+
+
+async def test_memory_grant_backfills_once_and_preserves_opt_out(bare):
+    from agentplatform.db import AgentDef, AgentVersion, MEMORY_GRANT_MARK, SchemaMark
+    sf = make_session_factory(bare)
+    async with sf() as s:
+        s.add(AgentDef(name="plain", prompt="p", description="d", platform_tools=[]))
+        s.add(AgentDef(name="paused", prompt="p", description="d",
+                       platform_tools=[], enabled=False))
+        await s.commit()
+    await init_db(bare, **_participants(memory_grant=True))
+    assert await _tools(sf, "plain") == ["mcp__platform__memory"]
+    assert await _tools(sf, "paused") == ["mcp__platform__memory"]
+    async with sf() as s:
+        assert await s.get(SchemaMark, MEMORY_GRANT_MARK) is not None
+        versions = list((await s.execute(select(AgentVersion).where(
+            AgentVersion.agent == "plain"))).scalars())
+        assert [(v.changed_by, v.changed_via) for v in versions] == [
+            ("platform:memory-default-grant", "migration")]
+        (await s.get(AgentDef, "plain")).platform_tools = []
+        await s.commit()
+    await init_db(bare, **_participants(memory_grant=True))
+    assert await _tools(sf, "plain") == []
 
 
 async def _tools(sf, name: str) -> list[str]:

@@ -212,6 +212,9 @@ class Settings(BaseSettings):
     # Whether agent creation grants mcp__platform__artifacts. On for the
     # reason relay's is: an agent that cannot keep a file describes it instead.
     artifacts_default_grant: bool = True
+    # New agents can remember across runs in their own namespace. The create
+    # payload's `memory: false` and a later grant edit are explicit opt-outs.
+    memory_default_grant: bool = True
     # Image generation (docs/design/23). Every generation goes through
     # `POST /api/artifacts/generate`, which runs the internal `image_gen` tool
     # on the executor — the one service that holds provider keys.

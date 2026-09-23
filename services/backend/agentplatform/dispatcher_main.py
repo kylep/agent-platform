@@ -66,7 +66,8 @@ async def main() -> None:
     await init_db(engine, settings.relay_default_grant,
                   settings.tickets_default_grant, settings.wiki_default_grant,
                   quota_grant=settings.quota_default_grant,
-                  artifacts_grant=settings.artifacts_default_grant)
+                  artifacts_grant=settings.artifacts_default_grant,
+                  memory_grant=settings.memory_default_grant)
     session_factory = make_session_factory(engine)
 
     producer = Producer(settings.kafka_bootstrap, source="dispatcher")

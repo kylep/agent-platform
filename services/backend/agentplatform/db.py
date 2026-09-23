@@ -980,6 +980,7 @@ WIKI_AGENT_MARK = "wiki-agent-v1"
 WIKI_GARDENER_MARK = "wiki-gardener-v1"
 QUOTA_GRANT_MARK = "quota-default-grant-v1"
 ARTIFACTS_GRANT_MARK = "artifacts-default-grant-v1"
+MEMORY_GRANT_MARK = "memory-default-grant-v1"
 ART_CHANNEL_MARK = "art-channel-v1"
 ARTIST_SEED_MARK = "artist-seed-v1"
 CODEX_ARTIST_SEED_MARK = "codex-artist-seed-v1"
@@ -2768,8 +2769,15 @@ def _ensure_artifacts_default_grant(conn, default_grant: bool = True) -> None:
                           default_grant=default_grant)
 
 
+def _ensure_memory_default_grant(conn, default_grant: bool = True) -> None:
+    """Grant existing agents private memory once, preserving later opt-outs."""
+    _grant_to_every_agent(conn, "mcp__platform__memory", MEMORY_GRANT_MARK,
+                          changed_by="platform:memory-default-grant",
+                          default_grant=default_grant, include_disabled=True)
+
+
 def _grant_to_every_agent(conn, tool: str, mark: str, *, changed_by: str,
-                          default_grant: bool) -> None:
+                          default_grant: bool, include_disabled: bool = False) -> None:
     """The one-time sweep behind a default-granted platform tool.
 
     "Default-granted" is implemented honestly, as rows: new agents get it from
@@ -2816,7 +2824,7 @@ def _grant_to_every_agent(conn, tool: str, mark: str, *, changed_by: str,
         # NULL on any row written before it existed, and NULL reads as the
         # column default (True) everywhere else — see agentdefs.model_of.
         tools = list(row.platform_tools or [])
-        if row.enabled is False or tool in tools:
+        if (row.enabled is False and not include_disabled) or tool in tools:
             continue
         granted = tools + [tool]
         try:
@@ -2849,11 +2857,12 @@ def _relay_message(channel_id, author, body, created_at, run_id=None) -> dict:
 
 async def init_db(engine: AsyncEngine, default_grant: bool = True,
                   tickets_grant: bool = True, wiki_grant: bool = True,
-                  quota_grant: bool = True, artifacts_grant: bool = True) -> None:
+                  quota_grant: bool = True, artifacts_grant: bool = True,
+                  memory_grant: bool = True) -> None:
     """Bring the schema up to date and run the one-off backfills.
 
-    `default_grant`, `tickets_grant`, `wiki_grant`, `quota_grant` and
-    `artifacts_grant` are the
+    `default_grant`, `tickets_grant`, `wiki_grant`, `quota_grant`,
+    `artifacts_grant`, and `memory_grant` are the
     default-grant settings (`settings.relay_default_grant` and its siblings) —
     passed in rather than read, because this runs in three services (API,
     dispatcher, recorder) and none of them hands `db` a settings object. They
@@ -2935,3 +2944,7 @@ async def init_db(engine: AsyncEngine, default_grant: bool = True,
         await conn.run_sync(_ensure_agent_policy_split)
         await conn.run_sync(_ensure_running_coach)
         await conn.run_sync(_remove_coder_profile)
+        # Last: even rows seeded after the earlier default-grant sweeps receive
+        # memory. The mark makes this a one-time migration, so later opt-outs
+        # are never re-granted on service restart.
+        await conn.run_sync(_ensure_memory_default_grant, memory_grant)

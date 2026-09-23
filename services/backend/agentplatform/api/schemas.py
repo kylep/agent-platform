@@ -159,6 +159,9 @@ class AgentCreateIn(AgentDefIn):
     # The artifacts default grant (docs/design/23), the fifth. `image_gen` has
     # no knob: it is granted on purpose, never by default.
     artifacts: bool | None = None
+    # Private, agent-namespaced memory is on by default. False opts out at
+    # creation; a later PUT can remove the grant from platform_tools.
+    memory: bool | None = None
 
 
 class AgentImageIn(BaseModel):

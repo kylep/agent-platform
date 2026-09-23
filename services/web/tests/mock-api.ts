@@ -1269,6 +1269,8 @@ const FIXTURES: Record<string, unknown> = {
       + " red, and following it opens the editor.",
   },
   "/api/help/tools": [
+    { name: "mcp__platform__memory", kind: "platform", sensitive: false,
+      display_name: "Memory", description: "Private persistent memory across runs." },
     { name: "Bash", kind: "claude", sensitive: true,
       description: "Run shell commands inside the agent's pod." },
     { name: "WebSearch", kind: "claude", sensitive: false,

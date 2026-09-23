@@ -20,7 +20,8 @@ async def main() -> None:
     await init_db(engine, settings.relay_default_grant,
                   settings.tickets_default_grant, settings.wiki_default_grant,
                   quota_grant=settings.quota_default_grant,
-                  artifacts_grant=settings.artifacts_default_grant)
+                  artifacts_grant=settings.artifacts_default_grant,
+                  memory_grant=settings.memory_default_grant)
     session_factory = make_session_factory(engine)
 
     # A producer for conversation-outbound, result_topic feeds, and dead-lettering.
