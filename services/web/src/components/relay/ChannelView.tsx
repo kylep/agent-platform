@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import { Chip } from "@ap/ui/chip";
+import { Button } from "@ap/ui/button";
 import { agentName, channelLabel, mentionableIn, otherParticipant } from "../../lib/relay";
 
 function safeExternalUrl(value: string | undefined): string | null {
@@ -22,13 +23,14 @@ import { splitThreads, type Room } from "./useChannel";
 // pane beside it is looking at the same live messages rather than at a second
 // copy of them.
 
-export default function ChannelView({ room, onThread, highlight, onHighlighted }: {
+export default function ChannelView({ room, onThread, highlight, onHighlighted, onPopout }: {
   room: Room;
   // Absent = this host has nowhere to put a thread (AgentDetail's dm tab), so
   // the pane must not offer to open one.
   onThread?: (id: string) => void;
   highlight?: string | null;
   onHighlighted?: () => void;
+  onPopout?: () => void;
 }) {
   // Bumped on every message the reader sends, so the transcript follows them
   // back to the live edge.
@@ -97,6 +99,12 @@ export default function ChannelView({ room, onThread, highlight, onHighlighted }
         )}
         {channel?.topic && <span className="relay-topic muted">{channel.topic}</span>}
         {archived && <Chip variant="warn">archived</Chip>}
+        {onPopout && (
+          <Button variant="secondary" size="sm" className="relay-popout-button"
+                  onClick={onPopout} aria-label={`Pop out ${title}`}>
+            Pop out ↗
+          </Button>
+        )}
       </header>
 
       {error && <div className="error">{error}</div>}

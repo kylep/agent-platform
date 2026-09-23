@@ -19,6 +19,7 @@ export default function Relay() {
   const kind = params.get("kind");
   const chosen = params.get("channel");
   const thread = params.get("thread");
+  const popout = params.get("popout") === "1";
   const [channels, setChannels] = useState<RelayChannel[]>([]);
   const [me, setMe] = useState<string | null>(null);
   const [loaded, setLoaded] = useState(false);
@@ -94,31 +95,53 @@ export default function Relay() {
     select(channel.id);
   }
 
+  function roomUrl(poppedOut: boolean): string {
+    const url = new URL(window.location.href);
+    if (selected) url.searchParams.set("channel", selected);
+    if (poppedOut) url.searchParams.set("popout", "1");
+    else url.searchParams.delete("popout");
+    return url.href;
+  }
+
+  function openPopout() {
+    if (selected) window.open(roomUrl(true), "_blank", "popup=yes,noopener,width=1100,height=800");
+  }
+
   return (
-    <div className="page page-relay">
-      <div className="relay-head">
-        <div>
-          <h1>Relay</h1>
-          <p className="muted">
-            The rooms the platform talks in. Agents are members like anyone else — @mention one and
-            it wakes up, answers in the channel, and links the run it did it in.
-          </p>
+    <div className={`page page-relay${popout ? " relay-popout" : ""}`}>
+      {popout ? (
+        <div className="relay-popout-bar">
+          <span>Relay · {room ? channelLabel(room, me) : "room"}</span>
+          {selected && <a href={roomUrl(false)}>Open in platform ↗</a>}
         </div>
-        <Search channels={channels} me={me} current={selected} onPick={openHit} />
-      </div>
+      ) : (
+        <div className="relay-head">
+          <div>
+            <h1>Relay</h1>
+            <p className="muted">
+              The rooms the platform talks in. Agents are members like anyone else — @mention one and
+              it wakes up, answers in the channel, and links the run it did it in.
+            </p>
+          </div>
+          <Search channels={channels} me={me} current={selected} onPick={openHit} />
+        </div>
+      )}
       {error && <div className="error">{error}</div>}
 
       {/* The thread is a third column, and three columns do not fit every
           window — the rail steps aside for it below 1200px (CSS). */}
       <div className="relay-layout" data-thread={thread ? "open" : "closed"}>
-        <Rail channels={channels} selected={selected} me={me} loaded={loaded}
-              onSelect={select} onCreated={onCreated}
-              open={drawer} onToggle={() => setDrawer((d) => !d)} />
+        {!popout && (
+          <Rail channels={channels} selected={selected} me={me} loaded={loaded}
+                onSelect={select} onCreated={onCreated}
+                open={drawer} onToggle={() => setDrawer((d) => !d)} />
+        )}
         {selected
           // Keyed on the room: switching channels is a new subscription, not a
           // mutation of the one on screen.
           ? <Room key={selected} channelId={selected} thread={thread} highlight={highlight}
-                  onHighlighted={clearHighlight} onThread={selectThread} />
+                  onHighlighted={clearHighlight} onThread={selectThread}
+                  onPopout={popout ? undefined : openPopout} />
           : (
             <section className="relay-pane">
               <div className="relay-messages">
@@ -142,18 +165,19 @@ export default function Relay() {
 /** The room and, when one is open, the thread beside it — both reading the one
  * subscription, so a reply posted in the thread shows up in the channel behind
  * it without a second stream to deliver it. */
-function Room({ channelId, thread, highlight, onHighlighted, onThread }: {
+function Room({ channelId, thread, highlight, onHighlighted, onThread, onPopout }: {
   channelId: string;
   thread: string | null;
   highlight: string | null;
   onHighlighted: () => void;
   onThread: (id: string | null) => void;
+  onPopout?: () => void;
 }) {
   const room = useChannel(channelId);
   return (
     <>
       <ChannelView room={room} onThread={onThread} highlight={highlight}
-                   onHighlighted={onHighlighted} />
+                   onHighlighted={onHighlighted} onPopout={onPopout} />
       {thread && (
         <ThreadPane room={room} threadId={thread} highlight={highlight}
                     onHighlighted={onHighlighted} onClose={() => onThread(null)} />

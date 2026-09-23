@@ -20,6 +20,36 @@ test("the rail lists channels and direct messages", async ({ page }) => {
   await expect(rail.getByRole("button", { name: /chat-8675309/ })).toBeVisible();
 });
 
+test("a room pops out into a window-sized chat and can return to the platform", async ({ page }) => {
+  await mockApi(page);
+  await page.goto("/relay?channel=rc1");
+  await page.evaluate(() => {
+    window.open = (url) => {
+      window.sessionStorage.setItem("relay-popout-test-url", String(url));
+      return null;
+    };
+  });
+  await page.getByRole("button", { name: "Pop out #general" }).click();
+  const popoutUrl = await page.evaluate(() => window.sessionStorage.getItem("relay-popout-test-url"));
+  expect(popoutUrl).toContain("channel=rc1");
+  expect(popoutUrl).toContain("popout=1");
+
+  await page.goto(popoutUrl!);
+  await expect(page.getByRole("region", { name: "Channel #general" }))
+    .toContainText("Morning — what's on fire?");
+  await expect(page.getByRole("textbox", { name: "Message" })).toBeVisible();
+  expect(await page.getByRole("region", { name: "Channel #general" })
+    .evaluate((node) => node.getBoundingClientRect().height)).toBeGreaterThan(600);
+  await expect(page.getByRole("complementary", { name: "Channels" })).toHaveCount(0);
+  await expect(page.locator(".nav")).toHaveCount(0);
+  await expect(page.getByRole("button", { name: /Pop out/ })).toHaveCount(0);
+
+  await page.getByRole("link", { name: "Open in platform ↗" }).click();
+  await expect(page).toHaveURL(/channel=rc1/);
+  await expect(page).not.toHaveURL(/popout=1/);
+  await expect(page.getByRole("complementary", { name: "Channels" })).toBeVisible();
+});
+
 test("a rail row carries its full name, however narrow the rail is",
      async ({ page }) => {
   await mockApi(page);

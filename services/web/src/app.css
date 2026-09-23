@@ -55,6 +55,15 @@
 /* Relay carries a 230px rail and, with a thread open, a 360px pane beside the
    room — at .page-wide the room itself would be left under 400px. */
 .page-relay { max-width: 1200px; }
+.relay-popout-main { height: 100dvh; min-height: 0; padding: 10px; }
+.page-relay.relay-popout { max-width: none; height: 100%; display: flex; flex-direction: column; }
+.relay-popout-bar {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  color: var(--ds-text-muted); font-size: 13px; padding: 0 4px 8px;
+}
+.relay-popout-bar a { white-space: nowrap; }
+.relay-popout .relay-layout { flex: 1; height: auto; min-height: 0; margin-top: 0; }
+.relay-popout .relay-pane { max-height: none; min-height: 0; }
 /* Five columns of cards want more room than a document does. */
 .page-tickets { max-width: 1400px; }
 .page-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
@@ -300,6 +309,7 @@
   display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
   border-bottom: 1px solid var(--ds-border); padding-bottom: 8px; margin-bottom: 4px;
 }
+.relay-popout-button { margin-left: auto; white-space: nowrap; }
 .relay-topic {
   font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   flex: 1; min-width: 0;

@@ -19,6 +19,14 @@ const routerLink: LinkComponent = ({ to, end, className, children }) => (
 );
 
 export default function Layout() {
+  const location = useLocation();
+  if (location.pathname === "/relay" && new URLSearchParams(location.search).get("popout") === "1") {
+    return <main className="relay-popout-main"><Outlet /></main>;
+  }
+  return <PlatformLayout />;
+}
+
+function PlatformLayout() {
   const [pendingChanges, setPendingChanges] = useState(0);
   const [apps, setApps] = useState<AppView[]>([]);
   const location = useLocation();
