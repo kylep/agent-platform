@@ -161,7 +161,7 @@ test("the wizard POSTs a full definition — no PR flow", async ({ page }) => {
   await expect(page.getByLabel("Model")).toHaveJSProperty("tagName", "SELECT");
   await page.getByLabel("Model").selectOption("gpt-5.6-sol");
   await page.getByLabel("Agent prompt").fill("You are a scratch agent.");
-  await page.getByRole("checkbox", { name: "news-lookup" }).check();
+  await page.getByRole("checkbox", { name: "release-review" }).check();
   await page.getByRole("button", { name: "Create agent" }).click();
 
   const post = writes.find((w) => w.method() === "POST" && new URL(w.url()).pathname === "/api/agents");
@@ -172,7 +172,7 @@ test("the wizard POSTs a full definition — no PR flow", async ({ page }) => {
   expect(body.prompt).toBe("You are a scratch agent.");
   expect(body.runtime).toBe("codex");
   expect(body.model).toBe("gpt-5.6-sol");
-  expect(body.skills).toEqual(["news-lookup"]);
+  expect(body.skills).toEqual(["release-review"]);
   expect(body.role).toBe("operator");
   expect(body.enabled).toBe(true);
   expect(body.platform_tools).toContain("mcp__platform__memory");

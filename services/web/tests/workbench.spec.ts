@@ -58,7 +58,7 @@ test("/changes lists both prefixes with the ticket chip, the face and auto-merge
   await expect(coder).toContainText("auto-merge");
   await expect(qa).not.toContainText("auto-merge");
   // The platform-code row has none of it and still has its buttons.
-  const skill = page.locator("tr", { hasText: "skill: news-lookup" });
+  const skill = page.locator("tr", { hasText: "skill: release-review" });
   await expect(skill.getByRole("link", { name: /^OPS-/ })).toHaveCount(0);
   await expect(skill.getByRole("button", { name: "Accept" })).toBeVisible();
   await expect(skill.getByRole("button", { name: "Discard" })).toBeVisible();
@@ -69,8 +69,8 @@ test("a published frame on the workbench stream refreshes the rows", async ({ pa
   let lists = 0;
   await page.route((url) => url.pathname === "/api/pull-requests", async (route) => {
     lists += 1;
-    const rows = [{ number: 12, title: "Edit news-lookup: skill body",
-                    url: "https://github.com/x/y/pull/12", branch: "coder/skill-news-lookup",
+    const rows = [{ number: 12, title: "Edit release-review: skill body",
+                    url: "https://github.com/x/y/pull/12", branch: "coder/skill-release-review",
                     author: "pericakai[bot]", created_at: new Date().toISOString(),
                     ticket_key: null, agent: null, auto_merge: null }];
     if (lists > 1) {

@@ -41,8 +41,13 @@ async def test_sync_status_endpoint(admin_client, tmp_checkout):
 
 # --- validation before propose ----------------------------------------------
 
-async def test_skill_quick_edit_validates_frontmatter(admin_client):
-    r = await admin_client.post("/api/skills/git/quick-edit",
+async def test_skill_quick_edit_validates_frontmatter(admin_client, tmp_path):
+    from agentplatform.skills import SkillStore
+    skill = tmp_path / "release-review"
+    skill.mkdir()
+    (skill / "SKILL.md").write_text("---\nname: release-review\n---\nReview.\n")
+    admin_client._transport.app.state.skill_store = SkillStore(tmp_path)
+    r = await admin_client.post("/api/skills/release-review/quick-edit",
                                 json={"value": "---\nsecrets: [unclosed\n---\nbody"})
     assert r.status_code == 422 and "frontmatter" in r.json()["detail"]
 

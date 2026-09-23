@@ -45,13 +45,10 @@ def test_blocking_reason_states_and_severities(skills):
     assert readiness.blocking_reason(m2, skills, {"direct-secret": "unprobed"}) is None
 
 
-def test_shipped_skills_declare_strictness():
-    from tests.conftest import REPO_SKILLS
-    store = SkillStore(REPO_SKILLS)
-    git = store.get("git").skill.secrets[0]
-    assert (git.name, git.state, git.severity) == ("github-token", "verified", "required")
-    # (discord/linear became TOOLS in design/12 — their credentials now bind
-    # per-call in the executor, not via skill strictness.)
+def test_future_skill_can_declare_strictness(skills):
+    required = skills.get("poster").skill.secrets[0]
+    assert (required.name, required.state, required.severity) == (
+        "hook-url", "verified", "required")
 
 
 # --- block-before-dispatch ---------------------------------------------------
@@ -133,13 +130,12 @@ async def test_no_gate_without_skill_store(sf, producer):
 
 # --- API surface -------------------------------------------------------------
 
-async def test_agents_listing_shows_blocked(admin_client, seed_agent):
-    # the fixture agent uses the repo's real git skill (github-token
-    # verified/required); no secret is set → the listing shows blocked
-    await seed_agent("hello-world", description="test", skills=["git"])
+async def test_agents_listing_shows_blocked(admin_client, seed_agent, skills):
+    admin_client._transport.app.state.skill_store = skills
+    await seed_agent("hello-world", description="test", skills=["poster"])
     r = await admin_client.get("/api/agents")
     row = {a["name"]: a for a in r.json()}["hello-world"]
     assert row["blocked"] is True
     assert row["blocked_reason"] == \
-        "blocked: skill `git` disabled — secret `github-token` is not set"
+        "blocked: skill `poster` disabled — secret `hook-url` is not set"
     assert row["quarantined"] is False

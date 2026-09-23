@@ -51,7 +51,7 @@ export const PAGES: PageRoute[] = [
   // The probe is the wiki badge: a memory that has graduated into a page is
   // the one thing on this table the wiki put there (docs/design/21).
   { path: "/memories", heading: "Memories", probe: /📖 promoted/, mobile: false },
-  { path: "/changes", heading: "Pending Changes", probe: /skill: news-lookup/, mobile: false },
+  { path: "/changes", heading: "Pending Changes", probe: /skill: release-review/, mobile: false },
   { path: "/schedules", heading: "Schedules", probe: /health-monitor/, mobile: false },
   { path: "/skills", heading: "Skills & Tools", probe: /stocks/, mobile: false },
   { path: "/secrets", heading: "Secrets", probe: /undeclared/, mobile: false },

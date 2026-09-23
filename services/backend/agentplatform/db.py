@@ -1928,8 +1928,8 @@ def _retire_seeded_skills(conn) -> None:
         if row.name == "codex-artist":
             prompt = prompt.replace("`$imagegen` skill", "built-in `image_gen` tool")
         elif row.name == "news-librarian":
-            prompt = prompt.replace("through your `news-lookup` skill",
-                                    "through your `mcp__platform__query_app` tool")
+            prompt = prompt.replace("`news-lookup` skill",
+                                    "`mcp__platform__query_app` tool")
         if skills == (row.skills or []) and prompt == (row.prompt or ""):
             continue
         snapshot = {**model_of(row).model_dump(mode="json"),

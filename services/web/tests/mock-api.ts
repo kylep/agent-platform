@@ -29,7 +29,7 @@ const healthMonitor = def({
 
 const agents = [
   { ...healthMonitor, quarantined: false, error: null, blocked: false, blocked_reason: null },
-  { ...def({ name: "news", description: "Gathers the day's notable news.", skills: ["news-lookup"] }),
+  { ...def({ name: "news", description: "Gathers the day's notable news." }),
     quarantined: false, error: null, blocked: true,
     blocked_reason: "blocked: skill `discord` disabled — secret `discord-webhook` is not set" },
   // pai is the one with a webhook entrypoint — the listing's Webhook column
@@ -81,8 +81,8 @@ const secrets = [
 // here too, under either prefix, with the ticket parsed off its head and the
 // agent read from the PR body; the self-edit row carries neither.
 const prs = [
-  { number: 12, title: "Edit news-lookup: skill body", url: "https://github.com/x/y/pull/12",
-    branch: "coder/skill-news-lookup", author: "pericakai[bot]", created_at: new Date().toISOString(),
+  { number: 12, title: "Edit release-review: skill body", url: "https://github.com/x/y/pull/12",
+    branch: "coder/skill-release-review", author: "pericakai[bot]", created_at: new Date().toISOString(),
     ticket_key: null, agent: null, auto_merge: null },
   { number: 13, title: "OPS-5: freshness gates, second pass", url: "https://github.com/x/y/pull/13",
     branch: "coder/ops-5", author: "pericakai[bot]",
@@ -1149,28 +1149,28 @@ const FIXTURES: Record<string, unknown> = {
   "/api/tags": [],
   "/api/pull-requests": prs,
   "/api/pull-requests/12/files": [
-    { filename: "skills/news-lookup/SKILL.md", status: "modified", additions: 2, deletions: 1,
+    { filename: "skills/release-review/SKILL.md", status: "modified", additions: 2, deletions: 1,
       patch: "@@ -1,2 +1,3 @@\n-old line\n+new line\n+another" },
   ],
   "/api/pull-requests/12/summary": {
     state: "ready", sha: "abc123",
-    summary: "Changes the news-lookup skill: adds one instruction line. Low risk — no secrets, triggers, or permissions change.",
+    summary: "Changes the release-review skill: adds one instruction line. Low risk — no secrets, triggers, or permissions change.",
   },
   "/api/pull-requests/12/impact": {
-    items: [{ file: "skills/news-lookup/SKILL.md", block: "skill: news-lookup", area: "definition",
+    items: [{ file: "skills/release-review/SKILL.md", block: "skill: release-review", area: "definition",
               status: "modified", additions: 2, deletions: 1, notable: [] }],
     warnings: [],
   },
   "/api/sync-status": { sha: "abc123" },
   "/api/dlq": [],
   "/api/skills": [
-    { name: "news-lookup", description: "Query the news archive.", icon: "🗞️",
+    { name: "release-review", description: "Query the news archive.", icon: "🗞️",
       secrets: [], error: null, used_by: ["news-librarian"] },
   ],
-  "/api/skills/news-lookup": {
-    name: "news-lookup", description: "Query the news archive.", icon: "🗞️",
+  "/api/skills/release-review": {
+    name: "release-review", description: "Query the news archive.", icon: "🗞️",
     secrets: [], error: null, used_by: ["news-librarian"],
-    body: "Query it.", raw: "---\nname: news-lookup\n---\nQuery it.",
+    body: "Query it.", raw: "---\nname: release-review\n---\nQuery it.",
   },
   "/api/tools": [
     { name: "stocks", description: "Yahoo Finance daily history + summary for a ticker.",

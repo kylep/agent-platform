@@ -3,11 +3,11 @@ from pathlib import Path
 import pytest, httpx
 from agentplatform.agents import AgentStore
 
-# The real repo secrets/ + skills/ + reports/ trees — tests run against the
-# shipped declarations so the files themselves are under test.
+# Use shipped declarations except for Skills: the live catalogue is empty,
+# while API/grant tests need a synthetic opt-in skill.
 REPO_ROOT = Path(__file__).resolve().parents[3]
 REPO_SECRETS = REPO_ROOT / "secrets"
-REPO_SKILLS = REPO_ROOT / "skills"
+REPO_SKILLS = REPO_ROOT / "services" / "backend" / "tests" / "fixtures" / "skills"
 REPO_REPORTS = REPO_ROOT / "reports"
 REPO_APPS = REPO_ROOT / "apps"
 REPO_TOOLS = REPO_ROOT / "tools"
