@@ -76,6 +76,10 @@ export default function TeamsProjects() {
         <details><summary>Settings</summary>
           <label>Name <input defaultValue={t.name} onBlur={e => e.target.value !== t.name && patch("team", t.slug, { name: e.target.value })} /></label>
           <label>Description <input defaultValue={t.description} onBlur={e => e.target.value !== t.description && patch("team", t.slug, { description: e.target.value })} /></label>
+          <label>People <input aria-label={`${t.name} people`} defaultValue={t.humans.join(", ")}
+            onBlur={e => { const humans = e.target.value.split(",").map(n => n.trim()).filter(Boolean);
+              if (humans.join(",") !== t.humans.join(",")) patch("team", t.slug, { humans }); }} /></label>
+          <p className="muted">Usernames, separated by commas. People can read and join the team's private Relay room.</p>
           <button onClick={() => patch("team", t.slug, { archived: !t.archived })}>{t.archived ? "Restore" : "Archive"}</button>
         </details>
       </article>)}

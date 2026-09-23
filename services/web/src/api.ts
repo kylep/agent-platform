@@ -394,7 +394,7 @@ export type RelayChannel = {
   project_id?: string | null;
 };
 
-export type Team = { id: string; slug: string; name: string; description: string; agents: string[]; relay_channel_id: string; archived: boolean };
+export type Team = { id: string; slug: string; name: string; description: string; agents: string[]; humans: string[]; relay_channel_id: string; archived: boolean };
 export type Project = { id: string; slug: string; name: string; description: string; team_slug: string | null; agents: string[]; archived: boolean };
 
 export type RelayBinding = {

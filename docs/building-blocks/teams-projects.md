@@ -9,7 +9,9 @@ section below Personas and Workers.
 
 **Teams** collect agents who collaborate. Each team gets a private Relay group
 with its members added automatically. Edit membership on **Agents → Teams &
-Projects**; team membership and the group's agent roster stay in sync. A human
+Projects**; team membership and the group's agent roster stay in sync. Add
+people by username in the team's Settings to give them access to that private
+room. A human
 can write `@team:slug` in a Relay room to summon enabled team agents who are
 already members of that room. The usual Relay hop, budget, cooldown, and
 membership checks still apply. Agents cannot use team mentions to summon an

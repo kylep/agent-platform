@@ -10,7 +10,7 @@ from sqlalchemy import delete, select
 from sqlalchemy.exc import IntegrityError
 
 from agentplatform.api.auth import require_role
-from agentplatform.db import (AgentDef, Conversation, Project, ProjectAgent,
+from agentplatform.db import (AgentDef, Conversation, Principal, Project, ProjectAgent,
                               RelayParticipant, Team, TeamAgent, utcnow)
 
 router = APIRouter()
@@ -22,12 +22,14 @@ class TeamIn(BaseModel):
     name: str = Field(min_length=1, max_length=128)
     description: str = ""
     agents: list[str] = []
+    humans: list[str] = []
 
 
 class TeamPatch(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=128)
     description: str | None = None
     agents: list[str] | None = None
+    humans: list[str] | None = None
     archived: bool | None = None
 
 
@@ -86,8 +88,12 @@ async def _project(s, slug: str) -> Project:
 async def _team_view(s, row: Team) -> dict:
     agents = list((await s.execute(select(TeamAgent.agent).where(
         TeamAgent.team_id == row.id).order_by(TeamAgent.agent))).scalars())
+    humans = list((await s.execute(select(RelayParticipant.participant).where(
+        RelayParticipant.channel_id == row.relay_channel_id,
+        RelayParticipant.participant.like("user:%")))).scalars())
     return dict(id=row.id, slug=row.slug, name=row.name, description=row.description,
-                agents=agents, relay_channel_id=row.relay_channel_id,
+                agents=agents, humans=sorted(p.removeprefix("user:") for p in humans),
+                relay_channel_id=row.relay_channel_id,
                 archived=row.archived_at is not None)
 
 
@@ -117,6 +123,27 @@ async def _set_team_agents(s, row: Team, names: list[str]) -> None:
         s.add(TeamAgent(team_id=row.id, agent=name))
         s.add(RelayParticipant(channel_id=row.relay_channel_id,
                                participant=f"agent:{name}"))
+
+
+async def _set_team_humans(s, row: Team, names: list[str]) -> None:
+    names = list(dict.fromkeys(names))
+    old = {p.removeprefix("user:") for p in (await s.execute(
+        select(RelayParticipant.participant).where(
+            RelayParticipant.channel_id == row.relay_channel_id,
+            RelayParticipant.participant.like("user:%")))).scalars()}
+    if names:
+        found = set((await s.execute(select(Principal.name).where(
+            Principal.name.in_(names)))).scalars())
+        missing = [name for name in names if name not in found and name not in old]
+        if missing:
+            raise HTTPException(422, f"unknown users: {', '.join(missing)}")
+    for name in old - set(names):
+        await s.execute(delete(RelayParticipant).where(
+            RelayParticipant.channel_id == row.relay_channel_id,
+            RelayParticipant.participant == f"user:{name}"))
+    for name in set(names) - old:
+        s.add(RelayParticipant(channel_id=row.relay_channel_id,
+                               participant=f"user:{name}"))
 
 
 async def _set_project_agents(s, row: Project, names: list[str]) -> None:
@@ -152,6 +179,8 @@ async def create_team(request: Request, body: TeamIn,
                                participant=f"user:{principal}", role="owner"))
         try:
             await _set_team_agents(s, row, body.agents)
+            if body.humans:
+                await _set_team_humans(s, row, list(dict.fromkeys([principal, *body.humans])))
             await s.commit()
         except IntegrityError:
             await s.rollback()
@@ -176,6 +205,8 @@ async def update_team(request: Request, slug: str, body: TeamPatch):
             row.description = body.description
         if body.agents is not None:
             await _set_team_agents(s, row, body.agents)
+        if body.humans is not None:
+            await _set_team_humans(s, row, body.humans)
         if body.archived is not None:
             row.archived_at = utcnow() if body.archived else None
             (await s.get(Conversation, row.relay_channel_id)).archived_at = row.archived_at

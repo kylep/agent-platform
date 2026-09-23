@@ -1,6 +1,6 @@
 from sqlalchemy import select
 
-from agentplatform.db import Conversation, Project, RelayParticipant, Team
+from agentplatform.db import Conversation, Principal, Project, RelayParticipant, Team
 
 
 async def test_team_owns_closed_relay_group_and_tracks_agent_roster(
@@ -56,3 +56,19 @@ async def test_scopes_reject_unknown_agents_and_invalid_slugs(admin_client):
         "slug": "Bad Slug", "name": "Bad"})).status_code == 422
     assert (await admin_client.post("/api/projects", json={
         "slug": "valid", "name": "Valid", "agents": ["missing"]})).status_code == 422
+
+
+async def test_team_can_add_and_remove_human_members(admin_client, sf):
+    async with sf() as s:
+        s.add(Principal(name="guest", role="reader"))
+        await s.commit()
+    created = await admin_client.post("/api/teams", json={
+        "slug": "family", "name": "Family", "humans": ["guest"]})
+    assert created.status_code == 201, created.text
+    assert created.json()["humans"] == ["admin", "guest"]
+    updated = await admin_client.patch("/api/teams/family", json={
+        "humans": ["admin"]})
+    assert updated.status_code == 200, updated.text
+    assert updated.json()["humans"] == ["admin"]
+    assert (await admin_client.patch("/api/teams/family", json={
+        "humans": ["unknown"]})).status_code == 422

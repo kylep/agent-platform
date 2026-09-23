@@ -1,6 +1,6 @@
 # Agent Types, Teams, and Projects
 
-Status: implementation in progress (2026-09-23). This design extends the
+Status: shipped (2026-09-23). This design extends the
 DB-first agent, Relay, and memory systems in designs 15, 19, and 31.
 
 ## Why these are three different things
