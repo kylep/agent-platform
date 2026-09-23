@@ -473,6 +473,10 @@ async def patch_relay_channel(request: Request, channel_id: str, body: S.RelayCh
             conv.topic = body.topic.strip()[:256]
         if body.archived is not None:
             conv.archived_at = utcnow() if body.archived else None
+        if body.reply_mode is not None:
+            if conv.kind != "channel":
+                raise HTTPException(422, "only a channel can change reply mode")
+            conv.reply_mode = body.reply_mode
         if body.ticket_prefix is not None:
             await _set_ticket_prefix(s, conv, body.ticket_prefix)
         try:

@@ -14,7 +14,7 @@ generate as untyped, which is honest for genuinely free-form data.
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -931,6 +931,7 @@ class RelayChannelPatch(BaseModel):
     name: str | None = Field(default=None, max_length=64)
     topic: str | None = Field(default=None, max_length=256)
     archived: bool | None = None
+    reply_mode: Literal["linear", "threaded"] | None = None
     # Making a channel a project (docs/design/20): 2-6 uppercase letters,
     # unique among channels, and only until the first ticket is filed under it.
     # Null is "unchanged" like every other field here — a project that has

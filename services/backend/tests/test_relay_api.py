@@ -526,6 +526,21 @@ async def test_archived_channel_stops_taking_messages(admin_client, sf):
     assert (await admin_client.get(f"/api/relay/channels/{cid}")).json()["archived_at"]
 
 
+async def test_channel_can_show_agent_replies_as_a_linear_stream(admin_client):
+    made = (await admin_client.post("/api/relay/channels", json={
+        "kind": "channel", "name": "live-table"})).json()
+    cid = made["id"]
+    assert made["reply_mode"] == "threaded"
+    changed = await admin_client.patch(f"/api/relay/channels/{cid}",
+                                       json={"reply_mode": "linear"})
+    assert changed.status_code == 200
+    assert changed.json()["reply_mode"] == "linear"
+    assert (await admin_client.get(f"/api/relay/channels/{cid}")) \
+        .json()["reply_mode"] == "linear"
+    assert (await admin_client.patch(f"/api/relay/channels/{cid}",
+                                     json={"reply_mode": "buried"})).status_code == 422
+
+
 async def test_seeded_channels_are_not_deletable(admin_client, sf):
     assert (await admin_client.delete(
         f"/api/relay/channels/{await _channel_id(sf, 'general')}")).status_code == 409
