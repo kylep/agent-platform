@@ -49,6 +49,14 @@ def main() -> None:
             request = Request(BASE + "/roll",
                               headers={**headers, "X-Tool-Run-ID": run_id},
                               data=json.dumps({"count": count}).encode(), method="POST")
+        elif action == "floor":
+            player, retry = args.get("player"), args.get("retry", False)
+            if not isinstance(player, str) or type(retry) is not bool:
+                raise ValueError("floor requires player and optional boolean retry")
+            request = Request(BASE + "/floor",
+                              headers={**headers, "X-Tool-Run-ID": run_id},
+                              data=json.dumps({"player": player, "retry": retry}).encode(),
+                              method="POST")
         elif action == "command":
             request_id = args.get("request_id", "")
             argv = args.get("argv")
@@ -58,7 +66,7 @@ def main() -> None:
             request = Request(BASE + "/command", headers=headers,
                               data=json.dumps(payload).encode(), method="POST")
         else:
-            raise ValueError("action must be view, gm_view, roll, help, or command")
+            raise ValueError("action must be view, gm_view, roll, floor, help, or command")
         with urlopen(request, timeout=95) as response:
             result = json.load(response)
         print(json.dumps(result, separators=(",", ":")))

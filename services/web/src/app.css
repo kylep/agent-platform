@@ -328,6 +328,22 @@
   flex: 1; overflow-y: auto; overflow-x: hidden; padding: 8px 2px;
   display: flex; flex-direction: column; gap: 2px;
 }
+.relay-table-cues { display: grid; gap: 3px; padding: 4px 0; }
+.relay-table-cue {
+  align-self: center; justify-self: center; max-width: 100%;
+  color: var(--ds-text-subtle); font-size: 11px;
+}
+.relay-table-cue summary {
+  display: flex; align-items: center; justify-content: center; gap: 8px;
+  cursor: pointer; list-style: none;
+}
+.relay-table-cue summary::-webkit-details-marker { display: none; }
+.relay-table-cue summary::before { content: "◇"; color: var(--ds-accent); }
+.relay-table-cue-detail {
+  margin-top: 4px; padding: 6px 10px; border: 1px solid var(--ds-border);
+  border-radius: var(--radius-sm); color: var(--ds-text-muted);
+  overflow-wrap: anywhere;
+}
 
 /* A face: the agent's emoji on a disc tinted by its own derived hue. */
 .relay-face {

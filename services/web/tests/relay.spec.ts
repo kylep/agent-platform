@@ -50,6 +50,31 @@ test("a room pops out into a window-sized chat and can return to the platform", 
   await expect(page.getByRole("complementary", { name: "Channels" })).toBeVisible();
 });
 
+test("TTRPG summons read as expandable turn markers beside the actual play", async ({ page }) => {
+  await mockApi(page);
+  await page.route("**/api/relay/channels/rc1/messages*", async (route) => {
+    const url = new URL(route.request().url());
+    if (url.searchParams.has("after")) return route.fulfill({ json: [] });
+    const common = { channel_id: "rc1", kind: "text", card: null, reply_to: null,
+      thread_root: null, hop: 0, mentions: [], edited_at: null, reactions: [] };
+    await route.fulfill({ json: [
+      { ...common, id: "play", author: "agent:ttrpg-fluffy", body: "Fluffy listens at the door.",
+        run_id: "f".repeat(32), face: { emoji: "🐧", hue: 190 },
+        created_at: new Date().toISOString() },
+      { ...common, id: "cue", author: "user:app:ttrpg",
+        body: "@ttrpg-fluffy 🎭 Your move, Fluffy.", run_id: null, face: null,
+        created_at: new Date(Date.now() - 1000).toISOString() },
+    ] });
+  });
+  await page.goto("/relay?channel=rc1");
+  const cue = page.locator(".relay-table-cue");
+  await expect(cue).toContainText("Fluffy's turn");
+  await expect(cue).not.toHaveAttribute("open", "");
+  await expect(page.locator(".relay-messages")).toContainText("Fluffy listens at the door.");
+  await cue.locator("summary").click();
+  await expect(cue).toContainText("@ttrpg-fluffy 🎭 Your move, Fluffy.");
+});
+
 test("a rail row carries its full name, however narrow the rail is",
      async ({ page }) => {
   await mockApi(page);

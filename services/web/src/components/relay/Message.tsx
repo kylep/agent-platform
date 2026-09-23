@@ -48,6 +48,25 @@ const PICKER = ["👍", "🎉", "🙏", "👀", "🔥", "😂", "❤️", "🤖"
 // than sliding up over the transcript and hiding what came before.
 const PICKER_HEIGHT = 48;
 
+// The TTRPG coordinator uses ordinary Relay mentions to wake agents. Keep
+// those messages inspectable, but show them as turn markers in the spectator
+// transcript so the players' words and the GM's narration carry the scene.
+function tableCue(message: RelayMessage): string | null {
+  if (message.author !== "user:app:ttrpg") return null;
+  const actor = /^@(ttrpg-[a-z0-9-]+)\s+(?:🎲|🎭|— Table turn)/.exec(message.body)?.[1];
+  if (actor) {
+    if (actor === "ttrpg-gm") {
+      return /Set the scene|Open a short scene/.test(message.body)
+        ? "GM sets the scene" : "GM's turn";
+    }
+    const name = actor.slice("ttrpg-".length);
+    return `${name.charAt(0).toUpperCase()}${name.slice(1)}'s turn`;
+  }
+  if (message.body.startsWith("Session complete")) return "Table paused for review";
+  if (message.body.startsWith("⏸️ The table pauses")) return "Table paused";
+  return null;
+}
+
 function Reactions({ message, onReact }: {
   message: RelayMessage;
   onReact: (message: RelayMessage, emoji: string) => void;
@@ -275,6 +294,20 @@ export function MessageBlock({ group, me, inThread, highlight, threads,
   const first = group.items[0];
   const agent = agentName(group.author);
   const ns = namespaceOf(group.author);
+
+  if (group.items.length && group.items.every((m) => tableCue(m))) {
+    return (
+      <div className="relay-table-cues">
+        {group.items.map((m) => (
+          <details key={m.id} className={`relay-table-cue ${messageClass(m, highlight)}`}
+                   data-message-id={m.id} open={m.id === highlight}>
+            <summary><span>{tableCue(m)}</span><span className="relay-time">{ago(m.created_at)}</span></summary>
+            <div className="relay-table-cue-detail">{m.body}</div>
+          </details>
+        ))}
+      </div>
+    );
+  }
 
   if (group.standalone) {
     return (

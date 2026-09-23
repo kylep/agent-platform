@@ -82,6 +82,28 @@ The first pilot improvement batch also added player-safe positions, a linear
 Relay stream, viewer controls, short spectator-friendly summons, and command
 help. The next session can be started from the viewer without a code change.
 
+## Second playtest pass
+
+The first transcript showed more coordinator and operator lines than player
+dialogue. Relay now draws the app's summons as small, expandable turn markers;
+the full original text remains available in each marker and to agents through
+Relay. This is a presentation change, not a second message store. The GM can
+use `ttrpg(action=floor, player=...)` to choose the next relevant player during
+exploration rather than rotating automatically. When an action is unresolved,
+the GM uses `retry=true` for the same player; the coordinator restores that
+choice to the turn budget before inviting them again. Combat initiative still
+controls the floor. The player tool now returns visible grid distances and
+melee reach hints to reduce impossible attacks; the engine still adjudicates
+terrain and line of sight.
+
+The original five agents had no saved memories and no `memory` tool grant.
+They now receive the private, agent-namespaced tool. Their prompts distinguish
+the lasting agent persona from the PC currently played, read a bounded set of
+personal memories at the start of a run, and save only durable perspective or
+relationship changes. Engine state and campaign canon remain the authority
+for game facts. A later multi-game personality system can assign one agent to
+different PCs without copying campaign state into its identity memory.
+
 ## Boundaries of this pilot
 
 Player agents use the same **player-state API** as the hosted viewer through

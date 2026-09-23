@@ -1,11 +1,14 @@
 name: ttrpg
 description: >-
   Participate in the hosted family RPG. action=view reads the actual player's
-  current scene, map, sheets and recent story (never GM secrets). action=gm_view
+  current scene, map, sheets, recent story and your visible target grid distances
+  (never GM secrets; distances do not guarantee a legal path). action=gm_view
   is GM-only and includes hidden state and the house/voice rules. action=command
   is GM-only: execute one engine CLI command with an idempotent request_id;
   action=roll lets a player roll one or two d20 once per run, returning a
   verifiable result that the GM can use with an engine command's --roll;
+  action=floor lets the GM choose the next player in exploration, or retry the
+  previous player's unresolved action without spending a turn;
   action=help gives concise command examples and syntax;
   the engine, not the model, owns dice and state. Use Relay for dialogue and
   Tickets for in-play product feedback. Never claim that an unrun command
@@ -15,11 +18,17 @@ params:
   properties:
     action:
       type: string
-      enum: [view, gm_view, roll, help, command]
+      enum: [view, gm_view, roll, floor, help, command]
     count:
       type: integer
       enum: [1, 2]
       description: "roll: number of d20 to throw (2 for advantage/disadvantage)"
+    player:
+      type: string
+      description: "floor: next agent name, such as ttrpg-spike"
+    retry:
+      type: boolean
+      description: "floor: true only when the previous player's action was not resolved"
     request_id:
       type: string
       description: "command: stable unique ID for this engine action; retry with the same ID"
