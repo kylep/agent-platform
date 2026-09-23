@@ -4,6 +4,7 @@ description: >-
   current scene, map, sheets and recent story (never GM secrets). action=gm_view
   is GM-only and includes hidden state and the house/voice rules. action=command
   is GM-only: execute one engine CLI command with an idempotent request_id;
+  action=help gives concise command examples and syntax;
   the engine, not the model, owns dice and state. Use Relay for dialogue and
   Tickets for in-play product feedback. Never claim that an unrun command
   changed the world.
@@ -12,7 +13,7 @@ params:
   properties:
     action:
       type: string
-      enum: [view, gm_view, command]
+      enum: [view, gm_view, help, command]
     request_id:
       type: string
       description: "command: stable unique ID for this engine action; retry with the same ID"

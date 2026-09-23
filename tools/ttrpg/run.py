@@ -11,6 +11,16 @@ from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 BASE = "http://agent-platform-app-ttrpg:8000/_internal"
+COMMAND_HELP = {
+    "note": "GM-only command argv are engine CLI arguments after `engine --world <hosted world>`. Use a unique request_id for each action; retry the same request_id only within the same run.",
+    "examples": [
+        ["attack", "--attacker", "pc-meowcicles", "--target", "giant_rat-4", "--attack", "quarterstaff"],
+        ["move", "--actor", "pc-meowcicles", "--to", "4,5"],
+        ["encounter", "next"],
+        ["story", "narrate", "--text", "The rat scampers into the dark."],
+    ],
+    "syntax": "For full syntax, pass an existing command and --help, e.g. argv=[attack,--help]. There is no `help` command.",
+}
 
 
 def main() -> None:
@@ -22,6 +32,9 @@ def main() -> None:
         run_id = os.environ["TOOL_RUN_ID"]
         if not token or not caller or not run_id:
             raise ValueError("verified identity or app key missing")
+        if action == "help":
+            print(json.dumps(COMMAND_HELP, separators=(",", ":")))
+            return
         headers = {"Authorization": "Bearer " + token,
                    "X-Tool-Caller-Agent": caller,
                    "Content-Type": "application/json"}
@@ -38,7 +51,7 @@ def main() -> None:
             request = Request(BASE + "/command", headers=headers,
                               data=json.dumps(payload).encode(), method="POST")
         else:
-            raise ValueError("action must be view or command")
+            raise ValueError("action must be view, gm_view, help, or command")
         with urlopen(request, timeout=95) as response:
             result = json.load(response)
         print(json.dumps(result, separators=(",", ":")))
