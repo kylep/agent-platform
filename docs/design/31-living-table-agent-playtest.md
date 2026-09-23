@@ -65,6 +65,19 @@ deployed fix detected even the refusal notice consumed before its rollout,
 paused with its remaining active time intact, and showed the reason and
 Resume/End controls in the viewer. TT-3 is closed.
 
+The resumed exploration round produced TT-4 while play was underway: Spike's
+`arc_mage_hand` on a stone door failed because the engine assumed every spell
+target was a combatant. Utility spells marked for narrative targets now record
+the cast and ask the GM to adjudicate its physical result. The original
+command succeeded against the deployed image, and the GM narrated the door
+opening. TT-4 is closed.
+
+The optional player-owned die also completed a live handoff. Meowcicles called
+`ttrpg(action=roll, count=1)` and received a verified natural 1 bound to his
+run. The GM saw that record in `gm_view`, ran `check --actor pc-meowcicles
+--attr WIS --dc 10 --roll 1`, and narrated the resulting total of 3 and
+failure. The story and Relay both show the outcome.
+
 The first pilot improvement batch also added player-safe positions, a linear
 Relay stream, viewer controls, short spectator-friendly summons, and command
 help. The next session can be started from the viewer without a code change.
@@ -74,7 +87,7 @@ help. The next session can be started from the viewer without a code change.
 Player agents use the same **player-state API** as the hosted viewer through
 the brokered tool; they do not yet drive Chromium or click the web interface.
 Meowcicles is piloting a player-owned d20: `ttrpg(action=roll)` records one
-verifiable throw per agent run, and the GM can feed it to the engine's manual
+verifiable throw per agent run, and the GM feeds it to the engine's manual
 `--roll` option. Other players still let the engine roll. This does not yet
 provide a full human dice preference UI or cover every multi-die mechanic.
 This phase also does not install an unattended engineer/QA team
