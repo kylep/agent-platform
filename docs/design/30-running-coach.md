@@ -41,9 +41,10 @@ The `running-coach` persona has two scheduled invocations:
   and stores the note under that completed week's Monday. Its existing
   first-post guard controls Discord delivery.
 
-The former `running` agent is disabled rather than deleted so historical runs
-remain attributable. It does not answer `@all`. The replacement is a normal
-agent because it is a user-facing persona, not platform machinery.
+The former `running` agent was disabled during migration, then deleted after
+the replacement was verified. Its run history and definition change log remain
+available. The replacement is a normal agent because it is a user-facing
+persona, not platform machinery.
 
 ## Health and presentation
 
