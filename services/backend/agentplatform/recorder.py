@@ -126,6 +126,27 @@ class Recorder:
                         result_event = (topic, {"run_id": run_id, "agent": run.agent,
                                                 "result": value.get("result")})
             usage = value.get("usage", {})
+            if (value.get("runtime") == "codex" and value.get("type") == "turn.completed"
+                    and "input_tokens" in usage):
+                # Codex includes cached input in input_tokens; Claude reports
+                # uncached input separately. Keep the stored counters equivalent
+                # across runtimes, including the per-model breakdown.
+                read = usage.get("cached_input_tokens", 0)
+                created = usage.get("cache_write_input_tokens", 0)
+                new_input = max(0, usage.get("input_tokens", 0) - read - created)
+                model = run.model or "Codex default"
+                row = await s.get(RunModelUsage, (run_id, model))
+                if row is None:
+                    row = RunModelUsage(run_id=run_id, model=model, agent=run.agent)
+                    s.add(row)
+                row.tokens_in = (row.tokens_in or 0) + new_input
+                row.tokens_out = (row.tokens_out or 0) + usage.get("output_tokens", 0)
+                row.tokens_cache_read = (row.tokens_cache_read or 0) + read
+                row.tokens_cache_creation = (row.tokens_cache_creation or 0) + created
+                usage = {"input_tokens": new_input,
+                         "output_tokens": usage.get("output_tokens", 0),
+                         "cache_read_input_tokens": read,
+                         "cache_creation_input_tokens": created}
             run.tokens_in += usage.get("input_tokens", 0)
             run.tokens_out += usage.get("output_tokens", 0)
             # `or 0`: pre-migration rows carry NULL until first written.

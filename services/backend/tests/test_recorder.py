@@ -49,6 +49,37 @@ async def test_transcript_and_metrics(sf):
         mu = (await s.execute(select(RunModelUsage))).scalars().one()
         assert mu.tokens_cache_read == 2277 and mu.tokens_cache_creation == 193
 
+
+async def test_codex_cache_usage_is_normalized_and_idempotent(admin_client, sf):
+    async with sf() as s:
+        run = Run(agent="codexer", runtime="codex", model="gpt-5.6-sol",
+                  trigger="manual", requested_by="t", prompt="x",
+                  state=RunState.RUNNING)
+        s.add(run)
+        await s.commit()
+        rid = run.id
+    rec = Recorder(sf)
+    event = {"seq": 1, "type": "turn.completed", "runtime": "codex",
+             "usage": {"input_tokens": 1000, "cached_input_tokens": 800,
+                       "cache_write_input_tokens": 10, "output_tokens": 20}}
+    await rec.handle(TOPIC_RUN_TRANSCRIPT, rid, event)
+    await rec.handle(TOPIC_RUN_TRANSCRIPT, rid, event)  # Kafka redelivery
+    await rec.handle(TOPIC_RUN_TRANSCRIPT, rid, {
+        "seq": 2, "type": "turn.completed", "runtime": "codex",
+        "usage": {"input_tokens": 200, "cached_input_tokens": 100,
+                  "output_tokens": 5}})
+    async with sf() as s:
+        run = await s.get(Run, rid)
+        row = await s.get(RunModelUsage, (rid, "gpt-5.6-sol"))
+        assert (run.tokens_in, run.tokens_out, run.tokens_cache_read,
+                run.tokens_cache_creation) == (290, 25, 900, 10)
+        assert (row.tokens_in, row.tokens_out, row.tokens_cache_read,
+                row.tokens_cache_creation) == (290, 25, 900, 10)
+    models = (await admin_client.get("/api/metrics/models")).json()
+    assert models == [{"model": "gpt-5.6-sol", "runs": 1,
+                       "tokens_in": 290, "tokens_out": 25,
+                       "tokens_cache_read": 900, "tokens_cache_creation": 10}]
+
 async def test_state_event_terminal(sf):
     rid = await seed(sf); rec = Recorder(sf)
     await rec.handle(TOPIC_RUN_EVENTS, rid, {"type": "state", "state": "succeeded", "exit_code": 0})

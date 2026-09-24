@@ -13,6 +13,16 @@ is kept forever; transcript *events* are pruned after
 `transcript_retention_days` (a per-agent override on the agent's definition,
 see [agents.md](agents.md)).
 
+**Cache accounting:** Reporting shows input tokens as three parts: new input,
+cache reads, and cache writes. Claude reports these separately; Codex includes
+cached tokens in its total input, so the recorder subtracts them before storing
+new input. Cache reuse is cache reads divided by all three input parts. It is a
+token share, not the fraction of runs that found a cache entry. Codex's CLI
+currently reports zero explicit cache-write tokens, so its remaining input is
+shown as new input. Per-model totals come from the CLI's model breakdown for
+Claude and the run's selected model for Codex. When no Codex model was selected,
+Reporting groups it as “Codex default.”
+
 **States worth knowing:**
 
 - `rejected` — refused before a pod was ever launched, with the reason in
