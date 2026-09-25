@@ -1,15 +1,15 @@
 import yaml
 from fastapi import APIRouter, Depends, HTTPException, Request
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 from sqlalchemy import select
 
 from agentplatform import secretverify
 from agentplatform.agentspec import validate_agent_name
+from agentplatform.api import schemas as S
 from agentplatform.api.auth import require_admin
 from agentplatform.db import SecretMeta
 from agentplatform.secretregistry import SecretInfo, SecretSpec
 
-from agentplatform.api import schemas as S
 router = APIRouter()
 
 
@@ -18,17 +18,9 @@ class SecretIn(BaseModel):
 
 
 def _declared_secrets(request: Request) -> set[str]:
-    """Secrets the platform's components declare they need: skill `secrets:` and
-    connector secrets. Surfaced as (optional) rows so they're settable in the UI."""
+    """Connector secrets visible in the settings UI."""
     from agentplatform.connectors import CONNECTOR_SECRETS
-    declared = set(CONNECTOR_SECRETS)
-    store = getattr(request.app.state, "skill_store", None)
-    if store is not None:
-        store.reload()
-        for info in store.list():
-            if info.skill:
-                declared |= set(info.skill.secret_names)
-    return declared
+    return set(CONNECTOR_SECRETS)
 
 
 def _registry(request: Request):
@@ -193,7 +185,7 @@ async def secret_quick_edit(request: Request, name: str, body: SecretQuickEditIn
         raw = yaml.safe_load(body.value) or {}
         raw.setdefault("name", name)
         SecretSpec(**raw)
-    except Exception as e:
+    except (ValidationError, yaml.YAMLError) as e:
         raise HTTPException(422, f"invalid secret.yaml: {e}")
     from agentplatform.api.gitedit import _apply_files
     return await _apply_files(

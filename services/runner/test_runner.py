@@ -7,6 +7,39 @@ import runner
 import workbench
 
 
+def test_verified_plugin_skill_installs_without_plugin_authority(tmp_path, monkeypatch):
+    """A run receives only its assigned, checksum-pinned SKILL.md."""
+    import shutil
+    from pathlib import Path
+
+    source = Path(__file__).resolve().parents[2] / "plugins" / "agent-platform-coding"
+    checkout = tmp_path / "checkout"
+    (checkout / "skills").mkdir(parents=True)
+    shutil.copytree(source, checkout / "plugins" / "agent-platform-coding")
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    monkeypatch.setenv("AP_SKILLS_DIR", str(checkout / "skills"))
+    monkeypatch.setenv("AP_SKILLS", "platform-change")
+    runner._install_skills("codex")
+    target = tmp_path / "home" / ".agents" / "skills" / "platform-change"
+    assert (target / "SKILL.md").read_bytes() == (
+        source / "skills" / "platform-change" / "SKILL.md").read_bytes()
+    assert list(target.iterdir()) == [target / "SKILL.md"]
+
+    shutil.rmtree(tmp_path / "home")
+    legacy = checkout / "skills" / "platform-change"
+    legacy.mkdir()
+    (legacy / "SKILL.md").write_text("collision")
+    runner._install_skills("codex")
+    assert not target.exists()
+    shutil.rmtree(legacy)
+
+    (checkout / "plugins" / "agent-platform-coding" / "skills" /
+     "platform-change" / "SKILL.md").write_text("tampered")
+    runner._install_skills("claude")
+    assert not (tmp_path / "home" / ".claude" / "skills" /
+                "platform-change" / "SKILL.md").exists()
+
+
 @pytest.fixture(autouse=True)
 def _no_ambient_workspace(monkeypatch):
     """This pod is itself a dev workspace, so AP_WORKSPACE=dev is set in the real

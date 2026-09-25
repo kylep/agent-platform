@@ -260,20 +260,19 @@ async def test_poll_once_still_transitions_dispatched_to_running(sf):
     assert producer.published[-1][2]["state"] == RunState.RUNNING
 
 
-def _skill_store(tmp_path, name="git", secrets=("github-token",)):
+def _skill_store(tmp_path, name="git"):
     from agentplatform.skills import SkillStore
     d = tmp_path / name
     d.mkdir(parents=True)
-    sec = "".join(f"  - {s}\n" for s in secrets)
-    (d / "SKILL.md").write_text(f"---\nname: {name}\nsecrets:\n{sec}---\nbody")
+    (d / "SKILL.md").write_text(f"---\nname: {name}\n---\nbody")
     return SkillStore(tmp_path)
 
 
-def test_bound_secrets_union_of_manifest_and_skills(tmp_path):
+def test_bound_secrets_only_explicit_agent_bindings(tmp_path):
     launcher = K8sJobLauncher(batch=None, settings=Settings(runner_image="r:1", k8s_namespace="ap"),
                               skill_store=_skill_store(tmp_path))
-    m = Manifest(skills=["git"], secrets=["extra", "github-token"])  # dedupe github-token
-    assert launcher.bound_secrets(m) == ["extra", "github-token"]
+    m = Manifest(skills=["git"], secrets=["extra"])
+    assert launcher.bound_secrets(m) == ["extra"]
 
 
 def test_provider_credentials_cannot_be_bound_as_agent_secrets(tmp_path):
@@ -290,7 +289,7 @@ def test_build_job_binds_secrets_via_envfrom(tmp_path):
     job = launcher.build_job(run, Manifest(skills=["git"], secrets=["extra"]))
     refs = job.spec.template.spec.containers[0].env_from
     bound = {e.secret_ref.name: e.secret_ref.optional for e in refs}
-    assert bound == {"extra": True, "github-token": True}
+    assert bound == {"extra": True}
 
 
 def test_build_job_no_secrets_means_no_envfrom(tmp_path):

@@ -53,13 +53,12 @@ Propose  →  Review  →  Accept  →  Deploying  →  Live
 | Surface | Branch | Author |
 |---|---|---|
 | SKILL.md editor | `coder/skill-<name>` | deterministic |
-| New Skill wizard | `coder/skill-<name>` (+ may touch `secrets/`) | coding agent |
+| New Skill wizard | `coder/skill-<name>` | coding agent |
 | Tool editor / New Tool wizard | `coder/tool-<name>` | deterministic / coding agent |
 | Secret declare wizard / secret.yaml editor | `coder/secret-<name>` | deterministic |
 
 Coding-agent runs derive the branch from the paths they touched (precedence
-skill > secret > tool > report when one change spans kinds — a new skill plus
-the secret it declares lands on the *skill's* branch). Report types are
+skill > secret > tool > report when one change spans kinds). Report types are
 currently hand-written or coder-authored (no wizard yet). Agent definitions
 never appear here — they aren't a change-loop block; see the note at the top
 of this page.

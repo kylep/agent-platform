@@ -221,7 +221,7 @@ def _registries(request: Request) -> dict[str, set[str]]:
     st.skill_store.reload()
     st.secret_registry.reload()
     st.tool_registry.reload()
-    return {"skill_names": {s.name for s in st.skill_store.list()},
+    return {"skill_names": {s.name for s in st.skill_store.list() if s.skill is not None},
             "secret_names": {s.name for s in st.secret_registry.list()},
             # Every broker tool that exists is grantable — including the two
             # definition-writing ones, which are code-defined like the rest but
@@ -451,7 +451,7 @@ def _changed_fields(row: AgentDef, model: AgentDefModel, fields) -> list[str]:
 
 async def _blocked_reasons(request: Request) -> dict[str, str]:
     """agent -> blocking reason, for agents whose derived secret dependencies
-    (manifest secrets + skills' secrets) have an unmet REQUIRED one. Distinct
+    (explicit agent secrets or runtime credential) have an unmet REQUIRED one. Distinct
     from quarantined: blocked is fixed by fixing the secret, quarantined by
     fixing the agent."""
     from agentplatform import readiness
@@ -461,12 +461,12 @@ async def _blocked_reasons(request: Request) -> dict[str, str]:
     agents = [a for a in request.app.state.agent_store.list() if a.manifest]
     dep_names = {d.secret for a in agents
                  for d in readiness.deps_for(a.manifest, skills)}
-    if not dep_names:
-        return {}
-    async with request.app.state.session_factory() as s:
-        rows = (await s.execute(select(SecretMeta)
-                .where(SecretMeta.name.in_(dep_names)))).scalars()
-        statuses = {m.name: m.status for m in rows}
+    statuses = {}
+    if dep_names:
+        async with request.app.state.session_factory() as s:
+            rows = (await s.execute(select(SecretMeta)
+                    .where(SecretMeta.name.in_(dep_names)))).scalars()
+            statuses = {m.name: m.status for m in rows}
     for n in dep_names - set(statuses):
         # No meta row yet — the store is the truth for existence (out-of-band set).
         if await request.app.state.secret_store.exists(n):

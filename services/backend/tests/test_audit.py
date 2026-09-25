@@ -17,7 +17,7 @@ async def _run(sf, agent="a"):
 
 async def test_audit_records_base_plus_bound_secrets(sf, tmp_path):
     launcher = K8sJobLauncher(batch=None, settings=Settings(), session_factory=sf,
-                              skill_store=_skill_store(tmp_path))  # git skill → github-token
+                              skill_store=_skill_store(tmp_path))
     rid = await _run(sf)
     run = Run(agent="a", trigger="manual", requested_by="t", prompt="x"); run.id = rid
     await launcher._audit_secret_access(run, Manifest(skills=["git"], secrets=["extra"]))
@@ -25,7 +25,7 @@ async def test_audit_records_base_plus_bound_secrets(sf, tmp_path):
     async with sf() as s:
         secrets = set((await s.execute(select(SecretAccess.secret)
                        .where(SecretAccess.run_id == rid))).scalars())
-    assert secrets == {"claude-credentials", "github-token", "extra"}
+    assert secrets == {"claude-credentials", "extra"}
 
 
 async def test_audit_excludes_claude_credentials_when_proxied(sf, tmp_path):
@@ -41,7 +41,7 @@ async def test_audit_excludes_claude_credentials_when_proxied(sf, tmp_path):
     async with sf() as s:
         secrets = set((await s.execute(select(SecretAccess.secret)
                        .where(SecretAccess.run_id == rid))).scalars())
-    assert secrets == {"github-token", "extra"}
+    assert secrets == {"extra"}
 
 
 async def test_audit_api_filters(admin_client, sf):

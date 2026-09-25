@@ -46,15 +46,20 @@ async def test_wizard_validates_and_dispatches(admin_client, seed_agent, produce
         "secret": {"name": "notion-token", "env_var": "NOTION_TOKEN",
                    "description": "Notion internal integration token"},
         "notes": "Keep it small."})
+    assert r.status_code == 422  # a skill cannot request secret authority
+    r = await admin_client.post("/api/skills/new", json={
+        "name": "notion", "purpose": "Create pages in Notion.",
+        "when_to_use": "When asked to publish notes.",
+        "notes": "Keep it small."})
     assert r.status_code == 202
     rid = r.json()["id"]
     reqs = [p for p in producer.published if p[0] == TOPIC_RUN_REQUESTS]
     assert reqs and reqs[-1][1] == rid
-    # the run's prompt scopes the coder to the skill + secret folders
+    # the run's prompt scopes the coder to the skill alone
     runs = await admin_client.get(f"/api/runs/{rid}")
     prompt = runs.json()["prompt"]
-    assert "skills/notion/" in prompt and "secrets/notion-token/secret.yaml" in prompt
-    assert "$NOTION_TOKEN" in prompt and runs.json()["agent"] == "coder"
+    assert "skills/notion/" in prompt and "secrets/notion-token/" not in prompt
+    assert "skill grants no secrets" in prompt.lower() and runs.json()["agent"] == "coder"
 
 
 async def test_wizard_without_engineer_409(admin_client, sf, agent_store):

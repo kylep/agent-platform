@@ -1451,6 +1451,7 @@ class SkillView(BaseModel):
     description: str
     icon: str
     secrets: list[str]
+    origin: str = "legacy"
     error: str | None
     used_by: list[str]
 

@@ -1,8 +1,6 @@
-"""Agent readiness (docs/design/10 phase 2). An agent's dependency set is
-DERIVED — its manifest's direct `secrets:` plus each of its skills' declared
-secrets — never restated. A `required` dependency that isn't in its demanded
-state blocks the agent: runs are rejected before dispatch with the exact
-reason, instead of launching a pod that fails confusingly at runtime.
+"""Agent readiness (docs/design/10 phase 2). Secret dependencies come only
+from explicit agent bindings and provider runtime credentials. A required
+dependency that isn't in its demanded state blocks the run.
 
 Evaluation is pure (deps + a status map in, verdict out); the dispatcher layers
 try-before-block re-verification on top, the agents API just evaluates."""
@@ -18,19 +16,11 @@ class Dep:
 
 
 def deps_for(manifest, skill_store) -> list[Dep]:
-    """The derived dependency set. Direct manifest secrets are required-present
-    (the agent asked for the binding by name; a missing secret means the pod
-    silently gets nothing). Skill secrets carry the skill's declared strictness."""
+    """Explicit manifest and runtime secret dependencies only."""
     runtime_secret = "codex-credentials" if manifest.runtime == "codex" else None
     deps = ([Dep(runtime_secret, None, "present", "required")]
             if runtime_secret else [])
     deps += [Dep(s, None, "present", "required") for s in manifest.secrets]
-    for skill_name in manifest.skills:
-        info = skill_store.get(skill_name)
-        if info is None or info.skill is None:
-            continue
-        for s in info.skill.secrets:
-            deps.append(Dep(s.name, skill_name, s.state, s.severity))
     return deps
 
 
@@ -60,5 +50,9 @@ def reason(dep: Dep, status: str) -> str:
 
 
 def blocking_reason(manifest, skill_store, statuses: dict[str, str]) -> str | None:
+    for name in manifest.skills:
+        info = skill_store.get(name) if skill_store is not None else None
+        if info is None or info.skill is None:
+            return f"blocked: skill `{name}` unavailable or invalid"
     bad = unmet_required(manifest, skill_store, statuses)
     return reason(*bad[0]) if bad else None

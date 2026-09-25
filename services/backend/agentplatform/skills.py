@@ -1,8 +1,4 @@
-"""Skills as first-class components. A skill is a directory under the repo's
-`skills/` tree containing a `SKILL.md` whose YAML frontmatter declares its
-`name`, `description`, and any `secrets` it needs. Agents reference skills by
-name in their manifest `skills:` list; the runner mounts the referenced skills
-into the pod and the pod is granted the union of those skills' secrets."""
+"""Skills are instructions, never a source of secret or Tool authority."""
 # Defer annotation evaluation: this module's SkillStore defines a `list()`
 # method, which would otherwise shadow the builtin in the `list[str]`
 # annotations below — a runtime TypeError on Python < 3.14, where annotations
@@ -10,40 +6,20 @@ into the pod and the pod is granted the union of those skills' secrets."""
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Literal
 
 import yaml
-from pydantic import BaseModel, ValidationError, field_validator
+from pydantic import BaseModel, ConfigDict, ValidationError
 
-
-class SkillSecret(BaseModel):
-    """A secret a skill needs, with the strictness the skill demands of it
-    (docs/design/10): `state` is what must be true of the secret, `severity`
-    is what happens to an agent using the skill when it isn't — `required`
-    blocks the agent's runs, `optional` lets them proceed degraded."""
-    name: str
-    state: Literal["present", "verified"] = "present"
-    severity: Literal["required", "optional"] = "optional"
+from agentplatform.plugin_release import NAME as CODING_PLUGIN
+from agentplatform.plugin_release import verify_release
 
 
 class Skill(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     name: str
     description: str = ""
     # An optional emoji shown next to the skill in the UI (frontmatter `icon:`).
     icon: str = ""
-    # Secrets this skill needs; an agent using the skill gets these bound.
-    # Frontmatter accepts a bare name (defaults: present/optional) or a mapping
-    # with state/severity.
-    secrets: list[SkillSecret] = []
-
-    @field_validator("secrets", mode="before")
-    @classmethod
-    def _coerce_names(cls, v):
-        return [{"name": s} if isinstance(s, str) else s for s in (v or [])]
-
-    @property
-    def secret_names(self) -> list[str]:
-        return [s.name for s in self.secrets]
 
 
 class SkillInfo(BaseModel):
@@ -54,6 +30,7 @@ class SkillInfo(BaseModel):
     # round-trips; `body` alone drops the frontmatter.
     raw: str = ""
     error: str | None = None
+    origin: str = "legacy"
 
 
 def parse_frontmatter(md: str) -> tuple[dict, str]:
@@ -79,6 +56,26 @@ class SkillStore:
                 info = self._load(d)
                 if info is not None:
                     found[info.name] = info
+        plugin_root = self.root.parent / "plugins" / CODING_PLUGIN
+        if plugin_root.exists():
+            try:
+                for directory in verify_release(plugin_root):
+                    info = self._load(directory)
+                    if info is not None and info.skill is not None:
+                        info.origin = "plugin"
+                        if info.name in found:
+                            found[info.name] = SkillInfo(
+                                name=info.name, skill=None, body="",
+                                error="plugin skill name collides with a legacy skill",
+                                origin="plugin")
+                        else:
+                            found[info.name] = info
+            except (ValueError, OSError) as exc:
+                # An unverified release has no skills, even if one file happens
+                # to parse. Assignments to them stay unavailable until fixed.
+                found[CODING_PLUGIN] = SkillInfo(
+                    name=CODING_PLUGIN, skill=None, body="",
+                    error=f"plugin release invalid: {exc}", origin="plugin")
         self._cache = found
 
     def _load(self, d: Path) -> SkillInfo | None:
@@ -99,16 +96,3 @@ class SkillStore:
 
     def get(self, name: str) -> SkillInfo | None:
         return self._cache.get(name)
-
-    def secrets_for(self, skill_names: list[str]) -> list[str]:
-        """The de-duplicated union of secrets required by the named skills
-        (unknown skills contribute nothing). Used to bind an agent's pod to the
-        union of its skills' secrets and nothing more."""
-        out: list[str] = []
-        for n in skill_names:
-            info = self._cache.get(n)
-            if info and info.skill:
-                for s in info.skill.secret_names:
-                    if s not in out:
-                        out.append(s)
-        return out

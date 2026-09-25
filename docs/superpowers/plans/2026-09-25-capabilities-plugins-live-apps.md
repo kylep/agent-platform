@@ -45,6 +45,9 @@ Started 2026-09-25. This is a work checkpoint, not a command to run an agent loo
   including at dispatch. Add idempotent receipts and uncertain-outcome state.
 - [x] A5. Add private Resource list/read with conservative object ACLs, safe
   cache headers and revocation. Keep the existing artifact browser working.
+- [x] Running canary deployed to pai: four live metrics, ticket action with
+  durable receipt, private snapshot and MCP Resource read. Browser checked at
+  desktop and 390px mobile; ENG-7 was created then cancelled as test cleanup.
 - [ ] A6. Implement typed page drafts, fixture preview, publish, rollback,
   trusted action chrome, readable errors, refresh and snapshot capture.
 - [ ] A7. Migrate Running collection to a live page backed by its existing
@@ -67,16 +70,18 @@ Started 2026-09-25. This is a work checkpoint, not a command to run an agent loo
 
 ## Current checkpoint
 
-Local `main` contains commits `88a24b9`, `ca67446`, and `8bcd946`, not yet
-pushed/deployed. The App collection, catalog category, typed page, and trusted
-ticket-action slices are additive. The current slice adds owner-scoped snapshot
-capture, deletion/retention, and an authenticated MCP Resource template. The
-facade hides browser intent/call endpoints and gates admin mutations. It still
-needs a usable authoring editor, policy/operation inventory, and live canary
-evidence; do not represent it as a complete Live App. Existing untracked `.claude/` and
+Local `main` contains `88a24b9`, `ca67446`, `8bcd946`, and `4827bac`,
+not yet pushed. These four slices were deployed to pai and the Running canary
+was verified through the API, browser and MCP Resource reader. A plain-HTTP
+browser uncovered unavailable `crypto.randomUUID`; the web code now derives
+the idempotency key from `crypto.getRandomValues` and the real ticket action
+passed after redeploy. That web fix is pending commit. The plugin/secret-grant
+cleanup is also in the working tree, with focused backend/runner tests and
+manifest validation passing. The authoring editor, broader operation inventory
+and remaining App migrations are still open. Existing untracked `.claude/` and
 `codex-second-quota-pool.html` predate this project and must remain unstaged.
 
-Quota reading at 2026-09-25 13:23 UTC: Codex weekly utilization 79%, reset
-2026-09-25 17:18:35 UTC. It was observed at 12:57 UTC, so it may be stale.
+Quota reading at 2026-09-25 14:56 UTC: Codex weekly utilization 82%, reset
+2026-09-25 17:18:35 UTC. It was observed at 14:30 UTC, so it may be stale.
 Check the current reading before another expensive phase; pause at a clean
 commit if weekly headroom approaches 10%, then resume after reset.

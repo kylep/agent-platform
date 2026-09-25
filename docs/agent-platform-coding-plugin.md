@@ -1,0 +1,11 @@
+# Agent Platform Coding plugin
+
+The source package is [`plugins/agent-platform-coding/`](../plugins/agent-platform-coding/). It supplies three short skills to both Claude Code and Codex: `platform-orientation`, `platform-change`, and `platform-regression`. The first finds the current source of truth, the second guides a focused change, and the third verifies behavior across the API, runner, and browser. Assign only the skills an agent needs; the coder and QA agents can share the package without sharing their jobs or grants.
+
+`release.json` pins every package file by SHA-256. The platform loads its skills only when the complete file set and both harness manifests verify. The runner installs only the assigned `SKILL.md` files into each harness's skill directory. It does not execute package code or copy a plugin's manifests, hooks, commands, or MCP configuration into a run. Skills add instructions, not Tools, network access, secrets, or publish permission. Those remain explicit agent and Tool grants.
+
+To change the package, edit a skill, review it as code, update `release.json` with the new hashes, and validate both manifests and the pinned runner images before assigning it. A failed verification makes the package unavailable and blocks agents that require it rather than silently running them without their requested workflow. Roll back by restoring the previous reviewed package revision, or remove the skill assignment from an affected agent. Existing runs keep the files installed at their start; new runs use the current verified package.
+
+Developer hosts can use the same source package through their harness's plugin installation flow. The platform itself does not alter a developer's local Claude or Codex configuration. For a direct local skill installation, copy a reviewed skill directory into the harness's personal skills directory; confirm the harness lists it before relying on it. The platform's version and checksums remain the source of truth for agent workloads.
+
+This package deliberately contains no provider terms, credentials, installation scripts, or product-specific secrets. Its guidance is about this repository's current architecture and evidence needed to ship safely.

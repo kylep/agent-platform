@@ -1,14 +1,15 @@
 import logging
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, ValidationError
+from yaml import YAMLError
 
 from agentplatform.agentspec import validate_agent_name
+from agentplatform.api import schemas as S
 from agentplatform.api.auth import READ_ROLES, require_admin, require_role
 from agentplatform.db import Run
 from agentplatform.events import TOPIC_RUN_REQUESTS
 
-from agentplatform.api import schemas as S
 router = APIRouter()
 
 log = logging.getLogger("skills-api")
@@ -31,7 +32,8 @@ async def list_skills(request: Request):
     return [{"name": s.name,
              "description": s.skill.description if s.skill else "",
              "icon": s.skill.icon if s.skill else "",
-             "secrets": s.skill.secret_names if s.skill else [],
+             "origin": s.origin,
+             "secrets": [],  # compatibility field; skills grant no secrets
              "error": s.error,
              "used_by": _agents_using(request, s.name)}
             for s in request.app.state.skill_store.list()]
@@ -45,7 +47,8 @@ async def get_skill(request: Request, name: str):
     return {"name": s.name,
             "description": s.skill.description if s.skill else "",
             "icon": s.skill.icon if s.skill else "",
-            "secrets": s.skill.secret_names if s.skill else [],
+            "origin": s.origin,
+            "secrets": [],
             "error": s.error,
             "body": s.body,
             "raw": s.raw,
@@ -65,8 +68,11 @@ async def skill_quick_edit(request: Request, name: str, body: SkillQuickEditIn,
     save→pending-change→review contract as the agent definition editor."""
     from agentplatform.api.gitedit import _apply_files
     request.app.state.skill_store.reload()
-    if request.app.state.skill_store.get(name) is None:
+    info = request.app.state.skill_store.get(name)
+    if info is None:
         raise HTTPException(404, "unknown skill")
+    if info.origin == "plugin":
+        raise HTTPException(409, "edit plugin skills in the reviewed package")
     # Validate BEFORE proposing: broken frontmatter would quarantine the skill
     # on merge — reject at save time with the parse error.
     from agentplatform.skills import Skill, parse_frontmatter
@@ -74,7 +80,7 @@ async def skill_quick_edit(request: Request, name: str, body: SkillQuickEditIn,
         fm, _ = parse_frontmatter(body.value)
         fm.setdefault("name", name)
         Skill(**fm)
-    except Exception as e:
+    except (ValidationError, YAMLError) as e:
         raise HTTPException(422, f"invalid SKILL.md frontmatter: {e}")
     return await _apply_files(
         request, {f"skills/{name}/SKILL.md": body.value},
@@ -83,17 +89,11 @@ async def skill_quick_edit(request: Request, name: str, body: SkillQuickEditIn,
         pr_body=f"Direct SKILL.md edit for `{name}` from the skills editor.")
 
 
-class SkillWizardSecret(BaseModel):
-    name: str             # secret slug, e.g. "notion-token"
-    env_var: str = ""     # the env var the skill reads (becomes the data key)
-    description: str = "" # what the credential is / where to get it
-
-
 class SkillWizardIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     name: str
     purpose: str          # what the skill does
     when_to_use: str = "" # when an agent should reach for it
-    secret: SkillWizardSecret | None = None
     notes: str = ""
 
 
@@ -101,8 +101,7 @@ class SkillWizardIn(BaseModel):
 async def skill_wizard(request: Request, body: SkillWizardIn,
                        principal: str = Depends(require_admin)):
     """The New-Skill wizard: turn interview answers into an engineer Workbench run
-    that AUTHORS the skill (and, when a new credential is involved, scaffolds
-    its `secrets/<name>/secret.yaml`). The result lands as a pull request under
+    that AUTHORS the skill. The result lands as a pull request under
     Changes — agent-authored, human-reviewed."""
     st = request.app.state
     try:
@@ -118,22 +117,7 @@ async def skill_wizard(request: Request, body: SkillWizardIn,
             or engineer.manifest.role != "dev"):
         raise HTTPException(409, "coder Workbench is unavailable")
     scope = f"`skills/{body.name}/`"
-    secret_part = ""
-    if body.secret:
-        try:
-            validate_agent_name(body.secret.name)
-        except ValueError as e:
-            raise HTTPException(422, f"secret {e}")
-        scope += f" and `secrets/{body.secret.name}/`"
-        secret_part = (
-            f"\nIt needs a credential. Also scaffold `secrets/{body.secret.name}/secret.yaml` "
-            f"(see existing folders under `secrets/` for the shape): "
-            f"{body.secret.description or 'a credential'}"
-            + (f", read by the skill as ${body.secret.env_var} (make that the key name)."
-               if body.secret.env_var else ".")
-            + " Declare a `verify:` probe if a cheap read-only HTTP check exists, else omit verify. "
-            f"Reference the secret from the skill's frontmatter `secrets:` list with "
-            f"an appropriate state/severity.\n")
+    secret_part = "\nA skill grants no secrets or Tools. If the workflow needs one, document the needed explicit agent or Tool grant instead.\n"
     prompt = (
         "This is a platform-authored wizard run, not a ticket. Skip the ticket/thread "
         "steps in your standing prompt. Work only in the paths named below, run the "
@@ -156,6 +140,6 @@ async def skill_wizard(request: Request, body: SkillWizardIn,
     try:
         await st.producer.publish(TOPIC_RUN_REQUESTS, run.id,
                                   {"type": "run", "run_id": run.id}, type="run.request")
-    except Exception:
+    except Exception:  # noqa: BLE001 - sweep will recover a failed broker publish
         log.warning("publish failed for skill-wizard run %s; sweep will drain it", run.id)
     return {"id": run.id, "state": run.state, "target_agent": body.name}

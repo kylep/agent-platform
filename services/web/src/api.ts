@@ -261,6 +261,7 @@ export type Skill = {
   description: string;
   icon: string;
   secrets: string[];
+  origin: "legacy" | "plugin";
   error: string | null;
   used_by: string[];
 };

@@ -124,7 +124,7 @@ is published as an `agent.result` event containing `run_id`, `agent`, and
 `result`; failed runs do not publish there.
 
 **Readiness (derived, never declared):** an agent's secret dependencies are
-computed from `secrets` plus each of its skills' declared secrets. An unmet
+computed from its explicit `secrets` list and runtime credential. An unmet
 *required* dependency makes the agent **blocked** — runs are rejected before a
 pod launches, with the exact reason recorded as a failed Run. *Blocked* (fix
 the secret) is distinct from *quarantined* (the row fails validation — an

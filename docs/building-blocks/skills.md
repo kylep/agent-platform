@@ -2,9 +2,8 @@
 
 **What:** optional, reusable workflows an agent opts into via its `skills:`
 list. The runner — the pod one agent run happens in, see the
-[Glossary](glossary.md) — mounts each referenced skill into the pod
-(`~/.claude/skills`), and the pod is granted the union of those skills'
-secrets and nothing more.
+[Glossary](glossary.md) — mounts each referenced skill into the harness's
+skills directory. Assigning a skill never grants a secret or Tool.
 
 A skill teaches a repeatable task spanning several steps, often shared by
 multiple agents. It is not where an agent's job or personality lives: those
@@ -24,7 +23,7 @@ run context. Those are not skills an agent needs to select.
 ```
 skills/<name>/
   SKILL.md      # YAML frontmatter + usage instructions
-  *.sh, *.py    # optional helper scripts the instructions reference
+  references/   # optional non-executable guidance when the skill needs it
 ```
 
 **Frontmatter shape** (example for a future workflow):
@@ -33,20 +32,14 @@ skills/<name>/
 name: release-review
 description: Review a release candidate against its changelog and test evidence.
 icon: 🧩
-secrets:
-  - name: example-readonly-source
-    state: verified      # present | verified
-    severity: optional  # required | optional
 ```
 
-A bare string in `secrets:` is shorthand for `{state: present, severity:
-optional}`. The strictness lives here — on the skill — because the skill knows
-how badly it needs its credential; agents never restate it (see
-[agents.md](agents.md) readiness).
+The frontmatter rejects `secrets:`. Bind credentials explicitly on the agent
+or its Tool, where their scope and readiness are visible. Existing agent
+assignments and secret bindings can be inspected in the agent editor.
 
 **How to add one:** the **New skill** wizard on the Skills page interviews you
-(purpose, when-to-use, optional credential) and fires a coding agent that
-authors the skill — scaffolding `secrets/<name>/` too when a new credential is
-involved — as a pull request under Changes. Or write the folder by hand and
+(purpose and when-to-use) and fires a coding agent that authors the skill as a
+pull request under Changes. Or write the folder by hand and
 open a PR. Existing skills are editable in place on the Skills page; every
 save opens a PR on the skill's deterministic `coder/skill-<name>` branch.

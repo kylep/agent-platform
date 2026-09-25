@@ -1,9 +1,16 @@
 import asyncio
 import logging
+
 from kubernetes import client as k8s
 from kubernetes.client.rest import ApiException
+
 from agentplatform.agents import Manifest
-from agentplatform.apikeys import generate_token, hash_token, revoke_run_keys, token_prefix
+from agentplatform.apikeys import (
+    generate_token,
+    hash_token,
+    revoke_run_keys,
+    token_prefix,
+)
 from agentplatform.db import ACTIVE_STATES, ApiKey, Run, RunState, SecretAccess, utcnow
 from agentplatform.dispatcher import Launcher
 from agentplatform.events import TOPIC_RUN_EVENTS
@@ -26,9 +33,7 @@ class K8sJobLauncher(Launcher):
         self.secret_store = secret_store
         self._runjwt_private: str | None = None
         self.sf = session_factory
-        # Resolves an agent's skills → the secrets it may be bound. When set, a
-        # pod gets exactly the union of its manifest + skill secrets (and the
-        # base claude credential), nothing else.
+        # Retained for launch compatibility; skills do not grant secrets.
         self.skill_store = skill_store
         # Lets launch() read the agent's tool grants: holding ANY
         # mcp__platform__* tool makes the run token-bearing (docs/design/12) —
@@ -128,17 +133,11 @@ class K8sJobLauncher(Launcher):
         return [t for t in manifest.platform_tools if t.startswith("mcp__platform__")]
 
     def bound_secrets(self, manifest: Manifest) -> list[str]:
-        """The de-duplicated union of secret names an agent's pod may receive:
-        its manifest `secrets` plus the secrets required by its skills. This is
-        the whole allow-list — the pod is bound to these and nothing else."""
+        """Only explicit agent secret bindings may enter the pod."""
         # Provider credentials have dedicated delivery paths and may never be
-        # smuggled into an agent through an explicit manifest/skill binding.
+        # smuggled into an agent through an explicit manifest binding.
         reserved = {"claude-credentials", "codex-credentials"}
         names = [name for name in manifest.secrets if name not in reserved]
-        if self.skill_store is not None:
-            for s in self.skill_store.secrets_for(manifest.skills):
-                if s not in reserved and s not in names:
-                    names.append(s)
         return names
 
     def build_job(self, run: Run, manifest: Manifest, api_token: str | None = None,
@@ -421,10 +420,6 @@ class K8sJobLauncher(Launcher):
         )
 
     async def launch(self, run: Run, manifest: Manifest) -> None:
-        # The skills tree is git-synced under us; re-read so a skill's secret
-        # bindings reflect the current definitions.
-        if self.skill_store is not None:
-            self.skill_store.reload()
         api_token = None
         sa_identity = None
         if self.sf:

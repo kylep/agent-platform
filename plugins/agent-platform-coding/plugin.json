@@ -1,0 +1,6 @@
+{
+  "name": "agent-platform-coding",
+  "version": "0.1.0",
+  "description": "Reviewed workflows for changing and testing the Agent Platform",
+  "skills": "./skills/"
+}

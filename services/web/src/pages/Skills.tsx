@@ -30,6 +30,10 @@ function SkillEditor({ name }: { name: string }) {
 
   if (error && !detail) return <div className="error">{error}</div>;
   if (!detail) return <p className="muted">Loading…</p>;
+  if (detail.origin === "plugin") return <div>
+    <p className="muted">From the reviewed <code>agent-platform-coding</code> package. Edit its source in Git and update the release manifest before assigning a new version.</p>
+    <CodeEditor aria-label="Reviewed plugin skill" value={detail.raw} readOnly rows={Math.min(30, Math.max(10, detail.raw.split("\n").length + 2))} />
+  </div>;
   const dirty = md !== detail.raw;
   const locked = pending !== null;
 
@@ -77,23 +81,18 @@ function SkillEditor({ name }: { name: string }) {
   );
 }
 
-// The New-Skill interview: a few key questions, then the engineer Workbench authors
-// the skill (and scaffolds a secrets/ folder if a credential is involved) as
-// a pending change under Changes.
+// The New-Skill interview: a few key questions, then the coder authors a
+// reviewed workflow. Skills never grant secrets or Tools.
 function SkillWizard({ onCancel }: { onCancel: () => void }) {
   const navigate = useNavigate();
   const [name, setName] = useState("");
   const [purpose, setPurpose] = useState("");
   const [whenToUse, setWhenToUse] = useState("");
-  const [needsSecret, setNeedsSecret] = useState(false);
-  const [secretName, setSecretName] = useState("");
-  const [secretEnv, setSecretEnv] = useState("");
-  const [secretDesc, setSecretDesc] = useState("");
   const [notes, setNotes] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const ready = name.trim() && purpose.trim() && (!needsSecret || secretName.trim());
+  const ready = name.trim() && purpose.trim();
 
   async function submit() {
     setSubmitting(true); setError(null);
@@ -103,9 +102,6 @@ function SkillWizard({ onCancel }: { onCancel: () => void }) {
         body: JSON.stringify({
           name: name.trim(), purpose: purpose.trim(), when_to_use: whenToUse.trim(),
           notes: notes.trim(),
-          secret: needsSecret ? {
-            name: secretName.trim(), env_var: secretEnv.trim(), description: secretDesc.trim(),
-          } : null,
         }),
       });
       navigate(`/runs/${r.id}`);
@@ -119,8 +115,7 @@ function SkillWizard({ onCancel }: { onCancel: () => void }) {
     <div className="secret-editor" style={{ marginTop: 12 }}>
       <h2>New skill</h2>
       <p className="muted">
-        Answer a few questions; a coding agent authors the skill (and, if it needs a credential,
-        scaffolds its <code>secrets/</code> folder). The result lands as a pending change to review
+        Answer a few questions; a coding agent authors the skill. The result lands as a pending change to review
         under <Link to="/changes">Changes</Link> — nothing goes live until you accept it.
       </p>
       <label className="muted">Name (lowercase-with-hyphens)</label>
@@ -131,21 +126,7 @@ function SkillWizard({ onCancel }: { onCancel: () => void }) {
       <label className="muted">When should an agent reach for it? (optional)</label>
       <Textarea rows={2} placeholder="e.g. When asked to file notes or publish a summary to Notion."
                 value={whenToUse} onChange={(e) => setWhenToUse(e.target.value)} />
-      <label>
-        <input type="checkbox" className="accent-accent" checked={needsSecret}
-               onChange={(e) => setNeedsSecret(e.target.checked)} />
-        {" "}It needs a credential (API token, webhook URL, …)
-      </label>
-      {needsSecret && (
-        <div className="secret-editor">
-          <Input placeholder="secret name (e.g. notion-token)" value={secretName}
-                 onChange={(e) => setSecretName(e.target.value)} />
-          <Input placeholder="env var the skill reads (e.g. NOTION_TOKEN)" value={secretEnv}
-                 onChange={(e) => setSecretEnv(e.target.value)} />
-          <Input placeholder="what it is / where to get it" value={secretDesc}
-                 onChange={(e) => setSecretDesc(e.target.value)} />
-        </div>
-      )}
+      <p className="muted">Skills grant no credentials or Tools; bind those to the agent or Tool separately.</p>
       <label className="muted">Anything else the author should know? (optional)</label>
       <Textarea rows={2} value={notes} onChange={(e) => setNotes(e.target.value)}
                 aria-label="Additional notes for the skill author" />
@@ -372,7 +353,7 @@ export default function Skills() {
       {!loading && skills.length > 0 && (
         <Table>
           <thead>
-            <tr><TH></TH><TH>Name</TH><TH>Description</TH><TH>Secrets</TH><TH>Used by</TH></tr>
+            <tr><TH></TH><TH>Name</TH><TH>Description</TH><TH>Used by</TH></tr>
           </thead>
           <tbody>
             {skills.map((s) => (
@@ -388,7 +369,6 @@ export default function Skills() {
                     {s.error && <div className="error">{s.error}</div>}
                   </TD>
                   <TD>{s.description || "—"}</TD>
-                  <TD className="text-muted">{s.secrets.length ? s.secrets.join(", ") : "—"}</TD>
                   <TD className="text-muted">
                     {s.used_by.length
                       ? s.used_by.map((a, i) => (

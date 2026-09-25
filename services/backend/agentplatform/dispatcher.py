@@ -77,13 +77,15 @@ class Dispatcher:
 
     async def _readiness_blocks(self, manifest: Manifest) -> str | None:
         """The readiness gate (docs/design/10): an unmet REQUIRED secret
-        dependency (derived from the manifest's secrets + its skills') rejects
+        dependency (derived from explicit agent bindings and runtime) rejects
         the run before a pod launches, with the exact reason. Try-before-block:
         each offending secret is re-verified once first, so a transiently-failed
         or just-fixed secret recovers on its own."""
-        if self.skills is None:
-            return None
-        self.skills.reload()
+        if self.skills is not None:
+            self.skills.reload()
+        skill_problem = readiness.blocking_reason(manifest, self.skills, {})
+        if skill_problem and skill_problem.startswith("blocked: skill"):
+            return skill_problem
         deps = readiness.deps_for(manifest, self.skills)
         if not deps:
             return None

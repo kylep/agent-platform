@@ -1,0 +1,18 @@
+{
+  "name": "agent-platform-coding",
+  "version": "0.1.0",
+  "description": "Reviewed workflows for changing and testing the Agent Platform",
+  "author": {
+    "name": "Agent Platform"
+  },
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Agent Platform Coding",
+    "shortDescription": "Build and verify the Agent Platform.",
+    "longDescription": "Skills for understanding the platform, shipping focused changes, and testing regressions.",
+    "developerName": "Agent Platform",
+    "category": "Productivity",
+    "capabilities": [],
+    "defaultPrompt": "Help me make and verify an Agent Platform change."
+  }
+}

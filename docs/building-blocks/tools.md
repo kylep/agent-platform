@@ -58,7 +58,7 @@ params:                   # JSON Schema (type: object) for the arguments;
     symbol: {type: string}
   required: [symbol]
 infra:
-  secrets: [linear-api-key]   # secret BLOCKS, bound by name like skills do
+  secrets: [linear-api-key]   # secret BLOCKS, bound only to this Tool
   database: true              # provisioned pg role + schema tool_<name>
 timeout_seconds: 45       # wall clock; 1–300
 internal: false           # true → API-only; the broker never offers it to agents

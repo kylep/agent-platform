@@ -18,18 +18,16 @@ def test_parse_frontmatter():
     assert fm2 == {} and body2 == "just text"
 
 
-def test_store_loads_and_unions_secrets(tmp_path):
-    _mk_skill(tmp_path, "git", "---\nname: git\ndescription: Git ops\nsecrets: [github-token]\n---\nbody")
-    _mk_skill(tmp_path, "discord", "---\nname: discord\nsecrets: [discord-webhook, github-token]\n---\nbody")
+def test_store_loads_skills_but_rejects_secret_authority(tmp_path):
+    _mk_skill(tmp_path, "git", "---\nname: git\ndescription: Git ops\n---\nbody")
+    _mk_skill(tmp_path, "discord", "---\nname: discord\nsecrets: [discord-webhook]\n---\nbody")
     _mk_skill(tmp_path, "no-frontmatter", "just a body, no yaml")
     store = SkillStore(tmp_path)
     names = {s.name for s in store.list()}
     assert {"git", "discord", "no-frontmatter"} <= names
-    # union dedupes github-token across git+discord
-    assert set(store.secrets_for(["git", "discord"])) == {"github-token", "discord-webhook"}
-    assert store.secrets_for(["git"]) == ["github-token"]
-    # unknown skill contributes nothing
-    assert store.secrets_for(["nope"]) == []
+    assert store.get("git").skill is not None
+    assert store.get("discord").skill is None
+    assert "secrets" in store.get("discord").error
 
 
 def test_bad_frontmatter_quarantines(tmp_path):
@@ -37,6 +35,33 @@ def test_bad_frontmatter_quarantines(tmp_path):
     store = SkillStore(tmp_path)
     info = store.get("broken")
     assert info is not None and info.error is not None and info.skill is None
+
+
+def test_reviewed_plugin_skills_enter_catalog_only_when_release_matches(tmp_path):
+    import shutil
+
+    from agentplatform.plugin_release import verify_release
+
+    source = Path(__file__).resolve().parents[3] / "plugins" / "agent-platform-coding"
+    root = tmp_path / "checkout"
+    (root / "skills").mkdir(parents=True)
+    package = root / "plugins" / "agent-platform-coding"
+    shutil.copytree(source, package)
+    assert len(verify_release(package)) == 3
+    store = SkillStore(root / "skills")
+    assert store.get("platform-change").origin == "plugin"
+    assert store.get("platform-regression").skill is not None
+    legacy = root / "skills" / "platform-change"
+    legacy.mkdir()
+    (legacy / "SKILL.md").write_text("---\nname: platform-change\n---\ncollision")
+    store.reload()
+    assert store.get("platform-change").skill is None
+    legacy.joinpath("SKILL.md").unlink()
+    legacy.rmdir()
+    (package / "hooks.json").write_text("{}")
+    store.reload()
+    assert store.get("platform-change") is None
+    assert "file set" in store.get("agent-platform-coding").error
 
 
 async def test_skills_api_lists_with_used_by(admin_client, sf):

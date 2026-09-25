@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { api } from "../api";
+import { Button } from "@ap/ui/button";
+import { Input, Textarea } from "@ap/ui/field";
 
 type Block = { kind: "heading" | "paragraph" | "metric" | "action"; text: string; label: string; value: string;
   source: string | null; field: "total_km" | "runs" | "activities" | "latest_day" | null;
@@ -18,6 +20,12 @@ type PublishedView = {
 type ActionIntent = { intent_id: string; target: string; arguments: { title: string; body: string } };
 type ActionReceipt = { id: string; status: string; result: { ticket_key?: string; reason?: string } | null };
 
+function newIdempotencyKey(): string {
+  // getRandomValues works on the platform's plain-HTTP LAN origin, unlike randomUUID.
+  return Array.from(crypto.getRandomValues(new Uint8Array(16)),
+    (byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
 function TicketAction({ viewId, label, alias, channel }: { viewId: string; label: string; alias: string; channel: string }) {
   const [title, setTitle] = useState("");
   const [body, setBody] = useState("");
@@ -33,7 +41,7 @@ function TicketAction({ viewId, label, alias, channel }: { viewId: string; label
         method: "POST", body: JSON.stringify({ alias, arguments: { title, body } }),
       });
       setIntent(created);
-      setKey(crypto.randomUUID().replaceAll("-", ""));
+      setKey(newIdempotencyKey());
     } catch (e) { setError(e instanceof Error ? e.message : "Could not prepare action."); }
     finally { setBusy(false); }
   }
@@ -59,13 +67,13 @@ function TicketAction({ viewId, label, alias, channel }: { viewId: string; label
         <p>Send a ticket to {intent.target}?</p>
         <p><strong>{intent.arguments.title}</strong></p>
         {intent.arguments.body && <p>{intent.arguments.body}</p>}
-        <button type="button" onClick={confirm} disabled={busy}>{busy ? "Sending…" : "Confirm and send"}</button>{" "}
-        <button type="button" onClick={() => { setIntent(null); setKey(null); }} disabled={busy}>Edit</button>
+        <Button onClick={confirm} disabled={busy}>{busy ? "Sending…" : "Confirm and send"}</Button>{" "}
+        <Button variant="secondary" onClick={() => { setIntent(null); setKey(null); }} disabled={busy}>Edit</Button>
       </div> : <div>
         <p className="muted">Creates a ticket in #{channel}.</p>
-        <label>Title<input value={title} maxLength={160} onChange={(e) => setTitle(e.target.value)} /></label>
-        <label>Details<textarea value={body} maxLength={4000} onChange={(e) => setBody(e.target.value)} /></label>
-        <button type="button" onClick={preview} disabled={busy || !title.trim()}>{busy ? "Preparing…" : "Review ticket"}</button>
+        <label>Title<Input value={title} maxLength={160} onChange={(e) => setTitle(e.target.value)} /></label>
+        <label>Details<Textarea value={body} maxLength={4000} onChange={(e) => setBody(e.target.value)} /></label>
+        <Button onClick={preview} disabled={busy || !title.trim()}>{busy ? "Preparing…" : "Review ticket"}</Button>
       </div>}
     {error && <p role="alert" className="error">{error}</p>}
   </section>;
@@ -116,10 +124,10 @@ export default function LiveViewPage() {
       <div className="page-header"><h1>{view.definition.title}</h1></div>
       <p className="muted"><Link to="/apps">Apps</Link> / {view.app_name} / {view.slug}</p>
       {view.definition.reads.length > 0 && <div className="live-view-controls">
-        <button type="button" onClick={() => setRefresh((n) => n + 1)}>Refresh data</button>{" "}
-        <button type="button" onClick={capture} disabled={snapshotBusy}>
+        <Button variant="secondary" onClick={() => setRefresh((n) => n + 1)}>Refresh data</Button>{" "}
+        <Button variant="secondary" onClick={capture} disabled={snapshotBusy}>
           {snapshotBusy ? "Capturing…" : "Save snapshot"}
-        </button>
+        </Button>
         {snapshot && <span role="status">Saved snapshot: <code>{snapshot.resource_uri}</code></span>}
         {snapshotError && <span role="alert" className="error">{snapshotError}</span>}
       </div>}

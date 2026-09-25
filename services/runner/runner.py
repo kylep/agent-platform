@@ -501,9 +501,37 @@ def _install_skills(runtime: str = "claude") -> None:
     dst_root = (Path.home() / ".agents" / "skills" if runtime == "codex"
                 else Path.home() / ".claude" / "skills")
     for name in names:
+        if not re.fullmatch(r"[a-z][a-z0-9-]{0,63}", name):
+            continue
         src = src_root / name
+        plugin = src_root.parent / "plugins" / "agent-platform-coding"
+        md = plugin / "skills" / name / "SKILL.md"
+        if src.exists() and md.exists():
+            continue  # an ambiguous name must not select either package
+        if src.is_symlink():
+            continue
         if src.is_dir():
             shutil.copytree(src, dst_root / name, dirs_exist_ok=True)
+            continue
+        # The only built-in plugin is a reviewed skills-only release. Copy the
+        # pinned SKILL.md bytes, never a host manifest, hook, script or setting.
+        release = plugin / "release.json"
+        if (not md.is_file() or md.is_symlink() or not release.is_file()
+                or release.is_symlink()):
+            continue
+        try:
+            manifest = json.loads(release.read_text())
+            if manifest.get("name") != "agent-platform-coding":
+                continue
+            expected = manifest["files"][f"skills/{name}/SKILL.md"]
+            data = md.read_bytes()
+            if hashlib.sha256(data).hexdigest() != expected:
+                continue
+        except (KeyError, ValueError, OSError):
+            continue
+        target = dst_root / name
+        target.mkdir(parents=True, exist_ok=True)
+        (target / "SKILL.md").write_bytes(data)
 
 
 def _resume_work_context(prompt: str, user_message: str) -> str:

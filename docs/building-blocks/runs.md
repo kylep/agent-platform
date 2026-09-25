@@ -27,8 +27,8 @@ Reporting groups it as “Codex default.”
 
 - `rejected` — refused before a pod was ever launched, with the reason in
   `error`. This is where the [readiness gate](glossary.md) is visible:
-  *"blocked: skill `example` disabled — secret `example-token` failed
-  verification"* means fix the secret, not the agent. Two other guards reject
+  *"blocked: secret `example-token` is not set"* means fix the agent's
+  explicit secret binding. Two other guards reject
   here too: the circuit breaker that stops launching runs when the Claude
   credential is failing, and the depth guard that stops agents invoking each
   other in an unbounded chain.
