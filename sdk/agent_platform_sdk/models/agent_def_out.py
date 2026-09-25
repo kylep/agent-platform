@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING, Any, TypeVar, cast
 
 from attrs import define as _attrs_define
 from attrs import field as _attrs_field
+from typing_extensions import Self
 
 from ..types import UNSET, Unset
 
@@ -27,6 +28,7 @@ class AgentDefOut:
             its `image_artifact_id` — which a client shows over the emoji when set.
             Optional so every producer of a face keeps working; `faces_for` fills it.
         name (str):
+        agent_type (str | Unset):  Default: 'worker'.
         can_invoke (bool | Unset):  Default: False.
         concurrency (int | Unset):  Default: 1.
         description (str | Unset):  Default: ''.
@@ -54,6 +56,7 @@ class AgentDefOut:
 
     face: RelayFace
     name: str
+    agent_type: str | Unset = "worker"
     can_invoke: bool | Unset = False
     concurrency: int | Unset = 1
     description: str | Unset = ""
@@ -83,6 +86,8 @@ class AgentDefOut:
         face = self.face.to_dict()
 
         name = self.name
+
+        agent_type = self.agent_type
 
         can_invoke = self.can_invoke
 
@@ -158,6 +163,8 @@ class AgentDefOut:
                 "name": name,
             }
         )
+        if agent_type is not UNSET:
+            field_dict["agent_type"] = agent_type
         if can_invoke is not UNSET:
             field_dict["can_invoke"] = can_invoke
         if concurrency is not UNSET:
@@ -208,7 +215,7 @@ class AgentDefOut:
         return field_dict
 
     @classmethod
-    def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
+    def from_dict(cls, src_dict: Mapping[str, Any]) -> Self:
         from ..models.agent_def_out_entrypoints import AgentDefOutEntrypoints
         from ..models.relay_face import RelayFace
 
@@ -216,6 +223,8 @@ class AgentDefOut:
         face = RelayFace.from_dict(d.pop("face"))
 
         name = d.pop("name")
+
+        agent_type = d.pop("agent_type", UNSET)
 
         can_invoke = d.pop("can_invoke", UNSET)
 
@@ -287,6 +296,7 @@ class AgentDefOut:
         agent_def_out = cls(
             face=face,
             name=name,
+            agent_type=agent_type,
             can_invoke=can_invoke,
             concurrency=concurrency,
             description=description,

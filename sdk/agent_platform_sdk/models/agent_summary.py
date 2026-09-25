@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING, Any, TypeVar, cast
 
 from attrs import define as _attrs_define
 from attrs import field as _attrs_field
+from typing_extensions import Self
 
 from ..types import UNSET, Unset
 
@@ -29,6 +30,7 @@ class AgentSummary:
                 its `image_artifact_id` — which a client shows over the emoji when set.
                 Optional so every producer of a face keeps working; `faces_for` fills it.
             name (str):
+            agent_type (str | Unset):  Default: 'worker'.
             blocked (bool | Unset):  Default: False.
             blocked_reason (None | str | Unset):
             can_invoke (bool | Unset):  Default: False.
@@ -61,6 +63,7 @@ class AgentSummary:
 
     face: RelayFace
     name: str
+    agent_type: str | Unset = "worker"
     blocked: bool | Unset = False
     blocked_reason: None | str | Unset = UNSET
     can_invoke: bool | Unset = False
@@ -95,6 +98,8 @@ class AgentSummary:
         face = self.face.to_dict()
 
         name = self.name
+
+        agent_type = self.agent_type
 
         blocked = self.blocked
 
@@ -188,6 +193,8 @@ class AgentSummary:
                 "name": name,
             }
         )
+        if agent_type is not UNSET:
+            field_dict["agent_type"] = agent_type
         if blocked is not UNSET:
             field_dict["blocked"] = blocked
         if blocked_reason is not UNSET:
@@ -248,7 +255,7 @@ class AgentSummary:
         return field_dict
 
     @classmethod
-    def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
+    def from_dict(cls, src_dict: Mapping[str, Any]) -> Self:
         from ..models.agent_summary_entrypoints import AgentSummaryEntrypoints
         from ..models.relay_face import RelayFace
 
@@ -256,6 +263,8 @@ class AgentSummary:
         face = RelayFace.from_dict(d.pop("face"))
 
         name = d.pop("name")
+
+        agent_type = d.pop("agent_type", UNSET)
 
         blocked = d.pop("blocked", UNSET)
 
@@ -351,6 +360,7 @@ class AgentSummary:
         agent_summary = cls(
             face=face,
             name=name,
+            agent_type=agent_type,
             blocked=blocked,
             blocked_reason=blocked_reason,
             can_invoke=can_invoke,

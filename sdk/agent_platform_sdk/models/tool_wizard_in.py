@@ -5,7 +5,9 @@ from typing import TYPE_CHECKING, Any, TypeVar, cast
 
 from attrs import define as _attrs_define
 from attrs import field as _attrs_field
+from typing_extensions import Self
 
+from ..models.tool_wizard_in_category import ToolWizardInCategory
 from ..types import UNSET, Unset
 
 if TYPE_CHECKING:
@@ -22,6 +24,7 @@ class ToolWizardIn:
         name (str):
         purpose (str):
         arguments (str | Unset):  Default: ''.
+        category (ToolWizardInCategory | Unset):  Default: ToolWizardInCategory.SERVICE_CONNECTOR.
         needs_database (bool | Unset):  Default: False.
         notes (str | Unset):  Default: ''.
         secret (None | ToolWizardSecret | Unset):
@@ -30,6 +33,7 @@ class ToolWizardIn:
     name: str
     purpose: str
     arguments: str | Unset = ""
+    category: ToolWizardInCategory | Unset = ToolWizardInCategory.SERVICE_CONNECTOR
     needs_database: bool | Unset = False
     notes: str | Unset = ""
     secret: None | ToolWizardSecret | Unset = UNSET
@@ -43,6 +47,10 @@ class ToolWizardIn:
         purpose = self.purpose
 
         arguments = self.arguments
+
+        category: str | Unset = UNSET
+        if not isinstance(self.category, Unset):
+            category = self.category.value
 
         needs_database = self.needs_database
 
@@ -66,6 +74,8 @@ class ToolWizardIn:
         )
         if arguments is not UNSET:
             field_dict["arguments"] = arguments
+        if category is not UNSET:
+            field_dict["category"] = category
         if needs_database is not UNSET:
             field_dict["needs_database"] = needs_database
         if notes is not UNSET:
@@ -76,7 +86,7 @@ class ToolWizardIn:
         return field_dict
 
     @classmethod
-    def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
+    def from_dict(cls, src_dict: Mapping[str, Any]) -> Self:
         from ..models.tool_wizard_secret import ToolWizardSecret
 
         d = dict(src_dict)
@@ -85,6 +95,13 @@ class ToolWizardIn:
         purpose = d.pop("purpose")
 
         arguments = d.pop("arguments", UNSET)
+
+        _category = d.pop("category", UNSET)
+        category: ToolWizardInCategory | Unset
+        if isinstance(_category, Unset):
+            category = UNSET
+        else:
+            category = ToolWizardInCategory(_category)
 
         needs_database = d.pop("needs_database", UNSET)
 
@@ -111,6 +128,7 @@ class ToolWizardIn:
             name=name,
             purpose=purpose,
             arguments=arguments,
+            category=category,
             needs_database=needs_database,
             notes=notes,
             secret=secret,

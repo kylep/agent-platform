@@ -5,6 +5,7 @@ from typing import Any, TypeVar, cast
 
 from attrs import define as _attrs_define
 from attrs import field as _attrs_field
+from typing_extensions import Self
 
 from ..types import UNSET, Unset
 
@@ -18,13 +19,17 @@ class MemoryIn:
         content (str):
         agent (None | str | Unset):
         key (None | str | Unset):
+        project_slug (None | str | Unset):
         tags (list[str] | None | Unset):
+        team_slug (None | str | Unset):
     """
 
     content: str
     agent: None | str | Unset = UNSET
     key: None | str | Unset = UNSET
+    project_slug: None | str | Unset = UNSET
     tags: list[str] | None | Unset = UNSET
+    team_slug: None | str | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -42,6 +47,12 @@ class MemoryIn:
         else:
             key = self.key
 
+        project_slug: None | str | Unset
+        if isinstance(self.project_slug, Unset):
+            project_slug = UNSET
+        else:
+            project_slug = self.project_slug
+
         tags: list[str] | None | Unset
         if isinstance(self.tags, Unset):
             tags = UNSET
@@ -50,6 +61,12 @@ class MemoryIn:
 
         else:
             tags = self.tags
+
+        team_slug: None | str | Unset
+        if isinstance(self.team_slug, Unset):
+            team_slug = UNSET
+        else:
+            team_slug = self.team_slug
 
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
@@ -62,13 +79,17 @@ class MemoryIn:
             field_dict["agent"] = agent
         if key is not UNSET:
             field_dict["key"] = key
+        if project_slug is not UNSET:
+            field_dict["project_slug"] = project_slug
         if tags is not UNSET:
             field_dict["tags"] = tags
+        if team_slug is not UNSET:
+            field_dict["team_slug"] = team_slug
 
         return field_dict
 
     @classmethod
-    def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
+    def from_dict(cls, src_dict: Mapping[str, Any]) -> Self:
         d = dict(src_dict)
         content = d.pop("content")
 
@@ -90,6 +111,15 @@ class MemoryIn:
 
         key = _parse_key(d.pop("key", UNSET))
 
+        def _parse_project_slug(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        project_slug = _parse_project_slug(d.pop("project_slug", UNSET))
+
         def _parse_tags(data: object) -> list[str] | None | Unset:
             if data is None:
                 return data
@@ -107,11 +137,22 @@ class MemoryIn:
 
         tags = _parse_tags(d.pop("tags", UNSET))
 
+        def _parse_team_slug(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        team_slug = _parse_team_slug(d.pop("team_slug", UNSET))
+
         memory_in = cls(
             content=content,
             agent=agent,
             key=key,
+            project_slug=project_slug,
             tags=tags,
+            team_slug=team_slug,
         )
 
         memory_in.additional_properties = d

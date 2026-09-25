@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING, Any, TypeVar, cast
 
 from attrs import define as _attrs_define
 from attrs import field as _attrs_field
+from typing_extensions import Self
 
 if TYPE_CHECKING:
     from ..models.tool_detail_files import ToolDetailFiles
@@ -18,6 +19,7 @@ T = TypeVar("T", bound="ToolDetail")
 class ToolDetail:
     """
     Attributes:
+        category (str):
         database (bool):
         description (str):
         error (None | str):
@@ -30,6 +32,7 @@ class ToolDetail:
         used_by (list[str]):
     """
 
+    category: str
     database: bool
     description: str
     error: None | str
@@ -43,6 +46,8 @@ class ToolDetail:
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
+        category = self.category
+
         database = self.database
 
         description = self.description
@@ -68,6 +73,7 @@ class ToolDetail:
         field_dict.update(self.additional_properties)
         field_dict.update(
             {
+                "category": category,
                 "database": database,
                 "description": description,
                 "error": error,
@@ -84,11 +90,13 @@ class ToolDetail:
         return field_dict
 
     @classmethod
-    def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
+    def from_dict(cls, src_dict: Mapping[str, Any]) -> Self:
         from ..models.tool_detail_files import ToolDetailFiles
         from ..models.tool_detail_params import ToolDetailParams
 
         d = dict(src_dict)
+        category = d.pop("category")
+
         database = d.pop("database")
 
         description = d.pop("description")
@@ -115,6 +123,7 @@ class ToolDetail:
         used_by = cast(list[str], d.pop("used_by"))
 
         tool_detail = cls(
+            category=category,
             database=database,
             description=description,
             error=error,

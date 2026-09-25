@@ -5,6 +5,7 @@ from typing import Any, TypeVar, cast
 
 from attrs import define as _attrs_define
 from attrs import field as _attrs_field
+from typing_extensions import Self
 
 from ..types import UNSET, Unset
 
@@ -22,6 +23,8 @@ class RunSummary:
         summary (None | str):
         tags (list[str]):
         trigger (str):
+        project_id (None | str | Unset):
+        team_id (None | str | Unset):
         ticket_id (None | str | Unset):
     """
 
@@ -32,6 +35,8 @@ class RunSummary:
     summary: None | str
     tags: list[str]
     trigger: str
+    project_id: None | str | Unset = UNSET
+    team_id: None | str | Unset = UNSET
     ticket_id: None | str | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
@@ -52,6 +57,18 @@ class RunSummary:
 
         trigger = self.trigger
 
+        project_id: None | str | Unset
+        if isinstance(self.project_id, Unset):
+            project_id = UNSET
+        else:
+            project_id = self.project_id
+
+        team_id: None | str | Unset
+        if isinstance(self.team_id, Unset):
+            team_id = UNSET
+        else:
+            team_id = self.team_id
+
         ticket_id: None | str | Unset
         if isinstance(self.ticket_id, Unset):
             ticket_id = UNSET
@@ -71,13 +88,17 @@ class RunSummary:
                 "trigger": trigger,
             }
         )
+        if project_id is not UNSET:
+            field_dict["project_id"] = project_id
+        if team_id is not UNSET:
+            field_dict["team_id"] = team_id
         if ticket_id is not UNSET:
             field_dict["ticket_id"] = ticket_id
 
         return field_dict
 
     @classmethod
-    def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
+    def from_dict(cls, src_dict: Mapping[str, Any]) -> Self:
         d = dict(src_dict)
         agent = d.pop("agent")
 
@@ -103,6 +124,24 @@ class RunSummary:
 
         trigger = d.pop("trigger")
 
+        def _parse_project_id(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        project_id = _parse_project_id(d.pop("project_id", UNSET))
+
+        def _parse_team_id(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        team_id = _parse_team_id(d.pop("team_id", UNSET))
+
         def _parse_ticket_id(data: object) -> None | str | Unset:
             if data is None:
                 return data
@@ -120,6 +159,8 @@ class RunSummary:
             summary=summary,
             tags=tags,
             trigger=trigger,
+            project_id=project_id,
+            team_id=team_id,
             ticket_id=ticket_id,
         )
 

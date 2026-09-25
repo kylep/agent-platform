@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING, Any, TypeVar, cast
 
 from attrs import define as _attrs_define
 from attrs import field as _attrs_field
+from typing_extensions import Self
 
 if TYPE_CHECKING:
     from ..models.artifact_view_meta import ArtifactViewMeta
@@ -27,6 +28,7 @@ class ArtifactView:
         mime (str):
         name (str):
         owner (str):
+        resource_uri (str):
         run_id (None | str):
         sha256 (str):
         size (int):
@@ -46,6 +48,7 @@ class ArtifactView:
     mime: str
     name: str
     owner: str
+    resource_uri: str
     run_id: None | str
     sha256: str
     size: int
@@ -79,6 +82,8 @@ class ArtifactView:
 
         owner = self.owner
 
+        resource_uri = self.resource_uri
+
         run_id: None | str
         run_id = self.run_id
 
@@ -110,6 +115,7 @@ class ArtifactView:
                 "mime": mime,
                 "name": name,
                 "owner": owner,
+                "resource_uri": resource_uri,
                 "run_id": run_id,
                 "sha256": sha256,
                 "size": size,
@@ -123,7 +129,7 @@ class ArtifactView:
         return field_dict
 
     @classmethod
-    def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
+    def from_dict(cls, src_dict: Mapping[str, Any]) -> Self:
         from ..models.artifact_view_meta import ArtifactViewMeta
 
         d = dict(src_dict)
@@ -161,6 +167,8 @@ class ArtifactView:
         name = d.pop("name")
 
         owner = d.pop("owner")
+
+        resource_uri = d.pop("resource_uri")
 
         def _parse_run_id(data: object) -> None | str:
             if data is None:
@@ -202,6 +210,7 @@ class ArtifactView:
             mime=mime,
             name=name,
             owner=owner,
+            resource_uri=resource_uri,
             run_id=run_id,
             sha256=sha256,
             size=size,

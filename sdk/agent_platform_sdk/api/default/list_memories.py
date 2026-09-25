@@ -14,6 +14,8 @@ def _get_kwargs(
     *,
     agent: None | str | Unset = UNSET,
     q: None | str | Unset = UNSET,
+    team_slug: None | str | Unset = UNSET,
+    project_slug: None | str | Unset = UNSET,
     limit: int | Unset = 50,
 ) -> dict[str, Any]:
 
@@ -32,6 +34,20 @@ def _get_kwargs(
     else:
         json_q = q
     params["q"] = json_q
+
+    json_team_slug: None | str | Unset
+    if isinstance(team_slug, Unset):
+        json_team_slug = UNSET
+    else:
+        json_team_slug = team_slug
+    params["team_slug"] = json_team_slug
+
+    json_project_slug: None | str | Unset
+    if isinstance(project_slug, Unset):
+        json_project_slug = UNSET
+    else:
+        json_project_slug = project_slug
+    params["project_slug"] = json_project_slug
 
     params["limit"] = limit
 
@@ -86,6 +102,8 @@ def sync_detailed(
     client: AuthenticatedClient | Client,
     agent: None | str | Unset = UNSET,
     q: None | str | Unset = UNSET,
+    team_slug: None | str | Unset = UNSET,
+    project_slug: None | str | Unset = UNSET,
     limit: int | Unset = 50,
 ) -> Response[HTTPValidationError | list[MemoryView]]:
     """List Memories
@@ -100,6 +118,8 @@ def sync_detailed(
     Args:
         agent (None | str | Unset):
         q (None | str | Unset):
+        team_slug (None | str | Unset):
+        project_slug (None | str | Unset):
         limit (int | Unset):  Default: 50.
 
     Raises:
@@ -113,6 +133,8 @@ def sync_detailed(
     kwargs = _get_kwargs(
         agent=agent,
         q=q,
+        team_slug=team_slug,
+        project_slug=project_slug,
         limit=limit,
     )
 
@@ -128,6 +150,8 @@ def sync(
     client: AuthenticatedClient | Client,
     agent: None | str | Unset = UNSET,
     q: None | str | Unset = UNSET,
+    team_slug: None | str | Unset = UNSET,
+    project_slug: None | str | Unset = UNSET,
     limit: int | Unset = 50,
 ) -> HTTPValidationError | list[MemoryView] | None:
     """List Memories
@@ -142,6 +166,8 @@ def sync(
     Args:
         agent (None | str | Unset):
         q (None | str | Unset):
+        team_slug (None | str | Unset):
+        project_slug (None | str | Unset):
         limit (int | Unset):  Default: 50.
 
     Raises:
@@ -156,6 +182,8 @@ def sync(
         client=client,
         agent=agent,
         q=q,
+        team_slug=team_slug,
+        project_slug=project_slug,
         limit=limit,
     ).parsed
 
@@ -165,6 +193,8 @@ async def asyncio_detailed(
     client: AuthenticatedClient | Client,
     agent: None | str | Unset = UNSET,
     q: None | str | Unset = UNSET,
+    team_slug: None | str | Unset = UNSET,
+    project_slug: None | str | Unset = UNSET,
     limit: int | Unset = 50,
 ) -> Response[HTTPValidationError | list[MemoryView]]:
     """List Memories
@@ -179,6 +209,8 @@ async def asyncio_detailed(
     Args:
         agent (None | str | Unset):
         q (None | str | Unset):
+        team_slug (None | str | Unset):
+        project_slug (None | str | Unset):
         limit (int | Unset):  Default: 50.
 
     Raises:
@@ -192,6 +224,8 @@ async def asyncio_detailed(
     kwargs = _get_kwargs(
         agent=agent,
         q=q,
+        team_slug=team_slug,
+        project_slug=project_slug,
         limit=limit,
     )
 
@@ -205,6 +239,8 @@ async def asyncio(
     client: AuthenticatedClient | Client,
     agent: None | str | Unset = UNSET,
     q: None | str | Unset = UNSET,
+    team_slug: None | str | Unset = UNSET,
+    project_slug: None | str | Unset = UNSET,
     limit: int | Unset = 50,
 ) -> HTTPValidationError | list[MemoryView] | None:
     """List Memories
@@ -219,6 +255,8 @@ async def asyncio(
     Args:
         agent (None | str | Unset):
         q (None | str | Unset):
+        team_slug (None | str | Unset):
+        project_slug (None | str | Unset):
         limit (int | Unset):  Default: 50.
 
     Raises:
@@ -234,6 +272,8 @@ async def asyncio(
             client=client,
             agent=agent,
             q=q,
+            team_slug=team_slug,
+            project_slug=project_slug,
             limit=limit,
         )
     ).parsed

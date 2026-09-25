@@ -4,6 +4,7 @@ from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any, TypeVar, cast
 
 from attrs import define as _attrs_define
+from typing_extensions import Self
 
 from ..types import UNSET, Unset
 
@@ -22,6 +23,7 @@ class AgentCreateIn:
 
         Attributes:
             name (str):
+            agent_type (str | Unset):  Default: 'worker'.
             artifacts (bool | None | Unset):
             can_invoke (bool | Unset):  Default: False.
             concurrency (int | Unset):  Default: 1.
@@ -31,6 +33,7 @@ class AgentCreateIn:
             get_quota_usage (bool | None | Unset):
             harness_tools (list[str] | Unset):
             may_delete_tests (bool | Unset):  Default: False.
+            memory (bool | None | Unset):
             model (str | Unset):  Default: ''.
             platform_tools (list[str] | Unset):
             prompt (str | Unset):  Default: ''.
@@ -52,6 +55,7 @@ class AgentCreateIn:
     """
 
     name: str
+    agent_type: str | Unset = "worker"
     artifacts: bool | None | Unset = UNSET
     can_invoke: bool | Unset = False
     concurrency: int | Unset = 1
@@ -61,6 +65,7 @@ class AgentCreateIn:
     get_quota_usage: bool | None | Unset = UNSET
     harness_tools: list[str] | Unset = UNSET
     may_delete_tests: bool | Unset = False
+    memory: bool | None | Unset = UNSET
     model: str | Unset = ""
     platform_tools: list[str] | Unset = UNSET
     prompt: str | Unset = ""
@@ -82,6 +87,8 @@ class AgentCreateIn:
 
     def to_dict(self) -> dict[str, Any]:
         name = self.name
+
+        agent_type = self.agent_type
 
         artifacts: bool | None | Unset
         if isinstance(self.artifacts, Unset):
@@ -112,6 +119,12 @@ class AgentCreateIn:
             harness_tools = self.harness_tools
 
         may_delete_tests = self.may_delete_tests
+
+        memory: bool | None | Unset
+        if isinstance(self.memory, Unset):
+            memory = UNSET
+        else:
+            memory = self.memory
 
         model = self.model
 
@@ -180,6 +193,8 @@ class AgentCreateIn:
                 "name": name,
             }
         )
+        if agent_type is not UNSET:
+            field_dict["agent_type"] = agent_type
         if artifacts is not UNSET:
             field_dict["artifacts"] = artifacts
         if can_invoke is not UNSET:
@@ -198,6 +213,8 @@ class AgentCreateIn:
             field_dict["harness_tools"] = harness_tools
         if may_delete_tests is not UNSET:
             field_dict["may_delete_tests"] = may_delete_tests
+        if memory is not UNSET:
+            field_dict["memory"] = memory
         if model is not UNSET:
             field_dict["model"] = model
         if platform_tools is not UNSET:
@@ -238,11 +255,13 @@ class AgentCreateIn:
         return field_dict
 
     @classmethod
-    def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
+    def from_dict(cls, src_dict: Mapping[str, Any]) -> Self:
         from ..models.entrypoints_in import EntrypointsIn
 
         d = dict(src_dict)
         name = d.pop("name")
+
+        agent_type = d.pop("agent_type", UNSET)
 
         def _parse_artifacts(data: object) -> bool | None | Unset:
             if data is None:
@@ -280,6 +299,15 @@ class AgentCreateIn:
         harness_tools = cast(list[str], d.pop("harness_tools", UNSET))
 
         may_delete_tests = d.pop("may_delete_tests", UNSET)
+
+        def _parse_memory(data: object) -> bool | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(bool | None | Unset, data)
+
+        memory = _parse_memory(d.pop("memory", UNSET))
 
         model = d.pop("model", UNSET)
 
@@ -349,6 +377,7 @@ class AgentCreateIn:
 
         agent_create_in = cls(
             name=name,
+            agent_type=agent_type,
             artifacts=artifacts,
             can_invoke=can_invoke,
             concurrency=concurrency,
@@ -358,6 +387,7 @@ class AgentCreateIn:
             get_quota_usage=get_quota_usage,
             harness_tools=harness_tools,
             may_delete_tests=may_delete_tests,
+            memory=memory,
             model=model,
             platform_tools=platform_tools,
             prompt=prompt,

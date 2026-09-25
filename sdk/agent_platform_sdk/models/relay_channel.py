@@ -5,6 +5,9 @@ from typing import TYPE_CHECKING, Any, TypeVar, cast
 
 from attrs import define as _attrs_define
 from attrs import field as _attrs_field
+from typing_extensions import Self
+
+from ..types import UNSET, Unset
 
 if TYPE_CHECKING:
     from ..models.relay_last_message import RelayLastMessage
@@ -34,6 +37,8 @@ class RelayChannel:
         title (None | str):
         topic (str):
         unread (int):
+        project_id (None | str | Unset):
+        team_id (None | str | Unset):
     """
 
     agent: None | str
@@ -53,6 +58,8 @@ class RelayChannel:
     title: None | str
     topic: str
     unread: int
+    project_id: None | str | Unset = UNSET
+    team_id: None | str | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -102,6 +109,18 @@ class RelayChannel:
 
         unread = self.unread
 
+        project_id: None | str | Unset
+        if isinstance(self.project_id, Unset):
+            project_id = UNSET
+        else:
+            project_id = self.project_id
+
+        team_id: None | str | Unset
+        if isinstance(self.team_id, Unset):
+            team_id = UNSET
+        else:
+            team_id = self.team_id
+
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
@@ -125,11 +144,15 @@ class RelayChannel:
                 "unread": unread,
             }
         )
+        if project_id is not UNSET:
+            field_dict["project_id"] = project_id
+        if team_id is not UNSET:
+            field_dict["team_id"] = team_id
 
         return field_dict
 
     @classmethod
-    def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
+    def from_dict(cls, src_dict: Mapping[str, Any]) -> Self:
         from ..models.relay_last_message import RelayLastMessage
 
         d = dict(src_dict)
@@ -211,6 +234,24 @@ class RelayChannel:
 
         unread = d.pop("unread")
 
+        def _parse_project_id(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        project_id = _parse_project_id(d.pop("project_id", UNSET))
+
+        def _parse_team_id(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        team_id = _parse_team_id(d.pop("team_id", UNSET))
+
         relay_channel = cls(
             agent=agent,
             archived_at=archived_at,
@@ -229,6 +270,8 @@ class RelayChannel:
             title=title,
             topic=topic,
             unread=unread,
+            project_id=project_id,
+            team_id=team_id,
         )
 
         relay_channel.additional_properties = d

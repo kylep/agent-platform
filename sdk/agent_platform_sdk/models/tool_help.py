@@ -5,6 +5,7 @@ from typing import Any, TypeVar, cast
 
 from attrs import define as _attrs_define
 from attrs import field as _attrs_field
+from typing_extensions import Self
 
 from ..types import UNSET, Unset
 
@@ -15,6 +16,7 @@ T = TypeVar("T", bound="ToolHelp")
 class ToolHelp:
     """
     Attributes:
+        category (str):
         description (str):
         kind (str):
         name (str):
@@ -23,6 +25,7 @@ class ToolHelp:
         display_name (None | str | Unset):
     """
 
+    category: str
     description: str
     kind: str
     name: str
@@ -32,6 +35,8 @@ class ToolHelp:
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
+        category = self.category
+
         description = self.description
 
         kind = self.kind
@@ -52,6 +57,7 @@ class ToolHelp:
         field_dict.update(self.additional_properties)
         field_dict.update(
             {
+                "category": category,
                 "description": description,
                 "kind": kind,
                 "name": name,
@@ -66,8 +72,10 @@ class ToolHelp:
         return field_dict
 
     @classmethod
-    def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
+    def from_dict(cls, src_dict: Mapping[str, Any]) -> Self:
         d = dict(src_dict)
+        category = d.pop("category")
+
         description = d.pop("description")
 
         kind = d.pop("kind")
@@ -88,6 +96,7 @@ class ToolHelp:
         display_name = _parse_display_name(d.pop("display_name", UNSET))
 
         tool_help = cls(
+            category=category,
             description=description,
             kind=kind,
             name=name,

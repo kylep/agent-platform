@@ -6,6 +6,9 @@ from typing import Any, TypeVar, cast
 
 from attrs import define as _attrs_define
 from attrs import field as _attrs_field
+from typing_extensions import Self
+
+from ..types import UNSET, Unset
 
 T = TypeVar("T", bound="ApiKeyView")
 
@@ -21,6 +24,7 @@ class ApiKeyView:
         prefix (str):
         revoked_at (datetime.datetime | None):
         role (str):
+        managed (bool | Unset):  Default: False.
     """
 
     agent: None | str
@@ -30,6 +34,7 @@ class ApiKeyView:
     prefix: str
     revoked_at: datetime.datetime | None
     role: str
+    managed: bool | Unset = False
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -56,6 +61,8 @@ class ApiKeyView:
 
         role = self.role
 
+        managed = self.managed
+
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
@@ -69,11 +76,13 @@ class ApiKeyView:
                 "role": role,
             }
         )
+        if managed is not UNSET:
+            field_dict["managed"] = managed
 
         return field_dict
 
     @classmethod
-    def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
+    def from_dict(cls, src_dict: Mapping[str, Any]) -> Self:
         d = dict(src_dict)
 
         def _parse_agent(data: object) -> None | str:
@@ -121,6 +130,8 @@ class ApiKeyView:
 
         role = d.pop("role")
 
+        managed = d.pop("managed", UNSET)
+
         api_key_view = cls(
             agent=agent,
             created_at=created_at,
@@ -129,6 +140,7 @@ class ApiKeyView:
             prefix=prefix,
             revoked_at=revoked_at,
             role=role,
+            managed=managed,
         )
 
         api_key_view.additional_properties = d

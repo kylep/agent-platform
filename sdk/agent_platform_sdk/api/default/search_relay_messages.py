@@ -14,6 +14,7 @@ def _get_kwargs(
     *,
     q: str,
     channel: None | str | Unset = UNSET,
+    project: None | str | Unset = UNSET,
     limit: int | Unset = 50,
 ) -> dict[str, Any]:
 
@@ -27,6 +28,13 @@ def _get_kwargs(
     else:
         json_channel = channel
     params["channel"] = json_channel
+
+    json_project: None | str | Unset
+    if isinstance(project, Unset):
+        json_project = UNSET
+    else:
+        json_project = project
+    params["project"] = json_project
 
     params["limit"] = limit
 
@@ -81,6 +89,7 @@ def sync_detailed(
     client: AuthenticatedClient | Client,
     q: str,
     channel: None | str | Unset = UNSET,
+    project: None | str | Unset = UNSET,
     limit: int | Unset = 50,
 ) -> Response[HTTPValidationError | list[RelayMessage]]:
     """Search Relay Messages
@@ -88,6 +97,7 @@ def sync_detailed(
     Args:
         q (str):
         channel (None | str | Unset):
+        project (None | str | Unset):
         limit (int | Unset):  Default: 50.
 
     Raises:
@@ -101,6 +111,7 @@ def sync_detailed(
     kwargs = _get_kwargs(
         q=q,
         channel=channel,
+        project=project,
         limit=limit,
     )
 
@@ -116,6 +127,7 @@ def sync(
     client: AuthenticatedClient | Client,
     q: str,
     channel: None | str | Unset = UNSET,
+    project: None | str | Unset = UNSET,
     limit: int | Unset = 50,
 ) -> HTTPValidationError | list[RelayMessage] | None:
     """Search Relay Messages
@@ -123,6 +135,7 @@ def sync(
     Args:
         q (str):
         channel (None | str | Unset):
+        project (None | str | Unset):
         limit (int | Unset):  Default: 50.
 
     Raises:
@@ -137,6 +150,7 @@ def sync(
         client=client,
         q=q,
         channel=channel,
+        project=project,
         limit=limit,
     ).parsed
 
@@ -146,6 +160,7 @@ async def asyncio_detailed(
     client: AuthenticatedClient | Client,
     q: str,
     channel: None | str | Unset = UNSET,
+    project: None | str | Unset = UNSET,
     limit: int | Unset = 50,
 ) -> Response[HTTPValidationError | list[RelayMessage]]:
     """Search Relay Messages
@@ -153,6 +168,7 @@ async def asyncio_detailed(
     Args:
         q (str):
         channel (None | str | Unset):
+        project (None | str | Unset):
         limit (int | Unset):  Default: 50.
 
     Raises:
@@ -166,6 +182,7 @@ async def asyncio_detailed(
     kwargs = _get_kwargs(
         q=q,
         channel=channel,
+        project=project,
         limit=limit,
     )
 
@@ -179,6 +196,7 @@ async def asyncio(
     client: AuthenticatedClient | Client,
     q: str,
     channel: None | str | Unset = UNSET,
+    project: None | str | Unset = UNSET,
     limit: int | Unset = 50,
 ) -> HTTPValidationError | list[RelayMessage] | None:
     """Search Relay Messages
@@ -186,6 +204,7 @@ async def asyncio(
     Args:
         q (str):
         channel (None | str | Unset):
+        project (None | str | Unset):
         limit (int | Unset):  Default: 50.
 
     Raises:
@@ -201,6 +220,7 @@ async def asyncio(
             client=client,
             q=q,
             channel=channel,
+            project=project,
             limit=limit,
         )
     ).parsed

@@ -5,6 +5,7 @@ from typing import Any, TypeVar, cast
 
 from attrs import define as _attrs_define
 from attrs import field as _attrs_field
+from typing_extensions import Self
 
 T = TypeVar("T", bound="ToolView")
 
@@ -13,6 +14,7 @@ T = TypeVar("T", bound="ToolView")
 class ToolView:
     """
     Attributes:
+        category (str):
         database (bool):
         description (str):
         error (None | str):
@@ -23,6 +25,7 @@ class ToolView:
         used_by (list[str]):
     """
 
+    category: str
     database: bool
     description: str
     error: None | str
@@ -34,6 +37,8 @@ class ToolView:
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
+        category = self.category
+
         database = self.database
 
         description = self.description
@@ -55,6 +60,7 @@ class ToolView:
         field_dict.update(self.additional_properties)
         field_dict.update(
             {
+                "category": category,
                 "database": database,
                 "description": description,
                 "error": error,
@@ -69,8 +75,10 @@ class ToolView:
         return field_dict
 
     @classmethod
-    def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
+    def from_dict(cls, src_dict: Mapping[str, Any]) -> Self:
         d = dict(src_dict)
+        category = d.pop("category")
+
         database = d.pop("database")
 
         description = d.pop("description")
@@ -93,6 +101,7 @@ class ToolView:
         used_by = cast(list[str], d.pop("used_by"))
 
         tool_view = cls(
+            category=category,
             database=database,
             description=description,
             error=error,

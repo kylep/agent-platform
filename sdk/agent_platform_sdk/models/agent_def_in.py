@@ -4,6 +4,7 @@ from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any, TypeVar, cast
 
 from attrs import define as _attrs_define
+from typing_extensions import Self
 
 from ..types import UNSET, Unset
 
@@ -21,6 +22,7 @@ class AgentDefIn:
     than keeping whatever the row had.
 
         Attributes:
+            agent_type (str | Unset):  Default: 'worker'.
             can_invoke (bool | Unset):  Default: False.
             concurrency (int | Unset):  Default: 1.
             description (str | Unset):  Default: ''.
@@ -46,6 +48,7 @@ class AgentDefIn:
             transcript_retention_days (int | None | Unset):
     """
 
+    agent_type: str | Unset = "worker"
     can_invoke: bool | Unset = False
     concurrency: int | Unset = 1
     description: str | Unset = ""
@@ -71,6 +74,8 @@ class AgentDefIn:
     transcript_retention_days: int | None | Unset = UNSET
 
     def to_dict(self) -> dict[str, Any]:
+        agent_type = self.agent_type
+
         can_invoke = self.can_invoke
 
         concurrency = self.concurrency
@@ -136,6 +141,8 @@ class AgentDefIn:
         field_dict: dict[str, Any] = {}
 
         field_dict.update({})
+        if agent_type is not UNSET:
+            field_dict["agent_type"] = agent_type
         if can_invoke is not UNSET:
             field_dict["can_invoke"] = can_invoke
         if concurrency is not UNSET:
@@ -186,10 +193,12 @@ class AgentDefIn:
         return field_dict
 
     @classmethod
-    def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
+    def from_dict(cls, src_dict: Mapping[str, Any]) -> Self:
         from ..models.entrypoints_in import EntrypointsIn
 
         d = dict(src_dict)
+        agent_type = d.pop("agent_type", UNSET)
+
         can_invoke = d.pop("can_invoke", UNSET)
 
         concurrency = d.pop("concurrency", UNSET)
@@ -251,6 +260,7 @@ class AgentDefIn:
         )
 
         agent_def_in = cls(
+            agent_type=agent_type,
             can_invoke=can_invoke,
             concurrency=concurrency,
             description=description,

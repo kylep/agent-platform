@@ -5,15 +5,31 @@ import httpx
 
 from ... import errors
 from ...client import AuthenticatedClient, Client
+from ...models.http_validation_error import HTTPValidationError
 from ...models.quota import Quota
-from ...types import Response
+from ...models.refresh_quota_provider import RefreshQuotaProvider
+from ...types import UNSET, Response, Unset
 
 
-def _get_kwargs() -> dict[str, Any]:
+def _get_kwargs(
+    *,
+    provider: RefreshQuotaProvider | Unset = RefreshQuotaProvider.ALL,
+) -> dict[str, Any]:
+
+    params: dict[str, Any] = {}
+
+    json_provider: str | Unset = UNSET
+    if not isinstance(provider, Unset):
+        json_provider = provider.value
+
+    params["provider"] = json_provider
+
+    params = {k: v for k, v in params.items() if v is not UNSET and v is not None}
 
     _kwargs: dict[str, Any] = {
         "method": "post",
         "url": "/api/quota/refresh",
+        "params": params,
     }
 
     return _kwargs
@@ -21,11 +37,16 @@ def _get_kwargs() -> dict[str, Any]:
 
 def _parse_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> Quota | None:
+) -> HTTPValidationError | Quota | None:
     if response.status_code == 200:
         response_200 = Quota.from_dict(response.json())
 
         return response_200
+
+    if response.status_code == 422:
+        response_422 = HTTPValidationError.from_dict(response.json())
+
+        return response_422
 
     if client.raise_on_unexpected_status:
         raise errors.UnexpectedStatus(response.status_code, response.content)
@@ -35,7 +56,7 @@ def _parse_response(
 
 def _build_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> Response[Quota]:
+) -> Response[HTTPValidationError | Quota]:
     return Response(
         status_code=HTTPStatus(response.status_code),
         content=response.content,
@@ -47,7 +68,8 @@ def _build_response(
 def sync_detailed(
     *,
     client: AuthenticatedClient | Client,
-) -> Response[Quota]:
+    provider: RefreshQuotaProvider | Unset = RefreshQuotaProvider.ALL,
+) -> Response[HTTPValidationError | Quota]:
     """Refresh Quota
 
      Ask on purpose. Coalesced and rate-limited platform-wide, so this is
@@ -58,15 +80,20 @@ def sync_detailed(
     it wrote, which is the same answer it would have got from its own probe and
     one fewer request to Anthropic.
 
+    Args:
+        provider (RefreshQuotaProvider | Unset):  Default: RefreshQuotaProvider.ALL.
+
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[Quota]
+        Response[HTTPValidationError | Quota]
     """
 
-    kwargs = _get_kwargs()
+    kwargs = _get_kwargs(
+        provider=provider,
+    )
 
     response = client.get_httpx_client().request(
         **kwargs,
@@ -78,7 +105,8 @@ def sync_detailed(
 def sync(
     *,
     client: AuthenticatedClient | Client,
-) -> Quota | None:
+    provider: RefreshQuotaProvider | Unset = RefreshQuotaProvider.ALL,
+) -> HTTPValidationError | Quota | None:
     """Refresh Quota
 
      Ask on purpose. Coalesced and rate-limited platform-wide, so this is
@@ -89,23 +117,28 @@ def sync(
     it wrote, which is the same answer it would have got from its own probe and
     one fewer request to Anthropic.
 
+    Args:
+        provider (RefreshQuotaProvider | Unset):  Default: RefreshQuotaProvider.ALL.
+
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Quota
+        HTTPValidationError | Quota
     """
 
     return sync_detailed(
         client=client,
+        provider=provider,
     ).parsed
 
 
 async def asyncio_detailed(
     *,
     client: AuthenticatedClient | Client,
-) -> Response[Quota]:
+    provider: RefreshQuotaProvider | Unset = RefreshQuotaProvider.ALL,
+) -> Response[HTTPValidationError | Quota]:
     """Refresh Quota
 
      Ask on purpose. Coalesced and rate-limited platform-wide, so this is
@@ -116,15 +149,20 @@ async def asyncio_detailed(
     it wrote, which is the same answer it would have got from its own probe and
     one fewer request to Anthropic.
 
+    Args:
+        provider (RefreshQuotaProvider | Unset):  Default: RefreshQuotaProvider.ALL.
+
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[Quota]
+        Response[HTTPValidationError | Quota]
     """
 
-    kwargs = _get_kwargs()
+    kwargs = _get_kwargs(
+        provider=provider,
+    )
 
     response = await client.get_async_httpx_client().request(**kwargs)
 
@@ -134,7 +172,8 @@ async def asyncio_detailed(
 async def asyncio(
     *,
     client: AuthenticatedClient | Client,
-) -> Quota | None:
+    provider: RefreshQuotaProvider | Unset = RefreshQuotaProvider.ALL,
+) -> HTTPValidationError | Quota | None:
     """Refresh Quota
 
      Ask on purpose. Coalesced and rate-limited platform-wide, so this is
@@ -145,16 +184,20 @@ async def asyncio(
     it wrote, which is the same answer it would have got from its own probe and
     one fewer request to Anthropic.
 
+    Args:
+        provider (RefreshQuotaProvider | Unset):  Default: RefreshQuotaProvider.ALL.
+
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Quota
+        HTTPValidationError | Quota
     """
 
     return (
         await asyncio_detailed(
             client=client,
+            provider=provider,
         )
     ).parsed

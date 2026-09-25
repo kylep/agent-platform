@@ -68,8 +68,7 @@ def sync_detailed(
     """Skill Wizard
 
      The New-Skill wizard: turn interview answers into an engineer Workbench run
-    that AUTHORS the skill (and, when a new credential is involved, scaffolds
-    its `secrets/<name>/secret.yaml`). The result lands as a pull request under
+    that AUTHORS the skill. The result lands as a pull request under
     Changes — agent-authored, human-reviewed.
 
     Args:
@@ -102,8 +101,7 @@ def sync(
     """Skill Wizard
 
      The New-Skill wizard: turn interview answers into an engineer Workbench run
-    that AUTHORS the skill (and, when a new credential is involved, scaffolds
-    its `secrets/<name>/secret.yaml`). The result lands as a pull request under
+    that AUTHORS the skill. The result lands as a pull request under
     Changes — agent-authored, human-reviewed.
 
     Args:
@@ -131,8 +129,7 @@ async def asyncio_detailed(
     """Skill Wizard
 
      The New-Skill wizard: turn interview answers into an engineer Workbench run
-    that AUTHORS the skill (and, when a new credential is involved, scaffolds
-    its `secrets/<name>/secret.yaml`). The result lands as a pull request under
+    that AUTHORS the skill. The result lands as a pull request under
     Changes — agent-authored, human-reviewed.
 
     Args:
@@ -163,8 +160,7 @@ async def asyncio(
     """Skill Wizard
 
      The New-Skill wizard: turn interview answers into an engineer Workbench run
-    that AUTHORS the skill (and, when a new credential is involved, scaffolds
-    its `secrets/<name>/secret.yaml`). The result lands as a pull request under
+    that AUTHORS the skill. The result lands as a pull request under
     Changes — agent-authored, human-reviewed.
 
     Args:

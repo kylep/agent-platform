@@ -69,8 +69,8 @@ def sync_detailed(
 
      Generate one image and keep it (docs/design/23): the ONE place a
     generation happens is `image_gen_service.generate`; this is its door.
-    Synchronous — the executor's timeout plus a grace, so a caller waits up
-    to ~210 s — and the response is the artifact. The owner is the caller;
+    Synchronous — the longest provider timeout plus a grace, so a caller waits
+    up to 390 s — and the response is the artifact. The owner is the caller;
     an agent's generation carries its run, and a token without one is
     refused before anything is spent.
 
@@ -112,8 +112,8 @@ def sync(
 
      Generate one image and keep it (docs/design/23): the ONE place a
     generation happens is `image_gen_service.generate`; this is its door.
-    Synchronous — the executor's timeout plus a grace, so a caller waits up
-    to ~210 s — and the response is the artifact. The owner is the caller;
+    Synchronous — the longest provider timeout plus a grace, so a caller waits
+    up to 390 s — and the response is the artifact. The owner is the caller;
     an agent's generation carries its run, and a token without one is
     refused before anything is spent.
 
@@ -150,8 +150,8 @@ async def asyncio_detailed(
 
      Generate one image and keep it (docs/design/23): the ONE place a
     generation happens is `image_gen_service.generate`; this is its door.
-    Synchronous — the executor's timeout plus a grace, so a caller waits up
-    to ~210 s — and the response is the artifact. The owner is the caller;
+    Synchronous — the longest provider timeout plus a grace, so a caller waits
+    up to 390 s — and the response is the artifact. The owner is the caller;
     an agent's generation carries its run, and a token without one is
     refused before anything is spent.
 
@@ -191,8 +191,8 @@ async def asyncio(
 
      Generate one image and keep it (docs/design/23): the ONE place a
     generation happens is `image_gen_service.generate`; this is its door.
-    Synchronous — the executor's timeout plus a grace, so a caller waits up
-    to ~210 s — and the response is the artifact. The owner is the caller;
+    Synchronous — the longest provider timeout plus a grace, so a caller waits
+    up to 390 s — and the response is the artifact. The owner is the caller;
     an agent's generation carries its run, and a token without one is
     refused before anything is spent.
 

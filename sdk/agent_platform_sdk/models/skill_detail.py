@@ -5,6 +5,9 @@ from typing import Any, TypeVar, cast
 
 from attrs import define as _attrs_define
 from attrs import field as _attrs_field
+from typing_extensions import Self
+
+from ..types import UNSET, Unset
 
 T = TypeVar("T", bound="SkillDetail")
 
@@ -21,6 +24,7 @@ class SkillDetail:
         raw (str):
         secrets (list[str]):
         used_by (list[str]):
+        origin (str | Unset):  Default: 'legacy'.
     """
 
     body: str
@@ -31,6 +35,7 @@ class SkillDetail:
     raw: str
     secrets: list[str]
     used_by: list[str]
+    origin: str | Unset = "legacy"
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -51,6 +56,8 @@ class SkillDetail:
 
         used_by = self.used_by
 
+        origin = self.origin
+
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
@@ -65,11 +72,13 @@ class SkillDetail:
                 "used_by": used_by,
             }
         )
+        if origin is not UNSET:
+            field_dict["origin"] = origin
 
         return field_dict
 
     @classmethod
-    def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
+    def from_dict(cls, src_dict: Mapping[str, Any]) -> Self:
         d = dict(src_dict)
         body = d.pop("body")
 
@@ -92,6 +101,8 @@ class SkillDetail:
 
         used_by = cast(list[str], d.pop("used_by"))
 
+        origin = d.pop("origin", UNSET)
+
         skill_detail = cls(
             body=body,
             description=description,
@@ -101,6 +112,7 @@ class SkillDetail:
             raw=raw,
             secrets=secrets,
             used_by=used_by,
+            origin=origin,
         )
 
         skill_detail.additional_properties = d

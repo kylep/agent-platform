@@ -5,6 +5,9 @@ from typing import Any, TypeVar, cast
 
 from attrs import define as _attrs_define
 from attrs import field as _attrs_field
+from typing_extensions import Self
+
+from ..types import UNSET, Unset
 
 T = TypeVar("T", bound="AppView")
 
@@ -16,6 +19,7 @@ class AppView:
         agent_key_role (None | str):
         api (bool):
         description (str):
+        display_name (str):
         error (None | str):
         icon (str):
         kafka_topics (list[str]):
@@ -25,11 +29,13 @@ class AppView:
         ready_replicas (int):
         redis (bool):
         ui (bool):
+        source_app (None | str | Unset):
     """
 
     agent_key_role: None | str
     api: bool
     description: str
+    display_name: str
     error: None | str
     icon: str
     kafka_topics: list[str]
@@ -39,6 +45,7 @@ class AppView:
     ready_replicas: int
     redis: bool
     ui: bool
+    source_app: None | str | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -48,6 +55,8 @@ class AppView:
         api = self.api
 
         description = self.description
+
+        display_name = self.display_name
 
         error: None | str
         error = self.error
@@ -69,6 +78,12 @@ class AppView:
 
         ui = self.ui
 
+        source_app: None | str | Unset
+        if isinstance(self.source_app, Unset):
+            source_app = UNSET
+        else:
+            source_app = self.source_app
+
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
@@ -76,6 +91,7 @@ class AppView:
                 "agent_key_role": agent_key_role,
                 "api": api,
                 "description": description,
+                "display_name": display_name,
                 "error": error,
                 "icon": icon,
                 "kafka_topics": kafka_topics,
@@ -87,11 +103,13 @@ class AppView:
                 "ui": ui,
             }
         )
+        if source_app is not UNSET:
+            field_dict["source_app"] = source_app
 
         return field_dict
 
     @classmethod
-    def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
+    def from_dict(cls, src_dict: Mapping[str, Any]) -> Self:
         d = dict(src_dict)
 
         def _parse_agent_key_role(data: object) -> None | str:
@@ -104,6 +122,8 @@ class AppView:
         api = d.pop("api")
 
         description = d.pop("description")
+
+        display_name = d.pop("display_name")
 
         def _parse_error(data: object) -> None | str:
             if data is None:
@@ -133,10 +153,20 @@ class AppView:
 
         ui = d.pop("ui")
 
+        def _parse_source_app(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        source_app = _parse_source_app(d.pop("source_app", UNSET))
+
         app_view = cls(
             agent_key_role=agent_key_role,
             api=api,
             description=description,
+            display_name=display_name,
             error=error,
             icon=icon,
             kafka_topics=kafka_topics,
@@ -146,6 +176,7 @@ class AppView:
             ready_replicas=ready_replicas,
             redis=redis,
             ui=ui,
+            source_app=source_app,
         )
 
         app_view.additional_properties = d

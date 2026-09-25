@@ -5,6 +5,9 @@ from typing import Any, TypeVar, cast
 
 from attrs import define as _attrs_define
 from attrs import field as _attrs_field
+from typing_extensions import Self
+
+from ..types import UNSET, Unset
 
 T = TypeVar("T", bound="MemoryView")
 
@@ -20,6 +23,8 @@ class MemoryView:
         key (None | str):
         tags (list[str]):
         updated_at (None | str):
+        project_id (None | str | Unset):
+        team_id (None | str | Unset):
     """
 
     agent: str
@@ -29,6 +34,8 @@ class MemoryView:
     key: None | str
     tags: list[str]
     updated_at: None | str
+    project_id: None | str | Unset = UNSET
+    team_id: None | str | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -49,6 +56,18 @@ class MemoryView:
         updated_at: None | str
         updated_at = self.updated_at
 
+        project_id: None | str | Unset
+        if isinstance(self.project_id, Unset):
+            project_id = UNSET
+        else:
+            project_id = self.project_id
+
+        team_id: None | str | Unset
+        if isinstance(self.team_id, Unset):
+            team_id = UNSET
+        else:
+            team_id = self.team_id
+
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
@@ -62,11 +81,15 @@ class MemoryView:
                 "updated_at": updated_at,
             }
         )
+        if project_id is not UNSET:
+            field_dict["project_id"] = project_id
+        if team_id is not UNSET:
+            field_dict["team_id"] = team_id
 
         return field_dict
 
     @classmethod
-    def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
+    def from_dict(cls, src_dict: Mapping[str, Any]) -> Self:
         d = dict(src_dict)
         agent = d.pop("agent")
 
@@ -97,6 +120,24 @@ class MemoryView:
 
         updated_at = _parse_updated_at(d.pop("updated_at"))
 
+        def _parse_project_id(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        project_id = _parse_project_id(d.pop("project_id", UNSET))
+
+        def _parse_team_id(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        team_id = _parse_team_id(d.pop("team_id", UNSET))
+
         memory_view = cls(
             agent=agent,
             content=content,
@@ -105,6 +146,8 @@ class MemoryView:
             key=key,
             tags=tags,
             updated_at=updated_at,
+            project_id=project_id,
+            team_id=team_id,
         )
 
         memory_view.additional_properties = d
