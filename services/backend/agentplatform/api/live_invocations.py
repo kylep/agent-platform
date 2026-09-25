@@ -57,6 +57,20 @@ class GrantIn(BaseModel):
     operation: str
 
 
+@router.get("/api/live-operation-grants")
+async def list_live_operation_grants(request: Request, app_name: str,
+                                     actor: str = Depends(require_admin)):
+    """Show an App author who can use its trusted page actions."""
+    async with request.app.state.session_factory() as session:
+        await _accessible_app(session, app_name, (actor, "admin"))
+        rows = (await session.execute(select(LiveOperationGrant).where(
+            LiveOperationGrant.app_name == app_name).order_by(
+                LiveOperationGrant.principal_id, LiveOperationGrant.operation))
+        ).scalars().all()
+        return [{"principal_id": row.principal_id, "operation": row.operation,
+                 "enabled": row.revoked_at is None} for row in rows]
+
+
 @router.post("/api/live-operation-grants")
 async def grant_live_operation(request: Request, body: GrantIn,
                                actor: str = Depends(require_admin)):

@@ -106,6 +106,47 @@ Started 2026-09-25. This is a work checkpoint, not a command to run an agent loo
 
 ## Current checkpoint
 
+Main through `eecffca` is pushed. The five DB collections/pages are published
+and primary in Apps; their specialist routes remain linked. The Running
+latency canary **did not pass** the proposed 1.25× p95 gate even after
+connection reuse and a one-query authorization lookup. Keep its direct
+domain interface and revisit the gate with a representative browser workload
+before retiring any detailed screen. The latest optimized backend commit
+passed full CI. TTRPG's real spectator view, Relay handoff, and reversible
+page rollback passed on pai; a disposable-world player action remains untested.
+The existing Discord Tool now denies ambiguous channel names and accepts an
+immutable channel ID; the synced registry returned its new schema without
+error. The full `eecffca` CI run is pending at this checkpoint.
+
+The page editor now lists trusted-action access for its signed-in author and
+offers explicit enable/revoke controls backed by the existing grant and
+dispatch checks. The API can list current/revoked grants for an App. A focused
+browser test exercised enable→revoke, and focused backend tests checked the
+grant listing after creation and revocation. This closes the setup gap where
+a page author otherwise needed a manual API call before an action could work.
+
+Remaining release gates, each requiring separate evidence before closure:
+
+1. **Operations:** review and admit additional individual Tool actions only
+   when needed by a page. For each, pin input/output contract, target ACL,
+   effect, rate/spend budget, dispatch recheck and an action receipt. The
+   current 82 ineligible catalog entries grant nothing.
+2. **Plugin provenance:** retain an approved build artifact and signed or
+   otherwise authenticated CI provenance with tested update/rollback on both
+   pinned harnesses; evaluate coder and QA behavior after installation.
+3. **Chat Identity:** model the existing Discord bot as a stable identity with
+   secret references and destination policy, bind inbound and outbound
+   routes to it, then test rotation/revocation in a disposable channel before
+   enabling a second account. The Tool's first-match ambiguity is already
+   removed; its credential and transport still use the legacy binding.
+4. **TTRPG and retirement:** test a player action in a disposable world,
+   compare specialist controls for each App, and pass the page latency/error
+   gate before deleting any specialist UI or domain route.
+5. **Observation:** collect seven days of live errors, denials, receipts,
+   resource usage and rollback evidence; the first possible full observation
+   date from this canary is 2026-10-02. MCP Apps export remains deferred by
+   the documented pinned-host UI/auth gate, not by an assumed protocol limit.
+
 Main through `3b13447` is pushed and deployed; CI for that commit passed every
 job. All five Apps now open their
 published DB pages from the Apps directory, with explicit detailed-app links

@@ -13,6 +13,7 @@ type Definition = { renderer: "typed/v1"; title: string; blocks: {
 type Draft = { id: string; app_name: string; slug: string; draft_revision: number;
   published_version: number | null; definition: Definition };
 type Version = { version: number; published_at: string; published_by: string; current: boolean };
+type ActionGrant = { principal_id: string; operation: string; enabled: boolean };
 type OutputShape = { type?: string | string[]; format?: string;
   properties?: Record<string, OutputShape>; items?: OutputShape };
 type Operation = { id: string; tool: string; source: string; effects: string[];
@@ -51,6 +52,9 @@ export default function LiveViewEditor() {
   const [source, setSource] = useState(JSON.stringify(example(appName), null, 2));
   const [versions, setVersions] = useState<Version[]>([]);
   const [operations, setOperations] = useState<Operation[]>([]);
+  const [grants, setGrants] = useState<ActionGrant[]>([]);
+  const [grantError, setGrantError] = useState<string | null>(null);
+  const [principal, setPrincipal] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -62,6 +66,11 @@ export default function LiveViewEditor() {
     ]);
     setDraft(next); setVersions(history);
     setSource(JSON.stringify(next.definition, null, 2));
+    try {
+      setGrants(await api<ActionGrant[]>(
+        `/api/live-operation-grants?app_name=${encodeURIComponent(next.app_name)}`));
+      setGrantError(null);
+    } catch { setGrantError("Action permissions unavailable right now."); }
   }
   useEffect(() => {
     if (!id) return;
@@ -70,7 +79,24 @@ export default function LiveViewEditor() {
   useEffect(() => {
     api<Operation[]>("/api/live-operations?eligible_only=true")
       .then(setOperations).catch(() => setOperations([]));
+    api<{ principal: string }>("/api/whoami")
+      .then((me) => setPrincipal(me.principal)).catch(() => setPrincipal(""));
   }, []);
+
+  async function toggleGrant(operation: string, enabled: boolean) {
+    if (!draft || !principal) return;
+    setError(null); setNotice(null); setBusy(true);
+    try {
+      await api(enabled ? "/api/live-operation-grants/revoke" : "/api/live-operation-grants", {
+        method: "POST", body: JSON.stringify({ app_name: draft.app_name,
+          principal_id: principal, operation }),
+      });
+      setGrants(await api<ActionGrant[]>(
+        `/api/live-operation-grants?app_name=${encodeURIComponent(draft.app_name)}`));
+      setNotice(enabled ? "Action access revoked." : "Action access enabled for your account.");
+    } catch (e) { setError(e instanceof Error ? e.message : "Could not change action access."); }
+    finally { setBusy(false); }
+  }
 
   let preview: Definition | null = null;
   try {
@@ -190,6 +216,20 @@ export default function LiveViewEditor() {
         </> : <p className="muted">Enter a typed/v1 JSON definition to preview it.</p>}
       </section>
     </div>
+    {!creating && draft && draft.definition.actions.length > 0 && <section className="live-editor-history">
+      <h2>Action access</h2>
+      <p className="muted">An action needs a published page, a browser session, and a current grant.
+        This controls access for <strong>{principal || "your account"}</strong>; the page definition alone grants nothing.</p>
+      {grantError && <p role="alert" className="error">{grantError}</p>}
+      <ul>{[...new Set(draft.definition.actions.map((action) => action.operation))].map((operation) => {
+        const enabled = grants.some((grant) => grant.principal_id === principal &&
+          grant.operation === operation && grant.enabled);
+        return <li key={operation}><code>{operation}</code> · {enabled ? "enabled" : "disabled"} {" "}
+          <Button variant="secondary" disabled={busy || !principal || Boolean(grantError)}
+            onClick={() => toggleGrant(operation, enabled)}>{enabled ? "Revoke" : "Enable for me"}</Button>
+        </li>;
+      })}</ul>
+    </section>}
     {!creating && <section className="live-editor-history"><h2>Published versions</h2>
       {versions.length === 0 ? <p className="muted">Nothing published yet.</p> :
         <ul>{versions.map((v) => <li key={v.version}>

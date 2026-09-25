@@ -412,6 +412,10 @@ async def test_ticket_action_needs_grant_and_replays_one_receipt(admin_client, s
         "app_name": "running", "principal_id": "admin",
         "operation": "tickets.create@1"})
     assert grant.status_code == 200, grant.text
+    listed = await admin_client.get("/api/live-operation-grants?app_name=running")
+    assert listed.status_code == 200
+    assert listed.json() == [{"principal_id": "admin",
+                              "operation": "tickets.create@1", "enabled": True}]
     intent = await admin_client.post(intent_path, json=request)
     assert intent.status_code == 201, intent.text
     assert intent.json()["target"] == "#general"
@@ -444,6 +448,9 @@ async def test_ticket_action_revocation_before_call_denies_dispatch(admin_client
     assert intent.status_code == 201
     assert (await admin_client.post("/api/live-operation-grants/revoke",
                                     json=grant)).status_code == 200
+    listed = await admin_client.get("/api/live-operation-grants?app_name=running")
+    assert listed.json() == [{"principal_id": "admin",
+                              "operation": "tickets.create@1", "enabled": False}]
     called = await admin_client.post(f"/api/live-views/{view_id}/calls", json={
         "intent_id": intent.json()["intent_id"],
         "idempotency_key": "test_unique_ticket_03"})
