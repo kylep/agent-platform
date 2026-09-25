@@ -129,6 +129,39 @@ Started 2026-09-25. This is a work checkpoint, not a command to run an agent loo
 
 ## Current checkpoint
 
+Main through `4847ea9` is pushed and deployed on pai. All five Apps open
+published database pages, with their specialist interfaces linked where the
+typed page cannot yet replace domain controls. Running's owner-only read,
+trusted Ticket action, snapshot and MCP Resource access have passed live
+checks; the TTRPG spectator route, Relay handoff and reversible page version
+have also passed. A disposable local TTRPG world verified a player roll, GM
+visibility, player/GM authority boundary and idempotent retry. The family's
+live world was viewed read-only. The latest action change adds rolling-hour
+person/page and App budgets and commits the two local effects with their
+success receipts. Its live observation route is healthy after rollout.
+Full CI passed for `4847ea9`.
+
+The coding plugin's deterministic CI bundle has a verified GitHub attestation
+for `e617a17`, and both local harnesses have installed the reviewed three-skill
+package. Runtime registration still relies on a source-reviewed digest rather
+than consuming the attested artifact. Discord's current bot has a database
+Chat Identity, attributed routes and an admin inventory; its runtime token
+and the direct `discord_chat` Tool still use the original secret binding.
+There is no second-account test credential. MCP Apps export remains deferred
+by the pinned-client UI/auth test gate, with the first-party browser as the
+supported interactive host. The 82 cataloged Tool actions without a reviewed
+page adapter remain ineligible; a page cannot call arbitrary Tools yet.
+
+The Running page exceeded the proposed 1.25× p95 latency gate, so its
+specialist screen stays available. The seven-day live observation window
+cannot close before 2026-10-02. The remaining work is the operation-by-
+operation admission policy for requested page Tools, plugin artifact/runtime
+binding and update/rollback tests, multiple Chat Identity account and
+revocation tests, and latency/observation evidence. Do not retire specialist
+screens merely because the database page is published.
+
+### Earlier checkpoints
+
 Main through `b9572d7` is pushed. The five DB collections/pages are published
 and primary in Apps; their specialist routes remain linked. The Running
 latency canary **did not pass** the proposed 1.25× p95 gate even after
