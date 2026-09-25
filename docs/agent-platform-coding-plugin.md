@@ -4,6 +4,27 @@ The source package is [`plugins/agent-platform-coding/`](../plugins/agent-platfo
 
 `release.json` pins every package file by SHA-256. The platform loads its skills only when the complete file set and both harness manifests verify. The runner installs only the assigned `SKILL.md` files into each harness's skill directory. It does not execute package code or copy a plugin's manifests, hooks, commands, or MCP configuration into a run. Skills add instructions, not Tools, network access, secrets, or publish permission. Those remain explicit agent and Tool grants.
 
+On a change to this package or its verifier, the dedicated
+[`Coding plugin provenance`](../.github/workflows/plugin-release.yaml) workflow
+checks the approved manifest, builds a deterministic tarball, and asks GitHub
+Actions to attest its digest and source workflow. Download the named artifact
+from that workflow run, then verify it before using the bundle as a release:
+
+```sh
+gh run download RUN_ID -n agent-platform-coding-0.1.0 -D /tmp/ap-plugin-release
+gh attestation verify /tmp/ap-plugin-release/agent-platform-coding-0.1.0.tar.gz \
+  -R kylep/agent-platform \
+  --signer-workflow kylep/agent-platform/.github/workflows/plugin-release.yaml \
+  --source-ref refs/heads/main
+```
+
+The attestation establishes CI provenance for the retained workflow artifact.
+Runtime admission still uses the source-reviewed digest pinned in
+`plugin_release.py`; it does not yet fetch or verify the attested bundle at
+registration or launch. That additional binding and a tested local
+update/rollback flow remain release gates, so provenance is not claimed
+complete solely because the workflow is green.
+
 To change the package, edit a skill, review it as code, update `release.json` with the new hashes, and validate both manifests and the pinned runner images before assigning it. A failed verification makes the package unavailable and blocks agents that require it rather than silently running them without their requested workflow. Roll back by restoring the previous reviewed package revision, or remove the skill assignment from an affected agent. Existing runs keep the files installed at their start; new runs use the current verified package.
 
 Developer hosts use the repo-owned marketplace manifests in

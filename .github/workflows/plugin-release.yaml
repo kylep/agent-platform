@@ -1,0 +1,46 @@
+name: Coding plugin provenance
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - plugins/agent-platform-coding/**
+      - services/backend/agentplatform/plugin_release.py
+      - .github/workflows/plugin-release.yaml
+  workflow_dispatch:
+
+jobs:
+  attest:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Verify the approved skills-only release
+        run: |
+          PYTHONPATH=services/backend python - <<'PY'
+          from pathlib import Path
+          from agentplatform.plugin_release import verify_release
+          skills = verify_release(Path("plugins/agent-platform-coding"))
+          assert len(skills) == 3
+          PY
+      - name: Build a deterministic release bundle
+        run: |
+          mkdir -p dist
+          tar --sort=name --mtime='@0' --owner=0 --group=0 --numeric-owner \
+            -C plugins -cf - agent-platform-coding \
+            | gzip -n > dist/agent-platform-coding-0.1.0.tar.gz
+          sha256sum dist/agent-platform-coding-0.1.0.tar.gz
+      - uses: actions/attest@v4
+        with:
+          subject-path: dist/agent-platform-coding-0.1.0.tar.gz
+      - uses: actions/upload-artifact@v4
+        with:
+          name: agent-platform-coding-0.1.0
+          path: dist/agent-platform-coding-0.1.0.tar.gz
+          if-no-files-found: error

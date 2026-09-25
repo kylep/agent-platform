@@ -75,8 +75,10 @@ Started 2026-09-25. This is a work checkpoint, not a command to run an agent loo
   The platform build now pins the approved release-manifest digest, so a
   modified skill plus recomputed file hashes cannot enter the runtime catalog.
   This is source-reviewed approval for the current private deployment; CI
-  signer/build attestation, local update/rollback and behavior evaluation
-  remain open.
+  now packages the approved skills-only release and requests a GitHub build
+  attestation on package/verifier changes. Binding runtime registration to the
+  verified artifact, local update/rollback and behavior evaluation remain
+  open.
 - [x] A9. Migrate News, Stockmarket and TCMS collection/pages where the typed
   renderer fits. Preserve their ingestion and domain logic. Compare outputs
   against existing UIs and retain specialized screens when needed.
