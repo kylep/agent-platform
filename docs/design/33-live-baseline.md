@@ -37,6 +37,13 @@ adapter. The API rechecks current room membership on each read, returns only
 ten bounded text rows, and refuses snapshots of the chat read. The published
 page displayed ten conversation cards at 1280px and 390px with zero browser
 errors or horizontal overflow. The dedicated game interface remains linked.
+The specialist viewer later loaded the real `Family Main` world at both sizes,
+including story and four party members. Its `Watch in Relay` link targeted the
+same room ID as the published chat binding; no HTTP errors or horizontal
+overflow were observed. A live page-version rollback from v3 to v2 removed
+the chat block as expected and restoration to v3 immediately brought it back.
+These checks did not click game actions or take a player seat in the family
+world, so they do not establish player interaction parity.
 
 After making published pages the primary Apps entry points, a 390px Chromium
 pass found all five cards linked to their live pages and retained a separate

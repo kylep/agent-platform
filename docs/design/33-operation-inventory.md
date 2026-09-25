@@ -57,6 +57,11 @@ grants and domain APIs keep their current behavior.
 | Linear | `create`, `update`, `comment`, `raw_graphql` | external write or arbitrary GraphQL | Excluded pending scoped mutation contracts; `raw_graphql` is never admitted as-is |
 | Discord chat | channel post | external send | Excluded pending Chat Identity binding and sender/target policy |
 
+The legacy `discord_chat` Tool is outside Live App admission. Its name-based
+target lookup used to pick the first matching server; it now refuses ambiguous
+names and permits an exact channel ID. This improves existing Tool routing
+without treating the Tool's bot token as a first-class Chat Identity yet.
+
 The custom Tool action sets come from `tools/*/tool.yaml`. Core branch names
 come from `services/mcp-broker/broker.py`. A future operation catalog should
 compile these reviewed declarations and fail publication on an unknown branch,

@@ -1,9 +1,9 @@
 name: discord_chat
 category: service_connector
 description: >-
-  Post a message to a Discord channel by name (e.g. "alerts", "general").
-  Finds the first text channel with that name across the guilds the bot is
-  in and posts there. Long messages are split into <=1900-character chunks;
+  Post to a Discord text channel by unique name or exact channel ID. A name
+  shared by multiple visible servers is rejected; use channel_id then. Long
+  messages are split into <=1900-character chunks;
   @everyone/@here and role pings are always defanged. Use for notifications
   and reports; conversational replies in threads happen via the platform
   connector, not this tool. Returns the posted message id(s).
@@ -12,11 +12,20 @@ params:
   properties:
     channel:
       type: string
-      description: "Channel name without the # (e.g. alerts)"
+      description: "Unique channel name without the # (e.g. alerts)"
+    channel_id:
+      type: string
+      pattern: "^[0-9]{15,22}$"
+      description: "Exact Discord channel ID when a name is ambiguous"
     text:
       type: string
       description: "Message text (Discord markdown ok)"
-  required: [channel, text]
+  required: [text]
+  oneOf:
+    - required: [channel]
+      not: {required: [channel_id]}
+    - required: [channel_id]
+      not: {required: [channel]}
 infra:
   secrets:
     - discord-bot

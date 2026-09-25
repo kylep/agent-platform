@@ -1,4 +1,4 @@
-"""discord_chat tool: post to a named channel via the Discord REST API.
+"""discord_chat tool: post to an unambiguous Discord channel via REST.
 
 Auth: the `discord-bot` secret's `token` key (same credential the connector
 logs in with — REST-only here, no gateway). Discord sits behind Cloudflare,
@@ -44,12 +44,23 @@ def chunks(text: str, size: int = CHUNK) -> list[str]:
 
 
 def find_channel(token: str, name: str) -> dict | None:
-    """First text channel (type 0) named `name` across the bot's guilds."""
+    """Find one text channel by name; refuse an ambiguous external target."""
+    matches = []
     for guild in _req("/users/@me/guilds", token):
         for ch in _req(f"/guilds/{guild['id']}/channels", token):
             if ch.get("type") == 0 and ch.get("name") == name:
-                return ch
-    return None
+                matches.append(ch)
+    if len(matches) > 1:
+        raise ValueError(f"#{name} exists in multiple servers; use channel_id")
+    return matches[0] if matches else None
+
+
+def channel_by_id(token: str, channel_id: str) -> dict | None:
+    """Use an immutable destination ID and reject non-text destinations."""
+    if not channel_id.isdigit() or not 15 <= len(channel_id) <= 22:
+        raise ValueError("channel_id must be a Discord channel ID")
+    ch = _req(f"/channels/{channel_id}", token)
+    return ch if ch.get("type") == 0 and str(ch.get("id")) == channel_id else None
 
 
 def main() -> int:
@@ -58,9 +69,16 @@ def main() -> int:
     if not token:
         print("discord-bot secret is not configured", file=sys.stderr)
         return 2
-    channel = find_channel(token, args["channel"].lstrip("#"))
+    try:
+        if ("channel" in args) == ("channel_id" in args):
+            raise ValueError("provide exactly one of channel or channel_id")
+        channel = (channel_by_id(token, args["channel_id"])
+                   if "channel_id" in args else find_channel(token, args["channel"].lstrip("#")))
+    except ValueError as exc:
+        print(str(exc), file=sys.stderr)
+        return 2
     if channel is None:
-        print(f"no channel named #{args['channel']} visible to the bot", file=sys.stderr)
+        print("Discord text channel unavailable to the bot", file=sys.stderr)
         return 2
     ids = []
     for part in chunks(args["text"]):

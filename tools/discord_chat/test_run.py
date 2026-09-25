@@ -1,4 +1,10 @@
-"""Pure-function tests (no network)."""
+"""Tool tests with a fake Discord API; never send a live message."""
+import pytest
+import jsonschema
+import yaml
+from pathlib import Path
+
+import run
 from run import chunks
 
 
@@ -16,3 +22,48 @@ def test_chunks_hard_split_long_line():
 
 def test_chunks_short_text_is_one_part():
     assert chunks("hello") == ["hello"]
+
+
+def test_unique_name_and_exact_id(monkeypatch):
+    def fake_req(path, _token, payload=None):
+        assert payload is None
+        return {
+            "/users/@me/guilds": [{"id": "one"}, {"id": "two"}],
+            "/guilds/one/channels": [{"id": "123456789012345678", "type": 0,
+                                      "name": "general"}],
+            "/guilds/two/channels": [{"id": "223456789012345678", "type": 0,
+                                      "name": "alerts"}],
+            "/channels/223456789012345678": {"id": "223456789012345678",
+                                              "type": 0, "name": "alerts"},
+        }[path]
+    monkeypatch.setattr(run, "_req", fake_req)
+    assert run.find_channel("token", "general")["id"] == "123456789012345678"
+    assert run.channel_by_id("token", "223456789012345678")["name"] == "alerts"
+
+
+def test_ambiguous_name_is_rejected(monkeypatch):
+    def fake_req(path, _token, payload=None):
+        return {
+            "/users/@me/guilds": [{"id": "one"}, {"id": "two"}],
+            "/guilds/one/channels": [{"id": "123456789012345678", "type": 0,
+                                      "name": "general"}],
+            "/guilds/two/channels": [{"id": "223456789012345678", "type": 0,
+                                      "name": "general"}],
+        }[path]
+    monkeypatch.setattr(run, "_req", fake_req)
+    with pytest.raises(ValueError, match="multiple servers"):
+        run.find_channel("token", "general")
+    with pytest.raises(ValueError, match="Discord channel ID"):
+        run.channel_by_id("token", "general")
+
+
+def test_manifest_requires_one_exact_destination():
+    params = yaml.safe_load((Path(__file__).parent / "tool.yaml").read_text())["params"]
+    jsonschema.validate({"channel": "alerts", "text": "hello"}, params)
+    jsonschema.validate({"channel_id": "223456789012345678", "text": "hello"}, params)
+    for args in ({"text": "hello"},
+                 {"channel": "alerts", "channel_id": "223456789012345678",
+                  "text": "hello"},
+                 {"channel_id": "not-an-id", "text": "hello"}):
+        with pytest.raises(jsonschema.ValidationError):
+            jsonschema.validate(args, params)

@@ -85,6 +85,10 @@ Started 2026-09-25. This is a work checkpoint, not a command to run an agent loo
   screens remain linked for domain controls that typed pages do not yet cover.
 - [ ] A10. Migrate TTRPG collection/navigation while preserving its specialized
   game interface; test spectator/player flows and route rollback.
+  The collection and spectator route are live: the family world loads on
+  desktop/mobile, links to the exact Relay room bound to the published chat,
+  and page v3→v2→v3 rollback succeeded. A disposable-world player interaction
+  test remains before this gate can close.
 - [ ] A11. Integrate Chat Identity metadata/credential bindings and decide MCP
   Apps export from actual pinned-client tests. Record any narrowly deferred
   item with a concrete compatibility reason.
@@ -92,7 +96,10 @@ Started 2026-09-25. This is a work checkpoint, not a command to run an agent loo
   [33-mcp-apps-compatibility](../../design/33-mcp-apps-compatibility.md):
   the first-party browser is the verified interactive host, while the pinned
   CLI runners have no tested MCP Apps UI path. Chat Identity migration remains
-  open; the existing Discord transport and bindings are unchanged.
+  open; the existing Discord transport and bindings are unchanged. The
+  `discord_chat` Tool now rejects a channel name shared by multiple Discord
+  servers and accepts an exact channel ID, removing its first-match send
+  ambiguity before identity/route migration.
 - [ ] A12. Complete docs/help, security and migration tests, NUC canary,
   one-week observation, deployment evidence and push. Remove legacy view code
   only after explicit retirement review; keep data protections monotonic.
