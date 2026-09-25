@@ -257,6 +257,15 @@ async def test_market_and_tcms_tables_use_bounded_adapters(
     assert got.json() == {"rows": [expected]}
 
 
+def test_tcms_pending_verification_stays_unknown():
+    from agentplatform.api.live_views import _normalize_read
+
+    result = _normalize_read("tcms.runs.read@1", [{
+        "started_at": "2026-09-25T12:00:00Z", "branch": "main",
+        "agent": None, "n": 5, "verify_ok": None}])
+    assert result["rows"][0]["verify_ok"] is None
+
+
 @pytest.mark.parametrize(("app_name", "operation", "field", "upstream_data", "expected"), [
     ("news", "news.summary.read@1", "today",
      {"today": 3, "week": 12, "total": 80, "topics": 4,

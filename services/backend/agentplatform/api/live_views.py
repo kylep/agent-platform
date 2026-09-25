@@ -245,13 +245,14 @@ def _normalize_read(operation: str, raw: dict) -> dict:
     if operation == "tcms.runs.read@1":
         if not isinstance(raw, list) or len(raw) > 10:
             raise ValueError("invalid test run list")
-        if any(not isinstance(item.get("verify_ok"), bool) for item in raw):
+        if any(item.get("verify_ok") is not None
+               and not isinstance(item.get("verify_ok"), bool) for item in raw):
             raise ValueError("invalid verification result")
         return {"rows": [{"started_at": str(item["started_at"])[:32],
                           "branch": str(item["branch"])[:80],
                           "agent": str(item["agent"])[:80] if item.get("agent") else "",
                           "n": _count(item["n"]),
-                          "verify_ok": bool(item["verify_ok"])} for item in raw]}
+                          "verify_ok": item["verify_ok"]} for item in raw]}
     raise ValueError("unknown read operation")
 
 
