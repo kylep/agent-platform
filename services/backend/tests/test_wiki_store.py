@@ -12,15 +12,21 @@ never conflicts; an agent must act from its own run or the hop on everything it
 posts is a lie; and the whole change is one transaction, so a write that failed
 is a write that never happened."""
 import pytest
-from sqlalchemy import func, select
-
 from agentplatform import wiki_store as store
-from agentplatform.db import (Conversation, RelayMessage, Run, RunState,
-                              WikiLink, WikiPage, WikiVersion, utcnow)
-from agentplatform.events import (TOPIC_RELAY_MESSAGES, TOPIC_WIKI_EVENTS,
-                                  FakeProducer)
+from agentplatform.db import (
+    Conversation,
+    RelayMessage,
+    Run,
+    RunState,
+    WikiLink,
+    WikiPage,
+    WikiVersion,
+    utcnow,
+)
+from agentplatform.events import TOPIC_RELAY_MESSAGES, TOPIC_WIKI_EVENTS, FakeProducer
 from agentplatform.relay import SYSTEM_AUTHOR
 from agentplatform.wiki import BUDGET_PREFIX
+from sqlalchemy import func, select
 
 
 class BrokenProducer(FakeProducer):
@@ -677,17 +683,16 @@ def test_the_postgres_search_matches_the_index_and_ranks_on_tags():
     indexed expression verbatim (or every summons in every room seq-scans the
     wiki), and the rank reads the tags as well, which is what the other branch
     scores on."""
+    from agentplatform.db import WikiPage
     from sqlalchemy import select
     from sqlalchemy.dialects import postgresql
-
-    from agentplatform.db import WikiPage
     compiled = store._pg_search(
         select(WikiPage).where(WikiPage.archived_at.is_(None)),
         ["dedup", "rule"], 5).compile(dialect=postgresql.dialect())
     sql = " ".join(str(compiled).split())
     inner, _, outer = sql.rpartition(" ORDER BY ")
     match = inner.partition("WHERE ")[2].partition(" ORDER BY ")[0]
-    assert "wiki_pages.title || %(title_1)s || wiki_pages.body" in match
+    assert "wiki_pages.title || ' ' || wiki_pages.body" in match
     assert "tags" not in match
     assert "ts_rank" in outer and "tags AS TEXT)" in outer
     # And the tag-inclusive rank is computed over a BOUNDED set: the indexed
@@ -705,10 +710,9 @@ def test_the_postgres_search_ors_its_words_the_way_the_fallback_does():
     the page about Kyle. Both halves therefore OR the words and let the RANK
     decide, which is what the sqlite branch has always done (it ORs the LIKEs
     and scores the overlap)."""
+    from agentplatform.db import WikiPage
     from sqlalchemy import select
     from sqlalchemy.dialects import postgresql
-
-    from agentplatform.db import WikiPage
     compiled = store._pg_search(
         select(WikiPage).where(WikiPage.archived_at.is_(None)),
         ["dedup", "rule"], 5).compile(dialect=postgresql.dialect())
@@ -723,10 +727,9 @@ def test_the_postgres_search_never_hands_tsquery_an_operator():
     would be a syntax error on a live summons rather than a miss. The words
     come from `_search_words`, which only ever emits `[a-z0-9]+`; this is the
     guard that keeps that true at the seam where the SQL is built."""
+    from agentplatform.db import WikiPage
     from sqlalchemy import select
     from sqlalchemy.dialects import postgresql
-
-    from agentplatform.db import WikiPage
     live = select(WikiPage).where(WikiPage.archived_at.is_(None))
     compiled = store._pg_search(
         live, ["dedup", "rule!", "a:b", "ok"], 5).compile(

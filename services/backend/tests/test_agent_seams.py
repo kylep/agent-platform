@@ -20,13 +20,19 @@ from pathlib import Path
 
 import httpx
 import pytest
-
 from agentplatform.agents import AgentStore
 from agentplatform.config import Settings
 from agentplatform.db import AgentDef, Run, RunState
 from agentplatform.joblauncher import K8sJobLauncher
-from tests.conftest import (REPO_APPS, REPO_REPORTS, REPO_SECRETS, REPO_SKILLS,
-                            REPO_TOOLS)
+from agentplatform.skills import SkillStore
+
+from tests.conftest import (
+    REPO_APPS,
+    REPO_REPORTS,
+    REPO_SECRETS,
+    REPO_SKILLS,
+    REPO_TOOLS,
+)
 from tests.test_agents_api import a_def, bearer, versions_of
 
 AGENTS_GRANT = "mcp__platform__agents_grant"
@@ -242,10 +248,14 @@ async def test_a_rows_grants_survive_the_launcher_the_api_and_the_runner(
             self.job = job
 
     batch = _FakeBatch()
+    skill_root = tmp_path / "skills"
+    (skill_root / "git").mkdir(parents=True)
+    (skill_root / "git" / "SKILL.md").write_text(
+        "---\nname: git\ndescription: Test Git workflow\n---\nUse reviewed Git commands.\n")
     launcher = K8sJobLauncher(
         batch=batch, settings=Settings(runner_image="r:1", k8s_namespace="ap",
                                        api_internal_url="http://t"),
-        session_factory=sf, agent_store=store)
+        session_factory=sf, agent_store=store, skill_store=SkillStore(skill_root))
     async with sf() as s:
         await launcher.launch(await s.get(Run, run_id), store.get("newsy").manifest)
 

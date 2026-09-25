@@ -3,15 +3,38 @@ many observations arrive, and an envelope only when a number actually moved."""
 import asyncio
 from datetime import datetime, timedelta, timezone
 
-from agentplatform.db import QuotaSnapshot, utcnow
+import pytest
+from agentplatform.db import (
+    QuotaSnapshot,
+    init_db,
+    make_engine,
+    make_session_factory,
+    utcnow,
+)
 from agentplatform.events import TOPIC_QUOTA_EVENTS
 from agentplatform.quota import parse_observation
-from agentplatform.quota_store import (SNAPSHOT_ID, latest, observe, quota_feed,
-                                       serialize)
+from agentplatform.quota_store import (
+    SNAPSHOT_ID,
+    latest,
+    observe,
+    quota_feed,
+    serialize,
+)
 from sqlalchemy import func, select
 
 NOW = datetime(2026, 9, 14, 15, 2, 11, tzinfo=timezone.utc)
 RESET_5H = datetime(2026, 9, 14, 19, 0, tzinfo=timezone.utc)
+
+
+@pytest.fixture
+async def concurrent_sf(tmp_path):
+    # The global in-memory SQLite fixture gives every AsyncSession the SAME
+    # connection. Its savepoints interfere with each other, which is not a
+    # concurrency test of the store. Use independent file-backed connections.
+    engine = make_engine(f"sqlite+aiosqlite:///{tmp_path / 'quota-race.db'}")
+    await init_db(engine)
+    yield make_session_factory(engine)
+    await engine.dispose()
 
 
 def observation(util="0.22", *, at=NOW, source="proxy"):
@@ -81,7 +104,8 @@ async def test_a_changed_reset_alone_publishes(sf, producer):
     assert len(producer.published) == 2
 
 
-async def test_concurrent_observes_leave_one_row(sf, producer):
+async def test_concurrent_observes_leave_one_row(concurrent_sf, producer):
+    sf = concurrent_sf
     async def one(util):
         async with sf() as s:
             await observe(s, producer, observation(util))
@@ -138,10 +162,14 @@ def test_quota_feed_is_one_stream_over_the_quota_topic():
     assert feed.frame_of({"nothing": "useful"}) is None
 
 
-async def test_a_burst_of_first_observations_leaves_one_row(sf, producer):
-    """Every caller returns, exactly one row exists, and it carries the last
-    observation — the singleton insert race, which only exists before the row
-    does."""
+async def test_a_burst_of_first_observations_leaves_one_row(concurrent_sf, producer):
+    """Every caller returns and exactly one row exists after the insert race.
+
+    File-backed SQLite supplies independent connections but not PostgreSQL's
+    FOR UPDATE row lock. Ordering is covered by the sequential newer/older
+    tests below; the final writer of this SQLite burst is not deterministic.
+    """
+    sf = concurrent_sf
     stamps = [NOW + timedelta(seconds=i) for i in range(10)]
 
     async def one(i):
@@ -153,8 +181,9 @@ async def test_a_burst_of_first_observations_leaves_one_row(sf, producer):
     assert await row_count(sf) == 1
     async with sf() as s:
         row = await latest(s)
-    assert row.five_hour_utilization == 0.29
-    assert serialize(row, stamps[-1])["observed_at"] == stamps[-1].isoformat()
+    assert row.five_hour_utilization in {float(f"0.{20 + i}") for i in range(10)}
+    assert serialize(row, stamps[-1])["observed_at"] == row.observed_at.replace(
+        tzinfo=timezone.utc).isoformat()
 
 
 async def test_an_older_observation_never_overwrites_a_newer_one(sf, producer):

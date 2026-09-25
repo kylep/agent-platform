@@ -35,22 +35,41 @@ import re
 from datetime import timedelta
 from types import SimpleNamespace
 
-from sqlalchemy import Text, cast, delete, false, func, or_, select
+from sqlalchemy import Text, cast, delete, false, func, literal_column, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import aliased
 
 from agentplatform.config import get_settings
-from agentplatform.db import (Conversation, RelayMessage, WikiLink, WikiPage,
-                              WikiVersion, utcnow)
+from agentplatform.db import (
+    Conversation,
+    RelayMessage,
+    WikiLink,
+    WikiPage,
+    WikiVersion,
+    utcnow,
+)
 from agentplatform.events import TOPIC_WIKI_EVENTS
 from agentplatform.relay import AGENT_PREFIX, SYSTEM_AUTHOR, agent_name, is_agent
-from agentplatform.relay_store import (channel_by_name, outbound_for_message,
-                                       post_relay_message, publish_relay_message)
+from agentplatform.relay_store import (
+    channel_by_name,
+    outbound_for_message,
+    post_relay_message,
+    publish_relay_message,
+)
 from agentplatform.tickets import participant_label
-from agentplatform.wiki import (BUDGET_PREFIX, REASON_LIMIT, SLUG_RE,
-                                TITLE_LIMIT, budget_body, card_body, card_for,
-                                find_links, line_counts, promoted_body,
-                                summary_of)
+from agentplatform.wiki import (
+    BUDGET_PREFIX,
+    REASON_LIMIT,
+    SLUG_RE,
+    TITLE_LIMIT,
+    budget_body,
+    card_body,
+    card_for,
+    find_links,
+    line_counts,
+    promoted_body,
+    summary_of,
+)
 
 log = logging.getLogger("wiki_store")
 
@@ -551,7 +570,11 @@ def _pg_search(live, words: list[str], limit: int):
     # Words that are all stopwords ("where does this") parse to an EMPTY
     # tsquery, which matches nothing — a miss, never an error.
     query = func.to_tsquery("english", " | ".join(safe))
-    indexed = func.to_tsvector("english", WikiPage.title + " " + WikiPage.body)
+    # Keep the separator literal in SQL. SQLAlchemy 2.0 may cast a bound
+    # string parameter to VARCHAR, producing a different-looking expression
+    # from the fixed GIN index DDL below.
+    indexed = func.to_tsvector("english", WikiPage.title + literal_column("' '")
+                               + WikiPage.body)
     # Ties broken by slug for the reason the other branch breaks them there,
     # in BOTH passes: the inner one decides which rows the outer gets to see.
     candidates = (live.where(indexed.op("@@")(query))
