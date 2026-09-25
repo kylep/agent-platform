@@ -124,8 +124,16 @@ Commit `19c9ebb` adds a bounded, owner-only recent-activities adapter and
 typed table block. Running's published page is version 3 with ten live rows;
 the adapter strips unapproved fields. The backend and web images are live;
 the API returned exactly ten rows and desktop/mobile browser smoke passed.
-The first mobile screenshot exposed narrow table wrapping, so a card-style
-mobile layout is being finished before this phase closes.
+The first mobile screenshot exposed narrow table wrapping; the next commit
+changed it to cards.
+
+The mobile layout shipped in `7d269e7`; the final 390px browser check showed
+ten readable activity cards with no horizontal overflow. News v2 now adds ten
+recent story rows (`72ad3eb`), and Stockmarket/TCMS v2 add user watchlist and
+recent test-run rows (`bbb0474`, nullable verification fix `2d98920`). All
+three were read and browser-checked live at desktop and 390px. The Stockmarket
+principal's watchlist is empty, which is rendered as an empty state; TCMS
+returned four runs. The specialized domain views remain working and linked.
 
 Quota reading at 2026-09-25 15:36 UTC: Codex weekly utilization 84%, reset
 2026-09-25 17:18:35 UTC. It was observed less than a minute earlier.

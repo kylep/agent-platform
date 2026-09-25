@@ -8,9 +8,9 @@ domain services. The action-by-action inventory is in
 | App | Current service and state | Published DB page | Presentation decision |
 |---|---|---|---|
 | Running | Ready; Postgres projection; `app.running.inbound` and `app.running.brief.posted` | `e653369d2d814705a2104afb272815c7`, v3 | Typed summary, ten recent activities, Ticket action and snapshot; keep coaching, PRs, heatmap and calendar in the linked domain UI until parity is demonstrated |
-| News | Ready; Postgres archive; three news Kafka topics | `b753850e165544309b9701d5c29c3a1e`, v1 | Typed counts/dates; keep topic and item browsing in the linked domain UI |
-| Stockmarket | Ready; Postgres archive; inbound and brief Kafka topics | `838ff69d3f9c4a8984e660c063f0e349`, v1 | Typed counts/dates; keep charts, watchlist and briefs in the linked domain UI |
-| TCMS | Ready; Postgres evidence; `app.tcms.run.recorded` | `e21cdc52364b4db1b5ad73634b1c04a0`, v1 | Typed attention counts; keep cases, runs and evidence views in the linked domain UI |
+| News | Ready; Postgres archive; three news Kafka topics | `b753850e165544309b9701d5c29c3a1e`, v2 | Typed counts/dates and ten recent stories; keep topic search and full item browsing in the linked domain UI |
+| Stockmarket | Ready; Postgres archive; inbound and brief Kafka topics | `838ff69d3f9c4a8984e660c063f0e349`, v2 | Typed counts/dates and user watchlist; keep charts, watchlist editing and briefs in the linked domain UI |
+| TCMS | Ready; Postgres evidence; `app.tcms.run.recorded` | `e21cdc52364b4db1b5ad73634b1c04a0`, v2 | Typed attention counts and recent test runs; keep cases and evidence detail in the linked domain UI |
 | TTRPG | Ready; separate `claude-ttrpg` image and dedicated world PVC; no app Postgres or Kafka declaration | `4fa2c80ea71c4184a570779dbde123f0`, v1 | DB collection/navigation; keep the real-time game/player/spectator interface in its specialized UI |
 
 The five rows above came from authenticated `GET /api/apps` on pai: each
@@ -25,6 +25,12 @@ approved fields, and its page passed desktop and 390px browser checks with no
 horizontal overflow. At this checkpoint the Running projection reported 37
 runs, 48 activities, 339.9 km and latest activity on 2026-09-20. These are
 observations, not fixtures or performance targets.
+
+News v2 returned ten recent stories with four approved text fields. TCMS v2
+returned four test-run rows; Stockmarket v2 correctly returned an empty
+watchlist for this principal. All three rendered at 1280px and 390px without
+page errors or horizontal overflow. Their specialized interfaces remained
+available at the linked routes throughout the cutover.
 
 The platform API authenticates the viewer and restricts a Live View to the
 collection owner or an admin. New page reads use a closed operation name,

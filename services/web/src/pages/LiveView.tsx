@@ -27,7 +27,11 @@ function newIdempotencyKey(): string {
 }
 
 function columnLabel(column: string): string {
-  return column === "distance_km" ? "Distance" :
+  const labels: Record<string, string> = {
+    distance_km: "Distance", started_at: "Started", n: "Results",
+    verify_ok: "Verification", latest_close: "Latest close", change_pct: "Change",
+  };
+  return labels[column] ||
     column.charAt(0).toUpperCase() + column.slice(1).replaceAll("_", " ");
 }
 
@@ -36,6 +40,10 @@ function tableValue(column: string, value: unknown): string {
   if (column === "distance_km") return `${value} km`;
   if (column === "change_pct") return `${value}%`;
   if (column === "verify_ok") return value === true ? "Passed" : "Failed";
+  if (column === "started_at") {
+    const date = new Date(String(value));
+    return Number.isNaN(date.getTime()) ? String(value) : date.toLocaleString();
+  }
   return String(value);
 }
 
