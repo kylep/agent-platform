@@ -89,6 +89,17 @@ async def test_domain_link_stays_inside_its_app(admin_client):
     assert accepted.status_code == 201
 
 
+def test_chat_block_only_accepts_a_relay_read():
+    from agentplatform.api.live_views import TypedDefinition
+
+    with pytest.raises(ValueError, match="chat can only render a Relay"):
+        TypedDefinition.model_validate({
+            "title": "Wrong source",
+            "reads": [{"alias": "recent", "operation": "running.activities.read@1"}],
+            "blocks": [{"kind": "chat", "source": "recent"}],
+        })
+
+
 async def test_running_read_uses_published_binding_and_owner_acl(
         admin_client, token_client, sf, monkeypatch):
     from agentplatform.api import live_views as views_api
@@ -193,7 +204,7 @@ async def test_relay_page_read_rechecks_membership_and_cannot_be_snapshotted(
         "app_name": "ttrpg", "slug": "table-chat", "definition": {
             "title": "Table", "reads": [{"alias": "chat",
                 "operation": "relay.channel.read@1", "channel_id": channel_id}],
-            "blocks": [{"kind": "table", "source": "chat"}]}})
+            "blocks": [{"kind": "chat", "source": "chat"}]}})
     assert made.status_code == 201, made.text
     view_id = made.json()["id"]
     await admin_client.post(f"/api/live-views/{view_id}/publish")

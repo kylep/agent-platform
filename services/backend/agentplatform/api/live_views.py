@@ -58,7 +58,7 @@ TABLE_FIELDS = {
 
 class TypedBlock(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    kind: Literal["heading", "paragraph", "metric", "table", "action", "link"]
+    kind: Literal["heading", "paragraph", "metric", "table", "chat", "action", "link"]
     text: str = Field(default="", max_length=4000)
     label: str = Field(default="", max_length=128)
     value: str = Field(default="", max_length=256)
@@ -114,7 +114,7 @@ class TypedDefinition(BaseModel):
             raise ValueError("action aliases must be unique")
         for block in self.blocks:
             if (block.source is not None
-                    and (block.kind not in ("metric", "table")
+                    and (block.kind not in ("metric", "table", "chat")
                          or block.source not in aliases)):
                 raise ValueError("data block must reference a declared read")
             if block.kind == "metric" and block.source is not None:
@@ -137,6 +137,12 @@ class TypedDefinition(BaseModel):
                     raise ValueError("table columns must be unique approved fields")
             elif block.columns:
                 raise ValueError("only a table may name columns")
+            if block.kind == "chat":
+                if block.source is None:
+                    raise ValueError("chat needs a Relay read source")
+                operation = next(b.operation for b in self.reads if b.alias == block.source)
+                if operation != "relay.channel.read@1":
+                    raise ValueError("chat can only render a Relay channel read")
             if block.kind == "action" and block.action_alias not in action_aliases:
                 raise ValueError("action block must reference a declared action")
             if block.kind != "action" and block.action_alias is not None:

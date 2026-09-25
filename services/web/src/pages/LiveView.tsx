@@ -4,7 +4,7 @@ import { api } from "../api";
 import { Button } from "@ap/ui/button";
 import { Input, Textarea } from "@ap/ui/field";
 
-type Block = { kind: "heading" | "paragraph" | "metric" | "table" | "action" | "link"; text: string; label: string; value: string;
+type Block = { kind: "heading" | "paragraph" | "metric" | "table" | "chat" | "action" | "link"; text: string; label: string; value: string;
   source: string | null; field: string | null; columns: string[];
   action_alias: string | null; href: string | null };
 type PublishedView = {
@@ -40,7 +40,7 @@ function tableValue(column: string, value: unknown): string {
   if (column === "distance_km") return `${value} km`;
   if (column === "change_pct") return `${value}%`;
   if (column === "verify_ok") return value === true ? "Passed" : "Failed";
-  if (column === "started_at") {
+  if (column === "started_at" || column === "created_at") {
     const date = new Date(String(value));
     return Number.isNaN(date.getTime()) ? String(value) : date.toLocaleString();
   }
@@ -162,6 +162,20 @@ export default function LiveViewPage() {
             const action = view.definition.actions.find((a) => a.alias === block.action_alias);
             return action ? <TicketAction key={index} viewId={view.id} label={block.label}
               alias={action.alias} channel={action.channel} /> : null;
+          }
+          if (block.kind === "chat") {
+            const data = block.source ? readData[block.source] : null;
+            const rows = Array.isArray(data?.rows) ? data.rows as Record<string, unknown>[] : [];
+            return <section className="live-view-chat" key={index}>
+              <h2>{block.label || "Recent conversation"}</h2>
+              {!data && !readError ? <p className="muted">Loading conversation…</p>
+                : rows.length ? <ol>{rows.map((row, i) => <li key={i}>
+                  <div className="live-view-chat-meta"><strong>{String(row.author || "Unknown")}</strong>
+                    <time dateTime={String(row.created_at || "")}>{tableValue("created_at", row.created_at)}</time>
+                  </div>
+                  <p>{String(row.body || "")}</p>
+                </li>)}</ol> : !readError ? <p className="muted">No messages yet.</p> : null}
+            </section>;
           }
           if (block.kind === "table") {
             const data = block.source ? readData[block.source] : null;

@@ -5,7 +5,7 @@ import { Button } from "@ap/ui/button";
 import { Input, Textarea } from "@ap/ui/field";
 
 type Definition = { renderer: "typed/v1"; title: string; blocks: {
-  kind: "heading" | "paragraph" | "metric" | "table" | "action" | "link"; text?: string;
+  kind: "heading" | "paragraph" | "metric" | "table" | "chat" | "action" | "link"; text?: string;
   label?: string; value?: string; source?: string; field?: string; columns?: string[];
   action_alias?: string; href?: string }[];
   reads: { alias: string; operation: string; channel_id?: string }[];
@@ -167,6 +167,12 @@ export default function LiveViewEditor() {
               <strong>{block.source
                 ? sampleValue(previewField(operations, preview!, block.source, block.field), block.field || "Value")
                 : block.value}</strong></div>;
+            if (block.kind === "chat") return <section className="live-view-chat" key={index}>
+              <h4>{block.label || "Recent conversation"}</h4>
+              <ol><li><div className="live-view-chat-meta"><strong>agent:example</strong>
+                <time>Sep 25, 2026, 1:00 PM</time></div>
+                <p>A sample line from this room appears here.</p></li></ol>
+            </section>;
             if (block.kind === "table") {
               const rowFields = previewField(operations, preview!, block.source, "rows")?.items?.properties || {};
               const columns = block.columns?.length ? block.columns : Object.keys(rowFields);
