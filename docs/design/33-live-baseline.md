@@ -15,7 +15,12 @@ domain services. The action-by-action inventory is in
 
 The five rows above came from authenticated `GET /api/apps` on pai: each
 declared service was ready. The published pages and domain links returned 200
-in browser checks. Running's owner-only read returned ten rows with the five
+in browser checks. A second direct browser pass found all five specialist
+routes returned 200 with zero page errors after their initial render: Running
+showed calendar, mileage, records and coach brief; News showed today's archive
+and topics; Stockmarket showed brief and watchlist; TCMS showed overview and
+evidence sections; TTRPG showed its story/map/party view. Running's
+owner-only read returned ten rows with the five
 approved fields, and its page passed desktop and 390px browser checks with no
 horizontal overflow. At this checkpoint the Running projection reported 37
 runs, 48 activities, 339.9 km and latest activity on 2026-09-20. These are
