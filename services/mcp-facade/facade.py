@@ -20,13 +20,13 @@ The surface is CURATED into three tiers (curation 2026-08-24; see
   reads, destructive/bulk ops, the relay channel lifecycle (creating, renaming
   and archiving rooms), a system row into a room one is not in, and
   archiving a wiki page. Offered ONLY when `AP_MCP_ADMIN_TOOLS` is truthy
-  (`admin_tools_enabled()`). 38 of them. The
+  (`admin_tools_enabled()`). 39 of them. The
   role ladder authorizes every call regardless — the flag controls the MENU,
   not the kitchen.
 - **EXCLUDE** — UI form-feeders, reviewer digests the client can compute,
   git-edit conveniences redundant with having the repo, and system-agent
   endpoints. Never tools. 19 curated-out, plus 22 session/internal/streaming/
-  byte-serving operations below — 200 graded operations in all.
+  byte-serving operations below — 201 graded operations in all.
 
 It is deliberately NOT the mcp-broker. The broker authenticates in-cluster run
 identities and scopes tools to an agent's grants (design/13, design/15). This
@@ -155,6 +155,7 @@ CURATED_OUT = (
 # purpose: each covers its whole domain and nothing else starts with it (the
 # stale-pattern test keeps that honest).
 GATED_ADMIN = (
+    (("GET",),    r"^/api/live-actions/observation$"),
     (("GET",),    r"^/api/chat-identities$"),
     ("*",         r"^/api/live-operation-grants"),
     (("POST",),   r"^/api/app-collections$"),

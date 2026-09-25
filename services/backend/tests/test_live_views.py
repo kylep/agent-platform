@@ -2,7 +2,29 @@
 import httpx
 import pytest
 from agentplatform.apikeys import hash_token
-from agentplatform.db import ApiKey, Conversation, RelayParticipant
+from agentplatform.db import ApiKey, Conversation, LiveInvocation, RelayParticipant
+
+
+async def test_live_action_observation_is_admin_only_and_omits_arguments(
+        admin_client, token_client, sf):
+    async with sf() as session:
+        session.add(LiveInvocation(intent_id="intent-observe", view_id="view-observe",
+                                   view_version=1, principal_id="admin", alias="create",
+                                   operation="tickets.create@1", target="private-room",
+                                   args_digest="a" * 64, idempotency_key="observe-key",
+                                   status="outcome_unknown", result={"reason": "inspect"}))
+        await session.commit()
+    observed = await admin_client.get("/api/live-actions/observation?days=7")
+    assert observed.status_code == 200
+    body = observed.json()
+    assert body["invocations_by_status"] == {"outcome_unknown": 1}
+    assert len(body["unresolved"]) == 1
+    assert body["unresolved"][0]["view_id"] == "view-observe"
+    assert "private-room" not in observed.text and "a" * 64 not in observed.text
+    assert (await admin_client.get("/api/live-actions/observation?days=0")).status_code == 422
+    token = await _reader_key(sf)
+    assert (await token_client.get("/api/live-actions/observation",
+                                   headers={"Authorization": f"Bearer {token}"})).status_code == 403
 
 
 async def _reader_key(sf, name="reader"):

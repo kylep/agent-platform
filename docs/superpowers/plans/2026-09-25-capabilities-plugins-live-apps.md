@@ -83,12 +83,15 @@ Started 2026-09-25. This is a work checkpoint, not a command to run an agent loo
   All three published DB pages are primary entry points from Apps. Their
   summary fields matched the existing domain APIs on pai, and the detailed
   screens remain linked for domain controls that typed pages do not yet cover.
-- [ ] A10. Migrate TTRPG collection/navigation while preserving its specialized
+- [x] A10. Migrate TTRPG collection/navigation while preserving its specialized
   game interface; test spectator/player flows and route rollback.
   The collection and spectator route are live: the family world loads on
   desktop/mobile, links to the exact Relay room bound to the published chat,
-  and page v3→v2→v3 rollback succeeded. A disposable-world player interaction
-  test remains before this gate can close.
+  and page v3→v2→v3 rollback succeeded. A disposable local hosted world then
+  proved a player roll reaches the GM, a player cannot execute GM commands,
+  and a real GM scene appears in the player-safe story with idempotent retry.
+  The deployed family viewer was checked read-only on desktop/mobile; no
+  agent played a disposable world inside the NUC deployment.
 - [ ] A11. Integrate Chat Identity metadata/credential bindings and decide MCP
   Apps export from actual pinned-client tests. Record any narrowly deferred
   item with a concrete compatibility reason.
@@ -110,7 +113,10 @@ Started 2026-09-25. This is a work checkpoint, not a command to run an agent loo
   validates one destination and stamps the default identity.
 - [ ] A12. Complete docs/help, security and migration tests, NUC canary,
   one-week observation, deployment evidence and push. Remove legacy view code
-  only after explicit retirement review; keep data protections monotonic.
+  only after explicit retirement review; keep data protections monotonic. An
+  admin-only action observation endpoint now supplies bounded receipt counts,
+  unresolved IDs and revoked-grant count for a 1–30 day window. It cannot
+  substitute for gateway/API page-read latency and error observations.
 
 ## Current checkpoint
 
@@ -121,7 +127,8 @@ connection reuse and a one-query authorization lookup. Keep its direct
 domain interface and revisit the gate with a representative browser workload
 before retiring any detailed screen. The latest optimized backend commit
 passed full CI. TTRPG's real spectator view, Relay handoff, and reversible
-page rollback passed on pai; a disposable-world player action remains untested.
+page rollback passed on pai; its player/GM action boundary passed against a
+disposable local hosted world without changing the family's world.
 The existing Discord Tool now denies ambiguous channel names and accepts an
 immutable channel ID; the synced registry returned its new schema without
 error. The first Chat Identity row is deployed (Helm revision 73): the live

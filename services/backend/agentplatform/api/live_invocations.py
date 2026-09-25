@@ -8,7 +8,7 @@ from datetime import timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 
 from agentplatform import ticket_store
@@ -218,6 +218,34 @@ def _receipt(row: LiveInvocation) -> dict:
     return {"id": row.id, "status": row.status, "result": row.result,
             "view_id": row.view_id, "operation": row.operation,
             "created_at": row.created_at.isoformat()}
+
+
+@router.get("/api/live-actions/observation")
+async def live_action_observation(request: Request, days: int = 7,
+                                  actor: str = Depends(require_admin)):
+    """Bounded receipt evidence for a canary window; no action arguments."""
+    if not 1 <= days <= 30:
+        raise HTTPException(422, "days must be between 1 and 30")
+    since = utcnow() - timedelta(days=days)
+    async with request.app.state.session_factory() as session:
+        counts = (await session.execute(select(
+            LiveInvocation.status, func.count(LiveInvocation.id)).where(
+                LiveInvocation.created_at >= since).group_by(LiveInvocation.status)
+        )).all()
+        unresolved = (await session.execute(select(
+            LiveInvocation.id, LiveInvocation.view_id, LiveInvocation.created_at).where(
+                LiveInvocation.created_at >= since,
+                LiveInvocation.status == "outcome_unknown").order_by(
+                    LiveInvocation.created_at.desc()).limit(10)
+        )).all()
+        revoked = (await session.execute(select(func.count()).select_from(
+            LiveOperationGrant).where(LiveOperationGrant.revoked_at.is_not(None))
+        )).scalar_one()
+    return {"since": since.isoformat(), "days": days,
+            "invocations_by_status": {status: count for status, count in counts},
+            "unresolved": [{"id": row.id, "view_id": row.view_id,
+                            "created_at": row.created_at.isoformat()} for row in unresolved],
+            "revoked_grants_current": revoked}
 
 
 @router.get("/api/live-invocations/{invocation_id}")

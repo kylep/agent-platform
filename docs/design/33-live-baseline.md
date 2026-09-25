@@ -45,6 +45,18 @@ the chat block as expected and restoration to v3 immediately brought it back.
 These checks did not click game actions or take a player seat in the family
 world, so they do not establish player interaction parity.
 
+A later disposable-world host check used `claude-ttrpg` commit `00d4c97` and
+the minigame fixture in a temporary directory. A player-agent identity rolled
+one real d20 through `/_internal/roll`; the GM view contained that exact roll.
+The same player identity received 403 on `/_internal/command`. The GM then
+ran a real `story scene` engine command; the player-safe `/apps/ttrpg/api/story`
+contained its title, and retrying the command ID returned the prior result.
+The temporary world was deleted after the check. A fresh read-only browser
+pass of pai's specialized `Family Main` viewer returned 200 at 1280px and
+390px with no page errors or horizontal overflow. Together these cover the
+hosted player/GM command boundary and the deployed spectator interface; they
+do not claim that an agent played a disposable world inside the NUC deployment.
+
 After making published pages the primary Apps entry points, a 390px Chromium
 pass found all five cards linked to their live pages and retained a separate
 "Detailed app" link to each existing interface. It had no browser errors or
@@ -76,6 +88,12 @@ laptop's installed clients observed for plugin registration were Claude Code
 locally in both and injected into exact pinned runner images as assigned
 SKILL.md files. Image/version behavior was checked in the package smoke tests;
 model use is a separate evaluation gate.
+
+The action-observation route first went live on 2026-09-25. Its initial
+seven-day window reported one succeeded Live App invocation, zero unresolved
+outcomes and one currently revoked action grant. This is a receipt baseline,
+not seven days of post-deployment observation. Page-read errors and latency
+must still be gathered separately before the observation gate closes.
 
 Still to measure before retiring a specialized screen: representative page
 latency, CPU/RSS on pai, operation denial/receipt rates, and domain-specific

@@ -108,3 +108,10 @@ an agent or send to Discord. An idempotent receipt records the outcome.
 Further Tools need a reviewed operation contract and an explicit grant before
 a page may invoke them. The Apps directory opens published pages first and
 keeps the detailed domain screens linked for specialized controls.
+
+An admin can inspect the last 1–30 days of durable action receipts at
+`GET /api/live-actions/observation?days=7`. It returns status counts, up to ten
+unresolved receipt IDs, and the current number of revoked action grants.
+Arguments, destination IDs and user content stay out of this aggregate. This
+is action evidence only; page-read latency/errors still require the gateway
+and API metrics/logs during a canary.
