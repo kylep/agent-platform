@@ -164,15 +164,18 @@ export default function LiveViewEditor() {
               <strong>{block.source
                 ? sampleValue(previewField(operations, preview!, block.source, block.field), block.field || "Value")
                 : block.value}</strong></div>;
-            if (block.kind === "table") return <section className="live-view-table" key={index}>
-              <h4>{block.label || "Table"}</h4>
-              <div className="table-scroll"><table><thead><tr>{(block.columns || []).map((column) =>
-                <th key={column}>{column.replaceAll("_", " ")}</th>)}</tr></thead><tbody><tr>
-                {(block.columns || []).map((column) => <td key={column} data-label={column.replaceAll("_", " ")}>
-                  {sampleValue(previewField(operations, preview!, block.source, "rows")?.items?.properties?.[column], column)}
-                </td>)}
-              </tr></tbody></table></div>
-            </section>;
+            if (block.kind === "table") {
+              const rowFields = previewField(operations, preview!, block.source, "rows")?.items?.properties || {};
+              const columns = block.columns?.length ? block.columns : Object.keys(rowFields);
+              return <section className="live-view-table" key={index}>
+                <h4>{block.label || "Table"}</h4>
+                {columns.length ? <div className="table-scroll"><table><thead><tr>{columns.map((column) =>
+                  <th key={column}>{column.replaceAll("_", " ")}</th>)}</tr></thead><tbody><tr>
+                  {columns.map((column) => <td key={column} data-label={column.replaceAll("_", " ")}>
+                    {sampleValue(rowFields[column], column)}</td>)}
+                </tr></tbody></table></div> : <p className="muted">Add a reviewed table read to preview its columns.</p>}
+              </section>;
+            }
             return <p key={index}><strong>{block.label || "Action"}</strong> · {block.action_alias}</p>;
           })}
         </> : <p className="muted">Enter a typed/v1 JSON definition to preview it.</p>}
