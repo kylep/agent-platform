@@ -1024,12 +1024,45 @@ async def test_the_cross_channel_list_is_what_a_connector_reads(admin_client, sf
     await admin_client.post(f"/api/relay/channels/{ops}/bindings",
                             json={"connector": "slack", "external_ref": "222"})
     rows = (await admin_client.get("/api/relay/bindings?connector=discord")).json()
-    assert rows == [{"channel_id": general, "external_ref": "111",
+    assert rows == [{"channel_id": general, "identity_id": "discord-default",
+                     "external_ref": "111",
                      "external_kind": "channel", "parent_external_ref": None,
                      "display_name": "", "external_url": "", "status": "active",
                      "config": {"guild": "g"}}]
     assert [r["external_ref"] for r in
             (await admin_client.get("/api/relay/bindings?connector=slack")).json()] == ["222"]
+
+
+async def test_default_chat_identity_is_admin_metadata_not_a_secret(
+        admin_client, token_client, sf):
+    found = await admin_client.get("/api/chat-identities")
+    assert found.status_code == 200
+    discord = next(row for row in found.json() if row["id"] == "discord-default")
+    assert discord["connector"] == "discord"
+    assert discord["secret_refs"] == {"bot_token": {
+        "secret": "discord-bot", "key": "token"}}
+    assert isinstance(discord["configured"], bool)
+    assert discord["bound_routes"] == 0
+    reader = await _human_token(sf, "reader", "reader")
+    assert (await token_client.get("/api/chat-identities", headers=reader)).status_code == 403
+
+
+async def test_existing_discord_binding_gets_default_identity_on_restart(
+        admin_client, sf):
+    from agentplatform.db import RelayBinding, init_db
+
+    cid = await _channel_id(sf, "general")
+    created = await admin_client.post(f"/api/relay/channels/{cid}/bindings", json={
+        "connector": "discord", "external_ref": "123456789012345678"})
+    assert created.status_code == 201
+    async with sf() as session:
+        row = await session.get(RelayBinding, created.json()["id"])
+        row.identity_id = None  # a binding written before this migration
+        await session.commit()
+    await init_db(sf.kw["bind"])
+    async with sf() as session:
+        row = await session.get(RelayBinding, created.json()["id"])
+        assert row.identity_id == "discord-default"
 
 
 async def test_bindings_are_human_only(admin_client, token_client, sf, seed_agent,

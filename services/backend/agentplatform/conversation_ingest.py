@@ -18,8 +18,8 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
 from agentplatform.conversation import author_of, continue_conversation
-from agentplatform.db import (Conversation, RelayBinding, RelayMessage, RelayParticipant,
-                              utcnow)
+from agentplatform.db import (DEFAULT_DISCORD_IDENTITY, Conversation, RelayBinding,
+                              RelayMessage, RelayParticipant, utcnow)
 from agentplatform.events import TOPIC_CONVERSATION_INBOUND, consume_forever
 from agentplatform.relay import mentionable_in, parse_mentions, room_dispatch_mode
 from agentplatform.relay_store import (enabled_agents, explicit_members,
@@ -37,6 +37,10 @@ class ConversationIngestor:
 
     async def handle(self, data: dict) -> None:
         connector = data["connector"]
+        if connector == "discord" and data.get("identity_id") not in (
+                None, DEFAULT_DISCORD_IDENTITY):
+            log.warning("dropping Discord message from an unknown chat identity")
+            return
         external_ref = data.get("external_ref")
         text = data.get("text", "")
         agent = data.get("agent", "echo")   # the connector's default agent
@@ -212,6 +216,7 @@ class ConversationIngestor:
         if external_ref:
             binding = RelayBinding(
                 channel_id=conv.id, connector=connector, external_ref=external_ref,
+                identity_id=(DEFAULT_DISCORD_IDENTITY if connector == "discord" else None),
                 external_kind=data.get("external_kind") or "thread",
                 parent_external_ref=data.get("external_parent_ref"),
                 display_name=data.get("external_title") or "",

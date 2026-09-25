@@ -29,6 +29,7 @@ class RelayBindingRef:
             external_ref (str):
             display_name (str | Unset):  Default: ''.
             external_url (str | Unset):  Default: ''.
+            identity_id (None | str | Unset):
             parent_external_ref (None | str | Unset):
             status (str | Unset):  Default: 'active'.
     """
@@ -39,6 +40,7 @@ class RelayBindingRef:
     external_ref: str
     display_name: str | Unset = ""
     external_url: str | Unset = ""
+    identity_id: None | str | Unset = UNSET
     parent_external_ref: None | str | Unset = UNSET
     status: str | Unset = "active"
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
@@ -55,6 +57,12 @@ class RelayBindingRef:
         display_name = self.display_name
 
         external_url = self.external_url
+
+        identity_id: None | str | Unset
+        if isinstance(self.identity_id, Unset):
+            identity_id = UNSET
+        else:
+            identity_id = self.identity_id
 
         parent_external_ref: None | str | Unset
         if isinstance(self.parent_external_ref, Unset):
@@ -78,6 +86,8 @@ class RelayBindingRef:
             field_dict["display_name"] = display_name
         if external_url is not UNSET:
             field_dict["external_url"] = external_url
+        if identity_id is not UNSET:
+            field_dict["identity_id"] = identity_id
         if parent_external_ref is not UNSET:
             field_dict["parent_external_ref"] = parent_external_ref
         if status is not UNSET:
@@ -102,6 +112,15 @@ class RelayBindingRef:
 
         external_url = d.pop("external_url", UNSET)
 
+        def _parse_identity_id(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        identity_id = _parse_identity_id(d.pop("identity_id", UNSET))
+
         def _parse_parent_external_ref(data: object) -> None | str | Unset:
             if data is None:
                 return data
@@ -122,6 +141,7 @@ class RelayBindingRef:
             external_ref=external_ref,
             display_name=display_name,
             external_url=external_url,
+            identity_id=identity_id,
             parent_external_ref=parent_external_ref,
             status=status,
         )

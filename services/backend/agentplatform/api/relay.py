@@ -523,6 +523,7 @@ CONNECTORS = ("discord", "slack", "telegram")
 
 def _binding(row) -> dict:
     return {"id": row.id, "connector": row.connector,
+            "identity_id": row.identity_id,
             "external_ref": row.external_ref,
             "external_kind": row.external_kind or "channel",
             "parent_external_ref": row.parent_external_ref,
@@ -551,6 +552,7 @@ async def list_bindings_for_connector(request: Request,
                    BindingRow.status == "active")
             .order_by(BindingRow.external_ref))).scalars())
     return [{"channel_id": r.channel_id, "external_ref": r.external_ref,
+             "identity_id": r.identity_id,
              "external_kind": r.external_kind or "channel",
              "parent_external_ref": r.parent_external_ref,
              "display_name": r.display_name or "",
@@ -575,6 +577,10 @@ async def list_relay_bindings(request: Request, channel_id: str):
 async def create_relay_binding(request: Request, channel_id: str, body: S.RelayBindingIn):
     if body.connector not in CONNECTORS:
         raise HTTPException(422, f"connector must be one of {', '.join(CONNECTORS)}")
+    from agentplatform.db import DEFAULT_DISCORD_IDENTITY
+    identity_id = DEFAULT_DISCORD_IDENTITY if body.connector == "discord" else None
+    if body.identity_id not in (None, identity_id):
+        raise HTTPException(422, "chat identity is not connected to this transport")
     external_ref = body.external_ref.strip()
     if not external_ref:
         raise HTTPException(422, "external_ref must name a room on that network")
@@ -591,6 +597,7 @@ async def create_relay_binding(request: Request, channel_id: str, body: S.RelayB
             # connector then mirrors twice.
             raise HTTPException(409, "DMs are bound by the connector's own thread flow")
         row = BindingRow(channel_id=channel_id, connector=body.connector,
+                         identity_id=identity_id,
                          external_ref=external_ref,
                          external_kind=body.external_kind,
                          parent_external_ref=body.parent_external_ref,

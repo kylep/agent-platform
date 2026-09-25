@@ -122,6 +122,7 @@ class DiscordConnector:
     def __init__(self):
         self.bootstrap = os.environ.get("AP_KAFKA_BOOTSTRAP", "ap-kafka:9092")
         self.agent = os.environ.get("CONNECTOR_AGENT", "echo")
+        self.identity_id = os.environ.get("AP_CHAT_IDENTITY", "discord-default")
         self.token = os.environ["DISCORD_BOT_TOKEN"]
         self.api_url = os.environ.get("AP_API_URL",
                                       "http://agent-platform-api:8000").rstrip("/")
@@ -175,6 +176,8 @@ class DiscordConnector:
         a binding for somebody else's idea of a channel."""
         bound, threads = {}, {}
         for row in rows or []:
+            if (row or {}).get("identity_id") not in (None, self.identity_id):
+                continue
             ref = str((row or {}).get("external_ref") or "")
             if ref.isdigit():
                 if (row or {}).get("external_kind") == "thread":
@@ -250,6 +253,7 @@ class DiscordConnector:
         await self.producer.send_and_wait(TOPIC_IN, key=str(thread.id).encode(),
             value=_envelope("conversation.message", str(thread.id), {
                 "connector": "discord", "external_ref": str(thread.id),
+                "identity_id": self.identity_id,
                 "external_kind": "thread",
                 "external_parent_ref": str(getattr(thread, "parent_id", "") or "") or None,
                 "external_title": getattr(thread, "name", "") or f"Discord thread {thread.id}",
@@ -272,6 +276,7 @@ class DiscordConnector:
         await self.producer.send_and_wait(TOPIC_IN, key=ref.encode(),
             value=_envelope("conversation.message", ref, {
                 "connector": "discord", "external_ref": ref,
+                "identity_id": self.identity_id,
                 "external_kind": "channel",
                 "external_title": getattr(message.channel, "name", "") or "",
                 "external_url": getattr(message, "jump_url", "") or "",
@@ -356,6 +361,8 @@ class DiscordConnector:
     async def _deliver_outbound(self, data: dict):
         """One outbound message to whichever kind of room it names."""
         if data.get("connector") != "discord" or not data.get("external_ref"):
+            return
+        if data.get("identity_id") not in (None, self.identity_id):
             return
         ref = str(data["external_ref"])
         if data.get("external_kind") == "channel" or (

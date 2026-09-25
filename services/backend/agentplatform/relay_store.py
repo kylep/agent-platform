@@ -141,6 +141,7 @@ async def outbound_for_message(session, conv, msg, *,
         # keeps the payload construction below identical to the normal path.
         from types import SimpleNamespace
         bridges = [SimpleNamespace(id=None, connector=conv.connector,
+                                   identity_id=None,
                                    external_ref=conv.external_ref,
                                    external_kind="thread", config={})]
     if msg.source_binding_id:
@@ -160,7 +161,8 @@ async def outbound_for_message(session, conv, msg, *,
              # still read `conversation_id`, and a bridge is not the place to
              # break a wire format over a rename.
              "conversation_id": conv.id,
-             "connector": binding.connector, "external_ref": binding.external_ref,
+             "connector": binding.connector, "identity_id": binding.identity_id,
+             "external_ref": binding.external_ref,
              "external_kind": binding.external_kind or "channel",
              "author": msg.author, "kind": msg.kind, "message_id": msg.id,
              "run_id": msg.run_id, "text": msg.body or "", "state": state}

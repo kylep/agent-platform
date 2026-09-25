@@ -99,7 +99,11 @@ Started 2026-09-25. This is a work checkpoint, not a command to run an agent loo
   open; the existing Discord transport and bindings are unchanged. The
   `discord_chat` Tool now rejects a channel name shared by multiple Discord
   servers and accepts an exact channel ID, removing its first-match send
-  ambiguity before identity/route migration.
+  ambiguity before identity/route migration. The existing bot now has a
+  `discord-default` identity row with secret references, a Settings inventory,
+  and bound-route attribution. The connector carries the ID on inbound events
+  and filters recovered/outbound routes. A second account, dynamic status
+  enforcement, and identity-scoped Tool/broadcast credentials remain open.
 - [ ] A12. Complete docs/help, security and migration tests, NUC canary,
   one-week observation, deployment evidence and push. Remove legacy view code
   only after explicit retirement review; keep data protections monotonic.

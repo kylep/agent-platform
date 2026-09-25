@@ -138,18 +138,23 @@ async def test_connector_ingest_maps_ref_to_conversation(sf):
     producer = FakeProducer()
     ing = ConversationIngestor(Settings(), sf, producer)
     ev = {"connector": "discord", "external_ref": "thread-1", "external_user": "kyle",
+          "identity_id": "discord-default",
           "external_kind": "thread", "external_message_id": "m1",
           "text": "hey pai", "agent": "hello-world"}
+    await ing.handle({**ev, "identity_id": "another-bot"})
     await ing.handle(ev)
     await ing.handle({**ev, "external_message_id": "m2", "text": "you there?"})
     async with sf() as s:
         convs = (await s.execute(select(Conversation).where(
             Conversation.kind == "dm"))).scalars().all()
         runs = (await s.execute(select(Run))).scalars().all()
-        from agentplatform.db import RelayMessage
+        from agentplatform.db import RelayBinding, RelayMessage
+        binding = (await s.execute(select(RelayBinding).where(
+            RelayBinding.external_ref == "thread-1"))).scalar_one()
         messages = (await s.execute(select(RelayMessage).where(
             RelayMessage.external_message_id.is_not(None)))).scalars().all()
     assert len(convs) == 1 and convs[0].external_ref == "thread-1" and convs[0].connector == "discord"
+    assert binding.identity_id == "discord-default"
     # Ingestion durably records both messages. The shared Relay router owns
     # dispatch and will coalesce the second while the first run is active.
     assert runs == []

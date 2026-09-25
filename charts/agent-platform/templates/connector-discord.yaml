@@ -39,6 +39,8 @@ spec:
               value: "{{ .Release.Name }}-kafka:9092"
             - name: CONNECTOR_AGENT
               value: {{ .Values.connectors.discord.agent | quote }}
+            - name: AP_CHAT_IDENTITY
+              value: discord-default
             - name: DISCORD_BOT_TOKEN
               valueFrom:
                 secretKeyRef:

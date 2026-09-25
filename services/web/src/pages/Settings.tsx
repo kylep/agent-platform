@@ -7,6 +7,36 @@ import { Input, Select } from "@ap/ui/field";
 import { Table, TD, TH } from "@ap/ui/table";
 import { API_KEY_ROLES, API_KEY_ROLE_DESC } from "../lib/roles";
 
+type ChatIdentity = { id: string; connector: string; display_name: string;
+  secret_refs: Record<string, { secret: string; key: string }>;
+  status: string; configured: boolean; bound_routes: number };
+
+function ChatIdentitiesSection() {
+  const [identities, setIdentities] = useState<ChatIdentity[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    api<ChatIdentity[]>("/api/chat-identities").then(setIdentities)
+      .catch((err) => setError(err instanceof Error ? err.message : "Chat identities unavailable."));
+  }, []);
+  return <section>
+    <h2>Chat identities</h2>
+    <p className="muted">Accounts the platform uses to speak on external chat networks.
+      Credentials stay in Secrets; room bindings choose the destination.</p>
+    {error && <p role="alert" className="error">{error}</p>}
+    {!error && identities === null && <p className="muted">Loading…</p>}
+    {identities?.length === 0 && <p className="muted">No chat accounts connected.</p>}
+    {identities && identities.length > 0 && <Table><thead><tr>
+      <TH>Identity</TH><TH>Network</TH><TH>Credential</TH><TH>Routes</TH>
+    </tr></thead><tbody>{identities.map((identity) => <tr key={identity.id}>
+      <TD><strong>{identity.display_name}</strong><br /><code>{identity.id}</code></TD>
+      <TD>{identity.connector}</TD>
+      <TD>{Object.values(identity.secret_refs).map((ref) => ref.secret).join(", ") || "—"}{" "}
+        {identity.configured ? <Chip variant="ok">set</Chip> : <Chip variant="danger">missing</Chip>}</TD>
+      <TD>{identity.bound_routes}</TD>
+    </tr>)}</tbody></Table>}
+  </section>;
+}
+
 function PasswordSection() {
   const [oldPw, setOldPw] = useState("");
   const [newPw, setNewPw] = useState("");
@@ -279,6 +309,7 @@ export default function Settings() {
       <h1>Settings</h1>
       <PasswordSection />
       <ApiKeysSection />
+      <ChatIdentitiesSection />
       <RelaySection />
     </div>
   );

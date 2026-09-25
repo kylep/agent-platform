@@ -224,6 +224,7 @@ def test_a_message_in_a_bound_channel_is_published_inbound(bridge):
     assert envelope["type"] == "conversation.message"
     assert envelope["data"] == {
         "connector": "discord", "external_ref": "100",
+        "identity_id": "discord-default",
         "external_kind": "channel", "external_title": "",
         "external_url": "", "external_message_id": "999",
         # The id, not the name: `discord:<id>` is the platform's participant.
@@ -335,8 +336,17 @@ def test_the_platform_can_forward_between_two_discord_endpoints(bridge):
 
 def test_another_connectors_message_is_not_ours(bridge):
     run(bridge._deliver_outbound(_outbound(connector="slack")))
+    run(bridge._deliver_outbound(_outbound(identity_id="discord-other")))
     run(bridge._deliver_outbound(_outbound(external_ref="")))
     assert bridge.client._channels[100].hooks == []
+
+
+def test_binding_inventory_excludes_another_chat_identity(bridge):
+    bridge._set_bindings([
+        {"channel_id": "ours", "external_ref": "100", "identity_id": "discord-default"},
+        {"channel_id": "theirs", "external_ref": "200", "identity_id": "discord-other"},
+    ])
+    assert set(bridge.bound) == {100}
 
 
 # --- bindings ----------------------------------------------------------------

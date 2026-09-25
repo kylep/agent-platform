@@ -443,6 +443,20 @@ class RelaySession(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
 
 
+DEFAULT_DISCORD_IDENTITY = "discord-default"
+
+
+class ChatIdentity(Base):
+    """An external chat account; credential *references*, never secret bytes."""
+    __tablename__ = "chat_identities"
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    connector: Mapped[str] = mapped_column(String(32))
+    display_name: Mapped[str] = mapped_column(String(128))
+    secret_refs: Mapped[dict] = mapped_column(JSON, default=dict)
+    status: Mapped[str] = mapped_column(String(16), default="active")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
 class RelayBinding(Base):
     """Ties a channel to a room on an external network. The unique
     (connector, external_ref) is what makes inbound routing unambiguous: one
@@ -453,6 +467,7 @@ class RelayBinding(Base):
     id: Mapped[str] = mapped_column(String(32), primary_key=True, default=lambda: uuid.uuid4().hex)
     channel_id: Mapped[str] = mapped_column(String(32), index=True)
     connector: Mapped[str] = mapped_column(String(32))    # discord | slack | telegram
+    identity_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
     external_ref: Mapped[str] = mapped_column(String(256))
     external_kind: Mapped[str] = mapped_column(String(24), default="channel")
     parent_external_ref: Mapped[str | None] = mapped_column(String(256), nullable=True)
@@ -1701,6 +1716,22 @@ def _ensure_connected_chat_defaults(conn) -> None:
     session_t = RelaySession.__table__
     conn.execute(session_t.update().where(session_t.c.codex_thread_id.is_(None))
                  .values(codex_thread_id=""))
+
+
+def _ensure_default_chat_identity(conn) -> None:
+    """Attach the existing Discord account to its established Relay routes."""
+    identity = ChatIdentity.__table__
+    if not conn.execute(select(identity.c.id).where(
+            identity.c.id == DEFAULT_DISCORD_IDENTITY)).first():
+        conn.execute(identity.insert().values(
+            id=DEFAULT_DISCORD_IDENTITY, connector="discord",
+            display_name="Platform Discord bot",
+            secret_refs={"bot_token": {"secret": "discord-bot", "key": "token"}},
+            status="active", created_at=utcnow()))
+    bindings = RelayBinding.__table__
+    conn.execute(bindings.update().where(
+        bindings.c.connector == "discord", bindings.c.identity_id.is_(None)
+    ).values(identity_id=DEFAULT_DISCORD_IDENTITY))
 
 
 def _ensure_tickets_ddl(conn) -> None:
@@ -3172,6 +3203,7 @@ async def init_db(engine: AsyncEngine, default_grant: bool = True,
         await conn.run_sync(_ensure_relay_ddl)
         await conn.run_sync(_ensure_relay_backfill)
         await conn.run_sync(_ensure_connected_chat_defaults)
+        await conn.run_sync(_ensure_default_chat_identity)
         # After the channel seeds: the job names #standup, and a job pointing at
         # a room that does not exist yet is a warning in the log every morning.
         await conn.run_sync(_ensure_relay_standup_job)

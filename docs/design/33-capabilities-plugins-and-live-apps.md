@@ -310,6 +310,13 @@ Skill acceptance includes one positive task and one negative trigger case, expec
 
 Chat Identities remain a valid product concept but are not on the first pilot's critical path. Add identity rows, secret-reference bindings and destination policy when multi-account send-as is needed. One identity can reference token, signing secret and refresh material; secret bytes never enter catalog metadata. Bind inbound receiving identity and external author; bind outbound actor, selected identity and immutable destination ID. Rotating credentials does not change identity.
 
+The first additive migration now seeds `discord-default` with a reference to
+the existing `discord-bot` credential, backfills Discord Relay bindings, and
+includes identity attribution in the bridge's ingress/egress metadata. It
+retains the current single-account transport and does not make the metadata
+status field a runtime kill switch. Multi-account send-as still needs the
+per-identity credential and destination checks below.
+
 Migrate the existing Discord bot as a default identity with unchanged routes. Replay current route resolution before replacing first-name matching, surface ambiguities, and deny unresolved destinations. Test inbound/outbound parity, rotation, revocation and attribution using a disposable channel. Maintain an identity/route rollback map; revocation and historical audit survive rollback.
 
 Later App migration is domain-by-domain, not an automatic cleanup phase:

@@ -794,6 +794,7 @@ class RelayBindingView(BaseModel):
     thread snowflake — and is unique per connector platform-wide."""
     id: str
     connector: str       # discord | slack | telegram
+    identity_id: str | None = None
     external_ref: str
     external_kind: str
     parent_external_ref: str | None = None
@@ -803,11 +804,22 @@ class RelayBindingView(BaseModel):
     config: dict
 
 
+class ChatIdentityView(BaseModel):
+    id: str
+    connector: str
+    display_name: str
+    status: str
+    secret_refs: dict[str, dict[str, str]]
+    configured: bool
+    bound_routes: int
+
+
 class RelayBindingRef(BaseModel):
     """The cross-channel listing a connector reads at startup: which of its
     rooms map to which channel. The connector is the query, so it is not
     repeated on every row."""
     channel_id: str
+    identity_id: str | None = None
     external_ref: str
     external_kind: str
     parent_external_ref: str | None = None
@@ -989,6 +1001,7 @@ class RelayReactionIn(BaseModel):
 class RelayBindingIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
     connector: str = Field(max_length=32)
+    identity_id: str | None = Field(default=None, max_length=64)
     external_ref: str = Field(min_length=1, max_length=256)
     external_kind: str = Field(default="channel", max_length=24)
     parent_external_ref: str | None = Field(default=None, max_length=256)

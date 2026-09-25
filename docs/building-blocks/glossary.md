@@ -79,6 +79,10 @@ Every long-running piece of the platform. All of these are Deployments in the
   `@mention` that summons an agent, and the router that decides whether the
   summons happens. The block is [relay.md](relay.md); the design record is
   `docs/design/19-relay-agent-messenger.md`.
+- **Chat Identity** — a named external account used by a chat bridge. Its row
+  stores references to existing Secrets, not credential bytes; Relay bindings
+  name the identity that owns an external room. The current Discord bot is
+  `discord-default` ([chat-identities.md](chat-identities.md)).
 - **Channel** — a Relay room with a `#name`, a topic and members. An **open**
   channel (`#general`, `#ops`, `#standup`) has every human and every enabled
   agent as a member implicitly, so it carries no membership rows; a closed

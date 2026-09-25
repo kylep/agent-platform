@@ -35,6 +35,11 @@ from .change_impact_item import ChangeImpactItem
 from .chart_series import ChartSeries
 from .chart_spec import ChartSpec
 from .chart_svg import ChartSvg
+from .chat_identity_view import ChatIdentityView
+from .chat_identity_view_secret_refs import ChatIdentityViewSecretRefs
+from .chat_identity_view_secret_refs_additional_property import (
+    ChatIdentityViewSecretRefsAdditionalProperty,
+)
 from .codex_auth import CodexAuth
 from .codex_generated_image import CodexGeneratedImage
 from .codex_thread import CodexThread
@@ -271,6 +276,9 @@ __all__ = (
     "ChartSeries",
     "ChartSpec",
     "ChartSvg",
+    "ChatIdentityView",
+    "ChatIdentityViewSecretRefs",
+    "ChatIdentityViewSecretRefsAdditionalProperty",
     "CodexAuth",
     "CodexGeneratedImage",
     "CodexThread",

@@ -159,14 +159,14 @@ def test_everything_else_is_a_tool(spec, tools):
 
 
 def test_admin_flag_restores_gated(spec, admin_tools):
-    """With AP_MCP_ADMIN_TOOLS on, the gated set returns (158 total) but the
+    """With AP_MCP_ADMIN_TOOLS on, the gated set returns (159 total) but the
     design-17 exclusions and CURATED_OUT never come back."""
     still_hidden = facade.EXCLUDED_PATHS + facade.CURATED_OUT
     hidden = {(m, p) for m, p in operations(spec)
               if matches(still_hidden, m, p)}
     expected = set(operations(spec)) - hidden
     assert {(t._route.method, t._route.path) for t in admin_tools} == expected
-    assert len(admin_tools) == len(expected) == 158, \
+    assert len(admin_tools) == len(expected) == 159, \
         sorted({(t._route.method, t._route.path) for t in admin_tools})
     names = {t.name for t in admin_tools}
     for gated in ("mint_api_key", "put_secret", "delete_agent", "import_agents",
