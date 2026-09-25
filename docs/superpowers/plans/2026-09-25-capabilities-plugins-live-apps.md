@@ -34,8 +34,10 @@ Started 2026-09-25. This is a work checkpoint, not a command to run an agent loo
 - [x] A0. Add DB-owned App collection identity and one-way legacy import.
   Keep domain manifests for infrastructure; make catalog categories visible.
   Commit `88a24b9`; 43 focused backend tests and web build pass locally.
-- [ ] A1. Baseline current operations, principals, Apps, client versions,
-  storage/caching and running data. Record a concise evidence matrix.
+- [x] A1. Baseline current operations, principals, Apps, client versions,
+  storage/caching and running data. Evidence:
+  [33-live-baseline](../../design/33-live-baseline.md) and
+  [33-operation-inventory](../../design/33-operation-inventory.md).
 - [x] A2. Add additive App/View/version, ACL, intent and invocation schemas.
   Preserve legacy readers and old binary compatibility until cutover.
 - [ ] A3. Compile operation contracts for a narrow Running read and Ticket
