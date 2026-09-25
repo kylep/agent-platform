@@ -1,5 +1,6 @@
 """Versioned typed pages, ACLs, and durable write intents."""
 import httpx
+import pytest
 from agentplatform.apikeys import hash_token
 from agentplatform.db import ApiKey
 
@@ -42,6 +43,9 @@ async def test_publish_version_rollback_and_no_active_content(admin_client, toke
         "published_version"] == 2
     assert (await admin_client.post(f"/api/live-views/{view_id}/rollback/1")).json()[
         "published_version"] == 1
+    versions = (await admin_client.get(f"/api/live-views/{view_id}/versions")).json()
+    assert [(item["version"], item["current"]) for item in versions] == [
+        (2, False), (1, True)]
 
     token = await _reader_key(sf, name="someone-else")
     headers = {"Authorization": f"Bearer {token}"}
@@ -52,6 +56,8 @@ async def test_publish_version_rollback_and_no_active_content(admin_client, toke
     assert (await token_client.get(f"/api/live-views/{view_id}",
                                    headers=headers)).status_code == 404
     assert (await token_client.get(f"/api/live-views/{view_id}/draft",
+                                   headers=headers)).status_code == 403
+    assert (await token_client.get(f"/api/live-views/{view_id}/versions",
                                    headers=headers)).status_code == 403
     assert (await admin_client.get(f"/api/live-views/{view_id}")).json()[
         "definition"]["title"] == "First"
@@ -66,6 +72,21 @@ async def test_duplicate_slug_and_missing_app(admin_client):
     body = {"app_name": "pages", "slug": "home", "definition": definition}
     assert (await admin_client.post("/api/live-views", json=body)).status_code == 201
     assert (await admin_client.post("/api/live-views", json=body)).status_code == 409
+
+
+async def test_domain_link_stays_inside_its_app(admin_client):
+    await admin_client.post("/api/app-collections", json={
+        "name": "ttrpg", "display_name": "Tabletop RPG"})
+    base = {"app_name": "ttrpg", "slug": "table"}
+    for href in ("https://example.com", "javascript:alert(1)", "/apps/news/"):
+        denied = await admin_client.post("/api/live-views", json={**base,
+            "definition": {"title": "Table", "blocks": [
+                {"kind": "link", "label": "Play", "href": href}]}})
+        assert denied.status_code == 422
+    accepted = await admin_client.post("/api/live-views", json={**base,
+        "definition": {"title": "Table", "blocks": [
+            {"kind": "link", "label": "Play", "href": "/apps/ttrpg/"}]}})
+    assert accepted.status_code == 201
 
 
 async def test_running_read_uses_published_binding_and_owner_acl(
@@ -112,6 +133,57 @@ async def test_running_read_uses_published_binding_and_owner_acl(
                           "latest_day": "2026-09-24"}
     assert got.headers["cache-control"] == "private, no-store"
     assert str(calls[0].url) == "http://running/apps/running/api/summary"
+
+
+@pytest.mark.parametrize(("app_name", "operation", "field", "upstream_data", "expected"), [
+    ("news", "news.summary.read@1", "today",
+     {"today": 3, "week": 12, "total": 80, "topics": 4,
+      "latest_day": "2026-09-24", "private_extra": "discard"}, 3),
+    ("stockmarket", "stockmarket.summary.read@1", "watchlist",
+     {"indexes": [{"symbol": "SPY"}], "watchlist": [{"symbol": "QQQ"}],
+      "latest_day": "2026-09-24", "latest_brief_day": None}, 1),
+    ("tcms", "tcms.overview.read@1", "failing",
+     {"attention": {"failing": 2, "flaky": 1, "unlinked": 0,
+                    "prune_candidates": 3}, "coverage": {"pct": 81.5},
+      "latest_run": {"secret_extra": "discard"}}, 2),
+])
+async def test_domain_summary_reads_are_scoped_and_normalized(
+        admin_client, monkeypatch, app_name, operation, field, upstream_data, expected):
+    from agentplatform.api import live_views as views_api
+
+    await admin_client.post("/api/app-collections", json={
+        "name": app_name, "display_name": app_name.title()})
+    definition = {"title": app_name.title(), "reads": [
+        {"alias": "summary", "operation": operation}], "blocks": [
+        {"kind": "metric", "label": field, "source": "summary", "field": field}]}
+    wrong = await admin_client.post("/api/live-views", json={
+        "app_name": app_name, "slug": "wrong", "definition": {
+            **definition, "reads": [{"alias": "summary", "operation": "running.summary.read@1"}]}})
+    assert wrong.status_code == 422
+    created = await admin_client.post("/api/live-views", json={
+        "app_name": app_name, "slug": "overview", "definition": definition})
+    assert created.status_code == 201, created.text
+    view_id = created.json()["id"]
+    await admin_client.post(f"/api/live-views/{view_id}/publish")
+    urls = []
+
+    async def upstream(request):
+        urls.append(str(request.url))
+        return httpx.Response(200, json=upstream_data)
+
+    real = views_api.httpx.AsyncClient
+
+    def fake_client(**kwargs):
+        kwargs.pop("base_url", None)
+        return real(transport=httpx.MockTransport(upstream), base_url="http://app", **kwargs)
+
+    monkeypatch.setattr(views_api.httpx, "AsyncClient", fake_client)
+    got = await admin_client.get(f"/api/live-views/{view_id}/data/summary")
+    assert got.status_code == 200, got.text
+    assert got.json()[field] == expected
+    assert "private_extra" not in got.json() and "latest_run" not in got.json()
+    endpoint = "overview" if app_name == "tcms" else "summary"
+    assert urls == [f"http://app/apps/{app_name}/api/{endpoint}"]
 
 
 async def _ticket_page(admin_client):

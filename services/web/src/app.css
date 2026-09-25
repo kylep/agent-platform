@@ -1201,6 +1201,16 @@ a.relay-action { color: var(--ds-link); }
 .live-view-action input, .live-view-action textarea { display: block; width: 100%; box-sizing: border-box;
   margin-top: 4px; }
 .live-view-action textarea { min-height: 88px; }
+.live-editor-layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(18rem, .75fr);
+  gap: 24px; margin-top: 24px; }
+.live-editor-layout > section { min-width: 0; }
+.live-editor-layout textarea { display: block; width: 100%; box-sizing: border-box;
+  font-family: var(--font-mono); margin: 8px 0; }
+.live-editor-preview { border: 1px solid var(--ds-border); border-radius: var(--radius-lg);
+  padding: 20px; }
+.live-editor-history { margin-top: 28px; }
+.live-editor-history li { margin: 8px 0; }
+@media (max-width: 800px) { .live-editor-layout { grid-template-columns: minmax(0, 1fr); } }
 
 /* artifacts (docs/design/23) */
 /* Tiles want more room than a document, like the board does. */

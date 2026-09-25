@@ -26,6 +26,7 @@ import Reporting from "./pages/Reporting";
 import Reports from "./pages/Reports";
 import Apps from "./pages/Apps";
 import LiveViewPage from "./pages/LiveView";
+import LiveViewEditor from "./pages/LiveViewEditor";
 import Help from "./pages/Help";
 import Schedules from "./pages/Schedules";
 import Skills from "./pages/Skills";
@@ -69,6 +70,8 @@ export default function App() {
             <Route path="/reports/:type/:date" element={<Reports />} />
             <Route path="/apps" element={<Apps />} />
             <Route path="/live-views/:id" element={<LiveViewPage />} />
+            <Route path="/live-views/new" element={<LiveViewEditor />} />
+            <Route path="/live-views/:id/edit" element={<LiveViewEditor />} />
             <Route path="/help" element={<Help />} />
             <Route path="/help/:slug" element={<Help />} />
             <Route path="/memories" element={<Memories />} />

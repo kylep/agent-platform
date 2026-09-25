@@ -17,24 +17,30 @@ function ReadyChip({ app }: { app: AppView }) {
 
 type LivePage = { id: string; slug: string; published_version: number | null };
 
-function LivePages({ appName }: { appName: string }) {
+function LivePages({ appName, canEdit }: { appName: string; canEdit: boolean }) {
   const [pages, setPages] = useState<LivePage[]>([]);
   useEffect(() => {
     api<LivePage[]>(`/api/live-views?app_name=${encodeURIComponent(appName)}`)
       .then((all) => setPages(all.filter((page) => page.published_version !== null)))
       .catch(() => setPages([]));
   }, [appName]);
-  if (!pages.length) return null;
+  if (!pages.length && !canEdit) return null;
   return <div className="app-resources">{pages.map((page) =>
-    <Link key={page.id} to={`/live-views/${page.id}`}>{page.slug} →</Link>)}</div>;
+    <span key={page.id}><Link to={`/live-views/${page.id}`}>{page.slug} →</Link>
+      {canEdit && <> · <Link to={`/live-views/${page.id}/edit`}>edit</Link></>}</span>)}
+    {canEdit && <Link to={`/live-views/new?app=${encodeURIComponent(appName)}`}>+ New live page</Link>}
+  </div>;
 }
 
 export default function Apps() {
   const [apps, setApps] = useState<AppView[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [canEdit, setCanEdit] = useState(false);
   useEffect(() => {
     api<AppView[]>("/api/apps").then(setApps)
       .catch((e) => setError(e instanceof Error ? e.message : "Failed to load apps."));
+    api<{ role: string }>("/api/whoami").then((me) => setCanEdit(me.role === "admin"))
+      .catch(() => setCanEdit(false));
   }, []);
   if (error) return <div className="error">{error}</div>;
   if (!apps) return <p className="muted">Loading…</p>;
@@ -68,7 +74,7 @@ export default function Apps() {
             {a.ui && a.ready && (
               <a className="app-open" href={`/apps/${a.name}/`}>Open →</a>
             )}
-            <LivePages appName={a.name} />
+            <LivePages appName={a.name} canEdit={canEdit} />
           </div>
         ))}
       </div>

@@ -4,16 +4,16 @@ import { api } from "../api";
 import { Button } from "@ap/ui/button";
 import { Input, Textarea } from "@ap/ui/field";
 
-type Block = { kind: "heading" | "paragraph" | "metric" | "action"; text: string; label: string; value: string;
-  source: string | null; field: "total_km" | "runs" | "activities" | "latest_day" | null;
-  action_alias: string | null };
+type Block = { kind: "heading" | "paragraph" | "metric" | "action" | "link"; text: string; label: string; value: string;
+  source: string | null; field: string | null;
+  action_alias: string | null; href: string | null };
 type PublishedView = {
   id: string;
   app_name: string;
   slug: string;
   published_version: number;
   definition: { renderer: "typed/v1"; title: string; blocks: Block[];
-    reads: { alias: string; operation: "running.summary.read@1" }[];
+    reads: { alias: string; operation: string }[];
     actions: { alias: string; operation: "tickets.create@1"; channel: string }[] };
 };
 
@@ -136,6 +136,7 @@ export default function LiveViewPage() {
         {view.definition.blocks.map((block, index) => {
           if (block.kind === "heading") return <h2 key={index}>{block.text}</h2>;
           if (block.kind === "paragraph") return <p key={index}>{block.text}</p>;
+          if (block.kind === "link") return <p key={index}><a href={block.href || "#"}>{block.label || "Open app"} →</a></p>;
           if (block.kind === "action") {
             const action = view.definition.actions.find((a) => a.alias === block.action_alias);
             return action ? <TicketAction key={index} viewId={view.id} label={block.label}

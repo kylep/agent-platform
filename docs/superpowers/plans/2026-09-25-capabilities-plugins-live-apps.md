@@ -50,7 +50,7 @@ Started 2026-09-25. This is a work checkpoint, not a command to run an agent loo
   desktop and 390px mobile; ENG-7 was created then cancelled as test cleanup.
 - [ ] A6. Implement typed page drafts, fixture preview, publish, rollback,
   trusted action chrome, readable errors, refresh and snapshot capture.
-- [ ] A7. Migrate Running collection to a live page backed by its existing
+- [x] A7. Migrate Running collection to a live page backed by its existing
   projection. Keep the current route available during shadow/canary. Prove
   owner/denied read, issue Ticket, receipt, refresh and snapshot/Resource.
 - [ ] A8. Build verified skills-only `agent-platform-coding` package;
@@ -70,18 +70,32 @@ Started 2026-09-25. This is a work checkpoint, not a command to run an agent loo
 
 ## Current checkpoint
 
-Local `main` contains `88a24b9`, `ca67446`, `8bcd946`, and `4827bac`,
-not yet pushed. These four slices were deployed to pai and the Running canary
-was verified through the API, browser and MCP Resource reader. A plain-HTTP
-browser uncovered unavailable `crypto.randomUUID`; the web code now derives
-the idempotency key from `crypto.getRandomValues` and the real ticket action
-passed after redeploy. That web fix is pending commit. The plugin/secret-grant
-cleanup is also in the working tree, with focused backend/runner tests and
-manifest validation passing. The authoring editor, broader operation inventory
-and remaining App migrations are still open. Existing untracked `.claude/` and
+Main through `4300f36` is pushed and deployed. The Running canary passed API,
+browser and MCP Resource checks. The plain-HTTP `crypto.randomUUID` failure
+was fixed with `crypto.getRandomValues`; a real ticket action then passed.
+The skills-only plugin passed both manifest validators, 115 focused backend
+tests, 72 runner tests, and exact pinned lean/Workbench runner image smoke
+tests for Claude and Codex skill paths. It is live in the skill catalog;
+`coder` has orientation/change and `qa` has orientation/regression. Their
+existing DB definitions round-tripped without unrelated changes.
+
+The current uncommitted slice adds a typed JSON source/preview editor,
+publication history, restricted domain-interface links, and bounded summary
+reads for News, Stockmarket and TCMS. It is deployed as a canary. Published
+DB pages: Running `e653369d2d814705a2104afb272815c7` (v2), News
+`b753850e165544309b9701d5c29c3a1e`, Stockmarket
+`838ff69d3f9c4a8984e660c063f0e349`, TCMS
+`e21cdc52364b4db1b5ad73634b1c04a0`, and TTRPG
+`4fa2c80ea71c4184a570779dbde123f0` (the latter four v1).
+News/Stockmarket/TCMS live reads returned 200 with only approved fields;
+the News page and editor passed desktop/390px Playwright checks. Specialized
+domain screens remain the linked interface for richer controls. This is a
+collection/page migration, not deletion of those services. The general Tool
+operation inventory, additional action adapters, Chat Identity metadata and
+MCP Apps compatibility gate remain open. Existing untracked `.claude/` and
 `codex-second-quota-pool.html` predate this project and must remain unstaged.
 
-Quota reading at 2026-09-25 14:56 UTC: Codex weekly utilization 82%, reset
-2026-09-25 17:18:35 UTC. It was observed at 14:30 UTC, so it may be stale.
+Quota reading at 2026-09-25 15:36 UTC: Codex weekly utilization 84%, reset
+2026-09-25 17:18:35 UTC. It was observed less than a minute earlier.
 Check the current reading before another expensive phase; pause at a clean
 commit if weekly headroom approaches 10%, then resume after reset.

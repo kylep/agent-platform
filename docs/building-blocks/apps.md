@@ -1,7 +1,8 @@
 # Apps
 
-**What:** full applications built ON the platform — their own APIs and web
-UIs, their own data, driven by agents (`docs/design/11-apps-and-reports.md`). The news app is the
+**What:** a database-owned collection of pages and actions. An App can also
+have a reviewed domain service with its own API, UI, and data
+([design 33](../design/33-capabilities-plugins-and-live-apps.md)). The news app is the
 reference: it consumes the news agent's digests, owns the archive + dedup
 and the freshness gates (`docs/design/18-news-freshness.md` — undated,
 stale, hub-URL and re-worded-repeat stories are rejected as
@@ -17,10 +18,11 @@ platform's single egress point — so the app never fetches a price. Its
 loader agent calls that tool, and a watchlist add spends the app's operator
 key on a run rather than reaching for the network itself.
 
-**Lives in:** `apps/<name>/` — CODE (a backend, optionally a frontend, a
-Dockerfile) plus an `app.yaml` manifest. Apps are **not** change-loop blocks:
-they ship like platform services (build image → import → enable in helm).
-They are deliberately **separable from platform code**: an app may depend
+**Lives in:** the App collection and versioned live pages are database rows.
+`apps/<name>/` holds a domain backend/frontend and `app.yaml` infrastructure
+manifest where specialized behavior exists. Domain services ship like platform
+services (build image → import → enable in helm). They are deliberately
+**separable from platform code**: an app service may depend
 only on public contracts — the HTTP API + SDK, Kafka topics, `@ap/ui` — never
 `agentplatform` internals. (Kyle intends to split workloads into their own
 repo eventually; an app must survive a `git mv`.)
@@ -73,4 +75,28 @@ app's data is a human act.
 ## Registry
 
 `GET /api/apps` + the `/apps` page: what's declared, what each app needs,
-whether its Deployment is ready, and the Open link.
+whether its Deployment is ready, and the available live pages. A legacy
+manifest is imported into the collection once; subsequent collection edits
+are DB-owned. The manifest still declares infrastructure needs.
+
+## Live pages
+
+An admin can create a page from the Apps list, edit its typed JSON draft,
+preview text and controls, save, publish, and restore an earlier published
+version. A draft edit has no effect on the live page until published. The
+renderer supports headings, paragraphs, metrics, a trusted Ticket action,
+and a link to that App's specialized interface. It never runs authored
+HTML, CSS, JavaScript, arbitrary URLs or arbitrary Tool calls.
+
+Running, News, Stockmarket and TCMS have bounded summary read bindings. Each
+binding exposes only documented scalar fields from the existing domain
+projection; page loads do not call third-party services. The TTRPG collection
+has a database page linking to its dedicated player/spectator interface,
+whose game engine and controls remain code. A live page can refresh data,
+and a private snapshot is available as an authenticated MCP Resource.
+
+The current action contract is `tickets.create@1`: an admin grants it to a
+principal for an App, the page requests a short-lived intent, the person
+reviews the target and message, and the server rechecks the grant at dispatch.
+An idempotent receipt records the outcome. Further Tools need a reviewed
+operation contract and an explicit grant before a page may invoke them.
