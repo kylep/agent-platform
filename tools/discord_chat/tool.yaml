@@ -1,4 +1,5 @@
 name: discord_chat
+category: service_connector
 description: >-
   Post a message to a Discord channel by name (e.g. "alerts", "general").
   Finds the first text channel with that name across the guilds the bot is

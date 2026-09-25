@@ -2,14 +2,12 @@ import { useEffect, useState } from "react";
 import { api, type AppView } from "../api";
 import { Chip } from "@ap/ui/chip";
 
-// Apps (docs/design/11): full web-server workloads under apps/<name>/ in the
-// repo, deployed like platform services, each owning its declared resources
-// (pg schema, kafka topics, scoped platform key). This registry page shows
-// what's declared and whether it's live; the app owns its interior UX at
-// /apps/<name>/.
+// An App is a DB-owned collection (design/33). Existing domain services still
+// supply their data and specialized UI while Live Views are introduced.
 
 function ReadyChip({ app }: { app: AppView }) {
   if (app.error) return <Chip variant="danger">broken</Chip>;
+  if (!app.source_app) return <Chip variant="neutral">collection</Chip>;
   if (app.ready === null) return <Chip variant="neutral">not deployed</Chip>;
   return app.ready
     ? <Chip variant="ok">running</Chip>
@@ -29,9 +27,8 @@ export default function Apps() {
     <>
       <div className="page-header"><h1>Apps</h1></div>
       <p className="muted">
-        Full applications built on the platform: their own APIs and UIs, their
-        own data, driven by agents. Declared by <code>apps/&lt;name&gt;/app.yaml</code>,
-        provisioned automatically, served at <code>/apps/&lt;name&gt;/</code>.
+        Apps are named collections of pages and actions. Existing domain services
+        still provide their data and specialized screens while live pages are added.
       </p>
       {apps.length === 0 && <p className="muted">No apps declared yet.</p>}
       <div className="report-type-grid">

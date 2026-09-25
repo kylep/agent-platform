@@ -8,9 +8,13 @@ import json
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
+from pydantic import BaseModel, Field
+from sqlalchemy import select
 
 from agentplatform.api import schemas as S
-from agentplatform.api.auth import READ_ROLES, authenticate, require_role
+from agentplatform.api.auth import READ_ROLES, authenticate, require_admin, require_role
+from agentplatform.app_collections import APP_NAME
+from agentplatform.db import AppCollection, utcnow
 
 router = APIRouter()
 
@@ -41,8 +45,38 @@ def _deployment_ready(request: Request, name: str) -> tuple[bool | None, int]:
 async def list_apps(request: Request):
     reg = request.app.state.app_registry
     reg.reload()
+    async with request.app.state.session_factory() as session:
+        collections = (await session.execute(
+            select(AppCollection).order_by(AppCollection.name)
+        )).scalars().all()
     out = []
+    for collection in collections:
+        info = reg.get(collection.source_app) if collection.source_app else None
+        sp = info.spec if info else None
+        ready, replicas = (_deployment_ready(request, info.name)
+                           if info else (None, 0))
+        out.append({
+            "name": collection.name,
+            "display_name": collection.display_name,
+            "description": collection.description,
+            "icon": collection.icon,
+            "source_app": collection.source_app,
+            "ui": sp.ui if sp else False,
+            "api": sp.api if sp else False,
+            "postgres": sp.needs.postgres if sp else False,
+            "kafka_topics": sp.needs.kafka_topics if sp else [],
+            "redis": sp.needs.redis if sp else False,
+            "agent_key_role": sp.agent_key.role if sp and sp.agent_key else None,
+            "error": info.error if info else None,
+            "ready": ready,
+            "ready_replicas": replicas,
+        })
+    # A newly synced or malformed service manifest still appears before the
+    # next API restart/import. In particular, do not hide its validation error.
+    known = {collection.name for collection in collections}
     for info in reg.list():
+        if info.name in known:
+            continue
         sp = info.spec
         ready, replicas = _deployment_ready(request, info.name)
         out.append({
@@ -50,6 +84,7 @@ async def list_apps(request: Request):
             "display_name": sp.display_name if sp else "",
             "description": sp.description if sp else "",
             "icon": sp.icon if sp else "",
+            "source_app": info.name,
             "ui": sp.ui if sp else False,
             "api": sp.api if sp else False,
             "postgres": sp.needs.postgres if sp else False,
@@ -60,7 +95,53 @@ async def list_apps(request: Request):
             "ready": ready,
             "ready_replicas": replicas,
         })
+    out.sort(key=lambda app: app["name"])
     return out
+
+
+class AppCollectionIn(BaseModel):
+    name: str
+    display_name: str = Field(min_length=1, max_length=128)
+    description: str = Field(default="", max_length=4000)
+    icon: str = Field(default="", max_length=32)
+
+
+class AppCollectionPatch(BaseModel):
+    display_name: str | None = Field(default=None, min_length=1, max_length=128)
+    description: str | None = Field(default=None, max_length=4000)
+    icon: str | None = Field(default=None, max_length=32)
+
+
+@router.post("/api/app-collections", status_code=201)
+async def create_app_collection(request: Request, body: AppCollectionIn,
+                                principal: str = Depends(require_admin)):
+    if not APP_NAME.fullmatch(body.name):
+        raise HTTPException(422, "app name must be lowercase letters, digits and hyphens")
+    async with request.app.state.session_factory() as session:
+        if await session.get(AppCollection, body.name):
+            raise HTTPException(409, "app already exists")
+        row = AppCollection(name=body.name, display_name=body.display_name,
+                            description=body.description, icon=body.icon)
+        session.add(row)
+        await session.commit()
+    return {"name": row.name}
+
+
+@router.patch("/api/app-collections/{name}")
+async def update_app_collection(request: Request, name: str, body: AppCollectionPatch,
+                                principal: str = Depends(require_admin)):
+    changes = body.model_dump(exclude_unset=True)
+    if not changes or any(value is None for value in changes.values()):
+        raise HTTPException(422, "provide non-null fields to update")
+    async with request.app.state.session_factory() as session:
+        row = await session.get(AppCollection, name)
+        if row is None:
+            raise HTTPException(404, "unknown app")
+        for field, value in changes.items():
+            setattr(row, field, value)
+        row.updated_at = utcnow()
+        await session.commit()
+    return {"name": name}
 
 
 def _path_ok(path: str) -> bool:

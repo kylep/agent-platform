@@ -1,4 +1,5 @@
 name: stocks
+category: service_connector
 description: >-
   Look up a stock, ETF, or index fund by ticker symbol via Yahoo Finance:
   daily price history over a chosen range plus a computed summary (window

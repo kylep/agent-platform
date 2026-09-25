@@ -366,6 +366,7 @@ class AppView(BaseModel):
     display_name: str
     description: str
     icon: str
+    source_app: str | None = None
     ui: bool
     api: bool
     postgres: bool
@@ -493,6 +494,7 @@ class HelpTopicDetail(HelpTopic):
 class ToolHelp(BaseModel):
     name: str
     kind: str         # claude | platform
+    category: str     # product grouping; does not confer authority
     description: str
     # Always denied outside Workbench runs (trifecta break) — checking it on a
     # standard agent does nothing.
@@ -1589,6 +1591,7 @@ class QuotaIgnored(BaseModel):
 class ToolView(BaseModel):
     name: str
     description: str
+    category: str
     secrets: list[str]        # secret block names the executor injects per-call
     database: bool            # owns a provisioned tool_<name> pg schema
     has_requirements: bool    # pip deps baked into the executor image by CI

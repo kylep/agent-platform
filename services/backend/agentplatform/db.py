@@ -156,6 +156,23 @@ class TranscriptEvent(Base):
     seq: Mapped[int] = mapped_column(Integer, primary_key=True)
     payload: Mapped[dict] = mapped_column(JSON)
 
+
+class AppCollection(Base):
+    """DB-owned navigation identity for an App (design/33).
+
+    A legacy service may still supply domain data and a specialized UI. Its
+    manifest provisions infrastructure; this row owns product-facing metadata
+    and survives a later move to Live Views.
+    """
+    __tablename__ = "app_collections"
+    name: Mapped[str] = mapped_column(String(64), primary_key=True)
+    display_name: Mapped[str] = mapped_column(String(128))
+    description: Mapped[str] = mapped_column(Text, default="")
+    icon: Mapped[str] = mapped_column(String(32), default="")
+    source_app: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
 class Conversation(Base):
     """A CHANNEL (docs/design/19): a durable, multi-turn room whose messages are
     relay_messages and whose turns are Runs (Run.conversation_id). A `dm` is the

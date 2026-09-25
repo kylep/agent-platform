@@ -1,4 +1,5 @@
 name: prices
+category: service_connector
 description: >-
   Load daily price bars into the stockmarket app's archive. Give it a list of
   tickers and how far back to go; it fetches from Yahoo Finance and upserts

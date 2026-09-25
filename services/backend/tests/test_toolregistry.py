@@ -60,6 +60,15 @@ def test_registry_loads_valid_tool(tmp_path):
     assert reg.mcp_names() == ["mcp__platform__echo"]
 
 
+def test_category_is_catalog_metadata_and_validated(tmp_path):
+    make_tool(tmp_path, yaml_text=GOOD_YAML.replace(
+        "name: echo", "name: echo\ncategory: domain_capability"))
+    assert ToolRegistry(tmp_path).get("echo").manifest.category == "domain_capability"
+    (tmp_path / "echo" / "tool.yaml").write_text(GOOD_YAML.replace(
+        "name: echo", "name: echo\ncategory: made_up"))
+    assert ToolRegistry(tmp_path).get("echo").manifest is None
+
+
 def test_registry_missing_entrypoint_is_error(tmp_path):
     make_tool(tmp_path, entrypoint=False)
     t = ToolRegistry(tmp_path).get("echo")

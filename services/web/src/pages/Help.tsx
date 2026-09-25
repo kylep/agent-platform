@@ -19,6 +19,12 @@ function ToolsPage() {
   if (!tools) return <p className="muted">Loading…</p>;
   const claude = tools.filter((t) => t.kind === "claude");
   const platform = tools.filter((t) => t.kind === "platform");
+  const groups = [
+    { key: "platform_capability", title: "Platform capabilities", detail: "Work with Runs, Relay, Tickets, Wiki, memory and other platform state." },
+    { key: "service_connector", title: "Connectors", detail: "Reach services outside the platform through reviewed adapters." },
+    { key: "image_generation", title: "Image generation", detail: "Create images through configured generation providers or the Codex allowance." },
+    { key: "domain_capability", title: "Domain capabilities", detail: "Use specialized engines such as the tabletop game." },
+  ] as const;
   const row = (t: ToolHelp) => (
     <div key={t.name} className="help-tool">
       <div className="help-tool-head">
@@ -43,7 +49,7 @@ function ToolsPage() {
         only a credential-free Workbench checkout gets them.
       </p>
       <div className="help-tools">{claude.map(row)}</div>
-      <h2>Platform tools (MCP broker)</h2>
+      <h2>Platform MCP Tools</h2>
       <p className="muted">
         Act on the platform without a shell: each call goes through the MCP
         broker, which verifies the caller's identity and that its definition
@@ -53,7 +59,16 @@ function ToolsPage() {
         identity-bearing. The full plain-language story is on the{" "}
         <NavLink to="/help/security">Security</NavLink> page.
       </p>
-      <div className="help-tools">{platform.map(row)}</div>
+      {groups.map((group) => {
+        const entries = platform.filter((tool) => tool.category === group.key);
+        return entries.length ? (
+          <section key={group.key}>
+            <h2>{group.title}</h2>
+            <p className="muted">{group.detail}</p>
+            <div className="help-tools">{entries.map(row)}</div>
+          </section>
+        ) : null;
+      })}
     </>
   );
 }

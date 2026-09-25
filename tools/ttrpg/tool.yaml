@@ -1,4 +1,5 @@
 name: ttrpg
+category: domain_capability
 description: >-
   Participate in the hosted family RPG. action=view reads the actual player's
   current scene, map, sheets, recent story and your visible target grid distances

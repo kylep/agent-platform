@@ -58,11 +58,15 @@ async def list_tool_help(request: Request):
     ones the runner denies for normal agents regardless of declaration).
     Custom tools (docs/design/12) document themselves via their manifest
     description — the registry IS the help, so nothing can go stale."""
-    out = [{"sensitive": False, **t} for t in TOOL_HELP]
+    out = [{"sensitive": False,
+            "category": ("harness" if t["kind"] == "claude" else
+                         "image_generation" if t["name"] == "mcp__platform__image_gen" else
+                         "platform_capability"), **t} for t in TOOL_HELP]
     registry = request.app.state.tool_registry
     registry.reload()
     # Not `valid()`: an internal tool is the API's to run and is never on the
     # MCP surface, so a grant to it would be dead and its help a lie.
     out += [{"name": m.mcp_name, "kind": "platform", "sensitive": False,
+             "category": m.category,
              "description": m.description} for m in registry.valid() if not m.internal]
     return out

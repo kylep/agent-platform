@@ -4,6 +4,7 @@ tool-executor runs; this API is what the Skills & Tools page renders. Writes
 ride the standard change loop: quick-edit = deterministic PR on
 `coder/tool-<name>`, while the wizard dispatches the engineer Workbench."""
 import logging
+from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
@@ -29,6 +30,7 @@ def _view(request: Request, t) -> dict:
     m = t.manifest
     return {"name": t.name,
             "description": m.description if m else "",
+            "category": m.category if m else "service_connector",
             "secrets": list(m.infra.secrets) if m else [],
             "database": m.infra.database if m else False,
             "has_requirements": t.has_requirements,
@@ -111,6 +113,8 @@ class ToolWizardSecret(BaseModel):
 
 class ToolWizardIn(BaseModel):
     name: str
+    category: Literal["service_connector", "platform_capability", "domain_capability",
+                      "image_generation"] = "service_connector"
     purpose: str            # what the tool does
     arguments: str = ""     # what the model should pass, in prose
     needs_database: bool = False
@@ -161,6 +165,7 @@ async def tool_wizard(request: Request, body: ToolWizardIn,
         "write .ap/pr.md so the Workbench opens a reviewable pull request.\n\n"
         f"Author a new custom platform tool `{name}` under {scope} — read "
         f"`tools/README.md` and mirror an existing tool (e.g. `tools/stocks/`).\n"
+        f"Set tool.yaml category to `{body.category}`; this is a catalog label, not a grant.\n"
         f"What it does: {body.purpose}\n"
         f"Arguments: {body.arguments or 'design a minimal JSON-schema params object'}\n"
         f"{secret_part}{db_part}\n"

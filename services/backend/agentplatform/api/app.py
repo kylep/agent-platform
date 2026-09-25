@@ -238,6 +238,10 @@ def create_app(settings, session_factory, producer, secret_store=None, agent_sto
             # (docs/design/25). A test that hands create_app a session factory
             # seeds the row itself, the way it seeds the admin.
             await ensure_qa_principal(st.session_factory, st.secret_store)
+        # Migrate legacy app identities into DB-owned collections without
+        # changing the domain service that still supplies their data/UI.
+        from agentplatform.app_collections import import_legacy_apps
+        await import_legacy_apps(st.session_factory, st.app_registry)
         # The feed only needs a session for presence (a run event names a run,
         # not a room), so it is handed the factory here, once it is real.
         st.feed.session_factory = st.session_factory

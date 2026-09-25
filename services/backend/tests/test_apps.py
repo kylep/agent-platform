@@ -7,7 +7,8 @@ from sqlalchemy import select
 from agentplatform.apikeys import hash_token
 from agentplatform.appprovisioner import AppProvisioner, pg_ident
 from agentplatform.appregistry import AppRegistry
-from agentplatform.db import ApiKey
+from agentplatform.app_collections import import_legacy_apps
+from agentplatform.db import ApiKey, AppCollection
 from agentplatform.secrets import InMemorySecretStore
 
 
@@ -90,6 +91,39 @@ async def test_apps_endpoint_lists_declared(admin_client):
     r = await admin_client.get("/api/apps")
     assert r.status_code == 200
     assert isinstance(r.json(), list)   # repo has no apps yet — empty is legal
+
+
+async def test_legacy_app_import_keeps_db_metadata(tmp_path, sf):
+    _app(tmp_path, "running", "display_name: Running\ndescription: Old text\nui: true\n")
+    registry = AppRegistry(tmp_path)
+    await import_legacy_apps(sf, registry)
+    async with sf() as session:
+        row = await session.get(AppCollection, "running")
+        assert row.display_name == "Running" and row.source_app == "running"
+        row.description = "Edited in the platform"
+        await session.commit()
+    await import_legacy_apps(sf, registry)
+    async with sf() as session:
+        row = await session.get(AppCollection, "running")
+        assert row.description == "Edited in the platform"
+
+
+async def test_db_app_collections_can_be_created_and_edited(admin_client, client):
+    created = await admin_client.post("/api/app-collections", json={
+        "name": "my-app", "display_name": "My App", "description": "First pass"})
+    assert created.status_code == 201
+    assert (await admin_client.post("/api/app-collections", json={
+        "name": "my-app", "display_name": "Again"})).status_code == 409
+    assert (await admin_client.post("/api/app-collections", json={
+        "name": "Bad App", "display_name": "Bad"})).status_code == 422
+    edited = await admin_client.patch("/api/app-collections/my-app", json={"description": "Second pass"})
+    assert edited.status_code == 200
+    apps = (await admin_client.get("/api/apps")).json()
+    app = next(app for app in apps if app["name"] == "my-app")
+    assert {k: app[k] for k in ("name", "display_name", "description", "source_app")} == {
+        "name": "my-app", "display_name": "My App",
+        "description": "Second pass", "source_app": None}
+    assert (await client.patch("/api/app-collections/missing", json={"description": "x"})).status_code == 404
 
 
 async def test_auth_check_gates(client):

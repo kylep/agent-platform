@@ -1,4 +1,5 @@
 name: index_movers
+category: service_connector
 description: >-
   Explain an index ETF's last completed session: its own move, its top-10
   holdings with each one's weight, return, and contribution to the move in

@@ -1,4 +1,5 @@
 name: image_gen
+category: image_generation
 description: >-
   Generate one image from a text prompt (optionally guided by reference
   images) with OpenAI gpt-image, Google Gemini image, or Black Forest Labs

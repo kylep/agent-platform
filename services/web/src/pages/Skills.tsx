@@ -5,7 +5,7 @@ import { ChangePhaseBanner, PendingChangeBanner, useChangeLoop } from "../compon
 import { Banner } from "@ap/ui/banner";
 import { Button } from "@ap/ui/button";
 import { Chip } from "@ap/ui/chip";
-import { CodeEditor, Input, Textarea } from "@ap/ui/field";
+import { CodeEditor, Input, Select, Textarea } from "@ap/ui/field";
 import { Table, TD, TH } from "@ap/ui/table";
 
 // The raw SKILL.md editor: deterministic save — exactly what you type becomes
@@ -240,6 +240,7 @@ function ToolWizard({ onCancel }: { onCancel: () => void }) {
   const navigate = useNavigate();
   const [name, setName] = useState("");
   const [purpose, setPurpose] = useState("");
+  const [category, setCategory] = useState<Tool["category"]>("service_connector");
   const [args, setArgs] = useState("");
   const [needsDb, setNeedsDb] = useState(false);
   const [needsSecret, setNeedsSecret] = useState(false);
@@ -258,7 +259,7 @@ function ToolWizard({ onCancel }: { onCancel: () => void }) {
       const r = await api<{ id: string }>("/api/tools/new", {
         method: "POST",
         body: JSON.stringify({
-          name: name.trim(), purpose: purpose.trim(), arguments: args.trim(),
+          name: name.trim(), category, purpose: purpose.trim(), arguments: args.trim(),
           needs_database: needsDb, notes: notes.trim(),
           secret: needsSecret ? {
             name: secretName.trim(), env_var: secretEnv.trim(), description: secretDesc.trim(),
@@ -282,6 +283,13 @@ function ToolWizard({ onCancel }: { onCancel: () => void }) {
       </p>
       <label className="muted">Name (snake_case)</label>
       <Input placeholder="e.g. weather" value={name} onChange={(e) => setName(e.target.value)} autoFocus />
+      <label className="muted">What kind of Tool is it?</label>
+      <Select value={category} onChange={(e) => setCategory(e.target.value as Tool["category"])}>
+        <option value="service_connector">Connector — another service</option>
+        <option value="platform_capability">Platform capability — platform data</option>
+        <option value="domain_capability">Domain capability — specialized app logic</option>
+        <option value="image_generation">Image generation</option>
+      </Select>
       <label className="muted">What should it do?</label>
       <Textarea rows={3} placeholder="e.g. Current conditions + 3-day forecast for a city…"
                 value={purpose} onChange={(e) => setPurpose(e.target.value)} />
@@ -417,7 +425,7 @@ export default function Skills() {
       {tools.length > 0 && (
         <Table>
           <thead>
-            <tr><TH>Name</TH><TH>Description</TH><TH>Infra</TH><TH>Used by</TH></tr>
+            <tr><TH>Name</TH><TH>Category</TH><TH>Description</TH><TH>Infra</TH><TH>Used by</TH></tr>
           </thead>
           <tbody>
             {tools.map((tl) => (
@@ -431,6 +439,7 @@ export default function Skills() {
                     {pendingForTool(tl.name) && <Chip variant="warn" className="ml-2" title="Pending change">PR</Chip>}
                     {tl.error && <div className="error">{tl.error}</div>}
                   </TD>
+                  <TD className="text-muted">{{service_connector: "Connector", platform_capability: "Platform", domain_capability: "Domain", image_generation: "Image generation"}[tl.category]}</TD>
                   <TD>{tl.description ? `${tl.description.slice(0, 140)}${tl.description.length > 140 ? "…" : ""}` : "—"}</TD>
                   <TD className="text-muted">
                     {tl.secrets.map((s) => <Chip key={s} title="Secret injected per-call">🔑 {s}</Chip>)}
@@ -450,7 +459,7 @@ export default function Skills() {
                   </TD>
                 </tr>
                 {openTool === tl.name && (
-                  <tr><TD colSpan={4}>
+                  <tr><TD colSpan={5}>
                     <ToolEditor name={tl.name} />
                   </TD></tr>
                 )}

@@ -1,4 +1,5 @@
 name: strava
+category: service_connector
 description: >-
   Read Kyle's Strava data (read-only). action="athlete" is his profile;
   "stats" is his run/ride totals (recent 4 weeks, year-to-date, all-time);

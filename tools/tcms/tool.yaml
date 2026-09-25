@@ -1,4 +1,5 @@
 name: tcms
+category: platform_capability
 description: >-
   The test-case management system: what the suites cover, what the last runs
   said, and where the gaps are. Reads answer in lines (≤ 4 KiB, "showing N of

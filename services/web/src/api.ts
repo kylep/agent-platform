@@ -104,6 +104,7 @@ export type AgentVersionDetail = Partial<AgentVersion> & {
 export type ToolHelp = {
   name: string;
   kind: string;                 // claude (harness) | platform (brokered)
+  category: "harness" | Tool["category"];
   description: string;
   sensitive: boolean;           // runner permits it only in Workbench runs
   display_name?: string | null;
@@ -269,6 +270,7 @@ export type SkillDetail = Skill & { body: string; raw: string };
 export type Tool = {
   name: string;
   description: string;
+  category: "service_connector" | "platform_capability" | "domain_capability" | "image_generation";
   secrets: string[];
   database: boolean;
   has_requirements: boolean;
@@ -539,6 +541,7 @@ export type AppView = {
   display_name: string;
   description: string;
   icon: string;
+  source_app: string | null;  // legacy domain service; null for a DB-only collection
   ui: boolean;
   api: boolean;
   postgres: boolean;

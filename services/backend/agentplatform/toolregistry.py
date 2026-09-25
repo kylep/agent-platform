@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
+from typing import Literal
 
 import yaml
 from pydantic import BaseModel, ValidationError, field_validator, model_validator
@@ -65,6 +66,10 @@ RESERVED_PARAM = "files"
 
 class ToolManifest(BaseModel):
     name: str
+    # Product classification only: MCP still calls every callable a Tool.
+    # This never changes a grant or execution path.
+    category: Literal["service_connector", "platform_capability", "domain_capability",
+                      "image_generation"] = "service_connector"
     # What the model sees as the MCP tool description — write it for the model.
     description: str
     # JSON Schema (object) for the tool's arguments; the executor validates

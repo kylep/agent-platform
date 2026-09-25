@@ -1,4 +1,5 @@
 name: linear
+category: service_connector
 description: >-
   Work with Linear issues via its GraphQL API. Actions: "teams" lists teams
   with their workflow states (get ids here first — mutations take ids, not

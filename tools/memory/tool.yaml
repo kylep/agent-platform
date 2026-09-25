@@ -1,4 +1,5 @@
 name: memory
+category: platform_capability
 description: >-
   Your persistent memory across runs — reading and writing are one tool
   because your namespace is private (you can never see another agent's
