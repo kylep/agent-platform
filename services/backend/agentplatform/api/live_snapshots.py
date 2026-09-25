@@ -24,7 +24,9 @@ PRIVATE = {"Cache-Control": "private, no-store"}
 
 
 class CaptureIn(BaseModel):
-    alias: str
+    # An explicit alias keeps existing clients compatible. The page button
+    # omits it to capture every published read displayed on that page.
+    alias: str | None = None
 
 
 def _active(row: LiveSnapshot, principal: str) -> None:
@@ -53,14 +55,20 @@ async def capture_live_snapshot(request: Request, view_id: str, body: CaptureIn,
         if version is None:
             raise HTTPException(503, "published version unavailable")
         definition = TypedDefinition.model_validate(version.definition)
-        if body.alias not in {read.alias for read in definition.reads}:
+        published_aliases = [read.alias for read in definition.reads]
+        if body.alias is not None and body.alias not in published_aliases:
             raise HTTPException(404, "unknown read")
+        aliases = [body.alias] if body.alias is not None else published_aliases
+        if not aliases:
+            raise HTTPException(422, "page has no reads to capture")
         captured_version = view.published_version
         title = definition.title
 
     # Reuse the exact ACL and bounded adapter serving the live page.
-    response = await read_live_view_data(request, view_id, body.alias, ident)
-    content = {body.alias: json.loads(response.body)}
+    content = {}
+    for alias in aliases:
+        response = await read_live_view_data(request, view_id, alias, ident)
+        content[alias] = json.loads(response.body)
     if len(json.dumps(content, ensure_ascii=False).encode()) > MAX_CONTENT_BYTES:
         raise HTTPException(413, "snapshot too large")
     async with request.app.state.session_factory() as session:

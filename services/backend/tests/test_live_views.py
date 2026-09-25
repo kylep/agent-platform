@@ -450,6 +450,43 @@ async def test_private_snapshot_resource_and_revocation(
     assert (await admin_client.get(f"/api/live-snapshots/{snap_id}/resource")).status_code == 404
 
 
+async def test_page_snapshot_captures_all_published_reads(admin_client, monkeypatch):
+    from agentplatform.api import live_views as views_api
+
+    await admin_client.post("/api/app-collections", json={
+        "name": "running", "display_name": "Running"})
+    created = await admin_client.post("/api/live-views", json={
+        "app_name": "running", "slug": "complete", "definition": {
+            "title": "Running", "reads": [
+                {"alias": "summary", "operation": "running.summary.read@1"},
+                {"alias": "recent", "operation": "running.activities.read@1"}],
+            "blocks": [{"kind": "table", "source": "recent"}]}})
+    view_id = created.json()["id"]
+    await admin_client.post(f"/api/live-views/{view_id}/publish")
+
+    async def upstream(request):
+        if request.url.path.endswith("/summary"):
+            return httpx.Response(200, json={"totals": {
+                "total_km": 12.5, "runs": 3, "activities": 3},
+                "latest_day": "2026-09-24"})
+        return httpx.Response(200, json=[{"day": "2026-09-24",
+            "name": "Morning run", "type": "Run", "distance_km": 5.0,
+            "pace": "5:20"}])
+
+    real = views_api.httpx.AsyncClient
+
+    def fake_client(**kwargs):
+        kwargs.pop("base_url", None)
+        return real(transport=httpx.MockTransport(upstream), base_url="http://running", **kwargs)
+
+    monkeypatch.setattr(views_api.httpx, "AsyncClient", fake_client)
+    captured = await admin_client.post(f"/api/live-views/{view_id}/snapshots", json={})
+    assert captured.status_code == 201, captured.text
+    result = await admin_client.get(f"/api/live-snapshots/{captured.json()['id']}")
+    assert set(result.json()["content"]) == {"summary", "recent"}
+    assert result.json()["content"]["recent"]["rows"][0]["name"] == "Morning run"
+
+
 async def test_private_snapshot_bytes_are_pruned_after_delete(sf):
     from datetime import timedelta
 

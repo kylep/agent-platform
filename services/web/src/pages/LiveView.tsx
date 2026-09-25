@@ -127,13 +127,12 @@ export default function LiveViewPage() {
     return () => { active = false; };
   }, [view, refresh]);
   async function capture() {
-    const alias = view?.definition.reads[0]?.alias;
-    if (!view || !alias) return;
+    if (!view?.definition.reads.length) return;
     setSnapshotBusy(true); setSnapshotError(null);
     try {
       setSnapshot(await api<{ id: string; resource_uri: string }>(
         `/api/live-views/${encodeURIComponent(view.id)}/snapshots`, {
-          method: "POST", body: JSON.stringify({ alias }),
+          method: "POST", body: JSON.stringify({}),
         }));
     } catch (e) { setSnapshotError(e instanceof Error ? e.message : "Snapshot unavailable."); }
     finally { setSnapshotBusy(false); }
