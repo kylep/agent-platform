@@ -1,4 +1,4 @@
-"""Static typed-page publication and owner access, before Tool bindings ship."""
+"""Versioned typed pages, ACLs, and durable write intents."""
 import httpx
 from agentplatform.apikeys import hash_token
 from agentplatform.db import ApiKey
@@ -110,3 +110,90 @@ async def test_running_read_uses_published_binding_and_owner_acl(
                           "latest_day": "2026-09-24"}
     assert got.headers["cache-control"] == "private, no-store"
     assert str(calls[0].url) == "http://running/apps/running/api/summary"
+
+
+async def _ticket_page(admin_client):
+    await admin_client.post("/api/app-collections", json={
+        "name": "running", "display_name": "Running"})
+    definition = {"title": "Running", "actions": [
+        {"alias": "feedback", "operation": "tickets.create@1", "channel": "general"}],
+        "blocks": [{"kind": "action", "label": "Send feedback",
+                    "action_alias": "feedback"}]}
+    created = await admin_client.post("/api/live-views", json={
+        "app_name": "running", "slug": "feedback", "definition": definition})
+    assert created.status_code == 201, created.text
+    view_id = created.json()["id"]
+    assert (await admin_client.post(f"/api/live-views/{view_id}/publish")).status_code == 200
+    return view_id
+
+
+async def test_ticket_action_needs_grant_and_replays_one_receipt(admin_client, sf):
+    from agentplatform.db import Ticket
+    from sqlalchemy import select
+
+    view_id = await _ticket_page(admin_client)
+    intent_path = f"/api/live-views/{view_id}/intents"
+    request = {"alias": "feedback", "arguments": {"title": "Improve splits",
+               "body": "The chart should show a weekly total."}}
+    denied = await admin_client.post(intent_path, json=request)
+    assert denied.status_code == 403
+    grant = await admin_client.post("/api/live-operation-grants", json={
+        "app_name": "running", "principal_id": "admin",
+        "operation": "tickets.create@1"})
+    assert grant.status_code == 200, grant.text
+    intent = await admin_client.post(intent_path, json=request)
+    assert intent.status_code == 201, intent.text
+    assert intent.json()["target"] == "#general"
+    call = {"intent_id": intent.json()["intent_id"],
+            "idempotency_key": "test_unique_ticket_01"}
+    first = await admin_client.post(f"/api/live-views/{view_id}/calls", json=call)
+    assert first.status_code == 200, first.text
+    assert first.json()["status"] == "succeeded"
+    assert first.json()["result"]["ticket_key"] == "GEN-1"
+    replay = await admin_client.post(f"/api/live-views/{view_id}/calls", json=call)
+    assert replay.json()["id"] == first.json()["id"]
+    assert (await admin_client.post(f"/api/live-views/{view_id}/calls", json={
+        **call, "idempotency_key": "test_unique_ticket_02"})).status_code == 409
+    async with sf() as session:
+        assert len((await session.execute(select(Ticket))).scalars().all()) == 1
+    receipt = await admin_client.get(f"/api/live-invocations/{first.json()['id']}")
+    assert receipt.json()["status"] == "succeeded"
+
+
+async def test_ticket_action_revocation_before_call_denies_dispatch(admin_client, sf):
+    from agentplatform.db import Ticket
+    from sqlalchemy import select
+
+    view_id = await _ticket_page(admin_client)
+    grant = {"app_name": "running", "principal_id": "admin",
+             "operation": "tickets.create@1"}
+    await admin_client.post("/api/live-operation-grants", json=grant)
+    intent = await admin_client.post(f"/api/live-views/{view_id}/intents", json={
+        "alias": "feedback", "arguments": {"title": "Check pace"}})
+    assert intent.status_code == 201
+    assert (await admin_client.post("/api/live-operation-grants/revoke",
+                                    json=grant)).status_code == 200
+    called = await admin_client.post(f"/api/live-views/{view_id}/calls", json={
+        "intent_id": intent.json()["intent_id"],
+        "idempotency_key": "test_unique_ticket_03"})
+    assert called.status_code == 200
+    assert called.json()["status"] == "denied_at_dispatch"
+    async with sf() as session:
+        assert (await session.execute(select(Ticket))).scalars().all() == []
+
+
+async def test_api_key_cannot_use_browser_action(admin_client, token_client, sf):
+    view_id = await _ticket_page(admin_client)
+    token = "ap_live_view_admin_key"
+    async with sf() as session:
+        session.add(ApiKey(name="admin", role="admin", key_hash=hash_token(token),
+                           prefix=token[:10]))
+        await session.commit()
+    await admin_client.post("/api/live-operation-grants", json={
+        "app_name": "running", "principal_id": "admin",
+        "operation": "tickets.create@1"})
+    response = await token_client.post(f"/api/live-views/{view_id}/intents",
+                                       headers={"Authorization": f"Bearer {token}"},
+                                       json={"alias": "feedback",
+                                             "arguments": {"title": "Should not create"}})
+    assert response.status_code == 403

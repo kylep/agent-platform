@@ -36,7 +36,7 @@ Started 2026-09-25. This is a work checkpoint, not a command to run an agent loo
   Commit `88a24b9`; 43 focused backend tests and web build pass locally.
 - [ ] A1. Baseline current operations, principals, Apps, client versions,
   storage/caching and running data. Record a concise evidence matrix.
-- [ ] A2. Add additive App/View/version, ACL, intent and invocation schemas.
+- [x] A2. Add additive App/View/version, ACL, intent and invocation schemas.
   Preserve legacy readers and old binary compatibility until cutover.
 - [ ] A3. Compile operation contracts for a narrow Running read and Ticket
   write first, then inventory every core/custom Tool action. Unknown effects
@@ -67,11 +67,13 @@ Started 2026-09-25. This is a work checkpoint, not a command to run an agent loo
 
 ## Current checkpoint
 
-Local `main` contains commit `88a24b9`, not yet pushed/deployed. The App
-collection and category slice is additive. Work in progress adds versioned
-static typed pages plus the first owner-scoped Running read over the existing
-projection. It has no Tool write, intent, snapshot or Resource path yet; do not
-represent it as a complete Live App. Existing untracked `.claude/` and
+Local `main` contains commits `88a24b9` and `ca67446`, not yet pushed/deployed.
+The App collection, catalog category, and typed page slices are additive. The
+current write-action slice adds an explicit `tickets.create@1` grant, a browser
+session-only short intent, immutable invocation receipt, dispatch-time policy
+recheck, and trusted UI confirmation. Focused tests cover one-ticket replay and
+revocation. It still needs snapshots, MCP Resources, a usable authoring editor,
+and live canary evidence; do not represent it as a complete Live App. Existing untracked `.claude/` and
 `codex-second-quota-pool.html` predate this project and must remain unstaged.
 
 Quota reading at 2026-09-25 13:23 UTC: Codex weekly utilization 79%, reset

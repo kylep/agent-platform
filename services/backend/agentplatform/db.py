@@ -200,6 +200,54 @@ class LiveViewVersion(Base):
     published_by: Mapped[str] = mapped_column(String(128))
     published_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
+
+class LiveOperationGrant(Base):
+    """Explicit permission to invoke one operation through a Live View."""
+    __tablename__ = "live_operation_grants"
+    app_name: Mapped[str] = mapped_column(String(64), primary_key=True)
+    principal_id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    operation: Mapped[str] = mapped_column(String(128), primary_key=True)
+    granted_by: Mapped[str] = mapped_column(String(128))
+    granted_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class LiveIntent(Base):
+    __tablename__ = "live_intents"
+    id: Mapped[str] = mapped_column(String(32), primary_key=True,
+                                    default=lambda: uuid.uuid4().hex)
+    view_id: Mapped[str] = mapped_column(String(32), index=True)
+    view_version: Mapped[int] = mapped_column(Integer)
+    principal_id: Mapped[str] = mapped_column(String(128))
+    alias: Mapped[str] = mapped_column(String(40))
+    operation: Mapped[str] = mapped_column(String(128))
+    target: Mapped[str] = mapped_column(String(128))
+    arguments: Mapped[dict] = mapped_column(JSON)
+    args_digest: Mapped[str] = mapped_column(String(64))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    consumed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class LiveInvocation(Base):
+    __tablename__ = "live_invocations"
+    __table_args__ = (UniqueConstraint("principal_id", "idempotency_key"),)
+    id: Mapped[str] = mapped_column(String(32), primary_key=True,
+                                    default=lambda: uuid.uuid4().hex)
+    intent_id: Mapped[str] = mapped_column(String(32), unique=True)
+    view_id: Mapped[str] = mapped_column(String(32))
+    view_version: Mapped[int] = mapped_column(Integer)
+    principal_id: Mapped[str] = mapped_column(String(128))
+    alias: Mapped[str] = mapped_column(String(40))
+    operation: Mapped[str] = mapped_column(String(128))
+    target: Mapped[str] = mapped_column(String(128))
+    args_digest: Mapped[str] = mapped_column(String(64))
+    idempotency_key: Mapped[str] = mapped_column(String(64))
+    status: Mapped[str] = mapped_column(String(32), default="admitted")
+    result: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
 class Conversation(Base):
     """A CHANNEL (docs/design/19): a durable, multi-turn room whose messages are
     relay_messages and whose turns are Runs (Run.conversation_id). A `dm` is the

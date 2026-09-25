@@ -1,8 +1,7 @@
 """Versioned, DB-owned typed pages (design/33).
 
-This first slice admits static typed content only. Tool bindings are added only
-after the operation/ACL/intent path exists; accepting an unknown binding here
-would turn publication into an authorization bypass later.
+Bindings use a closed, versioned operation registry. Unknown operations cannot
+be published, so a page definition cannot enlarge its own authority.
 """
 from __future__ import annotations
 
@@ -27,12 +26,13 @@ _SLUG = re.compile(r"^[a-z][a-z0-9-]{0,63}$")
 
 class TypedBlock(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    kind: Literal["heading", "paragraph", "metric"]
+    kind: Literal["heading", "paragraph", "metric", "action"]
     text: str = Field(default="", max_length=4000)
     label: str = Field(default="", max_length=128)
     value: str = Field(default="", max_length=256)
     source: str | None = Field(default=None, pattern=r"^[a-z][a-z0-9_]{0,39}$")
     field: Literal["total_km", "runs", "activities", "latest_day"] | None = None
+    action_alias: str | None = Field(default=None, pattern=r"^[a-z][a-z0-9_]{0,39}$")
 
 
 class ReadBinding(BaseModel):
@@ -41,23 +41,38 @@ class ReadBinding(BaseModel):
     operation: Literal["running.summary.read@1"]
 
 
+class ActionBinding(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    alias: str = Field(pattern=r"^[a-z][a-z0-9_]{0,39}$")
+    operation: Literal["tickets.create@1"]
+    channel: str = Field(min_length=1, max_length=64, pattern=r"^[a-z0-9-]+$")
+
+
 class TypedDefinition(BaseModel):
     model_config = ConfigDict(extra="forbid")
     renderer: Literal["typed/v1"] = "typed/v1"
     title: str = Field(min_length=1, max_length=128)
     blocks: list[TypedBlock] = Field(default_factory=list, max_length=50)
     reads: list[ReadBinding] = Field(default_factory=list, max_length=10)
+    actions: list[ActionBinding] = Field(default_factory=list, max_length=10)
 
     @model_validator(mode="after")
     def _references_known_reads(self):
         aliases = [binding.alias for binding in self.reads]
         if len(set(aliases)) != len(aliases):
             raise ValueError("read aliases must be unique")
+        action_aliases = [binding.alias for binding in self.actions]
+        if len(set(action_aliases)) != len(action_aliases):
+            raise ValueError("action aliases must be unique")
         for block in self.blocks:
             if (block.source is None) != (block.field is None):
                 raise ValueError("dynamic metric needs both source and field")
             if block.source is not None and (block.kind != "metric" or block.source not in aliases):
                 raise ValueError("dynamic metric must reference a declared read")
+            if block.kind == "action" and block.action_alias not in action_aliases:
+                raise ValueError("action block must reference a declared action")
+            if block.kind != "action" and block.action_alias is not None:
+                raise ValueError("only an action block may name an action")
         return self
 
 
