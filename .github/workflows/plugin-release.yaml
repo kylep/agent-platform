@@ -34,13 +34,13 @@ jobs:
           mkdir -p dist
           tar --sort=name --mtime='@0' --owner=0 --group=0 --numeric-owner \
             -C plugins -cf - agent-platform-coding \
-            | gzip -n > dist/agent-platform-coding-0.1.0.tar.gz
-          sha256sum dist/agent-platform-coding-0.1.0.tar.gz
+            | gzip -n > dist/agent-platform-coding-0.1.1.tar.gz
+          sha256sum dist/agent-platform-coding-0.1.1.tar.gz
       - uses: actions/attest@v4
         with:
-          subject-path: dist/agent-platform-coding-0.1.0.tar.gz
+          subject-path: dist/agent-platform-coding-0.1.1.tar.gz
       - uses: actions/upload-artifact@v4
         with:
-          name: agent-platform-coding-0.1.0
-          path: dist/agent-platform-coding-0.1.0.tar.gz
+          name: agent-platform-coding-0.1.1
+          path: dist/agent-platform-coding-0.1.1.tar.gz
           if-no-files-found: error

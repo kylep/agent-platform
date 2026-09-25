@@ -12,6 +12,7 @@ NAME = "agent-platform-coding"
 # manifest whose file hashes were recomputed to match tampered skills.
 APPROVED_RELEASES = {
     "0.1.0": "460ead5dc4c4efecd0e682064804953f6c83663bede484f6f441e5a7de0e0530",
+    "0.1.1": "3d2a0336ce7f970373c23c1728598ea4553027e9a852926aea5ceea1cb59f4c7",
 }
 MAX_FILE_BYTES = 64 * 1024
 SKILL_PATH = re.compile(r"skills/[a-z][a-z0-9-]{0,63}/SKILL\.md$")

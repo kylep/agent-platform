@@ -11,8 +11,8 @@ Actions to attest its digest and source workflow. Download the named artifact
 from that workflow run, then verify it before using the bundle as a release:
 
 ```sh
-gh run download RUN_ID -n agent-platform-coding-0.1.0 -D /tmp/ap-plugin-release
-gh attestation verify /tmp/ap-plugin-release/agent-platform-coding-0.1.0.tar.gz \
+gh run download RUN_ID -n agent-platform-coding-0.1.1 -D /tmp/ap-plugin-release
+gh attestation verify /tmp/ap-plugin-release/agent-platform-coding-0.1.1.tar.gz \
   -R kylep/agent-platform \
   --signer-workflow kylep/agent-platform/.github/workflows/plugin-release.yaml \
   --source-ref refs/heads/main
