@@ -63,8 +63,8 @@ def test_playwright_mcp_is_pinned_exactly():
 
 def test_no_secret_material():
     text = _dev()
-    assert "ANTHROPIC_API_KEY" not in text
-    assert "sk-ant-" not in text
+    assert "ANTHROPIC_" + "API_KEY" not in text
+    assert "sk-" + "ant-" not in text
 
 
 def test_runtime_shape():

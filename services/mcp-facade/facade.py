@@ -15,7 +15,7 @@ The surface is CURATED into three tiers (curation 2026-08-24; see
   read, edit, move, assign, comment, stats — and the wiki: read, search, write,
   append, history, restore, promote, wanted — the usage snapshot and its
   gate — and the artifacts: list, read, save, edit, delete, generate, the
-  model registry and the stats). Always tools. 120 of them.
+  model registry and the stats). Always tools. 121 of them.
 - **GATE** — authorized-but-sharp: the credential/secret plane, admin audit
   reads, destructive/bulk ops, the relay channel lifecycle (creating, renaming
   and archiving rooms), a system row into a room one is not in, and
@@ -26,16 +26,14 @@ The surface is CURATED into three tiers (curation 2026-08-24; see
 - **EXCLUDE** — UI form-feeders, reviewer digests the client can compute,
   git-edit conveniences redundant with having the repo, and system-agent
   endpoints. Never tools. 19 curated-out, plus 22 session/internal/streaming/
-  byte-serving operations below — 197 graded operations in all.
+  byte-serving operations below — 198 graded operations in all.
 
 It is deliberately NOT the mcp-broker. The broker authenticates in-cluster run
-identities and scopes tools to an agent's grants (design/13, design/15); this
-service authenticates nothing at all. Like the broker it holds NO credential:
-the caller's `Authorization: Bearer ap_…` header is forwarded verbatim on the
-upstream request for that one call, so the platform's role ladder is the whole
-authorization story and attribution (`agent_versions.changed_by`, the audit
-trail) still names the caller. A request without a bearer is still forwarded —
-it simply collects the API's own 401.
+identities and scopes tools to an agent's grants (design/13, design/15). This
+facade checks each bearer with the platform API before discovery or calls. It
+holds no credential of its own: the caller's `Authorization: Bearer ap_…`
+header is forwarded on each upstream call, so the platform's role ladder and
+object checks remain authoritative and attribution still names the caller.
 
 The spec is fetched from ap-api at startup, never baked into the image, so a
 redeployed API refreshes the tool surface on this service's next restart (see
@@ -346,24 +344,34 @@ def build(spec: dict, client: httpx.AsyncClient | None = None,
 
 
 class RequireAuthorization:
-    """Refuse every request that arrives without an `Authorization` header —
-    `initialize` and `tools/list` included.
+    """Validate the caller with the API before even disclosing Tool metadata.
 
-    It does NOT validate the header (only the platform API can, and it does, on
-    every actual call); it just refuses to talk to a caller who is obviously
-    not carrying a key. Without this the full tool schema — every endpoint,
-    parameter and description the platform has — is readable by anyone on the
-    LAN who can open a socket. A real MCP client always sends its configured
-    header on every request, so the cost is nothing.
+    The facade and API use the same opaque platform keys. Only the API can
+    resolve revocation and role changes, so a local presence check or cached
+    allow decision would leave discovery open after revocation. Every request
+    gets a fresh, bearer-only whoami check; Tool/Resource calls still undergo
+    their own authorization in the API handler.
     """
 
-    def __init__(self, app):
+    def __init__(self, app, auth_client: httpx.AsyncClient | None = None):
         self.app = app
+        self.auth_client = auth_client or httpx.AsyncClient(
+            base_url=_API, timeout=5, follow_redirects=False)
 
     async def __call__(self, scope, receive, send):
-        if scope["type"] == "http" and not Headers(scope=scope).get("authorization"):
-            # Detail-free: an unauthenticated caller learns only that a key is
-            # required, never what lives here.
+        if scope["type"] == "http":
+            bearer = Headers(scope=scope).get("authorization", "")
+            if bearer.startswith("Bearer ") and len(bearer) > len("Bearer "):
+                try:
+                    verified = await self.auth_client.get(
+                        "/api/whoami", headers={"Authorization": bearer})
+                except httpx.HTTPError:
+                    await Response(status_code=503)(scope, receive, send)
+                    return
+                if verified.status_code == 200:
+                    await self.app(scope, receive, send)
+                    return
+            # Detail-free: invalid and absent keys reveal no Tool metadata.
             await Response(status_code=401,
                            headers={"WWW-Authenticate": "Bearer"})(scope, receive, send)
             return

@@ -150,23 +150,23 @@ async def test_artifact_resource_forwards_caller_and_binary_bytes(spec, monkeypa
 
 def test_everything_else_is_a_tool(spec, tools):
     """The default surface, by construction: exactly the operations that are
-    not design-17-excluded, not curated out, and not gated. Pinned at 120."""
+    not design-17-excluded, not curated out, and not gated. Pinned at 121."""
     hidden = {(m, p) for m, p in operations(spec) if matches(ALL_RULES, m, p)}
     expected = set(operations(spec)) - hidden
     assert {(t._route.method, t._route.path) for t in tools} == expected
-    assert len(tools) == len(expected) == 120, \
+    assert len(tools) == len(expected) == 121, \
         sorted({(t._route.method, t._route.path) for t in tools})
 
 
 def test_admin_flag_restores_gated(spec, admin_tools):
-    """With AP_MCP_ADMIN_TOOLS on, the gated set returns (156 total) but the
+    """With AP_MCP_ADMIN_TOOLS on, the gated set returns (157 total) but the
     design-17 exclusions and CURATED_OUT never come back."""
     still_hidden = facade.EXCLUDED_PATHS + facade.CURATED_OUT
     hidden = {(m, p) for m, p in operations(spec)
               if matches(still_hidden, m, p)}
     expected = set(operations(spec)) - hidden
     assert {(t._route.method, t._route.path) for t in admin_tools} == expected
-    assert len(admin_tools) == len(expected) == 156, \
+    assert len(admin_tools) == len(expected) == 157, \
         sorted({(t._route.method, t._route.path) for t in admin_tools})
     names = {t.name for t in admin_tools}
     for gated in ("mint_api_key", "put_secret", "delete_agent", "import_agents",
@@ -469,11 +469,14 @@ INITIALIZE = {"jsonrpc": "2.0", "id": 1, "method": "initialize",
 MCP_ACCEPT = "application/json, text/event-stream"
 
 
-def door(spec, headers, method="POST", json=INITIALIZE):
+def door(spec, headers, method="POST", json=INITIALIZE, auth_client=None):
     """One HTTP request at the facade's front door, through the real ASGI app
     with the real middleware stack."""
     mcp = facade.build(spec, client=httpx.AsyncClient(base_url="http://itest"))
-    app = mcp.http_app(path="/mcp", middleware=facade.MIDDLEWARE)
+    middleware = ([facade.Middleware(facade.RequireAuthorization,
+                                    auth_client=auth_client)] if auth_client
+                  else facade.MIDDLEWARE)
+    app = mcp.http_app(path="/mcp", middleware=middleware)
 
     async def go():
         async with app.router.lifespan_context(app):
@@ -485,8 +488,7 @@ def door(spec, headers, method="POST", json=INITIALIZE):
 
 
 def test_the_door_is_shut_without_an_authorization_header(spec):
-    """Not validation — the API does that on every real call — but presence:
-    a keyless client must not be able to read the whole API's schema."""
+    """A keyless client cannot read the Tool menu."""
     r = door(spec, {"Accept": MCP_ACCEPT})
     assert r.status_code == 401
     assert r.text == ""                    # detail-free: nothing to learn here
@@ -498,9 +500,32 @@ def test_the_door_is_shut_for_the_sse_stream_too(spec):
                 json=None).status_code == 401
 
 
-def test_a_key_bearing_client_gets_through_the_door(spec):
-    """The gate is presence-only: an obviously-bogus key still reaches MCP,
-    where the first tool call collects the API's own 401."""
-    r = door(spec, {"Accept": MCP_ACCEPT, "Authorization": "Bearer ap_whatever"})
+def test_discovery_validates_bearer_with_api_without_forwarding_cookies(spec):
+    calls = []
+
+    def verify(request):
+        calls.append(request)
+        return httpx.Response(200 if request.headers.get("authorization") == "Bearer ap_good"
+                              else 401, json={"principal": "admin"})
+
+    auth_client = httpx.AsyncClient(transport=httpx.MockTransport(verify),
+                                    base_url="http://api")
+    headers = {"Accept": MCP_ACCEPT, "Cookie": "ap_session=not-authority"}
+    assert door(spec, {**headers, "Authorization": "Bearer ap_bad"},
+                auth_client=auth_client).status_code == 401
+    assert door(spec, {**headers, "Authorization": "Bearer ap_good"},
+                auth_client=auth_client).status_code != 401
+    assert len(calls) == 2
+    assert all(request.url.path == "/api/whoami" for request in calls)
+    assert all("cookie" not in request.headers for request in calls)
+
+
+def test_a_valid_key_bearing_client_gets_through_the_door(spec):
+    """The platform API accepts the key before MCP initialization begins."""
+    client = httpx.AsyncClient(transport=httpx.MockTransport(
+        lambda request: httpx.Response(200, json={"principal": "admin"})),
+        base_url="http://api")
+    r = door(spec, {"Accept": MCP_ACCEPT, "Authorization": "Bearer ap_good"},
+             auth_client=client)
     assert r.status_code != 401
     assert "protocolVersion" in r.text

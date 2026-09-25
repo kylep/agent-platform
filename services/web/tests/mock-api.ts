@@ -1223,14 +1223,16 @@ const FIXTURES: Record<string, unknown> = {
     { name: "web", kind: "web", implemented: true, secrets: [], description: "Web UI." },
   ],
   "/api/api-keys": [],
+  "/api/teams": [],
+  "/api/projects": [],
   "/api/apps": [
-    { name: "news", display_name: "", description: "Browse gathered news by calendar and topic.", icon: "🗞️",
+    { name: "news", source_app: "news", display_name: "", description: "Browse gathered news by calendar and topic.", icon: "🗞️",
       ui: true, api: true, postgres: true, kafka_topics: ["app.news.item.ingested"],
       redis: false, agent_key_role: "operator", error: null, ready: true, ready_replicas: 1 },
-    { name: "scratch", display_name: "", description: "A declared-but-undeployed app.", icon: "🧩",
+    { name: "scratch", source_app: null, display_name: "", description: "A declared-but-undeployed app.", icon: "🧩",
       ui: false, api: true, postgres: false, kafka_topics: [], redis: false,
       agent_key_role: null, error: null, ready: null, ready_replicas: 0 },
-    { name: "tcms", display_name: "", description: "Test cases, runs and the platform's own health, as the QA sees them.",
+    { name: "tcms", source_app: "tcms", display_name: "", description: "Test cases, runs and the platform's own health, as the QA sees them.",
       icon: "🧪", ui: true, api: true, postgres: true, kafka_topics: ["app.tcms.run.finished"],
       redis: false, agent_key_role: "operator", error: null, ready: true, ready_replicas: 1 },
   ],
@@ -1405,6 +1407,13 @@ export async function mockApi(page: Page): Promise<string[]> {
     }
     if (path === "/api/cron/preview") {
       await route.fulfill({ json: cronPreview(url.searchParams.get("expr") ?? "") });
+      return;
+    }
+    if (path === "/api/live-views" && route.request().method() === "GET") {
+      const app = url.searchParams.get("app_name");
+      await route.fulfill({ json: app === "news" ? [{
+        id: "n1".repeat(16), app_name: "news", slug: "overview", published_version: 2,
+      }] : [] });
       return;
     }
     // Relay's SSE stream. A route cannot hold a connection open, so the mock
