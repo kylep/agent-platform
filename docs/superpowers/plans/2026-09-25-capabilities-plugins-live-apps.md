@@ -135,6 +135,13 @@ three were read and browser-checked live at desktop and 390px. The Stockmarket
 principal's watchlist is empty, which is rendered as an empty state; TCMS
 returned four runs. The specialized domain views remain working and linked.
 
+Commit `4464732` makes the page-level snapshot button capture every published
+read instead of silently saving only the first alias. It is deployed and
+live-verified: one Running snapshot contained the summary and ten recent
+activities, then was deleted. The focused live-view suite passed (18 tests)
+and the web production build passed. At this checkpoint all five App collections
+have a published page, with data-rich tables on four; TTRPG keeps its game UI.
+
 Quota reading at 2026-09-25 15:36 UTC: Codex weekly utilization 84%, reset
 2026-09-25 17:18:35 UTC. It was observed less than a minute earlier.
 Check the current reading before another expensive phase; pause at a clean
