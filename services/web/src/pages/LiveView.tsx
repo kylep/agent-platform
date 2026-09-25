@@ -151,9 +151,11 @@ export default function LiveViewPage() {
                 : rows.length ? <div className="table-scroll"><table><thead><tr>
                 <th>Day</th><th>Activity</th><th>Type</th><th>Distance</th><th>Pace</th>
               </tr></thead><tbody>{rows.map((row, i) => <tr key={i}>
-                <td>{String(row.day ?? "")}</td><td>{String(row.name ?? "")}</td>
-                <td>{String(row.type ?? "")}</td><td>{String(row.distance_km ?? "")} km</td>
-                <td>{String(row.pace ?? "—")}</td>
+                <td data-label="Day">{String(row.day ?? "")}</td>
+                <td data-label="Activity">{String(row.name ?? "")}</td>
+                <td data-label="Type">{String(row.type ?? "")}</td>
+                <td data-label="Distance">{String(row.distance_km ?? "")} km</td>
+                <td data-label="Pace">{String(row.pace ?? "—")}</td>
               </tr>)}</tbody></table></div>
                 : !readError ? <p className="muted">No activities yet.</p> : null}
             </section>;

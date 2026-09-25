@@ -73,7 +73,7 @@ Started 2026-09-25. This is a work checkpoint, not a command to run an agent loo
 
 ## Current checkpoint
 
-Main through `4300f36` is pushed and deployed. The Running canary passed API,
+Main through `19c9ebb` is pushed and deployed. The Running canary passed API,
 browser and MCP Resource checks. The plain-HTTP `crypto.randomUUID` failure
 was fixed with `crypto.getRandomValues`; a real ticket action then passed.
 The skills-only plugin passed both manifest validators, 115 focused backend
@@ -111,6 +111,19 @@ the live MCP template list includes `ap://artifact/{artifact_id}`, and a
 `user:admin` image read returned a binary blob through the MCP Resource API.
 The local denied-reader and deletion tests cover revocation without creating
 or deleting a production artifact.
+
+Commit `6c4c6e5` pins the assigned SKILL.md hashes into each runner Job;
+the runner now reports a failed run if a synced skill changed or vanished
+between launch and install. Focused launcher and runner suites passed
+(24 and 72 tests). Backend and both runner images were imported to pai;
+API, dispatcher, recorder and facade rolled out healthy.
+
+Commit `19c9ebb` adds a bounded, owner-only recent-activities adapter and
+typed table block. Running's published page is version 3 with ten live rows;
+the adapter strips unapproved fields. The backend and web images are live;
+the API returned exactly ten rows and desktop/mobile browser smoke passed.
+The first mobile screenshot exposed narrow table wrapping, so a card-style
+mobile layout is being finished before this phase closes.
 
 Quota reading at 2026-09-25 15:36 UTC: Codex weekly utilization 84%, reset
 2026-09-25 17:18:35 UTC. It was observed less than a minute earlier.

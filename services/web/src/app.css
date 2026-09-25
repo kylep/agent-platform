@@ -1207,6 +1207,17 @@ a.relay-action { color: var(--ds-link); }
 .live-view-table table { width: 100%; border-collapse: collapse; }
 .live-view-table th, .live-view-table td { text-align: left; padding: 9px 12px;
   border-bottom: 1px solid var(--ds-border); }
+@media (max-width: 600px) {
+  .live-view-table table, .live-view-table tbody, .live-view-table tr,
+  .live-view-table td { display: block; width: 100%; box-sizing: border-box; }
+  .live-view-table thead { display: none; }
+  .live-view-table tr { margin: 0 0 12px; padding: 6px 0;
+    border: 1px solid var(--ds-border); border-radius: var(--radius-lg); }
+  .live-view-table td { display: flex; gap: 12px; justify-content: space-between;
+    border: 0; padding: 5px 12px; text-align: right; overflow-wrap: anywhere; }
+  .live-view-table td::before { content: attr(data-label); color: var(--ds-text-muted);
+    flex: 0 0 78px; text-align: left; }
+}
 .live-editor-layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(18rem, .75fr);
   gap: 24px; margin-top: 24px; }
 .live-editor-layout > section { min-width: 0; }
