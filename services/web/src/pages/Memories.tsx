@@ -70,8 +70,8 @@ const navigate = useNavigate();
         memory to open it in its agent.
       </p>
 
-      <div className="row-actions" style={{ marginBottom: 12 }}>
-        <Input placeholder="Search all memories…" value={q} style={{ flex: 1 }}
+      <div className="row-actions memory-filters" style={{ marginBottom: 12 }}>
+        <Input placeholder="Search all memories…" value={q} style={{ flex: 1, minWidth: 0 }}
                aria-label="Search all memories"
                onChange={(e) => setQ(e.target.value)}
                onKeyDown={(e) => { if (e.key === "Enter") load(); }} />

@@ -13,7 +13,10 @@ execution profiles. A [tool](tools.md) executes on the agent's behalf. When a
 capability needs a credential the agent should never hold, it wants to be a
 tool, not a skill. A rule is an obligation, not an optional skill.
 
-The catalogue is currently empty. Workbench handles Git without handing
+The legacy `skills/` catalogue is currently empty. The reviewed
+[`agent-platform-coding` plugin](../agent-platform-coding-plugin.md) supplies
+`platform-orientation`, `platform-change`, and `platform-regression`; the coder
+and QA agents use different subsets. Workbench handles Git without handing
 developer agents a GitHub credential; Studio's Codex artist uses its runtime's
 built-in image generator. Project conversation lookup is provided in scoped
 run context. Those are not skills an agent needs to select.
@@ -25,6 +28,13 @@ skills/<name>/
   SKILL.md      # YAML frontmatter + usage instructions
   references/   # optional non-executable guidance when the skill needs it
 ```
+
+The coding plugin lives under `plugins/agent-platform-coding/`. Its release
+manifest and platform build pin all skill bytes; the runner copies only the
+assigned `SKILL.md` files into Claude Code or Codex. A missing or changed
+assigned skill blocks a run before the model starts. Developer hosts install
+the same package through their local plugin marketplaces; package installation
+does not add platform Tool or secret grants.
 
 **Frontmatter shape** (example for a future workflow):
 

@@ -88,6 +88,11 @@ Started 2026-09-25. This is a work checkpoint, not a command to run an agent loo
 - [ ] A11. Integrate Chat Identity metadata/credential bindings and decide MCP
   Apps export from actual pinned-client tests. Record any narrowly deferred
   item with a concrete compatibility reason.
+  MCP Apps export is deferred with a concrete host/auth/intent matrix in
+  [33-mcp-apps-compatibility](../../design/33-mcp-apps-compatibility.md):
+  the first-party browser is the verified interactive host, while the pinned
+  CLI runners have no tested MCP Apps UI path. Chat Identity migration remains
+  open; the existing Discord transport and bindings are unchanged.
 - [ ] A12. Complete docs/help, security and migration tests, NUC canary,
   one-week observation, deployment evidence and push. Remove legacy view code
   only after explicit retirement review; keep data protections monotonic.
@@ -110,6 +115,18 @@ Still open: catalog contracts for additional broker/custom actions; stronger ret
 evidence; TTRPG interaction parity; Chat Identity metadata; MCP Apps host
 compatibility; one-week observation and eventual specialist retirement review.
 The previous checkpoint below records the earlier canary steps.
+
+Commit `cb0150e` closes an MCP discovery leak: the facade now checks every
+bearer with the platform's `/api/whoami` before serving initialization or Tool
+metadata, forwarding only the bearer and no cookie. The API still authorizes
+the actual Tool/Resource call. On pai, an invalid bearer returned 401 and the
+owner's valid bearer initialized with 200. The facade suite passed 28 tests;
+the web suite reached 286/288 before two stale smoke fixtures were corrected,
+and the three affected tests then passed. The next CI run passed its backend,
+facade and guard jobs, but found a separate one-pixel-range mobile overflow
+on the Memories page (288/289 web tests passed). Its filter row now wraps and
+its search input can shrink; the failing test passed ten consecutive local
+runs. The new full CI run is pending.
 
 Main through `19c9ebb` is pushed and deployed. The Running canary passed API,
 browser and MCP Resource checks. The plain-HTTP `crypto.randomUUID` failure
