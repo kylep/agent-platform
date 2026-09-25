@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import Any, TypeVar
+from typing import Any, TypeVar, cast
 
 from attrs import define as _attrs_define
 from attrs import field as _attrs_field
 from typing_extensions import Self
+
+from ..types import UNSET, Unset
 
 T = TypeVar("T", bound="NotifyIn")
 
@@ -14,40 +16,72 @@ T = TypeVar("T", bound="NotifyIn")
 class NotifyIn:
     """
     Attributes:
-        channel (str):
         text (str):
+        channel (None | str | Unset):
+        channel_id (None | str | Unset):
     """
 
-    channel: str
     text: str
+    channel: None | str | Unset = UNSET
+    channel_id: None | str | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
-        channel = self.channel
-
         text = self.text
+
+        channel: None | str | Unset
+        if isinstance(self.channel, Unset):
+            channel = UNSET
+        else:
+            channel = self.channel
+
+        channel_id: None | str | Unset
+        if isinstance(self.channel_id, Unset):
+            channel_id = UNSET
+        else:
+            channel_id = self.channel_id
 
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
             {
-                "channel": channel,
                 "text": text,
             }
         )
+        if channel is not UNSET:
+            field_dict["channel"] = channel
+        if channel_id is not UNSET:
+            field_dict["channel_id"] = channel_id
 
         return field_dict
 
     @classmethod
     def from_dict(cls, src_dict: Mapping[str, Any]) -> Self:
         d = dict(src_dict)
-        channel = d.pop("channel")
-
         text = d.pop("text")
 
+        def _parse_channel(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        channel = _parse_channel(d.pop("channel", UNSET))
+
+        def _parse_channel_id(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        channel_id = _parse_channel_id(d.pop("channel_id", UNSET))
+
         notify_in = cls(
-            channel=channel,
             text=text,
+            channel=channel,
+            channel_id=channel_id,
         )
 
         notify_in.additional_properties = d

@@ -18,9 +18,14 @@ events for another ID. This preserves the current single-bot route while
 making attribution explicit. A message still belongs to a Relay room and its
 membership rules; an identity is not a blanket grant to read that room.
 
+The `discord_chat` Tool and the broadcast connector reject a channel name
+shared by multiple visible rooms. Pass an exact Discord channel ID when a
+name is ambiguous. `/api/notify` accepts either `channel` or `channel_id` and
+stamps its broadcast with `discord-default`; the connector rejects a broadcast
+for a different identity. Existing domain-app broadcasts still use their
+configured names, so rename collisions must be resolved before delivery.
+
 This release does not enable a second Discord account or a status toggle. That
 requires a per-identity connector credential, identity-scoped destination
-selection for `discord_chat` and platform broadcasts, and tests for rotation,
-revocation and duplicate route resolution. The existing Tool now rejects a
-channel name shared by multiple servers; pass an exact channel ID in that
-case. See [the design](../design/33-capabilities-plugins-and-live-apps.md).
+selection for `discord_chat` and domain-app broadcasts, and tests for rotation
+and revocation. See [the design](../design/33-capabilities-plugins-and-live-apps.md).

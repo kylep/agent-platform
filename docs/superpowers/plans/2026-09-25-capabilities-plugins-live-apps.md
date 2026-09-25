@@ -96,7 +96,8 @@ Started 2026-09-25. This is a work checkpoint, not a command to run an agent loo
   [33-mcp-apps-compatibility](../../design/33-mcp-apps-compatibility.md):
   the first-party browser is the verified interactive host, while the pinned
   CLI runners have no tested MCP Apps UI path. Chat Identity migration remains
-  open; the existing Discord transport and bindings are unchanged. The
+  open for multiple accounts; the existing Discord account and routes are
+  preserved. The
   `discord_chat` Tool now rejects a channel name shared by multiple Discord
   servers and accepts an exact channel ID, removing its first-match send
   ambiguity before identity/route migration. The existing bot now has a
@@ -104,13 +105,16 @@ Started 2026-09-25. This is a work checkpoint, not a command to run an agent loo
   and bound-route attribution. The connector carries the ID on inbound events
   and filters recovered/outbound routes. A second account, dynamic status
   enforcement, and identity-scoped Tool/broadcast credentials remain open.
+  The broadcast connector also rejects duplicate channel names, accepts an
+  exact text-channel ID, and filters events for another identity. `/api/notify`
+  validates one destination and stamps the default identity.
 - [ ] A12. Complete docs/help, security and migration tests, NUC canary,
   one-week observation, deployment evidence and push. Remove legacy view code
   only after explicit retirement review; keep data protections monotonic.
 
 ## Current checkpoint
 
-Main through `eecffca` is pushed. The five DB collections/pages are published
+Main through `b9572d7` is pushed. The five DB collections/pages are published
 and primary in Apps; their specialist routes remain linked. The Running
 latency canary **did not pass** the proposed 1.25× p95 gate even after
 connection reuse and a one-query authorization lookup. Keep its direct
@@ -120,7 +124,12 @@ passed full CI. TTRPG's real spectator view, Relay handoff, and reversible
 page rollback passed on pai; a disposable-world player action remains untested.
 The existing Discord Tool now denies ambiguous channel names and accepts an
 immutable channel ID; the synced registry returned its new schema without
-error. The full `eecffca` CI run is pending at this checkpoint.
+error. The first Chat Identity row is deployed (Helm revision 73): the live
+metadata route reports a configured default bot and eight attributed routes;
+Settings rendered that inventory at desktop and 390px without browser errors
+or horizontal overflow. CI for `b9572d7` passed every job except one older
+Relay façade test whose exact outbound-payload assertion omitted the new
+nullable `identity_id` field; the assertion is corrected in the next commit.
 
 The page editor now lists trusted-action access for its signed-in author and
 offers explicit enable/revoke controls backed by the existing grant and

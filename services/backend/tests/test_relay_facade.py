@@ -532,6 +532,7 @@ async def test_a_human_post_in_a_bound_channel_reaches_the_bridge(admin_client, 
                                  json={"body": "morning"})).json()
     assert _outbound(producer) == [
         {"channel_id": cid, "conversation_id": cid, "connector": "discord",
+         "identity_id": None,
          "external_ref": "chan-9", "external_kind": "channel",
          "author": "user:admin", "kind": "text",
          "message_id": m["id"], "run_id": None, "text": "morning", "state": "posted"}]

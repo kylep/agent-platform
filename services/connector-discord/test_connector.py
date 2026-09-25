@@ -61,6 +61,9 @@ def _stub_discord():
     class Thread:
         pass
 
+    class ChannelType:
+        text = 0
+
     class HTTPException(Exception):
         pass
 
@@ -86,6 +89,7 @@ def _stub_discord():
     utils.get = get
     discord.Intents, discord.Client = Intents, Client
     discord.Message, discord.Thread = Message, Thread
+    discord.ChannelType = ChannelType
     discord.AllowedMentions, discord.utils = AllowedMentions, utils
     discord.HTTPException, discord.NotFound = HTTPException, NotFound
     sys.modules.update({"discord": discord, "discord.utils": utils})
@@ -147,8 +151,10 @@ class Channel:
     """A Discord text channel: what it holds in webhooks, and what the bot
     itself posted into it."""
 
-    def __init__(self, channel_id, hooks=()):
+    def __init__(self, channel_id, hooks=(), name=""):
         self.id = channel_id
+        self.name = name
+        self.type = discord.ChannelType.text
         self.hooks = list(hooks)
         self.sent = []
         self.created = []
@@ -422,6 +428,32 @@ def test_a_deleted_webhook_is_replaced_and_the_message_still_lands(bridge):
     assert dead.posts == [] and channel.created == [connector.WEBHOOK_NAME]
     assert [p[0] for p in channel.hooks[-1].posts] == ["the wire is quiet"]
     assert bridge._webhooks[100] is channel.hooks[-1]
+
+
+def test_channel_broadcast_rejects_ambiguous_names_and_wrong_identity(bridge):
+    first, second = Channel(100, name="news"), Channel(101, name="news")
+    bridge.client.guilds = [types.SimpleNamespace(text_channels=[first]),
+                            types.SimpleNamespace(text_channels=[second])]
+    bridge.client._channels.update({100: first, 101: second})
+    run(bridge._deliver_channel_post({"channel": "news", "text": "hello"}))
+    assert first.sent == second.sent == []
+    run(bridge._deliver_channel_post({"channel_id": "101", "text": "hello",
+                                      "identity_id": "other-bot"}))
+    assert second.sent == []
+    run(bridge._deliver_channel_post({"channel_id": "101", "text": "hello",
+                                      "identity_id": "discord-default"}))
+    assert second.sent == ["hello"]
+
+
+def test_channel_broadcast_rejects_non_text_and_mixed_targets(bridge):
+    channel = Channel(101, name="news")
+    bridge.client._channels[101] = channel
+    channel.type = 2
+    run(bridge._deliver_channel_post({"channel_id": "101", "text": "hello"}))
+    channel.type = discord.ChannelType.text
+    run(bridge._deliver_channel_post({"channel": "news", "channel_id": "101",
+                                      "text": "hello"}))
+    assert channel.sent == []
 
 
 def test_a_webhook_that_keeps_vanishing_is_given_up_on(bridge, monkeypatch):

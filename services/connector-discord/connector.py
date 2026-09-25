@@ -289,12 +289,13 @@ class DiscordConnector:
     # --- outbound ------------------------------------------------------------
 
     def _channel_by_name(self, name: str):
-        """The first text channel named `name` across the bot's guilds."""
-        for guild in self.client.guilds:
-            ch = discord.utils.get(guild.text_channels, name=name)
-            if ch is not None:
-                return ch
-        return None
+        """Resolve a broadcast only when its name identifies one text room."""
+        matches = [ch for guild in self.client.guilds
+                   for ch in guild.text_channels if ch.name == name]
+        if len(matches) > 1:
+            log.warning("channel.post: #%s is ambiguous across visible rooms; "
+                        "use channel_id", name)
+        return matches[0] if len(matches) == 1 else None
 
     async def _channel_by_id(self, channel_id: int):
         return self.client.get_channel(channel_id) or await self.client.fetch_channel(channel_id)
@@ -375,16 +376,29 @@ class DiscordConnector:
         """A platform broadcast (e.g. the news digest) to a named channel. The
         connector is the sole holder of the bot token; the text arrives already
         deduped + sanitized by the platform's news projector."""
-        name, text = data.get("channel"), data.get("text")
-        if not name or not text:
+        if data.get("identity_id") not in (None, self.identity_id):
             return
-        channel = self._channel_by_name(name)
+        name, channel_id, text = data.get("channel"), data.get("channel_id"), data.get("text")
+        if not text or bool(name) == bool(channel_id):
+            log.warning("channel.post: provide exactly one channel or channel_id")
+            return
+        if channel_id is not None:
+            ref = str(channel_id)
+            if not ref.isdigit():
+                log.warning("channel.post: invalid channel_id")
+                return
+            channel = await self._channel_by_id(int(ref))
+            if channel is not None and getattr(channel, "type", None) != discord.ChannelType.text:
+                channel = None
+        else:
+            channel = self._channel_by_name(name)
         if channel is None:
-            log.warning("channel.post: no channel named #%s the bot can see", name)
+            log.warning("channel.post: no unique text channel for %s the bot can see",
+                        channel_id or f"#{name}")
             return
         for chunk in _chunks(text):
             await channel.send(chunk)
-        log.info("← posted %d message(s) to #%s", len(_chunks(text)), name)
+        log.info("← posted %d message(s) to channel=%s", len(_chunks(text)), channel.id)
 
     async def consume_outbound(self):
         await self.client.wait_until_ready()
