@@ -1301,6 +1301,12 @@ const FIXTURES: Record<string, unknown> = {
   "/api/tickets/OPS-2": ticketDetails["OPS-2"],
   "/api/tickets/OPS-6": ticketDetails["OPS-6"],
   "/api/tickets/t2": ticketDetails["OPS-2"],
+  // Relay fetches both on mount to offer a room's team/project scope
+  // selector (only rendered once either list is non-empty); no spec here
+  // exercises that selector, so the empty default keeps every unrelated
+  // page's fixture list exactly as before.
+  "/api/teams": [],
+  "/api/projects": [],
 };
 
 // The cron preview is the one endpoint whose answer depends on the query, so

@@ -61,7 +61,7 @@ export const PAGES: PageRoute[] = [
   { path: "/reports/daily-news", heading: "daily-news", probe: /Open latest/, mobile: false },
   { path: "/apps", heading: "Apps", probe: /running|not deployed/, mobile: false },
   { path: "/help", heading: "Help", probe: /building blocks|configuration lives in git/i, mobile: false },
-  { path: "/help/tools", heading: "Tools", probe: /self-edit only/, mobile: false },
+  { path: "/help/tools", heading: "Tools", probe: /Workbench only/, mobile: false },
   { path: "/help/agents", heading: "Agents", probe: /who runs/, mobile: false, only: "smoke" },
   { path: "/help/relay", heading: "Relay", probe: /the agent messenger|hop 0/, mobile: false, only: "smoke" },
   { path: "/help/tickets", heading: "Tickets", probe: /assign = summon|OPS-12/i, mobile: false },
