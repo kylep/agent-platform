@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-marketplace.json",
+  "name": "agent-platform",
+  "description": "Reviewed Agent Platform development workflows",
+  "owner": { "name": "Agent Platform" },
+  "plugins": [
+    {
+      "name": "agent-platform-coding",
+      "source": "./plugins/agent-platform-coding",
+      "description": "Understand, change, and verify the Agent Platform",
+      "version": "0.1.0",
+      "category": "workflow"
+    }
+  ]
+}

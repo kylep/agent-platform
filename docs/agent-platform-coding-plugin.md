@@ -6,6 +6,28 @@ The source package is [`plugins/agent-platform-coding/`](../plugins/agent-platfo
 
 To change the package, edit a skill, review it as code, update `release.json` with the new hashes, and validate both manifests and the pinned runner images before assigning it. A failed verification makes the package unavailable and blocks agents that require it rather than silently running them without their requested workflow. Roll back by restoring the previous reviewed package revision, or remove the skill assignment from an affected agent. Existing runs keep the files installed at their start; new runs use the current verified package.
 
-Developer hosts can use the same source package through their harness's plugin installation flow. The platform itself does not alter a developer's local Claude or Codex configuration. For a direct local skill installation, copy a reviewed skill directory into the harness's personal skills directory; confirm the harness lists it before relying on it. The platform's version and checksums remain the source of truth for agent workloads.
+Developer hosts use the repo-owned marketplace manifests in
+`.agents/plugins/marketplace.json` and `.claude-plugin/marketplace.json`:
+
+```sh
+codex plugin marketplace add /Users/kp/gh/agent-platform
+codex plugin add agent-platform-coding@agent-platform
+claude plugin marketplace add /Users/kp/gh/agent-platform --scope user
+claude plugin install agent-platform-coding@agent-platform --scope user
+```
+
+On Kyle's laptop, Codex 0.156.1 and Claude Code 2.1.282 both installed version
+0.1.0 from this repo on 2026-09-25. `codex plugin list` and `claude plugin
+details` showed the package enabled, Claude reported exactly three skills and
+zero hooks/MCP servers, and all six cached skill hashes matched the reviewed
+source. A new CLI session picks up an installation. The platform does not
+silently edit a developer home directory; the one-time local installation was
+made explicitly during this migration.
+
+For an update, edit and validate the source, bump the matching package and
+marketplace versions, regenerate `release.json`, then update/reinstall through
+each CLI. Retain the previous reviewed commit and package version for rollback.
+The platform's version and checksums remain the source of truth for agent
+workloads.
 
 This package deliberately contains no provider terms, credentials, installation scripts, or product-specific secrets. Its guidance is about this repository's current architecture and evidence needed to ship safely.

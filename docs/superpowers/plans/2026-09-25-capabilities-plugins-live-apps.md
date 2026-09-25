@@ -81,6 +81,10 @@ tests, 72 runner tests, and exact pinned lean/Workbench runner image smoke
 tests for Claude and Codex skill paths. It is live in the skill catalog;
 `coder` has orientation/change and `qa` has orientation/regression. Their
 existing DB definitions round-tripped without unrelated changes.
+The repo now has Codex and Claude marketplace manifests. Both were registered
+and the package installed on Kyle's laptop (Codex 0.156.1, Claude Code
+2.1.282); CLI inventories and cached SKILL.md hashes matched. Local
+update/rollback and model-driven behavior samples are still open.
 
 Commit `bcd60ff` adds a typed JSON source/preview editor,
 publication history, restricted domain-interface links, and bounded summary
@@ -98,11 +102,15 @@ operation inventory, additional action adapters, Chat Identity metadata and
 MCP Apps compatibility gate remain open. Existing untracked `.claude/` and
 `codex-second-quota-pool.html` predate this project and must remain unstaged.
 
-The current uncommitted Resource slice adds `ap://artifact/<id>` for Studio images
+Commit `a325a2a` adds `ap://artifact/<id>` for Studio images
 and other binary artifacts. Its dedicated API route rechecks owner/admin access
 and deletion on every read, with `private, no-store`; the facade forwards only
 the caller bearer and does not expose the byte route as a generated Tool.
-Artifact and facade tests passed locally. Live Resource verification remains.
+Artifact and facade tests passed locally. The backend and facade were deployed;
+the live MCP template list includes `ap://artifact/{artifact_id}`, and a
+`user:admin` image read returned a binary blob through the MCP Resource API.
+The local denied-reader and deletion tests cover revocation without creating
+or deleting a production artifact.
 
 Quota reading at 2026-09-25 15:36 UTC: Codex weekly utilization 84%, reset
 2026-09-25 17:18:35 UTC. It was observed less than a minute earlier.

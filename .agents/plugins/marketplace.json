@@ -1,0 +1,20 @@
+{
+  "name": "agent-platform",
+  "interface": {
+    "displayName": "Agent Platform"
+  },
+  "plugins": [
+    {
+      "name": "agent-platform-coding",
+      "source": {
+        "source": "local",
+        "path": "./plugins/agent-platform-coding"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    }
+  ]
+}
