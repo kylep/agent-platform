@@ -1,3 +1,4 @@
+import hashlib
 import json, os, re, stat
 import base64
 import urllib.error
@@ -19,6 +20,9 @@ def test_verified_plugin_skill_installs_without_plugin_authority(tmp_path, monke
     monkeypatch.setenv("HOME", str(tmp_path / "home"))
     monkeypatch.setenv("AP_SKILLS_DIR", str(checkout / "skills"))
     monkeypatch.setenv("AP_SKILLS", "platform-change")
+    expected = hashlib.sha256((source / "skills" / "platform-change" /
+                               "SKILL.md").read_bytes()).hexdigest()
+    monkeypatch.setenv("AP_SKILL_HASHES", json.dumps({"platform-change": expected}))
     runner._install_skills("codex")
     target = tmp_path / "home" / ".agents" / "skills" / "platform-change"
     assert (target / "SKILL.md").read_bytes() == (
@@ -29,13 +33,15 @@ def test_verified_plugin_skill_installs_without_plugin_authority(tmp_path, monke
     legacy = checkout / "skills" / "platform-change"
     legacy.mkdir()
     (legacy / "SKILL.md").write_text("collision")
-    runner._install_skills("codex")
+    with pytest.raises(ValueError, match="ambiguous"):
+        runner._install_skills("codex")
     assert not target.exists()
     shutil.rmtree(legacy)
 
     (checkout / "plugins" / "agent-platform-coding" / "skills" /
      "platform-change" / "SKILL.md").write_text("tampered")
-    runner._install_skills("claude")
+    with pytest.raises(ValueError, match="checksum mismatch"):
+        runner._install_skills("claude")
     assert not (tmp_path / "home" / ".claude" / "skills" /
                 "platform-change" / "SKILL.md").exists()
 

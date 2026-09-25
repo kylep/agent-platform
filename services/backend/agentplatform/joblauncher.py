@@ -1,4 +1,6 @@
 import asyncio
+import hashlib
+import json
 import logging
 
 from kubernetes import client as k8s
@@ -162,7 +164,18 @@ class K8sJobLauncher(Launcher):
         if manifest.skills:
             # The runner copies each named skill from the synced /agents/skills
             # tree into ~/.claude/skills so `claude` can use it.
+            if self.skill_store is None:
+                raise ValueError("skill store unavailable for assigned skills")
+            self.skill_store.reload()
+            hashes = {}
+            for name in manifest.skills:
+                info = self.skill_store.get(name)
+                if info is None or info.skill is None:
+                    raise ValueError(f"assigned skill unavailable: {name}")
+                hashes[name] = hashlib.sha256(info.raw.encode()).hexdigest()
             env.append(k8s.V1EnvVar(name="AP_SKILLS", value=",".join(manifest.skills)))
+            env.append(k8s.V1EnvVar(name="AP_SKILL_HASHES", value=json.dumps(
+                hashes, sort_keys=True)))
         talks_mcp = bool(api_token or sa_identity)
         # design/13 B: with SPIRE on, the pod's MCP traffic goes through a
         # local ghostunnel client that wraps it in SVID mTLS; claude itself

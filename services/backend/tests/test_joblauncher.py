@@ -1,3 +1,5 @@
+import json
+
 from kubernetes.client.rest import ApiException
 
 from agentplatform.agents import Manifest
@@ -290,6 +292,10 @@ def test_build_job_binds_secrets_via_envfrom(tmp_path):
     refs = job.spec.template.spec.containers[0].env_from
     bound = {e.secret_ref.name: e.secret_ref.optional for e in refs}
     assert bound == {"extra": True}
+    env = {item.name: item.value for item in job.spec.template.spec.containers[0].env}
+    import hashlib
+    assert json.loads(env["AP_SKILL_HASHES"]) == {
+        "git": hashlib.sha256((tmp_path / "git" / "SKILL.md").read_bytes()).hexdigest()}
 
 
 def test_build_job_no_secrets_means_no_envfrom(tmp_path):

@@ -495,40 +495,54 @@ def _install_agent(agent: str, dev: bool = False) -> dict:
 def _install_skills(runtime: str = "claude") -> None:
     # `claude` resolves skills from ~/.claude/skills/<name>/SKILL.md. Copy each
     # skill named in AP_SKILLS (set by the launcher from the agent's manifest)
-    # from the synced skills tree into place. Unknown names are skipped.
+    # from the synced skills tree into place. A missing or changed assignment
+    # fails the run before the model starts with incomplete instructions.
     names = [n.strip() for n in os.environ.get("AP_SKILLS", "").split(",") if n.strip()]
+    expected_hashes = json.loads(os.environ.get("AP_SKILL_HASHES", "{}"))
+    if not isinstance(expected_hashes, dict):
+        raise ValueError("invalid assigned skill hashes")
     src_root = Path(os.environ.get("AP_SKILLS_DIR", "/agents/skills"))
     dst_root = (Path.home() / ".agents" / "skills" if runtime == "codex"
                 else Path.home() / ".claude" / "skills")
     for name in names:
         if not re.fullmatch(r"[a-z][a-z0-9-]{0,63}", name):
-            continue
+            raise ValueError(f"invalid assigned skill name: {name}")
         src = src_root / name
         plugin = src_root.parent / "plugins" / "agent-platform-coding"
         md = plugin / "skills" / name / "SKILL.md"
         if src.exists() and md.exists():
-            continue  # an ambiguous name must not select either package
+            raise ValueError(f"assigned skill name is ambiguous: {name}")
         if src.is_symlink():
-            continue
+            raise ValueError(f"assigned skill is a symlink: {name}")
         if src.is_dir():
+            skill_md = src / "SKILL.md"
+            if not skill_md.is_file() or skill_md.is_symlink():
+                raise ValueError(f"assigned skill unavailable: {name}")
+            data = skill_md.read_bytes()
+            if expected_hashes and hashlib.sha256(data).hexdigest() != expected_hashes.get(name):
+                raise ValueError(f"assigned skill changed before run: {name}")
             shutil.copytree(src, dst_root / name, dirs_exist_ok=True)
+            if (dst_root / name / "SKILL.md").read_bytes() != data:
+                raise ValueError(f"assigned skill changed during install: {name}")
             continue
         # The only built-in plugin is a reviewed skills-only release. Copy the
         # pinned SKILL.md bytes, never a host manifest, hook, script or setting.
         release = plugin / "release.json"
         if (not md.is_file() or md.is_symlink() or not release.is_file()
                 or release.is_symlink()):
-            continue
+            raise ValueError(f"assigned skill unavailable: {name}")
         try:
             manifest = json.loads(release.read_text())
             if manifest.get("name") != "agent-platform-coding":
-                continue
+                raise ValueError("unexpected plugin release")
             expected = manifest["files"][f"skills/{name}/SKILL.md"]
             data = md.read_bytes()
             if hashlib.sha256(data).hexdigest() != expected:
-                continue
-        except (KeyError, ValueError, OSError):
-            continue
+                raise ValueError("plugin checksum mismatch")
+            if expected_hashes and hashlib.sha256(data).hexdigest() != expected_hashes.get(name):
+                raise ValueError("assigned skill changed before run")
+        except (KeyError, ValueError, OSError) as exc:
+            raise ValueError(f"assigned skill unavailable: {name}: {exc}") from exc
         target = dst_root / name
         target.mkdir(parents=True, exist_ok=True)
         (target / "SKILL.md").write_bytes(data)
@@ -676,7 +690,10 @@ async def _run(producer, run_id: str, agent: str, prompt: str) -> int:
     except AgentUnavailable as e:
         return await _abort(producer, run_id, str(e))
     runtime = definition.get("runtime", runtime)
-    _install_skills(runtime)
+    try:
+        _install_skills(runtime)
+    except (ValueError, OSError) as exc:
+        return await _abort(producer, run_id, f"skill install failed: {exc}")
 
     cwd = None
     git_env = None
