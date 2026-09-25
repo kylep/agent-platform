@@ -248,6 +248,21 @@ class LiveInvocation(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
+
+class LiveSnapshot(Base):
+    """Owner-scoped, bounded materialization of a published Live View read."""
+    __tablename__ = "live_snapshots"
+    id: Mapped[str] = mapped_column(String(32), primary_key=True,
+                                    default=lambda: uuid.uuid4().hex)
+    view_id: Mapped[str] = mapped_column(String(32), index=True)
+    view_version: Mapped[int] = mapped_column(Integer)
+    owner_id: Mapped[str] = mapped_column(String(128), index=True)
+    title: Mapped[str] = mapped_column(String(128))
+    content: Mapped[dict] = mapped_column(JSON)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
 class Conversation(Base):
     """A CHANNEL (docs/design/19): a durable, multi-turn room whose messages are
     relay_messages and whose turns are Runs (Run.conversation_id). A `dm` is the

@@ -15,18 +15,18 @@ The surface is CURATED into three tiers (curation 2026-08-24; see
   read, edit, move, assign, comment, stats — and the wiki: read, search, write,
   append, history, restore, promote, wanted — the usage snapshot and its
   gate — and the artifacts: list, read, save, edit, delete, generate, the
-  model registry and the stats). Always tools. 100 of them.
+  model registry and the stats). Always tools. 119 of them.
 - **GATE** — authorized-but-sharp: the credential/secret plane, admin audit
   reads, destructive/bulk ops, the relay channel lifecycle (creating, renaming
   and archiving rooms), a system row into a room one is not in, and
   archiving a wiki page. Offered ONLY when `AP_MCP_ADMIN_TOOLS` is truthy
-  (`admin_tools_enabled()`). 28 of them. The
+  (`admin_tools_enabled()`). 36 of them. The
   role ladder authorizes every call regardless — the flag controls the MENU,
   not the kitchen.
 - **EXCLUDE** — UI form-feeders, reviewer digests the client can compute,
   git-edit conveniences redundant with having the repo, and system-agent
-  endpoints. Never tools. 19 of them, plus the 18 session/internal/streaming/
-  byte-serving operations below — 165 graded operations in all.
+  endpoints. Never tools. 19 curated-out, plus 21 session/internal/streaming/
+  byte-serving operations below — 195 graded operations in all.
 
 It is deliberately NOT the mcp-broker. The broker authenticates in-cluster run
 identities and scopes tools to an agent's grants (design/13, design/15); this
@@ -43,6 +43,7 @@ docs/deployment.md).
 """
 import logging
 import os
+import re
 import time
 
 import httpx
@@ -103,6 +104,12 @@ EXCLUDED_PATHS = (
     # broker's `artifacts` tool, which attaches it as an image block.
     ("*", r"^/api/artifacts/\{artifact_id\}/content$"),
     ("*", r"^/api/artifacts/\{artifact_id\}/thumb$"),
+    # The trusted UI's short-lived action handshake is browser-session only;
+    # generated MCP Tools cannot carry that session and must not advertise it.
+    ("*", r"^/api/live-views/\{view_id\}/intents$"),
+    ("*", r"^/api/live-views/\{view_id\}/calls$"),
+    # Resource bytes have a dedicated MCP Resource template below.
+    ("*", r"^/api/live-snapshots/\{snapshot_id\}/resource$"),
     # The internal plane (design/22's `POST /api/internal/quota`): these routes
     # authenticate on a shared secret this service does not hold and must never
     # forward, and their callers are infrastructure, not MCP clients. A prefix
@@ -149,6 +156,13 @@ CURATED_OUT = (
 # purpose: each covers its whole domain and nothing else starts with it (the
 # stale-pattern test keeps that honest).
 GATED_ADMIN = (
+    ("*",         r"^/api/live-operation-grants"),
+    (("POST",),   r"^/api/app-collections$"),
+    (("PATCH",),  r"^/api/app-collections/\{name\}$"),
+    (("POST",),   r"^/api/live-views$"),
+    (("PUT",),    r"^/api/live-views/\{view_id\}/draft$"),
+    (("POST",),   r"^/api/live-views/\{view_id\}/publish$"),
+    (("POST",),   r"^/api/live-views/\{view_id\}/rollback/\{version\}$"),
     (("POST",),   r"^/api/change-password$"),
     ("*",         r"^/api/api-keys$"),                            # list + mint
     (("DELETE",), r"^/api/api-keys/\{key_id\}$"),                 # revoke
@@ -295,15 +309,28 @@ def build(spec: dict, client: httpx.AsyncClient | None = None,
           admin_tools: bool | None = None) -> FastMCP:
     """The MCP server for one spec: the KEEP surface, plus the GATE tier when
     `admin_tools` (None ⇒ read `AP_MCP_ADMIN_TOOLS`), minus the curated/design-17
-    exclusions. Ambiguous names are clarified via MCP_NAMES. (Tools only — no
-    resources/resource-templates: one flat surface is what Claude Code's tool
-    search reads best.)"""
+    exclusions. Ambiguous names are clarified via MCP_NAMES. The one Resource
+    template exposes private snapshots only after the API checks the caller."""
     if admin_tools is None:
         admin_tools = admin_tools_enabled()
-    return FastMCP.from_openapi(spec, client=client or make_client(),
-                                name="agent-platform",
-                                route_maps=route_maps(admin_tools),
-                                mcp_names=MCP_NAMES)
+    api_client = client or make_client()
+    mcp = FastMCP.from_openapi(spec, client=api_client,
+                               name="agent-platform",
+                               route_maps=route_maps(admin_tools),
+                               mcp_names=MCP_NAMES)
+
+    @mcp.resource("ap://snapshot/{snapshot_id}", mime_type="text/markdown")
+    async def live_snapshot(snapshot_id: str) -> str:
+        """Read an owner-scoped Live App snapshot by its opaque URI."""
+        if not re.fullmatch(r"[0-9a-f]{32}", snapshot_id):
+            raise ValueError("invalid snapshot id")
+        response = await api_client.get(
+            f"/api/live-snapshots/{snapshot_id}/resource",
+            headers=caller_auth_headers(current_request()))
+        response.raise_for_status()
+        return response.text
+
+    return mcp
 
 
 class RequireAuthorization:

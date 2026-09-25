@@ -45,6 +45,8 @@ async def test_publish_version_rollback_and_no_active_content(admin_client, toke
 
     token = await _reader_key(sf, name="someone-else")
     headers = {"Authorization": f"Bearer {token}"}
+    listed_apps = await token_client.get("/api/apps", headers=headers)
+    assert "sample" not in [app["name"] for app in listed_apps.json()]
     assert (await token_client.get("/api/live-views", params={"app_name": "sample"},
                                    headers=headers)).status_code == 404
     assert (await token_client.get(f"/api/live-views/{view_id}",
@@ -197,3 +199,68 @@ async def test_api_key_cannot_use_browser_action(admin_client, token_client, sf)
                                        json={"alias": "feedback",
                                              "arguments": {"title": "Should not create"}})
     assert response.status_code == 403
+
+
+async def test_private_snapshot_resource_and_revocation(
+        admin_client, token_client, sf, monkeypatch):
+    from agentplatform.api import live_views as views_api
+
+    await admin_client.post("/api/app-collections", json={
+        "name": "running", "display_name": "Running"})
+    created = await admin_client.post("/api/live-views", json={
+        "app_name": "running", "slug": "summary", "definition": {
+            "title": "Running summary", "reads": [{"alias": "summary",
+                "operation": "running.summary.read@1"}],
+            "blocks": [{"kind": "metric", "label": "Distance",
+                        "source": "summary", "field": "total_km"}]}})
+    view_id = created.json()["id"]
+    await admin_client.post(f"/api/live-views/{view_id}/publish")
+
+    async def upstream(_request):
+        return httpx.Response(200, json={"totals": {
+            "total_km": 12.5, "runs": 3, "activities": 3},
+            "latest_day": "2026-09-24"})
+
+    real = views_api.httpx.AsyncClient
+
+    def fake_client(**kwargs):
+        kwargs.pop("base_url", None)
+        return real(transport=httpx.MockTransport(upstream), base_url="http://running", **kwargs)
+
+    monkeypatch.setattr(views_api.httpx, "AsyncClient", fake_client)
+    captured = await admin_client.post(f"/api/live-views/{view_id}/snapshots",
+                                       json={"alias": "summary"})
+    assert captured.status_code == 201, captured.text
+    snap_id = captured.json()["id"]
+    assert captured.json()["resource_uri"] == f"ap://snapshot/{snap_id}"
+    assert captured.headers["cache-control"] == "private, no-store"
+    token = await _reader_key(sf, name="other-reader")
+    headers = {"Authorization": f"Bearer {token}"}
+    assert (await token_client.get(f"/api/live-snapshots/{snap_id}",
+                                   headers=headers)).status_code == 404
+    assert (await token_client.get(f"/api/live-snapshots/{snap_id}/resource",
+                                   headers=headers)).status_code == 404
+    resource = await admin_client.get(f"/api/live-snapshots/{snap_id}/resource")
+    assert resource.status_code == 200 and '"total_km": 12.5' in resource.text
+    assert resource.headers["cache-control"] == "private, no-store"
+    assert (await admin_client.delete(f"/api/live-snapshots/{snap_id}")).status_code == 200
+    assert (await admin_client.get(f"/api/live-snapshots/{snap_id}/resource")).status_code == 404
+
+
+async def test_private_snapshot_bytes_are_pruned_after_delete(sf):
+    from datetime import timedelta
+
+    from agentplatform.db import LiveSnapshot, utcnow
+    from agentplatform.pruning import LiveDataPruner
+
+    async with sf() as session:
+        row = LiveSnapshot(view_id="v", view_version=1, owner_id="admin",
+                           title="Sensitive summary", content={"distance": 4},
+                           expires_at=utcnow() + timedelta(days=30),
+                           deleted_at=utcnow())
+        session.add(row)
+        await session.commit()
+        row_id = row.id
+    assert await LiveDataPruner(sf).prune_once() == 1
+    async with sf() as session:
+        assert await session.get(LiveSnapshot, row_id) is None

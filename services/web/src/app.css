@@ -1185,6 +1185,8 @@ a.relay-action { color: var(--ds-link); }
 .app-error { font-size: 11px; white-space: pre-wrap; margin: 0; }
 .app-open { margin-top: 6px; font-weight: 600; }
 .live-view-blocks { display: grid; gap: 14px; max-width: 900px; margin-top: 24px; }
+.live-view-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.live-view-controls code { overflow-wrap: anywhere; }
 .live-view-blocks > p { white-space: pre-wrap; }
 .live-view-metric { display: flex; flex-direction: column; gap: 4px; width: min(100%, 260px);
   padding: 16px; background: var(--ds-surface); border: 1px solid var(--ds-border);

@@ -79,6 +79,10 @@ export default function LiveViewPage() {
   const [readData, setReadData] = useState<Record<string, Record<string, unknown>>>({});
   const [readError, setReadError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [refresh, setRefresh] = useState(0);
+  const [snapshot, setSnapshot] = useState<{ id: string; resource_uri: string } | null>(null);
+  const [snapshotBusy, setSnapshotBusy] = useState(false);
+  const [snapshotError, setSnapshotError] = useState<string | null>(null);
   useEffect(() => {
     if (!id) return;
     api<PublishedView>(`/api/live-views/${encodeURIComponent(id)}`)
@@ -92,13 +96,33 @@ export default function LiveViewPage() {
       .then((pairs) => { if (active) setReadData(Object.fromEntries(pairs)); })
       .catch((e) => { if (active) setReadError(e instanceof Error ? e.message : "Live data unavailable."); });
     return () => { active = false; };
-  }, [view]);
+  }, [view, refresh]);
+  async function capture() {
+    const alias = view?.definition.reads[0]?.alias;
+    if (!view || !alias) return;
+    setSnapshotBusy(true); setSnapshotError(null);
+    try {
+      setSnapshot(await api<{ id: string; resource_uri: string }>(
+        `/api/live-views/${encodeURIComponent(view.id)}/snapshots`, {
+          method: "POST", body: JSON.stringify({ alias }),
+        }));
+    } catch (e) { setSnapshotError(e instanceof Error ? e.message : "Snapshot unavailable."); }
+    finally { setSnapshotBusy(false); }
+  }
   if (error) return <div className="page"><h1>Page unavailable</h1><p className="error">{error}</p><Link to="/apps">Apps</Link></div>;
   if (!view) return <div className="page"><p className="muted">Loading page…</p></div>;
   return (
     <div className="page">
       <div className="page-header"><h1>{view.definition.title}</h1></div>
       <p className="muted"><Link to="/apps">Apps</Link> / {view.app_name} / {view.slug}</p>
+      {view.definition.reads.length > 0 && <div className="live-view-controls">
+        <button type="button" onClick={() => setRefresh((n) => n + 1)}>Refresh data</button>{" "}
+        <button type="button" onClick={capture} disabled={snapshotBusy}>
+          {snapshotBusy ? "Capturing…" : "Save snapshot"}
+        </button>
+        {snapshot && <span role="status">Saved snapshot: <code>{snapshot.resource_uri}</code></span>}
+        {snapshotError && <span role="alert" className="error">{snapshotError}</span>}
+      </div>}
       {readError && <p className="error">Live data unavailable: {readError}</p>}
       <div className="live-view-blocks">
         {view.definition.blocks.map((block, index) => {

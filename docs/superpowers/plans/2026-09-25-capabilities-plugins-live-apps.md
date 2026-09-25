@@ -43,7 +43,7 @@ Started 2026-09-25. This is a work checkpoint, not a command to run an agent loo
   deny new live-page admission; catalog labels grant nothing.
 - [ ] A4. Enforce viewer + View policy + object/target access on every call,
   including at dispatch. Add idempotent receipts and uncertain-outcome state.
-- [ ] A5. Add private Resource list/read with conservative object ACLs, safe
+- [x] A5. Add private Resource list/read with conservative object ACLs, safe
   cache headers and revocation. Keep the existing artifact browser working.
 - [ ] A6. Implement typed page drafts, fixture preview, publish, rollback,
   trusted action chrome, readable errors, refresh and snapshot capture.
@@ -67,13 +67,13 @@ Started 2026-09-25. This is a work checkpoint, not a command to run an agent loo
 
 ## Current checkpoint
 
-Local `main` contains commits `88a24b9` and `ca67446`, not yet pushed/deployed.
-The App collection, catalog category, and typed page slices are additive. The
-current write-action slice adds an explicit `tickets.create@1` grant, a browser
-session-only short intent, immutable invocation receipt, dispatch-time policy
-recheck, and trusted UI confirmation. Focused tests cover one-ticket replay and
-revocation. It still needs snapshots, MCP Resources, a usable authoring editor,
-and live canary evidence; do not represent it as a complete Live App. Existing untracked `.claude/` and
+Local `main` contains commits `88a24b9`, `ca67446`, and `8bcd946`, not yet
+pushed/deployed. The App collection, catalog category, typed page, and trusted
+ticket-action slices are additive. The current slice adds owner-scoped snapshot
+capture, deletion/retention, and an authenticated MCP Resource template. The
+facade hides browser intent/call endpoints and gates admin mutations. It still
+needs a usable authoring editor, policy/operation inventory, and live canary
+evidence; do not represent it as a complete Live App. Existing untracked `.claude/` and
 `codex-second-quota-pool.html` predate this project and must remain unstaged.
 
 Quota reading at 2026-09-25 13:23 UTC: Codex weekly utilization 79%, reset

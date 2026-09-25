@@ -43,6 +43,9 @@ def _deployment_ready(request: Request, name: str) -> tuple[bool | None, int]:
 @router.get("/api/apps", response_model=list[S.AppView],
             dependencies=[Depends(require_role(*READ_ROLES))])
 async def list_apps(request: Request):
+    ident = await authenticate(request)
+    if ident is None:
+        raise HTTPException(401)
     reg = request.app.state.app_registry
     reg.reload()
     async with request.app.state.session_factory() as session:
@@ -51,6 +54,9 @@ async def list_apps(request: Request):
         )).scalars().all()
     out = []
     for collection in collections:
+        if (not collection.source_app and ident[1] != "admin"
+                and collection.owner_id != ident[0]):
+            continue
         info = reg.get(collection.source_app) if collection.source_app else None
         sp = info.spec if info else None
         ready, replicas = (_deployment_ready(request, info.name)

@@ -6,9 +6,16 @@ import asyncio
 import logging
 from datetime import timedelta
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, or_, select
 
-from agentplatform.db import Run, TranscriptEvent, utcnow
+from agentplatform.db import (
+    LiveIntent,
+    LiveInvocation,
+    LiveSnapshot,
+    Run,
+    TranscriptEvent,
+    utcnow,
+)
 
 log = logging.getLogger("pruning")
 
@@ -149,6 +156,37 @@ class ArtifactPruner:
                 await self.prune_once()
             except Exception:
                 log.exception("artifact prune failed")
+            await asyncio.sleep(interval_seconds)
+
+
+class LiveDataPruner:
+    """Physically remove expired private snapshots and short-lived call data."""
+
+    def __init__(self, session_factory):
+        self.sf = session_factory
+
+    async def prune_once(self, now=None) -> int:
+        now = now or utcnow()
+        async with self.sf() as session:
+            snapshots = await session.execute(delete(LiveSnapshot).where(or_(
+                LiveSnapshot.expires_at <= now,
+                LiveSnapshot.deleted_at.isnot(None))))
+            intents = await session.execute(delete(LiveIntent).where(
+                LiveIntent.expires_at < now - timedelta(days=30)))
+            receipts = await session.execute(delete(LiveInvocation).where(
+                LiveInvocation.created_at < now - timedelta(days=90)))
+            await session.commit()
+        count = sum(r.rowcount or 0 for r in (snapshots, intents, receipts))
+        if count:
+            log.info("pruned %d expired Live App records", count)
+        return count
+
+    async def run_forever(self, interval_seconds: int = 3600) -> None:
+        while True:
+            try:
+                await self.prune_once()
+            except Exception:
+                log.exception("live data prune failed")
             await asyncio.sleep(interval_seconds)
 
 

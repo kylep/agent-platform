@@ -95,25 +95,53 @@ def test_setup_state_is_not_caught_by_the_setup_exclusion():
     assert matches(facade.EXCLUDED_PATHS, "POST", "/api/setup")
 
 
+@pytest.mark.asyncio
+async def test_snapshot_resource_template_forwards_caller_and_checks_upstream(spec, monkeypatch):
+    seen = []
+
+    async def upstream(request):
+        seen.append((request.url.path, request.headers.get("authorization")))
+        if request.headers.get("authorization") != "Bearer ap_owner":
+            return httpx.Response(404)
+        return httpx.Response(200, text="# Private running snapshot")
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(upstream),
+                                 base_url="http://api") as client:
+        mcp = facade.build(spec, client=client, admin_tools=False)
+        templates = await mcp.list_resource_templates()
+        assert [str(t.uri_template) for t in templates] == ["ap://snapshot/{snapshot_id}"]
+        monkeypatch.setattr(facade, "current_request", lambda: type("Request", (), {
+            "headers": {"authorization": "Bearer ap_owner"}})())
+        uri = "ap://snapshot/" + "a" * 32
+        result = await mcp.read_resource(uri)
+        assert result.contents[0].content == "# Private running snapshot"
+        assert seen == [("/api/live-snapshots/" + "a" * 32 + "/resource",
+                         "Bearer ap_owner")]
+        monkeypatch.setattr(facade, "current_request", lambda: type("Request", (), {
+            "headers": {"authorization": "Bearer ap_other"}})())
+        with pytest.raises(Exception, match="404"):
+            await mcp.read_resource(uri)
+
+
 def test_everything_else_is_a_tool(spec, tools):
     """The default surface, by construction: exactly the operations that are
-    not design-17-excluded, not curated out, and not gated. Pinned at 100."""
+    not design-17-excluded, not curated out, and not gated. Pinned at 119."""
     hidden = {(m, p) for m, p in operations(spec) if matches(ALL_RULES, m, p)}
     expected = set(operations(spec)) - hidden
     assert {(t._route.method, t._route.path) for t in tools} == expected
-    assert len(tools) == len(expected) == 100, \
+    assert len(tools) == len(expected) == 119, \
         sorted({(t._route.method, t._route.path) for t in tools})
 
 
 def test_admin_flag_restores_gated(spec, admin_tools):
-    """With AP_MCP_ADMIN_TOOLS on, the gated set returns (128 total) but the
+    """With AP_MCP_ADMIN_TOOLS on, the gated set returns (155 total) but the
     design-17 exclusions and CURATED_OUT never come back."""
     still_hidden = facade.EXCLUDED_PATHS + facade.CURATED_OUT
     hidden = {(m, p) for m, p in operations(spec)
               if matches(still_hidden, m, p)}
     expected = set(operations(spec)) - hidden
     assert {(t._route.method, t._route.path) for t in admin_tools} == expected
-    assert len(admin_tools) == len(expected) == 128, \
+    assert len(admin_tools) == len(expected) == 155, \
         sorted({(t._route.method, t._route.path) for t in admin_tools})
     names = {t.name for t in admin_tools}
     for gated in ("mint_api_key", "put_secret", "delete_agent", "import_agents",
