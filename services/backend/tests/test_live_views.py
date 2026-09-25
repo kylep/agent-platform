@@ -120,6 +120,7 @@ async def test_running_read_uses_published_binding_and_owner_acl(
     view_id = created.json()["id"]
     await admin_client.post(f"/api/live-views/{view_id}/publish")
     calls = []
+    clients_created = []
 
     async def upstream(request):
         calls.append(request)
@@ -131,6 +132,7 @@ async def test_running_read_uses_published_binding_and_owner_acl(
 
     def fake_client(**kwargs):
         kwargs.pop("base_url", None)
+        clients_created.append(True)
         return real(transport=httpx.MockTransport(upstream), base_url="http://running", **kwargs)
 
     monkeypatch.setattr(views_api.httpx, "AsyncClient", fake_client)
@@ -144,6 +146,9 @@ async def test_running_read_uses_published_binding_and_owner_acl(
                           "latest_day": "2026-09-24"}
     assert got.headers["cache-control"] == "private, no-store"
     assert str(calls[0].url) == "http://running/apps/running/api/summary"
+    again = await admin_client.get(f"/api/live-views/{view_id}/data/summary")
+    assert again.status_code == 200 and again.json() == got.json()
+    assert len(calls) == 2 and len(clients_created) == 1
 
 
 async def test_running_activity_table_is_bounded_and_normalized(

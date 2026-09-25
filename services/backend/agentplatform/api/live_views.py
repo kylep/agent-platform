@@ -361,11 +361,16 @@ async def read_live_view_data(request: Request, view_id: str, alias: str,
                               ident: tuple[str, str] = Depends(_reader)):
     """One bounded read operation, resolved from the published version only."""
     async with request.app.state.session_factory() as session:
-        view = await session.get(LiveView, view_id)
-        if view is None or view.published_version is None:
+        row = (await session.execute(select(LiveView, AppCollection, LiveViewVersion)
+            .join(AppCollection, AppCollection.name == LiveView.app_name)
+            .outerjoin(LiveViewVersion, (
+                LiveViewVersion.view_id == LiveView.id) &
+                (LiveViewVersion.version == LiveView.published_version))
+            .where(LiveView.id == view_id))).one_or_none()
+        if row is None or row.LiveView.published_version is None or (
+                ident[1] != "admin" and row.AppCollection.owner_id != ident[0]):
             raise HTTPException(404, "unknown view")
-        await _accessible_app(session, view.app_name, ident)
-        published = await session.get(LiveViewVersion, (view_id, view.published_version))
+        view, _, published = row
         if published is None:
             raise HTTPException(503, "published version unavailable")
         try:
@@ -390,10 +395,15 @@ async def read_live_view_data(request: Request, view_id: str, alias: str,
                 else f"runs?limit={row_limit}" if binding.operation == "tcms.runs.read@1"
                 else "overview" if app_name == "tcms" else "summary")
     try:
-        async with httpx.AsyncClient(base_url=upstream, timeout=limits["timeout_seconds"],
-                                     follow_redirects=False) as client:
-            response = await client.get(f"/apps/{app_name}/api/{endpoint}", headers={
-                "X-AP-User": ident[0], "X-AP-Role": "reader"})
+        async with request.app.state.live_app_clients_lock:
+            clients = request.app.state.live_app_clients
+            if upstream not in clients:
+                clients[upstream] = httpx.AsyncClient(base_url=upstream,
+                                                       follow_redirects=False)
+            client = clients[upstream]
+        response = await client.get(f"/apps/{app_name}/api/{endpoint}",
+                                    timeout=limits["timeout_seconds"], headers={
+                                        "X-AP-User": ident[0], "X-AP-Role": "reader"})
         response.raise_for_status()
         if len(response.content) > limits["max_upstream_bytes"]:
             raise ValueError("oversized summary")

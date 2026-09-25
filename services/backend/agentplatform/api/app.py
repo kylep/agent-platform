@@ -337,6 +337,8 @@ def create_app(settings, session_factory, producer, secret_store=None, agent_sto
                     await st.quota_client.aclose()
                 except Exception:
                     pass
+            for client in st.live_app_clients.values():
+                await client.aclose()
             if st.producer is not None:
                 try:
                     await st.producer.stop()
@@ -375,6 +377,10 @@ def create_app(settings, session_factory, producer, secret_store=None, agent_sto
     # first use (api/quota.py). Named here because this is the seam a test
     # replaces with a MockTransport so the suite never dials Anthropic.
     st.quota_client = None
+    # Live page reads share upstream connections across requests. The lock
+    # prevents a burst of first reads from creating a client per request.
+    st.live_app_clients = {}
+    st.live_app_clients_lock = asyncio.Lock()
     from agentplatform.skills import SkillStore
     st.skill_store = SkillStore(Path(settings.skills_root))
     from agentplatform.secretregistry import SecretRegistry

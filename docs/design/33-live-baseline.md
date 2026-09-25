@@ -76,3 +76,28 @@ output parity (Running coaching/PRs/calendar; News freshness and archive;
 Stockmarket units/formulas; TCMS case evidence; TTRPG player/spectator
 interaction). The DB pages currently serve as new collection entry points,
 not replacements for those richer interfaces.
+
+### Running latency canary
+
+On 2026-09-25, authenticated read-only requests from the laptop to pai sampled
+20 sequential requests per endpoint and ten batches of ten concurrent requests
+per endpoint. All responses were HTTP 200. The initial direct Running summary
+measured p50/p95 14.1/35 ms sequential and 109/263 ms concurrent. Its Live
+View adapter measured 32.8/43.7 ms sequential and 495.7/537.3 ms concurrent.
+This exceeded the proposed 1.25× p95 gate. The API opened a fresh upstream
+HTTP client on every read; the next canary reuses a per-upstream connection
+pool. That canary measured 29.4/120 ms sequential and 372.2/785.5 ms
+concurrent for the Live View, versus 13.6/40.8 ms and 100.3/249.4 ms for
+the direct endpoint. Reversing the concurrent test order yielded direct
+122.9/293.2 ms and Live View 376.8/408 ms. These short samples are sensitive
+to NUC load and ordering, but consistently fail the 1.25× gate. A following
+canary combines published-view, app-ownership and version lookup into one
+database query. With that change deployed, two ten-concurrent-batch passes
+returned direct p50/p95 121.4/525.2 and 71.2/239.7 ms, versus Live View
+370.6/503.6 and 403.6/607.8 ms. All 400 requests were 200. The live read
+remains measurably slower; the p95 ratio varies substantially with host load,
+so this is a failed canary gate, not a reliable capacity limit. On pai after
+the earlier sample, the API used about 82m CPU and 187 MiB RSS and the
+Running domain app about 27m CPU and 64 MiB RSS. Until the gate passes,
+retain the specialist route and its direct domain API as the supported
+detailed UI.

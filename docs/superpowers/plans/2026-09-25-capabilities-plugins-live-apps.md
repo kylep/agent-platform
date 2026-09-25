@@ -99,7 +99,8 @@ Started 2026-09-25. This is a work checkpoint, not a command to run an agent loo
 
 ## Current checkpoint
 
-Main through `624cb74` is pushed and deployed. All five Apps now open their
+Main through `3b13447` is pushed and deployed; CI for that commit passed every
+job. All five Apps now open their
 published DB pages from the Apps directory, with explicit detailed-app links
 to the existing specialist screens. A 390px Chromium pass found the five
 expected live-page and specialist routes, no browser errors and no horizontal
@@ -126,7 +127,7 @@ and the three affected tests then passed. The next CI run passed its backend,
 facade and guard jobs, but found a separate one-pixel-range mobile overflow
 on the Memories page (288/289 web tests passed). Its filter row now wraps and
 its search input can shrink; the failing test passed ten consecutive local
-runs. The new full CI run is pending.
+runs. The new full CI run passed every job.
 
 Main through `19c9ebb` is pushed and deployed. The Running canary passed API,
 browser and MCP Resource checks. The plain-HTTP `crypto.randomUUID` failure
