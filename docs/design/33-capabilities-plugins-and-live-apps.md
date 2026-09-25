@@ -8,11 +8,11 @@ An agent owner can see what an agent can do, which accounts and data it can use,
 
 **Apps remain named collections** of live pages, static artifacts and actions. **Live pages may invoke general platform Tools**, including writes, sends, paid operations and agent invocation, when the operation is eligible, the viewer has the required grants, and the trusted platform UI obtains any required intent. The first pilot uses a small subset to prove this general contract; it does not limit the product to dashboards or read-only bindings.
 
-The first proposed slice is `agent-platform-coding` plus a **Project Quality App** over platform-owned TCMS evidence, with an explicit **Create follow-up ticket** action. It demonstrates private reads, a real platform write, event refresh, an immutable snapshot and MCP Resource access. Existing Apps stay operational. The old Running/Strava pilot is removed for the source-policy reasons below.
+The first proposed slice is `agent-platform-coding` plus a **Running Live App** over the existing Running projection, with an explicit **Report a running-app issue** Ticket action. It demonstrates owner-scoped reads, a real platform write, event refresh, a snapshot and MCP Resource access. Existing Apps stay operational.
 
 Three implementation decisions narrow the first release:
 
-- Private data is rendered by platform-owned typed components. Arbitrary author JavaScript may receive only explicitly public, policy-eligible data. A sandbox protects the host but cannot make code trustworthy with a viewer's private bytes.
+- Private data is rendered by platform-owned typed components. Arbitrary author JavaScript may receive only explicitly public data. A sandbox protects the host but cannot make code trustworthy with a viewer's private bytes.
 - Production plugin materialization accepts a skills-only subset, verifies retained release bytes, and rejects authority-bearing package features. General vendor plugin formats are more powerful than this subset.
 - Principal/object authorization and cache changes precede new private Resource or live-page exposure. Feature rollback never restores the weaker access model.
 
@@ -37,7 +37,7 @@ These are recommendations of this revised design. The remaining product choice�
 
 MCP distinguishes Tools, Resources and Prompts. A skill is a harness workflow, not automatically an MCP Prompt. An `ap://artifact/<id>` URI is read through authenticated MCP Resource methods; `/api/artifacts/<id>/content` is an authenticated browser route. The same stored bytes can back both. Catalog labels do not grant access or determine deployment topology. [MCP specification](https://modelcontextprotocol.io/specification/2026-07-28)
 
-Keep existing MCP Tool names. `strava`, `linear`, `prices`, `stocks` and `index_movers` are service-connector entries; classification does not imply that every provider permits every new use. `discord_chat` and the Discord transport share an explicit Chat Identity eventually. `tcms` owns platform quality evidence. `ttrpg` remains a domain capability. `query_app` remains a compatibility gateway until named, bounded operations replace individual uses; views cannot select arbitrary URLs, SQL or internal paths.
+Keep existing MCP Tool names. `strava`, `linear`, `prices`, `stocks` and `index_movers` are service-connector entries. `discord_chat` and the Discord transport share an explicit Chat Identity eventually. `tcms` owns platform quality evidence. `ttrpg` remains a domain capability. `query_app` remains a compatibility gateway until named, bounded operations replace individual uses; views cannot select arbitrary URLs, SQL or internal paths.
 
 ## Repository baseline and scope
 
@@ -52,17 +52,15 @@ The reviews were written from supplied design material, not a live repository au
 | Broker and facade depend on `fastmcp>=3,<4`; the runner Dockerfiles pin Claude Code `2.1.214` and Codex `0.155.1` | Record resolved package/image versions and observed protocol behavior. Current web documentation is not proof of support in those images. |
 | `runner._install_skills` copies directories into `~/.claude/skills` or `~/.agents/skills`, silently skipping unknown names | Replace silent omission with validated assignments, safe materialization and visible launch failure. |
 | `joblauncher.py`, `readiness.py` and `skills.py` union skill-declared secrets into run bindings | Remove that implicit authority before assigning a plugin; changing only the runner copy function is insufficient. Audit actual DB assignments even though the source skill catalog is empty. |
-| `tools/tcms` reads currently return bounded text; its writes ingest real test reports, with caller identity supplied by the executor. The existing TCMS schema has no general project ownership field | Add a reviewed structured read adapter and an explicit dataset ACL/mapping for the pilot. Do not pretend a project filter exists, parse presentation prose, or let the pilot synthesize test results. |
+| `apps/running/backend/runningapp/api.py` already provides summary, calendar, weekly, PR, brief and activity reads over its projection; `ingest.py` consumes agent-produced syncs | Compose a new owner-scoped view from reviewed structured adapters over the existing projection. Preserve the app's ingestion, calculations and coach path; passive page loads must not call Strava. |
 | Apps contain services, Kafka consumers and domain rules, not just React pages | Move composition/presentation first. Preserve News freshness gates, market calculations, TCMS evidence ingestion and the TTRPG engine. |
 | Helm already includes default-deny NetworkPolicies, SPIRE configuration and a `pg_dump` backup CronJob; HTTPS egress allowances are broad, backups are gzip on a PVC, and Kafka client traffic is configured PLAINTEXT | Verify existing controls and gaps. Do not claim provider-specific egress, encrypted backups, a KMS, or fully encrypted inter-service traffic already exists. |
 
 No new database, bus or domain execution platform is proposed. An executable-view origin may require DNS/TLS/routing configuration. Private snapshots add data to the existing backup and deletion scope; backup protection must be documented rather than inferred from secret references. A general OAuth migration, organization-wide KMS deployment, new tracing backend, and complete network redesign are separate projects unless a concrete release gate requires them.
 
-### Change the pilot; inventory existing Strava usage
+### Running pilot boundaries
 
-Strava's API Policy effective June 1, 2026 restricts disclosure to the supplying user (§2.3), AI operation including context ingestion and derived data (§5.3), and third-party MCP/agent interfaces (§5.16). It specifies a seven-day cache limit (§6.2) and deletion propagation within 48 hours (§6.3). Its own Strava MCP has a separate exception (§3.5); this does not establish permission for the platform adapter. These provisions were checked against the primary policy on 2026-09-25. [Strava API Policy](https://www.strava.com/legal/api_policy)
-
-Accordingly, do not use Strava-derived records for the new shared App, MCP Resources, agent skill evaluation or snapshot demo. Use synthetic fixtures and platform-owned quality evidence. `apps/running/backend/runningapp/brief.py` explicitly describes an agent pulling Strava activities: existing tools, jobs, projections, reports, Relay posts, transcripts and backups need a separate inventory/remediation decision before further expansion. Capture lineage and applicable permissions; do not assume consent, anonymization, derived summaries or an exported file removes source restrictions. Any required disabling, retention change or deletion of existing production data is a separately reviewed operational change, not performed by editing this design.
+Use synthetic fixtures in automated tests; live verification may use the owner's existing Running projection. Keep the pilot owner-only. Passive page loads read that projection rather than calling the external service. A new snapshot or Resource uses the same owner-scoped ACL and deletion behavior. Preserve the existing tool, job, projection, report and coaching paths during the UI pilot.
 
 ## Architecture and authorization
 
@@ -94,7 +92,7 @@ Compile metadata from reviewed tool manifests and core operation declarations:
 operation_id, tool_name, action_discriminator, contract_version
 input_schema, output_schema, category, provider, connection_kind
 supported_principal_kinds, effects, output_classification, provenance
-source_use_policy, allowed_targets, view_eligible, limits, adapter_revision
+allowed_targets, view_eligible, limits, adapter_revision
 ```
 
 `contract_version` covers behavior as well as JSON shape: units, ordering, filtering, identity and effect semantics. A compatible schema with changed meaning is not a compatible operation. Existing names remain aliases where necessary. Unknown action branches, unclassified outputs or unsupported caller types fail closed for new live-page admission; their legacy behavior changes only through a separate migration.
@@ -113,7 +111,7 @@ Admission requires **all** of:
 2. The version's alias permits the operation, arguments, target and trigger.
 3. The principal has an explicit operation grant for this live-page surface.
 4. Underlying object, project/channel, connection and Chat Identity ACLs permit the access/effect.
-5. Data-use, rendering-tier, output, rate and spending limits permit this call.
+5. Data-access, rendering-tier, output, rate and spending limits permit this call.
 6. Required host-created intent is valid and unconsumed.
 
 The View manifest is an upper bound, not a grant. The author's authority is never inherited. Even an admin session does not give an embedded page unrestricted admin Tool access; direct administrative API behavior remains separately governed. Agent calls keep their frozen grant ceiling, intersected with current disable/revocation policy. API keys do not receive new operations from a role-based backfill.
@@ -132,17 +130,16 @@ MCP 2026-07-28 changes transport/discovery and cache contracts; it is not just a
 
 ### Classification, lineage and ACLs
 
-Use three separate dimensions:
+Use two separate dimensions:
 
 | Dimension | First-release values | Meaning |
 |---|---|---|
 | Confidentiality | `public`, `internal`, `confidential`, `restricted` | Which principals, renderers and caches may receive bytes |
 | Provenance/trust | `platform`, `reviewed_external`, `untrusted_external`, `user_authored`, `model_generated` | How content was produced; public content can still be hostile |
-| Source-use policy | Provider/source ID and allowed purposes/destinations | Contractual/use restrictions that ACLs or declassification cannot waive |
 
 Unknown classification defaults to restricted for new exposure. Credentials are never an eligible Tool result or Resource. Only **public** is eligible for arbitrary page scripts in the initial design; “internal” is not a synonym for harmless. Typed private views may read data only after object ACLs are enforced.
 
-Derived snapshots, caches and results inherit the highest input confidentiality, the intersection of permitted recipients/purposes, and all restrictive source lineage. Read access does not imply permission to publish. Explicit sharing/declassification must be separately granted, auditable and prohibited where source policy forbids it. A label is insufficient: store concrete owner/recipient or project/channel ACLs. If a source disappears, distinguish immutable capture provenance from continued permission to serve the captured bytes.
+Derived snapshots, caches and results inherit the highest input confidentiality and restrictive object ACLs; record source lineage for attribution and deletion. Read access does not imply permission to publish. Explicit sharing/declassification must be separately granted and auditable. A label is insufficient: store concrete owner/recipient or project/channel ACLs. If a source disappears, distinguish immutable capture provenance from continued permission to serve the captured bytes.
 
 Backfill artifacts and reports conservatively using verified ownership, run and project/channel provenance. Ambiguous legacy rows go on an admin remediation list; never infer that possession of a URL implies sharing. Run shadow comparisons against current access first, review intended losses, then enforce the new ACL on every list, detail, content, thumbnail, export and Resource path. Preserve intended portraits/shared assets through explicit grants. The backfill must widen no access silently.
 
@@ -162,7 +159,7 @@ Static Reports retain sanitization and their existing script-free sandbox. Expor
 
 Before storing a new class of private snapshot, record actual database/PVC/backup protections, who can read them, retention/deletion behavior, recovery keys where encryption exists, and a restore procedure. The chart's gzip backup is not evidence of encryption. Do not repeat the former assertion of an unspecified “encrypted-secret mechanism”; provider secret bytes stay in existing controlled secret bindings, whose at-rest configuration must be verified separately.
 
-The first synthetic-data pilot does not require a new KMS or HSM. Real confidential data requires an explicit accepted storage/backup posture; material gaps become bounded prerequisites or block that data class. Retention propagates through snapshot bytes and caches; backup restore must reapply deletion/revocation records before serving data. No compliance certification is implied.
+Synthetic pilot fixtures do not require a new KMS or HSM. Before owner data is used, record and accept the actual storage/backup posture; material gaps become bounded prerequisites for that data class. Retention propagates through snapshot bytes and caches; backup restore must reapply deletion/revocation records before serving data. No compliance certification is implied.
 
 ## Live artifact authoring and runtime
 
@@ -171,7 +168,7 @@ The first synthetic-data pilot does not require a new KMS or HSM. Real confident
 | Tier | Author controls | Data admitted | Release decision |
 |---|---|---|---|
 | Typed View | Layout, text, chart/table/stat configuration, declared bindings and host-owned actions | Authorized public/private results | Recommended first private-data runtime |
-| Scripted public View | Versioned HTML/CSS/JavaScript with the same declared Tool policy | Explicitly public, source-policy-eligible results only | Optional first-release slice; not needed for pilot completion |
+| Scripted public View | Versioned HTML/CSS/JavaScript with the same declared Tool policy | Explicitly public results only | Optional first-release slice; not needed for pilot completion |
 | Trusted executable View | Reviewed arbitrary code with explicit publisher trust | Sensitive data only under a separate approved trust model | Deferred; no “sandbox makes it safe” claim |
 | Worker/remote-rendered extension | Constrained code emits allowlisted component operations | To be defined by a separate threat model | Research option, not an assumed security solution |
 
@@ -184,40 +181,38 @@ Draft preview uses synthetic fixtures and makes **zero live calls** by default. 
 Illustrative typed definition; operation identifiers and schema are proposed, not existing endpoints:
 
 ```yaml
-app: project-quality
+app: running
 view: overview
 renderer: typed/v1
-title: Project Quality
+title: Running
 tools:
-  cases:
-    operation: tcms.cases.read@1
+  summary:
+    operation: running.summary.read@1
     trigger: load_or_refresh
-    args: {project_id: project_123, limit: 40}
-    constraints: {project_id: {const: project_123}, limit: {maximum: 40}}
-  follow_up:
+    constraints: {owner_id: {principal: self}}
+  report_issue:
     operation: tickets.create@1
     trigger: host_action
     constraints:
-      channel_id: {const: channel_456}
+      channel_id: {const: owner_private_channel}
       assignee: {const: null}
-    flow: selected_case_to_same_audience_ticket
+    flow: user_entered_issue_only_no_activity_payload
     idempotency: required
 layout:
-  - component: table
-    source: cases
-    columns: [key, title, last_status]
+  - component: stat_cards
+    source: summary
   - component: action
-    alias: follow_up
-    label: Create follow-up ticket
-    form: reviewed_case_follow_up_v1
+    alias: report_issue
+    label: Report a running-app issue
+    form: running_issue_v1
 limits:
   concurrent_calls: 2
   response_bytes: 262144
 ```
 
-The proposed `project_id` above resolves through a reviewed mapping to the existing platform-repository TCMS dataset and its ACL; it is not a claim that today's TCMS tables isolate arbitrary projects. Start with that one dataset and a disposable scoped fixture. Do not broaden the pilot into multi-project TCMS storage migration. An unmapped project denies rather than returning the global dataset.
+The proposed `running.summary.read@1` is a new operation over the existing Running projection, not a browser route to Strava or an assertion that the current app has per-user ownership columns. The first version is restricted to the single authorized owner and denies every other principal. Do not infer ownership from a query parameter or expose the old projection through a general Resource URI.
 
-The first action omits agent assignment and escapes mention syntax so ticket creation does not accidentally summon an agent. The handler must still classify any actual indirect effects. Its form is a trusted implementation with explicit field mapping and a destination whose audience is permitted to receive the source evidence. The general invocation API supports other Tools when they pass the same admission contract.
+The first action omits agent assignment and escapes mention syntax so ticket creation does not accidentally summon an agent. It carries only text the owner enters; it must not silently copy activity names, routes, briefs or derived stats into a broader-audience Ticket. Its form is a trusted implementation with explicit field mapping. The handler still classifies actual indirect effects, and the general invocation API supports other Tools when they pass the same admission contract.
 
 ### Script isolation and bridge lifetime
 
@@ -233,7 +228,7 @@ Bootstrap a per-document `MessageChannel` from the trusted host after checking f
 
 Read-only, unpriced operations can run on load or bounded refresh if classified accordingly. Writes, sends, spending or agent invocation require an action in trusted host chrome outside authored content. The host resolves the real operation, target identity/destination, effects, bounded argument summary and any price cap. The user's affirmative action authorizes those exact arguments. Future recurring automation requires a separate service identity, grants and budget; an open viewer session is not an automation credential.
 
-Tool authorization alone does not prevent an author exporting what a viewer can read. Enforce data flow to **platform writes as well as external sends**: Tickets, Wiki, Relay, artifact titles and even search arguments/logs can expose content to a broader audience. For the typed tier, field sources and transformations are allowlisted and tracked by trusted code. The server derives lineage from source/result references, never client taint flags. Broader disclosure requires a separately allowed flow and truthful host UI; disallowed source-use policy cannot be approved away. Arbitrary-script value tracking is not promised—such scripts receive only public inputs. Audit/call metadata visible to authors must not disclose viewers' private arguments or activity.
+Tool authorization alone does not prevent an author exporting what a viewer can read. Enforce data flow to **platform writes as well as external sends**: Tickets, Wiki, Relay, artifact titles and even search arguments/logs can expose content to a broader audience. For the typed tier, field sources and transformations are allowlisted and tracked by trusted code. The server derives lineage from source/result references, never client taint flags. Broader disclosure requires a separately allowed flow and truthful host UI. Arbitrary-script value tracking is not promised—such scripts receive only public inputs. Audit/call metadata visible to authors must not disclose viewers' private arguments or activity.
 
 Before dispatch, the API creates a durable invocation record:
 
@@ -246,7 +241,7 @@ The record binds principal, App/View version, alias, operation contract, canonic
 
 Use validated JSON and RFC 8785-compatible canonicalization for digests, rejecting duplicate keys and non-finite values. Define string semantics explicitly: preserve exact Unicode strings unless a particular input contract specifies normalization, and display the same validated values being hashed. Do not silently normalize message content or paths. Same principal/view-version/operation/key plus the same digest returns the original receipt; the same key with different arguments returns conflict.
 
-Consume short-lived intent and reserve the idempotency key atomically using DB constraints/transactions. Recheck current grants, target ACLs, source policy, disabled version/identity and remaining budget **at dispatch**, not just at admission. Two tabs cannot spend one intent twice. Revocation blocks admitted work that has not crossed the dispatch boundary; it cannot undo an already sent provider request. Record that boundary clearly. Core DB writes should commit the mutation and receipt consistently; external calls cannot share that transaction.
+Consume short-lived intent and reserve the idempotency key atomically using DB constraints/transactions. Recheck current grants, target ACLs, disabled version/identity and remaining budget **at dispatch**, not just at admission. Two tabs cannot spend one intent twice. Revocation blocks admitted work that has not crossed the dispatch boundary; it cannot undo an already sent provider request. Record that boundary clearly. Core DB writes should commit the mutation and receipt consistently; external calls cannot share that transaction.
 
 Use provider idempotency keys where supported. A timeout after dispatch, or a crash between provider success and receipt persistence, can leave `outcome_unknown`. The browser retrieves the receipt; it does not issue a fresh effectful request. Reconcile via provider status/operation ID when possible. Never claim exactly-once external delivery or blindly retry a potentially successful send. An explicit retry after an unresolved outcome requires a new user decision warning of possible duplication. Distinguish cancellation before dispatch from a browser closing after dispatch.
 
@@ -260,7 +255,7 @@ Public API sketch: draft/read/update/preview/publish/rollback; `POST intent`, `P
 
 Domain rows remain query truth. Kafka carries durable publication, invocation and invalidation events through existing infrastructure; events carry scoped IDs/revisions, not private result bodies. Use an outbox or equivalent durable event publication so a committed mutation cannot silently lose its notification. One platform SSE stream per tab, coalescing/debounce, authorized subscriptions and bounded reconnect reconciliation prevent event storms and missed-update staleness. Duplicate/out-of-order events are harmless. Do not require zero dropped UI notifications; require eventual re-read of the authorized source. Passive page loads make zero provider calls in the pilot.
 
-Show last successful source timestamp, loading/empty/stale/denied/unavailable states and receipt status. A disabled source must not look like an empty successful result. Snapshots use trusted rendering and pinned source versions; creating or sharing one goes through the same access/data-use policy.
+Show last successful source timestamp, loading/empty/stale/denied/unavailable states and receipt status. A disabled source must not look like an empty successful result. Snapshots use trusted rendering and pinned source versions; creating or sharing one goes through the same access and disclosure policy.
 
 ## Skills and plugins: one source, three delivery surfaces
 
@@ -321,25 +316,25 @@ Later App migration is domain-by-domain, not an automatic cleanup phase:
 
 | Domain | Keep | Gate before replacing presentation |
 |---|---|---|
-| TCMS | Real result ingestion, case reconciliation, schema and evidence provenance | Pilot read parity; no invented test status; existing TCMS frontend can coexist |
+| TCMS | Real result ingestion, case reconciliation, schema and evidence provenance | Future view must preserve case/status parity; existing TCMS frontend can coexist |
 | News | Ingestion, freshness rejection, deduplication and outbound publishing | Replay representative accepted/rejected events; archive and freshness parity |
-| Stockmarket | Provider loaders and deterministic calculations | Units, timestamps, formulas and provider-use policy parity |
-| Running | Only functionality established as permitted by its source policy | Resolve the separate source-policy inventory; synthetic/independently sourced data is not assumed interchangeable with Strava data |
+| Stockmarket | Provider loaders and deterministic calculations | Units, timestamps and formula parity |
+| Running | Existing ingestion, coaching, statistics and report publishing | Pilot view parity, owner-only access and bounded retention |
 | TTRPG | Game engine, state machine and specialized controls | Demonstrate equivalent interaction/latency; a specialized hosted UI may remain permanently |
 
 MCP Apps is a later export adapter, not the first-party runtime. Pin the extension revision and test a capable host, `ui://` resource linkage, app-visible Tool restrictions and useful non-UI results. Its web host sandbox architecture includes a separate-origin intermediary; a lone first-party iframe must not be called conformant. Export only views whose data/intent policy the target host can enforce. App visibility metadata is not authorization; `structuredContent` is not guaranteed private from model context. Do not assume Codex CLI displays iframes. [MCP Apps overview](https://apps.extensions.modelcontextprotocol.io/api/documents/Overview.html)
 
 ## Delivery, migration and rollback
 
-First-release scope ends when the coding package and Project Quality vertical slice are verified. Chat Identity refactoring, unrestricted script authoring, migration of every App, a visual drag-and-drop builder and MCP Apps export are separately sized follow-ups.
+First-release scope ends when the coding package and Running vertical slice are verified. Chat Identity refactoring, unrestricted script authoring, migration of every other App, a visual drag-and-drop builder and MCP Apps export are separately sized follow-ups.
 
 | Phase / packages | Deliverable and dependency | Exit evidence | Rollback |
 |---|---|---|---|
-| 0 — C1: contract inventory and decisions | Map current operations/effects, principal/auth paths, data/ACLs, actual SDK/image/browser versions and pilot baselines. Record Strava remediation separately. Choose auth boundary, package signing and authoring scope. | Registry fixtures, explicit pilot operation list, baseline measurements, decisions/open owners; no production changes | Document-only |
+| 0 — C1: contract inventory and decisions | Map current operations/effects, principal/auth paths, data/ACLs, actual SDK/image/browser versions, pilot baselines and current data/retention paths. Choose auth boundary, package signing and authoring scope. | Registry fixtures, explicit pilot operation list, baseline measurements, decisions/open owners; no production changes | Document-only |
 | 1 — C2/R1: policy foundation | Compile catalog; introduce explicit live-operation grants, object ACLs, classification/lineage and private HTTP cache changes. Additive schema and shadow access comparisons first. | Generated allow/deny matrix, conservative backfill report, no secret/metadata leak; old binary/schema compatibility or documented rollback floor | Disable new features; retain ACL/cache protections and forward-fix data |
 | 2 — P1/P2: coding package | Remove implicit skill authority; build retained verified package and filtered runner delivery; document local installs | Exact-image discovery and hostile-package/workspace tests, digest rollback, small coder/QA evaluation | Select prior safe release or disable assignment; never restore skill-secret union |
 | 3 — R2/C3/V1: first live vertical slice | Private Resources and API-owned human invocation; typed versioned View, trusted action, receipts, scoped refresh and fixture/source editor. Depends on Phase 1; can be developed independently of plugin UX | Private Resource/image/Markdown round trips; read, denied viewer and ticket action; dispatch/replay/failure tests | Disable Resource registration/bridge, retain existing Apps and security state |
-| 4 — A1: Project Quality pilot | Structured TCMS adapter, fixed permitted project/channel, private reads and explicit follow-up ticket, snapshot; shadow then canary | End-to-end evidence and agreed capacity/parity gates; no new provider requests on load | Route/pointer to existing frontend within five minutes; preserve tickets/receipts already created |
+| 4 — A1: Running pilot | Structured adapter over the existing Running projection, owner-only reads, user-entered issue Ticket and owner-scoped snapshot; shadow then canary | End-to-end evidence, view parity and agreed capacity gates; no Strava requests on page load | Route/pointer to existing frontend within five minutes; preserve tickets/receipts already created |
 | Follow-up — I1/V2/A2/M1 | Chat Identities, optional public scripted runtime/editor, individual domain migrations, MCP Apps export | Each has its own value, compatibility and security gate | Component-specific route/assignment/identity rollback |
 
 Implementation packages are vertical slices, not a mandate for a reviewer and full suite per file. C3 is the human invocation adapter; V1 includes the minimal typed renderer, actions and durable receipts; V2 is optional executable-page support. This replaces the former eight-phase critical path.
@@ -349,8 +344,8 @@ Implementation packages are vertical slices, not a mandate for a reviewer and fu
 1. Capture code/image/schema versions, current grants/ACL traffic, artifact ownership ambiguity and existing frontend outputs. Establish a tested backup/restore checkpoint without putting credentials in evidence.
 2. Add tables/columns and feature flags. Prove compatible readers before enabling writes; use optimistic/versioned changes and idempotent backfills. Do not remove old columns/routes yet.
 3. Compare old/new authorization in shadow mode. Resolve intended sharing and false allows. Turn on enforcement **before** new private reads; no broad fallback on denial.
-4. Shadow the new pilot read model against the same existing TCMS truth. Compare case IDs, latest evidence/status, ordering, pagination, project filtering and timestamps. Rendering must not manufacture a test outcome.
-5. Canary with synthetic/disposable evidence and authorized pilot principals; then use real eligible platform data after its protection posture is accepted. Run one scripted action/snapshot/revocation flow. Keep the legacy route available.
+4. Shadow the new pilot read model against the existing Running projection. Compare activity counts, distance units, weekly totals, PRs, brief timestamps, ordering and empty/stale states. Rendering must not invent a workout or coaching result.
+5. Canary with synthetic fixtures and authorized/denied pilot principals; then use the owner's existing projection after its protection posture is accepted. Run one scripted action/snapshot/revocation flow. Keep the legacy route available.
 6. Make the new collection primary only after gates pass. Retain the prior frontend/API for at least one release and a minimum seven-day observation window, extending it when usage is too low to supply evidence. Delete compatibility code only after explicit retirement review.
 
 Database and security rollback are not synonyms for UI rollback. A prior binary that bypasses new ACLs is below the rollback floor and must not be restored on exposed routes. Use flags, a safe compatibility patch or forward fix. Invocation receipts and external effects cannot be erased to “undo” an action; compensate through an explicit authorized operation. Chat destination migrations retain a mapping; retained package bytes remain available across code rollback.
@@ -361,7 +356,7 @@ Database and security rollback are not synonyms for UI rollback. A prior binary 
 |---|---|
 | Authorization | Human A/B, agent A/B, external keys and disabled principals across App access, aliases, object/connection ACLs and effects. Every missing factor denies; no synthetic agent identity; revoked admitted work never reaches executor. |
 | Resources/cache | Cross-principal list/detail/read/thumbnail/copied URL/cache tests; no leaked name/count. Revocation denies subsequent server delivery. Old one-year cache limitation is documented and new private paths use no-store. |
-| Classification/flow | Mixed-source snapshot inherits restrictive labels/ACLs; source policy blocks forbidden export. Typed Ticket/Wiki/Relay writes to broader audiences are denied unless a permitted disclosure flow exists. |
+| Classification/flow | Mixed-source snapshot inherits restrictive labels/ACLs. Typed Ticket/Wiki/Relay writes to broader audiences are denied unless a permitted disclosure flow exists. |
 | Typed renderer | Reject script/expression/HTML/URL injection and private-to-external URL bindings. Accessibility, keyboard use, mobile and empty/stale/denied/error states pass. |
 | Optional scripts | Public-only admission; no private sentinel delivered. Probe self-navigation, second-load messaging, resource hints, WebRTC, images/CSS, forms, frames, popups, fetch and parent access in Chromium/Firefox/WebKit. Record residual public-data channels; do not assert the browser blocks all navigation. |
 | Intent/idempotency | Concurrent two-tab replay produces one local dispatch. Key reuse with different digest conflicts; reordered equivalent JSON has the same digest. Forged gesture/intent, expired version and changed target are denied. |
@@ -369,7 +364,7 @@ Database and security rollback are not synonyms for UI rollback. A prior binary 
 | Plugin release | Byte tampering, unapproved signer/build, missing bundle, escaping archive paths and forbidden hooks/config/preapproval fail before CLI start. Only assigned skill hashes appear. Workspace/account discovery fixtures cannot inject extra runtime components. |
 | Host/protocol | Exact Claude/Codex runner pins plus recorded developer versions; actual Resource/tool round trips, legacy/new protocol behavior and package update/rollback. No “latest passed” substitution. |
 | Data migration | Backfill replay is idempotent; no silent audience widening; ambiguous rows reviewed. Restore retains private ACLs, package pins, deletion records and publication pointers. |
-| Pilot | Publish → private read → denied principal → trusted ticket action → receipt → event refresh → authorized immutable snapshot → MCP read → revoke/deny. Legacy TCMS result ingestion still works. |
+| Pilot | Publish → owner read → denied principal → trusted issue Ticket action → receipt → event refresh → owner-scoped snapshot → MCP read → revoke/deny. Legacy Running ingestion and coaching still work. |
 | Operations | Kill switch denies new calls for one view/tool/identity; receipt correlation survives service restart. Scoped events reveal no private data; reconnect reconciles missed invalidations. |
 
 Security thresholds are zero false allows, zero secret leakage and zero duplicate local dispatch for one idempotency key. Deterministic pilot fields must match the retained fixture corpus exactly; passive page loads make zero third-party calls. An already authorized provider request is outside the local exactly-once claim.
@@ -392,7 +387,7 @@ Check `/api/quota` before each phase. Below 20% weekly headroom, do not start an
 | Publishing delegation | Agents draft; authorized humans publish initial versions. Define whether a second reviewer is required for broader data-sharing or new effects. | Owner/security contract in Phase 0 |
 | Facade protected-resource boundary | Validate existing platform keys centrally, retain scoped caller identity and cookie stripping. Decide same-resource gateway versus separately credentialed OAuth endpoint before advertising the latter. | Phase 0 auth contract |
 | Package provenance mechanism | Retained signed release manifest with approved CI/source identity; select tooling already compatible with repository CI and recovery. | Phase 2 entry |
-| Actual source-policy remediation | Inventory current Strava paths and any applicable provider permission; decide separately what to disable, replace or delete. New pilot excludes them meanwhile. | Before extending affected surfaces |
+| Running data access and retention | Limit new views and Resources to the owner; define snapshot retention and deletion before live rollout. | Phase 4 live-data gate |
 | Storage/backup protection and retention | Document current controls and accepted data classes; fix concrete gaps before real confidential snapshots. No assumed KMS/encryption. | Phase 1/real-data pilot gate |
 | Client/browser support and budgets | Record exact supported versions and measured NUC baseline; ratify performance/canary thresholds. | Phase 0 exit |
 
@@ -404,7 +399,6 @@ Apps as collections and general granted Tool actions are settled product require
 |---|---|
 | All: keep catalog categories distinct from MCP/security primitives; do not replace domain engines with pages | Retained vocabulary, Tool names and domain ownership; made first-release versus follow-up scope explicit. |
 | OpenAI/Claude: private data in arbitrary JS remains exfiltratable; Gemini still suggests srcdoc/navigation suppression | Adopt typed private rendering and public-only scripted admission. Reject the claim that srcdoc, top-navigation suppression or a separate origin solves private-data exfiltration. |
-| Claude: Strava use restrictions invalidate the shared/agent pilot | Independently verified primary policy; replace Running pilot with Project Quality and track existing-path remediation separately. Do not infer permission from anonymization or consent. |
 | All: human invocation needs its own semantics; Claude: reauthorize at dispatch and extend flow checks to platform writes | Added explicit principal intersection, trusted human adapter, dispatch checks, atomic intent, canonical arguments and audience-aware Ticket/Wiki/Relay disclosure. |
 | All: ACLs precede private Resources; OpenAI/Claude: revocation and caches | Added conservative backfill, shadow enforcement and monotonic protection. Repository inspection additionally found one-year artifact caching; new private routes must use no-store. |
 | Claude/OpenAI: vendor plugins can carry authority; Claude: workspace skills bypass DB assignment | Added skills-only compiler/allowlist, forbidden-feature fixtures, all-source discovery tests and cross-layer removal of skill-secret union. |
@@ -412,13 +406,13 @@ Apps as collections and general granted Tool actions are settled product require
 | Claude: all facade forwarding is forbidden token passthrough | Accept the validation/audience risk; qualify the proposed fix using actual opaque same-platform keys. Require a documented resource boundary; defer RFC 8693/OAuth redesign unless that boundary calls for it. |
 | All: current MCP revision differs from legacy; Gemini proposes immediate stateless conversion | Add a tested protocol/client matrix. Reject an unverified whole-stack protocol upgrade as a prerequisite for catalog/plugin work. |
 | OpenAI: classification, network, key-management, backups and observability gaps | Add lineage and protection/evidence gates; document actual Helm controls. Separate concrete fixes from ungrounded KMS/TLS/tracing infrastructure expansion. |
-| OpenAI/Claude: feature rollback must not undo ACLs; Claude: scope too large | Replace eight-phase critical path with foundation, plugin, vertical slice and platform-owned pilot. Specify rollback floor, forward fixes and quota checkpoints. |
+| OpenAI/Claude: feature rollback must not undo ACLs; Claude: scope too large | Replace eight-phase critical path with foundation, plugin, vertical slice and a bounded Running pilot. Specify rollback floor, forward fixes and quota checkpoints. |
 | Gemini: structuredContent keeps UI data outside model context; instantaneous rollback/zero lost notifications | Do not rely on those assertions. Require explicit host data visibility, measured rollback and durable invalidation with reconciliation. |
 
 ## Sources and implementation references
 
 Research inputs: original supplied `33-capabilities-plugins-and-live-apps.md` (2026-09-23), `openai.md`, `gemini.md`, and `claude.pdf` in the supplied `deep-research/skill-rework` directory. The last file contains UTF-8 Markdown despite its extension. Findings are adjudicated above; review-specific citation tokens are not dependencies of this document.
 
-Primary references used for pivotal checks: [Strava API Policy](https://www.strava.com/legal/api_policy), [MCP specification](https://modelcontextprotocol.io/specification/2026-07-28), [MCP change log](https://modelcontextprotocol.io/specification/2026-07-28/changelog), [MCP security guidance](https://modelcontextprotocol.io/docs/draft/tutorials/security/security_best_practices), [MCP Apps](https://apps.extensions.modelcontextprotocol.io/api/documents/Overview.html), [OpenAI plugin packaging](https://developers.openai.com/plugins/build/plugins), [Claude plugin reference](https://code.claude.com/docs/en/plugins-reference), [HTML iframe sandbox](https://html.spec.whatwg.org/multipage/iframe-embed-object.html#attr-iframe-sandbox). Vendor/protocol support remains version-gated; source links are not test evidence.
+Primary references used for pivotal checks: [MCP specification](https://modelcontextprotocol.io/specification/2026-07-28), [MCP change log](https://modelcontextprotocol.io/specification/2026-07-28/changelog), [MCP security guidance](https://modelcontextprotocol.io/docs/draft/tutorials/security/security_best_practices), [MCP Apps](https://apps.extensions.modelcontextprotocol.io/api/documents/Overview.html), [OpenAI plugin packaging](https://developers.openai.com/plugins/build/plugins), [Claude plugin reference](https://code.claude.com/docs/en/plugins-reference), [HTML iframe sandbox](https://html.spec.whatwg.org/multipage/iframe-embed-object.html#attr-iframe-sandbox). Vendor/protocol support remains version-gated; source links are not test evidence.
 
 Repository anchors: `services/backend/agentplatform/{api/auth.py,api/artifacts.py,api/reports.py,joblauncher.py,readiness.py,skills.py,artifact_store.py}`, `services/mcp-facade/{facade.py,test_facade.py,requirements.txt}`, `services/mcp-broker/`, `services/runner/{runner.py,Dockerfile,Dockerfile.dev}`, `tools/tcms/{tool.yaml,run.py}`, `apps/tcms/backend/tcmsapp/`, `apps/running/backend/runningapp/brief.py`, `charts/agent-platform/{values.yaml,templates/networkpolicy.yaml,templates/pg-backup.yaml}`, and `docs/building-blocks/{tools,skills,apps,artifacts}.md`. Check current source and tests again when implementation begins.
