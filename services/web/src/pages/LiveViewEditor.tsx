@@ -11,6 +11,8 @@ type Definition = { renderer: "typed/v1"; title: string; blocks: {
 type Draft = { id: string; app_name: string; slug: string; draft_revision: number;
   published_version: number | null; definition: Definition };
 type Version = { version: number; published_at: string; published_by: string; current: boolean };
+type Operation = { id: string; tool: string; source: string; effects: string[];
+  reason: string; view_eligible: boolean };
 
 function example(appName: string): Definition {
   return { renderer: "typed/v1", title: `${appName} overview`,
@@ -27,6 +29,7 @@ export default function LiveViewEditor() {
   const [draft, setDraft] = useState<Draft | null>(null);
   const [source, setSource] = useState(JSON.stringify(example(appName), null, 2));
   const [versions, setVersions] = useState<Version[]>([]);
+  const [operations, setOperations] = useState<Operation[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -43,6 +46,10 @@ export default function LiveViewEditor() {
     if (!id) return;
     reload(id).catch((e) => setError(e instanceof Error ? e.message : "Draft unavailable."));
   }, [id]);
+  useEffect(() => {
+    api<Operation[]>("/api/live-operations?eligible_only=true")
+      .then(setOperations).catch(() => setOperations([]));
+  }, []);
 
   let preview: Definition | null = null;
   try {
@@ -104,6 +111,14 @@ export default function LiveViewEditor() {
         <Textarea id="live-definition" value={source} onChange={(e) => setSource(e.target.value)}
           rows={22} spellCheck={false} />
         <p className="muted">Saving validates the fields and bindings. Publishing is a separate step.</p>
+        {operations.length > 0 && <details className="live-editor-operations">
+          <summary>Available page operations</summary>
+          <p className="muted">Add an operation to <code>reads</code> or <code>actions</code>,
+            then reference its alias from a block. A binding does not grant permission.</p>
+          <ul>{operations.filter((operation) => operation.source === "human-adapter" ||
+            operation.tool === (draft?.app_name || appName)).map((operation) =>
+            <li key={operation.id}><code>{operation.id}</code> · {operation.reason}</li>)}</ul>
+        </details>}
         <Button onClick={save} disabled={busy || (creating && !slug)}>Save draft</Button>{" "}
         {!creating && <Button variant="secondary" onClick={publish} disabled={busy}>Publish saved draft</Button>}{" "}
         {!creating && draft?.published_version && <Link to={`/live-views/${id}`}>Open live page →</Link>}

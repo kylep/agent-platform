@@ -19,6 +19,7 @@ from sqlalchemy.exc import IntegrityError
 
 from agentplatform.api.auth import READ_ROLES, authenticate, require_admin, role_allows
 from agentplatform.db import AppCollection, LiveView, LiveViewVersion, utcnow
+from agentplatform import operation_catalog
 
 router = APIRouter()
 _SLUG = re.compile(r"^[a-z][a-z0-9-]{0,63}$")
@@ -61,16 +62,13 @@ class TypedBlock(BaseModel):
 class ReadBinding(BaseModel):
     model_config = ConfigDict(extra="forbid")
     alias: str = Field(pattern=r"^[a-z][a-z0-9_]{0,39}$")
-    operation: Literal["running.summary.read@1", "running.activities.read@1",
-                       "news.summary.read@1", "news.items.read@1",
-                       "stockmarket.summary.read@1", "stockmarket.watchlist.read@1",
-                       "tcms.overview.read@1", "tcms.runs.read@1"]
+    operation: str = Field(min_length=1, max_length=128)
 
 
 class ActionBinding(BaseModel):
     model_config = ConfigDict(extra="forbid")
     alias: str = Field(pattern=r"^[a-z][a-z0-9_]{0,39}$")
-    operation: Literal["tickets.create@1"]
+    operation: str = Field(min_length=1, max_length=128)
     channel: str = Field(min_length=1, max_length=64, pattern=r"^[a-z0-9-]+$")
 
 
@@ -84,6 +82,14 @@ class TypedDefinition(BaseModel):
 
     @model_validator(mode="after")
     def _references_known_reads(self):
+        if any(binding.operation not in READ_FIELDS
+               or not operation_catalog.admitted(binding.operation)
+               for binding in self.reads):
+            raise ValueError("read operation has no admitted page adapter")
+        if any(binding.operation != "tickets.create@1"
+               or not operation_catalog.admitted(binding.operation)
+               for binding in self.actions):
+            raise ValueError("action operation has no admitted page adapter")
         aliases = [binding.alias for binding in self.reads]
         if len(set(aliases)) != len(aliases):
             raise ValueError("read aliases must be unique")
@@ -161,6 +167,13 @@ async def _accessible_app(session, name: str, ident: tuple[str, str]) -> AppColl
 def _view_summary(view: LiveView) -> dict:
     return {"id": view.id, "app_name": view.app_name, "slug": view.slug,
             "published_version": view.published_version}
+
+
+@router.get("/api/live-operations")
+async def list_live_operations(eligible_only: bool = False,
+                               actor: str = Depends(require_admin)):
+    """Show authors every callable branch and which reviewed adapters may be bound."""
+    return operation_catalog.listed(eligible_only=eligible_only)
 
 
 def _count(value) -> int:

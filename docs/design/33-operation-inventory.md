@@ -1,5 +1,16 @@
 # Design 33 operation inventory
 
+The checked-in [compiled operation catalog](../../services/backend/agentplatform/live_operation_catalog.json)
+currently contains 91 versioned entries. Its generator reads the broker's
+callable branches and each custom Tool manifest; a lockstep test catches new
+branches. Every current branch has a conservative effect and output class.
+`query_app` and Linear's `raw_graphql` retain `unknown` effects because their
+arguments choose arbitrary paths/operations. All broker/custom branches are
+excluded from Live App admission until a separate human adapter is reviewed.
+The nine admitted IDs are the eight bounded App reads and `tickets.create@1`.
+The UI exposes the admitted list to page authors, and publication checks it
+server-side; a catalog entry alone never grants permission.
+
 This is the admission inventory for Live App calls, checked against the tool
 manifests and broker implementation on 2026-09-25. It classifies **actions**,
 not just MCP Tool names. A catalog row grants nothing: the viewer still needs

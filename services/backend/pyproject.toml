@@ -30,3 +30,5 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 [tool.setuptools.packages.find]
 include = ["agentplatform*"]
+[tool.setuptools.package-data]
+agentplatform = ["live_operation_catalog.json"]

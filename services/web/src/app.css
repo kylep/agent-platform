@@ -1225,6 +1225,9 @@ a.relay-action { color: var(--ds-link); }
   font-family: var(--font-mono); margin: 8px 0; }
 .live-editor-preview { border: 1px solid var(--ds-border); border-radius: var(--radius-lg);
   padding: 20px; }
+.live-editor-operations { margin: 12px 0 18px; }
+.live-editor-operations summary { cursor: pointer; }
+.live-editor-operations li { margin: 5px 0; overflow-wrap: anywhere; }
 .live-editor-history { margin-top: 28px; }
 .live-editor-history li { margin: 8px 0; }
 @media (max-width: 800px) { .live-editor-layout { grid-template-columns: minmax(0, 1fr); } }

@@ -1,0 +1,1213 @@
+{
+  "schema_version": 1,
+  "operations": [
+    {
+      "id": "core.agents_edit.create@1",
+      "source": "mcp-core",
+      "tool": "agents_edit",
+      "action": "create",
+      "category": "platform_capability",
+      "effects": [
+        "mutates_platform"
+      ],
+      "output_classification": "restricted",
+      "view_eligible": false,
+      "reason": "No reviewed human page adapter"
+    },
+    {
+      "id": "core.agents_edit.delete@1",
+      "source": "mcp-core",
+      "tool": "agents_edit",
+      "action": "delete",
+      "category": "platform_capability",
+      "effects": [
+        "mutates_platform"
+      ],
+      "output_classification": "restricted",
+      "view_eligible": false,
+      "reason": "No reviewed human page adapter"
+    },
+    {
+      "id": "core.agents_edit.get@1",
+      "source": "mcp-core",
+      "tool": "agents_edit",
+      "action": "get",
+      "category": "platform_capability",
+      "effects": [
+        "reads_sensitive"
+      ],
+      "output_classification": "restricted",
+      "view_eligible": false,
+      "reason": "No reviewed human page adapter"
+    },
+    {
+      "id": "core.agents_edit.list@1",
+      "source": "mcp-core",
+      "tool": "agents_edit",
+      "action": "list",
+      "category": "platform_capability",
+      "effects": [
+        "reads_sensitive"
+      ],
+      "output_classification": "restricted",
+      "view_eligible": false,
+      "reason": "No reviewed human page adapter"
+    },
+    {
+      "id": "core.agents_edit.update@1",
+      "source": "mcp-core",
+      "tool": "agents_edit",
+      "action": "update",
+      "category": "platform_capability",
+      "effects": [
+        "mutates_platform"
+      ],
+      "output_classification": "restricted",
+      "view_eligible": false,
+      "reason": "No reviewed human page adapter"
+    },
+    {
+      "id": "core.agents_grant.add_grant@1",
+      "source": "mcp-core",
+      "tool": "agents_grant",
+      "action": "add_grant",
+      "category": "platform_capability",
+      "effects": [
+        "mutates_platform"
+      ],
+      "output_classification": "restricted",
+      "view_eligible": false,
+      "reason": "No reviewed human page adapter"
+    },
+    {
+      "id": "core.agents_grant.get@1",
+      "source": "mcp-core",
+      "tool": "agents_grant",
+      "action": "get",
+      "category": "platform_capability",
+      "effects": [
+        "reads_sensitive"
+      ],
+      "output_classification": "restricted",
+      "view_eligible": false,
+      "reason": "No reviewed human page adapter"
+    },
+    {
+      "id": "core.agents_grant.remove_grant@1",
+      "source": "mcp-core",
+      "tool": "agents_grant",
+      "action": "remove_grant",
+      "category": "platform_capability",
+      "effects": [
+        "mutates_platform"
+      ],
+      "output_classification": "restricted",
+      "view_eligible": false,
+      "reason": "No reviewed human page adapter"
+    },
+    {
+      "id": "core.agents_grant.set_grants@1",
+      "source": "mcp-core",
+      "tool": "agents_grant",
+      "action": "set_grants",
+      "category": "platform_capability",
+      "effects": [
+        "mutates_platform"
+      ],
+      "output_classification": "restricted",
+      "view_eligible": false,
+      "reason": "No reviewed human page adapter"
+    },
+    {
+      "id": "core.artifacts.delete@1",
+      "source": "mcp-core",
+      "tool": "artifacts",
+      "action": "delete",
+      "category": "platform_capability",
+      "effects": [
+        "mutates_platform"
+      ],
+      "output_classification": "private",
+      "view_eligible": false,
+      "reason": "No reviewed human page adapter"
+    },
+    {
+      "id": "core.artifacts.get@1",
+      "source": "mcp-core",
+      "tool": "artifacts",
+      "action": "get",
+      "category": "platform_capability",
+      "effects": [
+        "reads_sensitive"
+      ],
+      "output_classification": "private",
+      "view_eligible": false,
+      "reason": "No reviewed human page adapter"
+    },
+    {
+      "id": "core.artifacts.list@1",
+      "source": "mcp-core",
+      "tool": "artifacts",
+      "action": "list",
+      "category": "platform_capability",
+      "effects": [
+        "reads_sensitive"
+      ],
+      "output_classification": "private",
+      "view_eligible": false,
+      "reason": "No reviewed human page adapter"
+    },
+    {
+      "id": "core.artifacts.save@1",
+      "source": "mcp-core",
+      "tool": "artifacts",
+      "action": "save",
+      "category": "platform_capability",
+      "effects": [
+        "mutates_platform"
+      ],
+      "output_classification": "private",
+      "view_eligible": false,
+      "reason": "No reviewed human page adapter"
+    },
+    {
+      "id": "core.get_quota_usage.call@1",
+      "source": "mcp-core",
+      "tool": "get_quota_usage",
+      "action": "call",
+      "category": "platform_capability",
+      "effects": [
+        "reads_sensitive",
+        "incurs_cost"
+      ],
+      "output_classification": "private",
+      "view_eligible": false,
+      "reason": "No reviewed human page adapter"
+    },
+    {
+      "id": "core.image_gen.generate@1",
+      "source": "mcp-core",
+      "tool": "image_gen",
+      "action": "generate",
+      "category": "platform_capability",
+      "effects": [
+        "incurs_cost",
+        "mutates_platform"
+      ],
+      "output_classification": "private",
+      "view_eligible": false,
+      "reason": "No reviewed human page adapter"
+    },
+    {
+      "id": "core.image_gen.models@1",
+      "source": "mcp-core",
+      "tool": "image_gen",
+      "action": "models",
+      "category": "platform_capability",
+      "effects": [
+        "reads_sensitive"
+      ],
+      "output_classification": "private",
+      "view_eligible": false,
+      "reason": "No reviewed human page adapter"
+    },
+    {
+      "id": "core.metrics.agents@1",
+      "source": "mcp-core",
+      "tool": "metrics",
+      "action": "agents",
+      "category": "platform_capability",
+      "effects": [
+        "reads_sensitive"
+      ],
+      "output_classification": "private",
+      "view_eligible": false,
+      "reason": "No reviewed human page adapter"
+    },
+    {
+      "id": "core.metrics.kafka@1",
+      "source": "mcp-core",
+      "tool": "metrics",
+      "action": "kafka",
+      "category": "platform_capability",
+      "effects": [
+        "reads_sensitive"
+      ],
+      "output_classification": "private",
+      "view_eligible": false,
+      "reason": "No reviewed human page adapter"
+    },
+    {
+      "id": "core.metrics.overview@1",
+      "source": "mcp-core",
+      "tool": "metrics",
+      "action": "overview",
+      "category": "platform_capability",
+      "effects": [
+        "reads_sensitive"
+      ],
+      "output_classification": "private",
+      "view_eligible": false,
+      "reason": "No reviewed human page adapter"
+    },
+    {
+      "id": "core.metrics.tools@1",
+      "source": "mcp-core",
+      "tool": "metrics",
+      "action": "tools",
+      "category": "platform_capability",
+      "effects": [
+        "reads_sensitive"
+      ],
+      "output_classification": "private",
+      "view_eligible": false,
+      "reason": "No reviewed human page adapter"
+    },
+    {
+      "id": "core.query_app.call@1",
+      "source": "mcp-core",
+      "tool": "query_app",
+      "action": "call",
+      "category": "platform_capability",
+      "effects": [
+        "unknown"
+      ],
+      "output_classification": "restricted",
+      "view_eligible": false,
+      "reason": "No reviewed human page adapter"
+    },
+    {
+      "id": "core.quota_ok.call@1",
+      "source": "mcp-core",
+      "tool": "quota_ok",
+      "action": "call",
+      "category": "platform_capability",
+      "effects": [
+        "reads_sensitive",
+        "incurs_cost"
+      ],
+      "output_classification": "private",
+      "view_eligible": false,
+      "reason": "No reviewed human page adapter"
+    },
+    {
+      "id": "core.relay.channels@1",
+      "source": "mcp-core",
+      "tool": "relay",
+      "action": "channels",
+      "category": "platform_capability",
+      "effects": [
+        "reads_sensitive"
+      ],
+      "output_classification": "private",
+      "view_eligible": false,
+      "reason": "No reviewed human page adapter"
+    },
+    {
+      "id": "core.relay.dm@1",
+      "source": "mcp-core",
+      "tool": "relay",
+      "action": "dm",
+      "category": "platform_capability",
+      "effects": [
+        "mutates_platform",
+        "external_send",
+        "invokes_agent"
+      ],
+      "output_classification": "private",
+      "view_eligible": false,
+      "reason": "No reviewed human page adapter"
+    },
+    {
+      "id": "core.relay.post@1",
+      "source": "mcp-core",
+      "tool": "relay",
+      "action": "post",
+      "category": "platform_capability",
+      "effects": [
+        "mutates_platform",
+        "external_send",
+        "invokes_agent"
+      ],
+      "output_classification": "private",
+      "view_eligible": false,
+      "reason": "No reviewed human page adapter"
+    },
+    {
+      "id": "core.relay.react@1",
+      "source": "mcp-core",
+      "tool": "relay",
+      "action": "react",
+      "category": "platform_capability",
+      "effects": [
+        "mutates_platform",
+        "external_send",
+        "invokes_agent"
+      ],
+      "output_classification": "private",
+      "view_eligible": false,
+      "reason": "No reviewed human page adapter"
+    },
+    {
+      "id": "core.relay.read@1",
+      "source": "mcp-core",
+      "tool": "relay",
+      "action": "read",
+      "category": "platform_capability",
+      "effects": [
+        "reads_sensitive"
+      ],
+      "output_classification": "private",
+      "view_eligible": false,
+      "reason": "No reviewed human page adapter"
+    },
+    {
+      "id": "core.relay.search@1",
+      "source": "mcp-core",
+      "tool": "relay",
+      "action": "search",
+      "category": "platform_capability",
+      "effects": [
+        "reads_sensitive"
+      ],
+      "output_classification": "private",
+      "view_eligible": false,
+      "reason": "No reviewed human page adapter"
+    },
+    {
+      "id": "core.runs_read.get@1",
+      "source": "mcp-core",
+      "tool": "runs_read",
+      "action": "get",
+      "category": "platform_capability",
+      "effects": [
+        "reads_sensitive"
+      ],
+      "output_classification": "private",
+      "view_eligible": false,
+      "reason": "No reviewed human page adapter"
+    },
+    {
+      "id": "core.runs_read.list@1",
+      "source": "mcp-core",
+      "tool": "runs_read",
+      "action": "list",
+      "category": "platform_capability",
+      "effects": [
+        "reads_sensitive"
+      ],
+      "output_classification": "private",
+      "view_eligible": false,
+      "reason": "No reviewed human page adapter"
+    },
+    {
+      "id": "core.runs_read.tags@1",
+      "source": "mcp-core",
+      "tool": "runs_read",
+      "action": "tags",
+      "category": "platform_capability",
+      "effects": [
+        "reads_sensitive"
+      ],
+      "output_classification": "private",
+      "view_eligible": false,
+      "reason": "No reviewed human page adapter"
+    },
+    {
+      "id": "core.runs_write.call@1",
+      "source": "mcp-core",
+      "tool": "runs_write",
+      "action": "call",
+      "category": "platform_capability",
+      "effects": [
+        "mutates_platform"
+      ],
+      "output_classification": "private",
+      "view_eligible": false,
+      "reason": "No reviewed human page adapter"
+    },
+    {
+      "id": "core.tickets.assign@1",
+      "source": "mcp-core",
+      "tool": "tickets",
+      "action": "assign",
+      "category": "platform_capability",
+      "effects": [
+        "mutates_platform",
+        "invokes_agent"
+      ],
+      "output_classification": "private",
+      "view_eligible": false,
+      "reason": "No reviewed human page adapter"
+    },
+    {
+      "id": "core.tickets.comment@1",
+      "source": "mcp-core",
+      "tool": "tickets",
+      "action": "comment",
+      "category": "platform_capability",
+      "effects": [
+        "mutates_platform",
+        "invokes_agent"
+      ],
+      "output_classification": "private",
+      "view_eligible": false,
+      "reason": "No reviewed human page adapter"
+    },
+    {
+      "id": "core.tickets.create@1",
+      "source": "mcp-core",
+      "tool": "tickets",
+      "action": "create",
+      "category": "platform_capability",
+      "effects": [
+        "mutates_platform",
+        "invokes_agent"
+      ],
+      "output_classification": "private",
+      "view_eligible": false,
+      "reason": "No reviewed human page adapter"
+    },
+    {
+      "id": "core.tickets.get@1",
+      "source": "mcp-core",
+      "tool": "tickets",
+      "action": "get",
+      "category": "platform_capability",
+      "effects": [
+        "reads_sensitive"
+      ],
+      "output_classification": "private",
+      "view_eligible": false,
+      "reason": "No reviewed human page adapter"
+    },
+    {
+      "id": "core.tickets.list@1",
+      "source": "mcp-core",
+      "tool": "tickets",
+      "action": "list",
+      "category": "platform_capability",
+      "effects": [
+        "reads_sensitive"
+      ],
+      "output_classification": "private",
+      "view_eligible": false,
+      "reason": "No reviewed human page adapter"
+    },
+    {
+      "id": "core.tickets.move@1",
+      "source": "mcp-core",
+      "tool": "tickets",
+      "action": "move",
+      "category": "platform_capability",
+      "effects": [
+        "mutates_platform",
+        "invokes_agent"
+      ],
+      "output_classification": "private",
+      "view_eligible": false,
+      "reason": "No reviewed human page adapter"
+    },
+    {
+      "id": "core.tickets.search@1",
+      "source": "mcp-core",
+      "tool": "tickets",
+      "action": "search",
+      "category": "platform_capability",
+      "effects": [
+        "reads_sensitive"
+      ],
+      "output_classification": "private",
+      "view_eligible": false,
+      "reason": "No reviewed human page adapter"
+    },
+    {
+      "id": "core.tickets.update@1",
+      "source": "mcp-core",
+      "tool": "tickets",
+      "action": "update",
+      "category": "platform_capability",
+      "effects": [
+        "mutates_platform",
+        "invokes_agent"
+      ],
+      "output_classification": "private",
+      "view_eligible": false,
+      "reason": "No reviewed human page adapter"
+    },
+    {
+      "id": "core.wiki.append@1",
+      "source": "mcp-core",
+      "tool": "wiki",
+      "action": "append",
+      "category": "platform_capability",
+      "effects": [
+        "mutates_platform"
+      ],
+      "output_classification": "internal",
+      "view_eligible": false,
+      "reason": "No reviewed human page adapter"
+    },
+    {
+      "id": "core.wiki.history@1",
+      "source": "mcp-core",
+      "tool": "wiki",
+      "action": "history",
+      "category": "platform_capability",
+      "effects": [
+        "reads_sensitive"
+      ],
+      "output_classification": "internal",
+      "view_eligible": false,
+      "reason": "No reviewed human page adapter"
+    },
+    {
+      "id": "core.wiki.list@1",
+      "source": "mcp-core",
+      "tool": "wiki",
+      "action": "list",
+      "category": "platform_capability",
+      "effects": [
+        "reads_sensitive"
+      ],
+      "output_classification": "internal",
+      "view_eligible": false,
+      "reason": "No reviewed human page adapter"
+    },
+    {
+      "id": "core.wiki.promote@1",
+      "source": "mcp-core",
+      "tool": "wiki",
+      "action": "promote",
+      "category": "platform_capability",
+      "effects": [
+        "mutates_platform"
+      ],
+      "output_classification": "internal",
+      "view_eligible": false,
+      "reason": "No reviewed human page adapter"
+    },
+    {
+      "id": "core.wiki.read@1",
+      "source": "mcp-core",
+      "tool": "wiki",
+      "action": "read",
+      "category": "platform_capability",
+      "effects": [
+        "reads_sensitive"
+      ],
+      "output_classification": "internal",
+      "view_eligible": false,
+      "reason": "No reviewed human page adapter"
+    },
+    {
+      "id": "core.wiki.search@1",
+      "source": "mcp-core",
+      "tool": "wiki",
+      "action": "search",
+      "category": "platform_capability",
+      "effects": [
+        "reads_sensitive"
+      ],
+      "output_classification": "internal",
+      "view_eligible": false,
+      "reason": "No reviewed human page adapter"
+    },
+    {
+      "id": "core.wiki.wanted@1",
+      "source": "mcp-core",
+      "tool": "wiki",
+      "action": "wanted",
+      "category": "platform_capability",
+      "effects": [
+        "reads_sensitive"
+      ],
+      "output_classification": "internal",
+      "view_eligible": false,
+      "reason": "No reviewed human page adapter"
+    },
+    {
+      "id": "core.wiki.write@1",
+      "source": "mcp-core",
+      "tool": "wiki",
+      "action": "write",
+      "category": "platform_capability",
+      "effects": [
+        "mutates_platform"
+      ],
+      "output_classification": "internal",
+      "view_eligible": false,
+      "reason": "No reviewed human page adapter"
+    },
+    {
+      "id": "news.items.read@1",
+      "source": "app-adapter",
+      "tool": "news",
+      "action": "items",
+      "category": "domain_capability",
+      "effects": [
+        "reads_sensitive"
+      ],
+      "output_classification": "private",
+      "view_eligible": true,
+      "reason": "Owner-scoped bounded adapter"
+    },
+    {
+      "id": "news.summary.read@1",
+      "source": "app-adapter",
+      "tool": "news",
+      "action": "summary",
+      "category": "domain_capability",
+      "effects": [
+        "reads_sensitive"
+      ],
+      "output_classification": "private",
+      "view_eligible": true,
+      "reason": "Owner-scoped bounded adapter"
+    },
+    {
+      "id": "running.activities.read@1",
+      "source": "app-adapter",
+      "tool": "running",
+      "action": "activities",
+      "category": "domain_capability",
+      "effects": [
+        "reads_sensitive"
+      ],
+      "output_classification": "private",
+      "view_eligible": true,
+      "reason": "Owner-scoped bounded adapter"
+    },
+    {
+      "id": "running.summary.read@1",
+      "source": "app-adapter",
+      "tool": "running",
+      "action": "summary",
+      "category": "domain_capability",
+      "effects": [
+        "reads_sensitive"
+      ],
+      "output_classification": "private",
+      "view_eligible": true,
+      "reason": "Owner-scoped bounded adapter"
+    },
+    {
+      "id": "stockmarket.summary.read@1",
+      "source": "app-adapter",
+      "tool": "stockmarket",
+      "action": "summary",
+      "category": "domain_capability",
+      "effects": [
+        "reads_sensitive"
+      ],
+      "output_classification": "private",
+      "view_eligible": true,
+      "reason": "Owner-scoped bounded adapter"
+    },
+    {
+      "id": "stockmarket.watchlist.read@1",
+      "source": "app-adapter",
+      "tool": "stockmarket",
+      "action": "watchlist",
+      "category": "domain_capability",
+      "effects": [
+        "reads_sensitive"
+      ],
+      "output_classification": "private",
+      "view_eligible": true,
+      "reason": "Owner-scoped bounded adapter"
+    },
+    {
+      "id": "tcms.overview.read@1",
+      "source": "app-adapter",
+      "tool": "tcms",
+      "action": "overview",
+      "category": "domain_capability",
+      "effects": [
+        "reads_sensitive"
+      ],
+      "output_classification": "private",
+      "view_eligible": true,
+      "reason": "Owner-scoped bounded adapter"
+    },
+    {
+      "id": "tcms.runs.read@1",
+      "source": "app-adapter",
+      "tool": "tcms",
+      "action": "runs",
+      "category": "domain_capability",
+      "effects": [
+        "reads_sensitive"
+      ],
+      "output_classification": "private",
+      "view_eligible": true,
+      "reason": "Owner-scoped bounded adapter"
+    },
+    {
+      "id": "tickets.create@1",
+      "source": "human-adapter",
+      "tool": "tickets",
+      "action": "create",
+      "category": "platform_capability",
+      "effects": [
+        "mutates_platform"
+      ],
+      "output_classification": "private",
+      "view_eligible": true,
+      "reason": "Explicit grant, target and durable intent"
+    },
+    {
+      "id": "tool.discord_chat.call@1",
+      "source": "mcp-custom",
+      "tool": "discord_chat",
+      "action": "call",
+      "category": "service_connector",
+      "effects": [
+        "external_send"
+      ],
+      "output_classification": "private",
+      "view_eligible": false,
+      "reason": "No reviewed human page adapter"
+    },
+    {
+      "id": "tool.image_gen.generate@1",
+      "source": "mcp-custom",
+      "tool": "image_gen",
+      "action": "generate",
+      "category": "image_generation",
+      "effects": [
+        "incurs_cost",
+        "mutates_platform"
+      ],
+      "output_classification": "private",
+      "view_eligible": false,
+      "reason": "No reviewed human page adapter"
+    },
+    {
+      "id": "tool.image_gen.models@1",
+      "source": "mcp-custom",
+      "tool": "image_gen",
+      "action": "models",
+      "category": "image_generation",
+      "effects": [
+        "reads_sensitive"
+      ],
+      "output_classification": "private",
+      "view_eligible": false,
+      "reason": "No reviewed human page adapter"
+    },
+    {
+      "id": "tool.index_movers.call@1",
+      "source": "mcp-custom",
+      "tool": "index_movers",
+      "action": "call",
+      "category": "service_connector",
+      "effects": [
+        "external_read"
+      ],
+      "output_classification": "internal",
+      "view_eligible": false,
+      "reason": "No reviewed human page adapter"
+    },
+    {
+      "id": "tool.linear.comment@1",
+      "source": "mcp-custom",
+      "tool": "linear",
+      "action": "comment",
+      "category": "service_connector",
+      "effects": [
+        "external_send"
+      ],
+      "output_classification": "private",
+      "view_eligible": false,
+      "reason": "No reviewed human page adapter"
+    },
+    {
+      "id": "tool.linear.create@1",
+      "source": "mcp-custom",
+      "tool": "linear",
+      "action": "create",
+      "category": "service_connector",
+      "effects": [
+        "external_send"
+      ],
+      "output_classification": "private",
+      "view_eligible": false,
+      "reason": "No reviewed human page adapter"
+    },
+    {
+      "id": "tool.linear.raw_graphql@1",
+      "source": "mcp-custom",
+      "tool": "linear",
+      "action": "raw_graphql",
+      "category": "service_connector",
+      "effects": [
+        "unknown"
+      ],
+      "output_classification": "restricted",
+      "view_eligible": false,
+      "reason": "No reviewed human page adapter"
+    },
+    {
+      "id": "tool.linear.search@1",
+      "source": "mcp-custom",
+      "tool": "linear",
+      "action": "search",
+      "category": "service_connector",
+      "effects": [
+        "external_read",
+        "reads_sensitive"
+      ],
+      "output_classification": "private",
+      "view_eligible": false,
+      "reason": "No reviewed human page adapter"
+    },
+    {
+      "id": "tool.linear.teams@1",
+      "source": "mcp-custom",
+      "tool": "linear",
+      "action": "teams",
+      "category": "service_connector",
+      "effects": [
+        "external_read",
+        "reads_sensitive"
+      ],
+      "output_classification": "private",
+      "view_eligible": false,
+      "reason": "No reviewed human page adapter"
+    },
+    {
+      "id": "tool.linear.update@1",
+      "source": "mcp-custom",
+      "tool": "linear",
+      "action": "update",
+      "category": "service_connector",
+      "effects": [
+        "external_send"
+      ],
+      "output_classification": "private",
+      "view_eligible": false,
+      "reason": "No reviewed human page adapter"
+    },
+    {
+      "id": "tool.memory.read@1",
+      "source": "mcp-custom",
+      "tool": "memory",
+      "action": "read",
+      "category": "platform_capability",
+      "effects": [
+        "reads_sensitive"
+      ],
+      "output_classification": "private",
+      "view_eligible": false,
+      "reason": "No reviewed human page adapter"
+    },
+    {
+      "id": "tool.memory.save@1",
+      "source": "mcp-custom",
+      "tool": "memory",
+      "action": "save",
+      "category": "platform_capability",
+      "effects": [
+        "mutates_platform"
+      ],
+      "output_classification": "private",
+      "view_eligible": false,
+      "reason": "No reviewed human page adapter"
+    },
+    {
+      "id": "tool.prices.call@1",
+      "source": "mcp-custom",
+      "tool": "prices",
+      "action": "call",
+      "category": "service_connector",
+      "effects": [
+        "external_read",
+        "mutates_platform"
+      ],
+      "output_classification": "internal",
+      "view_eligible": false,
+      "reason": "No reviewed human page adapter"
+    },
+    {
+      "id": "tool.stocks.call@1",
+      "source": "mcp-custom",
+      "tool": "stocks",
+      "action": "call",
+      "category": "service_connector",
+      "effects": [
+        "external_read"
+      ],
+      "output_classification": "internal",
+      "view_eligible": false,
+      "reason": "No reviewed human page adapter"
+    },
+    {
+      "id": "tool.strava.activities@1",
+      "source": "mcp-custom",
+      "tool": "strava",
+      "action": "activities",
+      "category": "service_connector",
+      "effects": [
+        "external_read",
+        "reads_sensitive"
+      ],
+      "output_classification": "private",
+      "view_eligible": false,
+      "reason": "No reviewed human page adapter"
+    },
+    {
+      "id": "tool.strava.activity@1",
+      "source": "mcp-custom",
+      "tool": "strava",
+      "action": "activity",
+      "category": "service_connector",
+      "effects": [
+        "external_read",
+        "reads_sensitive"
+      ],
+      "output_classification": "private",
+      "view_eligible": false,
+      "reason": "No reviewed human page adapter"
+    },
+    {
+      "id": "tool.strava.athlete@1",
+      "source": "mcp-custom",
+      "tool": "strava",
+      "action": "athlete",
+      "category": "service_connector",
+      "effects": [
+        "external_read",
+        "reads_sensitive"
+      ],
+      "output_classification": "private",
+      "view_eligible": false,
+      "reason": "No reviewed human page adapter"
+    },
+    {
+      "id": "tool.strava.gear@1",
+      "source": "mcp-custom",
+      "tool": "strava",
+      "action": "gear",
+      "category": "service_connector",
+      "effects": [
+        "external_read",
+        "reads_sensitive"
+      ],
+      "output_classification": "private",
+      "view_eligible": false,
+      "reason": "No reviewed human page adapter"
+    },
+    {
+      "id": "tool.strava.stats@1",
+      "source": "mcp-custom",
+      "tool": "strava",
+      "action": "stats",
+      "category": "service_connector",
+      "effects": [
+        "external_read",
+        "reads_sensitive"
+      ],
+      "output_classification": "private",
+      "view_eligible": false,
+      "reason": "No reviewed human page adapter"
+    },
+    {
+      "id": "tool.strava.sync@1",
+      "source": "mcp-custom",
+      "tool": "strava",
+      "action": "sync",
+      "category": "service_connector",
+      "effects": [
+        "external_read",
+        "reads_sensitive",
+        "mutates_platform"
+      ],
+      "output_classification": "private",
+      "view_eligible": false,
+      "reason": "No reviewed human page adapter"
+    },
+    {
+      "id": "tool.tcms.case@1",
+      "source": "mcp-custom",
+      "tool": "tcms",
+      "action": "case",
+      "category": "platform_capability",
+      "effects": [
+        "reads_sensitive"
+      ],
+      "output_classification": "internal",
+      "view_eligible": false,
+      "reason": "No reviewed human page adapter"
+    },
+    {
+      "id": "tool.tcms.cases@1",
+      "source": "mcp-custom",
+      "tool": "tcms",
+      "action": "cases",
+      "category": "platform_capability",
+      "effects": [
+        "reads_sensitive"
+      ],
+      "output_classification": "internal",
+      "view_eligible": false,
+      "reason": "No reviewed human page adapter"
+    },
+    {
+      "id": "tool.tcms.coverage_gaps@1",
+      "source": "mcp-custom",
+      "tool": "tcms",
+      "action": "coverage_gaps",
+      "category": "platform_capability",
+      "effects": [
+        "reads_sensitive"
+      ],
+      "output_classification": "internal",
+      "view_eligible": false,
+      "reason": "No reviewed human page adapter"
+    },
+    {
+      "id": "tool.tcms.flaky@1",
+      "source": "mcp-custom",
+      "tool": "tcms",
+      "action": "flaky",
+      "category": "platform_capability",
+      "effects": [
+        "reads_sensitive"
+      ],
+      "output_classification": "internal",
+      "view_eligible": false,
+      "reason": "No reviewed human page adapter"
+    },
+    {
+      "id": "tool.tcms.prune_candidates@1",
+      "source": "mcp-custom",
+      "tool": "tcms",
+      "action": "prune_candidates",
+      "category": "platform_capability",
+      "effects": [
+        "reads_sensitive"
+      ],
+      "output_classification": "internal",
+      "view_eligible": false,
+      "reason": "No reviewed human page adapter"
+    },
+    {
+      "id": "tool.tcms.record_results@1",
+      "source": "mcp-custom",
+      "tool": "tcms",
+      "action": "record_results",
+      "category": "platform_capability",
+      "effects": [
+        "mutates_platform"
+      ],
+      "output_classification": "internal",
+      "view_eligible": false,
+      "reason": "No reviewed human page adapter"
+    },
+    {
+      "id": "tool.tcms.runtime_report@1",
+      "source": "mcp-custom",
+      "tool": "tcms",
+      "action": "runtime_report",
+      "category": "platform_capability",
+      "effects": [
+        "reads_sensitive"
+      ],
+      "output_classification": "internal",
+      "view_eligible": false,
+      "reason": "No reviewed human page adapter"
+    },
+    {
+      "id": "tool.tcms.sync_cases@1",
+      "source": "mcp-custom",
+      "tool": "tcms",
+      "action": "sync_cases",
+      "category": "platform_capability",
+      "effects": [
+        "mutates_platform"
+      ],
+      "output_classification": "internal",
+      "view_eligible": false,
+      "reason": "No reviewed human page adapter"
+    },
+    {
+      "id": "tool.ttrpg.command@1",
+      "source": "mcp-custom",
+      "tool": "ttrpg",
+      "action": "command",
+      "category": "domain_capability",
+      "effects": [
+        "mutates_platform"
+      ],
+      "output_classification": "private",
+      "view_eligible": false,
+      "reason": "No reviewed human page adapter"
+    },
+    {
+      "id": "tool.ttrpg.floor@1",
+      "source": "mcp-custom",
+      "tool": "ttrpg",
+      "action": "floor",
+      "category": "domain_capability",
+      "effects": [
+        "mutates_platform"
+      ],
+      "output_classification": "private",
+      "view_eligible": false,
+      "reason": "No reviewed human page adapter"
+    },
+    {
+      "id": "tool.ttrpg.gm_view@1",
+      "source": "mcp-custom",
+      "tool": "ttrpg",
+      "action": "gm_view",
+      "category": "domain_capability",
+      "effects": [
+        "reads_sensitive"
+      ],
+      "output_classification": "private",
+      "view_eligible": false,
+      "reason": "No reviewed human page adapter"
+    },
+    {
+      "id": "tool.ttrpg.help@1",
+      "source": "mcp-custom",
+      "tool": "ttrpg",
+      "action": "help",
+      "category": "domain_capability",
+      "effects": [
+        "reads_sensitive"
+      ],
+      "output_classification": "private",
+      "view_eligible": false,
+      "reason": "No reviewed human page adapter"
+    },
+    {
+      "id": "tool.ttrpg.roll@1",
+      "source": "mcp-custom",
+      "tool": "ttrpg",
+      "action": "roll",
+      "category": "domain_capability",
+      "effects": [
+        "mutates_platform"
+      ],
+      "output_classification": "private",
+      "view_eligible": false,
+      "reason": "No reviewed human page adapter"
+    },
+    {
+      "id": "tool.ttrpg.view@1",
+      "source": "mcp-custom",
+      "tool": "ttrpg",
+      "action": "view",
+      "category": "domain_capability",
+      "effects": [
+        "reads_sensitive"
+      ],
+      "output_classification": "private",
+      "view_eligible": false,
+      "reason": "No reviewed human page adapter"
+    }
+  ]
+}
