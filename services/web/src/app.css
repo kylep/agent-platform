@@ -1188,7 +1188,7 @@ a.relay-action { color: var(--ds-link); }
   gap: 14px; max-width: 900px; margin-top: 24px; }
 .live-view-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .live-view-controls code { overflow-wrap: anywhere; }
-.live-view-blocks > p, .live-view-blocks > h2, .live-view-action { grid-column: 1 / -1; }
+.live-view-blocks > p, .live-view-blocks > h2, .live-view-action, .live-view-table { grid-column: 1 / -1; }
 .live-view-blocks > p { white-space: pre-wrap; }
 .live-view-metric { display: flex; flex-direction: column; gap: 4px; min-width: 0;
   padding: 16px; background: var(--ds-surface); border: 1px solid var(--ds-border);
@@ -1201,6 +1201,12 @@ a.relay-action { color: var(--ds-link); }
 .live-view-action input, .live-view-action textarea { display: block; width: 100%; box-sizing: border-box;
   margin-top: 4px; }
 .live-view-action textarea { min-height: 88px; }
+.live-view-table { min-width: 0; }
+.live-view-table h2 { margin-bottom: 10px; }
+.live-view-table .table-scroll { overflow-x: auto; }
+.live-view-table table { width: 100%; border-collapse: collapse; }
+.live-view-table th, .live-view-table td { text-align: left; padding: 9px 12px;
+  border-bottom: 1px solid var(--ds-border); }
 .live-editor-layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(18rem, .75fr);
   gap: 24px; margin-top: 24px; }
 .live-editor-layout > section { min-width: 0; }

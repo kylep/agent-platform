@@ -135,6 +135,45 @@ async def test_running_read_uses_published_binding_and_owner_acl(
     assert str(calls[0].url) == "http://running/apps/running/api/summary"
 
 
+async def test_running_activity_table_is_bounded_and_normalized(
+        admin_client, monkeypatch):
+    from agentplatform.api import live_views as views_api
+
+    await admin_client.post("/api/app-collections", json={
+        "name": "running", "display_name": "Running"})
+    definition = {"title": "Recent runs", "reads": [
+        {"alias": "recent", "operation": "running.activities.read@1"}],
+        "blocks": [{"kind": "table", "label": "Recent activities", "source": "recent"}]}
+    bad = await admin_client.post("/api/live-views", json={
+        "app_name": "running", "slug": "bad", "definition": {
+            **definition, "blocks": [{"kind": "metric", "label": "Rows",
+                                      "source": "recent", "field": "rows"}]}})
+    assert bad.status_code == 422
+    created = await admin_client.post("/api/live-views", json={
+        "app_name": "running", "slug": "recent", "definition": definition})
+    assert created.status_code == 201, created.text
+    view_id = created.json()["id"]
+    await admin_client.post(f"/api/live-views/{view_id}/publish")
+
+    async def upstream(request):
+        assert str(request.url) == "http://running/apps/running/api/activities?limit=10"
+        return httpx.Response(200, json=[{"day": "2026-09-24", "name": "Morning run",
+            "type": "Run", "distance_km": 5.25, "pace": "5:20",
+            "private_detail": "discard"}])
+
+    real = views_api.httpx.AsyncClient
+
+    def fake_client(**kwargs):
+        kwargs.pop("base_url", None)
+        return real(transport=httpx.MockTransport(upstream), base_url="http://running", **kwargs)
+
+    monkeypatch.setattr(views_api.httpx, "AsyncClient", fake_client)
+    got = await admin_client.get(f"/api/live-views/{view_id}/data/recent")
+    assert got.status_code == 200, got.text
+    assert got.json() == {"rows": [{"day": "2026-09-24", "name": "Morning run",
+                                   "type": "Run", "distance_km": 5.25, "pace": "5:20"}]}
+
+
 @pytest.mark.parametrize(("app_name", "operation", "field", "upstream_data", "expected"), [
     ("news", "news.summary.read@1", "today",
      {"today": 3, "week": 12, "total": 80, "topics": 4,

@@ -24,6 +24,7 @@ router = APIRouter()
 _SLUG = re.compile(r"^[a-z][a-z0-9-]{0,63}$")
 READ_FIELDS = {
     "running.summary.read@1": {"total_km", "runs", "activities", "latest_day"},
+    "running.activities.read@1": set(),
     "news.summary.read@1": {"today", "week", "total", "topics", "latest_day"},
     "stockmarket.summary.read@1": {
         "indexes", "watchlist", "latest_day", "latest_brief_day"},
@@ -31,11 +32,14 @@ READ_FIELDS = {
         "failing", "flaky", "unlinked", "prune_candidates", "coverage_pct"},
 }
 READ_APP = {operation: operation.split(".", 1)[0] for operation in READ_FIELDS}
+TABLE_FIELDS = {
+    "running.activities.read@1": ("day", "name", "type", "distance_km", "pace"),
+}
 
 
 class TypedBlock(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    kind: Literal["heading", "paragraph", "metric", "action", "link"]
+    kind: Literal["heading", "paragraph", "metric", "table", "action", "link"]
     text: str = Field(default="", max_length=4000)
     label: str = Field(default="", max_length=128)
     value: str = Field(default="", max_length=256)
@@ -49,7 +53,8 @@ class TypedBlock(BaseModel):
 class ReadBinding(BaseModel):
     model_config = ConfigDict(extra="forbid")
     alias: str = Field(pattern=r"^[a-z][a-z0-9_]{0,39}$")
-    operation: Literal["running.summary.read@1", "news.summary.read@1",
+    operation: Literal["running.summary.read@1", "running.activities.read@1",
+                       "news.summary.read@1",
                        "stockmarket.summary.read@1", "tcms.overview.read@1"]
 
 
@@ -77,14 +82,23 @@ class TypedDefinition(BaseModel):
         if len(set(action_aliases)) != len(action_aliases):
             raise ValueError("action aliases must be unique")
         for block in self.blocks:
-            if (block.source is None) != (block.field is None):
-                raise ValueError("dynamic metric needs both source and field")
             if block.source is not None and (block.kind != "metric" or block.source not in aliases):
-                raise ValueError("dynamic metric must reference a declared read")
-            if block.source is not None:
+                if block.kind != "table" or block.source not in aliases:
+                    raise ValueError("data block must reference a declared read")
+            if block.kind == "metric" and block.source is not None:
+                if block.field is None:
+                    raise ValueError("dynamic metric needs a field")
                 operation = next(b.operation for b in self.reads if b.alias == block.source)
                 if block.field not in READ_FIELDS[operation]:
                     raise ValueError("metric field is not available from its read")
+            elif block.field is not None:
+                raise ValueError("only a dynamic metric may name a field")
+            if block.kind == "table":
+                if block.source is None:
+                    raise ValueError("table needs a read source")
+                operation = next(b.operation for b in self.reads if b.alias == block.source)
+                if operation not in TABLE_FIELDS:
+                    raise ValueError("read does not provide a table")
             if block.kind == "action" and block.action_alias not in action_aliases:
                 raise ValueError("action block must reference a declared action")
             if block.kind != "action" and block.action_alias is not None:
@@ -157,6 +171,20 @@ def _normalize_read(operation: str, raw: dict) -> dict:
         return {"total_km": total_km, "runs": _count(totals["runs"]),
                 "activities": _count(totals["activities"]),
                 "latest_day": _day(raw.get("latest_day"))}
+    if operation == "running.activities.read@1":
+        if not isinstance(raw, list) or len(raw) > 10:
+            raise ValueError("invalid activity list")
+        rows = []
+        for item in raw:
+            distance = float(item["distance_km"])
+            if not isfinite(distance) or distance < 0:
+                raise ValueError("invalid activity distance")
+            rows.append({"day": _day(item["day"]),
+                         "name": str(item["name"])[:160],
+                         "type": str(item["type"])[:40],
+                         "distance_km": distance,
+                         "pace": str(item["pace"])[:30] if item.get("pace") else None})
+        return {"rows": rows}
     if operation == "news.summary.read@1":
         return {key: _count(raw[key]) for key in ("today", "week", "total", "topics")} | {
             "latest_day": _day(raw.get("latest_day"))}
@@ -233,7 +261,8 @@ async def read_live_view_data(request: Request, view_id: str, alias: str,
     upstream = (getattr(request.app.state, "app_proxy_base", None)
                 if app_name == "running" else None) or \
         f"http://agent-platform-app-{app_name}:8000"
-    endpoint = "overview" if app_name == "tcms" else "summary"
+    endpoint = ("activities?limit=10" if binding.operation == "running.activities.read@1"
+                else "overview" if app_name == "tcms" else "summary")
     try:
         async with httpx.AsyncClient(base_url=upstream, timeout=8,
                                      follow_redirects=False) as client:

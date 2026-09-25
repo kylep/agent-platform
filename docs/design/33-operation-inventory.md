@@ -10,6 +10,7 @@ grants and domain APIs keep their current behavior.
 | Source | Actions / calls | Effect | Live-page admission |
 |---|---|---|---|
 | Running projection | `summary.read@1` | private projection read | Eligible; owner-only, scalar-normalized |
+| Running projection | `activities.read@1` | private projection read | Eligible; owner-only, ten normalized recent rows |
 | News projection | `summary.read@1` | private projection read | Eligible; scalar-normalized |
 | Stockmarket projection | `summary.read@1` | private projection read | Eligible; user-scoped counts/dates only |
 | TCMS projection | `overview.read@1` | private projection read | Eligible; scalar-normalized |

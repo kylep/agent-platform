@@ -5,7 +5,7 @@ import { Button } from "@ap/ui/button";
 import { Input, Textarea } from "@ap/ui/field";
 
 type Definition = { renderer: "typed/v1"; title: string; blocks: {
-  kind: "heading" | "paragraph" | "metric" | "action" | "link"; text?: string;
+  kind: "heading" | "paragraph" | "metric" | "table" | "action" | "link"; text?: string;
   label?: string; value?: string; source?: string; field?: string;
   action_alias?: string; href?: string }[]; reads: object[]; actions: object[] };
 type Draft = { id: string; app_name: string; slug: string; draft_revision: number;
@@ -124,6 +124,8 @@ export default function LiveViewEditor() {
             </p>;
             if (block.kind === "metric") return <p key={index}><span className="muted">{block.label}: </span>
               <strong>{block.source ? `Live: ${block.source}.${block.field}` : block.value}</strong></p>;
+            if (block.kind === "table") return <p key={index}><strong>{block.label || "Table"}</strong>
+              {` · Live rows from ${block.source}`}</p>;
             return <p key={index}><strong>{block.label || "Action"}</strong> · {block.action_alias}</p>;
           })}
         </> : <p className="muted">Enter a typed/v1 JSON definition to preview it.</p>}

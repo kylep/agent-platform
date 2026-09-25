@@ -4,7 +4,7 @@ import { api } from "../api";
 import { Button } from "@ap/ui/button";
 import { Input, Textarea } from "@ap/ui/field";
 
-type Block = { kind: "heading" | "paragraph" | "metric" | "action" | "link"; text: string; label: string; value: string;
+type Block = { kind: "heading" | "paragraph" | "metric" | "table" | "action" | "link"; text: string; label: string; value: string;
   source: string | null; field: string | null;
   action_alias: string | null; href: string | null };
 type PublishedView = {
@@ -141,6 +141,22 @@ export default function LiveViewPage() {
             const action = view.definition.actions.find((a) => a.alias === block.action_alias);
             return action ? <TicketAction key={index} viewId={view.id} label={block.label}
               alias={action.alias} channel={action.channel} /> : null;
+          }
+          if (block.kind === "table") {
+            const data = block.source ? readData[block.source] : null;
+            const rows = Array.isArray(data?.rows) ? data.rows as Record<string, unknown>[] : [];
+            return <section className="live-view-table" key={index}>
+              <h2>{block.label || "Recent activities"}</h2>
+              {!data && !readError ? <p className="muted">Loading activities…</p>
+                : rows.length ? <div className="table-scroll"><table><thead><tr>
+                <th>Day</th><th>Activity</th><th>Type</th><th>Distance</th><th>Pace</th>
+              </tr></thead><tbody>{rows.map((row, i) => <tr key={i}>
+                <td>{String(row.day ?? "")}</td><td>{String(row.name ?? "")}</td>
+                <td>{String(row.type ?? "")}</td><td>{String(row.distance_km ?? "")} km</td>
+                <td>{String(row.pace ?? "—")}</td>
+              </tr>)}</tbody></table></div>
+                : !readError ? <p className="muted">No activities yet.</p> : null}
+            </section>;
           }
           const dynamic = block.source && block.field
             ? readData[block.source]?.[block.field] : null;
