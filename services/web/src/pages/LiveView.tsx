@@ -5,7 +5,7 @@ import { Button } from "@ap/ui/button";
 import { Input, Textarea } from "@ap/ui/field";
 
 type Block = { kind: "heading" | "paragraph" | "metric" | "table" | "action" | "link"; text: string; label: string; value: string;
-  source: string | null; field: string | null;
+  source: string | null; field: string | null; columns: string[];
   action_alias: string | null; href: string | null };
 type PublishedView = {
   id: string;
@@ -24,6 +24,16 @@ function newIdempotencyKey(): string {
   // getRandomValues works on the platform's plain-HTTP LAN origin, unlike randomUUID.
   return Array.from(crypto.getRandomValues(new Uint8Array(16)),
     (byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+function columnLabel(column: string): string {
+  return column === "distance_km" ? "Distance" :
+    column.charAt(0).toUpperCase() + column.slice(1).replaceAll("_", " ");
+}
+
+function tableValue(column: string, value: unknown): string {
+  if (value === null || value === undefined || value === "") return "—";
+  return column === "distance_km" ? `${value} km` : String(value);
 }
 
 function TicketAction({ viewId, label, alias, channel }: { viewId: string; label: string; alias: string; channel: string }) {
@@ -145,19 +155,17 @@ export default function LiveViewPage() {
           if (block.kind === "table") {
             const data = block.source ? readData[block.source] : null;
             const rows = Array.isArray(data?.rows) ? data.rows as Record<string, unknown>[] : [];
+            const columns = block.columns?.length ? block.columns : rows[0] ? Object.keys(rows[0]) : [];
             return <section className="live-view-table" key={index}>
-              <h2>{block.label || "Recent activities"}</h2>
-              {!data && !readError ? <p className="muted">Loading activities…</p>
+              <h2>{block.label || "Recent rows"}</h2>
+              {!data && !readError ? <p className="muted">Loading rows…</p>
                 : rows.length ? <div className="table-scroll"><table><thead><tr>
-                <th>Day</th><th>Activity</th><th>Type</th><th>Distance</th><th>Pace</th>
+                {columns.map((column) => <th key={column}>{columnLabel(column)}</th>)}
               </tr></thead><tbody>{rows.map((row, i) => <tr key={i}>
-                <td data-label="Day">{String(row.day ?? "")}</td>
-                <td data-label="Activity">{String(row.name ?? "")}</td>
-                <td data-label="Type">{String(row.type ?? "")}</td>
-                <td data-label="Distance">{String(row.distance_km ?? "")} km</td>
-                <td data-label="Pace">{String(row.pace ?? "—")}</td>
+                {columns.map((column) => <td key={column} data-label={columnLabel(column)}>
+                  {tableValue(column, row[column])}</td>)}
               </tr>)}</tbody></table></div>
-                : !readError ? <p className="muted">No activities yet.</p> : null}
+                : !readError ? <p className="muted">No rows yet.</p> : null}
             </section>;
           }
           const dynamic = block.source && block.field

@@ -174,6 +174,46 @@ async def test_running_activity_table_is_bounded_and_normalized(
                                    "type": "Run", "distance_km": 5.25, "pace": "5:20"}]}
 
 
+async def test_news_items_table_strips_links_and_rejects_unapproved_columns(
+        admin_client, monkeypatch):
+    from agentplatform.api import live_views as views_api
+
+    await admin_client.post("/api/app-collections", json={
+        "name": "news", "display_name": "News"})
+    definition = {"title": "Recent news", "reads": [
+        {"alias": "recent", "operation": "news.items.read@1"}],
+        "blocks": [{"kind": "table", "label": "Recent stories", "source": "recent",
+                    "columns": ["day", "title", "source", "topic"]}]}
+    bad = await admin_client.post("/api/live-views", json={
+        "app_name": "news", "slug": "bad", "definition": {
+            **definition, "blocks": [{"kind": "table", "source": "recent",
+                                      "columns": ["title", "url"]}]}})
+    assert bad.status_code == 422
+    created = await admin_client.post("/api/live-views", json={
+        "app_name": "news", "slug": "recent", "definition": definition})
+    assert created.status_code == 201, created.text
+    view_id = created.json()["id"]
+    await admin_client.post(f"/api/live-views/{view_id}/publish")
+
+    async def upstream(request):
+        assert str(request.url) == "http://news/apps/news/api/items?limit=10"
+        return httpx.Response(200, json=[{"day": "2026-09-25", "title": "A story",
+            "source": "A paper", "topic_label": "Science", "url": "https://example.com",
+            "summary": "unapproved text"}])
+
+    real = views_api.httpx.AsyncClient
+
+    def fake_client(**kwargs):
+        kwargs.pop("base_url", None)
+        return real(transport=httpx.MockTransport(upstream), base_url="http://news", **kwargs)
+
+    monkeypatch.setattr(views_api.httpx, "AsyncClient", fake_client)
+    got = await admin_client.get(f"/api/live-views/{view_id}/data/recent")
+    assert got.status_code == 200, got.text
+    assert got.json() == {"rows": [{"day": "2026-09-25", "title": "A story",
+                                   "source": "A paper", "topic": "Science"}]}
+
+
 @pytest.mark.parametrize(("app_name", "operation", "field", "upstream_data", "expected"), [
     ("news", "news.summary.read@1", "today",
      {"today": 3, "week": 12, "total": 80, "topics": 4,

@@ -6,7 +6,7 @@ import { Input, Textarea } from "@ap/ui/field";
 
 type Definition = { renderer: "typed/v1"; title: string; blocks: {
   kind: "heading" | "paragraph" | "metric" | "table" | "action" | "link"; text?: string;
-  label?: string; value?: string; source?: string; field?: string;
+  label?: string; value?: string; source?: string; field?: string; columns?: string[];
   action_alias?: string; href?: string }[]; reads: object[]; actions: object[] };
 type Draft = { id: string; app_name: string; slug: string; draft_revision: number;
   published_version: number | null; definition: Definition };

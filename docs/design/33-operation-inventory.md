@@ -12,6 +12,7 @@ grants and domain APIs keep their current behavior.
 | Running projection | `summary.read@1` | private projection read | Eligible; owner-only, scalar-normalized |
 | Running projection | `activities.read@1` | private projection read | Eligible; owner-only, ten normalized recent rows |
 | News projection | `summary.read@1` | private projection read | Eligible; scalar-normalized |
+| News projection | `items.read@1` | private projection read | Eligible; ten recent normalized story rows, text only |
 | Stockmarket projection | `summary.read@1` | private projection read | Eligible; user-scoped counts/dates only |
 | TCMS projection | `overview.read@1` | private projection read | Eligible; scalar-normalized |
 | Tickets | `create` | platform write, wakes the ticket workflow | Eligible as `tickets.create@1`; fixed channel, human review, durable receipt |

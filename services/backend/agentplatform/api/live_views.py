@@ -8,7 +8,7 @@ from __future__ import annotations
 import re
 from datetime import date
 from math import isfinite
-from typing import Literal
+from typing import Annotated, Literal
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -26,6 +26,7 @@ READ_FIELDS = {
     "running.summary.read@1": {"total_km", "runs", "activities", "latest_day"},
     "running.activities.read@1": set(),
     "news.summary.read@1": {"today", "week", "total", "topics", "latest_day"},
+    "news.items.read@1": set(),
     "stockmarket.summary.read@1": {
         "indexes", "watchlist", "latest_day", "latest_brief_day"},
     "tcms.overview.read@1": {
@@ -34,6 +35,7 @@ READ_FIELDS = {
 READ_APP = {operation: operation.split(".", 1)[0] for operation in READ_FIELDS}
 TABLE_FIELDS = {
     "running.activities.read@1": ("day", "name", "type", "distance_km", "pace"),
+    "news.items.read@1": ("day", "title", "source", "topic"),
 }
 
 
@@ -45,6 +47,8 @@ class TypedBlock(BaseModel):
     value: str = Field(default="", max_length=256)
     source: str | None = Field(default=None, pattern=r"^[a-z][a-z0-9_]{0,39}$")
     field: str | None = Field(default=None, pattern=r"^[a-z][a-z0-9_]{0,39}$")
+    columns: list[Annotated[str, Field(max_length=40, pattern=r"^[a-z][a-z0-9_]*$")]] = Field(
+        default_factory=list, max_length=8)
     action_alias: str | None = Field(default=None, pattern=r"^[a-z][a-z0-9_]{0,39}$")
     href: str | None = Field(default=None, max_length=128,
                              pattern=r"^/apps/[a-z][a-z0-9-]{0,63}/$")
@@ -54,7 +58,7 @@ class ReadBinding(BaseModel):
     model_config = ConfigDict(extra="forbid")
     alias: str = Field(pattern=r"^[a-z][a-z0-9_]{0,39}$")
     operation: Literal["running.summary.read@1", "running.activities.read@1",
-                       "news.summary.read@1",
+                       "news.summary.read@1", "news.items.read@1",
                        "stockmarket.summary.read@1", "tcms.overview.read@1"]
 
 
@@ -99,6 +103,12 @@ class TypedDefinition(BaseModel):
                 operation = next(b.operation for b in self.reads if b.alias == block.source)
                 if operation not in TABLE_FIELDS:
                     raise ValueError("read does not provide a table")
+                if (len(set(block.columns)) != len(block.columns)
+                        or any(column not in TABLE_FIELDS[operation]
+                               for column in block.columns)):
+                    raise ValueError("table columns must be unique approved fields")
+            elif block.columns:
+                raise ValueError("only a table may name columns")
             if block.kind == "action" and block.action_alias not in action_aliases:
                 raise ValueError("action block must reference a declared action")
             if block.kind != "action" and block.action_alias is not None:
@@ -185,6 +195,14 @@ def _normalize_read(operation: str, raw: dict) -> dict:
                          "distance_km": distance,
                          "pace": str(item["pace"])[:30] if item.get("pace") else None})
         return {"rows": rows}
+    if operation == "news.items.read@1":
+        if not isinstance(raw, list) or len(raw) > 10:
+            raise ValueError("invalid news item list")
+        return {"rows": [{"day": _day(item["day"]),
+                          "title": str(item["title"])[:240],
+                          "source": str(item["source"])[:80],
+                          "topic": str(item["topic_label"])[:80]}
+                         for item in raw]}
     if operation == "news.summary.read@1":
         return {key: _count(raw[key]) for key in ("today", "week", "total", "topics")} | {
             "latest_day": _day(raw.get("latest_day"))}
@@ -262,6 +280,7 @@ async def read_live_view_data(request: Request, view_id: str, alias: str,
                 if app_name == "running" else None) or \
         f"http://agent-platform-app-{app_name}:8000"
     endpoint = ("activities?limit=10" if binding.operation == "running.activities.read@1"
+                else "items?limit=10" if binding.operation == "news.items.read@1"
                 else "overview" if app_name == "tcms" else "summary")
     try:
         async with httpx.AsyncClient(base_url=upstream, timeout=8,
