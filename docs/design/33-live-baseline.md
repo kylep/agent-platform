@@ -11,7 +11,7 @@ domain services. The action-by-action inventory is in
 | News | Ready; Postgres archive; three news Kafka topics | `b753850e165544309b9701d5c29c3a1e`, v2 | Typed counts/dates and ten recent stories; keep topic search and full item browsing in the linked domain UI |
 | Stockmarket | Ready; Postgres archive; inbound and brief Kafka topics | `838ff69d3f9c4a8984e660c063f0e349`, v2 | Typed counts/dates and user watchlist; keep charts, watchlist editing and briefs in the linked domain UI |
 | TCMS | Ready; Postgres evidence; `app.tcms.run.recorded` | `e21cdc52364b4db1b5ad73634b1c04a0`, v2 | Typed attention counts and recent test runs; keep cases and evidence detail in the linked domain UI |
-| TTRPG | Ready; separate `claude-ttrpg` image and dedicated world PVC; no app Postgres or Kafka declaration | `4fa2c80ea71c4184a570779dbde123f0`, v1 | DB collection/navigation; keep the real-time game/player/spectator interface in its specialized UI |
+| TTRPG | Ready; separate `claude-ttrpg` image and dedicated world PVC; no app Postgres or Kafka declaration | `4fa2c80ea71c4184a570779dbde123f0`, v3 | DB collection/navigation plus ten recent Relay messages; keep the real-time game/player/spectator interface in its specialized UI |
 
 The five rows above came from authenticated `GET /api/apps` on pai: each
 declared service was ready. The published pages and domain links returned 200
@@ -31,6 +31,12 @@ returned four test-run rows; Stockmarket v2 correctly returned an empty
 watchlist for this principal. All three rendered at 1280px and 390px without
 page errors or horizontal overflow. Their specialized interfaces remained
 available at the linked routes throughout the cutover.
+
+TTRPG v3 reads the fixed `#ttrpg-table` room ID through the reviewed Relay
+adapter. The API rechecks current room membership on each read, returns only
+ten bounded text rows, and refuses snapshots of the chat read. The published
+page displayed ten conversation cards at 1280px and 390px with zero browser
+errors or horizontal overflow. The dedicated game interface remains linked.
 
 The platform API authenticates the viewer and restricts a Live View to the
 collection owner or an admin. New page reads use a closed operation name,
