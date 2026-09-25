@@ -11,6 +11,9 @@ services; see the [Glossary](glossary.md).
 arguments, never code, which is why agents can trigger real work without ever
 holding a shell or a credential. `stocks`, `discord_chat`, `linear`, `memory`,
 `prices` and `index_movers` are the shipped custom-tool references.
+For `discord_chat`, a channel name must be unique across servers visible to
+the bot; when it is not, pass its exact `channel_id` so a notification cannot
+land in whichever server happened to be listed first.
 
 Two tools are **core** — built into the broker rather than living under
 `tools/` — because they write to the platform's own definitions table and

@@ -99,7 +99,8 @@ refresh data; eligible private snapshots are authenticated MCP Resources.
 
 Two action contracts are admitted: `tickets.create@1` and
 `relay.channel.post@1`. An admin grants an operation to a principal for an
-App; the page requests a short-lived intent, the person reviews the target
+App in the page editor's **Action access** section. The page requests a
+short-lived intent, the person reviews the target
 and text, and the server rechecks the grant and target at dispatch. Relay
 posts require current room membership, remain in an internal unbridged
 channel, and cannot contain mentions, so the action cannot silently summon
