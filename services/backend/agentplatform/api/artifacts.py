@@ -98,6 +98,7 @@ class ArtifactView(BaseModel):
     # Where the bytes are; the thumb only for an image.
     thumb_url: str | None
     content_url: str
+    resource_uri: str
 
 
 class ArtifactIn(BaseModel):
@@ -375,6 +376,23 @@ async def artifact_content(request: Request, artifact_id: str,
         raise HTTPException(404, "unknown artifact")
     return _bytes_response(data, mime=row.mime, filename=row.name,
                            inline=row.mime in store.RASTERS)
+
+
+@router.get("/api/artifacts/{artifact_id}/resource", response_class=Response)
+async def artifact_resource(request: Request, artifact_id: str,
+                            caller: Caller = Depends(require_artifacts_access(*READ))):
+    """Private MCP Resource bytes; ownership is rechecked on every read."""
+    async with request.app.state.session_factory() as s:
+        row = await _row_or_404(s, artifact_id)
+        ident = await authenticate(request)
+        if caller.participant != row.owner and (caller.agent is not None or
+                                                 ident is None or ident[1] != "admin"):
+            raise HTTPException(404, "unknown artifact")
+        data = await store.content(s, artifact_id)
+    if data is None:
+        raise HTTPException(404, "unknown artifact")
+    return Response(content=data, media_type=row.mime, headers={
+        "X-Content-Type-Options": "nosniff", "Cache-Control": "private, no-store"})
 
 
 @router.get("/api/artifacts/{artifact_id}/thumb", response_class=Response)

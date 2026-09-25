@@ -15,7 +15,7 @@ The surface is CURATED into three tiers (curation 2026-08-24; see
   read, edit, move, assign, comment, stats — and the wiki: read, search, write,
   append, history, restore, promote, wanted — the usage snapshot and its
   gate — and the artifacts: list, read, save, edit, delete, generate, the
-  model registry and the stats). Always tools. 119 of them.
+  model registry and the stats). Always tools. 120 of them.
 - **GATE** — authorized-but-sharp: the credential/secret plane, admin audit
   reads, destructive/bulk ops, the relay channel lifecycle (creating, renaming
   and archiving rooms), a system row into a room one is not in, and
@@ -25,8 +25,8 @@ The surface is CURATED into three tiers (curation 2026-08-24; see
   not the kitchen.
 - **EXCLUDE** — UI form-feeders, reviewer digests the client can compute,
   git-edit conveniences redundant with having the repo, and system-agent
-  endpoints. Never tools. 19 curated-out, plus 21 session/internal/streaming/
-  byte-serving operations below — 195 graded operations in all.
+  endpoints. Never tools. 19 curated-out, plus 22 session/internal/streaming/
+  byte-serving operations below — 197 graded operations in all.
 
 It is deliberately NOT the mcp-broker. The broker authenticates in-cluster run
 identities and scopes tools to an agent's grants (design/13, design/15); this
@@ -104,6 +104,7 @@ EXCLUDED_PATHS = (
     # broker's `artifacts` tool, which attaches it as an image block.
     ("*", r"^/api/artifacts/\{artifact_id\}/content$"),
     ("*", r"^/api/artifacts/\{artifact_id\}/thumb$"),
+    ("*", r"^/api/artifacts/\{artifact_id\}/resource$"),
     # The trusted UI's short-lived action handshake is browser-session only;
     # generated MCP Tools cannot carry that session and must not advertise it.
     ("*", r"^/api/live-views/\{view_id\}/intents$"),
@@ -329,6 +330,17 @@ def build(spec: dict, client: httpx.AsyncClient | None = None,
             headers=caller_auth_headers(current_request()))
         response.raise_for_status()
         return response.text
+
+    @mcp.resource("ap://artifact/{artifact_id}", mime_type="application/octet-stream")
+    async def artifact_bytes(artifact_id: str) -> bytes:
+        """Read an owner-scoped image or file; the API rechecks ownership."""
+        if not re.fullmatch(r"[0-9a-f]{32}", artifact_id):
+            raise ValueError("invalid artifact id")
+        response = await api_client.get(
+            f"/api/artifacts/{artifact_id}/resource",
+            headers=caller_auth_headers(current_request()))
+        response.raise_for_status()
+        return response.content
 
     return mcp
 

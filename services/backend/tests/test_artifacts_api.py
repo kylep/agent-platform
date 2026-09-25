@@ -169,6 +169,22 @@ async def test_content_and_thumb_headers_for_a_raster(admin_client):
     assert thumb.size == (512, 219)
 
 
+async def test_resource_bytes_recheck_owner_and_revocation(admin_client, token_client, sf):
+    data = png_bytes(24, 24)
+    artifact = await upload(admin_client, data)
+    artifact_id = artifact["id"]
+    assert artifact["resource_uri"] == f"ap://artifact/{artifact_id}"
+    path = f"/api/artifacts/{artifact_id}/resource"
+    own = await admin_client.get(path)
+    assert own.status_code == 200 and own.content == data
+    assert own.headers["cache-control"] == "private, no-store"
+    assert own.headers["x-content-type-options"] == "nosniff"
+    other = await _human_token(sf, "other-reader", "reader")
+    assert (await token_client.get(path, headers=other)).status_code == 404
+    assert (await admin_client.delete(f"/api/artifacts/{artifact_id}")).status_code == 200
+    assert (await admin_client.get(path)).status_code == 404
+
+
 async def test_html_claiming_png_and_svg_are_served_as_attachments(admin_client):
     html = b"<html><script>alert(1)</script></html>"
     a = await upload(admin_client, html, "evil.png", "image/png")

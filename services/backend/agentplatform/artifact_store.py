@@ -372,7 +372,8 @@ def artifact_view(a: Artifact) -> dict:
             "meta": dict(a.meta or {}), "tags": list(a.tags or []),
             "created_at": _iso(a.created_at), "deleted_at": _iso(a.deleted_at),
             "thumb_url": f"/api/artifacts/{a.id}/thumb" if a.kind == "image" else None,
-            "content_url": f"/api/artifacts/{a.id}/content"}
+            "content_url": f"/api/artifacts/{a.id}/content",
+            "resource_uri": f"ap://artifact/{a.id}"}
 
 
 async def publish_artifact_event(producer, *, event: str, artifact: dict | None,

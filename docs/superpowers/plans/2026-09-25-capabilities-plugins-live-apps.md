@@ -82,7 +82,7 @@ tests for Claude and Codex skill paths. It is live in the skill catalog;
 `coder` has orientation/change and `qa` has orientation/regression. Their
 existing DB definitions round-tripped without unrelated changes.
 
-The current uncommitted slice adds a typed JSON source/preview editor,
+Commit `bcd60ff` adds a typed JSON source/preview editor,
 publication history, restricted domain-interface links, and bounded summary
 reads for News, Stockmarket and TCMS. It is deployed as a canary. Published
 DB pages: Running `e653369d2d814705a2104afb272815c7` (v2), News
@@ -97,6 +97,12 @@ collection/page migration, not deletion of those services. The general Tool
 operation inventory, additional action adapters, Chat Identity metadata and
 MCP Apps compatibility gate remain open. Existing untracked `.claude/` and
 `codex-second-quota-pool.html` predate this project and must remain unstaged.
+
+The current uncommitted Resource slice adds `ap://artifact/<id>` for Studio images
+and other binary artifacts. Its dedicated API route rechecks owner/admin access
+and deletion on every read, with `private, no-store`; the facade forwards only
+the caller bearer and does not expose the byte route as a generated Tool.
+Artifact and facade tests passed locally. Live Resource verification remains.
 
 Quota reading at 2026-09-25 15:36 UTC: Codex weekly utilization 84%, reset
 2026-09-25 17:18:35 UTC. It was observed less than a minute earlier.

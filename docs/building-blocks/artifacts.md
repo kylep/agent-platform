@@ -53,6 +53,7 @@ of.
 | `GET /api/artifacts/events` | SSE: `created` \| `deleted` \| `agent_image` frames off the topic |
 | `GET /api/artifacts/{id}` | metadata |
 | `GET /api/artifacts/{id}/content` | the bytes (see the serving rules below) |
+| `GET /api/artifacts/{id}/resource` | owner-scoped Resource bytes for MCP; admin may also read, agents cannot inherit admin visibility |
 | `GET /api/artifacts/{id}/thumb` | the raster thumb; 404 for a file |
 | `PATCH /api/artifacts/{id}` | rename, retag |
 | `DELETE /api/artifacts/{id}` | soft delete |
@@ -98,6 +99,13 @@ chose, so it is where the trust boundary is:
   413, not an out-of-memory. The thumb it makes is ≤ 512 px on the long side,
   JPEG (PNG when there is alpha), ≤ 150 KiB.
 - The web never uses a byte URL that does not start with `/api/artifacts/`.
+
+Artifact metadata also carries `resource_uri: ap://artifact/<id>`. MCP clients
+can read that URI as a binary Resource; the facade forwards their bearer token
+and the API rechecks ownership or human admin authority on every read. Unlike
+the browser content route, the Resource response is `private, no-store` and
+the MCP template advertises a generic binary mime type. Deletion revokes new
+reads immediately. A name, thumbnail or bytes are never embedded in the URI.
 
 ## What agents can do
 
