@@ -38,6 +38,16 @@ ten bounded text rows, and refuses snapshots of the chat read. The published
 page displayed ten conversation cards at 1280px and 390px with zero browser
 errors or horizontal overflow. The dedicated game interface remains linked.
 
+After making published pages the primary Apps entry points, a 390px Chromium
+pass found all five cards linked to their live pages and retained a separate
+"Detailed app" link to each existing interface. It had no browser errors or
+horizontal overflow. Authenticated live summary responses matched the existing
+domain API's selected fields exactly for Running (339.9 km, 37 runs, 48
+activities), News (6 today, 25 this week, 319 total, 7 topics), Stockmarket
+(3 indexes, empty owner watchlist, matching latest dates), and TCMS (6
+failing, 6 flaky, 72 unlinked, 29 prune candidates, 0% coverage). This is
+summary parity, not proof that the typed pages replace specialized controls.
+
 The platform API authenticates the viewer and restricts a Live View to the
 collection owner or an admin. New page reads use a closed operation name,
 published binding and bounded server adapter. Ticket creation additionally

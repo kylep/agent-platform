@@ -448,6 +448,93 @@ async def test_ticket_action_revocation_before_call_denies_dispatch(admin_client
         assert (await session.execute(select(Ticket))).scalars().all() == []
 
 
+async def _relay_post_page(admin_client):
+    await admin_client.post("/api/app-collections", json={
+        "name": "running", "display_name": "Running"})
+    created = await admin_client.post("/api/live-views", json={
+        "app_name": "running", "slug": "chat", "definition": {
+            "title": "Internal feedback", "actions": [{
+                "alias": "post", "operation": "relay.channel.post@1", "channel": "general"}],
+            "blocks": [{"kind": "action", "label": "Post feedback", "action_alias": "post"}]}})
+    assert created.status_code == 201, created.text
+    view_id = created.json()["id"]
+    assert (await admin_client.post(f"/api/live-views/{view_id}/publish")).status_code == 200
+    grant = {"app_name": "running", "principal_id": "admin",
+             "operation": "relay.channel.post@1"}
+    assert (await admin_client.post("/api/live-operation-grants", json=grant)).status_code == 200
+    return view_id
+
+
+async def test_relay_action_posts_once_without_mentions(admin_client, sf):
+    from agentplatform.db import RelayMessage
+    from sqlalchemy import select
+
+    view_id = await _relay_post_page(admin_client)
+    path = f"/api/live-views/{view_id}/intents"
+    assert (await admin_client.post(path, json={"alias": "post", "arguments": {
+        "body": "@coder please do this"}})).status_code == 422
+    assert (await admin_client.post(path, json={"alias": "post", "arguments": {
+        "body": "A safe note", "unexpected": "ignored?"}})).status_code == 422
+    intent = await admin_client.post(path, json={"alias": "post", "arguments": {
+        "body": "A safe note"}})
+    assert intent.status_code == 201, intent.text
+    call = {"intent_id": intent.json()["intent_id"],
+            "idempotency_key": "relaypostrelaypost1"}
+    first = await admin_client.post(f"/api/live-views/{view_id}/calls", json=call)
+    assert first.status_code == 200, first.text
+    assert first.json()["status"] == "succeeded"
+    again = await admin_client.post(f"/api/live-views/{view_id}/calls", json=call)
+    assert again.json()["id"] == first.json()["id"]
+    async with sf() as session:
+        rows = (await session.execute(select(RelayMessage).where(
+            RelayMessage.body == "A safe note"))).scalars().all()
+        assert len(rows) == 1
+        assert rows[0].mentions == []
+        assert first.json()["result"]["message_id"] == rows[0].id
+
+
+async def test_relay_action_bridge_added_before_dispatch_denies(admin_client, sf):
+    from agentplatform.db import RelayBinding, RelayMessage
+    from agentplatform.relay_store import channel_by_ref
+    from sqlalchemy import select
+
+    view_id = await _relay_post_page(admin_client)
+    intent = await admin_client.post(f"/api/live-views/{view_id}/intents", json={
+        "alias": "post", "arguments": {"body": "Do not send externally"}})
+    assert intent.status_code == 201, intent.text
+    async with sf() as session:
+        channel = await channel_by_ref(session, "general")
+        session.add(RelayBinding(channel_id=channel.id, connector="discord",
+                                 external_ref="test-bridge"))
+        await session.commit()
+    result = await admin_client.post(f"/api/live-views/{view_id}/calls", json={
+        "intent_id": intent.json()["intent_id"],
+        "idempotency_key": "relaypostrelaypost2"})
+    assert result.status_code == 200
+    assert result.json()["status"] == "denied_at_dispatch"
+    async with sf() as session:
+        assert (await session.execute(select(RelayMessage).where(
+            RelayMessage.body == "Do not send externally"))).scalars().all() == []
+
+
+async def test_relay_action_membership_revoked_before_dispatch_denies(admin_client, sf):
+    from agentplatform.relay_store import channel_by_ref
+
+    view_id = await _relay_post_page(admin_client)
+    intent = await admin_client.post(f"/api/live-views/{view_id}/intents", json={
+        "alias": "post", "arguments": {"body": "Private room note"}})
+    assert intent.status_code == 201, intent.text
+    async with sf() as session:
+        channel = await channel_by_ref(session, "general")
+        channel.open = False
+        await session.commit()
+    result = await admin_client.post(f"/api/live-views/{view_id}/calls", json={
+        "intent_id": intent.json()["intent_id"],
+        "idempotency_key": "relaypostrelaypost3"})
+    assert result.status_code == 200
+    assert result.json()["status"] == "denied_at_dispatch"
+
+
 async def test_api_key_cannot_use_browser_action(admin_client, token_client, sf):
     view_id = await _ticket_page(admin_client)
     token = "ap_live_view_admin_key"

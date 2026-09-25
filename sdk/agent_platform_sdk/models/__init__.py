@@ -68,6 +68,7 @@ from .image_model import ImageModel
 from .image_model_billing import ImageModelBilling
 from .integration import Integration
 from .intent_in import IntentIn
+from .intent_in_arguments import IntentInArguments
 from .job_in import JobIn
 from .job_patch import JobPatch
 from .job_run_accepted import JobRunAccepted
@@ -179,7 +180,6 @@ from .team_in import TeamIn
 from .team_patch import TeamPatch
 from .ticket_actor_count import TicketActorCount
 from .ticket_agent_budget import TicketAgentBudget
-from .ticket_arguments import TicketArguments
 from .ticket_assign_in import TicketAssignIn
 from .ticket_budget_view import TicketBudgetView
 from .ticket_comment_in import TicketCommentIn
@@ -302,6 +302,7 @@ __all__ = (
     "ImageModelBilling",
     "Integration",
     "IntentIn",
+    "IntentInArguments",
     "JobIn",
     "JobPatch",
     "JobRunAccepted",
@@ -413,7 +414,6 @@ __all__ = (
     "TeamPatch",
     "TicketActorCount",
     "TicketAgentBudget",
-    "TicketArguments",
     "TicketAssignIn",
     "TicketBudgetView",
     "TicketCommentIn",

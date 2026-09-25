@@ -14,11 +14,11 @@ type PublishedView = {
   published_version: number;
   definition: { renderer: "typed/v1"; title: string; blocks: Block[];
     reads: { alias: string; operation: string; channel_id?: string | null }[];
-    actions: { alias: string; operation: "tickets.create@1"; channel: string }[] };
+    actions: { alias: string; operation: "tickets.create@1" | "relay.channel.post@1"; channel: string }[] };
 };
 
-type ActionIntent = { intent_id: string; target: string; arguments: { title: string; body: string } };
-type ActionReceipt = { id: string; status: string; result: { ticket_key?: string; reason?: string } | null };
+type ActionIntent = { intent_id: string; target: string; arguments: { title?: string; body: string } };
+type ActionReceipt = { id: string; status: string; result: { ticket_key?: string; message_id?: string; reason?: string } | null };
 
 function newIdempotencyKey(): string {
   // getRandomValues works on the platform's plain-HTTP LAN origin, unlike randomUUID.
@@ -47,7 +47,11 @@ function tableValue(column: string, value: unknown): string {
   return String(value);
 }
 
-function TicketAction({ viewId, label, alias, channel }: { viewId: string; label: string; alias: string; channel: string }) {
+function TrustedAction({ viewId, label, alias, channel, operation }: {
+  viewId: string; label: string; alias: string; channel: string;
+  operation: "tickets.create@1" | "relay.channel.post@1";
+}) {
+  const ticket = operation === "tickets.create@1";
   const [title, setTitle] = useState("");
   const [body, setBody] = useState("");
   const [intent, setIntent] = useState<ActionIntent | null>(null);
@@ -59,7 +63,7 @@ function TicketAction({ viewId, label, alias, channel }: { viewId: string; label
     setBusy(true); setError(null);
     try {
       const created = await api<ActionIntent>(`/api/live-views/${encodeURIComponent(viewId)}/intents`, {
-        method: "POST", body: JSON.stringify({ alias, arguments: { title, body } }),
+        method: "POST", body: JSON.stringify({ alias, arguments: ticket ? { title, body } : { body } }),
       });
       setIntent(created);
       setKey(newIdempotencyKey());
@@ -75,26 +79,29 @@ function TicketAction({ viewId, label, alias, channel }: { viewId: string; label
       });
       setReceipt(result);
     } catch (e) {
-      // Keep the same intent and key. Retrying cannot create a second ticket.
+      // Keep the same intent and key. Retrying cannot dispatch a second effect.
       setError(e instanceof Error ? e.message : "Outcome unavailable. Retry to get the receipt.");
     } finally { setBusy(false); }
   }
   return <section className="live-view-action">
-    <h2>{label || "Create ticket"}</h2>
+    <h2>{label || (ticket ? "Create ticket" : "Post to Relay")}</h2>
     {receipt ? <p role="status">{receipt.status === "succeeded"
-      ? `Created ${receipt.result?.ticket_key ?? "ticket"}.`
-      : `Action ${receipt.status.replaceAll("_", " ")}: ${receipt.result?.reason ?? "Check the ticket board."}`}</p>
+      ? ticket ? `Created ${receipt.result?.ticket_key ?? "ticket"}.` : "Message posted."
+      : `Action ${receipt.status.replaceAll("_", " ")}: ${receipt.result?.reason ?? "Check the action receipt."}`}</p>
       : intent ? <div>
-        <p>Send a ticket to {intent.target}?</p>
-        <p><strong>{intent.arguments.title}</strong></p>
+        <p>{ticket ? "Create a ticket in" : "Post this message to"} {intent.target}?</p>
+        {intent.arguments.title && <p><strong>{intent.arguments.title}</strong></p>}
         {intent.arguments.body && <p>{intent.arguments.body}</p>}
         <Button onClick={confirm} disabled={busy}>{busy ? "Sending…" : "Confirm and send"}</Button>{" "}
         <Button variant="secondary" onClick={() => { setIntent(null); setKey(null); }} disabled={busy}>Edit</Button>
       </div> : <div>
-        <p className="muted">Creates a ticket in #{channel}.</p>
-        <label>Title<Input value={title} maxLength={160} onChange={(e) => setTitle(e.target.value)} /></label>
-        <label>Details<Textarea value={body} maxLength={4000} onChange={(e) => setBody(e.target.value)} /></label>
-        <Button onClick={preview} disabled={busy || !title.trim()}>{busy ? "Preparing…" : "Review ticket"}</Button>
+        <p className="muted">{ticket ? `Creates a ticket in #${channel}.`
+          : `Posts to internal Relay room #${channel}. Mentions cannot summon agents here.`}</p>
+        {ticket && <label>Title<Input value={title} maxLength={160} onChange={(e) => setTitle(e.target.value)} /></label>}
+        <label>{ticket ? "Details" : "Message"}<Textarea value={body} maxLength={ticket ? 4000 : 1000}
+          onChange={(e) => setBody(e.target.value)} /></label>
+        <Button onClick={preview} disabled={busy || (ticket ? !title.trim() : !body.trim() || body.includes("@"))}>
+          {busy ? "Preparing…" : ticket ? "Review ticket" : "Review message"}</Button>
       </div>}
     {error && <p role="alert" className="error">{error}</p>}
   </section>;
@@ -160,8 +167,8 @@ export default function LiveViewPage() {
           if (block.kind === "link") return <p key={index}><a href={block.href || "#"}>{block.label || "Open app"} →</a></p>;
           if (block.kind === "action") {
             const action = view.definition.actions.find((a) => a.alias === block.action_alias);
-            return action ? <TicketAction key={index} viewId={view.id} label={block.label}
-              alias={action.alias} channel={action.channel} /> : null;
+            return action ? <TrustedAction key={index} viewId={view.id} label={block.label}
+              alias={action.alias} channel={action.channel} operation={action.operation} /> : null;
           }
           if (block.kind === "chat") {
             const data = block.source ? readData[block.source] : null;

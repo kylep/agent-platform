@@ -43,15 +43,17 @@ Started 2026-09-25. This is a work checkpoint, not a command to run an agent loo
 - [ ] A3. Compile operation contracts for a narrow Running read and Ticket
   write first, then inventory every core/custom Tool action. Unknown effects
   deny new live-page admission; catalog labels grant nothing.
-  The branch-by-branch inventory and generated 91-entry catalog are recorded
+  The branch-by-branch inventory and generated 93-entry catalog are recorded
   in [33-operation-inventory](../../design/33-operation-inventory.md).
-  Ten operations have bounded human adapters with JSON input/output schemas,
+  Eleven operations have bounded human adapters with JSON input/output schemas,
   target scopes, caller kinds and enforced read limits. The remaining broker
   and custom actions have explicit null contracts and are ineligible. Their
   schemas, target checks and budgets remain open; each further admission
   requires separate policy work.
-  A fixed-target Relay channel read now checks current membership on every
-  request, returns ten bounded text rows, and cannot be snapshotted.
+  A fixed-target Relay channel read checks current membership on every
+  request, returns ten bounded text rows, and cannot be snapshotted. A second
+  effectful adapter can post human-reviewed text to a fixed internal room,
+  with membership/bridge rechecks, no mentions, and a durable receipt.
 - [ ] A4. Enforce viewer + View policy + object/target access on every call,
   including at dispatch. Add idempotent receipts and uncertain-outcome state.
 - [x] A5. Add private Resource list/read with conservative object ACLs, safe
@@ -59,7 +61,7 @@ Started 2026-09-25. This is a work checkpoint, not a command to run an agent loo
 - [x] Running canary deployed to pai: four live metrics, ticket action with
   durable receipt, private snapshot and MCP Resource read. Browser checked at
   desktop and 390px mobile; ENG-7 was created then cancelled as test cleanup.
-- [ ] A6. Implement typed page drafts, fixture preview, publish, rollback,
+- [x] A6. Implement typed page drafts, fixture preview, publish, rollback,
   trusted action chrome, readable errors, refresh and snapshot capture.
   The editor now previews metrics and table rows from synthetic values derived
   from the reviewed output schemas; it performs no live calls. Publication,
@@ -75,9 +77,12 @@ Started 2026-09-25. This is a work checkpoint, not a command to run an agent loo
   This is source-reviewed approval for the current private deployment; CI
   signer/build attestation, local update/rollback and behavior evaluation
   remain open.
-- [ ] A9. Migrate News, Stockmarket and TCMS collection/pages where the typed
+- [x] A9. Migrate News, Stockmarket and TCMS collection/pages where the typed
   renderer fits. Preserve their ingestion and domain logic. Compare outputs
   against existing UIs and retain specialized screens when needed.
+  All three published DB pages are primary entry points from Apps. Their
+  summary fields matched the existing domain APIs on pai, and the detailed
+  screens remain linked for domain controls that typed pages do not yet cover.
 - [ ] A10. Migrate TTRPG collection/navigation while preserving its specialized
   game interface; test spectator/player flows and route rollback.
 - [ ] A11. Integrate Chat Identity metadata/credential bindings and decide MCP
@@ -88,6 +93,23 @@ Started 2026-09-25. This is a work checkpoint, not a command to run an agent loo
   only after explicit retirement review; keep data protections monotonic.
 
 ## Current checkpoint
+
+Main through `624cb74` is pushed and deployed. All five Apps now open their
+published DB pages from the Apps directory, with explicit detailed-app links
+to the existing specialist screens. A 390px Chromium pass found the five
+expected live-page and specialist routes, no browser errors and no horizontal
+overflow. Running, News, Stockmarket and TCMS live summaries matched their
+existing domain APIs field for field. TTRPG's published page shows ten recent
+`#ttrpg-table` text messages through a fixed, membership-checked read; its
+specialized game UI remains linked. See the [live baseline](../../design/33-live-baseline.md)
+for measured values and presentation limits. The backend suite passed 1819
+tests before the later isolated chat presentation change; 22 focused chat
+tests and the web build/token gate passed after it.
+
+Still open: catalog contracts for additional broker/custom actions; stronger retained plugin release/update
+evidence; TTRPG interaction parity; Chat Identity metadata; MCP Apps host
+compatibility; one-week observation and eventual specialist retirement review.
+The previous checkpoint below records the earlier canary steps.
 
 Main through `19c9ebb` is pushed and deployed. The Running canary passed API,
 browser and MCP Resource checks. The plain-HTTP `crypto.randomUUID` failure

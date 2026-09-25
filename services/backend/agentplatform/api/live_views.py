@@ -102,7 +102,7 @@ class TypedDefinition(BaseModel):
         if any((binding.operation == "relay.channel.read@1") != (binding.channel_id is not None)
                for binding in self.reads):
             raise ValueError("Relay read needs a fixed channel; App reads cannot name one")
-        if any(binding.operation != "tickets.create@1"
+        if any(binding.operation not in ("tickets.create@1", "relay.channel.post@1")
                or not operation_catalog.admitted(binding.operation)
                for binding in self.actions):
             raise ValueError("action operation has no admitted page adapter")

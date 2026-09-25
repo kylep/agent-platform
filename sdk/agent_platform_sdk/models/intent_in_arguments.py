@@ -7,54 +7,29 @@ from attrs import define as _attrs_define
 from attrs import field as _attrs_field
 from typing_extensions import Self
 
-from ..types import UNSET, Unset
-
-T = TypeVar("T", bound="TicketArguments")
+T = TypeVar("T", bound="IntentInArguments")
 
 
 @_attrs_define
-class TicketArguments:
-    """
-    Attributes:
-        title (str):
-        body (str | Unset):  Default: ''.
-    """
+class IntentInArguments:
+    """ """
 
-    title: str
-    body: str | Unset = ""
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
-        title = self.title
-
-        body = self.body
 
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
-        field_dict.update(
-            {
-                "title": title,
-            }
-        )
-        if body is not UNSET:
-            field_dict["body"] = body
 
         return field_dict
 
     @classmethod
     def from_dict(cls, src_dict: Mapping[str, Any]) -> Self:
         d = dict(src_dict)
-        title = d.pop("title")
+        intent_in_arguments = cls()
 
-        body = d.pop("body", UNSET)
-
-        ticket_arguments = cls(
-            title=title,
-            body=body,
-        )
-
-        ticket_arguments.additional_properties = d
-        return ticket_arguments
+        intent_in_arguments.additional_properties = d
+        return intent_in_arguments
 
     @property
     def additional_keys(self) -> list[str]:

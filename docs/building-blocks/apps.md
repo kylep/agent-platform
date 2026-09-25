@@ -84,19 +84,26 @@ are DB-owned. The manifest still declares infrastructure needs.
 An admin can create a page from the Apps list, edit its typed JSON draft,
 preview text and controls, save, publish, and restore an earlier published
 version. A draft edit has no effect on the live page until published. The
-renderer supports headings, paragraphs, metrics, a trusted Ticket action,
-and a link to that App's specialized interface. It never runs authored
+renderer supports headings, paragraphs, metrics, bounded tables and Relay
+conversation cards, trusted Ticket and internal Relay actions, and a link to
+that App's specialized interface. It never runs authored
 HTML, CSS, JavaScript, arbitrary URLs or arbitrary Tool calls.
 
 Running, News, Stockmarket and TCMS have bounded summary read bindings. Each
 binding exposes only documented scalar fields from the existing domain
 projection; page loads do not call third-party services. The TTRPG collection
-has a database page linking to its dedicated player/spectator interface,
-whose game engine and controls remain code. A live page can refresh data,
-and a private snapshot is available as an authenticated MCP Resource.
+has a database page showing ten recent messages from a fixed Relay room and
+linking to its dedicated player/spectator interface. Membership is rechecked
+on every chat read, and chat cannot be saved into a snapshot. A live page can
+refresh data; eligible private snapshots are authenticated MCP Resources.
 
-The current action contract is `tickets.create@1`: an admin grants it to a
-principal for an App, the page requests a short-lived intent, the person
-reviews the target and message, and the server rechecks the grant at dispatch.
-An idempotent receipt records the outcome. Further Tools need a reviewed
-operation contract and an explicit grant before a page may invoke them.
+Two action contracts are admitted: `tickets.create@1` and
+`relay.channel.post@1`. An admin grants an operation to a principal for an
+App; the page requests a short-lived intent, the person reviews the target
+and text, and the server rechecks the grant and target at dispatch. Relay
+posts require current room membership, remain in an internal unbridged
+channel, and cannot contain mentions, so the action cannot silently summon
+an agent or send to Discord. An idempotent receipt records the outcome.
+Further Tools need a reviewed operation contract and an explicit grant before
+a page may invoke them. The Apps directory opens published pages first and
+keeps the detailed domain screens linked for specialized controls.

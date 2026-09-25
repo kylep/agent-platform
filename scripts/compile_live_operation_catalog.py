@@ -252,6 +252,20 @@ def compile_catalog() -> dict:
         "target_scope": "ticket_enabled_channel", "supported_callers": ["human_session"],
         "limits": {"intent_ttl_seconds": 300, "provider_spend": False},
         "snapshot_eligible": False})
+    operations.append({
+        "id": "relay.channel.post@1", "source": "human-adapter", "tool": "relay",
+        "action": "post", "category": "platform_capability",
+        "effects": ["mutates_platform"], "output_classification": "private",
+        "view_eligible": True,
+        "reason": "Human-reviewed text to a fixed, member-visible internal room; no mentions or bridge",
+        "input_schema": {"type": "object", "properties": {
+            "body": {"type": "string", "minLength": 1, "maxLength": 1000}},
+            "required": ["body"], "additionalProperties": False},
+        "output_schema": _object_schema({"message_id": "string"}),
+        "target_scope": "unbound_relay_channel_membership",
+        "supported_callers": ["human_session"],
+        "limits": {"intent_ttl_seconds": 300, "provider_spend": False},
+        "snapshot_eligible": False})
     operations.sort(key=lambda item: item["id"])
     assert len({item["id"] for item in operations}) == len(operations)
     return {"schema_version": 1, "operations": operations}

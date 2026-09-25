@@ -8,7 +8,7 @@ from attrs import field as _attrs_field
 from typing_extensions import Self
 
 if TYPE_CHECKING:
-    from ..models.ticket_arguments import TicketArguments
+    from ..models.intent_in_arguments import IntentInArguments
 
 
 T = TypeVar("T", bound="IntentIn")
@@ -19,11 +19,11 @@ class IntentIn:
     """
     Attributes:
         alias (str):
-        arguments (TicketArguments):
+        arguments (IntentInArguments):
     """
 
     alias: str
-    arguments: TicketArguments
+    arguments: IntentInArguments
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -44,12 +44,12 @@ class IntentIn:
 
     @classmethod
     def from_dict(cls, src_dict: Mapping[str, Any]) -> Self:
-        from ..models.ticket_arguments import TicketArguments
+        from ..models.intent_in_arguments import IntentInArguments
 
         d = dict(src_dict)
         alias = d.pop("alias")
 
-        arguments = TicketArguments.from_dict(d.pop("arguments"))
+        arguments = IntentInArguments.from_dict(d.pop("arguments"))
 
         intent_in = cls(
             alias=alias,

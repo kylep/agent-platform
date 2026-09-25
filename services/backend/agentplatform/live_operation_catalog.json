@@ -1067,6 +1067,54 @@
       "snapshot_eligible": true
     },
     {
+      "id": "relay.channel.post@1",
+      "source": "human-adapter",
+      "tool": "relay",
+      "action": "post",
+      "category": "platform_capability",
+      "effects": [
+        "mutates_platform"
+      ],
+      "output_classification": "private",
+      "view_eligible": true,
+      "reason": "Human-reviewed text to a fixed, member-visible internal room; no mentions or bridge",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "body": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1000
+          }
+        },
+        "required": [
+          "body"
+        ],
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "message_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "message_id"
+        ],
+        "additionalProperties": false
+      },
+      "target_scope": "unbound_relay_channel_membership",
+      "supported_callers": [
+        "human_session"
+      ],
+      "limits": {
+        "intent_ttl_seconds": 300,
+        "provider_spend": false
+      },
+      "snapshot_eligible": false
+    },
+    {
       "id": "relay.channel.read@1",
       "source": "platform-adapter",
       "tool": "relay",

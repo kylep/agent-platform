@@ -7,7 +7,7 @@ import logging
 from datetime import timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
@@ -25,15 +25,23 @@ from agentplatform.db import (
     LiveOperationGrant,
     LiveView,
     LiveViewVersion,
+    RelayBinding,
+    RelayParticipant,
     utcnow,
 )
-from agentplatform.relay import participant_of
-from agentplatform.relay_store import channel_by_ref
+from agentplatform.relay import is_member, participant_of
+from agentplatform.relay_store import (
+    channel_by_ref,
+    post_relay_message,
+    publish_relay_message,
+    relay_message_payload,
+)
 from agentplatform.ticket_store import TicketRuleError
 
 router = APIRouter()
 log = logging.getLogger(__name__)
 OP_TICKET_CREATE = "tickets.create@1"
+OP_RELAY_POST = "relay.channel.post@1"
 INTENT_LIFETIME = timedelta(minutes=5)
 
 
@@ -52,7 +60,7 @@ class GrantIn(BaseModel):
 @router.post("/api/live-operation-grants")
 async def grant_live_operation(request: Request, body: GrantIn,
                                actor: str = Depends(require_admin)):
-    if body.operation != OP_TICKET_CREATE:
+    if body.operation not in (OP_TICKET_CREATE, OP_RELAY_POST):
         raise HTTPException(422, "unknown live operation")
     async with request.app.state.session_factory() as session:
         await _accessible_app(session, body.app_name, (actor, "admin"))
@@ -86,13 +94,26 @@ async def revoke_live_operation(request: Request, body: GrantIn,
 
 
 class TicketArguments(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     title: str = Field(min_length=1, max_length=160)
     body: str = Field(default="", max_length=4000)
 
 
+class RelayPostArguments(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    body: str = Field(min_length=1, max_length=1000)
+
+    @field_validator("body")
+    @classmethod
+    def no_mentions(cls, value: str) -> str:
+        if not value.strip() or "@" in value:
+            raise ValueError("a live-page post needs text without mentions")
+        return value
+
+
 class IntentIn(BaseModel):
     alias: str
-    arguments: TicketArguments
+    arguments: dict
 
 
 class CallIn(BaseModel):
@@ -121,18 +142,38 @@ async def _published_action(session, view_id: str, alias: str,
     except ValidationError:
         raise HTTPException(503, "published definition incompatible")
     action = next((a for a in definition.actions if a.alias == alias), None)
-    if action is None or action.operation != OP_TICKET_CREATE:
+    if action is None or action.operation not in (OP_TICKET_CREATE, OP_RELAY_POST):
         raise HTTPException(404, "unknown action")
     grant = await session.get(LiveOperationGrant,
                               (view.app_name, ident[0], action.operation))
     if grant is None or grant.revoked_at is not None:
         raise HTTPException(403, "operation grant required")
     if not role_allows(ident[1], INVOKE_ROLES):
-        raise HTTPException(403, "ticket write role required")
+        raise HTTPException(403, "action write role required")
     conv = await channel_by_ref(session, action.channel)
-    if conv is None or conv.archived_at is not None or conv.ticket_prefix is None:
-        raise HTTPException(409, "ticket destination unavailable")
+    if conv is None or conv.archived_at is not None:
+        raise HTTPException(409, "action destination unavailable")
+    if action.operation == OP_TICKET_CREATE:
+        if conv.ticket_prefix is None:
+            raise HTTPException(409, "ticket destination unavailable")
+    else:
+        await _internal_relay_target(session, conv, ident)
     return view, action, conv
+
+
+async def _internal_relay_target(session, conv, ident: tuple[str, str]) -> None:
+    """A Live App cannot turn a Relay post into an unreviewed external send."""
+    if (conv.kind != "channel" or conv.home != "relay"
+            or conv.connector != "web" or conv.external_ref):
+        raise HTTPException(409, "internal Relay destination required")
+    bridge = (await session.execute(select(RelayBinding.id).where(
+        RelayBinding.channel_id == conv.id).limit(1))).scalar_one_or_none()
+    if bridge is not None:
+        raise HTTPException(409, "bridged Relay destination unavailable")
+    explicit = set((await session.execute(select(RelayParticipant.participant).where(
+        RelayParticipant.channel_id == conv.id))).scalars())
+    if not is_member(conv, participant_of(principal=ident[0]), set(), explicit):
+        raise HTTPException(403, "Relay membership required")
 
 
 @router.post("/api/live-views/{view_id}/intents", status_code=201)
@@ -141,7 +182,12 @@ async def create_live_intent(request: Request, view_id: str, body: IntentIn,
     _interactive(request, ident)
     async with request.app.state.session_factory() as session:
         view, action, conv = await _published_action(session, view_id, body.alias, ident)
-        arguments = body.arguments.model_dump()
+        argument_type = (TicketArguments if action.operation == OP_TICKET_CREATE
+                         else RelayPostArguments)
+        try:
+            arguments = argument_type.model_validate(body.arguments).model_dump()
+        except ValidationError as exc:
+            raise HTTPException(422, "invalid action arguments") from exc
         intent = LiveIntent(view_id=view_id, view_version=view.published_version,
                             principal_id=ident[0], alias=action.alias,
                             operation=action.operation, target=conv.id,
@@ -242,28 +288,43 @@ async def call_live_action(request: Request, view_id: str, body: CallIn,
         row.updated_at = utcnow()
         target_id = intent.target
         arguments = dict(intent.arguments)
+        operation = row.operation
         await session.commit()
 
     try:
         async with sf() as session:
             conv = await channel_by_ref(session, target_id)
-            if conv is None or conv.archived_at is not None or conv.ticket_prefix is None:
-                raise TicketRuleError("ticket destination unavailable")
-            ticket = await ticket_store.create_ticket(
-                session, request.app.state.producer, conv,
-                actor=participant_of(principal=ident[0]),
-                title=arguments["title"], body=arguments["body"],
-                assignee=None, notify=False)
-            ticket_key = ticket.key
-    except TicketRuleError as exc:
-        status, result = "failed", {"reason": str(exc)}
+            if conv is None or conv.archived_at is not None:
+                raise TicketRuleError("action destination unavailable")
+            if operation == OP_TICKET_CREATE:
+                if conv.ticket_prefix is None:
+                    raise TicketRuleError("ticket destination unavailable")
+                ticket = await ticket_store.create_ticket(
+                    session, request.app.state.producer, conv,
+                    actor=participant_of(principal=ident[0]),
+                    title=arguments["title"], body=arguments["body"],
+                    assignee=None, notify=False)
+                result = {"ticket_key": ticket.key}
+            else:
+                await _internal_relay_target(session, conv, ident)
+                message = await post_relay_message(
+                    session, conv, author=participant_of(principal=ident[0]),
+                    body=arguments["body"], mentions=[])
+                await session.commit()
+                request.app.state.feed.publish(conv.id, "message",
+                                               relay_message_payload(message, conv))
+                await publish_relay_message(request.app.state.producer, conv, message)
+                result = {"message_id": message.id}
+    except (TicketRuleError, HTTPException) as exc:
+        status, result = "failed", {"reason": exc.detail if isinstance(exc, HTTPException)
+                                    else str(exc)}
     except Exception:
-        # The store may have committed the ticket before the response failed.
-        # Never silently retry a potentially successful external effect.
-        log.exception("live invocation %s has an uncertain ticket outcome", invocation_id)
-        status, result = "outcome_unknown", {"reason": "ticket outcome needs review"}
+        # Either store may have committed before the response failed. Never
+        # silently retry a potentially successful effect.
+        log.exception("live invocation %s has an uncertain outcome", invocation_id)
+        status, result = "outcome_unknown", {"reason": "action outcome needs review"}
     else:
-        status, result = "succeeded", {"ticket_key": ticket_key}
+        status = "succeeded"
     async with sf() as session:
         row = await session.get(LiveInvocation, invocation_id)
         row.status, row.result, row.updated_at = status, result, utcnow()

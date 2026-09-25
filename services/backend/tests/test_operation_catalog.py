@@ -20,7 +20,7 @@ def test_catalog_matches_broker_and_custom_manifest_actions():
     assert checked_in == compiled
     assert len(compiled["operations"]) == len(operation_catalog.OPERATIONS)
     assert {item["id"] for item in compiled["operations"] if item["view_eligible"]} == (
-        set(READ_FIELDS) | {"tickets.create@1"})
+        set(READ_FIELDS) | {"tickets.create@1", "relay.channel.post@1"})
     assert {item["id"] for item in compiled["operations"]
             if "unknown" in item["effects"]} == {
         "core.query_app.call@1", "tool.linear.raw_graphql@1"}
@@ -51,7 +51,7 @@ async def test_catalog_exposes_admitted_contracts_and_rejects_unreviewed_branch(
     response = await admin_client.get("/api/live-operations?eligible_only=true")
     assert response.status_code == 200
     ids = {item["id"] for item in response.json()}
-    assert ids == set(READ_FIELDS) | {"tickets.create@1"}
+    assert ids == set(READ_FIELDS) | {"tickets.create@1", "relay.channel.post@1"}
     all_rows = (await admin_client.get("/api/live-operations")).json()
     excluded = next(item for item in all_rows if item["id"] == "tool.linear.raw_graphql@1")
     assert excluded["view_eligible"] is False
