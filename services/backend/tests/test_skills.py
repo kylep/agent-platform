@@ -64,6 +64,31 @@ def test_reviewed_plugin_skills_enter_catalog_only_when_release_matches(tmp_path
     assert "file set" in store.get("agent-platform-coding").error
 
 
+def test_recomputed_plugin_manifest_does_not_approve_tampered_skill(tmp_path):
+    import hashlib
+    import json
+    import shutil
+
+    from agentplatform.plugin_release import verify_release
+
+    source = Path(__file__).resolve().parents[3] / "plugins" / "agent-platform-coding"
+    package = tmp_path / "plugins" / "agent-platform-coding"
+    shutil.copytree(source, package)
+    skill_path = "skills/platform-change/SKILL.md"
+    skill = package / skill_path
+    skill.write_text(skill.read_text() + "\nUnreviewed instruction.\n")
+    manifest_path = package / "release.json"
+    manifest = json.loads(manifest_path.read_text())
+    manifest["files"][skill_path] = hashlib.sha256(skill.read_bytes()).hexdigest()
+    manifest_path.write_text(json.dumps(manifest))
+    try:
+        verify_release(package)
+    except ValueError as exc:
+        assert "not approved" in str(exc)
+    else:
+        raise AssertionError("a recomputed release manifest bypassed approval")
+
+
 async def test_skills_api_lists_with_used_by(admin_client, sf):
     # The default test agent store has no skills wired, so used_by is empty but
     # the endpoint must still return 200 with the shape.

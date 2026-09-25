@@ -7,6 +7,12 @@ import re
 from pathlib import Path
 
 NAME = "agent-platform-coding"
+# This digest is reviewed with the platform binary. File hashes inside the
+# release manifest detect accidental drift; this pin also rejects a replaced
+# manifest whose file hashes were recomputed to match tampered skills.
+APPROVED_RELEASES = {
+    "0.1.0": "460ead5dc4c4efecd0e682064804953f6c83663bede484f6f441e5a7de0e0530",
+}
 MAX_FILE_BYTES = 64 * 1024
 SKILL_PATH = re.compile(r"skills/[a-z][a-z0-9-]{0,63}/SKILL\.md$")
 MANIFEST_PATHS = {
@@ -30,9 +36,16 @@ def verify_release(root: Path) -> list[Path]:
     release_path = root / "release.json"
     if not release_path.is_file() or release_path.is_symlink():
         raise ValueError("missing skills-only release manifest")
-    release = json.loads(release_path.read_text())
-    if set(release) != {"name", "version", "files"} or release["name"] != NAME:
+    release_bytes = release_path.read_bytes()
+    release = json.loads(release_bytes)
+    if (not isinstance(release, dict)
+            or set(release) != {"name", "version", "files"}
+            or release["name"] != NAME
+            or not isinstance(release["version"], str)):
         raise ValueError("invalid plugin release identity")
+    expected_digest = APPROVED_RELEASES.get(release["version"])
+    if expected_digest is None or hashlib.sha256(release_bytes).hexdigest() != expected_digest:
+        raise ValueError("plugin release is not approved by this platform build")
     files = release["files"]
     if not isinstance(files, dict) or not files:
         raise ValueError("empty plugin release")
