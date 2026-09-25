@@ -33,7 +33,10 @@ function columnLabel(column: string): string {
 
 function tableValue(column: string, value: unknown): string {
   if (value === null || value === undefined || value === "") return "—";
-  return column === "distance_km" ? `${value} km` : String(value);
+  if (column === "distance_km") return `${value} km`;
+  if (column === "change_pct") return `${value}%`;
+  if (column === "verify_ok") return value === true ? "Passed" : "Failed";
+  return String(value);
 }
 
 function TicketAction({ viewId, label, alias, channel }: { viewId: string; label: string; alias: string; channel: string }) {

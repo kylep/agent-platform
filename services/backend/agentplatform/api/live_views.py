@@ -29,13 +29,17 @@ READ_FIELDS = {
     "news.items.read@1": set(),
     "stockmarket.summary.read@1": {
         "indexes", "watchlist", "latest_day", "latest_brief_day"},
+    "stockmarket.watchlist.read@1": set(),
     "tcms.overview.read@1": {
         "failing", "flaky", "unlinked", "prune_candidates", "coverage_pct"},
+    "tcms.runs.read@1": set(),
 }
 READ_APP = {operation: operation.split(".", 1)[0] for operation in READ_FIELDS}
 TABLE_FIELDS = {
     "running.activities.read@1": ("day", "name", "type", "distance_km", "pace"),
     "news.items.read@1": ("day", "title", "source", "topic"),
+    "stockmarket.watchlist.read@1": ("symbol", "label", "status", "latest_close", "change_pct"),
+    "tcms.runs.read@1": ("started_at", "branch", "agent", "n", "verify_ok"),
 }
 
 
@@ -59,7 +63,8 @@ class ReadBinding(BaseModel):
     alias: str = Field(pattern=r"^[a-z][a-z0-9_]{0,39}$")
     operation: Literal["running.summary.read@1", "running.activities.read@1",
                        "news.summary.read@1", "news.items.read@1",
-                       "stockmarket.summary.read@1", "tcms.overview.read@1"]
+                       "stockmarket.summary.read@1", "stockmarket.watchlist.read@1",
+                       "tcms.overview.read@1", "tcms.runs.read@1"]
 
 
 class ActionBinding(BaseModel):
@@ -212,6 +217,23 @@ def _normalize_read(operation: str, raw: dict) -> dict:
         return {"indexes": len(raw["indexes"]), "watchlist": len(raw["watchlist"]),
                 "latest_day": _day(raw.get("latest_day")),
                 "latest_brief_day": _day(raw.get("latest_brief_day"))}
+    if operation == "stockmarket.watchlist.read@1":
+        items = raw["watchlist"]
+        if not isinstance(items, list) or len(items) > 20:
+            raise ValueError("invalid watchlist")
+        rows = []
+        for item in items:
+            close = item.get("latest_close")
+            change = item.get("change_pct")
+            if ((close is not None and not isfinite(float(close)))
+                    or (change is not None and not isfinite(float(change)))):
+                raise ValueError("invalid market price")
+            rows.append({"symbol": str(item["symbol"])[:20],
+                         "label": str(item["label"])[:80],
+                         "status": str(item["status"])[:32],
+                         "latest_close": float(close) if close is not None else None,
+                         "change_pct": float(change) if change is not None else None})
+        return {"rows": rows}
     if operation == "tcms.overview.read@1":
         attention = raw["attention"]
         pct = float(raw["coverage"]["pct"])
@@ -220,6 +242,16 @@ def _normalize_read(operation: str, raw: dict) -> dict:
         return {key: _count(attention[key]) for key in (
             "failing", "flaky", "unlinked", "prune_candidates")} | {
             "coverage_pct": pct}
+    if operation == "tcms.runs.read@1":
+        if not isinstance(raw, list) or len(raw) > 10:
+            raise ValueError("invalid test run list")
+        if any(not isinstance(item.get("verify_ok"), bool) for item in raw):
+            raise ValueError("invalid verification result")
+        return {"rows": [{"started_at": str(item["started_at"])[:32],
+                          "branch": str(item["branch"])[:80],
+                          "agent": str(item["agent"])[:80] if item.get("agent") else "",
+                          "n": _count(item["n"]),
+                          "verify_ok": bool(item["verify_ok"])} for item in raw]}
     raise ValueError("unknown read operation")
 
 
@@ -281,6 +313,7 @@ async def read_live_view_data(request: Request, view_id: str, alias: str,
         f"http://agent-platform-app-{app_name}:8000"
     endpoint = ("activities?limit=10" if binding.operation == "running.activities.read@1"
                 else "items?limit=10" if binding.operation == "news.items.read@1"
+                else "runs?limit=10" if binding.operation == "tcms.runs.read@1"
                 else "overview" if app_name == "tcms" else "summary")
     try:
         async with httpx.AsyncClient(base_url=upstream, timeout=8,

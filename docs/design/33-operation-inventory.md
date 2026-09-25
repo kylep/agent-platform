@@ -14,7 +14,9 @@ grants and domain APIs keep their current behavior.
 | News projection | `summary.read@1` | private projection read | Eligible; scalar-normalized |
 | News projection | `items.read@1` | private projection read | Eligible; ten recent normalized story rows, text only |
 | Stockmarket projection | `summary.read@1` | private projection read | Eligible; user-scoped counts/dates only |
+| Stockmarket projection | `watchlist.read@1` | private projection read | Eligible; user-scoped normalized symbol rows |
 | TCMS projection | `overview.read@1` | private projection read | Eligible; scalar-normalized |
+| TCMS projection | `runs.read@1` | private projection read | Eligible; ten normalized evidence-run rows |
 | Tickets | `create` | platform write, wakes the ticket workflow | Eligible as `tickets.create@1`; fixed channel, human review, durable receipt |
 | Tickets | `get`, `list`, `search` | platform read | Candidate; define object/thread ACL and a bounded output contract |
 | Tickets | `update`, `move`, `assign`, `comment` | platform write, some actions summon agents | Excluded pending per-ticket target authorization and retry semantics |

@@ -214,6 +214,49 @@ async def test_news_items_table_strips_links_and_rejects_unapproved_columns(
                                    "source": "A paper", "topic": "Science"}]}
 
 
+@pytest.mark.parametrize(("app_name", "operation", "endpoint", "raw", "expected"), [
+    ("stockmarket", "stockmarket.watchlist.read@1", "summary",
+     {"watchlist": [{"symbol": "QQQ", "label": "Nasdaq", "status": "ready",
+                     "latest_close": 600.5, "change_pct": 1.2,
+                     "error": "unapproved"}]},
+     {"symbol": "QQQ", "label": "Nasdaq", "status": "ready",
+      "latest_close": 600.5, "change_pct": 1.2}),
+    ("tcms", "tcms.runs.read@1", "runs?limit=10",
+     [{"started_at": "2026-09-25T12:00:00Z", "branch": "main",
+       "agent": "qa", "n": 50, "verify_ok": True, "commit_sha": "unapproved"}],
+     {"started_at": "2026-09-25T12:00:00Z", "branch": "main",
+      "agent": "qa", "n": 50, "verify_ok": True}),
+])
+async def test_market_and_tcms_tables_use_bounded_adapters(
+        admin_client, monkeypatch, app_name, operation, endpoint, raw, expected):
+    from agentplatform.api import live_views as views_api
+
+    await admin_client.post("/api/app-collections", json={
+        "name": app_name, "display_name": app_name.title()})
+    created = await admin_client.post("/api/live-views", json={
+        "app_name": app_name, "slug": "recent", "definition": {
+            "title": "Recent", "reads": [{"alias": "recent", "operation": operation}],
+            "blocks": [{"kind": "table", "source": "recent"}]}})
+    assert created.status_code == 201, created.text
+    view_id = created.json()["id"]
+    await admin_client.post(f"/api/live-views/{view_id}/publish")
+
+    async def upstream(request):
+        assert str(request.url) == f"http://app/apps/{app_name}/api/{endpoint}"
+        return httpx.Response(200, json=raw)
+
+    real = views_api.httpx.AsyncClient
+
+    def fake_client(**kwargs):
+        kwargs.pop("base_url", None)
+        return real(transport=httpx.MockTransport(upstream), base_url="http://app", **kwargs)
+
+    monkeypatch.setattr(views_api.httpx, "AsyncClient", fake_client)
+    got = await admin_client.get(f"/api/live-views/{view_id}/data/recent")
+    assert got.status_code == 200, got.text
+    assert got.json() == {"rows": [expected]}
+
+
 @pytest.mark.parametrize(("app_name", "operation", "field", "upstream_data", "expected"), [
     ("news", "news.summary.read@1", "today",
      {"today": 3, "week": 12, "total": 80, "topics": 4,
