@@ -54,8 +54,15 @@ Started 2026-09-25. This is a work checkpoint, not a command to run an agent loo
   request, returns ten bounded text rows, and cannot be snapshotted. A second
   effectful adapter can post human-reviewed text to a fixed internal room,
   with membership/bridge rechecks, no mentions, and a durable receipt.
-- [ ] A4. Enforce viewer + View policy + object/target access on every call,
+- [x] A4. Enforce viewer + View policy + object/target access on every call,
   including at dispatch. Add idempotent receipts and uncertain-outcome state.
+  These checks are live for the two admitted actions. A per-person/page and
+  per-App rolling-hour budget is now rechecked under the App row lock at
+  dispatch; a denied call has a receipt. The local Ticket/Relay effect and
+  its success receipt now share one DB commit; a later event-publish failure
+  does not turn a committed action into an uncertain retry. External Tool
+  actions remain ineligible until they receive their own budget and outcome
+  contracts under A3.
 - [x] A5. Add private Resource list/read with conservative object ACLs, safe
   cache headers and revocation. Keep the existing artifact browser working.
 - [x] Running canary deployed to pai: four live metrics, ticket action with

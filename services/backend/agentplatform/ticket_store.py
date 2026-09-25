@@ -33,10 +33,12 @@ Transactions: every public function makes exactly ONE commit, at the end, and
 publishes after it. Nothing here commits in the middle — a change that landed
 half-committed would be a ticket the board shows in a state the thread never
 explains, and the caller would be told it failed. The caller passes a session
-and (for a create) the channel row; it does not have to commit afterwards, and
-it must not hold other uncommitted work across one of these calls."""
+    and (for a create) the channel row; it does not have to commit afterwards.
+    The create-only `before_commit` hook may attach a receipt to that same
+    transaction; callers must not hold unrelated uncommitted work here."""
 import logging
 from datetime import timedelta
+from typing import Callable
 
 from sqlalchemy import func, select
 
@@ -167,7 +169,8 @@ async def create_ticket(session, producer, conv, *, actor: str, title: str,
                         priority: str = TicketPriority.P2, labels=None,
                         parent_id: str | None = None, due_at=None,
                         notify: bool = True, run=None, url_base: str = "",
-                        budget_limit: int | None = None) -> Ticket:
+                        budget_limit: int | None = None,
+                        before_commit: Callable[[Ticket], None] | None = None) -> Ticket:
     """Open a ticket in `conv` and announce it there. Returns the row.
 
     The key is allocated under the channel row so two agents opening at once
@@ -214,6 +217,8 @@ async def create_ticket(session, producer, conv, *, actor: str, title: str,
             notify=notify, run=run)
         msgs.append(msg)
         events.append(event)
+    if before_commit is not None:
+        before_commit(ticket)
     await _finish(session, producer, conv, ticket, msgs, events)
     return ticket
 

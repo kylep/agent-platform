@@ -104,7 +104,14 @@ short-lived intent, the person reviews the target
 and text, and the server rechecks the grant and target at dispatch. Relay
 posts require current room membership, remain in an internal unbridged
 channel, and cannot contain mentions, so the action cannot silently summon
-an agent or send to Discord. An idempotent receipt records the outcome.
+an agent or send to Discord. An idempotent receipt records the outcome. At
+dispatch, the server serializes calls by App and allows at most 30 dispatched
+actions per person and page, and 120 per App, in a rolling hour. An exhausted
+budget produces a `denied_at_dispatch` receipt without performing the action.
+For the two admitted local actions, the Ticket or Relay row and its success
+receipt commit in one database transaction. If a later event publication
+fails, the browser still sees the committed success rather than an uncertain
+outcome and does not retry the action.
 Further Tools need a reviewed operation contract and an explicit grant before
 a page may invoke them. The Apps directory opens published pages first and
 keeps the detailed domain screens linked for specialized controls.

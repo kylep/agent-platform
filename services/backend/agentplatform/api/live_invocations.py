@@ -20,6 +20,7 @@ from agentplatform.api.auth import (
 )
 from agentplatform.api.live_views import TypedDefinition, _accessible_app, _reader
 from agentplatform.db import (
+    AppCollection,
     LiveIntent,
     LiveInvocation,
     LiveOperationGrant,
@@ -43,6 +44,9 @@ log = logging.getLogger(__name__)
 OP_TICKET_CREATE = "tickets.create@1"
 OP_RELAY_POST = "relay.channel.post@1"
 INTENT_LIFETIME = timedelta(minutes=5)
+PRINCIPAL_VIEW_CALLS_PER_HOUR = 30
+APP_CALLS_PER_HOUR = 120
+COUNTED_CALL_STATES = ("dispatched", "succeeded", "failed", "outcome_unknown")
 
 
 def _interactive(request: Request, ident: tuple[str, str]) -> None:
@@ -220,6 +224,26 @@ def _receipt(row: LiveInvocation) -> dict:
             "created_at": row.created_at.isoformat()}
 
 
+async def _check_action_budget(session, *, app_name: str, view_id: str,
+                               principal_id: str) -> None:
+    """Serialize all calls in one App before counting committed dispatches."""
+    await session.execute(select(AppCollection.name).where(
+        AppCollection.name == app_name).with_for_update())
+    since = utcnow() - timedelta(hours=1)
+    base = (LiveInvocation.created_at >= since,
+            LiveInvocation.status.in_(COUNTED_CALL_STATES))
+    personal = (await session.execute(select(func.count()).select_from(
+        LiveInvocation).where(*base, LiveInvocation.view_id == view_id,
+                              LiveInvocation.principal_id == principal_id))).scalar_one()
+    if personal >= PRINCIPAL_VIEW_CALLS_PER_HOUR:
+        raise HTTPException(429, "person/view action budget exhausted")
+    app = (await session.execute(select(func.count()).select_from(LiveInvocation)
+                         .join(LiveView, LiveView.id == LiveInvocation.view_id)
+                         .where(*base, LiveView.app_name == app_name))).scalar_one()
+    if app >= APP_CALLS_PER_HOUR:
+        raise HTTPException(429, "App action budget exhausted")
+
+
 @router.get("/api/live-actions/observation")
 async def live_action_observation(request: Request, days: int = 7,
                                   actor: str = Depends(require_admin)):
@@ -320,6 +344,8 @@ async def call_live_action(request: Request, view_id: str, body: CallIn,
                     action.channel != conv.name or conv.id != row.target or
                     _digest(intent.arguments) != row.args_digest):
                 raise HTTPException(409, "action changed before dispatch")
+            await _check_action_budget(session, app_name=view.app_name,
+                                       view_id=view_id, principal_id=ident[0])
         except HTTPException as exc:
             row.status = "denied_at_dispatch"
             row.result = {"reason": exc.detail}
@@ -338,20 +364,30 @@ async def call_live_action(request: Request, view_id: str, body: CallIn,
             conv = await channel_by_ref(session, target_id)
             if conv is None or conv.archived_at is not None:
                 raise TicketRuleError("action destination unavailable")
+            receipt = await session.get(LiveInvocation, invocation_id)
             if operation == OP_TICKET_CREATE:
                 if conv.ticket_prefix is None:
                     raise TicketRuleError("ticket destination unavailable")
+                def complete_ticket_receipt(ticket):
+                    receipt.status = "succeeded"
+                    receipt.result = {"ticket_key": ticket.key}
+                    receipt.updated_at = utcnow()
+
                 ticket = await ticket_store.create_ticket(
                     session, request.app.state.producer, conv,
                     actor=participant_of(principal=ident[0]),
                     title=arguments["title"], body=arguments["body"],
-                    assignee=None, notify=False)
+                    assignee=None, notify=False,
+                    before_commit=complete_ticket_receipt)
                 result = {"ticket_key": ticket.key}
             else:
                 await _internal_relay_target(session, conv, ident)
                 message = await post_relay_message(
                     session, conv, author=participant_of(principal=ident[0]),
                     body=arguments["body"], mentions=[])
+                receipt.status = "succeeded"
+                receipt.result = {"message_id": message.id}
+                receipt.updated_at = utcnow()
                 await session.commit()
                 request.app.state.feed.publish(conv.id, "message",
                                                relay_message_payload(message, conv))
@@ -369,6 +405,10 @@ async def call_live_action(request: Request, view_id: str, body: CallIn,
         status = "succeeded"
     async with sf() as session:
         row = await session.get(LiveInvocation, invocation_id)
+        # Local DB effects and their success receipt committed together. A
+        # downstream event publish may fail afterward, but cannot undo either.
+        if row.status == "succeeded":
+            return _receipt(row)
         row.status, row.result, row.updated_at = status, result, utcnow()
         await session.commit()
         return _receipt(row)

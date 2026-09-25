@@ -482,6 +482,73 @@ async def test_ticket_action_revocation_before_call_denies_dispatch(admin_client
         assert (await session.execute(select(Ticket))).scalars().all() == []
 
 
+async def test_action_budget_is_rechecked_at_dispatch(admin_client, sf, monkeypatch):
+    from agentplatform.api import live_invocations as actions
+    from agentplatform.db import Ticket
+    from sqlalchemy import select
+
+    view_id = await _ticket_page(admin_client)
+    await admin_client.post("/api/live-operation-grants", json={
+        "app_name": "running", "principal_id": "admin",
+        "operation": "tickets.create@1"})
+    async with sf() as session:
+        session.add(LiveInvocation(intent_id="old-intent", view_id=view_id,
+                                   view_version=1, principal_id="admin", alias="feedback",
+                                   operation="tickets.create@1", target="general",
+                                   args_digest="a" * 64, idempotency_key="old-budget-key",
+                                   status="succeeded"))
+        await session.commit()
+    monkeypatch.setattr(actions, "PRINCIPAL_VIEW_CALLS_PER_HOUR", 1)
+    intent = await admin_client.post(f"/api/live-views/{view_id}/intents", json={
+        "alias": "feedback", "arguments": {"title": "Budget check"}})
+    assert intent.status_code == 201
+    call = await admin_client.post(f"/api/live-views/{view_id}/calls", json={
+        "intent_id": intent.json()["intent_id"],
+        "idempotency_key": "budget-check-call-01"})
+    assert call.status_code == 200
+    assert call.json()["status"] == "denied_at_dispatch"
+    assert "budget" in call.json()["result"]["reason"]
+    monkeypatch.setattr(actions, "PRINCIPAL_VIEW_CALLS_PER_HOUR", 30)
+    monkeypatch.setattr(actions, "APP_CALLS_PER_HOUR", 1)
+    second = await admin_client.post(f"/api/live-views/{view_id}/intents", json={
+        "alias": "feedback", "arguments": {"title": "App budget check"}})
+    app_call = await admin_client.post(f"/api/live-views/{view_id}/calls", json={
+        "intent_id": second.json()["intent_id"],
+        "idempotency_key": "budget-check-call-02"})
+    assert app_call.json()["status"] == "denied_at_dispatch"
+    assert "App action budget" in app_call.json()["result"]["reason"]
+    async with sf() as session:
+        assert (await session.execute(select(Ticket))).scalars().all() == []
+
+
+async def test_committed_ticket_keeps_success_receipt_if_event_publish_fails(
+        admin_client, sf, monkeypatch):
+    from agentplatform import ticket_store
+    from agentplatform.db import Ticket
+    from sqlalchemy import select
+
+    view_id = await _ticket_page(admin_client)
+    await admin_client.post("/api/live-operation-grants", json={
+        "app_name": "running", "principal_id": "admin",
+        "operation": "tickets.create@1"})
+    intent = await admin_client.post(f"/api/live-views/{view_id}/intents", json={
+        "alias": "feedback", "arguments": {"title": "Durable receipt"}})
+
+    async def unavailable(*args, **kwargs):
+        raise RuntimeError("event broker unavailable after commit")
+
+    monkeypatch.setattr(ticket_store, "publish_relay_message", unavailable)
+    called = await admin_client.post(f"/api/live-views/{view_id}/calls", json={
+        "intent_id": intent.json()["intent_id"],
+        "idempotency_key": "committed-ticket-01"})
+    assert called.status_code == 200
+    assert called.json()["status"] == "succeeded"
+    async with sf() as session:
+        tickets = (await session.execute(select(Ticket))).scalars().all()
+    assert len(tickets) == 1
+    assert called.json()["result"] == {"ticket_key": tickets[0].key}
+
+
 async def _relay_post_page(admin_client):
     await admin_client.post("/api/app-collections", json={
         "name": "running", "display_name": "Running"})

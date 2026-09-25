@@ -5,7 +5,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends git openssh-cli
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY pyproject.toml .
+RUN python -c 'import tomllib; from pathlib import Path; print("\n".join(tomllib.loads(Path("pyproject.toml").read_text())["project"]["dependencies"]))' \
+      > /tmp/runtime-requirements.txt \
+    && pip install --no-cache-dir -r /tmp/runtime-requirements.txt
 COPY agentplatform ./agentplatform
-RUN pip install --no-cache-dir .
+RUN pip install --no-cache-dir --no-deps .
 USER nobody
 CMD ["python", "-m", "agentplatform.api_main"]
