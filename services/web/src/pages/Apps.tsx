@@ -3,8 +3,8 @@ import { Link } from "react-router-dom";
 import { api, type AppView } from "../api";
 import { Chip } from "@ap/ui/chip";
 
-// An App is a DB-owned collection (design/33). Existing domain services still
-// supply their data and specialized UI while Live Views are introduced.
+// An App is a DB-owned collection (design/33). Published pages are its entry
+// point; existing domain services still supply data and specialized controls.
 
 function ReadyChip({ app }: { app: AppView }) {
   if (app.error) return <Chip variant="danger">broken</Chip>;
@@ -17,19 +17,32 @@ function ReadyChip({ app }: { app: AppView }) {
 
 type LivePage = { id: string; slug: string; published_version: number | null };
 
-function LivePages({ appName, canEdit }: { appName: string; canEdit: boolean }) {
-  const [pages, setPages] = useState<LivePage[]>([]);
+function AppPages({ appName, canEdit, legacyAvailable }: {
+  appName: string; canEdit: boolean; legacyAvailable: boolean;
+}) {
+  const [pages, setPages] = useState<LivePage[] | null>(null);
   useEffect(() => {
     api<LivePage[]>(`/api/live-views?app_name=${encodeURIComponent(appName)}`)
       .then((all) => setPages(all.filter((page) => page.published_version !== null)))
       .catch(() => setPages([]));
   }, [appName]);
-  if (!pages.length && !canEdit) return null;
-  return <div className="app-resources">{pages.map((page) =>
-    <span key={page.id}><Link to={`/live-views/${page.id}`}>{page.slug} →</Link>
-      {canEdit && <> · <Link to={`/live-views/${page.id}/edit`}>edit</Link></>}</span>)}
-    {canEdit && <Link to={`/live-views/new?app=${encodeURIComponent(appName)}`}>+ New live page</Link>}
-  </div>;
+  if (pages === null) return null;
+  const [primary, ...others] = [...pages].sort((a, b) =>
+    (a.slug === "overview" ? -1 : b.slug === "overview" ? 1 : a.slug.localeCompare(b.slug)));
+  return <>
+    {primary ? <Link className="app-open" to={`/live-views/${primary.id}`}>Open {primary.slug} →</Link>
+      : legacyAvailable ? <a className="app-open" href={`/apps/${appName}/`}>Open →</a> : null}
+    {(others.length > 0 || legacyAvailable || canEdit) &&
+      <div className="app-resources">
+        {others.map((page) => <span key={page.id}>
+          <Link to={`/live-views/${page.id}`}>{page.slug} →</Link>
+          {canEdit && <> · <Link to={`/live-views/${page.id}/edit`}>edit</Link></>}
+        </span>)}
+        {primary && canEdit && <Link to={`/live-views/${primary.id}/edit`}>Edit {primary.slug}</Link>}
+        {legacyAvailable && primary && <a href={`/apps/${appName}/`}>Detailed app →</a>}
+        {canEdit && <Link to={`/live-views/new?app=${encodeURIComponent(appName)}`}>+ New live page</Link>}
+      </div>}
+  </>;
 }
 
 export default function Apps() {
@@ -48,8 +61,8 @@ export default function Apps() {
     <>
       <div className="page-header"><h1>Apps</h1></div>
       <p className="muted">
-        Apps are named collections of pages and actions. Existing domain services
-        still provide their data and specialized screens while live pages are added.
+        Apps are collections of pages and actions. Open a published page here,
+        or use its detailed app for specialized controls.
       </p>
       {apps.length === 0 && <p className="muted">No apps declared yet.</p>}
       <div className="report-type-grid">
@@ -71,10 +84,8 @@ export default function Apps() {
                 {a.redis && <span>redis</span>}
               </div>
             )}
-            {a.ui && a.ready && (
-              <a className="app-open" href={`/apps/${a.name}/`}>Open →</a>
-            )}
-            <LivePages appName={a.name} canEdit={canEdit} />
+            <AppPages appName={a.name} canEdit={canEdit}
+              legacyAvailable={Boolean(a.ui && a.ready)} />
           </div>
         ))}
       </div>
