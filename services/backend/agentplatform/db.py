@@ -169,9 +169,36 @@ class AppCollection(Base):
     display_name: Mapped[str] = mapped_column(String(128))
     description: Mapped[str] = mapped_column(Text, default="")
     icon: Mapped[str] = mapped_column(String(32), default="")
+    owner_id: Mapped[str] = mapped_column(String(128), default="admin")
     source_app: Mapped[str | None] = mapped_column(String(64), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class LiveView(Base):
+    """One named page in an App collection; draft and published pointer differ."""
+    __tablename__ = "live_views"
+    __table_args__ = (UniqueConstraint("app_name", "slug"),)
+    id: Mapped[str] = mapped_column(String(32), primary_key=True,
+                                    default=lambda: uuid.uuid4().hex)
+    app_name: Mapped[str] = mapped_column(String(64), index=True)
+    slug: Mapped[str] = mapped_column(String(64))
+    draft: Mapped[dict] = mapped_column(JSON)
+    draft_revision: Mapped[int] = mapped_column(Integer, default=1)
+    published_version: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    created_by: Mapped[str] = mapped_column(String(128))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class LiveViewVersion(Base):
+    """Immutable published definition, retained for rollback and audit."""
+    __tablename__ = "live_view_versions"
+    view_id: Mapped[str] = mapped_column(String(32), primary_key=True)
+    version: Mapped[int] = mapped_column(Integer, primary_key=True)
+    definition: Mapped[dict] = mapped_column(JSON)
+    published_by: Mapped[str] = mapped_column(String(128))
+    published_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 class Conversation(Base):
     """A CHANNEL (docs/design/19): a durable, multi-turn room whose messages are

@@ -121,7 +121,8 @@ async def create_app_collection(request: Request, body: AppCollectionIn,
         if await session.get(AppCollection, body.name):
             raise HTTPException(409, "app already exists")
         row = AppCollection(name=body.name, display_name=body.display_name,
-                            description=body.description, icon=body.icon)
+                            description=body.description, icon=body.icon,
+                            owner_id=principal)
         session.add(row)
         await session.commit()
     return {"name": row.name}

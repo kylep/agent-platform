@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 import { api, type AppView } from "../api";
 import { Chip } from "@ap/ui/chip";
 
@@ -12,6 +13,20 @@ function ReadyChip({ app }: { app: AppView }) {
   return app.ready
     ? <Chip variant="ok">running</Chip>
     : <Chip variant="danger">not ready</Chip>;
+}
+
+type LivePage = { id: string; slug: string; published_version: number | null };
+
+function LivePages({ appName }: { appName: string }) {
+  const [pages, setPages] = useState<LivePage[]>([]);
+  useEffect(() => {
+    api<LivePage[]>(`/api/live-views?app_name=${encodeURIComponent(appName)}`)
+      .then((all) => setPages(all.filter((page) => page.published_version !== null)))
+      .catch(() => setPages([]));
+  }, [appName]);
+  if (!pages.length) return null;
+  return <div className="app-resources">{pages.map((page) =>
+    <Link key={page.id} to={`/live-views/${page.id}`}>{page.slug} →</Link>)}</div>;
 }
 
 export default function Apps() {
@@ -53,6 +68,7 @@ export default function Apps() {
             {a.ui && a.ready && (
               <a className="app-open" href={`/apps/${a.name}/`}>Open →</a>
             )}
+            <LivePages appName={a.name} />
           </div>
         ))}
       </div>
