@@ -83,9 +83,11 @@ Started 2026-09-25. This is a work checkpoint, not a command to run an agent loo
   modified skill plus recomputed file hashes cannot enter the runtime catalog.
   This is source-reviewed approval for the current private deployment; CI
   now packages the approved skills-only release and requests a GitHub build
-  attestation on package/verifier changes. Binding runtime registration to the
-  verified artifact, local update/rollback and behavior evaluation remain
-  open.
+  attestation on package/verifier changes. Version 0.1.1 was updated and
+  rolled back to 0.1.0 on both pinned laptop CLIs, then restored; cached
+  bytes matched the reviewed source. The live catalog accepted the release.
+  Binding runtime registration to the attested artifact and evaluating coder
+  and QA behavior remain open.
 - [x] A9. Migrate News, Stockmarket and TCMS collection/pages where the typed
   renderer fits. Preserve their ingestion and domain logic. Compare outputs
   against existing UIs and retain specialized screens when needed.
@@ -129,7 +131,7 @@ Started 2026-09-25. This is a work checkpoint, not a command to run an agent loo
 
 ## Current checkpoint
 
-Main through `4847ea9` is pushed and deployed on pai. All five Apps open
+Main through `8cee110` is pushed and deployed on pai. All five Apps open
 published database pages, with their specialist interfaces linked where the
 typed page cannot yet replace domain controls. Running's owner-only read,
 trusted Ticket action, snapshot and MCP Resource access have passed live
@@ -141,10 +143,11 @@ person/page and App budgets and commits the two local effects with their
 success receipts. Its live observation route is healthy after rollout.
 Full CI passed for `4847ea9`.
 
-The coding plugin's deterministic CI bundle has a verified GitHub attestation
-for `e617a17`, and both local harnesses have installed the reviewed three-skill
-package. Runtime registration still relies on a source-reviewed digest rather
-than consuming the attested artifact. Discord's current bot has a database
+The coding plugin's deterministic v0.1.1 CI bundle has a verified GitHub
+attestation; both local harnesses updated, rolled back to v0.1.0, and returned
+to v0.1.1 with reviewed hashes. Runtime registration still relies on a
+source-reviewed digest rather than consuming the attested artifact. Discord's
+current bot has a database
 Chat Identity, attributed routes and an admin inventory; its runtime token
 and the direct `discord_chat` Tool still use the original secret binding.
 There is no second-account test credential. MCP Apps export remains deferred
@@ -156,7 +159,7 @@ The Running page exceeded the proposed 1.25× p95 latency gate, so its
 specialist screen stays available. The seven-day live observation window
 cannot close before 2026-10-02. The remaining work is the operation-by-
 operation admission policy for requested page Tools, plugin artifact/runtime
-binding and update/rollback tests, multiple Chat Identity account and
+binding and behavior evaluation, multiple Chat Identity account and
 revocation tests, and latency/observation evidence. Do not retire specialist
 screens merely because the database page is published.
 

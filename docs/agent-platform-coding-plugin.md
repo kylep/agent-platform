@@ -45,6 +45,18 @@ source. A new CLI session picks up an installation. The platform does not
 silently edit a developer home directory; the one-time local installation was
 made explicitly during this migration.
 
+Version 0.1.1 adds the server-side Live App action policy reminder. Its
+attested bundle came from CI run `36195106940`; the signature check, source
+workflow and `refs/heads/main` verification passed. The live skill catalog
+accepted all three skills after the API and dispatcher rollout, and 78 focused
+skill/runner tests passed. Both laptop CLIs updated from 0.1.0 to 0.1.1. A
+rollback rehearsal installed the previous reviewed package from an isolated
+local marketplace in each CLI, matched its cached skill hash to the source,
+then restored 0.1.1 and removed the temporary marketplace. Claude's final
+inventory remained three skills, zero hooks and zero MCP servers. This tests
+installation and rollback mechanics, not the quality of agent decisions when
+the skills fire.
+
 For an update, edit and validate the source, bump the matching package and
 marketplace versions, regenerate `release.json`, then update/reinstall through
 each CLI. Retain the previous reviewed commit and package version for rollback.
