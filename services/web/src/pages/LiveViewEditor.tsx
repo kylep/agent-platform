@@ -7,12 +7,33 @@ import { Input, Textarea } from "@ap/ui/field";
 type Definition = { renderer: "typed/v1"; title: string; blocks: {
   kind: "heading" | "paragraph" | "metric" | "table" | "action" | "link"; text?: string;
   label?: string; value?: string; source?: string; field?: string; columns?: string[];
-  action_alias?: string; href?: string }[]; reads: object[]; actions: object[] };
+  action_alias?: string; href?: string }[];
+  reads: { alias: string; operation: string }[];
+  actions: { alias: string; operation: string; channel: string }[] };
 type Draft = { id: string; app_name: string; slug: string; draft_revision: number;
   published_version: number | null; definition: Definition };
 type Version = { version: number; published_at: string; published_by: string; current: boolean };
+type OutputShape = { type?: string | string[]; format?: string;
+  properties?: Record<string, OutputShape>; items?: OutputShape };
 type Operation = { id: string; tool: string; source: string; effects: string[];
-  reason: string; view_eligible: boolean };
+  reason: string; view_eligible: boolean; output_schema?: OutputShape };
+
+function sampleValue(shape: OutputShape | undefined, field: string): string {
+  if (!shape) return "Sample value";
+  const type = Array.isArray(shape.type) ? shape.type.find((kind) => kind !== "null") : shape.type;
+  if (shape.format === "date") return "2026-09-25";
+  if (type === "boolean") return "Yes";
+  if (type === "integer") return "3";
+  if (type === "number") return "12.5";
+  return field.replaceAll("_", " ").replace(/^./, (letter) => letter.toUpperCase());
+}
+
+function previewField(operations: Operation[], definition: Definition, alias: string | undefined,
+                      field: string | undefined): OutputShape | undefined {
+  const binding = definition.reads.find((read) => read.alias === alias);
+  return operations.find((operation) => operation.id === binding?.operation)
+    ?.output_schema?.properties?.[field || ""];
+}
 
 function example(appName: string): Definition {
   return { renderer: "typed/v1", title: `${appName} overview`,
@@ -127,6 +148,7 @@ export default function LiveViewEditor() {
       </section>
       <section className="live-editor-preview" aria-label="Draft preview">
         <h2>Draft preview</h2>
+        <p className="muted">Sample data only. Preview makes no live calls.</p>
         {preview ? <>
           <h3>{preview.title}</h3>
           {preview.blocks.map((block, index) => {
@@ -137,10 +159,20 @@ export default function LiveViewEditor() {
                 ? <a href={block.href}>{block.label || "Open app"} →</a>
                 : <span className="error">Link must open this App's reviewed interface.</span>}
             </p>;
-            if (block.kind === "metric") return <p key={index}><span className="muted">{block.label}: </span>
-              <strong>{block.source ? `Live: ${block.source}.${block.field}` : block.value}</strong></p>;
-            if (block.kind === "table") return <p key={index}><strong>{block.label || "Table"}</strong>
-              {` · Live rows from ${block.source}`}</p>;
+            if (block.kind === "metric") return <div className="live-view-metric" key={index}>
+              <span className="muted">{block.label}</span>
+              <strong>{block.source
+                ? sampleValue(previewField(operations, preview!, block.source, block.field), block.field || "Value")
+                : block.value}</strong></div>;
+            if (block.kind === "table") return <section className="live-view-table" key={index}>
+              <h4>{block.label || "Table"}</h4>
+              <div className="table-scroll"><table><thead><tr>{(block.columns || []).map((column) =>
+                <th key={column}>{column.replaceAll("_", " ")}</th>)}</tr></thead><tbody><tr>
+                {(block.columns || []).map((column) => <td key={column} data-label={column.replaceAll("_", " ")}>
+                  {sampleValue(previewField(operations, preview!, block.source, "rows")?.items?.properties?.[column], column)}
+                </td>)}
+              </tr></tbody></table></div>
+            </section>;
             return <p key={index}><strong>{block.label || "Action"}</strong> · {block.action_alias}</p>;
           })}
         </> : <p className="muted">Enter a typed/v1 JSON definition to preview it.</p>}

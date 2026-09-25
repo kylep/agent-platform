@@ -59,6 +59,9 @@ Started 2026-09-25. This is a work checkpoint, not a command to run an agent loo
   desktop and 390px mobile; ENG-7 was created then cancelled as test cleanup.
 - [ ] A6. Implement typed page drafts, fixture preview, publish, rollback,
   trusted action chrome, readable errors, refresh and snapshot capture.
+  The editor now previews metrics and table rows from synthetic values derived
+  from the reviewed output schemas; it performs no live calls. Publication,
+  rollback, refresh, trusted Ticket action and snapshot capture are deployed.
 - [x] A7. Migrate Running collection to a live page backed by its existing
   projection. Keep the current route available during shadow/canary. Prove
   owner/denied read, issue Ticket, receipt, refresh and snapshot/Resource.
