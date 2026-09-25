@@ -13,7 +13,7 @@ type PublishedView = {
   slug: string;
   published_version: number;
   definition: { renderer: "typed/v1"; title: string; blocks: Block[];
-    reads: { alias: string; operation: string }[];
+    reads: { alias: string; operation: string; channel_id?: string | null }[];
     actions: { alias: string; operation: "tickets.create@1"; channel: string }[] };
 };
 
@@ -145,9 +145,10 @@ export default function LiveViewPage() {
       <p className="muted"><Link to="/apps">Apps</Link> / {view.app_name} / {view.slug}</p>
       {view.definition.reads.length > 0 && <div className="live-view-controls">
         <Button variant="secondary" onClick={() => setRefresh((n) => n + 1)}>Refresh data</Button>{" "}
-        <Button variant="secondary" onClick={capture} disabled={snapshotBusy}>
-          {snapshotBusy ? "Capturing…" : "Save snapshot"}
-        </Button>
+        {view.definition.reads.every((read) => read.operation !== "relay.channel.read@1") &&
+          <Button variant="secondary" onClick={capture} disabled={snapshotBusy}>
+            {snapshotBusy ? "Capturing…" : "Save snapshot"}
+          </Button>}
         {snapshot && <span role="status">Saved snapshot: <code>{snapshot.resource_uri}</code></span>}
         {snapshotError && <span role="alert" className="error">{snapshotError}</span>}
       </div>}

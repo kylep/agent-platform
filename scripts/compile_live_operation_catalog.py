@@ -53,6 +53,7 @@ READ_ROW_LIMITS = {
     "stockmarket.watchlist.read@1": 20,
     "tcms.runs.read@1": 10,
 }
+PLATFORM_READS = {"relay.channel.read@1": "private"}
 ROW_FIELDS = {
     "running_activity": {"day": "date?", "name": "string", "type": "string",
                          "distance_km": "number", "pace": "string?"},
@@ -62,6 +63,7 @@ ROW_FIELDS = {
                        "latest_close": "number?", "change_pct": "number?"},
     "test_run": {"started_at": "string", "branch": "string", "agent": "string",
                  "n": "integer", "verify_ok": "boolean?"},
+    "relay_message": {"created_at": "string", "author": "string", "body": "string"},
 }
 
 
@@ -199,7 +201,8 @@ def compile_catalog() -> dict:
                 "effects": effects, "output_classification": classification,
                 "view_eligible": False, "reason": "No reviewed human page adapter",
                 "input_schema": None, "output_schema": None,
-                "target_scope": None, "supported_callers": [], "limits": None})
+                "target_scope": None, "supported_callers": [], "limits": None,
+                "snapshot_eligible": False})
     for tool, (category, actions) in sorted(_custom_actions().items()):
         for action in actions:
             effects, classification = _effect_policy("mcp-custom", tool, action)
@@ -209,7 +212,8 @@ def compile_catalog() -> dict:
                 "effects": effects, "output_classification": classification,
                 "view_eligible": False, "reason": "No reviewed human page adapter",
                 "input_schema": None, "output_schema": None,
-                "target_scope": None, "supported_callers": [], "limits": None})
+                "target_scope": None, "supported_callers": [], "limits": None,
+                "snapshot_eligible": False})
     for operation_id, (app, classification) in sorted(APP_READS.items()):
         operations.append({
             "id": operation_id, "source": "app-adapter", "tool": app,
@@ -222,7 +226,19 @@ def compile_catalog() -> dict:
             "target_scope": "owner_app", "supported_callers": ["human_session", "platform_key"],
             "limits": {"timeout_seconds": 8, "max_upstream_bytes": 262144,
                        "max_rows": READ_ROW_LIMITS.get(operation_id, 0),
-                       "provider_spend": False}})
+                       "provider_spend": False}, "snapshot_eligible": True})
+    for operation_id, classification in PLATFORM_READS.items():
+        operations.append({
+            "id": operation_id, "source": "platform-adapter", "tool": "relay",
+            "action": "channel.read", "category": "platform_capability",
+            "effects": ["reads_sensitive"], "output_classification": classification,
+            "view_eligible": True, "reason": "Fixed room, current membership, bounded text",
+            "input_schema": _object_schema({}),
+            "output_schema": _object_schema({"rows": "relay_message[]"}, max_rows=10),
+            "target_scope": "relay_channel_membership",
+            "supported_callers": ["human_session", "platform_key"],
+            "limits": {"max_rows": 10, "max_output_bytes": 32768,
+                       "provider_spend": False}, "snapshot_eligible": False})
     operations.append({
         "id": "tickets.create@1", "source": "human-adapter", "tool": "tickets",
         "action": "create", "category": "platform_capability",
@@ -234,7 +250,8 @@ def compile_catalog() -> dict:
             "required": ["title"], "additionalProperties": False},
         "output_schema": _object_schema({"ticket_key": "string"}),
         "target_scope": "ticket_enabled_channel", "supported_callers": ["human_session"],
-        "limits": {"intent_ttl_seconds": 300, "provider_spend": False}})
+        "limits": {"intent_ttl_seconds": 300, "provider_spend": False},
+        "snapshot_eligible": False})
     operations.sort(key=lambda item: item["id"])
     assert len({item["id"] for item in operations}) == len(operations)
     return {"schema_version": 1, "operations": operations}

@@ -34,6 +34,7 @@ def test_catalog_matches_broker_and_custom_manifest_actions():
             assert item["supported_callers"]
             assert item["limits"] is not None
             assert item["limits"]["provider_spend"] is False
+            assert isinstance(item["snapshot_eligible"], bool)
             Draft202012Validator.check_schema(item["input_schema"])
             Draft202012Validator.check_schema(item["output_schema"])
         else:
@@ -42,6 +43,7 @@ def test_catalog_matches_broker_and_custom_manifest_actions():
             assert item["target_scope"] is None
             assert item["supported_callers"] == []
             assert item["limits"] is None
+            assert item["snapshot_eligible"] is False
 
 
 async def test_catalog_exposes_admitted_contracts_and_rejects_unreviewed_branch(

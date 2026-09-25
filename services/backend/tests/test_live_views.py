@@ -2,7 +2,7 @@
 import httpx
 import pytest
 from agentplatform.apikeys import hash_token
-from agentplatform.db import ApiKey
+from agentplatform.db import ApiKey, Conversation, RelayParticipant
 
 
 async def _reader_key(sf, name="reader"):
@@ -172,6 +172,56 @@ async def test_running_activity_table_is_bounded_and_normalized(
     assert got.status_code == 200, got.text
     assert got.json() == {"rows": [{"day": "2026-09-24", "name": "Morning run",
                                    "type": "Run", "distance_km": 5.25, "pace": "5:20"}]}
+
+
+async def test_relay_page_read_rechecks_membership_and_cannot_be_snapshotted(
+        admin_client, token_client, sf):
+    group = (await admin_client.post("/api/relay/channels", json={
+        "kind": "group", "participants": ["user:admin", "user:guest"]})).json()
+    channel_id = group["id"]
+    await admin_client.post(f"/api/relay/channels/{channel_id}/messages",
+                            json={"body": "The table is ready."})
+    await admin_client.post("/api/app-collections", json={
+        "name": "ttrpg", "display_name": "Tabletop RPG"})
+    missing_target = await admin_client.post("/api/live-views", json={
+        "app_name": "ttrpg", "slug": "bad-relay", "definition": {
+            "title": "Table", "reads": [{"alias": "chat",
+                "operation": "relay.channel.read@1"}],
+            "blocks": [{"kind": "table", "source": "chat"}]}})
+    assert missing_target.status_code == 422
+    made = await admin_client.post("/api/live-views", json={
+        "app_name": "ttrpg", "slug": "table-chat", "definition": {
+            "title": "Table", "reads": [{"alias": "chat",
+                "operation": "relay.channel.read@1", "channel_id": channel_id}],
+            "blocks": [{"kind": "table", "source": "chat"}]}})
+    assert made.status_code == 201, made.text
+    view_id = made.json()["id"]
+    await admin_client.post(f"/api/live-views/{view_id}/publish")
+    data_url = f"/api/live-views/{view_id}/data/chat"
+    visible = await admin_client.get(data_url)
+    assert visible.status_code == 200
+    assert visible.json()["rows"][0]["body"] == "The table is ready."
+    assert set(visible.json()["rows"][0]) == {"created_at", "author", "body"}
+    assert visible.headers["cache-control"] == "private, no-store"
+    agent_token = "ap_agent_scoped_live_view"
+    async with sf() as session:
+        session.add(ApiKey(name="relay-run", role="operator", agent="news",
+                           key_hash=hash_token(agent_token), prefix=agent_token[:10]))
+        await session.commit()
+    assert (await token_client.get(data_url, headers={
+        "Authorization": f"Bearer {agent_token}"})).status_code == 403
+    assert (await admin_client.post(f"/api/live-views/{view_id}/snapshots",
+                                    json={})).status_code == 403
+    async with sf() as session:
+        await session.delete(await session.get(RelayParticipant,
+                                             (channel_id, "user:admin")))
+        await session.commit()
+    assert (await admin_client.get(data_url)).status_code == 404
+    async with sf() as session:
+        room = await session.get(Conversation, channel_id)
+        room.archived_at = room.updated_at
+        await session.commit()
+    assert (await admin_client.get(data_url)).status_code == 404
 
 
 async def test_news_items_table_strips_links_and_rejects_unapproved_columns(

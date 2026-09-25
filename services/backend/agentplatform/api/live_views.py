@@ -5,6 +5,7 @@ be published, so a page definition cannot enlarge its own authority.
 """
 from __future__ import annotations
 
+import json
 import re
 from datetime import date
 from math import isfinite
@@ -19,7 +20,16 @@ from sqlalchemy.exc import IntegrityError
 
 from agentplatform import operation_catalog
 from agentplatform.api.auth import READ_ROLES, authenticate, require_admin, role_allows
-from agentplatform.db import AppCollection, LiveView, LiveViewVersion, utcnow
+from agentplatform.db import (
+    AppCollection,
+    Conversation,
+    LiveView,
+    LiveViewVersion,
+    RelayMessage,
+    RelayParticipant,
+    utcnow,
+)
+from agentplatform.relay import is_member, participant_of
 
 router = APIRouter()
 _SLUG = re.compile(r"^[a-z][a-z0-9-]{0,63}$")
@@ -34,6 +44,7 @@ READ_FIELDS = {
     "tcms.overview.read@1": {
         "failing", "flaky", "unlinked", "prune_candidates", "coverage_pct"},
     "tcms.runs.read@1": set(),
+    "relay.channel.read@1": set(),
 }
 READ_APP = {operation: operation.split(".", 1)[0] for operation in READ_FIELDS}
 TABLE_FIELDS = {
@@ -41,6 +52,7 @@ TABLE_FIELDS = {
     "news.items.read@1": ("day", "title", "source", "topic"),
     "stockmarket.watchlist.read@1": ("symbol", "label", "status", "latest_close", "change_pct"),
     "tcms.runs.read@1": ("started_at", "branch", "agent", "n", "verify_ok"),
+    "relay.channel.read@1": ("created_at", "author", "body"),
 }
 
 
@@ -63,6 +75,7 @@ class ReadBinding(BaseModel):
     model_config = ConfigDict(extra="forbid")
     alias: str = Field(pattern=r"^[a-z][a-z0-9_]{0,39}$")
     operation: str = Field(min_length=1, max_length=128)
+    channel_id: str | None = Field(default=None, pattern=r"^[0-9a-f]{32}$")
 
 
 class ActionBinding(BaseModel):
@@ -86,6 +99,9 @@ class TypedDefinition(BaseModel):
                or not operation_catalog.admitted(binding.operation)
                for binding in self.reads):
             raise ValueError("read operation has no admitted page adapter")
+        if any((binding.operation == "relay.channel.read@1") != (binding.channel_id is not None)
+               for binding in self.reads):
+            raise ValueError("Relay read needs a fixed channel; App reads cannot name one")
         if any(binding.operation != "tickets.create@1"
                or not operation_catalog.admitted(binding.operation)
                for binding in self.actions):
@@ -131,7 +147,7 @@ class TypedDefinition(BaseModel):
 
 
 def _check_app_bindings(app_name: str, definition: TypedDefinition) -> None:
-    if any(READ_APP[b.operation] != app_name for b in definition.reads):
+    if any(READ_APP[b.operation] not in (app_name, "relay") for b in definition.reads):
         raise HTTPException(422, "a read must belong to its App")
     if any(block.href != f"/apps/{app_name}/" for block in definition.blocks
            if block.kind == "link"):
@@ -153,6 +169,8 @@ async def _reader(request: Request) -> tuple[str, str]:
     ident = await authenticate(request)
     if ident is None:
         raise HTTPException(401)
+    if getattr(request.state, "api_key_agent", None) is not None:
+        raise HTTPException(403, "Live Apps require a human principal")
     if not role_allows(ident[1], READ_ROLES):
         raise HTTPException(403)
     return ident
@@ -270,6 +288,36 @@ def _normalize_read(operation: str, raw: dict) -> dict:
     raise ValueError("unknown read operation")
 
 
+async def _read_relay_channel(request: Request, channel_id: str,
+                              ident: tuple[str, str]) -> JSONResponse:
+    """Read only current member-visible text from one immutable room target.
+
+    This is deliberately stricter than the operator's general Relay view:
+    a Live App cannot turn a closed room into a shareable dashboard merely
+    because its owner has an admin key. Snapshots are disallowed separately.
+    """
+    limits = operation_catalog.OPERATIONS["relay.channel.read@1"]["limits"]
+    async with request.app.state.session_factory() as session:
+        channel = await session.get(Conversation, channel_id)
+        if channel is None or channel.archived_at is not None or channel.kind == "dm":
+            raise HTTPException(404, "unknown Relay room")
+        participant = participant_of(principal=ident[0])
+        explicit = set((await session.execute(select(RelayParticipant.participant).where(
+            RelayParticipant.channel_id == channel.id))).scalars())
+        if not is_member(channel, participant, set(), explicit):
+            raise HTTPException(404, "unknown Relay room")
+        rows = (await session.execute(select(RelayMessage).where(
+            RelayMessage.channel_id == channel.id,
+            RelayMessage.deleted_at.is_(None), RelayMessage.kind == "text",
+        ).order_by(RelayMessage.created_at.desc(), RelayMessage.id.desc())
+            .limit(limits["max_rows"]))).scalars().all()
+    result = {"rows": [{"created_at": row.created_at.isoformat(),
+                        "author": row.author, "body": row.body[:1000]} for row in rows]}
+    if len(json.dumps(result, ensure_ascii=False).encode()) > limits["max_output_bytes"]:
+        raise HTTPException(502, "Relay response exceeded its page limit")
+    return JSONResponse(result, headers={"Cache-Control": "private, no-store"})
+
+
 @router.get("/api/live-views")
 async def list_live_views(request: Request, app_name: str,
                           ident: tuple[str, str] = Depends(_reader)):
@@ -319,8 +367,11 @@ async def read_live_view_data(request: Request, view_id: str, alias: str,
         except ValidationError:
             raise HTTPException(503, "published definition incompatible")
         binding = next((b for b in definition.reads if b.alias == alias), None)
-        if binding is None or READ_APP[binding.operation] != view.app_name:
+        if binding is None or READ_APP[binding.operation] not in (view.app_name, "relay"):
             raise HTTPException(404, "unknown read")
+
+    if binding.operation == "relay.channel.read@1":
+        return await _read_relay_channel(request, binding.channel_id, ident)
 
     app_name = view.app_name
     upstream = (getattr(request.app.state, "app_proxy_base", None)

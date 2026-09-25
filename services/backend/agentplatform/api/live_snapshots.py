@@ -9,6 +9,7 @@ from fastapi.responses import JSONResponse, PlainTextResponse
 from pydantic import BaseModel
 from sqlalchemy import select
 
+from agentplatform import operation_catalog
 from agentplatform.api.live_views import (
     TypedDefinition,
     _accessible_app,
@@ -61,6 +62,9 @@ async def capture_live_snapshot(request: Request, view_id: str, body: CaptureIn,
         aliases = [body.alias] if body.alias is not None else published_aliases
         if not aliases:
             raise HTTPException(422, "page has no reads to capture")
+        if any(not operation_catalog.OPERATIONS[read.operation]["snapshot_eligible"]
+               for read in definition.reads if read.alias in aliases):
+            raise HTTPException(403, "this read cannot be saved as a snapshot")
         captured_version = view.published_version
         title = definition.title
 

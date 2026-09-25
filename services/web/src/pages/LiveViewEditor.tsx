@@ -8,7 +8,7 @@ type Definition = { renderer: "typed/v1"; title: string; blocks: {
   kind: "heading" | "paragraph" | "metric" | "table" | "action" | "link"; text?: string;
   label?: string; value?: string; source?: string; field?: string; columns?: string[];
   action_alias?: string; href?: string }[];
-  reads: { alias: string; operation: string }[];
+  reads: { alias: string; operation: string; channel_id?: string }[];
   actions: { alias: string; operation: string; channel: string }[] };
 type Draft = { id: string; app_name: string; slug: string; draft_revision: number;
   published_version: number | null; definition: Definition };
@@ -137,8 +137,11 @@ export default function LiveViewEditor() {
           <p className="muted">Add an operation to <code>reads</code> or <code>actions</code>,
             then reference its alias from a block. A binding does not grant permission.</p>
           <ul>{operations.filter((operation) => operation.source === "human-adapter" ||
+            operation.source === "platform-adapter" ||
             operation.tool === (draft?.app_name || appName)).map((operation) =>
             <li key={operation.id}><code>{operation.id}</code> · {operation.reason}</li>)}</ul>
+          <p className="muted">Relay reads need a fixed <code>channel_id</code> from the room URL.
+            Closed rooms still require the viewer to be a member.</p>
         </details>}
         <Button onClick={save} disabled={busy || (creating && !slug)}>Save draft</Button>{" "}
         {!creating && <Button variant="secondary" onClick={publish} disabled={busy}>Publish saved draft</Button>}{" "}

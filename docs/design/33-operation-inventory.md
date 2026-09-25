@@ -1,13 +1,14 @@
 # Design 33 operation inventory
 
 The checked-in [compiled operation catalog](../../services/backend/agentplatform/live_operation_catalog.json)
-currently contains 91 versioned entries. Its generator reads the broker's
+currently contains 92 versioned entries. Its generator reads the broker's
 callable branches and each custom Tool manifest; a lockstep test catches new
 branches. Every current branch has a conservative effect and output class.
 `query_app` and Linear's `raw_graphql` retain `unknown` effects because their
 arguments choose arbitrary paths/operations. All broker/custom branches are
 excluded from Live App admission until a separate human adapter is reviewed.
-The nine admitted IDs are the eight bounded App reads and `tickets.create@1`.
+The ten admitted IDs are the eight bounded App reads,
+`relay.channel.read@1` and `tickets.create@1`.
 The UI exposes the admitted list to page authors, and publication checks it
 server-side; a catalog entry alone never grants permission.
 
@@ -29,9 +30,10 @@ grants and domain APIs keep their current behavior.
 | TCMS projection | `overview.read@1` | private projection read | Eligible; scalar-normalized |
 | TCMS projection | `runs.read@1` | private projection read | Eligible; ten normalized evidence-run rows |
 | Tickets | `create` | platform write, wakes the ticket workflow | Eligible as `tickets.create@1`; fixed channel, human review, durable receipt |
+| Relay | `channel.read@1` | private conversation read | Eligible with immutable room ID, current human membership, ten bounded text rows; excluded from snapshots |
 | Tickets | `get`, `list`, `search` | platform read | Candidate; define object/thread ACL and a bounded output contract |
 | Tickets | `update`, `move`, `assign`, `comment` | platform write, some actions summon agents | Excluded pending per-ticket target authorization and retry semantics |
-| Relay | `read`, `channels`, `search` | conversation read | Candidate; room membership and private-thread ACL required |
+| Relay | broker `read`, `channels`, `search` | conversation read | Raw Tool branches remain excluded; use the fixed-target adapter above |
 | Relay | `post`, `dm`, `react` | conversation write, possible agent wake / external bridge | Excluded pending sender identity, target, hop-budget and external-effect contract |
 | Wiki | `read`, `search`, `list`, `history`, `wanted` | shared knowledge read | Candidate with bounded result and page ACL |
 | Wiki | `write`, `append`, `promote` | shared knowledge write | Excluded pending revision conflict and reviewer/author policy |
@@ -61,8 +63,8 @@ contract version or effect. The current server implements only the eligible
 rows above in `api/live_views.py` and `api/live_invocations.py`; the
 candidate/excluded rows are **not** callable through a Live App today.
 
-The next adapter should prove a new policy shape rather than merely copying
-the existing ticket adapter. Relay read is a useful candidate because it
-forces a real conversation-membership check, bounded transcript output, and
-revocation at read time. External sending and arbitrary queries remain behind
+The Relay adapter proves a second policy shape: a fixed room ID, member check
+on each call, bounded transcript and revocation at read time. It deliberately
+does not save private chat into a snapshot, whose separate retention could
+outlive room membership. External sending and arbitrary queries remain behind
 their specialized surfaces until equivalent constraints are enforceable.
