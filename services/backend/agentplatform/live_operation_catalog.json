@@ -12,7 +12,12 @@
       ],
       "output_classification": "restricted",
       "view_eligible": false,
-      "reason": "No reviewed human page adapter"
+      "reason": "No reviewed human page adapter",
+      "input_schema": null,
+      "output_schema": null,
+      "target_scope": null,
+      "supported_callers": [],
+      "limits": null
     },
     {
       "id": "core.agents_edit.delete@1",
@@ -25,7 +30,12 @@
       ],
       "output_classification": "restricted",
       "view_eligible": false,
-      "reason": "No reviewed human page adapter"
+      "reason": "No reviewed human page adapter",
+      "input_schema": null,
+      "output_schema": null,
+      "target_scope": null,
+      "supported_callers": [],
+      "limits": null
     },
     {
       "id": "core.agents_edit.get@1",
@@ -38,7 +48,12 @@
       ],
       "output_classification": "restricted",
       "view_eligible": false,
-      "reason": "No reviewed human page adapter"
+      "reason": "No reviewed human page adapter",
+      "input_schema": null,
+      "output_schema": null,
+      "target_scope": null,
+      "supported_callers": [],
+      "limits": null
     },
     {
       "id": "core.agents_edit.list@1",
@@ -51,7 +66,12 @@
       ],
       "output_classification": "restricted",
       "view_eligible": false,
-      "reason": "No reviewed human page adapter"
+      "reason": "No reviewed human page adapter",
+      "input_schema": null,
+      "output_schema": null,
+      "target_scope": null,
+      "supported_callers": [],
+      "limits": null
     },
     {
       "id": "core.agents_edit.update@1",
@@ -64,7 +84,12 @@
       ],
       "output_classification": "restricted",
       "view_eligible": false,
-      "reason": "No reviewed human page adapter"
+      "reason": "No reviewed human page adapter",
+      "input_schema": null,
+      "output_schema": null,
+      "target_scope": null,
+      "supported_callers": [],
+      "limits": null
     },
     {
       "id": "core.agents_grant.add_grant@1",
@@ -77,7 +102,12 @@
       ],
       "output_classification": "restricted",
       "view_eligible": false,
-      "reason": "No reviewed human page adapter"
+      "reason": "No reviewed human page adapter",
+      "input_schema": null,
+      "output_schema": null,
+      "target_scope": null,
+      "supported_callers": [],
+      "limits": null
     },
     {
       "id": "core.agents_grant.get@1",
@@ -90,7 +120,12 @@
       ],
       "output_classification": "restricted",
       "view_eligible": false,
-      "reason": "No reviewed human page adapter"
+      "reason": "No reviewed human page adapter",
+      "input_schema": null,
+      "output_schema": null,
+      "target_scope": null,
+      "supported_callers": [],
+      "limits": null
     },
     {
       "id": "core.agents_grant.remove_grant@1",
@@ -103,7 +138,12 @@
       ],
       "output_classification": "restricted",
       "view_eligible": false,
-      "reason": "No reviewed human page adapter"
+      "reason": "No reviewed human page adapter",
+      "input_schema": null,
+      "output_schema": null,
+      "target_scope": null,
+      "supported_callers": [],
+      "limits": null
     },
     {
       "id": "core.agents_grant.set_grants@1",
@@ -116,7 +156,12 @@
       ],
       "output_classification": "restricted",
       "view_eligible": false,
-      "reason": "No reviewed human page adapter"
+      "reason": "No reviewed human page adapter",
+      "input_schema": null,
+      "output_schema": null,
+      "target_scope": null,
+      "supported_callers": [],
+      "limits": null
     },
     {
       "id": "core.artifacts.delete@1",
@@ -129,7 +174,12 @@
       ],
       "output_classification": "private",
       "view_eligible": false,
-      "reason": "No reviewed human page adapter"
+      "reason": "No reviewed human page adapter",
+      "input_schema": null,
+      "output_schema": null,
+      "target_scope": null,
+      "supported_callers": [],
+      "limits": null
     },
     {
       "id": "core.artifacts.get@1",
@@ -142,7 +192,12 @@
       ],
       "output_classification": "private",
       "view_eligible": false,
-      "reason": "No reviewed human page adapter"
+      "reason": "No reviewed human page adapter",
+      "input_schema": null,
+      "output_schema": null,
+      "target_scope": null,
+      "supported_callers": [],
+      "limits": null
     },
     {
       "id": "core.artifacts.list@1",
@@ -155,7 +210,12 @@
       ],
       "output_classification": "private",
       "view_eligible": false,
-      "reason": "No reviewed human page adapter"
+      "reason": "No reviewed human page adapter",
+      "input_schema": null,
+      "output_schema": null,
+      "target_scope": null,
+      "supported_callers": [],
+      "limits": null
     },
     {
       "id": "core.artifacts.save@1",
@@ -168,7 +228,12 @@
       ],
       "output_classification": "private",
       "view_eligible": false,
-      "reason": "No reviewed human page adapter"
+      "reason": "No reviewed human page adapter",
+      "input_schema": null,
+      "output_schema": null,
+      "target_scope": null,
+      "supported_callers": [],
+      "limits": null
     },
     {
       "id": "core.get_quota_usage.call@1",
@@ -182,7 +247,12 @@
       ],
       "output_classification": "private",
       "view_eligible": false,
-      "reason": "No reviewed human page adapter"
+      "reason": "No reviewed human page adapter",
+      "input_schema": null,
+      "output_schema": null,
+      "target_scope": null,
+      "supported_callers": [],
+      "limits": null
     },
     {
       "id": "core.image_gen.generate@1",
@@ -196,7 +266,12 @@
       ],
       "output_classification": "private",
       "view_eligible": false,
-      "reason": "No reviewed human page adapter"
+      "reason": "No reviewed human page adapter",
+      "input_schema": null,
+      "output_schema": null,
+      "target_scope": null,
+      "supported_callers": [],
+      "limits": null
     },
     {
       "id": "core.image_gen.models@1",
@@ -209,7 +284,12 @@
       ],
       "output_classification": "private",
       "view_eligible": false,
-      "reason": "No reviewed human page adapter"
+      "reason": "No reviewed human page adapter",
+      "input_schema": null,
+      "output_schema": null,
+      "target_scope": null,
+      "supported_callers": [],
+      "limits": null
     },
     {
       "id": "core.metrics.agents@1",
@@ -222,7 +302,12 @@
       ],
       "output_classification": "private",
       "view_eligible": false,
-      "reason": "No reviewed human page adapter"
+      "reason": "No reviewed human page adapter",
+      "input_schema": null,
+      "output_schema": null,
+      "target_scope": null,
+      "supported_callers": [],
+      "limits": null
     },
     {
       "id": "core.metrics.kafka@1",
@@ -235,7 +320,12 @@
       ],
       "output_classification": "private",
       "view_eligible": false,
-      "reason": "No reviewed human page adapter"
+      "reason": "No reviewed human page adapter",
+      "input_schema": null,
+      "output_schema": null,
+      "target_scope": null,
+      "supported_callers": [],
+      "limits": null
     },
     {
       "id": "core.metrics.overview@1",
@@ -248,7 +338,12 @@
       ],
       "output_classification": "private",
       "view_eligible": false,
-      "reason": "No reviewed human page adapter"
+      "reason": "No reviewed human page adapter",
+      "input_schema": null,
+      "output_schema": null,
+      "target_scope": null,
+      "supported_callers": [],
+      "limits": null
     },
     {
       "id": "core.metrics.tools@1",
@@ -261,7 +356,12 @@
       ],
       "output_classification": "private",
       "view_eligible": false,
-      "reason": "No reviewed human page adapter"
+      "reason": "No reviewed human page adapter",
+      "input_schema": null,
+      "output_schema": null,
+      "target_scope": null,
+      "supported_callers": [],
+      "limits": null
     },
     {
       "id": "core.query_app.call@1",
@@ -274,7 +374,12 @@
       ],
       "output_classification": "restricted",
       "view_eligible": false,
-      "reason": "No reviewed human page adapter"
+      "reason": "No reviewed human page adapter",
+      "input_schema": null,
+      "output_schema": null,
+      "target_scope": null,
+      "supported_callers": [],
+      "limits": null
     },
     {
       "id": "core.quota_ok.call@1",
@@ -288,7 +393,12 @@
       ],
       "output_classification": "private",
       "view_eligible": false,
-      "reason": "No reviewed human page adapter"
+      "reason": "No reviewed human page adapter",
+      "input_schema": null,
+      "output_schema": null,
+      "target_scope": null,
+      "supported_callers": [],
+      "limits": null
     },
     {
       "id": "core.relay.channels@1",
@@ -301,7 +411,12 @@
       ],
       "output_classification": "private",
       "view_eligible": false,
-      "reason": "No reviewed human page adapter"
+      "reason": "No reviewed human page adapter",
+      "input_schema": null,
+      "output_schema": null,
+      "target_scope": null,
+      "supported_callers": [],
+      "limits": null
     },
     {
       "id": "core.relay.dm@1",
@@ -316,7 +431,12 @@
       ],
       "output_classification": "private",
       "view_eligible": false,
-      "reason": "No reviewed human page adapter"
+      "reason": "No reviewed human page adapter",
+      "input_schema": null,
+      "output_schema": null,
+      "target_scope": null,
+      "supported_callers": [],
+      "limits": null
     },
     {
       "id": "core.relay.post@1",
@@ -331,7 +451,12 @@
       ],
       "output_classification": "private",
       "view_eligible": false,
-      "reason": "No reviewed human page adapter"
+      "reason": "No reviewed human page adapter",
+      "input_schema": null,
+      "output_schema": null,
+      "target_scope": null,
+      "supported_callers": [],
+      "limits": null
     },
     {
       "id": "core.relay.react@1",
@@ -346,7 +471,12 @@
       ],
       "output_classification": "private",
       "view_eligible": false,
-      "reason": "No reviewed human page adapter"
+      "reason": "No reviewed human page adapter",
+      "input_schema": null,
+      "output_schema": null,
+      "target_scope": null,
+      "supported_callers": [],
+      "limits": null
     },
     {
       "id": "core.relay.read@1",
@@ -359,7 +489,12 @@
       ],
       "output_classification": "private",
       "view_eligible": false,
-      "reason": "No reviewed human page adapter"
+      "reason": "No reviewed human page adapter",
+      "input_schema": null,
+      "output_schema": null,
+      "target_scope": null,
+      "supported_callers": [],
+      "limits": null
     },
     {
       "id": "core.relay.search@1",
@@ -372,7 +507,12 @@
       ],
       "output_classification": "private",
       "view_eligible": false,
-      "reason": "No reviewed human page adapter"
+      "reason": "No reviewed human page adapter",
+      "input_schema": null,
+      "output_schema": null,
+      "target_scope": null,
+      "supported_callers": [],
+      "limits": null
     },
     {
       "id": "core.runs_read.get@1",
@@ -385,7 +525,12 @@
       ],
       "output_classification": "private",
       "view_eligible": false,
-      "reason": "No reviewed human page adapter"
+      "reason": "No reviewed human page adapter",
+      "input_schema": null,
+      "output_schema": null,
+      "target_scope": null,
+      "supported_callers": [],
+      "limits": null
     },
     {
       "id": "core.runs_read.list@1",
@@ -398,7 +543,12 @@
       ],
       "output_classification": "private",
       "view_eligible": false,
-      "reason": "No reviewed human page adapter"
+      "reason": "No reviewed human page adapter",
+      "input_schema": null,
+      "output_schema": null,
+      "target_scope": null,
+      "supported_callers": [],
+      "limits": null
     },
     {
       "id": "core.runs_read.tags@1",
@@ -411,7 +561,12 @@
       ],
       "output_classification": "private",
       "view_eligible": false,
-      "reason": "No reviewed human page adapter"
+      "reason": "No reviewed human page adapter",
+      "input_schema": null,
+      "output_schema": null,
+      "target_scope": null,
+      "supported_callers": [],
+      "limits": null
     },
     {
       "id": "core.runs_write.call@1",
@@ -424,7 +579,12 @@
       ],
       "output_classification": "private",
       "view_eligible": false,
-      "reason": "No reviewed human page adapter"
+      "reason": "No reviewed human page adapter",
+      "input_schema": null,
+      "output_schema": null,
+      "target_scope": null,
+      "supported_callers": [],
+      "limits": null
     },
     {
       "id": "core.tickets.assign@1",
@@ -438,7 +598,12 @@
       ],
       "output_classification": "private",
       "view_eligible": false,
-      "reason": "No reviewed human page adapter"
+      "reason": "No reviewed human page adapter",
+      "input_schema": null,
+      "output_schema": null,
+      "target_scope": null,
+      "supported_callers": [],
+      "limits": null
     },
     {
       "id": "core.tickets.comment@1",
@@ -452,7 +617,12 @@
       ],
       "output_classification": "private",
       "view_eligible": false,
-      "reason": "No reviewed human page adapter"
+      "reason": "No reviewed human page adapter",
+      "input_schema": null,
+      "output_schema": null,
+      "target_scope": null,
+      "supported_callers": [],
+      "limits": null
     },
     {
       "id": "core.tickets.create@1",
@@ -466,7 +636,12 @@
       ],
       "output_classification": "private",
       "view_eligible": false,
-      "reason": "No reviewed human page adapter"
+      "reason": "No reviewed human page adapter",
+      "input_schema": null,
+      "output_schema": null,
+      "target_scope": null,
+      "supported_callers": [],
+      "limits": null
     },
     {
       "id": "core.tickets.get@1",
@@ -479,7 +654,12 @@
       ],
       "output_classification": "private",
       "view_eligible": false,
-      "reason": "No reviewed human page adapter"
+      "reason": "No reviewed human page adapter",
+      "input_schema": null,
+      "output_schema": null,
+      "target_scope": null,
+      "supported_callers": [],
+      "limits": null
     },
     {
       "id": "core.tickets.list@1",
@@ -492,7 +672,12 @@
       ],
       "output_classification": "private",
       "view_eligible": false,
-      "reason": "No reviewed human page adapter"
+      "reason": "No reviewed human page adapter",
+      "input_schema": null,
+      "output_schema": null,
+      "target_scope": null,
+      "supported_callers": [],
+      "limits": null
     },
     {
       "id": "core.tickets.move@1",
@@ -506,7 +691,12 @@
       ],
       "output_classification": "private",
       "view_eligible": false,
-      "reason": "No reviewed human page adapter"
+      "reason": "No reviewed human page adapter",
+      "input_schema": null,
+      "output_schema": null,
+      "target_scope": null,
+      "supported_callers": [],
+      "limits": null
     },
     {
       "id": "core.tickets.search@1",
@@ -519,7 +709,12 @@
       ],
       "output_classification": "private",
       "view_eligible": false,
-      "reason": "No reviewed human page adapter"
+      "reason": "No reviewed human page adapter",
+      "input_schema": null,
+      "output_schema": null,
+      "target_scope": null,
+      "supported_callers": [],
+      "limits": null
     },
     {
       "id": "core.tickets.update@1",
@@ -533,7 +728,12 @@
       ],
       "output_classification": "private",
       "view_eligible": false,
-      "reason": "No reviewed human page adapter"
+      "reason": "No reviewed human page adapter",
+      "input_schema": null,
+      "output_schema": null,
+      "target_scope": null,
+      "supported_callers": [],
+      "limits": null
     },
     {
       "id": "core.wiki.append@1",
@@ -546,7 +746,12 @@
       ],
       "output_classification": "internal",
       "view_eligible": false,
-      "reason": "No reviewed human page adapter"
+      "reason": "No reviewed human page adapter",
+      "input_schema": null,
+      "output_schema": null,
+      "target_scope": null,
+      "supported_callers": [],
+      "limits": null
     },
     {
       "id": "core.wiki.history@1",
@@ -559,7 +764,12 @@
       ],
       "output_classification": "internal",
       "view_eligible": false,
-      "reason": "No reviewed human page adapter"
+      "reason": "No reviewed human page adapter",
+      "input_schema": null,
+      "output_schema": null,
+      "target_scope": null,
+      "supported_callers": [],
+      "limits": null
     },
     {
       "id": "core.wiki.list@1",
@@ -572,7 +782,12 @@
       ],
       "output_classification": "internal",
       "view_eligible": false,
-      "reason": "No reviewed human page adapter"
+      "reason": "No reviewed human page adapter",
+      "input_schema": null,
+      "output_schema": null,
+      "target_scope": null,
+      "supported_callers": [],
+      "limits": null
     },
     {
       "id": "core.wiki.promote@1",
@@ -585,7 +800,12 @@
       ],
       "output_classification": "internal",
       "view_eligible": false,
-      "reason": "No reviewed human page adapter"
+      "reason": "No reviewed human page adapter",
+      "input_schema": null,
+      "output_schema": null,
+      "target_scope": null,
+      "supported_callers": [],
+      "limits": null
     },
     {
       "id": "core.wiki.read@1",
@@ -598,7 +818,12 @@
       ],
       "output_classification": "internal",
       "view_eligible": false,
-      "reason": "No reviewed human page adapter"
+      "reason": "No reviewed human page adapter",
+      "input_schema": null,
+      "output_schema": null,
+      "target_scope": null,
+      "supported_callers": [],
+      "limits": null
     },
     {
       "id": "core.wiki.search@1",
@@ -611,7 +836,12 @@
       ],
       "output_classification": "internal",
       "view_eligible": false,
-      "reason": "No reviewed human page adapter"
+      "reason": "No reviewed human page adapter",
+      "input_schema": null,
+      "output_schema": null,
+      "target_scope": null,
+      "supported_callers": [],
+      "limits": null
     },
     {
       "id": "core.wiki.wanted@1",
@@ -624,7 +854,12 @@
       ],
       "output_classification": "internal",
       "view_eligible": false,
-      "reason": "No reviewed human page adapter"
+      "reason": "No reviewed human page adapter",
+      "input_schema": null,
+      "output_schema": null,
+      "target_scope": null,
+      "supported_callers": [],
+      "limits": null
     },
     {
       "id": "core.wiki.write@1",
@@ -637,7 +872,12 @@
       ],
       "output_classification": "internal",
       "view_eligible": false,
-      "reason": "No reviewed human page adapter"
+      "reason": "No reviewed human page adapter",
+      "input_schema": null,
+      "output_schema": null,
+      "target_scope": null,
+      "supported_callers": [],
+      "limits": null
     },
     {
       "id": "news.items.read@1",
@@ -650,7 +890,65 @@
       ],
       "output_classification": "private",
       "view_eligible": true,
-      "reason": "Owner-scoped bounded adapter"
+      "reason": "Owner-scoped bounded adapter",
+      "input_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "rows": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "day": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date"
+                },
+                "title": {
+                  "type": "string"
+                },
+                "source": {
+                  "type": "string"
+                },
+                "topic": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "day",
+                "title",
+                "source",
+                "topic"
+              ],
+              "additionalProperties": false
+            },
+            "maxItems": 10
+          }
+        },
+        "required": [
+          "rows"
+        ],
+        "additionalProperties": false
+      },
+      "target_scope": "owner_app",
+      "supported_callers": [
+        "human_session",
+        "platform_key"
+      ],
+      "limits": {
+        "timeout_seconds": 8,
+        "max_upstream_bytes": 262144,
+        "max_rows": 10,
+        "provider_spend": false
+      }
     },
     {
       "id": "news.summary.read@1",
@@ -663,7 +961,60 @@
       ],
       "output_classification": "private",
       "view_eligible": true,
-      "reason": "Owner-scoped bounded adapter"
+      "reason": "Owner-scoped bounded adapter",
+      "input_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "today": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "week": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "total": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "topics": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "latest_day": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date"
+          }
+        },
+        "required": [
+          "today",
+          "week",
+          "total",
+          "topics",
+          "latest_day"
+        ],
+        "additionalProperties": false
+      },
+      "target_scope": "owner_app",
+      "supported_callers": [
+        "human_session",
+        "platform_key"
+      ],
+      "limits": {
+        "timeout_seconds": 8,
+        "max_upstream_bytes": 262144,
+        "max_rows": 0,
+        "provider_spend": false
+      }
     },
     {
       "id": "running.activities.read@1",
@@ -676,7 +1027,73 @@
       ],
       "output_classification": "private",
       "view_eligible": true,
-      "reason": "Owner-scoped bounded adapter"
+      "reason": "Owner-scoped bounded adapter",
+      "input_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "rows": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "day": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "type": {
+                  "type": "string"
+                },
+                "distance_km": {
+                  "type": "number",
+                  "minimum": 0
+                },
+                "pace": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "day",
+                "name",
+                "type",
+                "distance_km",
+                "pace"
+              ],
+              "additionalProperties": false
+            },
+            "maxItems": 10
+          }
+        },
+        "required": [
+          "rows"
+        ],
+        "additionalProperties": false
+      },
+      "target_scope": "owner_app",
+      "supported_callers": [
+        "human_session",
+        "platform_key"
+      ],
+      "limits": {
+        "timeout_seconds": 8,
+        "max_upstream_bytes": 262144,
+        "max_rows": 10,
+        "provider_spend": false
+      }
     },
     {
       "id": "running.summary.read@1",
@@ -689,7 +1106,55 @@
       ],
       "output_classification": "private",
       "view_eligible": true,
-      "reason": "Owner-scoped bounded adapter"
+      "reason": "Owner-scoped bounded adapter",
+      "input_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "total_km": {
+            "type": "number",
+            "minimum": 0
+          },
+          "runs": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "activities": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "latest_day": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date"
+          }
+        },
+        "required": [
+          "total_km",
+          "runs",
+          "activities",
+          "latest_day"
+        ],
+        "additionalProperties": false
+      },
+      "target_scope": "owner_app",
+      "supported_callers": [
+        "human_session",
+        "platform_key"
+      ],
+      "limits": {
+        "timeout_seconds": 8,
+        "max_upstream_bytes": 262144,
+        "max_rows": 0,
+        "provider_spend": false
+      }
     },
     {
       "id": "stockmarket.summary.read@1",
@@ -702,7 +1167,58 @@
       ],
       "output_classification": "private",
       "view_eligible": true,
-      "reason": "Owner-scoped bounded adapter"
+      "reason": "Owner-scoped bounded adapter",
+      "input_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "indexes": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "watchlist": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "latest_day": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date"
+          },
+          "latest_brief_day": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date"
+          }
+        },
+        "required": [
+          "indexes",
+          "watchlist",
+          "latest_day",
+          "latest_brief_day"
+        ],
+        "additionalProperties": false
+      },
+      "target_scope": "owner_app",
+      "supported_callers": [
+        "human_session",
+        "platform_key"
+      ],
+      "limits": {
+        "timeout_seconds": 8,
+        "max_upstream_bytes": 262144,
+        "max_rows": 0,
+        "provider_spend": false
+      }
     },
     {
       "id": "stockmarket.watchlist.read@1",
@@ -715,7 +1231,73 @@
       ],
       "output_classification": "private",
       "view_eligible": true,
-      "reason": "Owner-scoped bounded adapter"
+      "reason": "Owner-scoped bounded adapter",
+      "input_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "rows": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "symbol": {
+                  "type": "string"
+                },
+                "label": {
+                  "type": "string"
+                },
+                "status": {
+                  "type": "string"
+                },
+                "latest_close": {
+                  "type": [
+                    "number",
+                    "null"
+                  ],
+                  "minimum": 0
+                },
+                "change_pct": {
+                  "type": [
+                    "number",
+                    "null"
+                  ],
+                  "minimum": 0
+                }
+              },
+              "required": [
+                "symbol",
+                "label",
+                "status",
+                "latest_close",
+                "change_pct"
+              ],
+              "additionalProperties": false
+            },
+            "maxItems": 20
+          }
+        },
+        "required": [
+          "rows"
+        ],
+        "additionalProperties": false
+      },
+      "target_scope": "owner_app",
+      "supported_callers": [
+        "human_session",
+        "platform_key"
+      ],
+      "limits": {
+        "timeout_seconds": 8,
+        "max_upstream_bytes": 262144,
+        "max_rows": 20,
+        "provider_spend": false
+      }
     },
     {
       "id": "tcms.overview.read@1",
@@ -728,7 +1310,57 @@
       ],
       "output_classification": "private",
       "view_eligible": true,
-      "reason": "Owner-scoped bounded adapter"
+      "reason": "Owner-scoped bounded adapter",
+      "input_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "failing": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "flaky": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "unlinked": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "prune_candidates": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "coverage_pct": {
+            "type": "number",
+            "minimum": 0
+          }
+        },
+        "required": [
+          "failing",
+          "flaky",
+          "unlinked",
+          "prune_candidates",
+          "coverage_pct"
+        ],
+        "additionalProperties": false
+      },
+      "target_scope": "owner_app",
+      "supported_callers": [
+        "human_session",
+        "platform_key"
+      ],
+      "limits": {
+        "timeout_seconds": 8,
+        "max_upstream_bytes": 262144,
+        "max_rows": 0,
+        "provider_spend": false
+      }
     },
     {
       "id": "tcms.runs.read@1",
@@ -741,7 +1373,69 @@
       ],
       "output_classification": "private",
       "view_eligible": true,
-      "reason": "Owner-scoped bounded adapter"
+      "reason": "Owner-scoped bounded adapter",
+      "input_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "rows": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "started_at": {
+                  "type": "string"
+                },
+                "branch": {
+                  "type": "string"
+                },
+                "agent": {
+                  "type": "string"
+                },
+                "n": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "verify_ok": {
+                  "type": [
+                    "boolean",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "started_at",
+                "branch",
+                "agent",
+                "n",
+                "verify_ok"
+              ],
+              "additionalProperties": false
+            },
+            "maxItems": 10
+          }
+        },
+        "required": [
+          "rows"
+        ],
+        "additionalProperties": false
+      },
+      "target_scope": "owner_app",
+      "supported_callers": [
+        "human_session",
+        "platform_key"
+      ],
+      "limits": {
+        "timeout_seconds": 8,
+        "max_upstream_bytes": 262144,
+        "max_rows": 10,
+        "provider_spend": false
+      }
     },
     {
       "id": "tickets.create@1",
@@ -754,7 +1448,45 @@
       ],
       "output_classification": "private",
       "view_eligible": true,
-      "reason": "Explicit grant, target and durable intent"
+      "reason": "Explicit grant, target and durable intent",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160
+          },
+          "body": {
+            "type": "string",
+            "maxLength": 4000
+          }
+        },
+        "required": [
+          "title"
+        ],
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "ticket_key": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "ticket_key"
+        ],
+        "additionalProperties": false
+      },
+      "target_scope": "ticket_enabled_channel",
+      "supported_callers": [
+        "human_session"
+      ],
+      "limits": {
+        "intent_ttl_seconds": 300,
+        "provider_spend": false
+      }
     },
     {
       "id": "tool.discord_chat.call@1",
@@ -767,7 +1499,12 @@
       ],
       "output_classification": "private",
       "view_eligible": false,
-      "reason": "No reviewed human page adapter"
+      "reason": "No reviewed human page adapter",
+      "input_schema": null,
+      "output_schema": null,
+      "target_scope": null,
+      "supported_callers": [],
+      "limits": null
     },
     {
       "id": "tool.image_gen.generate@1",
@@ -781,7 +1518,12 @@
       ],
       "output_classification": "private",
       "view_eligible": false,
-      "reason": "No reviewed human page adapter"
+      "reason": "No reviewed human page adapter",
+      "input_schema": null,
+      "output_schema": null,
+      "target_scope": null,
+      "supported_callers": [],
+      "limits": null
     },
     {
       "id": "tool.image_gen.models@1",
@@ -794,7 +1536,12 @@
       ],
       "output_classification": "private",
       "view_eligible": false,
-      "reason": "No reviewed human page adapter"
+      "reason": "No reviewed human page adapter",
+      "input_schema": null,
+      "output_schema": null,
+      "target_scope": null,
+      "supported_callers": [],
+      "limits": null
     },
     {
       "id": "tool.index_movers.call@1",
@@ -807,7 +1554,12 @@
       ],
       "output_classification": "internal",
       "view_eligible": false,
-      "reason": "No reviewed human page adapter"
+      "reason": "No reviewed human page adapter",
+      "input_schema": null,
+      "output_schema": null,
+      "target_scope": null,
+      "supported_callers": [],
+      "limits": null
     },
     {
       "id": "tool.linear.comment@1",
@@ -820,7 +1572,12 @@
       ],
       "output_classification": "private",
       "view_eligible": false,
-      "reason": "No reviewed human page adapter"
+      "reason": "No reviewed human page adapter",
+      "input_schema": null,
+      "output_schema": null,
+      "target_scope": null,
+      "supported_callers": [],
+      "limits": null
     },
     {
       "id": "tool.linear.create@1",
@@ -833,7 +1590,12 @@
       ],
       "output_classification": "private",
       "view_eligible": false,
-      "reason": "No reviewed human page adapter"
+      "reason": "No reviewed human page adapter",
+      "input_schema": null,
+      "output_schema": null,
+      "target_scope": null,
+      "supported_callers": [],
+      "limits": null
     },
     {
       "id": "tool.linear.raw_graphql@1",
@@ -846,7 +1608,12 @@
       ],
       "output_classification": "restricted",
       "view_eligible": false,
-      "reason": "No reviewed human page adapter"
+      "reason": "No reviewed human page adapter",
+      "input_schema": null,
+      "output_schema": null,
+      "target_scope": null,
+      "supported_callers": [],
+      "limits": null
     },
     {
       "id": "tool.linear.search@1",
@@ -860,7 +1627,12 @@
       ],
       "output_classification": "private",
       "view_eligible": false,
-      "reason": "No reviewed human page adapter"
+      "reason": "No reviewed human page adapter",
+      "input_schema": null,
+      "output_schema": null,
+      "target_scope": null,
+      "supported_callers": [],
+      "limits": null
     },
     {
       "id": "tool.linear.teams@1",
@@ -874,7 +1646,12 @@
       ],
       "output_classification": "private",
       "view_eligible": false,
-      "reason": "No reviewed human page adapter"
+      "reason": "No reviewed human page adapter",
+      "input_schema": null,
+      "output_schema": null,
+      "target_scope": null,
+      "supported_callers": [],
+      "limits": null
     },
     {
       "id": "tool.linear.update@1",
@@ -887,7 +1664,12 @@
       ],
       "output_classification": "private",
       "view_eligible": false,
-      "reason": "No reviewed human page adapter"
+      "reason": "No reviewed human page adapter",
+      "input_schema": null,
+      "output_schema": null,
+      "target_scope": null,
+      "supported_callers": [],
+      "limits": null
     },
     {
       "id": "tool.memory.read@1",
@@ -900,7 +1682,12 @@
       ],
       "output_classification": "private",
       "view_eligible": false,
-      "reason": "No reviewed human page adapter"
+      "reason": "No reviewed human page adapter",
+      "input_schema": null,
+      "output_schema": null,
+      "target_scope": null,
+      "supported_callers": [],
+      "limits": null
     },
     {
       "id": "tool.memory.save@1",
@@ -913,7 +1700,12 @@
       ],
       "output_classification": "private",
       "view_eligible": false,
-      "reason": "No reviewed human page adapter"
+      "reason": "No reviewed human page adapter",
+      "input_schema": null,
+      "output_schema": null,
+      "target_scope": null,
+      "supported_callers": [],
+      "limits": null
     },
     {
       "id": "tool.prices.call@1",
@@ -927,7 +1719,12 @@
       ],
       "output_classification": "internal",
       "view_eligible": false,
-      "reason": "No reviewed human page adapter"
+      "reason": "No reviewed human page adapter",
+      "input_schema": null,
+      "output_schema": null,
+      "target_scope": null,
+      "supported_callers": [],
+      "limits": null
     },
     {
       "id": "tool.stocks.call@1",
@@ -940,7 +1737,12 @@
       ],
       "output_classification": "internal",
       "view_eligible": false,
-      "reason": "No reviewed human page adapter"
+      "reason": "No reviewed human page adapter",
+      "input_schema": null,
+      "output_schema": null,
+      "target_scope": null,
+      "supported_callers": [],
+      "limits": null
     },
     {
       "id": "tool.strava.activities@1",
@@ -954,7 +1756,12 @@
       ],
       "output_classification": "private",
       "view_eligible": false,
-      "reason": "No reviewed human page adapter"
+      "reason": "No reviewed human page adapter",
+      "input_schema": null,
+      "output_schema": null,
+      "target_scope": null,
+      "supported_callers": [],
+      "limits": null
     },
     {
       "id": "tool.strava.activity@1",
@@ -968,7 +1775,12 @@
       ],
       "output_classification": "private",
       "view_eligible": false,
-      "reason": "No reviewed human page adapter"
+      "reason": "No reviewed human page adapter",
+      "input_schema": null,
+      "output_schema": null,
+      "target_scope": null,
+      "supported_callers": [],
+      "limits": null
     },
     {
       "id": "tool.strava.athlete@1",
@@ -982,7 +1794,12 @@
       ],
       "output_classification": "private",
       "view_eligible": false,
-      "reason": "No reviewed human page adapter"
+      "reason": "No reviewed human page adapter",
+      "input_schema": null,
+      "output_schema": null,
+      "target_scope": null,
+      "supported_callers": [],
+      "limits": null
     },
     {
       "id": "tool.strava.gear@1",
@@ -996,7 +1813,12 @@
       ],
       "output_classification": "private",
       "view_eligible": false,
-      "reason": "No reviewed human page adapter"
+      "reason": "No reviewed human page adapter",
+      "input_schema": null,
+      "output_schema": null,
+      "target_scope": null,
+      "supported_callers": [],
+      "limits": null
     },
     {
       "id": "tool.strava.stats@1",
@@ -1010,7 +1832,12 @@
       ],
       "output_classification": "private",
       "view_eligible": false,
-      "reason": "No reviewed human page adapter"
+      "reason": "No reviewed human page adapter",
+      "input_schema": null,
+      "output_schema": null,
+      "target_scope": null,
+      "supported_callers": [],
+      "limits": null
     },
     {
       "id": "tool.strava.sync@1",
@@ -1025,7 +1852,12 @@
       ],
       "output_classification": "private",
       "view_eligible": false,
-      "reason": "No reviewed human page adapter"
+      "reason": "No reviewed human page adapter",
+      "input_schema": null,
+      "output_schema": null,
+      "target_scope": null,
+      "supported_callers": [],
+      "limits": null
     },
     {
       "id": "tool.tcms.case@1",
@@ -1038,7 +1870,12 @@
       ],
       "output_classification": "internal",
       "view_eligible": false,
-      "reason": "No reviewed human page adapter"
+      "reason": "No reviewed human page adapter",
+      "input_schema": null,
+      "output_schema": null,
+      "target_scope": null,
+      "supported_callers": [],
+      "limits": null
     },
     {
       "id": "tool.tcms.cases@1",
@@ -1051,7 +1888,12 @@
       ],
       "output_classification": "internal",
       "view_eligible": false,
-      "reason": "No reviewed human page adapter"
+      "reason": "No reviewed human page adapter",
+      "input_schema": null,
+      "output_schema": null,
+      "target_scope": null,
+      "supported_callers": [],
+      "limits": null
     },
     {
       "id": "tool.tcms.coverage_gaps@1",
@@ -1064,7 +1906,12 @@
       ],
       "output_classification": "internal",
       "view_eligible": false,
-      "reason": "No reviewed human page adapter"
+      "reason": "No reviewed human page adapter",
+      "input_schema": null,
+      "output_schema": null,
+      "target_scope": null,
+      "supported_callers": [],
+      "limits": null
     },
     {
       "id": "tool.tcms.flaky@1",
@@ -1077,7 +1924,12 @@
       ],
       "output_classification": "internal",
       "view_eligible": false,
-      "reason": "No reviewed human page adapter"
+      "reason": "No reviewed human page adapter",
+      "input_schema": null,
+      "output_schema": null,
+      "target_scope": null,
+      "supported_callers": [],
+      "limits": null
     },
     {
       "id": "tool.tcms.prune_candidates@1",
@@ -1090,7 +1942,12 @@
       ],
       "output_classification": "internal",
       "view_eligible": false,
-      "reason": "No reviewed human page adapter"
+      "reason": "No reviewed human page adapter",
+      "input_schema": null,
+      "output_schema": null,
+      "target_scope": null,
+      "supported_callers": [],
+      "limits": null
     },
     {
       "id": "tool.tcms.record_results@1",
@@ -1103,7 +1960,12 @@
       ],
       "output_classification": "internal",
       "view_eligible": false,
-      "reason": "No reviewed human page adapter"
+      "reason": "No reviewed human page adapter",
+      "input_schema": null,
+      "output_schema": null,
+      "target_scope": null,
+      "supported_callers": [],
+      "limits": null
     },
     {
       "id": "tool.tcms.runtime_report@1",
@@ -1116,7 +1978,12 @@
       ],
       "output_classification": "internal",
       "view_eligible": false,
-      "reason": "No reviewed human page adapter"
+      "reason": "No reviewed human page adapter",
+      "input_schema": null,
+      "output_schema": null,
+      "target_scope": null,
+      "supported_callers": [],
+      "limits": null
     },
     {
       "id": "tool.tcms.sync_cases@1",
@@ -1129,7 +1996,12 @@
       ],
       "output_classification": "internal",
       "view_eligible": false,
-      "reason": "No reviewed human page adapter"
+      "reason": "No reviewed human page adapter",
+      "input_schema": null,
+      "output_schema": null,
+      "target_scope": null,
+      "supported_callers": [],
+      "limits": null
     },
     {
       "id": "tool.ttrpg.command@1",
@@ -1142,7 +2014,12 @@
       ],
       "output_classification": "private",
       "view_eligible": false,
-      "reason": "No reviewed human page adapter"
+      "reason": "No reviewed human page adapter",
+      "input_schema": null,
+      "output_schema": null,
+      "target_scope": null,
+      "supported_callers": [],
+      "limits": null
     },
     {
       "id": "tool.ttrpg.floor@1",
@@ -1155,7 +2032,12 @@
       ],
       "output_classification": "private",
       "view_eligible": false,
-      "reason": "No reviewed human page adapter"
+      "reason": "No reviewed human page adapter",
+      "input_schema": null,
+      "output_schema": null,
+      "target_scope": null,
+      "supported_callers": [],
+      "limits": null
     },
     {
       "id": "tool.ttrpg.gm_view@1",
@@ -1168,7 +2050,12 @@
       ],
       "output_classification": "private",
       "view_eligible": false,
-      "reason": "No reviewed human page adapter"
+      "reason": "No reviewed human page adapter",
+      "input_schema": null,
+      "output_schema": null,
+      "target_scope": null,
+      "supported_callers": [],
+      "limits": null
     },
     {
       "id": "tool.ttrpg.help@1",
@@ -1181,7 +2068,12 @@
       ],
       "output_classification": "private",
       "view_eligible": false,
-      "reason": "No reviewed human page adapter"
+      "reason": "No reviewed human page adapter",
+      "input_schema": null,
+      "output_schema": null,
+      "target_scope": null,
+      "supported_callers": [],
+      "limits": null
     },
     {
       "id": "tool.ttrpg.roll@1",
@@ -1194,7 +2086,12 @@
       ],
       "output_classification": "private",
       "view_eligible": false,
-      "reason": "No reviewed human page adapter"
+      "reason": "No reviewed human page adapter",
+      "input_schema": null,
+      "output_schema": null,
+      "target_scope": null,
+      "supported_callers": [],
+      "limits": null
     },
     {
       "id": "tool.ttrpg.view@1",
@@ -1207,7 +2104,12 @@
       ],
       "output_classification": "private",
       "view_eligible": false,
-      "reason": "No reviewed human page adapter"
+      "reason": "No reviewed human page adapter",
+      "input_schema": null,
+      "output_schema": null,
+      "target_scope": null,
+      "supported_callers": [],
+      "limits": null
     }
   ]
 }

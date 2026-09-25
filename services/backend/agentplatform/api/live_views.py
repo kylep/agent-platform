@@ -17,9 +17,9 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_valida
 from sqlalchemy import func, select, update
 from sqlalchemy.exc import IntegrityError
 
+from agentplatform import operation_catalog
 from agentplatform.api.auth import READ_ROLES, authenticate, require_admin, role_allows
 from agentplatform.db import AppCollection, LiveView, LiveViewVersion, utcnow
-from agentplatform import operation_catalog
 
 router = APIRouter()
 _SLUG = re.compile(r"^[a-z][a-z0-9-]{0,63}$")
@@ -97,9 +97,10 @@ class TypedDefinition(BaseModel):
         if len(set(action_aliases)) != len(action_aliases):
             raise ValueError("action aliases must be unique")
         for block in self.blocks:
-            if block.source is not None and (block.kind != "metric" or block.source not in aliases):
-                if block.kind != "table" or block.source not in aliases:
-                    raise ValueError("data block must reference a declared read")
+            if (block.source is not None
+                    and (block.kind not in ("metric", "table")
+                         or block.source not in aliases)):
+                raise ValueError("data block must reference a declared read")
             if block.kind == "metric" and block.source is not None:
                 if block.field is None:
                     raise ValueError("dynamic metric needs a field")
@@ -200,7 +201,7 @@ def _normalize_read(operation: str, raw: dict) -> dict:
                 "activities": _count(totals["activities"]),
                 "latest_day": _day(raw.get("latest_day"))}
     if operation == "running.activities.read@1":
-        if not isinstance(raw, list) or len(raw) > 10:
+        if not isinstance(raw, list) or len(raw) > operation_catalog.OPERATIONS[operation]["limits"]["max_rows"]:
             raise ValueError("invalid activity list")
         rows = []
         for item in raw:
@@ -214,7 +215,7 @@ def _normalize_read(operation: str, raw: dict) -> dict:
                          "pace": str(item["pace"])[:30] if item.get("pace") else None})
         return {"rows": rows}
     if operation == "news.items.read@1":
-        if not isinstance(raw, list) or len(raw) > 10:
+        if not isinstance(raw, list) or len(raw) > operation_catalog.OPERATIONS[operation]["limits"]["max_rows"]:
             raise ValueError("invalid news item list")
         return {"rows": [{"day": _day(item["day"]),
                           "title": str(item["title"])[:240],
@@ -232,7 +233,7 @@ def _normalize_read(operation: str, raw: dict) -> dict:
                 "latest_brief_day": _day(raw.get("latest_brief_day"))}
     if operation == "stockmarket.watchlist.read@1":
         items = raw["watchlist"]
-        if not isinstance(items, list) or len(items) > 20:
+        if not isinstance(items, list) or len(items) > operation_catalog.OPERATIONS[operation]["limits"]["max_rows"]:
             raise ValueError("invalid watchlist")
         rows = []
         for item in items:
@@ -256,7 +257,7 @@ def _normalize_read(operation: str, raw: dict) -> dict:
             "failing", "flaky", "unlinked", "prune_candidates")} | {
             "coverage_pct": pct}
     if operation == "tcms.runs.read@1":
-        if not isinstance(raw, list) or len(raw) > 10:
+        if not isinstance(raw, list) or len(raw) > operation_catalog.OPERATIONS[operation]["limits"]["max_rows"]:
             raise ValueError("invalid test run list")
         if any(item.get("verify_ok") is not None
                and not isinstance(item.get("verify_ok"), bool) for item in raw):
@@ -325,17 +326,19 @@ async def read_live_view_data(request: Request, view_id: str, alias: str,
     upstream = (getattr(request.app.state, "app_proxy_base", None)
                 if app_name == "running" else None) or \
         f"http://agent-platform-app-{app_name}:8000"
-    endpoint = ("activities?limit=10" if binding.operation == "running.activities.read@1"
-                else "items?limit=10" if binding.operation == "news.items.read@1"
-                else "runs?limit=10" if binding.operation == "tcms.runs.read@1"
+    limits = operation_catalog.OPERATIONS[binding.operation]["limits"]
+    row_limit = limits["max_rows"]
+    endpoint = (f"activities?limit={row_limit}" if binding.operation == "running.activities.read@1"
+                else f"items?limit={row_limit}" if binding.operation == "news.items.read@1"
+                else f"runs?limit={row_limit}" if binding.operation == "tcms.runs.read@1"
                 else "overview" if app_name == "tcms" else "summary")
     try:
-        async with httpx.AsyncClient(base_url=upstream, timeout=8,
+        async with httpx.AsyncClient(base_url=upstream, timeout=limits["timeout_seconds"],
                                      follow_redirects=False) as client:
             response = await client.get(f"/apps/{app_name}/api/{endpoint}", headers={
                 "X-AP-User": ident[0], "X-AP-Role": "reader"})
         response.raise_for_status()
-        if len(response.content) > 262144:
+        if len(response.content) > limits["max_upstream_bytes"]:
             raise ValueError("oversized summary")
         result = _normalize_read(binding.operation, response.json())
     except (httpx.HTTPError, ValueError, KeyError, TypeError, OverflowError):

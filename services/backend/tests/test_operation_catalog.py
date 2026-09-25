@@ -5,6 +5,7 @@ from pathlib import Path
 
 from agentplatform import operation_catalog
 from agentplatform.api.live_views import READ_FIELDS
+from jsonschema import Draft202012Validator
 
 
 def test_catalog_matches_broker_and_custom_manifest_actions():
@@ -25,6 +26,22 @@ def test_catalog_matches_broker_and_custom_manifest_actions():
         "core.query_app.call@1", "tool.linear.raw_graphql@1"}
     assert all(not item["view_eligible"] for item in compiled["operations"]
                if item["source"] in ("mcp-core", "mcp-custom"))
+    for item in compiled["operations"]:
+        if item["view_eligible"]:
+            assert item["input_schema"] is not None
+            assert item["output_schema"] is not None
+            assert item["target_scope"]
+            assert item["supported_callers"]
+            assert item["limits"] is not None
+            assert item["limits"]["provider_spend"] is False
+            Draft202012Validator.check_schema(item["input_schema"])
+            Draft202012Validator.check_schema(item["output_schema"])
+        else:
+            assert item["input_schema"] is None
+            assert item["output_schema"] is None
+            assert item["target_scope"] is None
+            assert item["supported_callers"] == []
+            assert item["limits"] is None
 
 
 async def test_catalog_exposes_admitted_contracts_and_rejects_unreviewed_branch(

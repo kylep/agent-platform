@@ -45,9 +45,11 @@ Started 2026-09-25. This is a work checkpoint, not a command to run an agent loo
   deny new live-page admission; catalog labels grant nothing.
   The branch-by-branch inventory and generated 91-entry catalog are recorded
   in [33-operation-inventory](../../design/33-operation-inventory.md).
-  Nine operations have bounded human adapters. Input/output schemas, target
-  and budget metadata for the entire broker/custom catalog remain open;
-  further admissions require separate policy work.
+  Nine operations have bounded human adapters with JSON input/output schemas,
+  target scopes, caller kinds and enforced read limits. The remaining broker
+  and custom actions have explicit null contracts and are ineligible. Their
+  schemas, target checks and budgets remain open; each further admission
+  requires separate policy work.
 - [ ] A4. Enforce viewer + View policy + object/target access on every call,
   including at dispatch. Add idempotent receipts and uncertain-outcome state.
 - [x] A5. Add private Resource list/read with conservative object ACLs, safe
