@@ -2,9 +2,13 @@ import asyncio
 import json
 import logging
 from contextlib import asynccontextmanager
+from datetime import timedelta
 from pathlib import Path
+from time import monotonic
 
 from fastapi import FastAPI
+from sqlalchemy import delete
+from starlette.background import BackgroundTasks
 from agentplatform.agents import AgentStore
 from agentplatform.api import agents as agents_api
 from agentplatform.api import apikeys as apikeys_api
@@ -45,7 +49,7 @@ from agentplatform.api import tail as tail_api
 from agentplatform.api import wiki as wiki_api
 from agentplatform.api import workbench_feed as workbench_feed_api
 from agentplatform import quota_store
-from agentplatform.db import make_engine, make_session_factory, init_db
+from agentplatform.db import LiveReadObservation, make_engine, make_session_factory, init_db, utcnow
 from agentplatform.qaprincipal import ensure_qa_principal
 from agentplatform.relay_feed import RelayFeed
 from agentplatform.secrets import InMemorySecretStore
@@ -355,6 +359,44 @@ def create_app(settings, session_factory, producer, secret_store=None, agent_sto
                   generate_unique_id_function=lambda route: route.name)
     st = app.state
     st.settings, st.session_factory, st.producer = settings, session_factory, producer
+    st.live_read_last_prune = 0.0
+
+    async def record_live_read(view_id: str, status: int, duration_ms: int):
+        """Persist metadata only, after the response is sent to the viewer."""
+        try:
+            async with st.session_factory() as session:
+                session.add(LiveReadObservation(view_id=view_id, status=status,
+                                                duration_ms=duration_ms))
+                now = monotonic()
+                if now - st.live_read_last_prune >= 3600:
+                    await session.execute(delete(LiveReadObservation).where(
+                        LiveReadObservation.created_at < utcnow() - timedelta(days=30)))
+                    st.live_read_last_prune = now
+                await session.commit()
+        except Exception:
+            logging.getLogger(__name__).exception("could not record Live View read")
+
+    @app.middleware("http")
+    async def observe_live_reads(request, call_next):
+        path = request.url.path.split("/")
+        if (request.method != "GET" or len(path) != 6
+                or path[1:3] != ["api", "live-views"]
+                or path[4] != "data" or len(path[3]) != 32):
+            return await call_next(request)
+        started = monotonic()
+        try:
+            response = await call_next(request)
+        except Exception:
+            await record_live_read(path[3], 500,
+                                   max(0, round((monotonic() - started) * 1000)))
+            raise
+        tasks = BackgroundTasks()
+        if response.background is not None:
+            tasks.add_task(response.background)
+        tasks.add_task(record_live_read, path[3], response.status_code,
+                       max(0, round((monotonic() - started) * 1000)))
+        response.background = tasks
+        return response
     st.consumer_factory = consumer_factory
     st.feed_consumer_factory = feed_consumer_factory
     st.ticket_feed_consumer_factory = ticket_feed_consumer_factory

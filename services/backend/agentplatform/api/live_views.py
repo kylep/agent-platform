@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import json
 import re
-from datetime import date
+from datetime import date, timedelta
 from math import isfinite
 from typing import Annotated, Literal
 
@@ -25,6 +25,7 @@ from agentplatform.db import (
     Conversation,
     LiveView,
     LiveViewVersion,
+    LiveReadObservation,
     RelayMessage,
     RelayParticipant,
     WikiPage,
@@ -34,6 +35,32 @@ from agentplatform.relay import is_member, participant_of
 
 router = APIRouter()
 _SLUG = re.compile(r"^[a-z][a-z0-9-]{0,63}$")
+
+
+@router.get("/api/live-reads/observation")
+async def live_read_observation(request: Request, days: int = 7,
+                                view_id: str | None = None,
+                                actor: str = Depends(require_admin)):
+    """Recent page-data latency and statuses, with no arguments or response data."""
+    if days < 1 or days > 30 or (view_id is not None and not re.fullmatch(r"[0-9a-f]{32}", view_id)):
+        raise HTTPException(422, "days must be 1–30 and view_id must be a view ID")
+    query = select(LiveReadObservation.status, LiveReadObservation.duration_ms).where(
+        LiveReadObservation.created_at >= utcnow() - timedelta(days=days))
+    if view_id is not None:
+        query = query.where(LiveReadObservation.view_id == view_id)
+    async with request.app.state.session_factory() as session:
+        rows = (await session.execute(query.order_by(
+            LiveReadObservation.created_at.desc()).limit(50001))).all()
+    truncated = len(rows) > 50000
+    rows = rows[:50000]
+    durations = sorted(row.duration_ms for row in rows)
+    by_status: dict[str, int] = {}
+    for row in rows:
+        key = str(row.status)
+        by_status[key] = by_status.get(key, 0) + 1
+    return {"days": days, "view_id": view_id, "sampled": len(rows),
+            "truncated": truncated, "by_status": by_status,
+            "p95_ms": durations[(len(durations) * 95 + 99) // 100 - 1] if durations else None}
 READ_FIELDS = {
     "running.summary.read@1": {"total_km", "runs", "activities", "latest_day"},
     "running.activities.read@1": set(),

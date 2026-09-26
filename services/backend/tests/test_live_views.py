@@ -171,6 +171,14 @@ async def test_running_read_uses_published_binding_and_owner_acl(
     again = await admin_client.get(f"/api/live-views/{view_id}/data/summary")
     assert again.status_code == 200 and again.json() == got.json()
     assert len(calls) == 2 and len(clients_created) == 1
+    observed = await admin_client.get("/api/live-reads/observation",
+                                      params={"view_id": view_id})
+    assert observed.status_code == 200
+    assert observed.json()["by_status"] == {"404": 1, "200": 2}
+    assert observed.json()["p95_ms"] is not None
+    assert "total_km" not in observed.text
+    assert (await token_client.get("/api/live-reads/observation", headers={
+        "Authorization": f"Bearer {reader_token}"})).status_code == 403
 
 
 async def test_running_activity_table_is_bounded_and_normalized(

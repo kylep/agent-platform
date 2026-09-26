@@ -78,7 +78,7 @@ Started 2026-09-25. This is a work checkpoint, not a command to run an agent loo
 - [x] A7. Migrate Running collection to a live page backed by its existing
   projection. Keep the current route available during shadow/canary. Prove
   owner/denied read, issue Ticket, receipt, refresh and snapshot/Resource.
-- [ ] A8. Build verified skills-only `agent-platform-coding` package;
+- [x] A8. Build verified skills-only `agent-platform-coding` package;
   remove implicit skill-secret authority across launcher/readiness/registry;
   test exact pinned runner images and local install/update/rollback.
   The platform build now pins the approved release-manifest digest, so a
@@ -97,7 +97,8 @@ Started 2026-09-25. This is a work checkpoint, not a command to run an agent loo
   reproducible bundle SHA against the GitHub-attested v0.1.1 CI artifact.
   Disposable live coder and QA agents both read their assigned skills and
   completed focused reviews; QA found a Discord offset migration bug.
-  Broader agent behavior evaluation remains open.
+  This completes the package and initial coder/QA evaluation; ongoing
+  regression evaluation belongs to normal platform operations.
 - [x] A9. Migrate News, Stockmarket and TCMS collection/pages where the typed
   renderer fits. Preserve their ingestion and domain logic. Compare outputs
   against existing UIs and retain specialized screens when needed.
@@ -143,8 +144,10 @@ Started 2026-09-25. This is a work checkpoint, not a command to run an agent loo
   one-week observation, deployment evidence and push. Remove legacy view code
   only after explicit retirement review; keep data protections monotonic. An
   admin-only action observation endpoint now supplies bounded receipt counts,
-  unresolved IDs and revoked-grant count for a 1–30 day window. It cannot
-  substitute for gateway/API page-read latency and error observations.
+  unresolved IDs and revoked-grant count for a 1–30 day window. A separate
+  admin-only page-data observation endpoint records status and server latency
+  without arguments or response data. Browser paint/network time and the
+  seven-day window still require live evidence.
 
 ## Current checkpoint
 
@@ -158,8 +161,10 @@ connector for it. No second bot credential is configured, so a second-account
 send/receive remains unverified. The current follow-up also adds a bounded
 Wiki summary page read. It needs CI and live verification before closure.
 
-The Running page still fails the 1.25× p95 latency gate, and the seven-day
-observation cannot finish before 2026-10-02. Specialist screens remain. The
+The Running page still fails the 1.25× p95 latency gate. Page-data reads now
+write argument-free status and server-latency samples after the response, with
+an admin observation endpoint. Its own seven-day window cannot finish before
+2026-10-03. Specialist screens remain. The
 open work is broader operation admission, second-account credential and Tool
 isolation, plugin behavior evaluation, page-read latency/error evidence, and
 the explicit retirement review. MCP Apps export remains deferred by the

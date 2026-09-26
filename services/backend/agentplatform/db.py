@@ -249,6 +249,18 @@ class LiveInvocation(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
+class LiveReadObservation(Base):
+    """Small, argument-free timing record for a Live View data request."""
+    __tablename__ = "live_read_observations"
+    id: Mapped[str] = mapped_column(String(32), primary_key=True,
+                                    default=lambda: uuid.uuid4().hex)
+    view_id: Mapped[str] = mapped_column(String(32), index=True)
+    status: Mapped[int] = mapped_column(Integer)
+    duration_ms: Mapped[int] = mapped_column(Integer)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow,
+                                                   index=True)
+
+
 class LiveSnapshot(Base):
     """Owner-scoped, bounded materialization of a published Live View read."""
     __tablename__ = "live_snapshots"

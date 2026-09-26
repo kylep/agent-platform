@@ -120,5 +120,11 @@ An admin can inspect the last 1–30 days of durable action receipts at
 `GET /api/live-actions/observation?days=7`. It returns status counts, up to ten
 unresolved receipt IDs, and the current number of revoked action grants.
 Arguments, destination IDs and user content stay out of this aggregate. This
-is action evidence only; page-read latency/errors still require the gateway
-and API metrics/logs during a canary.
+is action evidence only. Page-data reads have a separate admin view at
+`GET /api/live-reads/observation?days=7`, optionally filtered by `view_id`.
+It reports HTTP status counts and p95 server latency from up to 50,000 recent
+samples. Each observation stores only view ID, status, duration and time;
+it records after the response and is retained for 30 days. A `truncated`
+flag means the result is a recent sample rather than the full period. Browser
+paint and network time still need a browser canary before retiring a
+specialized screen.
