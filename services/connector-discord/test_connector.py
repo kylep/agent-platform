@@ -375,6 +375,28 @@ def test_second_identity_never_claims_legacy_default_routes_or_messages(
     assert second.client._channels[100].sent == []
 
 
+def test_second_identity_delivers_only_its_selected_route(bridge, monkeypatch):
+    monkeypatch.setenv("AP_CHAT_IDENTITY", "discord-second")
+    second = connector.DiscordConnector()
+    second._identity_active = bridge._identity_active
+    second.client._channels = {100: Channel(100), 200: Channel(200)}
+    second._set_bindings([
+        {"channel_id": "default", "external_ref": "100",
+         "identity_id": "discord-default"},
+        {"channel_id": "second", "external_ref": "200",
+         "identity_id": "discord-second"},
+    ])
+
+    run(second._deliver_channel_post({
+        "channel_id": "200", "text": "from the second bot",
+        "identity_id": "discord-second"}))
+    run(second._deliver_channel_post({
+        "channel_id": "100", "text": "must not cross accounts",
+        "identity_id": "discord-default"}))
+    assert second.client._channels[200].sent == ["from the second bot"]
+    assert second.client._channels[100].sent == []
+
+
 def test_each_identity_consumes_the_full_outbound_stream(bridge, monkeypatch):
     groups = []
 

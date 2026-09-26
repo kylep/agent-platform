@@ -50,9 +50,13 @@ account has joined a server. Until a second real bot credential is available,
 the second-account path is tested with synthetic credentials and rendered
 Kubernetes manifests rather than a live Discord send.
 
-The default bot's Secret can be rotated through the existing Secrets flow
-without changing its identity or room bindings. The default `discord_chat`
-Tool and broadcast connector reject ambiguous channel names; use an exact
+Rotate a bot token through the existing Secrets flow without changing its
+identity or room bindings. The connector reads the Discord token when it
+starts, so restart only that identity's connector after the Secret is synced;
+its status check stops new sends if the token is removed or the identity is
+paused. Resume the identity after the restarted connector is healthy. The
+default `discord_chat` Tool and broadcast connector reject ambiguous channel
+names; use an exact
 channel ID when two visible rooms share a name. Existing domain broadcasts
 remain on `discord-default` until their owners explicitly choose a bound
 destination on another identity.
