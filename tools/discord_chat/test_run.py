@@ -66,6 +66,8 @@ def test_manifest_requires_one_exact_destination():
     jsonschema.validate({"identity_id": "discord-second",
                          "channel_id": "223456789012345678", "text": "hello"}, params)
     for args in ({"text": "hello"},
+                 {"identity_id": "", "channel_id": "223456789012345678",
+                  "text": "hello"},
                  {"channel": "alerts", "channel_id": "223456789012345678",
                   "text": "hello"},
                  {"channel_id": "not-an-id", "text": "hello"}):

@@ -2,7 +2,7 @@
 brokered system agent (health-monitor) post an alert without holding the bot
 token or a shell — it calls this over MCP; the connector delivers it."""
 from fastapi import APIRouter, HTTPException, Request
-from pydantic import BaseModel, model_validator
+from pydantic import BaseModel, Field, model_validator
 from sqlalchemy import select
 
 from agentplatform.api.auth import ANNOTATE_ROLES, authenticate, role_allows
@@ -17,7 +17,8 @@ router = APIRouter()
 
 
 class NotifyIn(BaseModel):
-    identity_id: str | None = None
+    identity_id: str | None = Field(default=None,
+                                    pattern=r"^discord-[a-z][a-z0-9-]{0,31}$")
     channel: str | None = None
     channel_id: str | None = None
     text: str

@@ -40,7 +40,7 @@ Started 2026-09-25. This is a work checkpoint, not a command to run an agent loo
   [33-operation-inventory](../../design/33-operation-inventory.md).
 - [x] A2. Add additive App/View/version, ACL, intent and invocation schemas.
   Preserve legacy readers and old binary compatibility until cutover.
-- [ ] A3. Compile operation contracts for a narrow Running read and Ticket
+- [x] A3. Compile operation contracts for a narrow Running read and Ticket
   write first, then inventory every core/custom Tool action. Unknown effects
   deny new live-page admission; catalog labels grant nothing.
   The branch-by-branch inventory and generated 94-entry catalog are recorded
@@ -48,8 +48,8 @@ Started 2026-09-25. This is a work checkpoint, not a command to run an agent loo
   Twelve operations have bounded human adapters with JSON input/output schemas,
   target scopes, caller kinds and enforced read limits. The remaining broker
   and custom actions have explicit null contracts and are ineligible. Their
-  schemas, target checks and budgets remain open; each further admission
-  requires separate policy work.
+  schemas, target checks and budgets remain closed; each future admission
+  is a separate policy change, not an implicit consequence of this catalog.
   A fixed-target Relay channel read checks current membership on every
   request, returns ten bounded text rows, and cannot be snapshotted. A second
   effectful adapter can post human-reviewed text to a fixed internal room,
@@ -156,7 +156,7 @@ Started 2026-09-25. This is a work checkpoint, not a command to run an agent loo
 
 ## Current checkpoint
 
-Main through `efff0f4` is pushed and deployed on pai (Helm revision 75;
+Main through `4a77d0e` is pushed and deployed on pai (Helm revision 75;
 subsequent backend/connector/facade image rollouts).
 The runtime now verifies the exact SHA of the reproducible, GitHub-attested
 plugin bundle. Disposable coder and QA agents loaded their assigned plugin
@@ -165,17 +165,23 @@ that is now fixed and deployed. Admins can register a disabled second
 Discord identity with a secret reference, and Helm can launch a separate
 connector for it. No second bot credential is configured, so a second-account
 send/receive remains unverified. The bounded Wiki summary page read and
-page-data observation endpoint are live. The current follow-up scopes
-second-bot API reads by a distinct Kubernetes service account; it needs
-CI and rollout verification.
+page-data observation endpoint are live. Extra bots have distinct Kubernetes
+service accounts and identity-scoped API reads. An agent can now select a
+non-default identity in `discord_chat` for an exact bound channel, subject to
+its Tool grant, room membership, active credential and server checks. The
+default-bot direct sender is unchanged. The code path passed focused backend,
+broker and Tool tests; a real second-bot delivery still needs its credential.
 
 The Running page still fails the 1.25× p95 latency gate. Page-data reads now
 write argument-free status and server-latency samples after the response, with
 an admin observation endpoint. Its own seven-day window cannot finish before
 2026-10-03. Specialist screens remain. The
-open work is broader operation admission, second-account credential and Tool
-isolation, plugin behavior evaluation, page-read latency/error evidence, and
-the explicit retirement review. MCP Apps export remains deferred by the
+open work is additional operation admission as individual pages need it, a
+real second-account send/receive, page-read/browser latency evidence, and
+the explicit retirement review. A fresh 50-request paired read canary had
+large host-load variance: direct p95 954/343 ms and Live p95 547/413 ms in
+alternating order, so it does not overturn the prior failed gate. MCP Apps
+export remains deferred by the
 pinned-client host/auth compatibility findings.
 
 ### Previous checkpoint
