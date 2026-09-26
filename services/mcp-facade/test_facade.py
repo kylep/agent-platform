@@ -159,14 +159,14 @@ def test_everything_else_is_a_tool(spec, tools):
 
 
 def test_admin_flag_restores_gated(spec, admin_tools):
-    """With AP_MCP_ADMIN_TOOLS on, the gated set returns (160 total) but the
+    """With AP_MCP_ADMIN_TOOLS on, the gated set returns (161 total) but the
     design-17 exclusions and CURATED_OUT never come back."""
     still_hidden = facade.EXCLUDED_PATHS + facade.CURATED_OUT
     hidden = {(m, p) for m, p in operations(spec)
               if matches(still_hidden, m, p)}
     expected = set(operations(spec)) - hidden
     assert {(t._route.method, t._route.path) for t in admin_tools} == expected
-    assert len(admin_tools) == len(expected) == 160, \
+    assert len(admin_tools) == len(expected) == 161, \
         sorted({(t._route.method, t._route.path) for t in admin_tools})
     names = {t.name for t in admin_tools}
     for gated in ("mint_api_key", "put_secret", "delete_agent", "import_agents",
@@ -181,10 +181,18 @@ def test_gated_tools_hidden_by_default(tools):
     names = {t.name for t in tools}
     for gated in ("mint_api_key", "revoke_api_key", "put_secret", "delete_agent",
                   "import_agents", "prune_transcripts", "discard_dlq",
-                  "change_password", "relay_notify"):
+                  "change_password", "relay_notify", "set_chat_identity_status"):
         assert gated not in names, f"{gated} leaked into the default surface"
     for kept in ("list_agents", "create_run"):
         assert kept in names, f"{kept} missing from the default surface"
+
+
+def test_chat_identity_transport_is_internal_and_pause_is_admin_gated(tools, admin_tools):
+    normal = {t.name for t in tools}
+    elevated = {t.name for t in admin_tools}
+    assert "chat_identity_transport" not in normal | elevated
+    assert "set_chat_identity_status" not in normal
+    assert "set_chat_identity_status" in elevated
 
 
 def test_method_scoped_gates_do_not_overreach(tools):

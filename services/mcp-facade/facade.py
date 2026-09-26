@@ -20,13 +20,13 @@ The surface is CURATED into three tiers (curation 2026-08-24; see
   reads, destructive/bulk ops, the relay channel lifecycle (creating, renaming
   and archiving rooms), a system row into a room one is not in, and
   archiving a wiki page. Offered ONLY when `AP_MCP_ADMIN_TOOLS` is truthy
-  (`admin_tools_enabled()`). 39 of them. The
+  (`admin_tools_enabled()`). 40 of them. The
   role ladder authorizes every call regardless — the flag controls the MENU,
   not the kitchen.
 - **EXCLUDE** — UI form-feeders, reviewer digests the client can compute,
   git-edit conveniences redundant with having the repo, and system-agent
-  endpoints. Never tools. 19 curated-out, plus 22 session/internal/streaming/
-  byte-serving operations below — 201 graded operations in all.
+  endpoints. Never tools. 20 curated-out, plus 22 session/internal/streaming/
+  byte-serving operations below — 203 graded operations in all.
 
 It is deliberately NOT the mcp-broker. The broker authenticates in-cluster run
 identities and scopes tools to an agent's grants (design/13, design/15). This
@@ -142,6 +142,9 @@ CURATED_OUT = (
     # connectors, which read it over HTTP with their own token on a timer. As a
     # tool it would answer a question no MCP client asks.
     (("GET",),   r"^/api/relay/bindings$"),
+    # The connector and broker consult this internal transport state directly;
+    # listing it as an external MCP action has no useful caller workflow.
+    (("GET",),   r"^/api/chat-identities/\{identity_id\}/transport$"),
     # The deliberate usage probe (design/22). Agents reach it through the
     # `quota` tool, which is where the per-agent metering lives; offering the
     # raw route as well would be a second, unmetered way to spend the probe.
@@ -157,6 +160,7 @@ CURATED_OUT = (
 GATED_ADMIN = (
     (("GET",),    r"^/api/live-actions/observation$"),
     (("GET",),    r"^/api/chat-identities$"),
+    (("PATCH",),  r"^/api/chat-identities/\{identity_id\}/status$"),
     ("*",         r"^/api/live-operation-grants"),
     (("POST",),   r"^/api/app-collections$"),
     (("PATCH",),  r"^/api/app-collections/\{name\}$"),
