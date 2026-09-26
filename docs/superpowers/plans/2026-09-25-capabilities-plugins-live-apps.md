@@ -156,7 +156,7 @@ Started 2026-09-25. This is a work checkpoint, not a command to run an agent loo
 
 ## Current checkpoint
 
-Main through `4a77d0e` is pushed and deployed on pai (Helm revision 75;
+Main through `2edf2e1` is pushed and deployed on pai (Helm revision 75;
 subsequent backend/connector/facade image rollouts).
 The runtime now verifies the exact SHA of the reproducible, GitHub-attested
 plugin bundle. Disposable coder and QA agents loaded their assigned plugin
@@ -171,6 +171,11 @@ non-default identity in `discord_chat` for an exact bound channel, subject to
 its Tool grant, room membership, active credential and server checks. The
 default-bot direct sender is unchanged. The code path passed focused backend,
 broker and Tool tests; a real second-bot delivery still needs its credential.
+Commit `96d59b1` adds a positive connector delivery test for the selected
+second identity and documents the connector restart needed after bot-token
+rotation; this test-only/documentation commit needs no image rollout. The
+connector suite passes 31 tests. All five relevant deployed workloads were
+ready after the rollout, and recent API and broker logs showed no errors.
 
 The Running page still fails the 1.25× p95 latency gate. Page-data reads now
 write argument-free status and server-latency samples after the response, with
