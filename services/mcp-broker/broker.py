@@ -497,6 +497,18 @@ class CustomTool(Tool):
         if not _rate_ok(agent, self.name):
             await _audit(agent, run_id, initiated_by, self.name, arguments, "deny:rate-limit", t0)
             return ToolResult(content=_RATE_LIMITED)
+        if self.name == "discord_chat":
+            # The legacy REST sender bypasses the connector's Kafka consumer.
+            # Consult the same identity status before it can reach Discord.
+            try:
+                status = await _request("GET", "/api/chat-identities/discord-default/transport")
+                active = status.status_code == 200 and status.json().get("active") is True
+            except (httpx.HTTPError, ValueError):
+                active = False
+            if not active:
+                await _audit(agent, run_id, initiated_by, self.name, arguments,
+                             "deny:identity-disabled", t0)
+                return ToolResult(content="error: Discord chat identity is paused")
         caller = {"agent": agent, "run_id": run_id}
         payload = {"tool": self.name, "args": arguments, "caller": caller}
         files_bytes = 0

@@ -1047,6 +1047,23 @@ async def test_default_chat_identity_is_admin_metadata_not_a_secret(
     assert (await token_client.get("/api/chat-identities", headers=reader)).status_code == 403
 
 
+async def test_chat_identity_status_requires_admin_and_is_visible_to_connector(
+        admin_client, token_client, sf):
+    reader = await _human_token(sf, "reader", "reader")
+    path = "/api/chat-identities/discord-default/status"
+    assert (await token_client.patch(path, headers=reader,
+                                     json={"status": "disabled"})).status_code == 403
+    assert (await admin_client.patch(path, json={"status": "unknown"})).status_code == 422
+    assert (await admin_client.patch(path, json={"status": "disabled"})).json() == {
+        "id": "discord-default", "status": "disabled"}
+    transport = "/api/chat-identities/discord-default/transport"
+    assert (await token_client.get(transport, headers=reader)).status_code == 403
+    assert (await admin_client.get(transport)).json() == {
+        "id": "discord-default", "active": False}
+    assert (await admin_client.patch(path, json={"status": "active"})).status_code == 200
+    assert (await admin_client.get(transport)).json()["active"] is True
+
+
 async def test_existing_discord_binding_gets_default_identity_on_restart(
         admin_client, sf):
     from agentplatform.db import RelayBinding, init_db

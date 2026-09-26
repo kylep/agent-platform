@@ -208,6 +208,9 @@ def bridge(monkeypatch):
     monkeypatch.setenv("CONNECTOR_AGENT", "pai")
     monkeypatch.setenv("AP_API_TOKEN", "ap_key")
     c = connector.DiscordConnector()
+    async def identity_active(*, fresh=False):
+        return True
+    c._identity_active = identity_active
     c.producer = Producer()
     c.client.user = Author(1, name="relay-bot", bot=True)
     c._set_bindings([{"channel_id": "cafe", "external_ref": "100", "config": {}}])
@@ -384,6 +387,20 @@ def test_a_failed_refresh_keeps_the_last_good_map(bridge, monkeypatch):
     monkeypatch.setattr(bridge, "_fetch_bindings", _boom)
     run(bridge.refresh_bindings())
     assert sorted(bridge.bound) == [100]
+
+
+def test_disabled_identity_stops_inbound_outbound_and_clears_routes(bridge, monkeypatch):
+    async def inactive(*, fresh=False):
+        return False
+    monkeypatch.setattr(bridge, "_identity_active", inactive)
+    run(bridge.on_message(Message(bridge.client._channels[100],
+                                  Author(55, "kyle"), "hello")))
+    run(bridge._deliver_outbound(_outbound()))
+    run(bridge._deliver_channel_post({"channel_id": "100", "text": "hello"}))
+    run(bridge.refresh_bindings())
+    assert bridge.producer.sent == []
+    assert bridge.client._channels[100].sent == []
+    assert bridge.bound == {} and bridge.threads == {}
 
 
 def test_unbinding_a_channel_drops_its_cached_webhook(bridge):

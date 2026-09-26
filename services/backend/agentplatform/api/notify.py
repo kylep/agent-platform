@@ -1,11 +1,12 @@
 """Notify: publish a message to a Discord channel via the connector. Lets a
 brokered system agent (health-monitor) post an alert without holding the bot
 token or a shell — it calls this over MCP; the connector delivers it."""
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, model_validator
 
 from agentplatform.api.auth import ANNOTATE_ROLES, require_role
 from agentplatform.events import TOPIC_CHANNEL_POST
+from agentplatform.db import ChatIdentity, DEFAULT_DISCORD_IDENTITY
 
 from agentplatform.api import schemas as S
 router = APIRouter()
@@ -28,10 +29,14 @@ class NotifyIn(BaseModel):
 
 @router.post("/api/notify", response_model=S.Ok, dependencies=[Depends(require_role(*ANNOTATE_ROLES))])
 async def notify(request: Request, body: NotifyIn):
+    async with request.app.state.session_factory() as session:
+        identity = await session.get(ChatIdentity, DEFAULT_DISCORD_IDENTITY)
+        if identity is None or identity.status != "active":
+            raise HTTPException(409, "Discord chat identity is disabled")
     # Defang mass-pings even though the caller is a trusted system agent.
     text = body.text[:6000].replace("@everyone", "@​everyone").replace("@here", "@​here")
     target = body.channel_id or body.channel
-    payload = {"text": text, "identity_id": "discord-default"}
+    payload = {"text": text, "identity_id": DEFAULT_DISCORD_IDENTITY}
     payload["channel_id" if body.channel_id else "channel"] = target
     await request.app.state.producer.publish(
         TOPIC_CHANNEL_POST, target, payload, type="channel.post")

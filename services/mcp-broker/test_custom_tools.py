@@ -87,6 +87,25 @@ def test_forward_timeout_is_manifest_timeout_plus_30(monkeypatch):
     assert seen["timeout"] == 60
 
 
+def test_discord_tool_cannot_send_while_identity_is_paused(monkeypatch):
+    calls = []
+
+    async def request(method, path, *args, **kwargs):
+        calls.append((method, path))
+        return httpx.Response(200, json={"active": False})
+
+    async def audit(*args, **kwargs):
+        pass
+
+    monkeypatch.setattr(broker, "_request", request)
+    monkeypatch.setattr(broker, "_audit", audit)
+    tool = broker.CustomTool(name="discord_chat", description="Discord chat tool.",
+                             parameters={"type": "object", "properties": {}})
+    out = asyncio.run(tool.run({"channel": "test", "text": "hello"}))
+    assert out.content == "error: Discord chat identity is paused"
+    assert calls == [("GET", "/api/chat-identities/discord-default/transport")]
+
+
 def test_refresh_re_registers_when_the_timeout_changes(tools_root, monkeypatch):
     _tool(tools_root, "stocks", "timeout_seconds: 60\n")
     added = []

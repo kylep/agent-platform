@@ -312,10 +312,14 @@ Chat Identities remain a valid product concept but are not on the first pilot's 
 
 The first additive migration now seeds `discord-default` with a reference to
 the existing `discord-bot` credential, backfills Discord Relay bindings, and
-includes identity attribution in the bridge's ingress/egress metadata. It
-retains the current single-account transport and does not make the metadata
-status field a runtime kill switch. Multi-account send-as still needs the
-per-identity credential and destination checks below.
+includes identity attribution in the bridge's ingress/egress metadata. The
+status field now pauses the connector's inbound and outbound traffic, the
+notification API, and the legacy `discord_chat` Tool at the broker. Bindings
+remain in place and resume with the identity. This is a runtime pause, not
+credential revocation: the Discord token still exists in the Secret, and an
+already dispatched provider request cannot be undone. The current transport
+still has one account; multi-account send-as needs the per-identity credential
+and destination checks below.
 
 Migrate the existing Discord bot as a default identity with unchanged routes. Replay current route resolution before replacing first-name matching, surface ambiguities, and deny unresolved destinations. Test inbound/outbound parity, rotation, revocation and attribution using a disposable channel. Maintain an identity/route rollback map; revocation and historical audit survive rollback.
 

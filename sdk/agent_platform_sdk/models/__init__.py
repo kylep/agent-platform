@@ -69,6 +69,8 @@ from .grant_in import GrantIn
 from .help_topic import HelpTopic
 from .help_topic_detail import HelpTopicDetail
 from .http_validation_error import HTTPValidationError
+from .identity_status_in import IdentityStatusIn
+from .identity_status_in_status import IdentityStatusInStatus
 from .image_model import ImageModel
 from .image_model_billing import ImageModelBilling
 from .integration import Integration
@@ -306,6 +308,8 @@ __all__ = (
     "HTTPValidationError",
     "HelpTopic",
     "HelpTopicDetail",
+    "IdentityStatusIn",
+    "IdentityStatusInStatus",
     "ImageModel",
     "ImageModelBilling",
     "Integration",

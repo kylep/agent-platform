@@ -162,6 +162,22 @@ async def test_connector_ingest_maps_ref_to_conversation(sf):
         ("m1", "hey pai"), ("m2", "you there?")]
 
 
+async def test_disabled_chat_identity_drops_inbound_before_creating_a_room(sf):
+    from agentplatform.db import ChatIdentity
+    producer = FakeProducer()
+    ing = ConversationIngestor(Settings(), sf, producer)
+    async with sf() as session:
+        identity = await session.get(ChatIdentity, "discord-default")
+        identity.status = "disabled"
+        await session.commit()
+    await ing.handle({"connector": "discord", "identity_id": "discord-default",
+                      "external_ref": "paused-thread", "external_user": "kyle",
+                      "text": "hello", "agent": "hello-world"})
+    async with sf() as session:
+        assert (await session.execute(select(Conversation).where(
+            Conversation.external_ref == "paused-thread"))).scalar_one_or_none() is None
+
+
 async def test_recorder_emits_outbound_on_terminal(sf):
     producer = FakeProducer()
     async with sf() as s:

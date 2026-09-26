@@ -31,6 +31,7 @@ import json
 import logging
 import os
 import re
+import time
 from pathlib import Path
 import uuid
 from datetime import datetime, timezone
@@ -49,6 +50,7 @@ SCHEMA_VERSION = 1
 # The bindings the platform says this bridge owns, re-read on a timer: a room
 # bound (or unbound) in the UI takes effect within a minute, with no restart.
 BINDINGS_PATH = "/api/relay/bindings"
+IDENTITY_PATH = "/api/chat-identities/{identity_id}/transport"
 BINDINGS_REFRESH_SECONDS = 60
 # One webhook per bound channel. A bot can only ever post as itself, so a
 # webhook is the only way each agent gets its own name in the member list; the
@@ -141,6 +143,7 @@ class DiscordConnector:
         # startup is what makes an existing conversation survive a restart.
         self.threads: dict[int, dict] = {}
         self._webhooks: dict[int, object] = {}
+        self._identity_cache: tuple[float, bool] | None = None
         self.client.event(self.on_ready)
         self.client.event(self.on_message)
 
@@ -168,6 +171,28 @@ class DiscordConnector:
                                    timeout=aiohttp.ClientTimeout(total=10)) as resp:
                 resp.raise_for_status()
                 return await resp.json()
+
+    async def _identity_active(self, *, fresh: bool = False) -> bool:
+        """Fail closed when identity status is unavailable. Inbound traffic is
+        cached briefly; every outbound effect uses a fresh status check."""
+        now = time.monotonic()
+        if not fresh and self._identity_cache and now - self._identity_cache[0] < 10:
+            return self._identity_cache[1]
+        bearer = self._api_bearer()
+        if not bearer:
+            return False
+        try:
+            async with aiohttp.ClientSession(headers={"Authorization": f"Bearer {bearer}"}) as session:
+                async with session.get(self.api_url + IDENTITY_PATH.format(
+                        identity_id=self.identity_id),
+                        timeout=aiohttp.ClientTimeout(total=10)) as resp:
+                    resp.raise_for_status()
+                    active = (await resp.json()).get("active") is True
+        except Exception:
+            log.warning("could not verify chat identity status; pausing bridge", exc_info=True)
+            active = False
+        self._identity_cache = (now, active)
+        return active
 
     def _set_bindings(self, rows) -> None:
         """Replace the map with what the platform just said. A ref that is not a
@@ -205,7 +230,11 @@ class DiscordConnector:
         """Re-read the bindings, keeping the last good map on failure: an API
         that is restarting must not silently stop a bridge that is working."""
         try:
-            self._set_bindings(await self._fetch_bindings())
+            if await self._identity_active(fresh=True):
+                self._set_bindings(await self._fetch_bindings())
+            else:
+                self._set_bindings([])
+                self._active_threads.clear()
         except Exception:
             log.warning("could not refresh relay bindings", exc_info=True)
 
@@ -230,6 +259,8 @@ class DiscordConnector:
 
     async def on_message(self, message: discord.Message):
         if self._ignorable(message):
+            return
+        if not await self._identity_active():
             return
         if message.channel.id in self.bound:
             await self._publish_channel_message(message)
@@ -365,6 +396,8 @@ class DiscordConnector:
             return
         if data.get("identity_id") not in (None, self.identity_id):
             return
+        if not await self._identity_active(fresh=True):
+            return
         ref = str(data["external_ref"])
         if data.get("external_kind") == "channel" or (
                 not data.get("external_kind") and ref.isdigit() and int(ref) in self.bound):
@@ -377,6 +410,8 @@ class DiscordConnector:
         connector is the sole holder of the bot token; the text arrives already
         deduped + sanitized by the platform's news projector."""
         if data.get("identity_id") not in (None, self.identity_id):
+            return
+        if not await self._identity_active(fresh=True):
             return
         name, channel_id, text = data.get("channel"), data.get("channel_id"), data.get("text")
         if not text or bool(name) == bool(channel_id):

@@ -14,25 +14,47 @@ type ChatIdentity = { id: string; connector: string; display_name: string;
 function ChatIdentitiesSection() {
   const [identities, setIdentities] = useState<ChatIdentity[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [saving, setSaving] = useState<string | null>(null);
   useEffect(() => {
     api<ChatIdentity[]>("/api/chat-identities").then(setIdentities)
       .catch((err) => setError(err instanceof Error ? err.message : "Chat identities unavailable."));
   }, []);
+  async function changeStatus(identity: ChatIdentity) {
+    const next = identity.status === "active" ? "disabled" : "active";
+    if (next === "disabled" && !window.confirm(
+      `Pause ${identity.display_name}? Its connector will stop receiving and sending messages; its room bindings will be kept.`)) return;
+    setSaving(identity.id); setError(null);
+    try {
+      await api(`/api/chat-identities/${encodeURIComponent(identity.id)}/status`, {
+        method: "PATCH", body: JSON.stringify({ status: next }),
+      });
+      setIdentities((rows) => rows?.map((row) => row.id === identity.id
+        ? { ...row, status: next } : row) ?? null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not change chat identity status.");
+    } finally { setSaving(null); }
+  }
   return <section>
     <h2>Chat identities</h2>
     <p className="muted">Accounts the platform uses to speak on external chat networks.
-      Credentials stay in Secrets; room bindings choose the destination.</p>
+      Credentials stay in Secrets; room bindings choose the destination. Pausing an
+      identity stops its connector while preserving its routes.</p>
     {error && <p role="alert" className="error">{error}</p>}
     {!error && identities === null && <p className="muted">Loading…</p>}
     {identities?.length === 0 && <p className="muted">No chat accounts connected.</p>}
     {identities && identities.length > 0 && <Table><thead><tr>
-      <TH>Identity</TH><TH>Network</TH><TH>Credential</TH><TH>Routes</TH>
+      <TH>Identity</TH><TH>Network</TH><TH>Credential</TH><TH>Routes</TH><TH>Status</TH>
     </tr></thead><tbody>{identities.map((identity) => <tr key={identity.id}>
       <TD><strong>{identity.display_name}</strong><br /><code>{identity.id}</code></TD>
       <TD>{identity.connector}</TD>
       <TD>{Object.values(identity.secret_refs).map((ref) => ref.secret).join(", ") || "—"}{" "}
         {identity.configured ? <Chip variant="ok">set</Chip> : <Chip variant="danger">missing</Chip>}</TD>
       <TD>{identity.bound_routes}</TD>
+      <TD><Chip variant={identity.status === "active" ? "ok" : "danger"}>
+        {identity.status}</Chip>{" "}
+        <Button onClick={() => changeStatus(identity)} disabled={saving === identity.id}>
+          {identity.status === "active" ? "Pause" : "Resume"}
+        </Button></TD>
     </tr>)}</tbody></Table>}
   </section>;
 }

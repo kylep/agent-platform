@@ -18,7 +18,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
 from agentplatform.conversation import author_of, continue_conversation
-from agentplatform.db import (DEFAULT_DISCORD_IDENTITY, Conversation, RelayBinding,
+from agentplatform.db import (DEFAULT_DISCORD_IDENTITY, ChatIdentity, Conversation, RelayBinding,
                               RelayMessage, RelayParticipant, utcnow)
 from agentplatform.events import TOPIC_CONVERSATION_INBOUND, consume_forever
 from agentplatform.relay import mentionable_in, parse_mentions, room_dispatch_mode
@@ -37,10 +37,8 @@ class ConversationIngestor:
 
     async def handle(self, data: dict) -> None:
         connector = data["connector"]
-        if connector == "discord" and data.get("identity_id") not in (
-                None, DEFAULT_DISCORD_IDENTITY):
-            log.warning("dropping Discord message from an unknown chat identity")
-            return
+        identity_id = data.get("identity_id") or (DEFAULT_DISCORD_IDENTITY
+                                                   if connector == "discord" else None)
         external_ref = data.get("external_ref")
         text = data.get("text", "")
         agent = data.get("agent", "echo")   # the connector's default agent
@@ -51,7 +49,19 @@ class ConversationIngestor:
         author = author_of(requested_by)
         posted = None
         async with self.sf() as s:
+            if connector == "discord":
+                identity = await s.get(ChatIdentity, identity_id)
+                if identity is None or identity.connector != connector or identity.status != "active":
+                    log.warning("dropping Discord message from an inactive chat identity")
+                    return
             conv, binding = await self._resolve(s, connector, external_ref)
+            if binding is not None and binding.identity_id not in (None, identity_id):
+                log.warning("dropping Discord message for another chat identity's route")
+                return
+            if conv is not None and conv.status != "active":
+                conv.status = "active"
+                conv.updated_at = utcnow()
+                await s.commit()
             if conv is None:
                 conv = Conversation(connector=connector, external_ref=external_ref,
                                     agent=agent, default_agent=agent,
@@ -61,7 +71,8 @@ class ConversationIngestor:
                                            or f"{connector} thread {external_ref}"))
                 s.add(conv)
                 await s.flush()
-                binding = await self._bind(s, conv, connector, external_ref, author, data)
+                binding = await self._bind(s, conv, connector, external_ref, author, data,
+                                           identity_id)
                 try:
                     await s.commit()
                 except IntegrityError:
@@ -73,11 +84,15 @@ class ConversationIngestor:
                     conv, binding = await self._resolve(s, connector, external_ref)
                     if conv is None:
                         raise
+                    if binding is not None and binding.identity_id not in (None, identity_id):
+                        log.warning("dropping Discord message for another chat identity's route")
+                        return
             elif binding is None and external_ref:
                 # A pre-Relay conversation found through its legacy columns.
                 # Promote its connector identity before accepting another
                 # message so reconnect recovery and deduplication work now.
-                binding = await self._bind(s, conv, connector, external_ref, author, data)
+                binding = await self._bind(s, conv, connector, external_ref, author, data,
+                                           identity_id)
                 conv.home = "external"
                 conv.reply_mode = "linear"
                 conv.dispatch_mode = "default"
@@ -192,14 +207,6 @@ class ConversationIngestor:
             if binding is not None:
                 conv = await s.get(Conversation, binding.channel_id)
                 if conv is not None:
-                    if conv.status != "active":
-                        # An inbound message is the room saying it is alive
-                        # again. The binding is unique, so a closed channel on
-                        # the other end of it would strand every future message
-                        # from that thread rather than starting a new one.
-                        conv.status = "active"
-                        conv.updated_at = utcnow()
-                        await s.commit()
                     return conv, binding
         return (await s.execute(select(Conversation).where(
             Conversation.connector == connector,
@@ -207,7 +214,7 @@ class ConversationIngestor:
             Conversation.status == "active"))).scalars().first(), None
 
     async def _bind(self, s, conv: Conversation, connector: str, external_ref,
-                    author: str, data: dict) -> RelayBinding | None:
+                    author: str, data: dict, identity_id: str | None) -> RelayBinding | None:
         """A room seen for the first time joins Relay properly: bound to its
         external ref, with the two participants that make it a DM. Without them
         it is a channel with no members, which every membership rule reads as
@@ -216,7 +223,7 @@ class ConversationIngestor:
         if external_ref:
             binding = RelayBinding(
                 channel_id=conv.id, connector=connector, external_ref=external_ref,
-                identity_id=(DEFAULT_DISCORD_IDENTITY if connector == "discord" else None),
+                identity_id=identity_id,
                 external_kind=data.get("external_kind") or "thread",
                 parent_external_ref=data.get("external_parent_ref"),
                 display_name=data.get("external_title") or "",
