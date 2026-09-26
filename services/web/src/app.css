@@ -1111,6 +1111,7 @@ a.relay-action { color: var(--ds-link); }
    hoverable. */
 .secret-verify-note { font-size: 12px; cursor: help; border-bottom: 1px dotted var(--ds-border); }
 .page-connections { max-width: none; width: 100%; }
+.connection-breadcrumb { color: var(--ds-text-muted); margin: 0 0 12px; font-size: 13px; }
 .connection-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(460px, 100%), 1fr)); gap: 12px; margin: 20px 0; }
 .connection-card { display: flex; align-items: flex-start; gap: 12px; min-width: 0; text-align: left; color: var(--ds-text); background: var(--ds-surface); border: 1px solid var(--ds-border); border-radius: var(--radius-lg); padding: 16px; cursor: pointer; }
 .connection-card:hover, .connection-card[aria-pressed="true"] { border-color: var(--ds-accent); }

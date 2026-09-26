@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useState } from "react";
-import { Link, useLocation } from "react-router-dom";
+import { Link, useLocation, useSearchParams } from "react-router-dom";
 import { api, type ChatIdentity, type EditResult, type PullRequest, type SecretKeyField, type SecretStatus } from "../api";
 import { ADVANCED_SECRET_GUIDES, CONNECTION_GUIDES, GUIDE_CHECKED } from "../lib/connection-guides";
 import { ChangePhaseBanner, PendingChangeBanner, useChangeLoop } from "../components/ChangeFlow";
@@ -287,7 +287,7 @@ export default function Secrets() {
   const [verifyResult, setVerifyResult] = useState<Record<string, { status: string; code: number | null; detail: string }>>({});
   // expanded editor per row: "value:<name>" | "decl:<name>" | "declare[:name]" | "value-new"
   const [openEditor, setOpenEditor] = useState<string | null>(null);
-  const [selected, setSelected] = useState<string | null>(null);
+  const [searchParams, setSearchParams] = useSearchParams();
   const [identities, setIdentities] = useState<ChatIdentity[]>([]);
   const [identityName, setIdentityName] = useState("");
   const [identityId, setIdentityId] = useState("");
@@ -353,7 +353,8 @@ export default function Secrets() {
     } finally { setIdentityBusy(false); }
   }
 
-  const guide = CONNECTION_GUIDES.find((item) => item.title === selected);
+  const guide = CONNECTION_GUIDES.find((item) => item.id === searchParams.get("connection"));
+  function closeGuide() { setOpenEditor(null); setSearchParams({}); }
   const discordAccounts = identities.filter((identity) => identity.connector === "discord");
   const statusFor = (names: string[]) => {
     const matches = names.map((name) => secrets.find((item) => item.name === name));
@@ -363,14 +364,18 @@ export default function Secrets() {
 
   return (
     <div className="page page-connections">
-      <h1>Connections</h1>
-      <p className="muted">
+      {guide && <nav className="connection-breadcrumb" aria-label="Breadcrumb">
+        <Link className="crumb" to="/secrets" onClick={() => setOpenEditor(null)}>Connections</Link>
+        <span aria-hidden="true"> / </span><span aria-current="page">{guide.title}</span>
+      </nav>}
+      <h1>{guide?.title ?? "Connections"}</h1>
+      {!guide && <p className="muted">
         Set up the accounts and credentials your platform uses. Values are stored in the cluster;
         this page never shows them again. Choose a card for setup steps and status.
-      </p>
+      </p>}
       {banner && <Banner>{banner}</Banner>}
       {loading && <p className="muted">Loading…</p>}
-      {!loading && <div className="connection-grid">
+      {!loading && !guide && <div className="connection-grid">
         {CONNECTION_GUIDES.map((item) => {
           const discordActive = discordAccounts.filter((account) => account.status === "active" && account.configured).length;
           const discordPending = discordAccounts.length - discordActive;
@@ -379,17 +384,16 @@ export default function Secrets() {
             : statusFor(item.secrets);
           const ready = item.title === "Discord chat identities"
             ? discordActive > 0 && discordPending === 0 : status === "Ready";
-          return <button key={item.title} type="button"
+          return <button key={item.id} type="button"
             className={`connection-card ${ready ? "connection-ready" : "connection-needs"}`}
-            aria-pressed={selected === item.title} onClick={() => { setSelected(selected === item.title ? null : item.title); setOpenEditor(null); }}>
+            onClick={() => { setSearchParams({ connection: item.id }); setOpenEditor(null); }}>
             <span className="connection-mark" aria-hidden="true">{item.mark}</span>
             <span><strong>{item.title}</strong><small>{item.purpose}</small></span>
             <Chip variant={ready ? "ok" : "warn"}>{status}</Chip>
           </button>;
         })}
       </div>}
-      {guide && <section className="connection-detail">
-        <div className="row-actions"><h2>{guide.title}</h2><Button variant="secondary" size="sm" onClick={() => { setSelected(null); setOpenEditor(null); }}>Close</Button></div>
+      {guide && !loading && <section className="connection-detail">
         <p className="muted">Setup guide checked {GUIDE_CHECKED}. Provider screens can change. <a href={guide.docs.url} target="_blank" rel="noreferrer">{guide.docs.label} ↗</a></p>
         <ol>{guide.steps.map((step) => <li key={step}>{step}</li>)}</ol>
         {guide.title === "Discord chat identities" && <>
@@ -428,11 +432,11 @@ export default function Secrets() {
               {item?.probeable && <Button variant="secondary" size="sm" disabled={verifying === name || item.status === "missing"} onClick={() => verify(name)}>{verifying === name ? "Checking…" : "Check connection"}</Button>}
             </div>
             {verifyResult[name] && <p className="muted">{verifyResult[name].detail || verifyResult[name].status}</p>}
-            {item && <ValueEditor key={name} name={name} keys={item.keys} hint={item.hint} suggestedKey={item.key} onSaved={done} onCancel={() => setSelected(null)} />}
+            {item && <ValueEditor key={name} name={name} keys={item.keys} hint={item.hint} suggestedKey={item.key} onSaved={done} onCancel={closeGuide} />}
           </div>;
         })}
       </section>}
-      {!loading && <details className="connection-advanced"><summary>Advanced: all secret declarations and values</summary><p className="muted">Internal and legacy values, plus declaration management for every connection. Values remain in Kubernetes; declarations live in git.</p>
+      {!loading && !guide && <details className="connection-advanced"><summary>Advanced: all secret declarations and values</summary><p className="muted">Internal and legacy values, plus declaration management for every connection. Values remain in Kubernetes; declarations live in git.</p>
       {(
         <Table>
           <thead>

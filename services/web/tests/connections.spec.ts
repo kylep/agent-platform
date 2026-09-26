@@ -13,6 +13,9 @@ test("connection card opens a dated guide and writes a new Discord token before 
   await page.goto("/secrets");
   await expect(page.getByRole("heading", { name: "Connections" })).toBeVisible();
   await page.getByRole("button", { name: /Discord chat identities/ }).click();
+  await expect(page).toHaveURL(/\?connection=discord$/);
+  await expect(page.locator(".connection-card")).toHaveCount(0);
+  await expect(page.getByRole("navigation", { name: "Breadcrumb" })).toContainText("Connections / Discord chat identities");
   await expect(page.getByText(/Setup guide checked 2026-09-26/)).toBeVisible();
   await expect(page.getByText("Platform Discord bot")).toBeVisible();
 
@@ -27,6 +30,10 @@ test("connection card opens a dated guide and writes a new Discord token before 
   expect(writes[0].body).toEqual({ data: { token: "test-token" } });
   expect(writes[1].body).toEqual({ id: "discord-family", display_name: "Family bot",
     secret_name: "discord-family-bot" });
+  await page.getByRole("navigation", { name: "Breadcrumb" }).getByRole("link", { name: "Connections" }).click();
+  await expect(page.locator(".connection-card")).toHaveCount(9);
+  await page.goBack();
+  await expect(page.getByRole("heading", { name: "Discord chat identities" })).toBeVisible();
 });
 
 test("agent editor offers one Discord outbound account or none", async ({ page }) => {
