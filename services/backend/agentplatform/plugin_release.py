@@ -49,6 +49,9 @@ def release_bundle(root: Path) -> bytes:
             info.uid = info.gid = 0
             info.uname = info.gname = ""
             info.mtime = 0
+            # The synced Kubernetes volume sets the setgid bit on folders.
+            # Git does not preserve that bit, and it is not release content.
+            info.mode &= 0o777
             if path.is_file():
                 with path.open("rb") as source:
                     archive.addfile(info, source)

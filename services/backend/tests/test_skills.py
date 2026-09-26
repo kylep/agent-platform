@@ -100,6 +100,11 @@ def test_plugin_catalog_requires_the_attested_bundle(monkeypatch, tmp_path):
     shutil.copytree(source, package)
     assert hashlib.sha256(plugin_release.release_bundle(package)).hexdigest() == \
         plugin_release.ATTESTED_BUNDLES["0.1.1"]
+    # Kubernetes' synced volume adds setgid to directories. That mount mode
+    # must not change the identity of the reviewed Git release.
+    for directory in (package, *(p for p in package.rglob("*") if p.is_dir())):
+        directory.chmod(directory.stat().st_mode | 0o2000)
+    assert len(plugin_release.verify_release(package)) == 3
     monkeypatch.setitem(plugin_release.ATTESTED_BUNDLES, "0.1.1", "0" * 64)
     try:
         plugin_release.verify_release(package)
