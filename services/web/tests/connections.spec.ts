@@ -38,3 +38,16 @@ test("agent editor offers one Discord outbound account or none", async ({ page }
   await picker.selectOption("discord-default");
   await expect(picker).toHaveValue("discord-default");
 });
+
+test("connection cards use the available width and step down on smaller screens", async ({ page }) => {
+  await mockApi(page);
+  for (const [width, columns] of [[2048, 3], [1280, 2], [600, 1]]) {
+    await page.setViewportSize({ width, height: 900 });
+    await page.goto("/secrets");
+    const cards = page.locator(".connection-card");
+    await expect(cards).toHaveCount(9);
+    const leftEdges = await cards.evaluateAll((items) => items.slice(0, 6)
+      .map((item) => Math.round(item.getBoundingClientRect().left)));
+    expect(new Set(leftEdges).size).toBe(columns);
+  }
+});

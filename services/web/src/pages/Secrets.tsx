@@ -362,7 +362,7 @@ export default function Secrets() {
   };
 
   return (
-    <div className="page">
+    <div className="page page-connections">
       <h1>Connections</h1>
       <p className="muted">
         Set up the accounts and credentials your platform uses. Values are stored in the cluster;
