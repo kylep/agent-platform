@@ -1,31 +1,50 @@
 # Chat identities
 
-A Chat Identity names an external account the platform speaks through. It is
-separate from an MCP Tool: the Discord bridge receives conversations and
-mirrors Relay rooms, while `discord_chat` is a callable Tool that posts a
-notification. Both currently use the same `discord-bot` secret.
+A Chat Identity is one external chat account. The identity row stores its
+name, network, status and a reference to a Secret; it never stores the bot
+token. Relay bindings assign an exact external room to an identity. Pausing an
+identity stops inbound and outbound bridge traffic while retaining its routes.
+It is separate from an MCP Tool: the bridge receives conversations and mirrors
+Relay rooms, while `discord_chat` is a callable Tool for a direct notification.
+Both use the original `discord-bot` Secret for the default account. A Relay
+room's membership still controls access; the external account is not a room
+read grant.
 
-The existing bot is `discord-default`. Its database row stores its network,
-display name and credential **references** (`discord-bot`, key `token`), never
-the token bytes. Settings shows whether that secret exists and how many Relay
-routes are bound to the identity. Secret rotation still happens through the
-existing Secrets flow and does not rename the identity.
+`discord-default` is the existing Discord bot. Legacy messages and bindings
+without an identity belong only to it. The `discord_chat` Tool and the
+`/api/notify` broadcast route still use that default bot.
 
-Every existing Discord Relay binding is attached to `discord-default` by an
-idempotent migration; new Discord bindings use it automatically. The bridge
-includes that ID on inbound events and ignores recovered bindings and outbound
-events for another ID. This preserves the current single-bot route while
-making attribution explicit. A message still belongs to a Relay room and its
-membership rules; an identity is not a blanket grant to read that room.
+To add another Discord bot:
 
-The `discord_chat` Tool and the broadcast connector reject a channel name
-shared by multiple visible rooms. Pass an exact Discord channel ID when a
-name is ambiguous. `/api/notify` accepts either `channel` or `channel_id` and
-stamps its broadcast with `discord-default`; the connector rejects a broadcast
-for a different identity. Existing domain-app broadcasts still use their
-configured names, so rename collisions must be resolved before delivery.
+1. Store its `token` in a separate platform Secret, such as
+   `discord-second-bot`. Keep the original `discord-bot` Secret untouched.
+2. In Settings, register an ID such as `discord-second`, a display name and
+   that Secret name. The new identity starts paused; it cannot be resumed
+   until the Secret contains a nonempty `token` key.
+3. Configure `connectors.discord.extraIdentities` in Helm with the same ID
+   and `secretName`, and deploy the chart. Each identity receives only its own
+   Discord token. Its connector has a separate Kafka consumer group, so each
+   bot sees the whole outbound stream and delivers only its own messages.
+4. Bind Relay rooms with `POST /api/relay/channels/{channel_id}/bindings`,
+   supplying `identity_id` and the exact external room ID. Resume the identity
+   in Settings after its connector is ready.
 
-This release does not enable a second Discord account or a status toggle. That
-requires a per-identity connector credential, identity-scoped destination
-selection for `discord_chat` and domain-app broadcasts, and tests for rotation
-and revocation. See [the design](../design/33-capabilities-plugins-and-live-apps.md).
+The API checks identity status and credential presence before accepting an
+inbound Discord message; it rechecks the binding's identity before routing it.
+The connector checks status before each outbound send. A binding's external
+room ID is unique across Discord identities, so two bots cannot silently
+claim the same Relay route. Removing a token or pausing the row stops new
+platform sends; a provider request already in flight cannot be recalled.
+
+The operator must keep the Helm `secretName` equal to the identity's Secret
+reference. Registration does not launch a bot or prove that its external
+account has joined a server. Until a second real bot credential is available,
+the second-account path is tested with synthetic credentials and rendered
+Kubernetes manifests rather than a live Discord send.
+
+The default bot's Secret can be rotated through the existing Secrets flow
+without changing its identity or room bindings. The `discord_chat` Tool and
+broadcast connector reject ambiguous channel names; use an exact channel ID
+when two visible rooms share a name. Identity selection for that Tool and for
+domain broadcasts is not available yet; both continue to use
+`discord-default`.

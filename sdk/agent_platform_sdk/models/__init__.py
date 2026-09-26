@@ -56,6 +56,7 @@ from .create_artifact_json_artifact_in_meta_type_0 import (
     CreateArtifactJsonArtifactInMetaType0,
 )
 from .create_artifact_json_artifact_in_source import CreateArtifactJsonArtifactInSource
+from .create_identity_in import CreateIdentityIn
 from .create_view import CreateView
 from .creds import Creds
 from .cron_entry_in import CronEntryIn
@@ -295,6 +296,7 @@ __all__ = (
     "CreateArtifactJsonArtifactIn",
     "CreateArtifactJsonArtifactInMetaType0",
     "CreateArtifactJsonArtifactInSource",
+    "CreateIdentityIn",
     "CreateView",
     "Creds",
     "CronEntryIn",

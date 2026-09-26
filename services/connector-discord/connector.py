@@ -201,7 +201,9 @@ class DiscordConnector:
         a binding for somebody else's idea of a channel."""
         bound, threads = {}, {}
         for row in rows or []:
-            if (row or {}).get("identity_id") not in (None, self.identity_id):
+            identity = (row or {}).get("identity_id")
+            if identity != self.identity_id and not (
+                    identity is None and self.identity_id == "discord-default"):
                 continue
             ref = str((row or {}).get("external_ref") or "")
             if ref.isdigit():
@@ -394,7 +396,9 @@ class DiscordConnector:
         """One outbound message to whichever kind of room it names."""
         if data.get("connector") != "discord" or not data.get("external_ref"):
             return
-        if data.get("identity_id") not in (None, self.identity_id):
+        identity = data.get("identity_id")
+        if identity != self.identity_id and not (
+                identity is None and self.identity_id == "discord-default"):
             return
         if not await self._identity_active(fresh=True):
             return
@@ -409,7 +413,9 @@ class DiscordConnector:
         """A platform broadcast (e.g. the news digest) to a named channel. The
         connector is the sole holder of the bot token; the text arrives already
         deduped + sanitized by the platform's news projector."""
-        if data.get("identity_id") not in (None, self.identity_id):
+        identity = data.get("identity_id")
+        if identity != self.identity_id and not (
+                identity is None and self.identity_id == "discord-default"):
             return
         if not await self._identity_active(fresh=True):
             return
@@ -439,7 +445,11 @@ class DiscordConnector:
         await self.client.wait_until_ready()
         consumer = AIOKafkaConsumer(
             TOPIC_OUT, TOPIC_CHANNEL_POST, bootstrap_servers=self.bootstrap,
-            group_id="connector-discord", auto_offset_reset="latest")
+            # Each bot must observe every outbound event and filter by its own
+            # identity. A shared group would split events between bots and the
+            # wrong bot would discard half the messages.
+            group_id=f"connector-discord-{self.identity_id}",
+            auto_offset_reset="latest")
         await consumer.start()
         log.info("consuming conversation.outbound + discord.channel.post")
         try:

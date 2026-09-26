@@ -577,9 +577,10 @@ async def list_relay_bindings(request: Request, channel_id: str):
 async def create_relay_binding(request: Request, channel_id: str, body: S.RelayBindingIn):
     if body.connector not in CONNECTORS:
         raise HTTPException(422, f"connector must be one of {', '.join(CONNECTORS)}")
-    from agentplatform.db import DEFAULT_DISCORD_IDENTITY
-    identity_id = DEFAULT_DISCORD_IDENTITY if body.connector == "discord" else None
-    if body.identity_id not in (None, identity_id):
+    from agentplatform.db import ChatIdentity, DEFAULT_DISCORD_IDENTITY
+    identity_id = (body.identity_id or DEFAULT_DISCORD_IDENTITY
+                   if body.connector == "discord" else None)
+    if body.connector != "discord" and body.identity_id is not None:
         raise HTTPException(422, "chat identity is not connected to this transport")
     external_ref = body.external_ref.strip()
     if not external_ref:
@@ -587,6 +588,10 @@ async def create_relay_binding(request: Request, channel_id: str, body: S.RelayB
     if body.external_kind not in ("channel", "thread", "dm"):
         raise HTTPException(422, "external_kind must be channel, thread, or dm")
     async with request.app.state.session_factory() as s:
+        if identity_id is not None:
+            identity = await s.get(ChatIdentity, identity_id)
+            if identity is None or identity.connector != body.connector:
+                raise HTTPException(422, "unknown chat identity for connector")
         conv = await s.get(Conversation, channel_id)
         if conv is None:
             raise HTTPException(404, "unknown channel")

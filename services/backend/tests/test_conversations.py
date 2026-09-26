@@ -178,6 +178,30 @@ async def test_disabled_chat_identity_drops_inbound_before_creating_a_room(sf):
             Conversation.external_ref == "paused-thread"))).scalar_one_or_none() is None
 
 
+async def test_second_chat_identity_cannot_adopt_a_legacy_default_route(sf):
+    from agentplatform.db import ChatIdentity, RelayBinding, RelayMessage
+
+    producer = FakeProducer()
+    ing = ConversationIngestor(Settings(), sf, producer)
+    event = {"connector": "discord", "external_ref": "legacy-thread",
+             "external_user": "kyle", "external_message_id": "m1",
+             "identity_id": "discord-default", "text": "first", "agent": "hello-world"}
+    await ing.handle(event)
+    async with sf() as session:
+        binding = (await session.execute(select(RelayBinding).where(
+            RelayBinding.external_ref == "legacy-thread"))).scalar_one()
+        binding.identity_id = None
+        session.add(ChatIdentity(id="discord-second", connector="discord",
+                                 display_name="Second", secret_refs={}, status="active"))
+        await session.commit()
+    await ing.handle({**event, "identity_id": "discord-second",
+                      "external_message_id": "m2", "text": "wrong bot"})
+    async with sf() as session:
+        messages = (await session.execute(select(RelayMessage).where(
+            RelayMessage.external_message_id.is_not(None)))).scalars().all()
+    assert [(m.external_message_id, m.body) for m in messages] == [("m1", "first")]
+
+
 async def test_recorder_emits_outbound_on_terminal(sf):
     producer = FakeProducer()
     async with sf() as s:

@@ -29,6 +29,14 @@ from agentplatform.relay_store import (enabled_agents, explicit_members,
 log = logging.getLogger("conversation_ingest")
 
 
+def _binding_belongs_to_identity(binding: RelayBinding, identity_id: str | None) -> bool:
+    # Pre-migration Discord bindings without an identity belong to the
+    # original bot only. A second bot must never adopt one as its own route.
+    return (binding.identity_id == identity_id or
+            (binding.connector == "discord" and binding.identity_id is None
+             and identity_id == DEFAULT_DISCORD_IDENTITY))
+
+
 class ConversationIngestor:
     def __init__(self, settings, session_factory, producer):
         self.settings = settings
@@ -55,7 +63,8 @@ class ConversationIngestor:
                     log.warning("dropping Discord message from an inactive chat identity")
                     return
             conv, binding = await self._resolve(s, connector, external_ref)
-            if binding is not None and binding.identity_id not in (None, identity_id):
+            if binding is not None and not _binding_belongs_to_identity(
+                    binding, identity_id):
                 log.warning("dropping Discord message for another chat identity's route")
                 return
             if conv is not None and conv.status != "active":
@@ -84,7 +93,8 @@ class ConversationIngestor:
                     conv, binding = await self._resolve(s, connector, external_ref)
                     if conv is None:
                         raise
-                    if binding is not None and binding.identity_id not in (None, identity_id):
+                    if binding is not None and not _binding_belongs_to_identity(
+                            binding, identity_id):
                         log.warning("dropping Discord message for another chat identity's route")
                         return
             elif binding is None and external_ref:

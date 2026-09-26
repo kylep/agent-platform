@@ -1048,7 +1048,8 @@ async def test_default_chat_identity_is_admin_metadata_not_a_secret(
 
 
 async def test_chat_identity_status_requires_admin_and_is_visible_to_connector(
-        admin_client, token_client, sf):
+        admin_client, token_client, sf, secret_store):
+    await secret_store.set("discord-bot", {"token": "test-token"})
     reader = await _human_token(sf, "reader", "reader")
     path = "/api/chat-identities/discord-default/status"
     assert (await token_client.patch(path, headers=reader,
@@ -1062,6 +1063,32 @@ async def test_chat_identity_status_requires_admin_and_is_visible_to_connector(
         "id": "discord-default", "active": False}
     assert (await admin_client.patch(path, json={"status": "active"})).status_code == 200
     assert (await admin_client.get(transport)).json()["active"] is True
+
+
+async def test_second_chat_identity_requires_a_token_and_can_bind_a_room(
+        admin_client, sf, secret_store):
+    created = await admin_client.post("/api/chat-identities", json={
+        "id": "discord-second", "display_name": "Second bot",
+        "secret_name": "discord-second-bot"})
+    assert created.status_code == 201
+    assert created.json()["status"] == "disabled"
+    assert created.json()["configured"] is False
+    status = "/api/chat-identities/discord-second/status"
+    assert (await admin_client.patch(status, json={"status": "active"})).status_code == 409
+    await secret_store.set("discord-second-bot", {"token": "test-token"})
+    assert (await admin_client.patch(status, json={"status": "active"})).status_code == 200
+    cid = await _channel_id(sf, "general")
+    bound = await admin_client.post(f"/api/relay/channels/{cid}/bindings", json={
+        "connector": "discord", "identity_id": "discord-second",
+        "external_ref": "123456789012345678"})
+    assert bound.status_code == 201
+    assert bound.json()["identity_id"] == "discord-second"
+    assert (await admin_client.post(f"/api/relay/channels/{cid}/bindings", json={
+        "connector": "discord", "identity_id": "discord-missing",
+        "external_ref": "123456789012345679"})).status_code == 422
+    await secret_store.set("discord-second-bot", {})
+    assert (await admin_client.get(
+        "/api/chat-identities/discord-second/transport")).json()["active"] is False
 
 
 async def test_existing_discord_binding_gets_default_identity_on_restart(

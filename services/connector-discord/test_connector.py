@@ -358,6 +358,56 @@ def test_binding_inventory_excludes_another_chat_identity(bridge):
     assert set(bridge.bound) == {100}
 
 
+def test_second_identity_never_claims_legacy_default_routes_or_messages(
+        bridge, monkeypatch):
+    monkeypatch.setenv("AP_CHAT_IDENTITY", "discord-second")
+    second = connector.DiscordConnector()
+    second._identity_active = bridge._identity_active
+    second.client._channels = {100: Channel(100), 200: Channel(200)}
+    second._set_bindings([
+        {"channel_id": "legacy", "external_ref": "100"},
+        {"channel_id": "other", "external_ref": "200",
+         "identity_id": "discord-second"},
+    ])
+    assert set(second.bound) == {200}
+    run(second._deliver_outbound(_outbound(external_ref="100", identity_id=None)))
+    run(second._deliver_channel_post({"channel_id": "100", "text": "legacy"}))
+    assert second.client._channels[100].sent == []
+
+
+def test_each_identity_consumes_the_full_outbound_stream(bridge, monkeypatch):
+    groups = []
+
+    class EmptyConsumer:
+        def __init__(self, *args, group_id, **kwargs):
+            groups.append(group_id)
+
+        async def start(self):
+            pass
+
+        async def stop(self):
+            pass
+
+        def __aiter__(self):
+            async def empty():
+                if False:
+                    yield None
+            return empty()
+
+    async def ready():
+        pass
+
+    monkeypatch.setattr(connector, "AIOKafkaConsumer", EmptyConsumer)
+    bridge.client.wait_until_ready = ready
+    run(bridge.consume_outbound())
+    monkeypatch.setenv("AP_CHAT_IDENTITY", "discord-second")
+    second = connector.DiscordConnector()
+    second.client.wait_until_ready = ready
+    run(second.consume_outbound())
+    assert groups == ["connector-discord-discord-default",
+                      "connector-discord-discord-second"]
+
+
 # --- bindings ----------------------------------------------------------------
 
 

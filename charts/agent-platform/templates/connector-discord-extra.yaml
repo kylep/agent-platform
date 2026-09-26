@@ -1,0 +1,76 @@
+{{- if .Values.connectors.discord.enabled }}
+{{- $root := . }}
+{{- range $identity := .Values.connectors.discord.extraIdentities }}
+{{- if not (regexMatch "^discord-[a-z][a-z0-9-]{0,35}$" $identity.id) }}
+{{- fail "Discord extra identity IDs must be short discord-* slugs" }}
+{{- end }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $root.Release.Name }}-connector-{{ $identity.id }}
+  labels:
+    {{- include "agent-platform.selectorLabels" (dict "Release" $root.Release "Chart" $root.Chart "component" "connector-discord") | nindent 4 }}
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "agent-platform.selectorLabels" (dict "Release" $root.Release "Chart" $root.Chart "component" "connector-discord") | nindent 6 }}
+      agent-platform.io/chat-identity: {{ $identity.id | quote }}
+  template:
+    metadata:
+      labels:
+        {{- include "agent-platform.selectorLabels" (dict "Release" $root.Release "Chart" $root.Chart "component" "connector-discord") | nindent 8 }}
+        agent-platform.io/chat-identity: {{ $identity.id | quote }}
+    spec:
+      serviceAccountName: {{ $root.Release.Name }}-connector-discord
+      automountServiceAccountToken: false
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: connector-discord
+          image: "{{ $root.Values.connectors.discord.image.repository }}:{{ $root.Values.connectors.discord.image.tag }}"
+          imagePullPolicy: {{ $root.Values.connectors.discord.image.pullPolicy | default "IfNotPresent" }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            runAsNonRoot: true
+            runAsUser: 1001
+            runAsGroup: 1001
+            capabilities:
+              drop: ["ALL"]
+          env:
+            - name: AP_KAFKA_BOOTSTRAP
+              value: "{{ $root.Release.Name }}-kafka:9092"
+            - name: CONNECTOR_AGENT
+              value: {{ $identity.agent | default $root.Values.connectors.discord.agent | quote }}
+            - name: AP_CHAT_IDENTITY
+              value: {{ $identity.id | quote }}
+            - name: DISCORD_BOT_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ required "Discord extra identity needs secretName" $identity.secretName | quote }}
+                  key: token
+            - name: AP_API_URL
+              value: "http://agent-platform-api:8000"
+            - name: AP_API_TOKEN_FILE
+              value: /var/run/ap-identity/token
+          volumeMounts:
+            - name: ap-identity
+              mountPath: /var/run/ap-identity
+              readOnly: true
+          resources:
+            requests: {memory: 128Mi, cpu: 50m}
+            limits: {memory: 256Mi}
+      volumes:
+        - name: ap-identity
+          projected:
+            sources:
+              - serviceAccountToken:
+                  audience: agent-platform
+                  expirationSeconds: 3600
+                  path: token
+{{- end }}
+{{- end }}

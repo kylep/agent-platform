@@ -2,8 +2,9 @@
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 
 from agentplatform.api import schemas as S
 from agentplatform.api.auth import require_admin, require_role
@@ -14,6 +15,20 @@ router = APIRouter()
 
 class IdentityStatusIn(BaseModel):
     status: Literal["active", "disabled"]
+
+
+class CreateIdentityIn(BaseModel):
+    id: str = Field(pattern=r"^discord-[a-z][a-z0-9-]{0,48}$")
+    display_name: str = Field(min_length=1, max_length=128)
+    secret_name: str = Field(pattern=r"^[a-z][a-z0-9-]{0,62}$")
+
+
+async def _configured(request: Request, row: ChatIdentity) -> bool:
+    ref = row.secret_refs.get("bot_token")
+    if not isinstance(ref, dict) or not isinstance(ref.get("secret"), str):
+        return False
+    secret = await request.app.state.secret_store.get(ref["secret"])
+    return bool(secret and secret.get(ref.get("key", "")))
 
 
 @router.get("/api/chat-identities", response_model=list[S.ChatIdentityView])
@@ -29,15 +44,37 @@ async def list_chat_identities(request: Request,
             RelayBinding.identity_id))).all())
     result = []
     for row in rows:
-        names = sorted({ref["secret"] for ref in row.secret_refs.values()
-                        if isinstance(ref, dict) and isinstance(ref.get("secret"), str)})
-        configured = all([await request.app.state.secret_store.exists(name)
-                          for name in names]) if names else False
         result.append({"id": row.id, "connector": row.connector,
                        "display_name": row.display_name, "status": row.status,
-                       "secret_refs": row.secret_refs, "configured": configured,
+                       "secret_refs": row.secret_refs,
+                       "configured": await _configured(request, row),
                        "bound_routes": counts.get(row.id, 0)})
     return result
+
+
+@router.post("/api/chat-identities", status_code=201,
+             response_model=S.ChatIdentityView)
+async def create_chat_identity(request: Request, body: CreateIdentityIn,
+                               actor: str = Depends(require_admin)):
+    """Register another Discord account, disabled until its credential exists."""
+    if body.id == "discord-default":
+        raise HTTPException(409, "default identity already exists")
+    async with request.app.state.session_factory() as session:
+        row = ChatIdentity(id=body.id, connector="discord",
+                           display_name=body.display_name.strip(),
+                           secret_refs={"bot_token": {"secret": body.secret_name,
+                                                      "key": "token"}},
+                           status="disabled")
+        session.add(row)
+        try:
+            await session.commit()
+        except IntegrityError:
+            await session.rollback()
+            raise HTTPException(409, "chat identity already exists")
+    return {"id": row.id, "connector": row.connector,
+            "display_name": row.display_name, "status": row.status,
+            "secret_refs": row.secret_refs,
+            "configured": await _configured(request, row), "bound_routes": 0}
 
 
 @router.patch("/api/chat-identities/{identity_id}/status")
@@ -49,6 +86,8 @@ async def set_chat_identity_status(request: Request, identity_id: str,
         row = await session.get(ChatIdentity, identity_id)
         if row is None:
             raise HTTPException(404, "unknown chat identity")
+        if body.status == "active" and not await _configured(request, row):
+            raise HTTPException(409, "chat identity token is not configured")
         row.status = body.status
         await session.commit()
     return {"id": identity_id, "status": body.status}
@@ -63,4 +102,5 @@ async def chat_identity_transport(request: Request, identity_id: str,
         row = await session.get(ChatIdentity, identity_id)
         if row is None:
             raise HTTPException(404, "unknown chat identity")
-        return {"id": row.id, "active": row.status == "active"}
+        return {"id": row.id,
+                "active": row.status == "active" and await _configured(request, row)}

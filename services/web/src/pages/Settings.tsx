@@ -15,6 +15,9 @@ function ChatIdentitiesSection() {
   const [identities, setIdentities] = useState<ChatIdentity[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState<string | null>(null);
+  const [newId, setNewId] = useState("");
+  const [newName, setNewName] = useState("");
+  const [newSecret, setNewSecret] = useState("");
   useEffect(() => {
     api<ChatIdentity[]>("/api/chat-identities").then(setIdentities)
       .catch((err) => setError(err instanceof Error ? err.message : "Chat identities unavailable."));
@@ -32,6 +35,19 @@ function ChatIdentitiesSection() {
         ? { ...row, status: next } : row) ?? null);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not change chat identity status.");
+    } finally { setSaving(null); }
+  }
+  async function register() {
+    setSaving("new"); setError(null);
+    try {
+      const added = await api<ChatIdentity>("/api/chat-identities", {
+        method: "POST", body: JSON.stringify({ id: newId, display_name: newName,
+          secret_name: newSecret }),
+      });
+      setIdentities((rows) => [...(rows ?? []), added]);
+      setNewId(""); setNewName(""); setNewSecret("");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not register chat identity.");
     } finally { setSaving(null); }
   }
   return <section>
@@ -56,6 +72,20 @@ function ChatIdentitiesSection() {
           {identity.status === "active" ? "Pause" : "Resume"}
         </Button></TD>
     </tr>)}</tbody></Table>}
+    <h3>Register another Discord account</h3>
+    <p className="muted">Create its token Secret first, then register the account here.
+      It starts paused. Add a connector workload for this identity before resuming it;
+      the credential name must match that workload’s Secret.</p>
+    <div className="row-actions" style={{ flexWrap: "wrap" }}>
+      <Input aria-label="Chat identity ID" placeholder="discord-second" value={newId}
+             onChange={(e) => setNewId(e.target.value)} />
+      <Input aria-label="Chat identity name" placeholder="Display name" value={newName}
+             onChange={(e) => setNewName(e.target.value)} />
+      <Input aria-label="Chat identity token Secret" placeholder="Secret name" value={newSecret}
+             onChange={(e) => setNewSecret(e.target.value)} />
+      <Button onClick={register} disabled={saving !== null || !newId || !newName || !newSecret}>
+        Register account</Button>
+    </div>
   </section>;
 }
 
