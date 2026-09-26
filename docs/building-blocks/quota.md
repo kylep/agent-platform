@@ -94,7 +94,9 @@ agents reach it through the tool, which is where the per-agent metering lives.
 A snapshot is **stale** when the earliest window it describes has already
 reset — the numbers are a description of a window that no longer exists. (A
 reading with no reset time at all is thin, not stale; it has nothing to expire
-against.) A stale bar dims, track and label together, so it reads as the last
+against.) A Codex reading also becomes stale after 15 minutes without a
+successful refresh; an expired proxy credential must not leave an hours-old
+weekly percentage looking current. A stale bar dims, track and label together, so it reads as the last
 thing Anthropic said rather than as a live number.
 
 On load the sidebar reads `GET /api/quota`, fires **one** full refresh if what

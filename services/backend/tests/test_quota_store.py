@@ -5,6 +5,7 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 from agentplatform.db import (
+    CodexQuotaSnapshot,
     QuotaSnapshot,
     init_db,
     make_engine,
@@ -150,6 +151,14 @@ async def test_serialize_reports_staleness_and_age(sf, producer):
     fresh = serialize(row, NOW + timedelta(seconds=30))
     assert (fresh["stale"], fresh["age_seconds"]) == (False, 30)
     assert serialize(row, RESET_5H + timedelta(seconds=1))["stale"] is True
+
+
+def test_codex_reading_dulls_after_missed_refreshes_even_before_window_reset():
+    row = CodexQuotaSnapshot(
+        id=SNAPSHOT_ID, observed_at=NOW, seven_day_utilization=0.13,
+        seven_day_resets_at=NOW + timedelta(days=7), status="allowed")
+    assert serialize(row, NOW + timedelta(minutes=15))["stale"] is False
+    assert serialize(row, NOW + timedelta(minutes=15, seconds=1))["stale"] is True
 
 
 def test_quota_feed_is_one_stream_over_the_quota_topic():

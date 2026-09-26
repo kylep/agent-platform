@@ -31,6 +31,10 @@ SNAPSHOT_ID = 1
 # The envelope key and the feed's only stream key: there is one snapshot for
 # the whole platform, so everything watching it watches the same key.
 QUOTA_KEY = STREAM = "quota"
+# The browser normally refreshes Codex every five minutes. After three missed
+# refreshes, an old reading must not present itself as current merely because
+# the seven-day window has not reset yet.
+MAX_CODEX_AGE_SECONDS = 15 * 60
 
 
 def _aware(ts: datetime) -> datetime:
@@ -159,7 +163,9 @@ def serialize(snapshot, now) -> dict:
         "status": snapshot.status,
         "observed_at": _iso(snapshot.observed_at),
         "source": snapshot.source,
-        "stale": is_stale(snapshot, now),
+        "stale": (is_stale(snapshot, now) or
+                  (isinstance(snapshot, CodexQuotaSnapshot) and
+                   (age is None or age > MAX_CODEX_AGE_SECONDS))),
         "age_seconds": age,
     }
 
