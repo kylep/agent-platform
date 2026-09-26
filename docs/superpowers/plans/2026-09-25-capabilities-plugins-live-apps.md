@@ -86,8 +86,13 @@ Started 2026-09-25. This is a work checkpoint, not a command to run an agent loo
   attestation on package/verifier changes. Version 0.1.1 was updated and
   rolled back to 0.1.0 on both pinned laptop CLIs, then restored; cached
   bytes matched the reviewed source. The live catalog accepted the release.
-  Binding runtime registration to the attested artifact and evaluating coder
-  and QA behavior remain open.
+  The launcher now freezes the approved release digest into each assigned Job,
+  and both pinned runner images verify that pin plus the per-skill hash. A
+  disposable live Codex agent read its assigned orientation skill and
+  completed successfully. That test also exposed and fixed a Job-name bug
+  affecting skill-assigned runs; the final Job used its `run-<id>` name and
+  the test left no DLQ item. Binding runtime registration to the attested
+  artifact and evaluating coder/QA on real tasks remain open.
 - [x] A9. Migrate News, Stockmarket and TCMS collection/pages where the typed
   renderer fits. Preserve their ingestion and domain logic. Compare outputs
   against existing UIs and retain specialized screens when needed.
@@ -134,7 +139,7 @@ Started 2026-09-25. This is a work checkpoint, not a command to run an agent loo
 
 ## Current checkpoint
 
-Main through `f58e624` is pushed and deployed on pai. All five Apps open
+Main through `459ae93` is pushed and deployed on pai. All five Apps open
 published database pages, with their specialist interfaces linked where the
 typed page cannot yet replace domain controls. Running's owner-only read,
 trusted Ticket action, snapshot and MCP Resource access have passed live
@@ -161,6 +166,11 @@ There is no second-account test credential. MCP Apps export remains deferred
 by the pinned-client UI/auth test gate, with the first-party browser as the
 supported interactive host. The 82 cataloged Tool actions without a reviewed
 page adapter remain ineligible; a page cannot call arbitrary Tools yet.
+The first live plugin canary found that an assigned skill name overwrote the
+Kubernetes Job name, so the watcher marked its otherwise successful run as
+"job disappeared". A retry reached the DLQ on Job-name conflict. The launcher
+now preserves `run-<id>`; a subsequent live Codex run read the assigned skill
+and succeeded. The disposable agent was deleted and the DLQ is clear.
 
 The Running page exceeded the proposed 1.25× p95 latency gate, so its
 specialist screen stays available. The seven-day live observation window
