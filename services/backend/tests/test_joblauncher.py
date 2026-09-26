@@ -298,6 +298,35 @@ def test_build_job_binds_secrets_via_envfrom(tmp_path):
         "git": hashlib.sha256((tmp_path / "git" / "SKILL.md").read_bytes()).hexdigest()}
 
 
+def test_plugin_assignment_pins_approved_release_at_launch(tmp_path):
+    import hashlib
+    import shutil
+    import pytest
+    from pathlib import Path
+    from agentplatform.skills import SkillStore
+
+    source = Path(__file__).resolve().parents[3] / "plugins" / "agent-platform-coding"
+    skills = tmp_path / "skills"
+    skills.mkdir()
+    shutil.copytree(source, tmp_path / "plugins" / "agent-platform-coding")
+    launcher = K8sJobLauncher(batch=None,
+                              settings=Settings(runner_image="r:1", k8s_namespace="ap"),
+                              skill_store=SkillStore(skills))
+    run = Run(agent="coder", trigger="manual", requested_by="t", prompt="x")
+    run.id = "d" * 32
+    job = launcher.build_job(run, Manifest(skills=["platform-change"]))
+    env = {item.name: item.value for item in job.spec.template.spec.containers[0].env}
+    assert env["AP_PLUGIN_RELEASE_DIGEST"] == hashlib.sha256(
+        (source / "release.json").read_bytes()).hexdigest()
+
+    # A checkout sync can replace the manifest after catalog validation. The
+    # launcher must not pin the replacement just because it can hash it.
+    release = tmp_path / "plugins" / "agent-platform-coding" / "release.json"
+    release.write_text(release.read_text().replace('"0.1.1"', '"0.1.0"'))
+    with pytest.raises(ValueError, match="assigned"):
+        launcher.build_job(run, Manifest(skills=["platform-change"]))
+
+
 def test_build_job_no_secrets_means_no_envfrom(tmp_path):
     launcher = K8sJobLauncher(batch=None, settings=Settings(runner_image="r:1", k8s_namespace="ap"),
                               skill_store=_skill_store(tmp_path))

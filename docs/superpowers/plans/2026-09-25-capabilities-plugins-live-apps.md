@@ -117,8 +117,11 @@ Started 2026-09-25. This is a work checkpoint, not a command to run an agent loo
   ambiguity before identity/route migration. The existing bot now has a
   `discord-default` identity row with secret references, a Settings inventory,
   and bound-route attribution. The connector carries the ID on inbound events
-  and filters recovered/outbound routes. A second account, dynamic status
-  enforcement, and identity-scoped Tool/broadcast credentials remain open.
+  and filters recovered/outbound routes. The status control now pauses the
+  connector's receive/send paths, platform ingest and notifications, and the
+  legacy `discord_chat` broker call. A live pause→deny notification→resume
+  check passed on pai with the eight routes preserved. A second account and
+  identity-scoped Tool/broadcast credentials remain open.
   The broadcast connector also rejects duplicate channel names, accepts an
   exact text-channel ID, and filters events for another identity. `/api/notify`
   validates one destination and stamps the default identity.
@@ -131,7 +134,7 @@ Started 2026-09-25. This is a work checkpoint, not a command to run an agent loo
 
 ## Current checkpoint
 
-Main through `8cee110` is pushed and deployed on pai. All five Apps open
+Main through `f58e624` is pushed and deployed on pai. All five Apps open
 published database pages, with their specialist interfaces linked where the
 typed page cannot yet replace domain controls. Running's owner-only read,
 trusted Ticket action, snapshot and MCP Resource access have passed live
@@ -145,11 +148,15 @@ Full CI passed for `4847ea9`.
 
 The coding plugin's deterministic v0.1.1 CI bundle has a verified GitHub
 attestation; both local harnesses updated, rolled back to v0.1.0, and returned
-to v0.1.1 with reviewed hashes. Runtime registration still relies on a
-source-reviewed digest rather than consuming the attested artifact. Discord's
+to v0.1.1 with reviewed hashes. The launcher now freezes the approved release
+manifest digest alongside each assigned skill hash, and both pinned runner
+images accept the approved package and reject a changed digest. Runtime
+registration still relies on the source-reviewed digest rather than consuming
+the attested CI artifact. Discord's
 current bot has a database
-Chat Identity, attributed routes and an admin inventory; its runtime token
-and the direct `discord_chat` Tool still use the original secret binding.
+Chat Identity, attributed routes, an admin inventory and pause/resume control.
+The connector, ingest, notifications and legacy `discord_chat` broker call
+honor the status; its credential still uses the original Secret binding.
 There is no second-account test credential. MCP Apps export remains deferred
 by the pinned-client UI/auth test gate, with the first-party browser as the
 supported interactive host. The 82 cataloged Tool actions without a reviewed
@@ -160,7 +167,7 @@ specialist screen stays available. The seven-day live observation window
 cannot close before 2026-10-02. The remaining work is the operation-by-
 operation admission policy for requested page Tools, plugin artifact/runtime
 binding and behavior evaluation, multiple Chat Identity account and
-revocation tests, and latency/observation evidence. Do not retire specialist
+second-account/credential isolation tests, and latency/observation evidence. Do not retire specialist
 screens merely because the database page is published.
 
 ### Earlier checkpoints

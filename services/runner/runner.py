@@ -501,6 +501,10 @@ def _install_skills(runtime: str = "claude") -> None:
     expected_hashes = json.loads(os.environ.get("AP_SKILL_HASHES", "{}"))
     if not isinstance(expected_hashes, dict):
         raise ValueError("invalid assigned skill hashes")
+    if names and (set(expected_hashes) != set(names) or not all(
+            isinstance(value, str) and re.fullmatch(r"[0-9a-f]{64}", value)
+            for value in expected_hashes.values())):
+        raise ValueError("assigned skill hashes are missing or invalid")
     src_root = Path(os.environ.get("AP_SKILLS_DIR", "/agents/skills"))
     dst_root = (Path.home() / ".agents" / "skills" if runtime == "codex"
                 else Path.home() / ".claude" / "skills")
@@ -519,7 +523,7 @@ def _install_skills(runtime: str = "claude") -> None:
             if not skill_md.is_file() or skill_md.is_symlink():
                 raise ValueError(f"assigned skill unavailable: {name}")
             data = skill_md.read_bytes()
-            if expected_hashes and hashlib.sha256(data).hexdigest() != expected_hashes.get(name):
+            if hashlib.sha256(data).hexdigest() != expected_hashes[name]:
                 raise ValueError(f"assigned skill changed before run: {name}")
             shutil.copytree(src, dst_root / name, dirs_exist_ok=True)
             if (dst_root / name / "SKILL.md").read_bytes() != data:
@@ -532,14 +536,19 @@ def _install_skills(runtime: str = "claude") -> None:
                 or release.is_symlink()):
             raise ValueError(f"assigned skill unavailable: {name}")
         try:
-            manifest = json.loads(release.read_text())
+            release_bytes = release.read_bytes()
+            pinned_release = os.environ.get("AP_PLUGIN_RELEASE_DIGEST", "")
+            if (not re.fullmatch(r"[0-9a-f]{64}", pinned_release)
+                    or hashlib.sha256(release_bytes).hexdigest() != pinned_release):
+                raise ValueError("plugin release differs from launch approval")
+            manifest = json.loads(release_bytes)
             if manifest.get("name") != "agent-platform-coding":
                 raise ValueError("unexpected plugin release")
             expected = manifest["files"][f"skills/{name}/SKILL.md"]
             data = md.read_bytes()
             if hashlib.sha256(data).hexdigest() != expected:
                 raise ValueError("plugin checksum mismatch")
-            if expected_hashes and hashlib.sha256(data).hexdigest() != expected_hashes.get(name):
+            if hashlib.sha256(data).hexdigest() != expected_hashes[name]:
                 raise ValueError("assigned skill changed before run")
         except (KeyError, ValueError, OSError) as exc:
             raise ValueError(f"assigned skill unavailable: {name}: {exc}") from exc

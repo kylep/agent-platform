@@ -23,11 +23,23 @@ def test_verified_plugin_skill_installs_without_plugin_authority(tmp_path, monke
     expected = hashlib.sha256((source / "skills" / "platform-change" /
                                "SKILL.md").read_bytes()).hexdigest()
     monkeypatch.setenv("AP_SKILL_HASHES", json.dumps({"platform-change": expected}))
+    release_digest = hashlib.sha256((source / "release.json").read_bytes()).hexdigest()
+    monkeypatch.setenv("AP_PLUGIN_RELEASE_DIGEST", release_digest)
     runner._install_skills("codex")
     target = tmp_path / "home" / ".agents" / "skills" / "platform-change"
     assert (target / "SKILL.md").read_bytes() == (
         source / "skills" / "platform-change" / "SKILL.md").read_bytes()
     assert list(target.iterdir()) == [target / "SKILL.md"]
+
+    monkeypatch.setenv("AP_PLUGIN_RELEASE_DIGEST", "0" * 64)
+    with pytest.raises(ValueError, match="release differs from launch approval"):
+        runner._install_skills("claude")
+    monkeypatch.setenv("AP_PLUGIN_RELEASE_DIGEST", release_digest)
+
+    monkeypatch.setenv("AP_SKILL_HASHES", "{}")
+    with pytest.raises(ValueError, match="hashes are missing"):
+        runner._install_skills("claude")
+    monkeypatch.setenv("AP_SKILL_HASHES", json.dumps({"platform-change": expected}))
 
     shutil.rmtree(tmp_path / "home")
     legacy = checkout / "skills" / "platform-change"

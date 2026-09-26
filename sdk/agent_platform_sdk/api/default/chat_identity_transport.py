@@ -60,7 +60,7 @@ def sync_detailed(
 ) -> Response[Any | HTTPValidationError]:
     """Chat Identity Transport
 
-     The connector's small, credential-free activation check.
+     Credential-free activation check for the connector and Tool broker.
 
     Args:
         identity_id (str):
@@ -91,7 +91,7 @@ def sync(
 ) -> Any | HTTPValidationError | None:
     """Chat Identity Transport
 
-     The connector's small, credential-free activation check.
+     Credential-free activation check for the connector and Tool broker.
 
     Args:
         identity_id (str):
@@ -117,7 +117,7 @@ async def asyncio_detailed(
 ) -> Response[Any | HTTPValidationError]:
     """Chat Identity Transport
 
-     The connector's small, credential-free activation check.
+     Credential-free activation check for the connector and Tool broker.
 
     Args:
         identity_id (str):
@@ -146,7 +146,7 @@ async def asyncio(
 ) -> Any | HTTPValidationError | None:
     """Chat Identity Transport
 
-     The connector's small, credential-free activation check.
+     Credential-free activation check for the connector and Tool broker.
 
     Args:
         identity_id (str):

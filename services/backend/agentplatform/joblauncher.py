@@ -168,14 +168,31 @@ class K8sJobLauncher(Launcher):
                 raise ValueError("skill store unavailable for assigned skills")
             self.skill_store.reload()
             hashes = {}
+            plugin_assigned = False
             for name in manifest.skills:
                 info = self.skill_store.get(name)
                 if info is None or info.skill is None:
                     raise ValueError(f"assigned skill unavailable: {name}")
                 hashes[name] = hashlib.sha256(info.raw.encode()).hexdigest()
+                plugin_assigned |= info.origin == "plugin"
             env.append(k8s.V1EnvVar(name="AP_SKILLS", value=",".join(manifest.skills)))
             env.append(k8s.V1EnvVar(name="AP_SKILL_HASHES", value=json.dumps(
                 hashes, sort_keys=True)))
+            if plugin_assigned:
+                # SkillStore has already verified this release against the
+                # platform build's approved digest. Freeze that exact manifest
+                # for the runner: a checkout sync between launch and pod start
+                # must fail closed, even if an individual SKILL.md stayed put.
+                release = (self.skill_store.root.parent / "plugins" /
+                           "agent-platform-coding" / "release.json")
+                release_bytes = release.read_bytes()
+                release_digest = hashlib.sha256(release_bytes).hexdigest()
+                from agentplatform.plugin_release import APPROVED_RELEASES
+                if APPROVED_RELEASES.get(json.loads(release_bytes)["version"]) != release_digest:
+                    raise ValueError("assigned plugin release changed before launch")
+                env.append(k8s.V1EnvVar(
+                    name="AP_PLUGIN_RELEASE_DIGEST",
+                    value=release_digest))
         talks_mcp = bool(api_token or sa_identity)
         # design/13 B: with SPIRE on, the pod's MCP traffic goes through a
         # local ghostunnel client that wraps it in SVID mTLS; claude itself
