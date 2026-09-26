@@ -2,7 +2,15 @@ name: CI
 
 on:
   push:
+    paths-ignore:
+      - 'docs/**'
   pull_request:
+
+# A newer push contains the preceding commit on the same branch. Avoid
+# spending runner time on a stale full-suite run while the developer iterates.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 # Least privilege: jobs only need to read the repo.
 permissions:

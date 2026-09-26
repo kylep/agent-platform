@@ -189,6 +189,34 @@ alternating order, so it does not overturn the prior failed gate. MCP Apps
 export remains deferred by the
 pinned-client host/auth compatibility findings.
 
+### Release handoff, 2026-09-26
+
+The implementation is usable: all five Apps have published database-owned
+entry pages, the specialist interfaces remain available, the pinned coding
+plugin is verified in both harnesses, and the existing Discord identity plus
+the selected-identity code path are deployed. Focused local validation of the
+latest Chat Identity path passed 62 API/broker/connector/Tool tests. The CI
+workflow now skips docs-only pushes to main and cancels superseded runs on
+the same ref, so iteration does not launch redundant full suites.
+
+Do not interpret the two open checkboxes as missing page or connector code.
+They are release evidence with explicit prerequisites:
+
+1. When a separate Discord bot token exists, store it as a new platform
+   Secret, configure its Helm identity, bind a disposable channel, then prove
+   inbound, selected-identity outbound, pause, token removal and rotation.
+   Never use the existing bot token as a fake second account.
+2. On or after 2026-10-03, inspect seven days of
+   `/api/live-reads/observation` and `/api/live-actions/observation`, compare
+   representative browser and direct-domain latency/error samples, and
+   record a retirement decision for each specialist screen. The Running
+   screen stays available because the last p95 comparison failed. A failed
+   gate extends observation; it does not justify deleting that screen.
+
+MCP Apps export is an explicit compatibility deferral, with its concrete
+host/auth/intent admission test in
+[33-mcp-apps-compatibility](../../design/33-mcp-apps-compatibility.md).
+
 ### Previous checkpoint
 
 Main through `459ae93` is pushed and deployed on pai. All five Apps open
