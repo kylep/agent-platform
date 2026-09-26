@@ -19,11 +19,15 @@ gh attestation verify /tmp/ap-plugin-release/agent-platform-coding-0.1.1.tar.gz 
 ```
 
 The attestation establishes CI provenance for the retained workflow artifact.
-Runtime admission still uses the source-reviewed digest pinned in
-`plugin_release.py`; it does not yet fetch or verify the attested bundle at
-registration or launch. That additional binding and a tested local
-update/rollback flow remain release gates, so provenance is not claimed
-complete solely because the workflow is green.
+The verified artifact's SHA-256 is pinned in `plugin_release.py`. Skill catalog
+admission reconstructs the deterministic bundle from the runtime checkout and
+requires that exact digest, in addition to the per-file and release-manifest
+checks. The launcher freezes the approved release digest into a Job; the
+runner checks that digest and the assigned skill bytes before installing them.
+This binds active runtime skill registration to the attested release without
+making the running pod fetch GitHub. The previous 0.1.0 release is no longer
+admitted by the current platform build; roll back the platform image and
+package together if that older release is needed.
 
 To change the package, edit a skill, review it as code, update `release.json` with the new hashes, and validate both manifests and the pinned runner images before assigning it. A failed verification makes the package unavailable and blocks agents that require it rather than silently running them without their requested workflow. Roll back by restoring the previous reviewed package revision, or remove the skill assignment from an affected agent. Existing runs keep the files installed at their start; new runs use the current verified package.
 

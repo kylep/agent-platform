@@ -89,6 +89,26 @@ def test_recomputed_plugin_manifest_does_not_approve_tampered_skill(tmp_path):
         raise AssertionError("a recomputed release manifest bypassed approval")
 
 
+def test_plugin_catalog_requires_the_attested_bundle(monkeypatch, tmp_path):
+    import hashlib
+    import shutil
+
+    from agentplatform import plugin_release
+
+    source = Path(__file__).resolve().parents[3] / "plugins" / "agent-platform-coding"
+    package = tmp_path / "plugins" / "agent-platform-coding"
+    shutil.copytree(source, package)
+    assert hashlib.sha256(plugin_release.release_bundle(package)).hexdigest() == \
+        plugin_release.ATTESTED_BUNDLES["0.1.1"]
+    monkeypatch.setitem(plugin_release.ATTESTED_BUNDLES, "0.1.1", "0" * 64)
+    try:
+        plugin_release.verify_release(package)
+    except ValueError as exc:
+        assert "attested release bundle" in str(exc)
+    else:
+        raise AssertionError("catalog admitted a package with no matching attestation")
+
+
 async def test_skills_api_lists_with_used_by(admin_client, sf):
     # The default test agent store has no skills wired, so used_by is empty but
     # the endpoint must still return 200 with the shape.

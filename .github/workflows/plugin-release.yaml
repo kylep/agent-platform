@@ -32,9 +32,14 @@ jobs:
       - name: Build a deterministic release bundle
         run: |
           mkdir -p dist
-          tar --sort=name --mtime='@0' --owner=0 --group=0 --numeric-owner \
-            -C plugins -cf - agent-platform-coding \
-            | gzip -n > dist/agent-platform-coding-0.1.1.tar.gz
+          PYTHONPATH=services/backend python - <<'PY'
+          from pathlib import Path
+          from agentplatform.plugin_release import release_bundle, verify_release
+          root = Path("plugins/agent-platform-coding")
+          verify_release(root)
+          Path("dist/agent-platform-coding-0.1.1.tar.gz").write_bytes(
+              release_bundle(root))
+          PY
           sha256sum dist/agent-platform-coding-0.1.1.tar.gz
       - uses: actions/attest@v4
         with:

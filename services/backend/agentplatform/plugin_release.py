@@ -2,8 +2,11 @@
 from __future__ import annotations
 
 import hashlib
+import io
 import json
 import re
+import subprocess
+import tarfile
 from pathlib import Path
 
 NAME = "agent-platform-coding"
@@ -11,8 +14,13 @@ NAME = "agent-platform-coding"
 # release manifest detect accidental drift; this pin also rejects a replaced
 # manifest whose file hashes were recomputed to match tampered skills.
 APPROVED_RELEASES = {
-    "0.1.0": "460ead5dc4c4efecd0e682064804953f6c83663bede484f6f441e5a7de0e0530",
     "0.1.1": "3d2a0336ce7f970373c23c1728598ea4553027e9a852926aea5ceea1cb59f4c7",
+}
+# SHA-256 of the signed workflow artifact from run 36195106940. Admission
+# reconstructs the same deterministic bundle from the runtime checkout, so
+# a reviewed source manifest alone cannot stand in for the attested release.
+ATTESTED_BUNDLES = {
+    "0.1.1": "733fca6e6b80dc4d89cbd73f5f6d2d94c110336c24f0ddd5f87ee8e3527a37d0",
 }
 MAX_FILE_BYTES = 64 * 1024
 SKILL_PATH = re.compile(r"skills/[a-z][a-z0-9-]{0,63}/SKILL\.md$")
@@ -30,6 +38,26 @@ INTERFACE_FIELDS = {
     "displayName", "shortDescription", "longDescription", "developerName",
     "category", "capabilities", "defaultPrompt",
 }
+
+
+def release_bundle(root: Path) -> bytes:
+    """Reproduce the CI tar/gzip subject, including file modes and ordering."""
+    tar_bytes = io.BytesIO()
+    with tarfile.open(fileobj=tar_bytes, mode="w", format=tarfile.GNU_FORMAT) as archive:
+        for path in (root, *sorted(root.rglob("*"))):
+            info = archive.gettarinfo(str(path), arcname=str(path.relative_to(root.parent)))
+            info.uid = info.gid = 0
+            info.uname = info.gname = ""
+            info.mtime = 0
+            if path.is_file():
+                with path.open("rb") as source:
+                    archive.addfile(info, source)
+            else:
+                archive.addfile(info)
+    # `gzip -n` is also used by the attestation workflow. Python's gzip
+    # encoder produces different deflate bytes for the same tar stream.
+    return subprocess.run(["gzip", "-n"], input=tar_bytes.getvalue(),
+                          capture_output=True, check=True).stdout
 
 
 def verify_release(root: Path) -> list[Path]:
@@ -79,5 +107,8 @@ def verify_release(root: Path) -> list[Path]:
             if not isinstance(interface, dict) or set(interface) - INTERFACE_FIELDS \
                     or interface.get("capabilities") != []:
                 raise ValueError("Codex plugin interface is not skills-only")
+    if hashlib.sha256(release_bundle(root)).hexdigest() != ATTESTED_BUNDLES.get(
+            release["version"]):
+        raise ValueError("plugin bytes differ from the attested release bundle")
     return [root / path.rsplit("/", 1)[0] for path in sorted(expected)
             if SKILL_PATH.fullmatch(path)]
