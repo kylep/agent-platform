@@ -118,6 +118,7 @@ class AgentDefIn(BaseModel):
     transcript_retention_days: int | None = None
     harness_tools: list[str] = []
     platform_tools: list[str] = []
+    discord_identity_id: str | None = None
     skills: list[str] = []
     secrets: list[str] = []
     entrypoints: EntrypointsIn = EntrypointsIn()
@@ -191,6 +192,7 @@ class AgentDefOut(BaseModel):
     transcript_retention_days: int | None = None
     harness_tools: list[str] = []
     platform_tools: list[str] = []
+    discord_identity_id: str | None = None
     skills: list[str] = []
     secrets: list[str] = []
     # The column verbatim, NOT a typed mirror. Tolerance on the way out is only

@@ -5,6 +5,7 @@ import {
   type WebhookSecrets,
 } from "../lib/webhook-secrets";
 import { zoneOptions } from "../lib/cron";
+import { ADVANCED_SECRET_GUIDES, CONNECTION_GUIDES } from "../lib/connection-guides";
 import { SecretPicker, SkillPicker, ToolGrantPicker, type GrantCatalog } from "./CapabilityPickers";
 import { CronBuilder } from "./CronBuilder";
 import { HelpLabel, type AgentHelpKey } from "./AgentFieldHelp";
@@ -25,6 +26,10 @@ const EXECUTION_PROFILES = [
 ];
 
 const EMPTY_ENTRYPOINTS: AgentEntrypoints = { crons: [], webhooks: [], topics: [], timezone: "" };
+const CONNECTION_SECRET_NAMES = new Set([
+  ...CONNECTION_GUIDES.flatMap((guide) => guide.secrets),
+  ...Object.keys(ADVANCED_SECRET_GUIDES),
+]);
 
 // Defaults mirror the row's server-side defaults, so a create posts the same
 // shape an update does.
@@ -34,6 +39,7 @@ export function emptyDef(): AgentDef {
     system: false, responds_to_all: true, can_invoke: false, concurrency: 1, timeout_seconds: 1800,
     result_topic: "", transcript_retention_days: null,
     harness_tools: [], platform_tools: ["mcp__platform__memory"], skills: [], secrets: [],
+    discord_identity_id: null,
     entrypoints: { ...EMPTY_ENTRYPOINTS }, enabled: true,
     push_path_globs: [], may_delete_tests: false, quota_5h_max_pct: 80, quota_7d_max_pct: 50,
   };
@@ -456,8 +462,8 @@ export function GrantsFields({ draft, patch, catalog }: {
     <>
       <h2>Grants</h2>
       <p className="muted">
-        What this agent is allowed to touch. Grants are frozen into the run token at launch, so a
-        change applies to the next run, not one already in flight.
+        What this agent is allowed to touch. Tool grants are frozen into the run token at launch;
+        the selected Discord account is checked live so pausing or changing it takes effect immediately.
       </p>
 
       {draft.runtime === "claude" ? <>
@@ -482,6 +488,16 @@ export function GrantsFields({ draft, patch, catalog }: {
       <HelpLabel label="Platform tools" help="platform-tools" />
       <ToolGrantPicker tools={catalog.platformTools} selected={draft.platform_tools} platform
                        onChange={(platform_tools) => patch({ platform_tools })} />
+      <div className="connection-grant">
+        <label htmlFor="discord-identity-grant">Discord outbound account</label>
+        <Select id="discord-identity-grant" value={draft.discord_identity_id ?? ""}
+          onChange={(event) => patch({ discord_identity_id: event.target.value || null })}>
+          <option value="">None</option>
+          {catalog.chatIdentities.filter((identity) => identity.connector === "discord").map((identity) =>
+            <option key={identity.id} value={identity.id}>{identity.display_name} ({identity.status}{identity.configured ? "" : ", token missing"})</option>)}
+        </Select>
+        <p className="muted check-note">One bot identity for this agent's outbound Discord messages. Also grant the Discord chat Tool above. Relay room membership still controls where it can post. <a href="/secrets">Manage accounts</a>.</p>
+      </div>
       <p className="muted check-note">
         Brokered MCP tools — an agent with these acts on the platform through token-scoped API
         calls instead of a shell. Some of them also decide the agent's machine role. Memory starts
@@ -495,12 +511,13 @@ export function GrantsFields({ draft, patch, catalog }: {
 
       <HelpLabel label="Secrets" help="secrets" />
       <SecretPicker secrets={catalog.secrets.filter(
-        (secret) => !["claude-credentials", "codex-credentials"].includes(secret.name),
+        (secret) => !CONNECTION_SECRET_NAMES.has(secret.name) || draft.secrets.includes(secret.name),
       )} selected={draft.secrets}
                     onChange={(secrets) => patch({ secrets })} />
       <p className="muted check-note">
-        Granted secrets are injected into the run pod's environment. A required secret that is
-        missing or invalid blocks the agent until it's fixed.
+        Granted secrets are injected into the run pod's environment. Connector credentials are
+        managed under <a href="/secrets">Connections</a> and are not offered as new raw grants;
+        existing grants remain visible for review.
       </p>
 
       <div className="toggle-row">

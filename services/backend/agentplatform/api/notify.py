@@ -6,7 +6,7 @@ from pydantic import BaseModel, Field, model_validator
 from sqlalchemy import select
 
 from agentplatform.api.auth import ANNOTATE_ROLES, authenticate, role_allows
-from agentplatform.api.chat_identities import _configured
+from agentplatform.api.chat_identities import _agent_can_send, _configured
 from agentplatform.events import TOPIC_CHANNEL_POST
 from agentplatform.db import (ChatIdentity, Conversation, DEFAULT_DISCORD_IDENTITY,
                               RelayBinding, RelayParticipant)
@@ -39,13 +39,15 @@ async def notify(request: Request, body: NotifyIn):
     if caller is None:
         raise HTTPException(401)
     identity_id = body.identity_id or DEFAULT_DISCORD_IDENTITY
+    agent = getattr(request.state, "api_key_agent", None)
+    if agent is not None and not await _agent_can_send(request, identity_id):
+        raise HTTPException(403, "agent has not been granted this Discord identity")
     if identity_id == DEFAULT_DISCORD_IDENTITY:
         if not role_allows(caller[1], ANNOTATE_ROLES):
             raise HTTPException(403)
     else:
         if body.channel_id is None:
             raise HTTPException(422, "another chat identity needs an exact channel_id")
-        agent = getattr(request.state, "api_key_agent", None)
         if caller[1] != "admin":
             if agent is None:
                 raise HTTPException(403, "another chat identity needs an agent or admin")

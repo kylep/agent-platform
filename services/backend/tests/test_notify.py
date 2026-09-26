@@ -83,7 +83,8 @@ async def test_agent_can_send_as_second_identity_only_to_a_room_it_can_join(
     await admin_client.patch("/api/chat-identities/discord-second/status",
                              json={"status": "active"})
     await seed_agent("sender", description="Sends to Discord",
-                     platform_tools=["mcp__platform__discord_chat"])
+                     platform_tools=["mcp__platform__discord_chat"],
+                     discord_identity_id="discord-second")
     await agent_store.reload()
     async with sf() as session:
         room = (await session.execute(select(Conversation).where(
@@ -98,6 +99,12 @@ async def test_agent_can_send_as_second_identity_only_to_a_room_it_can_join(
                            key_hash=hash_token(agent_token), prefix=agent_token[:10]))
         await session.commit()
     body = {"identity_id": "discord-second", "channel_id": target, "text": "hello"}
+    assert (await token_client.post("/api/notify", json={
+        "channel": "alerts", "text": "wrong bot"}, headers={
+        "Authorization": f"Bearer {agent_token}"})).status_code == 403
+    assert (await token_client.get(
+        "/api/chat-identities/discord-default/transport", headers={
+            "Authorization": f"Bearer {agent_token}"})).status_code == 403
     sent = await token_client.post("/api/notify", json=body, headers={
         "Authorization": f"Bearer {agent_token}"})
     assert sent.status_code == 200, sent.text

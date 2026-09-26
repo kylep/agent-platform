@@ -466,7 +466,8 @@ async def test_agents_grant_moves_grants_and_nothing_else(client, sf, seed_agent
         call, {"action": "get", "name": "target"}))
     assert before == {"name": "target", "harness_tools": [], "platform_tools": [],
                       "skills": [], "secrets": [], "push_path_globs": [],
-                      "can_invoke": False, "may_delete_tests": False}
+                      "can_invoke": False, "may_delete_tests": False,
+                      "discord_identity_id": None}
 
     out = json.loads(await agenttools.agents_grant(call, {
         "action": "set_grants", "name": "target", "skills": ["git"],

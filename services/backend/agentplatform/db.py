@@ -825,6 +825,8 @@ class AgentDef(Base):
     # also what the design-12 role ladder now derives from (not frontmatter).
     harness_tools: Mapped[list] = mapped_column(JSON, default=list)
     platform_tools: Mapped[list] = mapped_column(JSON, default=list)
+    # Outbound Discord account. NULL means this agent cannot send as a bot.
+    discord_identity_id: Mapped[str | None] = mapped_column(String(48), nullable=True)
     skills: Mapped[list] = mapped_column(JSON, default=list)
     secrets: Mapped[list] = mapped_column(JSON, default=list)
     # The former entrypoints.yaml: {"crons": [{"schedule", "prompt"}],
@@ -1744,6 +1746,21 @@ def _ensure_default_chat_identity(conn) -> None:
     conn.execute(bindings.update().where(
         bindings.c.connector == "discord", bindings.c.identity_id.is_(None)
     ).values(identity_id=DEFAULT_DISCORD_IDENTITY))
+
+
+def _backfill_discord_agent_identity(conn) -> None:
+    """Preserve existing senders once; new agents must choose an account."""
+    mark = SchemaMark.__table__
+    name = "discord-agent-identity-v1"
+    if conn.execute(select(mark.c.name).where(mark.c.name == name)).first():
+        return
+    agents = AgentDef.__table__
+    for row in conn.execute(select(agents.c.name, agents.c.platform_tools)):
+        if "mcp__platform__discord_chat" in (row.platform_tools or []):
+            conn.execute(agents.update().where(agents.c.name == row.name,
+                agents.c.discord_identity_id.is_(None)).values(
+                    discord_identity_id=DEFAULT_DISCORD_IDENTITY))
+    conn.execute(mark.insert().values(name=name, applied_at=utcnow()))
 
 
 def _ensure_tickets_ddl(conn) -> None:
@@ -3216,6 +3233,7 @@ async def init_db(engine: AsyncEngine, default_grant: bool = True,
         await conn.run_sync(_ensure_relay_backfill)
         await conn.run_sync(_ensure_connected_chat_defaults)
         await conn.run_sync(_ensure_default_chat_identity)
+        await conn.run_sync(_backfill_discord_agent_identity)
         # After the channel seeds: the job names #standup, and a job pointing at
         # a room that does not exist yet is a warning in the log every morning.
         await conn.run_sync(_ensure_relay_standup_job)

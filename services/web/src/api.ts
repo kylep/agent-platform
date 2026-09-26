@@ -1,5 +1,8 @@
 export type SecretKeyField = { name: string; hint?: string };
 export type SecretStatus = { name: string; status: string; declared: boolean; required: boolean; hint?: string; key?: string; probeable?: boolean; keys?: SecretKeyField[] };
+export type ChatIdentity = { id: string; connector: string; display_name: string;
+  secret_refs: Record<string, { secret: string; key: string }>;
+  status: string; configured: boolean; bound_routes: number };
 export type SetupState = { needs_admin: boolean; secrets: SecretStatus[] };
 
 // --- Agents (DB-first — docs/design/15) -------------------------------------
@@ -54,6 +57,7 @@ export type AgentDef = {
   transcript_retention_days: number | null;   // null = platform default
   harness_tools: string[];      // Claude Code tools (Bash, WebFetch, …)
   platform_tools: string[];     // mcp__…__ tools via the broker
+  discord_identity_id: string | null; // selected outbound bot, or no Discord send access
   skills: string[];
   secrets: string[];
   entrypoints: AgentEntrypoints;

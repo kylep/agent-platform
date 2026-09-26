@@ -1,6 +1,7 @@
 import { Fragment, useEffect, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
-import { api, type EditResult, type PullRequest, type SecretKeyField, type SecretStatus } from "../api";
+import { api, type ChatIdentity, type EditResult, type PullRequest, type SecretKeyField, type SecretStatus } from "../api";
+import { ADVANCED_SECRET_GUIDES, CONNECTION_GUIDES, GUIDE_CHECKED } from "../lib/connection-guides";
 import { ChangePhaseBanner, PendingChangeBanner, useChangeLoop } from "../components/ChangeFlow";
 import { Banner } from "@ap/ui/banner";
 import { Button } from "@ap/ui/button";
@@ -54,6 +55,7 @@ function ValueEditor({ name, isNew, hint, suggestedKey, keys, onSaved, onCancel 
       await api(`/api/secrets/${encodeURIComponent(n)}`, {
         method: "PUT", body: JSON.stringify({ data }),
       });
+      setValue(""); setFields({});
       onSaved();
     } catch {
       setState("error");
@@ -70,8 +72,8 @@ function ValueEditor({ name, isNew, hint, suggestedKey, keys, onSaved, onCancel 
         <>
           {declaredKeys.length > 1 && (
             <div className="muted secret-hint">
-              This secret has {declaredKeys.length} keys — fill each one, then Save.
-              Blank fields are left unchanged.
+              This secret has {declaredKeys.length} keys. Save the values you have;
+              blank fields are left unchanged.
             </div>
           )}
           {declaredKeys.map((k) => (
@@ -285,10 +287,19 @@ export default function Secrets() {
   const [verifyResult, setVerifyResult] = useState<Record<string, { status: string; code: number | null; detail: string }>>({});
   // expanded editor per row: "value:<name>" | "decl:<name>" | "declare[:name]" | "value-new"
   const [openEditor, setOpenEditor] = useState<string | null>(null);
+  const [selected, setSelected] = useState<string | null>(null);
+  const [identities, setIdentities] = useState<ChatIdentity[]>([]);
+  const [identityName, setIdentityName] = useState("");
+  const [identityId, setIdentityId] = useState("");
+  const [identityToken, setIdentityToken] = useState("");
+  const [identityError, setIdentityError] = useState<string | null>(null);
+  const [identityBusy, setIdentityBusy] = useState(false);
 
   function load() {
     setLoading(true);
-    api<SecretStatus[]>("/api/secrets").then(setSecrets).finally(() => setLoading(false));
+    Promise.all([api<SecretStatus[]>("/api/secrets"), api<ChatIdentity[]>("/api/chat-identities")])
+      .then(([items, accounts]) => { setSecrets(items); setIdentities(accounts); })
+      .finally(() => setLoading(false));
   }
   useEffect(load, []);
 
@@ -305,17 +316,124 @@ export default function Secrets() {
     finally { setVerifying(null); }
   }
 
+  async function addDiscordIdentity() {
+    const id = identityId.trim().toLowerCase();
+    const secret = `${id}-bot`;
+    if (!/^discord-[a-z][a-z0-9-]{0,31}$/.test(id) || !identityName.trim() || !identityToken.trim()) {
+      setIdentityError("Choose a name, an ID like discord-family, and a bot token."); return;
+    }
+    if (identities.some((item) => item.id === id)) {
+      setIdentityError("That identity ID is already in use."); return;
+    }
+    setIdentityBusy(true); setIdentityError(null);
+    try {
+      await api(`/api/secrets/${encodeURIComponent(secret)}`, {
+        method: "PUT", body: JSON.stringify({ data: { token: identityToken.trim() } }),
+      });
+      await api("/api/chat-identities", {
+        method: "POST", body: JSON.stringify({ id, display_name: identityName.trim(), secret_name: secret }),
+      });
+      setIdentityName(""); setIdentityId(""); setIdentityToken("");
+      load();
+    } catch (err) {
+      setIdentityError(`${err instanceof Error ? err.message : "Setup failed."} The token may already be saved; retrying with the same ID is safe.`);
+    } finally { setIdentityBusy(false); }
+  }
+
+  async function changeIdentity(identity: ChatIdentity) {
+    const next = identity.status === "active" ? "disabled" : "active";
+    setIdentityBusy(true); setIdentityError(null);
+    try {
+      await api(`/api/chat-identities/${encodeURIComponent(identity.id)}/status`, {
+        method: "PATCH", body: JSON.stringify({ status: next }),
+      });
+      load();
+    } catch (err) {
+      setIdentityError(err instanceof Error ? err.message : "Could not change account status.");
+    } finally { setIdentityBusy(false); }
+  }
+
+  const guide = CONNECTION_GUIDES.find((item) => item.title === selected);
+  const discordAccounts = identities.filter((identity) => identity.connector === "discord");
+  const statusFor = (names: string[]) => {
+    const matches = names.map((name) => secrets.find((item) => item.name === name));
+    return matches.every((item) => item && item.status === "valid") ? "Ready"
+      : matches.every((item) => item && item.status !== "missing") ? "Set · check status" : "Needs setup";
+  };
+
   return (
     <div className="page">
-      <h1>Secrets</h1>
+      <h1>Connections</h1>
       <p className="muted">
-        Declared secrets (from <code>secrets/</code> in git) plus any bare values found in the
-        cluster. The <b>declaration</b> is the reviewable shape; the <b>value</b> is pasted here
-        and lives only in k8s. A heartbeat re-verifies every declared secret continuously.
+        Set up the accounts and credentials your platform uses. Values are stored in the cluster;
+        this page never shows them again. Choose a card for setup steps and status.
       </p>
       {banner && <Banner>{banner}</Banner>}
       {loading && <p className="muted">Loading…</p>}
-      {!loading && (
+      {!loading && <div className="connection-grid">
+        {CONNECTION_GUIDES.map((item) => {
+          const discordActive = discordAccounts.filter((account) => account.status === "active" && account.configured).length;
+          const discordPending = discordAccounts.length - discordActive;
+          const status = item.title === "Discord chat identities"
+            ? (discordAccounts.length ? `${discordActive} active${discordPending ? ` · ${discordPending} paused/unset` : ""}` : "Needs setup")
+            : statusFor(item.secrets);
+          const ready = item.title === "Discord chat identities"
+            ? discordActive > 0 && discordPending === 0 : status === "Ready";
+          return <button key={item.title} type="button"
+            className={`connection-card ${ready ? "connection-ready" : "connection-needs"}`}
+            aria-pressed={selected === item.title} onClick={() => { setSelected(selected === item.title ? null : item.title); setOpenEditor(null); }}>
+            <span className="connection-mark" aria-hidden="true">{item.mark}</span>
+            <span><strong>{item.title}</strong><small>{item.purpose}</small></span>
+            <Chip variant={ready ? "ok" : "warn"}>{status}</Chip>
+          </button>;
+        })}
+      </div>}
+      {guide && <section className="connection-detail">
+        <div className="row-actions"><h2>{guide.title}</h2><Button variant="secondary" size="sm" onClick={() => { setSelected(null); setOpenEditor(null); }}>Close</Button></div>
+        <p className="muted">Setup guide checked {GUIDE_CHECKED}. Provider screens can change. <a href={guide.docs.url} target="_blank" rel="noreferrer">{guide.docs.label} ↗</a></p>
+        <ol>{guide.steps.map((step) => <li key={step}>{step}</li>)}</ol>
+        {guide.title === "Discord chat identities" && <>
+          <h3>Accounts</h3>
+          {discordAccounts.map((account) => {
+            const secretName = account.secret_refs.bot_token?.secret;
+            const current = secrets.find((item) => item.name === secretName);
+            return <div className="connection-account" key={account.id}>
+              <div><strong>{account.display_name}</strong> <code>{account.id}</code><br />
+                <span className="muted">{account.configured ? "Token set" : "Token missing"} · {account.status} · {account.bound_routes} room routes</span></div>
+              <div className="row-actions">
+                <Button variant="secondary" size="sm" onClick={() => setOpenEditor(`value:${secretName}`)}>Set token</Button>
+                <Button variant="secondary" size="sm" disabled={identityBusy || (!account.configured && account.status !== "active")}
+                  onClick={() => changeIdentity(account)}>{account.status === "active" ? "Pause" : "Resume"}</Button>
+              </div>
+              {openEditor === `value:${secretName}` && <ValueEditor name={secretName} keys={current?.keys ?? [{ name: "token" }]}
+                onSaved={done} onCancel={() => setOpenEditor(null)} />}
+              {account.id !== "discord-default" && <p className="muted">Connector deployment entry: <code>{`{ id: ${account.id}, secretName: ${secretName} }`}</code> in <code>connectors.discord.extraIdentities</code>. After deploy, resume the account and bind a Relay room.</p>}
+            </div>;
+          })}
+          <h3>Add another Discord account</h3>
+          <p className="muted">The account is registered paused. After saving, deploy a connector workload for its ID and secret, then resume it and bind a Relay room. Agent outbound identity is chosen in each agent’s Grants.</p>
+          <div className="form-col">
+            <Input aria-label="Discord account display name" placeholder="Display name, e.g. Family bot" value={identityName} onChange={(e) => setIdentityName(e.target.value)} />
+            <Input aria-label="Discord identity ID" placeholder="discord-family" value={identityId} onChange={(e) => setIdentityId(e.target.value)} />
+            <Textarea aria-label="Discord bot token" placeholder="Paste bot token" value={identityToken} rows={2} onChange={(e) => setIdentityToken(e.target.value)} />
+            <Button disabled={identityBusy} onClick={addDiscordIdentity}>{identityBusy ? "Saving…" : "Save token and add account"}</Button>
+          </div>
+          {identityError && <p role="alert" className="error">{identityError}</p>}
+        </>}
+        {guide.secrets.map((name) => {
+          if (guide.title === "Discord chat identities") return null;
+          const item = secrets.find((entry) => entry.name === name);
+          return <div className="connection-account" key={name}>
+            <div className="row-actions"><strong>{name}</strong>{item && <StatusChip status={item.status} />}
+              {item?.probeable && <Button variant="secondary" size="sm" disabled={verifying === name || item.status === "missing"} onClick={() => verify(name)}>{verifying === name ? "Checking…" : "Check connection"}</Button>}
+            </div>
+            {verifyResult[name] && <p className="muted">{verifyResult[name].detail || verifyResult[name].status}</p>}
+            {item && <ValueEditor key={name} name={name} keys={item.keys} hint={item.hint} suggestedKey={item.key} onSaved={done} onCancel={() => setSelected(null)} />}
+          </div>;
+        })}
+      </section>}
+      {!loading && <details className="connection-advanced"><summary>Advanced: all secret declarations and values</summary><p className="muted">Internal and legacy values, plus declaration management for every connection. Values remain in Kubernetes; declarations live in git.</p>
+      {(
         <Table>
           <thead>
             <tr><TH>Name</TH><TH>Status</TH><TH></TH></tr>
@@ -375,6 +493,11 @@ export default function Secrets() {
                 </tr>
                 {openEditor === `value:${s.name}` && (
                   <tr><TD colSpan={3}>
+                    {ADVANCED_SECRET_GUIDES[s.name] && <div className="connection-setup-note">
+                      <p className="muted">Setup guide checked {GUIDE_CHECKED}. {ADVANCED_SECRET_GUIDES[s.name].url &&
+                        <a href={ADVANCED_SECRET_GUIDES[s.name].url} target="_blank" rel="noreferrer">Current provider instructions ↗</a>}</p>
+                      <ol>{ADVANCED_SECRET_GUIDES[s.name].steps.map((step) => <li key={step}>{step}</li>)}</ol>
+                    </div>}
                     <ValueEditor name={s.name} hint={s.hint} suggestedKey={s.key}
                                  keys={s.keys}
                                  onSaved={done} onCancel={() => setOpenEditor(null)} />
@@ -405,6 +528,7 @@ export default function Secrets() {
           <ValueEditor isNew onSaved={done} onCancel={() => setOpenEditor(null)} />
         </div>
       )}
+      </details>}
     </div>
   );
 }

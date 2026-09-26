@@ -11,8 +11,12 @@ room's membership still controls access; the external account is not a room
 read grant.
 
 `discord-default` is the existing Discord bot. Legacy messages and bindings
-without an identity belong only to it. `discord_chat` and `/api/notify`
-still use that bot when no identity is named. To send as another identity,
+without an identity belong only to it. Existing agents with the `discord_chat`
+Tool were migrated to select that identity; a new agent selects none until an
+admin assigns an outbound identity in Grants. The Tool grant and the selected
+identity are both required for agent sends. Omitting `identity_id` from a Tool
+call still names the default bot, and is refused if the agent selected another.
+To send as another identity,
 `discord_chat` requires `identity_id` and an exact `channel_id` already bound
 to that identity. The platform checks that the sending agent has the Tool
 grant and belongs to the bound Relay room. It queues the send through the
@@ -21,10 +25,10 @@ asynchronous. Admins can use the same exact target through `/api/notify`.
 
 To add another Discord bot:
 
-1. Store its `token` in a separate platform Secret, such as
-   `discord-second-bot`. Keep the original `discord-bot` Secret untouched.
-2. In Settings, register an ID such as `discord-second`, a display name and
-   that Secret name. The new identity starts paused; it cannot be resumed
+1. In Settings → Connections → Discord chat identities, enter the display name,
+   ID and bot token. This stores `token` in a separate platform Secret such as
+   `discord-second-bot` and registers the identity together. The original
+   `discord-bot` Secret stays untouched. The new identity starts paused; it cannot be resumed
    until the Secret contains a nonempty `token` key.
 3. Configure `connectors.discord.extraIdentities` in Helm with the same ID
    and `secretName`, and deploy the chart. Each identity receives only its own
@@ -35,7 +39,8 @@ To add another Discord bot:
    original bot keeps its pre-migration Kafka consumer group and offsets.
 4. Bind Relay rooms with `POST /api/relay/channels/{channel_id}/bindings`,
    supplying `identity_id` and the exact external room ID. Resume the identity
-   in Settings after its connector is ready.
+   in Connections after its connector is ready, then select that identity in
+   each agent's Grants as needed.
 
 The API checks identity status and credential presence before accepting an
 inbound Discord message; it rechecks the binding's identity before routing it.

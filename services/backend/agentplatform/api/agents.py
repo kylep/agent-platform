@@ -41,10 +41,15 @@ from agentplatform.api.schemas import (AgentCreateIn, AgentDefIn, AgentDefOut,
                                        AgentModels, AgentSummary,
                                        AgentVersionDetail, AgentVersionRow,
                                        WebhookSecretIn, WebhookSecretState)
-from agentplatform.db import AgentDef, AgentVersion
+from agentplatform.db import AgentDef, AgentVersion, ChatIdentity
 
 log = logging.getLogger("agents-api")
 router = APIRouter()
+
+
+async def _check_discord_identity(session, model: AgentDefModel) -> None:
+    if model.discord_identity_id and await session.get(ChatIdentity, model.discord_identity_id) is None:
+        raise HTTPException(422, "unknown Discord chat identity")
 
 # The two code-defined platform tools that let an agent write definitions
 # (docs/design/15). Stored grants are full MCP names — the same strings the
@@ -88,7 +93,7 @@ DEFAULT_GRANTS = ((TOOL_RELAY, "relay_default_grant"),
 # All are the escalation the edit/grant split exists to prevent, so all need
 # `agents_grant`. The quota thresholds are deliberately NOT here: they only make
 # an agent MORE reluctant to run, so `agents_edit` may tune them.
-GRANT_FIELDS: tuple[str, ...] = ("harness_tools", "platform_tools", "skills",
+GRANT_FIELDS: tuple[str, ...] = ("harness_tools", "platform_tools", "discord_identity_id", "skills",
                                  "secrets", "can_invoke", "role",
                                  "push_path_globs", "may_delete_tests")
 # Everything the definition holds except its identity — the two halves the
@@ -555,6 +560,7 @@ async def create_agent(request: Request, body: AgentCreateIn,
     if model.system and not scope.admin:
         raise HTTPException(403, "only an admin may create a system agent")
     async with st.session_factory() as s:
+        await _check_discord_identity(s, model)
         await _check_webhook_conflicts(s, [model])
         if await s.get(AgentDef, model.name) is not None:
             raise HTTPException(409, "an agent with that name already exists")
@@ -600,6 +606,7 @@ async def update_agent(request: Request, name: str, body: AgentDefIn,
         if row is None:
             raise HTTPException(404, "unknown agent")
         model = _model(request, body.model_dump(), name, _registries(request))
+        await _check_discord_identity(s, model)
         await _check_webhook_conflicts(s, [model])
         grants = _changed_fields(row, model, GRANT_FIELDS)
         edits = _changed_fields(row, model, EDIT_FIELDS)

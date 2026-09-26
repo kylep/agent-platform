@@ -46,7 +46,7 @@ export function buildPlatformNav(apps: AppNavInfo[] = []): NavEntry[] {
     )) },
     { to: "/skills", label: "Skills" },
     { to: "/settings", label: "Settings", children: [
-      { to: "/secrets", label: "Secrets" },
+      { to: "/secrets", label: "Connections" },
       { to: "/dlq", label: "DLQ" },
     ] },
     { to: "/help", label: "Help" },

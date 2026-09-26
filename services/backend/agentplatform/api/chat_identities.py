@@ -31,6 +31,19 @@ async def _configured(request: Request, row: ChatIdentity) -> bool:
     return bool(secret and secret.get(ref.get("key", "")))
 
 
+async def _agent_can_send(request: Request, identity_id: str) -> bool:
+    """The Tool grant and chosen account are both required for agent sends."""
+    agent = getattr(request.state, "api_key_agent", None)
+    if not agent:
+        return False
+    await request.app.state.agent_store.reload()
+    info = request.app.state.agent_store.get(agent)
+    frozen = getattr(request.state, "frozen_tools", None)
+    grants = frozen if frozen is not None else (info.platform_tools if info else [])
+    return bool(info and info.enabled and info.discord_identity_id == identity_id
+                and "mcp__platform__discord_chat" in grants)
+
+
 @router.get("/api/chat-identities", response_model=list[S.ChatIdentityView])
 async def list_chat_identities(request: Request,
                                actor: str = Depends(require_admin)):
@@ -99,6 +112,8 @@ async def chat_identity_transport(request: Request, identity_id: str,
                                       "connector", "tools", "relay", "admin"))):
     """Credential-free activation check for the connector and Tool broker."""
     ident = await authenticate(request)
+    if getattr(request.state, "api_key_agent", None) and not await _agent_can_send(request, identity_id):
+        raise HTTPException(403, "agent has not been granted this Discord identity")
     if ident and ident[1] == "connector" and connector_identity(ident[0]) != identity_id:
         raise HTTPException(403, "connector identity cannot inspect another account")
     async with request.app.state.session_factory() as session:

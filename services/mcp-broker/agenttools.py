@@ -49,7 +49,7 @@ GRANT_LIST_FIELDS: tuple[str, ...] = ("harness_tools", "platform_tools",
 # The grants that are a switch rather than a list: set_grants takes each as a
 # bool. `role` is a grant too but not exposed here (see the tool's docstring).
 GRANT_FLAG_FIELDS: tuple[str, ...] = ("can_invoke", "may_delete_tests")
-GRANT_FIELDS: tuple[str, ...] = GRANT_LIST_FIELDS + GRANT_FLAG_FIELDS + ("role",)
+GRANT_FIELDS: tuple[str, ...] = GRANT_LIST_FIELDS + GRANT_FLAG_FIELDS + ("role", "discord_identity_id")
 API_EDIT_FIELDS: tuple[str, ...] = (
     "prompt", "description", "agent_type", "runtime", "model", "system", "responds_to_all", "concurrency",
     "timeout_seconds", "result_topic", "transcript_retention_days",
@@ -297,8 +297,10 @@ async def agents_grant(call, args: dict) -> str:
 
 
 def _grants_of(definition: dict) -> dict:
-    return {f: definition.get(f, [] if f in GRANT_LIST_FIELDS else False)
-            for f in (*GRANT_LIST_FIELDS, *GRANT_FLAG_FIELDS)}
+    values = {f: definition.get(f, [] if f in GRANT_LIST_FIELDS else False)
+              for f in (*GRANT_LIST_FIELDS, *GRANT_FLAG_FIELDS)}
+    values["discord_identity_id"] = definition.get("discord_identity_id")
+    return values
 
 
 async def _agents_grant(call, args: dict) -> str:
@@ -320,10 +322,15 @@ async def _agents_grant(call, args: dict) -> str:
         for f in GRANT_FLAG_FIELDS:
             if args.get(f) is not None:
                 overlay[f] = bool(args[f])
+        if args.get("discord_identity_id") is not None:
+            identity = args["discord_identity_id"]
+            if not isinstance(identity, str):
+                raise ToolError("discord_identity_id must be a Discord account ID or an empty string to clear")
+            overlay["discord_identity_id"] = identity or None
         if not overlay:
             raise ToolError(
                 "set_grants needs at least one of "
-                f"{', '.join((*GRANT_LIST_FIELDS, *GRANT_FLAG_FIELDS))}. Omitted "
+                f"{', '.join((*GRANT_LIST_FIELDS, *GRANT_FLAG_FIELDS, 'discord_identity_id'))}. Omitted "
                 "lists are left alone, so this is a no-op as written.")
         out, _ = await _put_def(call, name, _constant(overlay),
                                 what=f"setting grants on {name!r}")

@@ -92,6 +92,7 @@ class AgentInfo(BaseModel):
     # set the launcher's role ladder and the broker's grant check read.
     harness_tools: list[str] = []
     platform_tools: list[str] = []
+    discord_identity_id: str | None = None
     enabled: bool = True
     error: str | None = None
 
@@ -132,7 +133,9 @@ def info_of(row: AgentDef) -> AgentInfo:
     return AgentInfo(name=model.name, manifest=_manifest_of(model),
                      agent_md=model.prompt, entrypoints=model.entrypoints,
                      harness_tools=model.harness_tools,
-                     platform_tools=model.platform_tools, enabled=model.enabled)
+                     platform_tools=model.platform_tools,
+                     discord_identity_id=model.discord_identity_id,
+                     enabled=model.enabled)
 
 
 class AgentStore:

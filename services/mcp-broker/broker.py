@@ -657,17 +657,21 @@ async def agents_grant(action: str, name: str, field: str | None = None,
                        secrets: list[str] | None = None,
                        push_path_globs: list[str] | None = None,
                        can_invoke: bool | None = None,
-                       may_delete_tests: bool | None = None) -> str:
+                       may_delete_tests: bool | None = None,
+                       discord_identity_id: str | None = None) -> str:
     """Change what an agent may DO — GRANTS-EDITING, handle with care.
 
     action='get' (name) → that agent's current grants;
     action='set_grants' (name, + any of harness_tools/platform_tools/skills/
-      secrets/push_path_globs/can_invoke/may_delete_tests) → replace those
+      secrets/push_path_globs/can_invoke/may_delete_tests/discord_identity_id) → replace those
       lists wholesale; omitted ones are left exactly as they are;
     action='add_grant' (name, field, values) → add names to one list;
     action='remove_grant' (name, field, values) → take names off one list.
     `field` is harness_tools | platform_tools | skills | secrets |
     push_path_globs.
+
+    discord_identity_id selects one outbound Discord account. Pass an empty
+    string to clear it; the Discord chat Tool grant is required separately.
 
     push_path_globs are the paths (fnmatch, relative to the checkout, e.g.
     `docs/**`) a dev agent may land on main WITHOUT review; empty means every
@@ -687,7 +691,8 @@ async def agents_grant(action: str, name: str, field: str | None = None,
         "action": action, "name": name, "field": field, "values": values,
         "harness_tools": harness_tools, "platform_tools": platform_tools,
         "skills": skills, "secrets": secrets, "push_path_globs": push_path_globs,
-        "can_invoke": can_invoke, "may_delete_tests": may_delete_tests})
+        "can_invoke": can_invoke, "may_delete_tests": may_delete_tests,
+        "discord_identity_id": discord_identity_id})
 
 
 # --- relay (docs/design/19) --------------------------------------------------

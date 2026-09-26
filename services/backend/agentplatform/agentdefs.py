@@ -41,7 +41,7 @@ DEF_FIELDS: tuple[str, ...] = (
     "name", "prompt", "description", "agent_type", "runtime", "model", "role", "system",
     "responds_to_all", "can_invoke",
     "concurrency", "timeout_seconds", "result_topic", "transcript_retention_days",
-    "harness_tools", "platform_tools", "skills", "secrets", "entrypoints",
+    "harness_tools", "platform_tools", "discord_identity_id", "skills", "secrets", "entrypoints",
     "enabled", "push_path_globs", "may_delete_tests", "quota_5h_max_pct",
     "quota_7d_max_pct",
 )
@@ -185,6 +185,7 @@ class AgentDefModel(BaseModel):
     transcript_retention_days: int | None = None
     harness_tools: list[str] = []
     platform_tools: list[str] = []
+    discord_identity_id: str | None = None
     skills: list[str] = []
     secrets: list[str] = []
     entrypoints: EntrypointsModel = EntrypointsModel()
@@ -212,6 +213,13 @@ class AgentDefModel(BaseModel):
     def _known_role(cls, v: str) -> str:
         if v not in AGENT_ROLES:
             raise ValueError(f"role must be one of {AGENT_ROLES}")
+        return v
+
+    @field_validator("discord_identity_id")
+    @classmethod
+    def _valid_discord_identity(cls, v: str | None) -> str | None:
+        if v is not None and not re.fullmatch(r"discord-[a-z][a-z0-9-]{0,31}", v):
+            raise ValueError("Discord identity must be a registered discord-* ID")
         return v
 
     @field_validator("agent_type")

@@ -36,6 +36,7 @@ class AgentSummary:
             can_invoke (bool | Unset):  Default: False.
             concurrency (int | Unset):  Default: 1.
             description (str | Unset):  Default: ''.
+            discord_identity_id (None | str | Unset):
             enabled (bool | Unset):  Default: True.
             entrypoints (AgentSummaryEntrypoints | Unset):
             error (None | str | Unset):
@@ -69,6 +70,7 @@ class AgentSummary:
     can_invoke: bool | Unset = False
     concurrency: int | Unset = 1
     description: str | Unset = ""
+    discord_identity_id: None | str | Unset = UNSET
     enabled: bool | Unset = True
     entrypoints: AgentSummaryEntrypoints | Unset = UNSET
     error: None | str | Unset = UNSET
@@ -114,6 +116,12 @@ class AgentSummary:
         concurrency = self.concurrency
 
         description = self.description
+
+        discord_identity_id: None | str | Unset
+        if isinstance(self.discord_identity_id, Unset):
+            discord_identity_id = UNSET
+        else:
+            discord_identity_id = self.discord_identity_id
 
         enabled = self.enabled
 
@@ -205,6 +213,8 @@ class AgentSummary:
             field_dict["concurrency"] = concurrency
         if description is not UNSET:
             field_dict["description"] = description
+        if discord_identity_id is not UNSET:
+            field_dict["discord_identity_id"] = discord_identity_id
         if enabled is not UNSET:
             field_dict["enabled"] = enabled
         if entrypoints is not UNSET:
@@ -282,6 +292,17 @@ class AgentSummary:
         concurrency = d.pop("concurrency", UNSET)
 
         description = d.pop("description", UNSET)
+
+        def _parse_discord_identity_id(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        discord_identity_id = _parse_discord_identity_id(
+            d.pop("discord_identity_id", UNSET)
+        )
 
         enabled = d.pop("enabled", UNSET)
 
@@ -366,6 +387,7 @@ class AgentSummary:
             can_invoke=can_invoke,
             concurrency=concurrency,
             description=description,
+            discord_identity_id=discord_identity_id,
             enabled=enabled,
             entrypoints=entrypoints,
             error=error,

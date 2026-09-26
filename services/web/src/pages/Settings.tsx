@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 import { api, type ApiKey, type ApiKeyMinted, type RelayStats } from "../api";
 import { Banner } from "@ap/ui/banner";
 import { Button } from "@ap/ui/button";
@@ -6,88 +7,6 @@ import { Chip } from "@ap/ui/chip";
 import { Input, Select } from "@ap/ui/field";
 import { Table, TD, TH } from "@ap/ui/table";
 import { API_KEY_ROLES, API_KEY_ROLE_DESC } from "../lib/roles";
-
-type ChatIdentity = { id: string; connector: string; display_name: string;
-  secret_refs: Record<string, { secret: string; key: string }>;
-  status: string; configured: boolean; bound_routes: number };
-
-function ChatIdentitiesSection() {
-  const [identities, setIdentities] = useState<ChatIdentity[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [saving, setSaving] = useState<string | null>(null);
-  const [newId, setNewId] = useState("");
-  const [newName, setNewName] = useState("");
-  const [newSecret, setNewSecret] = useState("");
-  useEffect(() => {
-    api<ChatIdentity[]>("/api/chat-identities").then(setIdentities)
-      .catch((err) => setError(err instanceof Error ? err.message : "Chat identities unavailable."));
-  }, []);
-  async function changeStatus(identity: ChatIdentity) {
-    const next = identity.status === "active" ? "disabled" : "active";
-    if (next === "disabled" && !window.confirm(
-      `Pause ${identity.display_name}? Its connector will stop receiving and sending messages; its room bindings will be kept.`)) return;
-    setSaving(identity.id); setError(null);
-    try {
-      await api(`/api/chat-identities/${encodeURIComponent(identity.id)}/status`, {
-        method: "PATCH", body: JSON.stringify({ status: next }),
-      });
-      setIdentities((rows) => rows?.map((row) => row.id === identity.id
-        ? { ...row, status: next } : row) ?? null);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not change chat identity status.");
-    } finally { setSaving(null); }
-  }
-  async function register() {
-    setSaving("new"); setError(null);
-    try {
-      const added = await api<ChatIdentity>("/api/chat-identities", {
-        method: "POST", body: JSON.stringify({ id: newId, display_name: newName,
-          secret_name: newSecret }),
-      });
-      setIdentities((rows) => [...(rows ?? []), added]);
-      setNewId(""); setNewName(""); setNewSecret("");
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not register chat identity.");
-    } finally { setSaving(null); }
-  }
-  return <section>
-    <h2>Chat identities</h2>
-    <p className="muted">Accounts the platform uses to speak on external chat networks.
-      Credentials stay in Secrets; room bindings choose the destination. Pausing an
-      identity stops its connector while preserving its routes.</p>
-    {error && <p role="alert" className="error">{error}</p>}
-    {!error && identities === null && <p className="muted">Loading…</p>}
-    {identities?.length === 0 && <p className="muted">No chat accounts connected.</p>}
-    {identities && identities.length > 0 && <Table><thead><tr>
-      <TH>Identity</TH><TH>Network</TH><TH>Credential</TH><TH>Routes</TH><TH>Status</TH>
-    </tr></thead><tbody>{identities.map((identity) => <tr key={identity.id}>
-      <TD><strong>{identity.display_name}</strong><br /><code>{identity.id}</code></TD>
-      <TD>{identity.connector}</TD>
-      <TD>{Object.values(identity.secret_refs).map((ref) => ref.secret).join(", ") || "—"}{" "}
-        {identity.configured ? <Chip variant="ok">set</Chip> : <Chip variant="danger">missing</Chip>}</TD>
-      <TD>{identity.bound_routes}</TD>
-      <TD><Chip variant={identity.status === "active" ? "ok" : "danger"}>
-        {identity.status}</Chip>{" "}
-        <Button onClick={() => changeStatus(identity)} disabled={saving === identity.id}>
-          {identity.status === "active" ? "Pause" : "Resume"}
-        </Button></TD>
-    </tr>)}</tbody></Table>}
-    <h3>Register another Discord account</h3>
-    <p className="muted">Create its token Secret first, then register the account here.
-      It starts paused. Add a connector workload for this identity before resuming it;
-      the credential name must match that workload’s Secret.</p>
-    <div className="row-actions" style={{ flexWrap: "wrap" }}>
-      <Input aria-label="Chat identity ID" placeholder="discord-second" value={newId}
-             onChange={(e) => setNewId(e.target.value)} />
-      <Input aria-label="Chat identity name" placeholder="Display name" value={newName}
-             onChange={(e) => setNewName(e.target.value)} />
-      <Input aria-label="Chat identity token Secret" placeholder="Secret name" value={newSecret}
-             onChange={(e) => setNewSecret(e.target.value)} />
-      <Button onClick={register} disabled={saving !== null || !newId || !newName || !newSecret}>
-        Register account</Button>
-    </div>
-  </section>;
-}
 
 function PasswordSection() {
   const [oldPw, setOldPw] = useState("");
@@ -361,7 +280,7 @@ export default function Settings() {
       <h1>Settings</h1>
       <PasswordSection />
       <ApiKeysSection />
-      <ChatIdentitiesSection />
+      <section><h2>Connections</h2><p className="muted">Manage Discord chat identities and other connector credentials on <Link to="/secrets">Connections</Link>.</p></section>
       <RelaySection />
     </div>
   );

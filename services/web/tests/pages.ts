@@ -54,7 +54,7 @@ export const PAGES: PageRoute[] = [
   { path: "/changes", heading: "Pending Changes", probe: /skill: release-review/, mobile: false },
   { path: "/schedules", heading: "Schedules", probe: /health-monitor/, mobile: false },
   { path: "/skills", heading: "Skills & Tools", probe: /stocks/, mobile: false },
-  { path: "/secrets", heading: "Secrets", probe: /undeclared/, mobile: false },
+  { path: "/secrets", heading: "Connections", probe: /Discord chat identities/, mobile: true },
   { path: "/dlq", heading: "Dead-letter queue", mobile: false },
   { path: "/reporting", heading: "Reporting", probe: /Seconds per run/, mobile: false },
   { path: "/reports", heading: "Reports", probe: /daily-news/, mobile: false },

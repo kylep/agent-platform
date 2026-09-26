@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from "react";
-import { api, type ModelOption, type SecretStatus, type Skill, type ToolHelp } from "../api";
+import { api, type ChatIdentity, type ModelOption, type SecretStatus, type Skill, type ToolHelp } from "../api";
 
 // The grant catalogs the agent editor and the New-Agent wizard both render as
 // checkboxes. Capability is code (docs/design/15): every option here comes from
@@ -9,6 +9,7 @@ export type GrantCatalog = {
   harnessTools: ToolHelp[];    // Claude Code tools (kind: claude)
   platformTools: ToolHelp[];   // brokered mcp__…__ tools (kind: platform)
   secrets: SecretStatus[];
+  chatIdentities: ChatIdentity[];
   claudeModels: ModelOption[];
   codexModels: ModelOption[];
   ready: boolean;
@@ -18,6 +19,7 @@ export function useGrantCatalog(): GrantCatalog {
   const [skills, setSkills] = useState<Skill[]>([]);
   const [tools, setTools] = useState<ToolHelp[]>([]);
   const [secrets, setSecrets] = useState<SecretStatus[]>([]);
+  const [chatIdentities, setChatIdentities] = useState<ChatIdentity[]>([]);
   const [claudeModels, setClaudeModels] = useState<ModelOption[]>([]);
   const [codexModels, setCodexModels] = useState<ModelOption[]>([]);
   const [ready, setReady] = useState(false);
@@ -26,12 +28,14 @@ export function useGrantCatalog(): GrantCatalog {
       api<Skill[]>("/api/skills").catch(() => []),
       api<ToolHelp[]>("/api/help/tools").catch(() => []),
       api<SecretStatus[]>("/api/secrets").catch(() => []),
+      api<ChatIdentity[]>("/api/chat-identities").catch(() => []),
       api<{ models: ModelOption[]; codex_models: ModelOption[] }>("/api/agent-models")
         .catch(() => ({ models: [], codex_models: [] })),
-    ]).then(([sk, tl, se, mo]) => {
+    ]).then(([sk, tl, se, identities, mo]) => {
       setSkills(sk);
       setTools(tl);
       setSecrets(se);
+      setChatIdentities(identities);
       setClaudeModels(mo.models.filter((m) => m.id));
       setCodexModels(mo.codex_models.filter((m) => m.id));
       setReady(true);
@@ -42,6 +46,7 @@ export function useGrantCatalog(): GrantCatalog {
     harnessTools: tools.filter((t) => t.kind === "claude"),
     platformTools: tools.filter((t) => t.kind !== "claude"),
     secrets,
+    chatIdentities,
     claudeModels,
     codexModels,
     ready,

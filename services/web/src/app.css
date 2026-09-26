@@ -1110,6 +1110,22 @@ a.relay-action { color: var(--ds-link); }
    long message never sprawls across the row. The dotted underline signals it's
    hoverable. */
 .secret-verify-note { font-size: 12px; cursor: help; border-bottom: 1px dotted var(--ds-border); }
+.connection-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(280px, 100%), 1fr)); gap: 12px; margin: 20px 0; }
+.connection-card { display: flex; align-items: flex-start; gap: 12px; min-width: 0; text-align: left; color: var(--ds-text); background: var(--ds-surface); border: 1px solid var(--ds-border); border-radius: var(--radius-lg); padding: 16px; cursor: pointer; }
+.connection-card:hover, .connection-card[aria-pressed="true"] { border-color: var(--ds-accent); }
+.connection-card.connection-ready { border-color: var(--ds-success); }
+.connection-card > span:nth-child(2) { flex: 1; min-width: 0; }
+.connection-card small { display: block; color: var(--ds-text-muted); line-height: 1.4; margin-top: 5px; }
+.connection-mark { display: grid; place-items: center; flex: 0 0 40px; height: 40px; border-radius: var(--radius-lg); background: color-mix(in srgb, var(--ds-accent) 15%, var(--ds-surface)); color: var(--ds-accent); font-weight: 700; font-family: var(--font-mono); }
+.connection-detail { border: 1px solid var(--ds-border); border-radius: var(--radius-lg); padding: 18px; margin: 16px 0; background: var(--ds-surface); }
+.connection-grant { margin: 14px 0; display: grid; gap: 6px; max-width: 560px; }
+.connection-detail > .row-actions { justify-content: space-between; align-items: center; }
+.connection-detail h2 { margin: 0; }
+.connection-detail li { margin: 7px 0; }
+.connection-account { border-top: 1px solid var(--ds-border); padding: 14px 0; }
+.connection-account > .row-actions { justify-content: space-between; flex-wrap: wrap; }
+.connection-advanced { margin: 24px 0; }
+.connection-advanced summary { cursor: pointer; font-weight: 600; }
 .tool-list { display: flex; flex-wrap: wrap; gap: 6px 16px; margin-bottom: 8px; }
 .tool { color: var(--ds-text-muted); font-family: var(--font-mono); font-size: 13px; }
 .tool-on { color: var(--ds-text); }
