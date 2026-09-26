@@ -19,11 +19,13 @@ class NotifyIn:
         text (str):
         channel (None | str | Unset):
         channel_id (None | str | Unset):
+        identity_id (None | str | Unset):
     """
 
     text: str
     channel: None | str | Unset = UNSET
     channel_id: None | str | Unset = UNSET
+    identity_id: None | str | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -41,6 +43,12 @@ class NotifyIn:
         else:
             channel_id = self.channel_id
 
+        identity_id: None | str | Unset
+        if isinstance(self.identity_id, Unset):
+            identity_id = UNSET
+        else:
+            identity_id = self.identity_id
+
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
@@ -52,6 +60,8 @@ class NotifyIn:
             field_dict["channel"] = channel
         if channel_id is not UNSET:
             field_dict["channel_id"] = channel_id
+        if identity_id is not UNSET:
+            field_dict["identity_id"] = identity_id
 
         return field_dict
 
@@ -78,10 +88,20 @@ class NotifyIn:
 
         channel_id = _parse_channel_id(d.pop("channel_id", UNSET))
 
+        def _parse_identity_id(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        identity_id = _parse_identity_id(d.pop("identity_id", UNSET))
+
         notify_in = cls(
             text=text,
             channel=channel,
             channel_id=channel_id,
+            identity_id=identity_id,
         )
 
         notify_in.additional_properties = d

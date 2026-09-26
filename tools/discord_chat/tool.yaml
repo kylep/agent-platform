@@ -6,10 +6,16 @@ description: >-
   messages are split into <=1900-character chunks;
   @everyone/@here and role pings are always defanged. Use for notifications
   and reports; conversational replies in threads happen via the platform
-  connector, not this tool. Returns the posted message id(s).
+  connector, not this tool. The default bot returns posted message IDs. For
+  another Chat Identity, provide identity_id and an exact channel_id bound to
+  that identity; the platform checks the agent's room membership and queues
+  delivery through that identity's connector.
 params:
   type: object
   properties:
+    identity_id:
+      type: string
+      description: "Optional Chat Identity; omitted means the default Discord bot"
     channel:
       type: string
       description: "Unique channel name without the # (e.g. alerts)"

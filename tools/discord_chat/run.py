@@ -65,6 +65,10 @@ def channel_by_id(token: str, channel_id: str) -> dict | None:
 
 def main() -> int:
     args = json.load(sys.stdin)
+    if args.get("identity_id") not in (None, "discord-default"):
+        print("another Chat Identity must be routed through the platform API",
+              file=sys.stderr)
+        return 2
     token = os.environ.get("token", "").removeprefix("Bot ").strip()
     if not token:
         print("discord-bot secret is not configured", file=sys.stderr)

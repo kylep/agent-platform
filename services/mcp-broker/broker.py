@@ -497,6 +497,29 @@ class CustomTool(Tool):
         if not _rate_ok(agent, self.name):
             await _audit(agent, run_id, initiated_by, self.name, arguments, "deny:rate-limit", t0)
             return ToolResult(content=_RATE_LIMITED)
+        if self.name == "discord_chat" and arguments.get("identity_id") not in (
+                None, "discord-default"):
+            # Extra chat accounts are selected at the API boundary. The
+            # executor holds only the legacy default bot token, so passing
+            # this call through it would send as the wrong identity.
+            try:
+                response = await _request("POST", "/api/notify", json=arguments)
+            except httpx.HTTPError as exc:
+                await _audit(agent, run_id, initiated_by, self.name, arguments,
+                             "error:api-unreachable", t0)
+                return ToolResult(content=f"error: platform API unreachable ({exc})")
+            if response.status_code != 200:
+                await _audit(agent, run_id, initiated_by, self.name, arguments,
+                             f"deny:http-{response.status_code}", t0)
+                try:
+                    detail = response.json().get("detail", "send refused")
+                except ValueError:
+                    detail = "send refused"
+                return ToolResult(content=f"error: {detail}")
+            await _audit(agent, run_id, initiated_by, self.name, arguments, "allow", t0)
+            return ToolResult(content=(
+                f"queued for Discord as {arguments['identity_id']} to "
+                f"channel {arguments.get('channel_id', '(missing)')}; delivery is asynchronous"))
         if self.name == "discord_chat":
             # The legacy REST sender bypasses the connector's Kafka consumer.
             # Consult the same identity status before it can reach Discord.

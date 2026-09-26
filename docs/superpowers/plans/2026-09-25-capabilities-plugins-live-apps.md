@@ -137,8 +137,11 @@ Started 2026-09-25. This is a work checkpoint, not a command to run an agent loo
   consumer group and committed offsets, while a new account gets its own
   full-stream group. Each extra bot now gets its own Kubernetes service
   account; API binding and transport reads are scoped to that identity.
-  A real second-account send/receive and identity-scoped Tool/broadcast
-  credentials remain open.
+  The `discord_chat` Tool now routes an explicitly selected non-default
+  identity through the API and connector, with a fixed bound channel ID,
+  current identity status/credential, agent Tool grant and Relay-room
+  membership checks. The legacy default-bot REST path is unchanged. A real
+  second-account send/receive remains open until another bot token exists.
   The broadcast connector also rejects duplicate channel names, accepts an
   exact text-channel ID, and filters events for another identity. `/api/notify`
   validates one destination and stamps the default identity.

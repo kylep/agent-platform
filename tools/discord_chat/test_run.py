@@ -1,4 +1,6 @@
 """Tool tests with a fake Discord API; never send a live message."""
+import io
+import json
 import pytest
 import jsonschema
 import yaml
@@ -61,9 +63,21 @@ def test_manifest_requires_one_exact_destination():
     params = yaml.safe_load((Path(__file__).parent / "tool.yaml").read_text())["params"]
     jsonschema.validate({"channel": "alerts", "text": "hello"}, params)
     jsonschema.validate({"channel_id": "223456789012345678", "text": "hello"}, params)
+    jsonschema.validate({"identity_id": "discord-second",
+                         "channel_id": "223456789012345678", "text": "hello"}, params)
     for args in ({"text": "hello"},
                  {"channel": "alerts", "channel_id": "223456789012345678",
                   "text": "hello"},
                  {"channel_id": "not-an-id", "text": "hello"}):
         with pytest.raises(jsonschema.ValidationError):
             jsonschema.validate(args, params)
+
+
+def test_direct_executor_refuses_another_identity(monkeypatch, capsys):
+    monkeypatch.setattr(run.sys, "stdin", io.StringIO(json.dumps({
+        "identity_id": "discord-second", "channel_id": "223456789012345678",
+        "text": "hello"})))
+    monkeypatch.setenv("token", "default-bot-token")
+    monkeypatch.setattr(run, "_req", lambda *a, **k: pytest.fail("default bot was used"))
+    assert run.main() == 2
+    assert "platform API" in capsys.readouterr().err

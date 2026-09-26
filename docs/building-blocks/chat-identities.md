@@ -11,8 +11,13 @@ room's membership still controls access; the external account is not a room
 read grant.
 
 `discord-default` is the existing Discord bot. Legacy messages and bindings
-without an identity belong only to it. The `discord_chat` Tool and the
-`/api/notify` broadcast route still use that default bot.
+without an identity belong only to it. `discord_chat` and `/api/notify`
+still use that bot when no identity is named. To send as another identity,
+`discord_chat` requires `identity_id` and an exact `channel_id` already bound
+to that identity. The platform checks that the sending agent has the Tool
+grant and belongs to the bound Relay room. It queues the send through the
+identity's connector and reports that queueing honestly; delivery is
+asynchronous. Admins can use the same exact target through `/api/notify`.
 
 To add another Discord bot:
 
@@ -46,8 +51,8 @@ the second-account path is tested with synthetic credentials and rendered
 Kubernetes manifests rather than a live Discord send.
 
 The default bot's Secret can be rotated through the existing Secrets flow
-without changing its identity or room bindings. The `discord_chat` Tool and
-broadcast connector reject ambiguous channel names; use an exact channel ID
-when two visible rooms share a name. Identity selection for that Tool and for
-domain broadcasts is not available yet; both continue to use
-`discord-default`.
+without changing its identity or room bindings. The default `discord_chat`
+Tool and broadcast connector reject ambiguous channel names; use an exact
+channel ID when two visible rooms share a name. Existing domain broadcasts
+remain on `discord-default` until their owners explicitly choose a bound
+destination on another identity.

@@ -106,6 +106,27 @@ def test_discord_tool_cannot_send_while_identity_is_paused(monkeypatch):
     assert calls == [("GET", "/api/chat-identities/discord-default/transport")]
 
 
+def test_other_discord_identity_uses_platform_policy_not_default_bot_token(monkeypatch):
+    calls = []
+
+    async def request(method, path, *args, **kwargs):
+        calls.append((method, path, kwargs.get("json")))
+        return httpx.Response(200, json={"ok": True})
+
+    async def audit(*args, **kwargs):
+        pass
+
+    monkeypatch.setattr(broker, "_request", request)
+    monkeypatch.setattr(broker, "_audit", audit)
+    tool = broker.CustomTool(name="discord_chat", description="Discord chat tool.",
+                             parameters={"type": "object", "properties": {}})
+    args = {"identity_id": "discord-second", "channel_id": "123456789012345678",
+            "text": "hello"}
+    out = asyncio.run(tool.run(args))
+    assert "queued for Discord as discord-second" in out.content
+    assert calls == [("POST", "/api/notify", args)]
+
+
 def test_refresh_re_registers_when_the_timeout_changes(tools_root, monkeypatch):
     _tool(tools_root, "stocks", "timeout_seconds: 60\n")
     added = []
