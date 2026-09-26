@@ -114,7 +114,14 @@
 }
 
 /* shared small layout helpers */
-.row-actions { display: flex; gap: 8px; align-items: center; white-space: nowrap; }
+/* `flex-wrap: wrap` so a toolbar too wide for the viewport (e.g. /memories'
+   search Input + Search button + agent Select at phone width) drops its
+   trailing controls onto a second line instead of pushing the page sideways.
+   It only wraps when the row genuinely doesn't fit, so desktop stays one line.
+   `min-width: 0` on the flexible input lets it shrink past its intrinsic width
+   rather than forcing the overflow it used to. */
+.row-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; white-space: nowrap; }
+.row-actions > input { min-width: 0; }
 .chip-row { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 16px; }
 .form-col { display: flex; flex-direction: column; gap: 8px; max-width: 360px; margin-bottom: 12px; }
 .form-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 16px; }
@@ -1629,6 +1636,20 @@ a.relay-action { color: var(--ds-link); }
 .help-link:hover { color: var(--ds-text); text-decoration: none; }
 .help-link.active { background: color-mix(in srgb, var(--ds-accent) 12%, transparent); color: var(--ds-accent); }
 .help-content { flex: 1; min-width: 0; }
+
+/* Below tablet width the 190px subnav + doc pane no longer fit side by side,
+   and with no breakpoint the pair rendered wider than a phone screen and
+   scrolled sideways (same class of bug QA-10/QA-11 fixed on .ticket-main).
+   Stack them: the topic list becomes a wrapped strip across the top, no longer
+   sticky, and the doc pane takes the full width below it. */
+@media (max-width: 640px) {
+  .help-layout { flex-direction: column; gap: 16px; }
+  .help-subnav {
+    width: auto; position: static; flex-direction: row; flex-wrap: wrap;
+    gap: 2px 4px;
+  }
+  .help-subnav-label { width: 100%; margin: 8px 0 2px; }
+}
 
 /* Doc-scale typography for rendered concept pages: the base .md styles are
    chat-bubble scale (tiny headings, tight margins) — docs need a real ramp
