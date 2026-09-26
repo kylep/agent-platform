@@ -289,6 +289,7 @@ def test_build_job_binds_secrets_via_envfrom(tmp_path):
                               skill_store=_skill_store(tmp_path))
     run = Run(agent="a", trigger="manual", requested_by="t", prompt="x"); run.id = "e" * 32
     job = launcher.build_job(run, Manifest(skills=["git"], secrets=["extra"]))
+    assert job.metadata.name == "run-" + run.id[:12]
     refs = job.spec.template.spec.containers[0].env_from
     bound = {e.secret_ref.name: e.secret_ref.optional for e in refs}
     assert bound == {"extra": True}
@@ -315,6 +316,7 @@ def test_plugin_assignment_pins_approved_release_at_launch(tmp_path):
     run = Run(agent="coder", trigger="manual", requested_by="t", prompt="x")
     run.id = "d" * 32
     job = launcher.build_job(run, Manifest(skills=["platform-change"]))
+    assert job.metadata.name == "run-" + run.id[:12]
     env = {item.name: item.value for item in job.spec.template.spec.containers[0].env}
     assert env["AP_PLUGIN_RELEASE_DIGEST"] == hashlib.sha256(
         (source / "release.json").read_bytes()).hexdigest()

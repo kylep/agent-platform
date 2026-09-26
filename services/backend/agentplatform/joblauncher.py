@@ -169,11 +169,11 @@ class K8sJobLauncher(Launcher):
             self.skill_store.reload()
             hashes = {}
             plugin_assigned = False
-            for name in manifest.skills:
-                info = self.skill_store.get(name)
+            for skill_name in manifest.skills:
+                info = self.skill_store.get(skill_name)
                 if info is None or info.skill is None:
-                    raise ValueError(f"assigned skill unavailable: {name}")
-                hashes[name] = hashlib.sha256(info.raw.encode()).hexdigest()
+                    raise ValueError(f"assigned skill unavailable: {skill_name}")
+                hashes[skill_name] = hashlib.sha256(info.raw.encode()).hexdigest()
                 plugin_assigned |= info.origin == "plugin"
             env.append(k8s.V1EnvVar(name="AP_SKILLS", value=",".join(manifest.skills)))
             env.append(k8s.V1EnvVar(name="AP_SKILL_HASHES", value=json.dumps(
