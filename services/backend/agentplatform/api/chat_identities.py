@@ -7,7 +7,7 @@ from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 
 from agentplatform.api import schemas as S
-from agentplatform.api.auth import require_admin, require_role
+from agentplatform.api.auth import authenticate, connector_identity, require_admin, require_role
 from agentplatform.db import ChatIdentity, RelayBinding
 
 router = APIRouter()
@@ -18,7 +18,7 @@ class IdentityStatusIn(BaseModel):
 
 
 class CreateIdentityIn(BaseModel):
-    id: str = Field(pattern=r"^discord-[a-z][a-z0-9-]{0,48}$")
+    id: str = Field(pattern=r"^discord-[a-z][a-z0-9-]{0,31}$")
     display_name: str = Field(min_length=1, max_length=128)
     secret_name: str = Field(pattern=r"^[a-z][a-z0-9-]{0,62}$")
 
@@ -98,6 +98,9 @@ async def chat_identity_transport(request: Request, identity_id: str,
                                   caller: str = Depends(require_role(
                                       "connector", "tools", "relay", "admin"))):
     """Credential-free activation check for the connector and Tool broker."""
+    ident = await authenticate(request)
+    if ident and ident[1] == "connector" and connector_identity(ident[0]) != identity_id:
+        raise HTTPException(403, "connector identity cannot inspect another account")
     async with request.app.state.session_factory() as session:
         row = await session.get(ChatIdentity, identity_id)
         if row is None:

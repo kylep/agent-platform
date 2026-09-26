@@ -21,7 +21,8 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import aliased
 
 from agentplatform.api.auth import (ANNOTATE_ROLES, INVOKE_ROLES, READ_ROLES,
-                                    authenticate, require_role, role_allows)
+                                    authenticate, connector_identity, require_role,
+                                    role_allows)
 from agentplatform.conversation import continue_conversation
 from agentplatform.db import (ACTIVE_STATES, Conversation, RELAY_SEED_CHANNELS,
                               RelayInvocation, dm_key_of)
@@ -545,12 +546,21 @@ async def list_bindings_for_connector(request: Request,
     Endpoint kind is explicit: the connector hydrates channel mirrors and
     assistant threads into separate maps, so a restart can resume a known
     thread without trying to attach a channel webhook to it."""
+    ident = await authenticate(request)
+    scoped_identity = connector_identity(ident[0]) if ident and ident[1] == "connector" else None
+    if ident and ident[1] == "connector" and (connector != "discord" or scoped_identity is None):
+        raise HTTPException(403, "connector identity cannot read this feed")
+    query = select(BindingRow).where(BindingRow.connector == connector,
+                                     BindingRow.status == "active")
+    if scoped_identity is not None:
+        from agentplatform.db import DEFAULT_DISCORD_IDENTITY
+        query = query.where(or_(BindingRow.identity_id == scoped_identity,
+                                BindingRow.identity_id.is_(None))
+                            if scoped_identity == DEFAULT_DISCORD_IDENTITY
+                            else BindingRow.identity_id == scoped_identity)
     async with request.app.state.session_factory() as s:
-        rows = list((await s.execute(
-            select(BindingRow)
-            .where(BindingRow.connector == connector,
-                   BindingRow.status == "active")
-            .order_by(BindingRow.external_ref))).scalars())
+        rows = list((await s.execute(query.order_by(
+            BindingRow.external_ref))).scalars())
     return [{"channel_id": r.channel_id, "external_ref": r.external_ref,
              "identity_id": r.identity_id,
              "external_kind": r.external_kind or "channel",

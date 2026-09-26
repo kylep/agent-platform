@@ -1,9 +1,20 @@
 {{- if .Values.connectors.discord.enabled }}
 {{- $root := . }}
 {{- range $identity := .Values.connectors.discord.extraIdentities }}
-{{- if not (regexMatch "^discord-[a-z][a-z0-9-]{0,35}$" $identity.id) }}
+{{- if not (regexMatch "^discord-[a-z][a-z0-9-]{0,31}$" $identity.id) }}
 {{- fail "Discord extra identity IDs must be short discord-* slugs" }}
 {{- end }}
+{{- if gt (len (printf "%s-connector-discord-%s" $root.Release.Name $identity.id)) 63 }}
+{{- fail "Discord extra identity ServiceAccount name exceeds 63 characters" }}
+{{- end }}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ $root.Release.Name }}-connector-discord-{{ $identity.id }}
+  labels:
+    {{- include "agent-platform.selectorLabels" (dict "Release" $root.Release "Chart" $root.Chart "component" "connector-discord") | nindent 4 }}
+automountServiceAccountToken: false
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -25,7 +36,7 @@ spec:
         {{- include "agent-platform.selectorLabels" (dict "Release" $root.Release "Chart" $root.Chart "component" "connector-discord") | nindent 8 }}
         agent-platform.io/chat-identity: {{ $identity.id | quote }}
     spec:
-      serviceAccountName: {{ $root.Release.Name }}-connector-discord
+      serviceAccountName: {{ $root.Release.Name }}-connector-discord-{{ $identity.id }}
       automountServiceAccountToken: false
       securityContext:
         seccompProfile:

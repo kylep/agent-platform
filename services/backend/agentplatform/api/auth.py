@@ -8,7 +8,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from agentplatform.agentspec import platform_token_role
 from agentplatform.apikeys import hash_token
-from agentplatform.db import ApiKey, Principal
+from agentplatform.db import ApiKey, ChatIdentity, Principal
 
 ph = PasswordHasher()
 # A hash no password matches, verified on the login path's miss branch so an
@@ -189,6 +189,15 @@ async def _verify_run_token(request: Request, token: str, agent: str) -> dict | 
 _SA_CACHE_TTL = 60.0
 
 
+def connector_identity(principal: str) -> str | None:
+    """The Discord identity bound to a validated connector SA principal."""
+    if principal == "connector-discord":
+        return "discord-default"
+    if principal.startswith("connector-discord:"):
+        return principal.partition(":")[2]
+    return None
+
+
 async def _validate_sa_token(request: Request, token: str) -> tuple[str, str, str | None] | None:
     """Resolve a projected SA token to (principal, role, agent) via TokenReview.
 
@@ -214,6 +223,16 @@ async def _validate_sa_token(request: Request, token: str) -> tuple[str, str, st
     sa_name = username.rsplit(":", 1)[-1]
     if sa_name == request.app.state.settings.connector_service_account:
         out = ("connector-discord", "connector", None)
+        cache[h] = (time.monotonic() + _SA_CACHE_TTL, out)
+        return out
+    connector_prefix = request.app.state.settings.connector_service_account + "-"
+    if sa_name.startswith(connector_prefix):
+        identity_id = sa_name[len(connector_prefix):]
+        async with request.app.state.session_factory() as session:
+            identity = await session.get(ChatIdentity, identity_id)
+        if identity is None or identity.connector != "discord":
+            return None
+        out = (f"connector-discord:{identity_id}", "connector", None)
         cache[h] = (time.monotonic() + _SA_CACHE_TTL, out)
         return out
     if not sa_name.startswith("agent-"):

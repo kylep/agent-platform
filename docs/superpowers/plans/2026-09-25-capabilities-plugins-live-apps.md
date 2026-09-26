@@ -135,8 +135,10 @@ Started 2026-09-25. This is a work checkpoint, not a command to run an agent loo
   a disabled second Discord identity with a secret reference; Helm can run
   a distinct connector for it. The default bot retains its original Kafka
   consumer group and committed offsets, while a new account gets its own
-  full-stream group. A real second-account send/receive and identity-scoped
-  Tool/broadcast credentials remain open.
+  full-stream group. Each extra bot now gets its own Kubernetes service
+  account; API binding and transport reads are scoped to that identity.
+  A real second-account send/receive and identity-scoped Tool/broadcast
+  credentials remain open.
   The broadcast connector also rejects duplicate channel names, accepts an
   exact text-channel ID, and filters events for another identity. `/api/notify`
   validates one destination and stamps the default identity.
@@ -151,15 +153,18 @@ Started 2026-09-25. This is a work checkpoint, not a command to run an agent loo
 
 ## Current checkpoint
 
-Main through `52a4a04` is pushed and deployed on pai (Helm revision 75).
+Main through `efff0f4` is pushed and deployed on pai (Helm revision 75;
+subsequent backend/connector/facade image rollouts).
 The runtime now verifies the exact SHA of the reproducible, GitHub-attested
 plugin bundle. Disposable coder and QA agents loaded their assigned plugin
 skills and completed focused reviews; QA found a Kafka offset migration bug
-that is fixed in the next deployment. Admins can register a disabled second
+that is now fixed and deployed. Admins can register a disabled second
 Discord identity with a secret reference, and Helm can launch a separate
 connector for it. No second bot credential is configured, so a second-account
-send/receive remains unverified. The current follow-up also adds a bounded
-Wiki summary page read. It needs CI and live verification before closure.
+send/receive remains unverified. The bounded Wiki summary page read and
+page-data observation endpoint are live. The current follow-up scopes
+second-bot API reads by a distinct Kubernetes service account; it needs
+CI and rollout verification.
 
 The Running page still fails the 1.25× p95 latency gate. Page-data reads now
 write argument-free status and server-latency samples after the response, with

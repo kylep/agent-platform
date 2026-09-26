@@ -5,6 +5,7 @@ import pytest
 from kubernetes.client.rest import ApiException
 
 from agentplatform.config import Settings
+from agentplatform.db import ChatIdentity, RelayBinding
 from agentplatform.joblauncher import K8sJobLauncher
 
 from .test_toolregistry import tool_client  # noqa: F401 — shared fixture
@@ -53,6 +54,7 @@ async def test_sa_token_core_tools_earn_annotator(tool_client, agent_store, seed
 @pytest.mark.parametrize("username", [
     None,                                          # TokenReview rejected
     "system:serviceaccount:ap:not-an-agent-sa",    # foreign SA
+    "system:serviceaccount:ap:ap-connector-discord-discord-ghost",
     "system:serviceaccount:ap:agent-ghost",        # unknown agent
 ])
 async def test_sa_token_rejections(tool_client, username):
@@ -82,6 +84,40 @@ async def test_connector_sa_can_read_only_its_binding_feed(tool_client):
     assert (await tool_client.get(
         "/api/relay/bindings?connector=discord", headers=_auth())).status_code == 200
     assert (await tool_client.get("/api/runs", headers=_auth())).status_code == 403
+
+
+async def test_each_discord_connector_sa_sees_only_its_identity(tool_client, sf):
+    async with sf() as session:
+        session.add(ChatIdentity(id="discord-second", connector="discord",
+                                 display_name="Second bot", status="disabled",
+                                 secret_refs={"bot_token": {"secret": "second-bot",
+                                                            "key": "token"}}))
+        session.add_all([
+            RelayBinding(channel_id="a" * 32, connector="discord",
+                         identity_id="discord-default", external_ref="111"),
+            RelayBinding(channel_id="b" * 32, connector="discord",
+                         identity_id="discord-second", external_ref="222"),
+        ])
+        await session.commit()
+    state = tool_client._transport.app.state
+    tool_client.cookies.clear()
+    state.sa_validator = _fake_validator("system:serviceaccount:ap:ap-connector-discord")
+    default = await tool_client.get("/api/relay/bindings?connector=discord", headers=_auth())
+    assert default.status_code == 200
+    assert [row["external_ref"] for row in default.json()] == ["111"]
+    assert (await tool_client.get("/api/chat-identities/discord-second/transport",
+                                  headers=_auth())).status_code == 403
+
+    state._sa_cache = {}
+    state.sa_validator = _fake_validator(
+        "system:serviceaccount:ap:ap-connector-discord-discord-second")
+    second = await tool_client.get("/api/relay/bindings?connector=discord", headers=_auth())
+    assert second.status_code == 200
+    assert [row["external_ref"] for row in second.json()] == ["222"]
+    assert (await tool_client.get("/api/chat-identities/discord-default/transport",
+                                  headers=_auth())).status_code == 403
+    assert (await tool_client.get("/api/relay/bindings?connector=slack",
+                                  headers=_auth())).status_code == 403
 
 
 # --- launcher side -----------------------------------------------------------
