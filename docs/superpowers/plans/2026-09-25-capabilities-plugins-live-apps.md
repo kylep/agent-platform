@@ -43,9 +43,9 @@ Started 2026-09-25. This is a work checkpoint, not a command to run an agent loo
 - [ ] A3. Compile operation contracts for a narrow Running read and Ticket
   write first, then inventory every core/custom Tool action. Unknown effects
   deny new live-page admission; catalog labels grant nothing.
-  The branch-by-branch inventory and generated 93-entry catalog are recorded
+  The branch-by-branch inventory and generated 94-entry catalog are recorded
   in [33-operation-inventory](../../design/33-operation-inventory.md).
-  Eleven operations have bounded human adapters with JSON input/output schemas,
+  Twelve operations have bounded human adapters with JSON input/output schemas,
   target scopes, caller kinds and enforced read limits. The remaining broker
   and custom actions have explicit null contracts and are ineligible. Their
   schemas, target checks and budgets remain open; each further admission
@@ -54,6 +54,8 @@ Started 2026-09-25. This is a work checkpoint, not a command to run an agent loo
   request, returns ten bounded text rows, and cannot be snapshotted. A second
   effectful adapter can post human-reviewed text to a fixed internal room,
   with membership/bridge rechecks, no mentions, and a durable receipt.
+  A shared Wiki adapter returns ten current, non-archived summaries, excluding
+  page bodies and snapshots. Raw Wiki Tool branches remain closed.
 - [x] A4. Enforce viewer + View policy + object/target access on every call,
   including at dispatch. Add idempotent receipts and uncertain-outcome state.
   These checks are live for the two admitted actions. A per-person/page and
@@ -91,8 +93,11 @@ Started 2026-09-25. This is a work checkpoint, not a command to run an agent loo
   disposable live Codex agent read its assigned orientation skill and
   completed successfully. That test also exposed and fixed a Job-name bug
   affecting skill-assigned runs; the final Job used its `run-<id>` name and
-  the test left no DLQ item. Binding runtime registration to the attested
-  artifact and evaluating coder/QA on real tasks remain open.
+  the test left no DLQ item. Runtime registration now checks the exact
+  reproducible bundle SHA against the GitHub-attested v0.1.1 CI artifact.
+  Disposable live coder and QA agents both read their assigned skills and
+  completed focused reviews; QA found a Discord offset migration bug.
+  Broader agent behavior evaluation remains open.
 - [x] A9. Migrate News, Stockmarket and TCMS collection/pages where the typed
   renderer fits. Preserve their ingestion and domain logic. Compare outputs
   against existing UIs and retain specialized screens when needed.
@@ -125,8 +130,12 @@ Started 2026-09-25. This is a work checkpoint, not a command to run an agent loo
   and filters recovered/outbound routes. The status control now pauses the
   connector's receive/send paths, platform ingest and notifications, and the
   legacy `discord_chat` broker call. A live pause→deny notification→resume
-  check passed on pai with the eight routes preserved. A second account and
-  identity-scoped Tool/broadcast credentials remain open.
+  check passed on pai with the eight routes preserved. An admin can register
+  a disabled second Discord identity with a secret reference; Helm can run
+  a distinct connector for it. The default bot retains its original Kafka
+  consumer group and committed offsets, while a new account gets its own
+  full-stream group. A real second-account send/receive and identity-scoped
+  Tool/broadcast credentials remain open.
   The broadcast connector also rejects duplicate channel names, accepts an
   exact text-channel ID, and filters events for another identity. `/api/notify`
   validates one destination and stamps the default identity.
@@ -138,6 +147,25 @@ Started 2026-09-25. This is a work checkpoint, not a command to run an agent loo
   substitute for gateway/API page-read latency and error observations.
 
 ## Current checkpoint
+
+Main through `52a4a04` is pushed and deployed on pai (Helm revision 75).
+The runtime now verifies the exact SHA of the reproducible, GitHub-attested
+plugin bundle. Disposable coder and QA agents loaded their assigned plugin
+skills and completed focused reviews; QA found a Kafka offset migration bug
+that is fixed in the next deployment. Admins can register a disabled second
+Discord identity with a secret reference, and Helm can launch a separate
+connector for it. No second bot credential is configured, so a second-account
+send/receive remains unverified. The current follow-up also adds a bounded
+Wiki summary page read. It needs CI and live verification before closure.
+
+The Running page still fails the 1.25× p95 latency gate, and the seven-day
+observation cannot finish before 2026-10-02. Specialist screens remain. The
+open work is broader operation admission, second-account credential and Tool
+isolation, plugin behavior evaluation, page-read latency/error evidence, and
+the explicit retirement review. MCP Apps export remains deferred by the
+pinned-client host/auth compatibility findings.
+
+### Previous checkpoint
 
 Main through `459ae93` is pushed and deployed on pai. All five Apps open
 published database pages, with their specialist interfaces linked where the

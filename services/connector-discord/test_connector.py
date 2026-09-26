@@ -380,7 +380,7 @@ def test_each_identity_consumes_the_full_outbound_stream(bridge, monkeypatch):
 
     class EmptyConsumer:
         def __init__(self, *args, group_id, **kwargs):
-            groups.append(group_id)
+            groups.append((group_id, kwargs["auto_offset_reset"]))
 
         async def start(self):
             pass
@@ -404,8 +404,8 @@ def test_each_identity_consumes_the_full_outbound_stream(bridge, monkeypatch):
     second = connector.DiscordConnector()
     second.client.wait_until_ready = ready
     run(second.consume_outbound())
-    assert groups == ["connector-discord-discord-default",
-                      "connector-discord-discord-second"]
+    assert groups == [("connector-discord", "earliest"),
+                      ("connector-discord-discord-second", "earliest")]
 
 
 # --- bindings ----------------------------------------------------------------

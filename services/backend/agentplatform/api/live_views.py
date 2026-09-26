@@ -27,6 +27,7 @@ from agentplatform.db import (
     LiveViewVersion,
     RelayMessage,
     RelayParticipant,
+    WikiPage,
     utcnow,
 )
 from agentplatform.relay import is_member, participant_of
@@ -45,6 +46,7 @@ READ_FIELDS = {
         "failing", "flaky", "unlinked", "prune_candidates", "coverage_pct"},
     "tcms.runs.read@1": set(),
     "relay.channel.read@1": set(),
+    "wiki.recent.read@1": set(),
 }
 READ_APP = {operation: operation.split(".", 1)[0] for operation in READ_FIELDS}
 TABLE_FIELDS = {
@@ -53,6 +55,7 @@ TABLE_FIELDS = {
     "stockmarket.watchlist.read@1": ("symbol", "label", "status", "latest_close", "change_pct"),
     "tcms.runs.read@1": ("started_at", "branch", "agent", "n", "verify_ok"),
     "relay.channel.read@1": ("created_at", "author", "body"),
+    "wiki.recent.read@1": ("slug", "title", "summary", "updated_at"),
 }
 
 
@@ -153,7 +156,8 @@ class TypedDefinition(BaseModel):
 
 
 def _check_app_bindings(app_name: str, definition: TypedDefinition) -> None:
-    if any(READ_APP[b.operation] not in (app_name, "relay") for b in definition.reads):
+    if any(READ_APP[b.operation] not in (app_name, "relay", "wiki")
+           for b in definition.reads):
         raise HTTPException(422, "a read must belong to its App")
     if any(block.href != f"/apps/{app_name}/" for block in definition.blocks
            if block.kind == "link"):
@@ -324,6 +328,22 @@ async def _read_relay_channel(request: Request, channel_id: str,
     return JSONResponse(result, headers={"Cache-Control": "private, no-store"})
 
 
+async def _read_recent_wiki(request: Request) -> JSONResponse:
+    """A bounded, current read of the platform-wide wiki's public summaries."""
+    limits = operation_catalog.OPERATIONS["wiki.recent.read@1"]["limits"]
+    async with request.app.state.session_factory() as session:
+        rows = (await session.execute(select(
+            WikiPage.slug, WikiPage.title, WikiPage.summary, WikiPage.updated_at
+        ).where(WikiPage.archived_at.is_(None)).order_by(
+            WikiPage.updated_at.desc(), WikiPage.slug).limit(limits["max_rows"]))).all()
+    result = {"rows": [{"slug": row.slug, "title": row.title,
+                        "summary": row.summary, "updated_at": row.updated_at.isoformat()}
+                       for row in rows]}
+    if len(json.dumps(result, ensure_ascii=False).encode()) > limits["max_output_bytes"]:
+        raise HTTPException(502, "Wiki response exceeded its page limit")
+    return JSONResponse(result, headers={"Cache-Control": "private, no-store"})
+
+
 @router.get("/api/live-views")
 async def list_live_views(request: Request, app_name: str,
                           ident: tuple[str, str] = Depends(_reader)):
@@ -378,11 +398,14 @@ async def read_live_view_data(request: Request, view_id: str, alias: str,
         except ValidationError:
             raise HTTPException(503, "published definition incompatible")
         binding = next((b for b in definition.reads if b.alias == alias), None)
-        if binding is None or READ_APP[binding.operation] not in (view.app_name, "relay"):
+        if binding is None or READ_APP[binding.operation] not in (
+                view.app_name, "relay", "wiki"):
             raise HTTPException(404, "unknown read")
 
     if binding.operation == "relay.channel.read@1":
         return await _read_relay_channel(request, binding.channel_id, ident)
+    if binding.operation == "wiki.recent.read@1":
+        return await _read_recent_wiki(request)
 
     app_name = view.app_name
     upstream = (getattr(request.app.state, "app_proxy_base", None)

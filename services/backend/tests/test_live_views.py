@@ -2,7 +2,7 @@
 import httpx
 import pytest
 from agentplatform.apikeys import hash_token
-from agentplatform.db import ApiKey, Conversation, LiveInvocation, RelayParticipant
+from agentplatform.db import ApiKey, Conversation, LiveInvocation, RelayParticipant, WikiPage, utcnow
 
 
 async def test_live_action_observation_is_admin_only_and_omits_arguments(
@@ -260,6 +260,44 @@ async def test_relay_page_read_rechecks_membership_and_cannot_be_snapshotted(
         room.archived_at = room.updated_at
         await session.commit()
     assert (await admin_client.get(data_url)).status_code == 404
+
+
+async def test_wiki_page_read_is_bounded_current_and_owner_scoped(
+        admin_client, token_client, sf):
+    await admin_client.post("/api/app-collections", json={
+        "name": "news", "display_name": "News"})
+    async with sf() as session:
+        for n in range(12):
+            session.add(WikiPage(slug=f"page-{n:02}", title=f"Page {n}",
+                                 summary=f"Summary {n}", body="private body",
+                                 created_by="user:admin", updated_by="user:admin"))
+        session.add(WikiPage(slug="archived-page", title="Archived",
+                             summary="hidden summary", body="hidden body",
+                             created_by="user:admin", updated_by="user:admin",
+                             archived_at=utcnow()))
+        await session.commit()
+    definition = {"title": "Wiki index", "reads": [
+        {"alias": "recent", "operation": "wiki.recent.read@1"}],
+        "blocks": [{"kind": "table", "source": "recent",
+                    "columns": ["slug", "title", "summary", "updated_at"]}]}
+    created = await admin_client.post("/api/live-views", json={
+        "app_name": "news", "slug": "wiki-index", "definition": definition})
+    assert created.status_code == 201, created.text
+    view_id = created.json()["id"]
+    assert (await admin_client.post(f"/api/live-views/{view_id}/publish")).status_code == 200
+    data_url = f"/api/live-views/{view_id}/data/recent"
+    got = await admin_client.get(data_url)
+    assert got.status_code == 200, got.text
+    assert len(got.json()["rows"]) == 10
+    assert all(set(row) == {"slug", "title", "summary", "updated_at"}
+               for row in got.json()["rows"])
+    assert "hidden summary" not in got.text and "private body" not in got.text
+    assert got.headers["cache-control"] == "private, no-store"
+    assert (await admin_client.post(f"/api/live-views/{view_id}/snapshots",
+                                    json={})).status_code == 403
+    reader_token = await _reader_key(sf, name="wiki-other")
+    assert (await token_client.get(data_url, headers={
+        "Authorization": f"Bearer {reader_token}"})).status_code == 404
 
 
 async def test_news_items_table_strips_links_and_rejects_unapproved_columns(

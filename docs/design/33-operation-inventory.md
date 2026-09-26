@@ -1,14 +1,15 @@
 # Design 33 operation inventory
 
 The checked-in [compiled operation catalog](../../services/backend/agentplatform/live_operation_catalog.json)
-currently contains 93 versioned entries. Its generator reads the broker's
+currently contains 94 versioned entries. Its generator reads the broker's
 callable branches and each custom Tool manifest; a lockstep test catches new
 branches. Every current branch has a conservative effect and output class.
 `query_app` and Linear's `raw_graphql` retain `unknown` effects because their
 arguments choose arbitrary paths/operations. All broker/custom branches are
 excluded from Live App admission until a separate human adapter is reviewed.
-The eleven admitted IDs are the eight bounded App reads,
-`relay.channel.read@1`, `tickets.create@1` and `relay.channel.post@1`.
+The twelve admitted IDs are the eight bounded App reads,
+`relay.channel.read@1`, `wiki.recent.read@1`, `tickets.create@1` and
+`relay.channel.post@1`.
 The UI exposes the admitted list to page authors, and publication checks it
 server-side; a catalog entry alone never grants permission.
 
@@ -32,11 +33,12 @@ grants and domain APIs keep their current behavior.
 | Tickets | `create` | platform write, wakes the ticket workflow | Eligible as `tickets.create@1`; fixed channel, human review, durable receipt |
 | Relay | `channel.read@1` | private conversation read | Eligible with immutable room ID, current human membership, ten bounded text rows; excluded from snapshots |
 | Relay | `channel.post@1` | platform write into an internal room | Eligible with fixed channel, current human membership, no external bridge or mentions, trusted confirmation and durable receipt |
+| Wiki | `recent.read@1` | shared knowledge read | Eligible for current, non-archived summaries only; ten rows, no body, no snapshots |
 | Tickets | `get`, `list`, `search` | platform read | Candidate; define object/thread ACL and a bounded output contract |
 | Tickets | `update`, `move`, `assign`, `comment` | platform write, some actions summon agents | Excluded pending per-ticket target authorization and retry semantics |
 | Relay | broker `read`, `channels`, `search` | conversation read | Raw Tool branches remain excluded; use the fixed-target adapter above |
 | Relay | broker `post`, `dm`, `react` | conversation write, possible agent wake / external bridge | Raw Tool branches remain excluded; the fixed-target, internal-only adapter above is eligible |
-| Wiki | `read`, `search`, `list`, `history`, `wanted` | shared knowledge read | Candidate with bounded result and page ACL |
+| Wiki | `read`, `search`, `list`, `history`, `wanted` | shared knowledge read | Raw Tool branches remain excluded; the bounded recent-summary adapter above is eligible |
 | Wiki | `write`, `append`, `promote` | shared knowledge write | Excluded pending revision conflict and reviewer/author policy |
 | Artifacts | `list`, `get` | private binary/metadata read | Use the existing authenticated Resource/API path, not a new page bridge |
 | Artifacts | `save`, `delete` | private storage write/delete | Excluded pending class/retention and target policy |

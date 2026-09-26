@@ -448,8 +448,14 @@ class DiscordConnector:
             # Each bot must observe every outbound event and filter by its own
             # identity. A shared group would split events between bots and the
             # wrong bot would discard half the messages.
-            group_id=f"connector-discord-{self.identity_id}",
-            auto_offset_reset="latest")
+            # Preserve the default bot's committed offsets across the identity
+            # migration. Each additional bot gets its own group and replays
+            # from the start on first launch, filtering historical events by
+            # identity; `latest` would silently skip sends queued before it
+            # subscribed.
+            group_id=("connector-discord" if self.identity_id == "discord-default"
+                      else f"connector-discord-{self.identity_id}"),
+            auto_offset_reset="earliest")
         await consumer.start()
         log.info("consuming conversation.outbound + discord.channel.post")
         try:

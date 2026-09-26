@@ -53,7 +53,8 @@ READ_ROW_LIMITS = {
     "stockmarket.watchlist.read@1": 20,
     "tcms.runs.read@1": 10,
 }
-PLATFORM_READS = {"relay.channel.read@1": "private"}
+PLATFORM_READS = {"relay.channel.read@1": "private",
+                  "wiki.recent.read@1": "internal"}
 ROW_FIELDS = {
     "running_activity": {"day": "date?", "name": "string", "type": "string",
                          "distance_km": "number", "pace": "string?"},
@@ -64,6 +65,8 @@ ROW_FIELDS = {
     "test_run": {"started_at": "string", "branch": "string", "agent": "string",
                  "n": "integer", "verify_ok": "boolean?"},
     "relay_message": {"created_at": "string", "author": "string", "body": "string"},
+    "wiki_summary": {"slug": "string", "title": "string",
+                     "summary": "string", "updated_at": "string"},
 }
 
 
@@ -228,14 +231,21 @@ def compile_catalog() -> dict:
                        "max_rows": READ_ROW_LIMITS.get(operation_id, 0),
                        "provider_spend": False}, "snapshot_eligible": True})
     for operation_id, classification in PLATFORM_READS.items():
+        wiki = operation_id == "wiki.recent.read@1"
         operations.append({
-            "id": operation_id, "source": "platform-adapter", "tool": "relay",
-            "action": "channel.read", "category": "platform_capability",
-            "effects": ["reads_sensitive"], "output_classification": classification,
-            "view_eligible": True, "reason": "Fixed room, current membership, bounded text",
+            "id": operation_id, "source": "platform-adapter",
+            "tool": "wiki" if wiki else "relay",
+            "action": "recent.read" if wiki else "channel.read",
+            "category": "platform_capability",
+            "effects": [] if wiki else ["reads_sensitive"],
+            "output_classification": classification,
+            "view_eligible": True,
+            "reason": ("Ten current, non-archived shared wiki summaries" if wiki else
+                       "Fixed room, current membership, bounded text"),
             "input_schema": _object_schema({}),
-            "output_schema": _object_schema({"rows": "relay_message[]"}, max_rows=10),
-            "target_scope": "relay_channel_membership",
+            "output_schema": _object_schema({
+                "rows": "wiki_summary[]" if wiki else "relay_message[]"}, max_rows=10),
+            "target_scope": "shared_wiki" if wiki else "relay_channel_membership",
             "supported_callers": ["human_session", "platform_key"],
             "limits": {"max_rows": 10, "max_output_bytes": 32768,
                        "provider_spend": False}, "snapshot_eligible": False})

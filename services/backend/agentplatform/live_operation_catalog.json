@@ -2312,6 +2312,71 @@
       "supported_callers": [],
       "limits": null,
       "snapshot_eligible": false
+    },
+    {
+      "id": "wiki.recent.read@1",
+      "source": "platform-adapter",
+      "tool": "wiki",
+      "action": "recent.read",
+      "category": "platform_capability",
+      "effects": [],
+      "output_classification": "internal",
+      "view_eligible": true,
+      "reason": "Ten current, non-archived shared wiki summaries",
+      "input_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "rows": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "slug": {
+                  "type": "string"
+                },
+                "title": {
+                  "type": "string"
+                },
+                "summary": {
+                  "type": "string"
+                },
+                "updated_at": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "slug",
+                "title",
+                "summary",
+                "updated_at"
+              ],
+              "additionalProperties": false
+            },
+            "maxItems": 10
+          }
+        },
+        "required": [
+          "rows"
+        ],
+        "additionalProperties": false
+      },
+      "target_scope": "shared_wiki",
+      "supported_callers": [
+        "human_session",
+        "platform_key"
+      ],
+      "limits": {
+        "max_rows": 10,
+        "max_output_bytes": 32768,
+        "provider_spend": false
+      },
+      "snapshot_eligible": false
     }
   ]
 }
