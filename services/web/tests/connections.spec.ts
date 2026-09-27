@@ -20,7 +20,8 @@ test("connection card opens a dated guide and writes a new Discord token before 
   await expect(page.getByText("Platform Discord bot")).toBeVisible();
 
   await page.getByLabel("Discord account display name").fill("Family bot");
-  await page.getByLabel("Discord identity ID").fill("discord-family");
+  await expect(page.getByText("discord-family", { exact: true })).toBeVisible();
+  await expect(page.getByLabel("Discord identity ID")).toHaveCount(0);
   await page.getByLabel("Discord bot token").fill("test-token");
   await page.getByRole("button", { name: "Save token and add account" }).click();
   await expect.poll(() => writes.length).toBe(2);
@@ -36,7 +37,7 @@ test("connection card opens a dated guide and writes a new Discord token before 
   await expect(page.getByRole("heading", { name: "Discord chat identities" })).toBeVisible();
 });
 
-test("a simple Discord account ID is prefixed and a populated token is accepted", async ({ page }) => {
+test("Discord account ID is generated from the name, avoiding existing IDs", async ({ page }) => {
   const writes: string[] = [];
   await mockApi(page);
   page.on("request", (request) => {
@@ -45,8 +46,10 @@ test("a simple Discord account ID is prefixed and a populated token is accepted"
     }
   });
   await page.goto("/secrets?connection=discord");
+  await page.getByLabel("Discord account display name").fill("Default");
+  await expect(page.getByText("discord-default-2", { exact: true })).toBeVisible();
   await page.getByLabel("Discord account display name").fill("Kai");
-  await page.getByLabel("Discord identity ID").fill("Kai");
+  await expect(page.getByText("discord-kai", { exact: true })).toBeVisible();
   const token = page.getByLabel("Discord bot token");
   await expect(token).toHaveAttribute("type", "password");
   await token.fill("test-token");
