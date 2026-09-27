@@ -22,6 +22,8 @@ test("connection card opens a dated guide and writes a new Discord token before 
   await expect(page).toHaveURL(/\?connection=discord&add=1$/);
   await expect(page.getByRole("heading", { name: "Add Discord account" })).toBeVisible();
   await expect(page.getByText(/Setup guide checked 2026-09-26/)).toBeVisible();
+  await expect(page.getByRole("link", { name: "Discord Developer Portal" }))
+    .toHaveAttribute("href", "https://discord.com/developers/applications");
   await expect(page.getByText("Platform Discord bot")).toHaveCount(0);
 
   await page.getByLabel("Discord account display name").fill("Family bot");

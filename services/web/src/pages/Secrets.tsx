@@ -417,7 +417,8 @@ export default function Secrets() {
       {guide && !loading && <section className="connection-detail">
         {(guide.id !== "discord" || addingDiscord) && <>
           <p className="muted">Setup guide checked {GUIDE_CHECKED}. Provider screens can change. <a href={guide.docs.url} target="_blank" rel="noreferrer">{guide.docs.label} ↗</a></p>
-          <ol>{guide.steps.map((step) => <li key={step}>{step}</li>)}</ol>
+          <ol>{guide.steps.map((step, index) => <li key={index}>{typeof step === "string" ? step
+            : <>{step.before}<a href={step.link.url} target="_blank" rel="noreferrer">{step.link.label}</a>{step.after}</>}</li>)}</ol>
         </>}
         {guide.id === "discord" && !addingDiscord && <>
           <div className="connection-list-heading">

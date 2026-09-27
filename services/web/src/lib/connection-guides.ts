@@ -1,12 +1,14 @@
 // These are product instructions, not a secret registry. The registry remains
 // secrets/*/secret.yaml; an unknown declaration stays available under Advanced.
+type ConnectionStep = string | { before: string; link: { label: string; url: string }; after: string };
+
 export type ConnectionGuide = {
   id: string;
   title: string;
   mark: string;
   purpose: string;
   secrets: string[];
-  steps: string[];
+  steps: ConnectionStep[];
   docs: { label: string; url: string };
 };
 
@@ -15,7 +17,7 @@ export const GUIDE_CHECKED = "2026-09-26";
 export const CONNECTION_GUIDES: ConnectionGuide[] = [
   { id: "discord", title: "Discord chat identities", mark: "D", purpose: "Bots that post and receive Discord messages. Each account has its own token and outbound agent assignment.",
     secrets: ["discord-bot"], steps: [
-      "Open the Discord Developer Portal and select an application, or create one.",
+      { before: "Open the ", link: { label: "Discord Developer Portal", url: "https://discord.com/developers/applications" }, after: " and select an application, or create one." },
       "On Bot, reset or copy the bot token. Turn on Message Content Intent for conversational messages.",
       "On Installation, configure Guild Install with the bot scope and the channel permissions the bot needs, then install it in your server.",
       "Paste the bot token below. Saving creates a separate secret and a paused account together.",
