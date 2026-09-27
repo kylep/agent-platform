@@ -36,6 +36,25 @@ test("connection card opens a dated guide and writes a new Discord token before 
   await expect(page.getByRole("heading", { name: "Discord chat identities" })).toBeVisible();
 });
 
+test("a simple Discord account ID is prefixed and a populated token is accepted", async ({ page }) => {
+  const writes: string[] = [];
+  await mockApi(page);
+  page.on("request", (request) => {
+    if (request.method() !== "GET" && request.url().includes("/api/chat-identities")) {
+      writes.push(JSON.parse(request.postData() || "{}").id);
+    }
+  });
+  await page.goto("/secrets?connection=discord");
+  await page.getByLabel("Discord account display name").fill("Kai");
+  await page.getByLabel("Discord identity ID").fill("Kai");
+  const token = page.getByLabel("Discord bot token");
+  await expect(token).toHaveAttribute("type", "password");
+  await token.fill("test-token");
+  await page.getByRole("button", { name: "Save token and add account" }).click();
+  await expect.poll(() => writes).toEqual(["discord-kai"]);
+  await expect(page.getByRole("alert")).toHaveCount(0);
+});
+
 test("agent editor offers one Discord outbound account or none", async ({ page }) => {
   await mockApi(page);
   await page.goto("/agents/health-monitor");

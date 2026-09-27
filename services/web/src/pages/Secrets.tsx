@@ -317,11 +317,15 @@ export default function Secrets() {
   }
 
   async function addDiscordIdentity() {
-    const id = identityId.trim().toLowerCase();
+    const enteredId = identityId.trim().toLowerCase();
+    const id = enteredId.startsWith("discord-") ? enteredId : `discord-${enteredId}`;
     const secret = `${id}-bot`;
-    if (!/^discord-[a-z][a-z0-9-]{0,31}$/.test(id) || !identityName.trim() || !identityToken.trim()) {
-      setIdentityError("Choose a name, an ID like discord-family, and a bot token."); return;
+    if (!identityName.trim()) { setIdentityError("Enter a display name."); return; }
+    if (!enteredId) { setIdentityError("Enter an account ID, such as kai."); return; }
+    if (!/^discord-[a-z][a-z0-9-]{0,31}$/.test(id)) {
+      setIdentityError("Account ID must start with a letter and use only lowercase letters, numbers, or hyphens (up to 32 characters)."); return;
     }
+    if (!identityToken.trim()) { setIdentityError("Paste the Discord bot token."); return; }
     if (identities.some((item) => item.id === id)) {
       setIdentityError("That identity ID is already in use."); return;
     }
@@ -420,10 +424,10 @@ export default function Secrets() {
             <label htmlFor="discord-account-name">Display name</label>
             <Input id="discord-account-name" aria-label="Discord account display name" placeholder="e.g. Family bot" value={identityName} onChange={(e) => setIdentityName(e.target.value)} />
             <label htmlFor="discord-account-id">Account ID</label>
-            <Input id="discord-account-id" aria-label="Discord identity ID" placeholder="e.g. discord-family" value={identityId} onChange={(e) => setIdentityId(e.target.value)} />
-            <p className="muted secret-hint">A permanent internal name for this bot. For example, <code>discord-family</code> creates the secret <code>discord-family-bot</code>; the example is not a pre-existing account.</p>
+            <Input id="discord-account-id" aria-label="Discord identity ID" placeholder="e.g. kai" value={identityId} onChange={(e) => setIdentityId(e.target.value)} />
+            <p className="muted secret-hint">A permanent name inside this platform, not a Discord application ID. Enter <code>kai</code> and it saves as <code>discord-kai</code>. The token is stored as <code>discord-kai-bot</code>.</p>
             <label htmlFor="discord-account-token">Bot token</label>
-            <Textarea id="discord-account-token" aria-label="Discord bot token" placeholder="Paste bot token" value={identityToken} rows={2} onChange={(e) => setIdentityToken(e.target.value)} />
+            <Input id="discord-account-token" aria-label="Discord bot token" type="password" autoComplete="off" spellCheck={false} placeholder="Paste bot token" value={identityToken} onChange={(e) => setIdentityToken(e.target.value)} />
             <Button disabled={identityBusy} onClick={addDiscordIdentity}>{identityBusy ? "Saving…" : "Save token and add account"}</Button>
           </div>
           {identityError && <p role="alert" className="error">{identityError}</p>}
