@@ -438,13 +438,13 @@ export default function Secrets() {
               </div>
               {openEditor === `value:${secretName}` && <ValueEditor name={secretName} keys={current?.keys ?? [{ name: "token" }]}
                 onSaved={done} onCancel={() => setOpenEditor(null)} />}
-              {account.id !== "discord-default" && <p className="muted">Connector deployment entry: <code>{`{ id: ${account.id}, secretName: ${secretName} }`}</code> in <code>connectors.discord.extraIdentities</code>. After deploy, resume the account and bind a Relay room.</p>}
+              {account.id !== "discord-default" && <p className="muted">Saving the token does not start the bot. A separate Kubernetes connector must be deployed for <code>{account.id}</code> using secret <code>{secretName}</code> (Helm: <code>connectors.discord.extraIdentities</code>). Once it is running, resume this account and link a Relay room.</p>}
             </div>;
           })}
           {identityError && <p role="alert" className="error">{identityError}</p>}
         </>}
         {addingDiscord && <>
-          <p className="muted">The account is registered paused. After saving, deploy a connector workload for its ID and secret, then resume it and bind a Relay room. Agent outbound identity is chosen in each agent’s Grants.</p>
+          <p className="muted">Saving stores the token and account, but does not connect the bot to Discord yet. It starts paused, so it cannot read or send messages. A separate bot process must be deployed in Kubernetes; then you can resume it and link a Relay room. Agent outbound identity is chosen in each agent’s Grants.</p>
           <div className="form-col">
             <label htmlFor="discord-account-name">Display name</label>
             <Input id="discord-account-name" aria-label="Discord account display name" placeholder="e.g. Family bot" value={identityName} onChange={(e) => setIdentityName(e.target.value)} />

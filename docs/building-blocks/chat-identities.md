@@ -25,19 +25,20 @@ asynchronous. Admins can use the same exact target through `/api/notify`.
 
 To add another Discord bot:
 
-1. In Settings → Connections → Discord chat identities, enter the display name,
-   ID and bot token. This stores `token` in a separate platform Secret such as
-   `discord-second-bot` and registers the identity together. The original
-   `discord-bot` Secret stays untouched. The new identity starts paused; it cannot be resumed
-   until the Secret contains a nonempty `token` key.
-3. Configure `connectors.discord.extraIdentities` in Helm with the same ID
+1. In Settings → Connections → Discord chat identities, choose **Add account**
+   and enter its display name and bot token. The platform generates an internal
+   ID from the display name, stores `token` in a separate Secret such as
+   `discord-second-bot`, and registers the account. The original `discord-bot`
+   Secret stays untouched. The new account starts paused, which stops it from
+   reading or sending messages. Saving it does not start a Discord bot process.
+2. Configure `connectors.discord.extraIdentities` in Helm with the same ID
    and `secretName`, and deploy the chart. Each identity receives only its own
    Discord token. Its connector has a separate Kafka consumer group, so each
    bot sees the whole outbound stream and delivers only its own messages. Each
    extra connector uses its own projected Kubernetes service-account identity;
    the API returns only that bot's bindings and transport status to it. The
    original bot keeps its pre-migration Kafka consumer group and offsets.
-4. Bind Relay rooms with `POST /api/relay/channels/{channel_id}/bindings`,
+3. Bind Relay rooms with `POST /api/relay/channels/{channel_id}/bindings`,
    supplying `identity_id` and the exact external room ID. Resume the identity
    in Connections after its connector is ready, then select that identity in
    each agent's Grants as needed.
