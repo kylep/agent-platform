@@ -417,9 +417,13 @@ export default function Secrets() {
           <h3>Add another Discord account</h3>
           <p className="muted">The account is registered paused. After saving, deploy a connector workload for its ID and secret, then resume it and bind a Relay room. Agent outbound identity is chosen in each agent’s Grants.</p>
           <div className="form-col">
-            <Input aria-label="Discord account display name" placeholder="Display name, e.g. Family bot" value={identityName} onChange={(e) => setIdentityName(e.target.value)} />
-            <Input aria-label="Discord identity ID" placeholder="discord-family" value={identityId} onChange={(e) => setIdentityId(e.target.value)} />
-            <Textarea aria-label="Discord bot token" placeholder="Paste bot token" value={identityToken} rows={2} onChange={(e) => setIdentityToken(e.target.value)} />
+            <label htmlFor="discord-account-name">Display name</label>
+            <Input id="discord-account-name" aria-label="Discord account display name" placeholder="e.g. Family bot" value={identityName} onChange={(e) => setIdentityName(e.target.value)} />
+            <label htmlFor="discord-account-id">Account ID</label>
+            <Input id="discord-account-id" aria-label="Discord identity ID" placeholder="e.g. discord-family" value={identityId} onChange={(e) => setIdentityId(e.target.value)} />
+            <p className="muted secret-hint">A permanent internal name for this bot. For example, <code>discord-family</code> creates the secret <code>discord-family-bot</code>; the example is not a pre-existing account.</p>
+            <label htmlFor="discord-account-token">Bot token</label>
+            <Textarea id="discord-account-token" aria-label="Discord bot token" placeholder="Paste bot token" value={identityToken} rows={2} onChange={(e) => setIdentityToken(e.target.value)} />
             <Button disabled={identityBusy} onClick={addDiscordIdentity}>{identityBusy ? "Saving…" : "Save token and add account"}</Button>
           </div>
           {identityError && <p role="alert" className="error">{identityError}</p>}
