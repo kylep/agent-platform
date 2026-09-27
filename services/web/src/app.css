@@ -1120,6 +1120,8 @@ a.relay-action { color: var(--ds-link); }
 .connection-card small { display: block; color: var(--ds-text-muted); line-height: 1.4; margin-top: 5px; }
 .connection-mark { display: grid; place-items: center; flex: 0 0 40px; height: 40px; border-radius: var(--radius-lg); background: color-mix(in srgb, var(--ds-accent) 15%, var(--ds-surface)); color: var(--ds-accent); font-weight: 700; font-family: var(--font-mono); }
 .connection-detail { max-width: 960px; border: 1px solid var(--ds-border); border-radius: var(--radius-lg); padding: 18px; margin: 16px 0; background: var(--ds-surface); }
+.connection-list-heading { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; }
+.connection-list-heading h2 { margin: 0; }
 .connection-grant { margin: 14px 0; display: grid; gap: 6px; max-width: 560px; }
 .connection-detail > .row-actions { justify-content: space-between; align-items: center; }
 .connection-detail h2 { margin: 0; }

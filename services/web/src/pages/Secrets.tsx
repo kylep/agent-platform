@@ -346,6 +346,7 @@ export default function Secrets() {
         method: "POST", body: JSON.stringify({ id, display_name: identityName.trim(), secret_name: secret }),
       });
       setIdentityName(""); setIdentityToken("");
+      setSearchParams({ connection: "discord" });
       load();
     } catch (err) {
       setIdentityError(`${err instanceof Error ? err.message : "Setup failed."} The token may already be saved; retrying with the same ID is safe.`);
@@ -366,7 +367,12 @@ export default function Secrets() {
   }
 
   const guide = CONNECTION_GUIDES.find((item) => item.id === searchParams.get("connection"));
+  const addingDiscord = guide?.id === "discord" && searchParams.get("add") === "1";
+  useEffect(() => {
+    if (!addingDiscord) { setIdentityName(""); setIdentityToken(""); setIdentityError(null); }
+  }, [addingDiscord]);
   function closeGuide() { setOpenEditor(null); setSearchParams({}); }
+  function backToDiscordAccounts() { setSearchParams({ connection: "discord" }); }
   const discordAccounts = identities.filter((identity) => identity.connector === "discord");
   const statusFor = (names: string[]) => {
     const matches = names.map((name) => secrets.find((item) => item.name === name));
@@ -378,9 +384,12 @@ export default function Secrets() {
     <div className="page page-connections">
       {guide && <nav className="connection-breadcrumb" aria-label="Breadcrumb">
         <Link className="crumb" to="/secrets" onClick={() => setOpenEditor(null)}>Connections</Link>
-        <span aria-hidden="true"> / </span><span aria-current="page">{guide.title}</span>
+        <span aria-hidden="true"> / </span>
+        {addingDiscord ? <><Link className="crumb" to="/secrets?connection=discord">{guide.title}</Link>
+          <span aria-hidden="true"> / </span><span aria-current="page">Add account</span></>
+          : <span aria-current="page">{guide.title}</span>}
       </nav>}
-      <h1>{guide?.title ?? "Connections"}</h1>
+      <h1>{addingDiscord ? "Add Discord account" : guide?.title ?? "Connections"}</h1>
       {!guide && <p className="muted">
         Set up the accounts and credentials your platform uses. Values are stored in the cluster;
         this page never shows them again. Choose a card for setup steps and status.
@@ -406,10 +415,15 @@ export default function Secrets() {
         })}
       </div>}
       {guide && !loading && <section className="connection-detail">
-        <p className="muted">Setup guide checked {GUIDE_CHECKED}. Provider screens can change. <a href={guide.docs.url} target="_blank" rel="noreferrer">{guide.docs.label} ↗</a></p>
-        <ol>{guide.steps.map((step) => <li key={step}>{step}</li>)}</ol>
-        {guide.title === "Discord chat identities" && <>
-          <h3>Accounts</h3>
+        {(guide.id !== "discord" || addingDiscord) && <>
+          <p className="muted">Setup guide checked {GUIDE_CHECKED}. Provider screens can change. <a href={guide.docs.url} target="_blank" rel="noreferrer">{guide.docs.label} ↗</a></p>
+          <ol>{guide.steps.map((step) => <li key={step}>{step}</li>)}</ol>
+        </>}
+        {guide.id === "discord" && !addingDiscord && <>
+          <div className="connection-list-heading">
+            <h2>Accounts</h2>
+            <Button onClick={() => { setOpenEditor(null); setSearchParams({ connection: "discord", add: "1" }); }}>+ Add account</Button>
+          </div>
           {discordAccounts.map((account) => {
             const secretName = account.secret_refs.bot_token?.secret;
             const current = secrets.find((item) => item.name === secretName);
@@ -426,7 +440,9 @@ export default function Secrets() {
               {account.id !== "discord-default" && <p className="muted">Connector deployment entry: <code>{`{ id: ${account.id}, secretName: ${secretName} }`}</code> in <code>connectors.discord.extraIdentities</code>. After deploy, resume the account and bind a Relay room.</p>}
             </div>;
           })}
-          <h3>Add another Discord account</h3>
+          {identityError && <p role="alert" className="error">{identityError}</p>}
+        </>}
+        {addingDiscord && <>
           <p className="muted">The account is registered paused. After saving, deploy a connector workload for its ID and secret, then resume it and bind a Relay room. Agent outbound identity is chosen in each agent’s Grants.</p>
           <div className="form-col">
             <label htmlFor="discord-account-name">Display name</label>
@@ -435,6 +451,7 @@ export default function Secrets() {
             <label htmlFor="discord-account-token">Bot token</label>
             <Input id="discord-account-token" aria-label="Discord bot token" type="password" autoComplete="off" spellCheck={false} placeholder="Paste bot token" value={identityToken} onChange={(e) => setIdentityToken(e.target.value)} />
             <Button disabled={identityBusy} onClick={addDiscordIdentity}>{identityBusy ? "Saving…" : "Save token and add account"}</Button>
+            <Button variant="secondary" disabled={identityBusy} onClick={backToDiscordAccounts}>Cancel</Button>
           </div>
           {identityError && <p role="alert" className="error">{identityError}</p>}
         </>}
