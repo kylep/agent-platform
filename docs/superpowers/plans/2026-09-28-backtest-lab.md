@@ -268,7 +268,7 @@ dispatch subagents, verify their evidence, commit, and update this file.
 
 ### Phase B — engine (T3 → T4 → T5, all `tools/backtest/engine/`)
 
-- [~] **T3 spec: model, validation, canonical form, registry, generated description.** `[opus]`
+- [x] **T3 spec: model, validation, canonical form, registry, generated description.** (commit `fee0094`; 54 tests, result shape in `engine/result.py`) `[opus]`
   Design: "The spec language (v1)", "Engine semantics" (Determinism),
   "The conversation" (validate's outputs). Files: `tools/backtest/engine/
   {__init__,spec,primitives,describe}.py`, `tools/backtest/test_spec.py`.
@@ -293,7 +293,7 @@ dispatch subagents, verify their evidence, commit, and update this file.
   the registry; key order irrelevant to the hash; describe() golden text for
   3 different specs (not only the design's example).
 
-- [~] **T4 engine core: calendar, schedule, signals, allocators, holdings, fills.** `[opus]` `[after T3 reports]`
+- [x] **T4 engine core: calendar, schedule, signals, allocators, holdings, fills.** (commit `fee0094`; review: DRIP reinvest cost-free in the symbol's currency, when-only symbols TR-checked) `[opus]` `[after T3 reports]`
   Design: "Engine semantics" (all but Metrics), "v1 primitives". Files:
   `tools/backtest/engine/{data,calendar,signals,allocate,simulate}.py`,
   `tools/backtest/test_engine.py`.
@@ -323,7 +323,7 @@ dispatch subagents, verify their evidence, commit, and update this file.
   property**: for random t, mutating every bar ≥ t leaves all events < t
   byte-identical; cross-check failure raises.
 
-- [~] **T5 metrics, caveats, engine version, golden output.** `[opus]` `[after T4 reports]`
+- [x] **T5 metrics, caveats, engine version, golden output.** (commit `fee0094`; 106 tests total; worst case 22 s / 318 MiB / 22 MB JSON → results moved to Postgres) `[opus]` `[after T4 reports]`
   Design: "Engine semantics" (Metrics, Determinism), "Caveats printed in
   every report". Files: `tools/backtest/engine/{metrics,caveats,version}.py`,
   `tools/backtest/test_metrics.py`, `tools/backtest/golden/`.
@@ -342,11 +342,11 @@ dispatch subagents, verify their evidence, commit, and update this file.
   test); a total-loss case; drawdown with/without recovery; Sharpe with
   rf ≠ 0; golden.
 
-- [ ] **Phase B review** (sonnet, WORST-CASE list B) → repairs → commit T3–T5.
+- [x] **Phase B review** (1 high + 1 medium fixed; declared decisions accepted) (sonnet, WORST-CASE list B) → repairs → commit T3–T5.
 
 ### Phase C — tool, app ingest, UI (T6 ∥ T7; T8 after T7 reports)
 
-- [ ] **T6 the `backtest` tool.** `[opus]` `[parallel with T7 — T6 owns tools/backtest/{run.py,tool.yaml,test_run.py}; T7 owns apps/stockmarket/** and reports/backtest/**]`
+- [x] **T6 the `backtest` tool.** (commit `14add71`; review: non-retryable oversize notice, rerun-without-pin test, hash URL; CI now runs all tool test files) `[opus]` `[parallel with T7 — T6 owns tools/backtest/{run.py,tool.yaml,test_run.py}; T7 owns apps/stockmarket/** and reports/backtest/**]`
   Design: "Architecture", "The conversation". Files: `tools/backtest/
   {tool.yaml,run.py,test_run.py}`.
   - `tool.yaml`: `category` like `prices`; `description` teaching the loop
@@ -391,7 +391,7 @@ dispatch subagents, verify their evidence, commit, and update this file.
   worst-case bench spec; determinism (two runs → identical rows + event);
   rerun from pinned dataset reproduces the id; stdout ≤ 4 KB.
 
-- [ ] **T7 app: consume, store, report, read API.** `[sonnet]` `[parallel with T6]`
+- [x] **T7 app: consume, store, report, read API.** (commit `3683a33`; review: detail capped at 8 KB at worst case, spec/metrics split to own routes) `[sonnet]` `[parallel with T6]`
   Design: "Stockmarket app: the Backtests view". Files:
   `apps/stockmarket/backend/stockmarketapp/{backtests.py (new),ingest.py,
   main.py,api.py,report.py}`, `reports/backtest/report.yaml`, app tests.
@@ -420,7 +420,7 @@ dispatch subagents, verify their evidence, commit, and update this file.
   bounds, report HTML contains no non-rk classes and escapes a hostile
   name, API bounds, rerun role guard.
 
-- [ ] **T8 Backtests view.** `[sonnet]` `[ui]` `[after T7 reports]`
+- [x] **T8 Backtests view.** (commit `3683a33`; hash routes; visual review: shared labels, per-element scroll at 390 px, number grouping; SideNav overflow Deferred) `[sonnet]` `[ui]` `[after T7 reports]`
   Design: "Stockmarket app: the Backtests view" (UI). Files:
   `apps/stockmarket/frontend/src/**` (new `backtests.tsx`; `App.tsx` gains
   a tab/route — the existing page stays the default at
@@ -438,11 +438,11 @@ dispatch subagents, verify their evidence, commit, and update this file.
   1280×800 and 390×844 in light and dark via Playwright, READS the PNGs,
   reports what a picky human would notice; deletes its throwaway files.
 
-- [ ] **Phase C review** (sonnet, WORST-CASE list C, + the visual reviewer) → repairs → commit T6, T7, T8.
+- [x] **Phase C review** (1 critical fixed — detail size; medium → T11 row 11 NUC timing; visual high deferred as pre-existing platform shell issue) (sonnet, WORST-CASE list C, + the visual reviewer) → repairs → commit T6, T7, T8.
 
 ### Phase D — agent, ship, verify
 
-- [ ] **T9 grant + prompt for `stockmarket-data`; docs.** `[sonnet]`
+- [x] **T9 grant + prompt for `stockmarket-data`; docs.** (commit `5db6747`; stockmarket-data confirmed a DB worker, not a design-34 system agent) `[sonnet]`
   Design: "The conversation", "Architecture" (why `stockmarket-data`).
   Files: `services/backend/agentplatform/db.py` (a new mark-gated
   `_ensure_backtest_worker` called from `init_db`, modelled on
@@ -512,6 +512,12 @@ dispatch subagents, verify their evidence, commit, and update this file.
   8. Report: `list_reports` shows type `backtest` entries; `get_report`
      HTML has the charts and caveats.
   9. Screenshots: experiment page + compare at 1280 and 390, light/dark.
+  11. Worst-case timing on the NUC (Phase C review): run the bench shape
+      (25 symbols, 8 strategies, 5y daily contributions — use real tracked
+      symbols, synthesize nothing) through the real tool via a
+      `stockmarket-data` run or a direct executor call; record wall time and
+      rows written; it must finish inside the 120 s tool timeout. If not,
+      add a Repair (tighter spec bounds or COPY instead of executemany).
   10. Accuracy spot-check: scenario 2's QQQ-only strategy TWR over the
       period vs `(adj_close_end / adj_close_start)` for QQQ in USD — the
       difference is explained only by FX (CAD base) and slippage; record
@@ -530,6 +536,13 @@ dispatch subagents, verify their evidence, commit, and update this file.
   `"index" | "watch"`; safe while every read endpoint filters
   `HIDDEN_KINDS` server-side. `brief.py:24` `SYMBOL_RE` lacks `=` so
   `/watchlist` says "not a ticker" for `CAD=X` (cosmetic).
+- (Phase C, high→deferred, pre-existing) the platform SideNav in
+  `packages/ui` never collapses at 390 px, so EVERY app page (Overview
+  included) overflows to scrollWidth 534 on phones. Fix belongs in the shared
+  shell, not this build; Backtests content scrolls within its own containers.
+- (Phase C, medium) the Backtests Re-run button's visibility trusts
+  `/api/whoami` role (UX only); the real guard is the POST's 403 — verify in
+  T11 that a reader session gets role=reader.
 - (Phase A, low) backtest tables have no FKs (matches the app's existing
   convention).
 
@@ -547,7 +560,7 @@ All mechanical; the loop stops only when every line holds:
 3. `git log origin/main` contains every task commit (pushed).
 4. `kubectl -n agent-platform get deploy ap-app-stockmarket` 1/1 on the new
    image; `app.stockmarket.backtest` topic exists.
-5. "Live verification" rows 1–10 each have evidence (ids, numbers, or
+5. "Live verification" rows 1–11 each have evidence (ids, numbers, or
    screenshot paths) and a PASS/FAIL; any FAIL has a Repair that is `[x]`.
 6. Design 35 has an AS BUILT section.
 
@@ -557,4 +570,11 @@ All mechanical; the loop stops only when every line holds:
 
 ## Handoff to Kyle
 
-(empty)
+- **Pre-existing, not from this build:** `services/backend/tests/test_db.py`
+  has 3 failures on the unmodified tree
+  (`test_memory_grant_backfills_once_and_preserves_opt_out`,
+  `test_quota_grant_backfill_covers_the_agents_that_already_exist`,
+  `test_artifacts_grant_backfill_covers_the_agents_that_already_exist`).
+  Design 34's `migrate_authority` writes a `persona-authority-migration`
+  AgentVersion for every agent on a fresh DB, which trips those tests'
+  exact-list assertions. Found by T9, reproduced on a clean tree.
