@@ -485,7 +485,7 @@ dispatch subagents, verify their evidence, commit, and update this file.
      NVDA TSLA plus `CAD=X` kind `fx`. Evidence: counts, `refetched`, and
      the three `symbols.currency` values.
 
-- [ ] **T11 live verification + AS BUILT.** `[sonnet runner + orchestrator]`
+- [x] **T11 live verification + AS BUILT.** (11/11 PASS after R1; AS BUILT in design 35) `[sonnet runner + orchestrator]`
   One sonnet runner executes the scenarios below through the `mcp__ap__*`
   tools (and one Playwright pass for screenshots), writes each row's
   evidence into "Live verification", and reports. Scenarios:
@@ -528,7 +528,7 @@ dispatch subagents, verify their evidence, commit, and update this file.
 
 ### Repairs
 
-- [ ] **R1 Pai can read backtests (T11 row 7 FAIL).** `[sonnet]` Pai's
+- [x] **R1 Pai can read backtests (T11 row 7 FAIL).** (commit `5d85e1f`; deployed; row 7 re-verified PASS) `[sonnet]` Pai's
   `platform_tools` lack `mcp__platform__query_app`, although design 35 (and
   Pai's own design-34 prompt: "use query_app and artifacts to retrieve them")
   say personas read worker outputs through it. Add a mark-gated migration in
@@ -592,7 +592,7 @@ unless noted; screenshots via Playwright through an SSH tunnel to
 | 4 | Trend-filter DM | Run `96ff0262358b48cdbdd0fc09e32fea29`. Spec used `when: {signal: price_vs_sma(200), op: ">", threshold: 0, then: {fixed:{SPY:1}}, else: "cash"}` with `holdings: rotate`, `contributions: {amount:500, every:month}` since 2018-01-01. Experiment `1a8fd1cb8763dbbec5f7b661f356f951`. XIRR 12.34%, final $91,527.25 on $52,500 contributed, 93 trades. | PASS |
 | 5 | Rerun scenario 2 | Run `344f96dfd57f4a7fa9e0716a1557851a`, action `rerun` on `8a55f18f6d34cdee7a58adcc27db4e29`. Reply: "Reproduced successfully... Experiment ID matched" — same id, same metrics (394,401.73/22.18% and 1,626,432.39/48.49%) byte-for-byte. | PASS |
 | 6 | Inexpressible question | "short TSLA whenever its RSI is above 70" → run `2930df58e2e5430bb31936c81f168a85`. Reply: "I can't run this faithfully: the engine doesn't support RSI signals or short positions." No numbers stated, no backtest run. Ticket **OPS-29** ("Backtest primitives: RSI signals and short positions") filed naming both missing primitives, reporter `agent:stockmarket-data`. | PASS |
-| 7 | Pai answers from query_app | DM to `agent:pai`, run `e2d7ee8d22a74afdb1b4b67d0393d16a`. Reply: "I can't retrieve it reliably: the backtest API is denying pai access... I don't want to invent the result." `get_agent(pai).platform_tools` = `[stocks, strava, relay, tickets, wiki, get_quota_usage, artifacts, memory, discord]` — **no `query_app` grant at all**. Design 35 says personas answer via `query_app('stockmarket', ...)`; this was never granted to `pai`. | **FAIL** — real deployment gap, needs a Repair: grant `mcp__platform__query_app` to the `pai` agent definition. |
+| 7 | Pai answers from query_app | First attempt: run `e2d7ee8d22a74afdb1b4b67d0393d16a` — Pai had no `query_app` grant and honestly declined (FAIL → Repair R1). After R1 (`5d85e1f`, backend redeployed 13:11): run `d9921795b74f42fb897b81c1fd62cd56` called `query_app` help → `backtests?q=QQQ` → `backtests/8a55f18f6d34cdee7a58adcc27db4e29` and answered XIRR 48.49% (winner) vs 22.18% (QQQ), final C$1,626,432 vs C$394,402 on C$121,000 — identical to row 2; cited hindsight/concentration caveats. (Wording nit: called `keep` "rotating".) | **PASS** (after R1) |
 | 8 | Reports | `list_reports(type=backtest)` → one entry, `{id: 8e97adf07d884b8f9d018d792679ee6a, title: "QQQ DCA vs prior-month winner", meta.experiment_id: 8a55f18f6d34cdee7a58adcc27db4e29}`. `get_report` HTML (55,680 chars): 4 `<svg>` charts (`class="rk-chart"` ×4), a "Caveats" section, hindsight/concentration/taxes/data caveat text all present. | PASS |
 | 9 | Screenshots | Experiment page (`#/backtests/8a55f18f6d34cdee7a58adcc27db4e29`) at 1280 and 390, dark and light; compare view (`#/backtests/compare?ids=8a55f18f6d34cdee7a58adcc27db4e29,d14672dd76d240f751c557f49bc3eee1`) at 1280 and 390, light. Files: `scenario9_experiment_{1280,390}_{dark,light}.png`, `scenario9_compare_{1280,390}_light.png`. Content (description, stat rows, value-vs-contributed chart, drawdown chart, pick timeline, returns-by-year, caveats, assumed list, re-run button) renders correctly in both themes at both widths. Note: at 390 px the page's `scrollWidth` is 725 (viewport 390) — this is the pre-existing, already-Deferred platform SideNav overflow (Phase C, "high→deferred"), not a new regression; Backtests content itself scrolls within its own containers. | PASS (with pre-existing Deferred issue noted, not new) |
 | 10 | Accuracy spot-check | Scenario 2's `qqq_dca` strategy: `twr_annualized` = **21.716221%** (CAD). Independent check via `query_app('stockmarket','series', {symbols:QQQ, day_from:2016-09-28, day_to:2026-09-28})`: QQQ's own "close" (fully adjusted, USD) went 110.9252 → 738.3, a CAGR of **≈20.87%**. Gap ≈ +0.85 pp/yr in CAD's favor. This experiment's `costs` were all assumed at 0 (no slippage/fx_bps specified), so the gap is attributable to CAD depreciating against USD over the decade, not costs. Both numbers obtained through the platform (`backtest` tool + `query_app`), none invented. | PASS |

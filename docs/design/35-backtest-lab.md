@@ -419,3 +419,79 @@ Pai and other personas answer "what did the backtest say?" with
   one parent.
 - Moving the price archive into a tool-owned `tool_market` schema. Revisit
   when a third consumer appears.
+
+## AS BUILT (2026-09-28)
+
+Built and deployed in one day from the plan
+`docs/superpowers/plans/2026-09-28-backtest-lab.md`: commits `fd129dc`
+(prices), `8c251e8` (app schema), `fee0094` (engine), `14add71` (tool),
+`3683a33` (Backtests view, report, read API), `5db6747` (worker grant +
+prompt), `5d85e1f` (Pai reads via `query_app`). Deployed to the NUC without a
+Helm change: two images (backend and app-stockmarket), with `tools/` shipped
+through agents-sync.
+
+### Deviations from the design above
+
+- **Results live in Postgres; Kafka carries a notice.** The worst case at the
+  spec's bounds, measured, was 22 s of engine time, 318 MiB and 14–22 MB of
+  result JSON. That is far over Kafka's 1 MB message limit. The tool writes
+  the five `backtest_*` tables in one idempotent transaction, then publishes
+  a notice of about 1.7 KB, which the app turns into the report.
+- **Dividend reinvest is a DRIP.** A dividend buys the same symbol, in its own
+  currency, with no FX, commission or slippage. Under the earlier "normal
+  costs" reading, a dividend smaller than the commission quietly became cash,
+  and a USD holding in a CAD account paid FX twice.
+- **Deep links are hash routes.** For example,
+  `/apps/stockmarket/#/backtests/<id>`. The app is served by Starlette
+  `StaticFiles`, which has no fallback for single-page-app paths.
+- **The agent read surface is bounded.**
+  - `GET /backtests/{id}` returns headline metrics only, with caveat text
+    capped, and a hard limit of 8 KB, tested at the spec's worst case.
+  - The full metrics come from `/backtests/{id}/metrics`.
+  - The spec comes from `/backtests/{id}/spec`.
+- **No separate skill.** `describe_primitives`, generated from the engine
+  registry, is the grammar, and the `stockmarket-data` prompt section carries
+  the conversation loop.
+- **The engine version is now 1.0.1.** Trade counts exclude DRIP buys.
+- **CI now runs every test file in each tool directory,** not only
+  `test_run.py`.
+
+### Live evidence
+
+These are the results of T11, from the Live verification table in the plan.
+
+**Scenarios 1–6**
+
+- **1:** The Overview is unchanged.
+- **2:** Kyle's QQQ-vs-1-month-winner question ran describe → validate → run.
+  - Experiment `8a55f18f…`.
+  - XIRR, CAD base: QQQ 22.18%, winner 48.49%.
+- **3:** The 60/40 lump sum with quarterly rebalance ran with no invented
+  contributions.
+  - XIRR: 14.54% vs 15.37%.
+- **4:** The SPY 200-day filter used `when` + `price_vs_sma` + cash.
+- **5:** A rerun gave back the identical id.
+- **6:** "Short TSLA when RSI > 70" was refused with no numbers, and ticket
+  OPS-29 was filed.
+
+**Scenarios 7–11**
+
+- **7:** Failed at first because Pai had no `query_app` grant. Fixed by
+  `5d85e1f`, then re-verified.
+- **8:** The `backtest` report renders with 4 charts and the caveats.
+- **9:** The UI screenshots in both themes are fine.
+- **10:** QQQ's time-weighted return, 21.72% in CAD, against its USD CAGR of
+  about 20.87%. The gap is the CAD/USD exchange rate.
+- **11:** The worst case (10 symbols, 8 strategies, daily contributions over
+  5 years) took 21.65 s in the engine and 57 s for the whole run, inside the
+  120 s limit.
+
+### Known gaps
+
+These are listed under Deferred in the plan:
+
+- The platform SideNav overflows at 390 px on every app page. This was
+  already the case before this build.
+- Codex runs report `tool_calls: 0`.
+- Three tests in `test_db.py` already failed before this build, because of
+  design 34's migration.
