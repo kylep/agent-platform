@@ -131,8 +131,10 @@ dispatch subagents, verify their evidence, commit, and update this file.
   a spec that is huge (10k symbols, 1-day lookback over 30 years, `every:
   day` contributions) — what bounds CPU/memory under the executor's 300 s.
 - **C (tool + app + UI):** the tool's DB role writing anything but what it
-  should (it holds the app's full secret — does `run` write only
-  `backtest_datasets`-free paths, i.e. nothing, and publish?); a spec field
+  should (it holds the app's full secret — does it write ONLY the five
+  `backtest_*` tables, inside one transaction, idempotently? can a spec
+  field steer which rows or tables?); a 20 MB worst-case result inserted
+  row-by-row blowing the 120 s tool timeout; a spec field
   (name, label, symbol) reaching SQL, HTML, a Kafka key, a report
   identifier or a Relay mention unescaped; a Kafka message over 1 MB; a
   replayed or duplicated `backtest.completed` (idempotency); a malformed
@@ -205,7 +207,7 @@ dispatch subagents, verify their evidence, commit, and update this file.
 
 ### Phase A — data (T1 ∥ T2)
 
-- [ ] **T1 prices: split-adjusted close, actions, currency, FX, research, 10y, coherent refetch.** `[opus]` `[parallel with T2 — T1 owns tools/prices/**; T2 owns apps/stockmarket/**]`
+- [x] **T1 prices: split-adjusted close, actions, currency, FX, research, 10y, coherent refetch.** (commit `fd129dc`; review: tool may mint only research/fx kinds, NaN Adj Close falls back to Close) `[opus]` `[parallel with T2 — T1 owns tools/prices/**; T2 owns apps/stockmarket/**]`
   Design: "Data layer". Files: `tools/prices/run.py`, `tools/prices/tool.yaml`,
   `tools/prices/test_run.py`.
   - Fetch with `history(period=…, auto_adjust=False, actions=True)`; write
@@ -233,7 +235,7 @@ dispatch subagents, verify their evidence, commit, and update this file.
   test_run.py` green; the tool fails clearly if the new columns are missing
   (T2 adds them).
 
-- [ ] **T2 stockmarket app: columns, kinds, backtest tables, topic.** `[sonnet]` `[parallel with T1]`
+- [x] **T2 stockmarket app: columns, kinds, backtest tables, topic.** (commit `8c251e8`; review: no changes, brief movers filtered at read time) `[sonnet]` `[parallel with T1]`
   Design: "Data layer", "Stockmarket app: the Backtests view" (tables +
   topic only). Files: `apps/stockmarket/backend/stockmarketapp/db.py`,
   `api.py` (kind filtering only), `apps/stockmarket/app.yaml`,
@@ -262,11 +264,11 @@ dispatch subagents, verify their evidence, commit, and update this file.
     a comment.
   Acceptance: app suite green (≥ 24 + new).
 
-- [ ] **Phase A review** (sonnet, WORST-CASE list A) → repairs → commit T1, T2.
+- [x] **Phase A review** (1 medium → T6/T10 now treat NULL pre-migration rows as missing and backfill every tracked symbol with `max`; lows fixed or Deferred) (sonnet, WORST-CASE list A) → repairs → commit T1, T2.
 
 ### Phase B — engine (T3 → T4 → T5, all `tools/backtest/engine/`)
 
-- [ ] **T3 spec: model, validation, canonical form, registry, generated description.** `[opus]`
+- [~] **T3 spec: model, validation, canonical form, registry, generated description.** `[opus]`
   Design: "The spec language (v1)", "Engine semantics" (Determinism),
   "The conversation" (validate's outputs). Files: `tools/backtest/engine/
   {__init__,spec,primitives,describe}.py`, `tools/backtest/test_spec.py`.
@@ -291,7 +293,7 @@ dispatch subagents, verify their evidence, commit, and update this file.
   the registry; key order irrelevant to the hash; describe() golden text for
   3 different specs (not only the design's example).
 
-- [ ] **T4 engine core: calendar, schedule, signals, allocators, holdings, fills.** `[opus]` `[after T3 reports]`
+- [~] **T4 engine core: calendar, schedule, signals, allocators, holdings, fills.** `[opus]` `[after T3 reports]`
   Design: "Engine semantics" (all but Metrics), "v1 primitives". Files:
   `tools/backtest/engine/{data,calendar,signals,allocate,simulate}.py`,
   `tools/backtest/test_engine.py`.
@@ -321,7 +323,7 @@ dispatch subagents, verify their evidence, commit, and update this file.
   property**: for random t, mutating every bar ≥ t leaves all events < t
   byte-identical; cross-check failure raises.
 
-- [ ] **T5 metrics, caveats, engine version, golden output.** `[opus]` `[after T4 reports]`
+- [~] **T5 metrics, caveats, engine version, golden output.** `[opus]` `[after T4 reports]`
   Design: "Engine semantics" (Metrics, Determinism), "Caveats printed in
   every report". Files: `tools/backtest/engine/{metrics,caveats,version}.py`,
   `tools/backtest/test_metrics.py`, `tools/backtest/golden/`.
@@ -356,22 +358,37 @@ dispatch subagents, verify their evidence, commit, and update this file.
   - `validate`: parse + load coverage from `bars`/`symbols` (read-only
     SELECTs, parameterized) → `{spec, description, assumed, errors,
     missing: [{symbols, range, kind}]}` where `missing` is the exact
-    `prices` call to make (include `CAD=X` when currencies mix).
+    `prices` call to make (include `CAD=X` when currencies mix). Rows whose
+    `close_split_adj` or `adj_close` is NULL (stored before the migration)
+    count as missing coverage → `range: max` for that symbol.
+    Coverage needs `spec.max_window() + 1` bars before the start
+    (`engine.signals.required_bars` is exact: N returns span N+1 closes),
+    and the dataset ALWAYS includes the calendar symbol (XIU.TO for CAD,
+    SPY for USD) even if the spec does not trade it.
   - `run`: validate → load rows for the period (+ max lookback) → canonical
     dataset (sorted rows, Decimals as strings) → gzip (mtime=0 for
-    determinism) → sha256 → engine → publish ONE `backtest.completed`
-    envelope to `app.stockmarket.backtest` (key = experiment_id) carrying
-    result + dataset (gz+base64); refuse > 900 KB with a clear message →
-    return `{experiment_id, description, assumed, metrics per strategy
+    determinism) → sha256 → `engine.run_backtest` → in ONE transaction
+    insert-if-absent into `backtest_datasets` (by sha) and
+    `backtest_experiments`/`backtest_results`/`backtest_series`/
+    `backtest_events` (by experiment_id; a repeat run is a no-op; use
+    `executemany`, parameterized) → publish ONE small `backtest.completed`
+    envelope to `app.stockmarket.backtest` (key = experiment_id; data =
+    {experiment_id, name, headline metrics per strategy} ≤ 8 KB) → return `{experiment_id, description, assumed, metrics per strategy
     (headline subset), caveats (short), exclusions count, url:
     "/apps/stockmarket/backtests/<id>"}` ≤ 4 KB.
   - `rerun`: read `backtest_experiments` + `backtest_datasets` by id → rerun
     on the pinned dataset (same id ⇒ proof of reproducibility) unless
     `refresh: true` (then a fresh `run` of the stored spec; result records
     both shas).
-  - The tool writes NO rows itself (the app stores on consume).
+  - The tool writes rows ONLY to the five `backtest_*` tables (never
+    `bars`/`symbols`), creates no DDL, and fails clearly if they are missing.
+    Pass the pin's fetch span (`symbols.last_synced_at` min/max) as
+    `fetched`.
+  - Metric fix carried from Phase B: DRIP buys (`source: dividend`) do not
+    count in `trades` (engine/metrics.py `event_metrics`); add a test.
   Tests: each action with a psycopg recorder + fake producer; missing-data
-  output; size refusal; determinism (two runs → identical bytes published);
+  output; idempotent insert; the Kafka payload stays ≤ 8 KB for the
+  worst-case bench spec; determinism (two runs → identical rows + event);
   rerun from pinned dataset reproduces the id; stdout ≤ 4 KB.
 
 - [ ] **T7 app: consume, store, report, read API.** `[sonnet]` `[parallel with T6]`
@@ -379,9 +396,11 @@ dispatch subagents, verify their evidence, commit, and update this file.
   `apps/stockmarket/backend/stockmarketapp/{backtests.py (new),ingest.py,
   main.py,api.py,report.py}`, `reports/backtest/report.yaml`, app tests.
   - A consumer for `app.stockmarket.backtest` (same pattern and lifecycle as
-    `IngestLoop`): decode, validate shape and sizes, upsert experiment +
-    dataset (by sha, insert-if-absent) + results + series + events in one
-    transaction, idempotent by experiment id; malformed → log + skip.
+    `IngestLoop`): decode the small `backtest.completed` notice, load the
+    experiment from the `backtest_*` tables the TOOL already wrote (the app
+    does not store the result itself), render + upsert the report, store
+    `report_id`; unknown id or malformed → log + skip (idempotent: a
+    re-delivered notice re-renders the same report).
   - Report: `reports/backtest/report.yaml` (`generator: app:stockmarket`,
     `cadence: adhoc`, `retention_days: 3650`); render `rk-*` HTML
     (description, metrics table, value-vs-contributed + drawdown line
@@ -459,8 +478,10 @@ dispatch subagents, verify their evidence, commit, and update this file.
      last). Confirm `mcp__platform__backtest` is registered (broker log or
      `list_tools`).
   5. Backfill through the real chain: `create_run` for `stockmarket-data`
-     asking for `prices` range `max` on the tracked indexes (repairs the
-     stitching) and `10y` kind `research` on AAPL MSFT GOOGL AMZN META
+     asking for `prices` range `max` on EVERY already-tracked symbol
+     (indexes + every watchlisted ticker — query `symbols` first; rows from
+     before the migration hold NULL `close_split_adj`/`adj_close`/`dividend`
+     until a full reload; this also repairs the stitching) and `10y` kind `research` on AAPL MSFT GOOGL AMZN META
      NVDA TSLA plus `CAD=X` kind `fx`. Evidence: counts, `refetched`, and
      the three `symbols.currency` values.
 
@@ -505,7 +526,12 @@ dispatch subagents, verify their evidence, commit, and update this file.
 
 ### Deferred
 
-(empty)
+- (Phase A, low) `apps/stockmarket/frontend/src/api.ts:4` `kind` type is
+  `"index" | "watch"`; safe while every read endpoint filters
+  `HIDDEN_KINDS` server-side. `brief.py:24` `SYMBOL_RE` lacks `=` so
+  `/watchlist` says "not a ticker" for `CAD=X` (cosmetic).
+- (Phase A, low) backtest tables have no FKs (matches the app's existing
+  convention).
 
 ## Definition of done
 

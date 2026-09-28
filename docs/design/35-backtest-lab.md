@@ -113,12 +113,13 @@ Kyle ──Relay DM / Pai hands off──▶ stockmarket-data (worker; no web, n
                    2. load bars/actions/fx from app_stockmarket (APP_DB_*)
                    3. pin the dataset: canonical rows → sha256
                    4. engine: pure function (stdlib + Decimal)
-                   5. publish backtest.completed ──▶ Kafka app.stockmarket.backtest
-                   6. return a compact summary (≤ 4 KB) + experiment id + link
+                   5. write experiment + dataset + results into app_stockmarket (one txn)
+                   6. publish backtest.completed (id + headline) ──▶ Kafka app.stockmarket.backtest
+                   7. return a compact summary (≤ 4 KB) + experiment id + link
                         │
                         ▼
                  apps/stockmarket (the Backtests view)
-                   consume → backtest_* tables → /api/reports (type backtest)
+                   consume → render /api/reports (type backtest) from the stored rows
                    UI /apps/stockmarket/backtests[/<id>]; agents read via query_app
 ```
 
@@ -142,16 +143,19 @@ Kyle ──Relay DM / Pai hands off──▶ stockmarket-data (worker; no web, n
 - App pods have no egress, but that doesn't matter here: the compute needs
   none.
 
-**Results travel over Kafka.**
-- This is the design-30 pattern: a reviewed tool publishes a deterministic
-  event, and the app consumes it idempotently, keyed by experiment id.
-- If the app's tables are lost, replaying the topic rebuilds them.
-- The event carries the full result (curves, events, metrics) and the pinned
-  dataset, gzipped and base64-encoded, in one message.
-- The tool refuses to publish more than 900 KB, which stays under Kafka's
-  1 MB default. In practice that means about 25 symbols over about 20 years.
-  Hitting the limit produces a clear error that tells the worker to narrow
-  the universe or the period.
+**Results go to Postgres; Kafka carries the notice.**
+- The tool writes the full result and the pinned dataset straight into
+  `app_stockmarket` in one transaction, idempotent by experiment id. This is
+  the same way `prices` writes bars.
+- It then publishes a small `backtest.completed` event (id, name, headline
+  metrics). The app consumes that event to render the report, and anything
+  else can subscribe to it.
+- *Changed during the build (2026-09-28):* the first draft put the whole
+  result in the Kafka message. A measured worst case at the spec's bounds is
+  14–22 MB of canonical JSON (8 strategies × 25 symbols, 55k–119k events),
+  far over Kafka's 1 MB message limit. Postgres, which is backed up by
+  pg-backup, is now the system of record. The trade-off: replaying the topic
+  no longer rebuilds the tables.
 
 **Pinned datasets live in the app database, not in artifacts.**
 - Datasets are keyed by sha256, so identical pins are stored once.
@@ -279,8 +283,12 @@ Each of these rules is fixed in code, printed in every report, and tested.
   - Buying a symbol in another currency converts at that day's `CAD=X` close,
     minus `fx_bps`.
   - Holdings are valued in base currency every day.
-  - Dividends are paid in the symbol's currency and converted the same way
-    when reinvested.
+  - Dividends are paid in the symbol's currency. **Reinvest** buys the same
+    symbol in that currency at the ex-date close, with no FX, commission or
+    slippage, the way a DRIP works. This avoids two things: a phantom double
+    FX conversion, and a dividend smaller than the commission quietly
+    becoming cash. **Cash** mode converts the dividend to base currency and
+    charges `fx_bps`.
 - **Shares and money.**
   - Fractional shares by default; `whole_shares: true` leaves leftover cash
     instead.
