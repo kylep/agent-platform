@@ -600,7 +600,7 @@ async def create_relay_binding(request: Request, channel_id: str, body: S.RelayB
     async with request.app.state.session_factory() as s:
         if identity_id is not None:
             identity = await s.get(ChatIdentity, identity_id)
-            if identity is None or identity.connector != body.connector:
+            if identity is None or identity.status in ("deleted", "deleting") or identity.connector != body.connector:
                 raise HTTPException(422, "unknown chat identity for connector")
         conv = await s.get(Conversation, channel_id)
         if conv is None:

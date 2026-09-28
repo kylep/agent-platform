@@ -20,7 +20,7 @@ export const CONNECTION_GUIDES: ConnectionGuide[] = [
       { before: "Open the ", link: { label: "Discord Developer Portal", url: "https://discord.com/developers/applications" }, after: " and select an application, or create one." },
       "On Bot, reset or copy the bot token. Turn on Message Content Intent for conversational messages.",
       "On Installation, configure Guild Install with the bot scope and the channel permissions the bot needs, then install it in your server.",
-      "Paste the bot token below. Saving creates a separate secret and a paused account together.",
+      "Paste the bot token below. Saving creates a separate secret and its account together; use Verify to check setup.",
     ], docs: { label: "Discord setup guide", url: "https://docs.discord.com/developers/quick-start/getting-started" } },
   { id: "openai-images", title: "OpenAI image generation", mark: "O", purpose: "API-key image generation in Studio, separate from the Codex subscription allowance.",
     secrets: ["openai-api-key"], steps: ["Create an API key in the OpenAI Platform dashboard.", "Copy the key once and paste it into OPENAI_API_KEY below."],

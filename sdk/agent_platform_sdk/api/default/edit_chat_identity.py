@@ -6,21 +6,21 @@ import httpx
 
 from ... import errors
 from ...client import AuthenticatedClient, Client
+from ...models.edit_identity_in import EditIdentityIn
 from ...models.http_validation_error import HTTPValidationError
-from ...models.identity_status_in import IdentityStatusIn
 from ...types import Response
 
 
 def _get_kwargs(
     identity_id: str,
     *,
-    body: IdentityStatusIn,
+    body: EditIdentityIn,
 ) -> dict[str, Any]:
     headers: dict[str, Any] = {}
 
     _kwargs: dict[str, Any] = {
         "method": "patch",
-        "url": "/api/chat-identities/{identity_id}/status".format(
+        "url": "/api/chat-identities/{identity_id}".format(
             identity_id=quote(str(identity_id), safe=""),
         ),
     }
@@ -66,15 +66,13 @@ def sync_detailed(
     identity_id: str,
     *,
     client: AuthenticatedClient | Client,
-    body: IdentityStatusIn,
+    body: EditIdentityIn,
 ) -> Response[Any | HTTPValidationError]:
-    """Set Chat Identity Status
-
-     Disable an external account without deleting its routes or credential.
+    """Edit Chat Identity
 
     Args:
         identity_id (str):
-        body (IdentityStatusIn):
+        body (EditIdentityIn):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -100,15 +98,13 @@ def sync(
     identity_id: str,
     *,
     client: AuthenticatedClient | Client,
-    body: IdentityStatusIn,
+    body: EditIdentityIn,
 ) -> Any | HTTPValidationError | None:
-    """Set Chat Identity Status
-
-     Disable an external account without deleting its routes or credential.
+    """Edit Chat Identity
 
     Args:
         identity_id (str):
-        body (IdentityStatusIn):
+        body (EditIdentityIn):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -129,15 +125,13 @@ async def asyncio_detailed(
     identity_id: str,
     *,
     client: AuthenticatedClient | Client,
-    body: IdentityStatusIn,
+    body: EditIdentityIn,
 ) -> Response[Any | HTTPValidationError]:
-    """Set Chat Identity Status
-
-     Disable an external account without deleting its routes or credential.
+    """Edit Chat Identity
 
     Args:
         identity_id (str):
-        body (IdentityStatusIn):
+        body (EditIdentityIn):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -161,15 +155,13 @@ async def asyncio(
     identity_id: str,
     *,
     client: AuthenticatedClient | Client,
-    body: IdentityStatusIn,
+    body: EditIdentityIn,
 ) -> Any | HTTPValidationError | None:
-    """Set Chat Identity Status
-
-     Disable an external account without deleting its routes or credential.
+    """Edit Chat Identity
 
     Args:
         identity_id (str):
-        body (IdentityStatusIn):
+        body (EditIdentityIn):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.

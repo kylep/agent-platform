@@ -4,6 +4,7 @@ import { api, type ChatIdentity, type EditResult, type PullRequest, type SecretK
 import { ADVANCED_SECRET_GUIDES, CONNECTION_GUIDES, GUIDE_CHECKED } from "../lib/connection-guides";
 import { ChangePhaseBanner, PendingChangeBanner, useChangeLoop } from "../components/ChangeFlow";
 import { Banner } from "@ap/ui/banner";
+import { ConfirmDialog } from "@ap/ui/dialog";
 import { Button } from "@ap/ui/button";
 import { Chip, StatusChip } from "@ap/ui/chip";
 import { CodeEditor, Input, Textarea } from "@ap/ui/field";
@@ -309,11 +310,16 @@ export default function Secrets() {
   const [identityToken, setIdentityToken] = useState("");
   const [identityError, setIdentityError] = useState<string | null>(null);
   const [identityBusy, setIdentityBusy] = useState(false);
+  const [deleteAccount, setDeleteAccount] = useState<ChatIdentity | null>(null);
+  const [identityChecks, setIdentityChecks] = useState<Record<string, { ok: boolean | null; detail: string }[]>>({});
+  const [identityNotice, setIdentityNotice] = useState<string | null>(null);
+  const editingId = searchParams.get("edit");
+  const editingAccount = identities.find((account) => account.id === editingId);
   const identityId = identityName.trim() ? discordIdForName(identityName.trim(), identities) : "";
 
   function load() {
     setLoading(true);
-    Promise.all([api<SecretStatus[]>("/api/secrets"), api<ChatIdentity[]>("/api/chat-identities")])
+    Promise.all([api<SecretStatus[]>("/api/secrets"), api<ChatIdentity[]>("/api/chat-identities?include_deleted=1")])
       .then(([items, accounts]) => { setSecrets(items); setIdentities(accounts); })
       .finally(() => setLoading(false));
   }
@@ -353,27 +359,48 @@ export default function Secrets() {
     } finally { setIdentityBusy(false); }
   }
 
-  async function changeIdentity(identity: ChatIdentity) {
-    const next = identity.status === "active" ? "disabled" : "active";
+  async function editDiscordIdentity() {
+    if (!editingAccount || !identityName.trim()) { setIdentityError("Enter a display name."); return; }
     setIdentityBusy(true); setIdentityError(null);
     try {
-      await api(`/api/chat-identities/${encodeURIComponent(identity.id)}/status`, {
-        method: "PATCH", body: JSON.stringify({ status: next }),
+      const result = await api<{ detail: string }>(`/api/chat-identities/${encodeURIComponent(editingAccount.id)}`, {
+        method: "PATCH", body: JSON.stringify({ display_name: identityName.trim(),
+          ...(identityToken.trim() ? { token: identityToken.trim() } : {}) }),
       });
-      load();
-    } catch (err) {
-      setIdentityError(err instanceof Error ? err.message : "Could not change account status.");
-    } finally { setIdentityBusy(false); }
+      setIdentityNotice(result.detail);
+      backToDiscordAccounts(); load();
+    } catch (err) { setIdentityError(err instanceof Error ? err.message : "Could not save account."); }
+    finally { setIdentityBusy(false); }
+  }
+
+  async function verifyIdentity(account: ChatIdentity) {
+    setIdentityBusy(true); setIdentityError(null);
+    try {
+      const result = await api<{ checks: { ok: boolean | null; detail: string }[] }>(
+        `/api/chat-identities/${encodeURIComponent(account.id)}/verify`, { method: "POST" });
+      setIdentityChecks((old) => ({ ...old, [account.id]: result.checks })); load();
+    } catch (err) { setIdentityError(err instanceof Error ? err.message : "Could not verify account."); }
+    finally { setIdentityBusy(false); }
+  }
+
+  async function removeIdentity() {
+    if (!deleteAccount || identityBusy) return;
+    setIdentityBusy(true); setIdentityError(null);
+    try {
+      const result = await api<{ detail: string }>(`/api/chat-identities/${encodeURIComponent(deleteAccount.id)}`, { method: "DELETE" });
+      setIdentityNotice(result.detail); setDeleteAccount(null); load();
+    } catch (err) { setIdentityError(err instanceof Error ? err.message : "Could not delete account."); setDeleteAccount(null); load(); }
+    finally { setIdentityBusy(false); }
   }
 
   const guide = CONNECTION_GUIDES.find((item) => item.id === searchParams.get("connection"));
   const addingDiscord = guide?.id === "discord" && searchParams.get("add") === "1";
   useEffect(() => {
-    if (!addingDiscord) { setIdentityName(""); setIdentityToken(""); setIdentityError(null); }
-  }, [addingDiscord]);
+    setIdentityName(editingAccount?.display_name ?? ""); setIdentityToken(""); setIdentityError(null);
+  }, [addingDiscord, editingId, editingAccount?.display_name]);
   function closeGuide() { setOpenEditor(null); setSearchParams({}); }
   function backToDiscordAccounts() { setSearchParams({ connection: "discord" }); }
-  const discordAccounts = identities.filter((identity) => identity.connector === "discord");
+  const discordAccounts = identities.filter((identity) => identity.connector === "discord" && identity.status !== "deleted");
   const statusFor = (names: string[]) => {
     const matches = names.map((name) => secrets.find((item) => item.name === name));
     return matches.every((item) => item && item.status === "valid") ? "Ready"
@@ -382,14 +409,18 @@ export default function Secrets() {
 
   return (
     <div className="page page-connections">
+      <ConfirmDialog open={Boolean(deleteAccount)} title={`Delete ${deleteAccount?.display_name ?? "account"}?`}
+        confirmLabel={identityBusy ? "Deleting…" : "Delete account"} onConfirm={removeIdentity} onCancel={() => { if (!identityBusy) setDeleteAccount(null); }}>
+        Removes the bot credential, disconnects its {deleteAccount?.bound_routes ?? 0} room routes, and clears agent assignments. Chat history stays. This cannot be undone.
+      </ConfirmDialog>
       {guide && <nav className="connection-breadcrumb" aria-label="Breadcrumb">
         <Link className="crumb" to="/secrets" onClick={() => setOpenEditor(null)}>Connections</Link>
         <span aria-hidden="true"> / </span>
-        {addingDiscord ? <><Link className="crumb" to="/secrets?connection=discord">{guide.title}</Link>
-          <span aria-hidden="true"> / </span><span aria-current="page">Add account</span></>
+        {addingDiscord || editingId ? <><Link className="crumb" to="/secrets?connection=discord">{guide.title}</Link>
+          <span aria-hidden="true"> / </span><span aria-current="page">{editingId ? "Edit account" : "Add account"}</span></>
           : <span aria-current="page">{guide.title}</span>}
       </nav>}
-      <h1>{addingDiscord ? "Add Discord account" : guide?.title ?? "Connections"}</h1>
+      <h1>{addingDiscord ? "Add Discord account" : editingId ? "Edit Discord account" : guide?.title ?? "Connections"}</h1>
       {!guide && <p className="muted">
         Set up the accounts and credentials your platform uses. Values are stored in the cluster;
         this page never shows them again. Choose a card for setup steps and status.
@@ -401,7 +432,7 @@ export default function Secrets() {
           const discordActive = discordAccounts.filter((account) => account.status === "active" && account.configured).length;
           const discordPending = discordAccounts.length - discordActive;
           const status = item.title === "Discord chat identities"
-            ? (discordAccounts.length ? `${discordActive} active${discordPending ? ` · ${discordPending} paused/unset` : ""}` : "Needs setup")
+            ? (discordAccounts.length ? `${discordActive} active${discordPending ? ` · ${discordPending} need setup` : ""}` : "Needs setup")
             : statusFor(item.secrets);
           const ready = item.title === "Discord chat identities"
             ? discordActive > 0 && discordPending === 0 : status === "Ready";
@@ -415,36 +446,52 @@ export default function Secrets() {
         })}
       </div>}
       {guide && !loading && <section className="connection-detail">
-        {(guide.id !== "discord" || addingDiscord) && <>
+        {(guide.id !== "discord" || addingDiscord || editingId) && <>
           <p className="muted">Setup guide checked {GUIDE_CHECKED}. Provider screens can change. <a href={guide.docs.url} target="_blank" rel="noreferrer">{guide.docs.label} ↗</a></p>
           <ol>{guide.steps.map((step, index) => <li key={index}>{typeof step === "string" ? step
             : <>{step.before}<a href={step.link.url} target="_blank" rel="noreferrer">{step.link.label}</a>{step.after}</>}</li>)}</ol>
         </>}
-        {guide.id === "discord" && !addingDiscord && <>
+        {guide.id === "discord" && !addingDiscord && !editingId && <>
           <div className="connection-list-heading">
             <h2>Accounts</h2>
             <Button onClick={() => { setOpenEditor(null); setSearchParams({ connection: "discord", add: "1" }); }}>+ Add account</Button>
           </div>
+          {identityNotice && <Banner>{identityNotice}</Banner>}
           {discordAccounts.map((account) => {
             const secretName = account.secret_refs.bot_token?.secret;
-            const current = secrets.find((item) => item.name === secretName);
             return <div className="connection-account" key={account.id}>
               <div><strong>{account.display_name}</strong> <code>{account.id}</code><br />
-                <span className="muted">{account.configured ? "Token set" : "Token missing"} · {account.status} · {account.bound_routes} room routes</span></div>
+                <span className="muted">{account.configured ? "Token set" : "Token missing"} · {account.bound_routes} room routes{account.status === "disabled" ? " · Needs verification" : ""}{account.status === "deleting" ? " · Cleanup incomplete; retry Delete" : ""}</span></div>
               <div className="row-actions">
-                <Button variant="secondary" size="sm" onClick={() => setOpenEditor(`value:${secretName}`)}>Set token</Button>
-                <Button variant="secondary" size="sm" disabled={identityBusy || (!account.configured && account.status !== "active")}
-                  onClick={() => changeIdentity(account)}>{account.status === "active" ? "Pause" : "Resume"}</Button>
+                <Button variant="secondary" size="sm" disabled={identityBusy || account.status === "deleting"} onClick={() => setSearchParams({ connection: "discord", edit: account.id })}>Edit</Button>
+                <Button variant="secondary" size="sm" disabled={identityBusy || account.status === "deleting"} onClick={() => verifyIdentity(account)}>Verify</Button>
+                <Button variant="danger" size="sm" disabled={identityBusy} onClick={() => setDeleteAccount(account)}>Delete</Button>
               </div>
-              {openEditor === `value:${secretName}` && <ValueEditor name={secretName} keys={current?.keys ?? [{ name: "token" }]}
-                onSaved={done} onCancel={() => setOpenEditor(null)} />}
-              {account.id !== "discord-default" && <p className="muted">Saving the token does not start the bot. A separate Kubernetes connector must be deployed for <code>{account.id}</code> using secret <code>{secretName}</code> (Helm: <code>connectors.discord.extraIdentities</code>). Once it is running, resume this account and link a Relay room.</p>}
+              {identityChecks[account.id] && <ul aria-label={`Verification for ${account.display_name}`}>
+                {identityChecks[account.id].map((check, index) => <li key={index}>
+                  <Chip variant={check.ok === true ? "ok" : "warn"}>{check.ok === true ? "OK" : check.ok === false ? "Needs attention" : "Unknown"}</Chip> {check.detail}
+                </li>)}
+              </ul>}
+              {account.id !== "discord-default" && <p className="muted">This account needs its own bot process deployed for <code>{account.id}</code> using secret <code>{secretName}</code>. Verify checks its setup; there is no activation toggle.</p>}
             </div>;
           })}
           {identityError && <p role="alert" className="error">{identityError}</p>}
         </>}
+        {editingId && <>
+          {editingAccount ? <div className="form-col">
+            <p className="muted">Internal ID: <code>{editingAccount.id}</code>. Renaming keeps its room routes and agent assignments.</p>
+            <label htmlFor="discord-edit-name">Display name</label>
+            <Input id="discord-edit-name" value={identityName} onChange={(e) => setIdentityName(e.target.value)} />
+            <label htmlFor="discord-edit-token">Replacement bot token</label>
+            <Input id="discord-edit-token" type="password" autoComplete="off" spellCheck={false} value={identityToken} onChange={(e) => setIdentityToken(e.target.value)} />
+            <p className="muted">Leave blank to keep the current token. Replacing it restarts only this bot’s process.</p>
+            <Button disabled={identityBusy} onClick={editDiscordIdentity}>{identityBusy ? "Saving…" : "Save account"}</Button>
+            <Button variant="secondary" disabled={identityBusy} onClick={backToDiscordAccounts}>Cancel</Button>
+          </div> : <p role="alert">Account not found.</p>}
+          {identityError && <p role="alert" className="error">{identityError}</p>}
+        </>}
         {addingDiscord && <>
-          <p className="muted">Saving stores the token and account, but does not connect the bot to Discord yet. It starts paused, so it cannot read or send messages. A separate bot process must be deployed in Kubernetes; then you can resume it and link a Relay room. Agent outbound identity is chosen in each agent’s Grants.</p>
+          <p className="muted">Saving stores the token and account, but does not connect the bot to Discord yet. A separate bot process must be deployed in Kubernetes; then link a Relay room and use Verify to check setup. Agent outbound identity is chosen in each agent’s Grants.</p>
           <div className="form-col">
             <label htmlFor="discord-account-name">Display name</label>
             <Input id="discord-account-name" aria-label="Discord account display name" placeholder="e.g. Family bot" value={identityName} onChange={(e) => setIdentityName(e.target.value)} />

@@ -1047,21 +1047,17 @@ async def test_default_chat_identity_is_admin_metadata_not_a_secret(
     assert (await token_client.get("/api/chat-identities", headers=reader)).status_code == 403
 
 
-async def test_chat_identity_status_requires_admin_and_is_visible_to_connector(
+async def test_chat_identity_edit_requires_admin_and_missing_token_stops_transport(
         admin_client, token_client, sf, secret_store):
-    await secret_store.set("discord-bot", {"token": "test-token"})
     reader = await _human_token(sf, "reader", "reader")
-    path = "/api/chat-identities/discord-default/status"
+    path = "/api/chat-identities/discord-default"
     assert (await token_client.patch(path, headers=reader,
-                                     json={"status": "disabled"})).status_code == 403
-    assert (await admin_client.patch(path, json={"status": "unknown"})).status_code == 422
-    assert (await admin_client.patch(path, json={"status": "disabled"})).json() == {
-        "id": "discord-default", "status": "disabled"}
-    transport = "/api/chat-identities/discord-default/transport"
-    assert (await token_client.get(transport, headers=reader)).status_code == 403
-    assert (await admin_client.get(transport)).json() == {
-        "id": "discord-default", "active": False}
-    assert (await admin_client.patch(path, json={"status": "active"})).status_code == 200
+                                     json={"display_name": "Bot"})).status_code == 403
+    assert (await admin_client.patch(path, json={"display_name": "Bot"})).status_code == 200
+    transport = path + "/transport"
+    assert (await admin_client.get(transport)).json()["active"] is False
+    await secret_store.set("discord-bot", {"token": "test-token"})
+    assert (await admin_client.patch(path, json={"display_name": "Bot"})).status_code == 200
     assert (await admin_client.get(transport)).json()["active"] is True
 
 
@@ -1073,10 +1069,9 @@ async def test_second_chat_identity_requires_a_token_and_can_bind_a_room(
     assert created.status_code == 201
     assert created.json()["status"] == "disabled"
     assert created.json()["configured"] is False
-    status = "/api/chat-identities/discord-second/status"
-    assert (await admin_client.patch(status, json={"status": "active"})).status_code == 409
     await secret_store.set("discord-second-bot", {"token": "test-token"})
-    assert (await admin_client.patch(status, json={"status": "active"})).status_code == 200
+    assert (await admin_client.patch("/api/chat-identities/discord-second",
+                                     json={"display_name": "Second bot"})).status_code == 200
     cid = await _channel_id(sf, "general")
     bound = await admin_client.post(f"/api/relay/channels/{cid}/bindings", json={
         "connector": "discord", "identity_id": "discord-second",

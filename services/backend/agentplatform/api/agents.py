@@ -48,8 +48,10 @@ router = APIRouter()
 
 
 async def _check_discord_identity(session, model: AgentDefModel) -> None:
-    if model.discord_identity_id and await session.get(ChatIdentity, model.discord_identity_id) is None:
-        raise HTTPException(422, "unknown Discord chat identity")
+    if model.discord_identity_id:
+        identity = await session.get(ChatIdentity, model.discord_identity_id)
+        if identity is None or identity.status in ("deleted", "deleting"):
+            raise HTTPException(422, "unknown Discord chat identity")
 
 # The two code-defined platform tools that let an agent write definitions
 # (docs/design/15). Stored grants are full MCP names — the same strings the

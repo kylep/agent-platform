@@ -63,6 +63,7 @@ from .cron_entry_in import CronEntryIn
 from .cron_preview import CronPreview
 from .dlq_entry import DlqEntry
 from .edit_dispatch import EditDispatch
+from .edit_identity_in import EditIdentityIn
 from .edit_result import EditResult
 from .entrypoints_in import EntrypointsIn
 from .generate_in import GenerateIn
@@ -70,8 +71,6 @@ from .grant_in import GrantIn
 from .help_topic import HelpTopic
 from .help_topic_detail import HelpTopicDetail
 from .http_validation_error import HTTPValidationError
-from .identity_status_in import IdentityStatusIn
-from .identity_status_in_status import IdentityStatusInStatus
 from .image_model import ImageModel
 from .image_model_billing import ImageModelBilling
 from .integration import Integration
@@ -303,6 +302,7 @@ __all__ = (
     "CronPreview",
     "DlqEntry",
     "EditDispatch",
+    "EditIdentityIn",
     "EditResult",
     "EntrypointsIn",
     "GenerateIn",
@@ -310,8 +310,6 @@ __all__ = (
     "HTTPValidationError",
     "HelpTopic",
     "HelpTopicDetail",
-    "IdentityStatusIn",
-    "IdentityStatusInStatus",
     "ImageModel",
     "ImageModelBilling",
     "Integration",

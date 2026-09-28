@@ -1,42 +1,35 @@
 from http import HTTPStatus
 from typing import Any
+from urllib.parse import quote
 
 import httpx
 
 from ... import errors
 from ...client import AuthenticatedClient, Client
-from ...models.chat_identity_view import ChatIdentityView
-from ...models.create_identity_in import CreateIdentityIn
 from ...models.http_validation_error import HTTPValidationError
 from ...types import Response
 
 
 def _get_kwargs(
-    *,
-    body: CreateIdentityIn,
+    identity_id: str,
 ) -> dict[str, Any]:
-    headers: dict[str, Any] = {}
 
     _kwargs: dict[str, Any] = {
         "method": "post",
-        "url": "/api/chat-identities",
+        "url": "/api/chat-identities/{identity_id}/verify".format(
+            identity_id=quote(str(identity_id), safe=""),
+        ),
     }
 
-    _kwargs["json"] = body.to_dict()
-
-    headers["Content-Type"] = "application/json"
-
-    _kwargs["headers"] = headers
     return _kwargs
 
 
 def _parse_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> ChatIdentityView | HTTPValidationError | None:
-    if response.status_code == 201:
-        response_201 = ChatIdentityView.from_dict(response.json())
-
-        return response_201
+) -> Any | HTTPValidationError | None:
+    if response.status_code == 200:
+        response_200 = response.json()
+        return response_200
 
     if response.status_code == 422:
         response_422 = HTTPValidationError.from_dict(response.json())
@@ -51,7 +44,7 @@ def _parse_response(
 
 def _build_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> Response[ChatIdentityView | HTTPValidationError]:
+) -> Response[Any | HTTPValidationError]:
     return Response(
         status_code=HTTPStatus(response.status_code),
         content=response.content,
@@ -61,27 +54,27 @@ def _build_response(
 
 
 def sync_detailed(
+    identity_id: str,
     *,
     client: AuthenticatedClient | Client,
-    body: CreateIdentityIn,
-) -> Response[ChatIdentityView | HTTPValidationError]:
-    """Create Chat Identity
+) -> Response[Any | HTTPValidationError]:
+    """Verify Chat Identity
 
-     Register another Discord account; configured accounts need no manual activation.
+     Explicit read-only provider checks. Never send a test message or echo errors/tokens.
 
     Args:
-        body (CreateIdentityIn):
+        identity_id (str):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[ChatIdentityView | HTTPValidationError]
+        Response[Any | HTTPValidationError]
     """
 
     kwargs = _get_kwargs(
-        body=body,
+        identity_id=identity_id,
     )
 
     response = client.get_httpx_client().request(
@@ -92,53 +85,53 @@ def sync_detailed(
 
 
 def sync(
+    identity_id: str,
     *,
     client: AuthenticatedClient | Client,
-    body: CreateIdentityIn,
-) -> ChatIdentityView | HTTPValidationError | None:
-    """Create Chat Identity
+) -> Any | HTTPValidationError | None:
+    """Verify Chat Identity
 
-     Register another Discord account; configured accounts need no manual activation.
+     Explicit read-only provider checks. Never send a test message or echo errors/tokens.
 
     Args:
-        body (CreateIdentityIn):
+        identity_id (str):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        ChatIdentityView | HTTPValidationError
+        Any | HTTPValidationError
     """
 
     return sync_detailed(
+        identity_id=identity_id,
         client=client,
-        body=body,
     ).parsed
 
 
 async def asyncio_detailed(
+    identity_id: str,
     *,
     client: AuthenticatedClient | Client,
-    body: CreateIdentityIn,
-) -> Response[ChatIdentityView | HTTPValidationError]:
-    """Create Chat Identity
+) -> Response[Any | HTTPValidationError]:
+    """Verify Chat Identity
 
-     Register another Discord account; configured accounts need no manual activation.
+     Explicit read-only provider checks. Never send a test message or echo errors/tokens.
 
     Args:
-        body (CreateIdentityIn):
+        identity_id (str):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[ChatIdentityView | HTTPValidationError]
+        Response[Any | HTTPValidationError]
     """
 
     kwargs = _get_kwargs(
-        body=body,
+        identity_id=identity_id,
     )
 
     response = await client.get_async_httpx_client().request(**kwargs)
@@ -147,28 +140,28 @@ async def asyncio_detailed(
 
 
 async def asyncio(
+    identity_id: str,
     *,
     client: AuthenticatedClient | Client,
-    body: CreateIdentityIn,
-) -> ChatIdentityView | HTTPValidationError | None:
-    """Create Chat Identity
+) -> Any | HTTPValidationError | None:
+    """Verify Chat Identity
 
-     Register another Discord account; configured accounts need no manual activation.
+     Explicit read-only provider checks. Never send a test message or echo errors/tokens.
 
     Args:
-        body (CreateIdentityIn):
+        identity_id (str):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        ChatIdentityView | HTTPValidationError
+        Any | HTTPValidationError
     """
 
     return (
         await asyncio_detailed(
+            identity_id=identity_id,
             client=client,
-            body=body,
         )
     ).parsed

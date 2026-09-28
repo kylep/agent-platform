@@ -1,68 +1,76 @@
 # Chat identities
 
-A Chat Identity is one external chat account. The identity row stores its
-name, network, status and a reference to a Secret; it never stores the bot
-token. Relay bindings assign an exact external room to an identity. Pausing an
-identity stops inbound and outbound bridge traffic while retaining its routes.
-It is separate from an MCP Tool: the bridge receives conversations and mirrors
-Relay rooms, while `discord_chat` is a callable Tool for a direct notification.
-Both use the original `discord-bot` Secret for the default account. A Relay
-room's membership still controls access; the external account is not a room
-read grant.
+A Chat Identity is one external chat account. Its row stores a name, network,
+and a reference to a Secret; bot tokens stay in the existing secret store.
+Relay bindings connect exact external rooms to an identity. An identity is
+separate from the `discord_chat` Tool: the bridge receives and mirrors
+conversations, while the Tool sends direct notifications.
 
-`discord-default` is the existing Discord bot. Legacy messages and bindings
-without an identity belong only to it. Existing agents with the `discord_chat`
-Tool were migrated to select that identity; a new agent selects none until an
-admin assigns an outbound identity in Grants. The Tool grant and the selected
-identity are both required for agent sends. Omitting `identity_id` from a Tool
-call still names the default bot, and is refused if the agent selected another.
-To send as another identity,
-`discord_chat` requires `identity_id` and an exact `channel_id` already bound
-to that identity. The platform checks that the sending agent has the Tool
-grant and belongs to the bound Relay room. It queues the send through the
-identity's connector and reports that queueing honestly; delivery is
-asynchronous. Admins can use the same exact target through `/api/notify`.
+## Managing accounts
 
-To add another Discord bot:
+Settings → Connections → Discord chat identities shows the account inventory.
+Choose **Add account** to enter a display name and masked bot token. The
+platform generates an internal ID from the name, such as `discord-family`,
+and stores its credential separately in `discord-family-bot`. This is not a
+Discord application ID.
 
-1. In Settings → Connections → Discord chat identities, choose **Add account**
-   and enter its display name and bot token. The platform generates an internal
-   ID from the display name, stores `token` in a separate Secret such as
-   `discord-second-bot`, and registers the account. The original `discord-bot`
-   Secret stays untouched. The new account starts paused, which stops it from
-   reading or sending messages. Saving it does not start a Discord bot process.
-2. Configure `connectors.discord.extraIdentities` in Helm with the same ID
-   and `secretName`, and deploy the chart. Each identity receives only its own
-   Discord token. Its connector has a separate Kafka consumer group, so each
-   bot sees the whole outbound stream and delivers only its own messages. Each
-   extra connector uses its own projected Kubernetes service-account identity;
-   the API returns only that bot's bindings and transport status to it. The
-   original bot keeps its pre-migration Kafka consumer group and offsets.
-3. Bind Relay rooms with `POST /api/relay/channels/{channel_id}/bindings`,
-   supplying `identity_id` and the exact external room ID. Resume the identity
-   in Connections after its connector is ready, then select that identity in
-   each agent's Grants as needed.
+Each account has three actions:
 
-The API checks identity status and credential presence before accepting an
-inbound Discord message; it rechecks the binding's identity before routing it.
-The connector checks status before each outbound send. A binding's external
-room ID is unique across Discord identities, so two bots cannot silently
-claim the same Relay route. Removing a token or pausing the row stops new
-platform sends; a provider request already in flight cannot be recalled.
+| Action | What it does |
+| --- | --- |
+| Edit | Rename the account or replace its token. Leave the token blank to keep it. Room routes and agent assignments stay attached to the stable internal ID. A token replacement restarts only that bot's deployed connector. |
+| Verify | Make one read-only Discord request to check the token and Message Content Intent, then inspect the connector Deployment. No test message is sent. Missing credentials, rejected tokens, missing intent, and undeployed processes get explicit results. A transient provider error leaves the existing transport state alone. |
+| Delete | After confirmation, disconnect its routes and agent assignments, remove its credential, and scale its connector to zero. Chat history stays. Failed cleanup leaves an account visible with a retry instruction. |
 
-The operator must keep the Helm `secretName` equal to the identity's Secret
-reference. Registration does not launch a bot or prove that its external
-account has joined a server. Until a second real bot credential is available,
-the second-account path is tested with synthetic credentials and rendered
-Kubernetes manifests rather than a live Discord send.
+There is no Pause/Resume switch. The internal transport guard remains:
+configured accounts can operate, failed credential/intent checks disable
+transport, and a successful Verify restores it. Deployment readiness means
+that the process is running; it does **not** prove the Discord gateway is
+connected or that the bot can send to every destination. Verify reports these
+limits rather than claiming delivery was tested.
 
-Rotate a bot token through the existing Secrets flow without changing its
-identity or room bindings. The connector reads the Discord token when it
-starts, so restart only that identity's connector after the Secret is synced;
-its status check stops new sends if the token is removed or the identity is
-paused. Resume the identity after the restarted connector is healthy. The
-default `discord_chat` Tool and broadcast connector reject ambiguous channel
-names; use an exact
-channel ID when two visible rooms share a name. Existing domain broadcasts
-remain on `discord-default` until their owners explicitly choose a bound
-destination on another identity.
+## Deploying another bot
+
+Saving an account registers its credential and metadata; it does not provision
+a new bot process. Configure `connectors.discord.extraIdentities` in Helm with
+that account's ID and `secretName`, then deploy the chart. Each connector gets
+only its own token and a separate projected Kubernetes service-account
+identity. Each has its own Kafka consumer group and delivers only its own
+messages. The original bot retains its existing Kafka offsets.
+
+Enable **Message Content Intent** under Bot in the
+[Discord Developer Portal](https://discord.com/developers/applications).
+Use Verify to check the account. Bind Relay rooms through
+`POST /api/relay/channels/{channel_id}/bindings`, specifying `identity_id` and
+an exact Discord room ID. Select an agent's outbound identity in Grants.
+
+The Helm `secretName` must match the account's Secret reference. When deleting
+an extra account, remove its `extraIdentities` entry on the next chart edit.
+A future Helm deployment cannot restore its deleted token or activate its
+retained tombstone, even if it recreates the connector workload. The default
+account also retains a tombstone so database initialization cannot recreate it.
+Deleted internal IDs cannot be reused; adding a replacement creates a new ID.
+A provider send already in flight cannot be recalled.
+
+## Permissions and routing
+
+`discord-default` names the original bot, using `discord-bot`. Legacy messages
+and bindings without an identity belong only to it. New agents select none
+until an admin assigns an outbound identity. Both the `discord_chat` Tool
+grant and the selected identity are required to send. Relay room membership
+still controls access; selecting an external account does not grant read
+access to a room.
+
+Calls without `identity_id` name the default account and are rejected if the
+agent selected another. Other identities require an exact `channel_id` bound
+to that identity and the agent's membership in the bound Relay room. Sends
+are queued through that identity's connector; queueing is not delivery.
+`/api/notify` uses the same targeting rules for administrators.
+
+The API checks status and credential presence for inbound traffic, and the
+connector checks transport before outbound effects. External room IDs cannot
+be claimed by two identities. Deleted bindings keep their original identity
+and history, but stop routing; they never fall back to another bot. Account
+management endpoints are admin-only and hidden from non-admin MCP clients.
+Existing News, Stockmarket, and Running broadcasts use the default account
+until explicitly migrated.

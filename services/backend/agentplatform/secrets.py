@@ -13,7 +13,7 @@ class SecretStore:
     async def set(self, name: str, data: dict[str, str]) -> None: raise NotImplementedError
     async def get(self, name: str) -> dict[str, str] | None: raise NotImplementedError
     async def exists(self, name: str) -> bool:
-        return await self.get(name) is not None
+        return bool(await self.get(name))
 
 class InMemorySecretStore(SecretStore):
     def __init__(self): self._d: dict[str, dict[str, str]] = {}

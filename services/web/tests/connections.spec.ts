@@ -102,3 +102,46 @@ test("connection cards use the available width and step down on smaller screens"
     expect(new Set(leftEdges).size).toBe(columns);
   }
 });
+
+test("Discord inventory offers Edit, Verify, Delete with a separate edit form", async ({ page }) => {
+  await mockApi(page);
+  const edits: unknown[] = [];
+  await page.route("**/api/chat-identities/discord-default", async (route) => {
+    edits.push(route.request().postDataJSON());
+    await route.fulfill({ json: { detail: "Account updated." } });
+  });
+  await page.route("**/api/chat-identities/discord-default/verify", (route) => route.fulfill({
+    json: { checks: [{ ok: true, detail: "Discord authenticated: Example." },
+      { ok: false, detail: "Enable Message Content Intent." }] },
+  }));
+  await page.goto("/secrets?connection=discord");
+  await expect(page.getByRole("button", { name: /Pause|Resume|Set token/ })).toHaveCount(0);
+  await page.getByRole("button", { name: "Verify", exact: true }).click();
+  await expect(page.getByLabel("Verification for Platform Discord bot")).toContainText("Enable Message Content Intent.");
+  await page.getByRole("button", { name: "Edit", exact: true }).click();
+  await expect(page).toHaveURL(/edit=discord-default/);
+  await expect(page.getByLabel("Display name", { exact: true })).toHaveValue("Platform Discord bot");
+  await expect(page.getByLabel("Replacement bot token")).toHaveAttribute("type", "password");
+  await page.getByLabel("Display name", { exact: true }).fill("My bot");
+  await page.getByRole("button", { name: "Save account" }).click();
+  await expect.poll(() => edits).toEqual([{ display_name: "My bot" }]);
+  await expect(page).toHaveURL(/\?connection=discord$/);
+});
+
+test("Discord Delete asks for confirmation and preserves cancellation", async ({ page }) => {
+  await mockApi(page);
+  let deletes = 0;
+  await page.route("**/api/chat-identities/discord-default", async (route) => {
+    if (route.request().method() === "DELETE") deletes++;
+    await route.fulfill({ json: { detail: "Account deleted." } });
+  });
+  await page.goto("/secrets?connection=discord");
+  await page.getByRole("button", { name: "Delete", exact: true }).click();
+  await expect(page.getByRole("dialog")).toContainText("Chat history stays");
+  await page.getByRole("button", { name: "Cancel", exact: true }).click();
+  expect(deletes).toBe(0);
+  await page.getByRole("button", { name: "Delete", exact: true }).click();
+  await page.getByRole("button", { name: "Delete account", exact: true }).click();
+  await expect.poll(() => deletes).toBe(1);
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+});
