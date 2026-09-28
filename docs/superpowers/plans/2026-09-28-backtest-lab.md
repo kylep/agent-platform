@@ -461,7 +461,7 @@ dispatch subagents, verify their evidence, commit, and update this file.
   tests/<the new test file>` green; `tests/test_agent*` still green (run
   those paths only).
 
-- [ ] **T10 deploy.** `[orchestrator]`
+- [x] **T10 deploy.** `[orchestrator]` (pushed `2dc2876..094b1f9` to main, no rebase needed; backend + app-stockmarket images imported 12:37; agents-sync, api/dispatcher/recorder/broker/app/facade rolled out; topic `app.stockmarket.backtest` exists with consumer group `stockmarket-app-backtest` assigned; `stockmarket-data` tools = prices, memory, backtest, tickets + prompt section; backfill run `bb512717ad844d9ab1e9c0b27bde90d9`: tracked 29,219 bars (SPY from 1993, QQQ 1999, XIU.TO 1999), research Mag 7 49,364 bars (META from 2012-05-18, TSLA 2010-06-29), CAD=X 5,990 bars from 2003-09-17, no errors, no refetches)
   1. `git fetch origin && git rebase origin/main` (resolve conflicts
      conservatively; if a conflict touches another session's semantics you
      cannot judge, stop and Handoff). Re-run every targeted suite from
@@ -528,9 +528,20 @@ dispatch subagents, verify their evidence, commit, and update this file.
 
 ### Repairs
 
-(empty)
+- [ ] **R1 Pai can read backtests (T11 row 7 FAIL).** `[sonnet]` Pai's
+  `platform_tools` lack `mcp__platform__query_app`, although design 35 (and
+  Pai's own design-34 prompt: "use query_app and artifacts to retrieve them")
+  say personas read worker outputs through it. Add a mark-gated migration in
+  `services/backend/agentplatform/db.py` (new mark, modelled on
+  `_ensure_backtest_worker`) that appends `mcp__platform__query_app` to `pai`
+  if absent (never removes; AgentVersion row; no-op if pai absent) + tests.
+  Then redeploy the backend and re-run T11 row 7.
 
 ### Deferred
+
+- (T10, pre-existing) Codex-runtime runs report `tool_calls: 0` even when
+  MCP tools ran (run `bb512717…` made 3 `prices` calls); metrics undercount
+  Codex tool use.
 
 - (Phase A, low) `apps/stockmarket/frontend/src/api.ts:4` `kind` type is
   `"index" | "watch"`; safe while every read endpoint filters
@@ -566,7 +577,31 @@ All mechanical; the loop stops only when every line holds:
 
 ## Live verification
 
-(empty — T11 fills this)
+Run against the live NUC deployment (helm rev current at 2026-09-28,
+`ap-app-stockmarket` on `agent-platform-app-stockmarket:dev`, pod
+`ap-app-stockmarket-b77c87cbc-pwkvg`). All runs via Relay DM with
+`agent:stockmarket-data` (DM channel `4256015816fd4907b4f8049ac581be55`)
+unless noted; screenshots via Playwright through an SSH tunnel to
+`pai:8090`, logged in as `admin`.
+
+| # | Scenario | Evidence | Result |
+|---|---|---|---|
+| 1 | Chart unchanged | `/apps/stockmarket/` renders QQQ/SPY/XIU.TO + Kyle's own watchlist (NVDA, SPCX, both pre-existing kind=watch). No Mag7/research symbol or `CAD=X` on the chart, watchlist, or `query_app summary` (`watchlist: []` for the calling identity; browser session's own watchlist is unrelated pre-existing data). Screenshot: `scenario1_overview.png`. | PASS |
+| 2 | QQQ-vs-winner DM | Run `64495285c35a41c99fb3efe82e78e8e9`. Tool calls confirmed via `run_events`: `describe_primitives` → `validate` → `run`. Reply quoted the generated description verbatim, listed assumed defaults (`base_currency: CAD`, `holdings: keep`, first-trading-day contributions, prior_close/close execution, reinvest dividends, 0 costs, 0 risk-free, alphabetical ties, XIU.TO calendar), and linked the experiment. Experiment `8a55f18f6d34cdee7a58adcc27db4e29`. Headline XIRR: QQQ monthly **22.183298%**, Prior-month winner **48.493817%** (final values 394,401.73 / 1,626,432.39 CAD on 121,000 contributed). | PASS |
+| 3 | Different shape (lump sum + rebalance) | Run `8ff094fa3ec445d382987e373dab9e2a`. Spec used `lump_sum: {amount: 50000}`, `fixed` weights 0.6/0.4, `holdings: {rebalance: {every: quarter}}` for the 60/40 leg and plain `fixed`+`keep` for all-SPY — no `contributions` invented. Experiment `d14672dd76d240f751c557f49bc3eee1`. XIRR: 60/40 **14.539975%** ($214,858.69), all-SPY **15.365252%** ($232,080.52). | PASS |
+| 4 | Trend-filter DM | Run `96ff0262358b48cdbdd0fc09e32fea29`. Spec used `when: {signal: price_vs_sma(200), op: ">", threshold: 0, then: {fixed:{SPY:1}}, else: "cash"}` with `holdings: rotate`, `contributions: {amount:500, every:month}` since 2018-01-01. Experiment `1a8fd1cb8763dbbec5f7b661f356f951`. XIRR 12.34%, final $91,527.25 on $52,500 contributed, 93 trades. | PASS |
+| 5 | Rerun scenario 2 | Run `344f96dfd57f4a7fa9e0716a1557851a`, action `rerun` on `8a55f18f6d34cdee7a58adcc27db4e29`. Reply: "Reproduced successfully... Experiment ID matched" — same id, same metrics (394,401.73/22.18% and 1,626,432.39/48.49%) byte-for-byte. | PASS |
+| 6 | Inexpressible question | "short TSLA whenever its RSI is above 70" → run `2930df58e2e5430bb31936c81f168a85`. Reply: "I can't run this faithfully: the engine doesn't support RSI signals or short positions." No numbers stated, no backtest run. Ticket **OPS-29** ("Backtest primitives: RSI signals and short positions") filed naming both missing primitives, reporter `agent:stockmarket-data`. | PASS |
+| 7 | Pai answers from query_app | DM to `agent:pai`, run `e2d7ee8d22a74afdb1b4b67d0393d16a`. Reply: "I can't retrieve it reliably: the backtest API is denying pai access... I don't want to invent the result." `get_agent(pai).platform_tools` = `[stocks, strava, relay, tickets, wiki, get_quota_usage, artifacts, memory, discord]` — **no `query_app` grant at all**. Design 35 says personas answer via `query_app('stockmarket', ...)`; this was never granted to `pai`. | **FAIL** — real deployment gap, needs a Repair: grant `mcp__platform__query_app` to the `pai` agent definition. |
+| 8 | Reports | `list_reports(type=backtest)` → one entry, `{id: 8e97adf07d884b8f9d018d792679ee6a, title: "QQQ DCA vs prior-month winner", meta.experiment_id: 8a55f18f6d34cdee7a58adcc27db4e29}`. `get_report` HTML (55,680 chars): 4 `<svg>` charts (`class="rk-chart"` ×4), a "Caveats" section, hindsight/concentration/taxes/data caveat text all present. | PASS |
+| 9 | Screenshots | Experiment page (`#/backtests/8a55f18f6d34cdee7a58adcc27db4e29`) at 1280 and 390, dark and light; compare view (`#/backtests/compare?ids=8a55f18f6d34cdee7a58adcc27db4e29,d14672dd76d240f751c557f49bc3eee1`) at 1280 and 390, light. Files: `scenario9_experiment_{1280,390}_{dark,light}.png`, `scenario9_compare_{1280,390}_light.png`. Content (description, stat rows, value-vs-contributed chart, drawdown chart, pick timeline, returns-by-year, caveats, assumed list, re-run button) renders correctly in both themes at both widths. Note: at 390 px the page's `scrollWidth` is 725 (viewport 390) — this is the pre-existing, already-Deferred platform SideNav overflow (Phase C, "high→deferred"), not a new regression; Backtests content itself scrolls within its own containers. | PASS (with pre-existing Deferred issue noted, not new) |
+| 10 | Accuracy spot-check | Scenario 2's `qqq_dca` strategy: `twr_annualized` = **21.716221%** (CAD). Independent check via `query_app('stockmarket','series', {symbols:QQQ, day_from:2016-09-28, day_to:2026-09-28})`: QQQ's own "close" (fully adjusted, USD) went 110.9252 → 738.3, a CAGR of **≈20.87%**. Gap ≈ +0.85 pp/yr in CAD's favor. This experiment's `costs` were all assumed at 0 (no slippage/fx_bps specified), so the gap is attributable to CAD depreciating against USD over the decade, not costs. Both numbers obtained through the platform (`backtest` tool + `query_app`), none invented. | PASS |
+| 11 | Worst-case timing | `create_run` direct to `stockmarket-data` (no DM) with 10 symbols (QQQ, SPY, XIU.TO + research AAPL, MSFT, GOOGL, AMZN, META, TSLA, NVDA — all symbols currently loaded; fewer than 25 as the task allows), 8 strategies (fixed ×3, rank ×4, when/rotate ×1), `contributions: {amount:100, every:"day"}` over 2021-09-28→2026-09-28 (5y). Run `b4b986f2d9904a9abe4d3b87c3e53f9d`, `started_at`→`finished_at` = 57.4 s total (agent+tool); the agent's own measurement around the single `backtest run` MCP call: **21.651 seconds**, well inside the 120 s tool timeout. Experiment `52df3b0d29d1e9e5126e7afef25b540b`, 1,255–3,765 trades per strategy, stored successfully. | PASS |
+
+**Notes:**
+- Codex-runtime session resume occasionally fails and falls back to replaying history (`"no rollout found for thread id ..."` → `session_fallback`, seen on run `8ff094fa3ec445d382987e373dab9e2a`); self-heals automatically, matches the pre-existing Deferred note on Codex-runtime quirks. No user-visible impact.
+- Every DM-triggered run in this pass completed in well under a minute; `stockmarket-data` has `concurrency: 1`, so back-to-back DMs and the manual `create_run` queued rather than overlapped, as expected.
+- Row 7's fix (granting `query_app` to `pai`) is the only outstanding Repair from this pass; all other scenarios passed against the live deployment with no repairs needed.
 
 ## Handoff to Kyle
 
