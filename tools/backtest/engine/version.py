@@ -6,4 +6,4 @@ dataset (simulation, rounding, metrics, caveat text, output shape). It feeds
 golden test (test_metrics.py) fails on changed output until it is bumped and
 the golden files are regenerated.
 """
-ENGINE_VERSION = "1.0.0"
+ENGINE_VERSION = "1.0.1"

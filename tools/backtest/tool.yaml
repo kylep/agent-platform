@@ -1,0 +1,47 @@
+name: backtest
+category: service_connector
+description: >-
+  Backtest investment strategies on the stockmarket app's price archive. You
+  write a declarative spec (period, money in, costs, 1-8 strategies built from
+  the engine's primitives); a deterministic engine runs it on a pinned copy of
+  the stored prices and saves the full result in the app. The loop:
+  (1) action=describe_primitives once per conversation — it returns the only
+  grammar a spec may use, with examples; (2) action=validate with your spec —
+  it returns the normalized spec, the generated description, `assumed` (every
+  default you left out), `errors`, and `missing`: each entry is the exact
+  `prices` call to make ({symbols, range, kind}) before running; (3) after
+  loading anything missing, action=run with the same spec — it stores the
+  experiment and returns its id, the description, a metrics table (money in
+  the base currency, ratios as fractions), caveats and a link;
+  (4) action=rerun with experiment_id repeats an experiment on its pinned data
+  (the same id proves it reproduces) or, with refresh=true, on today's data.
+  State only numbers this tool or query_app returned; never estimate one. If a
+  question cannot be expressed in the grammar, say so rather than answering a
+  different question.
+params:
+  type: object
+  properties:
+    action:
+      type: string
+      enum: [describe_primitives, validate, run, rerun]
+    spec:
+      type: object
+      description: "validate/run: the backtest spec, written against describe_primitives"
+    experiment_id:
+      type: string
+      pattern: "^[0-9a-f]{32}$"
+      description: "rerun: the experiment to repeat (32 hex, from run)"
+    refresh:
+      type: boolean
+      default: false
+      description: "rerun: run the stored spec on current prices instead of the pinned dataset"
+  required: [action]
+infra:
+  # The app's provisioned DB secret: the tool reads bars/symbols and writes
+  # the result into the five backtest_* tables of app_stockmarket (a result
+  # can be ~20 MB, which no model context or Kafka message should carry).
+  secrets: [app-stockmarket-db]
+  # One small backtest.completed notice per run on app.stockmarket.backtest;
+  # the app renders the report from the stored rows.
+  kafka: true
+timeout_seconds: 120

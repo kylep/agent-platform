@@ -130,10 +130,14 @@ jobs:
         run: |
           find tools -name requirements.txt -exec pip install -q -r {} \;
       - name: Per-tool tests
+        # Every test file in the tool's directory, not only test_run.py: a tool
+        # may ship a package beside run.py with its own tests (tools/backtest).
         run: |
           shopt -s nullglob
-          for t in tools/*/test_run.py; do
-            echo "== $t"; (cd "$(dirname "$t")" && python -m pytest -q test_run.py)
+          for d in tools/*/; do
+            tests=("$d"test_*.py)
+            [ ${#tests[@]} -gt 0 ] || continue
+            echo "== $d"; (cd "$d" && python -m pytest -q)
           done
 
   web:

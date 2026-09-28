@@ -206,6 +206,20 @@ def test_event_aggregates_convert_foreign_slippage_to_base():
         {"day": D("2024-03-01"), "bought": ["BBB"], "held": ["AAA", "BBB"]}]
 
 
+def test_drip_buys_are_not_trades():
+    # A reinvested dividend is a buy in the log but not a decision: it must
+    # not inflate the trade count (its zero commission still adds nothing).
+    ev = (Event(D("2024-01-02"), "buy", "SPY", {"shares": d(1), "currency": "USD",
+                                                "commission": d(1), "slippage": d(0),
+                                                "source": "allocation"}),
+          Event(D("2024-02-15"), "buy", "SPY", {"shares": d("0.01"), "currency": "USD",
+                                                "commission": d(0), "slippage": d(0),
+                                                "source": "dividend"}))
+    agg = M.event_metrics(ev, "USD")
+    assert agg["trades"] == 1
+    assert agg["commissions"] == d(1)
+
+
 def test_pick_timeline_logs_changes_only_and_ignores_dividend_buys():
     def buy(day, sym, source="allocation"):
         return Event(D(day), "buy", sym, {"shares": d(1), "source": source})
@@ -381,7 +395,7 @@ def test_run_backtest_end_to_end():
     sha = dataset_sha(raw)
     res = run_backtest(FIXTURE_SPECS["cad_dca_rank_vs_etf"], Dataset.from_dict(raw), sha)
     spec = parse_spec(FIXTURE_SPECS["cad_dca_rank_vs_etf"])
-    assert res.engine_version == ENGINE_VERSION == "1.0.0"
+    assert res.engine_version == ENGINE_VERSION == "1.0.1"
     assert res.experiment_id == experiment_id(spec, sha, ENGINE_VERSION)
     assert [a.path for a in res.assumed][-1] == "calendar"
     assert {c.code for c in res.caveats} >= {"data", "taxes", "hindsight", "concentration"}

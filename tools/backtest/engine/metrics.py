@@ -212,7 +212,9 @@ def event_metrics(events, base):
         for e in events:
             det = e.detail
             if e.kind in ("buy", "sell"):
-                out["trades"] += 1
+                # DRIP is bookkeeping, not a decision to trade.
+                if det.get("source") != "dividend":
+                    out["trades"] += 1
                 out["commissions"] += det["commission"]
                 # A DRIP buy has zero slippage and no same-day fx event, so
                 # there is no rate to convert with (and nothing to convert).
