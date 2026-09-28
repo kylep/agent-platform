@@ -8,22 +8,34 @@ description: >-
   Omit `symbols` to sync every symbol the app tracks (the three indexes plus
   everyone's watchlist), which is what the daily sync does. Symbols the app
   has never loaded are always backfilled in full regardless of `range`.
-  Use range=5y for a backfill, range=5d for a routine top-up (the overlap is
-  harmless — bars upsert by day, so holidays and missed runs self-heal).
+  Use range=5y (or 10y for backtests) for a backfill, range=5d for a routine
+  top-up (the overlap is harmless — bars upsert by day, so holidays and missed
+  runs self-heal). Each bar stores the split-adjusted close, the fully
+  adjusted close, the day's dividend and split; when a top-up meets a new
+  dividend or split, that symbol's full history is refetched so adjusted
+  prices stay coherent (listed under `refetched`). CAD=X is the FX series
+  (CAD per USD). Symbols not yet tracked are added with `kind`: research
+  (default; backtest data, never shown on the chart or watchlist) or fx.
+  Index and watch symbols are added by the app itself, not by this tool.
 params:
   type: object
   properties:
     symbols:
       type: array
-      description: "Tickers (Yahoo conventions; TSX ends in .TO). Omit to sync all tracked symbols."
+      description: "Tickers (Yahoo conventions; TSX ends in .TO; CAD=X for CAD per USD). Omit to sync all tracked symbols."
       items: {type: string}
       minItems: 1
       maxItems: 25
     range:
       type: string
-      enum: [5d, 1mo, 6mo, 1y, 5y, max]
+      enum: [5d, 1mo, 6mo, 1y, 5y, 10y, max]
       default: 5d
       description: "How far back to fetch for symbols already loaded (default 5d)"
+    kind:
+      type: string
+      enum: [research, fx]
+      default: research
+      description: "Kind for symbols not yet tracked (research or fx); tracked symbols keep theirs"
 infra:
   # The app's provisioned DB secret: this tool writes bars straight into
   # app_stockmarket rather than relaying thousands of rows through an agent's
