@@ -18,6 +18,23 @@ platform's single egress point — so the app never fetches a price. Its
 loader agent calls that tool, and a watchlist add spends the app's operator
 key on a run rather than reaching for the network itself.
 
+**Backtests** (`docs/design/35-backtest-lab.md`) is a tab of the same app, at
+`/apps/stockmarket/backtests`. It runs a declarative strategy spec — a
+period, money in, costs, one to eight strategies — through a deterministic
+engine on a pinned copy of the price archive, and stores the full result
+(experiment, dataset, metrics, series, events) directly in the app's own
+tables. Ask for one in a Relay DM or channel with `stockmarket-data`, in
+plain words ("what if I'd put $500/month into QQQ since 2018?"); it drafts
+the spec, tells you which defaults it assumed (base currency, what happens
+to new money), runs it, and replies with a link to the experiment page —
+description, a stat row per strategy, value-vs-contributed and drawdown
+charts, the pick timeline, and the caveats that print on every report
+(hindsight, concentration, taxes, data provenance). Reruns reuse the pinned
+dataset by default, so an October check of a March experiment reproduces the
+same numbers; ask for current data explicitly to redo it on a fresh pull. A
+question the grammar cannot express (shorting, options, leverage) gets a
+plain "can't do that yet" and a ticket, never a guessed answer.
+
 **Lives in:** the App collection and versioned live pages are database rows.
 `apps/<name>/` holds a domain backend/frontend and `app.yaml` infrastructure
 manifest where specialized behavior exists. Domain services ship like platform

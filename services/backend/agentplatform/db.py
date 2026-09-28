@@ -1213,6 +1213,7 @@ QA_CHANNEL_MARK = "qa-channel-v1"
 QA_SEED_MARK = "qa-seed-v1"
 QA_NIGHTLY_MARK = "qa-nightly-job-v1"
 QA_NORMAL_AGENT_MARK = "qa-normal-agent-v1"
+BACKTEST_WORKER_MARK = "backtest-worker-v1"
 
 # The channels that become PROJECTS when Tickets ships (docs/design/20), and
 # the prefix each one's keys are stamped with. #standup is deliberately absent:
@@ -2243,6 +2244,95 @@ def _ensure_agent_policy_split(conn) -> None:
             changed_via="migration", created_at=utcnow()))
     conn.execute(mark_t.insert().values(name=AGENT_POLICY_SPLIT_MARK,
                                         applied_at=utcnow()))
+
+
+BACKTEST_PROMPT_HEADING = "## Backtests (design 35)"
+
+BACKTEST_PROMPT_SECTION = f"""{BACKTEST_PROMPT_HEADING}
+
+You hold the `backtest` tool: a deterministic engine that runs an investment
+strategy spec against the price archive and stores the result. The loop:
+
+0. Call `describe_primitives` once per conversation. It is generated from the
+   engine's own registry and is the only grammar a spec may use.
+1. Draft a spec from the question and call `validate`. It returns the
+   normalized spec, the generated `description`, `assumed` (every default you
+   left out, such as `base_currency: CAD` or `holdings: keep`) and `missing`.
+2. For each `missing` entry, call `prices` with exactly the symbols and range
+   it names, kind `research` (or `fx` for a pair like `CAD=X`). Never widen
+   or narrow what `missing` asked for.
+3. Call `run` with the same spec — do not ask permission first, a run is
+   cheap. Answer with: the `description` verbatim, a small metrics table, the
+   `assumed` list (so it's clear which defaults were guessed, e.g. CAD base
+   and `keep` for new money), the `url`, and one variant worth trying.
+4. `rerun` with `experiment_id` repeats a stored experiment on request — the
+   same id back proves it reproduced; add `refresh: true` to redo it on
+   today's data instead of the pinned dataset.
+
+Rules:
+- Any example question you've seen (in a doc, a prior chat, this prompt) is
+  one illustration, never a template — map the actual words asked to
+  primitives from `describe_primitives`, don't pattern-match on wording.
+- Never state a number `backtest` or `query_app` did not return.
+- Always name which defaults were assumed; don't let a silent default (CAD
+  base, `keep`) pass as something the user asked for.
+- If the question has no primitive for it (shorting, options, leverage,
+  point-in-time universes, intraday, RSI-style signals, …), say so plainly —
+  never quietly answer a different question — and open a ticket with
+  `tickets` naming the missing primitive.
+"""
+
+
+def _ensure_backtest_worker(conn) -> None:
+    """Grant `stockmarket-data` the backtest tool and teach it the conversation
+    loop (docs/design/35).
+
+    Modelled on `_ensure_agent_policy_split`: mark-gated, single-shot, and a
+    no-op — including no mark, so a later boot still catches it — if the row
+    is absent. `stockmarket-data` is a DB/user worker, not one of
+    `system_agents.SYSTEM_AGENT_NAMES`, so this migration (not the code-owned
+    registry) is where its grants and prompt belong. Never removes a tool an
+    operator already granted or revoked, and appends the prompt section only
+    if its heading is not already present, so a hand-edited prompt is not
+    duplicated on every boot."""
+    mark_t = SchemaMark.__table__
+    if conn.execute(select(mark_t.c.name)
+                    .where(mark_t.c.name == BACKTEST_WORKER_MARK)).first():
+        return
+    def_t, ver_t = AgentDef.__table__, AgentVersion.__table__
+    row = conn.execute(select(def_t).where(def_t.c.name == "stockmarket-data")).fetchone()
+    if row is None:
+        return
+    from pydantic import ValidationError
+    from agentplatform.agentdefs import model_of
+    from agentplatform.agentspec import TOOL_TICKETS
+    tools = list(row.platform_tools or [])
+    for tool in ("mcp__platform__backtest", TOOL_TICKETS):
+        if tool not in tools:
+            tools.append(tool)
+    prompt = row.prompt or ""
+    if BACKTEST_PROMPT_HEADING not in prompt:
+        prompt = prompt.rstrip() + "\n\n" + BACKTEST_PROMPT_SECTION.strip() + "\n"
+    updates = {}
+    if tools != list(row.platform_tools or []):
+        updates["platform_tools"] = tools
+    if prompt != (row.prompt or ""):
+        updates["prompt"] = prompt
+    if updates:
+        try:
+            snapshot = {**model_of(row).model_dump(mode="json"), **updates}
+        except ValidationError:
+            snapshot = None
+        conn.execute(def_t.update().where(def_t.c.name == "stockmarket-data")
+                    .values(**updates))
+        if snapshot is not None:
+            version = (conn.execute(select(func.max(ver_t.c.version)).where(
+                ver_t.c.agent == "stockmarket-data")).scalar() or 0) + 1
+            conn.execute(ver_t.insert().values(
+                id=uuid.uuid4().hex, agent="stockmarket-data", version=version,
+                snapshot=snapshot, changed_by="platform:backtest-worker-migration",
+                changed_via="backtest-worker-migration", created_at=utcnow()))
+    conn.execute(mark_t.insert().values(name=BACKTEST_WORKER_MARK, applied_at=utcnow()))
 
 
 RUNNING_COACH_PROMPT = """You are **Running Coach**, Kyle's concise, practical running companion.
@@ -3312,6 +3402,10 @@ async def init_db(engine: AsyncEngine, default_grant: bool = True,
         await conn.run_sync(_ensure_qa_nightly_job)
         await conn.run_sync(_ensure_agent_policy_split)
         await conn.run_sync(_ensure_running_coach)
+        # After the sweeps above, for the reason each of theirs is: this reads
+        # stockmarket-data's live platform_tools/prompt, so it never fights a
+        # concurrent change to the same row.
+        await conn.run_sync(_ensure_backtest_worker)
         await conn.run_sync(_remove_coder_profile)
         # Last: even rows seeded after the earlier default-grant sweeps receive
         # memory. The mark makes this a one-time migration, so later opt-outs

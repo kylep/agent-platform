@@ -14,9 +14,12 @@ of a shell.
       requirements.txt   # optional pip deps (baked into the executor image by CI)
       test_run.py        # optional unit test (CI tools job)
 
-Four worked examples ship in this directory: `stocks` (third-party HTTP API),
+Five worked examples ship in this directory: `stocks` (third-party HTTP API),
 `discord_chat` (a declared secret), `linear` (multi-action dispatch on one
-tool), and `memory` (a tool that owns a Postgres schema). Copy the closest one.
+tool), `memory` (a tool that owns a Postgres schema), and `backtest`
+(`docs/design/35-backtest-lab.md`; a pure-stdlib engine beside `run.py`,
+writing a large result straight into another app's tables under one
+transaction instead of returning it). Copy the closest one.
 
 Rules of the game:
 
