@@ -1214,6 +1214,7 @@ QA_SEED_MARK = "qa-seed-v1"
 QA_NIGHTLY_MARK = "qa-nightly-job-v1"
 QA_NORMAL_AGENT_MARK = "qa-normal-agent-v1"
 BACKTEST_WORKER_MARK = "backtest-worker-v1"
+PERSONA_QUERY_APP_MARK = "persona-query-app-v1"
 
 # The channels that become PROJECTS when Tickets ships (docs/design/20), and
 # the prefix each one's keys are stamped with. #standup is deliberately absent:
@@ -2335,6 +2336,48 @@ def _ensure_backtest_worker(conn) -> None:
     conn.execute(mark_t.insert().values(name=BACKTEST_WORKER_MARK, applied_at=utcnow()))
 
 
+def _ensure_persona_app_reads(conn) -> None:
+    """Grant `pai` `query_app` so it can read worker outputs (repair R1,
+    docs/design/35 and design 34's own prompt: "use query_app and artifacts
+    to retrieve them").
+
+    Modelled on `_ensure_backtest_worker`: mark-gated, single-shot, and a
+    no-op — including no mark, so a later boot still catches it — if `pai`
+    is absent. Never removes a tool an operator already granted or revoked.
+    Runs before `migrate_authority`, which only filters
+    `mcp__platform__discord_chat` out of `platform_tools` and never removes
+    another tool, so this grant survives it on a fresh DB as well as a live
+    one where `migrate_authority`'s own mark is already set."""
+    mark_t = SchemaMark.__table__
+    if conn.execute(select(mark_t.c.name)
+                    .where(mark_t.c.name == PERSONA_QUERY_APP_MARK)).first():
+        return
+    def_t, ver_t = AgentDef.__table__, AgentVersion.__table__
+    row = conn.execute(select(def_t).where(def_t.c.name == "pai")).fetchone()
+    if row is None:
+        return
+    from pydantic import ValidationError
+    from agentplatform.agentdefs import model_of
+    tools = list(row.platform_tools or [])
+    if "mcp__platform__query_app" not in tools:
+        tools.append("mcp__platform__query_app")
+    if tools != list(row.platform_tools or []):
+        try:
+            snapshot = {**model_of(row).model_dump(mode="json"), "platform_tools": tools}
+        except ValidationError:
+            snapshot = None
+        conn.execute(def_t.update().where(def_t.c.name == "pai")
+                    .values(platform_tools=tools))
+        if snapshot is not None:
+            version = (conn.execute(select(func.max(ver_t.c.version)).where(
+                ver_t.c.agent == "pai")).scalar() or 0) + 1
+            conn.execute(ver_t.insert().values(
+                id=uuid.uuid4().hex, agent="pai", version=version,
+                snapshot=snapshot, changed_by="platform:persona-query-app-migration",
+                changed_via="persona-query-app-migration", created_at=utcnow()))
+    conn.execute(mark_t.insert().values(name=PERSONA_QUERY_APP_MARK, applied_at=utcnow()))
+
+
 RUNNING_COACH_PROMPT = """You are **Running Coach**, Kyle's concise, practical running companion.
 
 Your trigger tells you which mode to use:
@@ -3406,6 +3449,11 @@ async def init_db(engine: AsyncEngine, default_grant: bool = True,
         # stockmarket-data's live platform_tools/prompt, so it never fights a
         # concurrent change to the same row.
         await conn.run_sync(_ensure_backtest_worker)
+        # Repair R1 (docs/design/35): pai reads worker outputs through
+        # query_app. Before migrate_authority, which only filters
+        # discord_chat out of platform_tools and never removes another tool,
+        # so this grant survives it either way.
+        await conn.run_sync(_ensure_persona_app_reads)
         await conn.run_sync(_remove_coder_profile)
         # Last: even rows seeded after the earlier default-grant sweeps receive
         # memory. The mark makes this a one-time migration, so later opt-outs
