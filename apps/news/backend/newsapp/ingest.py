@@ -5,8 +5,8 @@ result text here. We parse it defensively, run every story through the
 freshness gates (dated, recent, an article URL, not a story already told this
 week), dedup against the archive (dedup_hash = canonicalized URL — the
 successor of shared_news), auto-create topics from sections, and for anything
-NEW: emit one app.news.item.ingested event per item, post the Discord digest
-(only new stories), and upsert today's daily-news report. Every rejected story
+NEW: emit one app.news.item.ingested event per item and upsert today's
+daily-news report. Every rejected story
 becomes an app.news.item.rejected event — the gates are observable, not
 silent."""
 from __future__ import annotations
@@ -29,7 +29,6 @@ log = logging.getLogger("news-ingest")
 TOPIC_INBOUND = "app.news.inbound"
 TOPIC_INGESTED = "app.news.item.ingested"
 TOPIC_REJECTED = "app.news.item.rejected"
-TOPIC_CHANNEL_POST = "discord.channel.post"
 
 # A story is "stale" when its published date is more than this many days
 # before the digest's date. Two covers a morning digest reporting yesterday's
@@ -149,11 +148,9 @@ async def ingest_digest(sf, result_text: str | None, run_id: str | None = None,
 class IngestLoop:
     """Consume app.news.inbound forever; on new items, fan out the effects."""
 
-    def __init__(self, sf, kafka_bootstrap: str, channel: str = "news",
-                 report_writer=None):
+    def __init__(self, sf, kafka_bootstrap: str, report_writer=None):
         self.sf = sf
         self.bootstrap = kafka_bootstrap
-        self.channel = channel
         self.report_writer = report_writer   # async (sf, day) -> None
 
     async def handle(self, producer, raw: bytes) -> None:
@@ -184,7 +181,7 @@ class IngestLoop:
                         "reason": reason, "run_id": run_id}))
             except Exception:
                 # Observability must never cost the digest: the rejection is
-                # already in the log line below; the post still goes out.
+                # already in the log line below; the report is still saved.
                 log.exception("rejected-event publish failed (%s)", reason)
         if res.rejected:
             log.info("rejected %d items for %s: %s", len(res.rejected), res.day,
@@ -198,10 +195,6 @@ class IngestLoop:
                                           {"day": res.day, "headline": it.get("headline"),
                                            "url": dg.norm_url(it["url"]),
                                            "section": it.get("section", "")}))
-        post = dg.format_post(res.day, res.new, filtered=res.counts())
-        await producer.send_and_wait(
-            TOPIC_CHANNEL_POST, _envelope("channel.post", self.channel,
-                                          {"channel": self.channel, "text": post}))
         if self.report_writer is not None:
             try:
                 await self.report_writer(self.sf, res.day)

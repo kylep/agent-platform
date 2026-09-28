@@ -36,7 +36,7 @@ const CONNECTION_SECRET_NAMES = new Set([
 export function emptyDef(): AgentDef {
   return {
     name: "", prompt: "", description: "", agent_type: "worker", runtime: "claude", model: "", role: "operator",
-    system: false, responds_to_all: true, can_invoke: false, concurrency: 1, timeout_seconds: 1800,
+    system: false, external_observer: false, responds_to_all: true, can_invoke: false, concurrency: 1, timeout_seconds: 1800,
     result_topic: "", transcript_retention_days: null,
     harness_tools: [], platform_tools: ["mcp__platform__memory"], skills: [], secrets: [],
     discord_identity_id: null,
@@ -179,12 +179,12 @@ export function IdentityFields({ draft, patch, catalog }: {
     <>
       <div className="grid gap-3 sm:grid-cols-2">
         <Field label="Description" help="description" hint="One line — shown in listings and the agent picker.">
-          <Input className="w-full" aria-label="Description" value={draft.description}
+          <Input className="w-full" aria-label="Description" disabled={!!draft.system_source} value={draft.description}
                  placeholder="What does this agent do?"
                  onChange={(e) => patch({ description: e.target.value })} />
         </Field>
-        <Field label="Type" hint="Persona grows an identity across activities; Worker specializes in a job. This does not change permissions.">
-          <Select className="w-full" aria-label="Type" value={draft.agent_type}
+        <Field label="Type" hint="Personas own external accounts and relationships. Workers perform internal jobs.">
+          <Select className="w-full" aria-label="Type" disabled={!!draft.system_source} value={draft.agent_type}
                   onChange={(e) => patch({ agent_type: e.target.value as AgentDef["agent_type"] })}>
             <option value="persona">Persona</option>
             <option value="worker">Worker</option>
@@ -211,7 +211,7 @@ export function IdentityFields({ draft, patch, catalog }: {
                  : draft.role === "coder"
                    ? "This retired profile cannot run. Choose Standard or Workbench before saving."
                  : "Standard isolated run; tool grants determine access."}>
-          <Select className="w-full" aria-label="Execution profile" value={draft.role}
+          <Select className="w-full" aria-label="Execution profile" disabled={!!draft.system_source} value={draft.role}
                   onChange={(e) => patch({ role: e.target.value })}>
             {EXECUTION_PROFILES.map((p) => <option key={p.value} value={p.value}>{p.label}</option>)}
             {draft.role === "coder" &&
@@ -221,7 +221,7 @@ export function IdentityFields({ draft, patch, catalog }: {
           </Select>
         </Field>
         <Field label="App output topic" help="result-topic" hint="Successful final results are published here. Usually blank.">
-          <Input className="w-full" aria-label="App output topic" value={draft.result_topic}
+          <Input className="w-full" aria-label="App output topic" disabled={!!draft.system_source} value={draft.result_topic}
                  placeholder="e.g. app.news.item.ingested"
                  onChange={(e) => patch({ result_topic: e.target.value })} />
         </Field>
@@ -240,15 +240,26 @@ export function IdentityFields({ draft, patch, catalog }: {
         </Field>
       </div>
 
+      {draft.platform_tools.includes("mcp__platform__quota_ok") && <div className="grid gap-3 sm:grid-cols-2">
+        <Field label="5-hour quota ceiling (%)" help="quota" hint="quota_ok refuses above this usage.">
+          <NumberField label="5-hour quota ceiling (%)" value={draft.quota_5h_max_pct} min={0} max={100}
+                       onChange={(n) => n !== null && patch({ quota_5h_max_pct: n })} />
+        </Field>
+        <Field label="Weekly quota ceiling (%)" help="quota" hint="quota_ok refuses above this usage.">
+          <NumberField label="Weekly quota ceiling (%)" value={draft.quota_7d_max_pct} min={0} max={100}
+                       onChange={(n) => n !== null && patch({ quota_7d_max_pct: n })} />
+        </Field>
+      </div>}
+
       {/* `.toggle-row`, not the grants pickers' `.check-grid`: these two labels
           are prose, not grant identifiers, so they stay in the body font. */}
       <div className="toggle-row" style={{ marginTop: 12 }}>
         <Toggle label="Accept new runs" checked={draft.enabled} help="enabled"
                 title="Disabled agents keep their definition but reject runs."
                 onChange={(enabled) => patch({ enabled })} />
-        <Toggle label="Include in @all" checked={draft.responds_to_all} help="responds-all"
+        <fieldset disabled={!!draft.system_source}><Toggle label="Include in @all" checked={draft.responds_to_all} help="responds-all"
                 title="Include this agent when a human mentions everyone in a Relay room."
-                onChange={(responds_to_all) => patch({ responds_to_all })} />
+                onChange={(responds_to_all) => patch({ responds_to_all })} /></fieldset>
       </div>
     </>
   );
@@ -264,6 +275,7 @@ export function PromptField({ draft, patch }: { draft: AgentDef; patch: Patch })
       </p>
       <CodeEditor
         aria-label="Agent prompt"
+        disabled={!!draft.system_source}
         value={draft.prompt}
         placeholder="You are…"
         onChange={(e) => patch({ prompt: e.target.value })}
@@ -284,8 +296,8 @@ function InvocationModel({ value, models, onChange }: {
   </Select>;
 }
 
-function CronRow({ entry, zone, models, onChange, onRemove }: {
-  entry: CronEntry; zone: string; models: GrantCatalog["claudeModels"];
+function CronRow({ entry, zone, models, onChange, onRemove, codeOwned }: {
+  entry: CronEntry; zone: string; models: GrantCatalog["claudeModels"]; codeOwned?: boolean;
   onChange: (e: CronEntry) => void; onRemove: () => void;
 }) {
   return (
@@ -293,12 +305,12 @@ function CronRow({ entry, zone, models, onChange, onRemove }: {
       <CronBuilder value={entry.schedule} timezone={zone}
                    onChange={(schedule) => onChange({ ...entry, schedule })} />
       <div className="grid gap-2 sm:grid-cols-[1fr_13rem_auto] items-start">
-        <Input className="w-full" aria-label="Cron prompt" value={entry.prompt}
+        <Input className="w-full" aria-label="Cron prompt" disabled={codeOwned} value={entry.prompt}
                placeholder="Prompt for this scheduled run (optional)"
                onChange={(e) => onChange({ ...entry, prompt: e.target.value })} />
-        <InvocationModel value={entry.model} models={models}
-                         onChange={(model) => onChange({ ...entry, model })} />
-        <Button variant="secondary" size="sm" onClick={onRemove} aria-label="Remove cron">Remove</Button>
+        <fieldset disabled={codeOwned}><InvocationModel value={entry.model} models={models}
+                         onChange={(model) => onChange({ ...entry, model })} /></fieldset>
+        <Button variant="secondary" size="sm" disabled={codeOwned} onClick={onRemove} aria-label="Remove cron">Remove</Button>
       </div>
     </div>
   );
@@ -404,14 +416,14 @@ export function EntrypointsFields({ draft, patch, secrets, catalog }: {
       <HelpLabel label="Built-in schedules" help="crons" />
       <div className="grid gap-2">
         {ep.crons.map((c, i) => (
-          <CronRow key={i} entry={c} zone={previewZone} models={models}
+          <CronRow key={i} codeOwned={!!draft.system_source} entry={c} zone={previewZone} models={models}
                    onChange={(next) => set({ crons: ep.crons.map((x, j) => (j === i ? next : x)) })}
                    onRemove={() => set({ crons: ep.crons.filter((_, j) => j !== i) })} />
         ))}
       </div>
       <div className="row-actions" style={{ marginTop: 6 }}>
         <Button variant="secondary" size="sm"
-                onClick={() => set({ crons: [...ep.crons, { schedule: "", prompt: "", model: "" }] })}>
+                disabled={!!draft.system_source} onClick={() => set({ crons: [...ep.crons, { schedule: "", prompt: "", model: "" }] })}>
           + Add cron
         </Button>
       </div>
@@ -428,6 +440,7 @@ export function EntrypointsFields({ draft, patch, secrets, catalog }: {
           : "Unknown timezone — use an IANA name like America/Toronto. Saving this quarantines the agent."}
       </p>
 
+      <fieldset disabled={!!draft.system_source}>
       <HelpLabel label="Webhooks" help="webhooks" />
       <div className="grid gap-2">
         {ep.webhooks.map((w, i) => (
@@ -451,6 +464,7 @@ export function EntrypointsFields({ draft, patch, secrets, catalog }: {
       <HelpLabel label="Input topics (Kafka)" help="topics" />
       <CsvField label="Kafka topics" value={ep.topics} onChange={(topics) => set({ topics })}
                 placeholder="comma-separated topics this agent consumes" />
+      </fieldset>
     </>
   );
 }
@@ -461,9 +475,11 @@ export function GrantsFields({ draft, patch, catalog }: {
   return (
     <>
       <h2>Grants</h2>
+      {draft.agent_type === "worker" && <Toggle label="Read all external mirrors, including private chats (read-only)" title="Broad access to every retained external mirror; cannot send, react or participate." checked={draft.external_observer ?? false}
+        onChange={(external_observer) => patch({ external_observer })} />}
       <p className="muted">
-        What this agent is allowed to touch. Tool grants are frozen into the run token at launch;
-        the selected Discord account is checked live so pausing or changing it takes effect immediately.
+        What this agent is allowed to touch. Grant changes revoke old run authority;
+        account ownership and provider permissions are checked when reading or sending.
       </p>
 
       {draft.runtime === "claude" ? <>
@@ -486,18 +502,18 @@ export function GrantsFields({ draft, patch, catalog }: {
       </>}
 
       <HelpLabel label="Platform tools" help="platform-tools" />
-      <ToolGrantPicker tools={catalog.platformTools} selected={draft.platform_tools} platform
+      <ToolGrantPicker tools={catalog.platformTools.filter((tool) => !tool.name.includes("discord_chat") && tool.name !== "mcp__platform__discord")} selected={draft.platform_tools} platform
                        onChange={(platform_tools) => patch({ platform_tools })} />
-      <div className="connection-grant">
-        <label htmlFor="discord-identity-grant">Discord outbound account</label>
+      {draft.agent_type === "persona" && <div className="connection-grant">
+        <label htmlFor="discord-identity-grant">Owned Discord account</label>
         <Select id="discord-identity-grant" value={draft.discord_identity_id ?? ""}
           onChange={(event) => patch({ discord_identity_id: event.target.value || null })}>
           <option value="">None</option>
           {catalog.chatIdentities.filter((identity) => identity.connector === "discord").map((identity) =>
             <option key={identity.id} value={identity.id}>{identity.display_name} ({identity.status}{identity.configured ? "" : ", token missing"})</option>)}
         </Select>
-        <p className="muted check-note">One bot identity for this agent's outbound Discord messages. Also grant the Discord chat Tool above. Relay room membership still controls where it can post. <a href="/secrets">Manage accounts</a>.</p>
-      </div>
+        <p className="muted check-note">Ownership routes incoming conversations and provides connector Tools. Provider permissions control reads and sends. <a href="/secrets">Manage accounts</a>.</p>
+      </div>}
       <p className="muted check-note">
         Brokered MCP tools — an agent with these acts on the platform through token-scoped API
         calls instead of a shell. Some of them also decide the agent's machine role. Memory starts
@@ -507,17 +523,16 @@ export function GrantsFields({ draft, patch, catalog }: {
       <HelpLabel label="Skills" help="skills" />
       <SkillPicker skills={catalog.skills} selected={draft.skills}
                    onChange={(skills) => patch({ skills })} />
-      <p className="muted check-note">Skills mount into the agent's pod and bind their required secrets.</p>
+      <p className="muted check-note">Skills mount instructions into the agent's pod; they do not grant secrets.</p>
 
       <HelpLabel label="Secrets" help="secrets" />
       <SecretPicker secrets={catalog.secrets.filter(
-        (secret) => !CONNECTION_SECRET_NAMES.has(secret.name) || draft.secrets.includes(secret.name),
+        (secret) => !CONNECTION_SECRET_NAMES.has(secret.name) && !catalog.chatIdentities.some((account) => Object.values(account.secret_refs).some((ref) => ref.secret === secret.name)),
       )} selected={draft.secrets}
                     onChange={(secrets) => patch({ secrets })} />
       <p className="muted check-note">
         Granted secrets are injected into the run pod's environment. Connector credentials are
-        managed under <a href="/secrets">Connections</a> and are not offered as new raw grants;
-        existing grants remain visible for review.
+        managed under <a href="/secrets">Connections</a> and cannot be granted to run pods.
       </p>
 
       <div className="toggle-row">
@@ -526,16 +541,7 @@ export function GrantsFields({ draft, patch, catalog }: {
                 onChange={(can_invoke) => patch({ can_invoke })} />
       </div>
 
-      {draft.platform_tools.includes("mcp__platform__quota_ok") && <div className="grid gap-3 sm:grid-cols-2">
-        <Field label="5-hour quota ceiling (%)" help="quota" hint="quota_ok refuses above this usage.">
-          <NumberField label="5-hour quota ceiling (%)" value={draft.quota_5h_max_pct} min={0} max={100}
-                       onChange={(n) => n !== null && patch({ quota_5h_max_pct: n })} />
-        </Field>
-        <Field label="Weekly quota ceiling (%)" help="quota" hint="quota_ok refuses above this usage.">
-          <NumberField label="Weekly quota ceiling (%)" value={draft.quota_7d_max_pct} min={0} max={100}
-                       onChange={(n) => n !== null && patch({ quota_7d_max_pct: n })} />
-        </Field>
-      </div>}
+
 
       {/* The Workbench's two grants (docs/design/24). Like `can_invoke`, they
           are GRANT fields server-side: the row's field-level guard decides

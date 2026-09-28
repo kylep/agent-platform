@@ -450,6 +450,16 @@ class K8sJobLauncher(Launcher):
         )
 
     async def launch(self, run: Run, manifest: Manifest) -> None:
+        if self.sf:
+            from agentplatform.authority import credential_secrets, ensure_run_authority
+            async with self.sf() as session:
+                forbidden = await credential_secrets(session)
+                valid = await ensure_run_authority(session, run)
+                await session.commit()
+                if not valid:
+                    raise ValueError("Run authority was revoked before launch")
+                if set(self.bound_secrets(manifest)) & forbidden:
+                    raise ValueError("Connector credentials cannot be injected into agent pods")
         api_token = None
         sa_identity = None
         if self.sf:

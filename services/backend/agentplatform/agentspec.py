@@ -42,7 +42,7 @@ CLAUDE_TOOLS: list[str] = [
 # of every agent that holds it, not just the one tool.
 PLATFORM_MCP_TOOLS: list[str] = [
     "mcp__platform__runs_read", "mcp__platform__runs_write",
-    "mcp__platform__metrics",
+    "mcp__platform__metrics", "mcp__platform__health_incident",
     "mcp__platform__query_app",
 ]
 
@@ -99,7 +99,9 @@ PLATFORM_MCP_RELAY_TOOLS: list[str] = [TOOL_RELAY, TOOL_TICKETS, TOOL_WIKI,
 # Every code-defined broker tool an agent may be granted, whatever rung it
 # lands the holder on. This — not PLATFORM_MCP_TOOLS — is the grantability
 # question ("is this a real tool?"); the ladder question is separate.
-GRANTABLE_PLATFORM_TOOLS: list[str] = (PLATFORM_MCP_TOOLS + PLATFORM_MCP_AGENT_TOOLS
+PLATFORM_MCP_IDENTITY_TOOLS = ["mcp__platform__discord"]
+
+GRANTABLE_PLATFORM_TOOLS: list[str] = (PLATFORM_MCP_IDENTITY_TOOLS + PLATFORM_MCP_TOOLS + PLATFORM_MCP_AGENT_TOOLS
                                        + PLATFORM_MCP_RELAY_TOOLS)
 
 AVAILABLE_TOOLS: list[str] = CLAUDE_TOOLS + GRANTABLE_PLATFORM_TOOLS
@@ -192,6 +194,12 @@ TOOL_HELP: list[dict] = [
      "description": "Platform health metrics: run volumes/success/tokens "
                     "(overview), per-agent metrics incl. failure streaks, or "
                     "event-bus health (lag, DLQ backlog). Read-only."},
+    {"name": "mcp__platform__discord", "kind": "platform",
+     "description": "Owned Discord account discovery, history and guarded sends. "
+                    "Derived from persona account ownership; never an independent grant."},
+    {"name": "mcp__platform__health_incident", "kind": "platform",
+     "description": "Health-worker-only durable OPS incident upsert/recovery. "
+                    "Asks Pai internally to assess intervention; never sends externally."},
     {"name": "mcp__platform__query_app", "kind": "platform",
      "description": "Call a read-only API endpoint of an installed platform "
                     "app through the traversal-guarded proxy — e.g. query "

@@ -20,8 +20,8 @@ function viaVariant(via: string) {
   return "neutral" as const;
 }
 
-export default function AgentVersions({ agent, onRolledBack }: {
-  agent: string; onRolledBack: () => void;
+export default function AgentVersions({ agent, onRolledBack, codeOwned }: {
+  agent: string; onRolledBack: () => void; codeOwned?: boolean;
 }) {
   const [versions, setVersions] = useState<AgentVersion[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -103,7 +103,8 @@ export default function AgentVersions({ agent, onRolledBack }: {
                     {open === v.version ? "Hide" : "View"}
                   </Button>
                   {v.version !== current && (
-                    <Button variant="secondary" size="sm" disabled={busy}
+                    <Button variant="secondary" size="sm" disabled={busy || codeOwned}
+                            title={codeOwned ? "Code-owned definitions change through their source registry." : undefined}
                             onClick={() => setConfirming(v.version)}>
                       Roll back
                     </Button>

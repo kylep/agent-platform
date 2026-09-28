@@ -98,6 +98,7 @@ export default function ChannelView({ room, onThread, highlight, onHighlighted, 
           <a href={externalUrl} target="_blank" rel="noreferrer">open ↗</a>
         )}
         {channel?.topic && <span className="relay-topic muted">{channel.topic}</span>}
+        {connected && <Chip>read-only external archive</Chip>}
         {archived && <Chip variant="warn">archived</Chip>}
         {onPopout && (
           <Button variant="secondary" size="sm" className="relay-popout-button"
@@ -111,21 +112,21 @@ export default function ChannelView({ room, onThread, highlight, onHighlighted, 
 
       <Transcript rows={roots} me={me} loading={!loaded} highlight={highlight}
                   onHighlighted={onHighlighted} pin={pin}
-                  onReact={room.react} onThread={openThread} threads={threads}>
+                  onReact={connected ? undefined : room.react} onThread={openThread} threads={threads}>
         {empty && (
           <div className="relay-welcome">
             {avatar(44)}
             <h2>{channel!.kind === "channel" && !connected ? channel!.name : title}</h2>
             <p className="muted">{channel!.topic || "No topic yet."}</p>
-            <p className="muted">Say something, or @mention an agent to wake it up.</p>
+            <p className="muted">{connected ? "Messages appear here from the connected account." : "Say something, or @mention an agent to wake it up."}</p>
           </div>
         )}
       </Transcript>
 
       <Thinking who={thinking} />
-      <Compose channelId={room.channelId} archived={archived} agents={agents}
+      {!connected && <Compose channelId={room.channelId} archived={archived} agents={agents}
                mentionable={mentionable}
-               onPosted={(m) => { room.absorb([m]); setPin((n) => n + 1); }} />
+               onPosted={(m) => { room.absorb([m]); setPin((n) => n + 1); }} />}
     </section>
   );
 }

@@ -1,4 +1,6 @@
 import logging
+from types import SimpleNamespace
+from agentplatform.authority import assert_readable_run
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
@@ -49,13 +51,15 @@ async def _agent_only_dms(s, ids: list[str]) -> set[str]:
     return {cid for cid, agents_only in only.items() if agents_only}
 
 
-async def _dm_or_404(s, conv: Conversation | None) -> Conversation:
+async def _dm_or_404(s, conv: Conversation | None, request: Request | None = None) -> Conversation:
     """These endpoints are the DM surface. Relay channels share the table
     (docs/design/19) but have no single agent, so one reached through here is a
     miss — not a conversation with holes in it. So is an agent-to-agent DM."""
     if (conv is None or conv.kind != "dm" or room_dispatch_mode(conv) != "facade"
             or conv.id in await _agent_only_dms(s, [conv.id])):
         raise HTTPException(404, "unknown conversation")
+    if request is not None:
+        await assert_readable_run(s, request, SimpleNamespace(conversation_id=conv.id))
     return conv
 
 
@@ -105,14 +109,24 @@ async def list_conversations(request: Request):
                 Conversation.kind == "dm", Conversation.dispatch_mode == "facade")
                 .order_by(Conversation.updated_at.desc()))).scalars().all()
         hidden = await _agent_only_dms(s, [c.id for c in rows])
-    return [_view(c) for c in rows if c.id not in hidden]
+        visible = []
+        for conv in rows:
+            if conv.id in hidden:
+                continue
+            try:
+                await assert_readable_run(s, request, SimpleNamespace(conversation_id=conv.id))
+                visible.append(conv)
+            except HTTPException as exc:
+                if exc.status_code not in (403, 404):
+                    raise
+        return [_view(c) for c in visible]
 
 
 @router.get("/api/conversations/{conversation_id}", response_model=S.ConversationDetail,
             dependencies=[Depends(require_role(*READ_ROLES))])
 async def get_conversation(request: Request, conversation_id: str):
     async with request.app.state.session_factory() as s:
-        conv = await _dm_or_404(s, await s.get(Conversation, conversation_id))
+        conv = await _dm_or_404(s, await s.get(Conversation, conversation_id), request)
         turns = (await s.execute(select(Run).where(Run.conversation_id == conversation_id)
                  .order_by(Run.created_at))).scalars().all()
     d = _view(conv)
@@ -133,7 +147,9 @@ async def rename_conversation(request: Request, conversation_id: str, body: Conv
     """Rename a conversation. The title is a local display label (it does not
     touch the external channel), so any type — including Discord — is renamable."""
     async with request.app.state.session_factory() as s:
-        conv = await _dm_or_404(s, await s.get(Conversation, conversation_id))
+        conv = await _dm_or_404(s, await s.get(Conversation, conversation_id), request)
+        if conv.home == "external":
+            raise HTTPException(403, "external mirrors are read-only")
         conv.title = body.title.strip()
         await s.commit()
         return _view(conv)
@@ -147,7 +163,9 @@ async def delete_conversation(request: Request, conversation_id: str):
     belongs to the external channel, and a delete would just be recreated on
     the next inbound message."""
     async with request.app.state.session_factory() as s:
-        conv = await _dm_or_404(s, await s.get(Conversation, conversation_id))
+        conv = await _dm_or_404(s, await s.get(Conversation, conversation_id), request)
+        if conv.home == "external":
+            raise HTTPException(403, "external mirrors are read-only")
         if conv.connector != "web":
             raise HTTPException(409, f"{conv.connector} conversations are managed by "
                                      "their channel and can't be deleted here")
@@ -172,7 +190,9 @@ async def post_message(request: Request, conversation_id: str, body: MessageIn,
     async with request.app.state.session_factory() as s:
         conv = await s.get(Conversation, conversation_id)
         if conv is not None:
-            await _dm_or_404(s, conv)
+            if conv.home == "external":
+                raise HTTPException(403, "external mirrors are read-only")
+            await _dm_or_404(s, conv, request)
     if conv is not None:
         await request.app.state.agent_store.reload()
         info = request.app.state.agent_store.get(conv.agent)

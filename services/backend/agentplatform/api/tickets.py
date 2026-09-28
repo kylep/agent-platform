@@ -133,6 +133,10 @@ async def _may_write(s, conv: Conversation, caller: Caller, agents: set[str]) ->
     its write stop at the same moment."""
     if conv.archived_at is not None:
         raise HTTPException(404, "this channel is archived")
+    from agentplatform.relay_store import enabled_agents
+    agents = await enabled_agents(s)
+    if conv.home == "external":
+        raise HTTPException(403, "Tickets belong to internal Relay channels")
     if caller.agent is not None and not is_member(
             conv, caller.participant, agents, await relay_api._explicit(s, conv.id)):
         raise HTTPException(403, "not a member of this channel")

@@ -5,7 +5,6 @@ from typing import TYPE_CHECKING, Any, TypeVar, cast
 
 from attrs import define as _attrs_define
 from attrs import field as _attrs_field
-from typing_extensions import Self
 
 if TYPE_CHECKING:
     from ..models.relay_face import RelayFace
@@ -57,7 +56,7 @@ class RelayPresence:
         return field_dict
 
     @classmethod
-    def from_dict(cls, src_dict: Mapping[str, Any]) -> Self:
+    def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
         from ..models.relay_face import RelayFace
 
         d = dict(src_dict)

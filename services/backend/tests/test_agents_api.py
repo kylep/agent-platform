@@ -61,9 +61,9 @@ def test_wire_models_cover_every_definition_field():
     assert set(AgentDefIn.model_fields) == set(DEF_FIELDS)
     # The picture rides OUT with the definition but is not part of it (design/23):
     # unversioned like `icon`, it has its own route and never enters a snapshot.
-    assert set(AgentDefOut.model_fields) - set(DEF_FIELDS) == {"image_artifact_id", "face"}
+    assert set(AgentDefOut.model_fields) - set(DEF_FIELDS) == {"image_artifact_id", "face", "system_source", "system_revision"}
     assert set(AgentSummary.model_fields) - set(DEF_FIELDS) == {
-        "image_artifact_id", "face",
+        "image_artifact_id", "face", "system_source", "system_revision",
         "quarantined", "error", "blocked", "blocked_reason", "schedule"}
 
 
@@ -595,13 +595,13 @@ async def test_an_agent_may_not_flip_the_system_flag(client, sf, seed_agent, age
     r = await client.put("/api/agents/hello-world",
                          json=a_def("hello-world", description="test", system=True),
                          headers=h)
-    assert r.status_code == 403 and "system" in r.json()["detail"]
+    assert r.status_code in (403, 422) and "system" in r.json()["detail"].lower()
 
 
 async def test_an_admin_may_flip_the_system_flag(admin_client):
     r = await admin_client.put("/api/agents/hello-world",
                                json=a_def("hello-world", description="test", system=True))
-    assert r.status_code == 200 and r.json()["system"] is True
+    assert r.status_code == 422 and "defined" in r.json()["detail"]
 
 
 async def test_creating_an_agent_with_grants_needs_agents_grant(client, sf, seed_agent,

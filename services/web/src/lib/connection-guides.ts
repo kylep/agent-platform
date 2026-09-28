@@ -15,7 +15,7 @@ export type ConnectionGuide = {
 export const GUIDE_CHECKED = "2026-09-26";
 
 export const CONNECTION_GUIDES: ConnectionGuide[] = [
-  { id: "discord", title: "Discord chat identities", mark: "D", purpose: "Bots that post and receive Discord messages. Each account has its own token and outbound agent assignment.",
+  { id: "discord", title: "Discord chat identities", mark: "D", purpose: "Bots that post and receive Discord messages. Each account has its own token and owning persona; provider permissions control access.",
     secrets: ["discord-bot"], steps: [
       { before: "Open the ", link: { label: "Discord Developer Portal", url: "https://discord.com/developers/applications" }, after: " and select an application, or create one." },
       "On Bot, reset or copy the bot token. Turn on Message Content Intent for conversational messages.",

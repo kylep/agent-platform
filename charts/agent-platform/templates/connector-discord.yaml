@@ -35,10 +35,6 @@ spec:
             capabilities:
               drop: ["ALL"]
           env:
-            - name: AP_KAFKA_BOOTSTRAP
-              value: "{{ .Release.Name }}-kafka:9092"
-            - name: CONNECTOR_AGENT
-              value: {{ .Values.connectors.discord.agent | quote }}
             - name: AP_CHAT_IDENTITY
               value: discord-default
             - name: DISCORD_BOT_TOKEN
@@ -47,9 +43,7 @@ spec:
                   name: discord-bot
                   key: token
             # The api Service is hardcoded agent-platform-api (not release-named).
-            # The bridge asks it which Discord channels mirror a Relay channel
-            # (docs/design/19) — bindings are rows an operator edits in the UI,
-            # so they must reach the connector without a redeploy.
+            # Authenticated account discovery, observations and delivery receipts.
             - name: AP_API_URL
               value: "http://agent-platform-api:8000"
             - name: AP_API_TOKEN_FILE

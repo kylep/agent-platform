@@ -5,7 +5,6 @@ from typing import Any, TypeVar, cast
 
 from attrs import define as _attrs_define
 from attrs import field as _attrs_field
-from typing_extensions import Self
 
 from ..types import UNSET, Unset
 
@@ -17,15 +16,23 @@ class EditIdentityIn:
     """
     Attributes:
         display_name (str):
+        owner_agent (None | str | Unset):
         token (None | str | Unset):
     """
 
     display_name: str
+    owner_agent: None | str | Unset = UNSET
     token: None | str | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         display_name = self.display_name
+
+        owner_agent: None | str | Unset
+        if isinstance(self.owner_agent, Unset):
+            owner_agent = UNSET
+        else:
+            owner_agent = self.owner_agent
 
         token: None | str | Unset
         if isinstance(self.token, Unset):
@@ -40,15 +47,26 @@ class EditIdentityIn:
                 "display_name": display_name,
             }
         )
+        if owner_agent is not UNSET:
+            field_dict["owner_agent"] = owner_agent
         if token is not UNSET:
             field_dict["token"] = token
 
         return field_dict
 
     @classmethod
-    def from_dict(cls, src_dict: Mapping[str, Any]) -> Self:
+    def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
         d = dict(src_dict)
         display_name = d.pop("display_name")
+
+        def _parse_owner_agent(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        owner_agent = _parse_owner_agent(d.pop("owner_agent", UNSET))
 
         def _parse_token(data: object) -> None | str | Unset:
             if data is None:
@@ -61,6 +79,7 @@ class EditIdentityIn:
 
         edit_identity_in = cls(
             display_name=display_name,
+            owner_agent=owner_agent,
             token=token,
         )
 

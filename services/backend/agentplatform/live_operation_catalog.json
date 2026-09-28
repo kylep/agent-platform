@@ -249,6 +249,101 @@
       "snapshot_eligible": false
     },
     {
+      "id": "core.discord.endpoints@1",
+      "source": "mcp-core",
+      "tool": "discord",
+      "action": "endpoints",
+      "category": "platform_capability",
+      "effects": [
+        "reads_sensitive"
+      ],
+      "output_classification": "private",
+      "view_eligible": false,
+      "reason": "No reviewed human page adapter",
+      "input_schema": null,
+      "output_schema": null,
+      "target_scope": null,
+      "supported_callers": [],
+      "limits": null,
+      "snapshot_eligible": false
+    },
+    {
+      "id": "core.discord.identities@1",
+      "source": "mcp-core",
+      "tool": "discord",
+      "action": "identities",
+      "category": "platform_capability",
+      "effects": [
+        "reads_sensitive"
+      ],
+      "output_classification": "private",
+      "view_eligible": false,
+      "reason": "No reviewed human page adapter",
+      "input_schema": null,
+      "output_schema": null,
+      "target_scope": null,
+      "supported_callers": [],
+      "limits": null,
+      "snapshot_eligible": false
+    },
+    {
+      "id": "core.discord.read@1",
+      "source": "mcp-core",
+      "tool": "discord",
+      "action": "read",
+      "category": "platform_capability",
+      "effects": [
+        "reads_sensitive"
+      ],
+      "output_classification": "private",
+      "view_eligible": false,
+      "reason": "No reviewed human page adapter",
+      "input_schema": null,
+      "output_schema": null,
+      "target_scope": null,
+      "supported_callers": [],
+      "limits": null,
+      "snapshot_eligible": false
+    },
+    {
+      "id": "core.discord.receipt@1",
+      "source": "mcp-core",
+      "tool": "discord",
+      "action": "receipt",
+      "category": "platform_capability",
+      "effects": [
+        "reads_sensitive"
+      ],
+      "output_classification": "private",
+      "view_eligible": false,
+      "reason": "No reviewed human page adapter",
+      "input_schema": null,
+      "output_schema": null,
+      "target_scope": null,
+      "supported_callers": [],
+      "limits": null,
+      "snapshot_eligible": false
+    },
+    {
+      "id": "core.discord.send@1",
+      "source": "mcp-core",
+      "tool": "discord",
+      "action": "send",
+      "category": "platform_capability",
+      "effects": [
+        "external_send"
+      ],
+      "output_classification": "private",
+      "view_eligible": false,
+      "reason": "No reviewed human page adapter",
+      "input_schema": null,
+      "output_schema": null,
+      "target_scope": null,
+      "supported_callers": [],
+      "limits": null,
+      "snapshot_eligible": false
+    },
+    {
       "id": "core.get_quota_usage.call@1",
       "source": "mcp-core",
       "tool": "get_quota_usage",
@@ -257,6 +352,25 @@
       "effects": [
         "reads_sensitive",
         "incurs_cost"
+      ],
+      "output_classification": "private",
+      "view_eligible": false,
+      "reason": "No reviewed human page adapter",
+      "input_schema": null,
+      "output_schema": null,
+      "target_scope": null,
+      "supported_callers": [],
+      "limits": null,
+      "snapshot_eligible": false
+    },
+    {
+      "id": "core.health_incident.call@1",
+      "source": "mcp-core",
+      "tool": "health_incident",
+      "action": "call",
+      "category": "platform_capability",
+      "effects": [
+        "mutates_platform"
       ],
       "output_classification": "private",
       "view_eligible": false,
@@ -449,7 +563,6 @@
       "category": "platform_capability",
       "effects": [
         "mutates_platform",
-        "external_send",
         "invokes_agent"
       ],
       "output_classification": "private",
@@ -470,7 +583,6 @@
       "category": "platform_capability",
       "effects": [
         "mutates_platform",
-        "external_send",
         "invokes_agent"
       ],
       "output_classification": "private",
@@ -491,7 +603,6 @@
       "category": "platform_capability",
       "effects": [
         "mutates_platform",
-        "external_send",
         "invokes_agent"
       ],
       "output_classification": "private",
@@ -1654,25 +1765,6 @@
         "intent_ttl_seconds": 300,
         "provider_spend": false
       },
-      "snapshot_eligible": false
-    },
-    {
-      "id": "tool.discord_chat.call@1",
-      "source": "mcp-custom",
-      "tool": "discord_chat",
-      "action": "call",
-      "category": "service_connector",
-      "effects": [
-        "external_send"
-      ],
-      "output_classification": "private",
-      "view_eligible": false,
-      "reason": "No reviewed human page adapter",
-      "input_schema": null,
-      "output_schema": null,
-      "target_scope": null,
-      "supported_callers": [],
-      "limits": null,
       "snapshot_eligible": false
     },
     {

@@ -39,7 +39,7 @@ from agentplatform.relay import (agent_name, is_agent, is_member, is_participant
 # helper is what actually writes the row.
 from agentplatform.relay_feed import OVERFLOW
 from agentplatform.relay_store import post_relay_message as _insert_message
-from agentplatform.relay_store import (bindings_of, channel_by_ref, faces_for,
+from agentplatform.relay_store import (bindings_of, channel_by_ref, faces_for, enabled_agents,
                                        message_view, outbound_for_message,
                                        relay_message_payload,
                                        publish_relay_message)
@@ -252,6 +252,7 @@ async def _visible(s, caller: Caller, agents: set[str]) -> tuple[list, dict]:
     """The channels this caller may see — everything unarchived for a human,
     only the rooms it belongs to for an agent — and their membership rows,
     which the caller needs anyway and must not have to query twice."""
+    agents = await enabled_agents(s)
     rows = list((await s.execute(select(Conversation).where(
         Conversation.archived_at.is_(None)))).scalars())
     explicit = await _explicit_many(s, [c.id for c in rows])
@@ -312,6 +313,7 @@ async def _channel_or_404(s, channel_id: str, caller: Caller,
                           agents: set[str]) -> Conversation:
     """A channel the caller may reach. A human reads any room (READ_ROLES is
     the operator's view of the platform); an agent only its own."""
+    agents = await enabled_agents(s)
     conv = await s.get(Conversation, channel_id)
     if conv is None:
         raise HTTPException(404, "unknown channel")
@@ -351,8 +353,8 @@ async def _set_ticket_prefix(s, conv: Conversation, prefix: str) -> None:
     Only until the first ticket: a key is the name people say and the one on
     every card, system row and cross-reference already written, so re-stemming
     a project that has issued keys would orphan all of them at once."""
-    if conv.kind != "channel":
-        raise HTTPException(422, "only a channel can be a project")
+    if conv.kind != "channel" or room_home(conv) == "external":
+        raise HTTPException(422, "Only an internal channel can hold Tickets")
     prefix = prefix.strip().upper()
     if not _is_ticket_prefix(prefix):
         raise HTTPException(422, "a ticket prefix is 2-6 letters or digits, "
@@ -379,8 +381,8 @@ def _slug(name: str | None) -> str:
 @router.get("/api/relay/channels", response_model=list[S.RelayChannel])
 async def list_relay_channels(request: Request,
                               caller: Caller = Depends(require_relay_access(*READ))):
-    agents = _agent_set(request)
     async with request.app.state.session_factory() as s:
+        agents = await enabled_agents(s)
         rows, participants = await _visible(s, caller, agents)
         ids = [c.id for c in rows]
         last = await _last_messages(s, ids)
@@ -452,8 +454,8 @@ async def create_relay_channel(request: Request, body: S.RelayChannelIn,
 @router.get("/api/relay/channels/{channel_id}", response_model=S.RelayChannelDetail)
 async def get_relay_channel(request: Request, channel_id: str,
                             caller: Caller = Depends(require_relay_access(*READ))):
-    agents = _agent_set(request)
     async with request.app.state.session_factory() as s:
+        agents = await enabled_agents(s)
         return await _detail(s, await _channel_or_404(s, channel_id, caller, agents))
 
 
@@ -585,6 +587,7 @@ async def list_relay_bindings(request: Request, channel_id: str):
              response_model=S.RelayBindingView,
              dependencies=[Depends(require_relay_access(*INVOKE_ROLES, agents=False))])
 async def create_relay_binding(request: Request, channel_id: str, body: S.RelayBindingIn):
+    raise HTTPException(410, "Legacy bridges are retired; account discovery creates external mirrors.")
     if body.connector not in CONNECTORS:
         raise HTTPException(422, f"connector must be one of {', '.join(CONNECTORS)}")
     from agentplatform.db import ChatIdentity, DEFAULT_DISCORD_IDENTITY
@@ -685,8 +688,8 @@ async def list_relay_messages(request: Request, channel_id: str,
     honouring one of the two would hand a paging client a silent gap."""
     if before and after:
         raise HTTPException(422, "pass `before` or `after`, not both")
-    agents = _agent_set(request)
     async with request.app.state.session_factory() as s:
+        agents = await enabled_agents(s)
         await _channel_or_404(s, channel_id, caller, agents)
         stmt = select(MessageRow).where(MessageRow.channel_id == channel_id,
                                         MessageRow.deleted_at.is_(None))
@@ -755,11 +758,13 @@ async def _dm_turn(request: Request, conv: Conversation, text: str, caller: Call
 @router.post("/api/relay/channels/{channel_id}/messages", response_model=S.RelayMessage)
 async def post_relay_message(request: Request, channel_id: str, body: S.RelayMessageIn,
                              caller: Caller = Depends(require_relay_access(*WRITE))):
-    agents = _agent_set(request)
     async with request.app.state.session_factory() as s:
+        agents = await enabled_agents(s)
         conv = await s.get(Conversation, channel_id)
         if conv is None or conv.archived_at is not None:
             raise HTTPException(404, "unknown channel")
+        if room_home(conv) == "external":
+            raise HTTPException(403, "External chats are read-only mirrors; send with the owned connector.")
         explicit = await _explicit(s, conv.id)
         if not is_member(conv, caller.participant, agents, explicit):
             raise HTTPException(403, "not a member of this channel")
@@ -861,6 +866,8 @@ async def relay_notify(request: Request, body: S.RelayNotifyIn,
             raise HTTPException(404, "unknown channel")
         if await _notify_count(s, author, utcnow() - timedelta(hours=1)) >= limit:
             raise HTTPException(429, f"notify budget spent ({limit}/hour); try again later")
+        if room_home(conv) == "external":
+            raise HTTPException(403, "External mirrors are read-only")
         row = await _insert_message(s, conv, author=author, body=text, kind="event",
                                     mentions=[])
         await s.commit()
@@ -874,8 +881,8 @@ async def relay_notify(request: Request, body: S.RelayNotifyIn,
 @router.post("/api/relay/messages/{message_id}/reactions", response_model=S.RelayReactionView)
 async def toggle_relay_reaction(request: Request, message_id: str, body: S.RelayReactionIn,
                                 caller: Caller = Depends(require_relay_access(*WRITE))):
-    agents = _agent_set(request)
     async with request.app.state.session_factory() as s:
+        agents = await enabled_agents(s)
         message = await s.get(MessageRow, message_id)
         if message is None or message.deleted_at is not None:
             raise HTTPException(404, "unknown message")
@@ -884,6 +891,8 @@ async def toggle_relay_reaction(request: Request, message_id: str, body: S.Relay
             raise HTTPException(404, "unknown message")
         if not is_member(conv, caller.participant, agents, await _explicit(s, conv.id)):
             raise HTTPException(403, "not a member of this channel")
+        if room_home(conv) == "external":
+            raise HTTPException(403, "External mirrors are read-only")
         key = (message_id, caller.participant, body.emoji)
         existing = await s.get(ReactionRow, key)
         if existing is None:
@@ -931,7 +940,7 @@ async def _still_a_member(request: Request, channel_id: str, caller: Caller) -> 
     async with request.app.state.session_factory() as s:
         conv = await s.get(Conversation, channel_id)
         return conv is not None and is_member(
-            conv, caller.participant, _agent_set(request), await _explicit(s, conv.id))
+            conv, caller.participant, await enabled_agents(s), await _explicit(s, conv.id))
 
 
 async def _missed(s, channel_id: str, cursor: str) -> list:
@@ -1096,8 +1105,8 @@ async def search_relay_messages(request: Request, q: str = Query(min_length=1, m
                                 project: str | None = None,
                                 limit: int = Query(50, ge=1, le=100),
                                 caller: Caller = Depends(require_relay_access(*READ))):
-    agents = _agent_set(request)
     async with request.app.state.session_factory() as s:
+        agents = await enabled_agents(s)
         # The same reading of a channel reference the board uses: an agent
         # searching the room it is in holds `#ops`, not the room's id, and a
         # reference this door could not read used to come back as "nothing

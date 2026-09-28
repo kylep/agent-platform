@@ -12,16 +12,19 @@ property of the room's membership and its binding:
 
 - **web** — started and continued from the UI (an agent's Conversations tab, or
   Relay's DM side). Deletable, renamable.
-- **discord** — a Discord thread bridged by the connector-discord service
+- **discord** — a read-only external archive observed by the connector-discord service
   (see the [Glossary](glossary.md)) through `relay_bindings`. The thread lives
-  in Discord; each turn shows who sent it, so a `discord:<id>` participant
-  appears beside you in the room.
+  in Discord; Relay displays its archive with composition and reactions disabled.
+  Only the owning persona can send through its connector Tool with current
+  provider permission.
 
 **Lives in:** platform Postgres. `conversations` is the channel table Relay
 grew out of (`kind='dm'` for these), the turns are `relay_messages`, and the
-per-agent resume blob moved from the conversation row to `relay_sessions`.
-Kafka still carries `conversation.inbound` / `conversation.outbound` for the
-bridges, and `relay.messages` carries every message in every room.
+per-agent resume is scoped to its immutable authorization generation in
+`authorized_relay_sessions`. Historical `relay_sessions` remain audit records.
+Authenticated connector observations and guarded delivery requests replace legacy
+Discord inbound/outbound bus payloads. Kafka `relay.messages` carries internal
+conversation events.
 
 **How to have one:** open an agent → Conversations tab → type. Or mention the
 Discord bot / reply in its thread. **`/conversations` in the UI redirects to

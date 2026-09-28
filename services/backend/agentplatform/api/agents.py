@@ -48,10 +48,56 @@ router = APIRouter()
 
 
 async def _check_discord_identity(session, model: AgentDefModel) -> None:
+    from agentplatform.authority import credential_secrets, authority_lock
+    await authority_lock(session)
+    if set(model.secrets) & await credential_secrets(session):
+        raise HTTPException(422, "Connector and runtime credentials cannot be granted to agent pods")
+    if model.external_observer and model.agent_type != "worker":
+        raise HTTPException(422, "Global external observer access is a worker read-only grant")
+    if "mcp__platform__discord_chat" in model.platform_tools:
+        raise HTTPException(422, "Legacy Discord Tool retired; assign an account to a persona")
     if model.discord_identity_id:
-        identity = await session.get(ChatIdentity, model.discord_identity_id)
+        identity = await session.get(ChatIdentity, model.discord_identity_id, with_for_update=True)
         if identity is None or identity.status in ("deleted", "deleting"):
             raise HTTPException(422, "unknown Discord chat identity")
+        if model.agent_type != "persona" or model.system:
+            raise HTTPException(422, "Only user personas can own chat identities")
+        if identity.owner_agent not in (None, model.name):
+            raise HTTPException(409, "Account already belongs to another persona; change it in Connections")
+    if model.agent_type != "persona":
+        owned = (await session.execute(select(ChatIdentity.id).where(
+            ChatIdentity.owner_agent == model.name))).first()
+        if owned:
+            raise HTTPException(409, "Unassign chat accounts in Connections before changing this persona to a worker")
+    tools = [t for t in model.platform_tools if t != "mcp__platform__discord"]
+    if model.discord_identity_id:
+        tools.append("mcp__platform__discord")
+    model.platform_tools = tools
+
+
+async def _sync_owner(session, model):
+    from agentplatform.authority import assign_owner
+    owned = (await session.execute(select(ChatIdentity).where(
+        ChatIdentity.owner_agent == model.name).with_for_update())).scalars().all()
+    if not model.discord_identity_id:
+        for identity in owned:
+            await assign_owner(session, identity, None)
+    else:
+        identity = await session.get(ChatIdentity, model.discord_identity_id, with_for_update=True)
+        await assign_owner(session, identity, model.name)
+
+
+def _managed_guard(row, model):
+    from agentplatform.system_agents import managed_field_changes, definitions
+    if row.system_source:
+        changes = managed_field_changes(snapshot_of(row), model.model_dump(mode="json"))
+        if changes:
+            raise HTTPException(409, "Code-owned agent fields cannot be edited: " + ", ".join(changes))
+    elif model.system:
+        raise HTTPException(422, "System agents are defined by platform capability code")
+    elif row.name in definitions() and not row.system_source:
+        raise HTTPException(409, "Name reserved for a code-owned system agent")
+
 
 # The two code-defined platform tools that let an agent write definitions
 # (docs/design/15). Stored grants are full MCP names — the same strings the
@@ -96,7 +142,7 @@ DEFAULT_GRANTS = ((TOOL_RELAY, "relay_default_grant"),
 # `agents_grant`. The quota thresholds are deliberately NOT here: they only make
 # an agent MORE reluctant to run, so `agents_edit` may tune them.
 GRANT_FIELDS: tuple[str, ...] = ("harness_tools", "platform_tools", "discord_identity_id", "skills",
-                                 "secrets", "can_invoke", "role",
+                                 "secrets", "can_invoke", "role", "agent_type", "external_observer",
                                  "push_path_globs", "may_delete_tests")
 # Everything the definition holds except its identity — the two halves the
 # authorization split is drawn between, and the comparison surface for "did
@@ -294,7 +340,8 @@ def _payload(row: AgentDef) -> dict:
     must stay readable, because reading it is how you fix it. Nones are dropped
     so the response model's defaults fill in for a row written before a column
     existed."""
-    return {f: v for f in DEF_FIELDS if (v := getattr(row, f, None)) is not None}
+    return {**{f: v for f in DEF_FIELDS if (v := getattr(row, f, None)) is not None},
+            "system_source": row.system_source, "system_revision": row.system_revision}
 
 
 def _with_secret_state(payload: dict, secret_paths: set[str]) -> dict:
@@ -337,7 +384,8 @@ async def _annotated(session, row: AgentDef) -> dict:
     from agentplatform import webhooksecrets
     from agentplatform.relay_store import faces_for
     return _with_face(
-        _with_secret_state(_payload(row),
+        _with_secret_state({**_payload(row), "system_source": row.system_source,
+                            "system_revision": row.system_revision},
                            await webhooksecrets.paths_with_secrets(session, row.name)),
         row, await faces_for(session, {row.name}))
 
@@ -559,8 +607,7 @@ async def create_agent(request: Request, body: AgentCreateIn,
     # diff that authorizes an update authorizes a create.
     grants = _changed_fields(AgentDef(name=model.name), model, GRANT_FIELDS)
     scope.authorize(grant_fields=grants, edit_fields=[])
-    if model.system and not scope.admin:
-        raise HTTPException(403, "only an admin may create a system agent")
+    _managed_guard(AgentDef(name=model.name), model)
     async with st.session_factory() as s:
         await _check_discord_identity(s, model)
         await _check_webhook_conflicts(s, [model])
@@ -580,6 +627,7 @@ async def create_agent(request: Request, body: AgentCreateIn,
                                                  "already exists"):
             s.add(row)
             await s.flush()
+            await _sync_owner(s, model)
             # Unreachable today — deletion already clears an agent's secrets,
             # so a fresh name has none. Here anyway so "a secret outlives no
             # path" is an invariant of every write that lands, not a property
@@ -613,15 +661,19 @@ async def update_agent(request: Request, name: str, body: AgentDefIn,
         grants = _changed_fields(row, model, GRANT_FIELDS)
         edits = _changed_fields(row, model, EDIT_FIELDS)
         scope.authorize(grant_fields=grants, edit_fields=edits)
+        _managed_guard(row, model)
         if "system" in edits and not scope.admin:
             # The system flag protects platform-managed lifecycle. It grants no
             # authority, but an agent still must not make itself undeletable.
             raise HTTPException(403, "only an admin may change the system flag")
         if not (grants or edits):
             return await _annotated(s, row)
+        if grants or any(f in edits for f in ("enabled", "agent_type")):
+            row.authorization_generation = (row.authorization_generation or 0) + 1
         _apply(row, model)
         async with _conflict_as_409(s):
             await s.flush()
+            await _sync_owner(s, model)
             await _prune_webhook_secrets(s, model)
             await _log_version(s, row, changed_by=scope.principal,
                                changed_via=scope.changed_via(grants=bool(grants)))
@@ -660,6 +712,11 @@ async def delete_agent(request: Request, name: str,
             raise HTTPException(409, "system agents are platform-managed and "
                                      "cannot be deleted")
         out = await _annotated(s, row)
+        from agentplatform.authority import assign_owner, authority_lock
+        await authority_lock(s)
+        owned = (await s.execute(select(ChatIdentity).where(ChatIdentity.owner_agent == name))).scalars().all()
+        for account in owned:
+            await assign_owner(s, account, None)
         async with _conflict_as_409(s):
             await _log_version(s, row, changed_by=scope.principal,
                                changed_via=f"delete:{scope.changed_via(grants=False)}")
@@ -864,8 +921,12 @@ async def rollback_agent(request: Request, name: str, version: int,
             AgentVersion.version == version))).scalar_one_or_none()
         if v is None:
             raise HTTPException(404, "unknown version")
+        restored_model = AgentDefModel(**{**v.snapshot, "name": row.name})
+        _managed_guard(row, restored_model)
+        await _check_discord_identity(s, restored_model)
+        row.authorization_generation = (row.authorization_generation or 0) + 1
         try:
-            apply_snapshot(row, v.snapshot)
+            apply_snapshot(row, restored_model.model_dump(mode="json"))
         except ValidationError as e:
             raise HTTPException(422, f"version {version} is no longer a valid "
                                      f"definition: {e}")
@@ -885,6 +946,7 @@ async def rollback_agent(request: Request, name: str, version: int,
             await s.flush()
             # The MODE is restorable; the secret never was. A rolled-back
             # definition that drops a path drops its secret with it.
+            await _sync_owner(s, restored)
             await _prune_webhook_secrets(s, restored)
             await _log_version(s, row, changed_by=principal, changed_via="rollback")
             await s.commit()
@@ -934,8 +996,12 @@ async def import_agents(request: Request, body: list[AgentCreateIn],
                 else:
                     results.append({"name": model.name, "status": "unchanged"})
                     continue
+                _managed_guard(row, model)
+                await _check_discord_identity(s, model)
+                row.authorization_generation = (row.authorization_generation or 0) + 1
                 _apply(row, model)
                 await s.flush()
+                await _sync_owner(s, model)
                 await _prune_webhook_secrets(s, model)
                 await _log_version(s, row, changed_by=principal, changed_via="import")
                 results.append({"name": model.name, "status": status})

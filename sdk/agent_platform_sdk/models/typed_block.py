@@ -4,7 +4,6 @@ from collections.abc import Mapping
 from typing import Any, TypeVar, cast
 
 from attrs import define as _attrs_define
-from typing_extensions import Self
 
 from ..models.typed_block_kind import TypedBlockKind
 from ..types import UNSET, Unset
@@ -101,7 +100,7 @@ class TypedBlock:
         return field_dict
 
     @classmethod
-    def from_dict(cls, src_dict: Mapping[str, Any]) -> Self:
+    def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
         d = dict(src_dict)
         kind = TypedBlockKind(d.pop("kind"))
 

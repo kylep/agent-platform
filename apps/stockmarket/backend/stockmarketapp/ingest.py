@@ -3,7 +3,7 @@
 Flow: the recorder publishes each successful `stockmarket` run's result text
 here. We parse it defensively (brief.py), store one row per session — keyed by
 day, so a re-run corrects rather than duplicates — then emit
-app.stockmarket.brief.posted and post the brief to Discord.
+app.stockmarket.brief.posted and save the browsable daily report.
 """
 from __future__ import annotations
 
@@ -21,7 +21,6 @@ log = logging.getLogger("stockmarket-ingest")
 
 TOPIC_INBOUND = "app.stockmarket.inbound"
 TOPIC_POSTED = "app.stockmarket.brief.posted"
-TOPIC_CHANNEL_POST = "discord.channel.post"
 
 
 def _envelope(type_: str, key: str, data: dict) -> bytes:
@@ -68,10 +67,9 @@ async def ingest_brief(sf, result_text: str | None, run_id: str | None = None
 class IngestLoop:
     """Consume app.stockmarket.inbound forever; on a stored brief, fan out."""
 
-    def __init__(self, sf, kafka_bootstrap: str, channel: str = "markets"):
+    def __init__(self, sf, kafka_bootstrap: str):
         self.sf = sf
         self.bootstrap = kafka_bootstrap
-        self.channel = channel
 
     async def handle(self, producer, raw: bytes) -> None:
         data = _unwrap(raw)
@@ -85,9 +83,6 @@ class IngestLoop:
             TOPIC_POSTED, _envelope("stockmarket.brief.posted", stored["day"], {
                 "day": stored["day"], "tags": stored["tags"],
                 "indexes": stored["indexes"]}))
-        await producer.send_and_wait(
-            TOPIC_CHANNEL_POST, _envelope("channel.post", self.channel, {
-                "channel": self.channel, "text": bf.format_post(stored)}))
         # The unified summary also becomes a browsable daily report (design-11).
         # Best-effort: a report-API hiccup must not drop the ingest.
         try:

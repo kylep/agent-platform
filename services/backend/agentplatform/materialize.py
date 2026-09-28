@@ -8,6 +8,7 @@ import asyncio
 import logging
 
 from agentplatform.db import Conversation, Project, Run, Team
+from agentplatform.authority import current_generation
 from agentplatform.events import TOPIC_RUN_REQUESTS
 
 log = logging.getLogger("materialize")
@@ -33,8 +34,16 @@ async def materialize_run(session_factory, producer, spec: dict,
     run_id = spec["run_id"]
     async with session_factory() as s:
         if await s.get(Run, run_id) is None:
+            generation = await current_generation(s, spec["agent"])
+            if generation is None:
+                raise ValueError("Agent is disabled or missing")
             parent = await s.get(Run, spec["parent_run_id"]) if spec.get("parent_run_id") else None
             room = await s.get(Conversation, spec["conversation_id"]) if spec.get("conversation_id") else None
+            if room and room.home == "external":
+                from agentplatform.external_chat import can_read_channel
+                if not await can_read_channel(s, spec["agent"], room.id):
+                    await s.commit()
+                    raise ValueError("External access is no longer authorized")
             team_id = spec.get("team_id") or (room.team_id if room else None) or (parent.team_id if parent else None)
             project_id = spec.get("project_id") or (room.project_id if room else None) or (parent.project_id if parent else None)
             context = []
@@ -52,10 +61,16 @@ async def materialize_run(session_factory, producer, spec: dict,
                         "rooms or threads. Search respects room visibility. If Relay is "
                         "unavailable, continue with current context and say so.")
             prompt = spec["prompt"]
+            if spec["agent"] == "pai" and (not room or room.home != "external"):
+                from agentplatform.health_incidents import pending_health_context
+                pending = await pending_health_context(s, agent="pai")
+                if pending:
+                    context.append(pending)
             if context:
                 prompt = "<work-context>\n" + "\n".join(context) + "\n</work-context>\n\n" + prompt
             s.add(Run(
                 id=run_id, agent=spec["agent"], prompt=prompt,
+                authorization_generation=generation,
                 trigger=spec["trigger"], requested_by=spec["requested_by"],
                 initiated_by=spec.get("initiated_by") or "admin",
                 parent_run_id=spec.get("parent_run_id"), depth=spec.get("depth", 0),
@@ -63,6 +78,7 @@ async def materialize_run(session_factory, producer, spec: dict,
                 team_id=team_id, project_id=project_id,
                 user_message=spec.get("user_message"),
                 trigger_message_id=spec.get("trigger_message_id"),
+                external_observation_id=spec.get("external_observation_id"),
                 ticket_id=spec.get("ticket_id"),
                 requested_model=spec.get("model") or "",
             ))

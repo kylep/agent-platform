@@ -103,3 +103,17 @@ async def test_active_run_does_not_break_streak(admin_client, sf):
     await _mk(sf, "echo", RunState.RUNNING, created=utcnow())
     rows = (await admin_client.get("/api/metrics/agents")).json()
     assert {r["agent"]: r for r in rows}["echo"]["failure_streak"] == 1
+
+
+async def test_historical_retired_agent_is_not_enabled_health_target(admin_client, sf, seed_agent):
+    await seed_agent('live-worker')
+    await seed_agent('disabled-worker', enabled=False)
+    async with sf() as session:
+        for name in ('retired-worker', 'live-worker', 'disabled-worker'):
+            session.add(Run(agent=name, trigger='manual', requested_by='test', prompt='x', state=RunState.FAILED))
+        await session.commit()
+    rows = {row['agent']: row for row in (await admin_client.get('/api/metrics/agents')).json()}
+    assert rows['live-worker']['enabled'] is True
+    assert rows['retired-worker']['enabled'] is False
+    assert rows['disabled-worker']['enabled'] is False
+    assert rows['retired-worker']['failure_streak'] == 1

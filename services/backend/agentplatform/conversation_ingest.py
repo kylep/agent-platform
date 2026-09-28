@@ -45,6 +45,9 @@ class ConversationIngestor:
 
     async def handle(self, data: dict) -> None:
         connector = data["connector"]
+        if connector == "discord":
+            log.warning("Ignoring retired unauthenticated Discord Kafka ingress")
+            return
         identity_id = data.get("identity_id") or (DEFAULT_DISCORD_IDENTITY
                                                    if connector == "discord" else None)
         external_ref = data.get("external_ref")

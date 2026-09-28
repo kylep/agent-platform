@@ -102,8 +102,8 @@ def test_discord_tool_cannot_send_while_identity_is_paused(monkeypatch):
     tool = broker.CustomTool(name="discord_chat", description="Discord chat tool.",
                              parameters={"type": "object", "properties": {}})
     out = asyncio.run(tool.run({"channel": "test", "text": "hello"}))
-    assert out.content == "error: Discord chat identity is paused"
-    assert calls == [("GET", "/api/chat-identities/discord-default/transport")]
+    assert "discord_chat is retired" in out.content
+    assert calls == []
 
 
 def test_other_discord_identity_uses_platform_policy_not_default_bot_token(monkeypatch):
@@ -123,8 +123,8 @@ def test_other_discord_identity_uses_platform_policy_not_default_bot_token(monke
     args = {"identity_id": "discord-second", "channel_id": "123456789012345678",
             "text": "hello"}
     out = asyncio.run(tool.run(args))
-    assert "queued for Discord as discord-second" in out.content
-    assert calls == [("POST", "/api/notify", args)]
+    assert "discord_chat is retired" in out.content
+    assert calls == []
 
 
 def test_refresh_re_registers_when_the_timeout_changes(tools_root, monkeypatch):
@@ -176,3 +176,26 @@ def test_every_custom_tool_advertises_the_files_argument(tools_root, monkeypatch
     assert "ap-upload" in props["files"]["description"]
     # The scan's own dict is not what was mutated.
     assert "files" not in broker._scan_custom_tools()["stocks"]["params"]["properties"]
+
+
+def test_owned_discord_send_requires_exact_identity_and_endpoint(monkeypatch):
+    calls = []
+    async def call(method, path, params=None, json=None):
+        calls.append((method, path, json))
+        return "queued"
+    monkeypatch.setattr(broker, "_call", call)
+    assert "identity_id is required" in asyncio.run(broker.discord(action="send", text="hello"))
+    assert "external_ref is required" in asyncio.run(broker.discord(action="send", identity_id="discord-a", text="hello"))
+    assert calls == []
+    assert asyncio.run(broker.discord(action="send", identity_id="discord-a", external_ref="123", text="hello", answer_to="a" * 32)) == "queued"
+    assert calls == [("POST", "/api/external-chat/send", {"identity_id": "discord-a", "external_ref": "123", "text": "hello", "answer_to": "a" * 32})]
+
+
+def test_stale_checkout_cannot_restore_discord_custom_tool(tools_root, monkeypatch):
+    _tool(tools_root, "discord_chat")
+    _tool(tools_root, "discord")
+    added = []
+    monkeypatch.setattr(broker.mcp, "add_tool", added.append)
+    monkeypatch.setattr(broker, "_registered", {})
+    broker.refresh_custom_tools()
+    assert added == []

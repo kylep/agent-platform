@@ -9,11 +9,16 @@ services; see the [Glossary](glossary.md).
 
 [Skills](skills.md) carry *knowledge*; tools carry *execution* — an agent picks
 arguments, never code, which is why agents can trigger real work without ever
-holding a shell or a credential. `stocks`, `discord_chat`, `linear`, `memory`,
-`prices` and `index_movers` are the shipped custom-tool references.
-For `discord_chat`, a channel name must be unique across servers visible to
-the bot; when it is not, pass its exact `channel_id` so a notification cannot
-land in whichever server happened to be listed first.
+holding a shell or a credential. `stocks`, `linear`, `memory`, `prices`
+and `index_movers` are shipped custom-tool references.
+
+The core `discord` connector Tool is supplied by a persona's account ownership.
+Use `identities` and `endpoints` to discover owned accounts and exact endpoint IDs;
+`read` retrieves permitted mirrored history, `send` queues a message, and
+`receipt` checks its durable delivery outcome. Reads and sends recheck current
+ownership and provider permissions. A queued request is not proof of delivery.
+Workers cannot send externally, and connector credentials never enter agent pods.
+The former `discord_chat` custom Tool and arbitrary channel-name sends are retired.
 
 Two tools are **core** — built into the broker rather than living under
 `tools/` — because they write to the platform's own definitions table and

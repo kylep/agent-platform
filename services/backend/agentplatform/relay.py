@@ -227,6 +227,14 @@ def is_open_channel(channel) -> bool:
             and bool(getattr(channel, "open", False)))
 
 
+class AgentRoster(set):
+    """Enabled identities plus current external read and participation scopes."""
+    def __init__(self, names=(), *, external_reads=None, external_owners=None):
+        super().__init__(names)
+        self.external_reads = external_reads or {}
+        self.external_owners = external_owners or {}
+
+
 def is_member(channel, participant: str, enabled_agents: set[str],
               explicit: set[str]) -> bool:
     """Whether a participant belongs to a channel. Open channels carry no
@@ -241,6 +249,8 @@ def is_member(channel, participant: str, enabled_agents: set[str],
     name = agent_name(participant)
     if name is not None and name not in enabled_agents:
         return False
+    if room_home(channel) == "external":
+        return name is None or channel.id in getattr(enabled_agents, "external_reads", {}).get(name, set())
     return True if is_open_channel(channel) else participant in explicit
 
 
@@ -249,6 +259,9 @@ def mentionable_in(channel, enabled_agents: set[str], explicit: set[str]) -> set
     channel, only the members of a closed one. Mentioning an agent that is not
     in the room would otherwise pull it into a conversation it cannot read —
     and, in a private room, hand it messages its absence was meant to withhold."""
+    if room_home(channel) == "external":
+        return {name for name, channels in getattr(enabled_agents, "external_owners", {}).items()
+                if channel.id in channels}
     if is_open_channel(channel):
         return set(enabled_agents)
     return {n for p in explicit if (n := agent_name(p)) is not None} & enabled_agents

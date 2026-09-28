@@ -69,7 +69,7 @@ function tableCue(message: RelayMessage): string | null {
 
 function Reactions({ message, onReact }: {
   message: RelayMessage;
-  onReact: (message: RelayMessage, emoji: string) => void;
+  onReact?: (message: RelayMessage, emoji: string) => void;
 }) {
   const [picking, setPicking] = useState(false);
   const [below, setBelow] = useState(false);
@@ -91,7 +91,7 @@ function Reactions({ message, onReact }: {
         <ChipButton key={r.emoji} variant={r.mine ? "accent" : "neutral"}
                     aria-pressed={r.mine}
                     aria-label={`${r.emoji} ${r.count}${r.mine ? " — remove yours" : ""}`}
-                    onClick={() => onReact(message, r.emoji)}>
+                    onClick={() => onReact?.(message, r.emoji)}>
           {r.emoji} {r.count}
         </ChipButton>
       ))}
@@ -102,7 +102,7 @@ function Reactions({ message, onReact }: {
           <span className={`relay-picker${below ? " below" : ""}`}>
             {PICKER.map((e) => (
               <button key={e} type="button" className="relay-picker-emoji" aria-label={e}
-                      onClick={() => { setPicking(false); onReact(message, e); }}>
+                      onClick={() => { setPicking(false); onReact?.(message, e); }}>
                 {e}
               </button>
             ))}
@@ -286,7 +286,7 @@ export function MessageBlock({ group, me, inThread, highlight, threads,
   // The threads hanging off these messages, by root id. A root with replies
   // advertises the conversation; anything else offers to start one.
   threads?: Map<string, ThreadSummary>;
-  onReact: (message: RelayMessage, emoji: string) => void;
+  onReact?: (message: RelayMessage, emoji: string) => void;
   // Absent where the host has nowhere to show a thread — then the action is
   // not offered at all rather than offered and dead.
   onThread?: (id: string) => void;
@@ -318,7 +318,7 @@ export function MessageBlock({ group, me, inThread, highlight, threads,
               <Body message={m} me={me} />
               <div className="relay-actions">
                 <span className="relay-time">{ago(m.created_at)}</span>
-                <Reactions message={m} onReact={onReact} />
+                {onReact && <Reactions message={m} onReact={onReact} />}
               </div>
             </div>
           ))}
@@ -346,7 +346,7 @@ export function MessageBlock({ group, me, inThread, highlight, threads,
             <div key={m.id} className={messageClass(m, highlight)} data-message-id={m.id}>
               <Body message={m} me={me} />
               <div className="relay-actions">
-                <Reactions message={m} onReact={onReact} />
+                {onReact && <Reactions message={m} onReact={onReact} />}
                 {agent && m.run_id && (
                   <Link to={`/runs/${m.run_id}`} className="relay-action">view run ↗</Link>
                 )}

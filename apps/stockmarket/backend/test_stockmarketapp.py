@@ -312,3 +312,23 @@ async def test_briefs_endpoint_filters_by_day_and_tag(sf, client):
     assert (await client.get("/apps/stockmarket/api/briefs?day=2026-01-01")).json() == []
     assert (await client.get("/apps/stockmarket/api/briefs?tag=earnings")).json()
     assert (await client.get("/apps/stockmarket/api/briefs?tag=rates")).json() == []
+
+
+async def test_ingest_persists_report_and_event_without_external_broadcast(sf, monkeypatch):
+    from stockmarketapp import ingest
+    sent, reports = [], []
+
+    class Producer:
+        async def send_and_wait(self, topic, value):
+            sent.append(topic)
+
+    async def report(factory, day):
+        async with factory() as session:
+            assert (await session.get(Brief, day)).body == "US indexes fell while Toronto edged up."
+        reports.append(day)
+
+    monkeypatch.setattr(ingest, "write_daily_market_report", report)
+    await ingest.IngestLoop(sf, "kafka:9092").handle(Producer(), json.dumps({
+        "result": BRIEF, "run_id": "market-test"}).encode())
+    assert sent == [ingest.TOPIC_POSTED]
+    assert reports == ["2026-08-06"]

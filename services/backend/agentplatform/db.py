@@ -46,6 +46,7 @@ class Run(Base):
     runtime: Mapped[str] = mapped_column(String(16), default="")
     requested_model: Mapped[str] = mapped_column(String(64), default="")
     model: Mapped[str] = mapped_column(String(64), default="")
+    authorization_generation: Mapped[int] = mapped_column(Integer, default=0)
     agent_version: Mapped[int | None] = mapped_column(Integer, nullable=True)
     definition_snapshot: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     trigger: Mapped[str] = mapped_column(String(32))
@@ -72,6 +73,7 @@ class Run(Base):
     # threaded under it and takes its hop + 1, so a chain of agents answering
     # each other is walkable — and boundable — from either end.
     trigger_message_id: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    external_observation_id: Mapped[str | None] = mapped_column(String(32), nullable=True)
     # The ticket this run was summoned from (docs/design/20): set when the
     # triggering message was posted in a ticket's thread, so the work a run did
     # is reachable from the ticket and not only from the room it was asked in.
@@ -455,6 +457,18 @@ class RelaySession(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
 
 
+class AuthorizedRelaySession(Base):
+    """Opaque resumes scoped to immutable authority; historical blobs stay separate."""
+    __tablename__ = "authorized_relay_sessions"
+    channel_id: Mapped[str] = mapped_column(String(32), primary_key=True)
+    agent: Mapped[str] = mapped_column(String(128), primary_key=True)
+    authorization_generation: Mapped[int] = mapped_column(Integer, primary_key=True)
+    claude_session_id: Mapped[str] = mapped_column(String(64), default="")
+    codex_thread_id: Mapped[str] = mapped_column(String(64), default="")
+    session_blob: Mapped[bytes | None] = mapped_column(LargeBinary, nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+
+
 DEFAULT_DISCORD_IDENTITY = "discord-default"
 
 
@@ -466,6 +480,11 @@ class ChatIdentity(Base):
     display_name: Mapped[str] = mapped_column(String(128))
     secret_refs: Mapped[dict] = mapped_column(JSON, default=dict)
     status: Mapped[str] = mapped_column(String(16), default="active")
+    owner_agent: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    ownership_generation: Mapped[int] = mapped_column(Integer, default=0)
+    permission_sequence: Mapped[int] = mapped_column(Integer, default=0)
+    access_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    lease_invalidated: Mapped[bool] = mapped_column(default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
@@ -496,6 +515,8 @@ class RelayWake(Base):
     __tablename__ = "relay_wakes"
     channel_id: Mapped[str] = mapped_column(String(32), primary_key=True)
     agent: Mapped[str] = mapped_column(String(128), primary_key=True)
+    authorization_generation: Mapped[int] = mapped_column(Integer, default=0)
+    external_observation_id: Mapped[str | None] = mapped_column(String(32), nullable=True)
     since_message_id: Mapped[str] = mapped_column(String(32))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
@@ -789,6 +810,10 @@ class AgentDef(Base):
     # materializes ~/.claude/agents/<name>.md from this.
     prompt: Mapped[str] = mapped_column(Text, default="")
     description: Mapped[str] = mapped_column(String(512), default="")
+    authorization_generation: Mapped[int] = mapped_column(Integer, default=0)
+    external_observer: Mapped[bool] = mapped_column(default=False)
+    system_source: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    system_revision: Mapped[str | None] = mapped_column(String(64), nullable=True)
     agent_type: Mapped[str] = mapped_column(String(16), default="worker")
     # The agent's face in Relay (docs/design/19): one emoji, optional — unset
     # means the UI derives a stable one from the name.
@@ -3203,6 +3228,9 @@ async def init_db(engine: AsyncEngine, default_grant: bool = True,
     passed in rather than read, because this runs in three services (API,
     dispatcher, recorder) and none of them hands `db` a settings object. They
     default to on so a caller that has no opinion gets the platform's."""
+    from agentplatform import external_chat, health_incidents  # register capability tables
+    from agentplatform.system_agents import reconcile_system_agents
+    from agentplatform.authority import migrate_authority
     async with engine.begin() as conn:
         if conn.dialect.name == "postgresql":
             # SERIALIZE THE WHOLE OF init_db ACROSS SERVICES. The API, the
@@ -3292,3 +3320,5 @@ async def init_db(engine: AsyncEngine, default_grant: bool = True,
         # Existing definitions are DB-first, so retiring repository skills
         # also requires clearing their stored grants before git-sync drops them.
         await conn.run_sync(_retire_seeded_skills)
+        await conn.run_sync(migrate_authority)
+        await conn.run_sync(reconcile_system_agents)

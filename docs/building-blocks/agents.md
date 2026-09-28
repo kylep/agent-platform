@@ -3,13 +3,22 @@
 **What:** the unit of work — an agent the platform runs through Claude Code or
 OpenAI Codex in an isolated pod.
 
-**Lives in:** Postgres, one row per agent (`agent_defs`). An agent's identity
-— prompt, config, grants, entrypoints — is a row, not a file: it is mutable
-through the admin API/UI and edits apply immediately, no PR round-trip. This
-is deliberately different from every other building block, which is
-git-declared and rides the [change loop](changes.md); see
-[design-15](../design/15-db-first-agents.md) for why identity moved to the
-database while capability (tools, skills, secret declarations) stayed code.
+**Lives in:** Postgres, one persistent identity per agent (`agent_defs`). Personas
+own external accounts and human relationships. Workers perform internal jobs and
+save platform state, reports and artifacts. User definitions are editable through
+the admin API/UI. Code-owned system workers are materialized from a versioned
+registry: the UI shows `system_source` and `system_revision`, locks their prompt
+and grants, and permits supported operational settings such as model, runtime,
+timeout, enabled state and schedule cadence.
+
+Chat Identity ownership is assigned in Connections or the persona editor. One
+persona can own several accounts. Changing ownership changes inbound routing and
+outbound authority together; an unassigned account cannot route or send. Provider
+permissions still decide which endpoints the owner can read or message. Workers
+can receive an explicitly broad `external_observer` grant to read all retained
+external mirrors, including private chats, without writing or sending. Grant and
+account-access changes fence existing run authority and conversation resumes.
+See [design 34](../design/34-personas-workers-and-typed-relay.md).
 
 **Fields** (`GET /api/agents/<name>`, all but `name` optional on write):
 
@@ -19,7 +28,11 @@ description: One line for listings.
 runtime: claude                # claude | codex
 model: sonnet                  # runtime model override; empty = platform default
 role: operator                 # execution profile; see below
-system: true                   # platform-managed lifecycle; not deletable
+agent_type: worker             # worker | persona
+system: true                   # system lifecycle; source determines code ownership
+system_source: platform:health-monitor # read-only registry source, null for user state
+system_revision: "1"           # read-only registry revision
+external_observer: false        # worker grant: all external mirrors, private included
 responds_to_all: false         # excluded from room-wide mentions; direct mentions still work
 can_invoke: true               # may trigger other agents (depth-guarded)
 enabled: true                  # false = no new runs from any trigger (409)

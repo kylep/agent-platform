@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends, Request
 from sqlalchemy import select
 
 from agentplatform.api.auth import READ_ROLES, require_role
-from agentplatform.db import ACTIVE_STATES, Run, RunModelUsage, RunState, utcnow
+from agentplatform.db import AgentDef, ACTIVE_STATES, Run, RunModelUsage, RunState, utcnow
 from agentplatform.scheduler import as_utc
 
 from agentplatform.api import schemas as S
@@ -144,6 +144,8 @@ async def durations(request: Request, days: int = 14, agent: str | None = None):
 @router.get("/api/metrics/agents", response_model=list[S.AgentMetrics], dependencies=[Depends(require_role(*READ_ROLES))])
 async def per_agent(request: Request):
     runs = await _recent_runs(request)
+    async with request.app.state.session_factory() as session:
+        enabled = dict((await session.execute(select(AgentDef.name, AgentDef.enabled))).all())
     buckets: dict[str, list[Run]] = defaultdict(list)
     for r in runs:
         buckets[r.agent].append(r)
@@ -151,6 +153,7 @@ async def per_agent(request: Request):
     for agent, agent_runs in buckets.items():
         row = _agg(agent_runs)
         row["agent"] = agent
+        row["enabled"] = bool(enabled.get(agent, False))
         row["failure_streak"] = _failure_streak(agent_runs)
         row["last_failed_at"] = _last_failure(agent_runs)
         rows.append(row)

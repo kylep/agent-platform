@@ -145,3 +145,31 @@ def test_totals_and_comparison():
 def test_fmt_pace():
     assert st.fmt_pace(300) == "5:00/km"
     assert st.fmt_pace(None) is None
+
+
+async def test_coach_ingest_saves_brief_report_without_external_broadcast(monkeypatch):
+    import json
+    from runningapp import ingest
+    from runningapp.db import Brief
+
+    engine = create_async_engine("sqlite+aiosqlite://")
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    sf = async_sessionmaker(engine, expire_on_commit=False)
+    sent, reports = [], []
+
+    class Producer:
+        async def send_and_wait(self, topic, value):
+            sent.append(topic)
+
+    async def report(factory, week):
+        async with factory() as session:
+            assert (await session.get(Brief, week)).body == "Keep easy runs easy."
+        reports.append(week)
+
+    monkeypatch.setattr(ingest, "write_weekly_report", report)
+    await ingest.IngestLoop(sf, "kafka:9092").handle(Producer(), json.dumps({
+        "activities": [], "brief": {"body": "Keep easy runs easy."}}).encode())
+    assert sent == [ingest.TOPIC_POSTED]
+    assert len(reports) == 1
+    await engine.dispose()

@@ -1,13 +1,13 @@
 import { Fragment, useEffect, useState } from "react";
 import { Link, useLocation, useSearchParams } from "react-router-dom";
-import { api, type ChatIdentity, type EditResult, type PullRequest, type SecretKeyField, type SecretStatus } from "../api";
+import { api, type ChatIdentity, type AgentSummary, type EditResult, type PullRequest, type SecretKeyField, type SecretStatus } from "../api";
 import { ADVANCED_SECRET_GUIDES, CONNECTION_GUIDES, GUIDE_CHECKED } from "../lib/connection-guides";
 import { ChangePhaseBanner, PendingChangeBanner, useChangeLoop } from "../components/ChangeFlow";
 import { Banner } from "@ap/ui/banner";
 import { ConfirmDialog } from "@ap/ui/dialog";
 import { Button } from "@ap/ui/button";
 import { Chip, StatusChip } from "@ap/ui/chip";
-import { CodeEditor, Input, Textarea } from "@ap/ui/field";
+import { CodeEditor, Input, Select, Textarea } from "@ap/ui/field";
 import { Table, TD, TH } from "@ap/ui/table";
 
 type SaveState = "idle" | "saving" | "error";
@@ -306,6 +306,8 @@ export default function Secrets() {
   const [openEditor, setOpenEditor] = useState<string | null>(null);
   const [searchParams, setSearchParams] = useSearchParams();
   const [identities, setIdentities] = useState<ChatIdentity[]>([]);
+  const [personas, setPersonas] = useState<AgentSummary[]>([]);
+  const [identityOwner, setIdentityOwner] = useState("");
   const [identityName, setIdentityName] = useState("");
   const [identityToken, setIdentityToken] = useState("");
   const [identityError, setIdentityError] = useState<string | null>(null);
@@ -319,8 +321,8 @@ export default function Secrets() {
 
   function load() {
     setLoading(true);
-    Promise.all([api<SecretStatus[]>("/api/secrets"), api<ChatIdentity[]>("/api/chat-identities?include_deleted=1")])
-      .then(([items, accounts]) => { setSecrets(items); setIdentities(accounts); })
+    Promise.all([api<SecretStatus[]>("/api/secrets"), api<ChatIdentity[]>("/api/chat-identities?include_deleted=1"), api<AgentSummary[]>("/api/agents")])
+      .then(([items, accounts, agents]) => { setSecrets(items); setIdentities(accounts); setPersonas(agents.filter((agent) => agent.agent_type === "persona" && agent.enabled)); })
       .finally(() => setLoading(false));
   }
   useEffect(load, []);
@@ -364,7 +366,7 @@ export default function Secrets() {
     setIdentityBusy(true); setIdentityError(null);
     try {
       const result = await api<{ detail: string }>(`/api/chat-identities/${encodeURIComponent(editingAccount.id)}`, {
-        method: "PATCH", body: JSON.stringify({ display_name: identityName.trim(),
+        method: "PATCH", body: JSON.stringify({ display_name: identityName.trim(), owner_agent: identityOwner || null,
           ...(identityToken.trim() ? { token: identityToken.trim() } : {}) }),
       });
       setIdentityNotice(result.detail);
@@ -396,8 +398,8 @@ export default function Secrets() {
   const guide = CONNECTION_GUIDES.find((item) => item.id === searchParams.get("connection"));
   const addingDiscord = guide?.id === "discord" && searchParams.get("add") === "1";
   useEffect(() => {
-    setIdentityName(editingAccount?.display_name ?? ""); setIdentityToken(""); setIdentityError(null);
-  }, [addingDiscord, editingId, editingAccount?.display_name]);
+    setIdentityOwner(editingAccount?.owner_agent ?? ""); setIdentityName(editingAccount?.display_name ?? ""); setIdentityToken(""); setIdentityError(null);
+  }, [addingDiscord, editingId, editingAccount?.display_name, editingAccount?.owner_agent]);
   function closeGuide() { setOpenEditor(null); setSearchParams({}); }
   function backToDiscordAccounts() { setSearchParams({ connection: "discord" }); }
   const discordAccounts = identities.filter((identity) => identity.connector === "discord" && identity.status !== "deleted");
@@ -461,7 +463,7 @@ export default function Secrets() {
             const secretName = account.secret_refs.bot_token?.secret;
             return <div className="connection-account" key={account.id}>
               <div><strong>{account.display_name}</strong> <code>{account.id}</code><br />
-                <span className="muted">{account.configured ? "Token set" : "Token missing"} · {account.bound_routes} room routes{account.status === "disabled" ? " · Needs verification" : ""}{account.status === "deleting" ? " · Cleanup incomplete; retry Delete" : ""}</span></div>
+                <span className="muted">{account.owner_agent ? `Owned by ${account.owner_agent}` : "Unassigned"} · {account.connected ? "Connected" : "Not connected"} · {account.configured ? "Token set" : "Token missing"} · {account.bound_routes} room routes{account.status === "disabled" ? " · Needs verification" : ""}{account.status === "deleting" ? " · Cleanup incomplete; retry Delete" : ""}</span></div>
               <div className="row-actions">
                 <Button variant="secondary" size="sm" disabled={identityBusy || account.status === "deleting"} onClick={() => setSearchParams({ connection: "discord", edit: account.id })}>Edit</Button>
                 <Button variant="secondary" size="sm" disabled={identityBusy || account.status === "deleting"} onClick={() => verifyIdentity(account)}>Verify</Button>
@@ -482,6 +484,12 @@ export default function Secrets() {
             <p className="muted">Internal ID: <code>{editingAccount.id}</code>. Renaming keeps its room routes and agent assignments.</p>
             <label htmlFor="discord-edit-name">Display name</label>
             <Input id="discord-edit-name" value={identityName} onChange={(e) => setIdentityName(e.target.value)} />
+            <label htmlFor="discord-edit-owner">Owning persona</label>
+            <Select id="discord-edit-owner" value={identityOwner} onChange={(e) => setIdentityOwner(e.target.value)}>
+              <option value="">Unassigned (routing and sends disabled)</option>
+              {personas.map((persona) => <option key={persona.name} value={persona.name}>{persona.name}</option>)}
+            </Select>
+            <p className="muted">Ownership changes both inbound routing and outbound authority. Reassignment starts fresh conversation sessions.</p>
             <label htmlFor="discord-edit-token">Replacement bot token</label>
             <Input id="discord-edit-token" type="password" autoComplete="off" spellCheck={false} value={identityToken} onChange={(e) => setIdentityToken(e.target.value)} />
             <p className="muted">Leave blank to keep the current token. Replacing it restarts only this bot’s process.</p>
@@ -491,7 +499,7 @@ export default function Secrets() {
           {identityError && <p role="alert" className="error">{identityError}</p>}
         </>}
         {addingDiscord && <>
-          <p className="muted">Saving stores the token and account, but does not connect the bot to Discord yet. A separate bot process must be deployed in Kubernetes; then link a Relay room and use Verify to check setup. Agent outbound identity is chosen in each agent’s Grants.</p>
+          <p className="muted">Saving stores the token and account, but does not connect the bot to Discord yet. A separate bot process must be deployed in Kubernetes; then use Verify to check setup and assign an enabled persona in Edit account. Provider observations appear as read-only Relay mirrors.</p>
           <div className="form-col">
             <label htmlFor="discord-account-name">Display name</label>
             <Input id="discord-account-name" aria-label="Discord account display name" placeholder="e.g. Family bot" value={identityName} onChange={(e) => setIdentityName(e.target.value)} />

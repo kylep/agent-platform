@@ -20,8 +20,10 @@ from agentplatform.api.artifacts import ArtifactView, _bounded_body, _rule
 from agentplatform.api.auth import (ANNOTATE_ROLES, INVOKE_ROLES, READ_ROLES,
                                      require_admin, require_role)
 from agentplatform.api.gitedit import _github_app_token
-from agentplatform.db import (ACTIVE_STATES, AgentDef, Conversation, Project, RelaySession, Run,
+from agentplatform.db import (ACTIVE_STATES, AgentDef, Conversation, Project, Run,
                               SecretAccess, Team, Ticket, TranscriptEvent, utcnow)
+from agentplatform.db import AuthorizedRelaySession as RelaySession
+from agentplatform.authority import ensure_run_authority, assert_readable_run
 from agentplatform.events import TOPIC_RUN_REQUESTS
 from agentplatform.github import GitHubClient
 from agentplatform.secrets import CODEX_CREDENTIAL
@@ -146,6 +148,16 @@ async def list_runs(request: Request, limit: int = Query(50, ge=1, le=500),
         stmt = stmt.limit(500 + offset)
     async with request.app.state.session_factory() as s:
         rows = list((await s.execute(stmt)).scalars())
+        visible = []
+        for run in rows:
+            try:
+                await assert_readable_run(s, request, run)
+                visible.append(run)
+            except HTTPException as exc:
+                if exc.status_code not in (403, 404):
+                    raise
+        rows = visible
+        await s.commit()
     if needs_summary:
         rows = [r for r in rows if not r.summary]
     if tag:
@@ -157,10 +169,16 @@ async def list_runs(request: Request, limit: int = Query(50, ge=1, le=500),
 @router.get("/api/tags", response_model=list[str], dependencies=[Depends(require_role(*READ_ROLES))])
 async def list_tags(request: Request):
     async with request.app.state.session_factory() as s:
-        rows = (await s.execute(select(Run.tags))).scalars()
-    seen: set[str] = set()
-    for t in rows:
-        seen.update(t or [])
+        rows = (await s.execute(select(Run))).scalars().all()
+        seen: set[str] = set()
+        for run in rows:
+            try:
+                await assert_readable_run(s, request, run)
+                seen.update(run.tags or [])
+            except HTTPException as exc:
+                if exc.status_code not in (403, 404):
+                    raise
+        await s.commit()
     return sorted(seen)
 
 @router.get("/api/runs/{run_id}", response_model=S.RunDetail, dependencies=[Depends(require_role(*READ_ROLES))])
@@ -168,6 +186,7 @@ async def get_run(request: Request, run_id: str):
     async with request.app.state.session_factory() as s:
         run = await s.get(Run, run_id)
         if run is None: raise HTTPException(404)
+        await assert_readable_run(s, request, run)
         d = _summary(run)
         team = await s.get(Team, run.team_id) if run.team_id else None
         project = await s.get(Project, run.project_id) if run.project_id else None
@@ -197,6 +216,7 @@ async def annotate_run(request: Request, run_id: str, body: AnnotateIn):
     async with request.app.state.session_factory() as s:
         run = await s.get(Run, run_id)
         if run is None: raise HTTPException(404)
+        await assert_readable_run(s, request, run)
         if body.summary is not None:
             run.summary = body.summary
         if body.tags is not None:
@@ -207,6 +227,10 @@ async def annotate_run(request: Request, run_id: str, body: AnnotateIn):
 @router.get("/api/runs/{run_id}/events", dependencies=[Depends(require_admin)])
 async def run_events(request: Request, run_id: str):
     async with request.app.state.session_factory() as s:
+        run = await s.get(Run, run_id)
+        if run is None:
+            raise HTTPException(404, "unknown run")
+        await assert_readable_run(s, request, run)
         rows = (await s.execute(select(TranscriptEvent)
                 .where(TranscriptEvent.run_id == run_id).order_by(TranscriptEvent.seq))).scalars()
         return [e.payload for e in rows]
@@ -284,11 +308,19 @@ async def keep_codex_generated_image(request: Request, run_id: str,
 
 
 def _session_key(run: Run) -> dict:
-    """A resume blob belongs to (channel, agent), not to the channel: a Relay
-    room holds several agents and each keeps its own CLI session
-    (docs/design/19). The backfill moved the design-14 blobs onto this key, so
-    a run that started before it still finds its own."""
-    return {"channel_id": run.conversation_id, "agent": run.agent}
+    """Resume only within a run's immutable authorization generation.
+
+    Historical two-column sessions remain audit records; never fall back to them.
+    """
+    return {"channel_id": run.conversation_id, "agent": run.agent,
+            "authorization_generation": run.authorization_generation or 0}
+
+
+async def _current_run_or_403(s, run):
+    # Hold the agent authority lock through this transaction's protected operation.
+    if not await ensure_run_authority(s, run):
+        await s.commit()  # Persist a lease-expiry generation transition even on denial.
+        raise HTTPException(403, "run authority has changed")
 
 
 @router.get("/api/runs/{run_id}/session",
@@ -302,7 +334,9 @@ async def get_session(run_id: str, request: Request):
         run = await s.get(Run, run_id)
         if run is None or not run.conversation_id:
             raise HTTPException(status_code=404, detail="no conversation")
+        await _current_run_or_403(s, run)
         row = await s.get(RelaySession, _session_key(run))
+        await s.commit()
         cap = request.app.state.settings.session_blob_max_bytes
         if row is None or not row.session_blob or len(row.session_blob) > cap:
             return {"session_id": None, "blob_b64": None}
@@ -320,6 +354,9 @@ async def get_agentdef(run_id: str, request: Request):
     _own_run_or_403(request, run_id)
     async with request.app.state.session_factory() as s:
         run = await s.get(Run, run_id)
+        if run is not None:
+            await _current_run_or_403(s, run)
+            await s.commit()
     if run is None:
         raise HTTPException(status_code=404, detail="unknown run")
     if run.definition_snapshot:
@@ -355,6 +392,9 @@ async def _codex_run_or_404(request: Request, run_id: str) -> Run:
     _own_run_or_403(request, run_id)
     async with request.app.state.session_factory() as s:
         run = await s.get(Run, run_id)
+        if run is not None:
+            await _current_run_or_403(s, run)
+            await s.commit()
     if run is None:
         raise HTTPException(404, "unknown run")
     info = request.app.state.agent_store.get(run.agent)
@@ -419,7 +459,9 @@ async def get_codex_session(run_id: str, request: Request):
     if not run.conversation_id:
         raise HTTPException(404, "no conversation")
     async with request.app.state.session_factory() as s:
+        await _current_run_or_403(s, run)
         row = await s.get(RelaySession, _session_key(run))
+        await s.commit()
     return {"thread_id": row.codex_thread_id if row else ""}
 
 
@@ -430,6 +472,7 @@ async def put_codex_session(run_id: str, body: CodexThread, request: Request):
     if not run.conversation_id:
         raise HTTPException(404, "no conversation")
     async with request.app.state.session_factory() as s:
+        await _current_run_or_403(s, run)
         key = _session_key(run)
         row = await s.get(RelaySession, key)
         if row is None:
@@ -467,6 +510,7 @@ async def put_session(run_id: str, body: S.SessionBlob, request: Request):
             raise HTTPException(status_code=404, detail="no conversation")
         if await s.get(Conversation, run.conversation_id) is None:
             raise HTTPException(status_code=404, detail="no conversation")
+        await _current_run_or_403(s, run)
         key = _session_key(run)
         reset = len(blob) > request.app.state.settings.session_blob_max_bytes
         session_id, stored = ("", None) if reset else (body.session_id, blob)
@@ -476,6 +520,10 @@ async def put_session(run_id: str, body: S.SessionBlob, request: Request):
             # A concurrent first PUT for this (channel, agent) won the insert.
             # Its row IS the session; re-read and write this blob into it.
             await s.rollback()
+            run = await s.get(Run, run_id)
+            if run is None:
+                raise HTTPException(404, "unknown run")
+            await _current_run_or_403(s, run)
             await _store_session(s, key, session_id, stored)
     return {"ok": True, "reset": reset}
 
@@ -485,6 +533,7 @@ async def kill_run(request: Request, run_id: str):
     async with request.app.state.session_factory() as s:
         run = await s.get(Run, run_id)
         if run is None: raise HTTPException(404)
+        await assert_readable_run(s, request, run)
         if run.state not in ACTIVE_STATES: raise HTTPException(409, "run is terminal")
     await request.app.state.producer.publish(TOPIC_RUN_REQUESTS, run_id,
                                              {"type": "cancel", "run_id": run_id},

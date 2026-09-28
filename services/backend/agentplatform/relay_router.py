@@ -41,7 +41,7 @@ from agentplatform.relay import (AGENT_PREFIX, ALL, SYSTEM_AUTHOR, USER_PREFIX,
                                  is_member, is_open_channel, mentionable_in,
                                  parse_mentions, room_dispatch_mode, strip_mentions,
                                  team_address_tokens, mask_team_mentions)
-from agentplatform.relay_store import (context_window, explicit_members, faces_for,
+from agentplatform.relay_store import (enabled_agents, context_window, explicit_members, faces_for,
                                        outbound_for_message, post_relay_message,
                                        publish_relay_message)
 from agentplatform.tickets import CLOSED_STATES
@@ -143,16 +143,36 @@ class RelayRouter:
             msg = await s.get(RelayMessage, (data.get("id") or ""))
             if conv is None or msg is None or msg.deleted_at is not None:
                 return
-            enabled = self._live_agents()
+            from agentplatform.relay_store import enabled_agents
+            enabled = await enabled_agents(s)
+            enabled.intersection_update(self._live_agents())
+            observation = None
             explicit = await explicit_members(s, conv.id)
-            summons = await self._summons(s, conv, msg, enabled, explicit)
+            if conv.home == "external":
+                from agentplatform.external_chat import ExternalObservation, owned_identity, ExternalChatError
+                observation = await s.get(ExternalObservation, data.get("external_observation_id") or "")
+                if (observation is None or observation.message_id != msg.id or not observation.addressed):
+                    return
+                try:
+                    account = await owned_identity(s, observation.identity_id)
+                except ExternalChatError:
+                    return
+                if observation.ownership_generation != account.ownership_generation:
+                    return
+                eligible = mentionable_in(conv, enabled, explicit)
+                summons = [(account.owner_agent, msg, None, "default")] if account.owner_agent in eligible else []
+            else:
+                summons = await self._summons(s, conv, msg, enabled, explicit)
             if not summons:
                 return
             decided, specs, mirrored = await self._decide(
-                s, conv, msg, summons, enabled, explicit)
+                s, conv, msg, summons, enabled, explicit, observation=observation)
+            if conv.home == "external":
+                for spec in specs:
+                    spec["external_observation_id"] = observation.id
         await self._emit(conv, decided, specs, mirrored)
 
-    async def _decide(self, s, conv, msg, summons, enabled, explicit):
+    async def _decide(self, s, conv, msg, summons, enabled, explicit, observation=None):
         """Run every summons through the guards, commit the decisions, and hand
         back what still has to leave the process.
 
@@ -168,7 +188,7 @@ class RelayRouter:
         for agent, mention, wake, kind in summons:
             hop = (mention.hop or 0) if is_agent(mention.author) else 0
             run_id, limit = None, None
-            if not is_member(conv, AGENT_PREFIX + agent, enabled, explicit):
+            if agent not in mentionable_in(conv, enabled, explicit):
                 decision, reason = "suppressed", "not_member"
             elif kind in ("mention", "default") and self._facade_owns(conv, msg, agent):
                 # Recorded BEFORE the "already answered" skip below: it is
@@ -189,14 +209,14 @@ class RelayRouter:
                 paused_limit = limit
             elif kind in ("mention", "default") and await self._occupied(s, conv, msg, agent):
                 decision, reason = "suppressed", "coalesced"
-                await self._coalesce(s, conv.id, agent, wake, msg)
+                await self._coalesce(s, conv.id, agent, wake, msg, observation=observation)
             else:
                 decision, reason = "invoked", kind
                 run_id = uuid.uuid4().hex
                 channel_used, global_used = channel_used + 1, global_used + 1
                 specs.append(await self._spec(s, conv, mention, agent, hop, run_id,
                                               wake=wake, enabled=enabled,
-                                              explicit=explicit))
+                                              explicit=explicit, observation=observation))
             # A wake is consumed by being acted on. Fired or refused, it
             # must not survive: an agent that reports for duty on every
             # subsequent reply is the coalescing bug in reverse. The
@@ -279,11 +299,35 @@ class RelayRouter:
             anchor = await s.get(RelayMessage, wake.since_message_id)
             if conv is None or anchor is None or anchor.deleted_at is not None:
                 return
+            from agentplatform.authority import current_generation
+            generation = await current_generation(s, run.agent)
+            observation = None
+            if generation != (wake.authorization_generation or 0):
+                await s.delete(wake)
+                await s.commit()
+                return
+            if conv.home == "external":
+                from agentplatform.external_chat import ExternalObservation, owned_identity, ExternalChatError
+                observation = await s.get(ExternalObservation, wake.external_observation_id or "")
+                if observation is None:
+                    await s.delete(wake)
+                    await s.commit()
+                    return
+                try:
+                    account = await owned_identity(s, observation.identity_id, run.agent)
+                except ExternalChatError:
+                    await s.delete(wake)
+                    await s.commit()
+                    return
+                if account.ownership_generation != observation.ownership_generation:
+                    await s.delete(wake)
+                    await s.commit()
+                    return
             if await self._busy(s, conv.id, run.agent, ignore_run_id=run_id):
                 return
             decided, specs, mirrored = await self._decide(
                 s, conv, anchor, [(run.agent, anchor, wake, "wake")],
-                self._live_agents(), await explicit_members(s, conv.id))
+                await enabled_agents(s), await explicit_members(s, conv.id), observation=observation)
         await self._emit(conv, decided, specs, mirrored)
 
     # --- who is being addressed ---------------------------------------------
@@ -506,12 +550,15 @@ class RelayRouter:
             Run.conversation_id == channel_id, Run.agent == agent,
             Run.trigger_message_id == message_id).limit(1))).first() is not None
 
-    async def _coalesce(self, s, channel_id: str, agent: str, wake, msg) -> None:
+    async def _coalesce(self, s, channel_id: str, agent: str, wake, msg, observation=None) -> None:
         """One wake per (channel, agent), anchored at the FIRST message it
         missed: three mentions arriving during one run become one follow-up
         that answers all three, never three runs answering one each."""
         if wake is None:
-            s.add(RelayWake(channel_id=channel_id, agent=agent, since_message_id=msg.id))
+            from agentplatform.authority import current_generation
+            s.add(RelayWake(channel_id=channel_id, agent=agent, since_message_id=msg.id,
+                           authorization_generation=await current_generation(s, agent),
+                           external_observation_id=observation.id if observation else None))
         else:
             wake.created_at = utcnow()
         await s.flush()
@@ -519,7 +566,7 @@ class RelayRouter:
     # --- the run -------------------------------------------------------------
 
     async def _spec(self, s, conv, mention, agent: str, hop: int, run_id: str, *,
-                    wake, enabled, explicit) -> dict:
+                    wake, enabled, explicit, observation=None) -> dict:
         # A summons inside a thread is answered from the thread (docs/design/20):
         # "in a thread" is `thread_root` set and nothing cleverer, because the
         # one message that opens a ticket's thread is its card, and a card
@@ -527,6 +574,8 @@ class RelayRouter:
         # ticket, and a root that is not a ticket's is just the room talking.
         thread_root = mention.thread_root
         ticket = await self._ticket_of(s, thread_root)
+        from agentplatform.authority import current_generation
+        await current_generation(s, agent)
         window = await context_window(
             s, conv.id, thread_root=thread_root,
             limit=(self.settings.tickets_thread_context_messages if thread_root
@@ -557,6 +606,7 @@ class RelayRouter:
                 "initiated_by": await self._initiated_by(s, mention),
                 "parent_run_id": mention.run_id, "depth": hop,
                 "conversation_id": conv.id, "trigger_message_id": mention.id,
+                "external_observation_id": observation.id if observation else None,
                 # What this run is WORK on, as opposed to what it is a reply to:
                 # the ticket page lists it, and the board shows the agent
                 # thinking on the card.

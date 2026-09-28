@@ -5,7 +5,7 @@ recorder publishes each successful `running-coach` note. We parse either shape
 defensively (brief.py), upsert one row per Strava activity
 id (a re-send corrects, never duplicates), and — when the payload carries a
 weekly note — store it under the last completed week's Monday (the app's clock,
-not the agent's), posting to Discord and writing the report only the first time that
+not the agent's), writing the report only the first time that
 week is seen. Subsequent same-week sends refresh the text silently.
 """
 from __future__ import annotations
@@ -28,7 +28,6 @@ log = logging.getLogger("running-ingest")
 
 TOPIC_INBOUND = "app.running.inbound"
 TOPIC_POSTED = "app.running.brief.posted"
-TOPIC_CHANNEL_POST = "discord.channel.post"
 
 
 def _envelope(type_: str, key: str, data: dict) -> bytes:
@@ -84,7 +83,7 @@ async def _week_stats(sf, week_start: str) -> dict:
 async def store_brief(sf, cleaned: dict, week_start: str, run_id: str | None,
                       stats: dict) -> tuple[Brief, bool]:
     """Upsert the week's brief. Returns (row, first_post) — first_post is True
-    only the first time this week is stored, gating the Discord post + report."""
+    only the first time this week is stored, gating the platform event and report."""
     async with sf() as s:
         row = await s.get(Brief, week_start)
         first_post = row is None or not row.posted
@@ -108,10 +107,9 @@ class IngestLoop:
     """Consume app.running.inbound forever; store activities, and on a weekly
     brief's first sighting fan out to Discord + the report."""
 
-    def __init__(self, sf, kafka_bootstrap: str, channel: str = "running"):
+    def __init__(self, sf, kafka_bootstrap: str):
         self.sf = sf
         self.bootstrap = kafka_bootstrap
-        self.channel = channel
         self.started_at = datetime.now(timezone.utc)
         self.status = {"consumer_started": False, "consumer_assigned": False,
                        "last_message_at": None, "last_activity_sync_at": None,
@@ -163,10 +161,6 @@ class IngestLoop:
             TOPIC_POSTED, _envelope("running.brief.posted", week_start, {
                 "week_start": week_start, "runs": stats["runs"],
                 "distance_km": stats["distance_km"], "tags": cleaned["tags"]}))
-        await producer.send_and_wait(
-            TOPIC_CHANNEL_POST, _envelope("channel.post", self.channel, {
-                "channel": self.channel,
-                "text": bf.format_post(week_start, cleaned, stats)}))
         try:
             await write_weekly_report(self.sf, week_start)
         except Exception:

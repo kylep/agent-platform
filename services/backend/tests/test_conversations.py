@@ -134,32 +134,24 @@ async def test_continue_deleted_conversation_409(admin_client):
     assert r.status_code == 409
 
 
-async def test_connector_ingest_maps_ref_to_conversation(sf):
+async def test_legacy_discord_ingress_cannot_create_messages_or_runs(sf):
+    from agentplatform.db import RelayBinding, RelayMessage
     producer = FakeProducer()
     ing = ConversationIngestor(Settings(), sf, producer)
-    ev = {"connector": "discord", "external_ref": "thread-1", "external_user": "kyle",
-          "identity_id": "discord-default",
-          "external_kind": "thread", "external_message_id": "m1",
-          "text": "hey pai", "agent": "hello-world"}
-    await ing.handle({**ev, "identity_id": "another-bot"})
-    await ing.handle(ev)
-    await ing.handle({**ev, "external_message_id": "m2", "text": "you there?"})
-    async with sf() as s:
-        convs = (await s.execute(select(Conversation).where(
-            Conversation.kind == "dm"))).scalars().all()
-        runs = (await s.execute(select(Run))).scalars().all()
-        from agentplatform.db import RelayBinding, RelayMessage
-        binding = (await s.execute(select(RelayBinding).where(
-            RelayBinding.external_ref == "thread-1"))).scalar_one()
-        messages = (await s.execute(select(RelayMessage).where(
-            RelayMessage.external_message_id.is_not(None)))).scalars().all()
-    assert len(convs) == 1 and convs[0].external_ref == "thread-1" and convs[0].connector == "discord"
-    assert binding.identity_id == "discord-default"
-    # Ingestion durably records both messages. The shared Relay router owns
-    # dispatch and will coalesce the second while the first run is active.
-    assert runs == []
-    assert [(m.external_message_id, m.body) for m in messages] == [
-        ("m1", "hey pai"), ("m2", "you there?")]
+    event = {"connector": "discord", "external_ref": "thread-1", "external_user": "kyle",
+             "identity_id": "discord-default", "external_message_id": "m1",
+             "text": "hey pai", "agent": "hello-world"}
+    for identity in ("another-bot", "discord-default"):
+        await ing.handle({**event, "identity_id": identity})
+    async with sf() as session:
+        assert (await session.execute(select(Conversation).where(
+            Conversation.external_ref == "thread-1"))).scalar_one_or_none() is None
+        assert (await session.execute(select(RelayBinding).where(
+            RelayBinding.external_ref == "thread-1"))).scalar_one_or_none() is None
+        assert (await session.execute(select(RelayMessage).where(
+            RelayMessage.external_message_id == "m1"))).scalar_one_or_none() is None
+        assert (await session.execute(select(Run))).scalars().all() == []
+    assert producer.published == []
 
 
 async def test_disabled_chat_identity_drops_inbound_before_creating_a_room(sf):
@@ -186,11 +178,11 @@ async def test_second_chat_identity_cannot_adopt_a_legacy_default_route(sf):
     event = {"connector": "discord", "external_ref": "legacy-thread",
              "external_user": "kyle", "external_message_id": "m1",
              "identity_id": "discord-default", "text": "first", "agent": "hello-world"}
-    await ing.handle(event)
     async with sf() as session:
-        binding = (await session.execute(select(RelayBinding).where(
-            RelayBinding.external_ref == "legacy-thread"))).scalar_one()
-        binding.identity_id = None
+        room = Conversation(connector="discord", external_ref="legacy-thread", agent="hello-world")
+        session.add(room)
+        await session.flush()
+        session.add(RelayBinding(channel_id=room.id, connector="discord", external_ref="legacy-thread", identity_id=None))
         session.add(ChatIdentity(id="discord-second", connector="discord",
                                  display_name="Second", secret_refs={}, status="active"))
         await session.commit()
@@ -199,10 +191,10 @@ async def test_second_chat_identity_cannot_adopt_a_legacy_default_route(sf):
     async with sf() as session:
         messages = (await session.execute(select(RelayMessage).where(
             RelayMessage.external_message_id.is_not(None)))).scalars().all()
-    assert [(m.external_message_id, m.body) for m in messages] == [("m1", "first")]
+    assert messages == []
 
 
-async def test_recorder_emits_outbound_on_terminal(sf):
+async def test_recorder_never_emits_legacy_outbound_on_terminal(sf):
     producer = FakeProducer()
     async with sf() as s:
         conv = Conversation(connector="discord", external_ref="t9", agent="hello-world")
@@ -215,10 +207,7 @@ async def test_recorder_emits_outbound_on_terminal(sf):
     rec = Recorder(sf, producer)
     await rec._handle_state(rid, {"state": RunState.SUCCEEDED, "exit_code": 0})
     outbound = [p for p in producer.published if p[0] == TOPIC_CONVERSATION_OUTBOUND]
-    assert len(outbound) == 1
-    _, key, data = outbound[0]
-    assert key == cid and data["connector"] == "discord" and data["external_ref"] == "t9"
-    assert data["text"] == "the reply"
+    assert outbound == []
 
 
 async def test_rename_conversation_any_type(admin_client, sf):
@@ -258,3 +247,16 @@ async def test_channel_rows_are_not_reachable_as_conversations(admin_client, sf)
     assert not any(c["id"] == cid for c in (await admin_client.get("/api/conversations")).json())
     async with sf() as s:
         assert (await s.get(Conversation, cid)) is not None   # still there
+
+
+async def test_external_legacy_conversation_is_read_only_even_for_admin(admin_client, sf):
+    async with sf() as s:
+        room = Conversation(connector="discord", home="external", agent="hello-world",
+                            kind="dm", dispatch_mode="facade", title="Private mirror")
+        s.add(room)
+        await s.commit()
+        room_id = room.id
+    assert (await admin_client.get(f"/api/conversations/{room_id}")).status_code == 200
+    assert (await admin_client.post(f"/api/conversations/{room_id}/messages", json={"text": "send"})).status_code == 403
+    assert (await admin_client.patch(f"/api/conversations/{room_id}", json={"title": "rename"})).status_code == 403
+    assert (await admin_client.delete(f"/api/conversations/{room_id}")).status_code == 403

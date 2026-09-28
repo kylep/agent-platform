@@ -10,7 +10,6 @@ from typing import (
 )
 
 from attrs import define as _attrs_define
-from typing_extensions import Self
 
 from ..types import UNSET, Unset
 
@@ -85,7 +84,7 @@ class TypedDefinition:
         return field_dict
 
     @classmethod
-    def from_dict(cls, src_dict: Mapping[str, Any]) -> Self:
+    def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
         from ..models.action_binding import ActionBinding
         from ..models.read_binding import ReadBinding
         from ..models.typed_block import TypedBlock

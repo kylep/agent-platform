@@ -28,8 +28,7 @@ async def lifespan(app: FastAPI):
     # something to sync before anyone has opened the page.
     await seed_indexes(app.state.sf)
     loop = IngestLoop(app.state.sf,
-                      os.environ.get("AP_KAFKA_BOOTSTRAP", "kafka:9092"),
-                      channel=os.environ.get("STOCKMARKET_CHANNEL", "news"))
+                      os.environ.get("AP_KAFKA_BOOTSTRAP", "kafka:9092"))
     task = asyncio.create_task(loop.run_forever())
     try:
         yield

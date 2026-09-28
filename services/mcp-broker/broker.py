@@ -84,6 +84,42 @@ async def _call(method: str, path: str, params: dict | None = None, json: dict |
     return r.text or "ok"
 
 
+@mcp.tool
+async def discord(action: str = "identities", identity_id: str | None = None,
+                  external_ref: str | None = None, text: str | None = None,
+                  answer_to: str | None = None, request_id: str | None = None,
+                  limit: int = 30) -> str:
+    """Use an owned Discord account. identities lists your accounts; endpoints
+    discovers readable exact channel IDs; read returns mirrored history; send
+    queues text and returns a durable receipt ID (not proof of delivery); receipt
+    checks its outcome. Specify identity_id and external_ref for read/send.
+    answer_to is the triggering Relay message ID when answering that addressed
+    turn, preventing an extra automatic final reply. Account ownership supplies
+    authority; this Tool cannot send as a worker or another persona."""
+    if action == "identities":
+        return await _call("GET", "/api/external-chat/identities")
+    if action == "receipt":
+        if not request_id or not re.fullmatch(r"[a-f0-9]{32}", request_id):
+            return "error: receipt requires a valid request_id"
+        return await _call("GET", f"/api/external-chat/deliveries/{request_id}")
+    if not identity_id:
+        return "error: identity_id is required; discover your owned accounts first"
+    if action == "endpoints":
+        return await _call("GET", "/api/external-chat/endpoints", {"identity_id": identity_id})
+    if not external_ref:
+        return "error: an exact external_ref is required"
+    if action == "read":
+        return await _call("GET", "/api/external-chat/messages", {
+            "identity_id": identity_id, "external_ref": external_ref, "limit": limit})
+    if action == "send":
+        if not text:
+            return "error: text is required"
+        return await _call("POST", "/api/external-chat/send", json={
+            "identity_id": identity_id, "external_ref": external_ref,
+            "text": text, "answer_to": answer_to})
+    return "error: action must be identities|endpoints|read|send|receipt"
+
+
 # --- runs (run-summarizer) ---------------------------------------------------
 # Consolidation convention (design/12): 1-2 tools per domain with an action/
 # scope discriminator, split read/write where grants should differ.
@@ -128,6 +164,17 @@ async def metrics(scope: str = "overview") -> str:
     if scope == "overview":
         return await _call("GET", "/api/metrics/overview")
     return "error: scope must be one of overview|agents|kafka|tools"
+
+
+@mcp.tool
+async def health_incident(incident_key: str, title: str = "", body: str = "",
+                          resolved: bool = False) -> str:
+    """Health worker only: upsert an OPS incident by stable key, or mark recovery.
+    Repeated observations update one ticket. Pai decides whether to notify the
+    human; this tool never sends an external alert. resolved=true needs no title.
+    """
+    return await _call("POST", "/api/health/incidents", json={
+        "incident_key": incident_key, "title": title, "body": body, "resolved": resolved})
 
 
 # --- apps (news-librarian etc.) ----------------------------------------------
@@ -497,41 +544,8 @@ class CustomTool(Tool):
         if not _rate_ok(agent, self.name):
             await _audit(agent, run_id, initiated_by, self.name, arguments, "deny:rate-limit", t0)
             return ToolResult(content=_RATE_LIMITED)
-        if self.name == "discord_chat" and arguments.get("identity_id") not in (
-                None, "discord-default"):
-            # Extra chat accounts are selected at the API boundary. The
-            # executor holds only the legacy default bot token, so passing
-            # this call through it would send as the wrong identity.
-            try:
-                response = await _request("POST", "/api/notify", json=arguments)
-            except httpx.HTTPError as exc:
-                await _audit(agent, run_id, initiated_by, self.name, arguments,
-                             "error:api-unreachable", t0)
-                return ToolResult(content=f"error: platform API unreachable ({exc})")
-            if response.status_code != 200:
-                await _audit(agent, run_id, initiated_by, self.name, arguments,
-                             f"deny:http-{response.status_code}", t0)
-                try:
-                    detail = response.json().get("detail", "send refused")
-                except ValueError:
-                    detail = "send refused"
-                return ToolResult(content=f"error: {detail}")
-            await _audit(agent, run_id, initiated_by, self.name, arguments, "allow", t0)
-            return ToolResult(content=(
-                f"queued for Discord as {arguments['identity_id']} to "
-                f"channel {arguments.get('channel_id', '(missing)')}; delivery is asynchronous"))
         if self.name == "discord_chat":
-            # The legacy REST sender bypasses the connector's Kafka consumer.
-            # Consult the same identity status before it can reach Discord.
-            try:
-                status = await _request("GET", "/api/chat-identities/discord-default/transport")
-                active = status.status_code == 200 and status.json().get("active") is True
-            except (httpx.HTTPError, ValueError):
-                active = False
-            if not active:
-                await _audit(agent, run_id, initiated_by, self.name, arguments,
-                             "deny:identity-disabled", t0)
-                return ToolResult(content="error: Discord chat identity is paused")
+            return ToolResult(content="error: discord_chat is retired; use the owned-account discord connector Tool")
         caller = {"agent": agent, "run_id": run_id}
         payload = {"tool": self.name, "args": arguments, "caller": caller}
         files_bytes = 0
@@ -2077,6 +2091,8 @@ def refresh_custom_tools() -> None:
             del _registered[name]
             log.info("custom tool removed: %s", name)
     for name, m in current.items():
+        if name in ("discord_chat", "discord"):
+            continue
         desc = m["description"]
         timeout = m["timeout_seconds"]
         if _registered.get(name) == (desc, timeout):

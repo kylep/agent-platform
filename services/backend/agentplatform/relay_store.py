@@ -133,40 +133,8 @@ async def outbound_for_message(session, conv, msg, *,
 
     `state` is the run outcome the recorder holds before the Run row does; left
     out, it is read off the run that authored the message."""
-    bridges = list(await bindings_of(session, conv.id))
-    if not bridges:
-        if conv.connector == "web" or not conv.external_ref:
-            return []
-        # The compatibility fallback has no binding id. A tiny duck-typed row
-        # keeps the payload construction below identical to the normal path.
-        from types import SimpleNamespace
-        bridges = [SimpleNamespace(id=None, connector=conv.connector,
-                                   identity_id=None,
-                                   external_ref=conv.external_ref,
-                                   external_kind="thread", config={})]
-    if msg.source_binding_id:
-        bridges = [b for b in bridges if b.id != msg.source_binding_id]
-    else:
-        # Historical messages predate source endpoint identity. Keep the old
-        # namespace guard for those rows only.
-        origin = (msg.author or "").partition(":")[0]
-        bridges = [b for b in bridges if b.connector != origin]
-    if not bridges:
-        return []
-    if state is None:
-        run = await session.get(Run, msg.run_id) if msg.run_id else None
-        state = run.state if run is not None else POSTED
-    return [{"channel_id": conv.id,
-             # The same id under its design-07 name: connectors and the DLQ UI
-             # still read `conversation_id`, and a bridge is not the place to
-             # break a wire format over a rename.
-             "conversation_id": conv.id,
-             "connector": binding.connector, "identity_id": binding.identity_id,
-             "external_ref": binding.external_ref,
-             "external_kind": binding.external_kind or "channel",
-             "author": msg.author, "kind": msg.kind, "message_id": msg.id,
-             "run_id": msg.run_id, "text": msg.body or "", "state": state}
-            for binding in bridges]
+    # External effects require persona-owned delivery requests (design 34).
+    return []
 
 
 async def publish_relay_message(producer, conv, msg, *, face=None,
@@ -270,8 +238,31 @@ async def enabled_agents(session) -> set[str]:
     AgentStore's cache: the recorder and the conversation facade hold a session,
     not a store. A quarantined definition still answers to its name here, which
     the router re-checks before it invokes anything."""
-    return set((await session.execute(
-        select(AgentDef.name).where(AgentDef.enabled))).scalars())
+    from agentplatform.relay import AgentRoster
+    from agentplatform.external_chat import ExternalEndpoint, ExternalAccess
+    from agentplatform.authority import expired
+    from agentplatform.db import ChatIdentity
+    rows = (await session.execute(select(AgentDef).where(AgentDef.enabled))).scalars().all()
+    names = {row.name for row in rows}
+    endpoints = (await session.execute(select(ExternalEndpoint))).scalars().all()
+    channels = {e.id: e.channel_id for e in endpoints}
+    external_channels = set((await session.execute(select(Conversation.id).where(Conversation.home == "external"))).scalars())
+    reads = {r.name: external_channels.copy() if r.agent_type == "worker" and r.external_observer else set() for r in rows}
+    owners = {}
+    identities = {i.id: i for i in (await session.execute(select(ChatIdentity))).scalars().all()}
+    personas = {r.name for r in rows if r.agent_type == 'persona' and not r.system_source}
+    for access in (await session.execute(select(ExternalAccess))).scalars():
+        identity = identities.get(access.identity_id)
+        if (identity is None or identity.owner_agent not in personas or identity.status != 'active'
+                or expired(identity.access_expires_at) or expired(access.expires_at)
+                or not access.can_read or not access.can_history
+                or access.ownership_generation != identity.ownership_generation):
+            continue
+        channel = channels.get(access.endpoint_id)
+        if channel:
+            reads[identity.owner_agent].add(channel)
+            owners.setdefault(identity.owner_agent, set()).add(channel)
+    return AgentRoster(names, external_reads=reads, external_owners=owners)
 
 
 async def faces_for(session, names: set[str]) -> dict[str, dict]:

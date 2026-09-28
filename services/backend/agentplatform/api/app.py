@@ -23,6 +23,8 @@ from agentplatform.api import chat_identities as chat_identities_api
 from agentplatform.api import cron as cron_api
 from agentplatform.api import dlq as dlq_api
 from agentplatform.api import health as health_api
+from agentplatform.api import health_incidents as health_incidents_api
+from agentplatform.api import external_chat as external_chat_api
 from agentplatform.api import help as help_api
 from agentplatform.api import integrations as integrations_api
 from agentplatform.api import live_invocations as live_invocations_api
@@ -446,6 +448,8 @@ def create_app(settings, session_factory, producer, secret_store=None, agent_sto
     app.include_router(conversations_api.router)
     app.include_router(codex_proxy_api.router)
     app.include_router(chat_identities_api.router)
+    app.include_router(external_chat_api.router)
+    app.include_router(health_incidents_api.router)
     app.include_router(cron_api.router)
     app.include_router(dlq_api.router)
     app.include_router(health_api.router)

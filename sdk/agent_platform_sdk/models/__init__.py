@@ -40,6 +40,7 @@ from .chat_identity_view_secret_refs import ChatIdentityViewSecretRefs
 from .chat_identity_view_secret_refs_additional_property import (
     ChatIdentityViewSecretRefsAdditionalProperty,
 )
+from .claim_in import ClaimIn
 from .codex_auth import CodexAuth
 from .codex_generated_image import CodexGeneratedImage
 from .codex_thread import CodexThread
@@ -65,6 +66,7 @@ from .dlq_entry import DlqEntry
 from .edit_dispatch import EditDispatch
 from .edit_identity_in import EditIdentityIn
 from .edit_result import EditResult
+from .endpoint_in import EndpointIn
 from .entrypoints_in import EntrypointsIn
 from .generate_in import GenerateIn
 from .grant_in import GrantIn
@@ -73,6 +75,7 @@ from .help_topic_detail import HelpTopicDetail
 from .http_validation_error import HTTPValidationError
 from .image_model import ImageModel
 from .image_model_billing import ImageModelBilling
+from .incident_in import IncidentIn
 from .integration import Integration
 from .intent_in import IntentIn
 from .intent_in_arguments import IntentInArguments
@@ -94,6 +97,7 @@ from .metrics_overview_by_state import MetricsOverviewByState
 from .model_option import ModelOption
 from .model_usage import ModelUsage
 from .notify_in import NotifyIn
+from .observation_in import ObservationIn
 from .observe_quota_quota_ignored import ObserveQuotaQuotaIgnored
 from .observe_quota_quota_observe_in import ObserveQuotaQuotaObserveIn
 from .observe_quota_quota_observe_in_headers import ObserveQuotaQuotaObserveInHeaders
@@ -118,6 +122,7 @@ from .quota_ok import QuotaOk
 from .quota_reading import QuotaReading
 from .quota_window import QuotaWindow
 from .read_binding import ReadBinding
+from .receipt_in import ReceiptIn
 from .refresh_quota_provider import RefreshQuotaProvider
 from .relay_binding_in import RelayBindingIn
 from .relay_binding_in_config import RelayBindingInConfig
@@ -176,12 +181,14 @@ from .secret_key_in import SecretKeyIn
 from .secret_quick_edit_in import SecretQuickEditIn
 from .secret_status import SecretStatus
 from .secret_verify import SecretVerify
+from .send_in import SendIn
 from .session_blob import SessionBlob
 from .setup_state import SetupState
 from .skill_detail import SkillDetail
 from .skill_quick_edit_in import SkillQuickEditIn
 from .skill_view import SkillView
 from .skill_wizard_in import SkillWizardIn
+from .snapshot_in import SnapshotIn
 from .sync_status import SyncStatus
 from .team_in import TeamIn
 from .team_patch import TeamPatch
@@ -281,6 +288,7 @@ __all__ = (
     "ChatIdentityView",
     "ChatIdentityViewSecretRefs",
     "ChatIdentityViewSecretRefsAdditionalProperty",
+    "ClaimIn",
     "CodexAuth",
     "CodexGeneratedImage",
     "CodexThread",
@@ -304,14 +312,16 @@ __all__ = (
     "EditDispatch",
     "EditIdentityIn",
     "EditResult",
+    "EndpointIn",
     "EntrypointsIn",
     "GenerateIn",
     "GrantIn",
-    "HTTPValidationError",
     "HelpTopic",
     "HelpTopicDetail",
+    "HTTPValidationError",
     "ImageModel",
     "ImageModelBilling",
+    "IncidentIn",
     "Integration",
     "IntentIn",
     "IntentInArguments",
@@ -333,6 +343,7 @@ __all__ = (
     "ModelOption",
     "ModelUsage",
     "NotifyIn",
+    "ObservationIn",
     "ObserveQuotaQuotaIgnored",
     "ObserveQuotaQuotaObserveIn",
     "ObserveQuotaQuotaObserveInHeaders",
@@ -340,12 +351,12 @@ __all__ = (
     "OkId",
     "OkIdState",
     "PasswordChange",
-    "PrRef",
-    "PrSummary",
     "ProbeIn",
     "ProbeInHeaders",
     "ProjectIn",
     "ProjectPatch",
+    "PrRef",
+    "PrSummary",
     "PruneResult",
     "PublishOut",
     "PublishRunPublishIn",
@@ -357,6 +368,7 @@ __all__ = (
     "QuotaReading",
     "QuotaWindow",
     "ReadBinding",
+    "ReceiptIn",
     "RefreshQuotaProvider",
     "RelayBindingIn",
     "RelayBindingInConfig",
@@ -415,12 +427,14 @@ __all__ = (
     "SecretQuickEditIn",
     "SecretStatus",
     "SecretVerify",
+    "SendIn",
     "SessionBlob",
     "SetupState",
     "SkillDetail",
     "SkillQuickEditIn",
     "SkillView",
     "SkillWizardIn",
+    "SnapshotIn",
     "SyncStatus",
     "TeamIn",
     "TeamPatch",

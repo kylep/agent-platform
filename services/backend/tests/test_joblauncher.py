@@ -88,12 +88,14 @@ def test_build_job_no_session_env_without_token():
     assert "AP_SESSION_TOKEN" not in names and "AP_USER_MESSAGE" not in names
 
 
-async def test_launch_mints_a_session_token_for_every_run(sf):
+async def test_launch_mints_a_session_token_for_every_run(sf, seed_agent):
     """docs/design/15: the session token is how a pod fetches its own agent
     definition, so EVERY run gets one (design/14 minted it only for
     conversations). AP_USER_MESSAGE stays conversation-only."""
     from agentplatform.db import ApiKey
     from sqlalchemy import select
+
+    await seed_agent("hello-world")
 
     class _FakeBatch:
         def __init__(self): self.job = None
@@ -480,8 +482,9 @@ def test_only_dev_role_gets_the_workbench_profile():
     assert launcher._is_dev(Manifest(role="operator")) is False
 
 
-async def test_launch_never_injects_a_github_token_for_a_dev_run(sf):
+async def test_launch_never_injects_a_github_token_for_a_dev_run(sf, seed_agent):
     """The pod holds no repository credential; publishing stays API-side."""
+    await seed_agent("engineer", role="dev")
     class _FakeBatch:
         def __init__(self): self.job = None
         def create_namespaced_job(self, ns, job): self.job = job
@@ -500,3 +503,21 @@ async def test_launch_never_injects_a_github_token_for_a_dev_run(sf):
     assert c.image == "rd:1" and env["AP_WORKSPACE"] == "dev"
     assert "AP_GITHUB_TOKEN" not in env and "AP_SELF_EDIT" not in env
     assert env["AP_SESSION_TOKEN"]
+
+
+async def test_launch_rejects_missing_agent_before_minting_credentials(sf):
+    from unittest.mock import Mock
+    import pytest
+    from sqlalchemy import select
+    from agentplatform.db import ApiKey
+    batch = Mock()
+    launcher = K8sJobLauncher(batch=batch, settings=Settings(), session_factory=sf)
+    async with sf() as session:
+        run = Run(agent="removed-agent", trigger="manual", requested_by="test", prompt="go")
+        session.add(run)
+        await session.commit()
+    with pytest.raises(ValueError, match="authority was revoked"):
+        await launcher.launch(run, Manifest())
+    batch.create_namespaced_job.assert_not_called()
+    async with sf() as session:
+        assert (await session.execute(select(ApiKey).where(ApiKey.run_id == run.id))).first() is None

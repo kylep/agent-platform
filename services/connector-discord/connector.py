@@ -1,492 +1,310 @@
-"""Discord connector: a thin, long-lived bridge between Discord and the
-platform's conversation bus. It holds nothing stateful of its own — the
-platform owns the rooms, the history and the routing.
+"""Discord account transport. The API owns permissions, routing and receipts.
 
-Two shapes of room, one bus:
-
-* **Threads** (the original flow). A mention of the bot, or a message in a
-  thread it is active in, opens a thread and becomes a `conversation.message`
-  on `conversation.inbound` with `external_ref=<thread id>`. The platform
-  answers it as a DM turn and the reply comes back on `conversation.outbound`,
-  posted by the bot itself.
-* **Bound channels** (docs/design/19). A Discord text channel bound to a Relay
-  channel is the SAME room: every human message in it is published inbound, so
-  a plain-text `@news` routes exactly like an in-app mention, and every message
-  written in the Relay channel is mirrored back out through a webhook whose
-  `username` is the speaker — the humans see `news`, `pai` and `health-monitor`
-  as distinct voices rather than one bot reading everyone's lines.
-
-Which channels are bound comes from the platform (`GET /api/relay/bindings`),
-polled, not from this process's environment: a binding is a row an operator
-edits in the UI and it has to reach the bridge without a redeploy. Without
-`AP_API_TOKEN` the connector cannot ask, so channel mirroring is simply off and
-the thread flow runs alone.
-
-Activates only when DISCORD_BOT_TOKEN is set (the deployment is gated off by
-default). The envelope format matches agentplatform.events so the platform's
-conversation-ingest consumer can unwrap it.
+No Relay mirroring, webhooks, default-agent fallback, or legacy Kafka effects.
+Each send is an API-created request claimed once by this authenticated account.
 """
 import asyncio
-import json
 import logging
 import os
-import re
-import time
 from pathlib import Path
-import uuid
-from datetime import datetime, timezone
 
 import aiohttp
 import discord
-from aiokafka import AIOKafkaConsumer, AIOKafkaProducer
 
 log = logging.getLogger("connector-discord")
-
-TOPIC_IN = "conversation.inbound"
-TOPIC_OUT = "conversation.outbound"
-TOPIC_CHANNEL_POST = "discord.channel.post"
-SCHEMA_VERSION = 1
-
-# The bindings the platform says this bridge owns, re-read on a timer: a room
-# bound (or unbound) in the UI takes effect within a minute, with no restart.
-BINDINGS_PATH = "/api/relay/bindings"
-IDENTITY_PATH = "/api/chat-identities/{identity_id}/transport"
-BINDINGS_REFRESH_SECONDS = 60
-# One webhook per bound channel. A bot can only ever post as itself, so a
-# webhook is the only way each agent gets its own name in the member list; the
-# fixed name is how this connector finds the one it made last time instead of
-# creating a new one per restart.
-WEBHOOK_NAME = "relay"
-# Discord rejects a webhook username containing either of its own names, and
-# caps one at 80 characters. An agent called `discord-watcher` would otherwise
-# fail EVERY send with a 400 that the consume loop's catch-all swallows, so the
-# room would just go quiet with no idea why.
-RESERVED_IN_USERNAME = re.compile(r"clyde|discord", re.IGNORECASE)
-USERNAME_LIMIT = 80
-
-
-def _chunks(text: str, limit: int = 1990):
-    """Split text into <=limit pieces, preferring newline boundaries (Discord
-    caps a message at 2000 chars).
-
-    A line longer than the limit is CARRIED ON rather than cut: a long URL, a
-    base64 blob or a wrapped-off code line is exactly the kind of text a reader
-    needs whole, and silently dropping its tail is a bug nobody sees until they
-    follow a truncated link."""
-    out, cur = [], ""
-    for line in (text or "").split("\n"):
-        while len(line) > limit:
-            if cur:
-                out.append(cur)
-                cur = ""
-            out.append(line[:limit])
-            line = line[limit:]
-        if len(cur) + len(line) + 1 > limit:
-            if cur:
-                out.append(cur)
-            cur = line
-        else:
-            cur = f"{cur}\n{line}" if cur else line
-    if cur:
-        out.append(cur)
-    return out or [""]
-
-
-def _envelope(type_: str, key: str, data: dict) -> bytes:
-    return json.dumps({
-        "type": type_, "schema_version": SCHEMA_VERSION, "id": uuid.uuid4().hex,
-        "ts": datetime.now(timezone.utc).isoformat(), "key": key,
-        "source": "connector:discord", "data": data,
-    }).encode()
-
-
-def _unwrap(raw: bytes) -> dict:
-    v = json.loads(raw)
-    return v.get("data", v) if isinstance(v, dict) else v
-
-
-def _speaker(author: str) -> str:
-    """The name a message is posted under in a bound channel. `agent:news` is
-    `news` — that is the whole point of the webhook — a human posts under their
-    principal, and anything the platform said in its own name (`system:relay`,
-    a pause notice, a run that died) is Relay speaking.
-
-    Sanitised to what Discord will actually accept, because the alternative is
-    a send that fails: the reserved words come out, the result is trimmed to the
-    80-character cap, and a name that sanitising empties falls back to Relay
-    rather than to a 400."""
-    kind, _, name = (author or "").partition(":")
-    name = name if kind in ("agent", "user") else ""
-    return RESERVED_IN_USERNAME.sub("", name).strip()[:USERNAME_LIMIT] or "Relay"
+BASE = "/api/external-chat/connector"
+REFRESH_SECONDS = 60
+POLL_SECONDS = 2
 
 
 class DiscordConnector:
     def __init__(self):
-        self.bootstrap = os.environ.get("AP_KAFKA_BOOTSTRAP", "ap-kafka:9092")
-        self.agent = os.environ.get("CONNECTOR_AGENT", "echo")
         self.identity_id = os.environ.get("AP_CHAT_IDENTITY", "discord-default")
         self.token = os.environ["DISCORD_BOT_TOKEN"]
-        self.api_url = os.environ.get("AP_API_URL",
-                                      "http://agent-platform-api:8000").rstrip("/")
+        self.api_url = os.environ.get("AP_API_URL", "http://agent-platform-api:8000").rstrip("/")
         self.api_token = os.environ.get("AP_API_TOKEN", "")
         self.api_token_file = os.environ.get("AP_API_TOKEN_FILE", "")
         intents = discord.Intents.default()
         intents.message_content = True
         self.client = discord.Client(intents=intents)
-        self.producer: AIOKafkaProducer | None = None
-        self._active_threads: set[int] = set()   # threads we've replied in
-        # Discord channel id → its binding row. The map IS the answer to "is
-        # this channel mirrored?", on both the inbound and the outbound side.
-        self.bound: dict[int, dict] = {}
-        # Assistant threads are endpoint bindings too, but are never channel
-        # mirrors: they use bot replies rather than webhooks. Hydrating this at
-        # startup is what makes an existing conversation survive a restart.
-        self.threads: dict[int, dict] = {}
-        self._webhooks: dict[int, object] = {}
-        self._identity_cache: tuple[float, bool] | None = None
-        self.client.event(self.on_ready)
-        self.client.event(self.on_message)
+        self.generation = None
+        self.ready = False
+        self._known_dm = {}
+        self._verified_members = {}
+        self._verified_channels = {}
+        self._refresh_lock = asyncio.Lock()
+        for event in (self.on_ready, self.on_disconnect, self.on_message,
+                      self.on_guild_channel_update, self.on_guild_channel_delete,
+                      self.on_guild_role_update, self.on_guild_role_delete,
+                      self.on_thread_update, self.on_thread_delete,
+                      self.on_thread_join, self.on_thread_remove,
+                      self.on_guild_join, self.on_guild_remove, self.on_member_update):
+            self.client.event(event)
 
-    async def on_ready(self):
-        log.info("discord connector ready as %s", self.client.user)
-
-    # --- bindings ------------------------------------------------------------
-
-    def _api_bearer(self) -> str:
+    def _api_bearer(self):
         if self.api_token:
             return self.api_token
-        if not self.api_token_file:
-            return ""
         try:
-            return Path(self.api_token_file).read_text().strip()
+            return Path(self.api_token_file).read_text().strip() if self.api_token_file else ""
         except OSError:
-            log.warning("could not read AP_API_TOKEN_FILE", exc_info=True)
             return ""
 
-    async def _fetch_bindings(self) -> list:
-        headers = {"Authorization": f"Bearer {self._api_bearer()}"}
-        async with aiohttp.ClientSession(headers=headers) as session:
-            async with session.get(self.api_url + BINDINGS_PATH,
-                                   params={"connector": "discord"},
-                                   timeout=aiohttp.ClientTimeout(total=10)) as resp:
-                resp.raise_for_status()
-                return await resp.json()
-
-    async def _identity_active(self, *, fresh: bool = False) -> bool:
-        """Fail closed when identity status is unavailable. Inbound traffic is
-        cached briefly; every outbound effect uses a fresh status check."""
-        now = time.monotonic()
-        if not fresh and self._identity_cache and now - self._identity_cache[0] < 10:
-            return self._identity_cache[1]
+    async def _api(self, method, path, data=None):
         bearer = self._api_bearer()
         if not bearer:
-            return False
+            raise RuntimeError("connector API identity unavailable")
+        async with aiohttp.ClientSession(headers={"Authorization": f"Bearer {bearer}"},
+                                         timeout=aiohttp.ClientTimeout(total=15)) as session:
+            async with session.request(method, self.api_url + BASE + path, json=data) as response:
+                response.raise_for_status()
+                return await response.json()
+
+    def _permissions(self, channel):
+        channel = self._verified_channels.get(channel.id, channel)
+        if isinstance(channel, discord.DMChannel):
+            # Only DMs received by this exact bot are added to known_dm.
+            return {"can_read": True, "can_history": True, "can_send": True}
+        guild = getattr(channel, "guild", None)
+        me = self._verified_members.get(getattr(guild, "id", None))
+        if me is None:
+            return {"can_read": False, "can_history": False, "can_send": False}
+        # Thread permissions inherit from a freshly fetched parent, but
+        # private membership is checked separately on the thread itself.
+        permission_channel = self._verified_channels.get(channel.parent_id) if isinstance(channel, discord.Thread) else channel
+        if permission_channel is None:
+            return {"can_read": False, "can_history": False, "can_send": False}
+        permissions = permission_channel.permissions_for(me)
+        readable = bool(permissions.view_channel)
+        if isinstance(channel, discord.Thread) and channel.is_private():
+            joined = channel.me is not None or channel.get_member(self.client.user.id) is not None
+            readable = readable and (joined or permissions.manage_threads)
+        writable = permissions.send_messages_in_threads if isinstance(channel, discord.Thread) else permissions.send_messages
+        if isinstance(channel, discord.Thread) and (channel.locked or channel.archived):
+            writable = False  # This transport does not implicitly unarchive.
+        return {"can_read": readable, "can_history": readable and bool(permissions.read_message_history),
+                "can_send": readable and bool(writable)}
+
+    def _endpoint(self, channel):
+        kind = "dm" if isinstance(channel, discord.DMChannel) else "thread" if isinstance(channel, discord.Thread) else "channel"
+        name = str(getattr(channel, "name", "") or f"Discord {kind} {channel.id}")
+        guild = getattr(channel, "guild", None)
+        if guild is not None:
+            name = f"{guild.name} / {name}"
+        return {"external_ref": str(channel.id), "kind": kind,
+                "display_name": name,
+                **self._permissions(channel)}
+
+    async def _fresh_guild(self, guild_id):
+        # fetch_guild constructs an isolated Guild from REST, including its
+        # current roles. fetch_member supplies current bot role membership;
+        # fetch_channels supplies current permission overwrites. No gateway
+        # cache (or private discord.py cache mutation) renews an access lease.
+        guild = await self.client.fetch_guild(guild_id)
+        member = await guild.fetch_member(self.client.user.id)
+        channels = await guild.fetch_channels()
+        threads = await guild.active_threads()
+        self._verified_members[guild.id] = member
+        for key, value in list(self._verified_channels.items()):
+            if getattr(getattr(value, "guild", None), "id", None) == guild.id:
+                del self._verified_channels[key]
+        text_channels = [c for c in channels if isinstance(c, discord.TextChannel)]
+        for channel in [*text_channels, *threads]:
+            self._verified_channels[channel.id] = channel
+        return [*text_channels, *threads]
+
+    async def refresh(self):
+        async with self._refresh_lock:
+            try:
+                state = await self._api("GET", "/state")
+                if not state["active"] or not self.client.is_ready():
+                    self.ready = False
+                    return
+                endpoints = {}
+                async for summary in self.client.fetch_guilds(limit=None):
+                    try:
+                        channels = await self._fresh_guild(summary.id)
+                    except (discord.Forbidden, discord.NotFound):
+                        # A guild removed during enumeration contributes no
+                        # permissions; all prior endpoints are revoked.
+                        continue
+                    for channel in channels:
+                        endpoints[channel.id] = self._endpoint(channel)
+                # DMs are not enumerable at the provider. The platform keeps
+                # observed endpoint IDs so restart does not erase discovery.
+                dm_refs = set(state.get("known_dm_refs", [])) | {str(k) for k in self._known_dm}
+                for ref in dm_refs:
+                    try:
+                        channel = await self.client.fetch_channel(int(ref))
+                    except (discord.Forbidden, discord.NotFound):
+                        self._known_dm.pop(int(ref), None)
+                        continue
+                    if isinstance(channel, discord.DMChannel):
+                        self._known_dm[channel.id] = channel
+                        endpoints[channel.id] = self._endpoint(channel)
+                await self._api("POST", "/snapshot", {
+                    "ownership_generation": state["ownership_generation"],
+                    "sequence": state["permission_sequence"] + 1,
+                    "endpoints": list(endpoints.values())})
+                self.generation = state["ownership_generation"]
+                self.ready = True
+            except Exception:
+                self.ready = False
+                log.warning("permission inventory refresh failed; account unavailable", exc_info=True)
+
+    async def on_ready(self):
+        log.info("Discord account connected as %s", self.client.user)
+        # Reconnect is an authority boundary even if disconnect reporting failed.
+        await self._invalidate()
+        await self.refresh()
+
+    async def _invalidate(self):
+        self.ready = False
         try:
-            async with aiohttp.ClientSession(headers={"Authorization": f"Bearer {bearer}"}) as session:
-                async with session.get(self.api_url + IDENTITY_PATH.format(
-                        identity_id=self.identity_id),
-                        timeout=aiohttp.ClientTimeout(total=10)) as resp:
-                    resp.raise_for_status()
-                    active = (await resp.json()).get("active") is True
+            await self._api("POST", "/disconnect", {})
         except Exception:
-            log.warning("could not verify chat identity status; pausing bridge", exc_info=True)
-            active = False
-        self._identity_cache = (now, active)
-        return active
+            log.warning("could not publish immediate revocation; lease will expire", exc_info=True)
 
-    def _set_bindings(self, rows) -> None:
-        """Replace the map with what the platform just said. A ref that is not a
-        Discord snowflake is skipped rather than guessed at: the thread flow's
-        refs live in the same table, and an id this connector cannot resolve is
-        a binding for somebody else's idea of a channel."""
-        bound, threads = {}, {}
-        for row in rows or []:
-            identity = (row or {}).get("identity_id")
-            if identity != self.identity_id and not (
-                    identity is None and self.identity_id == "discord-default"):
-                continue
-            ref = str((row or {}).get("external_ref") or "")
-            if ref.isdigit():
-                if (row or {}).get("external_kind") == "thread":
-                    threads[int(ref)] = row
-                else:
-                    bound[int(ref)] = row
-            else:
-                log.warning("ignoring binding with a non-numeric external_ref %r", ref)
-        if bound.keys() != self.bound.keys():
-            log.info("mirroring %d discord channel(s): %s", len(bound), sorted(bound))
-        self.bound = bound
-        # Once a locally-created thread has appeared in the authoritative
-        # endpoint list, stop remembering it independently. A later unbind
-        # must make it inactive again rather than leave a stale process-local
-        # exemption behind.
-        self._active_threads.difference_update(set(self.threads) | set(threads))
-        self.threads = threads
-        # A channel we no longer mirror keeps no cached webhook: the next bind
-        # of it should look the room up again rather than post through a handle
-        # that may have been deleted in the meantime.
-        for channel_id in [c for c in self._webhooks if c not in bound]:
-            self._webhooks.pop(channel_id, None)
+    async def on_disconnect(self):
+        await self._invalidate()
 
-    async def refresh_bindings(self) -> None:
-        """Re-read the bindings, keeping the last good map on failure: an API
-        that is restarting must not silently stop a bridge that is working."""
-        try:
-            if await self._identity_active(fresh=True):
-                self._set_bindings(await self._fetch_bindings())
-            else:
-                self._set_bindings([])
-                self._active_threads.clear()
-        except Exception:
-            log.warning("could not refresh relay bindings", exc_info=True)
+    async def _permissions_changed(self):
+        await self._invalidate()
+        await self.refresh()
 
-    async def bindings_loop(self) -> None:
-        while True:
-            await asyncio.sleep(BINDINGS_REFRESH_SECONDS)
-            await self.refresh_bindings()
+    async def on_guild_channel_update(self, before, after):
+        await self._permissions_changed()
 
-    # --- inbound -------------------------------------------------------------
+    async def on_guild_channel_delete(self, channel):
+        await self._permissions_changed()
 
-    def _ignorable(self, message) -> bool:
-        """Bots, webhooks and our own messages are not participants.
+    async def on_guild_role_update(self, before, after):
+        await self._permissions_changed()
 
-        Every message this bridge delivers to a bound channel arrives straight
-        back through the gateway as a webhook message, so without this the
-        connector would feed its own output into the platform — a loop that
-        needs no agent's help to run forever."""
-        return (self.client.user is None
-                or message.author.id == self.client.user.id
-                or getattr(message, "webhook_id", None) is not None
-                or bool(getattr(message.author, "bot", False)))
+    async def on_guild_role_delete(self, role):
+        await self._permissions_changed()
 
-    async def on_message(self, message: discord.Message):
-        if self._ignorable(message):
+    async def on_thread_update(self, before, after):
+        await self._permissions_changed()
+
+    async def on_thread_delete(self, thread):
+        await self._permissions_changed()
+
+    async def on_thread_join(self, thread):
+        await self._permissions_changed()
+
+    async def on_thread_remove(self, thread):
+        await self._permissions_changed()
+
+    async def on_guild_join(self, guild):
+        await self._permissions_changed()
+
+    async def on_guild_remove(self, guild):
+        await self._permissions_changed()
+
+    async def on_member_update(self, before, after):
+        if self.client.user and after.id == self.client.user.id:
+            await self._permissions_changed()
+
+    async def on_message(self, message):
+        if self.client.user is None or message.author.id == self.client.user.id:
             return
-        if not await self._identity_active():
+        if isinstance(message.channel, discord.DMChannel):
+            if message.channel.id not in self._known_dm:
+                self._known_dm[message.channel.id] = message.channel
+                await self.refresh()
+        if not self.ready:
             return
-        if message.channel.id in self.bound:
-            await self._publish_channel_message(message)
+        permissions = self._permissions(message.channel)
+        if not permissions["can_read"] or not permissions["can_history"]:
             return
         mentioned = self.client.user in message.mentions
-        in_active_thread = (isinstance(message.channel, discord.Thread)
-                            and (message.channel.id in self._active_threads
-                                 or message.channel.id in self.threads))
-        if not (mentioned or in_active_thread):
-            return
-        # Converse in a thread; create one off a channel mention so each
-        # conversation maps to a stable external_ref (the thread id).
-        if isinstance(message.channel, discord.Thread):
-            thread = message.channel
-        else:
-            thread = await message.create_thread(name=f"chat-{message.id}")
-        self._active_threads.add(thread.id)
-        text = message.clean_content
-        if self.client.user.name:
-            text = text.replace(f"@{self.client.user.name}", "").strip()
-        await self.producer.send_and_wait(TOPIC_IN, key=str(thread.id).encode(),
-            value=_envelope("conversation.message", str(thread.id), {
-                "connector": "discord", "external_ref": str(thread.id),
-                "identity_id": self.identity_id,
-                "external_kind": "thread",
-                "external_parent_ref": str(getattr(thread, "parent_id", "") or "") or None,
-                "external_title": getattr(thread, "name", "") or f"Discord thread {thread.id}",
-                "external_url": getattr(message, "jump_url", "") or "",
-                "external_message_id": str(message.id),
-                "external_user": str(message.author.id),
-                "display_name": getattr(message.author, "display_name", message.author.name),
-                "text": text, "agent": self.agent}))
-        log.info("→ conversation.inbound thread=%s user=%s", thread.id, message.author.id)
+        addressed = (not getattr(message.author, "bot", False) and not getattr(message, "webhook_id", None)) and (
+            mentioned or isinstance(message.channel, discord.DMChannel) or (
+            isinstance(message.channel, discord.Thread) and message.channel.owner_id == self.client.user.id))
+        payload = {"ownership_generation": self.generation,
+                   "external_ref": str(message.channel.id), "provider_message_id": str(message.id),
+                   "author_id": str(message.author.id), "text": message.clean_content,
+                   "addressed": addressed}
+        # API deduplicates both canonical message and account observation.
+        for attempt in range(3):
+            try:
+                await self._api("POST", "/observe", payload)
+                return
+            except Exception:
+                if attempt == 2:
+                    log.exception("could not persist Discord observation %s", message.id)
+                else:
+                    await asyncio.sleep(1 + attempt)
 
-    async def _publish_channel_message(self, message: discord.Message):
-        """A message in a bound channel, published verbatim.
-
-        The text is NOT rewritten: `@news` typed in Discord is the mention the
-        platform's router parses, and clean_content has already resolved
-        Discord's own `<@id>` markup to readable names. The user is identified
-        by ID because that is what the platform's participant string is made of
-        (`discord:<id>`) and a display name is a thing its owner can change."""
-        ref = str(message.channel.id)
-        await self.producer.send_and_wait(TOPIC_IN, key=ref.encode(),
-            value=_envelope("conversation.message", ref, {
-                "connector": "discord", "external_ref": ref,
-                "identity_id": self.identity_id,
-                "external_kind": "channel",
-                "external_title": getattr(message.channel, "name", "") or "",
-                "external_url": getattr(message, "jump_url", "") or "",
-                "external_message_id": str(message.id),
-                "external_user": str(message.author.id),
-                "display_name": getattr(message.author, "display_name", ""),
-                "text": message.clean_content, "agent": self.agent}))
-        log.info("→ conversation.inbound channel=%s user=%s", ref, message.author.id)
-
-    # --- outbound ------------------------------------------------------------
-
-    def _channel_by_name(self, name: str):
-        """Resolve a broadcast only when its name identifies one text room."""
-        matches = [ch for guild in self.client.guilds
-                   for ch in guild.text_channels if ch.name == name]
-        if len(matches) > 1:
-            log.warning("channel.post: #%s is ambiguous across visible rooms; "
-                        "use channel_id", name)
-        return matches[0] if len(matches) == 1 else None
-
-    async def _channel_by_id(self, channel_id: int):
+    async def _channel_by_id(self, channel_id):
         return self.client.get_channel(channel_id) or await self.client.fetch_channel(channel_id)
 
-    async def _webhook(self, channel):
-        """The channel's `relay` webhook, made once and cached. Get-or-create
-        rather than create: a restart must not leave a trail of webhooks behind
-        it, and Discord caps how many a channel may have."""
-        hook = self._webhooks.get(channel.id)
-        if hook is None:
-            hook = discord.utils.get(await channel.webhooks(), name=WEBHOOK_NAME)
-            if hook is None:
-                hook = await channel.create_webhook(name=WEBHOOK_NAME)
-            self._webhooks[channel.id] = hook
-        return hook
-
-    async def _post_chunk(self, channel, text: str, username: str) -> bool:
-        """Send one chunk through the channel's webhook, replacing the webhook
-        once if Discord says it is gone.
-
-        A webhook deleted in Discord is a 404 forever otherwise: the handle is
-        cached, nothing evicts it, and every message to that room disappears
-        into the consume loop's catch-all. So a NotFound drops the cached handle
-        and the send is retried against a freshly made one — once. A second
-        failure is a room we cannot post to, and saying so in the log beats
-        retrying a broken channel for every message that follows."""
-        for attempt in (1, 2):
-            webhook = await self._webhook(channel)
-            try:
-                await webhook.send(text, username=username,
-                                   allowed_mentions=discord.AllowedMentions.none())
-                return True
-            except discord.NotFound:
-                self._webhooks.pop(channel.id, None)
-                if attempt == 2:
-                    log.warning("outbound: the relay webhook for channel %s keeps "
-                                "vanishing — dropping this message", channel.id)
-        return False
-
-    async def _deliver_channel_message(self, data: dict):
-        """Mirror one Relay message into its bound Discord channel, under the
-        speaker's own name. Mentions are disabled on the way out: relayed text
-        is written by agents and by people in another room, and neither is a
-        licence to ping everyone here."""
-        channel_id = int(data["external_ref"])
-        channel = await self._channel_by_id(channel_id)
-        if channel is None:
-            log.warning("outbound: no bound channel %s the bot can see", channel_id)
+    async def _deliver(self, item):
+        claimed = await self._api("POST", f"/deliveries/{item['id']}/claim", {})
+        if claimed.get("state") != "claimed":
             return
-        username = _speaker(data.get("author") or "")
-        for chunk in _chunks(data.get("text") or ""):
-            if not await self._post_chunk(channel, chunk, username):
-                return
-        log.info("← posted as %s to channel=%s", username, channel_id)
-
-    async def _deliver_thread_reply(self, data: dict):
-        tid = int(data["external_ref"])
-        channel = self.client.get_channel(tid) or await self.client.fetch_channel(tid)
-        if channel is not None:
-            for chunk in _chunks(data.get("text") or ""):
-                await channel.send(chunk)
-            log.info("← posted reply to thread=%s", tid)
-
-    async def _deliver_outbound(self, data: dict):
-        """One outbound message to whichever kind of room it names."""
-        if data.get("connector") != "discord" or not data.get("external_ref"):
-            return
-        identity = data.get("identity_id")
-        if identity != self.identity_id and not (
-                identity is None and self.identity_id == "discord-default"):
-            return
-        if not await self._identity_active(fresh=True):
-            return
-        ref = str(data["external_ref"])
-        if data.get("external_kind") == "channel" or (
-                not data.get("external_kind") and ref.isdigit() and int(ref) in self.bound):
-            await self._deliver_channel_message(data)
-        else:
-            await self._deliver_thread_reply(data)
-
-    async def _deliver_channel_post(self, data: dict):
-        """A platform broadcast (e.g. the news digest) to a named channel. The
-        connector is the sole holder of the bot token; the text arrives already
-        deduped + sanitized by the platform's news projector."""
-        identity = data.get("identity_id")
-        if identity != self.identity_id and not (
-                identity is None and self.identity_id == "discord-default"):
-            return
-        if not await self._identity_active(fresh=True):
-            return
-        name, channel_id, text = data.get("channel"), data.get("channel_id"), data.get("text")
-        if not text or bool(name) == bool(channel_id):
-            log.warning("channel.post: provide exactly one channel or channel_id")
-            return
-        if channel_id is not None:
-            ref = str(channel_id)
-            if not ref.isdigit():
-                log.warning("channel.post: invalid channel_id")
-                return
-            channel = await self._channel_by_id(int(ref))
-            if channel is not None and getattr(channel, "type", None) != discord.ChannelType.text:
-                channel = None
-        else:
-            channel = self._channel_by_name(name)
-        if channel is None:
-            log.warning("channel.post: no unique text channel for %s the bot can see",
-                        channel_id or f"#{name}")
-            return
-        for chunk in _chunks(text):
-            await channel.send(chunk)
-        log.info("← posted %d message(s) to channel=%s", len(_chunks(text)), channel.id)
-
-    async def consume_outbound(self):
-        await self.client.wait_until_ready()
-        consumer = AIOKafkaConsumer(
-            TOPIC_OUT, TOPIC_CHANNEL_POST, bootstrap_servers=self.bootstrap,
-            # Each bot must observe every outbound event and filter by its own
-            # identity. A shared group would split events between bots and the
-            # wrong bot would discard half the messages.
-            # Preserve the default bot's committed offsets across the identity
-            # migration. Each additional bot gets its own group and replays
-            # from the start on first launch, filtering historical events by
-            # identity; `latest` would silently skip sends queued before it
-            # subscribed.
-            group_id=("connector-discord" if self.identity_id == "discord-default"
-                      else f"connector-discord-{self.identity_id}"),
-            auto_offset_reset="earliest")
-        await consumer.start()
-        log.info("consuming conversation.outbound + discord.channel.post")
+        path = f"/deliveries/{item['id']}"
+        token = claimed["claim_token"]
+        attempted = False
+        accepted = False
         try:
-            async for msg in consumer:
+            channel = await self._channel_by_id(int(claimed["external_ref"]))
+            for index, chunk in enumerate(claimed["chunks"]):
+                await self._api("POST", path + "/authorize", {"claim_token": token})
+                # REST-fetch the endpoint immediately before effect; current
+                # gateway role/overwrite state supplies action permissions.
+                channel = await self.client.fetch_channel(channel.id)
+                if getattr(channel, "guild", None) is not None:
+                    await self._fresh_guild(channel.guild.id)
+                    if channel.id not in self._verified_channels:
+                        raise PermissionError("endpoint is no longer accessible")
+                permissions = self._permissions(channel)
+                if not all(permissions.values()):
+                    raise PermissionError("provider endpoint permission denied")
+                attempted = True
+                msg = await channel.send(chunk, allowed_mentions=discord.AllowedMentions.none())
+                accepted = True
+                await self._api("POST", path + "/receipt", {"claim_token": token,
+                    "index": index, "provider_message_id": str(msg.id)})
+                attempted = False
+        except (discord.Forbidden, discord.NotFound, PermissionError):
+            outcome = "unknown" if accepted else "failed"
+            await self._api("POST", path + "/receipt", {"claim_token": token, "outcome": outcome})
+        except Exception:
+            # An API receipt failure after send is ambiguous as well. No retry
+            # of the provider effect, even after this process restarts.
+            outcome = "unknown" if attempted or accepted else "failed"
+            try:
+                await self._api("POST", path + "/receipt", {"claim_token": token, "outcome": outcome})
+            except Exception:
+                log.exception("delivery receipt unavailable; claimed attempt expires to unknown")
+
+    async def deliveries_loop(self):
+        await self.client.wait_until_ready()
+        while not self.client.is_closed():
+            if self.ready:
                 try:
-                    data = _unwrap(msg.value)
-                    if msg.topic == TOPIC_CHANNEL_POST:
-                        await self._deliver_channel_post(data)
-                    else:
-                        await self._deliver_outbound(data)
+                    for item in await self._api("GET", "/deliveries"):
+                        await self._deliver(item)
                 except Exception:
-                    log.exception("failed to deliver outbound message")
-        finally:
-            await consumer.stop()
+                    log.warning("delivery poll failed", exc_info=True)
+            await asyncio.sleep(POLL_SECONDS)
+
+    async def inventory_loop(self):
+        await self.client.wait_until_ready()
+        while not self.client.is_closed():
+            await asyncio.sleep(REFRESH_SECONDS)
+            await self.refresh()
 
     async def run(self):
-        self.producer = AIOKafkaProducer(
-            bootstrap_servers=self.bootstrap, enable_idempotence=True,
-            acks="all", compression_type="gzip")
-        await self.producer.start()
-        if self._api_bearer():
-            # Before the gateway connects: the map decides how the very first
-            # message is handled, and a mirrored channel must not spend its
-            # first minute being read as a bot mention.
-            await self.refresh_bindings()
-            asyncio.create_task(self.bindings_loop())
-        else:
-            log.warning("API identity is unavailable: binding recovery is off, only the "
-                        "mention-the-bot thread flow runs")
-        asyncio.create_task(self.consume_outbound())
-        await self.client.start(self.token)
+        async with self.client:
+            tasks = [asyncio.create_task(self.deliveries_loop()), asyncio.create_task(self.inventory_loop())]
+            try:
+                await self.client.start(self.token)
+            finally:
+                for task in tasks:
+                    task.cancel()
+                await asyncio.gather(*tasks, return_exceptions=True)
 
 
 def main():

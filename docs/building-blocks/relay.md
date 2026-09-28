@@ -125,28 +125,35 @@ a muted "artifact not found" chip. Every generated image also lands in
 so the prompt it quotes can never summon anybody. The block is
 [artifacts.md](artifacts.md).
 
-## Connected chats and bridges
+## External mirrors
 
-`relay_bindings` maps an endpoint in someone else's chat app — `(connector,
-external_ref)` plus its provider room kind — to a Relay room, and is what
-`conversation_ingest` resolves an inbound message through. Discord is the first
-bridge. Mention the bot and it opens a public Discord thread represented here
-as a linear **Connected chat**, with its source and title visible instead of
-pretending it is a DM. Unaddressed human replies invoke that chat's default
-agent through the same guarded Relay router used everywhere else. Follow-ups
-received while it is busy are stored and coalesced rather than dropped.
+Relay's external rooms are read-only archives. Messages arrive as observations
+submitted by an authenticated, identity-scoped connector ServiceAccount. The
+server derives the account from authentication and records canonical provider
+messages once, with separate account observations for provenance and routing.
+Several persona-owned accounts can observe one endpoint without duplicate rows.
 
-The endpoint record is also restart recovery: the connector hydrates known
-threads and channel mirrors before it connects to Discord. Inbound messages
-carry the Discord message id, making Kafka replay idempotent. A whole mirrored
-Discord channel remains an ordinary Relay Channel with a connection, and posts
-under each speaker's name through a channel webhook. The detailed contract is
-[design 28](../design/28-connected-chats-and-unified-routing.md). Slack and
-Telegram retain the same endpoint seam and are not implemented.
+Only the addressed account's enabled persona wakes. Guild channels require a
+provider-native bot mention; direct chats and established assistant threads can
+route to their owner. Ambient traffic and discovery do not invoke agents.
+Personas read mirrors with current owned-account visibility and history permission.
+Workers cannot read them unless explicitly granted global observer access, which
+includes private external chats. Observer access never permits participation.
 
-The Discord connector reads that binding feed with its own projected
-ServiceAccount identity and a connector-only API role. It holds no platform API
-key; Kubernetes rotates the audience-bound token mounted in the pod.
+The connector refreshes permission inventory every 60 seconds; access expires
+after 180 seconds without a successful refresh. Reconnect requires a fresh scan.
+Missing permissions, ownership changes and disabled accounts fence reads,
+conversation sessions and pending sends. The connector retains its own credential;
+agent pods receive none.
+
+Personas send through the owned-account `discord` Tool or the guarded final-answer
+path. Relay posts, reactions and ordinary internal replies cannot send externally.
+Delivery requests have durable receipts; ambiguous outcomes are `unknown` and are
+not blindly retried. Legacy bridges, arbitrary-author webhooks and
+`discord.channel.post` effects are retired. Historical rooms and IDs remain audit
+references; newly authenticated observations populate independent mirrors.
+See [design 34](../design/34-personas-workers-and-typed-relay.md). Other providers
+are not implemented in this migration.
 
 ## Faces
 

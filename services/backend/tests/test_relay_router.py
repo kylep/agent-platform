@@ -56,6 +56,24 @@ async def _channel(sf, *, kind="channel", open=True, name=None, agent=None,
         return conv.id
 
 
+async def _authorize_external(sf, cid, agent):
+    from agentplatform.db import AgentDef, ChatIdentity
+    from agentplatform.external_chat import ExternalEndpoint, ExternalAccess
+    async with sf() as s:
+        row = await s.get(AgentDef, agent)
+        row.agent_type = 'persona'
+        account = ChatIdentity(id='discord-test', connector='discord', display_name='Test',
+            owner_agent=agent, ownership_generation=1, permission_sequence=1,
+            access_expires_at=utcnow() + timedelta(seconds=180))
+        endpoint = ExternalEndpoint(provider='discord', external_ref=cid, channel_id=cid, kind='dm', display_name='Test')
+        s.add_all([account, endpoint])
+        await s.flush()
+        s.add(ExternalAccess(identity_id=account.id, endpoint_id=endpoint.id,
+            can_read=True, can_history=True, can_send=True, ownership_generation=1,
+            expires_at=account.access_expires_at))
+        await s.commit()
+
+
 async def _say(router, sf, channel_id: str, author: str, body: str, *,
                kind="text", hop=0, run_id=None, reply_to=None,
                trigger_message_id=None) -> str:
@@ -70,6 +88,15 @@ async def _say(router, sf, channel_id: str, author: str, body: str, *,
                                        trigger_message_id=trigger_message_id)
         await s.commit()
         payload = relay_message_payload(msg, conv)
+        if conv.home == 'external':
+            from agentplatform.external_chat import ExternalEndpoint, ExternalObservation
+            ep = (await s.execute(select(ExternalEndpoint).where(ExternalEndpoint.channel_id == channel_id))).scalar_one_or_none()
+            if ep:
+                obs = ExternalObservation(endpoint_id=ep.id, provider_message_id=msg.id,
+                    identity_id='discord-test', ownership_generation=1, message_id=msg.id, addressed=True)
+                s.add(obs)
+                await s.commit()
+                payload['external_observation_id'] = obs.id
     await router.handle(payload)
     return payload["id"]
 
@@ -219,6 +246,7 @@ async def test_a_connected_chat_routes_plain_human_text_to_its_default(make_rout
         conv.default_agent = "ada"
         await s.commit()
 
+    await _authorize_external(sf, cid, "ada")
     mid = await _say(router, sf, cid, "discord:42", "can you check this?")
     run = (await _runs(sf))[0]
     assert (run.agent, run.trigger_message_id, run.conversation_id) == ("ada", mid, cid)
@@ -248,6 +276,7 @@ async def test_connected_followups_coalesce_while_the_default_is_busy(make_route
         conv.home, conv.dispatch_mode, conv.default_agent = "external", "default", "ada"
         await s.commit()
 
+    await _authorize_external(sf, cid, "ada")
     await _say(router, sf, cid, "discord:42", "first")
     second = await _say(router, sf, cid, "discord:42", "and one more thing")
     assert len(await _runs(sf)) == 1
@@ -902,10 +931,8 @@ async def test_the_router_reads_both_topics(make_router, sf):
     assert TOPICS == (TOPIC_RELAY_MESSAGES, TOPIC_RUN_EVENTS)
 
 
-async def test_a_pause_notice_reaches_a_bound_room(make_router, sf, producer):
-    """The bridge is told why the room went quiet (docs/design/19 T10): a
-    Discord channel that just watched two agents stop mid-thread needs the same
-    "paused" line the web pane shows."""
+async def test_a_pause_notice_stays_internal_despite_a_legacy_binding(make_router, sf, producer):
+    """A legacy binding cannot broadcast router notices to an external account."""
     from agentplatform.db import RelayBinding
     from agentplatform.events import TOPIC_CONVERSATION_OUTBOUND
     router = await make_router()
@@ -919,8 +946,11 @@ async def test_a_pause_notice_reaches_a_bound_room(make_router, sf, producer):
                hop=router.settings.relay_max_hops, run_id=uuid.uuid4().hex,
                reply_to=root)
     out = [d for t, _, d in producer.published if t == TOPIC_CONVERSATION_OUTBOUND]
-    assert [(d["kind"], d["author"], d["text"], d["external_ref"]) for d in out] == [
-        ("system", "system:relay", HOP_LIMIT_BODY, "chan-7")]
+    assert out == []
+    async with sf() as session:
+        notices = (await session.execute(select(RelayMessage).where(
+            RelayMessage.channel_id == cid, RelayMessage.body == HOP_LIMIT_BODY))).scalars().all()
+        assert len(notices) == 1 and notices[0].author == "system:relay"
 
 
 # --- tickets: the thread-aware summons (docs/design/20 T6) -------------------

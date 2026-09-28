@@ -16,6 +16,7 @@ from agentplatform.api import schemas as S
 from agentplatform.api.auth import authenticate, connector_identity, require_admin, require_role
 from agentplatform.db import AgentDef, AgentVersion, ChatIdentity, RelayBinding, SecretMeta
 from agentplatform.agentdefs import next_version, snapshot_of
+from agentplatform.authority import expired, authority_lock
 
 class CredentialSafeRoute(APIRoute):
     """FastAPI normally includes rejected input in 422 responses; tokens must not echo."""
@@ -36,6 +37,7 @@ router = APIRouter(route_class=CredentialSafeRoute)
 
 class EditIdentityIn(BaseModel):
     display_name: str = Field(min_length=1, max_length=128)
+    owner_agent: str | None = None
     token: str | None = Field(default=None, min_length=1, max_length=4096, repr=False)
 
 
@@ -54,16 +56,14 @@ async def _configured(request: Request, row: ChatIdentity) -> bool:
 
 
 async def _agent_can_send(request: Request, identity_id: str) -> bool:
-    """The Tool grant and chosen account are both required for agent sends."""
     agent = getattr(request.state, "api_key_agent", None)
     if not agent:
         return False
-    await request.app.state.agent_store.reload()
-    info = request.app.state.agent_store.get(agent)
-    frozen = getattr(request.state, "frozen_tools", None)
-    grants = frozen if frozen is not None else (info.platform_tools if info else [])
-    return bool(info and info.enabled and info.discord_identity_id == identity_id
-                and "mcp__platform__discord_chat" in grants)
+    async with request.app.state.session_factory() as session:
+        identity = await session.get(ChatIdentity, identity_id)
+        owner = await session.get(AgentDef, agent)
+        return bool(identity and owner and owner.enabled and owner.agent_type == "persona"
+                    and not owner.system_source and identity.owner_agent == agent)
 
 
 @router.get("/api/chat-identities", response_model=list[S.ChatIdentityView])
@@ -85,7 +85,11 @@ async def list_chat_identities(request: Request, include_deleted: bool = False,
                        "display_name": row.display_name, "status": row.status,
                        "secret_refs": row.secret_refs,
                        "configured": await _configured(request, row),
-                       "bound_routes": counts.get(row.id, 0)})
+                       "bound_routes": counts.get(row.id, 0),
+                       "owner_agent": row.owner_agent,
+                       "ownership_generation": row.ownership_generation or 0,
+                       "access_expires_at": row.access_expires_at,
+                       "connected": row.status == "active" and not expired(row.access_expires_at)})
     return result
 
 
@@ -101,6 +105,9 @@ async def create_chat_identity(request: Request, body: CreateIdentityIn,
     if body.id == "discord-default":
         raise HTTPException(409, "default identity already exists")
     async with request.app.state.session_factory() as session:
+        grants = (await session.execute(select(AgentDef.secrets))).scalars().all()
+        if any(body.secret_name in (secrets or []) for secrets in grants):
+            raise HTTPException(409, "Remove agent grants before making this secret an account credential")
         row = ChatIdentity(id=body.id, connector="discord",
                            display_name=body.display_name.strip(),
                            secret_refs={"bot_token": {"secret": body.secret_name,
@@ -175,6 +182,7 @@ async def edit_chat_identity(request: Request, identity_id: str, body: EditIdent
     if not name or (body.token is not None and not body.token.strip()):
         raise HTTPException(422, "Name and replacement token cannot be blank")
     async with request.app.state.session_factory() as session:
+        await authority_lock(session)
         row = await session.get(ChatIdentity, identity_id, with_for_update=True)
         if row is None or row.status in ("deleted", "deleting"):
             raise HTTPException(404, "unknown chat identity")
@@ -187,9 +195,21 @@ async def edit_chat_identity(request: Request, identity_id: str, body: EditIdent
                 meta = SecretMeta(name=secret)
                 session.add(meta)
             meta.status = "unprobed"
+        from agentplatform.authority import assign_owner
+        if "owner_agent" in body.model_fields_set:
+            await assign_owner(session, row, body.owner_agent)
+        if body.token is not None:
+            prior = row.owner_agent
+            if prior:
+                owner = await session.get(AgentDef, prior, with_for_update=True)
+                owner.authorization_generation = (owner.authorization_generation or 0) + 1
+            row.ownership_generation = (row.ownership_generation or 0) + 1
+            row.access_expires_at = None
+            row.lease_invalidated = False
         row.display_name = name
         row.status = "active" if await _configured(request, row) else "disabled"
         await session.commit()
+    await request.app.state.agent_store.reload()
     detail = await _restart(request, identity_id) if body.token is not None else "Account updated."
     return {"id": identity_id, "detail": detail}
 
@@ -200,6 +220,7 @@ async def verify_chat_identity(request: Request, identity_id: str,
     """Explicit read-only provider checks. Never send a test message or echo errors/tokens."""
     checks = []
     async with request.app.state.session_factory() as session:
+        await authority_lock(session)
         row = await session.get(ChatIdentity, identity_id, with_for_update=True)
         if row is None or row.status in ("deleted", "deleting"):
             raise HTTPException(404, "unknown chat identity")
@@ -265,10 +286,13 @@ async def delete_chat_identity(request: Request, identity_id: str,
     Historical bindings retain their identity and cannot fall back to another bot.
     """
     async with request.app.state.session_factory() as session:
+        await authority_lock(session)
         row = await session.get(ChatIdentity, identity_id, with_for_update=True)
         if row is None:
             raise HTTPException(404, "unknown chat identity")
         secret, key = await _credential_ref(session, row)
+        from agentplatform.authority import assign_owner
+        await assign_owner(session, row, None)
         row.status = "deleting"
         bindings = (await session.execute(select(RelayBinding).where(
             RelayBinding.identity_id == identity_id))).scalars()

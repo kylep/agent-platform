@@ -80,10 +80,12 @@ test("cancel returns to the Discord inventory and clears the unsaved token", asy
   await expect(page.getByLabel("Discord bot token")).toHaveValue("");
 });
 
-test("agent editor offers one Discord outbound account or none", async ({ page }) => {
+test("only personas select an owned Discord account", async ({ page }) => {
   await mockApi(page);
   await page.goto("/agents/health-monitor");
-  const picker = page.getByLabel("Discord outbound account");
+  await expect(page.getByLabel("Owned Discord account")).toHaveCount(0);
+  await page.getByLabel("Type", { exact: true }).selectOption("persona");
+  const picker = page.getByLabel("Owned Discord account");
   await expect(picker).toHaveValue("");
   await expect(picker.locator("option")).toHaveCount(2);
   await picker.selectOption("discord-default");
@@ -124,7 +126,7 @@ test("Discord inventory offers Edit, Verify, Delete with a separate edit form", 
   await expect(page.getByLabel("Replacement bot token")).toHaveAttribute("type", "password");
   await page.getByLabel("Display name", { exact: true }).fill("My bot");
   await page.getByRole("button", { name: "Save account" }).click();
-  await expect.poll(() => edits).toEqual([{ display_name: "My bot" }]);
+  await expect.poll(() => edits).toEqual([{ display_name: "My bot", owner_agent: null }]);
   await expect(page).toHaveURL(/\?connection=discord$/);
 });
 

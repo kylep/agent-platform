@@ -354,3 +354,28 @@ async def test_a_chunked_body_past_the_bound_is_refused(admin_client):
                                 headers={"Content-Type": "application/json"})
     assert r.status_code == 413, r.text
     assert len(sent) < 40
+
+
+async def test_worker_cannot_read_external_run_artifact_indirectly(admin_client, token_client, sf, seed_agent, agent_store):
+    from agentplatform.db import Conversation, Run, RunState
+    headers = await _agent_headers(sf, seed_agent, agent_store, "internal-worker")
+    response = await admin_client.post("/api/artifacts", json={"name": "private.txt", "text": "External private context"})
+    artifact = response.json()
+    async with sf() as s:
+        room = Conversation(home="external", connector="discord", title="Private provider room")
+        s.add(room)
+        await s.flush()
+        run = Run(agent="hello-world", conversation_id=room.id, trigger="conversation", requested_by="test", prompt="private", state=RunState.SUCCEEDED)
+        s.add(run)
+        await s.flush()
+        (await s.get(Artifact, artifact["id"])).run_id = run.id
+        await s.commit()
+    for suffix in ("", "/content", "/resource", "/thumb"):
+        result = await token_client.get(f"/api/artifacts/{artifact['id']}{suffix}", headers=headers)
+        assert result.status_code == 403, (suffix, result.text)
+    listing = await token_client.get("/api/artifacts", headers=headers)
+    assert listing.status_code == 200 and listing.json() == []
+    stats = await token_client.get("/api/artifacts/stats", headers=headers)
+    assert stats.status_code == 200 and stats.json()["count"] == 0
+    # Human administration retains access to the historical evidence.
+    assert (await admin_client.get(f"/api/artifacts/{artifact['id']}/content")).status_code == 200

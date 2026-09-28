@@ -193,6 +193,16 @@ class Recorder:
         conv = await s.get(Conversation, run.conversation_id)
         if conv is None:
             return None
+        if conv.home == "external":
+            from agentplatform.authority import ensure_run_authority
+            from agentplatform.external_chat import queue_final, ExternalChatError
+            if not failed and await ensure_run_authority(s, run):
+                try:
+                    await queue_final(s, run, text)
+                except ExternalChatError:
+                    log.warning("External final delivery denied for run %s", run.id)
+            # Accepted provider receipts populate mirrors, never speculative output.
+            return None
         trigger = (await s.get(RelayMessage, run.trigger_message_id)
                    if run.trigger_message_id else None)
         # The hop is what bounds agent-to-agent chatter, and only a mention is

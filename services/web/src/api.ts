@@ -2,7 +2,8 @@ export type SecretKeyField = { name: string; hint?: string };
 export type SecretStatus = { name: string; status: string; declared: boolean; required: boolean; hint?: string; key?: string; probeable?: boolean; keys?: SecretKeyField[] };
 export type ChatIdentity = { id: string; connector: string; display_name: string;
   secret_refs: Record<string, { secret: string; key: string }>;
-  status: string; configured: boolean; bound_routes: number };
+  status: string; configured: boolean; bound_routes: number; owner_agent?: string | null;
+  ownership_generation?: number; connected?: boolean; access_expires_at?: string | null };
 export type SetupState = { needs_admin: boolean; secrets: SecretStatus[] };
 
 // --- Agents (DB-first — docs/design/15) -------------------------------------
@@ -49,6 +50,9 @@ export type AgentDef = {
   model: string;                // "" = platform default
   role: string;
   system: boolean;
+  system_source?: string | null;
+  system_revision?: string | null;
+  external_observer?: boolean;
   responds_to_all: boolean;
   can_invoke: boolean;
   concurrency: number;

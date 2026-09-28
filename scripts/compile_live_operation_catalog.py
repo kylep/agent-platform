@@ -97,7 +97,7 @@ def _effect_policy(source: str, tool: str, action: str) -> tuple[list[str], str]
     if source == "mcp-core":
         if tool == "runs_read" or tool == "metrics":
             return ["reads_sensitive"], "private"
-        if tool == "runs_write":
+        if tool in {"runs_write", "health_incident"}:
             return ["mutates_platform"], "private"
         if tool == "agents_edit":
             return (["reads_sensitive"] if action in ("get", "list")
@@ -105,9 +105,15 @@ def _effect_policy(source: str, tool: str, action: str) -> tuple[list[str], str]
         if tool == "agents_grant":
             return (["reads_sensitive"] if action == "get"
                     else ["mutates_platform"]), "restricted"
+        if tool == "discord":
+            if action == "send":
+                return ["external_send"], "private"
+            if action in ("identities", "endpoints", "read", "receipt"):
+                return ["reads_sensitive"], "private"
+            return ["unknown"], "restricted"
         if tool == "relay":
             return (["reads_sensitive"] if action in ("channels", "read", "search")
-                    else ["mutates_platform", "external_send", "invokes_agent"]), "private"
+                    else ["mutates_platform", "invokes_agent"]), "private"
         if tool == "tickets":
             return (["reads_sensitive"] if action in ("get", "list", "search")
                     else ["mutates_platform", "invokes_agent"]), "private"
@@ -125,8 +131,6 @@ def _effect_policy(source: str, tool: str, action: str) -> tuple[list[str], str]
         # query_app has a variable App/path contract even though its HTTP
         # transport is GET. It cannot inherit a single read classification.
     if source == "mcp-custom":
-        if tool == "discord_chat":
-            return ["external_send"], "private"
         if tool == "image_gen":
             return (["reads_sensitive"] if action == "models"
                     else ["incurs_cost", "mutates_platform"]), "private"

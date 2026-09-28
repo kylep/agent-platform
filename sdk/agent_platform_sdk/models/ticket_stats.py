@@ -5,7 +5,6 @@ from typing import TYPE_CHECKING, Any, TypeVar
 
 from attrs import define as _attrs_define
 from attrs import field as _attrs_field
-from typing_extensions import Self
 
 if TYPE_CHECKING:
     from ..models.ticket_actor_count import TicketActorCount
@@ -82,7 +81,7 @@ class TicketStats:
         return field_dict
 
     @classmethod
-    def from_dict(cls, src_dict: Mapping[str, Any]) -> Self:
+    def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
         from ..models.ticket_actor_count import TicketActorCount
         from ..models.ticket_budget_view import TicketBudgetView
 

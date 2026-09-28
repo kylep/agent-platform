@@ -4,7 +4,8 @@ from fastapi import APIRouter, WebSocket
 from sqlalchemy import select
 
 from agentplatform.api.auth import validate_session_cookie
-from agentplatform.db import TranscriptEvent
+from agentplatform.db import Run, TranscriptEvent
+from agentplatform.authority import assert_readable_run
 
 router = APIRouter()
 
@@ -17,6 +18,13 @@ async def tail(ws: WebSocket, run_id: str):
         await ws.close(code=4401)
         return
     async with ws.app.state.session_factory() as s:
+        run = await s.get(Run, run_id)
+        if run is None:
+            await ws.close(code=4404)
+            return
+        # This endpoint authenticates human session cookies only. Keep the
+        # shared history policy here if agent authentication is added later.
+        await assert_readable_run(s, ws, run)
         rows = (
             await s.execute(
                 select(TranscriptEvent)

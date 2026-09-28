@@ -44,6 +44,12 @@ above. The migration itself was a one-time admin import (`POST
 succeeds — if you are reading this before it has, `agents/` may still be
 present but is no longer read by anything.
 
+Design 34 adds code-owned system agents. API startup reconciles their managed
+prompt, grants and capability identity from `agentplatform/system_agents.py`;
+operational settings remain in Postgres. User personas and workers remain
+DB-owned. Deploy the backend to change a system definition; `agents-sync` does
+not publish these definitions. See [System agents](building-blocks/system-agents.md).
+
 ## Platform code — manual, image by image
 
 Images and the Helm chart are deployed by hand. Build for the cluster's

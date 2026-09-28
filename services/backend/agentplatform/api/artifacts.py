@@ -26,6 +26,10 @@ import base64
 import binascii
 import json
 from typing import Any, Literal
+from datetime import timezone
+from sqlalchemy import select
+from agentplatform.db import Artifact, Run
+from agentplatform.authority import assert_readable_run
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from pydantic import BaseModel, ValidationError, model_validator
@@ -178,11 +182,32 @@ def _rule(e: ArtifactRuleError | ImageGenError) -> HTTPException:
     return HTTPException(e.status, str(e))
 
 
-async def _row_or_404(s, artifact_id: str):
+async def _row_or_404(s, artifact_id: str, request: Request | None = None):
     row = await store.get(s, artifact_id)
     if row is None:
         raise HTTPException(404, "unknown artifact")
+    if request is not None:
+        await _readable_artifact(s, request, row)
     return row
+
+
+async def _readable_artifact(s, request, row):
+    if row.run_id:
+        run = await s.get(Run, row.run_id)
+        if run is not None:
+            await assert_readable_run(s, request, run)
+
+
+async def _visible_artifacts(s, request, rows):
+    visible = []
+    for row in rows:
+        try:
+            await _readable_artifact(s, request, row)
+            visible.append(row)
+        except HTTPException as exc:
+            if exc.status_code not in (403, 404):
+                raise
+    return visible
 
 
 async def _may_modify(request: Request, caller: Caller, owner: str) -> None:
@@ -326,7 +351,7 @@ async def list_artifacts(request: Request,
                                               q=q, tag=tag, limit=limit, before=before)
         except ArtifactRuleError as e:
             raise _rule(e)
-        return [store.artifact_view(r) for r in rows]
+        return [store.artifact_view(r) for r in await _visible_artifacts(s, request, rows)]
 
 
 @router.get("/api/artifacts/stats", response_model=ArtifactStats)
@@ -334,8 +359,23 @@ async def artifact_stats(request: Request,
                          caller: Caller = Depends(require_artifacts_access(*READ))):
     st = request.app.state
     async with st.session_factory() as s:
-        count, used = await store.usage(s)
-        spend = await image_gen.spend_stats(s, st.settings)
+        if caller.agent is None:
+            count, used = await store.usage(s)
+            spend = await image_gen.spend_stats(s, st.settings)
+        else:
+            rows = await _visible_artifacts(s, request, (await s.execute(select(Artifact))).scalars().all())
+            live = [row for row in rows if row.deleted_at is None]
+            count, used = len(live), sum(row.size for row in live)
+            month = image_gen.month_start(st.settings)
+            day = image_gen.day_start(st.settings)
+            generated = [row for row in rows if row.source == "generated" and row.created_at.replace(tzinfo=timezone.utc) >= month]
+            def cost(row):
+                value = (row.meta or {}).get("cost_usd")
+                return float(value) if isinstance(value, (int, float)) else 0.0
+            spend = {"generated_this_month": len(generated),
+                     "spend_this_month_usd": round(sum(cost(row) for row in generated), 4),
+                     "spend_today_usd": round(sum(cost(row) for row in generated if row.created_at.replace(tzinfo=timezone.utc) >= day), 4),
+                     "daily_cap_usd": float(st.settings.image_gen_daily_usd)}
     return {"count": count, "bytes": used, "total_cap": st.settings.artifacts_total_max_bytes,
             **spend}
 
@@ -360,7 +400,7 @@ async def image_models(request: Request,
 async def get_artifact(request: Request, artifact_id: str,
                        caller: Caller = Depends(require_artifacts_access(*READ))):
     async with request.app.state.session_factory() as s:
-        return store.artifact_view(await _row_or_404(s, artifact_id))
+        return store.artifact_view(await _row_or_404(s, artifact_id, request))
 
 
 @router.get("/api/artifacts/{artifact_id}/content", response_class=Response)
@@ -370,7 +410,7 @@ async def artifact_content(request: Request, artifact_id: str,
     what Pillow already decoded on the way in — and a download for anything
     else, whatever it called itself."""
     async with request.app.state.session_factory() as s:
-        row = await _row_or_404(s, artifact_id)
+        row = await _row_or_404(s, artifact_id, request)
         data = await store.content(s, artifact_id)
     if data is None:
         raise HTTPException(404, "unknown artifact")
@@ -383,7 +423,7 @@ async def artifact_resource(request: Request, artifact_id: str,
                             caller: Caller = Depends(require_artifacts_access(*READ))):
     """Private MCP Resource bytes; ownership is rechecked on every read."""
     async with request.app.state.session_factory() as s:
-        row = await _row_or_404(s, artifact_id)
+        row = await _row_or_404(s, artifact_id, request)
         ident = await authenticate(request)
         if caller.participant != row.owner and (caller.agent is not None or
                                                  ident is None or ident[1] != "admin"):
@@ -401,7 +441,7 @@ async def artifact_thumb(request: Request, artifact_id: str,
     """The raster thumb the store made — an image's only; a file has none and
     says 404 rather than serving its bytes small."""
     async with request.app.state.session_factory() as s:
-        row = await _row_or_404(s, artifact_id)
+        row = await _row_or_404(s, artifact_id, request)
         thumb = row.thumb
     if row.kind != "image" or not thumb:
         raise HTTPException(404, "no thumb for this artifact")
@@ -433,6 +473,11 @@ async def create_artifact(request: Request,
     data, fields = await _parse_create(request, max_bytes)
     async with st.session_factory() as s:
         run = await _run_of(s, request, caller, writing=True)
+        parent_id = (fields.get("meta") or {}).get("parent_id")
+        if isinstance(parent_id, str):
+            parent = await store.get(s, parent_id)
+            if parent is not None:
+                await _readable_artifact(s, request, parent)
         try:
             row = await store.create(s, data=data, owner=caller.participant,
                                      run_id=run.id if run is not None else None,
@@ -458,6 +503,10 @@ async def generate_artifact(request: Request, body: GenerateIn,
     that any of them can keep a file, and this is the one door that spends
     money. Humans are bounded by their role, as everywhere else."""
     st = request.app.state
+    if body.reference_ids:
+        async with st.session_factory() as s:
+            for reference_id in body.reference_ids:
+                await _row_or_404(s, reference_id, request)
     if caller.agent is not None:
         granted = await agents_api._caller_platform_tools(request, caller.agent)
         if TOOL_IMAGE_GEN not in granted:
@@ -499,7 +548,7 @@ async def generate_artifact(request: Request, body: GenerateIn,
 async def patch_artifact(request: Request, artifact_id: str, body: ArtifactPatch,
                          caller: Caller = Depends(require_artifacts_access(*WRITE))):
     async with request.app.state.session_factory() as s:
-        row = await _row_or_404(s, artifact_id)
+        row = await _row_or_404(s, artifact_id, request)
         await _may_modify(request, caller, row.owner)
         try:
             row = await store.patch(s, artifact_id, name=body.name, tags=body.tags)
@@ -516,7 +565,7 @@ async def delete_artifact(request: Request, artifact_id: str,
     being served; the row waits for the pruner."""
     st = request.app.state
     async with st.session_factory() as s:
-        row = await _row_or_404(s, artifact_id)
+        row = await _row_or_404(s, artifact_id, request)
         await _may_modify(request, caller, row.owner)
         row = await store.soft_delete(s, artifact_id, producer=st.producer, agent=caller.agent)
         return store.artifact_view(row)

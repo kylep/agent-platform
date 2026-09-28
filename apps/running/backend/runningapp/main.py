@@ -24,8 +24,7 @@ async def lifespan(app: FastAPI):
     await init_db(engine)
     app.state.sf = make_session_factory(engine)
     loop = IngestLoop(app.state.sf,
-                      os.environ.get("AP_KAFKA_BOOTSTRAP", "kafka:9092"),
-                      channel=os.environ.get("RUNNING_CHANNEL", "running"))
+                      os.environ.get("AP_KAFKA_BOOTSTRAP", "kafka:9092"))
     app.state.ingest = loop
     task = asyncio.create_task(loop.run_forever())
     try:

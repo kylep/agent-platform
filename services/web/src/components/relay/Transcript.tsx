@@ -27,7 +27,7 @@ export default function Transcript({ rows, me, loading, highlight, onHighlighted
   highlight?: string | null;
   /** Called once the marked row has been shown for its moment. */
   onHighlighted?: () => void;
-  onReact: (message: RelayMessage, emoji: string) => void;
+  onReact?: (message: RelayMessage, emoji: string) => void;
   // Absent where the host has nowhere to show a thread (AgentDetail's dm tab),
   // so the action is not offered at all rather than offered and dead.
   onThread?: (id: string) => void;

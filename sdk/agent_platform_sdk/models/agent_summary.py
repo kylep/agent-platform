@@ -5,7 +5,6 @@ from typing import TYPE_CHECKING, Any, TypeVar, cast
 
 from attrs import define as _attrs_define
 from attrs import field as _attrs_field
-from typing_extensions import Self
 
 from ..types import UNSET, Unset
 
@@ -40,6 +39,7 @@ class AgentSummary:
             enabled (bool | Unset):  Default: True.
             entrypoints (AgentSummaryEntrypoints | Unset):
             error (None | str | Unset):
+            external_observer (bool | Unset):  Default: False.
             harness_tools (list[str] | Unset):
             image_artifact_id (None | str | Unset):
             may_delete_tests (bool | Unset):  Default: False.
@@ -58,6 +58,8 @@ class AgentSummary:
             secrets (list[str] | Unset):
             skills (list[str] | Unset):
             system (bool | Unset):  Default: False.
+            system_revision (None | str | Unset):
+            system_source (None | str | Unset):
             timeout_seconds (int | Unset):  Default: 1800.
             transcript_retention_days (int | None | Unset):
     """
@@ -74,6 +76,7 @@ class AgentSummary:
     enabled: bool | Unset = True
     entrypoints: AgentSummaryEntrypoints | Unset = UNSET
     error: None | str | Unset = UNSET
+    external_observer: bool | Unset = False
     harness_tools: list[str] | Unset = UNSET
     image_artifact_id: None | str | Unset = UNSET
     may_delete_tests: bool | Unset = False
@@ -92,6 +95,8 @@ class AgentSummary:
     secrets: list[str] | Unset = UNSET
     skills: list[str] | Unset = UNSET
     system: bool | Unset = False
+    system_revision: None | str | Unset = UNSET
+    system_source: None | str | Unset = UNSET
     timeout_seconds: int | Unset = 1800
     transcript_retention_days: int | None | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
@@ -134,6 +139,8 @@ class AgentSummary:
             error = UNSET
         else:
             error = self.error
+
+        external_observer = self.external_observer
 
         harness_tools: list[str] | Unset = UNSET
         if not isinstance(self.harness_tools, Unset):
@@ -185,6 +192,18 @@ class AgentSummary:
 
         system = self.system
 
+        system_revision: None | str | Unset
+        if isinstance(self.system_revision, Unset):
+            system_revision = UNSET
+        else:
+            system_revision = self.system_revision
+
+        system_source: None | str | Unset
+        if isinstance(self.system_source, Unset):
+            system_source = UNSET
+        else:
+            system_source = self.system_source
+
         timeout_seconds = self.timeout_seconds
 
         transcript_retention_days: int | None | Unset
@@ -221,6 +240,8 @@ class AgentSummary:
             field_dict["entrypoints"] = entrypoints
         if error is not UNSET:
             field_dict["error"] = error
+        if external_observer is not UNSET:
+            field_dict["external_observer"] = external_observer
         if harness_tools is not UNSET:
             field_dict["harness_tools"] = harness_tools
         if image_artifact_id is not UNSET:
@@ -257,6 +278,10 @@ class AgentSummary:
             field_dict["skills"] = skills
         if system is not UNSET:
             field_dict["system"] = system
+        if system_revision is not UNSET:
+            field_dict["system_revision"] = system_revision
+        if system_source is not UNSET:
+            field_dict["system_source"] = system_source
         if timeout_seconds is not UNSET:
             field_dict["timeout_seconds"] = timeout_seconds
         if transcript_retention_days is not UNSET:
@@ -265,7 +290,7 @@ class AgentSummary:
         return field_dict
 
     @classmethod
-    def from_dict(cls, src_dict: Mapping[str, Any]) -> Self:
+    def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
         from ..models.agent_summary_entrypoints import AgentSummaryEntrypoints
         from ..models.relay_face import RelayFace
 
@@ -322,6 +347,8 @@ class AgentSummary:
 
         error = _parse_error(d.pop("error", UNSET))
 
+        external_observer = d.pop("external_observer", UNSET)
+
         harness_tools = cast(list[str], d.pop("harness_tools", UNSET))
 
         def _parse_image_artifact_id(data: object) -> None | str | Unset:
@@ -365,6 +392,24 @@ class AgentSummary:
 
         system = d.pop("system", UNSET)
 
+        def _parse_system_revision(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        system_revision = _parse_system_revision(d.pop("system_revision", UNSET))
+
+        def _parse_system_source(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        system_source = _parse_system_source(d.pop("system_source", UNSET))
+
         timeout_seconds = d.pop("timeout_seconds", UNSET)
 
         def _parse_transcript_retention_days(data: object) -> int | None | Unset:
@@ -391,6 +436,7 @@ class AgentSummary:
             enabled=enabled,
             entrypoints=entrypoints,
             error=error,
+            external_observer=external_observer,
             harness_tools=harness_tools,
             image_artifact_id=image_artifact_id,
             may_delete_tests=may_delete_tests,
@@ -409,6 +455,8 @@ class AgentSummary:
             secrets=secrets,
             skills=skills,
             system=system,
+            system_revision=system_revision,
+            system_source=system_source,
             timeout_seconds=timeout_seconds,
             transcript_retention_days=transcript_retention_days,
         )

@@ -5,7 +5,6 @@ from typing import TYPE_CHECKING, Any, TypeVar, cast
 
 from attrs import define as _attrs_define
 from attrs import field as _attrs_field
-from typing_extensions import Self
 
 from ..types import UNSET, Unset
 
@@ -35,6 +34,7 @@ class AgentMetrics:
         tokens_out (int):
         tool_calls (int):
         total (int):
+        enabled (bool | Unset):  Default: False.
         last_failed_at (None | str | Unset):
     """
 
@@ -53,6 +53,7 @@ class AgentMetrics:
     tokens_out: int
     tool_calls: int
     total: int
+    enabled: bool | Unset = False
     last_failed_at: None | str | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
@@ -91,6 +92,8 @@ class AgentMetrics:
 
         total = self.total
 
+        enabled = self.enabled
+
         last_failed_at: None | str | Unset
         if isinstance(self.last_failed_at, Unset):
             last_failed_at = UNSET
@@ -118,13 +121,15 @@ class AgentMetrics:
                 "total": total,
             }
         )
+        if enabled is not UNSET:
+            field_dict["enabled"] = enabled
         if last_failed_at is not UNSET:
             field_dict["last_failed_at"] = last_failed_at
 
         return field_dict
 
     @classmethod
-    def from_dict(cls, src_dict: Mapping[str, Any]) -> Self:
+    def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
         from ..models.agent_metrics_by_state import AgentMetricsByState
 
         d = dict(src_dict)
@@ -182,6 +187,8 @@ class AgentMetrics:
 
         total = d.pop("total")
 
+        enabled = d.pop("enabled", UNSET)
+
         def _parse_last_failed_at(data: object) -> None | str | Unset:
             if data is None:
                 return data
@@ -207,6 +214,7 @@ class AgentMetrics:
             tokens_out=tokens_out,
             tool_calls=tool_calls,
             total=total,
+            enabled=enabled,
             last_failed_at=last_failed_at,
         )
 

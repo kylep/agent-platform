@@ -10,7 +10,7 @@ from sqlalchemy import inspect as sa_inspect, select, text
 
 from newsapp import digest as dg
 from newsapp.db import Item, Topic, init_db, make_engine, make_session_factory
-from newsapp.ingest import (TOPIC_CHANNEL_POST, TOPIC_INGESTED, TOPIC_REJECTED,
+from newsapp.ingest import (TOPIC_INGESTED, TOPIC_REJECTED,
                             IngestLoop, ingest_digest)
 from newsapp.report import render_daily
 
@@ -224,8 +224,11 @@ class _Producer:
         self.sent.append((topic, json.loads(value)))
 
 
-async def test_handle_emits_rejected_events_and_footer(sf):
-    loop = IngestLoop(sf, "kafka:9092", channel="news")
+async def test_handle_emits_rejected_events_and_saves_report_without_external_send(sf):
+    reports = []
+    async def write_report(sf, day):
+        reports.append(day)
+    loop = IngestLoop(sf, "kafka:9092", report_writer=write_report)
     producer = _Producer()
     digest = _digest(
         "2026-08-28",
@@ -242,9 +245,8 @@ async def test_handle_emits_rejected_events_and_footer(sf):
                                    "url": "https://a.com/2026/05/08/z",
                                    "published": "2026-05-08", "reason": "stale",
                                    "run_id": "r9"}
-    post = by_topic[TOPIC_CHANNEL_POST][0]["data"]["text"]
-    assert "Fresh" in post and "Old" not in post
-    assert post.rstrip().endswith("filtered: 1 stale")
+    assert "discord.channel.post" not in by_topic
+    assert reports == ["2026-08-28"]
 
 
 async def test_handle_with_only_rejections_posts_nothing(sf):
@@ -253,7 +255,7 @@ async def test_handle_with_only_rejections_posts_nothing(sf):
     await loop.handle(producer, json.dumps({"result": _digest(
         "2026-08-28", _item("Old", "https://a.com/1", published="2026-01-01"))}).encode())
     topics = [t for t, _ in producer.sent]
-    assert TOPIC_REJECTED in topics and TOPIC_CHANNEL_POST not in topics
+    assert TOPIC_REJECTED in topics and "discord.channel.post" not in topics
 
 
 async def test_handle_emits_diagnostic_for_empty_digest(sf):
@@ -352,9 +354,9 @@ async def test_render_daily_report_is_kit_markup(sf):
     assert "<script" not in body
 
 
-async def test_handle_still_posts_when_rejected_events_fail(sf):
+async def test_handle_still_ingests_when_rejected_events_fail(sf):
     """Observability must never cost the digest: a rejected-event publish
-    failure (topic missing, broker hiccup) is logged and the post goes out."""
+    failure (topic missing, broker hiccup) is logged and ingestion continues."""
     class _Flaky(_Producer):
         async def send_and_wait(self, topic, value):
             if topic == TOPIC_REJECTED:
@@ -366,7 +368,7 @@ async def test_handle_still_posts_when_rejected_events_fail(sf):
         "2026-08-28",
         _item("Fresh", "https://d.com/2026/08/28/y", published="2026-08-28"),
         _item("Old", "https://a.com/2026/05/08/z", published="2026-05-08"))}).encode())
-    assert [t for t, _ in producer.sent] == [TOPIC_INGESTED, TOPIC_CHANNEL_POST]
+    assert [t for t, _ in producer.sent] == [TOPIC_INGESTED]
 
 
 async def test_weather_is_daily_not_deduped_by_url(sf):

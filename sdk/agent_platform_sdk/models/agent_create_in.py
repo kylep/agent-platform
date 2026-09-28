@@ -4,7 +4,6 @@ from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any, TypeVar, cast
 
 from attrs import define as _attrs_define
-from typing_extensions import Self
 
 from ..types import UNSET, Unset
 
@@ -31,6 +30,7 @@ class AgentCreateIn:
             discord_identity_id (None | str | Unset):
             enabled (bool | Unset):  Default: True.
             entrypoints (EntrypointsIn | Unset):
+            external_observer (bool | Unset):  Default: False.
             get_quota_usage (bool | None | Unset):
             harness_tools (list[str] | Unset):
             may_delete_tests (bool | Unset):  Default: False.
@@ -64,6 +64,7 @@ class AgentCreateIn:
     discord_identity_id: None | str | Unset = UNSET
     enabled: bool | Unset = True
     entrypoints: EntrypointsIn | Unset = UNSET
+    external_observer: bool | Unset = False
     get_quota_usage: bool | None | Unset = UNSET
     harness_tools: list[str] | Unset = UNSET
     may_delete_tests: bool | Unset = False
@@ -115,6 +116,8 @@ class AgentCreateIn:
         entrypoints: dict[str, Any] | Unset = UNSET
         if not isinstance(self.entrypoints, Unset):
             entrypoints = self.entrypoints.to_dict()
+
+        external_observer = self.external_observer
 
         get_quota_usage: bool | None | Unset
         if isinstance(self.get_quota_usage, Unset):
@@ -217,6 +220,8 @@ class AgentCreateIn:
             field_dict["enabled"] = enabled
         if entrypoints is not UNSET:
             field_dict["entrypoints"] = entrypoints
+        if external_observer is not UNSET:
+            field_dict["external_observer"] = external_observer
         if get_quota_usage is not UNSET:
             field_dict["get_quota_usage"] = get_quota_usage
         if harness_tools is not UNSET:
@@ -265,7 +270,7 @@ class AgentCreateIn:
         return field_dict
 
     @classmethod
-    def from_dict(cls, src_dict: Mapping[str, Any]) -> Self:
+    def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
         from ..models.entrypoints_in import EntrypointsIn
 
         d = dict(src_dict)
@@ -307,6 +312,8 @@ class AgentCreateIn:
             entrypoints = UNSET
         else:
             entrypoints = EntrypointsIn.from_dict(_entrypoints)
+
+        external_observer = d.pop("external_observer", UNSET)
 
         def _parse_get_quota_usage(data: object) -> bool | None | Unset:
             if data is None:
@@ -406,6 +413,7 @@ class AgentCreateIn:
             discord_identity_id=discord_identity_id,
             enabled=enabled,
             entrypoints=entrypoints,
+            external_observer=external_observer,
             get_quota_usage=get_quota_usage,
             harness_tools=harness_tools,
             may_delete_tests=may_delete_tests,

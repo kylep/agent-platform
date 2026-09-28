@@ -134,6 +134,8 @@ async def authenticate(request: Request) -> tuple[str, str] | None:
         if token.startswith("ap_"):
             k = await _lookup_api_key(request, token)
             if k is not None:
+                if k.run_id and not await _current_run(request, k.run_id):
+                    return None
                 request.state.api_key_run_id = k.run_id
                 request.state.api_key_agent = k.agent
                 return (k.name, k.role)
@@ -153,6 +155,8 @@ async def authenticate(request: Request) -> tuple[str, str] | None:
                     if claims is None:
                         return None
                     run_id = claims.get("run_id")
+                    if not run_id or not await _current_run(request, run_id):
+                        return None
                     request.state.initiated_by = claims.get("initiated_by")
                     frozen = [t for t in (claims.get("tools") or [])
                               if isinstance(t, str)]
@@ -166,6 +170,17 @@ async def authenticate(request: Request) -> tuple[str, str] | None:
                 request.state.frozen_tools = frozen
                 return (principal, role)
     return None
+
+
+async def _current_run(request, run_id):
+    from agentplatform.db import Run
+    from agentplatform.authority import ensure_run_authority
+    async with request.app.state.session_factory() as session:
+        run = await session.get(Run, run_id)
+        allowed = run is not None and await ensure_run_authority(session, run)
+        # Persist silent lease revocations even when rejecting the credential.
+        await session.commit()
+        return allowed
 
 
 async def _verify_run_token(request: Request, token: str, agent: str) -> dict | None:

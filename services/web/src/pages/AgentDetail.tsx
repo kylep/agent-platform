@@ -263,12 +263,13 @@ function AgentConfig({ agent, onSaved }: { agent: AgentRow; onSaved: (next: Agen
     // `agent-form` gives the section headings their divider rhythm (app.css):
     // this form scrolls for pages, and the h2s are its only landmarks.
     <div className="agent-form">
+      {draft.system_source && <p className="muted">Code-owned definition: <code>{draft.system_source}</code> · revision {draft.system_revision ?? "unknown"}. Operational settings remain editable.</p>}
       <IdentityFields draft={draft} patch={patch} catalog={catalog} />
       <PromptField draft={draft} patch={patch} />
       {actions}
 
       <EntrypointsFields draft={draft} patch={patch} secrets={secrets} catalog={catalog} />
-      <GrantsFields draft={draft} patch={patch} catalog={catalog} />
+      <fieldset disabled={!!draft.system_source}><GrantsFields draft={draft} patch={patch} catalog={catalog} /></fieldset>
       {actions}
 
       {!draft.system && (
@@ -409,7 +410,7 @@ export default function AgentDetail() {
       {tab === "tickets" && <AgentTickets agent={agent.name} />}
       {tab === "memories" && <AgentMemories agent={agent.name} />}
       {tab === "schedules" && <AgentSchedules agent={agent.name} />}
-      {tab === "history" && <AgentVersions agent={agent.name} onRolledBack={loadContent} />}
+      {tab === "history" && <AgentVersions codeOwned={!!agent.system_source} agent={agent.name} onRolledBack={loadContent} />}
       {tab === "config" && (
         <>
           <div className="profile-image-section">

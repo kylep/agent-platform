@@ -96,8 +96,8 @@ class AgentDefIn(BaseModel):
     @model_validator(mode="before")
     @classmethod
     def _drop_read_only(cls, data):
-        if isinstance(data, dict) and ("image_artifact_id" in data or "face" in data):
-            return {k: v for k, v in data.items() if k not in ("image_artifact_id", "face")}
+        if isinstance(data, dict):
+            return {k: v for k, v in data.items() if k not in ("image_artifact_id", "face", "system_source", "system_revision")}
         return data
 
     # Ignored on update: the path identifies the agent, so a payload can never
@@ -118,6 +118,7 @@ class AgentDefIn(BaseModel):
     transcript_retention_days: int | None = None
     harness_tools: list[str] = []
     platform_tools: list[str] = []
+    external_observer: bool = False
     discord_identity_id: str | None = None
     skills: list[str] = []
     secrets: list[str] = []
@@ -192,6 +193,7 @@ class AgentDefOut(BaseModel):
     transcript_retention_days: int | None = None
     harness_tools: list[str] = []
     platform_tools: list[str] = []
+    external_observer: bool = False
     discord_identity_id: str | None = None
     skills: list[str] = []
     secrets: list[str] = []
@@ -212,6 +214,8 @@ class AgentDefOut(BaseModel):
     # read so the Agents pages need no second fetch. `face` is what every other
     # consumer of an agent's face gets — the same `faces_for`, so an agent
     # looks the same on its own page as it does in a room.
+    system_source: str | None = None
+    system_revision: str | None = None
     image_artifact_id: str | None = None
     face: RelayFace
 
@@ -595,6 +599,7 @@ class MetricsOverview(_Agg):
 
 
 class AgentMetrics(_Agg):
+    enabled: bool = False
     agent: str
     failure_streak: int
     last_failed_at: str | None = None
@@ -807,6 +812,10 @@ class RelayBindingView(BaseModel):
 
 
 class ChatIdentityView(BaseModel):
+    owner_agent: str | None = None
+    ownership_generation: int = 0
+    connected: bool = False
+    access_expires_at: datetime | None = None
     id: str
     connector: str
     display_name: str

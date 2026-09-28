@@ -53,10 +53,6 @@ spec:
             capabilities:
               drop: ["ALL"]
           env:
-            - name: AP_KAFKA_BOOTSTRAP
-              value: "{{ $root.Release.Name }}-kafka:9092"
-            - name: CONNECTOR_AGENT
-              value: {{ $identity.agent | default $root.Values.connectors.discord.agent | quote }}
             - name: AP_CHAT_IDENTITY
               value: {{ $identity.id | quote }}
             - name: DISCORD_BOT_TOKEN
