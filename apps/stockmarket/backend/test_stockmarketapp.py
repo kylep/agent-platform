@@ -7,6 +7,7 @@ import pytest
 from sqlalchemy import select
 
 from stockmarketapp import brief as bf
+from stockmarketapp import db
 from stockmarketapp.api import stride, window_start
 from stockmarketapp.db import (Bar, Brief, Symbol, Watch, init_db, make_engine,
                                make_session_factory, seed_indexes)
@@ -134,6 +135,106 @@ async def test_seed_indexes_is_idempotent_and_non_destructive(sf):
         assert len(rows) == 3
         # A restart must not order a pointless five-year re-backfill.
         assert (await s.get(Symbol, "QQQ")).status == "ok"
+
+
+# --- postgres migration -------------------------------------------------------
+# Tests run on sqlite; the pg branch is only exercised here by inspecting the
+# statements it would run (compiled against the real postgresql dialect) —
+# never against a live postgres.
+
+def test_postgres_migration_adds_every_new_column_idempotently():
+    stmts = db._postgres_column_migrations()
+    for col in ("close_split_adj", "adj_close", "dividend", "split_ratio"):
+        assert any(
+            s == f"ALTER TABLE app_stockmarket.bars ADD COLUMN IF NOT EXISTS {col} FLOAT"
+            for s in stmts), col
+    assert "ALTER TABLE app_stockmarket.bars ALTER COLUMN volume TYPE BIGINT" in stmts
+    assert ("ALTER TABLE app_stockmarket.symbols ADD COLUMN IF NOT EXISTS "
+            "currency VARCHAR(3)") in stmts
+    # IF NOT EXISTS (or a type re-assertion) throughout: safe to run twice,
+    # and safe on a table that already has the column from a fresh create_all.
+    assert all("IF NOT EXISTS" in s or "ALTER COLUMN" in s for s in stmts)
+
+
+def test_migrate_postgres_is_a_noop_off_postgres():
+    calls = []
+
+    class FakeDialect:
+        name = "sqlite"
+
+    class FakeConn:
+        dialect = FakeDialect()
+
+        def exec_driver_sql(self, stmt):
+            calls.append(stmt)
+
+    db._migrate_postgres(FakeConn())
+    assert calls == []
+
+
+def test_migrate_postgres_runs_every_statement_on_postgres():
+    calls = []
+
+    class FakeDialect:
+        name = "postgresql"
+
+    class FakeConn:
+        dialect = FakeDialect()
+
+        def exec_driver_sql(self, stmt):
+            calls.append(stmt)
+
+    db._migrate_postgres(FakeConn())
+    assert calls == db._postgres_column_migrations()
+
+
+async def test_init_db_is_safe_to_run_twice():
+    # create_all is idempotent and the postgres migration branch is skipped
+    # entirely off postgres, so running init_db twice on the same engine
+    # must not fail.
+    engine = make_engine("sqlite+aiosqlite:///:memory:")
+    await init_db(engine)
+    await init_db(engine)
+    await engine.dispose()
+
+
+# --- backtest tables -----------------------------------------------------------
+
+async def test_backtest_tables_round_trip(sf):
+    """The five new tables accept a row each and the composite keys hold —
+    this is schema coverage; the engine/tool own the actual semantics."""
+    from stockmarketapp.db import (BacktestDataset, BacktestEvent,
+                                   BacktestExperiment, BacktestResult,
+                                   BacktestSeries)
+    async with sf() as s:
+        s.add(BacktestExperiment(id="e" * 32, name="DCA vs lump sum",
+                                 spec={"strategies": []}, description="desc",
+                                 assumed=[{"path": "currency", "value": "CAD"}],
+                                 caveats=["hindsight"], exclusions=[],
+                                 dataset_sha="d" * 64, engine_version="1.0.0",
+                                 caller="kyle", run_id="r1", report_id="backtest/2026-09-28/12-00"))
+        s.add(BacktestDataset(sha="d" * 64, rows_gz=b"gz-bytes", symbols=["QQQ"],
+                              day_from="2020-01-01", day_to="2026-01-01"))
+        s.add(BacktestResult(experiment_id="e" * 32, strategy_id="s1",
+                             label="Strategy 1", metrics={"xirr": 0.08}))
+        s.add(BacktestSeries(experiment_id="e" * 32, strategy_id="s1",
+                             day="2026-01-01", value=1000.0, contributed=900.0))
+        s.add(BacktestEvent(experiment_id="e" * 32, strategy_id="s1",
+                            day="2026-01-01", kind="buy", symbol="QQQ",
+                            detail={"shares": 1.5}))
+        await s.commit()
+    async with sf() as s:
+        exp = await s.get(BacktestExperiment, "e" * 32)
+        assert exp.dataset_sha == "d" * 64 and exp.caveats == ["hindsight"]
+        ds = await s.get(BacktestDataset, "d" * 64)
+        assert ds.rows_gz == b"gz-bytes" and ds.symbols == ["QQQ"]
+        res = await s.get(BacktestResult, {"experiment_id": "e" * 32, "strategy_id": "s1"})
+        assert res.metrics == {"xirr": 0.08}
+        series = await s.get(BacktestSeries, {"experiment_id": "e" * 32,
+                                              "strategy_id": "s1", "day": "2026-01-01"})
+        assert series.value == 1000.0 and series.contributed == 900.0
+        events = (await s.execute(select(BacktestEvent))).scalars().all()
+        assert len(events) == 1 and events[0].symbol == "QQQ"
 
 
 # --- range + downsample helpers ----------------------------------------------
@@ -302,6 +403,50 @@ async def test_watchlists_are_per_user(sf, client, monkeypatch):
                                       "X-AP-Role": "operator"})
     assert (await other.get("/apps/stockmarket/api/summary")).json()["watchlist"] == []
     await other.aclose()
+
+
+async def _add_symbol(sf, symbol, kind, status="ok"):
+    async with sf() as s:
+        s.add(Symbol(symbol=symbol, label="", kind=kind, status=status))
+        await s.commit()
+
+
+async def test_summary_watchlist_hides_research_and_fx_symbols(sf, client):
+    await _add_symbol(sf, "ACME.RS", "research")
+    await _add_symbol(sf, "CAD=X", "fx")
+    async with sf() as s:
+        s.add(Watch(user="kyle", symbol="ACME.RS"))
+        s.add(Watch(user="kyle", symbol="CAD=X"))
+        s.add(Watch(user="kyle", symbol="NVDA"))
+        await s.commit()
+    await _add_symbol(sf, "NVDA", "watch")
+    s = (await client.get("/apps/stockmarket/api/summary")).json()
+    assert [w["symbol"] for w in s["watchlist"]] == ["NVDA"]
+
+
+async def test_series_drops_research_and_fx_symbols(sf, client):
+    await _add_symbol(sf, "ACME.RS", "research")
+    await _bars(sf, "QQQ", [100.0, 101.0])
+    await _bars(sf, "ACME.RS", [10.0, 11.0])
+    rows = (await client.get(
+        "/apps/stockmarket/api/series?symbols=QQQ,ACME.RS")).json()
+    assert [r["symbol"] for r in rows] == ["QQQ"]
+
+
+async def test_watchlist_add_rejects_research_and_fx_kinds(sf, client):
+    await _add_symbol(sf, "ACME.RS", "research")
+    r = await client.post("/apps/stockmarket/api/watchlist",
+                          json={"symbol": "ACME.RS"})
+    assert r.status_code == 422
+    async with sf() as s:
+        assert (await s.execute(select(Watch))).scalars().all() == []
+
+
+async def test_briefs_movers_hide_research_and_fx_symbols(sf, client):
+    await _add_symbol(sf, "NVDA", "research")
+    await ingest_brief(sf, BRIEF, run_id="r1")
+    rows = (await client.get("/apps/stockmarket/api/briefs")).json()
+    assert rows[0]["movers"] == []
 
 
 async def test_briefs_endpoint_filters_by_day_and_tag(sf, client):

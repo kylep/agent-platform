@@ -14,5 +14,6 @@ needs:
   kafka_topics:
     - app.stockmarket.inbound        # the agent's brief (published by the recorder)
     - app.stockmarket.brief.posted   # one event per stored brief
+    - app.stockmarket.backtest       # one `backtest.completed` envelope per run, keyed by experiment id
 agent_key:
   role: operator                     # triggers a backfill run when a ticker is watchlisted

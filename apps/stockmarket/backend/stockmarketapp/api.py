@@ -22,7 +22,7 @@ from pydantic import BaseModel
 from sqlalchemy import delete, func, select
 
 from stockmarketapp.brief import _DAY_RE, SYMBOL_RE, TAGS
-from stockmarketapp.db import Bar, Brief, Symbol, Watch
+from stockmarketapp.db import HIDDEN_KINDS, Bar, Brief, Symbol, Watch
 
 log = logging.getLogger("stockmarket-api")
 router = APIRouter(prefix="/apps/stockmarket/api")
@@ -129,6 +129,18 @@ def stride(points: list, cap: int = MAX_POINTS) -> tuple[list, bool]:
     return kept, True
 
 
+async def _hidden_kind_symbols(s, symbols: list[str]) -> set[str]:
+    """Which of `symbols` are backtest-only (`research`) or a currency
+    conversion series (`fx`) — the kinds the design says never reach the
+    chart, the watchlist, `/summary` or a brief's movers list."""
+    if not symbols:
+        return set()
+    rows = (await s.execute(
+        select(Symbol.symbol).where(Symbol.symbol.in_(symbols),
+                                    Symbol.kind.in_(HIDDEN_KINDS)))).scalars().all()
+    return set(rows)
+
+
 async def _latest_per_symbol(s, symbols: list[str]) -> dict[str, tuple]:
     """symbol → (day, close, change_pct) for the most recent session, computed
     from the last two bars we hold."""
@@ -169,7 +181,8 @@ async def summary(request: Request, user: str = Depends(require_gateway)):
             select(Symbol).where(Symbol.kind == "index").order_by(Symbol.symbol))).scalars().all()
         mine = (await s.execute(
             select(Symbol).join(Watch, Watch.symbol == Symbol.symbol)
-            .where(Watch.user == user).order_by(Symbol.symbol))).scalars().all()
+            .where(Watch.user == user, Symbol.kind.notin_(HIDDEN_KINDS))
+            .order_by(Symbol.symbol))).scalars().all()
         latest = await _latest_per_symbol(
             s, [r.symbol for r in [*indexes, *mine]])
         latest_day = (await s.execute(select(func.max(Bar.day)))).scalar()
@@ -210,6 +223,10 @@ async def series(request: Request, symbols: str, range: str = "1M",
     if not wanted:
         return []
     async with _sf(request)() as s:
+        hidden = await _hidden_kind_symbols(s, wanted)
+        wanted = [sym for sym in wanted if sym not in hidden]
+        if not wanted:
+            return []
         anchor = (await s.execute(
             select(func.max(Bar.day)).where(Bar.symbol.in_(wanted)))).scalar()
         if not anchor:
@@ -242,9 +259,17 @@ async def briefs(request: Request, day: str | None = None, tag: str | None = Non
         stmt = select(Brief).where(Brief.day == day)
     async with _sf(request)() as s:
         rows = (await s.execute(stmt)).scalars().all()
+        mover_symbols = {m.get("symbol") for b in rows for m in (b.movers or [])
+                        if isinstance(m, dict)}
+        hidden = await _hidden_kind_symbols(s, list(mover_symbols))
     out = [{"day": b.day, "body": b.body, "tags": b.tags or [],
-            "indexes": b.indexes or [], "movers": b.movers or [],
-            "run_id": b.run_id} for b in rows]
+            "indexes": b.indexes or [], "run_id": b.run_id,
+            # A mover naming a symbol the tool loaded for backtests only
+            # (or the fx conversion series) is not something a person
+            # watching the brief has any business seeing.
+            "movers": [m for m in (b.movers or [])
+                      if m.get("symbol") not in hidden]}
+           for b in rows]
     if tag:
         out = [b for b in out if tag in b["tags"]]
     return out
@@ -291,6 +316,9 @@ async def add_watch(request: Request, body: WatchIn,
         if n >= MAX_WATCHLIST:
             raise HTTPException(409, f"watchlist is full ({MAX_WATCHLIST} symbols)")
         row = await s.get(Symbol, symbol)
+        if row is not None and row.kind in HIDDEN_KINDS:
+            raise HTTPException(
+                422, f"{symbol} is a {row.kind} symbol and cannot be watchlisted")
         fresh = row is None
         if fresh:
             # Optimistic: the app can't validate a ticker without egress, so
