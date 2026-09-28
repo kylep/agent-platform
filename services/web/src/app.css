@@ -1127,7 +1127,7 @@ a.relay-action { color: var(--ds-link); }
 .connection-detail h2 { margin: 0; }
 .connection-detail li { margin: 7px 0; }
 .connection-account { border-top: 1px solid var(--ds-border); padding: 14px 0; }
-.connection-account > .row-actions { justify-content: space-between; flex-wrap: wrap; }
+.connection-account > .row-actions { justify-content: flex-start; flex-wrap: wrap; margin-top: 8px; }
 .connection-advanced { margin: 24px 0; }
 .connection-advanced summary { cursor: pointer; font-weight: 600; }
 .tool-list { display: flex; flex-wrap: wrap; gap: 6px 16px; margin-bottom: 8px; }
