@@ -12,7 +12,7 @@ from fastapi.staticfiles import StaticFiles
 from stockmarketapp.api import router
 from stockmarketapp.db import (init_db, make_engine, make_session_factory,
                                seed_indexes)
-from stockmarketapp.ingest import IngestLoop
+from stockmarketapp.ingest import BacktestIngestLoop, IngestLoop
 
 logging.basicConfig(level=logging.INFO)
 
@@ -27,15 +27,19 @@ async def lifespan(app: FastAPI):
     # The three indexes are tracked from first boot, so the loader agent has
     # something to sync before anyone has opened the page.
     await seed_indexes(app.state.sf)
-    loop = IngestLoop(app.state.sf,
-                      os.environ.get("AP_KAFKA_BOOTSTRAP", "kafka:9092"))
-    task = asyncio.create_task(loop.run_forever())
+    bootstrap = os.environ.get("AP_KAFKA_BOOTSTRAP", "kafka:9092")
+    loop = IngestLoop(app.state.sf, bootstrap)
+    backtest_loop = BacktestIngestLoop(app.state.sf, bootstrap)
+    tasks = [asyncio.create_task(loop.run_forever()),
+            asyncio.create_task(backtest_loop.run_forever())]
     try:
         yield
     finally:
-        task.cancel()
-        with contextlib.suppress(asyncio.CancelledError):
-            await task
+        for task in tasks:
+            task.cancel()
+        for task in tasks:
+            with contextlib.suppress(asyncio.CancelledError):
+                await task
         await engine.dispose()
 
 

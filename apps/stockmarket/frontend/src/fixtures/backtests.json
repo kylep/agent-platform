@@ -1,0 +1,1606 @@
+{
+  "_readme": "Dev-only fixtures for the T8 visual review (docs/superpowers/plans/2026-09-28-backtest-lab.md). Shapes mirror the real read API (apps/stockmarket/backend/stockmarketapp/api.py): list / detail / events (paginated, page_size 100) / series (monthly). Money and ratio metrics are decimal strings on purpose, matching production.",
+  "list": [
+    {
+      "id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "name": "DCA into QQQ",
+      "created_at": "2026-09-01T12:00:00+00:00",
+      "strategies": [
+        {
+          "id": "s1",
+          "label": "Monthly DCA",
+          "final_value": "48213.06",
+          "xirr": "0.1187"
+        }
+      ]
+    },
+    {
+      "id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "name": "Rank vs ETF (CAD)",
+      "created_at": "2026-09-15T09:30:00+00:00",
+      "strategies": [
+        {
+          "id": "s1",
+          "label": "Momentum rank (top 3)",
+          "final_value": "61820.44",
+          "xirr": "0.1502"
+        },
+        {
+          "id": "s2",
+          "label": "Buy-and-hold XIU",
+          "final_value": "54011.20",
+          "xirr": "0.1091"
+        }
+      ]
+    },
+    {
+      "id": "cccccccccccccccccccccccccccccccc",
+      "name": "Lump sum, trend rebalance (USD)",
+      "created_at": "2026-09-20T16:05:00+00:00",
+      "strategies": [
+        {
+          "id": "s1",
+          "label": "Trend rebalance",
+          "final_value": "112430.77",
+          "xirr": "0.0864"
+        }
+      ]
+    }
+  ],
+  "detail": {
+    "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa": {
+      "id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "name": "DCA into QQQ",
+      "description": "Invests a fixed monthly contribution into QQQ, base currency CAD.",
+      "spec": {
+        "name": "DCA into QQQ",
+        "base_currency": "CAD",
+        "universe": [
+          "QQQ"
+        ],
+        "start": "2024-01-01",
+        "end": "2025-12-31",
+        "strategies": [
+          {
+            "id": "s1",
+            "kind": "dca",
+            "symbol": "QQQ",
+            "monthly_contribution": "500.00"
+          }
+        ]
+      },
+      "assumed": [
+        {
+          "path": "base_currency",
+          "value": "CAD"
+        },
+        {
+          "path": "commission_bps",
+          "value": "0"
+        }
+      ],
+      "caveats": [
+        {
+          "code": "data",
+          "text": "Yahoo daily closes, unaudited."
+        },
+        {
+          "code": "survivorship",
+          "text": "QQQ has no survivorship risk over this span."
+        }
+      ],
+      "exclusions_summary": {
+        "count": 0,
+        "symbols": []
+      },
+      "report_id": "backtest/2026-09-01/12-00",
+      "created_at": "2026-09-01T12:00:00+00:00",
+      "strategies": [
+        {
+          "id": "s1",
+          "label": "Monthly DCA",
+          "metrics": {
+            "final_value": "48213.06",
+            "contributed": "36000.00",
+            "profit": "12213.06",
+            "xirr": "0.1187",
+            "twr": "0.3392",
+            "twr_annualized": "0.1523",
+            "volatility": "0.1811",
+            "sharpe": "0.84",
+            "risk_free": "0.03",
+            "turnover": "0.0000",
+            "max_drawdown": {
+              "depth": "-0.1642",
+              "peak": "2024-11-30",
+              "trough": "2025-04-30",
+              "recovery": "2025-08-31"
+            },
+            "trades": 24,
+            "commissions": "0.00",
+            "slippage": "0.00",
+            "costs": "0.00",
+            "fx_paid": "0.00",
+            "dividends": "612.40",
+            "max_weight": {
+              "weight": "1.0000",
+              "symbol": "QQQ",
+              "day": "2025-12-31"
+            },
+            "max_single_stock_weight": {
+              "weight": "1.0000",
+              "symbol": "QQQ",
+              "day": "2025-12-31"
+            }
+          }
+        }
+      ]
+    },
+    "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb": {
+      "id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "name": "Rank vs ETF (CAD)",
+      "description": "Monthly momentum rank across a small tech universe vs. a buy-and-hold XIU baseline.",
+      "spec": {
+        "name": "Rank vs ETF (CAD)",
+        "base_currency": "CAD",
+        "universe": [
+          "AAPL",
+          "MSFT",
+          "NVDA",
+          "SHOP.TO",
+          "XIU"
+        ],
+        "start": "2024-01-01",
+        "end": "2025-12-31",
+        "strategies": [
+          {
+            "id": "s1",
+            "kind": "rank",
+            "top_n": 3,
+            "rebalance": "monthly"
+          },
+          {
+            "id": "s2",
+            "kind": "buy_and_hold",
+            "symbol": "XIU"
+          }
+        ]
+      },
+      "assumed": [
+        {
+          "path": "base_currency",
+          "value": "CAD"
+        }
+      ],
+      "caveats": [
+        {
+          "code": "data",
+          "text": "Yahoo daily closes, unaudited."
+        },
+        {
+          "code": "fx",
+          "text": "USD legs converted at the daily CAD=X close."
+        }
+      ],
+      "exclusions_summary": {
+        "count": 2,
+        "symbols": [
+          "DELISTEDCO",
+          "TOOTHIN.TO"
+        ]
+      },
+      "report_id": "backtest/2026-09-15/09-30",
+      "created_at": "2026-09-15T09:30:00+00:00",
+      "strategies": [
+        {
+          "id": "s1",
+          "label": "Momentum rank (top 3)",
+          "metrics": {
+            "final_value": "61820.44",
+            "contributed": "40000.00",
+            "profit": "21820.44",
+            "xirr": "0.1502",
+            "twr": "0.4419",
+            "twr_annualized": "0.1934",
+            "volatility": "0.2447",
+            "sharpe": "0.79",
+            "risk_free": "0.03",
+            "turnover": "1.8200",
+            "max_drawdown": {
+              "depth": "-0.2218",
+              "peak": "2024-08-31",
+              "trough": "2025-02-28",
+              "recovery": "2025-07-31"
+            },
+            "trades": 96,
+            "commissions": "144.00",
+            "slippage": "38.20",
+            "costs": "182.20",
+            "fx_paid": "61.05",
+            "dividends": "310.10",
+            "max_weight": {
+              "weight": "0.3610",
+              "symbol": "NVDA",
+              "day": "2025-01-31"
+            },
+            "max_single_stock_weight": {
+              "weight": "0.3610",
+              "symbol": "NVDA",
+              "day": "2025-01-31"
+            }
+          }
+        },
+        {
+          "id": "s2",
+          "label": "Buy-and-hold XIU",
+          "metrics": {
+            "final_value": "54011.20",
+            "contributed": "40000.00",
+            "profit": "14011.20",
+            "xirr": "0.1091",
+            "twr": "0.3503",
+            "twr_annualized": "0.1512",
+            "volatility": "0.1329",
+            "sharpe": "0.91",
+            "risk_free": "0.03",
+            "turnover": "0.0000",
+            "max_drawdown": {
+              "depth": "-0.1147",
+              "peak": "2024-11-30",
+              "trough": "2025-03-31",
+              "recovery": "2025-06-30"
+            },
+            "trades": 24,
+            "commissions": "0.00",
+            "slippage": "0.00",
+            "costs": "0.00",
+            "fx_paid": "0.00",
+            "dividends": "540.11",
+            "max_weight": {
+              "weight": "1.0000",
+              "symbol": "XIU",
+              "day": "2025-12-31"
+            },
+            "max_single_stock_weight": {
+              "weight": "1.0000",
+              "symbol": "XIU",
+              "day": "2025-12-31"
+            }
+          }
+        }
+      ]
+    },
+    "cccccccccccccccccccccccccccccccc": {
+      "id": "cccccccccccccccccccccccccccccccc",
+      "name": "Lump sum, trend rebalance (USD)",
+      "description": "A single lump-sum entry, rebalanced quarterly by trend signal.",
+      "spec": {
+        "name": "Lump sum, trend rebalance (USD)",
+        "base_currency": "USD",
+        "universe": [
+          "SPY",
+          "TLT"
+        ],
+        "start": "2024-01-01",
+        "end": "2025-12-31",
+        "strategies": [
+          {
+            "id": "s1",
+            "kind": "trend_rebalance",
+            "rebalance": "quarterly"
+          }
+        ]
+      },
+      "assumed": [
+        {
+          "path": "base_currency",
+          "value": "USD"
+        },
+        {
+          "path": "risk_free",
+          "value": "0.03"
+        }
+      ],
+      "caveats": [
+        {
+          "code": "data",
+          "text": "Yahoo daily closes, unaudited."
+        }
+      ],
+      "exclusions_summary": {
+        "count": 0,
+        "symbols": []
+      },
+      "report_id": null,
+      "created_at": "2026-09-20T16:05:00+00:00",
+      "strategies": [
+        {
+          "id": "s1",
+          "label": "Trend rebalance",
+          "metrics": {
+            "final_value": "112430.77",
+            "contributed": "100000.00",
+            "profit": "12430.77",
+            "xirr": "0.0864",
+            "twr": "0.1243",
+            "twr_annualized": "0.0602",
+            "volatility": "0.0921",
+            "sharpe": "0.55",
+            "risk_free": "0.03",
+            "turnover": "0.4400",
+            "max_drawdown": {
+              "depth": "-0.0812",
+              "peak": "2024-07-31",
+              "trough": "2025-01-31",
+              "recovery": null
+            },
+            "trades": 8,
+            "commissions": "16.00",
+            "slippage": "4.40",
+            "costs": "20.40",
+            "fx_paid": "0.00",
+            "dividends": "1840.00",
+            "max_weight": {
+              "weight": "0.7000",
+              "symbol": "SPY",
+              "day": "2025-12-31"
+            },
+            "max_single_stock_weight": {
+              "weight": "0.7000",
+              "symbol": "SPY",
+              "day": "2025-12-31"
+            }
+          }
+        }
+      ]
+    }
+  },
+  "series": {
+    "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa": {
+      "s1": {
+        "strategy_id": "s1",
+        "sample": "monthly",
+        "points": [
+          {
+            "day": "2024-01-30",
+            "value": "962.76",
+            "contributed": "1000.00"
+          },
+          {
+            "day": "2024-02-28",
+            "value": "1416.88",
+            "contributed": "1500.00"
+          },
+          {
+            "day": "2024-03-30",
+            "value": "1887.37",
+            "contributed": "2000.00"
+          },
+          {
+            "day": "2024-04-30",
+            "value": "2398.69",
+            "contributed": "2500.00"
+          },
+          {
+            "day": "2024-05-30",
+            "value": "2977.43",
+            "contributed": "3000.00"
+          },
+          {
+            "day": "2024-06-30",
+            "value": "3655.04",
+            "contributed": "3500.00"
+          },
+          {
+            "day": "2024-07-30",
+            "value": "4471.13",
+            "contributed": "4000.00"
+          },
+          {
+            "day": "2024-08-30",
+            "value": "4638.12",
+            "contributed": "4500.00"
+          },
+          {
+            "day": "2024-09-30",
+            "value": "4917.10",
+            "contributed": "5000.00"
+          },
+          {
+            "day": "2024-10-30",
+            "value": "5314.69",
+            "contributed": "5500.00"
+          },
+          {
+            "day": "2024-11-30",
+            "value": "5846.58",
+            "contributed": "6000.00"
+          },
+          {
+            "day": "2024-12-30",
+            "value": "6538.50",
+            "contributed": "6500.00"
+          },
+          {
+            "day": "2025-01-30",
+            "value": "7428.54",
+            "contributed": "7000.00"
+          },
+          {
+            "day": "2025-02-28",
+            "value": "8570.96",
+            "contributed": "7500.00"
+          },
+          {
+            "day": "2025-03-30",
+            "value": "8432.59",
+            "contributed": "8000.00"
+          },
+          {
+            "day": "2025-04-30",
+            "value": "8530.75",
+            "contributed": "8500.00"
+          },
+          {
+            "day": "2025-05-30",
+            "value": "8853.08",
+            "contributed": "9000.00"
+          },
+          {
+            "day": "2025-06-30",
+            "value": "9406.20",
+            "contributed": "9500.00"
+          },
+          {
+            "day": "2025-07-30",
+            "value": "10214.97",
+            "contributed": "10000.00"
+          },
+          {
+            "day": "2025-08-30",
+            "value": "11324.33",
+            "contributed": "10500.00"
+          },
+          {
+            "day": "2025-09-30",
+            "value": "12803.66",
+            "contributed": "11000.00"
+          },
+          {
+            "day": "2025-10-30",
+            "value": "12350.04",
+            "contributed": "11500.00"
+          },
+          {
+            "day": "2025-11-30",
+            "value": "12261.52",
+            "contributed": "12000.00"
+          },
+          {
+            "day": "2025-12-30",
+            "value": "12506.15",
+            "contributed": "12500.00"
+          }
+        ]
+      }
+    },
+    "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb": {
+      "s1": {
+        "strategy_id": "s1",
+        "sample": "monthly",
+        "points": [
+          {
+            "day": "2024-01-30",
+            "value": "1464.60",
+            "contributed": "1500.00"
+          },
+          {
+            "day": "2024-02-28",
+            "value": "2400.35",
+            "contributed": "2500.00"
+          },
+          {
+            "day": "2024-03-30",
+            "value": "3359.70",
+            "contributed": "3500.00"
+          },
+          {
+            "day": "2024-04-30",
+            "value": "4393.30",
+            "contributed": "4500.00"
+          },
+          {
+            "day": "2024-05-30",
+            "value": "5555.56",
+            "contributed": "5500.00"
+          },
+          {
+            "day": "2024-06-30",
+            "value": "6910.38",
+            "contributed": "6500.00"
+          },
+          {
+            "day": "2024-07-30",
+            "value": "8537.84",
+            "contributed": "7500.00"
+          },
+          {
+            "day": "2024-08-30",
+            "value": "8933.36",
+            "contributed": "8500.00"
+          },
+          {
+            "day": "2024-09-30",
+            "value": "9541.48",
+            "contributed": "9500.00"
+          },
+          {
+            "day": "2024-10-30",
+            "value": "10379.91",
+            "contributed": "10500.00"
+          },
+          {
+            "day": "2024-11-30",
+            "value": "11483.71",
+            "contributed": "11500.00"
+          },
+          {
+            "day": "2024-12-30",
+            "value": "12907.84",
+            "contributed": "12500.00"
+          },
+          {
+            "day": "2025-01-30",
+            "value": "14732.22",
+            "contributed": "13500.00"
+          },
+          {
+            "day": "2025-02-28",
+            "value": "17069.91",
+            "contributed": "14500.00"
+          },
+          {
+            "day": "2025-03-30",
+            "value": "16861.36",
+            "contributed": "15500.00"
+          },
+          {
+            "day": "2025-04-30",
+            "value": "17121.71",
+            "contributed": "16500.00"
+          },
+          {
+            "day": "2025-05-30",
+            "value": "17831.78",
+            "contributed": "17500.00"
+          },
+          {
+            "day": "2025-06-30",
+            "value": "19010.10",
+            "contributed": "18500.00"
+          },
+          {
+            "day": "2025-07-30",
+            "value": "20712.21",
+            "contributed": "19500.00"
+          },
+          {
+            "day": "2025-08-30",
+            "value": "23035.03",
+            "contributed": "20500.00"
+          },
+          {
+            "day": "2025-09-30",
+            "value": "26126.61",
+            "contributed": "21500.00"
+          },
+          {
+            "day": "2025-10-30",
+            "value": "25276.85",
+            "contributed": "22500.00"
+          },
+          {
+            "day": "2025-11-30",
+            "value": "25168.04",
+            "contributed": "23500.00"
+          },
+          {
+            "day": "2025-12-30",
+            "value": "25741.86",
+            "contributed": "24500.00"
+          }
+        ]
+      },
+      "s2": {
+        "strategy_id": "s2",
+        "sample": "monthly",
+        "points": [
+          {
+            "day": "2024-01-30",
+            "value": "1463.22",
+            "contributed": "1500.00"
+          },
+          {
+            "day": "2024-02-28",
+            "value": "2394.88",
+            "contributed": "2500.00"
+          },
+          {
+            "day": "2024-03-30",
+            "value": "3347.33",
+            "contributed": "3500.00"
+          },
+          {
+            "day": "2024-04-30",
+            "value": "4370.76",
+            "contributed": "4500.00"
+          },
+          {
+            "day": "2024-05-30",
+            "value": "5518.72",
+            "contributed": "5500.00"
+          },
+          {
+            "day": "2024-06-30",
+            "value": "6853.74",
+            "contributed": "6500.00"
+          },
+          {
+            "day": "2024-07-30",
+            "value": "8453.85",
+            "contributed": "7500.00"
+          },
+          {
+            "day": "2024-08-30",
+            "value": "8831.98",
+            "contributed": "8500.00"
+          },
+          {
+            "day": "2024-09-30",
+            "value": "9419.47",
+            "contributed": "9500.00"
+          },
+          {
+            "day": "2024-10-30",
+            "value": "10232.46",
+            "contributed": "10500.00"
+          },
+          {
+            "day": "2024-11-30",
+            "value": "11304.09",
+            "contributed": "11500.00"
+          },
+          {
+            "day": "2024-12-30",
+            "value": "12686.77",
+            "contributed": "12500.00"
+          },
+          {
+            "day": "2025-01-30",
+            "value": "14456.94",
+            "contributed": "13500.00"
+          },
+          {
+            "day": "2025-02-28",
+            "value": "16722.79",
+            "contributed": "14500.00"
+          },
+          {
+            "day": "2025-03-30",
+            "value": "16492.66",
+            "contributed": "15500.00"
+          },
+          {
+            "day": "2025-04-30",
+            "value": "16722.34",
+            "contributed": "16500.00"
+          },
+          {
+            "day": "2025-05-30",
+            "value": "17390.35",
+            "contributed": "17500.00"
+          },
+          {
+            "day": "2025-06-30",
+            "value": "18512.08",
+            "contributed": "18500.00"
+          },
+          {
+            "day": "2025-07-30",
+            "value": "20138.78",
+            "contributed": "19500.00"
+          },
+          {
+            "day": "2025-08-30",
+            "value": "22361.34",
+            "contributed": "20500.00"
+          },
+          {
+            "day": "2025-09-30",
+            "value": "25319.30",
+            "contributed": "21500.00"
+          },
+          {
+            "day": "2025-10-30",
+            "value": "24456.81",
+            "contributed": "22500.00"
+          },
+          {
+            "day": "2025-11-30",
+            "value": "24314.51",
+            "contributed": "23500.00"
+          },
+          {
+            "day": "2025-12-30",
+            "value": "24831.79",
+            "contributed": "24500.00"
+          }
+        ]
+      }
+    },
+    "cccccccccccccccccccccccccccccccc": {
+      "s1": {
+        "strategy_id": "s1",
+        "sample": "monthly",
+        "points": [
+          {
+            "day": "2024-01-30",
+            "value": "92368.00",
+            "contributed": "100000.00"
+          },
+          {
+            "day": "2024-02-28",
+            "value": "87791.47",
+            "contributed": "100000.00"
+          },
+          {
+            "day": "2024-03-30",
+            "value": "85792.17",
+            "contributed": "100000.00"
+          },
+          {
+            "day": "2024-04-30",
+            "value": "86135.34",
+            "contributed": "100000.00"
+          },
+          {
+            "day": "2024-05-30",
+            "value": "88786.01",
+            "contributed": "100000.00"
+          },
+          {
+            "day": "2024-06-30",
+            "value": "93895.35",
+            "contributed": "100000.00"
+          },
+          {
+            "day": "2024-07-30",
+            "value": "101812.61",
+            "contributed": "100000.00"
+          },
+          {
+            "day": "2024-08-30",
+            "value": "94042.27",
+            "contributed": "100000.00"
+          },
+          {
+            "day": "2024-09-30",
+            "value": "89382.79",
+            "contributed": "100000.00"
+          },
+          {
+            "day": "2024-10-30",
+            "value": "87347.25",
+            "contributed": "100000.00"
+          },
+          {
+            "day": "2024-11-30",
+            "value": "87696.64",
+            "contributed": "100000.00"
+          },
+          {
+            "day": "2024-12-30",
+            "value": "90395.36",
+            "contributed": "100000.00"
+          },
+          {
+            "day": "2025-01-30",
+            "value": "95597.31",
+            "contributed": "100000.00"
+          },
+          {
+            "day": "2025-02-28",
+            "value": "103658.08",
+            "contributed": "100000.00"
+          },
+          {
+            "day": "2025-03-30",
+            "value": "95746.90",
+            "contributed": "100000.00"
+          },
+          {
+            "day": "2025-04-30",
+            "value": "91002.96",
+            "contributed": "100000.00"
+          },
+          {
+            "day": "2025-05-30",
+            "value": "88930.52",
+            "contributed": "100000.00"
+          },
+          {
+            "day": "2025-06-30",
+            "value": "89286.24",
+            "contributed": "100000.00"
+          },
+          {
+            "day": "2025-07-30",
+            "value": "92033.88",
+            "contributed": "100000.00"
+          },
+          {
+            "day": "2025-08-30",
+            "value": "97330.12",
+            "contributed": "100000.00"
+          },
+          {
+            "day": "2025-09-30",
+            "value": "105537.00",
+            "contributed": "100000.00"
+          },
+          {
+            "day": "2025-10-30",
+            "value": "97482.42",
+            "contributed": "100000.00"
+          },
+          {
+            "day": "2025-11-30",
+            "value": "92652.49",
+            "contributed": "100000.00"
+          },
+          {
+            "day": "2025-12-30",
+            "value": "90542.48",
+            "contributed": "100000.00"
+          }
+        ]
+      }
+    }
+  },
+  "events": {
+    "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa": {
+      "s1": [
+        {
+          "day": "2024-01-15",
+          "strategy_id": "s1",
+          "kind": "buy",
+          "symbol": "QQQ",
+          "detail": {
+            "shares": "1.5000"
+          }
+        },
+        {
+          "day": "2024-02-15",
+          "strategy_id": "s1",
+          "kind": "buy",
+          "symbol": "QQQ",
+          "detail": {
+            "shares": "1.5000"
+          }
+        },
+        {
+          "day": "2024-03-15",
+          "strategy_id": "s1",
+          "kind": "buy",
+          "symbol": "QQQ",
+          "detail": {
+            "shares": "1.5000"
+          }
+        },
+        {
+          "day": "2024-04-15",
+          "strategy_id": "s1",
+          "kind": "buy",
+          "symbol": "QQQ",
+          "detail": {
+            "shares": "1.5000"
+          }
+        },
+        {
+          "day": "2024-05-15",
+          "strategy_id": "s1",
+          "kind": "buy",
+          "symbol": "QQQ",
+          "detail": {
+            "shares": "1.5000"
+          }
+        },
+        {
+          "day": "2024-06-15",
+          "strategy_id": "s1",
+          "kind": "buy",
+          "symbol": "QQQ",
+          "detail": {
+            "shares": "1.5000"
+          }
+        },
+        {
+          "day": "2024-07-15",
+          "strategy_id": "s1",
+          "kind": "buy",
+          "symbol": "QQQ",
+          "detail": {
+            "shares": "1.5000"
+          }
+        },
+        {
+          "day": "2024-08-15",
+          "strategy_id": "s1",
+          "kind": "buy",
+          "symbol": "QQQ",
+          "detail": {
+            "shares": "1.5000"
+          }
+        },
+        {
+          "day": "2024-09-15",
+          "strategy_id": "s1",
+          "kind": "buy",
+          "symbol": "QQQ",
+          "detail": {
+            "shares": "1.5000"
+          }
+        },
+        {
+          "day": "2024-10-15",
+          "strategy_id": "s1",
+          "kind": "buy",
+          "symbol": "QQQ",
+          "detail": {
+            "shares": "1.5000"
+          }
+        },
+        {
+          "day": "2024-11-15",
+          "strategy_id": "s1",
+          "kind": "buy",
+          "symbol": "QQQ",
+          "detail": {
+            "shares": "1.5000"
+          }
+        },
+        {
+          "day": "2024-12-15",
+          "strategy_id": "s1",
+          "kind": "buy",
+          "symbol": "QQQ",
+          "detail": {
+            "shares": "1.5000"
+          }
+        },
+        {
+          "day": "2025-01-15",
+          "strategy_id": "s1",
+          "kind": "buy",
+          "symbol": "QQQ",
+          "detail": {
+            "shares": "1.5000"
+          }
+        },
+        {
+          "day": "2025-02-15",
+          "strategy_id": "s1",
+          "kind": "buy",
+          "symbol": "QQQ",
+          "detail": {
+            "shares": "1.5000"
+          }
+        },
+        {
+          "day": "2025-03-15",
+          "strategy_id": "s1",
+          "kind": "buy",
+          "symbol": "QQQ",
+          "detail": {
+            "shares": "1.5000"
+          }
+        },
+        {
+          "day": "2025-04-15",
+          "strategy_id": "s1",
+          "kind": "buy",
+          "symbol": "QQQ",
+          "detail": {
+            "shares": "1.5000"
+          }
+        },
+        {
+          "day": "2025-05-15",
+          "strategy_id": "s1",
+          "kind": "buy",
+          "symbol": "QQQ",
+          "detail": {
+            "shares": "1.5000"
+          }
+        },
+        {
+          "day": "2025-06-15",
+          "strategy_id": "s1",
+          "kind": "buy",
+          "symbol": "QQQ",
+          "detail": {
+            "shares": "1.5000"
+          }
+        },
+        {
+          "day": "2025-07-15",
+          "strategy_id": "s1",
+          "kind": "buy",
+          "symbol": "QQQ",
+          "detail": {
+            "shares": "1.5000"
+          }
+        },
+        {
+          "day": "2025-08-15",
+          "strategy_id": "s1",
+          "kind": "buy",
+          "symbol": "QQQ",
+          "detail": {
+            "shares": "1.5000"
+          }
+        },
+        {
+          "day": "2025-09-15",
+          "strategy_id": "s1",
+          "kind": "buy",
+          "symbol": "QQQ",
+          "detail": {
+            "shares": "1.5000"
+          }
+        },
+        {
+          "day": "2025-10-15",
+          "strategy_id": "s1",
+          "kind": "buy",
+          "symbol": "QQQ",
+          "detail": {
+            "shares": "1.5000"
+          }
+        },
+        {
+          "day": "2025-11-15",
+          "strategy_id": "s1",
+          "kind": "buy",
+          "symbol": "QQQ",
+          "detail": {
+            "shares": "1.5000"
+          }
+        },
+        {
+          "day": "2025-12-15",
+          "strategy_id": "s1",
+          "kind": "buy",
+          "symbol": "QQQ",
+          "detail": {
+            "shares": "1.5000"
+          }
+        }
+      ]
+    },
+    "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb": {
+      "s1": [
+        {
+          "day": "2024-01-15",
+          "strategy_id": "s1",
+          "kind": "buy",
+          "symbol": "AAPL",
+          "detail": {
+            "shares": "1.5000"
+          }
+        },
+        {
+          "day": "2024-02-15",
+          "strategy_id": "s1",
+          "kind": "buy",
+          "symbol": "MSFT",
+          "detail": {
+            "shares": "1.5000"
+          }
+        },
+        {
+          "day": "2024-03-15",
+          "strategy_id": "s1",
+          "kind": "buy",
+          "symbol": "NVDA",
+          "detail": {
+            "shares": "1.5000"
+          }
+        },
+        {
+          "day": "2024-04-15",
+          "strategy_id": "s1",
+          "kind": "buy",
+          "symbol": "AAPL",
+          "detail": {
+            "shares": "1.5000"
+          }
+        },
+        {
+          "day": "2024-05-15",
+          "strategy_id": "s1",
+          "kind": "buy",
+          "symbol": "MSFT",
+          "detail": {
+            "shares": "1.5000"
+          }
+        },
+        {
+          "day": "2024-06-15",
+          "strategy_id": "s1",
+          "kind": "buy",
+          "symbol": "NVDA",
+          "detail": {
+            "shares": "1.5000"
+          }
+        },
+        {
+          "day": "2024-07-15",
+          "strategy_id": "s1",
+          "kind": "buy",
+          "symbol": "AAPL",
+          "detail": {
+            "shares": "1.5000"
+          }
+        },
+        {
+          "day": "2024-08-15",
+          "strategy_id": "s1",
+          "kind": "buy",
+          "symbol": "MSFT",
+          "detail": {
+            "shares": "1.5000"
+          }
+        },
+        {
+          "day": "2024-09-15",
+          "strategy_id": "s1",
+          "kind": "buy",
+          "symbol": "NVDA",
+          "detail": {
+            "shares": "1.5000"
+          }
+        },
+        {
+          "day": "2024-10-15",
+          "strategy_id": "s1",
+          "kind": "buy",
+          "symbol": "AAPL",
+          "detail": {
+            "shares": "1.5000"
+          }
+        },
+        {
+          "day": "2024-11-15",
+          "strategy_id": "s1",
+          "kind": "buy",
+          "symbol": "MSFT",
+          "detail": {
+            "shares": "1.5000"
+          }
+        },
+        {
+          "day": "2024-12-15",
+          "strategy_id": "s1",
+          "kind": "buy",
+          "symbol": "NVDA",
+          "detail": {
+            "shares": "1.5000"
+          }
+        },
+        {
+          "day": "2025-01-15",
+          "strategy_id": "s1",
+          "kind": "buy",
+          "symbol": "AAPL",
+          "detail": {
+            "shares": "1.5000"
+          }
+        },
+        {
+          "day": "2025-02-15",
+          "strategy_id": "s1",
+          "kind": "buy",
+          "symbol": "MSFT",
+          "detail": {
+            "shares": "1.5000"
+          }
+        },
+        {
+          "day": "2025-03-15",
+          "strategy_id": "s1",
+          "kind": "buy",
+          "symbol": "NVDA",
+          "detail": {
+            "shares": "1.5000"
+          }
+        },
+        {
+          "day": "2025-04-15",
+          "strategy_id": "s1",
+          "kind": "buy",
+          "symbol": "AAPL",
+          "detail": {
+            "shares": "1.5000"
+          }
+        },
+        {
+          "day": "2025-05-15",
+          "strategy_id": "s1",
+          "kind": "buy",
+          "symbol": "MSFT",
+          "detail": {
+            "shares": "1.5000"
+          }
+        },
+        {
+          "day": "2025-06-15",
+          "strategy_id": "s1",
+          "kind": "buy",
+          "symbol": "NVDA",
+          "detail": {
+            "shares": "1.5000"
+          }
+        },
+        {
+          "day": "2025-07-15",
+          "strategy_id": "s1",
+          "kind": "buy",
+          "symbol": "AAPL",
+          "detail": {
+            "shares": "1.5000"
+          }
+        },
+        {
+          "day": "2025-08-15",
+          "strategy_id": "s1",
+          "kind": "buy",
+          "symbol": "MSFT",
+          "detail": {
+            "shares": "1.5000"
+          }
+        },
+        {
+          "day": "2025-09-15",
+          "strategy_id": "s1",
+          "kind": "buy",
+          "symbol": "NVDA",
+          "detail": {
+            "shares": "1.5000"
+          }
+        },
+        {
+          "day": "2025-10-15",
+          "strategy_id": "s1",
+          "kind": "buy",
+          "symbol": "AAPL",
+          "detail": {
+            "shares": "1.5000"
+          }
+        },
+        {
+          "day": "2025-11-15",
+          "strategy_id": "s1",
+          "kind": "buy",
+          "symbol": "MSFT",
+          "detail": {
+            "shares": "1.5000"
+          }
+        },
+        {
+          "day": "2025-12-15",
+          "strategy_id": "s1",
+          "kind": "buy",
+          "symbol": "NVDA",
+          "detail": {
+            "shares": "1.5000"
+          }
+        }
+      ],
+      "s2": [
+        {
+          "day": "2024-01-15",
+          "strategy_id": "s2",
+          "kind": "buy",
+          "symbol": "XIU",
+          "detail": {
+            "shares": "1.5000"
+          }
+        },
+        {
+          "day": "2024-02-15",
+          "strategy_id": "s2",
+          "kind": "buy",
+          "symbol": "XIU",
+          "detail": {
+            "shares": "1.5000"
+          }
+        },
+        {
+          "day": "2024-03-15",
+          "strategy_id": "s2",
+          "kind": "buy",
+          "symbol": "XIU",
+          "detail": {
+            "shares": "1.5000"
+          }
+        },
+        {
+          "day": "2024-04-15",
+          "strategy_id": "s2",
+          "kind": "buy",
+          "symbol": "XIU",
+          "detail": {
+            "shares": "1.5000"
+          }
+        },
+        {
+          "day": "2024-05-15",
+          "strategy_id": "s2",
+          "kind": "buy",
+          "symbol": "XIU",
+          "detail": {
+            "shares": "1.5000"
+          }
+        },
+        {
+          "day": "2024-06-15",
+          "strategy_id": "s2",
+          "kind": "buy",
+          "symbol": "XIU",
+          "detail": {
+            "shares": "1.5000"
+          }
+        },
+        {
+          "day": "2024-07-15",
+          "strategy_id": "s2",
+          "kind": "buy",
+          "symbol": "XIU",
+          "detail": {
+            "shares": "1.5000"
+          }
+        },
+        {
+          "day": "2024-08-15",
+          "strategy_id": "s2",
+          "kind": "buy",
+          "symbol": "XIU",
+          "detail": {
+            "shares": "1.5000"
+          }
+        },
+        {
+          "day": "2024-09-15",
+          "strategy_id": "s2",
+          "kind": "buy",
+          "symbol": "XIU",
+          "detail": {
+            "shares": "1.5000"
+          }
+        },
+        {
+          "day": "2024-10-15",
+          "strategy_id": "s2",
+          "kind": "buy",
+          "symbol": "XIU",
+          "detail": {
+            "shares": "1.5000"
+          }
+        },
+        {
+          "day": "2024-11-15",
+          "strategy_id": "s2",
+          "kind": "buy",
+          "symbol": "XIU",
+          "detail": {
+            "shares": "1.5000"
+          }
+        },
+        {
+          "day": "2024-12-15",
+          "strategy_id": "s2",
+          "kind": "buy",
+          "symbol": "XIU",
+          "detail": {
+            "shares": "1.5000"
+          }
+        },
+        {
+          "day": "2025-01-15",
+          "strategy_id": "s2",
+          "kind": "buy",
+          "symbol": "XIU",
+          "detail": {
+            "shares": "1.5000"
+          }
+        },
+        {
+          "day": "2025-02-15",
+          "strategy_id": "s2",
+          "kind": "buy",
+          "symbol": "XIU",
+          "detail": {
+            "shares": "1.5000"
+          }
+        },
+        {
+          "day": "2025-03-15",
+          "strategy_id": "s2",
+          "kind": "buy",
+          "symbol": "XIU",
+          "detail": {
+            "shares": "1.5000"
+          }
+        },
+        {
+          "day": "2025-04-15",
+          "strategy_id": "s2",
+          "kind": "buy",
+          "symbol": "XIU",
+          "detail": {
+            "shares": "1.5000"
+          }
+        },
+        {
+          "day": "2025-05-15",
+          "strategy_id": "s2",
+          "kind": "buy",
+          "symbol": "XIU",
+          "detail": {
+            "shares": "1.5000"
+          }
+        },
+        {
+          "day": "2025-06-15",
+          "strategy_id": "s2",
+          "kind": "buy",
+          "symbol": "XIU",
+          "detail": {
+            "shares": "1.5000"
+          }
+        },
+        {
+          "day": "2025-07-15",
+          "strategy_id": "s2",
+          "kind": "buy",
+          "symbol": "XIU",
+          "detail": {
+            "shares": "1.5000"
+          }
+        },
+        {
+          "day": "2025-08-15",
+          "strategy_id": "s2",
+          "kind": "buy",
+          "symbol": "XIU",
+          "detail": {
+            "shares": "1.5000"
+          }
+        },
+        {
+          "day": "2025-09-15",
+          "strategy_id": "s2",
+          "kind": "buy",
+          "symbol": "XIU",
+          "detail": {
+            "shares": "1.5000"
+          }
+        },
+        {
+          "day": "2025-10-15",
+          "strategy_id": "s2",
+          "kind": "buy",
+          "symbol": "XIU",
+          "detail": {
+            "shares": "1.5000"
+          }
+        },
+        {
+          "day": "2025-11-15",
+          "strategy_id": "s2",
+          "kind": "buy",
+          "symbol": "XIU",
+          "detail": {
+            "shares": "1.5000"
+          }
+        },
+        {
+          "day": "2025-12-15",
+          "strategy_id": "s2",
+          "kind": "buy",
+          "symbol": "XIU",
+          "detail": {
+            "shares": "1.5000"
+          }
+        }
+      ]
+    },
+    "cccccccccccccccccccccccccccccccc": {
+      "s1": [
+        {
+          "day": "2024-01-15",
+          "strategy_id": "s1",
+          "kind": "buy",
+          "symbol": "SPY",
+          "detail": {
+            "shares": "1.5000"
+          }
+        },
+        {
+          "day": "2024-02-15",
+          "strategy_id": "s1",
+          "kind": "buy",
+          "symbol": "TLT",
+          "detail": {
+            "shares": "1.5000"
+          }
+        },
+        {
+          "day": "2024-03-15",
+          "strategy_id": "s1",
+          "kind": "buy",
+          "symbol": "SPY",
+          "detail": {
+            "shares": "1.5000"
+          }
+        },
+        {
+          "day": "2024-04-15",
+          "strategy_id": "s1",
+          "kind": "buy",
+          "symbol": "TLT",
+          "detail": {
+            "shares": "1.5000"
+          }
+        },
+        {
+          "day": "2024-05-15",
+          "strategy_id": "s1",
+          "kind": "buy",
+          "symbol": "SPY",
+          "detail": {
+            "shares": "1.5000"
+          }
+        },
+        {
+          "day": "2024-06-15",
+          "strategy_id": "s1",
+          "kind": "buy",
+          "symbol": "TLT",
+          "detail": {
+            "shares": "1.5000"
+          }
+        },
+        {
+          "day": "2024-07-15",
+          "strategy_id": "s1",
+          "kind": "buy",
+          "symbol": "SPY",
+          "detail": {
+            "shares": "1.5000"
+          }
+        },
+        {
+          "day": "2024-08-15",
+          "strategy_id": "s1",
+          "kind": "buy",
+          "symbol": "TLT",
+          "detail": {
+            "shares": "1.5000"
+          }
+        }
+      ]
+    }
+  }
+}

@@ -6,12 +6,16 @@ import httpx
 import pytest
 from sqlalchemy import select
 
+from stockmarketapp import backtests as bt
 from stockmarketapp import brief as bf
 from stockmarketapp import db
+from stockmarketapp import report as report_mod
 from stockmarketapp.api import stride, window_start
-from stockmarketapp.db import (Bar, Brief, Symbol, Watch, init_db, make_engine,
+from stockmarketapp.db import (Bar, BacktestEvent, BacktestExperiment,
+                               BacktestResult, BacktestSeries, Brief, Symbol,
+                               Watch, init_db, make_engine,
                                make_session_factory, seed_indexes)
-from stockmarketapp.ingest import ingest_brief
+from stockmarketapp.ingest import BacktestIngestLoop, ingest_brief
 
 pytest_plugins = ("pytest_asyncio",)
 
@@ -477,3 +481,359 @@ async def test_ingest_persists_report_and_event_without_external_broadcast(sf, m
         "result": BRIEF, "run_id": "market-test"}).encode())
     assert sent == [ingest.TOPIC_POSTED]
     assert reports == ["2026-08-06"]
+
+
+# --- backtests (docs/design/35) ----------------------------------------------
+
+async def _add_experiment(sf, experiment_id="a" * 32, name="DCA into QQQ",
+                          strategies=(("s1", "Strategy A"),), exclusions=None,
+                          caveats=None, assumed=None):
+    async with sf() as s:
+        s.add(BacktestExperiment(
+            id=experiment_id, name=name, spec={"name": name}, description="A DCA plan.",
+            assumed=assumed or [{"path": "base_currency", "value": "CAD"}],
+            caveats=caveats or [{"code": "data", "text": "Yahoo data, unaudited."}],
+            exclusions=exclusions or [], dataset_sha="f" * 64, engine_version="1.0.0",
+            caller="stockmarket-data", run_id="run-1"))
+        for sid, label in strategies:
+            s.add(BacktestResult(experiment_id=experiment_id, strategy_id=sid, label=label,
+                                 metrics={"final_value": 1000.0, "contributed": 900.0,
+                                          "xirr": 0.12, "twr_annualized": 0.10,
+                                          "max_drawdown": {"depth": -0.05},
+                                          "trades": 4, "pick_timeline": list(range(500))}))
+            for i, (day, value, contributed) in enumerate(
+                    [("2026-01-05", 900.0, 900.0), ("2026-06-05", 1000.0, 900.0)]):
+                s.add(BacktestSeries(experiment_id=experiment_id, strategy_id=sid, day=day,
+                                     value=value, contributed=contributed))
+            s.add(BacktestEvent(experiment_id=experiment_id, strategy_id=sid, day="2026-01-05",
+                                kind="buy", symbol="QQQ", detail={"shares": "5"}))
+        await s.commit()
+
+
+async def test_ingest_notice_skips_malformed_or_unknown_id(sf):
+    assert await bt.ingest_notice(sf, {}) is None
+    assert await bt.ingest_notice(sf, {"experiment_id": "not-hex"}) is None
+    assert await bt.ingest_notice(sf, {"experiment_id": "a" * 32}) is None  # not in the tables
+
+
+async def test_ingest_notice_confirms_a_committed_experiment(sf):
+    await _add_experiment(sf)
+    assert await bt.ingest_notice(sf, {"experiment_id": "a" * 32}) == "a" * 32
+
+
+async def test_backtest_ingest_loop_skips_unknown_experiment(sf, monkeypatch):
+    from stockmarketapp import ingest as ingest_mod
+    calls = []
+    monkeypatch.setattr(ingest_mod, "write_backtest_report",
+                        lambda factory, experiment_id: calls.append(experiment_id) or _noop())
+    await BacktestIngestLoop(sf, "kafka:9092").handle(
+        json.dumps({"data": {"experiment_id": "not-hex"}, "schema_version": 1}).encode())
+    assert calls == []
+
+
+async def test_backtest_ingest_loop_renders_report_idempotently(sf, monkeypatch):
+    from stockmarketapp import ingest as ingest_mod
+    await _add_experiment(sf)
+    calls = []
+
+    async def fake_write(factory, experiment_id):
+        calls.append(experiment_id)
+
+    monkeypatch.setattr(ingest_mod, "write_backtest_report", fake_write)
+    raw = json.dumps({"type": "backtest.completed", "schema_version": 1,
+                      "data": {"experiment_id": "a" * 32}}).encode()
+    loop = BacktestIngestLoop(sf, "kafka:9092")
+    await loop.handle(raw)
+    await loop.handle(raw)   # a re-delivered notice is handled again, not fatally
+    assert calls == ["a" * 32, "a" * 32]
+
+
+class _FakeChartClient:
+    """Stands in for the httpx client render_backtest posts charts through."""
+    async def post(self, path, headers=None, json=None):
+        assert path == "/api/report-kit/chart"
+        return _FakeResp(200, {"svg": '<svg class="rk-chart"></svg>'})
+
+
+class _FakeResp:
+    def __init__(self, status_code, data):
+        self.status_code = status_code
+        self._data = data
+
+    def raise_for_status(self):
+        if self.status_code >= 400:
+            raise httpx.HTTPStatusError("boom", request=None, response=None)
+
+    def json(self):
+        return self._data
+
+
+_CLASS_RE = __import__("re").compile(r'class="([^"]*)"')
+
+
+async def test_render_backtest_escapes_hostile_name_and_uses_only_rk_classes(sf):
+    hostile = '<script>alert(1)</script>'
+    await _add_experiment(sf, name=hostile)
+    html, meta = await bt_render(sf)
+    assert "<script>" not in html
+    assert "&lt;script&gt;" in html
+    assert meta == {"experiment_id": "a" * 32}
+    for classes in _CLASS_RE.findall(html):
+        for token in classes.split():
+            assert token.startswith(("rk-", "ds-")), token
+
+
+async def bt_render(sf):
+    return await report_mod.render_backtest(sf, "a" * 32, _FakeChartClient(), {})
+
+
+async def test_render_backtest_returns_none_for_unknown_experiment(sf):
+    assert await report_mod.render_backtest(sf, "b" * 32, _FakeChartClient(), {}) is None
+
+
+class _FakeReportsClient:
+    """A minimal /api/reports + /api/report-kit/chart + /api/runs double, so
+    write_backtest_report and the rerun action can be exercised without a
+    network — same style as monkeypatching write_daily_market_report above,
+    but this one needs to prove the slot-advancing logic itself."""
+
+    def __init__(self):
+        self.reports: dict[tuple, dict] = {}
+        self._next = 1
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *exc):
+        return False
+
+    async def get(self, path, headers=None, params=None):
+        assert path == "/api/reports"
+        rows = [v for (date, _t), v in self.reports.items() if date == params["date_from"]]
+        return _FakeResp(200, rows)
+
+    async def post(self, path, headers=None, json=None):
+        if path == "/api/report-kit/chart":
+            return _FakeResp(200, {"svg": '<svg class="rk-chart"></svg>'})
+        if path == "/api/reports":
+            key = (json["date"], json.get("time", ""))
+            existing = self.reports.get(key)
+            replaced = existing is not None
+            rid = existing["id"] if replaced else f"report-{self._next}"
+            if not replaced:
+                self._next += 1
+            self.reports[key] = {"id": rid, "time": json.get("time", ""),
+                                 "meta": json.get("meta") or {}}
+            return _FakeResp(201, {"id": rid, "replaced": replaced})
+        if path == "/api/runs":
+            return _FakeResp(201, {"id": "run-rerun-1"})
+        raise AssertionError(f"unexpected path {path}")
+
+
+async def test_write_backtest_report_stores_report_id_and_reuses_its_own_slot(
+        sf, monkeypatch):
+    await _add_experiment(sf)
+    fake = _FakeReportsClient()
+    monkeypatch.setenv("AP_API_TOKEN", "t")
+    monkeypatch.setenv("AP_API_URL", "http://ap")
+    monkeypatch.setattr(report_mod.httpx, "AsyncClient", lambda *a, **k: fake)
+
+    await report_mod.write_backtest_report(sf, "a" * 32)
+    async with sf() as s:
+        exp = await s.get(BacktestExperiment, "a" * 32)
+        first_report_id = exp.report_id
+    assert first_report_id == "report-1"
+
+    # A re-delivered notice re-renders in place: same slot, same report row.
+    await report_mod.write_backtest_report(sf, "a" * 32)
+    async with sf() as s:
+        exp = await s.get(BacktestExperiment, "a" * 32)
+    assert exp.report_id == first_report_id
+    assert len(fake.reports) == 1
+
+
+async def test_write_backtest_report_advances_past_a_taken_slot(sf, monkeypatch):
+    await _add_experiment(sf, experiment_id="a" * 32, name="First")
+    await _add_experiment(sf, experiment_id="b" * 32, name="Second")
+    fake = _FakeReportsClient()
+    monkeypatch.setenv("AP_API_TOKEN", "t")
+    monkeypatch.setenv("AP_API_URL", "http://ap")
+    monkeypatch.setattr(report_mod.httpx, "AsyncClient", lambda *a, **k: fake)
+
+    await report_mod.write_backtest_report(sf, "a" * 32)
+    await report_mod.write_backtest_report(sf, "b" * 32)
+    times = {v["time"] for v in fake.reports.values()}
+    assert len(times) == 2   # the second experiment did not overwrite the first
+
+
+def test_pick_slot_helper_advances_minutes():
+    assert report_mod._next_slot("00-00") == "00-01"
+    assert report_mod._next_slot("00-59") == "01-00"
+    assert report_mod._next_slot("23-59") == "00-00"
+
+
+def test_fit_detail_cap_cascades_to_a_bound_even_past_the_field_caps():
+    """A synthetic dict already past every per-field cap (a pathological
+    count, not just long text) — proves the cascade itself shrinks it,
+    independent of how unlikely that input is under the spec's bounds."""
+    out = {
+        "id": "a" * 32, "name": "n", "description": "d",
+        "caveats": [{"code": f"c{i}", "text": "y" * 160} for i in range(200)],
+        "assumed": [{"path": f"p{i}", "value": "v" * 120} for i in range(200)],
+        "exclusions_summary": {"count": 0, "symbols": []},
+        "report_id": None, "created_at": "2026-01-01T00:00:00",
+        "strategies": [{"id": f"s{i}", "label": "Strategy " + "x" * 50,
+                        "metrics": {"final_value": 1.0}} for i in range(8)],
+    }
+    assert bt._size(out) > bt.DETAIL_CAP
+    fitted = bt._fit_detail_cap(out)
+    assert bt._size(fitted) <= bt.DETAIL_CAP
+    assert len(fitted["strategies"]) == 8   # a strategy is never dropped
+
+
+# --- backtests browse API -----------------------------------------------------
+
+async def test_backtests_list_search_escapes_like_wildcards(sf, client):
+    await _add_experiment(sf, experiment_id="a" * 32, name="A_B plan")
+    await _add_experiment(sf, experiment_id="b" * 32, name="AXB plan")
+    rows = (await client.get("/apps/stockmarket/api/backtests?q=A_B")).json()
+    assert [r["name"] for r in rows] == ["A_B plan"]
+
+
+async def test_backtests_detail_stays_bounded_and_hides_pick_timeline(sf, client):
+    await _add_experiment(sf)
+    r = await client.get(f"/apps/stockmarket/api/backtests/{'a' * 32}")
+    assert r.status_code == 200
+    body = r.json()
+    assert len(r.content) <= 8192
+    assert "pick_timeline" not in body["strategies"][0]["metrics"]
+    assert body["exclusions_summary"] == {"count": 0, "symbols": []}
+    assert body["assumed"] and body["caveats"]
+    # The raw spec never rides in the bounded detail response — the UI's
+    # collapsible spec panel reads it from /backtests/{id}/spec instead.
+    assert "spec" not in body
+
+
+async def test_backtests_detail_404_for_unknown_id(client):
+    r = await client.get(f"/apps/stockmarket/api/backtests/{'c' * 32}")
+    assert r.status_code == 404
+
+
+async def test_backtests_detail_worst_case_spec_stays_under_8kb(sf, client):
+    """The reviewer's fixture: 8 strategies with 60-char labels and ~19
+    caveats of ~400 chars each measured 20.5 KB uncapped. This must fit."""
+    strategies = tuple((f"s{i}", "Strategy label " + "x" * 44) for i in range(8))
+    caveats = [{"code": f"concentration-{i}", "text": "y" * 400} for i in range(16)] + [
+        {"code": "hindsight", "text": "z" * 400},
+        {"code": "taxes", "text": "z" * 400},
+        {"code": "data", "text": "z" * 400},
+    ]
+    assumed = [{"path": f"strategies.{i}.holdings.mode", "value": "keep"} for i in range(8)] + [
+        {"path": "base_currency", "value": "CAD"},
+        {"path": "dividends.mode", "value": "reinvest"},
+    ]
+    await _add_experiment(sf, strategies=strategies, caveats=caveats, assumed=assumed)
+    r = await client.get(f"/apps/stockmarket/api/backtests/{'a' * 32}")
+    assert r.status_code == 200
+    assert len(r.content) <= 8192
+    assert len(r.json()["strategies"]) == 8
+
+
+async def test_backtests_metrics_returns_full_dict_for_one_strategy(sf, client):
+    await _add_experiment(sf, strategies=(("s1", "A"), ("s2", "B")))
+    r = await client.get(f"/apps/stockmarket/api/backtests/{'a' * 32}/metrics?strategy=s1")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["strategy_id"] == "s1"
+    assert "pick_timeline" not in body["metrics"]
+    assert body["metrics"]["max_drawdown"] == {"depth": -0.05}   # full, not flattened
+
+
+async def test_backtests_metrics_requires_strategy_when_ambiguous(sf, client):
+    await _add_experiment(sf, strategies=(("s1", "A"), ("s2", "B")))
+    r = await client.get(f"/apps/stockmarket/api/backtests/{'a' * 32}/metrics")
+    assert r.status_code == 422
+
+
+async def test_backtests_metrics_defaults_to_the_only_strategy(sf, client):
+    await _add_experiment(sf)
+    r = await client.get(f"/apps/stockmarket/api/backtests/{'a' * 32}/metrics")
+    assert r.status_code == 200 and r.json()["strategy_id"] == "s1"
+
+
+async def test_backtests_metrics_404_for_unknown_id(client):
+    r = await client.get(f"/apps/stockmarket/api/backtests/{'c' * 32}/metrics")
+    assert r.status_code == 404
+
+
+async def test_backtests_spec_returns_the_stored_spec(sf, client):
+    await _add_experiment(sf)
+    r = await client.get(f"/apps/stockmarket/api/backtests/{'a' * 32}/spec")
+    assert r.status_code == 200
+    assert r.json() == {"id": "a" * 32, "spec": {"name": "DCA into QQQ"}}
+
+
+async def test_backtests_spec_404_for_unknown_id(client):
+    r = await client.get(f"/apps/stockmarket/api/backtests/{'c' * 32}/spec")
+    assert r.status_code == 404
+
+
+async def test_backtests_events_paginate_and_filter_by_strategy(sf, client):
+    await _add_experiment(sf, strategies=(("s1", "A"), ("s2", "B")))
+    r = (await client.get(
+        f"/apps/stockmarket/api/backtests/{'a' * 32}/events?strategy=s1")).json()
+    assert len(r["events"]) == 1 and r["events"][0]["strategy_id"] == "s1"
+    assert r["has_more"] is False
+
+
+async def test_backtests_series_requires_strategy_when_ambiguous(sf, client):
+    await _add_experiment(sf, strategies=(("s1", "A"), ("s2", "B")))
+    r = await client.get(f"/apps/stockmarket/api/backtests/{'a' * 32}/series")
+    assert r.status_code == 422
+    ok = await client.get(f"/apps/stockmarket/api/backtests/{'a' * 32}/series?strategy=s1")
+    assert ok.status_code == 200
+    assert ok.json()["strategy_id"] == "s1"
+    assert len(ok.json()["points"]) == 2
+
+
+async def test_backtests_series_defaults_to_the_only_strategy(sf, client):
+    await _add_experiment(sf)
+    r = await client.get(f"/apps/stockmarket/api/backtests/{'a' * 32}/series")
+    assert r.status_code == 200 and r.json()["strategy_id"] == "s1"
+
+
+async def test_backtests_rerun_requires_better_than_reader(sf, monkeypatch):
+    from stockmarketapp import api as api_mod
+    await _add_experiment(sf)
+
+    async def fake_rerun(experiment_id):
+        return "run-rerun-1"
+
+    monkeypatch.setattr(api_mod, "request_backtest_rerun", fake_rerun)
+    from stockmarketapp.main import app
+    app.state.sf = sf
+    transport = httpx.ASGITransport(app=app)
+    reader = httpx.AsyncClient(transport=transport, base_url="http://t",
+                               headers={"X-AP-User": "kyle", "X-AP-Role": "reader"})
+    denied = await reader.post(f"/apps/stockmarket/api/backtests/{'a' * 32}/rerun")
+    assert denied.status_code == 403
+    await reader.aclose()
+
+    operator = httpx.AsyncClient(transport=transport, base_url="http://t",
+                                 headers={"X-AP-User": "kyle", "X-AP-Role": "operator"})
+    allowed = await operator.post(f"/apps/stockmarket/api/backtests/{'a' * 32}/rerun")
+    assert allowed.status_code == 202
+    assert allowed.json() == {"run_id": "run-rerun-1", "requested": True}
+    await operator.aclose()
+
+
+async def test_backtests_rerun_404_for_unknown_id(client):
+    r = await client.post(f"/apps/stockmarket/api/backtests/{'c' * 32}/rerun")
+    assert r.status_code == 404
+
+
+async def test_help_lists_backtest_paths(client):
+    r = (await client.get("/apps/stockmarket/api/help")).json()
+    assert "backtests" in r["paths"] and "backtests/{id}" in r["paths"]
+    assert "backtests/{id}/metrics" in r["paths"] and "backtests/{id}/spec" in r["paths"]
+    assert r["views"]["backtest"] == "/apps/stockmarket/#/backtests/<id>"

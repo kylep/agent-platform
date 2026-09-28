@@ -1,0 +1,13 @@
+# One backtest experiment's report (design-35). Rendered deterministically by
+# the STOCKMARKET APP when it consumes `backtest.completed` from
+# app.stockmarket.backtest (generator = the app's key, app:stockmarket); the
+# tool that ran the experiment has already committed the backtest_* rows this
+# renders from. adhoc: several experiments can complete on the same day, so
+# the identity carries an HH-MM slot (advanced past whatever is already
+# occupied by a different experiment).
+name: backtest
+description: One backtest experiment — description, metrics, value vs contributed, drawdown, the pick timeline, and caveats.
+icon: 🧪
+generator: app:stockmarket
+cadence: adhoc
+retention_days: 3650

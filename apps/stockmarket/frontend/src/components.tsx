@@ -1,11 +1,50 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { NavLink } from "react-router-dom";
 import type { BriefView, SymbolView } from "./api";
 import { seriesColor } from "./chart";
 import { Button } from "@ap/ui/button";
 import { Input } from "@ap/ui/field";
+import { buildPlatformNav, SideNav, type AppNavInfo } from "@ap/ui/sidenav";
 
 // Shared vocabulary for the stockmarket page. Colors are ALWAYS design tokens
 // (var(--ds-chart-N)) — no raw values (the platform's no-raw-hex rule).
+
+// The shared platform sidebar (from @ap/ui) plus this app's own two-tab
+// header — Overview stays the default landing page (docs/design/35), and
+// Backtests (T8) sits beside it as a real route, not a separate app.
+export function Shell({ children }: { children: React.ReactNode }) {
+  const [apps, setApps] = useState<AppNavInfo[]>([{ name: "stockmarket", icon: "📈" }]);
+  useEffect(() => {
+    fetch("/api/apps", { credentials: "include" })
+      .then((r) => (r.ok ? r.json() : []))
+      .then((all: (AppNavInfo & { ui: boolean; ready: boolean | null })[]) =>
+        setApps(all.filter((a) => a.ui && a.ready)))
+      .catch(() => {});
+  }, []);
+  return (
+    <div className="layout">
+      <SideNav entries={buildPlatformNav(apps)} activePath="/apps/stockmarket/" />
+      <main className="main">
+        <div className="sm-shell">
+          <header className="sm-top">
+            <span className="sm-brand">📈 Stockmarket</span>
+            <nav className="sm-tabs" aria-label="Stockmarket sections">
+              <NavLink to="/" end
+                       className={({ isActive }) => `sm-tab${isActive ? " active" : ""}`}>
+                Overview
+              </NavLink>
+              <NavLink to="/backtests"
+                       className={({ isActive }) => `sm-tab${isActive ? " active" : ""}`}>
+                Backtests
+              </NavLink>
+            </nav>
+          </header>
+          {children}
+        </div>
+      </main>
+    </div>
+  );
+}
 
 export const pct = (v: number | null) =>
   v === null ? "—" : `${v > 0 ? "+" : ""}${v.toFixed(2)}%`;

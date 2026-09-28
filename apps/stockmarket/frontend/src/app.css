@@ -31,6 +31,70 @@
 .sm-brand { font-weight: 700; font-size: 16px; color: var(--ds-text); }
 .sm-note { font-size: 12px; margin-top: 6px; }
 
+/* Overview/Backtests tabs, next to the brand in the shared header. */
+.sm-tabs { display: flex; gap: 4px; margin-left: 16px; }
+.sm-tab {
+  padding: 5px 12px; border-radius: var(--radius-md); font-size: 13px;
+  font-weight: 500; color: var(--ds-text-muted);
+}
+.sm-tab:hover { color: var(--ds-text); text-decoration: none; }
+.sm-tab.active { background: var(--ds-raised); color: var(--ds-text); }
+
+/* --- backtests view (docs/design/35) ------------------------------------ */
+.sm-bt-toolbar {
+  display: flex; gap: 10px; align-items: center; flex-wrap: wrap;
+  margin-bottom: 14px;
+}
+.sm-bt-toolbar input { min-width: 220px; }
+.sm-bt-back { display: inline-block; margin-bottom: 12px; font-size: 13px; }
+.sm-bt-head { display: flex; align-items: baseline; gap: 10px; }
+.sm-bt-head h1 { margin: 0; }
+
+/* Defense against the 390px layout (~190px of content width beside the
+   platform side nav): every wide Backtests element — a table or a raw JSON
+   dump — gets its OWN scroll boundary instead of pushing the page itself
+   wider. `overflow-x: auto` here also zeroes this element's contribution to
+   an ancestor flex item's automatic minimum size, which is what actually
+   stops a wide table from stretching `.main` in the first place. */
+.sm-bt-scroll { overflow-x: auto; }
+
+.sm-bt-spec { margin: 4px 0 20px; }
+.sm-bt-spec summary {
+  cursor: pointer; font-size: 13px; font-weight: 600; color: var(--ds-text-muted);
+  padding: 6px 0;
+}
+.sm-bt-spec summary:hover { color: var(--ds-text); }
+.sm-bt-spec-body {
+  background: var(--ds-surface); border: 1px solid var(--ds-border);
+  border-radius: var(--radius-md); padding: 10px 12px; font-size: 12px;
+  overflow-x: auto; white-space: pre-wrap; word-break: break-word;
+}
+
+.sm-bt-strategy-row { margin-bottom: 8px; }
+.sm-bt-strategy-row h2 { margin-bottom: 6px; }
+
+.sm-bt-pick { text-align: center; font-variant-numeric: tabular-nums; }
+
+.sm-bt-list { list-style: none; padding: 0; margin: 8px 0; font-size: 13px; }
+.sm-bt-list li { padding: 4px 0; border-top: 1px solid var(--ds-border); }
+.sm-bt-list li:first-child { border-top: 0; }
+
+.sm-bt-rerun { margin: 20px 0; }
+
+.sm-bt-compare-link { margin-right: 16px; }
+
+.sm-bt-legend {
+  display: flex; flex-direction: column; gap: 2px; list-style: none;
+  margin: 8px 0 0; padding: 0;
+}
+.sm-bt-legend-row {
+  display: flex; align-items: center; gap: 6px; padding: 2px 0; font-size: 12px;
+}
+.sm-swatch-dash {
+  width: 12px; height: 0; border-top: 2px dashed var(--ds-chart-8);
+  display: inline-block; flex-shrink: 0;
+}
+
 /* --- latest session tiles --------------------------------------------- */
 .sm-stats { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 20px; }
 .sm-stat {

@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
-import type { SeriesView } from "./api";
+import type { BacktestSeriesPoint, SeriesView } from "./api";
+import { fmtMetric, fmtMoney, groupThousands, numOrNull } from "./api";
 
 // Overlaid index chart. Hand-rolled SVG, no chart dependency — the same
 // approach as the console's DurationChart. Colors are ALWAYS design tokens
@@ -36,7 +37,7 @@ type Normalized = {
   changePct: number | null;
 };
 
-function niceTicks(lo: number, hi: number, count = 5): number[] {
+export function niceTicks(lo: number, hi: number, count = 5): number[] {
   const span = hi - lo || 1;
   const rough = span / count;
   const pow = 10 ** Math.floor(Math.log10(rough));
@@ -262,6 +263,164 @@ export function IndexChart({ series, hidden, onToggle, colorIndex, onBrush }: {
           Long ranges are thinned for display; daily closes are all stored.
         </p>
       )}
+    </div>
+  );
+}
+
+// --- backtest series charts (docs/design/35) --------------------------------
+//
+// Both charts below plot POSITIONS parsed from the API's decimal strings
+// (`numOrNull`) — never a value a person reads as a number. Every label on
+// them is either the exact string the API returned (fmtMetric) or is plainly
+// marked as derived/approximate, per the plan's "never invent" rule.
+
+const BT_W = 760, BT_H = 220, BT_PAD_L = 56, BT_PAD_R = 12, BT_PAD_T = 12, BT_PAD_B = 26;
+
+function monthLabel(iso: string): string {
+  const [yr, mo] = iso.split("-");
+  return `${MONTHS[parseInt(mo, 10) - 1]} '${yr.slice(2)}`;
+}
+
+function useBtCursor(count: number) {
+  const [cursor, setCursor] = useState<number | null>(null);
+  function idxAt(e: React.PointerEvent<SVGSVGElement>): number {
+    const box = e.currentTarget.getBoundingClientRect();
+    const px = ((e.clientX - box.left) / box.width) * BT_W;
+    const i = Math.round(((px - BT_PAD_L) / Math.max(BT_W - BT_PAD_L - BT_PAD_R, 1))
+      * Math.max(count - 1, 0));
+    return Math.max(0, Math.min(count - 1, i));
+  }
+  return { cursor, setCursor, idxAt };
+}
+
+/** Value vs contributed, monthly. Two lines sharing one money axis. Every
+ * displayed number is the API's own digits, grouped with thousands
+ * separators by string manipulation (`groupThousands`/`fmtMoney`) — never a
+ * float re-parsed and re-formatted; only pixel position comes from a parsed
+ * number. `currency` (when the experiment's base currency is known) is
+ * shown once per legend line rather than on every axis tick. */
+export function ValueContributedChart({ points, currency }: {
+  points: BacktestSeriesPoint[]; currency?: string | null;
+}) {
+  const days = points.map((p) => p.day);
+  const values = points.map((p) => numOrNull(p.value));
+  const contributed = points.map((p) => numOrNull(p.contributed));
+  const { cursor, setCursor, idxAt } = useBtCursor(points.length);
+
+  if (points.length === 0) {
+    return <p className="muted sm-chart-empty">No value series recorded for this strategy.</p>;
+  }
+  const nums = [...values, ...contributed].filter((v): v is number => v !== null);
+  const lo0 = Math.min(0, ...nums), hi0 = Math.max(0, ...nums);
+  const pad = (hi0 - lo0 || 1) * 0.08;
+  const lo = lo0 - pad, hi = hi0 + pad;
+  const x = (i: number) => BT_PAD_L + (i * (BT_W - BT_PAD_L - BT_PAD_R)) / Math.max(points.length - 1, 1);
+  const y = (v: number) => BT_PAD_T + ((hi - v) * (BT_H - BT_PAD_T - BT_PAD_B)) / Math.max(hi - lo, 0.0001);
+  const ticks = niceTicks(lo, hi);
+  const path = (arr: (number | null)[]) => arr.map((v, i) => (v === null ? null : `${x(i)},${y(v)}`))
+    .filter((p): p is string => p !== null).join(" ");
+  const tickCount = Math.max(2, Math.min(points.length,
+    Math.floor((BT_W - BT_PAD_L - BT_PAD_R) / 110) + 1));
+  const xTicks = [...new Set(Array.from({ length: tickCount }, (_, k) =>
+    Math.round((k * (points.length - 1)) / Math.max(tickCount - 1, 1))))];
+  const at = cursor ?? points.length - 1;
+
+  return (
+    <div className="sm-chart">
+      <svg viewBox={`0 0 ${BT_W} ${BT_H}`} className="sm-chart-svg" role="img"
+           aria-label="Portfolio value versus contributed capital, by month"
+           onPointerMove={(e) => setCursor(idxAt(e))} onPointerLeave={() => setCursor(null)}>
+        {ticks.map((t) => (
+          <g key={t}>
+            <line x1={BT_PAD_L} x2={BT_W - BT_PAD_R} y1={y(t)} y2={y(t)} className="sm-grid" />
+            <text x={BT_PAD_L - 8} y={y(t) + 4} className="sm-axis" textAnchor="end">
+              {groupThousands(t) ?? fmtMetric(t)}
+            </text>
+          </g>
+        ))}
+        {xTicks.map((idx) => (
+          <text key={idx} x={x(idx)} y={BT_H - 8} className="sm-axis"
+                textAnchor={idx === 0 ? "start" : idx === points.length - 1 ? "end" : "middle"}>
+            {monthLabel(days[idx])}
+          </text>
+        ))}
+        {cursor !== null && (
+          <line x1={x(cursor)} x2={x(cursor)} y1={BT_PAD_T} y2={BT_H - BT_PAD_B} className="sm-cursor" />
+        )}
+        <polyline fill="none" stroke="var(--ds-chart-8)" strokeDasharray="4 3" strokeWidth={1.6}
+                  className="sm-line" points={path(contributed)} />
+        <polyline fill="none" stroke="var(--ds-chart-1)" strokeWidth={1.8}
+                  className="sm-line" points={path(values)} />
+      </svg>
+      <ul className="sm-bt-legend">
+        <li className="sm-bt-legend-row">
+          <span className="sm-swatch" aria-hidden style={{ background: "var(--ds-chart-1)" }} />
+          <span className="sm-legend-sym">Value</span>
+          <span className="sm-legend-val">{fmtMoney(points[at]?.value, currency)}</span>
+        </li>
+        <li className="sm-bt-legend-row">
+          <span className="sm-swatch sm-swatch-dash" aria-hidden />
+          <span className="sm-legend-sym">Contributed</span>
+          <span className="sm-legend-val">{fmtMoney(points[at]?.contributed, currency)}</span>
+        </li>
+      </ul>
+      {cursor !== null && <p className="muted sm-note">{days[cursor]}</p>}
+    </div>
+  );
+}
+
+/** Drawdown DERIVED from the monthly value series: percent below the
+ * running peak-to-date at each sampled month. This is an approximation —
+ * monthly sampling can miss a deeper intra-month trough — never a
+ * substitute for the strategy's own `max_drawdown` metric (shown in the
+ * stat row), which the engine computes at daily resolution. */
+export function DrawdownChart({ points }: { points: BacktestSeriesPoint[] }) {
+  const days = points.map((p) => p.day);
+  const values = points.map((p) => numOrNull(p.value));
+  const { cursor, setCursor, idxAt } = useBtCursor(points.length);
+
+  const drawdown: (number | null)[] = [];
+  let peak: number | null = null;
+  for (const v of values) {
+    if (v === null) { drawdown.push(null); continue; }
+    peak = peak === null ? v : Math.max(peak, v);
+    drawdown.push(peak > 0 ? (v / peak - 1) * 100 : 0);
+  }
+  const known = drawdown.filter((v): v is number => v !== null);
+  if (known.length === 0) {
+    return <p className="muted sm-chart-empty">No value series recorded for this strategy.</p>;
+  }
+  const lo = Math.min(0, ...known) - 1, hi = 0;
+  const x = (i: number) => BT_PAD_L + (i * (BT_W - BT_PAD_L - BT_PAD_R)) / Math.max(points.length - 1, 1);
+  const y = (v: number) => BT_PAD_T + ((hi - v) * (BT_H - BT_PAD_T - BT_PAD_B)) / Math.max(hi - lo, 0.0001);
+  const ticks = niceTicks(lo, hi, 4);
+  const path = drawdown.map((v, i) => (v === null ? null : `${x(i)},${y(v)}`))
+    .filter((p): p is string => p !== null).join(" ");
+  const at = cursor ?? points.length - 1;
+
+  return (
+    <div className="sm-chart">
+      <svg viewBox={`0 0 ${BT_W} ${BT_H}`} className="sm-chart-svg" role="img"
+           aria-label="Drawdown from the running peak, derived from the monthly value series"
+           onPointerMove={(e) => setCursor(idxAt(e))} onPointerLeave={() => setCursor(null)}>
+        {ticks.map((t) => (
+          <g key={t}>
+            <line x1={BT_PAD_L} x2={BT_W - BT_PAD_R} y1={y(t)} y2={y(t)}
+                  className={t === 0 ? "sm-grid sm-grid-zero" : "sm-grid"} />
+            <text x={BT_PAD_L - 8} y={y(t) + 4} className="sm-axis" textAnchor="end">{t.toFixed(0)}%</text>
+          </g>
+        ))}
+        {cursor !== null && (
+          <line x1={x(cursor)} x2={x(cursor)} y1={BT_PAD_T} y2={BT_H - BT_PAD_B} className="sm-cursor" />
+        )}
+        <polyline fill="none" stroke="var(--ds-danger)" strokeWidth={1.6}
+                  className="sm-line" points={path} />
+      </svg>
+      <p className="muted sm-note">
+        {cursor !== null && drawdown[at] !== null
+          ? `${monthLabel(days[at])}: ${drawdown[at]!.toFixed(1)}% below peak (derived, approximate)`
+          : "Approximate — from month-end values, not the engine's daily max_drawdown above."}
+      </p>
     </div>
   );
 }

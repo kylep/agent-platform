@@ -13,14 +13,16 @@ import logging
 import uuid
 from datetime import datetime, timezone
 
+from stockmarketapp import backtests as bt
 from stockmarketapp import brief as bf
 from stockmarketapp.db import Brief
-from stockmarketapp.report import write_daily_market_report
+from stockmarketapp.report import write_backtest_report, write_daily_market_report
 
 log = logging.getLogger("stockmarket-ingest")
 
 TOPIC_INBOUND = "app.stockmarket.inbound"
 TOPIC_POSTED = "app.stockmarket.brief.posted"
+TOPIC_BACKTEST = "app.stockmarket.backtest"
 
 
 def _envelope(type_: str, key: str, data: dict) -> bytes:
@@ -117,4 +119,51 @@ class IngestLoop:
                 raise
             except Exception:
                 log.exception("ingest loop crashed; restarting in 10s")
+                await asyncio.sleep(10)
+
+
+class BacktestIngestLoop:
+    """Consume app.stockmarket.backtest forever: a small `backtest.completed`
+    notice per run (docs/design/35). The tool has already committed the
+    backtest_* rows in its own transaction before publishing — this loop's
+    only job is to render the report from those rows and record where it
+    landed. No producer: the app has nothing further to fan out."""
+
+    def __init__(self, sf, kafka_bootstrap: str):
+        self.sf = sf
+        self.bootstrap = kafka_bootstrap
+
+    async def handle(self, raw: bytes) -> None:
+        data = _unwrap(raw)
+        experiment_id = await bt.ingest_notice(self.sf, data)
+        if experiment_id is None:
+            log.info("backtest notice held no known experiment; skipped")
+            return
+        await write_backtest_report(self.sf, experiment_id)
+
+    async def run_forever(self) -> None:
+        from aiokafka import AIOKafkaConsumer
+        while True:
+            try:
+                consumer = AIOKafkaConsumer(
+                    TOPIC_BACKTEST, bootstrap_servers=self.bootstrap,
+                    group_id="stockmarket-app-backtest", enable_auto_commit=False,
+                    auto_offset_reset="earliest")
+                await consumer.start()
+                try:
+                    async for msg in consumer:
+                        try:
+                            await self.handle(msg.value)
+                        except Exception:
+                            # A poison notice is logged and skipped — the
+                            # tool's rows are already durable regardless of
+                            # what this loop does with them.
+                            log.exception("backtest notice handling failed; skipping")
+                        await consumer.commit()
+                finally:
+                    await consumer.stop()
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                log.exception("backtest ingest loop crashed; restarting in 10s")
                 await asyncio.sleep(10)

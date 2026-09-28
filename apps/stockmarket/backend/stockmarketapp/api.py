@@ -21,8 +21,10 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from pydantic import BaseModel
 from sqlalchemy import delete, func, select
 
+from stockmarketapp import backtests as bt
 from stockmarketapp.brief import _DAY_RE, SYMBOL_RE, TAGS
-from stockmarketapp.db import HIDDEN_KINDS, Bar, Brief, Symbol, Watch
+from stockmarketapp.db import (HIDDEN_KINDS, Bar, BacktestExperiment, Brief,
+                               Symbol, Watch)
 
 log = logging.getLogger("stockmarket-api")
 router = APIRouter(prefix="/apps/stockmarket/api")
@@ -103,6 +105,53 @@ class WatchIn(BaseModel):
     symbol: str
 
 
+class BacktestListItem(BaseModel):
+    id: str
+    name: str
+    created_at: str
+    strategies: list[dict]
+
+
+class BacktestDetail(BaseModel):
+    id: str
+    name: str
+    description: str
+    assumed: list
+    caveats: list
+    exclusions_summary: dict
+    report_id: str | None
+    created_at: str
+    strategies: list[dict]
+
+
+class BacktestEventsPage(BaseModel):
+    page: int
+    page_size: int
+    has_more: bool
+    events: list[dict]
+
+
+class BacktestMetricsView(BaseModel):
+    strategy_id: str | None
+    metrics: dict
+
+
+class BacktestSpecView(BaseModel):
+    id: str
+    spec: dict
+
+
+class BacktestSeriesView(BaseModel):
+    strategy_id: str
+    sample: str
+    points: list[dict]
+
+
+class RerunOut(BaseModel):
+    run_id: str | None
+    requested: bool
+
+
 def window_start(anchor: str, rng: str) -> str:
     """First day to include, given the anchor (latest session in the archive).
 
@@ -170,6 +219,32 @@ def _symbol_view(row: Symbol, latest: dict) -> dict:
     return {"symbol": row.symbol, "label": row.label, "kind": row.kind,
             "status": row.status, "error": row.error, "latest_day": day,
             "latest_close": close, "change_pct": change}
+
+
+@router.get("/help", dependencies=[Depends(require_gateway)])
+async def help_query():
+    """The app's query contract for query_app — agents need no companion
+    skill to browse charts, the brief or backtest experiments."""
+    return {
+        "paths": {
+            "summary": "Pinned indexes, your watchlist, and the archive's latest day.",
+            "series": "Closing prices per symbol over a range or a day_from/day_to window.",
+            "briefs": "The weekday market brief, filterable by day or tag.",
+            "backtests": "List backtest experiments (q= name search, limit=).",
+            "backtests/{id}": "Description, assumed, headline metrics, caveats, "
+                              "exclusions summary (<= 8 KB, all truncated; report only "
+                              "numbers this returns).",
+            "backtests/{id}/metrics": "The full metrics dict for one strategy "
+                                     "(strategy=; minus the pick timeline).",
+            "backtests/{id}/spec": "The stored spec, verbatim.",
+            "backtests/{id}/events": "Paged decision log (strategy=, page=).",
+            "backtests/{id}/series": "Portfolio value vs contributed "
+                                     "(strategy=, sample=monthly|daily).",
+        },
+        "guidance": "Report only numbers these endpoints returned; never restate a "
+                    "figure from a prompt or from memory.",
+        "views": {"backtest": "/apps/stockmarket/#/backtests/<id>"},
+    }
 
 
 @router.get("/summary", response_model=Summary)
@@ -348,3 +423,108 @@ async def remove_watch(request: Request, symbol: str,
         await s.execute(delete(Watch).where(Watch.user == user,
                                             Watch.symbol == symbol.strip().upper()))
         await s.commit()
+
+
+# --- backtests (docs/design/35): read-only for query_app + Kyle's rerun -----
+
+async def request_backtest_rerun(experiment_id: str) -> str | None:
+    """Ask `stockmarket-data` to rerun this experiment on fresh data, the same
+    operator-key pattern as `request_backfill`: best-effort, since a run
+    failing to start must not break the page (the stored experiment stays
+    exactly as it was)."""
+    token = os.environ.get("AP_API_TOKEN", "")
+    base = os.environ.get("AP_API_URL", "")
+    if not token or not base:
+        log.warning("no AP_API_TOKEN/AP_API_URL — cannot start a rerun for %s",
+                   experiment_id)
+        return None
+    try:
+        async with httpx.AsyncClient(base_url=base, timeout=20) as client:
+            r = await client.post(
+                "/api/runs", headers={"Authorization": f"Bearer {token}"},
+                json={"agent": "stockmarket-data",
+                     "prompt": f"Rerun backtest {experiment_id} with refresh: "
+                               "true (pull fresh prices before re-running)."})
+            r.raise_for_status()
+            run_id = r.json().get("id")
+            log.info("rerun run %s requested for backtest %s", run_id, experiment_id)
+            return run_id
+    except Exception:
+        log.exception("rerun request failed for backtest %s", experiment_id)
+        return None
+
+
+@router.get("/backtests", response_model=list[BacktestListItem],
+            dependencies=[Depends(require_gateway)])
+async def list_backtests(request: Request, q: str | None = None, limit: int = 20):
+    return await bt.list_experiments(_sf(request), q, limit)
+
+
+@router.get("/backtests/{experiment_id}", response_model=BacktestDetail,
+            dependencies=[Depends(require_gateway)])
+async def backtest_detail(request: Request, experiment_id: str):
+    out = await bt.get_detail(_sf(request), experiment_id)
+    if out is None:
+        raise HTTPException(404, "unknown experiment")
+    return out
+
+
+@router.get("/backtests/{experiment_id}/metrics", response_model=BacktestMetricsView,
+            dependencies=[Depends(require_gateway)])
+async def backtest_metrics(request: Request, experiment_id: str,
+                           strategy: str | None = None):
+    try:
+        out = await bt.get_metrics(_sf(request), experiment_id, strategy)
+    except ValueError as e:
+        raise HTTPException(422, str(e))
+    if out is None:
+        raise HTTPException(404, "unknown experiment")
+    return out
+
+
+@router.get("/backtests/{experiment_id}/spec", response_model=BacktestSpecView,
+            dependencies=[Depends(require_gateway)])
+async def backtest_spec(request: Request, experiment_id: str):
+    out = await bt.get_spec(_sf(request), experiment_id)
+    if out is None:
+        raise HTTPException(404, "unknown experiment")
+    return out
+
+
+@router.get("/backtests/{experiment_id}/events", response_model=BacktestEventsPage,
+            dependencies=[Depends(require_gateway)])
+async def backtest_events(request: Request, experiment_id: str,
+                          strategy: str | None = None, page: int = 1):
+    out = await bt.get_events(_sf(request), experiment_id, strategy, page)
+    if out is None:
+        raise HTTPException(404, "unknown experiment")
+    return out
+
+
+@router.get("/backtests/{experiment_id}/series", response_model=BacktestSeriesView,
+            dependencies=[Depends(require_gateway)])
+async def backtest_series(request: Request, experiment_id: str,
+                          strategy: str | None = None, sample: str = "monthly"):
+    if sample not in ("monthly", "daily"):
+        raise HTTPException(422, "sample must be monthly or daily")
+    try:
+        out = await bt.get_series(_sf(request), experiment_id, strategy, sample)
+    except ValueError as e:
+        raise HTTPException(422, str(e))
+    if out is None:
+        raise HTTPException(404, "unknown experiment")
+    return out
+
+
+@router.post("/backtests/{experiment_id}/rerun", response_model=RerunOut, status_code=202)
+async def rerun_backtest(request: Request, experiment_id: str,
+                         user: str = Depends(require_writer)):
+    """Operator-only, same guard as the watchlist backfill: a `reader` (which
+    includes agents reaching this through query_app) cannot spend the app's
+    operator key on a run."""
+    async with _sf(request)() as s:
+        exists = await s.get(BacktestExperiment, experiment_id)
+    if exists is None:
+        raise HTTPException(404, "unknown experiment")
+    run_id = await request_backtest_rerun(experiment_id)
+    return {"run_id": run_id, "requested": run_id is not None}

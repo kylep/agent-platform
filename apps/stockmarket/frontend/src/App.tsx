@@ -1,42 +1,35 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { HashRouter, Outlet, Route, Routes } from "react-router-dom";
 import { api, RANGES, type BriefView, type Range, type SeriesView,
          type Summary } from "./api";
 import { IndexChart } from "./chart";
-import { AddSymbol, BriefCard, StatTile, pct } from "./components";
+import { AddSymbol, BriefCard, Shell, StatTile, pct } from "./components";
+import { BacktestsCompare, BacktestExperimentPage, BacktestsList } from "./backtests";
 import { ChipButton } from "@ap/ui/chip";
-import { buildPlatformNav, SideNav, type AppNavInfo } from "@ap/ui/sidenav";
 
-// The stockmarket page (one route, deliberately): three pinned indexes and
-// your watchlist overlaid on one percent-change chart, the latest session as
-// numbers above it, and the day's brief below.
+// The stockmarket app: the original single-page Overview (three pinned
+// indexes and your watchlist overlaid on one percent-change chart, the
+// latest session as numbers above it, and the day's brief below) stays the
+// default route; Backtests (docs/design/35, T8) is a sibling tab.
+//
+// Routing is hash-based (`/apps/stockmarket/#/backtests/<id>`) on purpose:
+// the app is served by FastAPI's StaticFiles(html=True) behind nginx's
+// `/apps/<name>/` proxy (see main.py), which only falls back to index.html
+// for a path that resolves to a real directory — a deep link straight to
+// `/apps/stockmarket/backtests/<id>` 404s with no backend route added for
+// it. A hash fragment never leaves the browser, so it always re-resolves to
+// the one index.html the static mount already serves, and deep links to an
+// experiment or a compare view work without touching the backend's routing.
 
-function Shell({ children }: { children: React.ReactNode }) {
-  // The shared platform sidebar (from @ap/ui) wraps the app — same chrome as
-  // the console, with this app active under the Apps accordion.
-  const [apps, setApps] = useState<AppNavInfo[]>([{ name: "stockmarket", icon: "📈" }]);
-  useEffect(() => {
-    fetch("/api/apps", { credentials: "include" })
-      .then((r) => (r.ok ? r.json() : []))
-      .then((all: (AppNavInfo & { ui: boolean; ready: boolean | null })[]) =>
-        setApps(all.filter((a) => a.ui && a.ready)))
-      .catch(() => {});
-  }, []);
+function Layout() {
   return (
-    <div className="layout">
-      <SideNav entries={buildPlatformNav(apps)} activePath="/apps/stockmarket/" />
-      <main className="main">
-        <div className="sm-shell">
-          <header className="sm-top">
-            <span className="sm-brand">📈 Stockmarket</span>
-          </header>
-          {children}
-        </div>
-      </main>
-    </div>
+    <Shell>
+      <Outlet />
+    </Shell>
   );
 }
 
-export default function App() {
+function Overview() {
   const [summary, setSummary] = useState<Summary | null>(null);
   const [series, setSeries] = useState<SeriesView[]>([]);
   const [brief, setBrief] = useState<BriefView | null>(null);
@@ -124,7 +117,7 @@ export default function App() {
   }, [anyPending, load]);
 
   return (
-    <Shell>
+    <>
       {error && <div className="error">{error}</div>}
       {!loaded && <p className="muted">Loading…</p>}
 
@@ -219,6 +212,21 @@ export default function App() {
           )}
         </aside>
       </section>
-    </Shell>
+    </>
+  );
+}
+
+export default function App() {
+  return (
+    <HashRouter>
+      <Routes>
+        <Route element={<Layout />}>
+          <Route path="/" element={<Overview />} />
+          <Route path="/backtests" element={<BacktestsList />} />
+          <Route path="/backtests/compare" element={<BacktestsCompare />} />
+          <Route path="/backtests/:id" element={<BacktestExperimentPage />} />
+        </Route>
+      </Routes>
+    </HashRouter>
   );
 }
