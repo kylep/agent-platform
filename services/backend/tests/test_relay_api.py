@@ -1216,3 +1216,13 @@ async def test_notify_is_capped_per_principal_per_hour(admin_client, token_clien
         bodies = [m.body for m in (await s.execute(select(RelayMessage).where(
             RelayMessage.kind == "event").order_by(RelayMessage.created_at))).scalars()]
     assert bodies == ["run 0", "run 1", "run 2", "mine"]
+
+
+async def test_long_relay_message_is_stored_without_truncation(admin_client, sf):
+    cid = await _channel_id(sf, "general")
+    body = "🌸" * 64000
+    response = await admin_client.post(f"/api/relay/channels/{cid}/messages", json={"body": body})
+    assert response.status_code == 200, response.text
+    assert response.json()["body"] == body
+    oversized = await admin_client.post(f"/api/relay/channels/{cid}/messages", json={"body": body + "x"})
+    assert oversized.status_code == 422

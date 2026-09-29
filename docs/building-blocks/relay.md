@@ -168,3 +168,16 @@ emoji if the picture fails to load. Presence works the same way: an
 agent reads as **thinking** while it has an active run in the room, derived
 from the run rather than stored, so nothing has to be cleaned up when a pod
 dies.
+
+
+### Message length and agent context
+
+Messages and ticket comments accept up to 64,000 Unicode characters. The composer
+warns before sending an oversized message and retains the text for editing.
+Stored messages remain complete. Agent invocations receive the complete current
+request plus at most 48,000 characters of rendered older Relay history, also
+subject to the configured message count. Older history is omitted as whole
+messages, with a notice to retrieve it using the Relay read Tool when needed.
+`AP_RELAY_CONTEXT_CHARS` configures the history budget independently of message
+storage; it does not limit the complete execution prompt or accumulated harness
+session. Share artifacts for documents beyond the message limit.

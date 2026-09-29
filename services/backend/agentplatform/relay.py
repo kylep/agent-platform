@@ -441,7 +441,7 @@ def _wiki_block(pages) -> list[str]:
 def build_mention_prompt(*, channel, messages, mention, agent: str, hops_left: int,
                          participants, faces: dict | None = None,
                          ticket=None, ticket_events=(), your_tickets=(),
-                         wiki_pages=()) -> str:
+                         wiki_pages=(), history_chars: int = 48000) -> str:
     """The prompt for a run summoned by `mention`. Deterministic: the same room
     and the same messages produce the same bytes, so a golden test can hold the
     whole thing and a diff to it is a deliberate change of what agents are told.
@@ -458,6 +458,23 @@ def build_mention_prompt(*, channel, messages, mention, agent: str, hops_left: i
 
     `wiki_pages` is that bargain once more (docs/design/21): the pages the
     room's own words matched, or nothing at all."""
+    # Keep the current request complete; bound older rendered context separately.
+    # Whole messages preserve markup/attribution and never mutate stored logs.
+    history = [m for m in messages if m.id != mention.id]
+    kept, used = [], 0
+    for message in reversed(history):
+        rendered = _rendered(message)
+        if used + len(rendered) > history_chars:
+            break
+        kept.append(rendered)
+        used += len(rendered)
+    rendered_messages = list(reversed(kept))
+    if any(m.id == mention.id for m in messages):
+        rendered_messages.append(_rendered(mention))
+    omitted = len(messages) - len(rendered_messages)
+    notice = (["Older Relay history was omitted to bound context. "
+               "Use the Relay read Tool to retrieve earlier messages when needed."]
+              if omitted else [])
     return "\n".join([
         _where(channel, agent, participants),
         _roster(agent, participants, faces),
@@ -468,9 +485,10 @@ def build_mention_prompt(*, channel, messages, mention, agent: str, hops_left: i
         # about, so it is the first thing read — but it is somebody else's text,
         # and no untrusted block may precede the sentence that says so.
         *(_ticket_block(ticket, ticket_events) if ticket is not None else []),
+        *notice,
         f"<relay-messages channel={_attr(_label(channel))} "
-        f"count={_attr(len(messages))}>",
-        *[_rendered(m) for m in messages],
+        f"count={_attr(len(rendered_messages))}>",
+        *rendered_messages,
         "</relay-messages>",
         # Inside the untrusted region, between the room and the agent's own
         # queue: a page is other people's text, and the two lists read in the

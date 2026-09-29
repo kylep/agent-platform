@@ -67,3 +67,18 @@ test("owned Discord tool and connector secrets never reappear as unknown grants"
   await expect(page.getByRole("checkbox", { name: /old-custom-tool/ })).toBeVisible();
   await expect(page.getByRole("checkbox", { name: /old-custom-secret/ })).toBeVisible();
 });
+
+
+test("Relay warns before oversized sends and counts emoji as characters", async ({ page }) => {
+  await mockApi(page);
+  await page.goto("/relay?channel=rc1");
+  const box = page.getByRole("textbox", { name: "Message", exact: true });
+  await box.fill("x".repeat(64001));
+  await expect(page.getByRole("alert")).toContainText("64,001 characters; the limit is 64,000");
+  await expect(page.getByRole("button", { name: "Send", exact: true })).toBeDisabled();
+  await box.press("Enter");
+  await expect(box).toHaveValue("x".repeat(64001));
+  await box.fill("🌸".repeat(64000));
+  await expect(page.getByRole("alert")).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Send", exact: true })).toBeEnabled();
+});

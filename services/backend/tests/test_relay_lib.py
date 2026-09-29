@@ -650,3 +650,26 @@ def test_the_wiki_block_takes_rows_as_well_as_dicts():
             in build_mention_prompt(
                 channel=GENERAL, messages=[], mention=HISTORY[0], agent="news",
                 hops_left=1, participants=[], wiki_pages=[row]))
+
+
+def test_context_budget_keeps_current_request_complete_and_preserves_logs():
+    older = Msg("old", "user:admin", "<" * 50000)
+    recent = Msg("recent", "agent:pai", "short reply")
+    current = Msg("now", "user:admin", "new request " + "x" * 63000)
+    prompt = build_mention_prompt(channel=GENERAL, messages=[older, recent, current],
+        mention=current, agent="pai", hops_left=2, participants=[], history_chars=1000)
+    assert current.body in prompt
+    assert recent.body in prompt
+    assert 'id="old"' not in prompt
+    assert 'count="2"' in prompt
+    assert "Older Relay history was omitted" in prompt
+    assert older.body == "<" * 50000
+
+
+def test_context_budget_counts_escaped_history():
+    old = Msg("old", "user:admin", "<" * 100)
+    current = Msg("now", "user:admin", "hello")
+    prompt = build_mention_prompt(channel=GENERAL, messages=[old, current],
+        mention=current, agent="pai", hops_left=2, participants=[], history_chars=200)
+    assert 'id="old"' not in prompt
+    assert 'id="now"' in prompt

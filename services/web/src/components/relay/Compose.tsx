@@ -12,6 +12,7 @@ import { api, type RelayMessage } from "../../api";
 // `a@news.com` never opens a menu.
 const MENTION = /(?:^|[\s([{"'])@([A-Za-z0-9-]*)$/;
 const MAX_SUGGESTIONS = 8;
+const MESSAGE_MAX_CHARS = 64000;
 
 /** What to say when a send comes back 4xx. The API's 409s on a dm are both
  * "not now" — a turn already running, or a disabled agent — and neither is
@@ -41,6 +42,9 @@ export default function Compose({ channelId, archived, agents, mentionable,
 }) {
   const listId = useId();
   const [text, setText] = useState("");
+  // Python validation counts Unicode code points, not JavaScript UTF-16 units.
+  const length = Array.from(text.trim()).length;
+  const tooLong = length > MESSAGE_MAX_CHARS;
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [menu, setMenu] = useState<{ start: number; end: number; query: string } | null>(null);
@@ -90,7 +94,7 @@ export default function Compose({ channelId, archived, agents, mentionable,
 
   async function send() {
     const body = text.trim();
-    if (!body || busy) return;
+    if (!body || busy || tooLong) return;
     setBusy(true); setError(null);
     try {
       const posted = await api<RelayMessage>(
@@ -136,6 +140,7 @@ export default function Compose({ channelId, archived, agents, mentionable,
   return (
     <div className="relay-compose">
       {error && <div className="error">{error}</div>}
+      {tooLong && <p className="error" role="alert">Message is {length.toLocaleString()} characters; the limit is 64,000. Shorten it or save the longer content as an artifact and share its link.</p>}
       <div className="relay-compose-row">
         <div className="relay-compose-field">
           <Textarea
@@ -176,7 +181,7 @@ export default function Compose({ channelId, archived, agents, mentionable,
             </ul>
           )}
         </div>
-        <Button onClick={send} disabled={busy || !text.trim()}>{busy ? "Sending…" : "Send"}</Button>
+        <Button onClick={send} disabled={busy || !text.trim() || tooLong}>{busy ? "Sending…" : "Send"}</Button>
       </div>
     </div>
   );

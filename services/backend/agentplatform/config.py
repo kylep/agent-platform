@@ -131,6 +131,8 @@ class Settings(BaseSettings):
     relay_agent_cooldown_seconds: int = 20
     # How many recent channel messages a mention run is shown as context.
     relay_context_messages: int = 30
+    # Rendered history budget, separate from the complete current summons.
+    relay_context_chars: int = Field(default=48000, ge=0, le=256000)
     # Whether agent creation grants mcp__platform__relay. The grant is a real
     # row either way, so an admin can remove it per agent like any other.
     relay_default_grant: bool = True

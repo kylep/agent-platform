@@ -586,6 +586,7 @@ class RelayRouter:
         names |= {n for n in (agent_name(m.author) for m in window) if n}
         prompt = build_mention_prompt(
             channel=conv, messages=window, mention=mention, agent=agent,
+            history_chars=self.settings.relay_context_chars,
             hops_left=max(0, self.settings.relay_max_hops - hop - 1),
             participants=participants, faces=await faces_for(s, names),
             ticket=ticket,

@@ -979,7 +979,7 @@ class RelayChannelPatch(BaseModel):
 class RelayMessageIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
     # No author field, deliberately: authorship comes from the token.
-    body: str = Field(min_length=1, max_length=8000)
+    body: str = Field(min_length=1, max_length=64000)
     reply_to: str | None = None
 
 
@@ -1206,7 +1206,7 @@ class TicketAssignIn(BaseModel):
 class TicketCommentIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
     # No author field, deliberately: the same rule as a Relay message.
-    body: str = Field(min_length=1, max_length=8000)
+    body: str = Field(min_length=1, max_length=64000)
 
 
 # --- wiki (docs/design/21) ----------------------------------------------------
