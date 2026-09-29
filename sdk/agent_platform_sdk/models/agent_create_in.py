@@ -22,6 +22,7 @@ class AgentCreateIn:
 
         Attributes:
             name (str):
+            agent_self (bool | None | Unset):
             agent_type (str | Unset):  Default: 'worker'.
             artifacts (bool | None | Unset):
             can_invoke (bool | Unset):  Default: False.
@@ -56,6 +57,7 @@ class AgentCreateIn:
     """
 
     name: str
+    agent_self: bool | None | Unset = UNSET
     agent_type: str | Unset = "worker"
     artifacts: bool | None | Unset = UNSET
     can_invoke: bool | Unset = False
@@ -90,6 +92,12 @@ class AgentCreateIn:
 
     def to_dict(self) -> dict[str, Any]:
         name = self.name
+
+        agent_self: bool | None | Unset
+        if isinstance(self.agent_self, Unset):
+            agent_self = UNSET
+        else:
+            agent_self = self.agent_self
 
         agent_type = self.agent_type
 
@@ -204,6 +212,8 @@ class AgentCreateIn:
                 "name": name,
             }
         )
+        if agent_self is not UNSET:
+            field_dict["agent_self"] = agent_self
         if agent_type is not UNSET:
             field_dict["agent_type"] = agent_type
         if artifacts is not UNSET:
@@ -275,6 +285,15 @@ class AgentCreateIn:
 
         d = dict(src_dict)
         name = d.pop("name")
+
+        def _parse_agent_self(data: object) -> bool | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(bool | None | Unset, data)
+
+        agent_self = _parse_agent_self(d.pop("agent_self", UNSET))
 
         agent_type = d.pop("agent_type", UNSET)
 
@@ -405,6 +424,7 @@ class AgentCreateIn:
 
         agent_create_in = cls(
             name=name,
+            agent_self=agent_self,
             agent_type=agent_type,
             artifacts=artifacts,
             can_invoke=can_invoke,

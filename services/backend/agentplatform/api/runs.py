@@ -308,12 +308,24 @@ async def keep_codex_generated_image(request: Request, run_id: str,
 
 
 def _session_key(run: Run) -> dict:
-    """Resume only within a run's immutable authorization generation.
+    """Resume only within the run's authorized context generation.
 
     Historical two-column sessions remain audit records; never fall back to them.
+    Self-profile edits carry forward only their calling run, whose old session
+    is separately discarded before it can enter the new generation.
     """
     return {"channel_id": run.conversation_id, "agent": run.agent,
             "authorization_generation": run.authorization_generation or 0}
+
+
+async def _self_profile_changed(s, run):
+    # A run that changed its own model/persona may finish, but must never save
+    # its previous harness context into the new authorization generation.
+    from agentplatform.db import AgentVersion
+    return (await s.execute(select(AgentVersion.id).where(
+        AgentVersion.agent == run.agent,
+        AgentVersion.changed_via == "tool:agent_self",
+        AgentVersion.changed_by == f"run:{run.id}").limit(1))).first() is not None
 
 
 async def _current_run_or_403(s, run):
@@ -335,7 +347,8 @@ async def get_session(run_id: str, request: Request):
         if run is None or not run.conversation_id:
             raise HTTPException(status_code=404, detail="no conversation")
         await _current_run_or_403(s, run)
-        row = await s.get(RelaySession, _session_key(run))
+        row = (None if await _self_profile_changed(s, run)
+               else await s.get(RelaySession, _session_key(run)))
         await s.commit()
         cap = request.app.state.settings.session_blob_max_bytes
         if row is None or not row.session_blob or len(row.session_blob) > cap:
@@ -460,7 +473,8 @@ async def get_codex_session(run_id: str, request: Request):
         raise HTTPException(404, "no conversation")
     async with request.app.state.session_factory() as s:
         await _current_run_or_403(s, run)
-        row = await s.get(RelaySession, _session_key(run))
+        row = (None if await _self_profile_changed(s, run)
+               else await s.get(RelaySession, _session_key(run)))
         await s.commit()
     return {"thread_id": row.codex_thread_id if row else ""}
 
@@ -473,6 +487,8 @@ async def put_codex_session(run_id: str, body: CodexThread, request: Request):
         raise HTTPException(404, "no conversation")
     async with request.app.state.session_factory() as s:
         await _current_run_or_403(s, run)
+        if await _self_profile_changed(s, run):
+            return {"ok": True}
         key = _session_key(run)
         row = await s.get(RelaySession, key)
         if row is None:
@@ -511,6 +527,8 @@ async def put_session(run_id: str, body: S.SessionBlob, request: Request):
         if await s.get(Conversation, run.conversation_id) is None:
             raise HTTPException(status_code=404, detail="no conversation")
         await _current_run_or_403(s, run)
+        if await _self_profile_changed(s, run):
+            return {"ok": True, "reset": True}
         key = _session_key(run)
         reset = len(blob) > request.app.state.settings.session_blob_max_bytes
         session_id, stored = ("", None) if reset else (body.session_id, blob)

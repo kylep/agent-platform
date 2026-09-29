@@ -35,6 +35,7 @@ export default function NewAgent() {
         ...draft,
         // The platform grants memory by default. An unchecked box must be an
         // explicit opt-out; merely omitting it from the list would re-add it.
+        agent_self: draft.platform_tools.includes("mcp__platform__agent_self") ? undefined : false,
         memory: draft.platform_tools.includes("mcp__platform__memory") ? undefined : false,
       }) });
     } catch (err) {

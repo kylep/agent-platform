@@ -34,7 +34,7 @@ def test_the_participant_grants_are_selectable_but_do_not_promote():
                                         "mcp__platform__get_quota_usage",
                                         "mcp__platform__artifacts",
                                         "mcp__platform__image_gen",
-                                        "mcp__platform__quota_ok"]
+                                        "mcp__platform__quota_ok", "mcp__platform__agent_self"]
     for tool in PLATFORM_MCP_RELAY_TOOLS:
         assert tool in GRANTABLE_PLATFORM_TOOLS
         assert tool in AVAILABLE_TOOLS

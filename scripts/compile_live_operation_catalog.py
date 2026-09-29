@@ -99,6 +99,8 @@ def _effect_policy(source: str, tool: str, action: str) -> tuple[list[str], str]
             return ["reads_sensitive"], "private"
         if tool in {"runs_write", "health_incident"}:
             return ["mutates_platform"], "private"
+        if tool == "agent_self":
+            return (["reads_sensitive"] if action in ("get", "models") else ["mutates_platform"]), "private"
         if tool == "agents_edit":
             return (["reads_sensitive"] if action in ("get", "list")
                     else ["mutates_platform"]), "restricted"

@@ -23,7 +23,10 @@ def test_catalog_matches_broker_and_custom_manifest_actions():
         set(READ_FIELDS) | {"tickets.create@1", "relay.channel.post@1"})
     assert {item["id"] for item in compiled["operations"]
             if "unknown" in item["effects"]} == {
-        "core.query_app.call@1", "tool.linear.raw_graphql@1"}
+        "core.query_app.call@1", "tool.linear.raw_graphql@1",
+        # Design 35 introduced these Tools without a reviewed page contract.
+        "tool.backtest.describe_primitives@1", "tool.backtest.validate@1",
+        "tool.backtest.run@1", "tool.backtest.rerun@1"}
     assert all(not item["view_eligible"] for item in compiled["operations"]
                if item["source"] in ("mcp-core", "mcp-custom"))
     for item in compiled["operations"]:

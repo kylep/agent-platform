@@ -10,6 +10,7 @@ from fastapi import FastAPI
 from sqlalchemy import delete
 from starlette.background import BackgroundTasks
 from agentplatform.agents import AgentStore
+from agentplatform.api import agent_self as agent_self_api
 from agentplatform.api import agents as agents_api
 from agentplatform.api import apikeys as apikeys_api
 from agentplatform.api import apps as apps_api
@@ -241,7 +242,8 @@ def create_app(settings, session_factory, producer, secret_store=None, agent_sto
                           settings.wiki_default_grant,
                           quota_grant=settings.quota_default_grant,
                   artifacts_grant=settings.artifacts_default_grant,
-                  memory_grant=settings.memory_default_grant)
+                  memory_grant=settings.memory_default_grant,
+                  self_grant=settings.self_default_grant)
             st.session_factory = make_session_factory(engine)
             # After init_db, and here rather than in it: the `qa` row's
             # password lives in the secret store, which only the API holds
@@ -474,6 +476,7 @@ def create_app(settings, session_factory, producer, secret_store=None, agent_sto
     app.include_router(notify_api.router)
     app.include_router(webhooks_api.router)
     app.include_router(secrets_api.router)
+    app.include_router(agent_self_api.router)
     app.include_router(agents_api.router)
     app.include_router(runs_api.router)
     app.include_router(skills_api.router)

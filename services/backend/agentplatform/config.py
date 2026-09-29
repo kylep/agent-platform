@@ -136,6 +136,7 @@ class Settings(BaseSettings):
     # Whether agent creation grants mcp__platform__relay. The grant is a real
     # row either way, so an admin can remove it per agent like any other.
     relay_default_grant: bool = True
+    self_default_grant: bool = True
     # Tickets (docs/design/20). Opening a ticket is cheap and permanent, so an
     # agent stuck in a retry loop can bury the board in noise no human asked
     # for: creation gets its own hourly cap per agent, counted from the ticket

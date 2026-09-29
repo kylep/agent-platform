@@ -41,7 +41,7 @@ from agentplatform.api.schemas import (AgentCreateIn, AgentDefIn, AgentDefOut,
                                        AgentModels, AgentSummary,
                                        AgentVersionDetail, AgentVersionRow,
                                        WebhookSecretIn, WebhookSecretState)
-from agentplatform.db import AgentDef, AgentVersion, ChatIdentity
+from agentplatform.db import AgentDef, AgentVersion, ChatIdentity, Run
 
 log = logging.getLogger("agents-api")
 router = APIRouter()
@@ -117,7 +117,8 @@ DEFAULT_GRANTS = ((TOOL_RELAY, "relay_default_grant"),
                   (TOOL_WIKI, "wiki_default_grant"),
                   (TOOL_QUOTA, "quota_default_grant"),
                   (TOOL_ARTIFACTS, "artifacts_default_grant"),
-                  ("mcp__platform__memory", "memory_default_grant"))
+                  ("mcp__platform__memory", "memory_default_grant"),
+                  ("mcp__platform__agent_self", "self_default_grant"))
 
 # The definition fields that are GRANTS — capability, not identity. Changing
 # one is an authorization decision (`agents_grant`); changing anything else is
@@ -789,6 +790,11 @@ async def set_agent_image(request: Request, name: str, body: AgentImageIn):
                 raise HTTPException(404, "unknown artifact")
             if art.kind != "image":
                 raise HTTPException(422, "an agent's image must be an image artifact")
+            if art.run_id:
+                from agentplatform.authority import assert_readable_run
+                source_run = await s.get(Run, art.run_id)
+                if source_run is not None:
+                    await assert_readable_run(s, request, source_run)
             view = artifact_store.artifact_view(art)
         row.image_artifact_id = body.artifact_id
         await s.commit()

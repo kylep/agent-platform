@@ -1274,6 +1274,8 @@ const FIXTURES: Record<string, unknown> = {
       + " red, and following it opens the editor.",
   },
   "/api/help/tools": [
+    { name: "mcp__platform__agent_self", kind: "platform", sensitive: false,
+      display_name: "Self-management", description: "Manage your own avatar, model and persona." },
     { name: "mcp__platform__memory", kind: "platform", sensitive: false,
       display_name: "Memory", description: "Private persistent memory across runs." },
     { name: "Bash", kind: "claude", sensitive: true,

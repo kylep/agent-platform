@@ -2,6 +2,101 @@
   "schema_version": 1,
   "operations": [
     {
+      "id": "core.agent_self.avatar@1",
+      "source": "mcp-core",
+      "tool": "agent_self",
+      "action": "avatar",
+      "category": "platform_capability",
+      "effects": [
+        "mutates_platform"
+      ],
+      "output_classification": "private",
+      "view_eligible": false,
+      "reason": "No reviewed human page adapter",
+      "input_schema": null,
+      "output_schema": null,
+      "target_scope": null,
+      "supported_callers": [],
+      "limits": null,
+      "snapshot_eligible": false
+    },
+    {
+      "id": "core.agent_self.get@1",
+      "source": "mcp-core",
+      "tool": "agent_self",
+      "action": "get",
+      "category": "platform_capability",
+      "effects": [
+        "reads_sensitive"
+      ],
+      "output_classification": "private",
+      "view_eligible": false,
+      "reason": "No reviewed human page adapter",
+      "input_schema": null,
+      "output_schema": null,
+      "target_scope": null,
+      "supported_callers": [],
+      "limits": null,
+      "snapshot_eligible": false
+    },
+    {
+      "id": "core.agent_self.model@1",
+      "source": "mcp-core",
+      "tool": "agent_self",
+      "action": "model",
+      "category": "platform_capability",
+      "effects": [
+        "mutates_platform"
+      ],
+      "output_classification": "private",
+      "view_eligible": false,
+      "reason": "No reviewed human page adapter",
+      "input_schema": null,
+      "output_schema": null,
+      "target_scope": null,
+      "supported_callers": [],
+      "limits": null,
+      "snapshot_eligible": false
+    },
+    {
+      "id": "core.agent_self.models@1",
+      "source": "mcp-core",
+      "tool": "agent_self",
+      "action": "models",
+      "category": "platform_capability",
+      "effects": [
+        "reads_sensitive"
+      ],
+      "output_classification": "private",
+      "view_eligible": false,
+      "reason": "No reviewed human page adapter",
+      "input_schema": null,
+      "output_schema": null,
+      "target_scope": null,
+      "supported_callers": [],
+      "limits": null,
+      "snapshot_eligible": false
+    },
+    {
+      "id": "core.agent_self.persona@1",
+      "source": "mcp-core",
+      "tool": "agent_self",
+      "action": "persona",
+      "category": "platform_capability",
+      "effects": [
+        "mutates_platform"
+      ],
+      "output_classification": "private",
+      "view_eligible": false,
+      "reason": "No reviewed human page adapter",
+      "input_schema": null,
+      "output_schema": null,
+      "target_scope": null,
+      "supported_callers": [],
+      "limits": null,
+      "snapshot_eligible": false
+    },
+    {
       "id": "core.agents_edit.create@1",
       "source": "mcp-core",
       "tool": "agents_edit",
@@ -1765,6 +1860,82 @@
         "intent_ttl_seconds": 300,
         "provider_spend": false
       },
+      "snapshot_eligible": false
+    },
+    {
+      "id": "tool.backtest.describe_primitives@1",
+      "source": "mcp-custom",
+      "tool": "backtest",
+      "action": "describe_primitives",
+      "category": "service_connector",
+      "effects": [
+        "unknown"
+      ],
+      "output_classification": "restricted",
+      "view_eligible": false,
+      "reason": "No reviewed human page adapter",
+      "input_schema": null,
+      "output_schema": null,
+      "target_scope": null,
+      "supported_callers": [],
+      "limits": null,
+      "snapshot_eligible": false
+    },
+    {
+      "id": "tool.backtest.rerun@1",
+      "source": "mcp-custom",
+      "tool": "backtest",
+      "action": "rerun",
+      "category": "service_connector",
+      "effects": [
+        "unknown"
+      ],
+      "output_classification": "restricted",
+      "view_eligible": false,
+      "reason": "No reviewed human page adapter",
+      "input_schema": null,
+      "output_schema": null,
+      "target_scope": null,
+      "supported_callers": [],
+      "limits": null,
+      "snapshot_eligible": false
+    },
+    {
+      "id": "tool.backtest.run@1",
+      "source": "mcp-custom",
+      "tool": "backtest",
+      "action": "run",
+      "category": "service_connector",
+      "effects": [
+        "unknown"
+      ],
+      "output_classification": "restricted",
+      "view_eligible": false,
+      "reason": "No reviewed human page adapter",
+      "input_schema": null,
+      "output_schema": null,
+      "target_scope": null,
+      "supported_callers": [],
+      "limits": null,
+      "snapshot_eligible": false
+    },
+    {
+      "id": "tool.backtest.validate@1",
+      "source": "mcp-custom",
+      "tool": "backtest",
+      "action": "validate",
+      "category": "service_connector",
+      "effects": [
+        "unknown"
+      ],
+      "output_classification": "restricted",
+      "view_eligible": false,
+      "reason": "No reviewed human page adapter",
+      "input_schema": null,
+      "output_schema": null,
+      "target_scope": null,
+      "supported_callers": [],
+      "limits": null,
       "snapshot_eligible": false
     },
     {

@@ -85,6 +85,7 @@ TOOL_QUOTA = "mcp__platform__get_quota_usage"
 # agent itself and nothing else; `artifacts` is default-granted, `image_gen`
 # is the artist's, and either on the wide rung would hand its holder the
 # run/metrics surface for the sake of a picture.
+TOOL_SELF = "mcp__platform__agent_self"
 TOOL_ARTIFACTS = "mcp__platform__artifacts"
 TOOL_IMAGE_GEN = "mcp__platform__image_gen"
 # The gate (docs/design/24): the reading above turned into one boolean against
@@ -94,7 +95,7 @@ TOOL_IMAGE_GEN = "mcp__platform__image_gen"
 TOOL_QUOTA_OK = "mcp__platform__quota_ok"
 PLATFORM_MCP_RELAY_TOOLS: list[str] = [TOOL_RELAY, TOOL_TICKETS, TOOL_WIKI,
                                        TOOL_QUOTA, TOOL_ARTIFACTS, TOOL_IMAGE_GEN,
-                                       TOOL_QUOTA_OK]
+                                       TOOL_QUOTA_OK, TOOL_SELF]
 
 # Every code-defined broker tool an agent may be granted, whatever rung it
 # lands the holder on. This — not PLATFORM_MCP_TOOLS — is the grantability
@@ -194,6 +195,9 @@ TOOL_HELP: list[dict] = [
      "description": "Platform health metrics: run volumes/success/tokens "
                     "(overview), per-agent metrics incl. failure streaks, or "
                     "event-bus health (lag, DLQ backlog). Read-only."},
+    {"name": TOOL_SELF, "kind": "platform", "display_name": "Self-management",
+     "description": "Read your own profile; set your avatar, model/runtime or persona prompt/description. "
+                    "Changes apply next run, are versioned, and never change grants or other agents."},
     {"name": "mcp__platform__discord", "kind": "platform",
      "description": "Owned Discord account discovery, history and guarded sends. "
                     "Derived from persona account ownership; never an independent grant."},

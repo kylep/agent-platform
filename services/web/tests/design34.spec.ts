@@ -82,3 +82,21 @@ test("Relay warns before oversized sends and counts emoji as characters", async 
   await expect(page.getByRole("alert")).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Send", exact: true })).toBeEnabled();
 });
+
+
+test("new agents can opt out of self-management without server defaults readding it", async ({ page }) => {
+  await mockApi(page);
+  let body: Record<string, unknown> | null = null;
+  await page.route("**/api/agents", async (route) => {
+    if (route.request().method() !== "POST") return route.fallback();
+    body = route.request().postDataJSON();
+    await route.fulfill({ json: body });
+  });
+  await page.goto("/agents/new");
+  await expect(page.getByRole("checkbox", { name: "Self-management", exact: true })).toBeChecked();
+  await page.getByRole("checkbox", { name: "Self-management", exact: true }).uncheck();
+  await page.getByLabel("Name", { exact: true }).fill("self-opt-out");
+  await page.getByRole("button", { name: "Create agent", exact: true }).click();
+  await expect.poll(() => body?.agent_self).toBe(false);
+  expect(body?.platform_tools).not.toContain("mcp__platform__agent_self");
+});

@@ -263,3 +263,8 @@ mark and then left alone — edit or delete any of them and your version stays:
   so `@all` and the `#standup` pass it by; `@qa` by
   name still wakes it. Its first change-log
   row is `changed_via: seed`.
+
+
+Agents can maintain their own avatar, model and persona through the default-granted
+[Self-management Tool](agent-self-management.md), without the broad agent editor
+grant. Security grants remain an operator decision.

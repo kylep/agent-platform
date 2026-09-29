@@ -51,7 +51,7 @@ def definitions() -> dict[str, dict]:
     from agentplatform.db import (CODEX_ARTIST_DESCRIPTION, CODEX_ARTIST_PROMPT,
                                   WIKI_AGENT_DESCRIPTION, WIKI_AGENT_PROMPT)
     prompts = json.loads(Path(__file__).with_name("system_agent_prompts.json").read_text())
-    common = ["mcp__platform__relay", "mcp__platform__tickets", "mcp__platform__wiki",
+    common = ["mcp__platform__agent_self", "mcp__platform__relay", "mcp__platform__tickets", "mcp__platform__wiki",
               "mcp__platform__get_quota_usage", "mcp__platform__artifacts",
               "mcp__platform__memory"]
     specs = {
@@ -69,7 +69,7 @@ def definitions() -> dict[str, dict]:
                      platform_tools=common),
         "codex-artist": dict(prompt=CODEX_ARTIST_PROMPT, description=CODEX_ARTIST_DESCRIPTION,
             runtime="codex", model="gpt-5.6-luna", timeout_seconds=420,
-            platform_tools=["mcp__platform__artifacts", "mcp__platform__relay",
+            platform_tools=["mcp__platform__agent_self", "mcp__platform__artifacts", "mcp__platform__relay",
                             "mcp__platform__memory"]),
     }
     return {name: AgentDefModel(name=name, agent_type="worker", system=True,

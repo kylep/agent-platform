@@ -3352,11 +3352,11 @@ def _relay_message(channel_id, author, body, created_at, run_id=None) -> dict:
 async def init_db(engine: AsyncEngine, default_grant: bool = True,
                   tickets_grant: bool = True, wiki_grant: bool = True,
                   quota_grant: bool = True, artifacts_grant: bool = True,
-                  memory_grant: bool = True) -> None:
+                  memory_grant: bool = True, self_grant: bool = True) -> None:
     """Bring the schema up to date and run the one-off backfills.
 
     `default_grant`, `tickets_grant`, `wiki_grant`, `quota_grant`,
-    `artifacts_grant`, and `memory_grant` are the
+    `artifacts_grant`, `memory_grant`, and `self_grant` are the
     default-grant settings (`settings.relay_default_grant` and its siblings) —
     passed in rather than read, because this runs in three services (API,
     dispatcher, recorder) and none of them hands `db` a settings object. They
@@ -3463,4 +3463,6 @@ async def init_db(engine: AsyncEngine, default_grant: bool = True,
         # also requires clearing their stored grants before git-sync drops them.
         await conn.run_sync(_retire_seeded_skills)
         await conn.run_sync(migrate_authority)
+        await conn.run_sync(lambda c: _grant_to_every_agent(c, "mcp__platform__agent_self",
+            "agent-self-default-v1", changed_by="platform:self-default-grant", default_grant=self_grant))
         await conn.run_sync(reconcile_system_agents)

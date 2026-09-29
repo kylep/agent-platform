@@ -40,7 +40,7 @@ export function emptyDef(): AgentDef {
     name: "", prompt: "", description: "", agent_type: "worker", runtime: "claude", model: "", role: "operator",
     system: false, external_observer: false, responds_to_all: true, can_invoke: false, concurrency: 1, timeout_seconds: 1800,
     result_topic: "", transcript_retention_days: null,
-    harness_tools: [], platform_tools: ["mcp__platform__memory"], skills: [], secrets: [],
+    harness_tools: [], platform_tools: ["mcp__platform__memory", "mcp__platform__agent_self"], skills: [], secrets: [],
     discord_identity_id: null,
     entrypoints: { ...EMPTY_ENTRYPOINTS }, enabled: true,
     push_path_globs: [], may_delete_tests: false, quota_5h_max_pct: 80, quota_7d_max_pct: 50,
