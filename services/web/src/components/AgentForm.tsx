@@ -25,6 +25,8 @@ const EXECUTION_PROFILES = [
   { value: "dev", label: "Workbench developer" },
 ];
 
+const isDiscordTool = (name: string) => name === "mcp__platform__discord" || name.includes("discord_chat");
+
 const EMPTY_ENTRYPOINTS: AgentEntrypoints = { crons: [], webhooks: [], topics: [], timezone: "" };
 const CONNECTION_SECRET_NAMES = new Set([
   ...CONNECTION_GUIDES.flatMap((guide) => guide.secrets),
@@ -502,8 +504,8 @@ export function GrantsFields({ draft, patch, catalog }: {
       </>}
 
       <HelpLabel label="Platform tools" help="platform-tools" />
-      <ToolGrantPicker tools={catalog.platformTools.filter((tool) => !tool.name.includes("discord_chat") && tool.name !== "mcp__platform__discord")} selected={draft.platform_tools} platform
-                       onChange={(platform_tools) => patch({ platform_tools })} />
+      <ToolGrantPicker tools={catalog.platformTools.filter((tool) => !isDiscordTool(tool.name))} selected={draft.platform_tools.filter((name) => !isDiscordTool(name))} platform
+                       onChange={(platform_tools) => patch({ platform_tools: [...platform_tools, ...draft.platform_tools.filter(isDiscordTool)] })} />
       {draft.agent_type === "persona" && <div className="connection-grant">
         <label htmlFor="discord-identity-grant">Owned Discord account</label>
         <Select id="discord-identity-grant" value={draft.discord_identity_id ?? ""}
@@ -528,7 +530,7 @@ export function GrantsFields({ draft, patch, catalog }: {
       <HelpLabel label="Secrets" help="secrets" />
       <SecretPicker secrets={catalog.secrets.filter(
         (secret) => !CONNECTION_SECRET_NAMES.has(secret.name) && !catalog.chatIdentities.some((account) => Object.values(account.secret_refs).some((ref) => ref.secret === secret.name)),
-      )} selected={draft.secrets}
+      )} selected={draft.secrets.filter((name) => !CONNECTION_SECRET_NAMES.has(name) && !catalog.chatIdentities.some((account) => Object.values(account.secret_refs).some((ref) => ref.secret === name)))}
                     onChange={(secrets) => patch({ secrets })} />
       <p className="muted check-note">
         Granted secrets are injected into the run pod's environment. Connector credentials are

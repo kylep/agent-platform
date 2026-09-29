@@ -46,3 +46,24 @@ test("account unassignment sends explicit null ownership", async ({ page }) => {
   await page.getByRole("button", { name: "Save account", exact: true }).click();
   await expect.poll(() => body?.owner_agent).toBe(null);
 });
+
+
+test("owned Discord tool and connector secrets never reappear as unknown grants", async ({ page }) => {
+  await mockApi(page);
+  await page.route("**/api/chat-identities", (route) => route.fulfill({ json: [{ id: "discord-default", connector: "discord", display_name: "Pai", status: "active", configured: true, secret_refs: { bot_token: { secret: "custom-bot-credential", key: "token" } } }] }));
+  await page.route("**/api/agents/pai", async (route) => {
+    if (route.request().method() !== "GET") return route.fallback();
+    const def = { name: "pai", prompt: "Chat", runtime: "codex", role: "operator", enabled: true, system: false };
+    await route.fulfill({ json: { ...def, agent_type: "persona",
+      platform_tools: ["mcp__platform__discord", "mcp__platform__discord_chat", "old-custom-tool"],
+      secrets: ["discord-bot", "discord-webhook", "custom-bot-credential", "old-custom-secret"],
+      discord_identity_id: "discord-default" } });
+  });
+  await page.goto("/agents/pai");
+  await expect(page.getByLabel("Owned Discord account")).toBeVisible();
+  for (const name of ["mcp__platform__discord", "mcp__platform__discord_chat", "discord-bot", "discord-webhook", "custom-bot-credential"]) {
+    await expect(page.getByRole("checkbox", { name: new RegExp(name) })).toHaveCount(0);
+  }
+  await expect(page.getByRole("checkbox", { name: /old-custom-tool/ })).toBeVisible();
+  await expect(page.getByRole("checkbox", { name: /old-custom-secret/ })).toBeVisible();
+});
