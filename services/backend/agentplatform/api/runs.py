@@ -28,6 +28,7 @@ from agentplatform.events import TOPIC_RUN_REQUESTS
 from agentplatform.github import GitHubClient
 from agentplatform.secrets import CODEX_CREDENTIAL
 from agentplatform.materialize import materialize_run
+from agentplatform.model_fallback import notice as fallback_notice
 
 log = logging.getLogger("runs")
 
@@ -62,6 +63,9 @@ class RunAgentDef(BaseModel):
     platform_tools: list[str] = []
     skills: list[str] = []
     model: str = ""
+    runtime: str = "claude"
+    fallback_notice: str = ""
+    fallback_used: bool = False
 
 class CodexAuth(BaseModel):
     auth_json: str
@@ -200,6 +204,8 @@ async def get_run(request: Request, run_id: str):
                   "requested_by": run.requested_by,
                   "initiated_by": run.initiated_by,
                   "runtime": run.runtime or "",
+                  "fallback_used": bool(run.fallback_used),
+                  "fallback_reason": run.fallback_reason,
                   "requested_model": run.requested_model or "",
                   "model": run.model or "",
                   "agent_version": run.agent_version,
@@ -351,7 +357,7 @@ async def get_session(run_id: str, request: Request):
                else await s.get(RelaySession, _session_key(run)))
         await s.commit()
         cap = request.app.state.settings.session_blob_max_bytes
-        if row is None or not row.session_blob or len(row.session_blob) > cap:
+        if run.fallback_used or row is None or not row.session_blob or len(row.session_blob) > cap:
             return {"session_id": None, "blob_b64": None}
         return {"session_id": row.claude_session_id,
                 "blob_b64": base64.b64encode(row.session_blob).decode()}
@@ -381,7 +387,10 @@ async def get_agentdef(run_id: str, request: Request):
                            description=frozen.description,
                            harness_tools=frozen.harness_tools,
                            platform_tools=frozen.platform_tools,
-                           skills=frozen.skills, model=frozen.model)
+                           skills=frozen.skills, model=run.model or frozen.model,
+                           runtime=run.runtime or frozen.runtime,
+                           fallback_used=bool(run.fallback_used),
+                           fallback_notice=fallback_notice(run))
     # Compatibility for runs queued before design 27 was deployed.
     store = request.app.state.agent_store
     info = store.get(run.agent)
@@ -399,6 +408,32 @@ async def get_agentdef(run_id: str, request: Request):
                        platform_tools=info.platform_tools,
                        skills=list(m.skills) if m else [],
                        model=m.model if m else "")
+
+
+class FallbackIn(BaseModel):
+    reason: str
+
+
+@router.post("/api/runs/{run_id}/model-fallback",
+             dependencies=[Depends(require_role("session"))])
+async def use_model_fallback(run_id: str, body: FallbackIn, request: Request):
+    from agentplatform.model_fallback import activate
+    _own_run_or_403(request, run_id)
+    async with request.app.state.session_factory() as session:
+        run = await session.get(Run, run_id)
+        if run is None:
+            raise HTTPException(404, "unknown run")
+        await _current_run_or_403(session, run)
+        run = await session.get(Run, run_id, with_for_update=True, populate_existing=True)
+        if run.state not in ACTIVE_STATES or run.tool_calls or run.result:
+            raise HTTPException(409, "fallback is only available before work begins")
+        result = await activate(session, run, body.reason)
+        proxy = (request.app.state.settings.codex_proxy_url if run.runtime == "codex"
+                 else request.app.state.settings.claude_proxy_url)
+        if not proxy:
+            raise HTTPException(409, "backup requires a configured subscription proxy")
+        await session.commit()
+        return result
 
 
 async def _codex_run_or_404(request: Request, run_id: str) -> Run:
@@ -476,7 +511,7 @@ async def get_codex_session(run_id: str, request: Request):
         row = (None if await _self_profile_changed(s, run)
                else await s.get(RelaySession, _session_key(run)))
         await s.commit()
-    return {"thread_id": row.codex_thread_id if row else ""}
+    return {"thread_id": row.codex_thread_id if row and not run.fallback_used else ""}
 
 
 @router.put("/api/runs/{run_id}/codex-session",
@@ -487,7 +522,7 @@ async def put_codex_session(run_id: str, body: CodexThread, request: Request):
         raise HTTPException(404, "no conversation")
     async with request.app.state.session_factory() as s:
         await _current_run_or_403(s, run)
-        if await _self_profile_changed(s, run):
+        if run.fallback_used or await _self_profile_changed(s, run):
             return {"ok": True}
         key = _session_key(run)
         row = await s.get(RelaySession, key)
@@ -527,7 +562,7 @@ async def put_session(run_id: str, body: S.SessionBlob, request: Request):
         if await s.get(Conversation, run.conversation_id) is None:
             raise HTTPException(status_code=404, detail="no conversation")
         await _current_run_or_403(s, run)
-        if await _self_profile_changed(s, run):
+        if run.fallback_used or await _self_profile_changed(s, run):
             return {"ok": True, "reset": True}
         key = _session_key(run)
         reset = len(blob) > request.app.state.settings.session_blob_max_bytes

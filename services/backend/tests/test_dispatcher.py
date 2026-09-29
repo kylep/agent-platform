@@ -216,3 +216,41 @@ async def test_gate_disabled_when_recheck_nonpositive(sf, agent_store):
     rid = await make_run(sf)
     await d.handle({"type": "run", "run_id": rid})
     assert d.launcher.launched == [rid]       # gate off → dispatches despite invalid
+
+
+async def test_invalid_primary_can_dispatch_frozen_backup(sf, disp):
+    from agentplatform.db import AgentDef, SecretMeta
+    from agentplatform.secrets import CODEX_CREDENTIAL
+    async with sf() as s:
+        agent = await s.get(AgentDef, 'hello-world')
+        agent.runtime, agent.model = 'codex', 'gpt-6-sol'
+        agent.backup_runtime, agent.backup_model = 'claude', 'claude-sonnet-5-5'
+        s.add(SecretMeta(name=CODEX_CREDENTIAL, status='invalid'))
+        await s.commit()
+    disp.settings.claude_proxy_url = 'http://claude-proxy'
+    disp._cred_probe_at[CODEX_CREDENTIAL] = float('inf')
+    rid = await make_run(sf)
+    await disp.handle({'run_id': rid})
+    async with sf() as s:
+        run = await s.get(Run, rid)
+        assert run.state == RunState.DISPATCHED
+        assert run.runtime == 'claude' and run.model == 'claude-sonnet-5-5'
+        assert run.fallback_used and run.fallback_reason == 'authentication'
+        assert run.definition_snapshot['model'] == 'gpt-6-sol'
+    assert disp.launcher.launched == [rid]
+
+
+async def test_override_that_already_selects_backup_does_not_retry_same_model(sf, disp):
+    from agentplatform.db import AgentDef
+    async with sf() as s:
+        row = await s.get(AgentDef, 'hello-world')
+        row.runtime, row.model = 'codex', 'gpt-6-astra'
+        row.backup_runtime, row.backup_model = 'codex', 'gpt-6-sol'
+        run = Run(agent=row.name, trigger='manual', requested_by='t', prompt='hi', requested_model='gpt-6-sol', state=RunState.QUEUED)
+        s.add(run); await s.commit(); rid = run.id
+    await disp.handle({'run_id': rid})
+    async with sf() as s:
+        run = await s.get(Run, rid)
+        assert run.definition_snapshot['model'] == 'gpt-6-sol'
+        assert run.definition_snapshot['backup_runtime'] is None
+        assert run.definition_snapshot['backup_model'] == ''

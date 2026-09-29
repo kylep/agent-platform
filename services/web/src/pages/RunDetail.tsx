@@ -188,6 +188,8 @@ function ReadableTranscript({ events }: { events: RunEvent[] }) {
       });
     } else if (f.type === "result") {
       rendered.push(<FinalResult key={i} frame={f} />);
+    } else if (f.type === "model_fallback") {
+      rendered.push(<Banner key={i}>Primary model could not start ({String(f.reason)}). Continuing with {String(f.model)} via {String(f.runtime)}.</Banner>);
     } else if (f.type === "workbench") {
       rendered.push(<WorkbenchFrame key={i} frame={f} />);
     } else if (f.type !== "user") {

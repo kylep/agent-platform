@@ -1128,3 +1128,50 @@ def test_dev_run_without_the_grant_never_writes_the_server(tmp_path, monkeypatch
     assert not any(v.get("step") == "web login" for _, _, v in p.published)
     assert "QA_WEB_PASSWORD" not in seen["env"]
     assert not (ws / "qa" / "mcp.json").exists()
+
+
+@pytest.mark.parametrize("began", [False, True])
+def test_cross_provider_fallback_before_work_only(tmp_path, monkeypatch, began):
+    first = ({"type": "assistant", "message": {"content": [{"type": "tool_use", "name": "memory"}]}} if began else {"type": "system"})
+    error = {"type": "result", "is_error": True, "result": "Provider overloaded (529)", "session_id": "failed"}
+    _session_env(monkeypatch, tmp_path, '#!/bin/sh\necho ' + repr(json.dumps(first)) + '\necho ' + repr(json.dumps(error)) + '\nexit 1\n')
+    monkeypatch.setenv("AP_RUNTIME", "claude")
+    monkeypatch.setenv("AP_MODEL", "claude-sonnet-5-5")
+    monkeypatch.setenv("AP_CODEX_PROXY_URL", "http://codex-proxy")
+    codex = tmp_path / "codex"
+    codex.write_text('#!/bin/sh\necho \'{"type":"thread.started","thread_id":"backup"}\'\necho \'{"type":"item.completed","item":{"type":"agent_message","text":"PASS"}}\'\nexit 0\n')
+    codex.chmod(0o755)
+    monkeypatch.setenv("CODEX_BIN", str(codex))
+    monkeypatch.setattr(runner, "_restore_session", lambda *_: None)
+    monkeypatch.setattr(runner, "_upload_codex_thread", lambda *_: pytest.fail("backup must not overwrite primary session"))
+    calls = []
+    def api(method, path, body=None):
+        calls.append((method, path, body))
+        if path.endswith("model-fallback"):
+            return {"runtime": "codex", "model": "gpt-6-sol", "notice": "Platform fallback: retain your persona."}
+        return {}
+    monkeypatch.setattr(runner, "_api_req", api)
+    p = FakeProducer()
+    assert runner.run(producer=p) == (1 if began else 0)
+    events = [value for _, _, value in p.published]
+    assert sum(e.get("type") == "model_fallback" for e in events) == (0 if began else 1)
+    assert not any(e.get("type") == "result" and e.get("is_error") for e in events)
+    if not began:
+        assert [e["result"] for e in events if e.get("type") == "result"] == ["PASS"]
+        assert 'retain your persona' in (tmp_path / '.codex/config.toml').read_text()
+        assert len([c for c in calls if c[1].endswith('model-fallback')]) == 1
+    seqs = [e['seq'] for e in events if 'seq' in e]
+    assert seqs == sorted(set(seqs))
+
+
+@pytest.mark.parametrize("error,reason", [("Selected model is at capacity", "capacity"), ("429 rate limit", "rate_limit"), ("401 Unauthorized", "authentication"), ("502 Bad Gateway", "provider_unavailable"), ("model does not exist", "model_unavailable"), ("tool validation failed", None)])
+def test_provider_failure_classification(error, reason):
+    assert runner._provider_failure(error) == reason
+
+
+def test_actual_provider_error_frames_are_not_tool_work_or_answers():
+    assert not runner._work_began({'type': 'item.completed', 'item': {'type': 'error', 'message': 'Model metadata not found'}})
+    assert not runner._work_began({'type': 'assistant', 'is_api_error_message': True,
+        'message': {'model': '<synthetic>', 'content': [{'type': 'text', 'text': "There's an issue with the selected model. It may not exist."}]}})
+    assert runner._work_began({'type': 'assistant', 'message': {'content': [{'type': 'tool_use', 'name': 'memory'}]}})
+    assert runner._work_began({'type': 'item.started', 'item': {'type': 'mcp_tool_call'}})

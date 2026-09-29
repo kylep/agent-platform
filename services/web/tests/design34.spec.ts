@@ -100,3 +100,19 @@ test("new agents can opt out of self-management without server defaults readding
   await expect.poll(() => body?.agent_self).toBe(false);
   expect(body?.platform_tools).not.toContain("mcp__platform__agent_self");
 });
+
+test("backup model has its own runtime and persists independently", async ({ page }) => {
+  await mockApi(page);
+  await page.route("**/api/agent-models", route => route.fulfill({ json: {
+    models: [{id: "claude-sonnet-5-5", label: "Sonnet 5.5"}],
+    codex_models: [{id: "gpt-6-sol", label: "GPT-6 Sol"}],
+  }}));
+  await page.goto("/agents/new");
+  await page.getByLabel("Backup runtime", {exact: true}).selectOption("codex");
+  await expect(page.getByLabel("Backup model", {exact: true})).toBeVisible();
+  await page.getByLabel("Backup model", {exact: true}).selectOption("gpt-6-sol");
+  await expect(page.getByLabel("Runtime", {exact: true})).toHaveValue("claude");
+  await expect(page.getByLabel("Model", {exact: true})).toHaveValue("");
+  await page.getByLabel("Backup runtime", {exact: true}).selectOption("");
+  await expect(page.getByLabel("Backup model", {exact: true})).toHaveCount(0);
+});

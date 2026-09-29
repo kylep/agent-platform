@@ -320,12 +320,15 @@ TOOL_HELP: list[dict] = [
                     "hold it."},
 ]
 
+# Sonnet 5.5 and GPT-6 Sol added from official release/model docs 2026-09-29.
+# Earlier choices remain available for existing configurations.
 # Models the UI offers for an agent's `model:` (runner passes it to
 # `claude --model`). ADVISORY, not an allow-list: the server accepts any value,
 # so a brand-new model isn't blocked by a stale registry (the inverse trade-off
 # from AVAILABLE_TOOLS, where unknown = privilege escalation; an unknown model
 # just fails the run visibly). Verified against the models docs 2026-07-30.
 KNOWN_MODELS: list[dict[str, str]] = [
+    {"id": "claude-sonnet-5-5", "label": "Sonnet 5.5 — speed + intelligence"},
     {"id": "", "label": "Platform default"},
     {"id": "claude-fable-5", "label": "Fable 5 — most capable, long-running agents"},
     {"id": "claude-opus-5", "label": "Opus 5 — complex agentic work"},
@@ -342,6 +345,7 @@ KNOWN_MODELS: list[dict[str, str]] = [
 # (`gpt-reserve` and `codex-auto-review` are service machinery). Verified
 # against the official OpenAI model catalog and Codex CLI catalog 2026-09-20.
 CODEX_MODELS: list[dict[str, str]] = [
+    {"id": "gpt-6-sol", "label": "GPT-6 Sol — capable and efficient"},
     {"id": "gpt-6-astra", "label": "GPT-6 Astra — most capable"},
     {"id": "gpt-5.6-sol", "label": "GPT-5.6 Sol — complex professional work"},
     {"id": "gpt-5.6-terra", "label": "GPT-5.6 Terra — balanced"},

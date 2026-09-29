@@ -642,9 +642,10 @@ async def agent_self(action: str = "get", artifact_id: str | None = None,
                      expected_version: int | None = None):
     """Manage YOURSELF, never another agent. get reads your profile/version;
     models lists known choices; avatar assigns an image artifact (null clears);
-    model sets your model and optionally runtime (claude/codex); persona replaces
+    model sets your primary model/runtime; backup sets ONLY your backup model/runtime
+    (claude/codex), or model="" clears the backup. Never change both in one call. persona replaces
     your complete persona prompt and/or description. Read get first and supply
-    expected_version for model/persona; a conflict requires rereading. Changes
+    expected_version for model/backup/persona; a conflict requires rereading. Changes
     apply next run; your current run may finish, but its old session is discarded.
     System prompts are code-owned and cannot be rewritten. No grants, credentials,
     name, type or execution-profile changes. Use image_gen to make an avatar first.
@@ -655,10 +656,18 @@ async def agent_self(action: str = "get", artifact_id: str | None = None,
         return await _call("GET", "/api/agent-self/models")
     if action == "avatar":
         return await _call("PUT", "/api/agent-self/avatar", json={"artifact_id": artifact_id})
-    if action not in ("model", "persona"):
-        return "error: action must be get|models|avatar|model|persona"
+    if action not in ("model", "backup", "persona"):
+        return "error: action must be get|models|avatar|model|backup|persona"
     if expected_version is None:
         return "error: read agent_self get and supply expected_version"
+    if action == "backup":
+        if model == "":
+            changes = {"backup_runtime": None, "backup_model": ""}
+        elif model and runtime:
+            changes = {"backup_runtime": runtime, "backup_model": model}
+        else:
+            return 'error: choose backup model and runtime, or model="" to clear'
+        return await _call("PATCH", "/api/agent-self", json={**changes, "expected_version": expected_version})
     changes = ({"model": model, "runtime": runtime} if action == "model"
                else {"prompt": prompt, "description": description})
     changes = {key: value for key, value in changes.items() if value is not None}

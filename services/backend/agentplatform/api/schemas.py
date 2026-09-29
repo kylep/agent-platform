@@ -108,6 +108,8 @@ class AgentDefIn(BaseModel):
     agent_type: str = "worker"
     runtime: str = "claude"
     model: str = ""
+    backup_runtime: str | None = None
+    backup_model: str = ""
     role: str = "operator"
     system: bool = False
     responds_to_all: bool = True
@@ -184,6 +186,8 @@ class AgentDefOut(BaseModel):
     agent_type: str = "worker"
     runtime: str = "claude"
     model: str = ""
+    backup_runtime: str | None = None
+    backup_model: str = ""
     role: str = "operator"
     system: bool = False
     responds_to_all: bool = True
@@ -337,6 +341,8 @@ class RunDetail(RunSummary):
     requested_by: str
     initiated_by: str | None = None
     runtime: str = ""
+    fallback_used: bool = False
+    fallback_reason: str | None = None
     requested_model: str = ""
     model: str = ""
     agent_version: int | None = None

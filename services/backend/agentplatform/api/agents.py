@@ -661,6 +661,9 @@ async def update_agent(request: Request, name: str, body: AgentDefIn,
         await _check_webhook_conflicts(s, [model])
         grants = _changed_fields(row, model, GRANT_FIELDS)
         edits = _changed_fields(row, model, EDIT_FIELDS)
+        if not scope.admin and row.name == getattr(request.state, "api_key_agent", None):
+            if {"model", "runtime"} & set(edits) and {"backup_model", "backup_runtime"} & set(edits):
+                raise HTTPException(422, "change the primary or the backup in one call, never both")
         scope.authorize(grant_fields=grants, edit_fields=edits)
         _managed_guard(row, model)
         if "system" in edits and not scope.admin:

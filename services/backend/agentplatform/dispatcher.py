@@ -121,7 +121,10 @@ class Dispatcher:
         """
         if run.definition_snapshot:
             try:
-                return self._manifest(AgentDefModel(**run.definition_snapshot)), None
+                model = AgentDefModel(**run.definition_snapshot)
+                if run.fallback_used:
+                    model.runtime, model.model = run.runtime, run.model
+                return self._manifest(model), None
             except Exception:
                 return None, "run has an invalid frozen agent definition"
 
@@ -141,6 +144,10 @@ class Dispatcher:
                 return None, "unknown or quarantined agent"
             if run.requested_model:
                 model.model = run.requested_model
+                if model.backup_runtime == model.runtime and model.backup_model == model.model:
+                    # An invocation override already selected the configured
+                    # backup. Do not retry the same provider/model twice.
+                    model.backup_runtime, model.backup_model = None, ""
             snapshot = model.model_dump(mode="json")
             version = ((await s.execute(select(func.max(AgentVersion.version)).where(
                 AgentVersion.agent == run.agent))).scalar() or 0)
@@ -182,6 +189,21 @@ class Dispatcher:
             await self._set_state(run, RunState.REJECTED, definition_error)
             return
         blocked = await self._credential_blocks(manifest)
+        if blocked is not None and manifest.backup_runtime and not run.fallback_used:
+            from agentplatform.model_fallback import activate
+            backup = manifest.model_copy(update={"runtime": manifest.backup_runtime,
+                                                 "model": manifest.backup_model})
+            proxy = (self.settings.codex_proxy_url if backup.runtime == "codex"
+                     else self.settings.claude_proxy_url)
+            if proxy and await self._credential_blocks(backup) is None:
+                async with self.sf() as session:
+                    db_run = await session.get(Run, run.id, with_for_update=True)
+                    if not db_run.fallback_used:
+                        await activate(session, db_run, "authentication")
+                        await session.commit()
+                    run.runtime, run.model = db_run.runtime, db_run.model
+                    run.fallback_used, run.fallback_reason = db_run.fallback_used, db_run.fallback_reason
+                manifest, blocked = backup, None
         if blocked is not None:
             await self._set_state(run, RunState.REJECTED, blocked)
             return

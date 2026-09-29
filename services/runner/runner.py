@@ -687,9 +687,44 @@ async def _abort(producer, run_id: str, detail: str) -> int:
     return 1
 
 
+def _provider_failure(error: str) -> str | None:
+    text = error.lower()
+    if "model" in text and any(word in text for word in ("does not exist", "may not exist", "not supported", "not found", "not available")):
+        return "model_unavailable"
+    if any(word in text for word in ("401", "unauthorized", "authentication_failed", "authentication failed", "not logged in", "token expired")):
+        return "authentication"
+    if any(word in text for word in ("429", "rate_limit", "rate limit", "usage limit", "quota exceeded", "hit your limit", "out of extra usage")):
+        return "rate_limit"
+    if any(word in text for word in ("capacity", "overloaded", "529")):
+        return "capacity"
+    if any(word in text for word in ("500 internal", "http 500", "internal server error", "502", "503", "504", "service unavailable", "connection refused", "connection reset", "connection error", "request timed out", "error sending request", "stream disconnected")):
+        return "provider_unavailable"
+    return None
+
+
+def _work_began(payload: dict) -> bool:
+    if payload.get("is_api_error_message") is True:
+        return False
+    if payload.get("type") == "assistant":
+        content = payload.get("message", {}).get("content") or []
+        if content and all(isinstance(block, dict) and block.get("type") == "text"
+                           and str(block.get("text", "")).startswith("API Error:")
+                           and _provider_failure(str(block.get("text", ""))) for block in content):
+            return False  # Claude's provider-error frame, not an agent answer.
+        return any(block.get("type") in ("text", "tool_use") for block in
+                   (payload.get("message", {}).get("content") or []) if isinstance(block, dict))
+    if payload.get("type") == "stream_event":
+        event = payload.get("event") or {}
+        block = event.get("content_block") or event.get("delta") or {}
+        return block.get("type") in ("text", "text_delta", "tool_use", "input_json_delta")
+    if payload.get("type") in ("item.started", "item.updated", "item.completed"):
+        return (payload.get("item") or {}).get("type") not in (None, "reasoning", "error", "warning")
+    return payload.get("type") == "result" and bool(payload.get("result")) and not payload.get("is_error")
+
+
 async def _run(producer, run_id: str, agent: str, prompt: str) -> int:
     runtime = os.environ.get("AP_RUNTIME", "claude")
-    extra_env = _install_credentials() if runtime == "claude" else {}
+    extra_env = {}
     # The producer comes up BEFORE the definition is installed: a pod with no
     # definition has to report that, and it can only report over Kafka.
     await producer.start()
@@ -699,6 +734,10 @@ async def _run(producer, run_id: str, agent: str, prompt: str) -> int:
     except AgentUnavailable as e:
         return await _abort(producer, run_id, str(e))
     runtime = definition.get("runtime", runtime)
+    active_model = definition.get("model") or os.environ.get("AP_MODEL", "")
+    if definition.get("fallback_notice"):
+        definition["prompt"] = (definition.get("prompt") or "") + "\n\n" + definition["fallback_notice"]
+        _agent_path(agent).write_text(_render_agent_md(definition, dev=dev))
     try:
         _install_skills(runtime)
     except (ValueError, OSError) as exc:
@@ -768,49 +807,61 @@ async def _run(producer, run_id: str, agent: str, prompt: str) -> int:
     codex_auth = None
     codex_auth_hash = ""
 
-    if runtime == "codex":
-        try:
-            if not os.environ.get("AP_CODEX_PROXY_URL"):
-                codex_auth, codex_auth_hash = _install_codex_auth(run_id)
-            _write_codex_config(dev, definition.get("prompt") or "",
-                                playwright_state)
-        except Exception as e:
-            return await _abort(producer, run_id, f"codex credential unavailable: {e}")
-        resume_sid = _restore_codex_thread(run_id) if user_message else None
-        codex = os.environ.get("CODEX_BIN", "codex")
-        common = ["--json", "--skip-git-repo-check"]
-        if os.environ.get("AP_MODEL"):
-            common += ["--model", os.environ["AP_MODEL"]]
-        initial = prompt
+    async def _configure_attempt(allow_resume=True):
+        nonlocal codex_auth, codex_auth_hash
+        if runtime == "codex":
+            try:
+                if not os.environ.get("AP_CODEX_PROXY_URL"):
+                    codex_auth, codex_auth_hash = _install_codex_auth(run_id)
+                _write_codex_config(dev, definition.get("prompt") or "",
+                                    playwright_state)
+            except Exception as e:
+                raise AgentUnavailable(f"codex credential unavailable: {e}")
+            resume_sid = _restore_codex_thread(run_id) if user_message and allow_resume else None
+            codex = os.environ.get("CODEX_BIN", "codex")
+            common = ["--json", "--skip-git-repo-check"]
+            if active_model:
+                common += ["--model", active_model]
+            initial = prompt
 
-        def _args(resume: str | None) -> list[str]:
-            if resume:
-                return [codex, "exec", "resume", *common, resume, user_message]
-            return [codex, "exec", *common, initial]
-    else:
-        claude = os.environ.get("CLAUDE_BIN", "claude")
-        common = ["--output-format", "stream-json", "--verbose"]
-        if os.environ.get("AP_MODEL"):
-            common += ["--model", os.environ["AP_MODEL"]]
-        common += _permission_args(agent, dev=dev)
-        if dev:
-            turns = os.environ.get("AP_MAX_TURNS", "")
-            common += ["--max-turns", turns if turns.isdigit() else "200"]
-        if _identity_token():
-            mcp_cfg = _write_mcp_config(playwright_state)
-            if mcp_cfg:
-                common += ["--mcp-config", mcp_cfg]
-                os.environ["ENABLE_TOOL_SEARCH"] = "false"
-        resume_sid = _restore_session(run_cwd) if user_message else None
+            def _args(resume: str | None) -> list[str]:
+                if resume:
+                    return [codex, "exec", "resume", *common, resume, user_message]
+                return [codex, "exec", *common, initial]
+        else:
+            extra_env.update(_install_credentials())
+            claude = os.environ.get("CLAUDE_BIN", "claude")
+            common = ["--output-format", "stream-json", "--verbose"]
+            if active_model:
+                common += ["--model", active_model]
+            common += _permission_args(agent, dev=dev)
+            if dev:
+                turns = os.environ.get("AP_MAX_TURNS", "")
+                common += ["--max-turns", turns if turns.isdigit() else "200"]
+            if _identity_token():
+                mcp_cfg = _write_mcp_config(playwright_state)
+                if mcp_cfg:
+                    common += ["--mcp-config", mcp_cfg]
+                    os.environ["ENABLE_TOOL_SEARCH"] = "false"
+            resume_sid = _restore_session(run_cwd) if user_message and allow_resume else None
 
-        def _args(resume: str | None) -> list[str]:
-            if resume:
-                return [claude, "--agent", agent, "--resume", resume,
-                        "-p", user_message, *common]
-            return [claude, "--agent", agent, "-p", prompt, *common]
+            def _args(resume: str | None) -> list[str]:
+                if resume:
+                    return [claude, "--agent", agent, "--resume", resume,
+                            "-p", user_message, *common]
+                return [claude, "--agent", agent, "-p", prompt, *common]
+        return _args, resume_sid
+
+    try:
+        _args, resume_sid = await _configure_attempt(not definition.get("fallback_used"))
+    except Exception as exc:
+        return await _abort(producer, run_id, str(exc))
+    used_backup = bool(definition.get("fallback_used"))
+    work_began = False
 
     async def _invoke(args: list[str]) -> int:
-        nonlocal seq, final_sid, final_text, final_error
+        attempt_failed = False
+        nonlocal seq, final_sid, final_text, final_error, work_began
         proc = subprocess.Popen(
             args, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, cwd=cwd,
             env={**os.environ, **extra_env})
@@ -826,6 +877,24 @@ async def _run(producer, run_id: str, agent: str, prompt: str) -> int:
             except json.JSONDecodeError:
                 payload = {"type": "raw", "text": line}
             payload["runtime"] = runtime
+            payload["model"] = active_model
+            if payload.get("type") == "assistant" and not _work_began(payload):
+                for block in payload.get("message", {}).get("content") or []:
+                    if block.get("type") == "text" and str(block.get("text", "")).startswith("API Error:"):
+                        final_error = str(block["text"])
+            work_began |= _work_began(payload)
+            attempt_failed |= payload.get("type") in ("turn.failed", "error") or (payload.get("type") == "result" and bool(payload.get("is_error")))
+            if payload.get("type") == "raw":
+                final_error = (final_error + "\n" + payload.get("text", ""))[-4000:]
+            if payload.get("type") == "result" and payload.get("is_error"):
+                final_error = str(payload.get("result") or payload.get("errors") or final_error)
+                if payload.get("api_error_status"):
+                    final_error = f"HTTP {payload['api_error_status']}: {final_error}"
+                # Preserve usage/error evidence without publishing a failed
+                # conversation reply before the single backup is decided.
+                payload["type"] = "attempt.result"
+            if _provider_failure(final_error) == "authentication":
+                payload["error"] = "authentication_failed"
             payload["seq"] = seq
             if payload.get("type") == "result" and payload.get("session_id"):
                 final_sid = payload["session_id"]
@@ -844,10 +913,11 @@ async def _run(producer, run_id: str, agent: str, prompt: str) -> int:
                            for word in ("unauthorized", "authentication failed", "401")):
                         payload["error"] = "authentication_failed"
             await producer.publish(TOPIC_TRANSCRIPT, run_id, payload)
-        return await asyncio.to_thread(proc.wait)
+        code = await asyncio.to_thread(proc.wait)
+        return code or int(attempt_failed)
 
     rc = await _invoke(_args(resume_sid))
-    if rc != 0 and resume_sid:
+    if rc != 0 and resume_sid and not work_began and not _provider_failure(final_error):
         # A corrupt or version-incompatible session must not kill the turn:
         # retry once with the replayed-history fallback and a fresh session.
         seq += 1
@@ -856,6 +926,29 @@ async def _run(producer, run_id: str, agent: str, prompt: str) -> int:
                                 "detail": "resume failed; retrying with replayed history"})
         final_sid = None
         rc = await _invoke(_args(None))
+    reason = _provider_failure(final_error)
+    if rc != 0 and reason and not work_began and not definition.get("fallback_used"):
+        try:
+            backup = await asyncio.to_thread(_api_req, "POST", f"/api/runs/{run_id}/model-fallback", {"reason": reason})
+        except Exception:
+            backup = None  # No backup, consumed backup or revoked run: fail normally.
+        if backup:
+            used_backup = True
+            runtime, active_model = backup["runtime"], backup["model"]
+            definition["prompt"] = (definition.get("prompt") or "") + "\n\n" + backup["notice"]
+            _agent_path(agent).write_text(_render_agent_md(definition, dev=dev))
+            seq += 1
+            await producer.publish(TOPIC_TRANSCRIPT, run_id,
+                {"seq": seq, "type": "model_fallback", "runtime": runtime,
+                 "model": active_model, "reason": reason})
+            final_sid, final_text, final_error = None, "", ""
+            try:
+                _install_skills(runtime)
+                _args, _ = await _configure_attempt(False)
+                rc = await _invoke(_args(None))
+            except Exception as exc:
+                final_error, rc = f"backup harness could not start: {exc}", 1
+
     if runtime == "codex" and rc == 0:
         try:
             generated = await asyncio.to_thread(_upload_codex_generated, run_id)
@@ -916,7 +1009,7 @@ async def _run(producer, run_id: str, agent: str, prompt: str) -> int:
     # token is universal now (docs/design/15), and a plain run has no
     # conversation to store a blob against — it would base64 its whole jsonl
     # for the API to decode and 404, once per pod, drowning the real failures.
-    if rc == 0 and final_sid and user_message:
+    if rc == 0 and final_sid and user_message and not used_backup:
         try:
             if runtime == "codex":
                 await asyncio.to_thread(_upload_codex_thread, run_id, final_sid)

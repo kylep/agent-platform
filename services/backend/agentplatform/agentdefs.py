@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import re
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from agentplatform.agentspec import CLAUDE_TOOLS, validate_agent_name
 from agentplatform.db import AgentDef, AgentVersion
@@ -38,7 +38,7 @@ HARNESS_TOOLS: tuple[str, ...] = tuple(CLAUDE_TOOLS)
 # rollback restores. Deliberately excludes created_at/updated_at: timestamps
 # are row bookkeeping, not part of what an agent *is*.
 DEF_FIELDS: tuple[str, ...] = (
-    "name", "prompt", "description", "agent_type", "runtime", "model", "role", "system",
+    "name", "prompt", "description", "agent_type", "runtime", "model", "backup_runtime", "backup_model", "role", "system",
     "responds_to_all", "can_invoke", "external_observer",
     "concurrency", "timeout_seconds", "result_topic", "transcript_retention_days",
     "harness_tools", "platform_tools", "discord_identity_id", "skills", "secrets", "entrypoints",
@@ -175,6 +175,8 @@ class AgentDefModel(BaseModel):
     agent_type: str = "worker"
     runtime: str = "claude"
     model: str = ""
+    backup_runtime: str | None = None
+    backup_model: str = ""
     role: str = "operator"
     system: bool = False
     responds_to_all: bool = True
@@ -201,6 +203,18 @@ class AgentDefModel(BaseModel):
     # threshold nobody typed is not a threshold.
     quota_5h_max_pct: int = Field(default=80, ge=0, le=100, strict=True)
     quota_7d_max_pct: int = Field(default=50, ge=0, le=100, strict=True)
+
+    @model_validator(mode="after")
+    def _backup_pair(self):
+        if self.backup_runtime not in (None, "claude", "codex"):
+            raise ValueError("backup runtime must be claude or codex")
+        if bool(self.backup_runtime) != bool(self.backup_model.strip()):
+            raise ValueError("choose both a backup runtime and an explicit backup model, or clear both")
+        if len(self.backup_model) > 64:
+            raise ValueError("backup model is longer than 64 characters")
+        if self.backup_runtime == self.runtime and self.backup_model == self.model:
+            raise ValueError("backup must differ from the primary model")
+        return self
 
     @field_validator("name")
     @classmethod

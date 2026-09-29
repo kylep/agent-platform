@@ -10,7 +10,7 @@ TOOL = "mcp__platform__agent_self"
 
 
 async def own_run(sf, seed_agent, agent_store, name="companion", **fields):
-    await seed_agent(name, platform_tools=[TOOL], runtime="codex", **fields)
+    await seed_agent(name, platform_tools=fields.pop("platform_tools", [TOOL]), runtime="codex", **fields)
     await agent_store.reload()
     async with sf() as session:
         row = await session.get(AgentDef, name)
@@ -160,3 +160,23 @@ async def test_self_avatar_cannot_expose_private_conversation_artifact(client, a
         await session.commit()
     response = await client.put("/api/agent-self/avatar", headers=headers, json={"artifact_id": artifact_id})
     assert response.status_code == 403, response.text
+
+
+async def test_self_primary_and_backup_are_readable_but_cannot_change_together(client, sf, seed_agent, agent_store):
+    _, headers = await own_run(sf, seed_agent, agent_store, model='gpt-6-sol', backup_runtime='claude', backup_model='claude-sonnet-5-5')
+    read = (await client.get('/api/agent-self', headers=headers)).json()
+    assert read['model'] == 'gpt-6-sol' and read['backup_model'] == 'claude-sonnet-5-5'
+    both = await client.patch('/api/agent-self', headers=headers, json={'expected_version': read['version'], 'model': 'gpt-6-astra', 'backup_runtime': 'claude', 'backup_model': 'claude-sonnet-5'})
+    assert both.status_code == 422 and 'never both' in both.text
+    backup = await client.patch('/api/agent-self', headers=headers, json={'expected_version': read['version'], 'backup_runtime': 'claude', 'backup_model': 'claude-sonnet-5'})
+    assert backup.status_code == 200, backup.text
+    assert backup.json()['model'] == 'gpt-6-sol'
+    cleared = await client.patch('/api/agent-self', headers=headers, json={'expected_version': backup.json()['version'], 'backup_runtime': None, 'backup_model': ''})
+    assert cleared.status_code == 200 and cleared.json()['backup_runtime'] is None
+
+
+async def test_self_primary_and_backup_edit_restriction_also_applies_to_broad_editor(client, sf, seed_agent, agent_store):
+    _, headers = await own_run(sf, seed_agent, agent_store, platform_tools=[TOOL, 'mcp__platform__agents_edit'], model='gpt-6-sol', backup_runtime='claude', backup_model='claude-sonnet-5-5')
+    definition = (await client.get('/api/agents/companion', headers=headers)).json()
+    response = await client.put('/api/agents/companion', headers=headers, json={**definition, 'model': 'gpt-6-astra', 'backup_model': 'claude-sonnet-5'})
+    assert response.status_code == 422 and 'never both' in response.text

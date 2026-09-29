@@ -2,7 +2,7 @@ import logging
 import uuid
 from datetime import datetime, timedelta, timezone
 from enum import StrEnum
-from sqlalchemy import (JSON, DateTime, Float, Index, Integer, LargeBinary, String,
+from sqlalchemy import (Boolean, JSON, DateTime, Float, Index, Integer, LargeBinary, String,
                         Text, UniqueConstraint, case, func, select, text)
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
@@ -44,6 +44,8 @@ class Run(Base):
     agent: Mapped[str] = mapped_column(String(128))
     # Provider selected by the dispatcher, frozen before the pod launches.
     runtime: Mapped[str] = mapped_column(String(16), default="")
+    fallback_used: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
+    fallback_reason: Mapped[str | None] = mapped_column(String(64), nullable=True)
     requested_model: Mapped[str] = mapped_column(String(64), default="")
     model: Mapped[str] = mapped_column(String(64), default="")
     authorization_generation: Mapped[int] = mapped_column(Integer, default=0)
@@ -827,6 +829,8 @@ class AgentDef(Base):
     image_artifact_id: Mapped[str | None] = mapped_column(String(32), nullable=True)
     runtime: Mapped[str] = mapped_column(String(16), default="claude")
     model: Mapped[str] = mapped_column(String(64), default="")
+    backup_runtime: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    backup_model: Mapped[str] = mapped_column(String(64), default="", server_default="")
     # Execution profile. API authority is derived separately from grants;
     # `dev` selects the credential-free Workbench runner.
     role: Mapped[str] = mapped_column(String(32), default="operator")
@@ -1137,7 +1141,7 @@ def _ensure_workbench_defaults(conn) -> None:
     if not sa_inspect(conn).has_table("agent_defs"):
         return
     t = AgentDef.__table__
-    for col, default in ((t.c.runtime, "claude"),
+    for col, default in ((t.c.backup_model, ""), (t.c.runtime, "claude"),
                          (t.c.responds_to_all, True),
                          (t.c.push_path_globs, []), (t.c.may_delete_tests, False),
                          (t.c.quota_5h_max_pct, 80), (t.c.quota_7d_max_pct, 50)):

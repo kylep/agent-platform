@@ -92,6 +92,11 @@ spec:
               app.kubernetes.io/name: agent-platform
               app.kubernetes.io/component: runner
               agent-platform/runtime: codex
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: agent-platform
+              app.kubernetes.io/component: runner
+              agent-platform/codex-access: "true"
       ports:
         - port: 8000
           protocol: TCP

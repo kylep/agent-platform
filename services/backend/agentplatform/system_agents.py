@@ -17,7 +17,7 @@ log = logging.getLogger(__name__)
 SOURCE_PREFIX = "platform:"
 SYSTEM_AGENT_NAMES = frozenset({"health-monitor", "change-summarizer", "run-summarizer",
                                "wiki", "codex-artist"})
-OPERATIONAL_FIELDS = frozenset({"runtime", "model", "enabled", "entrypoints", "concurrency",
+OPERATIONAL_FIELDS = frozenset({"runtime", "model", "backup_runtime", "backup_model", "enabled", "entrypoints", "concurrency",
                                "timeout_seconds", "transcript_retention_days",
                                "quota_5h_max_pct", "quota_7d_max_pct"})
 # Entrypoint transport/authority is code-owned; cadence and timezone are settings.

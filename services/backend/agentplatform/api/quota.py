@@ -328,11 +328,15 @@ async def _thresholds(request: Request) -> tuple[int, int, str]:
         return (*DEFAULT_MAX_PCT, "claude")
     async with request.app.state.session_factory() as s:
         row = await s.get(AgentDef, agent)
+        from agentplatform.db import Run
+        run_id = getattr(request.state, "api_key_run_id", None)
+        run = await s.get(Run, run_id) if run_id else None
+        runtime = run.runtime if run and run.agent == agent else (row.runtime if row else "claude")
     if row is None:
         return (*DEFAULT_MAX_PCT, "claude")
     return (DEFAULT_MAX_PCT[0] if row.quota_5h_max_pct is None else row.quota_5h_max_pct,
             DEFAULT_MAX_PCT[1] if row.quota_7d_max_pct is None else row.quota_7d_max_pct,
-            "codex" if row.runtime == "codex" else "claude")
+            "codex" if runtime == "codex" else "claude")
 
 
 def gate(snapshot: dict, max_5h: int, max_7d: int, provider: str = "claude") -> dict:

@@ -84,7 +84,7 @@ async def test_model_catalogs_are_grouped_by_runtime(admin_client):
     catalogs = response.json()
     assert "claude-sonnet-5" in {model["id"] for model in catalogs["models"]}
     assert {model["id"] for model in catalogs["codex_models"]} == {
-        "gpt-6-astra", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna", "gpt-5.5"}
+        "gpt-6-astra", "gpt-6-sol", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna", "gpt-5.5"}
 
 
 async def test_list_carries_the_full_definition_and_readiness(admin_client, seed_agent,

@@ -48,6 +48,8 @@ export type AgentDef = {
   agent_type: "persona" | "worker";
   runtime: "claude" | "codex";
   model: string;                // "" = platform default
+  backup_runtime?: "claude" | "codex" | null;
+  backup_model?: string;
   role: string;
   system: boolean;
   system_source?: string | null;

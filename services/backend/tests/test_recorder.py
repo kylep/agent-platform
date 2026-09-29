@@ -138,7 +138,7 @@ async def test_no_denials_leaves_empty_list(sf):
 async def _seed_turn(sf, *, state=RunState.RUNNING, result=None, finished=None):
     """A conversation turn (Run) plus its owning Conversation."""
     async with sf() as s:
-        conv = Conversation(connector="discord", external_ref="thread-1", agent="pai")
+        conv = Conversation(connector="web", agent="pai")
         s.add(conv); await s.flush()
         run = Run(agent="pai", trigger="conversation", requested_by="u", prompt="p",
                   conversation_id=conv.id, user_message="hi", state=state,
@@ -148,7 +148,7 @@ async def _seed_turn(sf, *, state=RunState.RUNNING, result=None, finished=None):
 
 
 def _replies(producer):
-    return [d for t, _, d in producer.published if t == TOPIC_CONVERSATION_OUTBOUND]
+    return [{**d, "text": d["body"]} for t, _, d in producer.published if t == "relay.messages"]
 
 
 async def test_reply_published_from_result_frame(sf, producer):
@@ -158,7 +158,7 @@ async def test_reply_published_from_result_frame(sf, producer):
     rec = Recorder(sf, producer)
     await rec.handle(TOPIC_RUN_TRANSCRIPT, rid, {"seq": 1, "type": "result", "result": "the answer"})
     assert [d["text"] for d in _replies(producer)] == ["the answer"]
-    assert _replies(producer)[0]["external_ref"] == "thread-1"
+    assert _replies(producer)[0]["channel_id"]
 
 
 async def test_state_first_then_result_still_replies_once_with_real_text(sf, producer):
@@ -260,3 +260,17 @@ async def test_result_topic_publishes_agent_result(sf, producer):
                                                  "result": "hi"})
     assert len([1 for t, _, _ in producer.published if t == "app.news.original"]) == 1
     assert not [1 for t, _, _ in producer.published if t == "app.news.changed"]
+
+
+async def test_failed_primary_attempt_preserves_usage_without_publishing_result(sf):
+    rid = await seed(sf)
+    recorder = Recorder(sf)
+    await recorder._handle_transcript(rid, {'seq': 1, 'type': 'attempt.result', 'runtime': 'claude',
+        'is_error': True, 'result': 'overloaded', 'modelUsage': {'claude-sonnet-5-5': {'inputTokens': 7}}})
+    async with sf() as s:
+        run = await s.get(Run, rid)
+        assert run.result is None and run.reply_published_at is None
+        assert (await s.get(RunModelUsage, (rid, 'claude-sonnet-5-5'))).tokens_in == 7
+    await recorder._handle_transcript(rid, {'seq': 2, 'type': 'result', 'runtime': 'codex', 'result': 'backup answered', 'is_error': False})
+    async with sf() as s:
+        assert (await s.get(Run, rid)).result == 'backup answered'

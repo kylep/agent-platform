@@ -68,6 +68,7 @@ from .edit_identity_in import EditIdentityIn
 from .edit_result import EditResult
 from .endpoint_in import EndpointIn
 from .entrypoints_in import EntrypointsIn
+from .fallback_in import FallbackIn
 from .generate_in import GenerateIn
 from .grant_in import GrantIn
 from .help_topic import HelpTopic
@@ -182,6 +183,7 @@ from .secret_quick_edit_in import SecretQuickEditIn
 from .secret_status import SecretStatus
 from .secret_verify import SecretVerify
 from .self_profile_in import SelfProfileIn
+from .self_profile_in_backup_runtime_type_0 import SelfProfileInBackupRuntimeType0
 from .self_profile_in_runtime_type_0 import SelfProfileInRuntimeType0
 from .self_profile_out import SelfProfileOut
 from .send_in import SendIn
@@ -317,6 +319,7 @@ __all__ = (
     "EditResult",
     "EndpointIn",
     "EntrypointsIn",
+    "FallbackIn",
     "GenerateIn",
     "GrantIn",
     "HelpTopic",
@@ -431,6 +434,7 @@ __all__ = (
     "SecretStatus",
     "SecretVerify",
     "SelfProfileIn",
+    "SelfProfileInBackupRuntimeType0",
     "SelfProfileInRuntimeType0",
     "SelfProfileOut",
     "SendIn",

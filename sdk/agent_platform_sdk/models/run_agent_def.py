@@ -29,18 +29,24 @@ class RunAgentDef:
             name (str):
             prompt (str):
             description (str | Unset):  Default: ''.
+            fallback_notice (str | Unset):  Default: ''.
+            fallback_used (bool | Unset):  Default: False.
             harness_tools (list[str] | Unset):
             model (str | Unset):  Default: ''.
             platform_tools (list[str] | Unset):
+            runtime (str | Unset):  Default: 'claude'.
             skills (list[str] | Unset):
     """
 
     name: str
     prompt: str
     description: str | Unset = ""
+    fallback_notice: str | Unset = ""
+    fallback_used: bool | Unset = False
     harness_tools: list[str] | Unset = UNSET
     model: str | Unset = ""
     platform_tools: list[str] | Unset = UNSET
+    runtime: str | Unset = "claude"
     skills: list[str] | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
@@ -51,6 +57,10 @@ class RunAgentDef:
 
         description = self.description
 
+        fallback_notice = self.fallback_notice
+
+        fallback_used = self.fallback_used
+
         harness_tools: list[str] | Unset = UNSET
         if not isinstance(self.harness_tools, Unset):
             harness_tools = self.harness_tools
@@ -60,6 +70,8 @@ class RunAgentDef:
         platform_tools: list[str] | Unset = UNSET
         if not isinstance(self.platform_tools, Unset):
             platform_tools = self.platform_tools
+
+        runtime = self.runtime
 
         skills: list[str] | Unset = UNSET
         if not isinstance(self.skills, Unset):
@@ -75,12 +87,18 @@ class RunAgentDef:
         )
         if description is not UNSET:
             field_dict["description"] = description
+        if fallback_notice is not UNSET:
+            field_dict["fallback_notice"] = fallback_notice
+        if fallback_used is not UNSET:
+            field_dict["fallback_used"] = fallback_used
         if harness_tools is not UNSET:
             field_dict["harness_tools"] = harness_tools
         if model is not UNSET:
             field_dict["model"] = model
         if platform_tools is not UNSET:
             field_dict["platform_tools"] = platform_tools
+        if runtime is not UNSET:
+            field_dict["runtime"] = runtime
         if skills is not UNSET:
             field_dict["skills"] = skills
 
@@ -95,11 +113,17 @@ class RunAgentDef:
 
         description = d.pop("description", UNSET)
 
+        fallback_notice = d.pop("fallback_notice", UNSET)
+
+        fallback_used = d.pop("fallback_used", UNSET)
+
         harness_tools = cast(list[str], d.pop("harness_tools", UNSET))
 
         model = d.pop("model", UNSET)
 
         platform_tools = cast(list[str], d.pop("platform_tools", UNSET))
+
+        runtime = d.pop("runtime", UNSET)
 
         skills = cast(list[str], d.pop("skills", UNSET))
 
@@ -107,9 +131,12 @@ class RunAgentDef:
             name=name,
             prompt=prompt,
             description=description,
+            fallback_notice=fallback_notice,
+            fallback_used=fallback_used,
             harness_tools=harness_tools,
             model=model,
             platform_tools=platform_tools,
+            runtime=runtime,
             skills=skills,
         )
 

@@ -13,6 +13,8 @@ T = TypeVar("T", bound="SelfProfileOut")
 class SelfProfileOut:
     """
     Attributes:
+        backup_model (str):
+        backup_runtime (None | str):
         description (str):
         image_artifact_id (None | str):
         model (str):
@@ -23,6 +25,8 @@ class SelfProfileOut:
         version (int):
     """
 
+    backup_model: str
+    backup_runtime: None | str
     description: str
     image_artifact_id: None | str
     model: str
@@ -34,6 +38,11 @@ class SelfProfileOut:
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
+        backup_model = self.backup_model
+
+        backup_runtime: None | str
+        backup_runtime = self.backup_runtime
+
         description = self.description
 
         image_artifact_id: None | str
@@ -56,6 +65,8 @@ class SelfProfileOut:
         field_dict.update(self.additional_properties)
         field_dict.update(
             {
+                "backup_model": backup_model,
+                "backup_runtime": backup_runtime,
                 "description": description,
                 "image_artifact_id": image_artifact_id,
                 "model": model,
@@ -72,6 +83,15 @@ class SelfProfileOut:
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
         d = dict(src_dict)
+        backup_model = d.pop("backup_model")
+
+        def _parse_backup_runtime(data: object) -> None | str:
+            if data is None:
+                return data
+            return cast(None | str, data)
+
+        backup_runtime = _parse_backup_runtime(d.pop("backup_runtime"))
+
         description = d.pop("description")
 
         def _parse_image_artifact_id(data: object) -> None | str:
@@ -99,6 +119,8 @@ class SelfProfileOut:
         version = d.pop("version")
 
         self_profile_out = cls(
+            backup_model=backup_model,
+            backup_runtime=backup_runtime,
             description=description,
             image_artifact_id=image_artifact_id,
             model=model,

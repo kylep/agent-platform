@@ -159,7 +159,7 @@ class K8sJobLauncher(Launcher):
         # Token brokering (docs/design/09): with a claude-proxy configured the
         # runner is pointed at it instead of being handed the real token, and
         # the claude-credentials secret is not mounted at all (see volumes).
-        if manifest.runtime == "claude" and self.settings.claude_proxy_url:
+        if "claude" in (manifest.runtime, manifest.backup_runtime) and self.settings.claude_proxy_url:
             env.append(k8s.V1EnvVar(name="AP_CLAUDE_PROXY_URL", value=self.settings.claude_proxy_url))
         if manifest.skills:
             # The runner copies each named skill from the synced /agents/skills
@@ -256,7 +256,7 @@ class K8sJobLauncher(Launcher):
                                         value=run.user_message or ""))
             if not any(e.name == "AP_API_URL" for e in env):
                 env.append(k8s.V1EnvVar(name="AP_API_URL", value=self.settings.api_internal_url))
-        if manifest.runtime == "codex" and self.settings.codex_proxy_url:
+        if "codex" in (manifest.runtime, manifest.backup_runtime) and self.settings.codex_proxy_url:
             # The broker owns OAuth. The runner receives only this service URL
             # and configures Codex with a harmless placeholder bearer.
             env.append(k8s.V1EnvVar(name="AP_CODEX_PROXY_URL",
@@ -434,6 +434,7 @@ class K8sJobLauncher(Launcher):
                     "app.kubernetes.io/name": "agent-platform",
                     "app.kubernetes.io/component": "runner",
                     "agent-platform/runtime": manifest.runtime,
+                    "agent-platform/codex-access": str("codex" in (manifest.runtime, manifest.backup_runtime)).lower(),
                 }),
                 spec=pod_spec,
             ),

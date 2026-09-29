@@ -1,5 +1,5 @@
 FROM node:22-slim
-RUN npm install -g @anthropic-ai/claude-code@2.1.214 @openai/codex@0.155.1 \
+RUN npm install -g @anthropic-ai/claude-code@2.1.284 @openai/codex@0.159.0 \
  && apt-get update && apt-get install -y --no-install-recommends python3 python3-pip git ca-certificates curl \
  && rm -rf /var/lib/apt/lists/*
 WORKDIR /app

@@ -20,7 +20,9 @@ class SelfProfileIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
     prompt: str | None = Field(default=None, min_length=1, max_length=64000)
     description: str | None = Field(default=None, max_length=1024)
-    model: str | None = Field(default=None, max_length=128)
+    model: str | None = Field(default=None, max_length=64)
+    backup_runtime: Literal["claude", "codex"] | None = None
+    backup_model: str | None = Field(default=None, max_length=64)
     runtime: Literal["claude", "codex"] | None = None
     expected_version: int = Field(ge=0)
 
@@ -31,6 +33,8 @@ class SelfProfileOut(BaseModel):
     description: str
     runtime: str
     model: str
+    backup_runtime: str | None
+    backup_model: str
     image_artifact_id: str | None
     version: int
     system_source: str | None
@@ -38,7 +42,7 @@ class SelfProfileOut(BaseModel):
 
 def profile_view(row, version):
     return {field: getattr(row, field) for field in
-            ("name", "prompt", "description", "runtime", "model", "image_artifact_id", "system_source")} | {"version": version}
+            ("name", "prompt", "description", "runtime", "model", "backup_runtime", "backup_model", "image_artifact_id", "system_source")} | {"version": version}
 
 
 async def actor(session, request):
@@ -85,7 +89,9 @@ async def update_self_profile(request: Request, body: SelfProfileIn):
         if body.expected_version != version:
             raise HTTPException(409, "profile changed; read agent_self get before trying again")
         changes = body.model_dump(exclude_unset=True, exclude={"expected_version"})
-        if any(value is None for value in changes.values()):
+        if {"model", "runtime"} & changes.keys() and {"backup_model", "backup_runtime"} & changes.keys():
+            raise HTTPException(422, "change the primary or the backup in one call, never both")
+        if any(value is None for key, value in changes.items() if key != "backup_runtime"):
             raise HTTPException(422, "profile fields cannot be null; use an empty model for the platform default")
         if "runtime" in changes and changes["runtime"] != row.runtime and "model" not in changes:
             raise HTTPException(422, "changing runtime requires an explicit model, or an empty model for its default")

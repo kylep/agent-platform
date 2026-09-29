@@ -521,3 +521,17 @@ async def test_launch_rejects_missing_agent_before_minting_credentials(sf):
     batch.create_namespaced_job.assert_not_called()
     async with sf() as session:
         assert (await session.execute(select(ApiKey).where(ApiKey.run_id == run.id))).first() is None
+
+
+def test_cross_provider_backup_gets_both_proxy_urls_without_oauth_secrets():
+    launcher = K8sJobLauncher(batch=None, settings=Settings(claude_proxy_url='http://claude', codex_proxy_url='http://codex'))
+    run = Run(agent='test', trigger='manual', requested_by='t', prompt='hi'); run.id = 'a'*32
+    manifest = Manifest(runtime='claude', model='claude-sonnet-5-5', backup_runtime='codex', backup_model='gpt-6-sol')
+    job = launcher.build_job(run, manifest)
+    container = job.spec.template.spec.containers[0]
+    env = {item.name: item.value for item in container.env}
+    assert env['AP_CLAUDE_PROXY_URL'] == 'http://claude'
+    assert env['AP_CODEX_PROXY_URL'] == 'http://codex'
+    assert job.spec.template.metadata.labels['agent-platform/codex-access'] == 'true'
+    assert not any('credentials' in mount.name for mount in container.volume_mounts)
+    assert not container.env_from

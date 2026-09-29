@@ -268,3 +268,5 @@ mark and then left alone — edit or delete any of them and your version stays:
 Agents can maintain their own avatar, model and persona through the default-granted
 [Self-management Tool](agent-self-management.md), without the broad agent editor
 grant. Security grants remain an operator decision.
+
+Backup runtime/model provides one pre-work provider retry with the same identity and grants. See [Agent self-management](agent-self-management.md#backup-models) for fallback conditions and session behavior.

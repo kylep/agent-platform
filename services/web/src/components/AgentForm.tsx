@@ -38,6 +38,7 @@ const CONNECTION_SECRET_NAMES = new Set([
 export function emptyDef(): AgentDef {
   return {
     name: "", prompt: "", description: "", agent_type: "worker", runtime: "claude", model: "", role: "operator",
+    backup_runtime: null, backup_model: "",
     system: false, external_observer: false, responds_to_all: true, can_invoke: false, concurrency: 1, timeout_seconds: 1800,
     result_topic: "", transcript_retention_days: null,
     harness_tools: [], platform_tools: ["mcp__platform__memory", "mcp__platform__agent_self"], skills: [], secrets: [],
@@ -176,6 +177,8 @@ export function IdentityFields({ draft, patch, catalog }: {
   draft: AgentDef; patch: Patch; catalog: GrantCatalog;
 }) {
   const models = draft.runtime === "codex" ? catalog.codexModels : catalog.claudeModels;
+  const backupModels = draft.backup_runtime === "codex" ? catalog.codexModels : catalog.claudeModels;
+  const savedCustomBackup = draft.backup_model && !backupModels.some((model) => model.id === draft.backup_model);
   const savedCustomModel = draft.model && !models.some((model) => model.id === draft.model);
   return (
     <>
@@ -207,6 +210,22 @@ export function IdentityFields({ draft, patch, catalog }: {
             {models.map((model) => <option key={model.id} value={model.id}>{model.label}</option>)}
           </Select>
         </Field>
+        <Field label="Backup runtime" hint="One automatic retry for provider failures before any answer or tool work starts.">
+          <Select className="w-full" aria-label="Backup runtime" value={draft.backup_runtime || ""}
+                  onChange={(e) => patch({ backup_runtime: (e.target.value || null) as AgentDef["backup_runtime"], backup_model: "" })}>
+            <option value="">No backup</option>
+            <option value="claude">Claude Code</option>
+            <option value="codex">OpenAI Codex</option>
+          </Select>
+        </Field>
+        {draft.backup_runtime && <Field label="Backup model" hint="Keeps this agent's persona and grants. Fresh conversation replay; never repeats completed actions.">
+          <Select className="w-full" aria-label="Backup model" value={draft.backup_model || ""}
+                  onChange={(e) => patch({ backup_model: e.target.value })}>
+            <option value="">Choose a backup model</option>
+            {savedCustomBackup && <option value={draft.backup_model}>{draft.backup_model} — saved custom value</option>}
+            {backupModels.filter((model) => model.id).map((model) => <option key={model.id} value={model.id}>{model.label}</option>)}
+          </Select>
+        </Field>}
         <Field label="Execution profile" help="profile"
                hint={draft.role === "dev"
                  ? "Workbench checkout holds no git credential; the platform publishes verified changes."

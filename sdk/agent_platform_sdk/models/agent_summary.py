@@ -30,6 +30,8 @@ class AgentSummary:
                 Optional so every producer of a face keeps working; `faces_for` fills it.
             name (str):
             agent_type (str | Unset):  Default: 'worker'.
+            backup_model (str | Unset):  Default: ''.
+            backup_runtime (None | str | Unset):
             blocked (bool | Unset):  Default: False.
             blocked_reason (None | str | Unset):
             can_invoke (bool | Unset):  Default: False.
@@ -67,6 +69,8 @@ class AgentSummary:
     face: RelayFace
     name: str
     agent_type: str | Unset = "worker"
+    backup_model: str | Unset = ""
+    backup_runtime: None | str | Unset = UNSET
     blocked: bool | Unset = False
     blocked_reason: None | str | Unset = UNSET
     can_invoke: bool | Unset = False
@@ -107,6 +111,14 @@ class AgentSummary:
         name = self.name
 
         agent_type = self.agent_type
+
+        backup_model = self.backup_model
+
+        backup_runtime: None | str | Unset
+        if isinstance(self.backup_runtime, Unset):
+            backup_runtime = UNSET
+        else:
+            backup_runtime = self.backup_runtime
 
         blocked = self.blocked
 
@@ -222,6 +234,10 @@ class AgentSummary:
         )
         if agent_type is not UNSET:
             field_dict["agent_type"] = agent_type
+        if backup_model is not UNSET:
+            field_dict["backup_model"] = backup_model
+        if backup_runtime is not UNSET:
+            field_dict["backup_runtime"] = backup_runtime
         if blocked is not UNSET:
             field_dict["blocked"] = blocked
         if blocked_reason is not UNSET:
@@ -300,6 +316,17 @@ class AgentSummary:
         name = d.pop("name")
 
         agent_type = d.pop("agent_type", UNSET)
+
+        backup_model = d.pop("backup_model", UNSET)
+
+        def _parse_backup_runtime(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        backup_runtime = _parse_backup_runtime(d.pop("backup_runtime", UNSET))
 
         blocked = d.pop("blocked", UNSET)
 
@@ -427,6 +454,8 @@ class AgentSummary:
             face=face,
             name=name,
             agent_type=agent_type,
+            backup_model=backup_model,
+            backup_runtime=backup_runtime,
             blocked=blocked,
             blocked_reason=blocked_reason,
             can_invoke=can_invoke,

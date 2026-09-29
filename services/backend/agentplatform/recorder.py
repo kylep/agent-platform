@@ -77,15 +77,15 @@ class Recorder:
             # the per-model token breakdown.
             result_event = None
             posted = None
-            if value.get("type") == "result":
-                if value.get("result"):
+            if value.get("type") in ("result", "attempt.result"):
+                if value.get("type") == "result" and value.get("result"):
                     run.result = value.get("result")
                 # The reply belongs to whichever consumer is holding the text,
                 # and that is this one: `result` is in hand right here. Waiting
                 # for the terminal state to publish it would be a cross-topic
                 # read with no ordering guarantee (see `_claim_reply`).
                 failed = value.get("is_error") is True
-                if run.conversation_id and (run.result or failed):
+                if value.get("type") == "result" and run.conversation_id and (run.result or failed):
                     state = (run.state if run.state not in ACTIVE_STATES else
                              (RunState.FAILED if failed else RunState.SUCCEEDED))
                     if await self._claim_reply(s, run_id):
@@ -134,7 +134,7 @@ class Recorder:
                 read = usage.get("cached_input_tokens", 0)
                 created = usage.get("cache_write_input_tokens", 0)
                 new_input = max(0, usage.get("input_tokens", 0) - read - created)
-                model = run.model or "Codex default"
+                model = value.get("model") or run.model or "Codex default"
                 row = await s.get(RunModelUsage, (run_id, model))
                 if row is None:
                     row = RunModelUsage(run_id=run_id, model=model, agent=run.agent)

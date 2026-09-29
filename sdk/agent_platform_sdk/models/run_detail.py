@@ -42,6 +42,8 @@ class RunDetail:
         tool_calls (int):
         trigger (str):
         agent_version (int | None | Unset):
+        fallback_reason (None | str | Unset):
+        fallback_used (bool | Unset):  Default: False.
         initiated_by (None | str | Unset):
         model (str | Unset):  Default: ''.
         project_id (None | str | Unset):
@@ -74,6 +76,8 @@ class RunDetail:
     tool_calls: int
     trigger: str
     agent_version: int | None | Unset = UNSET
+    fallback_reason: None | str | Unset = UNSET
+    fallback_used: bool | Unset = False
     initiated_by: None | str | Unset = UNSET
     model: str | Unset = ""
     project_id: None | str | Unset = UNSET
@@ -141,6 +145,14 @@ class RunDetail:
             agent_version = UNSET
         else:
             agent_version = self.agent_version
+
+        fallback_reason: None | str | Unset
+        if isinstance(self.fallback_reason, Unset):
+            fallback_reason = UNSET
+        else:
+            fallback_reason = self.fallback_reason
+
+        fallback_used = self.fallback_used
 
         initiated_by: None | str | Unset
         if isinstance(self.initiated_by, Unset):
@@ -212,6 +224,10 @@ class RunDetail:
         )
         if agent_version is not UNSET:
             field_dict["agent_version"] = agent_version
+        if fallback_reason is not UNSET:
+            field_dict["fallback_reason"] = fallback_reason
+        if fallback_used is not UNSET:
+            field_dict["fallback_used"] = fallback_used
         if initiated_by is not UNSET:
             field_dict["initiated_by"] = initiated_by
         if model is not UNSET:
@@ -331,6 +347,17 @@ class RunDetail:
 
         agent_version = _parse_agent_version(d.pop("agent_version", UNSET))
 
+        def _parse_fallback_reason(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        fallback_reason = _parse_fallback_reason(d.pop("fallback_reason", UNSET))
+
+        fallback_used = d.pop("fallback_used", UNSET)
+
         def _parse_initiated_by(data: object) -> None | str | Unset:
             if data is None:
                 return data
@@ -413,6 +440,8 @@ class RunDetail:
             tool_calls=tool_calls,
             trigger=trigger,
             agent_version=agent_version,
+            fallback_reason=fallback_reason,
+            fallback_used=fallback_used,
             initiated_by=initiated_by,
             model=model,
             project_id=project_id,
