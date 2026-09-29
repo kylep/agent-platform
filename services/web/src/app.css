@@ -1128,6 +1128,10 @@ a.relay-action { color: var(--ds-link); }
 .connection-detail li { margin: 7px 0; }
 .connection-account { border-top: 1px solid var(--ds-border); padding: 14px 0; }
 .connection-account > .row-actions { justify-content: flex-start; flex-wrap: wrap; margin-top: 8px; }
+.identity-verification { margin-top: 12px; padding: 12px 14px; border: 1px solid var(--ds-border); border-radius: var(--radius-lg); background: var(--ds-canvas); }
+.identity-verification.needs-attention { border-color: var(--ds-warning); }
+.identity-verification ul { margin: 8px 0 0; padding-left: 20px; }
+.identity-verification li { line-height: 1.5; }
 .connection-advanced { margin: 24px 0; }
 .connection-advanced summary { cursor: pointer; font-weight: 600; }
 .tool-list { display: flex; flex-wrap: wrap; gap: 6px 16px; margin-bottom: 8px; }

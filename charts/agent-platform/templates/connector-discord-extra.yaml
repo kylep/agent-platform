@@ -23,7 +23,7 @@ metadata:
   labels:
     {{- include "agent-platform.selectorLabels" (dict "Release" $root.Release "Chart" $root.Chart "component" "connector-discord") | nindent 4 }}
 spec:
-  replicas: 1
+  replicas: {{ if hasKey $identity "replicas" }}{{ $identity.replicas }}{{ else }}1{{ end }}
   strategy:
     type: Recreate
   selector:

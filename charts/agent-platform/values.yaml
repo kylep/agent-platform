@@ -178,10 +178,10 @@ networkPolicy:
 connectors:
   discord:
     enabled: false
-    # Optional additional bot workloads. Register each ID as a disabled Chat
-    # Identity, configure its token Secret, then enable the identity. Every
-    # bot consumes the full outbound stream under its own Kafka group.
-    extraIdentities: []   # [{id: discord-second, secretName: discord-second-bot}]
+    # Optional additional bot workloads. Register each account and its token
+    # Secret first. replicas: 0 keeps a workload installed but disconnected
+    # until its provider-side access settings are ready.
+    extraIdentities: []   # [{id: discord-second, secretName: discord-second-bot, replicas: 0}]
     image:
       repository: agent-platform-connector-discord
       tag: dev

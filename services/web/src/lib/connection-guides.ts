@@ -12,13 +12,13 @@ export type ConnectionGuide = {
   docs: { label: string; url: string };
 };
 
-export const GUIDE_CHECKED = "2026-09-26";
+export const GUIDE_CHECKED = "2026-09-29";
 
 export const CONNECTION_GUIDES: ConnectionGuide[] = [
   { id: "discord", title: "Discord chat identities", mark: "D", purpose: "Bots that post and receive Discord messages. Each account has its own token and owning persona; provider permissions control access.",
     secrets: ["discord-bot"], steps: [
       { before: "Open the ", link: { label: "Discord Developer Portal", url: "https://discord.com/developers/applications" }, after: " and select an application, or create one." },
-      "On Bot, reset or copy the bot token. Turn on Message Content Intent for conversational messages.",
+      "On Bot, reset or copy the bot token and turn on Message Content Intent. For a private persona, turn Public Bot off so only your developer account or team can invite it to servers.",
       "On Installation, configure Guild Install with the bot scope and the channel permissions the bot needs, then install it in your server.",
       "Paste the bot token below. Saving creates a separate secret and its account together; use Verify to check setup.",
     ], docs: { label: "Discord setup guide", url: "https://docs.discord.com/developers/quick-start/getting-started" } },

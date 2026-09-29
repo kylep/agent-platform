@@ -466,15 +466,23 @@ export default function Secrets() {
                 <span className="muted">{account.owner_agent ? `Owned by ${account.owner_agent}` : "Unassigned"} · {account.connected ? "Connected" : "Not connected"} · {account.configured ? "Token set" : "Token missing"} · {account.bound_routes} room routes{account.status === "disabled" ? " · Needs verification" : ""}{account.status === "deleting" ? " · Cleanup incomplete; retry Delete" : ""}</span></div>
               <div className="row-actions">
                 <Button variant="secondary" size="sm" disabled={identityBusy || account.status === "deleting"} onClick={() => setSearchParams({ connection: "discord", edit: account.id })}>Edit</Button>
-                <Button variant="secondary" size="sm" disabled={identityBusy || account.status === "deleting"} onClick={() => verifyIdentity(account)}>Verify</Button>
+                <Button variant="secondary" size="sm" disabled={identityBusy || account.status === "deleting"} onClick={() => verifyIdentity(account)}>{identityBusy ? "Checking…" : "Verify"}</Button>
                 <Button variant="danger" size="sm" disabled={identityBusy} onClick={() => setDeleteAccount(account)}>Delete</Button>
               </div>
-              {identityChecks[account.id] && <ul aria-label={`Verification for ${account.display_name}`}>
-                {identityChecks[account.id].map((check, index) => <li key={index}>
-                  <Chip variant={check.ok === true ? "ok" : "warn"}>{check.ok === true ? "OK" : check.ok === false ? "Needs attention" : "Unknown"}</Chip> {check.detail}
-                </li>)}
-              </ul>}
-              {account.id !== "discord-default" && <p className="muted">This account needs its own bot process deployed for <code>{account.id}</code> using secret <code>{secretName}</code>. Verify checks its setup; there is no activation toggle.</p>}
+              {identityChecks[account.id] && <div className={`identity-verification${identityChecks[account.id].some((check) => check.ok === false) ? " needs-attention" : ""}`} role="status">
+                <strong>{identityChecks[account.id].some((check) => check.ok === false) ? "Setup needs attention" : "Verification checks complete"}</strong>
+                <ul aria-label={`Verification for ${account.display_name}`}>
+                  {identityChecks[account.id].map((check, index) => <li key={index}>
+                    <Chip variant={check.ok === true ? "ok" : "warn"}>{check.ok === true ? "OK" : check.ok === false ? "Fix" : "Unknown"}</Chip> {check.detail}{" "}
+                    {check.ok === false && check.detail.includes("Message Content Intent") &&
+                      <a href="https://discord.com/developers/applications" target="_blank" rel="noreferrer">Open Discord applications ↗</a>}
+                    {check.ok === false && check.detail.includes("Bot process") &&
+                      <span> Deploy this account’s connector using secret <code>{secretName}</code>. <Link to="/help/chat-identities">Setup instructions</Link></span>}
+                    {check.ok === false && check.detail.includes("bot token") &&
+                      <Button variant="secondary" size="sm" onClick={() => setSearchParams({ connection: "discord", edit: account.id })}>Edit token</Button>}
+                  </li>)}
+                </ul>
+              </div>}
             </div>;
           })}
           {identityError && <p role="alert" className="error">{identityError}</p>}

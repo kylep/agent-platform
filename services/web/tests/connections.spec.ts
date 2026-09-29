@@ -21,7 +21,7 @@ test("connection card opens a dated guide and writes a new Discord token before 
   await page.getByRole("button", { name: "+ Add account" }).click();
   await expect(page).toHaveURL(/\?connection=discord&add=1$/);
   await expect(page.getByRole("heading", { name: "Add Discord account" })).toBeVisible();
-  await expect(page.getByText(/Setup guide checked 2026-09-26/)).toBeVisible();
+  await expect(page.getByText(/Setup guide checked 2026-09-29/)).toBeVisible();
   await expect(page.getByRole("link", { name: "Discord Developer Portal" }))
     .toHaveAttribute("href", "https://discord.com/developers/applications");
   await expect(page.getByText("Platform Discord bot")).toHaveCount(0);
@@ -120,6 +120,9 @@ test("Discord inventory offers Edit, Verify, Delete with a separate edit form", 
   await expect(page.getByRole("button", { name: /Pause|Resume|Set token/ })).toHaveCount(0);
   await page.getByRole("button", { name: "Verify", exact: true }).click();
   await expect(page.getByLabel("Verification for Platform Discord bot")).toContainText("Enable Message Content Intent.");
+  await expect(page.getByRole("status")).toContainText("Setup needs attention");
+  await expect(page.getByRole("link", { name: "Open Discord applications" }))
+    .toHaveAttribute("href", "https://discord.com/developers/applications");
   await page.getByRole("button", { name: "Edit", exact: true }).click();
   await expect(page).toHaveURL(/edit=discord-default/);
   await expect(page.getByLabel("Display name", { exact: true })).toHaveValue("Platform Discord bot");

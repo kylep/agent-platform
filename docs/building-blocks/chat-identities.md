@@ -38,6 +38,15 @@ only its own token and a separate projected Kubernetes service-account
 identity. Each has its own Kafka consumer group and delivers only its own
 messages. The original bot retains its existing Kafka offsets.
 
+For a private persona, disable **Public Bot** under Bot in the Discord
+Developer Portal before starting its connector. With Public Bot on, someone
+with the install link and permission to install apps could add it to another
+server; this platform currently accepts mentions and direct messages from
+any accessible endpoint. Set `replicas: 0` on the extra identity to keep its
+workload disconnected while finishing setup, then set it to `1` and upgrade
+Helm when ready. Verify checks token, intent, and deployment readiness; it
+does not restrict which Discord users may talk to a connected bot.
+
 Enable **Message Content Intent** under Bot in the
 [Discord Developer Portal](https://discord.com/developers/applications).
 Use Verify to check the account. Bind Relay rooms through
