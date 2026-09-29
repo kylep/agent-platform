@@ -147,6 +147,7 @@ def test_fmt_pace():
     assert st.fmt_pace(None) is None
 
 
+@pytest.mark.asyncio
 async def test_coach_ingest_saves_brief_report_without_external_broadcast(monkeypatch):
     import json
     from runningapp import ingest
