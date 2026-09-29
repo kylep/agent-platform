@@ -22,7 +22,17 @@ dev = ["pytest>=8", "pytest-asyncio>=0.24", "httpx>=0.27",
        # SDK generation + the generated client's runtime deps, so CI can
        # regenerate sdk/ and import it (see sdk/regenerate.py). The generator is
        # PINNED: its output must be byte-stable for the CI drift check.
-       "openapi-python-client==0.29.0", "attrs>=22.2", "python-dateutil>=2.8",
+       # ruff is pinned for the SAME reason: openapi-python-client shells out to
+       # `ruff check . --fix-only` / `ruff format .` as a post-processing step
+       # (it depends on ruff>=0.2 with no upper bound), so ruff's evolving
+       # autofixes leak straight into the generated output. ruff 0.16.0 turned
+       # PYI019 (rewrite `cls: type[T]) -> T` classmethods to `-> Self`) into a
+       # default autofix, which churned all 238 files with no API change; 0.15.22
+       # is the newest release whose output matches the committed SDK. Bump this
+       # and openapi-python-client together, then regenerate. ruff is not used
+       # anywhere else in the repo.
+       "openapi-python-client==0.29.0", "ruff==0.15.22",
+       "attrs>=22.2", "python-dateutil>=2.8",
        "jsonschema>=4.23"]
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
