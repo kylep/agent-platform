@@ -113,7 +113,6 @@ async def create_chat_identity(request: Request, body: CreateIdentityIn,
                            secret_refs={"bot_token": {"secret": body.secret_name,
                                                       "key": "token"}},
                            status="disabled")
-        row.status = "active" if await _configured(request, row) else "disabled"
         session.add(row)
         try:
             await session.commit()
@@ -207,7 +206,12 @@ async def edit_chat_identity(request: Request, identity_id: str, body: EditIdent
             row.access_expires_at = None
             row.lease_invalidated = False
         row.display_name = name
-        row.status = "active" if await _configured(request, row) else "disabled"
+        # Extra bots need Verify to check provider settings before they can
+        # receive messages. A replacement token invalidates that check.
+        if identity_id == "discord-default":
+            row.status = "active" if await _configured(request, row) else "disabled"
+        elif body.token is not None:
+            row.status = "disabled"
         await session.commit()
     await request.app.state.agent_store.reload()
     detail = await _restart(request, identity_id) if body.token is not None else "Account updated."
@@ -229,6 +233,7 @@ async def verify_chat_identity(request: Request, identity_id: str,
         token = data.get(ref.get("key", ""))
         valid = False
         intent = False
+        private = identity_id == "discord-default"
         rejected = False
         if not token:
             checks.append({"ok": False, "detail": "Bot token is missing. Choose Edit to set it."})
@@ -246,6 +251,10 @@ async def verify_chat_identity(request: Request, identity_id: str,
                     intent = bool(flags & ((1 << 18) | (1 << 19)))
                     checks.append({"ok": intent, "detail": "Message Content Intent enabled." if intent else
                         "Enable Message Content Intent under Bot in the Discord Developer Portal."})
+                    if identity_id != "discord-default":
+                        private = app.get("bot_public") is False
+                        checks.append({"ok": private, "detail": "Public Bot is off; only the application owner or team can invite it." if private else
+                            "Turn off Public Bot under Bot in the Discord Developer Portal. Anyone with an install link and server permissions can otherwise invite this bot."})
                 else:
                     rejected = response.status_code in (401, 403)
                     checks.append({"ok": False, "detail": "Discord rejected the bot token." if response.status_code in (401, 403) else
@@ -254,7 +263,7 @@ async def verify_chat_identity(request: Request, identity_id: str,
                 checks.append({"ok": False, "detail": "Discord could not be checked; try again later."})
         # Verification is also the migration path for previously paused accounts.
         if valid:
-            row.status = "active" if intent else "disabled"
+            row.status = "active" if intent and private else "disabled"
         elif rejected or not token:
             row.status = "disabled"
         await session.commit()
@@ -267,7 +276,9 @@ async def verify_chat_identity(request: Request, identity_id: str,
                 _deployment(request, identity_id), request.app.state.settings.k8s_namespace,
                 _request_timeout=10)
             ready = bool(deployment.status.ready_replicas)
+            stopped = deployment.spec.replicas == 0
             checks.append({"ok": ready, "detail": "Bot process is running. This does not prove its Discord gateway connection." if ready else
+                "Bot process is stopped (0 replicas). Set this account's Helm replicas to 1 after provider setup." if stopped else
                 "Bot process is not ready; check its logs."})
         except k8s.exceptions.ApiException as exc:
             checks.append({"ok": False, "detail": "Bot process has not been deployed yet." if exc.status == 404 else

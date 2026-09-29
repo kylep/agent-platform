@@ -50,6 +50,38 @@ async def test_verify_checks_token_intent_and_does_not_disable_on_rate_limit(
     assert (await admin_client.get("/api/chat-identities/discord-default/transport")).json()["active"] is active
 
 
+async def test_extra_bot_requires_private_verification_and_reports_stopped_workload(
+        admin_client, secret_store, monkeypatch):
+    await secret_store.set("discord-kai-bot", {"token": "test-token"})
+    created = await admin_client.post("/api/chat-identities", json={
+        "id": "discord-kai", "display_name": "Kai", "secret_name": "discord-kai-bot"})
+    assert created.status_code == 201 and created.json()["status"] == "disabled"
+    deployment = Mock()
+    deployment.spec.replicas = 0
+    deployment.status.ready_replicas = 0
+    apps(admin_client, read_namespaced_deployment=Mock(return_value=deployment))
+    public = True
+    real_get = httpx.AsyncClient.get
+
+    async def get(self, url, **kwargs):
+        if url.startswith("https://discord.com/"):
+            return httpx.Response(200, json={"flags": 1 << 19, "bot_public": public,
+                                              "bot": {"username": "Kai"}}, request=httpx.Request("GET", url))
+        return await real_get(self, url, **kwargs)
+
+    monkeypatch.setattr(httpx.AsyncClient, "get", get)
+    result = await admin_client.post("/api/chat-identities/discord-kai/verify")
+    assert any(check["ok"] is False and "Public Bot" in check["detail"] for check in result.json()["checks"])
+    assert "stopped (0 replicas)" in result.json()["checks"][-1]["detail"]
+    public = False
+    result = await admin_client.post("/api/chat-identities/discord-kai/verify")
+    assert any(check["ok"] is True and "Public Bot" in check["detail"] for check in result.json()["checks"])
+    assert (await admin_client.get("/api/chat-identities")).json()[-1]["status"] == "active"
+    await admin_client.patch("/api/chat-identities/discord-kai", json={
+        "display_name": "Kai", "token": "replacement-token"})
+    assert (await admin_client.get("/api/chat-identities")).json()[-1]["status"] == "disabled"
+
+
 async def test_delete_detaches_agents_preserves_history_and_never_reseeds_default(
         admin_client, sf, secret_store, seed_agent, agent_store):
     await secret_store.set("discord-bot", {"token": "old"})

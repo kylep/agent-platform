@@ -476,8 +476,10 @@ export default function Secrets() {
                     <Chip variant={check.ok === true ? "ok" : "warn"}>{check.ok === true ? "OK" : check.ok === false ? "Fix" : "Unknown"}</Chip> {check.detail}{" "}
                     {check.ok === false && check.detail.includes("Message Content Intent") &&
                       <a href="https://discord.com/developers/applications" target="_blank" rel="noreferrer">Open Discord applications ↗</a>}
+                    {check.ok === false && check.detail.includes("Public Bot") &&
+                      <a href="https://discord.com/developers/applications" target="_blank" rel="noreferrer">Open Discord applications ↗</a>}
                     {check.ok === false && check.detail.includes("Bot process") &&
-                      <span> Deploy this account’s connector using secret <code>{secretName}</code>. <Link to="/help/chat-identities">Setup instructions</Link></span>}
+                      <span> {check.detail.includes("stopped (0 replicas)") ? "This account is installed but intentionally disconnected." : <>Deploy this account’s connector using secret <code>{secretName}</code>.</>} <Link to="/help/chat-identities">Setup instructions</Link></span>}
                     {check.ok === false && check.detail.includes("bot token") &&
                       <Button variant="secondary" size="sm" onClick={() => setSearchParams({ connection: "discord", edit: account.id })}>Edit token</Button>}
                   </li>)}
@@ -507,7 +509,7 @@ export default function Secrets() {
           {identityError && <p role="alert" className="error">{identityError}</p>}
         </>}
         {addingDiscord && <>
-          <p className="muted">Saving stores the token and account, but does not connect the bot to Discord yet. A separate bot process must be deployed in Kubernetes; then use Verify to check setup and assign an enabled persona in Edit account. Provider observations appear as read-only Relay mirrors.</p>
+          <p className="muted">Saving stores the token and account, but does not connect the bot to Discord yet. Use Verify to check the token, Message Content Intent, and private Public Bot setting. A separate bot process must then be deployed in Kubernetes; assign an enabled persona in Edit account. Provider observations appear as read-only Relay mirrors.</p>
           <div className="form-col">
             <label htmlFor="discord-account-name">Display name</label>
             <Input id="discord-account-name" aria-label="Discord account display name" placeholder="e.g. Family bot" value={identityName} onChange={(e) => setIdentityName(e.target.value)} />

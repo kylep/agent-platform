@@ -23,8 +23,9 @@ Each account has three actions:
 | Delete | After confirmation, disconnect its routes and agent assignments, remove its credential, and scale its connector to zero. Chat history stays. Failed cleanup leaves an account visible with a retry instruction. |
 
 There is no Pause/Resume switch. The internal transport guard remains:
-configured accounts can operate, failed credential/intent checks disable
-transport, and a successful Verify restores it. Deployment readiness means
+extra accounts need a successful private-bot Verify to operate; failed
+credential, intent, or privacy checks disable transport. A successful Verify
+restores it. Deployment readiness means
 that the process is running; it does **not** prove the Discord gateway is
 connected or that the bot can send to every destination. Verify reports these
 limits rather than claiming delivery was tested.
@@ -42,10 +43,15 @@ For a private persona, disable **Public Bot** under Bot in the Discord
 Developer Portal before starting its connector. With Public Bot on, someone
 with the install link and permission to install apps could add it to another
 server; this platform currently accepts mentions and direct messages from
-any accessible endpoint. Set `replicas: 0` on the extra identity to keep its
-workload disconnected while finishing setup, then set it to `1` and upgrade
-Helm when ready. Verify checks token, intent, and deployment readiness; it
-does not restrict which Discord users may talk to a connected bot.
+any accessible endpoint. New extra accounts remain disabled until Verify
+confirms their token, Message Content Intent, and private Public Bot setting.
+Replacing an extra account's token also requires Verify again. The original
+`discord-default` account retains its existing activation behavior. Set
+`replicas: 0` on the extra identity to keep its workload disconnected while
+finishing setup, then set it to `1` and upgrade
+Helm when ready. Verify checks token, intent, Public Bot, and deployment
+readiness; it does not restrict which users in an allowed server may talk to
+a connected bot.
 
 Enable **Message Content Intent** under Bot in the
 [Discord Developer Portal](https://discord.com/developers/applications).
