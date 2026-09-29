@@ -455,6 +455,57 @@ def test_a_previous_callers_bearer_is_never_reused(monkeypatch):
     assert "Authorization" not in upstream.headers
 
 
+# --- per-route upstream timeout (ENG-6) --------------------------------------
+
+def _with_default_timeout(method, url):
+    """A request as the shared client hands it to the hook: the default 60s
+    timeout already stamped into extensions (httpx does this before the request
+    event hook runs)."""
+    return httpx.Request(method, url, extensions={"timeout": {
+        "connect": facade._UPSTREAM_TIMEOUT, "read": facade._UPSTREAM_TIMEOUT,
+        "write": facade._UPSTREAM_TIMEOUT, "pool": facade._UPSTREAM_TIMEOUT}})
+
+
+def test_generate_waits_past_the_backend_generation_window(monkeypatch):
+    """POST /api/artifacts/generate blocks up to the backend's 390s Codex run;
+    the hook must lift the read timeout past that so a completed generation is
+    not aborted as a ReadTimeout (ENG-6). connect stays fast."""
+    assert facade._GENERATE_TIMEOUT >= 390
+    monkeypatch.setattr(facade, "current_request",
+                        lambda: FakeRequest({"authorization": "Bearer ap_k"}))
+    req = _with_default_timeout("POST", "http://api/api/artifacts/generate")
+    asyncio.run(facade.forward_caller_auth(req))
+    timeout = req.extensions["timeout"]
+    assert timeout["read"] == facade._GENERATE_TIMEOUT
+    assert timeout["write"] == facade._GENERATE_TIMEOUT
+    assert timeout["connect"] == facade._UPSTREAM_TIMEOUT  # unchanged: connect is quick
+
+
+def test_other_routes_keep_the_fast_default_timeout(monkeypatch):
+    """Only the generate route is extended; every other call still fails fast
+    at the shared client's default so a genuinely hung upstream doesn't hang."""
+    monkeypatch.setattr(facade, "current_request",
+                        lambda: FakeRequest({"authorization": "Bearer ap_k"}))
+    for method, url in (("GET", "http://api/api/runs"),
+                        ("POST", "http://api/api/artifacts"),
+                        ("GET", "http://api/api/artifacts/generate")):  # GET, not POST
+        req = _with_default_timeout(method, url)
+        asyncio.run(facade.forward_caller_auth(req))
+        assert req.extensions["timeout"]["read"] == facade._UPSTREAM_TIMEOUT, (method, url)
+
+
+def test_generate_timeout_is_only_raised_never_lowered(monkeypatch):
+    """A caller/route already granted a longer read timeout keeps it — the hook
+    lifts toward the generation window, it never shortens an existing budget."""
+    monkeypatch.setattr(facade, "current_request", lambda: FakeRequest({}))
+    longer = facade._GENERATE_TIMEOUT + 100
+    req = httpx.Request("POST", "http://api/api/artifacts/generate",
+                        extensions={"timeout": {"connect": 60.0, "read": longer,
+                                                "write": longer, "pool": longer}})
+    asyncio.run(facade.forward_caller_auth(req))
+    assert req.extensions["timeout"]["read"] == longer
+
+
 def test_spec_fetch_retries_until_the_api_answers(monkeypatch):
     """ap-api is routinely not up yet when this pod starts."""
     calls, slept = [], []
