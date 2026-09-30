@@ -40,7 +40,7 @@ export function emptyDef(): AgentDef {
   return {
     name: "", prompt: "", description: "", agent_type: "worker", runtime: "claude", model: "", role: "operator",
     backup_runtime: null, backup_model: "",
-    system: false, external_observer: false, responds_to_all: true, can_invoke: false, concurrency: 1, timeout_seconds: 1800,
+    system: false, external_observer: false, responds_to_all: true, can_invoke: false, accept_scheduled_tasks: true, concurrency: 1, timeout_seconds: 1800,
     result_topic: "", transcript_retention_days: null,
     harness_tools: [], platform_tools: ["mcp__platform__memory", "mcp__platform__agent_self"], skills: [], secrets: [],
     discord_identity_id: null,
@@ -234,7 +234,8 @@ export function IdentityFields({ draft, patch, catalog }: {
                    ? "This retired profile cannot run. Choose Standard or Workbench before saving."
                  : "Standard isolated run; tool grants determine access."}>
           <Select className="w-full" aria-label="Execution profile" disabled={!!draft.system_source} value={draft.role}
-                  onChange={(e) => patch({ role: e.target.value })}>
+                  onChange={(e) => patch({ role: e.target.value,
+                    accept_scheduled_tasks: e.target.value === "dev" ? false : draft.accept_scheduled_tasks })}>
             {EXECUTION_PROFILES.map((p) => <option key={p.value} value={p.value}>{p.label}</option>)}
             {draft.role === "coder" &&
               <option value="coder" disabled>Retired self-editor — choose a replacement</option>}
@@ -573,6 +574,9 @@ export function GrantsFields({ draft, patch, catalog }: {
       </p>
 
       <div className="toggle-row">
+        <Toggle label="Accept scheduled Tasks" checked={draft.accept_scheduled_tasks ?? true} help="tasks-accept"
+                title="Allow authorized agents to schedule this agent for a one-time run."
+                onChange={(accept_scheduled_tasks) => patch({ accept_scheduled_tasks })} />
         <Toggle label="Can invoke other agents" checked={draft.can_invoke} help="invoke"
                 title="May dispatch runs of other agents (depth-guarded)."
                 onChange={(can_invoke) => patch({ can_invoke })} />

@@ -22,6 +22,7 @@ class AgentCreateIn:
 
         Attributes:
             name (str):
+            accept_scheduled_tasks (bool | Unset):  Default: True.
             agent_self (bool | None | Unset):
             agent_type (str | Unset):  Default: 'worker'.
             artifacts (bool | None | Unset):
@@ -52,6 +53,7 @@ class AgentCreateIn:
             secrets (list[str] | Unset):
             skills (list[str] | Unset):
             system (bool | Unset):  Default: False.
+            tasks (bool | None | Unset):
             tickets (bool | None | Unset):
             timeout_seconds (int | Unset):  Default: 1800.
             transcript_retention_days (int | None | Unset):
@@ -59,6 +61,7 @@ class AgentCreateIn:
     """
 
     name: str
+    accept_scheduled_tasks: bool | Unset = True
     agent_self: bool | None | Unset = UNSET
     agent_type: str | Unset = "worker"
     artifacts: bool | None | Unset = UNSET
@@ -89,6 +92,7 @@ class AgentCreateIn:
     secrets: list[str] | Unset = UNSET
     skills: list[str] | Unset = UNSET
     system: bool | Unset = False
+    tasks: bool | None | Unset = UNSET
     tickets: bool | None | Unset = UNSET
     timeout_seconds: int | Unset = 1800
     transcript_retention_days: int | None | Unset = UNSET
@@ -96,6 +100,8 @@ class AgentCreateIn:
 
     def to_dict(self) -> dict[str, Any]:
         name = self.name
+
+        accept_scheduled_tasks = self.accept_scheduled_tasks
 
         agent_self: bool | None | Unset
         if isinstance(self.agent_self, Unset):
@@ -197,6 +203,12 @@ class AgentCreateIn:
 
         system = self.system
 
+        tasks: bool | None | Unset
+        if isinstance(self.tasks, Unset):
+            tasks = UNSET
+        else:
+            tasks = self.tasks
+
         tickets: bool | None | Unset
         if isinstance(self.tickets, Unset):
             tickets = UNSET
@@ -224,6 +236,8 @@ class AgentCreateIn:
                 "name": name,
             }
         )
+        if accept_scheduled_tasks is not UNSET:
+            field_dict["accept_scheduled_tasks"] = accept_scheduled_tasks
         if agent_self is not UNSET:
             field_dict["agent_self"] = agent_self
         if agent_type is not UNSET:
@@ -284,6 +298,8 @@ class AgentCreateIn:
             field_dict["skills"] = skills
         if system is not UNSET:
             field_dict["system"] = system
+        if tasks is not UNSET:
+            field_dict["tasks"] = tasks
         if tickets is not UNSET:
             field_dict["tickets"] = tickets
         if timeout_seconds is not UNSET:
@@ -301,6 +317,8 @@ class AgentCreateIn:
 
         d = dict(src_dict)
         name = d.pop("name")
+
+        accept_scheduled_tasks = d.pop("accept_scheduled_tasks", UNSET)
 
         def _parse_agent_self(data: object) -> bool | None | Unset:
             if data is None:
@@ -418,6 +436,15 @@ class AgentCreateIn:
 
         system = d.pop("system", UNSET)
 
+        def _parse_tasks(data: object) -> bool | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(bool | None | Unset, data)
+
+        tasks = _parse_tasks(d.pop("tasks", UNSET))
+
         def _parse_tickets(data: object) -> bool | None | Unset:
             if data is None:
                 return data
@@ -451,6 +478,7 @@ class AgentCreateIn:
 
         agent_create_in = cls(
             name=name,
+            accept_scheduled_tasks=accept_scheduled_tasks,
             agent_self=agent_self,
             agent_type=agent_type,
             artifacts=artifacts,
@@ -481,6 +509,7 @@ class AgentCreateIn:
             secrets=secrets,
             skills=skills,
             system=system,
+            tasks=tasks,
             tickets=tickets,
             timeout_seconds=timeout_seconds,
             transcript_retention_days=transcript_retention_days,

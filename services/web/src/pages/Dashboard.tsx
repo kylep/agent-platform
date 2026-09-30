@@ -129,6 +129,8 @@ export default function Dashboard() {
   // Earliest next fire per agent across jobs + entrypoint crons: tells a
   // failing-agent card when the streak gets its next chance to clear.
   const [nextByAgent, setNextByAgent] = useState<Record<string, string>>({});
+  const [nextTasks, setNextTasks] = useState<{id: string; title: string; agent: string; run_at: string; outcome: string}[]>([]);
+  const [taskAttention, setTaskAttention] = useState<{id: string; title: string; outcome: string}[]>([]);
   const [loaded, setLoaded] = useState(false);
 
   function refresh() {
@@ -142,6 +144,11 @@ export default function Dashboard() {
     api<RelayStats>("/api/relay/stats").then(setRelay).catch(() => setRelay(null));
     api<TicketStats>("/api/tickets/stats").then(setTickets).catch(() => setTickets(null));
     api<WikiStats>("/api/wiki/stats").then(setWiki).catch(() => setWiki(null));
+    api<{id: string; title: string; agent: string; run_at: string; outcome: string}[]>("/api/tasks?limit=100")
+      .then((all) => { setNextTasks(all.filter((t) => t.outcome === "upcoming")
+        .sort((a, b) => a.run_at.localeCompare(b.run_at)).slice(0, 5));
+        setTaskAttention(all.filter((t) => t.outcome === "failed" || t.outcome === "didnt_run").slice(0, 5)); })
+      .catch(() => {});
     Promise.all([
       api<Job[]>("/api/jobs").catch(() => [] as Job[]),
       api<ScheduleEntry[]>("/api/schedules").catch(() => [] as ScheduleEntry[]),
@@ -328,6 +335,14 @@ export default function Dashboard() {
               {loaded && upcoming.length === 0 && <tr><TD colSpan={3} className="text-muted">Nothing scheduled.</TD></tr>}
             </tbody>
           </Table>
+        </section>
+        <section>
+          <h2><Link to="/tasks">One-time Tasks</Link></h2>
+          {taskAttention.length > 0 && <p><Link to="/tasks?view=attention">{taskAttention.length} recent Task{taskAttention.length === 1 ? "" : "s"} need attention</Link></p>}
+          <Table><thead><tr><TH>Agent</TH><TH>Task</TH><TH>Run at</TH></tr></thead><tbody>
+            {nextTasks.map((t) => <tr key={t.id}><TD>{t.agent}</TD><TD><Link to={`/tasks?task=${t.id}`}>{t.title}</Link></TD><TD>{new Date(t.run_at).toLocaleString()}</TD></tr>)}
+            {loaded && nextTasks.length === 0 && <tr><TD colSpan={3} className="text-muted">No upcoming one-time Tasks.</TD></tr>}
+          </tbody></Table>
         </section>
       </div>
     </div>

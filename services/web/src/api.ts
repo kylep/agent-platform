@@ -57,6 +57,7 @@ export type AgentDef = {
   external_observer?: boolean;
   responds_to_all: boolean;
   can_invoke: boolean;
+  accept_scheduled_tasks: boolean;
   concurrency: number;
   timeout_seconds: number;
   result_topic: string;
@@ -141,6 +142,7 @@ export type RunSummary = {
   // The ticket this run was summoned from (docs/design/20); null for every
   // other trigger.
   ticket_id?: string | null;
+  task_id?: string | null;
   team_id?: string | null;
   project_id?: string | null;
 };

@@ -48,6 +48,7 @@ from agentplatform.api import runs as runs_api
 from agentplatform.api import secrets as secrets_api
 from agentplatform.api import skills as skills_api
 from agentplatform.api import tickets as tickets_api
+from agentplatform.api import tasks as tasks_api
 from agentplatform.api import tools as tools_api
 from agentplatform.api import tail as tail_api
 from agentplatform.api import wiki as wiki_api
@@ -244,7 +245,8 @@ def create_app(settings, session_factory, producer, secret_store=None, agent_sto
                           quota_grant=settings.quota_default_grant,
                   artifacts_grant=settings.artifacts_default_grant,
                   memory_grant=settings.memory_default_grant,
-                  self_grant=settings.self_default_grant)
+                  self_grant=settings.self_default_grant,
+                  tasks_grant=settings.tasks_default_grant)
             st.session_factory = make_session_factory(engine)
             # After init_db, and here rather than in it: the `qa` row's
             # password lives in the secret store, which only the API holds
@@ -483,6 +485,7 @@ def create_app(settings, session_factory, producer, secret_store=None, agent_sto
     app.include_router(runs_api.router)
     app.include_router(skills_api.router)
     app.include_router(tickets_api.router)
+    app.include_router(tasks_api.router)
     app.include_router(tools_api.router)
     app.include_router(tail_api.router)
     app.include_router(wiki_api.router)

@@ -50,6 +50,7 @@ class RunDetail:
         project_name (None | str | Unset):
         requested_model (str | Unset):  Default: ''.
         runtime (str | Unset):  Default: ''.
+        task_id (None | str | Unset):
         team_id (None | str | Unset):
         team_name (None | str | Unset):
         ticket_id (None | str | Unset):
@@ -84,6 +85,7 @@ class RunDetail:
     project_name: None | str | Unset = UNSET
     requested_model: str | Unset = ""
     runtime: str | Unset = ""
+    task_id: None | str | Unset = UNSET
     team_id: None | str | Unset = UNSET
     team_name: None | str | Unset = UNSET
     ticket_id: None | str | Unset = UNSET
@@ -178,6 +180,12 @@ class RunDetail:
 
         runtime = self.runtime
 
+        task_id: None | str | Unset
+        if isinstance(self.task_id, Unset):
+            task_id = UNSET
+        else:
+            task_id = self.task_id
+
         team_id: None | str | Unset
         if isinstance(self.team_id, Unset):
             team_id = UNSET
@@ -240,6 +248,8 @@ class RunDetail:
             field_dict["requested_model"] = requested_model
         if runtime is not UNSET:
             field_dict["runtime"] = runtime
+        if task_id is not UNSET:
+            field_dict["task_id"] = task_id
         if team_id is not UNSET:
             field_dict["team_id"] = team_id
         if team_name is not UNSET:
@@ -391,6 +401,15 @@ class RunDetail:
 
         runtime = d.pop("runtime", UNSET)
 
+        def _parse_task_id(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        task_id = _parse_task_id(d.pop("task_id", UNSET))
+
         def _parse_team_id(data: object) -> None | str | Unset:
             if data is None:
                 return data
@@ -448,6 +467,7 @@ class RunDetail:
             project_name=project_name,
             requested_model=requested_model,
             runtime=runtime,
+            task_id=task_id,
             team_id=team_id,
             team_name=team_name,
             ticket_id=ticket_id,

@@ -28,6 +28,8 @@ from .artifact_stats import ArtifactStats
 from .artifact_view import ArtifactView
 from .artifact_view_meta import ArtifactViewMeta
 from .backlog import Backlog
+from .backup_connection_in import BackupConnectionIn
+from .body_inspect_import import BodyInspectImport
 from .call_in import CallIn
 from .capture_in import CaptureIn
 from .change_impact import ChangeImpact
@@ -81,7 +83,9 @@ from .integration import Integration
 from .intent_in import IntentIn
 from .intent_in_arguments import IntentInArguments
 from .job_in import JobIn
+from .job_in_run_when import JobInRunWhen
 from .job_patch import JobPatch
+from .job_patch_run_when_type_0 import JobPatchRunWhenType0
 from .job_run_accepted import JobRunAccepted
 from .job_view import JobView
 from .kafka_health import KafkaHealth
@@ -170,6 +174,7 @@ from .run_detail_permission_denials_item import RunDetailPermissionDenialsItem
 from .run_duration_point import RunDurationPoint
 from .run_in import RunIn
 from .run_summary import RunSummary
+from .scan_ack_in import ScanAckIn
 from .schedule_row import ScheduleRow
 from .schedule_toggle import ScheduleToggle
 from .secret_access_view import SecretAccessView
@@ -195,6 +200,9 @@ from .skill_view import SkillView
 from .skill_wizard_in import SkillWizardIn
 from .snapshot_in import SnapshotIn
 from .sync_status import SyncStatus
+from .task_grant_in import TaskGrantIn
+from .task_in import TaskIn
+from .task_patch import TaskPatch
 from .team_in import TeamIn
 from .team_patch import TeamPatch
 from .ticket_actor_count import TicketActorCount
@@ -283,6 +291,8 @@ __all__ = (
     "ArtifactView",
     "ArtifactViewMeta",
     "Backlog",
+    "BackupConnectionIn",
+    "BodyInspectImport",
     "CallIn",
     "CaptureIn",
     "ChangeImpact",
@@ -332,7 +342,9 @@ __all__ = (
     "IntentIn",
     "IntentInArguments",
     "JobIn",
+    "JobInRunWhen",
     "JobPatch",
+    "JobPatchRunWhenType0",
     "JobRunAccepted",
     "JobView",
     "KafkaHealth",
@@ -421,6 +433,7 @@ __all__ = (
     "RunDurationPoint",
     "RunIn",
     "RunSummary",
+    "ScanAckIn",
     "ScheduleRow",
     "ScheduleToggle",
     "SecretAccessView",
@@ -446,6 +459,9 @@ __all__ = (
     "SkillWizardIn",
     "SnapshotIn",
     "SyncStatus",
+    "TaskGrantIn",
+    "TaskIn",
+    "TaskPatch",
     "TeamIn",
     "TeamPatch",
     "TicketActorCount",

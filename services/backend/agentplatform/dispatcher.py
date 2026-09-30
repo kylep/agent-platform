@@ -1,5 +1,5 @@
 import asyncio, json, logging, time
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from agentplatform import readiness
 from agentplatform.agents import AgentStore, Manifest
 from agentplatform.agentdefs import AgentDefModel, model_of
@@ -119,6 +119,18 @@ class Dispatcher:
         Once the first dispatch attempt sees a valid definition, every later
         attempt must see that same prompt, grants, runtime, and effective model.
         """
+        if run.task_id:
+            from agentplatform.db import ScheduledTask
+            from agentplatform.task_scheduler import task_authority
+            async with self.sf() as task_session:
+                task = await task_session.get(ScheduledTask, run.task_id)
+                if task is None or task.status == "cancelled":
+                    return None, "Task was cancelled or removed"
+                reason = await task_authority(task_session, task)
+                if reason:
+                    return None, "Task blocked before dispatch: " + reason
+                if run.requested_runtime and task.runtime != run.requested_runtime:
+                    return None, "Task runtime changed before dispatch"
         if run.definition_snapshot:
             try:
                 model = AgentDefModel(**run.definition_snapshot)
@@ -142,6 +154,8 @@ class Dispatcher:
                 model = model_of(row)
             except Exception:
                 return None, "unknown or quarantined agent"
+            if run.requested_runtime and model.runtime != run.requested_runtime:
+                return None, "Task target runtime changed before dispatch"
             if run.requested_model:
                 model.model = run.requested_model
                 if model.backup_runtime == model.runtime and model.backup_model == model.model:
@@ -164,6 +178,8 @@ class Dispatcher:
     async def _set_state(self, run: Run, state: RunState, error: str | None = None) -> None:
         async with self.sf() as s:
             db_run = await s.get(Run, run.id)
+            if db_run.task_id and db_run.state == RunState.KILLED:
+                return  # a queued Task cancellation won the dispatch race
             db_run.state = state
             if error: db_run.error = error
             if state == RunState.DISPATCHED: db_run.started_at = utcnow()
@@ -172,6 +188,44 @@ class Dispatcher:
                 await revoke_run_keys(s, run.id)
             await s.commit()
         await self._event(run.id, state, error or "")
+
+    async def _block_task(self, run: Run, reason: str) -> None:
+        from agentplatform.db import ScheduledTask, ScheduledTaskEvent
+        async with self.sf() as s:
+            task = await s.get(ScheduledTask, run.task_id, with_for_update=True)
+            if task and task.status == "launched":
+                task.status, task.last_reason = "blocked", reason
+                s.add(ScheduledTaskEvent(task_id=task.id, kind="blocked",
+                    actor="system:dispatcher", reason=reason, run_id=run.id))
+                await s.commit()
+
+    async def _defer_task(self, run: Run, reason: str) -> None:
+        """Keep temporary admission failures retryable until the Task deadline."""
+        from datetime import timedelta
+        from agentplatform.db import ScheduledTask, ScheduledTaskEvent
+        from agentplatform.scheduler import as_utc
+        expired = False
+        async with self.sf() as s:
+            async with s.begin():
+                task = await s.get(ScheduledTask, run.task_id, with_for_update=True)
+                db_run = await s.get(Run, run.id, with_for_update=True)
+                if not task or db_run.state != RunState.QUEUED:
+                    return
+                now = utcnow()
+                task.last_reason = reason
+                if now >= as_utc(task.expires_at):
+                    task.status = "expired"
+                    db_run.state = RunState.KILLED
+                    db_run.error = f"Task start deadline passed: {reason}"
+                    db_run.finished_at = now
+                    expired = True
+                else:
+                    db_run.deferred_until = min(now + timedelta(minutes=5), as_utc(task.expires_at))
+                s.add(ScheduledTaskEvent(task_id=task.id,
+                    kind="expired" if expired else "deferred", actor="system:dispatcher",
+                    reason=reason, run_id=run.id))
+        if expired:
+            await self._event(run.id, RunState.KILLED, reason)
 
     async def handle(self, message: dict) -> None:
         run_id = message.get("run_id", "")
@@ -184,9 +238,15 @@ class Dispatcher:
                 await self._set_state(run, RunState.KILLED)
             return
         if run.state != RunState.QUEUED: return  # idempotency
+        if run.task_id and run.deferred_until:
+            from agentplatform.scheduler import as_utc
+            if as_utc(run.deferred_until) > utcnow():
+                return
         manifest, definition_error = await self._freeze_definition(run)
         if definition_error is not None:
             await self._set_state(run, RunState.REJECTED, definition_error)
+            if run.task_id:
+                await self._block_task(run, definition_error)
             return
         blocked = await self._credential_blocks(manifest)
         if blocked is not None and manifest.backup_runtime and not run.fallback_used:
@@ -205,11 +265,17 @@ class Dispatcher:
                     run.fallback_used, run.fallback_reason = db_run.fallback_used, db_run.fallback_reason
                 manifest, blocked = backup, None
         if blocked is not None:
-            await self._set_state(run, RunState.REJECTED, blocked)
+            if run.task_id:
+                await self._defer_task(run, blocked)
+            else:
+                await self._set_state(run, RunState.REJECTED, blocked)
             return
         blocked = await self._readiness_blocks(manifest)
         if blocked is not None:
-            await self._set_state(run, RunState.REJECTED, blocked)
+            if run.task_id:
+                await self._defer_task(run, blocked)
+            else:
+                await self._set_state(run, RunState.REJECTED, blocked)
             return
         async with self.sf() as s:
             busy = (await s.execute(select(func.count()).select_from(Run)
@@ -220,6 +286,43 @@ class Dispatcher:
         if busy >= self.settings.global_concurrency or agent_busy >= manifest.concurrency:
             await asyncio.sleep(5)
             await self.producer.publish(TOPIC_RUN_REQUESTS, run_id, message, type="run.request")
+            return
+        if run.task_id:
+            # Cancellation and dispatch claim the same Task then Run rows, in
+            # that order. Once DISPATCHED, cancellation cannot pretend the pod
+            # was never launched; before it, cancellation wins without a pod.
+            from agentplatform.db import ScheduledTask
+            from agentplatform.task_scheduler import task_authority
+            async with self.sf() as s:
+                async with s.begin():
+                    task = await s.get(ScheduledTask, run.task_id, with_for_update=True)
+                    db_run = await s.get(Run, run.id, with_for_update=True)
+                    if task is None or task.status == "cancelled" or db_run.state != RunState.QUEUED:
+                        return
+                    reason = await task_authority(s, task)
+                    if reason or (db_run.requested_runtime and manifest.runtime != db_run.requested_runtime):
+                        db_run.state = RunState.REJECTED
+                        db_run.error = reason or "Task runtime changed before dispatch"
+                        db_run.finished_at = utcnow()
+                        task.last_reason = db_run.error
+                        rejected = db_run.error
+                    else:
+                        db_run.state = RunState.DISPATCHED
+                        db_run.deferred_until = None
+                        db_run.started_at = utcnow()
+                        rejected = None
+            if rejected:
+                await self._block_task(run, rejected)
+                await self._event(run.id, RunState.REJECTED, rejected)
+                return
+            await self._event(run.id, RunState.DISPATCHED)
+            try:
+                await self.launcher.launch(run, manifest)
+            except Exception as e:
+                await self._set_state(run, RunState.DLQ, str(e))
+                await self.producer.publish(TOPIC_RUN_DLQ, run_id,
+                                            {"message": message, "error": str(e)},
+                                            type="run.dlq")
             return
         try:
             await self.launcher.launch(run, manifest)
@@ -275,7 +378,8 @@ class Dispatcher:
         async with self.sf() as s:
             rows = (await s.execute(
                 select(Run.id).where(Run.state == RunState.QUEUED,
-                                     Run.created_at < cutoff))).scalars().all()
+                                     Run.created_at < cutoff,
+                                     or_(Run.deferred_until.is_(None), Run.deferred_until <= utcnow())))).scalars().all()
         if not rows:
             return 0
         if not await self._kafka_reachable():

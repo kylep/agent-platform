@@ -1735,3 +1735,20 @@ a.relay-action { color: var(--ds-link); }
 .help-tool-head { display: flex; align-items: center; gap: 10px; }
 .help-tool-head code { font-weight: 600; }
 .help-tool p { margin: 4px 0 0; font-size: 13px; }
+
+/* One-time Tasks keep the prompt and operational log on a focused detail surface. */
+.task-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 310px), 1fr)); gap: 14px; }
+.task-card { display: flex; flex-direction: column; gap: 8px; text-align: left; padding: 18px;
+  border: 1px solid var(--ds-border); border-radius: 12px; color: var(--ds-text); background: var(--ds-surface); cursor: pointer; }
+.task-card:hover, .task-card:focus-visible { border-color: var(--ds-accent); }
+.task-card-top { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.task-detail { margin-top: 20px; }
+.task-prompt { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 28rem; overflow: auto; }
+.task-events { padding-left: 22px; }
+.task-events li { margin: 10px 0; }
+
+.task-panel { background: var(--ds-surface); border: 1px solid var(--ds-border); border-radius: 12px; padding: 20px; }
+.task-form { display: flex; flex-direction: column; gap: 9px; }
+.task-form h2 { margin-top: 0; }
+.task-form label { color: var(--ds-text-muted); font-size: 13px; }
+.task-form input, .task-form textarea { width: 100%; padding: 9px; border: 1px solid var(--ds-border); border-radius: 6px; background: var(--ds-surface); color: var(--ds-text); }

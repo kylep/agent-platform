@@ -6,6 +6,7 @@ from typing import Any, TypeVar, cast
 from attrs import define as _attrs_define
 from attrs import field as _attrs_field
 
+from ..models.job_in_run_when import JobInRunWhen
 from ..types import UNSET, Unset
 
 T = TypeVar("T", bound="JobIn")
@@ -21,6 +22,7 @@ class JobIn:
         agent (None | str | Unset):
         model (str | Unset):  Default: ''.
         relay_channel (None | str | Unset):
+        run_when (JobInRunWhen | Unset):  Default: JobInRunWhen.ALWAYS.
         timezone (str | Unset):  Default: ''.
     """
 
@@ -30,6 +32,7 @@ class JobIn:
     agent: None | str | Unset = UNSET
     model: str | Unset = ""
     relay_channel: None | str | Unset = UNSET
+    run_when: JobInRunWhen | Unset = JobInRunWhen.ALWAYS
     timezone: str | Unset = ""
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
@@ -54,6 +57,10 @@ class JobIn:
         else:
             relay_channel = self.relay_channel
 
+        run_when: str | Unset = UNSET
+        if not isinstance(self.run_when, Unset):
+            run_when = self.run_when.value
+
         timezone = self.timezone
 
         field_dict: dict[str, Any] = {}
@@ -71,6 +78,8 @@ class JobIn:
             field_dict["model"] = model
         if relay_channel is not UNSET:
             field_dict["relay_channel"] = relay_channel
+        if run_when is not UNSET:
+            field_dict["run_when"] = run_when
         if timezone is not UNSET:
             field_dict["timezone"] = timezone
 
@@ -105,6 +114,13 @@ class JobIn:
 
         relay_channel = _parse_relay_channel(d.pop("relay_channel", UNSET))
 
+        _run_when = d.pop("run_when", UNSET)
+        run_when: JobInRunWhen | Unset
+        if isinstance(_run_when, Unset):
+            run_when = UNSET
+        else:
+            run_when = JobInRunWhen(_run_when)
+
         timezone = d.pop("timezone", UNSET)
 
         job_in = cls(
@@ -114,6 +130,7 @@ class JobIn:
             agent=agent,
             model=model,
             relay_channel=relay_channel,
+            run_when=run_when,
             timezone=timezone,
         )
 

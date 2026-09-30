@@ -22,7 +22,8 @@ async def main() -> None:
                   quota_grant=settings.quota_default_grant,
                   artifacts_grant=settings.artifacts_default_grant,
                   memory_grant=settings.memory_default_grant,
-                  self_grant=settings.self_default_grant)
+                  self_grant=settings.self_default_grant,
+                  tasks_grant=settings.tasks_default_grant)
     session_factory = make_session_factory(engine)
 
     # A producer for conversation-outbound, result_topic feeds, and dead-lettering.

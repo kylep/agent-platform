@@ -5,7 +5,7 @@ import { InfoDialog } from "@ap/ui/dialog";
 export type AgentHelpKey =
   | "description" | "runtime" | "model" | "profile" | "prompt" | "result-topic"
   | "timeout" | "concurrency" | "retention" | "enabled" | "responds-all"
-  | "harness-tools" | "codex-capabilities" | "platform-tools" | "skills" | "secrets" | "invoke"
+  | "harness-tools" | "codex-capabilities" | "platform-tools" | "skills" | "secrets" | "invoke" | "tasks-accept"
   | "quota" | "push-paths" | "delete-tests" | "crons" | "timezone"
   | "webhooks" | "topics";
 
@@ -37,6 +37,7 @@ const HELP: Record<AgentHelpKey, Help> = {
   "platform-tools": { title: "Platform tools", body: <>Brokered MCP capabilities such as Relay, tickets, memory, or app access. They work with both runtimes and determine the least-privileged API role minted into each run.</> },
   skills: { title: "Skills", body: <>Optional, reusable workflow guides mounted in either runtime. Put this agent's job in its prompt and API details in the tool or app. Skills provide instructions; secret access requires an explicit grant.</> },
   secrets: { title: "Secrets", body: <>Extra encrypted values injected into the run pod. Runtime credentials stay in runtime proxies and connector credentials stay with their accounts. Neither can be granted to run pods.</> },
+  "tasks-accept": { title: "Accept scheduled Tasks", body: <>Allows an agent with permission to schedule this agent for a one-time future run. The scheduler and dispatcher check this again before starting, so turning it off blocks pending Tasks. Workbench developers should generally leave it off unless explicitly needed.</> },
   invoke: { title: "Can invoke other agents", body: <>Allows this agent to launch other agents through the platform. Relay hop and budget guards still apply. This is an authority grant, so it is grouped with tools and secrets.</> },
   quota: { title: "Quota gate thresholds", body: <>Thresholds used by the <code>quota_ok</code> platform tool. They have no effect unless that tool is granted and the agent calls it before expensive work.</> },
   "push-paths": { title: "Auto-merge paths", body: <><p>Workbench always opens or updates a pull request; the agent never pushes or merges code itself.</p><p>Leave this blank to require human review for every PR. Add path globs only when a PR may auto-merge after verification if <strong>every</strong> changed file matches one of them. A non-matching file makes the PR wait for review.</p><p>Platform-protected files are always refused.</p></> },

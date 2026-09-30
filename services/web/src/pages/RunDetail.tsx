@@ -347,6 +347,7 @@ export default function RunDetail() {
           )}
         </dd>
         {run.ticket_id && <TicketRef ticketId={run.ticket_id} />}
+        {run.task_id && <><dt>Task</dt><dd><Link to={`/tasks?task=${run.task_id}`}>View one-time Task</Link></dd></>}
         <dt>Initiated by</dt>
         <dd>{run.initiated_by ?? "—"}{run.requested_by && run.requested_by !== run.initiated_by ? ` (via ${run.requested_by})` : ""}</dd>
         <dt>Created</dt>

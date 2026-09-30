@@ -29,6 +29,7 @@ export default function Reporting() {
   const [integrations, setIntegrations] = useState<Integration[]>([]);
   const [models, setModels] = useState<ModelUsage[]>([]);
   const [modelAgent, setModelAgent] = useState<string>("");   // "" = all agents
+  const [taskReport, setTaskReport] = useState<{total: number; upcoming: number; running: number; succeeded: number; failed: number; blocked: number; expired: number; cancelled: number; tokens_in: number; tokens_out: number; by_model: Record<string, number>} | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [pruning, setPruning] = useState(false);
   const [pruneMsg, setPruneMsg] = useState<string | null>(null);
@@ -44,6 +45,7 @@ export default function Reporting() {
     api<ToolMetrics[]>("/api/metrics/tools").then(setToolStats).catch(() => setToolStats([]));
     api<Retention>("/api/maintenance/retention").then(setRetention).catch(() => setRetention(null));
     api<Integration[]>("/api/integrations").then(setIntegrations).catch(() => setIntegrations([]));
+    api<typeof taskReport>("/api/tasks/report").then(setTaskReport).catch(() => {});
     api<AgentSummary[]>("/api/agents")
       .then((a) => setLiveAgents(new Set(a.map((x) => x.name))))
       .catch(() => {});
@@ -80,6 +82,17 @@ export default function Reporting() {
         <Stat label="active runs" value={ov?.active ?? "—"} />
         <Stat label="dlq depth" value={ov?.dlq ?? "—"} warn={(ov?.dlq ?? 0) > 0} />
       </StatRow>
+
+      <h2>One-time Tasks <span className="muted text-sm font-normal">(last 30 days)</span></h2>
+      <p className="muted">A Task that did not start is counted separately from a Run that failed. <Link to="/tasks">Open Tasks</Link> · <Link to="/runs?trigger=task">Task Runs</Link></p>
+      <StatRow>
+        <Stat label="scheduled" value={taskReport?.total ?? "—"} />
+        <Stat label="succeeded" value={taskReport?.succeeded ?? "—"} />
+        <Stat label="failed" value={taskReport?.failed ?? "—"} warn={(taskReport?.failed ?? 0) > 0} />
+        <Stat label="didn't start" value={taskReport ? taskReport.blocked + taskReport.expired : "—"} warn={((taskReport?.blocked ?? 0) + (taskReport?.expired ?? 0)) > 0} />
+      </StatRow>
+      {taskReport && <p className="muted">{taskReport.upcoming} upcoming · {taskReport.running} running · {taskReport.cancelled} cancelled · {taskReport.tokens_in.toLocaleString()} input and {taskReport.tokens_out.toLocaleString()} output tokens.</p>}
+      {taskReport && Object.keys(taskReport.by_model).length > 0 && <p className="muted">Models: {Object.entries(taskReport.by_model).map(([model, count]) => `${model} (${count})`).join(", ")}</p>}
 
       <h2>Integrations</h2>
       <Table>

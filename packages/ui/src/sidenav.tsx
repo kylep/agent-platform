@@ -40,6 +40,7 @@ export function buildPlatformNav(apps: AppNavInfo[] = []): NavEntry[] {
       { to: "/memories", label: "Memories" },
       { to: "/changes", label: "Changes" },
       { to: "/schedules", label: "Schedules" },
+      { to: "/tasks", label: "Tasks" },
     ] },
     { to: "/apps", label: "Apps", children: apps.map((a) => (
       { to: `/apps/${a.name}/`, label: `${a.icon || "🧩"} ${a.display_name || a.name}`, external: true }

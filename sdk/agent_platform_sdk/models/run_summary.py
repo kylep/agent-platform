@@ -23,6 +23,7 @@ class RunSummary:
         tags (list[str]):
         trigger (str):
         project_id (None | str | Unset):
+        task_id (None | str | Unset):
         team_id (None | str | Unset):
         ticket_id (None | str | Unset):
     """
@@ -35,6 +36,7 @@ class RunSummary:
     tags: list[str]
     trigger: str
     project_id: None | str | Unset = UNSET
+    task_id: None | str | Unset = UNSET
     team_id: None | str | Unset = UNSET
     ticket_id: None | str | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
@@ -61,6 +63,12 @@ class RunSummary:
             project_id = UNSET
         else:
             project_id = self.project_id
+
+        task_id: None | str | Unset
+        if isinstance(self.task_id, Unset):
+            task_id = UNSET
+        else:
+            task_id = self.task_id
 
         team_id: None | str | Unset
         if isinstance(self.team_id, Unset):
@@ -89,6 +97,8 @@ class RunSummary:
         )
         if project_id is not UNSET:
             field_dict["project_id"] = project_id
+        if task_id is not UNSET:
+            field_dict["task_id"] = task_id
         if team_id is not UNSET:
             field_dict["team_id"] = team_id
         if ticket_id is not UNSET:
@@ -132,6 +142,15 @@ class RunSummary:
 
         project_id = _parse_project_id(d.pop("project_id", UNSET))
 
+        def _parse_task_id(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        task_id = _parse_task_id(d.pop("task_id", UNSET))
+
         def _parse_team_id(data: object) -> None | str | Unset:
             if data is None:
                 return data
@@ -159,6 +178,7 @@ class RunSummary:
             tags=tags,
             trigger=trigger,
             project_id=project_id,
+            task_id=task_id,
             team_id=team_id,
             ticket_id=ticket_id,
         )

@@ -761,6 +761,53 @@ async def agents_grant(action: str, name: str, field: str | None = None,
         "discord_identity_id": discord_identity_id})
 
 
+# --- one-time Tasks (docs/design/37) ------------------------------------------
+@mcp.tool
+@_metered("tasks", grant=True)
+async def tasks(action: str, task_id: str | None = None, agent: str | None = None,
+                prompt: str | None = None, title: str = "One-time run",
+                run_at: str | None = None, delay_minutes: int | None = None,
+                late_minutes: int = 60, model: str = "", version: int | None = None,
+                idempotency_key: str | None = None, status: str | None = None,
+                limit: int = 30) -> str:
+    """Schedule one one-time agent run, or inspect/cancel your Tasks. Schedule
+    yourself by default; another agent requires explicit admin permission.
+    Supply an RFC3339 run_at with offset OR delay_minutes. Model omitted means
+    target default. The result appears in the Task log; external chat will not
+    get an automatic reply, so tell the requester where to look. Actions:
+    schedule, list, get, events, models, reschedule, cancel."""
+    if action == "models":
+        if not agent:
+            return "error: models requires agent"
+        return await _call("GET", "/api/tasks/models", {"agent": agent})
+    if action == "list":
+        return await _call("GET", "/api/tasks", {"agent": agent, "status": status,
+                                                 "limit": max(1, min(limit, 100))})
+    if action == "schedule":
+        if not agent or not prompt:
+            return "error: schedule requires agent and prompt"
+        if bool(run_at) == bool(delay_minutes):
+            return "error: choose exactly one of run_at or delay_minutes"
+        return await _call("POST", "/api/tasks", json={"agent": agent, "prompt": prompt,
+            "title": title, "run_at": run_at, "delay_minutes": delay_minutes,
+            "late_minutes": late_minutes, "model": model,
+            "idempotency_key": idempotency_key})
+    if not task_id or not _HEX_ID_RE.fullmatch(task_id):
+        return "error: get/events/reschedule/cancel requires a 32-character task_id"
+    if action == "get":
+        return await _call("GET", f"/api/tasks/{task_id}")
+    if action == "events":
+        return await _call("GET", f"/api/tasks/{task_id}/events")
+    if action == "cancel":
+        return await _call("POST", f"/api/tasks/{task_id}/cancel")
+    if action == "reschedule":
+        if version is None or not run_at:
+            return "error: reschedule requires version and run_at with offset"
+        return await _call("PATCH", f"/api/tasks/{task_id}", json={
+            "version": version, "run_at": run_at, "model": model or None})
+    return "error: action must be schedule|list|get|events|models|reschedule|cancel"
+
+
 # --- relay (docs/design/19) --------------------------------------------------
 # The messenger nearly every agent is born holding. A CORE tool because it has
 # to post AS the caller: authorship is the forwarded bearer, never an argument,

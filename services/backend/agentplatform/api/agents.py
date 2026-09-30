@@ -33,7 +33,7 @@ from agentplatform.agentdefs import (DEF_FIELDS, AgentDefModel, apply_snapshot,
                                      validate_def)
 from agentplatform.agentspec import (CODEX_MODELS, GRANTABLE_PLATFORM_TOOLS, KNOWN_MODELS,
                                      TOOL_ARTIFACTS, TOOL_IMAGE_GEN, TOOL_QUOTA,
-                                     TOOL_RELAY, TOOL_TICKETS, TOOL_WIKI)
+                                     TOOL_RELAY, TOOL_TICKETS, TOOL_WIKI, TOOL_TASKS)
 from agentplatform.api.auth import (READ_ROLES, authenticate, require_admin,
                                     require_role, role_allows)
 from agentplatform.api.schemas import (AgentCreateIn, AgentDefIn, AgentDefOut,
@@ -113,6 +113,7 @@ TOOL_AGENTS_GRANT = "mcp__platform__agents_grant"
 # the tool's last segment — `relay`, `tickets`, `wiki`, `get_quota_usage`,
 # `artifacts` — so a sixth is one line here.
 DEFAULT_GRANTS = ((TOOL_RELAY, "relay_default_grant"),
+                  (TOOL_TASKS, "tasks_default_grant"),
                   (TOOL_TICKETS, "tickets_default_grant"),
                   (TOOL_WIKI, "wiki_default_grant"),
                   (TOOL_QUOTA, "quota_default_grant"),
@@ -143,7 +144,7 @@ DEFAULT_GRANTS = ((TOOL_RELAY, "relay_default_grant"),
 # `agents_grant`. The quota thresholds are deliberately NOT here: they only make
 # an agent MORE reluctant to run, so `agents_edit` may tune them.
 GRANT_FIELDS: tuple[str, ...] = ("harness_tools", "platform_tools", "discord_identity_id", "skills",
-                                 "secrets", "can_invoke", "role", "agent_type", "external_observer",
+                                 "secrets", "can_invoke", "accept_scheduled_tasks", "role", "agent_type", "external_observer",
                                  "push_path_globs", "may_delete_tests")
 # Everything the definition holds except its identity — the two halves the
 # authorization split is drawn between, and the comparison surface for "did
@@ -601,6 +602,8 @@ async def create_agent(request: Request, body: AgentCreateIn,
     scope.require_edit("creating an agent")
     # Knobs about the write, not fields of the agent.
     payload = body.model_dump(exclude={_knob(t) for t, _ in DEFAULT_GRANTS})
+    if body.role == "dev" and "accept_scheduled_tasks" not in body.model_fields_set:
+        payload["accept_scheduled_tasks"] = False
     payload["platform_tools"] = _with_grants(payload["platform_tools"], _asked_for(body))
     model = _model(request, payload, body.name, _registries(request))
     # A grant the new agent is BORN with is still a grant. "Born with" means

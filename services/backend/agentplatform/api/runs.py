@@ -83,7 +83,7 @@ def _summary(r: Run) -> dict:
     return {"id": r.id, "agent": r.agent, "state": r.state, "trigger": r.trigger,
             "created_at": r.created_at.isoformat() if r.created_at else None,
             "summary": r.summary, "tags": r.tags or [],
-            "ticket_id": r.ticket_id, "team_id": r.team_id,
+            "ticket_id": r.ticket_id, "task_id": r.task_id, "team_id": r.team_id,
             "project_id": r.project_id}
 
 @router.post("/api/runs", response_model=S.RunAccepted)
@@ -135,7 +135,7 @@ async def create_run(request: Request, body: RunIn,
 async def list_runs(request: Request, limit: int = Query(50, ge=1, le=500),
                     offset: int = Query(0, ge=0),
                     agent: str | None = None, state: str | None = None,
-                    tag: str | None = None, needs_summary: bool = False):
+                    trigger: str | None = None, tag: str | None = None, needs_summary: bool = False):
     """Run history with paging (`offset`) and agent/state filters pushed to
     SQL — the full history stays reachable, not just the newest window. The
     tag/needs_summary filters stay Python-side over a bounded recent window
@@ -145,6 +145,8 @@ async def list_runs(request: Request, limit: int = Query(50, ge=1, le=500),
         stmt = stmt.where(Run.agent == agent)
     if state:
         stmt = stmt.where(Run.state == state)
+    if trigger:
+        stmt = stmt.where(Run.trigger == trigger)
     python_filtered = bool(tag) or needs_summary
     if not python_filtered:
         stmt = stmt.offset(offset).limit(limit)

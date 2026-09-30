@@ -159,6 +159,7 @@ class Settings(BaseSettings):
     # Whether agent creation grants mcp__platform__tickets, same bargain as
     # relay_default_grant: on by default because an agent that cannot file what
     # it found leaves the finding in a transcript nobody reads.
+    tasks_default_grant: bool = True
     tickets_default_grant: bool = True
     # How many messages of a ticket's thread a summoned run is shown. Larger
     # than relay_context_messages: the thread IS the ticket's history, and a

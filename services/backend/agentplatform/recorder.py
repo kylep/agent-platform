@@ -7,10 +7,11 @@ from sqlalchemy.exc import IntegrityError
 from agentplatform.apikeys import revoke_run_keys
 from agentplatform.db import (ACTIVE_STATES, Conversation, RelayMessage, Run,
                               RunModelUsage, RunState, SecretMeta, TranscriptEvent,
+                              ScheduledTask, ScheduledTaskEvent,
                               utcnow)
 from agentplatform.events import (TOPIC_RUN_DLQ, TOPIC_RUN_EVENTS,
                                   TOPIC_RUN_TRANSCRIPT)
-from agentplatform.relay import (SYSTEM_AUTHOR, mentionable_in, parse_mentions,
+from agentplatform.relay import (SYSTEM_AUTHOR, is_member, mentionable_in, parse_mentions,
                                  participant_of, room_reply_mode)
 from agentplatform.relay_store import (enabled_agents, explicit_members,
                                        outbound_for_message, post_relay_message,
@@ -203,11 +204,27 @@ class Recorder:
                     log.warning("External final delivery denied for run %s", run.id)
             # Accepted provider receipts populate mirrors, never speculative output.
             return None
+        if run.task_id:
+            task = await s.get(ScheduledTask, run.task_id)
+            roster = await enabled_agents(s)
+            members = await explicit_members(s, conv.id)
+            can_post = (task is not None and task.delivery == "relay"
+                        and is_member(conv, f"agent:{run.agent}", roster, members))
+            if can_post and task.creator_agent:
+                can_post = is_member(conv, f"agent:{task.creator_agent}", roster, members)
+            if not can_post:
+                if task is not None and task.delivery == "relay":
+                    task.delivery = "log"
+                    task.last_reason = "Relay access changed before reply; result remains in Task log"
+                    s.add(ScheduledTaskEvent(task_id=task.id, kind="delivery_changed",
+                        actor="system:recorder", reason=task.last_reason, run_id=run.id))
+                return None
         trigger = (await s.get(RelayMessage, run.trigger_message_id)
                    if run.trigger_message_id else None)
         # The hop is what bounds agent-to-agent chatter, and only a mention is
         # part of such a chain — a human's turn restarts the count at 0.
-        hop = trigger.hop + 1 if trigger is not None and run.trigger == "mention" else 0
+        hop = (max(run.depth, (trigger.hop + 1) if trigger else 0) if run.trigger == "task"
+               else trigger.hop + 1 if trigger is not None and run.trigger == "mention" else 0)
         # Answer inside the triggering message's thread, so a room with several
         # conversations running keeps them apart. A DM IS one conversation, so
         # its answer goes top-level: threaded there it would sit behind a

@@ -31,6 +31,7 @@ def test_the_participant_grants_are_selectable_but_do_not_promote():
     assert PLATFORM_MCP_RELAY_TOOLS == ["mcp__platform__relay",
                                         "mcp__platform__tickets",
                                         "mcp__platform__wiki",
+                                        "mcp__platform__tasks",
                                         "mcp__platform__get_quota_usage",
                                         "mcp__platform__artifacts",
                                         "mcp__platform__image_gen",

@@ -14,6 +14,7 @@ import { Face } from "../components/relay/Face";
 import MessagePane from "../components/relay/MessagePane";
 import AgentMemories from "../components/AgentMemories";
 import AgentSchedules from "../components/AgentSchedules";
+import AgentTasks from "../components/AgentTasks";
 import { isClosed, stateLabel, type Ticket } from "../lib/tickets";
 import { Banner } from "@ap/ui/banner";
 import { Button } from "@ap/ui/button";
@@ -301,7 +302,7 @@ function AgentConfig({ agent, jobs, onSaved }: { agent: AgentRow; jobs: Job[]; o
   );
 }
 
-type Tab = "config" | "history" | "conversations" | "tickets" | "memories" | "schedules" | "report";
+type Tab = "config" | "history" | "conversations" | "tickets" | "memories" | "schedules" | "tasks" | "report";
 
 export default function AgentDetail() {
   const { name } = useParams<{ name: string }>();
@@ -416,6 +417,7 @@ export default function AgentDetail() {
         <button className={tab === "schedules" ? "tab active" : "tab"} onClick={() => setTab("schedules")}>
           Schedules{jobs.length ? ` (${jobs.length})` : ""}
         </button>
+        <button className={tab === "tasks" ? "tab active" : "tab"} onClick={() => setTab("tasks")}>Tasks</button>
         <button className={tab === "report" ? "tab active" : "tab"} onClick={() => setTab("report")}>Report</button>
       </div>
 
@@ -424,6 +426,7 @@ export default function AgentDetail() {
       {tab === "tickets" && <AgentTickets agent={agent.name} />}
       {tab === "memories" && <AgentMemories agent={agent.name} />}
       {tab === "schedules" && <AgentSchedules agent={agent.name} />}
+      {tab === "tasks" && <AgentTasks agent={agent.name} />}
       {tab === "history" && <AgentVersions codeOwned={!!agent.system_source} agent={agent.name} onRolledBack={loadContent} />}
       {tab === "config" && (
         <>

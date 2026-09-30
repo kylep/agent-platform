@@ -25,6 +25,7 @@ class JobView:
         prompt (str):
         model (str | Unset):  Default: ''.
         relay_channel (None | str | Unset):
+        run_when (str | Unset):  Default: 'always'.
         timezone (str | Unset):  Default: ''.
     """
 
@@ -38,6 +39,7 @@ class JobView:
     prompt: str
     model: str | Unset = ""
     relay_channel: None | str | Unset = UNSET
+    run_when: str | Unset = "always"
     timezone: str | Unset = ""
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
@@ -69,6 +71,8 @@ class JobView:
         else:
             relay_channel = self.relay_channel
 
+        run_when = self.run_when
+
         timezone = self.timezone
 
         field_dict: dict[str, Any] = {}
@@ -89,6 +93,8 @@ class JobView:
             field_dict["model"] = model
         if relay_channel is not UNSET:
             field_dict["relay_channel"] = relay_channel
+        if run_when is not UNSET:
+            field_dict["run_when"] = run_when
         if timezone is not UNSET:
             field_dict["timezone"] = timezone
 
@@ -140,6 +146,8 @@ class JobView:
 
         relay_channel = _parse_relay_channel(d.pop("relay_channel", UNSET))
 
+        run_when = d.pop("run_when", UNSET)
+
         timezone = d.pop("timezone", UNSET)
 
         job_view = cls(
@@ -153,6 +161,7 @@ class JobView:
             prompt=prompt,
             model=model,
             relay_channel=relay_channel,
+            run_when=run_when,
             timezone=timezone,
         )
 

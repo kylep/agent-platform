@@ -6,6 +6,7 @@ from typing import Any, TypeVar, cast
 from attrs import define as _attrs_define
 from attrs import field as _attrs_field
 
+from ..models.job_patch_run_when_type_0 import JobPatchRunWhenType0
 from ..types import UNSET, Unset
 
 T = TypeVar("T", bound="JobPatch")
@@ -21,6 +22,7 @@ class JobPatch:
         model (None | str | Unset):
         name (None | str | Unset):
         prompt (None | str | Unset):
+        run_when (JobPatchRunWhenType0 | None | Unset):
         timezone (None | str | Unset):
     """
 
@@ -30,6 +32,7 @@ class JobPatch:
     model: None | str | Unset = UNSET
     name: None | str | Unset = UNSET
     prompt: None | str | Unset = UNSET
+    run_when: JobPatchRunWhenType0 | None | Unset = UNSET
     timezone: None | str | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
@@ -70,6 +73,14 @@ class JobPatch:
         else:
             prompt = self.prompt
 
+        run_when: None | str | Unset
+        if isinstance(self.run_when, Unset):
+            run_when = UNSET
+        elif isinstance(self.run_when, JobPatchRunWhenType0):
+            run_when = self.run_when.value
+        else:
+            run_when = self.run_when
+
         timezone: None | str | Unset
         if isinstance(self.timezone, Unset):
             timezone = UNSET
@@ -91,6 +102,8 @@ class JobPatch:
             field_dict["name"] = name
         if prompt is not UNSET:
             field_dict["prompt"] = prompt
+        if run_when is not UNSET:
+            field_dict["run_when"] = run_when
         if timezone is not UNSET:
             field_dict["timezone"] = timezone
 
@@ -154,6 +167,23 @@ class JobPatch:
 
         prompt = _parse_prompt(d.pop("prompt", UNSET))
 
+        def _parse_run_when(data: object) -> JobPatchRunWhenType0 | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            try:
+                if not isinstance(data, str):
+                    raise TypeError()
+                run_when_type_0 = JobPatchRunWhenType0(data)
+
+                return run_when_type_0
+            except (TypeError, ValueError, AttributeError, KeyError):
+                pass
+            return cast(JobPatchRunWhenType0 | None | Unset, data)
+
+        run_when = _parse_run_when(d.pop("run_when", UNSET))
+
         def _parse_timezone(data: object) -> None | str | Unset:
             if data is None:
                 return data
@@ -170,6 +200,7 @@ class JobPatch:
             model=model,
             name=name,
             prompt=prompt,
+            run_when=run_when,
             timezone=timezone,
         )
 

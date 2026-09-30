@@ -29,6 +29,7 @@ import LiveViewPage from "./pages/LiveView";
 import LiveViewEditor from "./pages/LiveViewEditor";
 import Help from "./pages/Help";
 import Schedules from "./pages/Schedules";
+import Tasks from "./pages/Tasks";
 import Skills from "./pages/Skills";
 import Settings from "./pages/Settings";
 import Backups from "./pages/Backups";
@@ -78,6 +79,7 @@ export default function App() {
             <Route path="/memories" element={<Memories />} />
             <Route path="/skills" element={<Skills />} />
             <Route path="/schedules" element={<Schedules />} />
+            <Route path="/tasks" element={<Tasks />} />
             <Route path="/secrets" element={<Secrets />} />
             <Route path="/settings" element={<Settings />} />
             <Route path="/backups" element={<Backups />} />

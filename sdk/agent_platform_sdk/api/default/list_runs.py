@@ -16,6 +16,7 @@ def _get_kwargs(
     offset: int | Unset = 0,
     agent: None | str | Unset = UNSET,
     state: None | str | Unset = UNSET,
+    trigger: None | str | Unset = UNSET,
     tag: None | str | Unset = UNSET,
     needs_summary: bool | Unset = False,
 ) -> dict[str, Any]:
@@ -39,6 +40,13 @@ def _get_kwargs(
     else:
         json_state = state
     params["state"] = json_state
+
+    json_trigger: None | str | Unset
+    if isinstance(trigger, Unset):
+        json_trigger = UNSET
+    else:
+        json_trigger = trigger
+    params["trigger"] = json_trigger
 
     json_tag: None | str | Unset
     if isinstance(tag, Unset):
@@ -102,6 +110,7 @@ def sync_detailed(
     offset: int | Unset = 0,
     agent: None | str | Unset = UNSET,
     state: None | str | Unset = UNSET,
+    trigger: None | str | Unset = UNSET,
     tag: None | str | Unset = UNSET,
     needs_summary: bool | Unset = False,
 ) -> Response[HTTPValidationError | list[RunSummary]]:
@@ -117,6 +126,7 @@ def sync_detailed(
         offset (int | Unset):  Default: 0.
         agent (None | str | Unset):
         state (None | str | Unset):
+        trigger (None | str | Unset):
         tag (None | str | Unset):
         needs_summary (bool | Unset):  Default: False.
 
@@ -133,6 +143,7 @@ def sync_detailed(
         offset=offset,
         agent=agent,
         state=state,
+        trigger=trigger,
         tag=tag,
         needs_summary=needs_summary,
     )
@@ -151,6 +162,7 @@ def sync(
     offset: int | Unset = 0,
     agent: None | str | Unset = UNSET,
     state: None | str | Unset = UNSET,
+    trigger: None | str | Unset = UNSET,
     tag: None | str | Unset = UNSET,
     needs_summary: bool | Unset = False,
 ) -> HTTPValidationError | list[RunSummary] | None:
@@ -166,6 +178,7 @@ def sync(
         offset (int | Unset):  Default: 0.
         agent (None | str | Unset):
         state (None | str | Unset):
+        trigger (None | str | Unset):
         tag (None | str | Unset):
         needs_summary (bool | Unset):  Default: False.
 
@@ -183,6 +196,7 @@ def sync(
         offset=offset,
         agent=agent,
         state=state,
+        trigger=trigger,
         tag=tag,
         needs_summary=needs_summary,
     ).parsed
@@ -195,6 +209,7 @@ async def asyncio_detailed(
     offset: int | Unset = 0,
     agent: None | str | Unset = UNSET,
     state: None | str | Unset = UNSET,
+    trigger: None | str | Unset = UNSET,
     tag: None | str | Unset = UNSET,
     needs_summary: bool | Unset = False,
 ) -> Response[HTTPValidationError | list[RunSummary]]:
@@ -210,6 +225,7 @@ async def asyncio_detailed(
         offset (int | Unset):  Default: 0.
         agent (None | str | Unset):
         state (None | str | Unset):
+        trigger (None | str | Unset):
         tag (None | str | Unset):
         needs_summary (bool | Unset):  Default: False.
 
@@ -226,6 +242,7 @@ async def asyncio_detailed(
         offset=offset,
         agent=agent,
         state=state,
+        trigger=trigger,
         tag=tag,
         needs_summary=needs_summary,
     )
@@ -242,6 +259,7 @@ async def asyncio(
     offset: int | Unset = 0,
     agent: None | str | Unset = UNSET,
     state: None | str | Unset = UNSET,
+    trigger: None | str | Unset = UNSET,
     tag: None | str | Unset = UNSET,
     needs_summary: bool | Unset = False,
 ) -> HTTPValidationError | list[RunSummary] | None:
@@ -257,6 +275,7 @@ async def asyncio(
         offset (int | Unset):  Default: 0.
         agent (None | str | Unset):
         state (None | str | Unset):
+        trigger (None | str | Unset):
         tag (None | str | Unset):
         needs_summary (bool | Unset):  Default: False.
 
@@ -275,6 +294,7 @@ async def asyncio(
             offset=offset,
             agent=agent,
             state=state,
+            trigger=trigger,
             tag=tag,
             needs_summary=needs_summary,
         )

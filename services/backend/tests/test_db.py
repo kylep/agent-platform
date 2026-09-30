@@ -114,7 +114,7 @@ def _participants(**kw):
     back is the one sweep under test and nobody else's."""
     return {**dict(default_grant=False, tickets_grant=False, wiki_grant=False,
                    quota_grant=False, artifacts_grant=False, memory_grant=False,
-                   self_grant=False), **kw}
+                   self_grant=False, tasks_grant=False), **kw}
 
 
 async def test_memory_grant_backfills_once_and_preserves_opt_out(bare):

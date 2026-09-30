@@ -114,6 +114,7 @@ class AgentDefIn(BaseModel):
     system: bool = False
     responds_to_all: bool = True
     can_invoke: bool = False
+    accept_scheduled_tasks: bool = True
     concurrency: int = 1
     timeout_seconds: int = 1800
     result_topic: str = ""
@@ -154,6 +155,7 @@ class AgentCreateIn(AgentDefIn):
     # The Tickets default grant (docs/design/20), the same tri-state for the
     # same reason: an operator may want the messenger without the work tracker,
     # and one knob could not say so.
+    tasks: bool | None = None
     tickets: bool | None = None
     # The Wiki default grant (docs/design/21), the third of the same shape.
     wiki: bool | None = None
@@ -192,6 +194,7 @@ class AgentDefOut(BaseModel):
     system: bool = False
     responds_to_all: bool = True
     can_invoke: bool = False
+    accept_scheduled_tasks: bool = True
     concurrency: int = 1
     timeout_seconds: int = 1800
     result_topic: str = ""
@@ -321,6 +324,7 @@ class RunSummary(BaseModel):
     # The ticket this run was summoned from (docs/design/20), so a run always
     # points back at what asked for it. Null for every other trigger.
     ticket_id: str | None = None
+    task_id: str | None = None
     team_id: str | None = None
     project_id: str | None = None
 

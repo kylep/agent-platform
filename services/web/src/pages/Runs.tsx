@@ -33,6 +33,7 @@ export default function Runs() {
   const tag = params.get("tag") ?? "";
   const agent = params.get("agent") ?? "";
   const state = params.get("state") ?? "";
+  const trigger = params.get("trigger") ?? "";
 
   function setFilter(key: string, value: string) {
     const p = new URLSearchParams(params);
@@ -59,6 +60,7 @@ export default function Runs() {
       if (tag) q.set("tag", tag);
       if (agent) q.set("agent", agent);
       if (state) q.set("state", state);
+      if (trigger) q.set("trigger", trigger);
       api<RunSummary[]>(`/api/runs?${q}`)
         .then((data) => {
           if (cancelled) return;
@@ -72,7 +74,7 @@ export default function Runs() {
     load();
     const interval = setInterval(load, REFRESH_MS);
     return () => { cancelled = true; clearInterval(interval); };
-  }, [tag, agent, state, count]);
+  }, [tag, agent, state, trigger, count]);
 
   // A run's agent may be deleted; keep it selectable so its history is reachable.
   const agentOptions = [...new Set([...agents, ...(agent ? [agent] : [])])].sort();
@@ -93,6 +95,13 @@ export default function Runs() {
                   onChange={(e) => setFilter("state", e.target.value)}>
             <option value="">all</option>
             {ALL_STATES.map((s) => <option key={s} value={s}>{s}</option>)}
+          </Select>
+        </label>
+        <label className="muted">Trigger{" "}
+          <Select aria-label="Filter runs by trigger" value={trigger}
+                  onChange={(e) => setFilter("trigger", e.target.value)}>
+            <option value="">all</option><option value="task">one-time Task</option>
+            <option value="schedule">schedule</option><option value="manual">manual</option>
           </Select>
         </label>
         <label className="muted">Tag{" "}

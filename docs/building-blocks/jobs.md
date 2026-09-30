@@ -1,5 +1,7 @@
 # Jobs
 
+For a single future run rather than a recurrence, use [Tasks](tasks.md).
+
 **What:** ad-hoc scheduled runs — "run agent X with prompt Y on cron Z" —
 created and managed entirely in the UI (Schedules page), with Run Now,
 enable/disable, and plain-English cron tooltips. One agent can back many jobs,

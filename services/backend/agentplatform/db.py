@@ -47,6 +47,8 @@ class Run(Base):
     fallback_used: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
     fallback_reason: Mapped[str | None] = mapped_column(String(64), nullable=True)
     requested_model: Mapped[str] = mapped_column(String(64), default="")
+    requested_runtime: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    task_id: Mapped[str | None] = mapped_column(String(32), nullable=True, index=True)
     model: Mapped[str] = mapped_column(String(64), default="")
     authorization_generation: Mapped[int] = mapped_column(Integer, default=0)
     agent_version: Mapped[int | None] = mapped_column(Integer, nullable=True)
@@ -89,6 +91,7 @@ class Run(Base):
     publish_nonce_issued_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True)
     state: Mapped[str] = mapped_column(String(16), default=RunState.QUEUED)
+    deferred_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     prompt: Mapped[str] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
@@ -857,6 +860,7 @@ class AgentDef(Base):
     responds_to_all: Mapped[bool] = mapped_column(default=True)
     # Grants an operator-scoped per-run token so the agent can invoke agents.
     can_invoke: Mapped[bool] = mapped_column(default=False)
+    accept_scheduled_tasks: Mapped[bool] = mapped_column(default=True)
     concurrency: Mapped[int] = mapped_column(Integer, default=1)
     timeout_seconds: Mapped[int] = mapped_column(Integer, default=1800)
     # When set, the recorder publishes each successful run's result to this
@@ -1072,6 +1076,65 @@ class ScheduledJob(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
 
+class ScheduledTask(Base):
+    """One-time agent invocation. The row and its events survive firing/cancellation."""
+    __tablename__ = "scheduled_tasks"
+    __table_args__ = (UniqueConstraint("creator", "idempotency_key", name="uq_task_creator_key"),)
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=lambda: uuid.uuid4().hex)
+    title: Mapped[str] = mapped_column(String(128))
+    agent: Mapped[str] = mapped_column(String(128), index=True)
+    prompt: Mapped[str] = mapped_column(Text)
+    runtime: Mapped[str] = mapped_column(String(16))
+    model: Mapped[str] = mapped_column(String(64))
+    run_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    timezone: Mapped[str] = mapped_column(String(64), default="UTC")
+    creator: Mapped[str] = mapped_column(String(128), index=True)
+    creator_agent: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    creator_run_id: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    initiated_by: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    depth: Mapped[int] = mapped_column(Integer, default=0)
+    last_editor: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    source_conversation_id: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    source_message_id: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    team_id: Mapped[str | None] = mapped_column(String(32), nullable=True, index=True)
+    project_id: Mapped[str | None] = mapped_column(String(32), nullable=True, index=True)
+    ticket_id: Mapped[str | None] = mapped_column(String(32), nullable=True, index=True)
+    delivery: Mapped[str] = mapped_column(String(16), default="log")
+    status: Mapped[str] = mapped_column(String(16), default="scheduled", index=True)
+    run_id: Mapped[str] = mapped_column(String(32), unique=True)
+    idempotency_key: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    request_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    claim_owner: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    claim_generation: Mapped[int] = mapped_column(Integer, default=0)
+    claim_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    last_observed_run_state: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    version: Mapped[int] = mapped_column(Integer, default=1)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+    fired_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class ScheduledTaskEvent(Base):
+    __tablename__ = "scheduled_task_events"
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=lambda: uuid.uuid4().hex)
+    task_id: Mapped[str] = mapped_column(String(32), index=True)
+    kind: Mapped[str] = mapped_column(String(32))
+    actor: Mapped[str] = mapped_column(String(128))
+    reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    run_id: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class TaskScheduleGrant(Base):
+    """Admin-managed creator -> target permission for delayed invocation."""
+    __tablename__ = "task_schedule_grants"
+    creator: Mapped[str] = mapped_column(String(128), primary_key=True)
+    target: Mapped[str] = mapped_column(String(128), primary_key=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
 # (shared_news is gone: the news APP's items table is the dedup authority now
 # — docs/design/11. The old table is backfilled into app_news.items at deploy
 # and then dropped manually; create_all never drops.)
@@ -1143,8 +1206,16 @@ def _ensure_scope_indexes(conn) -> None:
     """create_all cannot add indexes for columns added to existing tables."""
     for table in (Run.__table__, Conversation.__table__, Memory.__table__):
         for index in table.indexes:
-            if any(c.name in ("team_id", "project_id") for c in index.columns):
+            if any(c.name in ("team_id", "project_id", "task_id") for c in index.columns):
                 index.create(conn, checkfirst=True)
+
+
+def _ensure_task_defaults(conn) -> None:
+    """Existing agents predate the inbound Task switch."""
+    t = AgentDef.__table__
+    conn.execute(t.update().where(t.c.accept_scheduled_tasks.is_(None))
+                 .values(accept_scheduled_tasks=case(
+                     (t.c.system == True, False), (t.c.role == "dev", False), else_=True)))
 
 
 def _ensure_workbench_defaults(conn) -> None:
@@ -3292,6 +3363,12 @@ def _ensure_artifacts_default_grant(conn, default_grant: bool = True) -> None:
                           default_grant=default_grant)
 
 
+def _ensure_tasks_default_grant(conn, default_grant: bool = True) -> None:
+    _grant_to_every_agent(conn, "mcp__platform__tasks", "tasks-default-grant-v1",
+                          changed_by="platform:tasks-default-grant",
+                          default_grant=default_grant, include_system=False)
+
+
 def _ensure_memory_default_grant(conn, default_grant: bool = True) -> None:
     """Grant existing agents private memory once, preserving later opt-outs."""
     _grant_to_every_agent(conn, "mcp__platform__memory", MEMORY_GRANT_MARK,
@@ -3300,7 +3377,8 @@ def _ensure_memory_default_grant(conn, default_grant: bool = True) -> None:
 
 
 def _grant_to_every_agent(conn, tool: str, mark: str, *, changed_by: str,
-                          default_grant: bool, include_disabled: bool = False) -> None:
+                          default_grant: bool, include_disabled: bool = False,
+                          include_system: bool = True) -> None:
     """The one-time sweep behind a default-granted platform tool.
 
     "Default-granted" is implemented honestly, as rows: new agents get it from
@@ -3347,7 +3425,7 @@ def _grant_to_every_agent(conn, tool: str, mark: str, *, changed_by: str,
         # NULL on any row written before it existed, and NULL reads as the
         # column default (True) everywhere else — see agentdefs.model_of.
         tools = list(row.platform_tools or [])
-        if (row.enabled is False and not include_disabled) or tool in tools:
+        if (row.enabled is False and not include_disabled) or (row.system and not include_system) or tool in tools:
             continue
         granted = tools + [tool]
         try:
@@ -3381,7 +3459,8 @@ def _relay_message(channel_id, author, body, created_at, run_id=None) -> dict:
 async def init_db(engine: AsyncEngine, default_grant: bool = True,
                   tickets_grant: bool = True, wiki_grant: bool = True,
                   quota_grant: bool = True, artifacts_grant: bool = True,
-                  memory_grant: bool = True, self_grant: bool = True) -> None:
+                  memory_grant: bool = True, self_grant: bool = True,
+                  tasks_grant: bool = True) -> None:
     """Bring the schema up to date and run the one-off backfills.
 
     `default_grant`, `tickets_grant`, `wiki_grant`, `quota_grant`,
@@ -3418,6 +3497,7 @@ async def init_db(engine: AsyncEngine, default_grant: bool = True,
         await conn.run_sync(_ensure_scope_indexes)
         await conn.run_sync(_ensure_agent_type_default)
         await conn.run_sync(_ensure_workbench_defaults)
+        await conn.run_sync(_ensure_task_defaults)
         await conn.run_sync(_ensure_memory_key_index)
         await conn.run_sync(_ensure_relay_ddl)
         await conn.run_sync(_ensure_relay_backfill)
@@ -3488,6 +3568,7 @@ async def init_db(engine: AsyncEngine, default_grant: bool = True,
         # memory. The mark makes this a one-time migration, so later opt-outs
         # are never re-granted on service restart.
         await conn.run_sync(_ensure_memory_default_grant, memory_grant)
+        await conn.run_sync(_ensure_tasks_default_grant, tasks_grant)
         # Existing definitions are DB-first, so retiring repository skills
         # also requires clearing their stored grants before git-sync drops them.
         await conn.run_sync(_retire_seeded_skills)

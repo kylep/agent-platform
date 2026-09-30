@@ -29,6 +29,7 @@ class AgentSummary:
                 its `image_artifact_id` — which a client shows over the emoji when set.
                 Optional so every producer of a face keeps working; `faces_for` fills it.
             name (str):
+            accept_scheduled_tasks (bool | Unset):  Default: True.
             agent_type (str | Unset):  Default: 'worker'.
             backup_model (str | Unset):  Default: ''.
             backup_runtime (None | str | Unset):
@@ -68,6 +69,7 @@ class AgentSummary:
 
     face: RelayFace
     name: str
+    accept_scheduled_tasks: bool | Unset = True
     agent_type: str | Unset = "worker"
     backup_model: str | Unset = ""
     backup_runtime: None | str | Unset = UNSET
@@ -109,6 +111,8 @@ class AgentSummary:
         face = self.face.to_dict()
 
         name = self.name
+
+        accept_scheduled_tasks = self.accept_scheduled_tasks
 
         agent_type = self.agent_type
 
@@ -232,6 +236,8 @@ class AgentSummary:
                 "name": name,
             }
         )
+        if accept_scheduled_tasks is not UNSET:
+            field_dict["accept_scheduled_tasks"] = accept_scheduled_tasks
         if agent_type is not UNSET:
             field_dict["agent_type"] = agent_type
         if backup_model is not UNSET:
@@ -314,6 +320,8 @@ class AgentSummary:
         face = RelayFace.from_dict(d.pop("face"))
 
         name = d.pop("name")
+
+        accept_scheduled_tasks = d.pop("accept_scheduled_tasks", UNSET)
 
         agent_type = d.pop("agent_type", UNSET)
 
@@ -453,6 +461,7 @@ class AgentSummary:
         agent_summary = cls(
             face=face,
             name=name,
+            accept_scheduled_tasks=accept_scheduled_tasks,
             agent_type=agent_type,
             backup_model=backup_model,
             backup_runtime=backup_runtime,

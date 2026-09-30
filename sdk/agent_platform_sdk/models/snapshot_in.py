@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import TYPE_CHECKING, Any, TypeVar
+from typing import TYPE_CHECKING, Any, TypeVar, cast
 
 from attrs import define as _attrs_define
 from attrs import field as _attrs_field
+
+from ..types import UNSET, Unset
 
 if TYPE_CHECKING:
     from ..models.endpoint_in import EndpointIn
@@ -20,11 +22,13 @@ class SnapshotIn:
         endpoints (list[EndpointIn]):
         ownership_generation (int):
         sequence (int):
+        provider_user_id (None | str | Unset):
     """
 
     endpoints: list[EndpointIn]
     ownership_generation: int
     sequence: int
+    provider_user_id: None | str | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -37,6 +41,12 @@ class SnapshotIn:
 
         sequence = self.sequence
 
+        provider_user_id: None | str | Unset
+        if isinstance(self.provider_user_id, Unset):
+            provider_user_id = UNSET
+        else:
+            provider_user_id = self.provider_user_id
+
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
@@ -46,6 +56,8 @@ class SnapshotIn:
                 "sequence": sequence,
             }
         )
+        if provider_user_id is not UNSET:
+            field_dict["provider_user_id"] = provider_user_id
 
         return field_dict
 
@@ -65,10 +77,20 @@ class SnapshotIn:
 
         sequence = d.pop("sequence")
 
+        def _parse_provider_user_id(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        provider_user_id = _parse_provider_user_id(d.pop("provider_user_id", UNSET))
+
         snapshot_in = cls(
             endpoints=endpoints,
             ownership_generation=ownership_generation,
             sequence=sequence,
+            provider_user_id=provider_user_id,
         )
 
         snapshot_in.additional_properties = d

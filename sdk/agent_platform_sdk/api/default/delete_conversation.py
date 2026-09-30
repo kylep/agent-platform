@@ -62,10 +62,8 @@ def sync_detailed(
 ) -> Response[HTTPValidationError | OkId]:
     """Delete Conversation
 
-     Permanently delete a web conversation and its turns. Connector-owned
-    conversations (Discord etc.) are not deletable here — their lifecycle
-    belongs to the external channel, and a delete would just be recreated on
-    the next inbound message.
+     Retained for old callers; persistent internal DMs are not deletable.
+    Connector-owned conversations follow their external channel's lifecycle.
 
     Args:
         conversation_id (str):
@@ -96,10 +94,8 @@ def sync(
 ) -> HTTPValidationError | OkId | None:
     """Delete Conversation
 
-     Permanently delete a web conversation and its turns. Connector-owned
-    conversations (Discord etc.) are not deletable here — their lifecycle
-    belongs to the external channel, and a delete would just be recreated on
-    the next inbound message.
+     Retained for old callers; persistent internal DMs are not deletable.
+    Connector-owned conversations follow their external channel's lifecycle.
 
     Args:
         conversation_id (str):
@@ -125,10 +121,8 @@ async def asyncio_detailed(
 ) -> Response[HTTPValidationError | OkId]:
     """Delete Conversation
 
-     Permanently delete a web conversation and its turns. Connector-owned
-    conversations (Discord etc.) are not deletable here — their lifecycle
-    belongs to the external channel, and a delete would just be recreated on
-    the next inbound message.
+     Retained for old callers; persistent internal DMs are not deletable.
+    Connector-owned conversations follow their external channel's lifecycle.
 
     Args:
         conversation_id (str):
@@ -157,10 +151,8 @@ async def asyncio(
 ) -> HTTPValidationError | OkId | None:
     """Delete Conversation
 
-     Permanently delete a web conversation and its turns. Connector-owned
-    conversations (Discord etc.) are not deletable here — their lifecycle
-    belongs to the external channel, and a delete would just be recreated on
-    the next inbound message.
+     Retained for old callers; persistent internal DMs are not deletable.
+    Connector-owned conversations follow their external channel's lifecycle.
 
     Args:
         conversation_id (str):

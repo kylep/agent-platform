@@ -21,6 +21,7 @@ class AgentDefIn:
     than keeping whatever the row had.
 
         Attributes:
+            accept_scheduled_tasks (bool | Unset):  Default: True.
             agent_type (str | Unset):  Default: 'worker'.
             backup_model (str | Unset):  Default: ''.
             backup_runtime (None | str | Unset):
@@ -51,6 +52,7 @@ class AgentDefIn:
             transcript_retention_days (int | None | Unset):
     """
 
+    accept_scheduled_tasks: bool | Unset = True
     agent_type: str | Unset = "worker"
     backup_model: str | Unset = ""
     backup_runtime: None | str | Unset = UNSET
@@ -81,6 +83,8 @@ class AgentDefIn:
     transcript_retention_days: int | None | Unset = UNSET
 
     def to_dict(self) -> dict[str, Any]:
+        accept_scheduled_tasks = self.accept_scheduled_tasks
+
         agent_type = self.agent_type
 
         backup_model = self.backup_model
@@ -164,6 +168,8 @@ class AgentDefIn:
         field_dict: dict[str, Any] = {}
 
         field_dict.update({})
+        if accept_scheduled_tasks is not UNSET:
+            field_dict["accept_scheduled_tasks"] = accept_scheduled_tasks
         if agent_type is not UNSET:
             field_dict["agent_type"] = agent_type
         if backup_model is not UNSET:
@@ -228,6 +234,8 @@ class AgentDefIn:
         from ..models.entrypoints_in import EntrypointsIn
 
         d = dict(src_dict)
+        accept_scheduled_tasks = d.pop("accept_scheduled_tasks", UNSET)
+
         agent_type = d.pop("agent_type", UNSET)
 
         backup_model = d.pop("backup_model", UNSET)
@@ -315,6 +323,7 @@ class AgentDefIn:
         )
 
         agent_def_in = cls(
+            accept_scheduled_tasks=accept_scheduled_tasks,
             agent_type=agent_type,
             backup_model=backup_model,
             backup_runtime=backup_runtime,

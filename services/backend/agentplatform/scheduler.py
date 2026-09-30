@@ -150,6 +150,9 @@ class Scheduler:
         for job in jobs:
             if is_valid_cron(job.cron):
                 await self._tick_job(job.id, now)
+        from agentplatform.task_scheduler import fire_due_tasks, reconcile_task_runs
+        await fire_due_tasks(self.sf, self.producer)
+        await reconcile_task_runs(self.sf)
 
     async def _tick_agent(self, name: str, crons: list["CronEntry"], now: datetime,
                           tz: str = "") -> None:

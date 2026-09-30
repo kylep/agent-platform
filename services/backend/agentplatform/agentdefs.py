@@ -39,7 +39,7 @@ HARNESS_TOOLS: tuple[str, ...] = tuple(CLAUDE_TOOLS)
 # are row bookkeeping, not part of what an agent *is*.
 DEF_FIELDS: tuple[str, ...] = (
     "name", "prompt", "description", "agent_type", "runtime", "model", "backup_runtime", "backup_model", "role", "system",
-    "responds_to_all", "can_invoke", "external_observer",
+    "responds_to_all", "can_invoke", "accept_scheduled_tasks", "external_observer",
     "concurrency", "timeout_seconds", "result_topic", "transcript_retention_days",
     "harness_tools", "platform_tools", "discord_identity_id", "skills", "secrets", "entrypoints",
     "enabled", "push_path_globs", "may_delete_tests", "quota_5h_max_pct",
@@ -181,6 +181,7 @@ class AgentDefModel(BaseModel):
     system: bool = False
     responds_to_all: bool = True
     can_invoke: bool = False
+    accept_scheduled_tasks: bool = True
     concurrency: int = Field(default=1, ge=1, strict=True)
     timeout_seconds: int = Field(default=1800, ge=1, strict=True)
     result_topic: str = ""

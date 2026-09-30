@@ -84,7 +84,7 @@ async def agent_store(sf, seed_agent):
 
 @pytest.fixture
 async def client(sf, producer, secret_store, agent_store, tmp_checkout):
-    app = create_app(Settings(checkout_root=str(tmp_checkout),
+    app = create_app(Settings(tasks_default_grant=False, checkout_root=str(tmp_checkout),
                               secrets_root=str(REPO_SECRETS),
                               skills_root=str(REPO_SKILLS),
                               reports_root=str(REPO_REPORTS),
