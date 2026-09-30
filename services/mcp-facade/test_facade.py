@@ -197,6 +197,13 @@ def test_chat_identity_transport_is_internal_and_lifecycle_is_admin_gated(tools,
         assert name in elevated
 
 
+def test_active_run_only_routes_are_not_external_mcp_tools(tools, admin_tools):
+    routes = {(tool._route.method, tool._route.path)
+              for tool in tools + admin_tools}
+    assert not any(path.startswith("/api/agent-self") for _, path in routes)
+    assert ("POST", "/api/runs/{run_id}/model-fallback") not in routes
+
+
 def test_method_scoped_gates_do_not_overreach(tools):
     """Method-scoping must not hide sibling verbs on a gated/curated path."""
     surface = {(t._route.method, t._route.path) for t in tools}

@@ -25,8 +25,8 @@ The surface is CURATED into three tiers (curation 2026-08-24; see
   not the kitchen.
 - **EXCLUDE** — UI form-feeders, reviewer digests the client can compute,
   git-edit conveniences redundant with having the repo, and system-agent
-  endpoints. Never tools. 21 curated-out, plus 30 session/internal/streaming/
-  byte-serving/connector operations below — 221 graded operations in all.
+  endpoints. Never tools. 21 curated-out, plus 35 session/internal/streaming/
+  byte-serving/connector operations below — 226 graded operations in all.
 
 It is deliberately NOT the mcp-broker. The broker authenticates in-cluster run
 identities and scopes tools to an agent's grants (design/13, design/15). This
@@ -77,6 +77,10 @@ EXCLUDED_PATHS = (
     ("*", r"^/api/setup$"),
     ("*", r"^/api/runs/\{run_id\}/session$"),
     ("*", r"^/api/runs/\{run_id\}/agentdef$"),
+    # Self-management and model fallback require the owning active run's key;
+    # an external MCP API key cannot call them. Agents use their brokered tools.
+    ("*", r"^/api/agent-self(?:/|$)"),
+    ("*", r"^/api/runs/\{run_id\}/model-fallback$"),
     ("*", r"^/api/webhooks/\{path\}$"),
     # Relay's event stream (design/19): a `text/event-stream` that by design
     # never ends. As a tool it would be a call that never returns, which is the
