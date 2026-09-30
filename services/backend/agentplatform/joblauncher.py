@@ -2,6 +2,7 @@ import asyncio
 import hashlib
 import json
 import logging
+from datetime import timedelta
 
 from kubernetes import client as k8s
 from kubernetes.client.rest import ApiException
@@ -513,7 +514,13 @@ class K8sJobLauncher(Launcher):
                              sa_identity=sa_identity, run_token=run_token, pod_sa=pod_sa,
                              session_token=session_token, dev=self._is_dev(manifest))
         await self._audit_secret_access(run, manifest)
-        await asyncio.to_thread(self.batch.create_namespaced_job, self.settings.k8s_namespace, job)
+        try:
+            await asyncio.to_thread(self.batch.create_namespaced_job, self.settings.k8s_namespace, job)
+        except ApiException as e:
+            # A recovered Task may race the original create request. Its Job
+            # name is deterministic, so AlreadyExists means this Run launched.
+            if not (run.task_id and e.status == 409):
+                raise
 
     async def _audit_secret_access(self, run: Run, manifest: Manifest) -> None:
         """Record the k8s secrets this run's pod is granted: the base claude
@@ -581,6 +588,30 @@ class JobWatcher:
             await s.commit()
         await self._event(run_id, state, error or "")
 
+    async def _recover_missing_task_job(self, run_id: str) -> bool:
+        """Requeue a Task whose dispatch claim survived but Job creation did not."""
+        from agentplatform.db import ScheduledTask, ScheduledTaskEvent
+        from agentplatform.scheduler import as_utc
+        async with self.sf() as s:
+            async with s.begin():
+                run = await s.get(Run, run_id)
+                if not run or not run.task_id or run.state != RunState.DISPATCHED:
+                    return False
+                if run.started_at and utcnow() - as_utc(run.started_at) < timedelta(seconds=90):
+                    return True  # creation may still be in flight
+                task = await s.get(ScheduledTask, run.task_id, with_for_update=True)
+                run = await s.get(Run, run_id, with_for_update=True)
+                if not task or task.status != "launched" or run.state != RunState.DISPATCHED:
+                    return False
+                run.state = RunState.QUEUED
+                run.started_at = None
+                run.deferred_until = None
+                s.add(ScheduledTaskEvent(task_id=task.id, kind="dispatch_requeued",
+                    actor="system:watcher", reason="Job was absent after dispatch claim",
+                    run_id=run.id))
+        await self._event(run_id, RunState.QUEUED, "missing Task Job; queued for recovery")
+        return True
+
     async def poll_once(self) -> None:
         async with self.sf() as s:
             from sqlalchemy import select
@@ -596,6 +627,8 @@ class JobWatcher:
                 job = await asyncio.to_thread(self.batch.read_namespaced_job, name, name_ns)
             except ApiException as e:
                 if e.status == 404:
+                    if state == RunState.DISPATCHED and await self._recover_missing_task_job(run_id):
+                        continue
                     await self._set_state(run_id, RunState.FAILED, "job disappeared")
                 else:
                     log.exception("failed to read job %s", name)

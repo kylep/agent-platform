@@ -243,3 +243,43 @@ async def test_temporary_dispatch_block_defers_then_launches(admin_client, sf, p
     d._readiness_blocks = available
     await d.handle({"type": "run", "run_id": run_id})
     assert launcher.launched == [run_id]
+
+
+async def test_missing_task_job_waits_for_creation_then_requeues(admin_client, sf, producer,
+                                                                 seed_agent):
+    from agentplatform.db import RunState
+    from agentplatform.joblauncher import JobWatcher
+    from .test_joblauncher import NotFoundBatch
+    await seed_agent("reminder", runtime="codex", model="gpt-6-sol")
+    task = (await admin_client.post("/api/tasks", json={
+        "agent": "reminder", "prompt": "Check in", "delay_minutes": 2})).json()
+    async with sf() as s:
+        row = await s.get(ScheduledTask, task["id"])
+        row.run_at = utcnow() - timedelta(minutes=1)
+        row.expires_at = utcnow() + timedelta(minutes=30)
+        await s.commit()
+    await fire_due_tasks(sf, producer)
+    async with sf() as s:
+        run_id = (await s.get(ScheduledTask, task["id"])).run_id
+        run = await s.get(Run, run_id)
+        run.state = RunState.DISPATCHED
+        run.started_at = utcnow()
+        await s.commit()
+    from agentplatform.config import Settings
+    watcher = JobWatcher(NotFoundBatch(), Settings(), sf, producer)
+    # Do not mistake an in-flight Kubernetes create for a missing Job.
+    await watcher.poll_once()
+    async with sf() as s:
+        run = await s.get(Run, run_id)
+        assert run.state == RunState.DISPATCHED
+        run.started_at = utcnow() - timedelta(minutes=2)
+        await s.commit()
+    # Once the claim is stale, the same Run becomes eligible for the sweep.
+    await watcher.poll_once()
+    async with sf() as s:
+        run = await s.get(Run, run_id)
+        assert run.state == RunState.QUEUED
+        events = (await s.execute(select(ScheduledTaskEvent).where(
+            ScheduledTaskEvent.task_id == task["id"],
+            ScheduledTaskEvent.kind == "dispatch_requeued"))).scalars().all()
+        assert len(events) == 1
