@@ -767,7 +767,13 @@ async def _dm_turn(request: Request, conv: Conversation, text: str, caller: Call
                                          request.app.state.producer, conv.id, text,
                                          caller.principal)
     if run_id is None:
-        raise HTTPException(409, "conversation is closed, missing, or has a turn in progress")
+        async with request.app.state.session_factory() as s:
+            current = await s.get(Conversation, conv.id)
+        if current is None:
+            raise HTTPException(404, "conversation no longer exists")
+        if current.status != "active":
+            raise HTTPException(409, "conversation is closed")
+        raise HTTPException(409, "a reply is already in progress")
     async with request.app.state.session_factory() as s:
         run = await s.get(Run, run_id)
         row = await s.get(MessageRow, run.trigger_message_id) if run is not None else None
@@ -1120,6 +1126,12 @@ async def open_relay_dm(request: Request, body: S.RelayDmIn,
                 conv = await _find_dm(s, pair)
                 if conv is None:
                     raise HTTPException(409, "the dm was opened and archived at once")
+        if conv.status != "active":
+            # Legacy Conversations could close a DM. A DM is still the same
+            # two-person identity, so opening it again revives its history
+            # rather than returning a permanently unwritable room.
+            conv.status = "active"
+            await s.commit()
         return await _detail(s, conv)
 
 

@@ -14,15 +14,16 @@ const MENTION = /(?:^|[\s([{"'])@([A-Za-z0-9-]*)$/;
 const MAX_SUGGESTIONS = 8;
 const MESSAGE_MAX_CHARS = 64000;
 
-/** What to say when a send comes back 4xx. The API's 409s on a dm are both
- * "not now" — a turn already running, or a disabled agent — and neither is
- * worth showing an operator a raw status line over. */
+/** Turn conflicts need distinct guidance: an old closed DM needs reopening,
+ * while an active reply only needs time to finish. */
 function sendFailure(err: unknown): string {
   const text = err instanceof Error ? err.message : "";
   if (text.startsWith("409")) {
     return text.includes("disabled")
       ? "That agent is disabled — turn it back on before writing to it."
-      : "a reply is already in progress — give the agent a moment.";
+      : text.includes("closed")
+        ? "This conversation is closed. Reopen it from the agent's Conversations tab."
+        : "a reply is already in progress — give the agent a moment.";
   }
   return err instanceof Error ? err.message : "Could not send that.";
 }

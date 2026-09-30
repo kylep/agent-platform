@@ -201,7 +201,7 @@ async def test_a_dm_turn_while_one_is_in_flight_is_refused(admin_client, sf,
     second = await admin_client.post(f"/api/relay/channels/{dm['id']}/messages",
                                      json={"body": "two"})
     assert first.status_code == 200
-    assert second.status_code == 409 and "turn in progress" in second.json()["detail"]
+    assert second.status_code == 409 and second.json()["detail"] == "a reply is already in progress"
     assert len(await _all_runs(sf)) == 1
 
 
@@ -319,6 +319,28 @@ async def test_dm_is_get_or_create_and_keeps_the_legacy_agent(admin_client, sf,
         assert conv.title == "dm:agent:news:user:admin"
     assert (await admin_client.post("/api/relay/dm",
                                     json={"with": "agent:nobody"})).status_code == 404
+
+
+async def test_opening_a_closed_legacy_dm_reuses_and_reactivates_it(
+        admin_client, sf, seed_agent, agent_store):
+    await _seed(seed_agent, agent_store, "news")
+    dm = await _dm_with(admin_client, "agent:news")
+    async with sf() as s:
+        conv = await s.get(Conversation, dm["id"])
+        conv.status = "closed"
+        await s.commit()
+
+    blocked = await admin_client.post(f"/api/relay/channels/{dm['id']}/messages",
+                                      json={"body": "before reopening"})
+    assert blocked.status_code == 409
+    assert blocked.json()["detail"] == "conversation is closed"
+
+    reopened = await admin_client.post("/api/relay/dm", json={"with": "agent:news"})
+    assert reopened.status_code == 200 and reopened.json()["id"] == dm["id"]
+    assert (await admin_client.post(f"/api/relay/channels/{dm['id']}/messages",
+                                    json={"body": "after reopening"})).status_code == 200
+    async with sf() as s:
+        assert (await s.get(Conversation, dm["id"])).status == "active"
 
 
 async def test_reactions_toggle(admin_client, sf):

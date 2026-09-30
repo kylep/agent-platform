@@ -466,7 +466,7 @@ test("a 409 on a send says what is actually going on", async ({ page }) => {
   await page.route("**/api/relay/channels/rd1/messages", async (route) => {
     if (route.request().method() !== "POST") return route.fallback();
     await route.fulfill({ status: 409, contentType: "application/json",
-                          json: { detail: "conversation is closed, missing, or has a turn in progress" } });
+                          json: { detail: "a reply is already in progress" } });
   });
   await page.goto("/relay?kind=dm");
   const box = page.getByRole("textbox", { name: "Message" });
@@ -476,6 +476,22 @@ test("a 409 on a send says what is actually going on", async ({ page }) => {
   await expect(page.locator(".relay-compose .error"))
     .toContainText("a reply is already in progress");
   // and the words you typed are still yours
+  await expect(box).toHaveValue("are you there");
+});
+
+test("a closed DM gives reopening guidance instead of a running reply", async ({ page }) => {
+  await mockApi(page);
+  await page.route("**/api/relay/channels/rd1/messages", async (route) => {
+    if (route.request().method() !== "POST") return route.fallback();
+    await route.fulfill({ status: 409, contentType: "application/json",
+                          json: { detail: "conversation is closed" } });
+  });
+  await page.goto("/relay?kind=dm");
+  const box = page.getByRole("textbox", { name: "Message" });
+  await box.fill("are you there");
+  await box.press("Enter");
+  await expect(page.locator(".relay-compose .error"))
+    .toContainText("Reopen it from the agent's Conversations tab");
   await expect(box).toHaveValue("are you there");
 });
 
