@@ -20,6 +20,17 @@ test("the rail lists channels and direct messages", async ({ page }) => {
   await expect(rail.getByRole("button", { name: /chat-8675309/ })).toBeVisible();
 });
 
+test("archived rooms are browsable and offer a restore action", async ({ page }) => {
+  await mockApi(page);
+  await page.goto("/relay");
+  const rail = page.getByRole("complementary", { name: "Channels" });
+  await expect(rail.getByRole("button", { name: "old-room" })).toHaveCount(0);
+  await rail.getByRole("button", { name: "Archived rooms (1)" }).click();
+  await rail.getByRole("button", { name: "old-room" }).click();
+  await expect(page.getByRole("button", { name: "Restore room" })).toBeVisible();
+  await expect(page.getByText("History stays readable. Restore to post again.")).toBeVisible();
+});
+
 test("a room pops out into a window-sized chat and can return to the platform", async ({ page }) => {
   await mockApi(page);
   await page.goto("/relay?channel=rc1");
@@ -329,10 +340,10 @@ test("a reply from the thread pane posts into the thread", async ({ page }) => {
   expect(posted).toEqual([{ body: "following up", reply_to: "m6" }]);
 });
 
-test("closing the thread clears the parameter, and the room stays put", async ({ page }) => {
+test("dismissing the thread pane clears the parameter, and the room stays put", async ({ page }) => {
   await mockApi(page);
   await page.goto("/relay?channel=rc1&thread=m6");
-  await page.getByRole("button", { name: "Close thread" }).click();
+  await page.getByRole("button", { name: "Dismiss thread pane" }).click();
   await expect(page).not.toHaveURL(/thread=/);
   await expect(page).toHaveURL(/channel=rc1/);
   await expect(page.getByRole("region", { name: "Thread" })).toHaveCount(0);
@@ -479,7 +490,7 @@ test("a 409 on a send says what is actually going on", async ({ page }) => {
   await expect(box).toHaveValue("are you there");
 });
 
-test("a closed DM gives reopening guidance instead of a running reply", async ({ page }) => {
+test("a stale closed-DM error asks for a refresh without inventing a reopen step", async ({ page }) => {
   await mockApi(page);
   await page.route("**/api/relay/channels/rd1/messages", async (route) => {
     if (route.request().method() !== "POST") return route.fallback();
@@ -491,7 +502,7 @@ test("a closed DM gives reopening guidance instead of a running reply", async ({
   await box.fill("are you there");
   await box.press("Enter");
   await expect(page.locator(".relay-compose .error"))
-    .toContainText("Reopen it from the agent's Conversations tab");
+    .toContainText("This room is unavailable. Refresh and try again.");
   await expect(box).toHaveValue("are you there");
 });
 

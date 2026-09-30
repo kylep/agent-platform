@@ -7,7 +7,7 @@ from sqlalchemy import select
 
 from agentplatform import external_chat as chat
 from agentplatform.api.auth import authenticate, connector_identity
-from agentplatform.db import AgentDef, ChatIdentity, Conversation, RelayMessage, utcnow
+from agentplatform.db import AgentDef, ChatIdentity, Conversation, RelayMessage
 from agentplatform.events import TOPIC_RELAY_MESSAGES
 from agentplatform.relay_store import relay_message_payload, message_view
 
@@ -116,6 +116,8 @@ class ObservationIn(BaseModel):
     author_id: str = Field(min_length=1, max_length=128)
     text: str = Field(max_length=100000)
     addressed: bool = False
+    author_bot: bool = False
+    co_mentioned: list[str] = Field(default_factory=list, max_length=8)
 
 
 @router.post("/connector/observe")
@@ -275,6 +277,35 @@ async def messages(identity_id: str, external_ref: str, request: Request, limit:
         rows = (await session.execute(select(RelayMessage).where(RelayMessage.channel_id == ep.channel_id,
             RelayMessage.deleted_at.is_(None)).order_by(RelayMessage.created_at.desc()).limit(max(1, min(limit, 100))))).scalars()
         return [message_view(row) for row in rows]
+
+
+@router.get("/scan")
+async def scan(identity_id: str, request: Request):
+    agent, _ = await persona(request)
+    async with request.app.state.session_factory() as session:
+        try:
+            batch = await chat.scan_batch(session, agent, identity_id)
+        except chat.ExternalChatError as exc:
+            raise deny(exc)
+        return {"batch_id": chat.scan_batch_id(batch) if batch else None,
+                "messages": batch, "more_possible": len(batch) == chat.SCAN_LIMIT}
+
+
+class ScanAckIn(BaseModel):
+    identity_id: str
+    batch_id: str = Field(min_length=64, max_length=64)
+
+
+@router.post("/scan/ack")
+async def scan_ack(body: ScanAckIn, request: Request):
+    agent, _ = await persona(request)
+    async with request.app.state.session_factory() as session:
+        try:
+            count = await chat.acknowledge_scan(session, agent, body.identity_id, body.batch_id)
+        except chat.ExternalChatError as exc:
+            raise HTTPException(409, str(exc))
+        await session.commit()
+        return {"acknowledged": count}
 
 
 class SendIn(BaseModel):

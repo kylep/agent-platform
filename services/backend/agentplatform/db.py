@@ -1048,6 +1048,7 @@ class ScheduledJob(Base):
     timezone: Mapped[str] = mapped_column(String(64), default="", server_default="")
     prompt: Mapped[str] = mapped_column(Text)
     model: Mapped[str] = mapped_column(String(64), default="", server_default="")
+    run_when: Mapped[str] = mapped_column(String(32), default="always", server_default="always")
     enabled: Mapped[bool] = mapped_column(default=True)
     last_fire: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     next_fire: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
@@ -1672,6 +1673,12 @@ def _ensure_relay_ddl(conn) -> None:
     conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uq_conversations_dm_key "
                       "ON conversations (dm_key) "
                       "WHERE kind = 'dm' AND dm_key IS NOT NULL"))
+    # The old Conversations surface could close DMs and Relay could archive
+    # them. Restore those rooms in place; their messages and resume state are
+    # identified by the row ID and must never be copied to a fresh DM.
+    conn.execute(text("UPDATE conversations SET status = 'active', archived_at = NULL "
+                      "WHERE kind = 'dm' AND home = 'relay' AND connector = 'web' "
+                      "AND (status <> 'active' OR archived_at IS NOT NULL)"))
     conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uq_relay_messages_external "
                       "ON relay_messages (source_binding_id, external_message_id) "
                       "WHERE source_binding_id IS NOT NULL "

@@ -50,6 +50,11 @@ def test_live_observation_addresses_bot_not_plain_text(module):
         message.mentions = [c.client.user]
         await c.on_message(message)
         assert c._api.call_args.args[2]["addressed"] is True
+        other_bot = types.SimpleNamespace(id=100, bot=True, name="Olu", display_name="Olu")
+        message.mentions = [c.client.user, other_bot]
+        await c.on_message(message)
+        assert c._api.call_args.args[2]["co_mentioned"] == ["Olu"]
+        assert c._api.call_args.args[2]["author_bot"] is False
     asyncio.run(run())
 
 

@@ -326,6 +326,11 @@
   color: var(--ds-text-subtle); margin: 14px 0 4px; font-weight: 600;
 }
 .relay-rail-empty { font-size: 12px; padding: 2px 8px; margin: 0; }
+.relay-archive-toggle {
+  margin-top: 14px; padding: 6px 8px; border: 0; background: none;
+  color: var(--ds-text-muted); text-align: left; cursor: pointer;
+}
+.relay-archive-toggle:hover { color: var(--ds-text); }
 .relay-row {
   appearance: none; text-align: left; background: none; color: var(--ds-text-muted);
   border: 1px solid transparent; font-family: inherit; font-size: 13px;

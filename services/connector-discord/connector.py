@@ -224,7 +224,12 @@ class DiscordConnector:
         payload = {"ownership_generation": self.generation,
                    "external_ref": str(message.channel.id), "provider_message_id": str(message.id),
                    "author_id": str(message.author.id), "text": message.clean_content,
-                   "addressed": addressed}
+                   "addressed": addressed,
+                   "author_bot": bool(getattr(message.author, "bot", False) or
+                                      getattr(message, "webhook_id", None)),
+                   "co_mentioned": [str(getattr(user, "display_name", user.name))[:80]
+                                    for user in message.mentions
+                                    if getattr(user, "bot", False) and user.id != self.client.user.id][:8]}
         # API deduplicates both canonical message and account observation.
         for attempt in range(3):
             try:

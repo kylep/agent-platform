@@ -11,7 +11,8 @@ Conversations are still **typed** by where they came from, which is now a
 property of the room's membership and its binding:
 
 - **web** — started and continued from the UI (an agent's Conversations tab, or
-  Relay's DM side). Deletable, renamable.
+  Relay's DM side). One persistent DM per human-agent pair; either entry point
+  returns the same room and history. Renamable.
 - **discord** — a read-only external archive observed by the connector-discord service
   (see the [Glossary](glossary.md)) through `relay_bindings`. The thread lives
   in Discord; Relay displays its archive with composition and reactions disabled.
@@ -32,4 +33,8 @@ Discord bot / reply in its thread. **`/conversations` in the UI redirects to
 land on the same rooms.
 
 `/api/conversations*` remains as a compatibility facade over `kind=dm`
-channels for callers that predate Relay; retiring it is a later design doc.
+channels for callers that predate Relay. Creating a web conversation resolves
+the existing DM. Internal DMs cannot be closed, archived, or deleted; a
+historical closed or archived DM is restored in place. The full transcript is
+stored, while each run receives bounded recent context or its resumed model
+session—not the entire lifetime transcript on every turn.

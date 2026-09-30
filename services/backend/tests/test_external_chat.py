@@ -38,6 +38,79 @@ async def test_shared_canonical_message_preserves_addressed_observations(sf):
 
 
 @pytest.mark.asyncio
+async def test_ambient_scan_is_bounded_owned_and_acknowledged(sf):
+    await setup(sf)
+    async with sf() as s:
+        await chat.snapshot(s, "discord-a", 0, 2, [
+            {"external_ref": "123", "kind": "channel", "can_read": True,
+             "can_history": True, "can_send": True},
+            {"external_ref": "private", "kind": "dm", "can_read": True,
+             "can_history": True, "can_send": True},
+            {"external_ref": "side", "kind": "thread", "can_read": True,
+             "can_history": True, "can_send": True},
+        ])
+        await s.commit()
+    for ref, mid, bot, addressed in [
+        ("123", "1", False, False), ("123", "2", True, False),
+        ("123", "3", False, True), ("private", "4", False, False),
+        ("side", "5", False, False), ("123", "6", False, False),
+    ]:
+        async with sf() as s:
+            await chat.observe(s, "discord-a", 0, {"external_ref": ref,
+                "provider_message_id": mid, "author_id": "human", "text": mid,
+                "author_bot": bot, "addressed": addressed})
+            await s.commit()
+    async with sf() as s:
+        first = await chat.scan_batch(s, "persona-a", "discord-a")
+        assert [m["text"] for m in first] == ["1", "6"]
+        assert await chat.scan_batch(s, "persona-a", "discord-a") == first
+        with pytest.raises(chat.ExternalChatError):
+            await chat.scan_batch(s, "persona-b", "discord-a")
+        batch_id = chat.scan_batch_id(first)
+        with pytest.raises(chat.ExternalChatError):
+            await chat.acknowledge_scan(s, "persona-a", "discord-a", "bad")
+        assert await chat.acknowledge_scan(s, "persona-a", "discord-a", batch_id) == 2
+        await s.commit()
+    async with sf() as s:
+        assert await chat.scan_batch(s, "persona-a", "discord-a") == []
+        _, _, _ = await chat.observe(s, "discord-a", 0, {"external_ref": "123",
+            "provider_message_id": "7", "author_id": "human", "text": "new",
+            "author_bot": False, "addressed": False})
+        assert [m["text"] for m in await chat.scan_batch(s, "persona-a", "discord-a")] == ["new"]
+        await chat.snapshot(s, "discord-a", 0, 3, [{"external_ref": "123",
+            "kind": "channel", "can_read": False, "can_history": False,
+            "can_send": False}])
+        assert await chat.scan_batch(s, "persona-a", "discord-a") == []
+
+
+@pytest.mark.asyncio
+async def test_scan_api_requires_persona_and_replays_until_ack(sf, admin_client, monkeypatch):
+    await setup(sf)
+    assert (await admin_client.get("/api/external-chat/scan",
+        params={"identity_id": "discord-a"})).status_code == 403
+    async with sf() as s:
+        await chat.observe(s, "discord-a", 0, {"external_ref": "123",
+            "provider_message_id": "scan-one", "author_id": "human",
+            "text": "Any ideas?", "author_bot": False, "addressed": False})
+        await s.commit()
+    from agentplatform.api import external_chat as api
+    async def own_run(request):
+        return "persona-a", "run-id"
+    monkeypatch.setattr(api, "persona", own_run)
+    path = "/api/external-chat/scan?identity_id=discord-a"
+    first = (await admin_client.get(path)).json()
+    assert [m["text"] for m in first["messages"]] == ["Any ideas?"]
+    assert (await admin_client.get(path)).json() == first
+    wrong = await admin_client.post("/api/external-chat/scan/ack", json={
+        "identity_id": "discord-b", "batch_id": first["batch_id"]})
+    assert wrong.status_code == 409
+    ack = await admin_client.post("/api/external-chat/scan/ack", json={
+        "identity_id": "discord-a", "batch_id": first["batch_id"]})
+    assert ack.status_code == 200 and ack.json()["acknowledged"] == 1
+    assert (await admin_client.get(path)).json()["messages"] == []
+
+
+@pytest.mark.asyncio
 async def test_no_history_capability_cannot_inherit_shared_archive(sf):
     await setup(sf)
     async with sf() as s:

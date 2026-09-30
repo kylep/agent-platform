@@ -15,6 +15,7 @@ import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
+from typing import Literal
 from sqlalchemy import select
 
 from agentplatform.api.auth import require_admin
@@ -32,6 +33,7 @@ def _view(j: ScheduledJob) -> dict:
     return {"id": j.id, "name": j.name, "agent": j.agent, "cron": j.cron,
             "relay_channel": j.relay_channel,
             "timezone": j.timezone or "", "prompt": j.prompt, "model": j.model or "",
+            "run_when": j.run_when or "always",
             "enabled": j.enabled,
             "last_fire": j.last_fire.isoformat() if j.last_fire else None,
             "next_fire": j.next_fire.isoformat() if j.next_fire else None}
@@ -46,6 +48,7 @@ class JobIn(BaseModel):
     relay_channel: str | None = None
     timezone: str = ""          # IANA zone; empty = UTC
     model: str = ""             # empty = agent default
+    run_when: Literal["always", "discord_unaddressed"] = "always"
 
 
 class JobPatch(BaseModel):
@@ -56,6 +59,7 @@ class JobPatch(BaseModel):
     prompt: str | None = None
     enabled: bool | None = None
     model: str | None = None
+    run_when: Literal["always", "discord_unaddressed"] | None = None
 
 
 async def _check(request: Request, *, cron: str | None, agent: str | None,
@@ -83,6 +87,8 @@ async def list_jobs(request: Request):
 async def create_job(request: Request, body: JobIn):
     if bool(body.agent) == bool(body.relay_channel):
         raise HTTPException(422, "a job needs exactly one of agent or relay_channel")
+    if body.run_when != "always" and not body.agent:
+        raise HTTPException(422, "conditional scan requires an agent job")
     # `_check` resolves the AGENT but never the room: a channel can be archived
     # or renamed long after the job is written, so the only honest answer about
     # where it posts is the one the scheduler gets at fire time — and a
@@ -91,7 +97,8 @@ async def create_job(request: Request, body: JobIn):
     async with request.app.state.session_factory() as s:
         job = ScheduledJob(name=body.name, agent=body.agent, cron=body.cron,
                            relay_channel=body.relay_channel,
-                           timezone=body.timezone, prompt=body.prompt, model=body.model)
+                           timezone=body.timezone, prompt=body.prompt, model=body.model,
+                           run_when=body.run_when)
         s.add(job)
         await s.commit()
         return _view(job)
@@ -110,7 +117,9 @@ async def edit_job(request: Request, job_id: str, body: JobPatch):
         if body.agent is not None and job.relay_channel:
             raise HTTPException(422, "a relay job has no agent; delete it and "
                                      "create an agent job instead")
-        for field in ("name", "agent", "cron", "timezone", "prompt", "enabled", "model"):
+        if body.run_when == "discord_unaddressed" and job.relay_channel:
+            raise HTTPException(422, "conditional scan requires an agent job")
+        for field in ("name", "agent", "cron", "timezone", "prompt", "enabled", "model", "run_when"):
             val = getattr(body, field)
             if val is not None:
                 setattr(job, field, val)

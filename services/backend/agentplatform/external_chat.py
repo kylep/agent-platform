@@ -7,7 +7,7 @@ from datetime import datetime, timedelta, timezone
 import hashlib
 import uuid
 
-from sqlalchemy import DateTime, Integer, JSON, String, Text, UniqueConstraint, select
+from sqlalchemy import DateTime, Integer, JSON, String, Text, UniqueConstraint, and_, or_, select
 from sqlalchemy.orm import Mapped, mapped_column
 
 from agentplatform.db import Base, AgentDef, ChatIdentity, Conversation, RelayMessage, Run, utcnow
@@ -64,6 +64,18 @@ class ExternalObservation(Base):
     ownership_generation: Mapped[int] = mapped_column(Integer)
     message_id: Mapped[str] = mapped_column(String(32))
     addressed: Mapped[bool] = mapped_column(default=False)
+    author_bot: Mapped[bool] = mapped_column(default=False)
+    co_mentioned: Mapped[list | None] = mapped_column(JSON, nullable=True)
+
+
+class ExternalScanCursor(Base):
+    """Acknowledged ambient human activity for one owned channel generation."""
+    __tablename__ = "external_scan_cursors"
+    identity_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    endpoint_id: Mapped[str] = mapped_column(String(32), primary_key=True)
+    ownership_generation: Mapped[int] = mapped_column(Integer, primary_key=True)
+    last_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    last_id: Mapped[str] = mapped_column(String(32))
 
 
 class ExternalDelivery(Base):
@@ -251,7 +263,10 @@ async def observe(session, identity_id, generation, data):
             async with session.begin_nested():
                 observation = ExternalObservation(endpoint_id=ep.id,
                     provider_message_id=data["provider_message_id"], identity_id=identity_id,
-                    ownership_generation=generation, message_id=msg.id, addressed=data.get("addressed", False))
+                    ownership_generation=generation, message_id=msg.id,
+                    addressed=data.get("addressed", False),
+                    author_bot=data.get("author_bot", False),
+                    co_mentioned=data.get("co_mentioned", []))
                 session.add(observation)
                 await session.flush()
         except IntegrityError:
@@ -261,6 +276,97 @@ async def observe(session, identity_id, generation, data):
                 ExternalObservation.identity_id == identity_id,
                 ExternalObservation.ownership_generation == generation))).scalar_one()
     return ep, msg, observation
+
+
+SCAN_LIMIT = 20
+SCAN_FIRST_LOOKBACK = timedelta(hours=24)
+
+
+async def scan_batch(session, agent: str, identity_id: str, limit: int = SCAN_LIMIT) -> list[dict]:
+    """Oldest unacknowledged ambient human posts in currently owned guild rooms.
+
+    Reads the mirror, not Discord again. Every endpoint is checked against a
+    fresh permission lease and ownership generation on each call. DMs and
+    threads are deliberately out of scope; addressed messages already have
+    their own reply path.
+    """
+    account = await owned_identity(session, identity_id, agent)
+    if account.connector != "discord":
+        raise ExternalChatError("ambient scan currently supports Discord")
+    accesses = (await session.execute(select(ExternalEndpoint, ExternalAccess).join(
+        ExternalAccess, ExternalAccess.endpoint_id == ExternalEndpoint.id).where(
+        ExternalAccess.identity_id == identity_id, ExternalEndpoint.kind == "channel",
+        ExternalAccess.ownership_generation == account.ownership_generation,
+        ExternalAccess.can_read.is_(True), ExternalAccess.can_history.is_(True),
+        ExternalAccess.expires_at > utcnow()))).all()
+    first_at = utcnow() - SCAN_FIRST_LOOKBACK
+    batch = []
+    for ep, _ in accesses:
+        cursor = await session.get(ExternalScanCursor,
+            (identity_id, ep.id, account.ownership_generation))
+        boundary = cursor.last_at if cursor else first_at
+        after_cursor = (or_(RelayMessage.created_at > boundary,
+                            and_(RelayMessage.created_at == boundary,
+                                 RelayMessage.id > cursor.last_id)) if cursor
+                        else RelayMessage.created_at >= boundary)
+        stmt = (select(RelayMessage).join(ExternalObservation,
+                ExternalObservation.message_id == RelayMessage.id).where(
+            ExternalObservation.identity_id == identity_id,
+            ExternalObservation.endpoint_id == ep.id,
+            ExternalObservation.ownership_generation == account.ownership_generation,
+            ExternalObservation.addressed.is_(False),
+            ExternalObservation.author_bot.is_(False),
+            RelayMessage.deleted_at.is_(None), after_cursor)
+            .order_by(RelayMessage.created_at, RelayMessage.id).limit(limit))
+        for msg in (await session.execute(stmt)).scalars():
+            batch.append({"endpoint_id": ep.id, "external_ref": ep.external_ref,
+                          "room": ep.display_name, "message_id": msg.id,
+                          "author": msg.author, "text": (msg.body or "")[:1200],
+                          "created_at": msg.created_at.isoformat()})
+    batch.sort(key=lambda m: (m["created_at"], m["message_id"]))
+    return batch[:limit]
+
+
+def scan_batch_id(batch: list[dict]) -> str:
+    return hashlib.sha256("|".join(m["message_id"] for m in batch).encode()).hexdigest()
+
+
+async def acknowledge_scan(session, agent: str, identity_id: str, batch_id: str) -> int:
+    """Advance only over the current, complete page; retries before ack replay."""
+    from agentplatform.authority import authority_lock
+    await authority_lock(session)
+    account = await owned_identity(session, identity_id, agent)
+    batch = await scan_batch(session, agent, identity_id)
+    if not batch or scan_batch_id(batch) != batch_id:
+        raise ExternalChatError("scan batch changed; read it again before acknowledging")
+    last_by_endpoint = {item["endpoint_id"]: item for item in batch}
+    for endpoint_id, item in last_by_endpoint.items():
+        cursor = await session.get(ExternalScanCursor,
+            (identity_id, endpoint_id, account.ownership_generation))
+        if cursor is None:
+            cursor = ExternalScanCursor(identity_id=identity_id, endpoint_id=endpoint_id,
+                ownership_generation=account.ownership_generation,
+                last_at=datetime.fromisoformat(item["created_at"]), last_id=item["message_id"])
+            session.add(cursor)
+        else:
+            cursor.last_at = datetime.fromisoformat(item["created_at"])
+            cursor.last_id = item["message_id"]
+    await session.flush()
+    return len(batch)
+
+
+async def has_scan_activity(session, agent: str) -> bool:
+    """Cheap schedule gate: no model run when all owned rooms are quiet."""
+    identities = (await session.execute(select(ChatIdentity.id).where(
+        ChatIdentity.owner_agent == agent, ChatIdentity.status == "active",
+        ChatIdentity.connector == "discord"))).scalars()
+    for identity_id in identities:
+        try:
+            if await scan_batch(session, agent, identity_id, limit=1):
+                return True
+        except ExternalChatError:
+            continue
+    return False
 
 
 async def queue_send(session, *, agent, run_id, identity_id, external_ref, text, answer_to=None, automatic=False):

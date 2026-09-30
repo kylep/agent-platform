@@ -42,7 +42,7 @@ export default function ThreadPane({ room, threadId, highlight, onHighlighted, o
         </Button>
         <strong>Thread</strong>
         {who && <span className="relay-topic muted">started by {who}</span>}
-        <button type="button" className="relay-thread-close" aria-label="Close thread"
+        <button type="button" className="relay-thread-close" aria-label="Dismiss thread pane"
                 onClick={onClose}>✕</button>
       </header>
 

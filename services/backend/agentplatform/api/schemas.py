@@ -545,6 +545,7 @@ class JobView(BaseModel):
     timezone: str = ""          # IANA zone the cron is read in; empty = UTC
     prompt: str
     model: str = ""
+    run_when: str = "always"
     enabled: bool
     last_fire: str | None
     next_fire: str | None

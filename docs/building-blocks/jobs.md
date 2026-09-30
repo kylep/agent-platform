@@ -14,8 +14,13 @@ and throw it away. A trigger that becomes part of an agent's identity should
 graduate into the agent's [entrypoints](entrypoints.md) — edited directly on
 the agent's Config tab, no PR needed.
 
-**Shape:** `{name, agent, cron, timezone, prompt, enabled, last_fire,
-next_fire}` — see the Schedules page or `GET /api/jobs`.
+**Shape:** `{name, agent, cron, timezone, prompt, model, run_when, enabled,
+last_fire, next_fire}` — see the Schedules page or `GET /api/jobs`. `model`
+overrides only this job's run, leaving the agent's normal conversations on its
+configured model. `run_when` is normally `always`. For a persona's Discord
+awareness job, `discord_unaddressed` checks its owned, currently readable guild
+channels for new human posts and skips the model run on a quiet tick. The
+persona acknowledges each bounded batch using the `discord` Tool after triage.
 
 **Timezones:** `timezone` is an IANA zone (`America/Toronto`) that the cron is
 read in; blank means UTC, and stored times are always UTC either way. Set it

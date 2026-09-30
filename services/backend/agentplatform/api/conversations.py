@@ -10,7 +10,8 @@ from agentplatform.api.auth import INVOKE_ROLES, READ_ROLES, require_role
 from agentplatform.connectors import CONNECTORS, IMPLEMENTED
 from agentplatform.conversation import continue_conversation
 from agentplatform.db import Conversation, RelayParticipant, Run
-from agentplatform.relay import is_agent, room_dispatch_mode
+from agentplatform.relay import is_agent, participant_of, room_dispatch_mode
+from agentplatform.relay_dm import open_internal_dm
 
 log = logging.getLogger("conversations")
 
@@ -78,9 +79,9 @@ async def list_connectors():
     return CONNECTORS
 
 
-@router.post("/api/conversations", status_code=201, response_model=S.ConversationView,
-             dependencies=[Depends(require_role(*INVOKE_ROLES))])
-async def create_conversation(request: Request, body: ConversationIn):
+@router.post("/api/conversations", status_code=201, response_model=S.ConversationView)
+async def create_conversation(request: Request, body: ConversationIn,
+                              principal: str = Depends(require_role(*INVOKE_ROLES))):
     if body.connector not in IMPLEMENTED:
         raise HTTPException(422, f"connector '{body.connector}' is not implemented")
     # Reload first: an agent created moments ago in the UI must be startable.
@@ -92,12 +93,18 @@ async def create_conversation(request: Request, body: ConversationIn):
         raise HTTPException(409, "agent quarantined")
     if not info.enabled:
         raise HTTPException(409, "agent is disabled")
-    conv = Conversation(connector=body.connector, agent=body.agent,
-                        home="relay", reply_mode="linear",
-                        dispatch_mode="facade", default_agent=body.agent,
-                        title=body.title or f"Conversation with {body.agent}")
     async with request.app.state.session_factory() as s:
-        s.add(conv); await s.commit()
+        if body.connector == "web":
+            conv = await open_internal_dm(s, [participant_of(principal=principal),
+                                              f"agent:{body.agent}"], body.agent)
+        else:
+            # Connector-owned legacy records are not internal agent DMs.
+            conv = Conversation(connector=body.connector, agent=body.agent,
+                                home="relay", reply_mode="linear",
+                                dispatch_mode="facade", default_agent=body.agent,
+                                title=body.title or f"Conversation with {body.agent}")
+            s.add(conv)
+            await s.commit()
         return _view(conv)
 
 
@@ -158,10 +165,8 @@ async def rename_conversation(request: Request, conversation_id: str, body: Conv
 @router.delete("/api/conversations/{conversation_id}", response_model=S.OkId,
                dependencies=[Depends(require_role(*INVOKE_ROLES))])
 async def delete_conversation(request: Request, conversation_id: str):
-    """Permanently delete a web conversation and its turns. Connector-owned
-    conversations (Discord etc.) are not deletable here — their lifecycle
-    belongs to the external channel, and a delete would just be recreated on
-    the next inbound message."""
+    """Retained for old callers; persistent internal DMs are not deletable.
+    Connector-owned conversations follow their external channel's lifecycle."""
     async with request.app.state.session_factory() as s:
         conv = await _dm_or_404(s, await s.get(Conversation, conversation_id), request)
         if conv.home == "external":
@@ -169,6 +174,8 @@ async def delete_conversation(request: Request, conversation_id: str):
         if conv.connector != "web":
             raise HTTPException(409, f"{conv.connector} conversations are managed by "
                                      "their channel and can't be deleted here")
+        if conv.kind == "dm" and conv.home == "relay":
+            raise HTTPException(409, "direct messages stay open")
         # Turns are runs; detach them (keep the run history) then drop the thread.
         for t in (await s.execute(select(Run).where(
                 Run.conversation_id == conversation_id))).scalars().all():

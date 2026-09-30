@@ -157,8 +157,13 @@ async def continue_conversation(session_factory, producer, conversation_id: str,
     turn in flight."""
     async with session_factory() as s:
         conv = await s.get(Conversation, conversation_id)
-        if conv is None or conv.status != "active":
+        if conv is None:
             return None
+        if conv.status != "active":
+            if conv.kind != "dm" or conv.home != "relay" or conv.connector != "web":
+                return None
+            # Historical close flags must not strand a persistent internal DM.
+            conv.status = "active"
         # A channel or group is the router's to answer (docs/design/19): there
         # is no single agent to hand the turn to, and mentions decide who
         # speaks. This path stays the DM path.

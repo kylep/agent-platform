@@ -21,6 +21,7 @@ export default function Relay() {
   const thread = params.get("thread");
   const popout = params.get("popout") === "1";
   const [channels, setChannels] = useState<RelayChannel[]>([]);
+  const [roomVersion, setRoomVersion] = useState(0);
   const [teams, setTeams] = useState<Team[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
   const [me, setMe] = useState<string | null>(null);
@@ -35,7 +36,7 @@ export default function Relay() {
   // the highlight already over.
   const clearHighlight = useCallback(() => setHighlight(null), []);
 
-  const load = useCallback(() => api<RelayChannel[]>("/api/relay/channels")
+  const load = useCallback(() => api<RelayChannel[]>("/api/relay/channels?include_archived=true")
     .then(setChannels)
     .catch((err) => setError(err instanceof Error ? err.message : "Could not load the rooms."))
     .finally(() => setLoaded(true)), []);
@@ -53,12 +54,13 @@ export default function Relay() {
   // back into the URL — a default nobody chose should not become history.
   const selected = useMemo(() => {
     if (chosen && channels.some((c) => c.id === chosen)) return chosen;
+    const active = channels.filter((c) => !c.archived_at);
     const wanted = kind === "dm"
-      ? channels.filter((c) => c.home !== "external" && c.kind !== "channel")
+      ? active.filter((c) => c.home !== "external" && c.kind !== "channel")
       : kind === "connected"
-        ? channels.filter((c) => c.home === "external")
-        : channels.filter((c) => c.home !== "external" && c.kind === "channel");
-    return (wanted[0] ?? channels[0])?.id ?? null;
+        ? active.filter((c) => c.home === "external")
+        : active.filter((c) => c.home !== "external" && c.kind === "channel");
+    return (wanted[0] ?? active[0])?.id ?? null;
   }, [chosen, kind, channels]);
 
   // The tab is named after the room you are in — a browser holding four rooms
@@ -122,6 +124,18 @@ export default function Relay() {
     } catch (e) { setError(String(e)); }
   }
 
+  async function setArchived(archived: boolean) {
+    if (!selected) return;
+    try {
+      const updated = await api<RelayChannel>(`/api/relay/channels/${selected}`, {
+        method: "PATCH", body: JSON.stringify({ archived }),
+      });
+      setChannels(prev => prev.map(c => c.id === selected ? { ...c, archived_at: updated.archived_at } : c));
+      setRoomVersion(v => v + 1);
+      setError(null);
+    } catch (e) { setError(String(e)); }
+  }
+
   const currentTeam = teams.find(t => t.id === room?.team_id)?.slug ?? "";
   const currentProject = projects.find(p => p.id === room?.project_id)?.slug ?? "";
 
@@ -145,6 +159,15 @@ export default function Relay() {
         </div>
       )}
       {error && <div className="error">{error}</div>}
+      {!popout && room && room.home !== "external" &&
+        (room.kind === "group" || (room.kind === "channel" &&
+          !["general", "ops", "standup"].includes(room.name ?? ""))) &&
+        <div className="row-actions">
+          <button type="button" onClick={() => setArchived(!room.archived_at)}>
+            {room.archived_at ? "Restore room" : "Archive room"}
+          </button>
+          {room.archived_at && <span className="muted">History stays readable. Restore to post again.</span>}
+        </div>}
       {!popout && room && (teams.length > 0 || projects.length > 0) &&
         <div className="row-actions" aria-label="Conversation context">
           <label>Team <select value={currentTeam} onChange={e => setScope(e.target.value, currentProject)}>
@@ -166,7 +189,7 @@ export default function Relay() {
         {selected
           // Keyed on the room: switching channels is a new subscription, not a
           // mutation of the one on screen.
-          ? <Room key={selected} channelId={selected} thread={thread} highlight={highlight}
+          ? <Room key={`${selected}:${roomVersion}`} channelId={selected} thread={thread} highlight={highlight}
                   onHighlighted={clearHighlight} onThread={selectThread}
                   onPopout={popout ? undefined : openPopout} />
           : (

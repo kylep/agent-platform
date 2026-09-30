@@ -23,7 +23,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from croniter import croniter
 from sqlalchemy import select
 
-from agentplatform.db import Schedule, ScheduledJob, utcnow
+from agentplatform.db import ACTIVE_STATES, Run, Schedule, ScheduledJob, utcnow
 from agentplatform.events import TOPIC_RUN_INBOUND
 from agentplatform.relay import SCHEDULER_AUTHOR
 from agentplatform.relay_store import summon_channel
@@ -203,6 +203,18 @@ class Scheduler:
                 return
             if not job.enabled or now < as_utc(job.next_fire):
                 return
+            if job.run_when == "discord_unaddressed":
+                from agentplatform.external_chat import has_scan_activity
+                active_scan = (await s.execute(select(Run.id).where(
+                    Run.agent == job.agent, Run.trigger == "schedule",
+                    Run.prompt == job.prompt, Run.state.in_(ACTIVE_STATES))
+                    .limit(1))).first() is not None
+                if not job.agent or active_scan or not await has_scan_activity(s, job.agent):
+                    # A quiet check advances the clock without consuming a
+                    # model run. The cursor only advances after explicit ack.
+                    job.next_fire = next_fire(job.cron, now, job.timezone)
+                    await s.commit()
+                    return
             run_id, agent, prompt = uuid.uuid4().hex, job.agent, job.prompt
             model = job.model or ""
             channel = job.relay_channel

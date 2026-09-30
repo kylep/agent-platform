@@ -25,7 +25,7 @@ from agentplatform.api.auth import (ANNOTATE_ROLES, INVOKE_ROLES, READ_ROLES,
                                     role_allows)
 from agentplatform.conversation import continue_conversation
 from agentplatform.db import (ACTIVE_STATES, Conversation, RELAY_SEED_CHANNELS,
-                              RelayInvocation, dm_key_of)
+                              RelayInvocation)
 from agentplatform.db import RelayBinding as BindingRow
 from agentplatform.db import RelayMessage as MessageRow
 from agentplatform.db import RelayParticipant as ParticipantRow
@@ -38,6 +38,7 @@ from agentplatform.relay import (agent_name, is_agent, is_member, is_participant
 # Aliased: the route below is the HTTP name for the same act, and the store
 # helper is what actually writes the row.
 from agentplatform.relay_feed import OVERFLOW
+from agentplatform.relay_dm import open_internal_dm
 from agentplatform.relay_store import post_relay_message as _insert_message
 from agentplatform.relay_store import (bindings_of, channel_by_ref, face_from, faces_for, enabled_agents,
                                        message_view, outbound_for_message,
@@ -272,13 +273,15 @@ async def _detail(s, conv: Conversation) -> dict:
     return view
 
 
-async def _visible(s, caller: Caller, agents: set[str]) -> tuple[list, dict]:
+async def _visible(s, caller: Caller, agents: set[str], include_archived: bool = False) -> tuple[list, dict]:
     """The channels this caller may see — everything unarchived for a human,
     only the rooms it belongs to for an agent — and their membership rows,
     which the caller needs anyway and must not have to query twice."""
     agents = await enabled_agents(s)
-    rows = list((await s.execute(select(Conversation).where(
-        Conversation.archived_at.is_(None)))).scalars())
+    stmt = select(Conversation)
+    if not include_archived:
+        stmt = stmt.where(Conversation.archived_at.is_(None))
+    rows = list((await s.execute(stmt)).scalars())
     explicit = await _explicit_many(s, [c.id for c in rows])
     if caller.agent is not None:
         rows = [c for c in rows
@@ -404,10 +407,11 @@ def _slug(name: str | None) -> str:
 
 @router.get("/api/relay/channels", response_model=list[S.RelayChannel])
 async def list_relay_channels(request: Request,
+                              include_archived: bool = False,
                               caller: Caller = Depends(require_relay_access(*READ))):
     async with request.app.state.session_factory() as s:
         agents = await enabled_agents(s)
-        rows, participants = await _visible(s, caller, agents)
+        rows, participants = await _visible(s, caller, agents, include_archived)
         ids = [c.id for c in rows]
         last = await _last_messages(s, ids)
         counts = await _counts(s, ids)
@@ -500,6 +504,10 @@ async def patch_relay_channel(request: Request, channel_id: str, body: S.RelayCh
         if body.topic is not None:
             conv.topic = body.topic.strip()[:256]
         if body.archived is not None:
+            if conv.kind == "dm":
+                raise HTTPException(409, "direct messages stay open")
+            if body.archived and conv.kind == "channel" and conv.name in SEED_NAMES:
+                raise HTTPException(409, f"#{conv.name} is a platform channel")
             conv.archived_at = utcnow() if body.archived else None
         if body.reply_mode is not None:
             if conv.kind != "channel":
@@ -532,6 +540,8 @@ async def archive_relay_channel(request: Request, channel_id: str):
             raise HTTPException(404, "unknown channel")
         if conv.kind == "channel" and conv.name in SEED_NAMES:
             raise HTTPException(409, f"#{conv.name} is a platform channel")
+        if conv.kind == "dm":
+            raise HTTPException(409, "direct messages stay open")
         conv.archived_at = conv.archived_at or utcnow()
         await s.commit()
     return {"ok": True, "id": channel_id}
@@ -1059,31 +1069,6 @@ async def relay_events(request: Request, channel_id: str, after: str | None = No
                                       "X-Accel-Buffering": "no"})
 
 
-async def _find_dm(s, pair: list[str]) -> Conversation | None:
-    """The DM between exactly these two, if it already exists. `dm_key` answers
-    it with an index lookup; the participant scan behind it is for a legacy DM
-    whose pair was already claimed, which the backfill leaves keyless."""
-    conv = (await s.execute(select(Conversation).where(
-        Conversation.kind == "dm", Conversation.dm_key == dm_key_of(pair),
-        Conversation.archived_at.is_(None)))).scalars().first()
-    if conv is not None:
-        return conv
-    ids = list((await s.execute(select(ParticipantRow.channel_id).where(
-        ParticipantRow.participant.in_(pair)).group_by(ParticipantRow.channel_id)
-        .having(func.count() == len(pair)))).scalars())
-    if not ids:
-        return None
-    convs = list((await s.execute(select(Conversation).where(
-        Conversation.id.in_(ids), Conversation.kind == "dm",
-        Conversation.archived_at.is_(None))
-        .order_by(Conversation.created_at, Conversation.id))).scalars())
-    sizes = dict((await s.execute(select(ParticipantRow.channel_id, func.count()).where(
-        ParticipantRow.channel_id.in_([c.id for c in convs]))
-        .group_by(ParticipantRow.channel_id))).all())
-    # A room that holds these two AND somebody else is a group, not their DM.
-    return next((c for c in convs if sizes.get(c.id) == len(pair)), None)
-
-
 @router.post("/api/relay/dm", response_model=S.RelayChannelDetail)
 async def open_relay_dm(request: Request, body: S.RelayDmIn,
                         caller: Caller = Depends(require_relay_access(*WRITE))):
@@ -1103,35 +1088,7 @@ async def open_relay_dm(request: Request, body: S.RelayDmIn,
             raise HTTPException(404, "unknown agent")
     pair = sorted([caller.participant, other])
     async with request.app.state.session_factory() as s:
-        conv = await _find_dm(s, pair)
-        if conv is None:
-            # `agent` is the legacy single-agent column: set so the
-            # /api/conversations facade and the design-14 resume path keep
-            # working over the same row.
-            conv = Conversation(connector="web", kind="dm", agent=target or caller.agent,
-                                home="relay", reply_mode="linear",
-                                dispatch_mode="facade", default_agent=target or caller.agent,
-                                topic="", open=False, dm_key=dm_key_of(pair),
-                                title="dm:" + ":".join(pair))
-            s.add(conv)
-            await s.flush()
-            for p in pair:
-                s.add(ParticipantRow(channel_id=conv.id, participant=p, role="member"))
-            try:
-                await s.commit()
-            except IntegrityError:
-                # The unique index caught a concurrent open of the same DM: the
-                # winner's row IS the room, so return that rather than forking.
-                await s.rollback()
-                conv = await _find_dm(s, pair)
-                if conv is None:
-                    raise HTTPException(409, "the dm was opened and archived at once")
-        if conv.status != "active":
-            # Legacy Conversations could close a DM. A DM is still the same
-            # two-person identity, so opening it again revives its history
-            # rather than returning a permanently unwritable room.
-            conv.status = "active"
-            await s.commit()
+        conv = await open_internal_dm(s, pair, target or caller.agent)
         return await _detail(s, conv)
 
 

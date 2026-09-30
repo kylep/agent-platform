@@ -246,6 +246,7 @@ export type Job = {
   timezone: string;       // IANA zone the cron is read in; "" = UTC
   prompt: string;
   model: string;
+  run_when?: "always" | "discord_unaddressed";
   enabled: boolean;
   last_fire: string | null;
   next_fire: string | null;

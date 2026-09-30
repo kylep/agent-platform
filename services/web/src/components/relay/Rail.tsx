@@ -71,11 +71,14 @@ export default function Rail({ channels, selected, me, loaded, onSelect, onCreat
   const [topic, setTopic] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [showArchived, setShowArchived] = useState(false);
 
-  const connected = channels.filter((c) => c.home === "external");
-  const rooms = channels.filter((c) => c.home !== "external" && c.kind === "channel");
-  const groups = channels.filter((c) => c.home !== "external" && c.kind === "group");
-  const dms = channels.filter((c) => c.home !== "external" && c.kind === "dm");
+  const active = channels.filter((c) => !c.archived_at);
+  const archived = channels.filter((c) => c.archived_at && c.kind !== "dm");
+  const connected = active.filter((c) => c.home === "external");
+  const rooms = active.filter((c) => c.home !== "external" && c.kind === "channel");
+  const groups = active.filter((c) => c.home !== "external" && c.kind === "group");
+  const dms = active.filter((c) => c.home !== "external" && c.kind === "dm");
 
   async function create() {
     setBusy(true); setError(null);
@@ -128,6 +131,17 @@ export default function Rail({ channels, selected, me, loaded, onSelect, onCreat
         {connected.map((c) => (
           <Row key={c.id} channel={c} me={me} selected={c.id === selected} onSelect={onSelect} />
         ))}
+        {archived.length > 0 && (
+          <>
+            <button type="button" className="relay-archive-toggle"
+                    aria-expanded={showArchived} onClick={() => setShowArchived(v => !v)}>
+              {showArchived ? "▾" : "▸"} Archived rooms ({archived.length})
+            </button>
+            {showArchived && archived.map(c => (
+              <Row key={c.id} channel={c} me={me} selected={c.id === selected} onSelect={onSelect} />
+            ))}
+          </>
+        )}
       </aside>
 
       <FormDialog

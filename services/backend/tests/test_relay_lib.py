@@ -300,6 +300,19 @@ def test_build_mention_prompt_is_golden():
     )
 
 
+def test_external_prompt_does_not_promise_relay_mention_routing():
+    from types import SimpleNamespace
+    external = SimpleNamespace(home="external", kind="channel", name=None,
+                               title="research", topic="")
+    out = build_mention_prompt(channel=external, messages=HISTORY,
+        mention=HISTORY[1], agent="olu", hops_left=2, participants=[],
+        external_co_mentioned=["Pai", "<Kai>"])
+    assert "Plain @name text in your bot reply does NOT summon" in out
+    assert "do not ask the human to re-ping" in out
+    assert "Pai, &lt;Kai&gt;" in out
+    assert "To bring someone in, write @name" not in out
+
+
 def test_the_summoning_body_appears_only_inside_the_untrusted_block():
     """The last thing a model reads carries the most weight, so the mention is
     REFERENCED there, never quoted: no attacker-controlled text may appear

@@ -88,11 +88,14 @@ async def _call(method: str, path: str, params: dict | None = None, json: dict |
 async def discord(action: str = "identities", identity_id: str | None = None,
                   external_ref: str | None = None, text: str | None = None,
                   answer_to: str | None = None, request_id: str | None = None,
-                  limit: int = 30) -> str:
+                  limit: int = 30, batch_id: str | None = None) -> str:
     """Use an owned Discord account. identities lists your accounts; endpoints
     discovers readable exact channel IDs; read returns mirrored history; send
     queues text and returns a durable receipt ID (not proof of delivery); receipt
     checks its outcome. Specify identity_id and external_ref for read/send.
+    scan returns a bounded batch of unaddressed human guild-channel posts;
+    scan_ack accepts that batch_id only after triage. Neither scans DMs or
+    threads. A retry before ack returns the same batch.
     answer_to is the triggering Relay message ID when answering that addressed
     turn, preventing an extra automatic final reply. Account ownership supplies
     authority; this Tool cannot send as a worker or another persona."""
@@ -104,6 +107,13 @@ async def discord(action: str = "identities", identity_id: str | None = None,
         return await _call("GET", f"/api/external-chat/deliveries/{request_id}")
     if not identity_id:
         return "error: identity_id is required; discover your owned accounts first"
+    if action == "scan":
+        return await _call("GET", "/api/external-chat/scan", {"identity_id": identity_id})
+    if action == "scan_ack":
+        if not batch_id:
+            return "error: scan_ack requires the batch_id returned by scan"
+        return await _call("POST", "/api/external-chat/scan/ack", json={
+            "identity_id": identity_id, "batch_id": batch_id})
     if action == "endpoints":
         return await _call("GET", "/api/external-chat/endpoints", {"identity_id": identity_id})
     if not external_ref:
@@ -117,7 +127,7 @@ async def discord(action: str = "identities", identity_id: str | None = None,
         return await _call("POST", "/api/external-chat/send", json={
             "identity_id": identity_id, "external_ref": external_ref,
             "text": text, "answer_to": answer_to})
-    return "error: action must be identities|endpoints|read|send|receipt"
+    return "error: action must be identities|endpoints|read|scan|scan_ack|send|receipt"
 
 
 # --- runs (run-summarizer) ---------------------------------------------------

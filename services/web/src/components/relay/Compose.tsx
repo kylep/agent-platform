@@ -14,15 +14,14 @@ const MENTION = /(?:^|[\s([{"'])@([A-Za-z0-9-]*)$/;
 const MAX_SUGGESTIONS = 8;
 const MESSAGE_MAX_CHARS = 64000;
 
-/** Turn conflicts need distinct guidance: an old closed DM needs reopening,
- * while an active reply only needs time to finish. */
+/** A DM keeps its history; a turn conflict means its current reply is busy. */
 function sendFailure(err: unknown): string {
   const text = err instanceof Error ? err.message : "";
   if (text.startsWith("409")) {
     return text.includes("disabled")
       ? "That agent is disabled — turn it back on before writing to it."
       : text.includes("closed")
-        ? "This conversation is closed. Reopen it from the agent's Conversations tab."
+        ? "This room is unavailable. Refresh and try again."
         : "a reply is already in progress — give the agent a moment.";
   }
   return err instanceof Error ? err.message : "Could not send that.";

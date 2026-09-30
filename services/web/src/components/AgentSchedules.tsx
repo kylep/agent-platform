@@ -32,6 +32,7 @@ function JobForm({ agent, job, onDone, onCancel }: {
   const [timezone, setTimezone] = useState(job?.timezone ?? "");
   const [prompt, setPrompt] = useState(job?.prompt ?? "");
   const [model, setModel] = useState(job?.model ?? "");
+  const [runWhen, setRunWhen] = useState(job?.run_when ?? "always");
   const [runtime, setRuntime] = useState<AgentDef["runtime"]>("claude");
   const catalog = useGrantCatalog();
   useEffect(() => {
@@ -59,7 +60,7 @@ function JobForm({ agent, job, onDone, onCancel }: {
   async function save() {
     setBusy(true); setError(null);
     try {
-      const body = { name, agent, cron, timezone: zone, prompt, model };
+      const body = { name, agent, cron, timezone: zone, prompt, model, run_when: runWhen };
       if (job) await api(`/api/jobs/${job.id}`, { method: "PATCH", body: JSON.stringify(body) });
       else await api("/api/jobs", { method: "POST", body: JSON.stringify(body) });
       onDone();
@@ -91,6 +92,11 @@ function JobForm({ agent, job, onDone, onCancel }: {
         {model && !models.some((m) => m.id === model) &&
           <option value={model}>{model} — saved custom value</option>}
         {models.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}
+      </Select>
+      <label className="field-label">Run when</label>
+      <Select aria-label="Job run condition" value={runWhen} onChange={(e) => setRunWhen(e.target.value as typeof runWhen)}>
+        <option value="always">Every scheduled time</option>
+        <option value="discord_unaddressed">Only when owned Discord channels have new unaddressed human messages</option>
       </Select>
       {error && <div className="error">{error}</div>}
       <div className="row-actions" style={{ marginTop: 8 }}>

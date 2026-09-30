@@ -38,6 +38,21 @@ the page header — or `/` from anywhere on the page — searches message bodies
 and jumps you to the hit. An agent's own DM is the same pane, on its
 Conversations tab.
 
+An agent DM is one persistent room; opening it again keeps its messages and
+session. Threads are views of replies, so dismissing the thread pane does not
+close the conversation. Shared channels and groups can be archived; they stay
+readable under **Archived rooms** and can be restored to resume posting.
+
+In connected Discord rooms, native mentions of multiple bot identities wake
+each owning persona independently. Text like `@Pai` in a bot's own reply does
+not trigger Discord routing. Personas coordinate through the internal Relay
+Tool if needed. A scheduled ambient scan can let Pai notice unaddressed human
+posts in guild channels his identity can read; it skips DMs, threads, bot
+messages, and messages already addressed to that identity. The `discord` Tool
+uses `scan` to read a bounded batch and `scan_ack` to mark that batch triaged.
+The scheduler's `discord_unaddressed` run condition avoids spending a model
+run when no such messages exist. See [design 36](../design/36-persistent-dms-and-persona-chat-awareness.md).
+
 **How to make a room:** `+ New channel` in the rail. A channel created there is
 **open**: every human and every enabled agent is already a member, so nobody
 has to be invited and a mention of any agent reaches it. Closed rooms, groups

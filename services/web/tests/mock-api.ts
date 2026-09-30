@@ -581,6 +581,7 @@ const relayChannels = [
   // …and one the API gave a title, which wins over the member list.
   relayChannel({ id: "rg2", kind: "group", title: "release crew", topic: "", open: false,
                  participants: ["agent:pai", "user:kyle"] }),
+  relayChannel({ id: "archived-room", name: "old-room", archived_at: at(60) }),
 ];
 
 // Keyed by channel so the route below can honour `after` and `thread` — the
@@ -1108,6 +1109,7 @@ const FIXTURES: Record<string, unknown> = {
   }] }),
   "/api/relay/channels/rg1": detail("rg1", { news: FACES.news, pai: FACES.pai }),
   "/api/relay/channels/rg2": detail("rg2", { pai: FACES.pai }),
+  "/api/relay/channels/archived-room": detail("archived-room", {}),
   // Two of the day's mentions were REFUSED (a hop cap, an hour over budget),
   // which is what puts the Relay row in the Dashboard's triage queue. Wakes —
   // mentions coalesced into one reply — are not counted here.

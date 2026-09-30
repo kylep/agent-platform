@@ -597,7 +597,8 @@ class RelayRouter:
             # queue underneath invites it to answer about a different one.
             your_tickets=(() if ticket is not None
                           else await self._your_tickets(s, agent)),
-            wiki_pages=await self._wiki_pages(s, mention, window, thread_root))
+            wiki_pages=await self._wiki_pages(s, mention, window, thread_root),
+            external_co_mentioned=(observation.co_mentioned or ()) if observation else ())
         # prompt and user_message are the same text on purpose: for a relay run
         # the built context IS the turn, and the run page shows it as what the
         # agent was asked.

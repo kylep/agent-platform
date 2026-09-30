@@ -13,6 +13,8 @@ from agentplatform.events import (FakeProducer, TOPIC_RELAY_MESSAGES,
 from agentplatform.relay_router import RelayRouter
 from agentplatform.relay_store import relay_message_payload
 from agentplatform.scheduler import Scheduler
+from agentplatform import external_chat as chat
+from agentplatform.db import AgentDef, ChatIdentity
 
 
 async def _mk(admin_client, **kw):
@@ -87,6 +89,38 @@ async def test_scheduler_fires_due_job(sf, agent_store):
     assert fired[0]["agent"] == "hello-world" and fired[0]["trigger"] == "schedule"
     assert fired[0]["model"] == "sonnet"
     assert all(data.get("prompt") != "no" for _, _, data in producer.published)
+
+
+async def test_discord_scan_job_spends_no_model_run_while_quiet(sf, agent_store):
+    producer = FakeProducer()
+    sched = Scheduler(sf, agent_store, producer)
+    now = utcnow()
+    async with sf() as s:
+        s.add(AgentDef(name="scanner", agent_type="persona", enabled=True))
+        s.add(ChatIdentity(id="discord-scanner", connector="discord",
+            display_name="Scanner", owner_agent="scanner", status="active"))
+        s.add(ScheduledJob(id="scan-job", name="scan", agent="scanner",
+            cron="* * * * *", prompt="scan", model="gpt-5.6-luna",
+            run_when="discord_unaddressed", enabled=True,
+            next_fire=now - timedelta(minutes=1)))
+        await s.commit()
+        await chat.snapshot(s, "discord-scanner", 0, 1, [{
+            "external_ref": "channel-1", "kind": "channel", "can_read": True,
+            "can_history": True, "can_send": True}])
+        await s.commit()
+    await sched.tick(now)
+    assert not producer.published
+    async with sf() as s:
+        await chat.observe(s, "discord-scanner", 0, {
+            "external_ref": "channel-1", "provider_message_id": "m1",
+            "author_id": "human", "text": "What should we do?",
+            "author_bot": False, "addressed": False})
+        job = await s.get(ScheduledJob, "scan-job")
+        job.next_fire = now - timedelta(seconds=1)
+        await s.commit()
+    await sched.tick(now)
+    fired = [data for _, _, data in producer.published if data.get("prompt") == "scan"]
+    assert len(fired) == 1 and fired[0]["model"] == "gpt-5.6-luna"
 
 
 async def test_scheduler_arms_new_job_without_firing(sf, agent_store):

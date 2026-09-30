@@ -330,17 +330,64 @@ async def test_opening_a_closed_legacy_dm_reuses_and_reactivates_it(
         conv.status = "closed"
         await s.commit()
 
-    blocked = await admin_client.post(f"/api/relay/channels/{dm['id']}/messages",
+    resumed = await admin_client.post(f"/api/relay/channels/{dm['id']}/messages",
                                       json={"body": "before reopening"})
-    assert blocked.status_code == 409
-    assert blocked.json()["detail"] == "conversation is closed"
+    assert resumed.status_code == 200
 
     reopened = await admin_client.post("/api/relay/dm", json={"with": "agent:news"})
     assert reopened.status_code == 200 and reopened.json()["id"] == dm["id"]
     assert (await admin_client.post(f"/api/relay/channels/{dm['id']}/messages",
-                                    json={"body": "after reopening"})).status_code == 200
+                                    json={"body": "while busy"})).status_code == 409
     async with sf() as s:
         assert (await s.get(Conversation, dm["id"])).status == "active"
+
+
+async def test_archived_dm_is_recovered_in_place_and_cannot_be_rearchived(
+        admin_client, sf, seed_agent, agent_store):
+    await _seed(seed_agent, agent_store, "news")
+    dm = await _dm_with(admin_client, "agent:news")
+    async with sf() as s:
+        conv = await s.get(Conversation, dm["id"])
+        conv.archived_at = utcnow()
+        await s.commit()
+    reopened = await admin_client.post("/api/relay/dm", json={"with": "agent:news"})
+    assert reopened.status_code == 200 and reopened.json()["id"] == dm["id"]
+    assert reopened.json()["archived_at"] is None
+    assert (await admin_client.patch(f"/api/relay/channels/{dm['id']}",
+                                     json={"archived": True})).status_code == 409
+    assert (await admin_client.delete(f"/api/relay/channels/{dm['id']}")).status_code == 409
+
+
+async def test_startup_repair_restores_closed_archived_web_dm_without_copying(
+        admin_client, sf, seed_agent, agent_store):
+    from agentplatform.db import _ensure_relay_ddl
+    await _seed(seed_agent, agent_store, "news")
+    dm = await _dm_with(admin_client, "agent:news")
+    async with sf() as s:
+        conv = await s.get(Conversation, dm["id"])
+        conv.status, conv.archived_at = "closed", utcnow()
+        await s.commit()
+    async with sf.kw["bind"].begin() as conn:
+        await conn.run_sync(_ensure_relay_ddl)
+    async with sf() as s:
+        conv = await s.get(Conversation, dm["id"])
+        assert conv.status == "active" and conv.archived_at is None
+    assert (await admin_client.post("/api/relay/dm",
+        json={"with": "agent:news"})).json()["id"] == dm["id"]
+
+
+async def test_legacy_dm_creation_keeps_human_pairs_separate(
+        admin_client, token_client, sf, seed_agent, agent_store):
+    await _seed(seed_agent, agent_store, "news")
+    admin = (await admin_client.post("/api/conversations", json={
+        "connector": "web", "agent": "news"})).json()
+    alice_headers = await _human_token(sf, "alice", "operator")
+    alice = await token_client.post("/api/conversations", json={
+        "connector": "web", "agent": "news"}, headers=alice_headers)
+    assert alice.status_code == 201 and alice.json()["id"] != admin["id"]
+    same = await token_client.post("/api/relay/dm", json={
+        "with": "agent:news"}, headers=alice_headers)
+    assert same.status_code == 200 and same.json()["id"] == alice.json()["id"]
 
 
 async def test_reactions_toggle(admin_client, sf):
@@ -576,13 +623,19 @@ async def test_every_known_reason_is_reported_even_at_zero(admin_client):
 
 
 async def test_archived_channel_stops_taking_messages(admin_client, sf):
-    cid = await _channel_id(sf, "ops")
+    cid = (await admin_client.post("/api/relay/channels", json={
+        "kind": "channel", "name": "old-ops"})).json()["id"]
     assert (await admin_client.patch(f"/api/relay/channels/{cid}",
                                      json={"topic": "quiet now", "archived": True})).status_code == 200
     r = await admin_client.post(f"/api/relay/channels/{cid}/messages", json={"body": "hello?"})
     assert r.status_code == 404
     assert cid not in {c["id"] for c in (await admin_client.get("/api/relay/channels")).json()}
     assert (await admin_client.get(f"/api/relay/channels/{cid}")).json()["archived_at"]
+    listed = (await admin_client.get("/api/relay/channels?include_archived=true")).json()
+    assert cid in {c["id"] for c in listed}
+    assert (await admin_client.patch(f"/api/relay/channels/{cid}",
+                                     json={"archived": False})).status_code == 200
+    assert cid in {c["id"] for c in (await admin_client.get("/api/relay/channels")).json()}
 
 
 async def test_channel_can_show_agent_replies_as_a_linear_stream(admin_client):
@@ -603,6 +656,9 @@ async def test_channel_can_show_agent_replies_as_a_linear_stream(admin_client):
 async def test_seeded_channels_are_not_deletable(admin_client, sf):
     assert (await admin_client.delete(
         f"/api/relay/channels/{await _channel_id(sf, 'general')}")).status_code == 409
+    assert (await admin_client.patch(
+        f"/api/relay/channels/{await _channel_id(sf, 'general')}",
+        json={"archived": True})).status_code == 409
     made = (await admin_client.post("/api/relay/channels",
                                     json={"kind": "channel", "name": "scratch"})).json()
     assert (await admin_client.delete(f"/api/relay/channels/{made['id']}")).status_code == 200
