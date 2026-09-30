@@ -8,7 +8,7 @@ import pytest
 from sqlalchemy import func, select
 
 from agentplatform.agents import AgentStore
-from agentplatform.agentspec import TOOL_ARTIFACTS, TOOL_IMAGE_GEN, TOOL_RELAY
+from agentplatform.agentspec import TOOL_ARTIFACTS, TOOL_IMAGE_GEN, TOOL_RELAY, TOOL_SELF
 from agentplatform.config import Settings
 from agentplatform.db import (ARTIST_SEED_MARK, ARTIST_PROMPT, CODEX_ARTIST_PROMPT,
                               CODEX_ARTIST_SEED_MARK, CODEX_ARTIST_SYSTEM_MARK,
@@ -53,7 +53,8 @@ async def test_the_artist_is_seeded_with_its_grants(engine, sfx):
         assert (row.system, row.enabled, row.can_invoke) == (False, True, False)
         assert row.responds_to_all is False
         assert (row.model, row.role) == ("sonnet", "operator")
-        assert row.platform_tools == [TOOL_IMAGE_GEN, TOOL_ARTIFACTS, TOOL_RELAY, "mcp__platform__memory"]
+        assert row.platform_tools == [TOOL_IMAGE_GEN, TOOL_ARTIFACTS, TOOL_RELAY,
+                                      "mcp__platform__memory", TOOL_SELF]
         assert (row.harness_tools, row.skills, row.secrets) == ([], [], [])
         assert row.entrypoints == {"crons": [], "webhooks": [], "topics": [],
                                    "timezone": ""}
@@ -71,7 +72,9 @@ async def test_codex_artist_is_a_separate_subscription_backed_specialist(engine,
         assert row is not None
         assert (row.runtime, row.model, row.role) == ("codex", "gpt-5.6-luna", "operator")
         assert (row.system, row.enabled, row.can_invoke) == (True, True, False)
-        assert row.platform_tools == [TOOL_ARTIFACTS, TOOL_RELAY, "mcp__platform__memory"]
+        # Code-owned since design 34: the registry, not the seed, sets its grants.
+        assert row.system_source == "platform:codex-artist"
+        assert row.platform_tools == [TOOL_SELF, TOOL_ARTIFACTS, TOOL_RELAY, "mcp__platform__memory"]
         assert TOOL_IMAGE_GEN not in row.platform_tools
         assert row.skills == []
         assert row.prompt == CODEX_ARTIST_PROMPT
@@ -79,9 +82,14 @@ async def test_codex_artist_is_a_separate_subscription_backed_specialist(engine,
         assert await s.get(SchemaMark, CODEX_ARTIST_SEED_MARK) is not None
         assert await s.get(SchemaMark, CODEX_ARTIST_SYSTEM_MARK) is not None
     versions = await _versions(sfx, "codex-artist")
-    assert [(v.version, v.changed_by, v.changed_via) for v in versions] == [
-        (1, "system:codex-artist", "seed")]
+    # The seed's row, then the registry adopting it (docs/design/34).
+    assert [(v.changed_by, v.changed_via) for v in versions] == [
+        ("system:codex-artist", "seed"),
+        ("platform:self-default-grant", "migration"),
+        ("system:registry", "registry:before-adoption"),
+        ("system:registry", "registry:reconcile")]
     assert versions[0].snapshot["system"] is True
+    assert versions[-1].snapshot["system_source"] == "platform:codex-artist"
 
 
 async def test_an_existing_codex_artist_becomes_system_once(engine, sfx):
@@ -118,13 +126,20 @@ async def test_retired_skills_migrate_without_losing_custom_work(engine, sfx):
     async with sfx() as s:
         artist = await s.get(AgentDef, "codex-artist")
         news = await s.get(AgentDef, "news-librarian")
-        assert artist.skills == ["future-workflow"]
-        assert artist.prompt == "My custom brief. Use the built-in `image_gen` tool."
+        # codex-artist is code-owned (docs/design/34): its live skills and
+        # prompt now come from the registry...
+        assert artist.system_source == "platform:codex-artist"
+        assert artist.skills == []
+        assert artist.prompt == CODEX_ARTIST_PROMPT
         assert news.skills == []
         assert news.prompt == "Read through your `mcp__platform__query_app` tool. My own rule."
         assert await s.get(SchemaMark, RETIRED_SKILLS_MARK) is not None
     versions = await _versions(sfx, "codex-artist")
-    assert len([v for v in versions if v.changed_by == "platform:retire-skills"]) == 1
+    retired = [v for v in versions if v.changed_by == "platform:retire-skills"]
+    assert len(retired) == 1
+    # ...but the retirement still kept the custom work, in the change log.
+    assert retired[0].snapshot["skills"] == ["future-workflow"]
+    assert retired[0].snapshot["prompt"] == "My custom brief. Use the built-in `image_gen` tool."
     await init_db(engine)
     assert len([v for v in await _versions(sfx, "codex-artist")
                 if v.changed_by == "platform:retire-skills"]) == 1
@@ -161,7 +176,8 @@ async def test_the_artist_has_exactly_one_version_after_a_fresh_init(engine, sfx
     assert [(v.version, v.changed_by, v.changed_via) for v in versions] == [
         (1, "system:artist", "seed")]
     assert versions[0].snapshot["platform_tools"] == [TOOL_IMAGE_GEN, TOOL_ARTIFACTS,
-                                                       TOOL_RELAY, "mcp__platform__memory"]
+                                                       TOOL_RELAY, "mcp__platform__memory",
+                                                       TOOL_SELF]
     assert versions[0].snapshot["system"] is False
     assert versions[0].snapshot["model"] == "sonnet"
 

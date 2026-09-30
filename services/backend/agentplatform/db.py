@@ -2035,12 +2035,12 @@ def _ensure_artist_seed(conn) -> None:
     name = "artist"
     if not conn.execute(select(def_t.c.name).where(def_t.c.name == name)).first():
         from agentplatform.agentdefs import AgentDefModel
-        from agentplatform.agentspec import TOOL_ARTIFACTS, TOOL_IMAGE_GEN, TOOL_RELAY
+        from agentplatform.agentspec import TOOL_ARTIFACTS, TOOL_IMAGE_GEN, TOOL_RELAY, TOOL_SELF
         snapshot = AgentDefModel(
             name=name, prompt=ARTIST_PROMPT, description=ARTIST_DESCRIPTION,
             model="sonnet", system=False, responds_to_all=False, can_invoke=False,
             platform_tools=[TOOL_IMAGE_GEN, TOOL_ARTIFACTS, TOOL_RELAY,
-                            "mcp__platform__memory"],
+                            "mcp__platform__memory", TOOL_SELF],
         ).model_dump(mode="json")
         version = (conn.execute(select(func.max(ver_t.c.version))
                                 .where(ver_t.c.agent == name)).scalar() or 0) + 1
@@ -2604,7 +2604,7 @@ def _ensure_engineer_seed(conn) -> None:
     if not conn.execute(select(def_t.c.name).where(def_t.c.name == name)).first():
         from agentplatform.agentdefs import AgentDefModel
         from agentplatform.agentspec import (TOOL_ARTIFACTS, TOOL_QUOTA_OK, TOOL_RELAY,
-                                             TOOL_TICKETS, TOOL_WIKI)
+                                             TOOL_SELF, TOOL_TICKETS, TOOL_WIKI)
         snapshot = AgentDefModel(
             name=name, prompt=ENGINEER_PROMPT, description=ENGINEER_DESCRIPTION,
             model="opus", role="dev", system=False, responds_to_all=False,
@@ -2612,7 +2612,7 @@ def _ensure_engineer_seed(conn) -> None:
             concurrency=1, timeout_seconds=5400,
             quota_5h_max_pct=95, quota_7d_max_pct=90,
             platform_tools=[TOOL_RELAY, TOOL_TICKETS, TOOL_WIKI, TOOL_QUOTA_OK,
-                            TOOL_ARTIFACTS, "mcp__platform__memory"],
+                            TOOL_ARTIFACTS, "mcp__platform__memory", TOOL_SELF],
             harness_tools=["Glob", "Grep"],
             push_path_globs=[], may_delete_tests=False,
         ).model_dump(mode="json")
@@ -2792,8 +2792,8 @@ def _ensure_qa_seed(conn) -> None:
     if not conn.execute(select(def_t.c.name).where(def_t.c.name == name)).first():
         from agentplatform.agentdefs import AgentDefModel
         from agentplatform.agentspec import (TOOL_ARTIFACTS, TOOL_PLAYWRIGHT_MCP,
-                                             TOOL_QUOTA_OK, TOOL_RELAY, TOOL_TICKETS,
-                                             TOOL_WIKI)
+                                             TOOL_QUOTA_OK, TOOL_RELAY, TOOL_SELF,
+                                             TOOL_TICKETS, TOOL_WIKI)
         from agentplatform.testpaths import TEST_PATH_GLOBS
         # `tcms` is a custom tool (tools/tcms), so its grant is spelled the
         # way every custom tool's is; no `query_app` — that is the wide
@@ -2806,7 +2806,8 @@ def _ensure_qa_seed(conn) -> None:
             concurrency=1, timeout_seconds=7200,
             quota_5h_max_pct=80, quota_7d_max_pct=50,
             platform_tools=[TOOL_RELAY, TOOL_TICKETS, TOOL_WIKI, TOOL_QUOTA_OK,
-                            TOOL_ARTIFACTS, "mcp__platform__tcms", "mcp__platform__memory"],
+                            TOOL_ARTIFACTS, "mcp__platform__tcms", "mcp__platform__memory",
+                            TOOL_SELF],
             harness_tools=["Glob", "Grep", TOOL_PLAYWRIGHT_MCP],
             secrets=["qa-web-login"],
             push_path_globs=list(TEST_PATH_GLOBS), may_delete_tests=True,

@@ -9,7 +9,9 @@ from agentplatform.events import (FakeProducer, TOPIC_DEAD_LETTER, TOPIC_RUN_REQ
 from agentplatform.materialize import materialize_run
 
 
-async def test_materialize_run_creates_and_is_idempotent(sf):
+async def test_materialize_run_creates_and_is_idempotent(sf, seed_agent):
+    # A run is only materialized for an existing, enabled agent (docs/design/34).
+    await seed_agent("echo")
     producer = FakeProducer()
     spec = {"run_id": "r" * 32, "agent": "echo", "prompt": "hi",
             "trigger": "webhook", "requested_by": "op", "model": "gpt-5.6-sol"}
@@ -26,7 +28,8 @@ async def test_materialize_run_creates_and_is_idempotent(sf):
     assert len(reqs) == 2 and reqs[0][1] == "r" * 32
 
 
-async def test_room_and_child_runs_inherit_frozen_work_context(sf):
+async def test_room_and_child_runs_inherit_frozen_work_context(sf, seed_agent):
+    await seed_agent("echo")
     producer = FakeProducer()
     async with sf() as s:
         s.add(Team(id="t" * 32, slug="rpg", name="RPG team", description="Playtest",
@@ -51,7 +54,7 @@ async def test_room_and_child_runs_inherit_frozen_work_context(sf):
             assert "Relay search with project='family'" in run.prompt
 
 
-async def test_materialize_run_survives_a_hanging_publish(sf):
+async def test_materialize_run_survives_a_hanging_publish(sf, seed_agent):
     """Kafka-down: the row must be committed as `queued` and the call must
     return fast even though the broker publish hangs — the sweep drains it.
     Regression for the POST /api/runs 504 during a Kafka outage."""
@@ -61,6 +64,7 @@ async def test_materialize_run_survives_a_hanging_publish(sf):
         async def publish(self, *a, **k):
             await asyncio.sleep(3600)   # broker down: send never completes
 
+    await seed_agent("echo")
     spec = {"run_id": "q" * 32, "agent": "echo", "prompt": "hi",
             "trigger": "manual", "requested_by": "op"}
     # A short timeout stands in for the production default (5s).

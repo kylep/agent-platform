@@ -32,8 +32,12 @@ ARTIFACTS_GRANT = "mcp__platform__artifacts"
 
 async def _run_id(sf, agent: str, *, depth: int = 0) -> str:
     async with sf() as s:
+        # A run freezes its agent's authorization generation, as materialize
+        # does (docs/design/34); seeded agents are past generation 0.
+        row = await s.get(AgentDef, agent)
         run = Run(agent=agent, trigger="relay", requested_by=f"agent:{agent}",
-                  depth=depth, state=RunState.RUNNING, prompt="p")
+                  depth=depth, state=RunState.RUNNING, prompt="p",
+                  authorization_generation=(row.authorization_generation or 0) if row else 0)
         s.add(run)
         await s.commit()
         return run.id
@@ -282,13 +286,15 @@ async def test_an_agent_without_the_wiki_grant_is_refused(token_client, sf, seed
                                     json={"body": "b", "reason": "r"},
                                     headers=granted)).status_code == 200
 
-    # ...and an agent somebody switched off is refused whatever it holds.
+    # ...and an agent somebody switched off is refused whatever it holds: its
+    # run credential stops authenticating at all (docs/design/34, "Disabled
+    # agents have no operational access").
     async with sf() as s:
         (await s.get(AgentDef, "news")).enabled = False
         await s.commit()
     await agent_store.reload()
     r = await token_client.get("/api/wiki/pages", headers=granted)
-    assert r.status_code == 403 and "disabled" in r.json()["detail"]
+    assert r.status_code == 401
 
 
 async def test_a_lost_create_race_is_a_conflict_not_a_bad_request(admin_client,
@@ -576,7 +582,7 @@ async def test_a_new_agent_holds_all_three_participant_grants(admin_client, sf):
     # along; they are not this file's subject, and `tests/test_quota_api.py` and
     # `tests/test_artifacts_feed.py` are where they are asserted.
     born = [RELAY_GRANT, TICKETS_GRANT, WIKI_GRANT, QUOTA_GRANT, ARTIFACTS_GRANT,
-            "mcp__platform__memory"]
+            "mcp__platform__memory", "mcp__platform__agent_self"]
     r = await admin_client.post("/api/agents", json={"name": "newbie",
                                                      "description": "test",
                                                      "prompt": "# newbie"})
@@ -593,4 +599,5 @@ async def test_the_wiki_default_can_be_turned_off_platform_wide(admin_client, sf
                                                      "prompt": "# quiet"})
     assert r.status_code == 201, r.text
     assert r.json()["platform_tools"] == [RELAY_GRANT, TICKETS_GRANT, QUOTA_GRANT,
-                                          ARTIFACTS_GRANT, "mcp__platform__memory"]
+                                          ARTIFACTS_GRANT, "mcp__platform__memory",
+                                          "mcp__platform__agent_self"]

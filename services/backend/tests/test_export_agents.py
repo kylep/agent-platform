@@ -96,7 +96,13 @@ async def test_an_exported_tree_imports_into_a_fresh_platform(admin_client, migr
     """The migration itself: the exporter's own output through the real
     endpoint, against the real skill/secret/tool registries (the test client
     points at the repo trees). This is what task 11 ran live."""
-    names = sorted(migrated)
+    # A `system: true` definition is refused: system agents are code-owned
+    # since docs/design/34, so a file-era system agent cannot be re-imported
+    # as one (and the whole batch is rejected, not half-landed).
+    refused = await admin_client.post("/api/agents/import", json=[migrated["keeper"]])
+    assert refused.status_code == 422
+    assert "platform capability code" in refused.json()["detail"]
+    names = sorted(n for n in migrated if not migrated[n]["system"])
     payloads = [migrated[n] for n in names]
     r = await admin_client.post("/api/agents/import", json=payloads)
     assert r.status_code == 200, r.text
@@ -118,7 +124,8 @@ async def test_an_exported_tree_imports_into_a_fresh_platform(admin_client, migr
                                      "mcp__platform__wiki",
                                      "mcp__platform__get_quota_usage",
                                          "mcp__platform__artifacts",
-                                         "mcp__platform__memory"]
+                                         "mcp__platform__memory",
+                                         "mcp__platform__agent_self"]
     assert got["model"] == "opus" and got["timeout_seconds"] == 180
 
 
