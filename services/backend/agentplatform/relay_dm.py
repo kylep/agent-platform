@@ -29,7 +29,8 @@ async def find_internal_dm(s, pair: list[str]) -> Conversation | None:
     return next((c for c in convs if sizes.get(c.id) == len(pair)), None)
 
 
-async def open_internal_dm(s, pair: list[str], agent: str | None) -> Conversation:
+async def open_internal_dm(s, pair: list[str], agent: str | None,
+                           title: str | None = None) -> Conversation:
     """Resolve the same room through both entry points, including old archived DMs.
 
     A uniqueness race is resolved by reading the winning row after rollback.
@@ -42,7 +43,7 @@ async def open_internal_dm(s, pair: list[str], agent: str | None) -> Conversatio
                             home="relay", reply_mode="linear",
                             dispatch_mode="facade", default_agent=agent,
                             topic="", open=False, dm_key=dm_key_of(pair),
-                            title="dm:" + ":".join(pair))
+                            title=(title or "dm:" + ":".join(pair))[:256])
         s.add(conv)
         await s.flush()
         for p in pair:

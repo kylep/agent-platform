@@ -96,7 +96,8 @@ async def create_conversation(request: Request, body: ConversationIn,
     async with request.app.state.session_factory() as s:
         if body.connector == "web":
             conv = await open_internal_dm(s, [participant_of(principal=principal),
-                                              f"agent:{body.agent}"], body.agent)
+                                              f"agent:{body.agent}"], body.agent,
+                                          body.title)
         else:
             # Connector-owned legacy records are not internal agent DMs.
             conv = Conversation(connector=body.connector, agent=body.agent,

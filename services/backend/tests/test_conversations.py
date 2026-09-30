@@ -27,10 +27,12 @@ async def test_connectors_registry(admin_client):
 
 
 async def test_create_list_get_persistent_dm(admin_client):
-    r = await admin_client.post("/api/conversations", json={"connector": "web", "agent": "hello-world"})
+    r = await admin_client.post("/api/conversations", json={
+        "connector": "web", "agent": "hello-world", "title": "Our chat"})
     assert r.status_code == 201
     cid = r.json()["id"]
     assert r.json()["connector"] == "web" and r.json()["status"] == "active"
+    assert r.json()["title"] == "Our chat"
     assert any(c["id"] == cid for c in (await admin_client.get("/api/conversations")).json())
     got = (await admin_client.get(f"/api/conversations/{cid}")).json()
     assert got["turns"] == []
