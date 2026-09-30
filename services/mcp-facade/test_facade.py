@@ -43,13 +43,13 @@ def build_tools(spec, admin_tools):
 
 @pytest.fixture(scope="module")
 def tools(spec):
-    """The DEFAULT (admin-off) tool surface — the 126-tool KEEP set."""
+    """The DEFAULT (admin-off) tool surface — the 129-tool KEEP set."""
     return build_tools(spec, admin_tools=False)
 
 
 @pytest.fixture(scope="module")
 def admin_tools(spec):
-    """The admin-on surface — KEEP + GATE (170 tools)."""
+    """The admin-on surface — KEEP + GATE (176 tools)."""
     return build_tools(spec, admin_tools=True)
 
 
@@ -110,7 +110,8 @@ async def test_snapshot_resource_template_forwards_caller_and_checks_upstream(sp
         mcp = facade.build(spec, client=client, admin_tools=False)
         templates = await mcp.list_resource_templates()
         assert {str(t.uri_template) for t in templates} == {
-            "ap://snapshot/{snapshot_id}", "ap://artifact/{artifact_id}"}
+            "ap://snapshot/{snapshot_id}", "ap://artifact/{artifact_id}",
+            "ap://backup/{name}"}
         monkeypatch.setattr(facade, "current_request", lambda: type("Request", (), {
             "headers": {"authorization": "Bearer ap_owner"}})())
         uri = "ap://snapshot/" + "a" * 32
@@ -148,25 +149,52 @@ async def test_artifact_resource_forwards_caller_and_binary_bytes(spec, monkeypa
             await mcp.read_resource(uri)
 
 
+@pytest.mark.asyncio
+async def test_backup_resource_forwards_admin_and_returns_only_ciphertext(spec, monkeypatch):
+    ciphertext = b"age-encryption.org/v1\nopaque"
+    name = "ap-recovery-20260930T120000Z.tar.age"
+
+    async def upstream(request):
+        assert request.url.path == f"/api/backups/file/{name}"
+        if request.headers.get("authorization") != "Bearer ap_admin":
+            return httpx.Response(403)
+        return httpx.Response(200, content=ciphertext)
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(upstream),
+                                 base_url="http://api") as client:
+        mcp = facade.build(spec, client=client, admin_tools=True)
+        monkeypatch.setattr(facade, "current_request", lambda: type("Request", (), {
+            "headers": {"authorization": "Bearer ap_admin"}})())
+        result = await mcp.read_resource(f"ap://backup/{name}")
+        assert result.contents[0].content == ciphertext
+        monkeypatch.setattr(facade, "current_request", lambda: type("Request", (), {
+            "headers": {"authorization": "Bearer ap_reader"}})())
+        with pytest.raises(Exception, match="403"):
+            await mcp.read_resource(f"ap://backup/{name}")
+
+
 def test_everything_else_is_a_tool(spec, tools):
     """The default surface, by construction: exactly the operations that are
-    not design-17-excluded, not curated out, and not gated. Pinned at 126."""
+    not design-17-excluded, not curated out, and not gated. Pinned at 129."""
     hidden = {(m, p) for m, p in operations(spec) if matches(ALL_RULES, m, p)}
     expected = set(operations(spec)) - hidden
     assert {(t._route.method, t._route.path) for t in tools} == expected
-    assert len(tools) == len(expected) == 126, \
+    assert len(tools) == len(expected) == 129, \
         sorted({(t._route.method, t._route.path) for t in tools})
+    assert {("GET", "/api/backups"), ("POST", "/api/backups/run"),
+            ("GET", "/api/backups/jobs/{name}")} <= {
+                (t._route.method, t._route.path) for t in tools}
 
 
 def test_admin_flag_restores_gated(spec, admin_tools):
-    """With AP_MCP_ADMIN_TOOLS on, the gated set returns (170 total) but the
+    """With AP_MCP_ADMIN_TOOLS on, the gated set returns (176 total) but the
     design-17 exclusions and CURATED_OUT never come back."""
     still_hidden = facade.EXCLUDED_PATHS + facade.CURATED_OUT
     hidden = {(m, p) for m, p in operations(spec)
               if matches(still_hidden, m, p)}
     expected = set(operations(spec)) - hidden
     assert {(t._route.method, t._route.path) for t in admin_tools} == expected
-    assert len(admin_tools) == len(expected) == 170, \
+    assert len(admin_tools) == len(expected) == 176, \
         sorted({(t._route.method, t._route.path) for t in admin_tools})
     names = {t.name for t in admin_tools}
     for gated in ("mint_api_key", "put_secret", "delete_agent", "import_agents",

@@ -64,6 +64,10 @@ rules:
   - apiGroups: [""]
     resources: ["secrets"]
     verbs: ["get", "create", "update"]
+  # An admin can run a cloud backup immediately and inspect its Job status.
+  - apiGroups: ["batch"]
+    resources: ["cronjobs", "jobs"]
+    verbs: ["get", "create"]
   # The /apps registry reports app Deployment readiness.
   - apiGroups: ["apps"]
     resources: ["deployments"]

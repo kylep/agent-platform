@@ -279,6 +279,12 @@ backup:
   storage: 5Gi
   # Empty = cluster default StorageClass (as with `agents.storageClass`).
   storageClass: ""
+  cloud:
+    # Enable after Settings → Connections → Cloud backups has a credential,
+    # destination and age recipient. The archive Job cannot decrypt backups.
+    enabled: false
+    schedule: "30 8 * * *"
+    connectionSecret: backup-gcs
   image:
     # Matches — not pins — the image the postgresql subchart's own default
     # (charts/postgresql-18.8.0.tgz values.yaml `image:`) resolves to, and

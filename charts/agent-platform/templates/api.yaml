@@ -23,6 +23,7 @@ spec:
       securityContext:
         seccompProfile:
           type: RuntimeDefault
+        fsGroup: 1001
       containers:
         - name: api
           image: "{{ .Values.images.backend.repository }}:{{ .Values.images.backend.tag }}"
@@ -64,6 +65,11 @@ spec:
             - name: agent-definitions
               mountPath: /agents
               readOnly: true
+            {{- if .Values.backup.enabled }}
+            - name: backups
+              mountPath: /backups
+              readOnly: true
+            {{- end }}
           resources:
             {{- toYaml .Values.resources.api | nindent 12 }}
         {{- if .Values.spire.enabled }}
@@ -105,6 +111,11 @@ spec:
         - name: agent-definitions
           persistentVolumeClaim:
             claimName: {{ .Values.env.AP_AGENTS_VOLUME_CLAIM }}
+        {{- if .Values.backup.enabled }}
+        - name: backups
+          persistentVolumeClaim:
+            claimName: {{ .Release.Name }}-pg-backups
+        {{- end }}
         {{- if .Values.spire.enabled }}
         - name: spiffe-workload-api
           csi:

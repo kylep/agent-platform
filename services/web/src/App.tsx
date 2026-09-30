@@ -31,6 +31,7 @@ import Help from "./pages/Help";
 import Schedules from "./pages/Schedules";
 import Skills from "./pages/Skills";
 import Settings from "./pages/Settings";
+import Backups from "./pages/Backups";
 
 export default function App() {
   return (
@@ -79,6 +80,7 @@ export default function App() {
             <Route path="/schedules" element={<Schedules />} />
             <Route path="/secrets" element={<Secrets />} />
             <Route path="/settings" element={<Settings />} />
+            <Route path="/backups" element={<Backups />} />
             <Route path="*" element={<NotFound />} />
           </Route>
         </Route>

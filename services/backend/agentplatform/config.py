@@ -7,6 +7,10 @@ class Settings(BaseSettings):
     db_url: str = "sqlite+aiosqlite:///:memory:"
     kafka_bootstrap: str = "localhost:9092"
     k8s_namespace: str = "agent-platform"
+    # The encrypted backup PVC is mounted read-only in the API. The scheduled
+    # Job is its writer; API/MCP/browser may list and download its files.
+    backup_output_dir: str = "/backups"
+    backup_cronjob_name: str = "ap-cloud-backup"
     runner_image: str = "agent-platform-runner:dev"
     # The Workbench (docs/design/24): a `role: dev` run gets a bigger pod on
     # this second image — Python 3.12 with every test dependency, Node 22 and

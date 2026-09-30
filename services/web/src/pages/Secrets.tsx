@@ -2,6 +2,7 @@ import { Fragment, useEffect, useState } from "react";
 import { Link, useLocation, useSearchParams } from "react-router-dom";
 import { api, type ChatIdentity, type AgentSummary, type EditResult, type PullRequest, type SecretKeyField, type SecretStatus } from "../api";
 import { ADVANCED_SECRET_GUIDES, CONNECTION_GUIDES, GUIDE_CHECKED } from "../lib/connection-guides";
+import { BackupConnectionEditor } from "../components/BackupConnectionEditor";
 import { ChangePhaseBanner, PendingChangeBanner, useChangeLoop } from "../components/ChangeFlow";
 import { Banner } from "@ap/ui/banner";
 import { ConfirmDialog } from "@ap/ui/dialog";
@@ -521,8 +522,9 @@ export default function Secrets() {
           </div>
           {identityError && <p role="alert" className="error">{identityError}</p>}
         </>}
+        {guide.id === "backup-gcs" && <BackupConnectionEditor onChanged={load} />}
         {guide.secrets.map((name) => {
-          if (guide.title === "Discord chat identities") return null;
+          if (guide.id === "discord" || guide.id === "backup-gcs") return null;
           const item = secrets.find((entry) => entry.name === name);
           return <div className="connection-account" key={name}>
             <div className="row-actions"><strong>{name}</strong>{item && <StatusChip status={item.status} />}

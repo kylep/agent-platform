@@ -47,7 +47,7 @@ async def ensure_run_authority(session, run):
 
 async def credential_secrets(session):
     refs = (await session.execute(select(ChatIdentity.secret_refs))).scalars().all()
-    return {'claude-credentials', 'codex-credentials'} | {
+    return {'claude-credentials', 'codex-credentials', 'backup-gcs'} | {
         ref['secret'] for identity in refs for ref in (identity or {}).values()
         if isinstance(ref, dict) and isinstance(ref.get('secret'), str)}
 

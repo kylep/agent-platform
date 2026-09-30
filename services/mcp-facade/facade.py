@@ -15,18 +15,20 @@ The surface is CURATED into three tiers (curation 2026-08-24; see
   read, edit, move, assign, comment, stats — and the wiki: read, search, write,
   append, history, restore, promote, wanted — the usage snapshot and its
   gate — and the artifacts: list, read, save, edit, delete, generate, the
-  model registry and the stats). Always tools. 126 of them.
-- **GATE** — authorized-but-sharp: the credential/secret plane, admin audit
+  model registry and the stats, plus encrypted backup listing and Job control
+  (which still require admin authority in the API). Always tools. 129 of them.
+- **GATE** — authorized-but-sharp: the credential/secret plane, backup
+  credential configuration, admin audit
   reads, destructive/bulk ops, the relay channel lifecycle (creating, renaming
   and archiving rooms), a system row into a room one is not in, and
   archiving a wiki page. Offered ONLY when `AP_MCP_ADMIN_TOOLS` is truthy
-  (`admin_tools_enabled()`). 44 of them. The
+  (`admin_tools_enabled()`). 47 of them. The
   role ladder authorizes every call regardless — the flag controls the MENU,
   not the kitchen.
-- **EXCLUDE** — UI form-feeders, reviewer digests the client can compute,
+- **EXCLUDE** — UI form-feeders, private-key import inspection, reviewer digests the client can compute,
   git-edit conveniences redundant with having the repo, and system-agent
-  endpoints. Never tools. 21 curated-out, plus 35 session/internal/streaming/
-  byte-serving/connector operations below — 226 graded operations in all.
+  endpoints. Never tools. 21 curated-out, plus 37 session/internal/streaming/
+  byte-serving/connector operations below — 234 graded operations in all.
 
 It is deliberately NOT the mcp-broker. The broker authenticates in-cluster run
 identities and scopes tools to an agent's grants (design/13, design/15). This
@@ -116,6 +118,11 @@ EXCLUDED_PATHS = (
     ("*", r"^/api/artifacts/\{artifact_id\}/content$"),
     ("*", r"^/api/artifacts/\{artifact_id\}/thumb$"),
     ("*", r"^/api/artifacts/\{artifact_id\}/resource$"),
+    # Encrypted backup bytes are an MCP Resource, not a giant Tool response.
+    (("GET",), r"^/api/backups/file/\{name\}$"),
+    # Multipart + a private recovery identity belongs to the human-controlled
+    # browser/CLI path. Never put the private identity in an LLM Tool argument.
+    (("POST",), r"^/api/backups/import/inspect$"),
     # The trusted UI's short-lived action handshake is browser-session only;
     # generated MCP Tools cannot carry that session and must not advertise it.
     ("*", r"^/api/live-views/\{view_id\}/intents$"),
@@ -186,6 +193,8 @@ CURATED_OUT = (
 # purpose: each covers its whole domain and nothing else starts with it (the
 # stale-pattern test keeps that honest).
 GATED_ADMIN = (
+    ("*",         r"^/api/backups/connection$"),
+    (("POST",),   r"^/api/backups/connection/verify$"),
     (("GET",),    r"^/api/live-actions/observation$"),
     (("GET",),    r"^/api/live-reads/observation$"),
     (("GET",),    r"^/api/chat-identities$"),
@@ -393,6 +402,18 @@ def build(spec: dict, client: httpx.AsyncClient | None = None,
         response = await api_client.get(
             f"/api/artifacts/{artifact_id}/resource",
             headers=caller_auth_headers(current_request()))
+        response.raise_for_status()
+        return response.content
+
+    @mcp.resource("ap://backup/{name}", mime_type="application/octet-stream")
+    async def backup_bytes(name: str) -> bytes:
+        """Download an encrypted recovery file; API requires human admin auth."""
+        if not re.fullmatch(r"ap-recovery-\d{8}T\d{6}Z\.tar\.age", name):
+            raise ValueError("invalid backup name")
+        response = await api_client.get(
+            f"/api/backups/file/{name}",
+            headers=caller_auth_headers(current_request()),
+            timeout=httpx.Timeout(600.0))
         response.raise_for_status()
         return response.content
 

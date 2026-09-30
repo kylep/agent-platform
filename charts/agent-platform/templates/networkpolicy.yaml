@@ -347,7 +347,7 @@ spec:
       - {key: app.kubernetes.io/name, operator: In, values: [agent-platform]}
       # tool-executor: the designated third-party-egress point for custom
       # tools (docs/design/12 — Yahoo, Discord, Linear, …).
-      - {key: app.kubernetes.io/component, operator: In, values: [api, dispatcher, runner, agents-sync, connector-discord, claude-proxy, codex-proxy, tool-executor]}
+      - {key: app.kubernetes.io/component, operator: In, values: [api, dispatcher, runner, agents-sync, connector-discord, claude-proxy, codex-proxy, tool-executor, cloud-backup]}
   policyTypes: [Egress]
   egress:
     - ports:

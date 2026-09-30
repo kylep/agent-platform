@@ -18,6 +18,7 @@ from agentplatform.api import artifacts as artifacts_api
 from agentplatform.api import artifacts_feed as artifacts_feed_api
 from agentplatform.api import audit as audit_api
 from agentplatform.api import auth
+from agentplatform.api import backups as backups_api
 from agentplatform.api import conversations as conversations_api
 from agentplatform.api import codex_proxy as codex_proxy_api
 from agentplatform.api import chat_identities as chat_identities_api
@@ -440,6 +441,7 @@ def create_app(settings, session_factory, producer, secret_store=None, agent_sto
     st.tool_registry = ToolRegistry(Path(settings.tools_root))
 
     app.include_router(auth.router)
+    app.include_router(backups_api.router)
     app.include_router(apps_api.router)
     app.include_router(apikeys_api.router)
     # The feed first: `/api/artifacts/events` is a literal path under a router

@@ -281,6 +281,7 @@ export default function Settings() {
       <PasswordSection />
       <ApiKeysSection />
       <section><h2>Connections</h2><p className="muted">Manage Discord chat identities and other connector credentials on <Link to="/secrets">Connections</Link>.</p></section>
+      <section><h2>Backups</h2><p className="muted">Create and inspect encrypted recovery exports under <Link to="/backups">Backups</Link>.</p></section>
       <RelaySection />
     </div>
   );

@@ -15,6 +15,13 @@ export type ConnectionGuide = {
 export const GUIDE_CHECKED = "2026-09-29";
 
 export const CONNECTION_GUIDES: ConnectionGuide[] = [
+  { id: "backup-gcs", title: "Cloud backups", mark: "B", purpose: "Encrypted recovery archives in your private Google Cloud Storage bucket.",
+    secrets: ["backup-gcs"], steps: [
+      "Create or choose a private Cloud Storage bucket. The platform saves only encrypted archive files there.",
+      "Create a dedicated service account and grant Storage Object Creator on that bucket, then create its JSON key.",
+      "Paste the age public recipient from your recovery key. Keep the private identity on your laptop and pai, never in this connection or the bucket.",
+      "Save and Verify the connection. The Helm cloud-backup schedule must be enabled for automatic exports.",
+    ], docs: { label: "Cloud Storage bucket access", url: "https://cloud.google.com/storage/docs/uniform-bucket-level-access" } },
   { id: "discord", title: "Discord chat identities", mark: "D", purpose: "Bots that post and receive Discord messages. Each account has its own token and owning persona; provider permissions control access.",
     secrets: ["discord-bot"], steps: [
       { before: "Open the ", link: { label: "Discord Developer Portal", url: "https://discord.com/developers/applications" }, after: " and select an application, or create one." },

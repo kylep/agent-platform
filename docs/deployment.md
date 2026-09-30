@@ -137,11 +137,19 @@ values rather than trusting `--reuse-values`, which silently drops values that
 new templates need:
 
 ```sh
-helm get values ap -n agent-platform > /tmp/ap-values.yaml
+helm get values ap -n agent-platform | tail -n +2 > /tmp/ap-values.yaml
 helm upgrade ap charts/agent-platform -n agent-platform -f /tmp/ap-values.yaml
 ```
 
+The first line from `helm get values` is the display heading
+`USER-SUPPLIED VALUES:`; omit it before passing the file back to Helm. Keep
+the values file private because it can contain deployment secrets, and remove
+it after the upgrade.
+
 ## Postgres backups
+
+For the encrypted Cloud Storage connection, full archive format, and
+fresh-cluster restore procedure, see [Backups and recovery](building-blocks/backups.md).
 
 With agent identity fully in the database ([design-15](design/15-db-first-agents.md)),
 Postgres is the recovery story for more than history — losing it now loses
@@ -177,13 +185,10 @@ the whole database daily:
   is ever disabled, or if `allow-postgres` is tightened to a `from:`-scoped
   rule that doesn't list the backup pod, the CronJob will silently start
   failing on network denial rather than a visible config error.
-- **Restore is manual** — there is no restore script or drill in the chart.
-  Recovering means `gunzip` a dump and `psql` it back into a fresh
-  `ap-postgresql`, by hand, using the same `PGHOST`/`PGUSER`/`PGDATABASE`/
-  `PGPASSWORD` wiring the CronJob uses (see the chart's `pg-backup.yaml` for
-  the exact env). Restoring loses everything written after the dump's
-  timestamp, including any `agent_versions` rows since — expected for a daily
-  backup, worth knowing before relying on it as the sole recovery path.
+- **Restore is manual** — the local SQL dump can be restored with `psql`, but
+  it lacks connector Secret values. Prefer the encrypted cloud recovery archive
+  and the [fresh-cluster procedure](building-blocks/backups.md) when restoring
+  the whole platform. Either path replaces state written after its timestamp.
 
 ## What has no automation yet
 
