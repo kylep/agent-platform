@@ -43,13 +43,13 @@ def build_tools(spec, admin_tools):
 
 @pytest.fixture(scope="module")
 def tools(spec):
-    """The DEFAULT (admin-off) tool surface — the 95-tool KEEP set."""
+    """The DEFAULT (admin-off) tool surface — the 126-tool KEEP set."""
     return build_tools(spec, admin_tools=False)
 
 
 @pytest.fixture(scope="module")
 def admin_tools(spec):
-    """The admin-on surface — KEEP + GATE (123 tools)."""
+    """The admin-on surface — KEEP + GATE (170 tools)."""
     return build_tools(spec, admin_tools=True)
 
 
@@ -150,23 +150,23 @@ async def test_artifact_resource_forwards_caller_and_binary_bytes(spec, monkeypa
 
 def test_everything_else_is_a_tool(spec, tools):
     """The default surface, by construction: exactly the operations that are
-    not design-17-excluded, not curated out, and not gated. Pinned at 121."""
+    not design-17-excluded, not curated out, and not gated. Pinned at 126."""
     hidden = {(m, p) for m, p in operations(spec) if matches(ALL_RULES, m, p)}
     expected = set(operations(spec)) - hidden
     assert {(t._route.method, t._route.path) for t in tools} == expected
-    assert len(tools) == len(expected) == 121, \
+    assert len(tools) == len(expected) == 126, \
         sorted({(t._route.method, t._route.path) for t in tools})
 
 
 def test_admin_flag_restores_gated(spec, admin_tools):
-    """With AP_MCP_ADMIN_TOOLS on, the gated set returns (165 total) but the
+    """With AP_MCP_ADMIN_TOOLS on, the gated set returns (170 total) but the
     design-17 exclusions and CURATED_OUT never come back."""
     still_hidden = facade.EXCLUDED_PATHS + facade.CURATED_OUT
     hidden = {(m, p) for m, p in operations(spec)
               if matches(still_hidden, m, p)}
     expected = set(operations(spec)) - hidden
     assert {(t._route.method, t._route.path) for t in admin_tools} == expected
-    assert len(admin_tools) == len(expected) == 165, \
+    assert len(admin_tools) == len(expected) == 170, \
         sorted({(t._route.method, t._route.path) for t in admin_tools})
     names = {t.name for t in admin_tools}
     for gated in ("mint_api_key", "put_secret", "delete_agent", "import_agents",

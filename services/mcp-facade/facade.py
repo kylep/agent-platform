@@ -15,18 +15,18 @@ The surface is CURATED into three tiers (curation 2026-08-24; see
   read, edit, move, assign, comment, stats — and the wiki: read, search, write,
   append, history, restore, promote, wanted — the usage snapshot and its
   gate — and the artifacts: list, read, save, edit, delete, generate, the
-  model registry and the stats). Always tools. 121 of them.
+  model registry and the stats). Always tools. 126 of them.
 - **GATE** — authorized-but-sharp: the credential/secret plane, admin audit
   reads, destructive/bulk ops, the relay channel lifecycle (creating, renaming
   and archiving rooms), a system row into a room one is not in, and
   archiving a wiki page. Offered ONLY when `AP_MCP_ADMIN_TOOLS` is truthy
-  (`admin_tools_enabled()`). 42 of them. The
+  (`admin_tools_enabled()`). 44 of them. The
   role ladder authorizes every call regardless — the flag controls the MENU,
   not the kitchen.
 - **EXCLUDE** — UI form-feeders, reviewer digests the client can compute,
   git-edit conveniences redundant with having the repo, and system-agent
-  endpoints. Never tools. 20 curated-out, plus 22 session/internal/streaming/
-  byte-serving operations below — 205 graded operations in all.
+  endpoints. Never tools. 21 curated-out, plus 30 session/internal/streaming/
+  byte-serving/connector operations below — 221 graded operations in all.
 
 It is deliberately NOT the mcp-broker. The broker authenticates in-cluster run
 identities and scopes tools to an agent's grants (design/13, design/15). This
@@ -115,6 +115,16 @@ EXCLUDED_PATHS = (
     # rather than one path, so a second internal endpoint is excluded the day
     # it is written rather than the day someone notices.
     ("*", r"^/api/internal/"),
+    # The external-chat connector plane (design/25): every `/connector/…` route
+    # authenticates through `connector()`, which accepts ONLY an in-cluster
+    # ServiceAccount JWT (TokenReview), never a `Bearer ap_…` API key. An MCP
+    # client holds a key, not a projected SA token, so it literally cannot
+    # authenticate to any of them — the same "callers are infrastructure, not
+    # MCP clients" rationale as `^/api/internal/`. A prefix, so a future
+    # connector route is excluded the day it is written. The persona-owned
+    # `/api/external-chat/{identities,endpoints,messages,send,deliveries/…}`
+    # routes authenticate as an ordinary agent run and stay KEEP.
+    ("*", r"^/api/external-chat/connector/"),
 )
 
 # Curated out (curation 2026-08-24): UI plumbing, reviewer digests the client
@@ -150,6 +160,11 @@ CURATED_OUT = (
     # raw route as well would be a second, unmetered way to spend the probe.
     # `GET /api/quota` stays a tool — reading the snapshot costs nothing.
     (("POST",),  r"^/api/quota/refresh$"),
+    # The health worker's incident report (design/25): `POST /api/health/incidents`
+    # 403s for every caller but the `health-monitor` system agent (it checks the
+    # run's agent name and its incident grant). It is a single-system-agent
+    # endpoint, exactly the "system-agent endpoints" category curated out here.
+    (("POST",),  r"^/api/health/incidents$"),
 )
 
 # Sharp/admin tools: OFFERED only when AP_MCP_ADMIN_TOOLS is truthy. The role
