@@ -169,16 +169,38 @@
 
 /* The Changes row's chips: the block or branch, then the Workbench's ticket
    and auto-merge (docs/design/24). They wrap rather than widen the column. */
+.page-changes { max-width: none; width: 100%; }
 .change-chips { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 /* Fixed columns need a floor: below it the title column collapses onto the
    chips. The Table primitive scrolls the excess inside its own container. */
-.changes-table { min-width: 640px; }
-/* The verbs stay on screen while the row scrolls under them: a change you
-   cannot accept from a phone is a change you cannot accept. The cell paints
-   the canvas it sits on, so scrolled-under text does not show through. */
+.changes-table { min-width: 820px; }
+.changes-table .change-title {
+  display: flex; align-items: flex-start; justify-content: flex-start; width: 100%;
+  text-align: left; white-space: normal; overflow-wrap: anywhere; line-height: 1.35;
+}
+.changes-table .change-title > span:first-child { flex: none; }
+/* Keep the actions visible when a medium-width table needs to scroll. */
 .changes-table .change-actions {
   position: sticky; right: 0; background: var(--ds-canvas);
   border-left: 1px solid var(--ds-border);
+}
+@media (max-width: 640px) {
+  /* Each change is a card on a phone, with the title and actions unobscured. */
+  .changes-table { display: block; min-width: 0; }
+  .changes-table thead { display: none; }
+  .changes-table tbody { display: block; }
+  .changes-table tbody tr {
+    display: grid; grid-template-columns: minmax(0, 1fr) auto;
+    gap: 8px 12px; padding: 12px 0;
+  }
+  .changes-table tbody td { display: block; min-width: 0; padding: 0; }
+  .changes-table tbody td:nth-child(2),
+  .changes-table tbody td:nth-child(5),
+  .changes-table tbody td[colspan] { grid-column: 1 / -1; }
+  .changes-table tbody td:nth-child(4) { grid-column: 2; }
+  .changes-table .change-actions {
+    position: static; border: 0; background: transparent;
+  }
 }
 .change-branch { font-family: var(--font-mono); font-size: 12px; overflow-wrap: anywhere; }
 .change-agent { display: inline-flex; align-items: center; gap: 6px; color: var(--ds-text); }

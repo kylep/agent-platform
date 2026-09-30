@@ -282,7 +282,7 @@ export default function Changes() {
   }
 
   return (
-    <div className="page">
+    <div className="page page-changes">
       <h1>Pending Changes</h1>
       <p className="muted">
         Every edit to a building block — agent, skill, or secret declaration — lands here as a
@@ -325,9 +325,10 @@ export default function Changes() {
                     <a href={pr.url} target="_blank" rel="noreferrer">#{pr.number}</a>
                   </TD>
                   <TD>
-                    <Button variant="link" className="text-default no-underline hover:text-accent hover:no-underline"
+                    <Button variant="link" className="change-title text-default no-underline hover:text-accent hover:no-underline"
                             onClick={() => setOpen(open === pr.number ? null : pr.number)}>
-                      {open === pr.number ? "▾ " : "▸ "}{pr.title}
+                      <span aria-hidden="true">{open === pr.number ? "▾" : "▸"}</span>
+                      <span>{pr.title}</span>
                     </Button>
                   </TD>
                   <TD className="pr-4">
