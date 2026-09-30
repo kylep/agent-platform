@@ -276,15 +276,18 @@ async def faces_for(session, names: set[str]) -> dict[str, dict]:
     rows = {name: (icon, image) for name, icon, image in (await session.execute(
         select(AgentDef.name, AgentDef.icon, AgentDef.image_artifact_id)
         .where(AgentDef.name.in_(names)))).all()}
-    out = {}
-    for name in names:
-        face = face_for(name)
-        icon, image = rows.get(name, (None, None))
-        # The picture (docs/design/23) rides beside the emoji rather than
-        # replacing it: a client that cannot show the image still has a face.
-        out[name] = {"emoji": icon or face["emoji"], "hue": face["hue"],
-                     "image_url": f"/api/artifacts/{image}/thumb" if image else None}
-    return out
+    return {name: face_from(name, *rows.get(name, (None, None))) for name in names}
+
+
+def face_from(name: str, icon: str | None, image: str | None) -> dict:
+    """One agent's face from its columns. Split out so a caller holding them
+    already (the Relay stream reads them off the agent cache) builds the same
+    face `faces_for` would."""
+    face = face_for(name)
+    # The picture (docs/design/23) rides beside the emoji rather than
+    # replacing it: a client that cannot show the image still has a face.
+    return {"emoji": icon or face["emoji"], "hue": face["hue"],
+            "image_url": f"/api/artifacts/{image}/thumb" if image else None}
 
 
 async def explicit_members(session, channel_id: str) -> set[str]:
