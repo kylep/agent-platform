@@ -57,6 +57,15 @@ log = logging.getLogger("mcp-facade")
 
 _API = os.environ.get("AP_API_URL", "http://agent-platform-api:8000").rstrip("/")
 _UPSTREAM_TIMEOUT = float(os.environ.get("AP_UPSTREAM_TIMEOUT", "60"))
+# POST /api/artifacts/generate is synchronous: the backend runs a Codex image
+# generation that blocks up to CODEX_IMAGE_TIMEOUT_SECONDS (390s) and saves the
+# artifact before it returns. The shared client's 60s read timeout would abort
+# that call as a ReadTimeout even though the generation succeeded, so the caller
+# sees a timeout despite a saved artifact and may retry a paid generation
+# (ENG-6). Only this route gets the long read timeout; every other route keeps
+# the fast default so a genuinely hung upstream still fails quickly.
+_GENERATE_TIMEOUT = float(os.environ.get("AP_GENERATE_TIMEOUT", "420"))
+_LONG_TIMEOUT_ROUTES = frozenset({("POST", "/api/artifacts/generate")})
 _SPEC_RETRY_SECONDS = float(os.environ.get("AP_SPEC_RETRY_SECONDS", "5"))
 _ALLOWED_HOSTS = [h for h in os.environ.get(
     "AP_ALLOWED_HOSTS", "agent-platform-mcp-facade").split(",") if h.strip()]
@@ -308,6 +317,25 @@ async def forward_caller_auth(request: httpx.Request) -> None:
         request.headers["Authorization"] = headers["Authorization"]
     else:
         request.headers.pop("Authorization", None)
+    extend_timeout_for_long_routes(request)
+
+
+def extend_timeout_for_long_routes(request: httpx.Request) -> None:
+    """Let a known slow route wait past the shared client's default timeout.
+
+    The client sets `request.extensions["timeout"]` (from its default) before
+    this request hook runs, so bumping the read/write/pool phases here reaches
+    the transport. Only routes in `_LONG_TIMEOUT_ROUTES` are extended, and only
+    upward — a route already granted longer keeps it — so every other call still
+    fails fast at the default and connect stays quick either way."""
+    if (request.method, request.url.path) not in _LONG_TIMEOUT_ROUTES:
+        return
+    timeout = dict(request.extensions.get("timeout") or {})
+    for phase in ("read", "write", "pool"):
+        current = timeout.get(phase)
+        if current is None or current < _GENERATE_TIMEOUT:
+            timeout[phase] = _GENERATE_TIMEOUT
+    request.extensions = {**request.extensions, "timeout": timeout}
 
 
 def make_client(base_url: str = _API) -> httpx.AsyncClient:
