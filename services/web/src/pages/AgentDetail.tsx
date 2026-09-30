@@ -169,7 +169,7 @@ function defOf(row: AgentRow): AgentDef {
   return def as AgentDef;
 }
 
-function AgentConfig({ agent, onSaved }: { agent: AgentRow; onSaved: (next: AgentDef) => void }) {
+function AgentConfig({ agent, jobs, onSaved }: { agent: AgentRow; jobs: Job[]; onSaved: (next: AgentDef) => void }) {
   const navigate = useNavigate();
   const catalog = useGrantCatalog();
   const original = toDraft(defOf(agent));
@@ -268,7 +268,7 @@ function AgentConfig({ agent, onSaved }: { agent: AgentRow; onSaved: (next: Agen
       <PromptField draft={draft} patch={patch} />
       {actions}
 
-      <EntrypointsFields draft={draft} patch={patch} secrets={secrets} catalog={catalog} />
+      <EntrypointsFields draft={draft} patch={patch} secrets={secrets} catalog={catalog} jobs={jobs} />
       <fieldset disabled={!!draft.system_source}><GrantsFields draft={draft} patch={patch} catalog={catalog} /></fieldset>
       {actions}
 
@@ -357,6 +357,14 @@ export default function AgentDetail() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [name]);
 
+  // The Schedules tab edits jobs independently; refresh the Config summary on return.
+  useEffect(() => {
+    if (!name || tab !== "config") return;
+    api<Job[]>("/api/jobs")
+      .then((all) => setJobs(all.filter((job) => job.agent === name)))
+      .catch(() => setJobs([]));
+  }, [name, tab]);
+
   if (loading) return <div className="page"><p className="muted">Loading…</p></div>;
   if (loadError) {
     const gone = loadError.startsWith("404");
@@ -419,13 +427,6 @@ export default function AgentDetail() {
       {tab === "history" && <AgentVersions codeOwned={!!agent.system_source} agent={agent.name} onRolledBack={loadContent} />}
       {tab === "config" && (
         <>
-          {jobs.length > 0 && <p className="muted">
-            {jobs.length} scheduled {jobs.length === 1 ? "job" : "jobs"} for {agent.name}:{" "}
-            {jobs.map((job) => `${job.name} (${job.model || "agent default"})`).join(", ")}.{" "}
-            <Link to={`/agents/${encodeURIComponent(agent.name)}?tab=schedules`}>
-              View schedules and model overrides
-            </Link>
-          </p>}
           <div className="profile-image-section">
             <h2>Profile image</h2>
             <ProfileImage name={agent.name} description={agent.description}
@@ -433,7 +434,7 @@ export default function AgentDetail() {
           </div>
           {/* A save answers with the definition only; the picture on the row
               stays what the image route last made it. */}
-          <AgentConfig key={formKey} agent={agent}
+          <AgentConfig key={formKey} agent={agent} jobs={jobs}
                        onSaved={(next) => setAgent((a) => ({ ...a, ...next }))} />
         </>
       )}

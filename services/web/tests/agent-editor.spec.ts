@@ -106,6 +106,31 @@ test("entrypoints edit round-trips into the saved definition", async ({ page }) 
     .toEqual([{ path: "deploy-done", auth: "none", model: "sonnet", secret_set: false }]);
 });
 
+test("the Config entrypoints show this agent's scheduled jobs and their overrides", async ({ page }) => {
+  await mockApi(page);
+  await page.route("**/api/agents/pai", (route) => route.fulfill({ json: {
+    name: "pai", prompt: "You are pai.", description: "Conversational assistant.",
+    runtime: "codex", model: "gpt-6-sol", role: "operator", system: false,
+    entrypoints: { crons: [], webhooks: [], topics: [], timezone: "" },
+  } }));
+  await page.route("**/api/jobs", (route) => route.fulfill({ json: [
+    { id: "jpai", name: "pai-discord-awareness", agent: "pai", relay_channel: null,
+      cron: "*/15 * * * *", timezone: "America/Toronto", prompt: "Review chat.",
+      model: "gpt-5.6-luna", run_when: "discord_unaddressed", enabled: true,
+      last_fire: null, next_fire: null },
+  ] }));
+  await page.goto("/agents/pai");
+
+  const entrypoints = page.locator(".agent-form", { has: page.getByRole("heading", { name: "Entrypoints" }) });
+  await expect(entrypoints.getByRole("heading", { name: "Scheduled jobs (1)" })).toBeVisible();
+  await expect(entrypoints.locator(".agent-job-list")).toContainText("pai-discord-awareness");
+  await expect(entrypoints.locator(".agent-job-list")).toContainText("gpt-5.6-luna");
+  await expect(entrypoints.locator(".agent-job-list")).toContainText("when Discord has unaddressed messages");
+  await entrypoints.getByRole("link", { name: "View and edit scheduled jobs" }).click();
+  await expect(page).toHaveURL(/\/agents\/pai\?tab=schedules$/);
+  await expect(page.getByRole("button", { name: "+ New Job" })).toBeVisible();
+});
+
 test("version history lists the change log and rolls back after confirming", async ({ page }) => {
   const writes = captureWrites(page);
   await mockApi(page);

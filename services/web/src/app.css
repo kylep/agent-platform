@@ -1093,6 +1093,9 @@ a.relay-action { color: var(--ds-link); }
   padding-top: 20px;
   border-top: 1px solid var(--ds-border);
 }
+.agent-job-list { display: grid; gap: 8px; padding-left: 20px; margin: 8px 0; }
+.agent-job-list li { padding-left: 4px; }
+.agent-job-list li > span { display: inline-block; margin-left: 12px; }
 
 /* Plain-English toggles (enabled, can invoke agents) borrow the check-item box
    but not its identifier typography: their labels are prose, so they keep the

@@ -1,5 +1,6 @@
 import { useState, type ReactNode } from "react";
-import { asList, type AgentDef, type AgentEntrypoints, type CronEntry, type WebhookAuth, type WebhookEntry } from "../api";
+import { Link } from "react-router-dom";
+import { asList, type AgentDef, type AgentEntrypoints, type CronEntry, type Job, type WebhookAuth, type WebhookEntry } from "../api";
 import {
   generateWebhookSecret, secretLengthError, WEBHOOK_SECRET_HEADER, WEBHOOK_SECRET_MIN,
   type WebhookSecrets,
@@ -413,8 +414,8 @@ function WebhookRow({ entry, secrets, models, onChange, onRemove }: {
   );
 }
 
-export function EntrypointsFields({ draft, patch, secrets, catalog }: {
-  draft: AgentDef; patch: Patch; secrets: WebhookSecrets; catalog: GrantCatalog;
+export function EntrypointsFields({ draft, patch, secrets, catalog, jobs }: {
+  draft: AgentDef; patch: Patch; secrets: WebhookSecrets; catalog: GrantCatalog; jobs?: Job[];
 }) {
   const ep = draft.entrypoints;
   const set = (next: Partial<AgentEntrypoints>) => patch({ entrypoints: { ...ep, ...next } });
@@ -430,11 +431,26 @@ export function EntrypointsFields({ draft, patch, secrets, catalog }: {
     <>
       <h2>Entrypoints</h2>
       <p className="muted">
-        The agent's durable triggers. Ad-hoc, prompt-carrying schedules belong in Jobs
-        (the Schedules tab) — these are part of what the agent <em>is</em>.
+        Scheduled jobs have their own prompts and model choices. Agent-defined crons and
+        webhooks below belong to the agent's definition.
       </p>
 
-      <HelpLabel label="Built-in schedules" help="crons" />
+      {jobs && <>
+        <h3>Scheduled jobs ({jobs.length})</h3>
+        {jobs.length ? <ul className="agent-job-list">
+          {jobs.map((job) => <li key={job.id}>
+            <strong>{job.name}</strong>
+            <span className="muted">{job.cron} · {job.timezone || "UTC"}</span>
+            <span className="muted">{job.model || "agent default"} · {job.run_when === "discord_unaddressed" ? "when Discord has unaddressed messages" : "every scheduled time"}</span>
+            {!job.enabled && <span className="text-warning">disabled</span>}
+          </li>)}
+        </ul> : <p className="muted">No scheduled jobs for this agent.</p>}
+        <p className="check-note"><Link to={`/agents/${encodeURIComponent(draft.name)}?tab=schedules`}>
+          {jobs.length ? "View and edit scheduled jobs" : "Add a scheduled job"}
+        </Link></p>
+      </>}
+
+      <HelpLabel label="Agent-defined crons" help="crons" />
       <div className="grid gap-2">
         {ep.crons.map((c, i) => (
           <CronRow key={i} codeOwned={!!draft.system_source} entry={c} zone={previewZone} models={models}
