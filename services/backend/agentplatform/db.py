@@ -480,6 +480,7 @@ class ChatIdentity(Base):
     id: Mapped[str] = mapped_column(String(64), primary_key=True)
     connector: Mapped[str] = mapped_column(String(32))
     display_name: Mapped[str] = mapped_column(String(128))
+    provider_user_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
     secret_refs: Mapped[dict] = mapped_column(JSON, default=dict)
     status: Mapped[str] = mapped_column(String(16), default="active")
     owner_agent: Mapped[str | None] = mapped_column(String(128), nullable=True)
@@ -520,6 +521,22 @@ class RelayWake(Base):
     authorization_generation: Mapped[int] = mapped_column(Integer, default=0)
     external_observation_id: Mapped[str | None] = mapped_column(String(32), nullable=True)
     since_message_id: Mapped[str] = mapped_column(String(32))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class RelayMentionQueue(Base):
+    """Ordered recipients of one Relay message. The next turn is materialized
+    only after the previous recipient's final reply is stored in the room."""
+    __tablename__ = "relay_mention_queue"
+    message_id: Mapped[str] = mapped_column(String(32), primary_key=True)
+    position: Mapped[int] = mapped_column(Integer, primary_key=True)
+    channel_id: Mapped[str] = mapped_column(String(32), index=True)
+    agent: Mapped[str] = mapped_column(String(128))
+    identity_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    observation_id: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    state: Mapped[str] = mapped_column(String(16), default="pending")
+    run_id: Mapped[str | None] = mapped_column(String(32), nullable=True, index=True)
+    terminal_seen: Mapped[bool] = mapped_column(default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 

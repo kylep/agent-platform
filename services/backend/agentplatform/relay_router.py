@@ -30,6 +30,7 @@ from aiokafka import AIOKafkaConsumer
 from sqlalchemy import func, or_, select
 
 from agentplatform.db import (ACTIVE_STATES, Conversation, Team, TeamAgent, RelayInvocation,
+                              RelayMentionQueue,
                               RelayMessage, RelayWake, Run, Ticket, TicketEvent,
                               utcnow)
 from agentplatform.events import (TOPIC_RELAY_INVOCATIONS, TOPIC_RELAY_MESSAGES,
@@ -95,6 +96,7 @@ class RelayRouter:
         self.agents = agent_store
 
     async def run_forever(self) -> None:
+        await self._recover_mention_queues()
         consumer = AIOKafkaConsumer(
             *TOPICS, bootstrap_servers=self.settings.kafka_bootstrap,
             group_id=CONSUMER_GROUP, enable_auto_commit=False,
@@ -109,9 +111,25 @@ class RelayRouter:
         finally:
             await consumer.stop()
 
+    async def _recover_mention_queues(self) -> None:
+        """Resume committed queues after a dispatcher restart (Kafka starts at
+        latest, so a prior reply event is not replayed)."""
+        async with self.sf() as s:
+            running = list((await s.execute(select(RelayMentionQueue.run_id).where(
+                RelayMentionQueue.state == "running",
+                RelayMentionQueue.run_id.is_not(None)))).scalars())
+            pending = list((await s.execute(select(RelayMentionQueue.message_id).where(
+                RelayMentionQueue.state == "pending").distinct())).scalars())
+        for run_id in running:
+            await self._advance_mention_queue(run_id)
+        for message_id in pending:
+            await self._advance_mention_queue_for_message(message_id)
+
     async def _on_message(self, msg, data: dict) -> None:
         if msg.topic == TOPIC_RELAY_MESSAGES:
             await self.handle(data)
+            if data.get("run_id"):
+                await self._advance_mention_queue(data["run_id"])
             return
         # `run.events` carries every state of every run on the platform, and
         # only the last one frees an agent. The state is taken from the EVENT
@@ -120,7 +138,18 @@ class RelayRouter:
         # up yet — and a wake dropped on that race is a room gone quiet.
         state = (data or {}).get("state")
         if state and state not in ACTIVE_STATES and data.get("run_id"):
+            await self._mark_queue_terminal(data["run_id"])
             await self.on_run_terminal(data["run_id"])
+            await self._advance_mention_queue(data["run_id"])
+
+    async def _mark_queue_terminal(self, run_id: str) -> None:
+        async with self.sf() as s:
+            row = (await s.execute(select(RelayMentionQueue).where(
+                RelayMentionQueue.run_id == run_id,
+                RelayMentionQueue.state == "running").limit(1))).scalar_one_or_none()
+            if row is not None:
+                row.terminal_seen = True
+                await s.commit()
 
     async def handle(self, data: dict) -> None:
         """Route one message. The whole decision is made inside a single
@@ -143,10 +172,13 @@ class RelayRouter:
             msg = await s.get(RelayMessage, (data.get("id") or ""))
             if conv is None or msg is None or msg.deleted_at is not None:
                 return
+            if conv.home != "external" and await s.get(RelayMentionQueue, (msg.id, 0)):
+                return  # Kafka replay: this message already has an ordered turn.
             from agentplatform.relay_store import enabled_agents
             enabled = await enabled_agents(s)
             enabled.intersection_update(self._live_agents())
             observation = None
+            queued_external = False
             explicit = await explicit_members(s, conv.id)
             if conv.home == "external":
                 from agentplatform.external_chat import ExternalObservation, owned_identity, ExternalChatError
@@ -159,18 +191,192 @@ class RelayRouter:
                     return
                 if observation.ownership_generation != account.ownership_generation:
                     return
-                eligible = mentionable_in(conv, enabled, explicit)
-                summons = [(account.owner_agent, msg, None, "default")] if account.owner_agent in eligible else []
+                queued_external = await self._stage_external_queue(s, conv, msg, observation)
+                if queued_external:
+                    await s.commit()
+                    summons = []
+                else:
+                    eligible = mentionable_in(conv, enabled, explicit)
+                    summons = [(account.owner_agent, msg, None, "default")] if account.owner_agent in eligible else []
             else:
                 summons = await self._summons(s, conv, msg, enabled, explicit)
-            if not summons:
+                if msg.run_id and msg.trigger_message_id:
+                    pending = (await s.execute(select(RelayMentionQueue.agent).where(
+                        RelayMentionQueue.message_id == msg.trigger_message_id,
+                        RelayMentionQueue.state == "pending"))).scalars().all()
+                    summons = [item for item in summons if item[0] not in pending]
+            if not summons and not queued_external:
                 return
-            decided, specs, mirrored = await self._decide(
-                s, conv, msg, summons, enabled, explicit, observation=observation)
-            if conv.home == "external":
-                for spec in specs:
-                    spec["external_observation_id"] = observation.id
+            if queued_external:
+                decided, specs, mirrored = [], [], []
+            else:
+                if conv.home != "external" and len(summons) > 1 and msg.kind == "text":
+                    # Only this message's addresses form a queue. A wake
+                    # released by the reply keeps its own guard path.
+                    addresses = [item for item in summons if item[1].id == msg.id and item[3] != "wake"]
+                    if len(addresses) > 1:
+                        for position, (agent, _, _, _) in enumerate(addresses):
+                            s.add(RelayMentionQueue(message_id=msg.id, position=position,
+                                                    channel_id=conv.id, agent=agent))
+                        await s.flush()
+                        summons = [item for item in summons if item not in addresses] + addresses[:1]
+                decided, specs, mirrored = await self._decide(
+                    s, conv, msg, summons, enabled, explicit, observation=observation)
+                if conv.home != "external" and await s.get(RelayMentionQueue, (msg.id, 0)):
+                    await self._mark_queue_result(s, msg.id, 0, decided)
+                if conv.home == "external":
+                    for spec in specs:
+                        spec["external_observation_id"] = observation.id
         await self._emit(conv, decided, specs, mirrored)
+        if queued_external or (conv.home != "external" and msg.kind == "text"):
+            await self._advance_mention_queue_for_message(msg.id)
+
+    async def _stage_external_queue(self, s, conv, msg, observation) -> bool:
+        """Use the provider's mention order, across separately connected bots.
+
+        Each connector reports its own observation. The first one to arrive
+        records all currently authorized addressees; a recipient waits until
+        its own observation arrives, so connector timing cannot reorder turns.
+        """
+        from agentplatform.db import ChatIdentity
+        from agentplatform.external_chat import (ExternalEndpoint, ExternalChatError,
+                                                 endpoint_access, owned_identity)
+        existing = await s.get(RelayMentionQueue, (msg.id, 0))
+        if existing is not None:
+            row = (await s.execute(select(RelayMentionQueue).where(
+                RelayMentionQueue.message_id == msg.id,
+                RelayMentionQueue.identity_id == observation.identity_id))).scalar_one_or_none()
+            if row is not None and row.observation_id is None:
+                row.observation_id = observation.id
+            return True
+        ids = observation.mentioned_bot_ids or []
+        if len(ids) < 2:
+            return False
+        rows = list((await s.execute(select(ChatIdentity).where(
+            ChatIdentity.connector == "discord",
+            ChatIdentity.provider_user_id.in_(ids)))).scalars())
+        by_id = {row.provider_user_id: row for row in rows}
+        selected = []
+        seen_agents = set()
+        for bot_id in ids:
+            account = by_id.get(bot_id)
+            if not account or account.owner_agent in seen_agents:
+                continue
+            try:
+                await owned_identity(s, account.id)
+                ep = await s.get(ExternalEndpoint, observation.endpoint_id)
+                await endpoint_access(s, account, ep.external_ref, send=True)
+            except ExternalChatError:
+                continue
+            selected.append(account)
+            seen_agents.add(account.owner_agent)
+        if len(selected) < 2:
+            return False
+        for position, account in enumerate(selected):
+            s.add(RelayMentionQueue(message_id=msg.id, position=position,
+                channel_id=conv.id, agent=account.owner_agent, identity_id=account.id))
+        await s.flush()
+        row = (await s.execute(select(RelayMentionQueue).where(
+            RelayMentionQueue.message_id == msg.id,
+            RelayMentionQueue.identity_id == observation.identity_id))).scalar_one_or_none()
+        if row is not None and row.observation_id is None:
+            row.observation_id = observation.id
+        return True
+
+    async def _mark_queue_result(self, s, message_id: str, position: int,
+                                 decisions: list[dict]) -> None:
+        row = await s.get(RelayMentionQueue, (message_id, position))
+        if row is None or row.state != "pending":
+            return
+        decision = next((d for d in decisions if d["agent"] == row.agent
+                         and d["message_id"] == message_id), None)
+        if decision is None:
+            return
+        row.run_id = decision.get("run_id")
+        row.state = ("running" if row.run_id else
+                     "waiting" if decision.get("reason") == "coalesced" else "done")
+        await s.commit()
+
+    async def _advance_mention_queue_for_message(self, message_id: str) -> None:
+        """Skip refused recipients; never start two recipients of one post."""
+        async with self.sf() as s:
+            rows = list((await s.execute(select(RelayMentionQueue).where(
+                RelayMentionQueue.message_id == message_id).order_by(
+                RelayMentionQueue.position))).scalars())
+            if not rows:
+                return
+            for row in rows:
+                if row.state in ("running", "waiting", "pending"):
+                    if row.state != "pending":
+                        return
+                    conv = await s.get(Conversation, row.channel_id)
+                    anchor = await s.get(RelayMessage, message_id)
+                    if conv is None or anchor is None or anchor.deleted_at is not None:
+                        row.state = "done"
+                        await s.commit()
+                        continue
+                    enabled = await enabled_agents(s)
+                    enabled.intersection_update(self._live_agents())
+                    explicit = await explicit_members(s, conv.id)
+                    observation = None
+                    if row.identity_id:
+                        if not row.observation_id:
+                            return
+                        from agentplatform.external_chat import ExternalObservation, owned_identity, ExternalChatError
+                        observation = await s.get(ExternalObservation, row.observation_id)
+                        try:
+                            account = await owned_identity(s, row.identity_id, row.agent)
+                            if (observation is None or not observation.addressed or
+                                    account.ownership_generation != observation.ownership_generation):
+                                raise ExternalChatError("stale observation")
+                        except ExternalChatError:
+                            row.state = "done"
+                            await s.commit()
+                            continue
+                    decided, specs, mirrored = await self._decide(
+                        s, conv, anchor, [(row.agent, anchor,
+                        await s.get(RelayWake, (conv.id, row.agent)),
+                        "default" if observation else "mention")],
+                        enabled, explicit, observation=observation)
+                    if observation:
+                        for spec in specs:
+                            spec["external_observation_id"] = observation.id
+                    await self._mark_queue_result(s, message_id, row.position, decided)
+                    await self._emit(conv, decided, specs, mirrored)
+                    if row.state != "done":
+                        return
+
+    async def _advance_mention_queue(self, run_id: str) -> None:
+        async with self.sf() as s:
+            row = (await s.execute(select(RelayMentionQueue).where(
+                RelayMentionQueue.run_id == run_id,
+                RelayMentionQueue.state == "running").limit(1))).scalar_one_or_none()
+            if row is None:
+                return
+            run = await s.get(Run, run_id)
+            if not row.terminal_seen and (run is None or run.state in ACTIVE_STATES):
+                return
+            # A terminal event can beat the recorder's reply. Wait for the
+            # durable final message, including its failed-run notice.
+            reply_query = select(RelayMessage.id).where(
+                RelayMessage.run_id == run_id, RelayMessage.deleted_at.is_(None))
+            if not row.identity_id:
+                reply_query = reply_query.where(RelayMessage.trigger_message_id.is_not(None))
+            reply = (await s.execute(reply_query.limit(1))).first()
+            if reply is None:
+                return
+            if row.identity_id:
+                from agentplatform.external_chat import ExternalDelivery
+                delivered = (await s.execute(select(ExternalDelivery.id).where(
+                    ExternalDelivery.run_id == run_id,
+                    ExternalDelivery.answer_to == row.message_id,
+                    ExternalDelivery.state == "accepted").limit(1))).first()
+                if delivered is None:
+                    return
+            row.state = "done"
+            message_id = row.message_id
+            await s.commit()
+        await self._advance_mention_queue_for_message(message_id)
 
     async def _decide(self, s, conv, msg, summons, enabled, explicit, observation=None):
         """Run every summons through the guards, commit the decisions, and hand
@@ -214,6 +420,13 @@ class RelayRouter:
                 decision, reason = "invoked", kind
                 run_id = uuid.uuid4().hex
                 channel_used, global_used = channel_used + 1, global_used + 1
+                if wake is not None:
+                    queued = (await s.execute(select(RelayMentionQueue).where(
+                        RelayMentionQueue.message_id == wake.since_message_id,
+                        RelayMentionQueue.agent == agent,
+                        RelayMentionQueue.state == "waiting").limit(1))).scalar_one_or_none()
+                    if queued is not None:
+                        queued.run_id, queued.state = run_id, "running"
                 specs.append(await self._spec(s, conv, mention, agent, hop, run_id,
                                               wake=wake, enabled=enabled,
                                               explicit=explicit, observation=observation))
@@ -576,11 +789,19 @@ class RelayRouter:
         ticket = await self._ticket_of(s, thread_root)
         from agentplatform.authority import current_generation
         await current_generation(s, agent)
+        queued_position = (await s.execute(select(RelayMentionQueue.position).where(
+            RelayMentionQueue.message_id == mention.id,
+            RelayMentionQueue.agent == agent).limit(1))).scalar_one_or_none()
+        later_in_queue = queued_position is not None and queued_position > 0
+        resume = await self._resume_from(s, conv.id, wake)
         window = await context_window(
             s, conv.id, thread_root=thread_root,
-            limit=(self.settings.tickets_thread_context_messages if thread_root
+            limit=((self.settings.tickets_thread_context_messages * 3 if later_in_queue
+                    else self.settings.tickets_thread_context_messages) if thread_root
                    else self.settings.relay_context_messages),
-            since_message_id=await self._resume_from(s, conv.id, wake))
+            since_message_id=resume or (mention.id if later_in_queue and not thread_root else None))
+        if later_in_queue and not any(m.id == mention.id for m in window):
+            window.insert(0, mention)
         participants = self._roster(conv, explicit, enabled, window)
         names = {n for n in (agent_name(p) for p in participants) if n}
         names |= {n for n in (agent_name(m.author) for m in window) if n}

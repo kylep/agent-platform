@@ -482,7 +482,11 @@ def build_mention_prompt(*, channel, messages, mention, agent: str, hops_left: i
         used += len(rendered)
     rendered_messages = list(reversed(kept))
     if any(m.id == mention.id for m in messages):
-        rendered_messages.append(_rendered(mention))
+        # A queued recipient starts after an earlier agent answered. Keep the
+        # original request in its actual place so the reply follows it.
+        place = next((i for i, m in enumerate(messages) if m.id == mention.id), len(messages))
+        later = sum(1 for m in messages[place + 1:] if m.id != mention.id)
+        rendered_messages.insert(max(0, len(rendered_messages) - later), _rendered(mention))
     omitted = len(messages) - len(rendered_messages)
     notice = (["Older Relay history was omitted to bound context. "
                "Use the Relay read Tool to retrieve earlier messages when needed."]
@@ -516,7 +520,11 @@ def build_mention_prompt(*, channel, messages, mention, agent: str, hops_left: i
         # here would put attacker-controlled text outside the untrusted block,
         # in the prompt's own voice and in the last thing the model reads —
         # the highest-primacy position there is. The id is enough to find it.
-        f"You were summoned by message {escape(str(mention.id))} from "
-        f"{escape(str(mention.author))} (it is the last message inside "
-        f"<relay-messages> above); reply to it.",
+        (f"You were summoned by message {escape(str(mention.id))} from "
+         f"{escape(str(mention.author))} (find it inside "
+         f"<relay-messages> above). Read the replies after it before answering."
+         if messages and messages[-1].id != mention.id else
+         f"You were summoned by message {escape(str(mention.id))} from "
+         f"{escape(str(mention.author))} (it is the last message inside "
+         f"<relay-messages> above); reply to it."),
     ])

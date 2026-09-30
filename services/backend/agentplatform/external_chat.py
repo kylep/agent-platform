@@ -66,6 +66,7 @@ class ExternalObservation(Base):
     addressed: Mapped[bool] = mapped_column(default=False)
     author_bot: Mapped[bool] = mapped_column(default=False)
     co_mentioned: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    mentioned_bot_ids: Mapped[list | None] = mapped_column(JSON, nullable=True)
 
 
 class ExternalScanCursor(Base):
@@ -158,7 +159,7 @@ async def invalidate(session, account):
     account.access_expires_at = utcnow()
 
 
-async def snapshot(session, identity_id, generation, sequence, endpoints):
+async def snapshot(session, identity_id, generation, sequence, endpoints, provider_user_id=None):
     from agentplatform.authority import authority_lock
     await authority_lock(session)
     # Use the shared agent -> accounts lock order before the account lock.
@@ -169,6 +170,8 @@ async def snapshot(session, identity_id, generation, sequence, endpoints):
     account = (await session.execute(select(ChatIdentity).where(ChatIdentity.id == identity_id).with_for_update())).scalar_one_or_none()
     if not account or generation != account.ownership_generation or sequence <= account.permission_sequence:
         raise ExternalChatError("stale permission snapshot")
+    if provider_user_id:
+        account.provider_user_id = provider_user_id
     await owned_identity(session, identity_id, operational=False)
     # Process silent lease loss before a refresh could make it disappear.
     from agentplatform.authority import current_generation
@@ -266,7 +269,8 @@ async def observe(session, identity_id, generation, data):
                     ownership_generation=generation, message_id=msg.id,
                     addressed=data.get("addressed", False),
                     author_bot=data.get("author_bot", False),
-                    co_mentioned=data.get("co_mentioned", []))
+                    co_mentioned=data.get("co_mentioned", []),
+                    mentioned_bot_ids=data.get("mentioned_bot_ids", []))
                 session.add(observation)
                 await session.flush()
         except IntegrityError:

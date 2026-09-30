@@ -15,7 +15,7 @@ def module(monkeypatch):
     stub.Intents = types.SimpleNamespace(default=lambda: types.SimpleNamespace(message_content=False))
     class Client:
         def __init__(self, **kwargs):
-            self.user = types.SimpleNamespace(id=99)
+            self.user = types.SimpleNamespace(id=99, bot=True)
             self.guilds = []
         def event(self, fn):
             return fn
@@ -52,8 +52,10 @@ def test_live_observation_addresses_bot_not_plain_text(module):
         assert c._api.call_args.args[2]["addressed"] is True
         other_bot = types.SimpleNamespace(id=100, bot=True, name="Olu", display_name="Olu")
         message.mentions = [c.client.user, other_bot]
+        message.content = "<@99> then <@100>"
         await c.on_message(message)
         assert c._api.call_args.args[2]["co_mentioned"] == ["Olu"]
+        assert c._api.call_args.args[2]["mentioned_bot_ids"] == ["99", "100"]
         assert c._api.call_args.args[2]["author_bot"] is False
     asyncio.run(run())
 

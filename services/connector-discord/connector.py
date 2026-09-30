@@ -6,6 +6,7 @@ Each send is an API-created request claimed once by this authenticated account.
 import asyncio
 import logging
 import os
+import re
 from pathlib import Path
 
 import aiohttp
@@ -144,6 +145,7 @@ class DiscordConnector:
                 await self._api("POST", "/snapshot", {
                     "ownership_generation": state["ownership_generation"],
                     "sequence": state["permission_sequence"] + 1,
+                    "provider_user_id": str(self.client.user.id),
                     "endpoints": list(endpoints.values())})
                 self.generation = state["ownership_generation"]
                 self.ready = True
@@ -227,6 +229,10 @@ class DiscordConnector:
                    "addressed": addressed,
                    "author_bot": bool(getattr(message.author, "bot", False) or
                                       getattr(message, "webhook_id", None)),
+                   "mentioned_bot_ids": [bot_id for bot_id in dict.fromkeys(
+                       re.findall(r"<@!?(\d+)>", getattr(message, "content", "") or ""))
+                       if any(str(user.id) == bot_id and getattr(user, "bot", False)
+                              for user in message.mentions)][:16],
                    "co_mentioned": [str(getattr(user, "display_name", user.name))[:80]
                                     for user in message.mentions
                                     if getattr(user, "bot", False) and user.id != self.client.user.id][:8]}

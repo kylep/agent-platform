@@ -19,7 +19,7 @@ from agentplatform.config import Settings
 from agentplatform.db import (ACTIVE_STATES, Conversation, Team, TeamAgent, RelayInvocation,
                               RelayMessage, RelayParticipant, RelayWake, Run,
                               RunState, utcnow)
-from agentplatform.events import (TOPIC_RELAY_INVOCATIONS, TOPIC_RUN_EVENTS,
+from agentplatform.events import (TOPIC_RELAY_INVOCATIONS, TOPIC_RELAY_MESSAGES, TOPIC_RUN_EVENTS,
                                   make_envelope)
 from agentplatform.relay_router import BUDGET_PREFIX, HOP_LIMIT_BODY, RelayRouter
 from agentplatform.relay_store import post_relay_message, relay_message_payload
@@ -97,7 +97,7 @@ async def _say(router, sf, channel_id: str, author: str, body: str, *,
                 s.add(obs)
                 await s.commit()
                 payload['external_observation_id'] = obs.id
-    await router.handle(payload)
+    await router._on_message(SimpleNamespace(topic=TOPIC_RELAY_MESSAGES), payload)
     return payload["id"]
 
 
@@ -161,13 +161,27 @@ async def test_team_mention_only_summons_members_already_in_room(make_router, sf
     assert [r.agent for r in await _runs(sf)] == ["ada"]
 
 
-async def test_a_human_mention_invokes_each_agent_at_hop_zero(make_router, sf, producer):
-    router = await make_router()
+async def test_multi_mention_runs_in_written_order_with_prior_reply_in_context(make_router, sf, producer):
+    router = await make_router(agents=("ada", "bob", "cy"))
     cid = await _channel(sf)
-    mid = await _say(router, sf, cid, "user:admin", "@ada @bob please look at this")
+    mid = await _say(router, sf, cid, "user:admin", "@ada @bob @cy please look at this")
 
     runs = await _runs(sf)
-    assert sorted(r.agent for r in runs) == ["ada", "bob"]
+    assert [r.agent for r in runs] == ["ada"]
+    await _finish(sf, "ada")
+    await _reply(router, sf, cid, "ada", "Ada's finding", run_id=runs[0].id)
+    runs = await _runs(sf)
+    assert [r.agent for r in runs] == ["ada", "bob"]
+    assert "Ada's finding" in runs[1].prompt
+    await _finish(sf, "bob")
+    await _reply(router, sf, cid, "bob", "Bob's addition", run_id=runs[1].id)
+    runs = await _runs(sf)
+    assert [r.agent for r in runs] == ["ada", "bob", "cy"]
+    assert "Ada's finding" in runs[2].prompt
+    assert "Bob's addition" in runs[2].prompt
+    assert (runs[2].prompt.index("please look at this") <
+            runs[2].prompt.index("Ada's finding") <
+            runs[2].prompt.index("Bob's addition"))
     for run in runs:
         assert (run.trigger, run.depth, run.initiated_by) == ("mention", 0, "admin")
         assert run.requested_by == "user:admin" and run.parent_run_id is None
@@ -176,14 +190,114 @@ async def test_a_human_mention_invokes_each_agent_at_hop_zero(make_router, sf, p
         block = run.prompt.split("<relay-messages ")[1].split("</relay-messages>")[0]
         assert "please look at this" in block
         assert run.user_message == run.prompt
-    assert sorted(await _decisions(sf)) == [("ada", "invoked", "mention"),
-                                            ("bob", "invoked", "mention")]
+    assert await _decisions(sf) == [("ada", "invoked", "mention"),
+                                    ("bob", "invoked", "mention"),
+                                    ("cy", "invoked", "mention")]
 
     events = _invocation_events(producer)
     assert {(e["agent"], e["decision"], e["message_id"]) for e in events} == {
-        ("ada", "invoked", mid), ("bob", "invoked", mid)}
+        ("ada", "invoked", mid), ("bob", "invoked", mid),
+        ("cy", "invoked", mid)}
     assert all(e["run_id"] and e["hop"] == 0 and e["channel_id"] == cid for e in events)
-    assert [e["type"] for e in producer.envelopes].count("relay.invocation") == 2
+    assert [e["type"] for e in producer.envelopes].count("relay.invocation") == 3
+
+
+async def test_queued_mentions_survive_replay_and_dispatcher_restart(make_router, sf):
+    router = await make_router()
+    cid = await _channel(sf)
+    mid = await _say(router, sf, cid, "user:admin", "@ada @bob review this")
+    async with sf() as s:
+        conv = await s.get(Conversation, cid)
+        original = await s.get(RelayMessage, mid)
+        first = (await s.execute(select(Run))).scalar_one()
+        first.state = RunState.SUCCEEDED
+        await post_relay_message(s, conv, author="agent:ada", body="Reviewed",
+            run_id=first.id, trigger_message_id=mid)
+        await s.commit()
+        replay = relay_message_payload(original, conv)
+    await router.handle(replay)
+    assert len(await _runs(sf)) == 1
+    await router._recover_mention_queues()
+    assert [r.agent for r in await _runs(sf)] == ["ada", "bob"]
+    assert "Reviewed" in (await _runs(sf))[1].prompt
+    await router._recover_mention_queues()
+    assert len(await _runs(sf)) == 2
+
+
+async def test_queue_waits_for_terminal_event_even_if_reply_arrives_first(make_router, sf):
+    router = await make_router()
+    cid = await _channel(sf)
+    await _say(router, sf, cid, "user:admin", "@ada @bob please answer")
+    first = (await _runs(sf))[0]
+    await _reply(router, sf, cid, "ada", "First answer", run_id=first.id)
+    assert [r.agent for r in await _runs(sf)] == ["ada"]
+    await router._on_message(SimpleNamespace(topic=TOPIC_RUN_EVENTS),
+                             {"run_id": first.id, "state": RunState.SUCCEEDED})
+    assert [r.agent for r in await _runs(sf)] == ["ada", "bob"]
+    assert "First answer" in (await _runs(sf))[1].prompt
+
+
+async def test_ordered_queue_waits_for_a_busy_first_agent(make_router, sf):
+    router = await make_router()
+    cid = await _channel(sf)
+    await _busy_run(sf, cid, "ada")
+    await _say(router, sf, cid, "user:admin", "@ada @bob take a look")
+    assert [r.agent for r in await _runs(sf)] == ["ada"]
+    await _finish(sf, "ada")
+    followup = await _say(router, sf, cid, "user:admin", "@ada still there?")
+    first = [r for r in await _runs(sf) if r.trigger_message_id == followup][0]
+    assert [r.agent for r in await _runs(sf)] == ["ada", "ada"]
+    await _finish(sf, "ada")
+    await _reply(router, sf, cid, "ada", "Yes, looked at it", run_id=first.id)
+    assert [r.agent for r in await _runs(sf)] == ["ada", "ada", "bob"]
+
+
+async def test_native_discord_multi_mention_waits_for_first_bot_and_its_delivery(
+        make_router, sf):
+    from agentplatform import external_chat as chat
+    from agentplatform.db import AgentDef, ChatIdentity
+    router = await make_router(agents=("pai", "olu"))
+    async with sf() as s:
+        for name, bot_id in (("pai", "11"), ("olu", "22")):
+            (await s.get(AgentDef, name)).agent_type = "persona"
+            s.add(ChatIdentity(id=f"discord-{name}", connector="discord",
+                display_name=name, owner_agent=name, provider_user_id=bot_id))
+        await s.commit()
+    for name in ("pai", "olu"):
+        async with sf() as s:
+            await chat.snapshot(s, f"discord-{name}", 0, 1, [{
+                "external_ref": "123", "kind": "channel", "can_read": True,
+                "can_history": True, "can_send": True}])
+            await s.commit()
+    data = {"external_ref": "123", "provider_message_id": "456",
+            "author_id": "human", "text": "@Pai @Olu what do you think?",
+            "addressed": True, "mentioned_bot_ids": ["11", "22"]}
+    async def observe(name):
+        async with sf() as s:
+            ep, msg, obs = await chat.observe(s, f"discord-{name}", 0, data)
+            conv = await s.get(Conversation, ep.channel_id)
+            payload = {**relay_message_payload(msg, conv),
+                "external_observation_id": obs.id}
+            await s.commit()
+        await router._on_message(SimpleNamespace(topic=TOPIC_RELAY_MESSAGES), payload)
+        return conv, msg
+    conv, msg = await observe("olu")
+    assert await _runs(sf) == []
+    await observe("pai")
+    first = (await _runs(sf))[0]
+    assert first.agent == "pai"
+    async with sf() as s:
+        (await s.get(Run, first.id)).state = RunState.SUCCEEDED
+        reply = await post_relay_message(s, conv, author="agent:pai",
+            body="Pai's answer", run_id=first.id)
+        s.add(chat.ExternalDelivery(identity_id="discord-pai", endpoint_id="unused",
+            agent="pai", run_id=first.id, authorization_generation=0,
+            ownership_generation=0, answer_to=msg.id, state="accepted"))
+        await s.commit()
+        payload = relay_message_payload(reply, conv)
+    await router._on_message(SimpleNamespace(topic=TOPIC_RELAY_MESSAGES), payload)
+    assert [r.agent for r in await _runs(sf)] == ["pai", "olu"]
+    assert "Pai's answer" in (await _runs(sf))[1].prompt
 
 
 @pytest.mark.parametrize("author, initiated_by", [
@@ -316,9 +430,14 @@ async def test_a_human_at_all_invokes_every_agent_member(make_router, sf):
     cid = await _channel(sf, kind="group", open=False,
                          participants=("user:admin", "agent:ada", "agent:bob"))
     await _say(router, sf, cid, "user:admin", "@all standup please")
-    assert sorted(r.agent for r in await _runs(sf)) == ["ada", "bob"]
-    assert sorted(await _decisions(sf)) == [("ada", "invoked", "mention"),
-                                            ("bob", "invoked", "mention")]
+    first = (await _runs(sf))[0]
+    assert first.agent == "ada"
+    await _finish(sf, "ada")
+    await _reply(router, sf, cid, "ada", "My standup", run_id=first.id)
+    assert [r.agent for r in await _runs(sf)] == ["ada", "bob"]
+    assert "My standup" in (await _runs(sf))[1].prompt
+    assert await _decisions(sf) == [("ada", "invoked", "mention"),
+                                    ("bob", "invoked", "mention")]
 
 
 async def _with_health_monitor(router, seed_agent):
@@ -335,7 +454,11 @@ async def test_at_all_only_targets_agents_that_opt_in(make_router, sf, seed_agen
     cid = await _channel(sf)
     await _say(router, sf, cid, "user:admin", "@all standup please")
     # Utility workers opt out independently; the conversational fixtures stay.
-    assert sorted(r.agent for r in await _runs(sf)) == ["ada", "bob"]
+    assert [r.agent for r in await _runs(sf)] == ["ada"]
+    first = (await _runs(sf))[0]
+    await _finish(sf, "ada")
+    await _reply(router, sf, cid, "ada", "done", run_id=first.id)
+    assert [r.agent for r in await _runs(sf)] == ["ada", "bob"]
     # Not even a suppression row: it was never addressed, so there is nothing
     # to explain.
     assert all(agent != "health-monitor" for agent, _, _ in await _decisions(sf))
@@ -755,15 +878,16 @@ def _state_event(run_id: str, state) -> tuple:
 async def test_two_agents_introduced_to_each_other_both_get_their_wake(make_router, sf):
     """The live failure (repair R2), reproduced exactly.
 
-    A reply reaches the router on `run.transcript`; the terminal state that
+    Two separate human messages start the runs concurrently. A reply reaches
+    the router on `run.transcript`; the terminal state that
     ends the same run reaches it on `run.events`, later. So when an agent's own
     reply arrives, its run row still says RUNNING — and the room's two pending
-    wakes both hung on that, leaving "@news @health-monitor say hi to each
-    other" answered by nobody. The reply IS the run's last word, and the state
+    wakes both hung on that. The reply IS the run's last word, and the state
     is the backstop for a reply the router never sees."""
     router = await make_router(agents=("news", "health-monitor"))
     cid = await _channel(sf)
-    await _say(router, sf, cid, "user:admin", "@news @health-monitor say hi to each other")
+    await _say(router, sf, cid, "user:admin", "@news say hi")
+    await _say(router, sf, cid, "user:admin", "@health-monitor say hi")
     first = {r.agent: r.id for r in await _runs(sf)}
     assert sorted(first) == ["health-monitor", "news"]
 

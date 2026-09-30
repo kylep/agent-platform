@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
-import { api, type AgentDef, type AgentMetrics, type AgentSummary, type ModelUsage,
+import { api, type AgentDef, type AgentMetrics, type AgentSummary, type Job, type ModelUsage,
          type RelayChannelDetail } from "../api";
 import { useGrantCatalog } from "../components/CapabilityPickers";
 import { EntrypointsFields, GrantsFields, IdentityFields, PromptField, toDraft } from "../components/AgentForm";
@@ -312,6 +312,7 @@ export default function AgentDetail() {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [summary, setSummary] = useState<AgentSummary | null>(null);
+  const [jobs, setJobs] = useState<Job[]>([]);
   // Handed over by whoever navigated here — the New-Agent wizard says so when
   // it created the agent but couldn't store its webhook secret, which is a
   // fail-closed webhook the operator has to finish here.
@@ -337,6 +338,9 @@ export default function AgentDetail() {
     api<AgentSummary[]>("/api/agents")
       .then((all) => setSummary(all.find((a) => a.name === name) ?? null))
       .catch(() => setSummary(null));
+    api<Job[]>("/api/jobs")
+      .then((all) => setJobs(all.filter((job) => job.agent === name)))
+      .catch(() => setJobs([]));
   }
 
   // The row again, and only the row: what a changed picture needs. The editor
@@ -401,7 +405,9 @@ export default function AgentDetail() {
         <button className={tab === "conversations" ? "tab active" : "tab"} onClick={() => setTab("conversations")}>Conversations</button>
         <button className={tab === "tickets" ? "tab active" : "tab"} onClick={() => setTab("tickets")}>Tickets</button>
         <button className={tab === "memories" ? "tab active" : "tab"} onClick={() => setTab("memories")}>Memories</button>
-        <button className={tab === "schedules" ? "tab active" : "tab"} onClick={() => setTab("schedules")}>Schedules</button>
+        <button className={tab === "schedules" ? "tab active" : "tab"} onClick={() => setTab("schedules")}>
+          Schedules{jobs.length ? ` (${jobs.length})` : ""}
+        </button>
         <button className={tab === "report" ? "tab active" : "tab"} onClick={() => setTab("report")}>Report</button>
       </div>
 
@@ -413,6 +419,13 @@ export default function AgentDetail() {
       {tab === "history" && <AgentVersions codeOwned={!!agent.system_source} agent={agent.name} onRolledBack={loadContent} />}
       {tab === "config" && (
         <>
+          {jobs.length > 0 && <p className="muted">
+            {jobs.length} scheduled {jobs.length === 1 ? "job" : "jobs"} for {agent.name}:{" "}
+            {jobs.map((job) => `${job.name} (${job.model || "agent default"})`).join(", ")}.{" "}
+            <Link to={`/agents/${encodeURIComponent(agent.name)}?tab=schedules`}>
+              View schedules and model overrides
+            </Link>
+          </p>}
           <div className="profile-image-section">
             <h2>Profile image</h2>
             <ProfileImage name={agent.name} description={agent.description}

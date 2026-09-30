@@ -57,6 +57,7 @@ class EndpointIn(BaseModel):
 class SnapshotIn(BaseModel):
     ownership_generation: int
     sequence: int = Field(ge=1)
+    provider_user_id: str | None = Field(default=None, max_length=128)
     endpoints: list[EndpointIn] = Field(max_length=20000)
 
 
@@ -100,7 +101,7 @@ async def permission_snapshot(body: SnapshotIn, request: Request):
     async with request.app.state.session_factory() as session:
         try:
             account = await chat.snapshot(session, identity_id, body.ownership_generation,
-                body.sequence, [ep.model_dump() for ep in body.endpoints])
+                body.sequence, [ep.model_dump() for ep in body.endpoints], body.provider_user_id)
         except chat.ExternalChatError as exc:
             await session.commit()
             raise deny(exc)
@@ -118,6 +119,7 @@ class ObservationIn(BaseModel):
     addressed: bool = False
     author_bot: bool = False
     co_mentioned: list[str] = Field(default_factory=list, max_length=8)
+    mentioned_bot_ids: list[str] = Field(default_factory=list, max_length=16)
 
 
 @router.post("/connector/observe")

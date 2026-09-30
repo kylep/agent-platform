@@ -19,14 +19,19 @@ mirrors in Relay.
 
 ## Discord behavior
 
-Native Discord mentions of two bot identities already produce independent
-observations and one owner run per identity. We retain that fanout and attach
-the other natively mentioned bot names to each observation so a persona knows
-it is one of several addressees. Plain `@name` text in a bot's reply does not
-summon another persona. External-run instructions say this explicitly and point
-the agent to internal Relay for coordination. The user's #research conversation
-showed why: Olu believed a plain `@Pai` would wake Pai and asked Kyle to re-ping
-Kai when it did not.
+Native Discord mentions of two bot identities produce separate observations.
+The router now joins them into a durable ordered queue using the actual order
+of native mentions in the provider message. An identity whose observation
+arrives first still waits if another identity was mentioned before it. The next
+persona starts only after the previous run has ended and its reply has an
+accepted Discord delivery receipt, so its prompt is assembled from the room
+including that reply. Relay native multi-mentions use the same queue and
+advance after the previous run ends and its final reply is stored. The context
+window remains bounded; agents can use Relay read
+for older history. Plain `@name` text in a bot's reply does not summon another
+persona. External-run instructions point the agent to internal Relay for
+coordination. The user's #research conversation showed why: Olu believed a
+plain `@Pai` would wake Pai and asked Kyle to re-ping Kai when it did not.
 
 Ambient channel awareness is a scheduled job on Pai with a cheap model override.
 Its `discord_unaddressed` condition checks mirrored, unaddressed human activity
@@ -43,8 +48,12 @@ Relay.
 
 ## Boundaries and acceptance
 
-- Two native bot mentions: one run per owned identity; bot output does not
-  recursively wake peers. Other addressees are context, not delegated work.
+- Two native bot mentions: one run per owned identity, in mention order, with
+  each later prompt built after the preceding accepted reply. Bot output does
+  not recursively wake peers. Other addressees are context, not delegated work.
+- Two or more Relay mentions: run in written order; a queued recipient sees
+  preceding replies, subject to the existing bounded context window. The
+  existing hop, membership, budget, and coalescing guards still apply.
 - Both DM entry points return the same ID. Old archived/closed DMs preserve
   messages, runs, and session state. DM archive/delete return a conflict.
 - Shared-room archive is reversible. Seeded rooms stay live. Threads remain
@@ -59,7 +68,7 @@ auto-reply router. The owning persona decides whether a public response is
 useful after seeing the room context. The platform does not infer that every
 unmentioned statement needs an answer.
 
-The first Pai job runs every 30 minutes in `America/Toronto` on
+The Pai job runs every 15 minutes in `America/Toronto` on
 `gpt-5.6-luna`. Its prompt is: "Use your discord Tool to find your owned
 identity and scan unaddressed guild-channel human messages. Read the room
 around anything that might need action. Make at most two useful internal Relay

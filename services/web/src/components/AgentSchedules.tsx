@@ -168,12 +168,13 @@ export default function AgentSchedules({ agent }: { agent: string }) {
       {!loading && jobs.length === 0 && editing !== "new" && <p className="muted">No jobs for this agent.</p>}
       {!loading && jobs.length > 0 && (
         <Table>
-          <thead><tr><TH>Name</TH><TH>Model</TH><TH>Cron</TH><TH>Next fire</TH><TH>Status</TH><TH></TH></tr></thead>
+          <thead><tr><TH>Name</TH><TH>Model</TH><TH>Run when</TH><TH>Cron</TH><TH>Next fire</TH><TH>Status</TH><TH></TH></tr></thead>
           <tbody>
             {jobs.map((j) => (
               <tr key={j.id}>
                 <TD>{j.name}</TD>
                 <TD className="text-muted">{j.model || "agent default"}</TD>
+                <TD className="text-muted">{j.run_when === "discord_unaddressed" ? "Unaddressed Discord" : "Every time"}</TD>
                 <TD><Cron cron={j.cron} timezone={j.timezone} /></TD>
                 <TD className="text-muted">{when(j.next_fire)}</TD>
                 <TD>{j.enabled ? <Chip variant="ok">enabled</Chip> : <Chip variant="danger">disabled</Chip>}</TD>

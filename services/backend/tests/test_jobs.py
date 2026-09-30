@@ -1,4 +1,5 @@
 from datetime import timedelta
+from types import SimpleNamespace
 
 import pytest
 
@@ -6,12 +7,12 @@ from sqlalchemy import select
 
 from agentplatform.agents import AgentStore
 from agentplatform.config import Settings
-from agentplatform.db import (Conversation, RelayInvocation, RelayMessage, Run,
+from agentplatform.db import (Conversation, RelayInvocation, RelayMessage, Run, RunState,
                               ScheduledJob, utcnow)
 from agentplatform.events import (FakeProducer, TOPIC_RELAY_MESSAGES,
                                   TOPIC_RUN_INBOUND)
 from agentplatform.relay_router import RelayRouter
-from agentplatform.relay_store import relay_message_payload
+from agentplatform.relay_store import post_relay_message, relay_message_payload
 from agentplatform.scheduler import Scheduler
 from agentplatform import external_chat as chat
 from agentplatform.db import AgentDef, ChatIdentity
@@ -214,7 +215,16 @@ async def test_relay_job_message_summons_every_enabled_agent(sf, producer, seed_
     conv, msgs, _ = await _standup_room(sf)
     async with sf() as s:
         payload = relay_message_payload(await s.get(RelayMessage, msgs[0].id), conv)
-    await RelayRouter(Settings(), sf, producer, store).handle(payload)
+    router = RelayRouter(Settings(), sf, producer, store)
+    await router.handle(payload)
+    async with sf() as s:
+        first = (await s.execute(select(Run))).scalar_one()
+        first.state = RunState.SUCCEEDED
+        reply = await post_relay_message(s, conv, author="agent:ada", body="Ada's standup",
+            run_id=first.id, trigger_message_id=msgs[0].id)
+        await s.commit()
+        reply_payload = relay_message_payload(reply, conv)
+    await router._on_message(SimpleNamespace(topic=TOPIC_RELAY_MESSAGES), reply_payload)
 
     async with sf() as s:
         decided = [(i.agent, i.decision) for i in
@@ -222,8 +232,9 @@ async def test_relay_job_message_summons_every_enabled_agent(sf, producer, seed_
         runs = (await s.execute(select(Run))).scalars().all()
         # Seeded specialists opt out of broad summons independently of their
         # lifecycle classification. Only the conversational participants wake.
-        assert sorted(decided) == [("ada", "invoked"), ("bob", "invoked")]
-    assert sorted(r.agent for r in runs) == ["ada", "bob"]
+        assert decided == [("ada", "invoked"), ("bob", "invoked")]
+    assert [r.agent for r in runs] == ["ada", "bob"]
+    assert "Ada's standup" in runs[1].prompt
     assert all(r.trigger == "mention" for r in runs)
     # The summons still ADDRESSES the room — `*`, not a roster — so who it wakes
     # stays the router's decision and can change without rewriting the message.

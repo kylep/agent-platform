@@ -43,10 +43,13 @@ session. Threads are views of replies, so dismissing the thread pane does not
 close the conversation. Shared channels and groups can be archived; they stay
 readable under **Archived rooms** and can be restored to resume posting.
 
-In connected Discord rooms, native mentions of multiple bot identities wake
-each owning persona independently. Text like `@Pai` in a bot's own reply does
-not trigger Discord routing. Personas coordinate through the internal Relay
-Tool if needed. A scheduled ambient scan can let Pai notice unaddressed human
+When one message mentions several agents, Relay runs them in mention order.
+Each later agent starts after the prior final reply is stored and reads the
+updated room context (bounded by the normal context window). Connected Discord
+rooms apply the same order to native bot mentions and wait for an accepted
+delivery receipt before starting the next persona. Text like `@Pai` in a bot's
+own reply does not trigger Discord routing. Personas coordinate through the
+internal Relay Tool if needed. A scheduled ambient scan can let Pai notice unaddressed human
 posts in guild channels his identity can read; it skips DMs, threads, bot
 messages, and messages already addressed to that identity. The `discord` Tool
 uses `scan` to read a bounded batch and `scan_ack` to mark that batch triaged.
