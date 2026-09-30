@@ -170,7 +170,7 @@ async def _grants(sfx, name: str) -> list[str]:
 # (docs/design/22) sweep the same rows under their own marks, and letting them
 # run would have every assertion in this section carry grants it is not about.
 OTHER_SWEEPS = dict(wiki_grant=False, quota_grant=False, artifacts_grant=False,
-                    memory_grant=False)
+                    memory_grant=False, self_grant=False)
 
 
 async def test_tickets_grant_backfill_covers_the_agents_that_already_exist(engine, sfx):
@@ -259,7 +259,12 @@ async def test_the_standup_rewrite_never_overrules_an_edited_prompt(engine, sfx)
 
 
 async def _health_monitor(sfx, prompt: str) -> None:
+    """A legacy, non-registry health-monitor row. Since docs/design/34 a
+    booted platform already holds the code-owned one (whose prompt speaks of
+    OPS tickets), so it is replaced here to reach this legacy migration."""
     async with sfx() as s:
+        await s.execute(AgentDef.__table__.delete().where(
+            AgentDef.__table__.c.name == "health-monitor"))
         s.add(AgentDef(name="health-monitor", description="d", prompt=prompt))
         await s.commit()
 
@@ -292,7 +297,8 @@ async def test_health_monitor_learns_to_open_tickets(engine, sfx):
         (4, "platform:wiki-default-grant", "migration"),
         (5, "platform:quota-default-grant", "migration"),
         (6, "platform:artifacts-default-grant", "migration"),
-        (7, "platform:memory-default-grant", "migration")]
+        (7, "platform:memory-default-grant", "migration"),
+        (8, "platform:self-default-grant", "migration")]
     assert versions[-1].snapshot["prompt"] == (await _agent_prompt(sfx))
     # Once only: the appended paragraph is not re-appended on the next boot.
     before = await _agent_prompt(sfx)
@@ -340,7 +346,7 @@ async def test_a_version_collision_leaves_the_boot_standing(engine, sfx, monkeyp
     init_db has to survive, not just this function."""
     import uuid as uuid_mod
     from agentplatform import db as db_mod
-    # The first pass marks the grant sweeps (health-monitor does not exist yet),
+    # The first pass marks the grant sweeps (no legacy health-monitor yet),
     # so on the second one this is the only thing left writing a version row.
     await init_db(engine)
     await _health_monitor(sfx, OPS_PROMPT)
@@ -361,7 +367,8 @@ async def test_a_version_collision_leaves_the_boot_standing(engine, sfx, monkeyp
         assert await s.get(SchemaMark, TICKETS_STANDUP_MARK) is not None
         assert (await s.execute(select(func.count()).select_from(
             AgentVersion.__table__).where(
-            AgentVersion.agent == "health-monitor"))).scalar_one() == 0
+            AgentVersion.agent == "health-monitor",
+            AgentVersion.changed_by == "system:tickets"))).scalar_one() == 0
     # The next boot, against whatever the admin left behind, applies it.
     monkeypatch.undo()
     await init_db(engine)

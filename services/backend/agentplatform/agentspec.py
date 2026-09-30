@@ -183,6 +183,9 @@ TOOL_HELP: list[dict] = [
                     "send one anywhere. For any other role it is filtered out with the "
                     "sensitive set — declaring it does nothing. NOT granted by "
                     "default: the QA holds it."},
+    {"name": "mcp__platform__discord", "kind": "platform",
+     "description": "Owned Discord account discovery, history and guarded sends. "
+                    "Derived from persona account ownership; never an independent grant."},
     {"name": "mcp__platform__runs_read", "kind": "platform",
      "description": "Read run history: list recent runs (optionally just "
                     "those missing a summary), fetch one run's full detail, "
@@ -195,12 +198,6 @@ TOOL_HELP: list[dict] = [
      "description": "Platform health metrics: run volumes/success/tokens "
                     "(overview), per-agent metrics incl. failure streaks, or "
                     "event-bus health (lag, DLQ backlog). Read-only."},
-    {"name": TOOL_SELF, "kind": "platform", "display_name": "Self-management",
-     "description": "Read your own profile; set your avatar, model/runtime or persona prompt/description. "
-                    "Changes apply next run, are versioned, and never change grants or other agents."},
-    {"name": "mcp__platform__discord", "kind": "platform",
-     "description": "Owned Discord account discovery, history and guarded sends. "
-                    "Derived from persona account ownership; never an independent grant."},
     {"name": "mcp__platform__health_incident", "kind": "platform",
      "description": "Health-worker-only durable OPS incident upsert/recovery. "
                     "Asks Pai internally to assess intervention; never sends externally."},
@@ -318,6 +315,9 @@ TOOL_HELP: list[dict] = [
                     "one-line reply and a stop, not a smaller version of the "
                     "job. NOT granted by default: the engineer and the QA "
                     "hold it."},
+    {"name": TOOL_SELF, "kind": "platform", "display_name": "Self-management",
+     "description": "Read your own profile; set your avatar, model/runtime or persona prompt/description. "
+                    "Changes apply next run, are versioned, and never change grants or other agents."},
 ]
 
 # Sonnet 5.5 and GPT-6 Sol added from official release/model docs 2026-09-29.

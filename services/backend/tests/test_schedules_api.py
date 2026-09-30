@@ -38,7 +38,9 @@ async def test_list_only_valid_cron_agents(sched_client):
     r = await sched_client.get("/api/schedules")
     assert r.status_code == 200
     body = r.json()
-    assert [s["agent"] for s in body] == ["cronbot"]     # plain + badcron excluded
+    # plain + badcron excluded; the two scheduled code-owned system workers
+    # (docs/design/34) are materialized by init_db with their default crons.
+    assert [s["agent"] for s in body] == ["cronbot", "health-monitor", "run-summarizer"]
     assert body[0]["cron"] == "*/10 * * * *" and body[0]["enabled"] is True
 
 

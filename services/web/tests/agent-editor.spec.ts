@@ -81,7 +81,7 @@ test("field help explains execution and multi-runtime grants", async ({ page }) 
   await expect(dialog.getByRole("link", { name: /Agents guide/ })).toHaveAttribute("href", "/help/agents");
   await dialog.getByRole("button", { name: "Close" }).click();
 
-  await page.getByLabel("Runtime").selectOption("codex");
+  await page.getByLabel("Runtime", { exact: true }).selectOption("codex");
   await expect(page.getByText("Claude Code tool switches do not apply.")).toBeVisible();
   await expect(page.getByText(/retains 1 inactive Claude Code tool grant/)).toBeVisible();
   await expect(page.getByRole("checkbox", { name: "Web search" })).toHaveCount(0);
@@ -157,7 +157,7 @@ test("the wizard POSTs a full definition — no PR flow", async ({ page }) => {
   await expect(page.getByRole("button", { name: /Create agent/ })).toBeDisabled();
   await page.getByLabel("Name").fill("scratch-agent");
   await page.getByLabel("Description").fill("A scratch agent.");
-  await page.getByLabel("Runtime").selectOption("codex");
+  await page.getByLabel("Runtime", { exact: true }).selectOption("codex");
   await expect(page.getByLabel("Model")).toHaveJSProperty("tagName", "SELECT");
   await page.getByLabel("Model").selectOption("gpt-5.6-sol");
   await page.getByLabel("Agent prompt").fill("You are a scratch agent.");

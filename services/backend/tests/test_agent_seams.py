@@ -94,14 +94,14 @@ async def test_a_grant_written_through_the_api_reaches_the_agents_own_token(
     await agent_store.reload()
     granter = await bearer(sf, "granter")
 
-    # The five `false`s opt out of the platform's default grants
+    # The `false`s opt out of the platform's default grants
     # (docs/design/19 through docs/design/23): this seam is about a grant
     # travelling from the tool to whoami, and it can only show that if the
     # agent starts with no grants at all.
     created = await admin_client.post(
         "/api/agents", json={**a_def("worker"), "relay": False, "tickets": False,
                              "wiki": False, "get_quota_usage": False,
-                                 "artifacts": False, "memory": False})
+                                 "artifacts": False, "memory": False, "agent_self": False})
     assert created.status_code == 201 and created.json()["platform_tools"] == []
 
     worker_token = await bearer(sf, "worker")
@@ -157,7 +157,7 @@ async def test_the_change_log_covers_a_definitions_whole_life(two_callers, sf,
     assert (await admin_client.post("/api/agents", json={
         **a_def("shortlived", description="v1"), "relay": False,
         "tickets": False, "wiki": False,
-        "get_quota_usage": False, "artifacts": False, "memory": False})).status_code == 201
+        "get_quota_usage": False, "artifacts": False, "memory": False, "agent_self": False})).status_code == 201
     assert (await admin_client.put("/api/agents/shortlived", json=a_def(
         "shortlived", description="v2"))).status_code == 200
     assert (await client.put("/api/agents/shortlived", json=a_def(
@@ -381,7 +381,8 @@ def test_the_agentdef_payload_and_the_renderer_agree_on_field_names():
     from agentplatform.api.runs import RunAgentDef
     payload = {"name": "x", "prompt": "p", "description": "d",
                "harness_tools": ["WebFetch"],
-               "platform_tools": [MEMORY], "skills": ["git"], "model": "sonnet"}
+               "platform_tools": [MEMORY], "skills": ["git"], "model": "sonnet",
+               "runtime": "claude", "fallback_notice": "", "fallback_used": False}
     assert set(RunAgentDef.model_fields) == set(payload)
 
     runner = _load_runner()
@@ -398,6 +399,8 @@ def test_the_agentdef_payload_and_the_renderer_agree_on_field_names():
         assert without(field) != full, field
     # `skills` and `model` ride along for the "what is this pod running" view;
     # they are the launcher's to deliver (AP_SKILLS / the CLI flag), so the
-    # renderer must NOT smuggle them into the definition file.
+    # renderer must NOT smuggle them into the definition file. `runtime` and
+    # the two `fallback_*` fields are read by the runner's attempt setup (model
+    # backups), not by the renderer.
     assert "git" not in full and "sonnet" not in full
     assert full.count("tools:") == 1

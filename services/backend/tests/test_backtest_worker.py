@@ -24,7 +24,8 @@ def _participants(**kw):
     """init_db with every other sweep off, so the row this test reads back
     reflects only `_ensure_backtest_worker`, not the ambient default grants."""
     return {**dict(default_grant=False, tickets_grant=False, wiki_grant=False,
-                   quota_grant=False, artifacts_grant=False, memory_grant=False), **kw}
+                   quota_grant=False, artifacts_grant=False, memory_grant=False,
+                   self_grant=False), **kw}
 
 
 async def _agent(sf, name: str):

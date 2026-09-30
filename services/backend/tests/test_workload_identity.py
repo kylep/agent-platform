@@ -234,6 +234,12 @@ def test_runjwt_expiry():
 
 
 async def test_run_token_freezes_grants_and_carries_run_id(tool_client, secret_store):
+    from agentplatform.db import Run, RunState
+    # A run token authenticates only while its run exists (docs/design/34).
+    async with tool_client._transport.app.state.session_factory() as s:
+        s.add(Run(id="run-42", agent="echo-user", trigger="manual", requested_by="admin",
+                  prompt="x", state=RunState.RUNNING))
+        await s.commit()
     keys = runjwt.generate_keypair()
     await secret_store.set(runjwt.SECRET_NAME, keys)
     app_state = tool_client._transport.app.state

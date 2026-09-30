@@ -75,6 +75,7 @@ def migrate_authority(conn):
         owner = 'pai' if identity['id'] == 'discord-default' and 'pai' in by_name else (owners[0] if len(owners) == 1 else None)
         conn.execute(identities.update().where(identities.c.id == identity['id']).values(
             owner_agent=owner, ownership_generation=1, access_expires_at=None))
+    changed = set()
     for row in rows:
         tools = [t for t in (row['platform_tools'] or []) if t != 'mcp__platform__discord_chat']
         owned = conn.execute(select(identities.c.id).where(identities.c.owner_agent == row['name'])).scalar()
@@ -87,10 +88,15 @@ def migrate_authority(conn):
             prompt = prompt.replace('report and to Discord,', 'report,')
         if row['name'] == 'pai':
             prompt += '\n\n## Platform communication (design 34)\nUse the discord connector Tool to discover your owned identities and exact endpoints, read permitted history, and send messages. Other workers save platform outputs; use query_app and artifacts to retrieve them. Health intervention tickets arrive internally: inspect their evidence, decide whether/how to notify the human using your memories and preferences, and record your decision in the ticket. Close a handled or deliberately dismissed ticket to stop reminders. External chats in Relay are read-only mirrors; external-turn final answers are sent automatically through your owned account. For an explicit Tool reply to that same turn, pass answer_to with its triggering Relay message ID to prevent duplicates. Never claim a queued send was delivered before its receipt confirms acceptance.\n'
+        if (prompt, tools, owned) != (row['prompt'] or '', list(row['platform_tools'] or []),
+                                      row['discord_identity_id']):
+            changed.add(row['name'])
         conn.execute(agents.update().where(agents.c.name == row['name']).values(
             prompt=prompt, platform_tools=tools, discord_identity_id=owned,
             authorization_generation=(row['authorization_generation'] or 0) + 1))
-    for row in conn.execute(select(agents)).mappings().all():
+    # Every generation advances (old sessions lose authority), but only a
+    # definition this migration actually rewrote earns a change-log version.
+    for row in conn.execute(select(agents).where(agents.c.name.in_(changed))).mappings().all():
         definition = {field: row[field] for field in DEF_FIELDS if row[field] is not None}
         version = conn.execute(select(func.max(AgentVersion.version)).where(AgentVersion.agent == row['name'])).scalar() or 0
         conn.execute(AgentVersion.__table__.insert().values(agent=row['name'], version=version + 1,

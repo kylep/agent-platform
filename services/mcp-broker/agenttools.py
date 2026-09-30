@@ -49,9 +49,14 @@ GRANT_LIST_FIELDS: tuple[str, ...] = ("harness_tools", "platform_tools",
 # The grants that are a switch rather than a list: set_grants takes each as a
 # bool. `role` is a grant too but not exposed here (see the tool's docstring).
 GRANT_FLAG_FIELDS: tuple[str, ...] = ("can_invoke", "may_delete_tests")
-GRANT_FIELDS: tuple[str, ...] = GRANT_LIST_FIELDS + GRANT_FLAG_FIELDS + ("role", "discord_identity_id")
+# `agent_type` and `external_observer` are authority since docs/design/34 (a
+# type change or observer grant changes what the agent may read or own), so
+# like `role` they are grants that no tool sets.
+GRANT_FIELDS: tuple[str, ...] = GRANT_LIST_FIELDS + GRANT_FLAG_FIELDS + (
+    "role", "discord_identity_id", "agent_type", "external_observer")
 API_EDIT_FIELDS: tuple[str, ...] = (
-    "prompt", "description", "agent_type", "runtime", "model", "system", "responds_to_all", "concurrency",
+    "prompt", "description", "runtime", "model", "backup_runtime", "backup_model",
+    "system", "responds_to_all", "concurrency",
     "timeout_seconds", "result_topic", "transcript_retention_days",
     "entrypoints", "enabled", "quota_5h_max_pct", "quota_7d_max_pct",
 )

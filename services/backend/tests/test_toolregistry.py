@@ -256,12 +256,19 @@ async def test_agent_write_rejects_unknown_but_not_custom_tools(tool_client):
 # --- whoami + tools-role scoping (docs/design/12) ----------------------------
 
 from agentplatform.apikeys import generate_token, hash_token, token_prefix
-from agentplatform.db import ApiKey
+from agentplatform.db import AgentDef, ApiKey, Run, RunState
 
 
 async def _tools_key(sf, agent="echo-user", role="tools", run_id="run-1") -> str:
+    """A run-bound key. Since docs/design/34 a run credential authenticates only
+    while its run exists at its agent's current authorization generation."""
     token = generate_token()
     async with sf() as s:
+        if await s.get(Run, run_id) is None:
+            row = await s.get(AgentDef, agent)
+            s.add(Run(id=run_id, agent=agent, trigger="manual", requested_by="t",
+                      prompt="x", state=RunState.RUNNING,
+                      authorization_generation=(row.authorization_generation or 0) if row else 0))
         s.add(ApiKey(name=f"{role}:{agent}", role=role, agent=agent, run_id=run_id,
                      key_hash=hash_token(token), prefix=token_prefix(token)))
         await s.commit()

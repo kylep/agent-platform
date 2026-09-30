@@ -33,7 +33,16 @@ def test_tail_replays_then_streams(producer):
         producer,
         consumer_factory=fake_consumer,
     )
+    async def seed_run():
+        from agentplatform.db import Run, RunState
+        async with app.state.session_factory() as s:
+            s.add(Run(id="RUNID", agent="hello-world", trigger="manual",
+                      requested_by="t", prompt="x", state=RunState.RUNNING))
+            await s.commit()
+
     with TestClient(app) as tc:
+        # The tail refuses an unknown run (4404) before replaying anything.
+        tc.portal.call(seed_run)
         tc.post("/api/setup", json={"password": "pw12345678"})
         tc.post("/api/login", json={"password": "pw12345678"})
         with tc.websocket_connect("/api/runs/RUNID/tail") as ws:

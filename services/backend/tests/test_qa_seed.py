@@ -10,7 +10,7 @@ from sqlalchemy import func, select
 
 from agentplatform.agents import AgentStore
 from agentplatform.agentspec import (TOOL_ARTIFACTS, TOOL_PLAYWRIGHT_MCP, TOOL_QUOTA_OK,
-                                     TOOL_RELAY, TOOL_TICKETS, TOOL_WIKI)
+                                     TOOL_RELAY, TOOL_SELF, TOOL_TICKETS, TOOL_WIKI)
 from agentplatform.config import Settings
 from agentplatform.db import (QA_CHANNEL_MARK, QA_NIGHTLY_MARK, QA_NORMAL_AGENT_MARK,
                               QA_PROMPT, QA_SEED_MARK, QA_WELCOME_BODY, AgentDef, AgentVersion, Base,
@@ -75,7 +75,7 @@ async def test_the_qa_is_seeded_with_its_grants_role_and_thresholds(engine, sfx)
         # tool's read actions answer the same questions.
         assert row.platform_tools == [TOOL_RELAY, TOOL_TICKETS, TOOL_WIKI,
                                       TOOL_QUOTA_OK, TOOL_ARTIFACTS,
-                                      "mcp__platform__tcms", "mcp__platform__memory"]
+                                      "mcp__platform__tcms", "mcp__platform__memory", TOOL_SELF]
         assert "mcp__platform__query_app" not in row.platform_tools
         assert row.harness_tools == ["Glob", "Grep", TOOL_PLAYWRIGHT_MCP]
         assert (row.skills, row.secrets) == ([], ["qa-web-login"])

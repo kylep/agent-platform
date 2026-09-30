@@ -158,11 +158,11 @@ async def test_the_mark_is_the_off_switch(engine, sfx):
 # themselves — an agent that predates the wiki still has to be reached.
 
 # `OTHER_SWEEPS` throughout this section: design-19's, design-20's, design-22's
-# and design-23's sweeps run over the same rows under their own marks, with their
-# own tests, and letting them run here would have every assertion below carry
-# grants it is not about.
+# and design-23's sweeps (and agent_self's) run over the same rows under their
+# own marks, with their own tests, and letting them run here would have every
+# assertion below carry grants it is not about.
 OTHER_SWEEPS = dict(default_grant=False, tickets_grant=False, quota_grant=False,
-                    artifacts_grant=False, memory_grant=False)
+                    artifacts_grant=False, memory_grant=False, self_grant=False)
 
 
 async def _grants(sfx, name: str) -> list[str]:
@@ -225,6 +225,7 @@ async def test_the_wiki_agent_is_seeded(engine, sfx):
                                          TOOL_TICKETS, TOOL_WIKI)
     from agentplatform.db import (WIKI_AGENT_MARK, WIKI_AGENT_PROMPT, AgentDef,
                                   AgentVersion)
+    from agentplatform.system_agents import definitions
     await init_db(engine)
     async with sfx() as s:
         row = await s.get(AgentDef, "wiki")
@@ -232,8 +233,10 @@ async def test_the_wiki_agent_is_seeded(engine, sfx):
         assert (row.system, row.enabled, row.can_invoke) == (True, True, False)
         assert row.prompt == WIKI_AGENT_PROMPT
         assert row.description.startswith("The wiki's librarian")
-        assert row.platform_tools == [TOOL_RELAY, TOOL_TICKETS, TOOL_WIKI, TOOL_QUOTA,
-                                      TOOL_ARTIFACTS, "mcp__platform__memory"]
+        # Code-owned since design 34: the registry sets its grants after the
+        # legacy seed below creates the row.
+        assert row.system_source == "platform:wiki"
+        assert row.platform_tools == definitions()["wiki"]["platform_tools"]
         assert (row.harness_tools, row.skills, row.secrets) == ([], [], [])
         assert (row.model, row.role) == ("", "operator")
         # No triggers of its own: the librarian is summoned, not scheduled —
@@ -243,7 +246,10 @@ async def test_the_wiki_agent_is_seeded(engine, sfx):
         versions = list((await s.execute(select(AgentVersion).where(
             AgentVersion.agent == "wiki"))).scalars())
         assert [(v.version, v.changed_by, v.changed_via) for v in versions] == [
-            (1, "system:wiki", "migration")]
+            (1, "system:wiki", "migration"),
+            (2, "platform:self-default-grant", "migration"),
+            (3, "system:registry", "registry:before-adoption"),
+            (4, "system:registry", "registry:reconcile")]
         assert versions[0].snapshot["platform_tools"] == [
                 TOOL_RELAY, TOOL_TICKETS, TOOL_WIKI, TOOL_QUOTA, TOOL_ARTIFACTS,
                 "mcp__platform__memory"]
@@ -272,15 +278,18 @@ async def test_an_existing_wiki_agent_is_adopted_not_overwritten(engine, sfx):
         assert await s.get(SchemaMark, WIKI_AGENT_MARK) is not None
 
 
-async def test_the_wiki_agent_mark_is_the_off_switch(engine, sfx):
+async def test_the_wiki_agent_off_switch_is_disabling_it(engine, sfx):
+    """wiki is code-owned (docs/design/34): the API refuses to delete a system
+    agent, and reconciliation restores a missing registry entry. The off switch
+    is the `enabled` operational override, which survives reconciliation."""
     from agentplatform.db import AgentDef
     await init_db(engine)
     async with sfx() as s:
-        await s.delete(await s.get(AgentDef, "wiki"))
+        (await s.get(AgentDef, "wiki")).enabled = False
         await s.commit()
     await init_db(engine)
     async with sfx() as s:
-        assert await s.get(AgentDef, "wiki") is None
+        assert (await s.get(AgentDef, "wiki")).enabled is False
 
 
 async def test_the_gardener_job_is_seeded(engine, sfx):
@@ -322,9 +331,12 @@ async def test_the_librarian_seeds_are_idempotent(engine, sfx):
                     for t in (AgentDef.__table__, AgentVersion.__table__,
                               ScheduledJob.__table__)]
     # The librarian, both artists (docs/design/23), the engineer
-    # (docs/design/24) and the QA (docs/design/25), one version each;
-    # standup + gardener + eng-queue + qa-nightly.
-    assert await counts() == [5, 5, 4]
+    # (docs/design/24), the QA (docs/design/25) and the three registry-only
+    # system workers (docs/design/34). One version each, except the two legacy
+    # seeds the registry adopts (wiki, codex-artist): seed, agent_self sweep,
+    # before-adoption snapshot, reconcile. standup + gardener + eng-queue +
+    # qa-nightly.
+    assert await counts() == [8, 14, 4]
 
 
 async def test_a_gardener_job_that_already_exists_is_adopted(engine, sfx):

@@ -49,7 +49,8 @@ async def test_serves_the_definition_the_pod_must_materialize(client, sf, seed_a
                         "description": "Gathers the day's news.",
                         "harness_tools": ["WebSearch", "WebFetch"],
                         "platform_tools": ["mcp__platform__memory"],
-                        "skills": ["git"], "model": "sonnet"}
+                        "skills": ["git"], "model": "sonnet", "runtime": "claude",
+                        "fallback_notice": "", "fallback_used": False}
 
 
 async def test_the_description_is_served_because_the_cli_requires_it(
@@ -128,13 +129,18 @@ async def test_unauthenticated_is_rejected(client, sf):
     assert (await client.get(f"/api/runs/{rid}/agentdef")).status_code == 401
 
 
-async def test_unknown_run_404(client, sf):
+async def test_unknown_run_is_unauthenticated(client, sf):
+    """A run credential is only valid while its run exists and holds current
+    authority (docs/design/34), so a key for an unknown run fails closed at
+    authentication rather than reaching the endpoint's 404."""
     tok = await _session_key(sf, "f" * 32)
     r = await client.get(f"/api/runs/{'f' * 32}/agentdef", headers=_auth(tok))
-    assert r.status_code == 404
+    assert r.status_code == 401
 
 
-async def test_deleted_agent_404s_rather_than_serving_a_husk(client, sf, seed_agent):
+async def test_deleted_agent_is_refused_rather_than_serving_a_husk(client, sf, seed_agent):
+    """Deleting the agent revokes its runs' authority (docs/design/34): the
+    credential itself stops authenticating."""
     from agentplatform.db import AgentDef
     await seed_agent("doomed", prompt="x")
     rid = await _run(sf, "doomed")
@@ -143,7 +149,7 @@ async def test_deleted_agent_404s_rather_than_serving_a_husk(client, sf, seed_ag
         await s.delete(await s.get(AgentDef, "doomed"))
         await s.commit()
     r = await client.get(f"/api/runs/{rid}/agentdef", headers=_auth(tok))
-    assert r.status_code == 404
+    assert r.status_code == 401
 
 
 async def test_admin_may_read_any_runs_definition(admin_client, sf):
