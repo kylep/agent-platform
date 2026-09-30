@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
-  api, type AgentSummary, type RelayChannelDetail, type RelayMessage,
+  api, type AgentSummary, type RelayChannelDetail, type RelayFace, type RelayMessage,
   type RelayPresence, type RelayReaction,
 } from "../../api";
+import { faceFor } from "../../lib/face";
 
 // One room's live state, in one place. The room view and the thread pane are
 // two views of the SAME channel, so the fetching, the stream and the reaction
@@ -240,7 +241,8 @@ export function useChannel(channelId: string): Room {
           ? { ...m, reactions: applyReaction(m.reactions, r.emoji, r.count) } : m));
       });
       es.addEventListener("presence", (e) => {
-        const p = JSON.parse((e as MessageEvent).data) as { agent: string; state: string };
+        const p = JSON.parse((e as MessageEvent).data) as
+          { agent: string; state: string; face?: RelayFace | null };
         setPresence((prev) => {
           const was = prev.find((row) => row.agent === p.agent);
           const others = was?.thinking_in.filter((c) => c !== channelId) ?? [];
@@ -249,7 +251,7 @@ export function useChannel(channelId: string): Room {
           const thinking_in = p.state === "thinking" ? [...others, channelId] : others;
           return [...prev.filter((row) => row.agent !== p.agent),
                   { agent: p.agent, state: p.state, thinking_in,
-                    face: was?.face ?? { emoji: "", hue: 0 } }]
+                    face: p.face ?? was?.face ?? faceFor(p.agent) }]
             .sort((a, b) => a.agent.localeCompare(b.agent));
         });
       });

@@ -137,6 +137,37 @@ async def test_after_replays_what_the_client_missed(admin_client, sf):
         assert data["id"] == second["id"]
 
 
+async def test_a_live_frame_wears_the_agents_own_face(admin_client, sf,
+                                                     seed_agent, agent_store):
+    """The recorder (an agent's reply) and most producers publish a message
+    without a face; the stream fills it from the agent cache, so the room shows
+    the agent's icon live instead of the derived emoji until a reload."""
+    await _seed(seed_agent, agent_store, "news", icon="📰")
+    cid = await _channel_id(sf, "general")
+    feed = admin_client._transport.app.state.feed
+    async with sse(admin_client, f"/api/relay/channels/{cid}/events") as (_, stream):
+        feed.publish(cid, "message", {"id": "m-agent", "channel_id": cid,
+                                      "author": "agent:news", "face": None})
+        _, data, _ = await stream.event()
+        assert data["face"]["emoji"] == "📰"
+        # A human's face is the client's to derive; nothing is invented.
+        feed.publish(cid, "message", {"id": "m-human", "channel_id": cid,
+                                      "author": "user:admin", "face": None})
+        _, data, _ = await stream.event()
+        assert data["face"] is None
+        # A face the producer already sent is left alone.
+        sent = {"emoji": "🛰", "hue": 1, "image_url": None}
+        feed.publish(cid, "message", {"id": "m-sent", "channel_id": cid,
+                                      "author": "agent:news", "face": sent})
+        _, data, _ = await stream.event()
+        assert data["face"] == sent
+        # Presence never carries one; a first-seen agent must not be a blank disc.
+        feed.publish(cid, "presence", {"agent": "news", "state": "thinking",
+                                       "channel_id": cid})
+        event, data, _ = await stream.event()
+        assert event == "presence" and data["face"]["emoji"] == "📰"
+
+
 async def test_heartbeat_keeps_the_connection_open(admin_client, sf, monkeypatch):
     """Nothing is happening in the room — the stream must still say something,
     or every proxy between here and the browser will close it."""

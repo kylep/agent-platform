@@ -39,7 +39,7 @@ from agentplatform.relay import (agent_name, is_agent, is_member, is_participant
 # helper is what actually writes the row.
 from agentplatform.relay_feed import OVERFLOW
 from agentplatform.relay_store import post_relay_message as _insert_message
-from agentplatform.relay_store import (bindings_of, channel_by_ref, faces_for, enabled_agents,
+from agentplatform.relay_store import (bindings_of, channel_by_ref, face_from, faces_for, enabled_agents,
                                        message_view, outbound_for_message,
                                        relay_message_payload,
                                        publish_relay_message)
@@ -201,6 +201,30 @@ def _older_than(row):
 
 def _face_of(author: str, faces: dict[str, dict]) -> dict | None:
     return faces.get(agent_name(author) or "") if is_agent(author) else None
+
+
+def _dressed(request: Request, event: str, data: dict) -> dict:
+    """A live frame with its agent's face. Most producers publish a message
+    without one (only the human-post route looks it up), and presence never
+    carries one, so a client drawing what arrived fell back to the derived
+    emoji until a reload read the real face. Filled here, per subscriber, off
+    the agent cache: every path into the feed (Kafka, same-pod hand-offs) comes
+    through this loop, and a sync cache read keeps a query out of it. Copied,
+    never mutated — the dict is shared by every subscriber's queue."""
+    if data.get("face") is not None:
+        return data
+    if event == "message":
+        author = data.get("author") or ""
+        name = agent_name(author) if is_agent(author) else None
+    elif event == "presence":
+        name = data.get("agent")
+    else:
+        return data
+    if not name:
+        return data
+    info = request.app.state.agent_store.get(name)
+    return {**data, "face": face_from(name, info.icon if info else None,
+                                      info.image_artifact_id if info else None)}
 
 
 def _agents_among(participants) -> set[str]:
@@ -1015,7 +1039,7 @@ async def relay_events(request: Request, channel_id: str, after: str | None = No
                     yield _frame(OVERFLOW, {"after": last})
                     continue
                 last = data.get("id") or last if event == "message" else last
-                yield _frame(event, data)
+                yield _frame(event, _dressed(request, event, data))
         finally:
             # Runs on client disconnect too (the generator is closed), which is
             # the only thing that keeps the fan-out's subscriber set honest.

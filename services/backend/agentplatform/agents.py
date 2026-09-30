@@ -97,6 +97,11 @@ class AgentInfo(BaseModel):
     discord_identity_id: str | None = None
     enabled: bool = True
     error: str | None = None
+    # The face columns, so a hot path (the Relay stream) can dress a message
+    # without a query. Read off the row in both branches of `info_of`: a
+    # quarantined agent still has a face.
+    icon: str | None = None
+    image_artifact_id: str | None = None
 
     def crons(self) -> list[str]:
         """The cron expressions this agent fires on, in declaration order,
@@ -131,13 +136,15 @@ def info_of(row: AgentDef) -> AgentInfo:
         model = model_of(row)
     except ValidationError as e:
         return AgentInfo(name=row.name, manifest=None,
-                         agent_md=row.prompt or "", error=str(e))
+                         agent_md=row.prompt or "", error=str(e),
+                         icon=row.icon, image_artifact_id=row.image_artifact_id)
     return AgentInfo(name=model.name, manifest=_manifest_of(model),
                      agent_md=model.prompt, entrypoints=model.entrypoints,
                      harness_tools=model.harness_tools,
                      platform_tools=model.platform_tools,
                      discord_identity_id=model.discord_identity_id,
-                     enabled=model.enabled)
+                     enabled=model.enabled,
+                     icon=row.icon, image_artifact_id=row.image_artifact_id)
 
 
 class AgentStore:
