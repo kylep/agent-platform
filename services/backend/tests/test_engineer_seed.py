@@ -14,8 +14,9 @@ from agentplatform.agents import AgentStore
 from agentplatform.agentspec import (TOOL_ARTIFACTS, TOOL_QUOTA_OK, TOOL_RELAY,
                                      TOOL_SELF, TOOL_TICKETS, TOOL_WIKI)
 from agentplatform.config import Settings
-from agentplatform.db import (ENG_CHANNEL_MARK, ENG_QUEUE_MARK, ENG_WELCOME_BODY,
-                              ENGINEER_PROMPT, ENGINEER_SEED_MARK, AgentDef,
+from agentplatform.db import (CODER_RENAME_MARK, DEV_PROMPT_EDITS, DEV_PROMPT_EDITS_MARK,
+                              ENG_CHANNEL_MARK, ENG_QUEUE_MARK, ENG_WELCOME_BODY,
+                              CODER_PROMPT, ENGINEER_SEED_MARK, QA_PROMPT, AgentDef,
                               AgentVersion, Base, Conversation, Memory, RelayMessage,
                               Run, ScheduledJob, SchemaMark, Ticket, init_db,
                               make_engine, make_session_factory)
@@ -74,6 +75,67 @@ async def test_legacy_engineer_renames_without_losing_memory(engine, sfx):
         assert [(m.agent, m.content) for m in memories] == [("coder", "learned something")]
 
 
+async def test_the_rename_moves_assignments_and_job_prompts(engine, sfx):
+    async with sfx() as s:
+        s.add(AgentDef(name="engineer", prompt="p", description="d"))
+        s.add(Ticket(key="ENG-9", channel_id="c", title="t", assignee="agent:engineer",
+                     reporter="user:admin"))
+        s.add(ScheduledJob(name="nudge", agent="pai", cron="0 9 * * *",
+                           prompt="@engineer pick something up"))
+        await s.commit()
+    await init_db(engine)
+    async with sfx() as s:
+        t = (await s.execute(select(Ticket).where(Ticket.key == "ENG-9"))).scalar_one()
+        assert t.assignee == "agent:coder"
+        job = (await s.execute(select(ScheduledJob).where(
+            ScheduledJob.name == "nudge"))).scalar_one()
+        assert job.prompt == "@coder pick something up"
+
+
+async def test_an_engineer_made_after_the_rename_is_a_different_agent(engine, sfx):
+    """Once the rename has run it never runs again: a new `engineer` neither
+    gets renamed nor stops the platform from starting."""
+    await init_db(engine)
+    async with sfx() as s:
+        assert await s.get(SchemaMark, CODER_RENAME_MARK) is not None
+        s.add(AgentDef(name="engineer", prompt="a new one", description="d"))
+        await s.commit()
+    await init_db(engine)
+    async with sfx() as s:
+        assert (await s.get(AgentDef, "engineer")).prompt == "a new one"
+        assert await s.get(AgentDef, "coder") is not None
+
+
+async def test_seeded_prompts_already_read_the_edited_text():
+    for agent, prompt in (("coder", CODER_PROMPT), ("qa", QA_PROMPT)):
+        for old, new in DEV_PROMPT_EDITS[agent]:
+            assert new in prompt, (agent, new[:40])
+    assert "engineer's" not in QA_PROMPT
+    assert CODER_PROMPT.startswith("You are the platform's coder")
+
+
+async def test_live_prompts_get_the_edits_once_and_a_rewrite_is_left_alone(engine, sfx):
+    await init_db(engine)
+    coder_old = CODER_PROMPT
+    for old, new in DEV_PROMPT_EDITS["coder"]:
+        coder_old = coder_old.replace(new, old)
+    async with sfx() as s:
+        (await s.get(AgentDef, "coder")).prompt = coder_old
+        (await s.get(AgentDef, "qa")).prompt = "an admin's own QA prompt"
+        await s.delete(await s.get(SchemaMark, DEV_PROMPT_EDITS_MARK))
+        await s.commit()
+        before = (await s.execute(select(func.max(AgentVersion.version))
+                                  .where(AgentVersion.agent == "coder"))).scalar()
+    await init_db(engine)
+    async with sfx() as s:
+        assert (await s.get(AgentDef, "coder")).prompt == CODER_PROMPT
+        assert (await s.get(AgentDef, "qa")).prompt == "an admin's own QA prompt"
+        latest = (await s.execute(select(AgentVersion).where(AgentVersion.agent == "coder")
+                                  .order_by(AgentVersion.version.desc()).limit(1))).scalar_one()
+        assert latest.version == before + 1 and latest.snapshot["prompt"] == CODER_PROMPT
+        assert latest.changed_by == "system:dev-prompt-edits"
+
+
 async def test_the_coder_is_seeded_with_its_grants_role_and_thresholds(engine, sfx):
     await init_db(engine)
     async with sfx() as s:
@@ -89,7 +151,8 @@ async def test_the_coder_is_seeded_with_its_grants_role_and_thresholds(engine, s
         assert (row.timeout_seconds, row.concurrency) == (5400, 1)
         assert (row.quota_5h_max_pct, row.quota_7d_max_pct) == (95, 90)
         assert row.platform_tools == [TOOL_RELAY, TOOL_TICKETS, TOOL_WIKI,
-                                      TOOL_QUOTA_OK, TOOL_ARTIFACTS, "mcp__platform__memory", TOOL_SELF]
+                                      TOOL_QUOTA_OK, TOOL_ARTIFACTS, "mcp__platform__memory", TOOL_SELF,
+                                      "mcp__platform__tasks"]
         # The shell tools come from the profile, not the grant; WebFetch is
         # deliberately absent — the repo and the wiki are its sources.
         assert row.harness_tools == ["Glob", "Grep"]
@@ -99,7 +162,7 @@ async def test_the_coder_is_seeded_with_its_grants_role_and_thresholds(engine, s
             "Writes code for the platform: takes an assigned ticket, works on a "
             "branch, verifies, and opens a PR for a human to merge.")
         assert len(row.description) <= 512
-        assert row.prompt == ENGINEER_PROMPT
+        assert row.prompt == CODER_PROMPT
         assert await s.get(SchemaMark, ENGINEER_SEED_MARK) is not None
 
 
@@ -110,16 +173,16 @@ def test_the_prompt_carries_the_unconditional_rules():
                    "`git reset --hard`", ".github/", "quota_ok",
                    "bin/ap-verify --changed", ".ap/pr.md", "in_progress",
                    "blocked", "git log origin/main..HEAD", "UNTRUSTED"):
-        assert phrase in ENGINEER_PROMPT, phrase
+        assert phrase in CODER_PROMPT, phrase
 
 
 def test_the_prompt_orders_process_rules_and_hand_back():
     """Who it is, then the process, then the unconditional rules, then the
     hand-back — the order the design specifies, and the order a model reads
     hardest at the ends."""
-    i_process = ENGINEER_PROMPT.index("## Process")
-    i_rules = ENGINEER_PROMPT.index("## Unconditional rules")
-    i_handback = ENGINEER_PROMPT.index("## Hand-back")
+    i_process = CODER_PROMPT.index("## Process")
+    i_rules = CODER_PROMPT.index("## Unconditional rules")
+    i_handback = CODER_PROMPT.index("## Hand-back")
     assert 0 < i_process < i_rules < i_handback
 
 
@@ -133,7 +196,8 @@ async def test_the_coder_has_exactly_one_version_after_a_fresh_init(engine, sfx)
         (1, "system:coder", "seed")]
     snap = versions[0].snapshot
     assert snap["platform_tools"] == [TOOL_RELAY, TOOL_TICKETS, TOOL_WIKI,
-                                      TOOL_QUOTA_OK, TOOL_ARTIFACTS, "mcp__platform__memory", TOOL_SELF]
+                                      TOOL_QUOTA_OK, TOOL_ARTIFACTS, "mcp__platform__memory", TOOL_SELF,
+                                      "mcp__platform__tasks"]
     assert (snap["system"], snap["role"], snap["model"]) == (False, "dev", "opus")
     assert (snap["quota_5h_max_pct"], snap["quota_7d_max_pct"]) == (95, 90)
 

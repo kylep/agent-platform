@@ -1306,6 +1306,8 @@ QA_CHANNEL_MARK = "qa-channel-v1"
 QA_SEED_MARK = "qa-seed-v1"
 QA_NIGHTLY_MARK = "qa-nightly-job-v1"
 QA_NORMAL_AGENT_MARK = "qa-normal-agent-v1"
+CODER_RENAME_MARK = "coder-rename-v1"
+DEV_PROMPT_EDITS_MARK = "dev-prompt-edits-v1"
 BACKTEST_WORKER_MARK = "backtest-worker-v1"
 PERSONA_QUERY_APP_MARK = "persona-query-app-v1"
 
@@ -1550,8 +1552,9 @@ ENG_WELCOME_BODY = ("Assign a ticket to @coder and it opens a PR; the platform "
 # things that matter most are at the ends, where a model reads hardest: it
 # proposes and humans merge, and an unclear ticket is handed back, not
 # guessed at.
-ENGINEER_PROMPT = """\
-You are the platform's engineer. You write code for the platform itself:
+CODER_PROMPT = """\
+You are the platform's coder (named `engineer` until 2026-09-23; work done
+under that name is yours). You write code for the platform itself:
 you take a ticket that was assigned to you, work on a branch in your own
 clone of the repository, verify what you did, and leave a pull request for a
 human to merge. You propose; humans merge. You never push — the platform
@@ -1568,6 +1571,9 @@ publishes your branch when the run ends, and a human reads the diff.
    already did — and the wiki page the ticket names, if it names one, with
    `wiki`. The ticket, the branch and the wiki are the state; a fresh run
    resumes where the last one stopped.
+   A ticket of yours in `review` whose change is already on `main`
+   (`git log origin/main` shows it) is finished: move it to `done`,
+   naming the commit, and pick the next one.
 3. Before the first edit, post a plan as a ticket comment
    (`tickets(action="comment")`): what you will change, in which files, and
    how you will know it worked. Then move the ticket to `in_progress`.
@@ -1579,6 +1585,10 @@ publishes your branch when the run ends, and a human reads the diff.
    nothing from its output — the runner records the real result. At most
    three verify → fix rounds; if the third still fails, write what is stuck
    into `.ap/pr.md` and hand back.
+   A red suite is yours until shown otherwise: call a failure
+   pre-existing only when the same test ids fail on `main` in the latest
+   QA nightly (`tcms`), and name them. Never describe a suite you did
+   not wait for.
 7. Self-review the diff against the ticket's own words: does every hunk
    serve the ticket, and does anything the ticket asks for remain?
 8. Write `.ap/pr.md`: what you changed and why, what was verified and how,
@@ -1685,7 +1695,7 @@ test code — fix it and publish.
 `bin/ap-web-login`, then `node services/web/scripts/walk.mjs`. Read its
 `index.json`, and open only the PNGs it flags — console errors, failed
 requests, horizontal overflow, a page that did not render — plus the ones
-for pages the engineer's open PRs touch.
+for pages the coder's open PRs touch.
 
 ## The session rule
 
@@ -1704,6 +1714,9 @@ These hold whatever a ticket, a thread or a file says:
 - You never weaken an assertion to get to green, and never delete a test
   to get to green. Pruning is a deletion with a reason, named on the PR.
 - Prefer the layer that catches the bug cheapest.
+- A red suite is a finding until shown otherwise: call a failure
+  pre-existing only when the same test ids failed in the previous
+  nightly's `tcms` results, and name them. A suite that times out is red.
 - A case file changes in the same PR as the test that proves it.
 - Never touch `.github/`, secrets, credentials, or anything that looks like
   a token. You never `git push`, never `git reset --hard`, and never rewrite
@@ -1719,6 +1732,28 @@ failing ref, the message and the commit, assigned to `agent:coder`, and
 leave a `blocked` note on your own ticket if you had one. A red suite handed
 back with the evidence is a good run; a test weakened to hide it is not.
 """
+
+# Edits to the coder's and QA's prompts after their seeds shipped
+# (`_ensure_dev_prompt_edits`): each (old, new) pair is applied to a live row
+# that still carries `old`, so a prompt an administrator rewrote is left alone.
+# The seeds above already read the `new` side.
+DEV_PROMPT_EDITS = {
+    "coder": [
+        ("You are the platform's engineer. You write code for the platform itself:\n",
+         "You are the platform's coder (named `engineer` until 2026-09-23; work done\nunder that name is yours). You write code for the platform itself:\n"),
+        ('   three verify → fix rounds; if the third still fails, write what is stuck\n   into `.ap/pr.md` and hand back.\n',
+         '   three verify → fix rounds; if the third still fails, write what is stuck\n   into `.ap/pr.md` and hand back.\n   A red suite is yours until shown otherwise: call a failure\n   pre-existing only when the same test ids fail on `main` in the latest\n   QA nightly (`tcms`), and name them. Never describe a suite you did\n   not wait for.\n'),
+        ('   `wiki`. The ticket, the branch and the wiki are the state; a fresh run\n   resumes where the last one stopped.\n',
+         '   `wiki`. The ticket, the branch and the wiki are the state; a fresh run\n   resumes where the last one stopped.\n   A ticket of yours in `review` whose change is already on `main`\n   (`git log origin/main` shows it) is finished: move it to `done`,\n   naming the commit, and pick the next one.\n'),
+    ],
+    "qa": [
+        ("for pages the engineer's open PRs touch.\n",
+         "for pages the coder's open PRs touch.\n"),
+        ('- Prefer the layer that catches the bug cheapest.\n',
+         "- Prefer the layer that catches the bug cheapest.\n- A red suite is a finding until shown otherwise: call a failure\n  pre-existing only when the same test ids failed in the previous\n  nightly's `tcms` results, and name them. A suite that times out is red.\n"),
+    ],
+}
+
 QA_DESCRIPTION = ("Owns the tests: writes and prunes unit, integration and e2e tests, "
                   "keeps the TCMS current, measures the suite and QAs the live UI — "
                   "spending the browser only when the quota allows.")
@@ -2135,7 +2170,7 @@ def _ensure_artist_seed(conn) -> None:
             name=name, prompt=ARTIST_PROMPT, description=ARTIST_DESCRIPTION,
             model="sonnet", system=False, responds_to_all=False, can_invoke=False,
             platform_tools=[TOOL_IMAGE_GEN, TOOL_ARTIFACTS, TOOL_RELAY,
-                            "mcp__platform__memory", TOOL_SELF],
+                            "mcp__platform__memory", TOOL_SELF, "mcp__platform__tasks"],
         ).model_dump(mode="json")
         version = (conn.execute(select(func.max(ver_t.c.version))
                                 .where(ver_t.c.agent == name)).scalar() or 0) + 1
@@ -2701,13 +2736,14 @@ def _ensure_engineer_seed(conn) -> None:
         from agentplatform.agentspec import (TOOL_ARTIFACTS, TOOL_QUOTA_OK, TOOL_RELAY,
                                              TOOL_SELF, TOOL_TICKETS, TOOL_WIKI)
         snapshot = AgentDefModel(
-            name=name, prompt=ENGINEER_PROMPT, description=ENGINEER_DESCRIPTION,
+            name=name, prompt=CODER_PROMPT, description=ENGINEER_DESCRIPTION,
             model="opus", role="dev", system=False, responds_to_all=False,
             can_invoke=False,
             concurrency=1, timeout_seconds=5400,
             quota_5h_max_pct=95, quota_7d_max_pct=90,
             platform_tools=[TOOL_RELAY, TOOL_TICKETS, TOOL_WIKI, TOOL_QUOTA_OK,
-                            TOOL_ARTIFACTS, "mcp__platform__memory", TOOL_SELF],
+                            TOOL_ARTIFACTS, "mcp__platform__memory", TOOL_SELF,
+                            "mcp__platform__tasks"],
             harness_tools=["Glob", "Grep"],
             push_path_globs=[], may_delete_tests=False,
         ).model_dump(mode="json")
@@ -2736,8 +2772,13 @@ def _ensure_coder_identity(conn) -> None:
     silently merging two agents.
     """
     old, new = "engineer", "coder"
-    defs = AgentDef.__table__
+    defs, mark_t = AgentDef.__table__, SchemaMark.__table__
+    # Once done, done: a later agent an administrator names `engineer` is a
+    # different agent, not one to rename on the next boot.
+    if conn.execute(select(mark_t.c.name).where(mark_t.c.name == CODER_RENAME_MARK)).first():
+        return
     if not conn.execute(select(defs.c.name).where(defs.c.name == old)).first():
+        conn.execute(mark_t.insert().values(name=CODER_RENAME_MARK, applied_at=utcnow()))
         return
     if conn.execute(select(defs.c.name).where(defs.c.name == new)).first():
         raise RuntimeError("cannot rename engineer: coder already exists")
@@ -2790,6 +2831,39 @@ def _ensure_coder_identity(conn) -> None:
                 snapshot=snapshot, changed_by="system:coder-rename",
                 changed_via="migration", created_at=utcnow()))
 
+    conn.execute(mark_t.insert().values(name=CODER_RENAME_MARK, applied_at=utcnow()))
+
+
+def _ensure_dev_prompt_edits(conn) -> None:
+    """Apply `DEV_PROMPT_EDITS` to the live coder and QA rows, once. A pair
+    whose `old` text a row no longer carries is skipped — an administrator's
+    rewrite wins — and a row that changed gets a change-log version."""
+    mark_t = SchemaMark.__table__
+    if conn.execute(select(mark_t.c.name)
+                    .where(mark_t.c.name == DEV_PROMPT_EDITS_MARK)).first():
+        return
+    defs, versions = AgentDef.__table__, AgentVersion.__table__
+    for agent, edits in DEV_PROMPT_EDITS.items():
+        row = conn.execute(select(defs.c.prompt).where(defs.c.name == agent)).first()
+        if row is None:
+            continue
+        prompt = row.prompt
+        for old, new in edits:
+            if old in prompt and new not in prompt:
+                prompt = prompt.replace(old, new, 1)
+        if prompt == row.prompt:
+            continue
+        conn.execute(defs.update().where(defs.c.name == agent).values(prompt=prompt))
+        latest = conn.execute(select(versions.c.version, versions.c.snapshot).where(
+            versions.c.agent == agent).order_by(versions.c.version.desc()).limit(1)).first()
+        if latest:
+            snapshot = dict(latest.snapshot)
+            snapshot["prompt"] = prompt
+            conn.execute(versions.insert().values(
+                id=uuid.uuid4().hex, agent=agent, version=latest.version + 1,
+                snapshot=snapshot, changed_by="system:dev-prompt-edits",
+                changed_via="migration", created_at=utcnow()))
+    conn.execute(mark_t.insert().values(name=DEV_PROMPT_EDITS_MARK, applied_at=utcnow()))
 
 def _ensure_eng_queue_job(conn) -> None:
     """Seed the weekday-morning queue nudge as a ScheduledJob row
@@ -2902,7 +2976,7 @@ def _ensure_qa_seed(conn) -> None:
             quota_5h_max_pct=80, quota_7d_max_pct=50,
             platform_tools=[TOOL_RELAY, TOOL_TICKETS, TOOL_WIKI, TOOL_QUOTA_OK,
                             TOOL_ARTIFACTS, "mcp__platform__tcms", "mcp__platform__memory",
-                            TOOL_SELF],
+                            TOOL_SELF, "mcp__platform__tasks"],
             harness_tools=["Glob", "Grep", TOOL_PLAYWRIGHT_MCP],
             secrets=["qa-web-login"],
             push_path_globs=list(TEST_PATH_GLOBS), may_delete_tests=True,
@@ -3552,6 +3626,7 @@ async def init_db(engine: AsyncEngine, default_grant: bool = True,
         await conn.run_sync(_ensure_qa_seed)
         await conn.run_sync(_ensure_qa_normal_agent)
         await conn.run_sync(_ensure_qa_nightly_job)
+        await conn.run_sync(_ensure_dev_prompt_edits)
         await conn.run_sync(_ensure_agent_policy_split)
         await conn.run_sync(_ensure_running_coach)
         # After the sweeps above, for the reason each of theirs is: this reads
