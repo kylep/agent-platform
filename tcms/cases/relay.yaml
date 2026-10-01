@@ -9,7 +9,7 @@ cases:
     steps: ["post \"@news hello\" in #general as a human"]
     expected: exactly one run for news with hop 0 and initiated_by the human; nobody else is woken
     automation:
-      - pytest:services/backend/tests/test_relay_router.py::test_a_human_mention_invokes_each_agent_at_hop_zero
+      - pytest:services/backend/tests/test_relay_router.py::test_multi_mention_runs_in_written_order_with_prior_reply_in_context
       - pytest:services/backend/tests/test_relay_router.py::test_nothing_is_summoned_without_a_mention
     tags: [router]
 
@@ -156,7 +156,7 @@ cases:
     automation:
       - "playwright:services/web/tests/relay.spec.ts::a thread opens beside the room, not instead of it"
       - "playwright:services/web/tests/relay.spec.ts::replies stay out of the room and are counted on their root"
-      - "playwright:services/web/tests/relay.spec.ts::closing the thread clears the parameter, and the room stays put"
+      - "playwright:services/web/tests/relay.spec.ts::dismissing the thread pane clears the parameter, and the room stays put"
       - "playwright:services/web/tests/relay.spec.ts::at 390 the thread is a sheet with a way back"
     tags: [ui, mobile]
 

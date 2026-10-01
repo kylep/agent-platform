@@ -162,7 +162,8 @@ async def test_the_mark_is_the_off_switch(engine, sfx):
 # own marks, with their own tests, and letting them run here would have every
 # assertion below carry grants it is not about.
 OTHER_SWEEPS = dict(default_grant=False, tickets_grant=False, quota_grant=False,
-                    artifacts_grant=False, memory_grant=False, self_grant=False)
+                    artifacts_grant=False, memory_grant=False, self_grant=False,
+                    tasks_grant=False)
 
 
 async def _grants(sfx, name: str) -> list[str]:

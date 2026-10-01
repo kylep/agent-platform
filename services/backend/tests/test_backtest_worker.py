@@ -25,7 +25,7 @@ def _participants(**kw):
     reflects only `_ensure_backtest_worker`, not the ambient default grants."""
     return {**dict(default_grant=False, tickets_grant=False, wiki_grant=False,
                    quota_grant=False, artifacts_grant=False, memory_grant=False,
-                   self_grant=False), **kw}
+                   self_grant=False, tasks_grant=False), **kw}
 
 
 async def _agent(sf, name: str):

@@ -170,7 +170,7 @@ async def _grants(sfx, name: str) -> list[str]:
 # (docs/design/22) sweep the same rows under their own marks, and letting them
 # run would have every assertion in this section carry grants it is not about.
 OTHER_SWEEPS = dict(wiki_grant=False, quota_grant=False, artifacts_grant=False,
-                    memory_grant=False, self_grant=False)
+                    memory_grant=False, self_grant=False, tasks_grant=False)
 
 
 async def test_tickets_grant_backfill_covers_the_agents_that_already_exist(engine, sfx):
@@ -298,7 +298,8 @@ async def test_health_monitor_learns_to_open_tickets(engine, sfx):
         (5, "platform:quota-default-grant", "migration"),
         (6, "platform:artifacts-default-grant", "migration"),
         (7, "platform:memory-default-grant", "migration"),
-        (8, "platform:self-default-grant", "migration")]
+        (8, "platform:tasks-default-grant", "migration"),
+        (9, "platform:self-default-grant", "migration")]
     assert versions[-1].snapshot["prompt"] == (await _agent_prompt(sfx))
     # Once only: the appended paragraph is not re-appended on the next boot.
     before = await _agent_prompt(sfx)
