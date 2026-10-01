@@ -54,7 +54,8 @@ async def test_the_artist_is_seeded_with_its_grants(engine, sfx):
         assert row.responds_to_all is False
         assert (row.model, row.role) == ("sonnet", "operator")
         assert row.platform_tools == [TOOL_IMAGE_GEN, TOOL_ARTIFACTS, TOOL_RELAY,
-                                      "mcp__platform__memory", TOOL_SELF]
+                                      "mcp__platform__memory", TOOL_SELF,
+                                      "mcp__platform__tasks"]
         assert (row.harness_tools, row.skills, row.secrets) == ([], [], [])
         assert row.entrypoints == {"crons": [], "webhooks": [], "topics": [],
                                    "timezone": ""}
@@ -177,7 +178,7 @@ async def test_the_artist_has_exactly_one_version_after_a_fresh_init(engine, sfx
         (1, "system:artist", "seed")]
     assert versions[0].snapshot["platform_tools"] == [TOOL_IMAGE_GEN, TOOL_ARTIFACTS,
                                                        TOOL_RELAY, "mcp__platform__memory",
-                                                       TOOL_SELF]
+                                                       TOOL_SELF, "mcp__platform__tasks"]
     assert versions[0].snapshot["system"] is False
     assert versions[0].snapshot["model"] == "sonnet"
 

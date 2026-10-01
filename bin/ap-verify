@@ -38,6 +38,17 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_BASE = "origin/main"
 DEFAULT_TIMEOUT = 900
+
+
+def default_timeout(env=os.environ) -> int:
+    """`--timeout`'s default. A dev pod sets `AP_VERIFY_TIMEOUT` (the budget the
+    runner's own end-of-run verify uses), so an agent's `--changed` run gets the
+    same per-suite budget instead of cutting the backend suite at 900 s."""
+    try:
+        value = int(env.get("AP_VERIFY_TIMEOUT") or DEFAULT_TIMEOUT)
+    except ValueError:
+        return DEFAULT_TIMEOUT
+    return value if value > 0 else DEFAULT_TIMEOUT
 TAIL_LINES = 40
 # A per-suite JUnit file larger than this is not merged: the files come out
 # of the agent's workspace, and a parser of them is a parser of untrusted
@@ -438,7 +449,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--base", default=DEFAULT_BASE, help=f"ref to diff against (default {DEFAULT_BASE})")
     ap.add_argument("--out", default=None, help="report directory (default <repo>/.ap/verify)")
     ap.add_argument("--list", action="store_true", help="print the suite table and what would run; run nothing")
-    ap.add_argument("--timeout", type=int, default=DEFAULT_TIMEOUT, help=f"seconds per suite (default {DEFAULT_TIMEOUT})")
+    ap.add_argument("--timeout", type=int, default=default_timeout(),
+                    help=f"seconds per suite (default $AP_VERIFY_TIMEOUT, else {DEFAULT_TIMEOUT})")
     ap.add_argument("--skip", action="append", default=[], metavar="SUITE",
                     help="record this suite as skipped instead of running it (repeatable)")
     args = ap.parse_args(argv)

@@ -57,8 +57,10 @@ class GitHubClient:
         return self._send(self.build_request(
             "POST", "/pulls", {"head": head, "base": base, "title": title, "body": body}))
 
-    def list_pull_requests(self, *, state: str = "open") -> list:
-        return self._send(self.build_request("GET", f"/pulls?state={state}"))
+    def list_pull_requests(self, *, state: str = "open", sort: str = "created",
+                           per_page: int = 30) -> list:
+        return self._send(self.build_request(
+            "GET", f"/pulls?state={state}&sort={sort}&direction=desc&per_page={per_page}"))
 
     def find_open_pull_request(self, head_branch: str) -> dict | None:
         owner = self.repo.split("/")[0]

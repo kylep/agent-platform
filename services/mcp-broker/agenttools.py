@@ -51,9 +51,11 @@ GRANT_LIST_FIELDS: tuple[str, ...] = ("harness_tools", "platform_tools",
 GRANT_FLAG_FIELDS: tuple[str, ...] = ("can_invoke", "may_delete_tests")
 # `agent_type` and `external_observer` are authority since docs/design/34 (a
 # type change or observer grant changes what the agent may read or own), so
-# like `role` they are grants that no tool sets.
+# like `role` they are grants that no tool sets. So is `accept_scheduled_tasks`
+# (docs/design/37): the admin-set inbound veto on scheduled Tasks.
 GRANT_FIELDS: tuple[str, ...] = GRANT_LIST_FIELDS + GRANT_FLAG_FIELDS + (
-    "role", "discord_identity_id", "agent_type", "external_observer")
+    "role", "discord_identity_id", "agent_type", "external_observer",
+    "accept_scheduled_tasks")
 API_EDIT_FIELDS: tuple[str, ...] = (
     "prompt", "description", "runtime", "model", "backup_runtime", "backup_model",
     "system", "responds_to_all", "concurrency",

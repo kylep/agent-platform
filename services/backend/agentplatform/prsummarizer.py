@@ -23,7 +23,8 @@ from agentplatform.events import TOPIC_RUN_REQUESTS
 log = logging.getLogger("pr-summarizer")
 
 MARKER = "<!-- ap:ai-summary sha="
-CODER_PREFIX = "coder/"
+# Platform-authored branches (coder/*, and qa/* since design 25).
+PLATFORM_PREFIXES = ("coder/", "qa/")
 SUMMARIZER_AGENT = "change-summarizer"
 
 
@@ -97,7 +98,7 @@ class PrSummarizer:
         if info is None or info.error is not None:
             return
         prs = await asyncio.to_thread(gh.list_pull_requests)
-        prs = [p for p in prs if p["head"]["ref"].startswith(CODER_PREFIX)]
+        prs = [p for p in prs if p["head"]["ref"].startswith(PLATFORM_PREFIXES)]
         if not prs:
             return
         runs = await self._recent_summary_runs()

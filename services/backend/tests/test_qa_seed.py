@@ -75,7 +75,8 @@ async def test_the_qa_is_seeded_with_its_grants_role_and_thresholds(engine, sfx)
         # tool's read actions answer the same questions.
         assert row.platform_tools == [TOOL_RELAY, TOOL_TICKETS, TOOL_WIKI,
                                       TOOL_QUOTA_OK, TOOL_ARTIFACTS,
-                                      "mcp__platform__tcms", "mcp__platform__memory", TOOL_SELF]
+                                      "mcp__platform__tcms", "mcp__platform__memory", TOOL_SELF,
+                                      "mcp__platform__tasks"]
         assert "mcp__platform__query_app" not in row.platform_tools
         assert row.harness_tools == ["Glob", "Grep", TOOL_PLAYWRIGHT_MCP]
         assert (row.skills, row.secrets) == ([], ["qa-web-login"])

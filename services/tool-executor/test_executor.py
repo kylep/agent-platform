@@ -8,6 +8,7 @@ caller's `files_in`) and `out/` (whatever the tool writes comes back as
 import base64
 import json
 import os
+from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
@@ -312,15 +313,25 @@ def test_timeout_kills_the_whole_process_group(tools_root, scratch, tmp_path):
     assert "timed out" in body["error"]
     pid = int(pid_file.read_text())
     deadline = time.monotonic() + 3
-    while time.monotonic() < deadline:
-        try:
-            os.kill(pid, 0)
-        except ProcessLookupError:
-            break
+    while time.monotonic() < deadline and not _dead(pid):
         time.sleep(0.05)
-    with pytest.raises(ProcessLookupError):
-        os.kill(pid, 0)
+    assert _dead(pid)
     assert not list(scratch.iterdir())
+
+
+def _dead(pid: int) -> bool:
+    """Gone, or a zombie. The killed grandchild is reparented to the
+    container's PID 1; where that is not an init that reaps (a dev pod's
+    runner), it lingers as a zombie — dead, but `kill(pid, 0)` still finds it."""
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return True
+    try:
+        stat = Path(f"/proc/{pid}/stat").read_text()
+    except OSError:
+        return False
+    return stat.rpartition(")")[2].split()[0] == "Z"
 
 
 def test_files_in_rejects_nul_and_overlong_names(tools_root, scratch):

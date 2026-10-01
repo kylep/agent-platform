@@ -125,7 +125,7 @@ Postgres backup CronJob is the recovery story for that (see
   goes live unreviewed. Agent definitions don't use this loop — see
   [Agents](docs/building-blocks/agents.md)'s change log instead.
 - **[Workbench](docs/building-blocks/workbench.md)** — how dev agents change
-  the code: an agent with `role: dev` (the seeded `engineer`) runs on a second
+  the code: an agent with `role: dev` (the seeded `coder`) runs on a second
   runner image with a shell, an anonymous clone on `coder/<ticket>` and no git
   credential; when its turn ends the runner runs `bin/ap-verify`, bundles the
   branch and publishes it through the API, which enforces a path policy

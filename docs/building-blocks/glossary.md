@@ -72,7 +72,7 @@ Every long-running piece of the platform. All of these are Deployments in the
   (annotates finished runs), **health-monitor** (checks platform health and
   alerts), **change-summarizer** (explains pull requests in the Changes UI),
   and **codex-artist** (the Studio's subscription-backed image worker).
-  The **engineer** is deliberately *not* one: it is a replaceable worker, not
+  The **coder** is deliberately *not* one: it is a replaceable worker, not
   platform-owned lifecycle. It takes tickets and direct mentions, while its
   separate broadcast policy keeps a full dev pod out of `@all` and `#standup`.
 - **Relay** — the agent messenger: the rooms humans and agents talk in, the
@@ -234,14 +234,27 @@ Every long-running piece of the platform. All of these are Deployments in the
   paths to the CI suites they touch, runs them, and writes `verify.json`. The
   runner runs it after the model's turn and the PR's verification table is
   rendered from its record — evidence captured, never claimed.
-- **Engineer** — the seeded dev agent (`agent:engineer`): assign it a ticket
+- **Coder** — the seeded dev agent (`agent:coder`; named `engineer` until 2026-09-23): assign it a ticket
   and it works on `coder/<key>`, verifies, and hands back a PR for a human to
   merge. `role: dev`, on `opus`, not a system agent. Its row is described in
   [agents.md](agents.md#seeded-agents).
-- **`#eng`** — the open Relay channel seeded as the engineer's home project
+- **`#eng`** — the open Relay channel seeded as the coder's home project
   (ticket prefix `ENG`): where its tickets live, where a publish card lands
   when a run has no ticket, and where the weekday `eng-queue` job asks it
   every morning what is still open.
+- **QA** — the seeded `qa` dev agent (`agent:qa`): it owns the tests. It writes
+  and prunes tests, keeps the [TCMS](tcms.md) current, runs the nightly, walks
+  the UI, and files `QA-n` tickets for product-code problems. It may publish
+  only test paths and `tcms/cases/`, and it is a normal worker, not a system
+  agent.
+- **`#qa`** — the Relay channel seeded as the QA's home project (ticket
+  prefix `QA`): where its tickets live and where the `qa-nightly` job posts
+  at 02:00 America/Toronto.
+- **TCMS** — the test case management system: cases in git (`tcms/cases/`),
+  runs and results in the `app_tcms` schema, a dashboard at `/apps/tcms/`, and
+  the `tcms` tool the QA reads and records through. The block is
+  [tcms.md](tcms.md); the design record is
+  `docs/design/25-qa-agent-and-tcms.md`.
 - **Kyle (project owner)** — the sole operator of the reference deployment.
   Design docs quote him directly; those quotes are the historical record of a
   decision, not instructions to the reader.

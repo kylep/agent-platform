@@ -710,6 +710,16 @@ card's warning" and still passes. When every line above holds, write `PASS
 
 ## Live verification
 
+**Status 2026-09-30 (resumed after the pause below).** R-Q1 landed in `0eff574`.
+R-Q2 (the `qa/` prefix, now keyed on the agent's name) and R-Q3 (`bin/ap-verify`'s
+default `--timeout` reads `AP_VERIFY_TIMEOUT`) are fixed on branch
+`fix/coder-qa-followups`, not yet deployed. Item 7 is recorded in substance by the
+scheduled nightlies rather than a Run Now: TCMS runs 8–10 (09-28/29/30: 298, 301 and
+308 Playwright passes), QA-19…QA-23 filed with evidence, PRs #17 and #20 published.
+Item 6's live-session half and item 8 (helm revision, `kubectl top`, `app_tcms`
+sizes) were never recorded. T11 and T12 stay unticked until they are; T12's docs
+(`docs/building-blocks/tcms.md`, design 25's AS BUILT) are written on the same branch.
+
 **PAUSED 2026-09-19 22:45 EDT by Kyle (weekly quota at 98%).** State: deployed on pai as **helm rev 63**; items 1–5 below are recorded from the verify agent's draft, items 6–8 not run. Uncommitted in the tree from THIS build: repair R-Q1 (6 files: `secrets/qa-web-login/verify_qa_login.py`, `agentplatform/{secretverify,verifierloop,dispatcher_main}.py`, `api/secrets.py`, `tests/test_secretregistry.py` — the verifier hands `settings.api_internal_url` to scripts; 41 targeted tests green; NOT yet deployed, so `/api/secrets` still says `qa-web-login` invalid although the qa login is 200) and this plan file. Everything else uncommitted belongs to Kyle's concurrent Codex session (design 26). To resume: commit R-Q1 + this file by path (never `-A`), rebuild+redeploy backend (the verifier lives in the dispatcher), then items 6–8, then the repairs below, then T12.
 
 Repairs found by the live run, not yet queued as tasks: **R-Q2** the QA's branch is `coder/qa-18` (PR #15) — `agentplatform/workbench.py::branch_for` must use the `qa/` prefix when the agent's `push_path_globs` is non-empty (the design, `/changes` and the ruleset all expect `qa/<key>`); **R-Q3** the QA's own in-run `bin/ap-verify` uses the 900 s default (same as design 24's deferred note) — make the default read `AP_VERIFY_TIMEOUT`.

@@ -117,3 +117,11 @@ async def test_non_coder_prs_ignored(sf, summarizer_env):
     loop, producer = summarizer_env(gh)
     await loop.tick()
     assert [p for p in producer.published if p[0] == TOPIC_RUN_REQUESTS] == []
+
+
+async def test_qa_prs_are_summarized_too(sf, summarizer_env):
+    """Design 25: QA publishes under qa/, and its PRs get the same summary."""
+    gh = FakeGH([_pr(branch="qa/qa-3")])
+    loop, producer = summarizer_env(gh)
+    await loop.tick()
+    assert len([p for p in producer.published if p[0] == TOPIC_RUN_REQUESTS]) == 1

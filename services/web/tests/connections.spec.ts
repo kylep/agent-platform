@@ -41,7 +41,7 @@ test("connection card opens a dated guide and writes a new Discord token before 
   await expect(page).toHaveURL(/\?connection=discord$/);
   await expect(page.getByLabel("Discord bot token")).toHaveCount(0);
   await page.getByRole("navigation", { name: "Breadcrumb" }).getByRole("link", { name: "Connections" }).click();
-  await expect(page.locator(".connection-card")).toHaveCount(9);
+  await expect(page.locator(".connection-card")).toHaveCount(10);
   await page.goBack();
   await expect(page.getByRole("heading", { name: "Discord chat identities" })).toBeVisible();
 });
@@ -98,7 +98,7 @@ test("connection cards use the available width and step down on smaller screens"
     await page.setViewportSize({ width, height: 900 });
     await page.goto("/secrets");
     const cards = page.locator(".connection-card");
-    await expect(cards).toHaveCount(9);
+    await expect(cards).toHaveCount(10);
     const leftEdges = await cards.evaluateAll((items) => items.slice(0, 6)
       .map((item) => Math.round(item.getBoundingClientRect().left)));
     expect(new Set(leftEdges).size).toBe(columns);

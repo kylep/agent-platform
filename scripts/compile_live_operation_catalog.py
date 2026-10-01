@@ -110,12 +110,23 @@ def _effect_policy(source: str, tool: str, action: str) -> tuple[list[str], str]
         if tool == "discord":
             if action == "send":
                 return ["external_send"], "private"
-            if action in ("identities", "endpoints", "read", "receipt"):
+            if action in ("identities", "endpoints", "read", "receipt", "scan"):
                 return ["reads_sensitive"], "private"
+            if action == "scan_ack":
+                # Advances the owned account's triage cursor; sends nothing.
+                return ["mutates_platform"], "private"
             return ["unknown"], "restricted"
         if tool == "relay":
             return (["reads_sensitive"] if action in ("channels", "read", "search")
                     else ["mutates_platform", "invokes_agent"]), "private"
+        if tool == "tasks":
+            # schedule/reschedule queue a future run of an agent; cancel only
+            # withdraws one, so it wakes nobody.
+            if action in ("list", "get", "events", "models"):
+                return ["reads_sensitive"], "private"
+            if action == "cancel":
+                return ["mutates_platform"], "private"
+            return ["mutates_platform", "invokes_agent"], "private"
         if tool == "tickets":
             return (["reads_sensitive"] if action in ("get", "list", "search")
                     else ["mutates_platform", "invokes_agent"]), "private"
