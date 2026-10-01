@@ -111,9 +111,21 @@ class _Landed:
 
 # --- naming -------------------------------------------------------------------------
 
-def branch_for(run, ticket, *, prefix: str = "coder") -> str:
+# design 25: QA publishes under `qa/`; every other dev agent under `coder/`.
+# Keyed on the agent's name, not a grant, so editing an agent's grants never
+# renames the branch a ticket is already on.
+BRANCH_PREFIX_BY_AGENT = {"qa": "qa"}
+
+
+def branch_prefix(agent: str) -> str:
+    return BRANCH_PREFIX_BY_AGENT.get(agent, "coder")
+
+
+def branch_for(run, ticket, *, prefix: str | None = None) -> str:
     """The run's branch: the platform names it, the runner only receives it.
-    `prefix` is design 25's seam (a QA run publishes under `qa/`)."""
+    The prefix follows the run's agent (`branch_prefix`), so the workbench view
+    and the publish always agree."""
+    prefix = prefix or branch_prefix(run.agent)
     name = f"{prefix}/{ticket.key.lower()}" if ticket is not None else f"{prefix}/run-{run.id[:12]}"
     if not BRANCH_RE.match(name):
         raise ValueError(f"not a publishable branch name: {name!r}")
@@ -591,8 +603,9 @@ async def _publish_event(producer, *, event: str, run, agent: str, ticket, branc
 
 async def _move(session_factory, producer, *, run, ticket, agent: str, verify: dict) -> tuple[str | None, str | None]:
     """The ticket after the publish: `review`, or `blocked` naming the failing
-    suite. A move the board refuses (already there) is a warning, never a
-    failed publish — the code is on the remote by now."""
+    suite. A ticket the agent already moved there is left alone; any other move
+    the board refuses is a warning, never a failed publish — the code is on the
+    remote by now."""
     if ticket is None:
         return None, None
     reason = verify_failure(verify)
@@ -604,9 +617,12 @@ async def _move(session_factory, producer, *, run, ticket, agent: str, verify: d
             await move_ticket(s, producer, row, actor=f"agent:{agent}", to_state=to_state,
                               reason=reason, run=run)
         except TicketRuleError as e:
-            # The row is expired by the rollback; the state it had is the
-            # state it keeps.
+            # The row is expired by the rollback; re-read it, since the agent
+            # may have made this very move itself (under the board's lock).
             await s.rollback()
+            state = str((await s.get(Ticket, ticket.id)).state)
+            if state == to_state:
+                return state, None
             return state, f"ticket not moved: {one_line(str(e), REASON_LIMIT)}"
         return str(row.state), None
 

@@ -301,15 +301,24 @@ class _T:
 
 
 class _R:
-    def __init__(self, id):
+    def __init__(self, id, agent="coder"):
         self.id = id
+        self.agent = agent
 
 
 def test_branch_for_names_the_ticket_or_the_run():
     assert workbench.branch_for(_R("a" * 32), _T("ENG-12")) == "coder/eng-12"
     assert workbench.branch_for(_R("0123456789abcdef" * 2), None) == "coder/run-0123456789ab"
-    # Design 25's prefix is an argument, not a second function.
     assert workbench.branch_for(_R("a" * 32), _T("QA-3"), prefix="qa") == "qa/qa-3"
+
+
+def test_branch_prefix_follows_the_runs_agent():
+    """Design 25: QA publishes under qa/, whatever the ticket's key; a QA-n
+    ticket the coder works stays on coder/."""
+    assert workbench.branch_for(_R("a" * 32, "qa"), _T("QA-3")) == "qa/qa-3"
+    assert workbench.branch_for(_R("0123456789abcdef" * 2, "qa"), None) == "qa/run-0123456789ab"
+    assert workbench.branch_for(_R("a" * 32, "coder"), _T("QA-21")) == "coder/qa-21"
+    assert workbench.branch_for(_R("a" * 32, "engineer"), _T("ENG-1")) == "coder/eng-1"
 
 
 # --- GET /api/runs/{id}/workbench -------------------------------------------------
@@ -820,6 +829,28 @@ async def test_a_head_that_does_not_descend_from_main_is_refused(wb, sf, remote,
     assert card.body.startswith("⛔ publish refused for engineer: ")
     (env,) = _wb_events(producer)
     assert env["data"]["event"] == "refused"
+
+
+async def test_a_ticket_the_agent_already_moved_to_review_is_left_alone(
+        wb, sf, remote, tmp_path, token_client):
+    """The relay prompt tells the agent to move its ticket when it finishes, so
+    it is usually in `review` before the publish lands: no "cannot move from
+    review to review" warning on the card."""
+    rid, ticket, headers = await _dev_run(wb, sf)
+    async with sf() as s:
+        row = (await s.execute(select(Ticket).where(Ticket.key == "GEN-1"))).scalar_one()
+        row.state = "review"
+        await s.commit()
+    c = clone_of(remote, tmp_path / "c")
+    git(c, "checkout", "-q", "-b", "coder/gen-1")
+    commit_files(c, {CODE_FILE: "X = 2\n"})
+    bundle, head, base = bundle_of(c, "coder/gen-1")
+    r = await token_client.post(f"/api/runs/{rid}/publish", headers=headers,
+                                json=_body(bundle, head, base, VERIFY_OK))
+    assert r.status_code == 201, r.text
+    assert r.json()["ticket_state"] == "review"
+    card = await _publish_card(sf, ticket)
+    assert "not moved" not in card.body and card.card["warnings"] == []
 
 
 async def test_a_remote_branch_that_moved_is_refused_never_overwritten(wb, sf, remote,

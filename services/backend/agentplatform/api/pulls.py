@@ -187,7 +187,7 @@ async def _cleanup_branch(gh: GitHubClient, number: int) -> None:
     try:
         pr = await asyncio.to_thread(gh.pull_request, number)
         branch = pr.get("head", {}).get("ref", "")
-        if branch.startswith(CODER_BRANCH_PREFIX):
+        if branch.startswith(PLATFORM_BRANCH_PREFIXES):
             await asyncio.to_thread(gh.delete_branch, branch)
     except Exception:
         pass  # cleanup must never fail the accept/discard itself
