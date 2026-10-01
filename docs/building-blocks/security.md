@@ -39,7 +39,7 @@ chat messages. Anything it reads can try to talk it into misbehaving
 things an attacker needs all at once: untrusted input, a credential worth
 stealing, and a way to send data out. Shell and file tools (Bash, Read,
 Write, Edit) are hard-denied for ordinary runs. **Dev runs** — agents with
-`role: dev`, such as the seeded engineer —
+`role: dev`, such as the seeded coder —
   which get a real shell on the [Workbench](workbench.md): a bigger pod on
   the `runner-dev` image, an *anonymous* clone of the public repository on a
   branch, the test toolchain, and **no git credential of any kind**. The pod

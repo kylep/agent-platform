@@ -20,7 +20,7 @@ Propose  →  Review  →  Accept  →  Deploying  →  Live
 
 ## The loop, stage by stage
 
-1. **Propose.** An editor save or engineer Workbench wizard run opens a PR
+1. **Propose.** An editor save or coder Workbench wizard run opens a PR
    on the block's **deterministic branch**: `coder/skill-<name>`,
    `coder/secret-<name>`, `coder/tool-<name>`, `coder/report-<name>`.
    Deterministic editors validate
@@ -67,7 +67,7 @@ of this page.
 
 The [Workbench](workbench.md) is the second producer of changes, and its PRs
 sit in the same list with a different shape. A dev agent (the seeded
-`engineer`, or any `role: dev` row) works a **ticket**, not a block, so its
+`coder`, or any `role: dev` row) works a **ticket**, not a block, so its
 branch is named after the ticket — `coder/<key>` (`coder/eng-12`) for a
 coding agent, `qa/<key>` for a QA agent, `coder/run-<id>` for a run with no
 ticket — one branch and one PR per ticket, however many runs it takes. The

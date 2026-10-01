@@ -1,6 +1,9 @@
 # 25 — The QA agent and the TCMS (test cases in git, results in the database)
 
-Status: **designed 2026-09-18**, plan at
+Status: **designed 2026-09-18; deployed and running nightly** — QA nightlies
+have recorded TCMS runs since 2026-09-20. The plan's T11 live-verification
+items 7–8 are only partly recorded (see "Live verification" in the plan), so
+this is not marked shipped. Plan at
 `docs/superpowers/plans/2026-09-18-qa-agent-and-tcms.md`. Builds on the
 Workbench [24](24-coding-agent.md) — the dev run, publish, the path policy,
 `bin/ap-verify`, `quota_ok` — and must not start until that plan's
@@ -411,6 +414,65 @@ are per-run evidence, kept as artifacts for 30 days).
 
 ## AS BUILT
 
-To be written by the plan's docs task from the ticked tasks and the
-implementer reports: deltas from the design above, each forced by a review,
-a test or the live run.
+Deltas from the design text above, each forced by a review, a test or the
+live run. The block's reference page is
+[building-blocks/tcms.md](../building-blocks/tcms.md).
+
+From the build (plan tasks T1–T10):
+
+- **T1.** The stored `qa-web-login` secret is the source of truth, so a
+  rotation is loud; the login's `principal` is bounded; a miss is timing-safe.
+- **T2.** The case validator refuses a leading `/` and empty or dot segments
+  in a ref, and strips control characters from titles. The tree shipped as 98
+  cases and 291 refs, each verified against its test file.
+- **T3.** The tool caps suite nesting depth, clamps seconds and exit codes,
+  glob-escapes the root probe, and records idempotently on `run_id`
+  (`ON CONFLICT`). The SQL was proven on a throwaway Postgres.
+- **T4.** The broker and executor file sanitisers were cross-checked (that
+  caught NUL and over-long names); `files` is reserved in tool manifests and
+  advertised on every custom tool.
+- **T5.** App keys could not post to Relay, so a new route,
+  `POST /api/relay/notify`, was added: channels only, 60 per hour, written as
+  a system row from `app:tcms`. LIKE literals are escaped and `area` is
+  validated.
+- **T6.** Visual review passed with 24 screenshots across both themes and
+  widths; `overflow-wrap` was added after it.
+- **T7.** The runner starts the image's `playwright-mcp` binary, not `npx`.
+  `--allowed-origins` is advisory per the package's own README, so the real
+  boundary is Chromium's `--host-resolver-rules` passed through `--config`;
+  the design's text on this was corrected. The login frame falls back to
+  stderr.
+- **T8.** `walk.mjs` guards route paths against absolute, protocol-relative
+  and `file:` entries (a host-guard bypass) and cleans its temp dirs. The two
+  original spec lists disagreed on order; their titles are set-identical.
+- **T9.** The prompt, grants and adoption matched the design. Readiness blocks
+  only mid-rotation, because the API mints the secret at boot; this is pinned
+  in a test rather than special-cased.
+- **T10.** `ToolHelp.dev_only` was added so the help API carries which tools
+  are dev-only.
+
+From the live run and after:
+
+- **R-Q1.** The verifier now passes `api_internal_url` to secret verify
+  scripts; before, `qa-web-login` showed `invalid` in `/api/secrets` while
+  the qa login itself returned 200. Landed in commit `0eff574`.
+- **QA is a normal, deletable worker, not a system agent.** The design seeded
+  it with `system: true`; commit `36f3b92` changed that, and the seed in
+  `db.py` now writes `system=False`.
+- **The engineer agent was renamed `coder` on 2026-09-23** (`ca32a43`). QA
+  files product-code tickets to `agent:coder`.
+- **R-Q2.** The QA's first publish used the branch `coder/qa-18` (PR #15)
+  instead of `qa/<key>`. Branches now use the `qa/` prefix, and the prefix
+  follows the agent's name. Fixed on branch `fix/coder-qa-followups`, pending
+  deploy.
+- **R-Q3.** The QA's in-run `bin/ap-verify` used its 900 s default;
+  `--timeout` now defaults to `AP_VERIFY_TIMEOUT` when set. Fixed on
+  `fix/coder-qa-followups`, pending deploy.
+
+Live state as of 2026-09-30:
+
+- QA nightlies have recorded TCMS test runs since 2026-09-20. Runs 8, 9 and 10
+  (2026-09-28, 29 and 30) recorded 298, 301 and 308 Playwright passes.
+- QA has filed QA-19 through QA-23 and published PRs #17 and #20.
+- Auto-merge is not allowed on the repository, so QA PRs wait for a human,
+  with the card's warning.

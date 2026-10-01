@@ -24,7 +24,7 @@ run-scoped routes (`GET /api/runs/{id}/workbench`, `POST /api/runs/{id}/publish`
 one Kafka topic (`workbench.events`, every publish and refusal with its real
 file list), and one SSE feed over it (`GET /api/workbench/events`) that the
 [Changes](changes.md) page reads. The seeded dev agent is the
-[engineer](agents.md#seeded-agents), whose home project is `#eng` (prefix
+[coder](agents.md#seeded-agents), whose home project is `#eng` (prefix
 `ENG`).
 
 ## What a dev pod holds, and does not
@@ -68,7 +68,7 @@ relies on that for the anonymous clone and does not widen it.
 ## A dev run, start to finish
 
 1. **Summons.** A ticket is assigned to the agent (board drag, `tickets
-   assign`, or `@engineer` in a ticket's thread) — the same summons as any
+   assign`, or `@coder` in a ticket's thread) — the same summons as any
    agent's, through every Relay guard, with the ticket on the run.
 2. **Prepare** (`services/runner/workbench.py`, before Claude starts). The
    runner asks `GET /api/runs/{id}/workbench` for its facts — the branch, the
@@ -158,9 +158,17 @@ thread; nothing was pushed.
 
 **Branches** are named by the API, never by the model: `coder/<ticket key,
 lower-cased>` (`coder/eng-12`), or `coder/run-<first 12 of the run id>` for a
-run with no ticket; a QA agent's are `qa/<key>`. One branch per ticket, so a
-second run on the same ticket fetches the branch, adds commits, and updates
-the same PR.
+run with no ticket; the `qa` agent's are `qa/<key>` and `qa/run-<id>` (the
+prefix follows the agent, so a `QA-n` ticket the coder works is on `coder/`).
+One branch per ticket, so a second run on the same ticket fetches the branch,
+adds commits, and updates the same PR.
+
+**A merged PR closes its ticket.** The dispatcher reads the recently closed
+PRs every five minutes; one that merged into `main` from a `coder/<key>` or
+`qa/<key>` branch moves that ticket to `done` (actor `system:github`), however
+it was merged — the Changes page, GitHub, or a QA auto-merge. A
+`coder/run-<id>` branch names no ticket; the coder closes those itself once it
+sees the change on `main`.
 
 **The PR body** has four parts, in order: a platform header line (agent, run
 link, ticket link, branch, commit count — what Changes parses the agent back
@@ -180,9 +188,9 @@ nothing to run) and to `blocked` with `verify failed: <suite> (exit n)` or
 the run, so the board's history names the run that did it.
 
 **The card** is an event row in the ticket's thread (or `#eng` for a run with
-no ticket), a plain line the Discord mirror can read — `🔀 engineer published
+no ticket), a plain line the Discord mirror can read — `🔀 coder published
 coder/eng-12 → PR #123 · 4 files · verify ✓ backend`, `⚠️ … verify ✗
-backend (exit 1)`, or `⛔ publish refused for engineer: <path> is
+backend (exit 1)`, or `⛔ publish refused for coder: <path> is
 platform-owned and no agent may change it` — rendered as a chip row: the
 branch, `PR #n ↗`, the file count, a red **removes tests** chip when a test
 went, `verify ✓/✗`, `view run ↗`. Nothing in it summons anyone.
@@ -231,7 +239,7 @@ claim never is.
 
 A dev run is the most expensive thing the platform does, so it asks first.
 `quota_ok` (`mcp__platform__quota_ok`, a broker tool granted explicitly — no
-default-grant sweep; the engineer holds it) calls `GET /api/quota/ok`, which
+default-grant sweep; the coder holds it) calls `GET /api/quota/ok`, which
 reads the cached [quota](quota.md) snapshot (one coalesced refresh if it is
 stale), takes the thresholds from the calling agent's own row —
 `quota_5h_max_pct` and `quota_7d_max_pct`, defaults **80** and **50**, the
@@ -239,7 +247,7 @@ column defaults for a human caller — and answers `{ok, five_hour_pct,
 seven_day_pct, five_hour_max_pct, seven_day_max_pct, stale, reason}`. The
 tool returns that JSON on one line and then a sentence, so the model's
 decision is a field, not a reading of prose. A snapshot with no reading yet
-is `ok: false`. The engineer's prompt says: call it first, and when it says
+is `ok: false`. The coder's prompt says: call it first, and when it says
 no, say so in one line in the thread and stop before cloning anything.
 
 ## Making another dev agent
@@ -259,22 +267,22 @@ the grant, and are not declarable. Then set the four Workbench fields:
 - `quota_5h_max_pct`, `quota_7d_max_pct` (**edit** fields — `agents_edit` or
   the admin session): what `quota_ok` measures the agent against.
 
-Set its `timeout_seconds` to fit a clone, a change and a verify (the engineer
+Set its `timeout_seconds` to fit a clone, a change and a verify (the coder
 has 5400), and leave `concurrency` at 1 so two runs never share a branch.
 Assign it a ticket and it works.
 
-## Changing the engineer's thresholds and globs
+## Changing the coder's thresholds and globs
 
-On `/agents/engineer` → Config: the two quota fields sit beside Timeout
+On `/agents/coder` → Config: the two quota fields sit beside Timeout
 ("Quota gate: 5-hour max %" / "7-day max %"), and the grants panel has **Push
 path globs** (one per line) and **May delete tests**, enabled for whoever may
 grant. From an agent or the laptop MCP, `agents_edit` changes the quota
 fields and `agents_grant` the two grant fields — both merge into the row.
 
-One thing to know about the raw API: `PUT /api/agents/engineer` replaces the
+One thing to know about the raw API: `PUT /api/agents/coder` replaces the
 **whole** definition. A body of `{"quota_7d_max_pct": 1}` resets every other
 field to its default (role to `operator`, grants to none, the prompt to
-empty). Send the full definition from `GET /api/agents/engineer`, or use the
+empty). Send the full definition from `GET /api/agents/coder`, or use the
 editor and the tools, which do.
 
 ## The guards, in plain words

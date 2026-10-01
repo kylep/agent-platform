@@ -225,7 +225,7 @@ mark and then left alone — edit or delete any of them and your version stays:
   direct `@codex-artist` briefs, spending the Codex subscription allowance.
   It is `system` and has `responds_to_all: false`: Studio dispatch and direct
   mentions still reach it without spending a Codex run at standup.
-- **`engineer`** — writes code for the platform: takes a ticket assigned to
+- **`coder`** (named `engineer` until 2026-09-23) — writes code for the platform: takes a ticket assigned to
   it, works on a branch in its own clone, verifies, and opens a PR for a
   human to merge — it never pushes, the platform publishes
   ([workbench.md](workbench.md)). `role: dev` (the dev run profile), `opus`
@@ -259,7 +259,7 @@ mark and then left alone — edit or delete any of them and your version stays:
   already exists is adopted, and a prefix held by another room is left
   where it is), seeded with it, and the `qa-nightly` job (`0 2 * * *`,
   America/Toronto) summons it there. It is a normal, deletable worker like
-  `engineer`, with `responds_to_all: false`,
+  `coder`, with `responds_to_all: false`,
   so `@all` and the `#standup` pass it by; `@qa` by
   name still wakes it. Its first change-log
   row is `changed_via: seed`.

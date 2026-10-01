@@ -1,5 +1,8 @@
 # 24 — The engineer: a coding agent inside the platform (and the Workbench it runs on)
 
+> **Renamed:** the `engineer` agent is `coder` since 2026-09-23 (`ca32a43`). This
+> document keeps the name it was designed under.
+
 Status: **shipped 2026-09-19, helm rev 62** (designed 2026-09-18; plan at
 `docs/superpowers/plans/2026-09-18-coding-agent.md`, whose "Live
 verification" holds the evidence — PR #13 and #14 on GitHub are the
