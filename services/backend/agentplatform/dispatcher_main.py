@@ -21,6 +21,7 @@ from agentplatform.joblauncher import JobWatcher, K8sJobLauncher
 from agentplatform.github import GitHubClient
 from agentplatform.pruning import (ArtifactPruner, LiveDataPruner, ReportPruner, TranscriptPruner,
                                    sweep_orphaned_keys_forever)
+from agentplatform.mergedtickets import MergedTicketCloser
 from agentplatform.prsummarizer import PrSummarizer
 from agentplatform.relay_router import RelayRouter
 from agentplatform.reportregistry import ReportTypeRegistry
@@ -123,6 +124,8 @@ async def main() -> None:
         return GitHubClient(github_app.installation_token(), settings.github_repo)
 
     pr_summarizer = PrSummarizer(_gh_client, session_factory, producer, agent_store)
+    merged_tickets = MergedTicketCloser(_gh_client, session_factory, producer,
+                                        base=settings.default_branch)
 
     try:
         await asyncio.gather(dispatcher.run_forever(), watcher.run_forever(),
@@ -135,7 +138,7 @@ async def main() -> None:
                              conv_ingestor.run_forever(), relay_router.run_forever(),
                              verifier.run_forever(),
                              sweep_orphaned_keys_forever(session_factory),
-                             pr_summarizer.run_forever())
+                             pr_summarizer.run_forever(), merged_tickets.run_forever())
     finally:
         await producer.stop()
         await engine.dispose()
