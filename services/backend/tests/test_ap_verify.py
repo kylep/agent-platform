@@ -193,6 +193,19 @@ def test_timeout_is_a_failure_not_a_skip(apv):
     assert result["ok"] is False
 
 
+@pytest.mark.parametrize("env, expected", [
+    ({}, 900),
+    ({"AP_VERIFY_TIMEOUT": "2400"}, 2400),
+    ({"AP_VERIFY_TIMEOUT": ""}, 900),
+    ({"AP_VERIFY_TIMEOUT": "soon"}, 900),
+    ({"AP_VERIFY_TIMEOUT": "0"}, 900),
+])
+def test_timeout_default_follows_the_pods_budget(apv, env, expected):
+    """An agent's own `--changed` run gets the budget the runner's end-of-run
+    verify gets: the backend suite takes longer than 900 s on the NUC."""
+    assert apv.default_timeout(env) == expected
+
+
 def test_suites_run_without_the_pods_platform_env(apv, monkeypatch):
     """In the dev pod the platform's own settings are in the environment
     (AP_API_URL, AP_SESSION_TOKEN, the Kubernetes service variables), and the
