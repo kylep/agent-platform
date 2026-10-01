@@ -1228,6 +1228,8 @@ const FIXTURES: Record<string, unknown> = {
     { name: "web", kind: "web", implemented: true, secrets: [], description: "Web UI." },
   ],
   "/api/api-keys": [],
+  "/api/tasks": [],
+  "/api/tasks/report": { total: 3, upcoming: 1, running: 0, succeeded: 1, failed: 1, blocked: 0, expired: 0, cancelled: 0, tokens_in: 1200, tokens_out: 300, by_model: { "claude-sonnet": 3 } },
   "/api/teams": [],
   "/api/projects": [],
   "/api/apps": [
