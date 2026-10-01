@@ -15,20 +15,23 @@ The surface is CURATED into three tiers (curation 2026-08-24; see
   read, edit, move, assign, comment, stats — and the wiki: read, search, write,
   append, history, restore, promote, wanted — the usage snapshot and its
   gate — and the artifacts: list, read, save, edit, delete, generate, the
-  model registry and the stats, plus encrypted backup listing and Job control
-  (which still require admin authority in the API). Always tools. 129 of them.
+  model registry and the stats, plus encrypted backup listing, Job control and
+  one-time Tasks — schedule, read, edit, cancel, their run log and the usage
+  report (which still require admin authority in the API, or a Task-granted
+  agent run). Always tools. 137 of them.
 - **GATE** — authorized-but-sharp: the credential/secret plane, backup
   credential configuration, admin audit
   reads, destructive/bulk ops, the relay channel lifecycle (creating, renaming
   and archiving rooms), a system row into a room one is not in, and
-  archiving a wiki page. Offered ONLY when `AP_MCP_ADMIN_TOOLS` is truthy
-  (`admin_tools_enabled()`). 47 of them. The
+  archiving a wiki page, and the Task schedule grants (which agent may
+  schedule which). Offered ONLY when `AP_MCP_ADMIN_TOOLS` is truthy
+  (`admin_tools_enabled()`). 50 of them. The
   role ladder authorizes every call regardless — the flag controls the MENU,
   not the kitchen.
 - **EXCLUDE** — UI form-feeders, private-key import inspection, reviewer digests the client can compute,
   git-edit conveniences redundant with having the repo, and system-agent
-  endpoints. Never tools. 21 curated-out, plus 37 session/internal/streaming/
-  byte-serving/connector operations below — 234 graded operations in all.
+  endpoints. Never tools. 21 curated-out, plus 39 session/internal/streaming/
+  byte-serving/connector/run-only operations below — 247 graded operations in all.
 
 It is deliberately NOT the mcp-broker. The broker authenticates in-cluster run
 identities and scopes tools to an agent's grants (design/13, design/15). This
@@ -92,6 +95,11 @@ EXCLUDED_PATHS = (
     # an external MCP API key cannot call them. Agents use their brokered tools.
     ("*", r"^/api/agent-self(?:/|$)"),
     ("*", r"^/api/runs/\{run_id\}/model-fallback$"),
+    # The persona chat scan and its ack (design/25) answer only `persona()`: a
+    # key bound to an enabled persona agent's CURRENT run. An external MCP key
+    # carries no run, so both 403 for every facade caller — and an ack advances
+    # the persona's scan cursor, which no outside client should be able to do.
+    ("*", r"^/api/external-chat/scan(?:/ack)?$"),
     ("*", r"^/api/webhooks/\{path\}$"),
     # Relay's event stream (design/19): a `text/event-stream` that by design
     # never ends. As a tool it would be a call that never returns, which is the
@@ -241,6 +249,11 @@ GATED_ADMIN = (
     # version. Restoring one stays KEEP so a mistake is reversible without the
     # flag; every other write is an ordinary edit the history records.
     (("DELETE",), r"^/api/wiki/pages/\{slug\}$"),
+    # Task schedule grants (`require_admin`): which agent may schedule Tasks
+    # on which other agent. That is authority configuration — the same class
+    # as `^/api/live-operation-grants` — so list/add/remove all gate. The Tasks
+    # themselves (and the admin-only usage report) stay KEEP.
+    ("*",         r"^/api/tasks/grants"),
 )
 
 # operationId -> MCP tool name. Keys are route function names (api/app.py sets
@@ -264,7 +277,7 @@ _TRUTHY = ("1", "true", "yes", "on")
 
 def admin_tools_enabled() -> bool:
     """Whether the sharp/admin tier is OFFERED (default off — a fresh facade
-    serves the 100-tool KEEP surface). Offering-only: the API's role ladder
+    serves the 137-tool KEEP surface). Offering-only: the API's role ladder
     authorizes every call regardless of this flag."""
     return os.environ.get("AP_MCP_ADMIN_TOOLS", "").strip().lower() in _TRUTHY
 
