@@ -4,7 +4,7 @@
 set -u
 export DOCKER_HOST="unix://$HOME/.rd/docker.sock"
 export KUBECONFIG="$HOME/.kube/pai-nuc.yaml"
-S=${SCRATCH:?set SCRATCH to this session's scratchpad dir}
+S=${SCRATCH:?set SCRATCH to this session scratchpad dir}
 cd /Users/kp/gh/agent-platform || exit 1
 step() { echo; echo "### $(date +%H:%M:%S) $*"; }
 
