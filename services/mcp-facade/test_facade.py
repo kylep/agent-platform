@@ -43,13 +43,13 @@ def build_tools(spec, admin_tools):
 
 @pytest.fixture(scope="module")
 def tools(spec):
-    """The DEFAULT (admin-off) tool surface — the 129-tool KEEP set."""
+    """The DEFAULT (admin-off) tool surface — the 138-tool KEEP set."""
     return build_tools(spec, admin_tools=False)
 
 
 @pytest.fixture(scope="module")
 def admin_tools(spec):
-    """The admin-on surface — KEEP + GATE (176 tools)."""
+    """The admin-on surface — KEEP + GATE (189 tools)."""
     return build_tools(spec, admin_tools=True)
 
 
@@ -175,11 +175,11 @@ async def test_backup_resource_forwards_admin_and_returns_only_ciphertext(spec, 
 
 def test_everything_else_is_a_tool(spec, tools):
     """The default surface, by construction: exactly the operations that are
-    not design-17-excluded, not curated out, and not gated. Pinned at 129."""
+    not design-17-excluded, not curated out, and not gated. Pinned at 138."""
     hidden = {(m, p) for m, p in operations(spec) if matches(ALL_RULES, m, p)}
     expected = set(operations(spec)) - hidden
     assert {(t._route.method, t._route.path) for t in tools} == expected
-    assert len(tools) == len(expected) == 129, \
+    assert len(tools) == len(expected) == 138, \
         sorted({(t._route.method, t._route.path) for t in tools})
     assert {("GET", "/api/backups"), ("POST", "/api/backups/run"),
             ("GET", "/api/backups/jobs/{name}")} <= {
@@ -187,14 +187,14 @@ def test_everything_else_is_a_tool(spec, tools):
 
 
 def test_admin_flag_restores_gated(spec, admin_tools):
-    """With AP_MCP_ADMIN_TOOLS on, the gated set returns (176 total) but the
+    """With AP_MCP_ADMIN_TOOLS on, the gated set returns (189 total) but the
     design-17 exclusions and CURATED_OUT never come back."""
     still_hidden = facade.EXCLUDED_PATHS + facade.CURATED_OUT
     hidden = {(m, p) for m, p in operations(spec)
               if matches(still_hidden, m, p)}
     expected = set(operations(spec)) - hidden
     assert {(t._route.method, t._route.path) for t in admin_tools} == expected
-    assert len(admin_tools) == len(expected) == 176, \
+    assert len(admin_tools) == len(expected) == 189, \
         sorted({(t._route.method, t._route.path) for t in admin_tools})
     names = {t.name for t in admin_tools}
     for gated in ("mint_api_key", "put_secret", "delete_agent", "import_agents",
@@ -261,6 +261,21 @@ def test_method_scoped_gates_do_not_overreach(tools):
             "/api/relay/channels/{channel_id}/bindings/{binding_id}") not in surface
     # The connectors' own cross-channel listing is not an MCP question.
     assert ("GET", "/api/relay/bindings") not in surface
+
+
+def test_tasks_are_tools_except_grants_and_the_report(tools, admin_tools):
+    """One-time Tasks: scheduling, reading, editing and cancelling a Task are
+    the day-to-day surface. The grants decide who may schedule whom — authority,
+    like minting a key — and the cross-agent report is an admin audit read, so
+    those four come back only with the admin flag."""
+    normal = {t.name for t in tools}
+    elevated = {t.name for t in admin_tools}
+    for kept in ("create_task", "list_tasks", "get_task", "edit_task",
+                 "cancel_task", "task_events", "task_models"):
+        assert kept in normal, f"{kept} missing from the default surface"
+    for gated in ("list_grants", "add_grant", "remove_grant", "task_report"):
+        assert gated not in normal, f"{gated} leaked into the default surface"
+        assert gated in elevated, f"{gated} not restored by the flag"
 
 
 def test_tickets_are_tools_except_the_stream(spec, tools):

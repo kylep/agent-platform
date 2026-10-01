@@ -15,20 +15,21 @@ The surface is CURATED into three tiers (curation 2026-08-24; see
   read, edit, move, assign, comment, stats — and the wiki: read, search, write,
   append, history, restore, promote, wanted — the usage snapshot and its
   gate — and the artifacts: list, read, save, edit, delete, generate, the
-  model registry and the stats, plus encrypted backup listing and Job control
-  (which still require admin authority in the API). Always tools. 129 of them.
+  model registry and the stats, one-time Tasks (schedule, read, edit,
+  cancel), plus encrypted backup listing and Job control
+  (which still require admin authority in the API). Always tools. 138 of them.
 - **GATE** — authorized-but-sharp: the credential/secret plane, backup
-  credential configuration, admin audit
+  credential configuration, the Task scheduling grants, admin audit
   reads, destructive/bulk ops, the relay channel lifecycle (creating, renaming
   and archiving rooms), a system row into a room one is not in, and
   archiving a wiki page. Offered ONLY when `AP_MCP_ADMIN_TOOLS` is truthy
-  (`admin_tools_enabled()`). 47 of them. The
+  (`admin_tools_enabled()`). 51 of them. The
   role ladder authorizes every call regardless — the flag controls the MENU,
   not the kitchen.
 - **EXCLUDE** — UI form-feeders, private-key import inspection, reviewer digests the client can compute,
   git-edit conveniences redundant with having the repo, and system-agent
   endpoints. Never tools. 21 curated-out, plus 37 session/internal/streaming/
-  byte-serving/connector operations below — 234 graded operations in all.
+  byte-serving/connector operations below — 247 graded operations in all.
 
 It is deliberately NOT the mcp-broker. The broker authenticates in-cluster run
 identities and scopes tools to an agent's grants (design/13, design/15). This
@@ -241,6 +242,15 @@ GATED_ADMIN = (
     # version. Restoring one stays KEEP so a mistake is reversible without the
     # flag; every other write is an ordinary edit the history records.
     (("DELETE",), r"^/api/wiki/pages/\{slug\}$"),
+    # One-time Tasks (ec51245): creating, reading, editing and cancelling a Task
+    # stays KEEP — the API admits an admin key or a run-scoped agent holding the
+    # Schedule Tasks grant, and edit/cancel are own-Task only. The grants decide
+    # WHO MAY SCHEDULE WHOM, which is authority, not operation: the same class of
+    # decision as minting a key. All three verbs gate (all are require_admin).
+    ("*",         r"^/api/tasks/grants"),
+    # The cross-agent Task report is a require_admin read over every agent's
+    # Tasks, beside the other admin audit reads.
+    (("GET",),    r"^/api/tasks/report$"),
 )
 
 # operationId -> MCP tool name. Keys are route function names (api/app.py sets
