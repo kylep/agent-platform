@@ -80,6 +80,32 @@ async def test_codex_cache_usage_is_normalized_and_idempotent(admin_client, sf):
                        "tokens_in": 290, "tokens_out": 25,
                        "tokens_cache_read": 900, "tokens_cache_creation": 10}]
 
+
+async def test_codex_completed_tool_items_count_once(admin_client, sf):
+    async with sf() as s:
+        run = Run(agent="codexer", runtime="codex", trigger="manual",
+                  requested_by="t", prompt="x", state=RunState.RUNNING)
+        s.add(run)
+        await s.commit()
+        rid = run.id
+    rec = Recorder(sf)
+    events = [
+        {"seq": 1, "type": "item.started",
+         "item": {"id": "item_1", "type": "mcp_tool_call", "status": "in_progress"}},
+        {"seq": 2, "type": "item.completed",
+         "item": {"id": "item_1", "type": "mcp_tool_call", "status": "completed"}},
+        {"seq": 3, "type": "item.completed",
+         "item": {"id": "item_2", "type": "command_execution", "exit_code": 0}},
+        {"seq": 4, "type": "item.completed",
+         "item": {"id": "item_3", "type": "agent_message", "text": "done"}},
+    ]
+    for event in events:
+        await rec.handle(TOPIC_RUN_TRANSCRIPT, rid, event)
+    await rec.handle(TOPIC_RUN_TRANSCRIPT, rid, events[1])  # Kafka redelivery
+    async with sf() as s:
+        assert (await s.get(Run, rid)).tool_calls == 2
+    assert (await admin_client.get(f"/api/runs/{rid}")).json()["tool_calls"] == 2
+
 async def test_state_event_terminal(sf):
     rid = await seed(sf); rec = Recorder(sf)
     await rec.handle(TOPIC_RUN_EVENTS, rid, {"type": "state", "state": "succeeded", "exit_code": 0})
