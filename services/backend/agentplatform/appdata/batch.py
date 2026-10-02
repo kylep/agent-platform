@@ -51,6 +51,7 @@ from typing import Any
 
 from sqlalchemy import delete, insert, select, update
 
+from agentplatform.appdata import artifacts as app_artifacts
 from agentplatform.appdata import quotas
 from agentplatform.appdata.access import Caller, RecordError
 from agentplatform.appdata.definitions import SYSTEM_FIELDS, CollectionDef, UniqueRule
@@ -188,6 +189,13 @@ async def _replace(session, ctx: AppContext, caller: Caller, c: CollectionDef,
     await _check_refs(session, ctx, c, changed)
     sides = side_columns(c, doc)
     await _check_unique(session, ctx, c, doc, record.id)
+    # As _update does: the new artifacts first, then release the old ones.
+    moved = [name for name in app_artifacts.artifact_fields(c) if name in changed]
+    await app_artifacts.attach(session, ctx, caller, c, record.id,
+                               {name: changed[name] for name in moved})
+    await app_artifacts.detach_fields(session, ctx, c.collection, record.id,
+                                      {name: record.doc[name] for name in moved
+                                       if record.doc.get(name) is not None})
     record.doc = doc
     set_size(session, ctx, record, writes=1)
     for column, value in sides.items():

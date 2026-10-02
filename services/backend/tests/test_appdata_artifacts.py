@@ -25,6 +25,7 @@ from sqlalchemy import func, select
 from agentplatform import artifact_store as store
 from agentplatform.api.artifacts_feed import STREAM
 from agentplatform.appdata import artifacts as app_artifacts
+from agentplatform.appdata import batch as batch_mod
 from agentplatform.appdata import quotas
 from agentplatform.appdata.access import Caller, RecordError
 from agentplatform.appdata.models import (AppDataApp, AppDataArtifact, AppDataArtifactRef,
@@ -303,6 +304,23 @@ async def test_clearing_or_replacing_the_value_deletes_the_old_artifact(sf):
         await update_record(s, ctx, PAI, "docs", row["id"], {"file": None},
                             expected_version=2)
     assert await gone(sf, new)
+
+
+async def test_an_immutable_upsert_replacing_the_value_moves_ownership(sf):
+    # A batch upsert into an immutable collection replaces the record whole;
+    # it must claim the new artifact and release the old one as an update does.
+    ctx = await make_app(sf, [docs(write_mode="immutable", rules=[
+        {"kind": "unique", "fields": ["title"]}])])
+    old, new = await plain(sf), await plain(sf)
+    async with sf() as s:
+        await batch_mod.batch(s, ctx, PAI, "docs", [{"title": "a", "file": old}],
+                              mode="upsert", key=["title"])
+    async with sf() as s:
+        await batch_mod.batch(s, ctx, PAI, "docs", [{"title": "a", "file": new}],
+                              mode="upsert", key=["title"])
+    assert await gone(sf, old)
+    assert (await ownership(sf, new)).field == "file"
+    assert len(await refs(sf, new)) == 1
 
 
 async def test_moving_it_between_fields_of_one_record_keeps_it(sf):
