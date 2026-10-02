@@ -1,4 +1,4 @@
-import { ARTIFACTS } from "./mock-api.ts";
+import { ARTIFACTS, STATE_APP_ID } from "./mock-api.ts";
 
 // The console's route list, shared by the smoke sweep, the axe sweep and the
 // QA's scripted walk (scripts/walk.mjs, docs/design/25) — one place to add a
@@ -60,6 +60,10 @@ export const PAGES: PageRoute[] = [
   { path: "/reports", heading: "Reports", probe: /daily-news/, mobile: false },
   { path: "/reports/daily-news", heading: "daily-news", probe: /Open latest/, mobile: false },
   { path: "/apps", heading: "Apps", probe: /running|not deployed/, mobile: false },
+  // State Apps (docs/design/39): the builder area, and a typed/v2 page whose
+  // probe is the restricted marker only the per-field access path renders.
+  { path: `/apps/state/${STATE_APP_ID}`, heading: "habits", probe: /Days done/, mobile: true },
+  { path: `/apps/state/${STATE_APP_ID}/pages/overview`, heading: "Habits", probe: /restricted/, mobile: true },
   { path: "/help", heading: "Help", probe: /building blocks|configuration lives in git/i, mobile: false },
   { path: "/help/tools", heading: "Tools", probe: /Workbench only/, mobile: false },
   { path: "/help/agents", heading: "Agents", probe: /who runs/, mobile: false, only: "smoke" },

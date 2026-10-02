@@ -1,8 +1,14 @@
 import { useEffect, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useParams, useSearchParams } from "react-router-dom";
 import { api } from "../api";
 import { Button } from "@ap/ui/button";
+import { Chip } from "@ap/ui/chip";
 import { Input, Textarea } from "@ap/ui/field";
+import {
+  AppDataError, getPage, internalPath, isCount, pageHref, readView,
+  type Column, type ColumnFormat, type ParamBinding, type PublishedPage, type Scalar,
+  type V2Component, type ViewResult, type ViewRow,
+} from "../lib/appData";
 
 type Block = { kind: "heading" | "paragraph" | "metric" | "table" | "chat" | "action" | "link"; text: string; label: string; value: string;
   source: string | null; field: string | null; columns: string[];
@@ -107,9 +113,214 @@ function TrustedAction({ viewId, label, alias, channel, operation }: {
   </section>;
 }
 
+// --- typed/v2: pages of a state App (docs/design/39) ------------------------
+// Same trust rule as v1: every value is plain React text, and the only links
+// are row links and text links the renderer builds itself, to this App's
+// pages or a platform path. Each component reads its own view, so a view the
+// viewer can't read or that broke fails that component, not the page.
+
+function v2Label(column: Column): string {
+  return column.label || column.field.charAt(0).toUpperCase() + column.field.slice(1).replaceAll("_", " ");
+}
+
+function v2Value(value: Scalar | undefined, format: ColumnFormat | undefined): string {
+  if (value === null || value === undefined || value === "") return "—";
+  if (typeof value === "boolean" || format === "bool") return value === true ? "Yes" : "No";
+  const n = typeof value === "number" ? value : Number(value);
+  if (format === "int" && Number.isFinite(n)) return Math.round(n).toLocaleString();
+  if (format === "number" && Number.isFinite(n)) return n.toLocaleString(undefined, { maximumFractionDigits: 2 });
+  if (format === "percent" && Number.isFinite(n)) {
+    return n.toLocaleString(undefined, { style: "percent", maximumFractionDigits: 1 });
+  }
+  if (format === "date") {
+    // A date field is a calendar day: read it in UTC so no timezone shifts it.
+    const day = new Date(`${String(value).slice(0, 10)}T00:00:00Z`);
+    return Number.isNaN(day.getTime()) ? String(value)
+      : day.toLocaleDateString(undefined, { timeZone: "UTC", year: "numeric", month: "short", day: "numeric" });
+  }
+  if (format === "datetime") {
+    const at = new Date(String(value));
+    return Number.isNaN(at.getTime()) ? String(value) : at.toLocaleString();
+  }
+  return String(value);
+}
+
+function V2Cell({ row, column }: { row: ViewRow; column: Column }) {
+  if (row.restricted.includes(column.field)) {
+    return <span className="v2-restricted" title="You can't read this field">restricted</span>;
+  }
+  return <>{v2Value(row.values[column.field], column.format)}</>;
+}
+
+function viewError(error: unknown): string {
+  if (error instanceof AppDataError && error.status === 403) return "You can't read this view.";
+  if (error instanceof AppDataError && error.status === 503) return "This view no longer validates.";
+  return `This view is unavailable: ${error instanceof Error ? error.message : "unknown error"}`;
+}
+
+function AsOf({ result }: { result: ViewResult }) {
+  return <span className="v2-as-of">
+    As of {new Date(result.as_of).toLocaleString()}
+    {result.stale && <> <Chip variant="warn">stale</Chip></>}
+  </span>;
+}
+
+function resolveParams(params: Record<string, ParamBinding> | undefined,
+                       query: URLSearchParams): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const [name, binding] of Object.entries(params ?? {})) {
+    const value = typeof binding === "string" ? binding : query.get(binding.query);
+    if (value !== null) out[name] = value;
+  }
+  return out;
+}
+
+type ViewState = { result: ViewResult | null; error: unknown; more: boolean };
+
+function useView(appId: string, component: Exclude<V2Component, { kind: "text" }>) {
+  const [query] = useSearchParams();
+  const params = resolveParams(component.params, query);
+  const key = JSON.stringify(params);
+  const limit = component.kind === "table" ? component.limit : component.kind === "detail" ? 1 : undefined;
+  const [state, setState] = useState<ViewState>({ result: null, error: null, more: false });
+  useEffect(() => {
+    let active = true;
+    setState({ result: null, error: null, more: false });
+    readView(appId, component.view, JSON.parse(key), { limit })
+      .then((result) => { if (active) setState({ result, error: null, more: false }); })
+      .catch((error) => { if (active) setState({ result: null, error, more: false }); });
+    return () => { active = false; };
+  }, [appId, component.view, key, limit]);
+  async function loadMore() {
+    const current = state.result;
+    if (!current || isCount(current) || !current.next_cursor) return;
+    setState({ ...state, more: true });
+    try {
+      const next = await readView(appId, component.view, params, { limit, cursor: current.next_cursor });
+      if (isCount(next)) throw new AppDataError(503, "view changed shape");
+      setState({ result: { ...next, rows: [...current.rows, ...next.rows] }, error: null, more: false });
+    } catch (error) { setState({ result: current, error, more: false }); }
+  }
+  return { ...state, loadMore };
+}
+
+function V2Metric({ appId, component }: { appId: string; component: Extract<V2Component, { kind: "metric" }> }) {
+  const { result, error } = useView(appId, component);
+  return <div className="live-view-metric">
+    <span className="muted">{component.label}</span>
+    {error ? <span className="error">{viewError(error)}</span>
+      : !result ? <span className="muted">Loading…</span>
+      : <><strong>{isCount(result) ? result.count.toLocaleString() : "—"}</strong><AsOf result={result} /></>}
+  </div>;
+}
+
+function V2Table({ appId, component }: { appId: string; component: Extract<V2Component, { kind: "table" }> }) {
+  const { result, error, more, loadMore } = useView(appId, component);
+  const rows = result && !isCount(result) ? result.rows : [];
+  const link = component.row_link;
+  return <section className="live-view-table">
+    <h2>{component.label || "Records"}</h2>
+    {!result && error ? <p className="error">{viewError(error)}</p>
+      : !result ? <p className="muted">Loading records…</p>
+      : rows.length ? <>
+        <div className="table-scroll"><table><thead><tr>
+          {component.columns.map((column) => <th key={column.field}>{v2Label(column)}</th>)}
+        </tr></thead><tbody>{rows.map((row) => <tr key={row.id}>
+          {component.columns.map((column, i) => <td key={column.field} data-label={v2Label(column)}>
+            {i === 0 && link && !row.restricted.includes(column.field)
+              ? <Link to={pageHref(appId, link.page, Object.fromEntries(Object.entries(link.params).map(
+                  ([param, field]) => [param, field === "id" ? row.id : String(row.values[field] ?? "")])))}>
+                <V2Cell row={row} column={column} /></Link>
+              : <V2Cell row={row} column={column} />}
+          </td>)}
+        </tr>)}</tbody></table></div>
+        {!isCount(result) && result.next_cursor &&
+          <Button variant="secondary" onClick={loadMore} disabled={more}>{more ? "Loading…" : "Load more"}</Button>}
+        {error ? <p className="error">{viewError(error)}</p> : null}
+      </> : <p className="muted">No records yet.</p>}
+    {result && <p className="muted"><AsOf result={result} /></p>}
+  </section>;
+}
+
+function V2Detail({ appId, component }: { appId: string; component: Extract<V2Component, { kind: "detail" }> }) {
+  const { result, error } = useView(appId, component);
+  const row = result && !isCount(result) ? result.rows[0] : undefined;
+  return <section className="v2-detail">
+    <h2>{component.label || "Record"}</h2>
+    {error ? <p className="error">{viewError(error)}</p>
+      : !result ? <p className="muted">Loading record…</p>
+      : row ? <dl>{component.fields.map((column) => <div key={column.field}>
+          <dt>{v2Label(column)}</dt><dd><V2Cell row={row} column={column} /></dd>
+        </div>)}</dl>
+      : <p className="muted">Record not found.</p>}
+    {result && <p className="muted"><AsOf result={result} /></p>}
+  </section>;
+}
+
+function V2Text({ appId, component }: { appId: string; component: Extract<V2Component, { kind: "text" }> }) {
+  const link = component.link;
+  const to = !link ? null : "page" in link ? pageHref(appId, link.page)
+    : internalPath(link.path) ? link.path : null;
+  const body = to ? <Link to={to}>{component.text}</Link> : component.text;
+  return component.style === "heading" ? <h2>{body}</h2> : <p>{body}</p>;
+}
+
+function V2Block({ appId, component }: { appId: string; component: V2Component }) {
+  if (component.kind === "text") return <V2Text appId={appId} component={component} />;
+  if (component.kind === "metric") return <V2Metric appId={appId} component={component} />;
+  if (component.kind === "table") return <V2Table appId={appId} component={component} />;
+  if (component.kind === "detail") return <V2Detail appId={appId} component={component} />;
+  return null;
+}
+
+/** One published typed/v2 page. `embedded` drops the page chrome for the
+ *  builder area, where the App's name is already the h1. */
+export function TypedV2Page({ appId, page, embedded = false }: {
+  appId: string; page: string; embedded?: boolean;
+}) {
+  const [published, setPublished] = useState<PublishedPage | null>(null);
+  const [error, setError] = useState<unknown>(null);
+  useEffect(() => {
+    let active = true;
+    setPublished(null); setError(null);
+    getPage(appId, page).then((p) => { if (active) setPublished(p); })
+      .catch((e) => { if (active) setError(e); });
+    return () => { active = false; };
+  }, [appId, page]);
+  const Title = embedded ? "h2" : "h1";
+  if (error) {
+    const status = error instanceof AppDataError ? error.status : 0;
+    const detail = error instanceof Error ? error.message : "";
+    const [title, explain] = status === 403 ? ["No access", "You can't read this page."]
+      : status === 404 ? ["Page not found", "This App has no published page by that name."]
+      : status === 503 ? ["Page unavailable", "This page no longer matches its App's definitions, so it isn't shown."]
+      : ["Page unavailable", "The page couldn't be loaded."];
+    return <div className={embedded ? undefined : "page"}>
+      <Title>{title}</Title>
+      <p className="error">{explain}{detail && <> ({detail})</>}</p>
+      {!embedded && <Link to={`/apps/state/${encodeURIComponent(appId)}`}>Back to the App</Link>}
+    </div>;
+  }
+  if (!published) return <div className={embedded ? undefined : "page"}><p className="muted">Loading page…</p></div>;
+  return <div className={embedded ? undefined : "page"}>
+    <div className="page-header"><Title>{published.definition.title}</Title></div>
+    {!embedded && <p className="muted"><Link to="/apps">Apps</Link> / <Link
+      to={`/apps/state/${encodeURIComponent(appId)}`}>{published.app_name}</Link> / {published.page}</p>}
+    <div className="live-view-blocks">
+      {published.definition.components.map((component, index) =>
+        <V2Block key={index} appId={appId} component={component} />)}
+    </div>
+  </div>;
+}
+
 // Values are plain React text. No authored HTML, CSS, script or URL is ever
 // interpreted by this first private-data renderer.
 export default function LiveViewPage() {
+  const { appId, page } = useParams();
+  return appId && page ? <TypedV2Page appId={appId} page={page} /> : <TypedV1Page />;
+}
+
+function TypedV1Page() {
   const { id } = useParams();
   const [view, setView] = useState<PublishedView | null>(null);
   const [readData, setReadData] = useState<Record<string, Record<string, unknown>>>({});
