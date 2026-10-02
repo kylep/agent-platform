@@ -559,7 +559,7 @@ Shared-file notes for G1:
     - Presets can't be overridden.
     - Only `editable_fields` are accepted.
     - Templates on tool-only verbs are refused at validation.
-- [ ] **B10 Tool views in the language** (after B3 and B4) ∥.
+- [x] **B10 Tool views in the language** (after B3 and B4) ∥.
   - **Goal:** a view can be a tool view, validated against the catalog and
     the App's App tool facts.
   - **Design:** "Tool views" (Eligibility, Binding, `cache: none`);

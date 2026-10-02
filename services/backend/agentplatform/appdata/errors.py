@@ -66,6 +66,13 @@ CODES: dict[str, str] = {
     "JD-PARAM-TYPE": "Declare the parameter with a type that fits the field.",
     "JD-PARAM-OP": "Use a literal value with this operator.",
     "JD-SORT-DUPLICATE": "Sort on each field once.",
+    "JD-TOOL-VIEW-ACTION": "Use an action admitted as a read-only tool view in the operation catalog.",
+    "JD-TOOL-VIEW-SOURCE": "Name each source role declared by that action once.",
+    "JD-TOOL-VIEW-BINDING": "Approve the tool's source role for read in this App first.",
+    "JD-TOOL-VIEW-PARAM": "Declare parameters with the reviewed action's names and types.",
+    "JD-TOOL-VIEW-DOMAIN": "Use an indexed source field that is also a view parameter.",
+    "JD-TOOL-VIEW-INTERVAL": "Refresh materialized views no more often than every 5 minutes.",
+    "JD-TOOL-VIEW-MATERIALIZE": "Keep caching enabled for a materialized view.",
     # Pages.
     "JD-PAGE-COMPONENT": "Use one of the Release 1 components: table, detail, metric, text.",
     "JD-PAGE-VIEW": "Name a view defined in the same App.",

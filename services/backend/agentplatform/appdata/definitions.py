@@ -22,7 +22,7 @@ from dataclasses import dataclass, field as dc_field
 from datetime import date, datetime
 from typing import Annotated, Any, Literal, Union
 
-from pydantic import (AfterValidator, BaseModel, ConfigDict, Field, ValidationError,
+from pydantic import (AfterValidator, BaseModel, ConfigDict, Field, TypeAdapter, ValidationError,
                       field_validator, model_validator)
 from pydantic_core import PydanticCustomError
 
@@ -31,7 +31,7 @@ from agentplatform.appdata.errors import (CODES, DefinitionError, DefinitionIssu
 
 # Bumped whenever the language accepts something new, so builders (and the
 # skill) can check `apps schema` for a capability before relying on it.
-CAPABILITIES_VERSION = 2   # 2: App tools (R1b)
+CAPABILITIES_VERSION = 3   # 3: tool views (R1b)
 
 NAME_RE = re.compile(r"^[a-z][a-z0-9_]{0,39}$")
 _AGENT_RE = re.compile(r"^agent:[a-z0-9][a-z0-9-]{0,62}$")   # agentspec._NAME_RE
@@ -497,6 +497,44 @@ class ViewDef(_Model):
         return bool(self.aggregates)
 
 
+class MaterializeDef(_Model):
+    every: Annotated[str, Field(pattern=r"^[1-9][0-9]*m$")]
+    # A source collection's indexed field. It also names the view parameter
+    # filled with each distinct value when the materializer refreshes.
+    domain: Name
+
+    @model_validator(mode="after")
+    def _minimum_interval(self):
+        if int(self.every[:-1]) < 5:
+            raise _err("JD-TOOL-VIEW-INTERVAL", "materialize.every is at least 5m",
+                       rel=["every"])
+        return self
+
+
+class ToolViewDef(_Model):
+    """A reviewed tool read action bound to this App's approved source roles."""
+    view: Name
+    tool: ToolName
+    action: Name
+    sources: Annotated[list[Name], Field(min_length=1, max_length=20)]
+    description: Description | None = None
+    params: Annotated[dict[Name, ParamSpec], Field(max_length=10)] = Field(
+        default_factory=dict)
+    cache: Literal["default", "none"] = "default"
+    materialize: MaterializeDef | None = None
+
+    @property
+    def name(self) -> str:
+        return self.view
+
+    @property
+    def is_count(self) -> bool:
+        from agentplatform.operation_catalog import view_action
+        item = view_action(self.tool, self.action)
+        props = (item or {}).get("output_schema", {}).get("properties", {})
+        return "count" in props and props["count"].get("type") in ("integer", "number")
+
+
 # --- pages ---------------------------------------------------------------------
 
 class Column(_Model):
@@ -903,7 +941,8 @@ def _parse(kind: str, raw: Any, base: str) -> tuple[Any, list[DefinitionIssue]]:
         return None, [issue("JD-TYPE", base, f"a {kind} definition must be an object",
                             raw)]
     try:
-        model = KIND_MODELS[kind].model_validate(raw)
+        model_type = ToolViewDef if kind == "view" and "tool" in raw else KIND_MODELS[kind]
+        model = model_type.model_validate(raw)
     except ValidationError as exc:
         for error in exc.errors():
             found = _shape_issue(raw, error, base)
@@ -1107,7 +1146,7 @@ def _check_page_alone(p: PageDef, base: str) -> list[DefinitionIssue]:
 @dataclass
 class AppBundle:
     collections: dict[str, CollectionDef] = dc_field(default_factory=dict)
-    views: dict[str, ViewDef] = dc_field(default_factory=dict)
+    views: dict[str, ViewDef | ToolViewDef] = dc_field(default_factory=dict)
     pages: dict[str, PageDef] = dc_field(default_factory=dict)
     app_tools: dict[str, ToolDef] = dc_field(default_factory=dict)
 
@@ -1125,6 +1164,61 @@ def _check_tool(t: ToolDef, app: AppBundle, names, base: str) -> list[Definition
             out.append(issue("JD-TOOL-VERB",
                              join_path(where, "verbs", binding.verbs.index("update")),
                              "the collection is immutable", "update"))
+    return out
+
+
+def _check_tool_view(v: ToolViewDef, app: AppBundle, base: str) -> list[DefinitionIssue]:
+    from agentplatform.operation_catalog import view_action
+
+    out: list[DefinitionIssue] = []
+    action = view_action(v.tool, v.action)
+    if action is None:
+        return [issue("JD-TOOL-VIEW-ACTION", join_path(base, "action"),
+                      "this tool action is not a reviewed view action", v.action)]
+    declared = set(action["target_scope"])
+    app_tool = app.app_tools.get(v.tool)
+    for i, role in enumerate(v.sources):
+        where = join_path(base, "sources", i)
+        if role not in declared:
+            out.append(issue("JD-TOOL-VIEW-SOURCE", where,
+                             "the action does not declare this source role", role))
+        binding = app_tool.roles.get(role) if app_tool else None
+        if binding is None or "read" not in binding.verbs:
+            out.append(issue("JD-TOOL-VIEW-BINDING", where,
+                             "the App tool must approve this role for reading", role))
+    if len(set(v.sources)) != len(v.sources):
+        out.append(issue("JD-TOOL-VIEW-SOURCE", join_path(base, "sources"),
+                         "a source role is listed twice", v.sources))
+    schema = action["input_schema"] or {}
+    allowed = schema.get("properties", {})
+    required = set(schema.get("required", []))
+    for name, spec in v.params.items():
+        shape = allowed.get(name)
+        where = join_path(base, "params", name)
+        if shape is None:
+            out.append(issue("JD-TOOL-VIEW-PARAM", where,
+                             "the action does not declare this parameter", name))
+        elif shape.get("type") != {"int": "integer", "number": "number",
+                                      "bool": "boolean"}.get(spec.type, "string"):
+            out.append(issue("JD-TOOL-VIEW-PARAM", where,
+                             "parameter type differs from the reviewed action", name))
+    for name in sorted(required - set(v.params)):
+        out.append(issue("JD-TOOL-VIEW-PARAM", join_path(base, "params", name),
+                         "required action parameter is not declared", name))
+    if v.materialize is not None:
+        if v.cache == "none":
+            out.append(issue("JD-TOOL-VIEW-MATERIALIZE", join_path(base, "cache"),
+                             "a materialized view cannot disable its cache", v.cache))
+        field = v.materialize.domain
+        if field not in v.params:
+            out.append(issue("JD-TOOL-VIEW-DOMAIN", join_path(base, "materialize", "domain"),
+                             "the domain must also name a view parameter", field))
+        indexed = any((app_tool is not None and role in app_tool.roles
+                       and (c := app.collections.get(app_tool.roles[role].collection))
+                       is not None and field in c.indexed) for role in v.sources)
+        if not indexed:
+            out.append(issue("JD-TOOL-VIEW-DOMAIN", join_path(base, "materialize", "domain"),
+                             "the domain must be an indexed field of a source", field))
     return out
 
 
@@ -1147,6 +1241,19 @@ def _check_page(p: PageDef, app: AppBundle, names: dict[str, set[str]],
                              "no such view in this App", block.view))
             continue
         view = app.views.get(block.view)
+        if isinstance(view, ToolViewDef):
+            if isinstance(block, MetricBlock) != view.is_count:
+                out.append(issue("JD-PAGE-METRIC", join_path(where, "view"),
+                                 "metrics need a count result; tables and details need rows",
+                                 block.view))
+            out += _check_block_params(block, view, p, where)
+            if getattr(block, "actions", []):
+                out.append(issue("JD-PAGE-ACTION", join_path(where, "actions"),
+                                 "a tool view cannot carry a collection action"))
+            if isinstance(block, TableBlock) and block.row_link is not None:
+                out += _check_row_link(block.row_link, app, names,
+                                       join_path(where, "row_link"))
+            continue
         collection = app.collections.get(view.collection) if view else None
         if view is None or collection is None:
             continue  # already reported against the view or its collection
@@ -1180,7 +1287,7 @@ def _check_page(p: PageDef, app: AppBundle, names: dict[str, set[str]],
     return out
 
 
-def _check_block_params(block, view: ViewDef, page: PageDef, where: str):
+def _check_block_params(block, view: ViewDef | ToolViewDef, page: PageDef, where: str):
     out = []
     for key, value in block.params.items():
         spec = view.params.get(key)
@@ -1263,7 +1370,8 @@ def _single(kind: str, raw: Any, base: str = "$"):
     if model is not None:
         check = {"collection": _check_collection, "view": _check_view_alone,
                  "page": _check_page_alone, "tool": lambda *_: []}[kind]
-        issues += check(model, base)
+        if not isinstance(model, ToolViewDef):
+            issues += check(model, base)
     return model, issues
 
 
@@ -1350,6 +1458,9 @@ def validate_app(bundle: Any) -> AppBundle:
         if v is None or raw is not _raw_for(bundle, "views", v.name):
             continue
         base = join_path("$", "views", i)
+        if isinstance(v, ToolViewDef):
+            issues += _check_tool_view(v, app, base)
+            continue
         if v.collection not in names["collections"]:
             issues.append(issue("JD-VIEW-COLLECTION", join_path(base, "collection"),
                                 "no such collection in this App", v.collection))
@@ -1383,7 +1494,8 @@ class _BundleSchema(_Model):
     """Shape of `validate_app`'s input, for the schema export only."""
     collections: Annotated[list[CollectionDef], Field(max_length=50)] = Field(
         default_factory=list)
-    views: Annotated[list[ViewDef], Field(max_length=100)] = Field(default_factory=list)
+    views: Annotated[list[ViewDef | ToolViewDef], Field(max_length=100)] = Field(
+        default_factory=list)
     pages: Annotated[list[PageDef], Field(max_length=50)] = Field(default_factory=list)
     app_tools: Annotated[list[ToolDef], Field(max_length=20)] = Field(default_factory=list)
 
@@ -1402,6 +1514,8 @@ def capabilities() -> dict:
         "components": list(COMPONENTS),
         "action_templates": list(TEMPLATE_KINDS),
         "app_tools": {"roles": "role -> {collection, verbs}", "verbs": list(APP_VERBS)},
+        "tool_views": {"source": "reviewed view action + approved App tool read role",
+                       "cache": ["default", "none"], "minimum_refresh": "5m"},
         "limits": {"view_limit": VIEW_LIMIT, "indexed_fields": MAX_INDEXED,
                    "string_max": MAX_STRING, "text_max": MAX_TEXT,
                    "retention_days_max": MAX_RETENTION_DAYS,
@@ -1415,8 +1529,11 @@ def capabilities() -> dict:
 
 def json_schemas() -> dict:
     """JSON Schema for every definition kind, for `apps schema`."""
+    kinds = {kind: model.model_json_schema() for kind, model in KIND_MODELS.items()}
+    # A single adapter keeps both variants' $refs in the same $defs scope.
+    kinds["view"] = TypeAdapter(ViewDef | ToolViewDef).json_schema()
+    kinds["view"]["type"] = "object"
+    kinds["bundle"] = _BundleSchema.model_json_schema()
     return {"capabilities_version": CAPABILITIES_VERSION,
-            "kinds": {**{kind: model.model_json_schema()
-                         for kind, model in KIND_MODELS.items()},
-                      "bundle": _BundleSchema.model_json_schema()},
+            "kinds": kinds,
             "capabilities": capabilities()}

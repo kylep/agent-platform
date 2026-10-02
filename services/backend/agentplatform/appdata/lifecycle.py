@@ -47,7 +47,8 @@ from agentplatform.appdata import records as rec
 from agentplatform.appdata.access import Caller, RecordError
 from agentplatform.appdata.definitions import (
     BUNDLE_KEYS, NAME_RE, SYSTEM_FIELDS, AppBundle, CollectionDef, DefinitionError, PageDef,
-    RefField, TableBlock, DetailBlock, MetricBlock, TextBlock, UniqueRule, _fits_field,
+    RefField, TableBlock, DetailBlock, MetricBlock, TextBlock, ToolViewDef, UniqueRule,
+    _fits_field,
     index_columns, validate_app, validate_definition)
 from agentplatform.appdata.models import (AppDataApp, AppDataBuildOp, AppDataDefinition,
                                           AppDataRecord)
@@ -1231,7 +1232,8 @@ def _link_fields(bundle, view_name: str) -> set[str]:
     """The `link: true` url fields behind a view: the only ones the web may
     render as outbound anchors."""
     view = bundle.views.get(view_name)
-    c = bundle.collections.get(view.collection) if view is not None else None
+    c = bundle.collections.get(view.collection) if view is not None and not isinstance(
+        view, ToolViewDef) else None
     if c is None:
         return set()
     return {n for n, f in c.fields.items() if f.type == "url" and f.link}
@@ -1292,8 +1294,17 @@ def can_read_page(ctx: rec.AppContext, caller: Caller, page: PageDef) -> bool:
     views = [b.view for b in page.blocks if not isinstance(b, TextBlock)]
     if not views:
         return True
-    return any(ctx.access(ctx.collection(ctx.bundle.views[v].collection),
-                          caller).can_see_rows() for v in views)
+    return any(_can_read_view(ctx, caller, ctx.bundle.views[v]) for v in views)
+
+
+def _can_read_view(ctx: rec.AppContext, caller: Caller, view) -> bool:
+    if isinstance(view, ToolViewDef):
+        app_tool = ctx.bundle.app_tools.get(view.tool)
+        if app_tool is None:
+            return False
+        return all(ctx.access(ctx.collection(app_tool.roles[role].collection), caller)
+                   .can_see_rows() for role in view.sources)
+    return ctx.access(ctx.collection(view.collection), caller).can_see_rows()
 
 
 # --- preview ----------------------------------------------------------------------------
@@ -1405,6 +1416,8 @@ async def _insert_samples(session, ctx: rec.AppContext, approved: dict, samples:
 async def _view_as(session, ctx: rec.AppContext, builder: Caller, viewer: Caller, view,
                    params, limit, cursor) -> dict:
     """The view as `viewer` sees it, cut to what `builder` may see too."""
+    if isinstance(view, ToolViewDef):
+        raise RecordError("AD-TOOL-VIEW-NOT-READY", "tool view execution is not ready", 409)
     check_view_access(ctx, builder, view)
     out = await execute_view(session, ctx, viewer, view, params, limit=limit, cursor=cursor)
     if viewer.principal != builder.principal and "rows" in out:
@@ -1440,6 +1453,13 @@ async def describe_records(session, caller: Caller, app_ref: str) -> dict:
             "writers": c.writers.model_dump(exclude_none=True) if c.writers else None,
             "rules": [r.model_dump(by_alias=True) for r in c.rules]})
     for name, v in sorted(ctx.bundle.views.items()):
+        if isinstance(v, ToolViewDef):
+            if _can_read_view(ctx, caller, v):
+                views.append({"view": name, "tool": v.tool, "action": v.action,
+                              "sources": v.sources, "count": v.is_count,
+                              "params": {p: s.model_dump(exclude_unset=True)
+                                         for p, s in v.params.items()}})
+            continue
         try:
             check_view_access(ctx, caller, v)
         except RecordError:

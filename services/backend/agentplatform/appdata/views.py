@@ -34,7 +34,7 @@ from sqlalchemy import and_, false, func, or_, select
 from agentplatform.appdata.access import Access, Caller, RecordError
 from agentplatform.appdata.definitions import (
     SYSTEM_FIELDS, VIEW_LIMIT, CollectionDef, ContainsFilter, InFilter, IsNullFilter,
-    ViewDef, WithinLastFilter, _ANCHOR_RE, _fits_param, _is_param_ref)
+    ToolViewDef, ViewDef, WithinLastFilter, _ANCHOR_RE, _fits_param, _is_param_ref)
 from agentplatform.appdata.quotas import ScanBudget
 from agentplatform.appdata.records import (
     R, AppContext, field_expr, field_type, format_datetime, parse_datetime, present,
@@ -374,6 +374,8 @@ async def run_view(session, ctx: AppContext, caller: Caller, view_name: str,
     view = ctx.bundle.views.get(view_name)
     if view is None:
         raise RecordError("AD-NO-VIEW", f"no published view {view_name}", 404)
+    if isinstance(view, ToolViewDef):
+        raise RecordError("AD-TOOL-VIEW-NOT-READY", "tool view execution is not ready", 409)
     return await execute_view(session, ctx, caller, view, params, **kwargs)
 
 

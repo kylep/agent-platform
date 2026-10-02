@@ -338,11 +338,21 @@ def test_narrowing_self_publishes():
     assert widening(approved, new) == []
 
 
-def test_tool_view_on_an_approved_app_tool_self_publishes():
+def test_tool_view_on_an_approved_app_tool_self_publishes(monkeypatch):
+    from agentplatform import operation_catalog
+
+    monkeypatch.setattr(operation_catalog, "view_action", lambda tool, action: {
+        "target_scope": ["log"], "input_schema": {"type": "object",
+                                                   "properties": {}},
+        "output_schema": {"type": "object", "properties": {
+            "rows": {"type": "array"}}}}
+        if (tool, action) == ("tracker", "streaks") else None)
     tools = [{"tool": "tracker", "roles": {"log": {"collection": "habits", "verbs": ["read"]}}}]
-    approved = compute_facts(app(app_tools=tools))
-    new = compute_facts(app(app_tools=tools, views=[
-        {"view": "streaks", "tool": "tracker", "action": "streaks", "sources": ["log"]}]))
+    approved_defs = app(app_tools=tools)
+    new_defs = app(app_tools=tools, views=[
+        {"view": "streaks", "tool": "tracker", "action": "streaks", "sources": ["log"]}])
+    approved = compute_facts(lang.validate_app(approved_defs))
+    new = compute_facts(lang.validate_app(new_defs))
     assert widening(approved, new) == []
 
 

@@ -170,7 +170,7 @@ async def test_refusals_reach_the_model_with_their_next_step(through, sf, seed_a
                          definition=shared))
     out = await broker.apps(action="publish", app="shared", request_id="p")
     assert out.startswith("error: 409") and "AL-NEEDS-PROPOSAL" in out
-    assert "not available yet" in out
+    assert 'apps(action=\"propose\"' in out
 
     ok(await broker.apps(action="draft", app="shared", request_id="d2", kind="collection",
                          definition=HABITS, expected_revision=1))

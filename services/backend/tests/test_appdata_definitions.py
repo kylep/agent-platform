@@ -924,9 +924,12 @@ def test_json_schema_export_covers_every_kind():
     exported = d.json_schemas()
     assert exported["capabilities_version"] == d.CAPABILITIES_VERSION
     assert set(exported["kinds"]) == {"collection", "view", "page", "tool", "bundle"}
-    for schema in exported["kinds"].values():
+    for kind, schema in exported["kinds"].items():
         assert schema["type"] == "object"
-        assert schema["additionalProperties"] is False
+        if kind == "view":
+            assert "anyOf" in schema  # each variant is closed in its own $defs entry
+        else:
+            assert schema["additionalProperties"] is False
         json.dumps(schema)
     collection = exported["kinds"]["collection"]
     assert "fields" in collection["properties"]
@@ -935,6 +938,55 @@ def test_json_schema_export_covers_every_kind():
                        "enum", "ref", "url", "artifact"):
         assert f'"{field_type}"' in text
     assert '"typed/v2"' in text and '"within_last"' in text and '"contains"' in text
+
+
+def test_tool_view_requires_reviewed_action_and_approved_read_source(monkeypatch):
+    from agentplatform import operation_catalog
+
+    action = {"target_scope": ["source"],
+              "input_schema": {"type": "object", "properties": {
+                  "habit": {"type": "string"}}, "required": ["habit"]},
+              "output_schema": {"type": "object", "properties": {
+                  "rows": {"type": "array"}}}}
+    monkeypatch.setattr(operation_catalog, "view_action",
+                        lambda tool, name: action if (tool, name) == (
+                            "tracker", "streaks") else None)
+    bundle = {"collections": [HABITS], "app_tools": [{"tool": "tracker", "roles": {
+        "source": {"collection": "habits", "verbs": ["read"]}}}],
+        "views": [{"view": "streaks", "tool": "tracker", "action": "streaks",
+                   "sources": ["source"], "params": {"habit": {
+                       "type": "string", "required": True}},
+                   "materialize": {"every": "5m", "domain": "habit"}}]}
+    d.validate_app(bundle)
+    jsonschema = pytest.importorskip("jsonschema")
+    jsonschema.validate(bundle["views"][0], d.json_schemas()["kinds"]["view"])
+
+    def codes(change):
+        bad = copy.deepcopy(bundle)
+        change(bad)
+        with pytest.raises(DefinitionError) as raised:
+            d.validate_app(bad)
+        return {item.code for item in raised.value.issues}
+
+    assert "JD-TOOL-VIEW-ACTION" in codes(
+        lambda b: b["views"][0].update(action="unreviewed"))
+    assert "JD-TOOL-VIEW-SOURCE" in codes(
+        lambda b: b["views"][0].update(sources=["other"]))
+    assert "JD-TOOL-VIEW-BINDING" in codes(
+        lambda b: b["app_tools"][0]["roles"]["source"].update(verbs=["create"]))
+    assert "JD-TOOL-VIEW-PARAM" in codes(
+        lambda b: b["views"][0].update(params={"unknown": {"type": "string"}}))
+    assert "JD-TOOL-VIEW-DOMAIN" in codes(
+        lambda b: b["views"][0]["materialize"].update(domain="note"))
+    assert "JD-TOOL-VIEW-INTERVAL" in codes(
+        lambda b: b["views"][0]["materialize"].update(every="4m"))
+
+    page = {"page": "home", "title": "Streaks", "params": {"habit": {
+        "type": "string"}}, "blocks": [{"kind": "table", "view": "streaks",
+        "columns": [{"field": "rows"}], "params": {"habit": {
+            "page_param": "habit"}}}]}
+    bundle["pages"] = [page]
+    d.validate_app(bundle)
 
 
 def test_exported_schemas_accept_the_fixtures_and_refuse_bad_shapes():
