@@ -322,6 +322,13 @@ async def execute_view(session, ctx: AppContext, caller: Caller, view: ViewDef,
     return {"rows": rows, "next_cursor": next_cursor, "as_of": _as_of(now), "stale": False}
 
 
+def check_view_access(ctx: AppContext, caller: Caller, view: ViewDef) -> None:
+    """Refuse unless the caller could run the view itself: it sees the rows
+    and may read every field the view filters, sorts or anchors on. Previews
+    rendered as another principal check the builder this way first."""
+    _Query(ctx, caller, view, {}, utcnow()).check_access()
+
+
 async def run_view(session, ctx: AppContext, caller: Caller, view_name: str,
                    params: dict | None = None, **kwargs) -> dict:
     """Run one of the App's published views by name."""

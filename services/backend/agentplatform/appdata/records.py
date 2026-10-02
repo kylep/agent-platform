@@ -93,20 +93,33 @@ def owner_principal(app: AppDataApp) -> str:
     return "kyle" if app.owner_kind == "kyle" else f"agent:{app.owner_id}"
 
 
-async def load_app(session, app_id: str) -> AppContext:
-    """The App with the newest published version of each definition."""
-    app = await session.get(AppDataApp, app_id)
-    if app is None:
-        raise RecordError("AD-NO-APP", f"no App {app_id}", 404)
-    rows = (await session.execute(
-        select(AppDataDefinition).where(AppDataDefinition.app_id == app_id,
-                                        AppDataDefinition.state == "published")
-    )).scalars().all()
+def state_at(rows, version: int | None = None) -> dict[tuple[str, str], AppDataDefinition]:
+    """(kind, name) -> the published row in force at `version` (all of them
+    when None): the newest at or below it, unless that one is a removal."""
     latest: dict[tuple[str, str], AppDataDefinition] = {}
     for row in rows:
+        if row.state != "published" or (version is not None and row.version > version):
+            continue
         key = (row.kind, row.name)
         if key not in latest or row.version > latest[key].version:
             latest[key] = row
+    return {key: row for key, row in latest.items() if not row.removed}
+
+
+async def published_rows(session, app_id: str) -> list[AppDataDefinition]:
+    return list((await session.execute(
+        select(AppDataDefinition).where(AppDataDefinition.app_id == app_id,
+                                        AppDataDefinition.state == "published")
+    )).scalars().all())
+
+
+async def load_app(session, app_id: str) -> AppContext:
+    """The App as of its approved version: the newest published version of
+    each definition at or below it, removals dropped."""
+    app = await session.get(AppDataApp, app_id)
+    if app is None:
+        raise RecordError("AD-NO-APP", f"no App {app_id}", 404)
+    latest = state_at(await published_rows(session, app_id), app.approved_version)
     bundle = {"collections": [], "views": [], "pages": []}
     versions: dict[str, int] = {}
     for (kind, name), row in sorted(latest.items()):

@@ -29,8 +29,8 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from sqlalchemy import (JSON, BigInteger, DateTime, Float, Index, Integer, String, Text,
-                        UniqueConstraint)
+from sqlalchemy import (JSON, BigInteger, Boolean, DateTime, Float, Index, Integer, String,
+                        Text, UniqueConstraint)
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -55,6 +55,8 @@ class AppDataApp(Base):
     # agent | kyle. owner_id is the agent's name, or "kyle".
     owner_kind: Mapped[str] = mapped_column(String(16))
     owner_id: Mapped[str] = mapped_column(String(128), index=True)
+    # One line for the Apps list; the builder writes it at create.
+    description: Mapped[str] = mapped_column(Text, default="")
     # IANA name; views bucket days and weeks in it.
     timezone: Mapped[str] = mapped_column(String(64), default="UTC")
     # active | retired
@@ -63,6 +65,8 @@ class AppDataApp(Base):
     # compare-and-swap token for concurrent edits.
     notes: Mapped[str] = mapped_column(Text, default="")
     notes_revision: Mapped[int] = mapped_column(Integer, default=0)
+    notes_updated_at: Mapped[datetime | None] = mapped_column(_TS, nullable=True)
+    notes_updated_by: Mapped[str | None] = mapped_column(String(160), nullable=True)
     # The definition-set version Kyle (or self-publish) last approved; None
     # until the first publish.
     approved_version: Mapped[int | None] = mapped_column(Integer, nullable=True)
@@ -76,7 +80,13 @@ class AppDataApp(Base):
 
 class AppDataDefinition(Base):
     """One version of one collection, view or page. A version is written once;
-    a draft is edited in place under `revision`, then published."""
+    a draft is edited in place under `revision`, then published.
+
+    A published version number is the App's `approved_version` at the publish
+    that wrote it, and a definition gets a row only when that publish changed
+    it, so the approved state at version N is the newest row at or below N for
+    each name (`appdata/lifecycle.py`). A draft holds version 0 until then:
+    there is at most one per name."""
     __tablename__ = "app_data_definitions"
     __table_args__ = (UniqueConstraint("app_id", "kind", "name", "version",
                                        name="uq_app_data_definitions_version"),)
@@ -91,6 +101,12 @@ class AppDataDefinition(Base):
     state: Mapped[str] = mapped_column(String(16), default="draft")
     # Compare-and-swap token for draft edits (`stale_base`).
     revision: Mapped[int] = mapped_column(Integer, default=1)
+    # The approved version a draft was written against; validate reports the
+    # draft stale when its definition was published again since.
+    base_version: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # A removal: as a draft, "drop this definition at publish"; published, the
+    # tombstone that ends the name's run in the approved state.
+    removed: Mapped[bool] = mapped_column(Boolean, default=False)
     # Who wrote this revision and why: a participant string, the run, a reason.
     author: Mapped[str] = mapped_column(String(160))
     run_id: Mapped[str | None] = mapped_column(String(32), nullable=True)
