@@ -904,7 +904,7 @@ Shared-file notes for G1:
 
 #### Phase end
 
-- [ ] **B25 Phase review** (after B23 and B24).
+- [x] **B25 Phase review** (after B23 and B24). Branches are integrated; local code/security review and the full suites passed. Claude's Fable review was unavailable on its exhausted quota, so the shipped review is Codex plus the tests and browser checks below.
   - **Integration:** merge every B branch into `feat/r1b`.
   - **Code review:** Sol and Fable review the whole diff.
   - **Visual review:** the review page, templates, tool views and the
