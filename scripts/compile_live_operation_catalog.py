@@ -165,6 +165,8 @@ def _effect_policy(source: str, tool: str, action: str) -> tuple[list[str], str]
         # query_app has a variable App/path contract even though its HTTP
         # transport is GET. It cannot inherit a single read classification.
     if source == "mcp-custom":
+        if tool == "app_summary" and action == "counts":
+            return ["reads_sensitive"], "private"
         if tool == "image_gen":
             return (["reads_sensitive"] if action == "models"
                     else ["incurs_cost", "mutates_platform"]), "private"

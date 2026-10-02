@@ -735,7 +735,7 @@ Shared-file notes for G1:
     - Nothing runs before resume.
     - A retired App restored stays paused.
     - The report is deterministic.
-- [ ] **B17 Reference view tool `app_summary`** (after B4 and B10) ∥.
+- [x] **B17 Reference view tool `app_summary`** (after B4 and B10) ∥.
   - **Goal:** one reviewed, generic view action, so tool views can be tested
     end to end and live.
   - **Design:** "Tools" (App tools); "Tool views" (D19).

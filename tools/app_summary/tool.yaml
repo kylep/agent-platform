@@ -1,0 +1,54 @@
+name: app_summary
+category: domain_capability
+description: >-
+  Count records by one readable field in an App tool role. Use the reviewed
+  counts action for a bounded top-N summary; the scan remains subject to the
+  caller's App access and never writes records or calls an external service.
+params:
+  type: object
+  properties:
+    action:
+      type: string
+      enum: [counts]
+    field:
+      type: string
+      pattern: '^[a-z][a-z0-9_]{0,39}$'
+      description: A readable field in the App tool's source role.
+    top:
+      type: integer
+      minimum: 1
+      maximum: 20
+      default: 10
+  required: [action, field]
+  additionalProperties: false
+app_access:
+  roles: [source]
+  verbs: [read]
+view_actions:
+  counts:
+    sources: [source]
+    params:
+      type: object
+      properties:
+        field: {type: string, pattern: '^[a-z][a-z0-9_]{0,39}$'}
+        top: {type: integer, minimum: 1, maximum: 20}
+      required: [field]
+      additionalProperties: false
+    output_schema:
+      type: object
+      properties:
+        rows:
+          type: array
+          maxItems: 20
+          items:
+            type: object
+            properties:
+              value: {type: [string, 'null'], maxLength: 128}
+              count: {type: integer, minimum: 1}
+            required: [value, count]
+            additionalProperties: false
+      required: [rows]
+      additionalProperties: false
+    max_rows: 20
+    max_bytes: 8192
+timeout_seconds: 60

@@ -21,7 +21,7 @@ def test_catalog_matches_broker_and_custom_manifest_actions():
     assert len(compiled["operations"]) == len(operation_catalog.OPERATIONS)
     assert {item["id"] for item in compiled["operations"] if item["view_eligible"]} == (
         set(READ_FIELDS) | {"tickets.create@1", "relay.channel.post@1",
-                            "app_data.write@1"})
+                            "app_data.write@1", "tool.app_summary.counts@1"})
     assert {item["id"] for item in compiled["operations"]
             if "unknown" in item["effects"]} == {
         "core.query_app.call@1", "tool.linear.raw_graphql@1",
@@ -29,7 +29,8 @@ def test_catalog_matches_broker_and_custom_manifest_actions():
         "tool.backtest.describe_primitives@1", "tool.backtest.validate@1",
         "tool.backtest.run@1", "tool.backtest.rerun@1"}
     assert all(not item["view_eligible"] for item in compiled["operations"]
-               if item["source"] in ("mcp-core", "mcp-custom"))
+               if item["source"] in ("mcp-core", "mcp-custom")
+               and item["id"] != "tool.app_summary.counts@1")
     for item in compiled["operations"]:
         if item["view_eligible"]:
             assert item["input_schema"] is not None
