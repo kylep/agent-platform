@@ -60,7 +60,7 @@ async def test_scan_pages_as_viewer_and_records_fields_used(scan_env, sf):
     async with sf() as s:
         row = await s.get(AppDataToolCall, claim["jti"])
         assert row.scan_fields == ["results.id", "results.title"]
-        assert row.scan_rows == 4  # limit + lookahead reserved for each page
+        assert row.scan_rows == 2  # returned-row capacity reserved per page
     forbidden = await scan_env.post("/api/app-data/scan", headers=headers,
                                json={"role": "results", "fields": ["private"]})
     assert forbidden.status_code == 403
@@ -99,14 +99,23 @@ async def test_scan_credential_is_sender_and_route_bound(scan_env, sf):
 
 async def test_scan_execution_row_ceiling_persists_across_pages(scan_env, sf):
     app_id = await _app(sf, "kyle", [_collection("results")])
+    async with sf() as s:
+        ctx = await load_app(s, app_id)
+        for title in ("one", "two"):
+            await create_record(s, ctx, Caller("kyle"), "results", {"title": title})
     _, headers = await _mint(scan_env, sf, app_id)
-    scan_env.app.state.settings.app_data_scan_max_rows = 3
-    body = {"role": "results", "fields": ["title"], "limit": 1}
-    assert (await scan_env.post("/api/app-data/scan", headers=headers,
-                           json=body)).status_code == 200
+    scan_env.app.state.settings.app_data_scan_max_rows = 2
+    body = {"role": "results", "fields": ["title"], "limit": 1,
+            "sort": [{"field": "title", "dir": "asc"}]}
+    first = await scan_env.post("/api/app-data/scan", headers=headers, json=body)
+    assert first.status_code == 200
+    body["cursor"] = first.json()["next_cursor"]
     again = await scan_env.post("/api/app-data/scan", headers=headers, json=body)
-    assert again.status_code == 413
-    assert again.json()["detail"]["code"] == "AD-QUOTA-SCAN-EXECUTION"
+    assert again.status_code == 200
+    assert again.json()["rows"][0]["values"]["title"] == "two"
+    over = await scan_env.post("/api/app-data/scan", headers=headers, json=body)
+    assert over.status_code == 413
+    assert over.json()["detail"]["code"] == "AD-QUOTA-SCAN-EXECUTION"
 
 
 async def test_scan_hourly_app_budget_fails_closed(scan_env, sf, monkeypatch):

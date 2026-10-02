@@ -111,7 +111,11 @@ async def app_data_scan(request: Request, body: ScanIn) -> dict:
             if (now - started).total_seconds() >= request.app.state.settings.app_data_scan_max_seconds:
                 raise RecordError("AD-QUOTA-SCAN-TIME", "scan execution exceeded its time limit", 413)
             max_rows = request.app.state.settings.app_data_scan_max_rows
-            reserve = body.limit + 1
+            # The execution ceiling counts rows returned to the tool. The
+            # query's one-row lookahead is charged to the App's scan lease,
+            # but reserving it here would make an exact 1M-row scan stop one
+            # page early at the configured 1M-row ceiling.
+            reserve = body.limit
             if (row.scan_rows or 0) + reserve > max_rows:
                 raise RecordError("AD-QUOTA-SCAN-EXECUTION", "scan execution row limit reached", 413,
                                   {"max": max_rows, "used": row.scan_rows or 0})
