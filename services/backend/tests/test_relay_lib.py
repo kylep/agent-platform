@@ -311,6 +311,9 @@ def test_external_prompt_does_not_promise_relay_mention_routing():
     assert "do not ask the human to re-ping" in out
     assert "Pai, &lt;Kai&gt;" in out
     assert "To bring someone in, write @name" not in out
+    assert "You are `olu` in an external chat room." in out
+    assert '<relay-messages channel="research"' in out
+    assert "#channel" not in out
 
 
 def test_the_summoning_body_appears_only_inside_the_untrusted_block():

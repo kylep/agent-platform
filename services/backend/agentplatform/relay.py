@@ -336,6 +336,10 @@ def _label(channel) -> str:
     if kind == "group":
         return (getattr(channel, "title", "") or getattr(channel, "name", "")
                 or "group")
+    if getattr(channel, "home", "") == "external":
+        # External rooms have no Relay slug. Their connector gives them a
+        # human-readable title, which is the useful name in a mention prompt.
+        return getattr(channel, "title", "") or "external chat"
     return "#" + (getattr(channel, "name", "") or "channel")
 
 
@@ -346,6 +350,10 @@ def _where(channel, agent: str, participants) -> str:
         where = f"a DM with {others[0]}" if others else "a DM"
     elif kind == "group":
         where = f"group {_label(channel)}"
+    elif getattr(channel, "home", "") == "external":
+        # The connector's room title is untrusted, so keep it in the escaped
+        # <relay-messages> attribute instead of this trusted instruction.
+        where = "an external chat room"
     else:
         where = f"Relay channel {_label(channel)}"
     topic = (getattr(channel, "topic", "") or "").strip()
