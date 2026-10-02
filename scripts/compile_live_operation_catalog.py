@@ -22,6 +22,12 @@ CORE_BRANCHES = {
     "agents_grant": ("get", "set_grants", "add_grant", "remove_grant"),
     "artifacts": ("get", "list", "save", "delete"),
     "image_gen": ("generate", "models"),
+    # Dispatched by `action not in APPS_ACTIONS` and one body per arm, so the
+    # verbs are listed here, in broker.APPS_ACTIONS / APP_DATA_ACTIONS order.
+    "apps": ("schema", "list", "create", "get", "draft", "notes", "validate",
+             "preview", "publish", "rollback", "retire", "authority", "health"),
+    "app_data": ("describe", "query", "get", "create", "update", "delete",
+                 "delete_preview"),
 }
 
 APP_READS = {
@@ -139,6 +145,15 @@ def _effect_policy(source: str, tool: str, action: str) -> tuple[list[str], str]
         if tool == "image_gen":
             return (["reads_sensitive"] if action == "models"
                     else ["incurs_cost", "mutates_platform"]), "private"
+        if tool == "apps":
+            # `notes` reads without text and writes with it, so it is a write.
+            return (["reads_sensitive"] if action in (
+                "schema", "list", "get", "validate", "preview", "authority", "health")
+                else ["mutates_platform"]), "private"
+        if tool == "app_data":
+            return (["reads_sensitive"] if action in (
+                "describe", "query", "get", "delete_preview")
+                else ["mutates_platform"]), "private"
         if tool in ("get_quota_usage", "quota_ok"):
             return ["reads_sensitive", "incurs_cost"], "private"
         # query_app has a variable App/path contract even though its HTTP

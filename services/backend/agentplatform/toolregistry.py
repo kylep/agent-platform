@@ -41,7 +41,7 @@ CORE_TOOL_SUFFIXES = frozenset({
     "runs_read", "runs_write", "metrics", "query_app",
     "agents_edit", "agents_grant", "relay", "tickets", "wiki",
     "get_quota_usage", "artifacts", "image_gen", "quota_ok", "agent_self",
-    "discord", "health_incident", "tasks",
+    "discord", "health_incident", "tasks", "apps", "app_data",
 })
 
 
@@ -59,6 +59,44 @@ class ToolInfra(BaseModel):
     def _coerce_names(cls, v):
         # Accept a bare name or a {name: ...} mapping (skill-frontmatter style).
         return [s["name"] if isinstance(s, dict) else s for s in (v or [])]
+
+
+APP_VERBS = ("read", "create", "update", "delete")
+# appdata.definitions.NAME_RE: a role names a collection, so it takes the shape
+# of one.
+_ROLE = re.compile(r"^[a-z][a-z0-9_]{0,39}$")
+
+
+class AppAccess(BaseModel):
+    """What a tool may reach in Apps (docs/design/39, "Tool-call credentials"):
+    collection ROLES and verbs. A call credential's scope is the caller's own
+    access cut down to these, so this is a ceiling the manifest asks for, never
+    a grant. Roles bind to real collections through an App's App tool fact
+    (Release 1b); until then a role binds the collection of the same name."""
+    model_config = {"extra": "forbid"}
+    roles: list[str]
+    verbs: list[Literal["read", "create", "update", "delete"]]
+
+    @field_validator("roles")
+    @classmethod
+    def _roles(cls, v: list[str]) -> list[str]:
+        if not v:
+            raise ValueError("app_access.roles must name at least one role")
+        bad = [r for r in v if not _ROLE.match(r)]
+        if bad:
+            raise ValueError(f"app_access.roles must match {_ROLE.pattern}, got {bad}")
+        if len(set(v)) != len(v):
+            raise ValueError("app_access.roles lists a role twice")
+        return v
+
+    @field_validator("verbs")
+    @classmethod
+    def _verbs(cls, v: list[str]) -> list[str]:
+        if not v:
+            raise ValueError("app_access.verbs must name at least one verb")
+        if len(set(v)) != len(v):
+            raise ValueError("app_access.verbs lists a verb twice")
+        return v
 
 
 # `broker.FILES_ARG`: the one argument name no manifest may claim.
@@ -83,6 +121,9 @@ class ToolManifest(BaseModel):
     # The broker's scan skips an internal tool, so no agent can call it; the
     # platform API is its only caller. `image_gen` is the first.
     internal: bool = False
+    # Absent: the broker asks for no call credential and the tool can't reach
+    # App data at all.
+    app_access: AppAccess | None = None
 
     @field_validator("name")
     @classmethod

@@ -236,6 +236,9 @@ and keeps it out of tool code entirely:
   - `exp` set to the tool's timeout.
 - **A ceiling, not a grant.** The credential limits what the call may attempt,
   and the API still checks every write against current facts.
+- **Deletes stay in scope.** A delete that would unlink refs in another
+  collection needs `update` scope there, or the whole delete is refused;
+  cascade (R2) must follow the same rule with `delete` scope.
 - **Executor-mediated.** The credential goes to the executor, never to the
   tool process. The tool calls `app_data` through a per-call local endpoint the
   executor exposes for that subprocess. The executor attaches the credential,
@@ -297,7 +300,8 @@ A **tool view** binds a page or agent query to a tool read action.
   executor pool, so it can't reach anything but the platform API.
 - **Bulk reads.** View actions read through `app_data scan`, a stream with
   viewer facts applied. Scans are bounded:
-  - per execution: 2,000,000 rows and 60 seconds;
+  - per execution: 1,000,000 rows and 60 seconds (measured at ~34k rows/s, so
+    the time limit has headroom; A12, `docs/superpowers/plans/appdata-perf-2026-10.md`);
   - per App: scan rows per hour and two concurrent scans;
   - per owner: a total. Breaches fail closed.
 - **Materialized views** cover heavy views, such as TCMS's flaky, slowest and

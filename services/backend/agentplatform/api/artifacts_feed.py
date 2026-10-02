@@ -6,6 +6,10 @@ Studio's recent strip and the `[[artifact:]]` card draw from.
 
 Its own module beside `api/artifacts.py` so the REST surface stays the store's
 skin and this stays the feed's; both mount under `/api/artifacts`.
+
+One stream, but not one audience: an App-owned artifact's frame goes only to
+a recipient its owning field lets read it (docs/design/39), decided per
+subscriber as the frame leaves.
 """
 import asyncio
 
@@ -13,6 +17,7 @@ from fastapi import APIRouter, Depends, Request
 from fastapi.responses import StreamingResponse
 
 from agentplatform.api import relay as relay_api
+from agentplatform.appdata import artifacts as app_artifacts
 from agentplatform.api.artifacts import require_artifacts_access
 from agentplatform.api.relay import READ, Caller
 from agentplatform.events import TOPIC_ARTIFACTS_EVENTS
@@ -32,6 +37,7 @@ async def artifacts_stream(request: Request,
     that fell too far behind for anything but a re-list to catch it up."""
     feed = request.app.state.artifacts_feed
     queue = feed.subscribe(STREAM)
+    principal = await app_artifacts.request_principal(request, caller.agent)
 
     async def stream():
         try:
@@ -46,6 +52,8 @@ async def artifacts_stream(request: Request,
                 if event == OVERFLOW:
                     yield relay_api._frame(OVERFLOW, {})
                     continue
+                if not await _may_see(request, principal, data):
+                    continue
                 yield relay_api._frame(event, data)
         finally:
             feed.unsubscribe(STREAM, queue)
@@ -53,6 +61,22 @@ async def artifacts_stream(request: Request,
     return StreamingResponse(stream(), media_type="text/event-stream",
                              headers={"Cache-Control": "no-cache",
                                       "X-Accel-Buffering": "no"})
+
+
+async def _may_see(request: Request, principal: str | None, data: dict) -> bool:
+    """Whether this recipient gets the frame. Ownership is read at delivery,
+    not trusted from the frame: an artifact claimed since its `created`
+    went out is filtered too. A frame that says it was App-owned but whose
+    artifact has no owner any more has outlived it (the record was deleted
+    meanwhile) and nobody gets it: there's no field left to authorize it."""
+    artifact = data.get("artifact")
+    if not isinstance(artifact, dict) or not artifact.get("id"):
+        return True
+    async with request.app.state.session_factory() as s:
+        own = await app_artifacts.ownership(s, str(artifact["id"]))
+        if own is None:
+            return not data.get("app")
+        return await app_artifacts.may_read(s, own, principal)
 
 
 def artifacts_feed(session_factory=None) -> TopicFeed:

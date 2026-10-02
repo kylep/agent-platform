@@ -83,9 +83,13 @@ Env vars shared by the api/dispatcher/recorder backend Deployments.
   value: {{ .Values.spire.trustDomain | quote }}
 - name: AP_SPIFFE_WORKLOAD_SOCKET
   value: {{ .Values.spire.workloadApiSocket | quote }}
+{{- end }}
+# Run-pod tunnels pin the broker under SPIRE; the api also checks it, and the
+# executor's, for tool-call credentials (docs/design/39).
 - name: AP_BROKER_SERVICE_ACCOUNT
   value: "{{ .Release.Name }}-mcp-broker"
-{{- end }}
+- name: AP_TOOL_EXECUTOR_SERVICE_ACCOUNT
+  value: "{{ .Release.Name }}-tool-executor"
 - name: AP_AGENTS_VOLUME_CLAIM
   value: {{ .Values.env.AP_AGENTS_VOLUME_CLAIM | quote }}
 - name: AP_GLOBAL_CONCURRENCY

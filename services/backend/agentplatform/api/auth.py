@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from agentplatform.agentspec import platform_token_role
 from agentplatform.apikeys import hash_token
+from agentplatform.appdata import credentials as _tc
 from agentplatform.db import ApiKey, ChatIdentity, Principal
 
 ph = PasswordHasher()
@@ -126,8 +127,10 @@ async def authenticate(request: Request) -> tuple[str, str] | None:
 
     How the caller proved itself goes on `request.state.auth_kind`: "session"
     (the login cookie), "key" (an `ap_` API key) or "workload" (a
-    ServiceAccount JWT). A key's principal is its name, so a name alone can't
-    tell Kyle's login from a key someone called `admin`; the kind can."""
+    ServiceAccount JWT) or "tool_call" (a tool-call credential beside the
+    executor's ServiceAccount JWT, docs/design/39). A key's principal is its
+    name, so a name alone can't tell Kyle's login from a key someone called
+    `admin`; the kind can."""
     name = validate_session_cookie(request.app, request.cookies.get("ap_session"))
     if name is not None:
         role = await _lookup_role(request, name)
@@ -135,49 +138,116 @@ async def authenticate(request: Request) -> tuple[str, str] | None:
             request.state.auth_kind = "session"
             return (name, role)
     header = request.headers.get("authorization", "")
-    if header.startswith("Bearer "):
-        token = header[len("Bearer "):].strip()
-        if token.startswith("ap_"):
-            k = await _lookup_api_key(request, token)
-            if k is not None:
-                if k.run_id and not await _current_run(request, k.run_id):
+    if not header.startswith("Bearer "):
+        return None
+    token = header[len("Bearer "):].strip()
+    tool_call = request.headers.get(_tc.HEADER, "")
+    if tool_call:
+        # A present tool-call credential decides the request on its own: it
+        # is never a fallback to whatever else the bearer would have been.
+        if not tool_call_route(request.url.path):
+            return None
+        return await _authenticate_tool_call(request, token, tool_call)
+    return await authenticate_bearer(request, token, request.headers.get("x-ap-run-token", ""))
+
+
+async def authenticate_bearer(request: Request, token: str,
+                              run_token: str = "") -> tuple[str, str] | None:
+    """The bearer half of `authenticate`, for a token and run JWT given
+    explicitly. The tool-call mint resolves the broker's CALLER through here,
+    since that request's own bearer is the broker's."""
+    if token.startswith("ap_"):
+        k = await _lookup_api_key(request, token)
+        if k is not None:
+            if k.run_id and not await _current_run(request, k.run_id):
+                return None
+            request.state.api_key_run_id = k.run_id
+            request.state.api_key_agent = k.agent
+            request.state.auth_kind = "key"
+            return (k.name, k.role)
+    elif token.count(".") == 2:
+        # Workload identity (docs/design/13 A): a kubelet-projected,
+        # audience-bound ServiceAccount JWT instead of a minted secret.
+        ident = await _validate_sa_token(request, token)
+        if ident is not None:
+            principal, role, agent = ident
+            run_id, frozen = None, None
+            if agent is not None and run_token:
+                # Sender-constrained run JWT (design/13 C): must match
+                # the workload that presented it. A PRESENT-but-invalid
+                # token is a red flag, not a fallback — reject outright.
+                claims = await _verify_run_token(request, run_token, agent)
+                if claims is None:
                     return None
-                request.state.api_key_run_id = k.run_id
-                request.state.api_key_agent = k.agent
-                request.state.auth_kind = "key"
-                return (k.name, k.role)
-        elif token.count(".") == 2:
-            # Workload identity (docs/design/13 A): a kubelet-projected,
-            # audience-bound ServiceAccount JWT instead of a minted secret.
-            ident = await _validate_sa_token(request, token)
-            if ident is not None:
-                principal, role, agent = ident
-                run_id, frozen = None, None
-                run_token = request.headers.get("x-ap-run-token", "")
-                if agent is not None and run_token:
-                    # Sender-constrained run JWT (design/13 C): must match
-                    # the workload that presented it. A PRESENT-but-invalid
-                    # token is a red flag, not a fallback — reject outright.
-                    claims = await _verify_run_token(request, run_token, agent)
-                    if claims is None:
-                        return None
-                    run_id = claims.get("run_id")
-                    if not run_id or not await _current_run(request, run_id):
-                        return None
-                    request.state.initiated_by = claims.get("initiated_by")
-                    frozen = [t for t in (claims.get("tools") or [])
-                              if isinstance(t, str)]
-                    # The same ladder the launcher minted the key on, walked
-                    # over the FROZEN set: a mid-run grant edit must not move
-                    # the rung either way. An empty freeze still authenticates
-                    # — as `tools`, which reaches nothing but whoami.
-                    role = platform_token_role(frozen) or "tools"
-                request.state.api_key_run_id = run_id
-                request.state.api_key_agent = agent
-                request.state.frozen_tools = frozen
-                request.state.auth_kind = "workload"
-                return (principal, role)
+                run_id = claims.get("run_id")
+                if not run_id or not await _current_run(request, run_id):
+                    return None
+                request.state.initiated_by = claims.get("initiated_by")
+                frozen = [t for t in (claims.get("tools") or [])
+                          if isinstance(t, str)]
+                # The same ladder the launcher minted the key on, walked
+                # over the FROZEN set: a mid-run grant edit must not move
+                # the rung either way. An empty freeze still authenticates
+                # — as `tools`, which reaches nothing but whoami.
+                role = platform_token_role(frozen) or "tools"
+            request.state.api_key_run_id = run_id
+            request.state.api_key_agent = agent
+            request.state.frozen_tools = frozen
+            request.state.auth_kind = "workload"
+            return (principal, role)
     return None
+
+
+# Where a tool-call credential authenticates at all. It stands for an agent
+# and its run, so a route that trusts `api_key_agent`/`api_key_run_id` alone
+# (persona messaging, chat-identity transport, memory, ...) would take it as
+# the run itself. Outside these it authenticates nothing: whoami (identity
+# only, no authority) and the app_data routes, whose module lets it through to
+# the record routes and refuses it on the builder, Kyle and quota routes.
+TOOL_CALL_PATHS = ("/api/whoami",)
+TOOL_CALL_PREFIXES = ("/api/app-data/",)
+
+
+def tool_call_route(path: str) -> bool:
+    return path in TOOL_CALL_PATHS or path.startswith(TOOL_CALL_PREFIXES)
+
+
+async def _authenticate_tool_call(request: Request, token: str,
+                                  credential: str) -> tuple[str, str] | None:
+    """A tool-call credential (docs/design/39), presented by the executor
+    beside its own ServiceAccount token. Valid only from that workload, only
+    for the call it names, and only until the broker revokes it at return.
+
+    The principal is the agent acting through the tool; the role is `tools`,
+    which no allow-list names, and `authenticate` admits it only on
+    `tool_call_route`s, so the only routes that answer it are the `app_data`
+    record ones, which keep to the credential's `app_scope`."""
+    if token.count(".") != 2:
+        return None
+    sa_name = await workload_sa(request, token)
+    if sa_name is None or sa_name != request.app.state.settings.tool_executor_service_account:
+        return None
+    keys = await _tc.keypair(request.app.state)
+    # TODO(R2): admit KIND_PAGE_INTENT here once page intents are minted;
+    # until then a page-intent credential authenticates nothing.
+    claims = _tc.verify(keys["public_key"], credential, expected_sa=sa_name)
+    if claims is None:
+        return None
+    if request.headers.get(_tc.CALL_ID_HEADER, "") != claims["call_id"]:
+        return None
+    async with request.app.state.session_factory() as session:
+        if not await _tc.is_live(session, claims):
+            return None
+    if not await _current_run(request, claims["run_id"]):
+        return None
+    request.state.auth_kind = _tc.KIND_TOOL_CALL
+    request.state.api_key_agent = claims["agent"]
+    request.state.api_key_run_id = claims["run_id"]
+    request.state.via_tool = f"tool:{claims['tool']}"
+    request.state.tool_call = claims
+    # whoami must not read a tool call as holding any platform tool.
+    request.state.frozen_tools = []
+    return (f"agent:{claims['agent']}", "tools")
 
 
 async def _current_run(request, run_id):
@@ -219,6 +289,30 @@ def connector_identity(principal: str) -> str | None:
     if principal.startswith("connector-discord:"):
         return principal.partition(":")[2]
     return None
+
+
+async def workload_sa(request: Request, token: str) -> str | None:
+    """The ServiceAccount name a projected token proves, or None. For the
+    platform's own workloads (the broker, the executor), which hold no API
+    identity of their own: a route that trusts one checks the name itself."""
+    import time
+    from agentplatform.apikeys import hash_token
+    if not hasattr(request.app.state, "_sa_name_cache"):
+        request.app.state._sa_name_cache = {}
+    cache: dict = request.app.state._sa_name_cache
+    h = hash_token(token)
+    hit = cache.get(h)
+    if hit and hit[0] > time.monotonic():
+        return hit[1]
+    validator = getattr(request.app.state, "sa_validator", None)
+    if validator is None:
+        return None
+    username = await validator(token)
+    if not username:
+        return None
+    sa_name = username.rsplit(":", 1)[-1]
+    cache[h] = (time.monotonic() + _SA_CACHE_TTL, sa_name)
+    return sa_name
 
 
 async def _validate_sa_token(request: Request, token: str) -> tuple[str, str, str | None] | None:

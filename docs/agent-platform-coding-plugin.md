@@ -1,6 +1,6 @@
 # Agent Platform Coding plugin
 
-The source package is [`plugins/agent-platform-coding/`](../plugins/agent-platform-coding/). It supplies three short skills to both Claude Code and Codex: `platform-orientation`, `platform-change`, and `platform-regression`. The first finds the current source of truth, the second guides a focused change, and the third verifies behavior across the API, runner, and browser. Assign only the skills an agent needs; the coder and QA agents can share the package without sharing their jobs or grants.
+The source package is [`plugins/agent-platform-coding/`](../plugins/agent-platform-coding/). It supplies four skills to both Claude Code and Codex. Three are short coding workflows: `platform-orientation` finds the current source of truth, `platform-change` guides a focused change, and `platform-regression` verifies behavior across the API, runner, and browser. The fourth, `app-building` (since 0.2.0), teaches App builders such as Pai, Kai and Olu when an App is the answer and how to build, publish and maintain one with the `apps` and `app_data` tools ([Apps](building-blocks/apps.md)). Assign only the skills an agent needs; the coder, QA and builder agents can share the package without sharing their jobs or grants.
 
 `release.json` pins every package file by SHA-256. The platform loads its skills only when the complete file set and both harness manifests verify. The runner installs only the assigned `SKILL.md` files into each harness's skill directory. It does not execute package code or copy a plugin's manifests, hooks, commands, or MCP configuration into a run. Skills add instructions, not Tools, network access, secrets, or publish permission. Those remain explicit agent and Tool grants.
 
@@ -11,8 +11,8 @@ Actions to attest its digest and source workflow. Download the named artifact
 from that workflow run, then verify it before using the bundle as a release:
 
 ```sh
-gh run download RUN_ID -n agent-platform-coding-0.1.1 -D /tmp/ap-plugin-release
-gh attestation verify /tmp/ap-plugin-release/agent-platform-coding-0.1.1.tar.gz \
+gh run download RUN_ID -n agent-platform-coding-VERSION -D /tmp/ap-plugin-release
+gh attestation verify /tmp/ap-plugin-release/agent-platform-coding-VERSION.tar.gz \
   -R kylep/agent-platform \
   --signer-workflow kylep/agent-platform/.github/workflows/plugin-release.yaml \
   --source-ref refs/heads/main
@@ -29,7 +29,10 @@ making the running pod fetch GitHub. The previous 0.1.0 release is no longer
 admitted by the current platform build; roll back the platform image and
 package together if that older release is needed.
 
-To change the package, edit a skill, review it as code, update `release.json` with the new hashes, and validate both manifests and the pinned runner images before assigning it. A failed verification makes the package unavailable and blocks agents that require it rather than silently running them without their requested workflow. Roll back by restoring the previous reviewed package revision, or remove the skill assignment from an affected agent. Existing runs keep the files installed at their start; new runs use the current verified package.
+To change the package, edit a skill, review it as code, update `release.json` with the new hashes, and validate both manifests and the pinned runner images before assigning it. A release takes two pins in `plugin_release.py`, in two pull requests:
+
+1. **The reviewed manifest.** Bump the version in the three package manifests and `.claude-plugin/marketplace.json`, regenerate `release.json`, and add its SHA-256 to `APPROVED_RELEASES`. That entry is an approval of exact skill text, so Kyle adds or confirms it. The workflow verifies everything except the attested bundle (`verify_release(root, attested=False)`), builds the bundle and attests it when this merges to `main`.
+2. **The attested bundle.** Download the run's artifact, verify it as above, and pin its SHA-256 in `ATTESTED_BUNDLES`, naming the run. Until this lands, the platform refuses the whole package, so agents assigned any of its skills are blocked: deploy only after the second pull request merges. A failed verification makes the package unavailable and blocks agents that require it rather than silently running them without their requested workflow. Roll back by restoring the previous reviewed package revision, or remove the skill assignment from an affected agent. Existing runs keep the files installed at their start; new runs use the current verified package.
 
 Developer hosts use the repo-owned marketplace manifests in
 `.agents/plugins/marketplace.json` and `.claude-plugin/marketplace.json`:
@@ -60,6 +63,10 @@ then restored 0.1.1 and removed the temporary marketplace. Claude's final
 inventory remained three skills, zero hooks and zero MCP servers. This tests
 installation and rollback mechanics, not the quality of agent decisions when
 the skills fire.
+
+Version 0.2.0 adds `app-building` and makes the provenance workflow take the
+version from `release.json`. Its manifest approval and attestation are
+pending; this page records the run once it is pinned.
 
 For an update, edit and validate the source, bump the matching package and
 marketplace versions, regenerate `release.json`, then update/reinstall through

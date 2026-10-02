@@ -1392,6 +1392,179 @@ function quotaSnapshot(over: Record<string, unknown> = {}) {
   };
 }
 
+// State Apps (docs/design/39), shaped exactly as src/lib/appData.ts's
+// contract. `habits` carries every renderer state: a page per state, a view
+// per result shape, and health with something wrong in it.
+export const STATE_APP_ID = "5a".repeat(16);
+const STOCKS_APP_ID = "5b".repeat(16);
+const RETIRED_APP_ID = "5c".repeat(16);
+const AS_OF = new Date(FIXTURE_NOW - 120e3).toISOString();
+const STALE_AS_OF = new Date(FIXTURE_NOW - 3 * 86400e3).toISOString();
+
+const stateApps = [
+  { id: STATE_APP_ID, name: "habits", owner: "pai", status: "active",
+    description: "Daily habits, logged by pai.", approved_version: 4,
+    updated_at: AS_OF, health: { status: "failing", issues: 2, checked_at: AS_OF } },
+  { id: STOCKS_APP_ID, name: "stockmarket", owner: "stockmarket-data", status: "active",
+    description: "Symbols, bars and the daily brief.", approved_version: 1,
+    updated_at: AS_OF, health: { status: "ok", issues: 0, checked_at: AS_OF } },
+  { id: RETIRED_APP_ID, name: "old-reading-list", owner: "kyle", status: "retired",
+    description: "", approved_version: 2, updated_at: STALE_AS_OF,
+    health: { status: "ok", issues: 0, checked_at: null } },
+];
+
+const habitsCollection = {
+  collection: "habits",
+  fields: {
+    habit: { type: "enum", values: ["run", "read", "stretch"], required: true },
+    day: { type: "date", required: true },
+    done: { type: "bool", required: true },
+    streak: { type: "int" },
+    score: { type: "number" },
+    note: { type: "string", max: 500, access: { read: ["owner"] } },
+  },
+  write_mode: "editable",
+  access: { read: ["owner", "kyle"], create: ["owner"], update: ["owner"], delete: ["kyle"] },
+  rules: [{ kind: "unique", fields: ["habit", "day"] }],
+};
+
+const recentColumns = [
+  { field: "habit" }, { field: "day", format: "date" }, { field: "done", format: "bool" },
+  { field: "streak", label: "Streak", format: "int" }, { field: "score", format: "percent" },
+  { field: "note" },
+];
+
+// One page per renderer state; `mixed` holds the per-component failures.
+const statePages: Record<string, Record<string, unknown>> = {
+  overview: { renderer: "typed/v2", title: "Habits", components: [
+    { kind: "text", style: "heading", text: "This week" },
+    { kind: "text", style: "paragraph", text: "Logged by pai every evening." },
+    { kind: "metric", label: "Days done", view: "done_count" },
+    { kind: "table", label: "Recent days", view: "recent", columns: recentColumns,
+      row_link: { page: "entry", params: { id: "id" } }, limit: 3 },
+  ] },
+  entry: { renderer: "typed/v2", title: "Habit day", components: [
+    { kind: "detail", label: "Entry", view: "entry", params: { id: { query: "id" } },
+      fields: [{ field: "habit" }, { field: "day", format: "date" },
+               { field: "done", format: "bool" }, { field: "note" }] },
+  ] },
+  links: { renderer: "typed/v2", title: "Links", components: [
+    { kind: "text", style: "paragraph", text: "Back to the overview", link: { page: "overview" } },
+    { kind: "text", style: "paragraph", text: "Open tickets", link: { path: "/tickets" } },
+    { kind: "text", style: "paragraph", text: "Protocol-relative", link: { path: "//evil.example/x" } },
+    { kind: "text", style: "paragraph", text: "Outbound", link: { path: "https://evil.example/x" } },
+    { kind: "text", style: "paragraph", text: "Script", link: { path: "javascript:alert(1)" } },
+  ] },
+  empty: { renderer: "typed/v2", title: "Skipped", components: [
+    { kind: "table", label: "Skipped days", view: "skipped", columns: recentColumns },
+    { kind: "detail", label: "Missing entry", view: "entry", params: { id: "nope" },
+      fields: [{ field: "habit" }] },
+  ] },
+  stale: { renderer: "typed/v2", title: "Streaks", components: [
+    { kind: "metric", label: "Days done (rollup)", view: "done_rollup" },
+  ] },
+  mixed: { renderer: "typed/v2", title: "Mixed", components: [
+    { kind: "metric", label: "Days done", view: "done_count" },
+    { kind: "table", label: "Private log", view: "private_log", columns: [{ field: "habit" }] },
+    { kind: "metric", label: "Broken count", view: "broken_view" },
+  ] },
+};
+
+const habitRow = (id: string, habit: string, day: string, done: boolean, streak: number,
+                  score: number, note: string | null) => ({
+  id, values: { habit, day, done, streak, score, note },
+  restricted: note === null ? ["note"] : [],
+});
+const habitRows = [
+  habitRow("r1", "run", "2026-09-30", true, 4, 0.75, "Easy 5k."),
+  habitRow("r2", "read", "2026-09-30", false, 0, 0.5, null),
+  habitRow("r3", "stretch", "2026-09-29", true, 12, 1, ""),
+  habitRow("r4", "run", "2026-09-28", true, 3, 0.6, "Hills."),
+];
+
+function stateView(view: string, params: URLSearchParams): { status?: number; json: unknown } {
+  const fresh = { as_of: AS_OF, stale: false };
+  if (view === "done_count") return { json: { count: 23, ...fresh } };
+  if (view === "done_rollup") return { json: { count: 19, as_of: STALE_AS_OF, stale: true } };
+  if (view === "recent") {
+    // Two pages: the cursor is the index the next page starts at.
+    const start = Number(params.get("cursor") ?? 0);
+    const limit = Number(params.get("limit") ?? 200);
+    const rows = habitRows.slice(start, start + limit);
+    const next = start + limit < habitRows.length ? String(start + limit) : null;
+    return { json: { rows, next_cursor: next, ...fresh } };
+  }
+  if (view === "entry") {
+    const row = habitRows.find((r) => r.id === params.get("id"));
+    return { json: { rows: row ? [row] : [], next_cursor: null, ...fresh } };
+  }
+  if (view === "skipped") return { json: { rows: [], next_cursor: null, ...fresh } };
+  if (view === "private_log") return { status: 403, json: { detail: "not a reader of this view" } };
+  if (view === "broken_view") return { status: 503, json: { detail: "view no longer validates" } };
+  return { status: 404, json: { detail: "unknown view" } };
+}
+
+const approved = (kind: string, name: string, version: number, definition: Record<string, unknown>) =>
+  ({ kind, name, version, published_at: AS_OF, published_by: "pai", definition });
+
+const stateAppDetails: Record<string, Record<string, unknown>> = {
+  [STATE_APP_ID]: {
+    ...stateApps[0],
+    approved: [
+      approved("collection", "habits", 2, habitsCollection),
+      approved("view", "recent", 1, { view: "recent", collection: "habits",
+        sort: [{ field: "day", dir: "desc" }], limit: 200 }),
+      approved("view", "done_count", 1, { view: "done_count", collection: "habits",
+        filter: [{ field: "done", op: "eq", value: true }], aggregates: [{ fn: "count", as: "n" }] }),
+      ...Object.entries(statePages).map(([name, definition]) => approved("page", name, 1, definition)),
+    ],
+    drafts: [
+      { kind: "collection", name: "habits", revision: 3, base_version: 2, updated_at: AS_OF,
+        updated_by: "pai", definition: { ...habitsCollection,
+          fields: { ...habitsCollection.fields, mood: { type: "enum", values: ["low", "ok", "high"] } } } },
+      { kind: "page", name: "weekly", revision: 1, base_version: null, updated_at: AS_OF,
+        updated_by: "pai", definition: { renderer: "typed/v2", title: "Weekly", components: [] } },
+    ],
+    build_notes: { text: "Routine: pai logs each habit at 21:00.\nThe unique rule on (habit, day) is what makes counts mean days.",
+                   revision: 5, updated_at: AS_OF, updated_by: "pai" },
+    health: {
+      status: "failing", issues: 2, checked_at: AS_OF,
+      invalid_bindings: [{ kind: "page", name: "broken", code: "unknown_field",
+                           message: "column `mood` is not a field of `habits`" }],
+      rule_violations: [{ collection: "habits", rule: "unique(habit, day)", count: 2,
+                          record_ids: ["r7", "r9"] }],
+      quota: { records: 412, records_limit: 100000, bytes: 52000, bytes_limit: 67108864 },
+    },
+    build_ops: [
+      { request_id: "req-publish-4", action: "publish", status: "succeeded", actor: "pai",
+        created_at: AS_OF, summary: "Published version 4 (pages overview, entry)." },
+      { request_id: "req-publish-3", action: "publish", status: "refused", actor: "pai",
+        created_at: STALE_AS_OF, summary: "Outside the approved state: note readable by kyle." },
+    ],
+  },
+  [STOCKS_APP_ID]: {
+    ...stateApps[1], approved: [], drafts: [], build_notes: null, build_ops: [],
+    health: { ...stateApps[1].health, invalid_bindings: [], rule_violations: [],
+              quota: { records: 0, records_limit: 100000, bytes: 0, bytes_limit: 67108864 } },
+  },
+};
+
+function appDataRoute(path: string, params: URLSearchParams): { status?: number; json: unknown } | undefined {
+  if (path === "/api/app-data/apps") return { json: stateApps };
+  const m = /^\/api\/app-data\/apps\/([^/]+)(?:\/(pages|views)\/([^/]+))?$/.exec(path);
+  if (!m) return undefined;
+  const [, appId, sub, name] = m;
+  const detail = stateAppDetails[appId];
+  if (!detail) return { status: 404, json: { detail: "unknown App" } };
+  if (!sub) return { json: detail };
+  if (sub === "views") return stateView(name, params);
+  if (name === "denied") return { status: 403, json: { detail: "not a reader of this page" } };
+  if (name === "broken") return { status: 503, json: { detail: "published definition incompatible" } };
+  const definition = statePages[name];
+  if (!definition) return { status: 404, json: { detail: "unknown page" } };
+  return { json: { app_id: appId, app_name: detail.name, page: name, version: 1, definition } };
+}
+
 /** A snapshot the hook has to refresh, and a count of the refreshes it made.
  * Registered AFTER `mockApi` on purpose — Playwright tries handlers in
  * reverse registration order, so the last one in wins. */
@@ -1480,6 +1653,13 @@ export async function mockApi(page: Page): Promise<string[]> {
         await route.fulfill(answer.body
           ? { status: 200, body: answer.body, contentType: answer.contentType }
           : { status: answer.status ?? 200, json: answer.json });
+        return;
+      }
+    }
+    if (path.startsWith("/api/app-data/") && route.request().method() === "GET") {
+      const answer = appDataRoute(path, url.searchParams);
+      if (answer) {
+        await route.fulfill({ status: answer.status ?? 200, json: answer.json });
         return;
       }
     }

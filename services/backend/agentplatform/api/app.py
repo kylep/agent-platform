@@ -13,6 +13,7 @@ from agentplatform.agents import AgentStore
 from agentplatform.api import agent_self as agent_self_api
 from agentplatform.api import agents as agents_api
 from agentplatform.api import apikeys as apikeys_api
+from agentplatform.api import app_data as app_data_api
 from agentplatform.api import apps as apps_api
 from agentplatform.api import artifacts as artifacts_api
 from agentplatform.api import artifacts_feed as artifacts_feed_api
@@ -49,6 +50,7 @@ from agentplatform.api import secrets as secrets_api
 from agentplatform.api import skills as skills_api
 from agentplatform.api import tickets as tickets_api
 from agentplatform.api import tasks as tasks_api
+from agentplatform.api import tool_calls as tool_calls_api
 from agentplatform.api import tools as tools_api
 from agentplatform.api import tail as tail_api
 from agentplatform.api import wiki as wiki_api
@@ -445,6 +447,7 @@ def create_app(settings, session_factory, producer, secret_store=None, agent_sto
     app.include_router(auth.router)
     app.include_router(backups_api.router)
     app.include_router(apps_api.router)
+    app.include_router(app_data_api.router)
     app.include_router(apikeys_api.router)
     # The feed first: `/api/artifacts/events` is a literal path under a router
     # whose `/api/artifacts/{artifact_id}` would otherwise claim it.
@@ -486,6 +489,7 @@ def create_app(settings, session_factory, producer, secret_store=None, agent_sto
     app.include_router(skills_api.router)
     app.include_router(tickets_api.router)
     app.include_router(tasks_api.router)
+    app.include_router(tool_calls_api.router)
     app.include_router(tools_api.router)
     app.include_router(tail_api.router)
     app.include_router(wiki_api.router)

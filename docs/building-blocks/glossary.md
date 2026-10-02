@@ -31,7 +31,7 @@ Every long-running piece of the platform. All of these are Deployments in the
 | **claude-proxy** | stock nginx + a config in the chart | Holds the Claude API credential and injects it into requests from runner pods, so the token never lands in an agent's pod, and reports the usage headers Anthropic returns to the API — which is how the platform knows its own [quota](quota.md). |
 | **agents-sync** | stock `alpine/git` | Keeps the **synced checkout** (below) up to date with the git repository. |
 | **connector-discord** | `services/connector-discord` | Bridges a Discord channel to the conversation API, so a chat message can start a run. |
-| **app pods** | `apps/<name>/` | Full applications built on the platform ([apps.md](apps.md)), each with its own Postgres schema. |
+| **app pods** | `apps/<name>/` | The coded Apps, each with its own Postgres schema, being migrated to Apps as state ([apps.md](apps.md)). An agent-built App has no pod. |
 
 ## Vocabulary
 
@@ -260,6 +260,45 @@ Every long-running piece of the platform. All of these are Deployments in the
   chooses to share. Only Kai (through the `judgment` tool) and Kyle (at
   `/apps/judgment/`) can see it. The block is [judgment.md](judgment.md); the
   design record is `docs/design/38-judgment-app.md`.
+- **App** — something agents build and maintain for Kyle: collections of
+  records, the views that query them and the pages that show them. An App is
+  **state, not code**: an immutable id, a never-reused name, an owner (an
+  agent or Kyle), versioned definitions and build notes, all rows in the
+  `app_data_*` tables. The block is [apps.md](apps.md), the reference
+  [app-data.md](app-data.md), the design record
+  `docs/design/39-agent-built-apps.md`. The six older Apps (news, running,
+  stockmarket, TCMS, judgment, TTRPG) are coded services being migrated to
+  state.
+- **Collection** — a typed record set inside one App: declared fields,
+  a write mode (`editable` or `immutable`), per-field access, rules
+  (`unique`, `writer`, `immutable_after_create`), refs to other collections
+  of the same App, and up to four indexed fields. There is no free-form JSON.
+- **View** — a declared query over one collection: typed parameters,
+  filters, sort, limit and paging, or one ungrouped count. Pages show views,
+  and agents run them with `app_data query`; each reader sees only the
+  fields it may read.
+- **Approved state** — an App's published definitions at its current
+  approved version. Everything in it was self-published within the rules or
+  approved by Kyle. A publish **self-publishes** only when the authority it
+  grants is already in the approved state or narrower; anything wider is a
+  proposal for Kyle.
+- **Builder** — an agent Kyle has granted the `apps` tool (a Kyle-only
+  grant). It creates Apps it owns and drafts, validates, previews, publishes,
+  rolls back and retires their definitions.
+- **Maintainer** — an App's owning agent: it writes the App's records,
+  keeps it healthy, and keeps the build notes a successor can take it over
+  from.
+- **Connector (tool)** — a tool that brings an outside system's data into
+  Apps, such as Strava or Yahoo Finance (today's `prices` tool). Not the
+  Relay sense of the word: `connector-discord` and a binding's `connector`
+  are chat bridges.
+- **App tool** — a tool that does an App's computation and writes its
+  records as its caller, through a per-call credential (backtest, tcms,
+  judgment, news, running, ttrpg). Which App collections a tool may read or
+  write is an **App tool fact**, approved by Kyle per App (Release 1b).
+- **Platform tool** — a tool that acts on the platform itself (`apps`,
+  `app_data`, `tickets`, `wiki`, `relay`, `agents_edit`, …), as opposed to a
+  connector or an App tool.
 - **Kyle (project owner)** — the sole operator of the reference deployment.
   Design docs quote him directly; those quotes are the historical record of a
   decision, not instructions to the reader.

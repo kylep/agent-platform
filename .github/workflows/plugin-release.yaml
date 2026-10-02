@@ -22,30 +22,43 @@ jobs:
         with:
           python-version: "3.12"
       - name: Verify the approved skills-only release
+        id: release
         run: |
           PYTHONPATH=services/backend python - <<'PY'
+          import json, os, re
           from pathlib import Path
           from agentplatform.plugin_release import verify_release
-          skills = verify_release(Path("plugins/agent-platform-coding"))
-          assert len(skills) == 3
+          root = Path("plugins/agent-platform-coding")
+          # This run produces the attested digest that plugin_release.py pins
+          # afterwards, so it can't require that pin yet. Everything else is
+          # checked: the approved manifest digest, the file set and every hash.
+          skills = verify_release(root, attested=False)
+          version = json.loads((root / "release.json").read_text())["version"]
+          assert re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+", version), version
+          print(f"agent-platform-coding {version}: {len(skills)} skills")
+          with open(os.environ["GITHUB_OUTPUT"], "a") as out:
+              out.write(f"version={version}\n")
           PY
       - name: Build a deterministic release bundle
+        env:
+          VERSION: ${{ steps.release.outputs.version }}
         run: |
           mkdir -p dist
           PYTHONPATH=services/backend python - <<'PY'
+          import os
           from pathlib import Path
           from agentplatform.plugin_release import release_bundle, verify_release
           root = Path("plugins/agent-platform-coding")
-          verify_release(root)
-          Path("dist/agent-platform-coding-0.1.1.tar.gz").write_bytes(
+          verify_release(root, attested=False)
+          Path(f"dist/agent-platform-coding-{os.environ['VERSION']}.tar.gz").write_bytes(
               release_bundle(root))
           PY
-          sha256sum dist/agent-platform-coding-0.1.1.tar.gz
+          sha256sum "dist/agent-platform-coding-${VERSION}.tar.gz"
       - uses: actions/attest@v4
         with:
-          subject-path: dist/agent-platform-coding-0.1.1.tar.gz
+          subject-path: dist/agent-platform-coding-${{ steps.release.outputs.version }}.tar.gz
       - uses: actions/upload-artifact@v4
         with:
-          name: agent-platform-coding-0.1.1
-          path: dist/agent-platform-coding-0.1.1.tar.gz
+          name: agent-platform-coding-${{ steps.release.outputs.version }}
+          path: dist/agent-platform-coding-${{ steps.release.outputs.version }}.tar.gz
           if-no-files-found: error

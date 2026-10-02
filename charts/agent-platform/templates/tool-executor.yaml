@@ -1,6 +1,9 @@
 # Tool executor (docs/design/12): the ONLY place custom platform tools run.
 # Its clients are the mcp-broker (which forwards verified caller identity,
-# never credentials) and the api, for `internal` tools (docs/design/23). It
+# never the caller's credentials) and the api, for `internal` tools
+# (docs/design/23). It calls the api itself only for a tool-call credential's
+# per-call app-data endpoint (docs/design/39), presenting the projected
+# `ap-identity` token the credential is bound to. It
 # reads tools/ from the synced checkout volume, so tool edits are live without
 # touching this image — only new pip deps require a rebuild (they're baked in
 # by the Dockerfile).
@@ -42,6 +45,11 @@ spec:
               value: "/agents/tools"
             - name: AP_KAFKA_BOOTSTRAP
               value: "{{ .Release.Name }}-kafka:9092"
+            # The api Service is hardcoded agent-platform-api (not release-named).
+            - name: AP_API_URL
+              value: "http://agent-platform-api:8000"
+            - name: AP_EXECUTOR_TOKEN_FILE
+              value: /var/run/ap-identity/token
             {{- if .Values.spire.enabled }}
             # mTLS mode (design/13 B): only the ghostunnel sidecar reaches this.
             - name: AP_BIND_HOST
@@ -61,6 +69,9 @@ spec:
           volumeMounts:
             - name: agent-definitions
               mountPath: /agents
+              readOnly: true
+            - name: ap-identity
+              mountPath: /var/run/ap-identity
               readOnly: true
           resources:
             requests: {memory: 128Mi, cpu: 50m}
@@ -103,6 +114,13 @@ spec:
         - name: agent-definitions
           persistentVolumeClaim:
             claimName: {{ .Values.env.AP_AGENTS_VOLUME_CLAIM }}
+        - name: ap-identity
+          projected:
+            sources:
+              - serviceAccountToken:
+                  audience: agent-platform
+                  expirationSeconds: 3600
+                  path: token
         {{- if .Values.spire.enabled }}
         - name: spiffe-workload-api
           csi:

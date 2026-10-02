@@ -2,6 +2,8 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { api, type AppView } from "../api";
 import { Chip } from "@ap/ui/chip";
+import { listStateApps, type StateAppSummary } from "../lib/appData";
+import { HealthChip } from "./StateApp";
 
 // An App is a DB-owned collection (design/33). Published pages are its entry
 // point; existing domain services still supply data and specialized controls.
@@ -45,6 +47,37 @@ function AppPages({ appName, canEdit, legacyAvailable }: {
   </>;
 }
 
+// State Apps (docs/design/39) are rows in `app_data`, built by agents; the
+// collections below are the coded catalogue they replace, listed until it
+// has migrated.
+function StateApps() {
+  const [apps, setApps] = useState<StateAppSummary[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    listStateApps().then(setApps)
+      .catch((e) => setError(e instanceof Error ? e.message : "State Apps unavailable."));
+  }, []);
+  return <section className="state-apps" aria-labelledby="state-apps-h">
+    <h2 id="state-apps-h">State Apps</h2>
+    {error ? <p className="error">State Apps unavailable: {error}</p>
+      : !apps ? <p className="muted">Loading…</p>
+      : apps.length === 0 ? <p className="muted">No state Apps yet.</p>
+      : <div className="report-type-grid">{apps.map((a) => (
+        <div key={a.id} className="app-card state-app-card">
+          <div className="report-type-head">
+            <Link className="report-type-name" to={`/apps/state/${encodeURIComponent(a.id)}`}>{a.name}</Link>
+            {a.status === "retired" ? <Chip>retired</Chip> : <HealthChip status={a.health.status} />}
+          </div>
+          <p className="muted report-type-desc">{a.description || "—"}</p>
+          <div className="app-resources muted">
+            <span>owner {a.owner}</span>
+            <span>{a.approved_version === null ? "never published" : `v${a.approved_version}`}</span>
+            {a.health.issues > 0 && <span>{a.health.issues} {a.health.issues === 1 ? "issue" : "issues"}</span>}
+          </div>
+        </div>))}</div>}
+  </section>;
+}
+
 export default function Apps() {
   const [apps, setApps] = useState<AppView[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -64,6 +97,8 @@ export default function Apps() {
         Apps are collections of pages and actions. Open a published page here,
         or use its detailed app for specialized controls.
       </p>
+      <StateApps />
+      <h2>Collections</h2>
       {apps.length === 0 && <p className="muted">No apps declared yet.</p>}
       <div className="report-type-grid">
         {apps.map((a) => (

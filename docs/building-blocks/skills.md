@@ -15,8 +15,9 @@ tool, not a skill. A rule is an obligation, not an optional skill.
 
 The legacy `skills/` catalogue is currently empty. The reviewed
 [`agent-platform-coding` plugin](../agent-platform-coding-plugin.md) supplies
-`platform-orientation`, `platform-change`, and `platform-regression`; the coder
-and QA agents use different subsets. Workbench handles Git without handing
+`platform-orientation`, `platform-change`, `platform-regression` and
+`app-building`; the coder and QA agents use different subsets of the first
+three, and App builders use `app-building` ([Apps](apps.md)). Workbench handles Git without handing
 developer agents a GitHub credential; Studio's Codex artist uses its runtime's
 built-in image generator. Project conversation lookup is provided in scoped
 run context. Those are not skills an agent needs to select.
