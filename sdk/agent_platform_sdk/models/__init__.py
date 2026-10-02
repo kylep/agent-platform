@@ -22,6 +22,7 @@ from .api_key_role_in import ApiKeyRoleIn
 from .api_key_view import ApiKeyView
 from .app_collection_in import AppCollectionIn
 from .app_collection_patch import AppCollectionPatch
+from .app_ref import AppRef
 from .app_view import AppView
 from .artifact_patch import ArtifactPatch
 from .artifact_stats import ArtifactStats
@@ -60,14 +61,21 @@ from .create_artifact_json_artifact_in_meta_type_0 import (
 )
 from .create_artifact_json_artifact_in_source import CreateArtifactJsonArtifactInSource
 from .create_identity_in import CreateIdentityIn
+from .create_in import CreateIn
 from .create_view import CreateView
 from .creds import Creds
 from .cron_entry_in import CronEntryIn
 from .cron_preview import CronPreview
+from .def_ref import DefRef
+from .def_ref_kind import DefRefKind
+from .delete_preview_in import DeletePreviewIn
 from .dlq_entry import DlqEntry
+from .draft_in import DraftIn
+from .draft_in_definition_type_0 import DraftInDefinitionType0
 from .edit_dispatch import EditDispatch
 from .edit_identity_in import EditIdentityIn
 from .edit_result import EditResult
+from .empty import Empty
 from .endpoint_in import EndpointIn
 from .entrypoints_in import EntrypointsIn
 from .fallback_in import FallbackIn
@@ -101,6 +109,7 @@ from .metrics_overview import MetricsOverview
 from .metrics_overview_by_state import MetricsOverviewByState
 from .model_option import ModelOption
 from .model_usage import ModelUsage
+from .notes_in import NotesIn
 from .notify_in import NotifyIn
 from .observation_in import ObservationIn
 from .observe_quota_quota_ignored import ObserveQuotaQuotaIgnored
@@ -112,22 +121,37 @@ from .ok_id_state import OkIdState
 from .password_change import PasswordChange
 from .pr_ref import PrRef
 from .pr_summary import PrSummary
+from .preview_in import PreviewIn
+from .preview_in_params import PreviewInParams
+from .preview_in_samples_type_0 import PreviewInSamplesType0
+from .preview_in_samples_type_0_additional_property_item import (
+    PreviewInSamplesType0AdditionalPropertyItem,
+)
 from .probe_in import ProbeIn
 from .probe_in_headers import ProbeInHeaders
 from .project_in import ProjectIn
 from .project_patch import ProjectPatch
 from .prune_result import PruneResult
+from .publish_in import PublishIn
 from .publish_out import PublishOut
 from .publish_run_publish_in import PublishRunPublishIn
 from .publish_run_publish_in_verify_type_0 import PublishRunPublishInVerifyType0
 from .pull_request import PullRequest
 from .pull_request_file import PullRequestFile
+from .query_in import QueryIn
+from .query_in_params import QueryInParams
 from .quota import Quota
 from .quota_ok import QuotaOk
 from .quota_reading import QuotaReading
 from .quota_window import QuotaWindow
 from .read_binding import ReadBinding
 from .receipt_in import ReceiptIn
+from .record_create_in import RecordCreateIn
+from .record_create_in_values import RecordCreateInValues
+from .record_delete_in import RecordDeleteIn
+from .record_ref import RecordRef
+from .record_update_in import RecordUpdateIn
+from .record_update_in_values import RecordUpdateInValues
 from .refresh_quota_provider import RefreshQuotaProvider
 from .relay_binding_in import RelayBindingIn
 from .relay_binding_in_config import RelayBindingInConfig
@@ -167,6 +191,8 @@ from .report_saved import ReportSaved
 from .report_type_view import ReportTypeView
 from .retention import Retention
 from .retention_per_agent_days import RetentionPerAgentDays
+from .retire_in import RetireIn
+from .rollback_in import RollbackIn
 from .run_accepted import RunAccepted
 from .run_agent_def import RunAgentDef
 from .run_detail import RunDetail
@@ -235,6 +261,7 @@ from .tool_wizard_secret import ToolWizardSecret
 from .typed_block import TypedBlock
 from .typed_block_kind import TypedBlockKind
 from .typed_definition import TypedDefinition
+from .validate_in import ValidateIn
 from .validation_error import ValidationError
 from .validation_error_context import ValidationErrorContext
 from .webhook_entry_in import WebhookEntryIn
@@ -285,6 +312,7 @@ __all__ = (
     "ApiKeyView",
     "AppCollectionIn",
     "AppCollectionPatch",
+    "AppRef",
     "AppView",
     "ArtifactPatch",
     "ArtifactStats",
@@ -319,14 +347,21 @@ __all__ = (
     "CreateArtifactJsonArtifactInMetaType0",
     "CreateArtifactJsonArtifactInSource",
     "CreateIdentityIn",
+    "CreateIn",
     "CreateView",
     "Creds",
     "CronEntryIn",
     "CronPreview",
+    "DefRef",
+    "DefRefKind",
+    "DeletePreviewIn",
     "DlqEntry",
+    "DraftIn",
+    "DraftInDefinitionType0",
     "EditDispatch",
     "EditIdentityIn",
     "EditResult",
+    "Empty",
     "EndpointIn",
     "EntrypointsIn",
     "FallbackIn",
@@ -360,6 +395,7 @@ __all__ = (
     "MetricsOverviewByState",
     "ModelOption",
     "ModelUsage",
+    "NotesIn",
     "NotifyIn",
     "ObservationIn",
     "ObserveQuotaQuotaIgnored",
@@ -369,6 +405,10 @@ __all__ = (
     "OkId",
     "OkIdState",
     "PasswordChange",
+    "PreviewIn",
+    "PreviewInParams",
+    "PreviewInSamplesType0",
+    "PreviewInSamplesType0AdditionalPropertyItem",
     "ProbeIn",
     "ProbeInHeaders",
     "ProjectIn",
@@ -376,17 +416,26 @@ __all__ = (
     "PrRef",
     "PrSummary",
     "PruneResult",
+    "PublishIn",
     "PublishOut",
     "PublishRunPublishIn",
     "PublishRunPublishInVerifyType0",
     "PullRequest",
     "PullRequestFile",
+    "QueryIn",
+    "QueryInParams",
     "Quota",
     "QuotaOk",
     "QuotaReading",
     "QuotaWindow",
     "ReadBinding",
     "ReceiptIn",
+    "RecordCreateIn",
+    "RecordCreateInValues",
+    "RecordDeleteIn",
+    "RecordRef",
+    "RecordUpdateIn",
+    "RecordUpdateInValues",
     "RefreshQuotaProvider",
     "RelayBindingIn",
     "RelayBindingInConfig",
@@ -426,6 +475,8 @@ __all__ = (
     "ReportTypeView",
     "Retention",
     "RetentionPerAgentDays",
+    "RetireIn",
+    "RollbackIn",
     "RunAccepted",
     "RunAgentDef",
     "RunDetail",
@@ -494,6 +545,7 @@ __all__ = (
     "TypedBlock",
     "TypedBlockKind",
     "TypedDefinition",
+    "ValidateIn",
     "ValidationError",
     "ValidationErrorContext",
     "WebhookEntryIn",

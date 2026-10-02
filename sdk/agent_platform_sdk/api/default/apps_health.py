@@ -1,26 +1,31 @@
 from http import HTTPStatus
-from typing import Any, cast
-from urllib.parse import quote
+from typing import Any
 
 import httpx
 
 from ... import errors
 from ...client import AuthenticatedClient, Client
+from ...models.app_ref import AppRef
 from ...models.http_validation_error import HTTPValidationError
 from ...types import Response
 
 
 def _get_kwargs(
-    artifact_id: str,
+    *,
+    body: AppRef,
 ) -> dict[str, Any]:
+    headers: dict[str, Any] = {}
 
     _kwargs: dict[str, Any] = {
-        "method": "get",
-        "url": "/api/artifacts/{artifact_id}/resource".format(
-            artifact_id=quote(str(artifact_id), safe=""),
-        ),
+        "method": "post",
+        "url": "/api/app-data/agent/apps/health",
     }
 
+    _kwargs["json"] = body.to_dict()
+
+    headers["Content-Type"] = "application/json"
+
+    _kwargs["headers"] = headers
     return _kwargs
 
 
@@ -28,7 +33,7 @@ def _parse_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
 ) -> Any | HTTPValidationError | None:
     if response.status_code == 200:
-        response_200 = cast(Any, None)
+        response_200 = response.json()
         return response_200
 
     if response.status_code == 422:
@@ -54,17 +59,14 @@ def _build_response(
 
 
 def sync_detailed(
-    artifact_id: str,
     *,
     client: AuthenticatedClient | Client,
+    body: AppRef,
 ) -> Response[Any | HTTPValidationError]:
-    """Artifact Resource
-
-     Private MCP Resource bytes; ownership is rechecked on every read. An
-    App-owned artifact's owner is its field, which `_row_or_404` checked.
+    """Apps Health
 
     Args:
-        artifact_id (str):
+        body (AppRef):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -75,7 +77,7 @@ def sync_detailed(
     """
 
     kwargs = _get_kwargs(
-        artifact_id=artifact_id,
+        body=body,
     )
 
     response = client.get_httpx_client().request(
@@ -86,17 +88,14 @@ def sync_detailed(
 
 
 def sync(
-    artifact_id: str,
     *,
     client: AuthenticatedClient | Client,
+    body: AppRef,
 ) -> Any | HTTPValidationError | None:
-    """Artifact Resource
-
-     Private MCP Resource bytes; ownership is rechecked on every read. An
-    App-owned artifact's owner is its field, which `_row_or_404` checked.
+    """Apps Health
 
     Args:
-        artifact_id (str):
+        body (AppRef):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -107,23 +106,20 @@ def sync(
     """
 
     return sync_detailed(
-        artifact_id=artifact_id,
         client=client,
+        body=body,
     ).parsed
 
 
 async def asyncio_detailed(
-    artifact_id: str,
     *,
     client: AuthenticatedClient | Client,
+    body: AppRef,
 ) -> Response[Any | HTTPValidationError]:
-    """Artifact Resource
-
-     Private MCP Resource bytes; ownership is rechecked on every read. An
-    App-owned artifact's owner is its field, which `_row_or_404` checked.
+    """Apps Health
 
     Args:
-        artifact_id (str):
+        body (AppRef):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -134,7 +130,7 @@ async def asyncio_detailed(
     """
 
     kwargs = _get_kwargs(
-        artifact_id=artifact_id,
+        body=body,
     )
 
     response = await client.get_async_httpx_client().request(**kwargs)
@@ -143,17 +139,14 @@ async def asyncio_detailed(
 
 
 async def asyncio(
-    artifact_id: str,
     *,
     client: AuthenticatedClient | Client,
+    body: AppRef,
 ) -> Any | HTTPValidationError | None:
-    """Artifact Resource
-
-     Private MCP Resource bytes; ownership is rechecked on every read. An
-    App-owned artifact's owner is its field, which `_row_or_404` checked.
+    """Apps Health
 
     Args:
-        artifact_id (str):
+        body (AppRef):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -165,7 +158,7 @@ async def asyncio(
 
     return (
         await asyncio_detailed(
-            artifact_id=artifact_id,
             client=client,
+            body=body,
         )
     ).parsed
