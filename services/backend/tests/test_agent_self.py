@@ -179,4 +179,10 @@ async def test_self_primary_and_backup_edit_restriction_also_applies_to_broad_ed
     _, headers = await own_run(sf, seed_agent, agent_store, platform_tools=[TOOL, 'mcp__platform__agents_edit'], model='gpt-6-sol', backup_runtime='claude', backup_model='claude-sonnet-5-5')
     definition = (await client.get('/api/agents/companion', headers=headers)).json()
     response = await client.put('/api/agents/companion', headers=headers, json={**definition, 'model': 'gpt-6-astra', 'backup_model': 'claude-sonnet-5'})
+    # Since design 39 Phase 0 a broad editor can't edit itself through the
+    # definition route at all, so agent_self is its only self path, and the
+    # restriction holds there.
+    assert response.status_code == 403 and 'agent_self' in response.text
+    version = (await client.get('/api/agent-self', headers=headers)).json()['version']
+    response = await client.patch('/api/agent-self', headers=headers, json={'expected_version': version, 'model': 'gpt-6-astra', 'backup_model': 'claude-sonnet-5'})
     assert response.status_code == 422 and 'never both' in response.text

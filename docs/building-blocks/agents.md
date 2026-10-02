@@ -153,19 +153,45 @@ not mean it is grantable:
   thresholds, …). Cannot touch any grant field.
 - **`agents_grant`** — assign/revoke `harness_tools`, `platform_tools`,
   `skills`, `secrets`, `can_invoke`, `push_path_globs`, `may_delete_tests`,
-  and `role` on any agent. This is the
-  escalation-capable tool: granting it is granting the keys to every agent's
-  capabilities, including its own.
+  and `role` on other agents. This is the escalation-capable tool, which is
+  why the rules below fence it.
 
 The admin session always has both implicitly. An agent has either only if
 granted — same as any other platform tool — and every call is attributed to
 the calling agent (never self-reported) in the change log below. **No agent
 holds either tool by default.**
 
-`agents_edit` can still point a *more privileged* agent at new prose — a new
-cron, a rewritten prompt — without touching its grants. Granting `agents_edit`
-is granting influence over what every agent (including admin-equivalent ones)
-actually does; see the "Indirect escalation via editorial fields" note in
+### Kyle-only tools and protected agents
+
+Four platform tools build or steer other agents: `apps`, `app_data`,
+`agents_edit` and `agents_grant` (`KYLE_ONLY_TOOLS`,
+[design 39](../design/39-agent-built-apps.md), Phase 0). Three rules hold for
+them, enforced by the API on every write:
+
+- **Only Kyle grants them.** Adding or removing one on any agent — on create,
+  update, rollback or import — needs Kyle's browser session (logged in, admin
+  role). An admin API key, an agent's run token or a workload identity is
+  refused with a 403. So no agent can grant one to itself, to a proxy that
+  grants it back, or to a partner.
+- **Holders are protected.** An agent holding any of the four can be changed
+  (prompt included), deleted, or have its webhook secrets set only by Kyle's
+  session, or by itself through `agent_self`, which can't touch grants.
+  `agents_edit` and `agents_grant` from any other agent are refused.
+- **No self-edits.** An agent can't change its own definition through
+  `agents_edit` or `agents_grant`; `agent_self` is the self path.
+
+The other grant fields (`secrets`, `role`, `can_invoke`, `push_path_globs`)
+are not covered: an `agents_grant` holder can still hand those to an
+ordinary agent. That gap is known.
+
+When the rule shipped, a one-time migration noted every agent that already
+held a Kyle-only tool in its change log (`changed_via: audit:kyle-only`)
+without changing its access; whether it keeps the tools is Kyle's call.
+
+`agents_edit` can still point a *more privileged* unprotected agent at new
+prose — a new cron, a rewritten prompt — without touching its grants.
+Granting `agents_edit` is granting influence over what those agents actually
+do; see the "Indirect escalation via editorial fields" note in
 [design-15](../design/15-db-first-agents.md#indirect-escalation-via-editorial-fields).
 
 ## Profile image
@@ -197,7 +223,8 @@ the old page, unchanged.
 Every write to a definition — from the UI, the raw API, or either tool —
 appends a full-snapshot row to `agent_versions` (`version`, `changed_by` the
 verified principal, `changed_via` — `admin` / `tool:agents_edit` /
-`tool:agents_grant` / `import` / `rollback` / `seed` / `migration`,
+`tool:agents_grant` / `tool:agent_self` / `import` / `rollback` / `seed` /
+`migration` / `audit:kyle-only`,
 `created_at`). There is no pending/approval state: edits go live the
 instant they're written. The History tab on an agent's page lists every
 version, lets you view an old snapshot, and roll back — which re-applies

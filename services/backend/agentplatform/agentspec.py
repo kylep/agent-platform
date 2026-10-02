@@ -59,6 +59,18 @@ PLATFORM_MCP_AGENT_TOOLS: list[str] = [
     "mcp__platform__agents_grant",
 ]
 
+# The tools only Kyle's browser session may grant or remove, on any agent
+# (docs/design/39, Phase 0). Each lets its holder build or steer other agents,
+# so letting an agent hand one out would let it widen its own reach through a
+# proxy. An agent holding any of them is also PROTECTED: only Kyle's session,
+# or the agent itself through agent_self, may change its definition. `apps` and
+# `app_data` are reserved before they ship, so the rule is in place the moment
+# they do.
+KYLE_ONLY_TOOLS: frozenset[str] = frozenset({
+    "mcp__platform__apps", "mcp__platform__app_data",
+    "mcp__platform__agents_grant", "mcp__platform__agents_edit",
+})
+
 # The PARTICIPANT grants (docs/design/19, docs/design/20, docs/design/21) — the
 # messenger, the work tracker and the shared pages, which nearly every agent is
 # born holding. Their own list for the same reason the definition tools have
@@ -215,24 +227,33 @@ TOOL_HELP: list[dict] = [
                     "timeouts, enabled) and delete. It can never change grants "
                     "— tools, skills, secrets, can_invoke and role need "
                     "agents_grant — nor the admin-only `system` flag. "
-                    "HANDLE WITH CARE: the guard is on the KIND "
-                    "of change, not on the target, so a holder may rewrite the "
-                    "prompt or add a cron entrypoint to an agent far more "
-                    "privileged than itself. Grant it only where you would "
-                    "accept that, and read the change log (every write is "
-                    "attributed to the calling agent). Also reachable without "
+                    "It never edits the caller itself (that is agent_self) or "
+                    "a PROTECTED agent: one holding apps, app_data, "
+                    "agents_edit or agents_grant, which only Kyle's session "
+                    "may change. Granting it is Kyle-only. HANDLE WITH CARE: "
+                    "every other agent is in reach, so a holder may rewrite "
+                    "the prompt or add a cron entrypoint to an agent more "
+                    "privileged than itself through its other grants. Grant "
+                    "it only where you would accept that, and read the change "
+                    "log (every write is attributed to the calling agent). "
+                    "Also reachable without "
                     "touching a grant field: redirecting result_topic into any "
                     "app, shortening transcript_retention_days so the pruner "
                     "destroys history early, and disabling or deleting any "
-                    "non-system agent."},
+                    "other unprotected, non-system agent."},
     {"name": "mcp__platform__agents_grant", "kind": "platform",
      "description": "GRANTS-EDITING — HANDLE WITH CARE. Changes what an agent "
                     "may DO: its harness tools, platform tools, skills, "
-                    "secrets and can_invoke flag, on any agent. A holder can "
-                    "grant agents_grant onward, and can hand any agent any "
-                    "capability the platform ships, so it is effectively an "
-                    "administrative capability; the append-only change log is "
-                    "the control. It cannot edit prompts or config — that is "
+                    "secrets and can_invoke flag, on other agents. The "
+                    "Kyle-only tools (apps, app_data, agents_edit, "
+                    "agents_grant) are granted and removed only by Kyle's "
+                    "session, never through this tool; it can't change the "
+                    "caller itself or an agent holding one of those four. "
+                    "Everything else the platform ships it can hand to an "
+                    "ordinary agent, so it is still close to an "
+                    "administrative capability; the append-only change log "
+                    "names the caller. Granting it is Kyle-only. It cannot "
+                    "edit prompts or config — that is "
                     "agents_edit, and the server refuses editorial fields from "
                     "this grant. The tool does not EXPOSE `role`: that is a "
                     "surface choice, not a boundary, because the server counts "
