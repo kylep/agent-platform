@@ -125,3 +125,22 @@ async def test_qa_prs_are_summarized_too(sf, summarizer_env):
     loop, producer = summarizer_env(gh)
     await loop.tick()
     assert len([p for p in producer.published if p[0] == TOPIC_RUN_REQUESTS]) == 1
+
+
+async def test_a_dispatched_summary_run_carries_its_agents_authority(sf, summarizer_env):
+    """Design 34: the launcher refuses a run whose authorization_generation is
+    not the agent's current one ("Run authority was revoked before launch").
+    Every summary run died that way until the dispatcher stamped it."""
+    from sqlalchemy import select
+    from agentplatform.authority import ensure_run_authority
+    from agentplatform.db import AgentDef
+    async with sf() as s:
+        (await s.get(AgentDef, "change-summarizer")).authorization_generation = 3
+        await s.commit()
+    gh = FakeGH([_pr()])
+    loop, _ = summarizer_env(gh)
+    await loop.tick()
+    async with sf() as s:
+        run = (await s.execute(select(Run))).scalars().one()
+        assert run.authorization_generation == 3
+        assert await ensure_run_authority(s, run)

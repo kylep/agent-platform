@@ -178,9 +178,14 @@ async def tool_wizard(request: Request, body: ToolWizardIn,
         f"{('Notes: ' + body.notes) if body.notes else ''}")
     from agentplatform.db import Run
     from agentplatform.events import TOPIC_RUN_REQUESTS
-    run = Run(agent="coder", trigger="wizard", requested_by=principal,
-              initiated_by=principal, prompt=prompt)
+    from agentplatform.authority import current_generation
     async with st.session_factory() as s:
+        generation = await current_generation(s, "coder")
+        if generation is None:
+            raise HTTPException(409, "the coder agent is missing or disabled")
+        run = Run(agent="coder", trigger="wizard", requested_by=principal,
+                  initiated_by=principal, prompt=prompt,
+                  authorization_generation=generation)
         s.add(run)
         await s.commit()
     try:
