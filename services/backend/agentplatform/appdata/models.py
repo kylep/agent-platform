@@ -211,6 +211,9 @@ class AppDataStagedRecord(Base):
     record_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
     # insert | upsert | skip_existing
     mode: Mapped[str] = mapped_column(String(16))
+    # An upsert's key: the fields of the `unique` rule it matches on, when the
+    # collection declares more than one.
+    key: Mapped[list | None] = mapped_column(_JSON, nullable=True)
     doc: Mapped[dict] = mapped_column(_JSON)
 
 
