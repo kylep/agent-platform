@@ -50,7 +50,9 @@ export type StateAppSummary = {
   health: HealthSummary;
 };
 
-export type DefinitionKind = "collection" | "view" | "page";
+/** `tool` is an App tool: which collections a tool's manifest roles reach in
+ *  this App. Kyle approves those; the builder area only shows them. */
+export type DefinitionKind = "collection" | "view" | "page" | "tool";
 
 /** One approved definition, as published. `definition` is the raw JSON the
  *  builder wrote (validated server-side), shown read-only. */

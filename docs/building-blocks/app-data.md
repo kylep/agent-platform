@@ -98,10 +98,21 @@ with any issue and `warn` at 90% of the records or bytes limit it reports.
 ## Definitions
 
 `apps schema` returns the JSON Schema of every kind and a `capabilities`
-object (version 1), generated from `appdata/definitions.py`. Definitions are
+object (version 2), generated from `appdata/definitions.py`. Definitions are
 closed: an unknown key is an error, never ignored. Definition names match
-`^[a-z][a-z0-9_]{0,39}$`. An App holds at most 50 collections, 100 views and
-50 pages.
+`^[a-z][a-z0-9_]{0,39}$`. An App holds at most 50 collections, 100 views,
+50 pages and 20 App tools.
+
+### App tools
+
+An App tool (kind `tool`, under `app_tools` in a bundle) says which of the
+App's collections a tool reaches: `{"tool": "<name>", "roles": {"<role>":
+{"collection": "<collection>", "verbs": [...]}}}`. Each role is one the
+tool's `app_access` declares; the collection must be in the App, and the
+verbs are from read, create, update and delete (an immutable collection has
+no update). Adding an App tool, or widening its verbs, is a proposal;
+narrowing or removing one self-publishes. The builder area shows them read
+only.
 
 ### Collections
 
@@ -275,8 +286,8 @@ row.
 **Authority facts** (`appdata/authority.py`) are computed from the
 definitions: field access `(principal, collection, field, verb)`, record
 delete, delete reach through refs, retention, rules (including tool-only
-writers), action templates, outbound links, and, in shapes the language
-doesn't accept yet, App tools, tool views, tool actions and service
+writers), action templates, outbound links, App tools, and, in shapes the
+language doesn't accept yet, tool views, tool actions and service
 principals. `apps authority` prints them in plain words with a digest.
 
 A bundle **self-publishes** when every fact it computes is in the approved
@@ -286,6 +297,7 @@ publish may grant only `owner` and `kyle`. Everything else is a widening:
 - retention (any, on a new collection; a shorter one, on an existing one);
 - `on_delete: unlink` (`restrict` reaches nothing and is free);
 - `link: true`;
+- an App tool, or more verbs on one;
 - `writers` for a tool that isn't an approved App tool;
 - action templates;
 - relaxing a rule (removing it, growing a `writer` rule's writers, freezing
@@ -410,9 +422,9 @@ which also shows Apps whose approved facts let the caller read.
 App's approved facts decide.
 
 A tool declaring `app_access` gets a tool-call credential per call
-([tools.md](tools.md#app-access-tool-call-credentials)). The agent routes
-don't accept that credential yet; tool writes to Apps arrive with App tool
-facts in Release 1b.
+([tools.md](tools.md#app-access-tool-call-credentials)). Its scope in each
+App comes only from that App's approved App tool for the tool: no App tool,
+no scope, whatever the collections are called.
 
 ## Kyle's routes
 

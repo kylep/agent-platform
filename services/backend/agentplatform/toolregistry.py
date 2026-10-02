@@ -62,8 +62,7 @@ class ToolInfra(BaseModel):
 
 
 APP_VERBS = ("read", "create", "update", "delete")
-# appdata.definitions.NAME_RE: a role names a collection, so it takes the shape
-# of one.
+# appdata.definitions.NAME_RE: a role is a name in an App tool definition.
 _ROLE = re.compile(r"^[a-z][a-z0-9_]{0,39}$")
 
 
@@ -71,8 +70,9 @@ class AppAccess(BaseModel):
     """What a tool may reach in Apps (docs/design/39, "Tool-call credentials"):
     collection ROLES and verbs. A call credential's scope is the caller's own
     access cut down to these, so this is a ceiling the manifest asks for, never
-    a grant. Roles bind to real collections through an App's App tool fact
-    (Release 1b); until then a role binds the collection of the same name."""
+    a grant. Roles bind to real collections only through each App's App tool
+    fact for this tool (a `tool` definition Kyle approves); a role's name
+    alone binds nothing."""
     model_config = {"extra": "forbid"}
     roles: list[str]
     verbs: list[Literal["read", "create", "update", "delete"]]

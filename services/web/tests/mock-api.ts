@@ -1517,6 +1517,8 @@ const stateAppDetails: Record<string, Record<string, unknown>> = {
       approved("view", "done_count", 1, { view: "done_count", collection: "habits",
         filter: [{ field: "done", op: "eq", value: true }], aggregates: [{ fn: "count", as: "n" }] }),
       ...Object.entries(statePages).map(([name, definition]) => approved("page", name, 1, definition)),
+      approved("tool", "tracker", 1, { tool: "tracker",
+        roles: { log: { collection: "habits", verbs: ["read", "create"] } } }),
     ],
     drafts: [
       { kind: "collection", name: "habits", revision: 3, base_version: 2, updated_at: AS_OF,

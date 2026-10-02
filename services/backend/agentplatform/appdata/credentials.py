@@ -221,14 +221,22 @@ async def is_live(session, claims: dict) -> bool:
 
 # --- scope --------------------------------------------------------------------------
 
-def bind_roles(ctx, roles: list[str]) -> list[str]:
-    """The App's collections a tool's declared roles stand for.
+def bind_roles(ctx, tool: str, app_access: AppAccess) -> dict[str, set[str]]:
+    """Collection -> verbs that the App's approved App tool fact for `tool`
+    binds through the manifest's declared roles, cut to the declared verbs.
 
-    TODO(R1b): roles bind through the App's App tool fact (design 39, "Tool
-    views", "The authority model"), which Kyle approves per App. Until it
-    exists a role binds the collection of the same name, which is never wider:
-    an App with no collection of that name contributes nothing."""
-    return [r for r in roles if r in ctx.bundle.collections]
+    Only the fact binds (design 39, "The authority model"): no fact for the
+    tool, or no role in it the manifest declares, and the App contributes
+    nothing, whatever its collections are called. Roles the fact names but
+    the manifest doesn't are ignored; two roles on one collection add up."""
+    fact = ctx.bundle.app_tools.get(tool)
+    bound: dict[str, set[str]] = {}
+    for role in app_access.roles if fact is not None else ():
+        binding = fact.roles.get(role)
+        if binding is not None and binding.collection in ctx.bundle.collections:
+            bound.setdefault(binding.collection, set()).update(
+                set(binding.verbs) & set(app_access.verbs))
+    return bound
 
 
 def _holds(access, verb: str) -> bool:
@@ -239,10 +247,11 @@ def _holds(access, verb: str) -> bool:
 
 async def compute_app_scope(session, *, agent: str, tool: str,
                             app_access: AppAccess) -> list[dict]:
-    """The caller's own reach, acting through the tool, cut down to what the
-    manifest declares: per active App, the bound collections and the verbs
-    the agent holds on them. Collections with the same verb set share an
-    entry; an App the agent can't touch at all isn't listed."""
+    """The caller's own reach, acting through the tool, cut down to the App's
+    App tool fact and to what the manifest declares: per active App, the
+    bound collections and the verbs the agent holds on them. Collections with
+    the same verb set share an entry; an App the agent can't touch at all
+    isn't listed."""
     from agentplatform.appdata.records import load_app
     caller = Caller(principal=f"agent:{agent}", via_tool=f"tool:{tool}")
     apps = (await session.execute(select(AppDataApp).where(
@@ -255,9 +264,9 @@ async def compute_app_scope(session, *, agent: str, tool: str,
             # Published state that no longer validates serves nobody.
             continue
         groups: dict[tuple[str, ...], list[str]] = defaultdict(list)
-        for name in bind_roles(ctx, app_access.roles):
+        for name, verbs in bind_roles(ctx, tool, app_access).items():
             access = ctx.access(ctx.bundle.collections[name], caller)
-            held = tuple(v for v in APP_VERBS if v in app_access.verbs and _holds(access, v))
+            held = tuple(v for v in APP_VERBS if v in verbs and _holds(access, v))
             if held:
                 groups[held].append(name)
         for verbs, collections in groups.items():
