@@ -435,7 +435,7 @@ def _print_table(table: list[dict], selected: list[dict], mode: str, skip: set) 
         mark = "*" if s["name"] in chosen else " "
         reason = _skip_reason(s, skip)
         note = f"  [skipped: {reason}]" if reason else ""
-        print(f"{mark} {s['name']:<24} {', '.join(s['globs'])}{note}")
+        print(f"{mark} {s['name']:<24} [{s['cwd']}]  {', '.join(s['globs'])}{note}")
         print(f"    cd {s['cwd']} && {' '.join(s['cmd'])}")
 
 

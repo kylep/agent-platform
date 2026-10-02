@@ -303,6 +303,15 @@ def test_list_prints_every_suite_without_running(apv, capsys):
         assert name in text
 
 
+def test_list_cli_prints_cwd_beside_suite_name():
+    result = subprocess.run([str(SCRIPT), "--list", "--all"], cwd=REPO_ROOT,
+                            capture_output=True, text=True, check=True)
+    lines = result.stdout.splitlines()
+    backend = next(i for i, line in enumerate(lines) if line.startswith("* backend "))
+    assert "[services/backend]" in lines[backend]
+    assert lines[backend + 1].startswith("    cd services/backend && ")
+
+
 def test_cli_exit_mirrors_ok(apv, tmp_path, monkeypatch):
     monkeypatch.setattr(apv, "suite_table",
                         lambda root, out=None: [_fake("bad", "raise SystemExit(3)", globs=["**"])])
