@@ -66,16 +66,32 @@ async def test_records_carry_the_fixed_indexes_and_no_doc_index_on_sqlite(engine
     assert "ix_app_data_records_doc" not in got
 
 
-def test_the_postgres_doc_index_is_gin_jsonb_path_ops():
+def test_the_postgres_ddl_has_no_doc_index_and_two_partial_composites():
     from sqlalchemy.dialects import postgresql
     from sqlalchemy.schema import CreateIndex, CreateTable
     from agentplatform.appdata.models import AppDataRecord
     t = AppDataRecord.__table__
-    ix = next(i for i in t.indexes if i.name == "ix_app_data_records_doc")
-    ddl = str(CreateIndex(ix).compile(dialect=postgresql.dialect()))
-    assert "USING gin (doc jsonb_path_ops)" in ddl
+    by_name = {i.name: str(CreateIndex(i).compile(dialect=postgresql.dialect()))
+               for i in t.indexes}
+    # Nothing builds a containment query, so the GIN index was 12% of the table
+    # for no reader (appdata-perf-2026-10, "Index and side-column findings").
+    assert "ix_app_data_records_doc" not in by_name
+    assert not any("gin" in ddl.lower() for ddl in by_name.values())
+    assert by_name["ix_app_data_records_t1_num"].endswith("WHERE ix_num1 IS NOT NULL")
+    assert by_name["ix_app_data_records_t1_t2_time"].endswith("WHERE ix_text2 IS NOT NULL")
+    assert "WHERE" not in by_name["ix_app_data_records_t1_time"]
     table_ddl = str(CreateTable(t).compile(dialect=postgresql.dialect()))
     assert "doc JSONB NOT NULL" in table_ddl
+
+
+async def test_sqlite_keeps_full_composites_and_the_migration_is_a_noop(engine):
+    got = await _indexes(engine, "app_data_records")
+    assert got["ix_app_data_records_t1_num"]["column_names"] == \
+        FIXED_RECORD_INDEXES["ix_app_data_records_t1_num"]
+    await init_db(engine)  # the mark-gated migration must not trip on SQLite
+    async with engine.connect() as c:
+        marks = set((await c.exec_driver_sql("SELECT name FROM schema_marks")).scalars())
+    assert "app-data-index-diet-v1" in marks
 
 
 async def test_app_names_are_never_reused_even_after_retirement(sf):
@@ -241,22 +257,117 @@ async def test_quotas_and_write_counters_are_keyed_by_their_scope(sf):
 PG_URL = os.environ.get("AP_TEST_PG_URL")
 
 
+async def _pg_defs(e):
+    async with e.connect() as c:
+        rows = await c.exec_driver_sql(
+            "SELECT indexname, indexdef FROM pg_indexes WHERE tablename = "
+            "'app_data_records'")
+        return dict(rows.all())
+
+
+async def _pg_fresh(e):
+    """Start from a database that has never booted this code's init_db."""
+    from agentplatform.appdata.models import AppDataRecord
+    async with e.begin() as c:
+        await c.run_sync(lambda sc: AppDataRecord.__table__.drop(sc, checkfirst=True))
+        if await c.run_sync(lambda sc: inspect(sc).has_table("schema_marks")):
+            await c.exec_driver_sql("DELETE FROM schema_marks WHERE name = "
+                                    "'app-data-index-diet-v1'")
+
+
 @pytest.mark.skipif(not PG_URL, reason="AP_TEST_PG_URL names no scratch Postgres")
-async def test_postgres_gets_jsonb_the_fixed_indexes_and_the_gin_index():
+async def test_postgres_gets_jsonb_the_fixed_indexes_and_partial_composites():
     e = make_engine(PG_URL)
     try:
+        await _pg_fresh(e)
         await init_db(e)
         got = await _indexes(e, "app_data_records")
         for name, cols in FIXED_RECORD_INDEXES.items():
             assert got[name]["column_names"] == cols
+        defs = await _pg_defs(e)
+        assert "ix_app_data_records_doc" not in defs
+        assert defs["ix_app_data_records_t1_num"].endswith("WHERE (ix_num1 IS NOT NULL)")
+        assert defs["ix_app_data_records_t1_t2_time"].endswith("WHERE (ix_text2 IS NOT NULL)")
         async with e.connect() as c:
-            gin = (await c.exec_driver_sql(
-                "SELECT indexdef FROM pg_indexes WHERE indexname = "
-                "'ix_app_data_records_doc'")).scalar_one()
             doc_type = (await c.exec_driver_sql(
                 "SELECT data_type FROM information_schema.columns WHERE "
                 "table_name = 'app_data_records' AND column_name = 'doc'")).scalar_one()
-        assert "USING gin (doc jsonb_path_ops)" in gin
         assert doc_type == "jsonb"
+    finally:
+        await e.dispose()
+
+
+# What a database booted before this change holds: full composites and the GIN index.
+LEGACY_DDL = [
+    "DROP INDEX IF EXISTS ix_app_data_records_t1_num",
+    "DROP INDEX IF EXISTS ix_app_data_records_t1_t2_time",
+    "CREATE INDEX ix_app_data_records_t1_num ON app_data_records "
+    "(app_id, collection, ix_text1, ix_num1)",
+    "CREATE INDEX ix_app_data_records_t1_t2_time ON app_data_records "
+    "(app_id, collection, ix_text1, ix_text2, ix_time1)",
+    "CREATE INDEX ix_app_data_records_doc ON app_data_records "
+    "USING gin (doc jsonb_path_ops)",
+    "DELETE FROM schema_marks WHERE name = 'app-data-index-diet-v1'",
+]
+
+
+@pytest.mark.skipif(not PG_URL, reason="AP_TEST_PG_URL names no scratch Postgres")
+async def test_postgres_migration_converts_a_database_with_the_old_indexes():
+    e = make_engine(PG_URL)
+    try:
+        await _pg_fresh(e)
+        await init_db(e)
+        async with e.begin() as c:
+            for stmt in LEGACY_DDL:
+                await c.exec_driver_sql(stmt)
+        assert "WHERE" not in (await _pg_defs(e))["ix_app_data_records_t1_num"]
+        await init_db(e)
+        defs = await _pg_defs(e)
+        assert "ix_app_data_records_doc" not in defs
+        assert defs["ix_app_data_records_t1_num"].endswith("WHERE (ix_num1 IS NOT NULL)")
+        assert defs["ix_app_data_records_t1_t2_time"].endswith("WHERE (ix_text2 IS NOT NULL)")
+        # Idempotent: another boot changes nothing, even with the mark gone.
+        async with e.begin() as c:
+            await c.exec_driver_sql("DELETE FROM schema_marks WHERE name = "
+                                    "'app-data-index-diet-v1'")
+        await init_db(e)
+        assert await _pg_defs(e) == defs
+    finally:
+        await e.dispose()
+
+
+@pytest.mark.skipif(not PG_URL, reason="AP_TEST_PG_URL names no scratch Postgres")
+async def test_postgres_plans_the_bars_and_results_queries_on_the_partial_indexes():
+    e = make_engine(PG_URL)
+    try:
+        await _pg_fresh(e)
+        await init_db(e)
+        async with e.begin() as c:
+            # 'bars' fills ix_num1 and 'results' fills ix_text2, as the real Apps do.
+            await c.exec_driver_sql(
+                "INSERT INTO app_data_records (app_id, collection, id, author, "
+                "collection_version, current_version, size_bytes, doc, ix_text1, ix_num1, ix_time1, "
+                "created_at, updated_at) SELECT 'a1', 'bars', 'b' || g, 'x', 1, 1, 2, '{}', "
+                "'S' || (g % 60), g, now() - (g || ' minutes')::interval, now(), now() "
+                "FROM generate_series(1, 24000) g")
+            await c.exec_driver_sql(
+                "INSERT INTO app_data_records (app_id, collection, id, author, "
+                "collection_version, current_version, size_bytes, doc, ix_text1, ix_text2, ix_time1, "
+                "created_at, updated_at) SELECT 'a1', 'results', 'r' || g, 'x', 1, 1, 2, "
+                "'{}', 'run' || (g % 60), 'ref' || g, now() - (g || ' minutes')::interval, "
+                "now(), now() FROM generate_series(1, 24000) g")
+            await c.exec_driver_sql("ANALYZE app_data_records")
+
+        async def plan(sql):
+            async with e.connect() as c:
+                rows = await c.exec_driver_sql("EXPLAIN " + sql)
+                return "\n".join(r[0] for r in rows)
+        bars = await plan("SELECT id FROM app_data_records WHERE app_id = 'a1' AND "
+                          "collection = 'bars' AND ix_text1 = 'S7' AND ix_num1 >= 100")
+        assert "ix_app_data_records_t1_num" in bars, bars
+        results = await plan("SELECT id FROM app_data_records WHERE app_id = 'a1' AND "
+                             "collection = 'results' AND ix_text1 = 'run7' AND "
+                             "ix_text2 = 'ref127'")
+        assert "ix_app_data_records_t1_t2_time" in results, results
     finally:
         await e.dispose()
