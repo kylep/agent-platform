@@ -6,7 +6,7 @@ import pytest
 from agentplatform import maintenance_mode
 from agentplatform.appdata import materialized
 from agentplatform.appdata.access import Caller, RecordError
-from agentplatform.appdata.models import AppDataApp, AppDataDefinition
+from agentplatform.appdata.models import AppDataApp, AppDataDefinition, AppDataMaterialization
 from agentplatform.appdata.records import create_record, load_app
 from agentplatform.appdata.views import run_view
 from agentplatform.db import utcnow
@@ -106,6 +106,33 @@ async def test_refresh_requests_coalesce_and_maintenance_pauses(scan_env, sf, mo
         await s.commit()
     assert await materialized.refresh_due(sf, scan_env.app.state, now=now + timedelta(hours=1)) == 0
     assert len(calls) == 4
+
+
+async def test_materialized_read_requires_source_row_access_even_without_scanned_fields(
+        scan_env, sf, monkeypatch):
+    app_id = await _setup(sf, scan_env, domain_values=("title",))
+    toolview_tests._fake_pool(monkeypatch, scan_env)
+    assert await materialized.refresh_due(sf, scan_env.app.state) == 1
+    async with sf() as s:
+        result = (await s.execute(select(AppDataMaterialization).where(
+            AppDataMaterialization.app_id == app_id))).scalar_one()
+        result.read_fields = []
+        collection = (await s.execute(select(AppDataDefinition).where(
+            AppDataDefinition.app_id == app_id, AppDataDefinition.kind == "collection",
+            AppDataDefinition.name == "results"))).scalar_one()
+        app = await s.get(AppDataApp, app_id)
+        narrower = dict(collection.body)
+        narrower["access"] = {**narrower["access"], "read": ["kyle"]}
+        s.add(AppDataDefinition(app_id=app_id, kind="collection", name="results",
+                                version=2, body=narrower, state="published", author="kyle"))
+        app.approved_version = 2
+        app.authority_generation += 1
+        await s.commit()
+        ctx = await load_app(s, app_id)
+        with pytest.raises(RecordError) as denied:
+            await run_view(s, ctx, Caller("login:qa"), "summary",
+                           {"field": "title"}, app_state=scan_env.app.state)
+        assert denied.value.status == 403
 
 
 async def test_batch_writer_credential_can_request_refresh(scan_env, sf):

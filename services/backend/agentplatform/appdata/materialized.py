@@ -49,6 +49,8 @@ async def read(session, ctx, caller: Caller, view: ToolViewDef, params: dict | N
         raise RecordError("AD-TOOL-VIEW-NOT-READY", "this view has not refreshed yet", 503)
     if row.sources != sources or row.definition_digest != _definition_digest(view):
         raise RecordError("AD-TOOL-VIEW-NOT-READY", "this view changed and needs a refresh", 503)
+    for collection in sources.values():
+        ctx.access(ctx.collection(collection), caller).require_rows()
     # The refresh ran as system:materializer, which can inspect all fields of
     # its approved sources. A read earns only the intersection of the source
     # fields the run actually touched, evaluated against *current* facts.
