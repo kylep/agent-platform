@@ -16,6 +16,12 @@ Two doors, never the same caller:
   runs through the records engine as the agent, so the App's facts decide.
   Errors carry `{"detail": {"code", "message", "detail"}}` so the tools can
   act on the stable code.
+
+  A **tool-call credential** (an agent acting through a tool, presented by the
+  executor) reaches the records routes only: it holds no grant, so it is
+  judged by the credential's `app_scope` (`require_scope`) before the engine,
+  and its writes are stamped `author = agent:<name>, via = tool:<name>`. The
+  builder routes and Kyle's routes refuse it.
 """
 from __future__ import annotations
 
@@ -25,6 +31,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, ConfigDict, Field
 
 from agentplatform.api.auth import authenticate
+from agentplatform.appdata import credentials as tc
 from agentplatform.appdata import lifecycle as L
 from agentplatform.appdata import quotas
 from agentplatform.appdata.access import Caller, RecordError
@@ -57,9 +64,15 @@ async def kyle_session(request: Request) -> Actor:
 
 
 async def _agent(request: Request, tool: str) -> Actor:
-    ident = await authenticate(request)
-    if ident is None:
+    if await authenticate(request) is None:
         raise HTTPException(401)
+    return await _run_agent(request, tool)
+
+
+async def _run_agent(request: Request, tool: str) -> Actor:
+    """The checks after authentication: an agent run holding `tool`."""
+    if getattr(request.state, "auth_kind", None) == tc.KIND_TOOL_CALL:
+        raise HTTPException(403, "a tool call reaches only the app_data record routes")
     agent = getattr(request.state, "api_key_agent", None)
     run_id = getattr(request.state, "api_key_run_id", None)
     if not agent:
@@ -88,7 +101,36 @@ async def builder(request: Request) -> Actor:
 
 
 async def records_caller(request: Request) -> Actor:
-    return await _agent(request, TOOL_APP_DATA)
+    """An agent run holding `app_data`, or a tool-call credential: the agent
+    acting through the tool, which each route keeps to the credential's
+    scope with `_scoped`."""
+    if await authenticate(request) is None:
+        raise HTTPException(401)
+    caller = tc.tool_call_caller(request)
+    if caller is None:
+        return await _run_agent(request, TOOL_APP_DATA)
+    try:
+        return Actor(caller.principal, run_id=request.state.api_key_run_id,
+                     via_tool=caller.via_tool)
+    except ValueError:
+        raise HTTPException(403, "not an agent principal") from None
+
+
+async def _scoped(request: Request, session, app_ref: str, collection: str, verb: str):
+    """The App a records call names, after the tool-call ceiling: a no-op for
+    every other caller."""
+    app = await L._app(session, app_ref)
+    tc.require_scope(request, app.id, collection, verb)
+    return app
+
+
+def _scope_for(request: Request, app_id: str) -> set[str] | None:
+    """The collections a tool-call credential reaches in an App, or None for
+    a caller with no credential."""
+    if getattr(request.state, "auth_kind", None) != tc.KIND_TOOL_CALL:
+        return None
+    return {c for entry in request.state.tool_call.get("app_scope") or []
+            if entry["app_id"] == app_id for c in entry["collections"]}
 
 
 def _for_web(exc: RecordError) -> HTTPException:
@@ -436,22 +478,42 @@ class DeletePreviewIn(AppRef):
 @router.post("/api/app-data/agent/records/describe")
 async def records_describe(request: Request, body: AppRef,
                            actor: Actor = Depends(records_caller)):
-    return await _call(request, lambda s: L.describe_records(s, actor.caller, body.app))
+    async def fn(s):
+        app = await L._app(s, body.app)
+        scope = _scope_for(request, app.id)
+        if scope is not None and not scope:
+            raise RecordError("AD-OUT-OF-SCOPE", f"this tool call may not use App {app.id}",
+                              403)
+        out = await L.describe_records(s, actor.caller, app.id)
+        if scope is not None:
+            out["collections"] = [c for c in out["collections"] if c["collection"] in scope]
+            out["views"] = [v for v in out["views"] if v["collection"] in scope]
+        return out
+    return await _call(request, fn)
 
 
 @router.post("/api/app-data/agent/records/query")
 async def records_query(request: Request, body: QueryIn,
                         actor: Actor = Depends(records_caller)):
-    return await _call(request, lambda s: published_view(
-        s, actor.caller, body.app, body.view, body.params, limit=body.limit,
-        cursor=body.cursor))
+    async def fn(s):
+        app, ctx = await _loaded(s, body.app)
+        view = ctx.bundle.views.get(body.view)
+        if view is not None:
+            tc.require_scope(request, app.id, view.collection, "read")
+        elif _scope_for(request, app.id) is not None:
+            raise RecordError("AD-OUT-OF-SCOPE", f"this tool call may not read view "
+                              f"{body.view}", 403)
+        return await published_view(s, actor.caller, app.id, body.view, body.params,
+                                    limit=body.limit, cursor=body.cursor)
+    return await _call(request, fn)
 
 
 @router.post("/api/app-data/agent/records/get")
 async def records_get(request: Request, body: RecordRef,
                       actor: Actor = Depends(records_caller)):
     async def fn(s):
-        _, ctx = await _loaded(s, body.app)
+        app = await _scoped(request, s, body.app, body.collection, "read")
+        ctx = await load_app(s, app.id)
         return await get_record(s, ctx, actor.caller, body.collection, body.id)
     return await _call(request, fn)
 
@@ -459,31 +521,40 @@ async def records_get(request: Request, body: RecordRef,
 @router.post("/api/app-data/agent/records/create")
 async def records_create(request: Request, body: RecordCreateIn,
                          actor: Actor = Depends(records_caller)):
-    return await _call(request, lambda s: L.record_create(
-        s, actor, body.app, request_id=body.request_id, collection=body.collection,
-        values=body.values))
+    async def fn(s):
+        app = await _scoped(request, s, body.app, body.collection, "create")
+        return await L.record_create(s, actor, app.id, request_id=body.request_id,
+                                     collection=body.collection, values=body.values)
+    return await _call(request, fn)
 
 
 @router.post("/api/app-data/agent/records/update")
 async def records_update(request: Request, body: RecordUpdateIn,
                          actor: Actor = Depends(records_caller)):
-    return await _call(request, lambda s: L.record_update(
-        s, actor, body.app, request_id=body.request_id, collection=body.collection,
-        record_id=body.id, values=body.values, expected_version=body.expected_version))
+    async def fn(s):
+        app = await _scoped(request, s, body.app, body.collection, "update")
+        return await L.record_update(
+            s, actor, app.id, request_id=body.request_id, collection=body.collection,
+            record_id=body.id, values=body.values, expected_version=body.expected_version)
+    return await _call(request, fn)
 
 
 @router.post("/api/app-data/agent/records/delete")
 async def records_delete(request: Request, body: RecordDeleteIn,
                          actor: Actor = Depends(records_caller)):
-    return await _call(request, lambda s: L.record_delete(
-        s, actor, body.app, request_id=body.request_id, collection=body.collection,
-        record_id=body.id, expected_version=body.expected_version))
+    async def fn(s):
+        app = await _scoped(request, s, body.app, body.collection, "delete")
+        return await L.record_delete(
+            s, actor, app.id, request_id=body.request_id, collection=body.collection,
+            record_id=body.id, expected_version=body.expected_version)
+    return await _call(request, fn)
 
 
 @router.post("/api/app-data/agent/records/delete_preview")
 async def records_delete_preview(request: Request, body: DeletePreviewIn,
                                  actor: Actor = Depends(records_caller)):
     async def fn(s):
-        _, ctx = await _loaded(s, body.app)
+        app = await _scoped(request, s, body.app, body.collection, "delete")
+        ctx = await load_app(s, app.id)
         return await plan_delete(s, ctx, actor.caller, body.collection, body.ids)
     return await _call(request, fn)

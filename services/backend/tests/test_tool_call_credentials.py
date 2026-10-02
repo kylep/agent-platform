@@ -13,14 +13,11 @@ import uuid
 import httpx
 import jwt
 import pytest
-from fastapi import Request
 
 from agentplatform import runjwt
 from agentplatform.apikeys import generate_token, hash_token, token_prefix
 from agentplatform.appdata import credentials as tc
-from agentplatform.appdata.access import RecordError
 from agentplatform.appdata.models import AppDataApp, AppDataDefinition, AppDataToolCall
-from agentplatform.appdata.records import create_record, load_app
 from agentplatform.config import Settings
 from agentplatform.db import AgentDef, ApiKey, Run, RunState
 from agentplatform.api.app import create_app
@@ -108,24 +105,6 @@ async def env(sf, producer, secret_store, agent_store, seed_agent, tmp_path):
     async def validate(token):
         return IDENTITIES.get(token)
     app.state.sa_validator = validate
-
-    # A stand-in for an A9 app_data route: the caller and the scope check it
-    # must use, over the real records engine.
-    async def write(request: Request, app_id: str, collection: str):
-        from agentplatform.api.auth import authenticate
-        if await authenticate(request) is None:
-            return {"status": 401}
-        caller = tc.tool_call_caller(request)
-        try:
-            tc.require_scope(request, app_id, collection, "create")
-            async with sf() as s:
-                ctx = await load_app(s, app_id)
-                rec = await create_record(s, ctx, caller, collection, {"title": "x"})
-                await s.commit()
-        except RecordError as e:
-            return {"status": e.status, "code": e.code}
-        return {"status": 200, "record": rec}
-    app.add_api_route("/test/app-data/{app_id}/{collection}", write, methods=["POST"])
 
     run_jwt = runjwt.mint(keys["private_key"], run_id="run-1", agent="pai",
                           initiated_by="kyle", tools=["mcp__platform__ledger"],
@@ -243,8 +222,8 @@ async def test_executor_presents_it_as_the_agent_via_the_tool(env):
     assert (d["principal"], d["role"], d["agent"], d["run_id"]) == (
         "agent:pai", "tools", "pai", "run-1")
     assert d["tools"] == []          # a tool call holds no platform tool
-    # The `tools` role is in no allow-list: nothing but app_data answers it.
-    assert (await env.get("/api/runs", headers=_as_executor(minted))).status_code == 403
+    # Outside whoami and app_data it authenticates nothing at all.
+    assert (await env.get("/api/runs", headers=_as_executor(minted))).status_code == 401
 
 
 async def test_a_tool_call_cannot_read_or_set_app_data_quotas(env):
@@ -370,30 +349,14 @@ async def test_a_run_jwt_is_not_a_tool_call_credential(env):
 
 # --- what app_data routes see ------------------------------------------------------
 
-async def test_writes_are_the_agent_via_the_tool_and_stay_in_scope(env, sf):
-    owned = await _app(sf, "agent:pai", [_collection("results"), _collection("notes")])
-    shared = await _app(sf, "kyle", [_collection("results", read=["kyle", "agent:pai"])])
-    minted = (await _mint(env)).json()
-    h = _as_executor(minted)
-    r = (await env.post(f"/test/app-data/{owned}/results", headers=h)).json()
-    assert r["status"] == 200, r
-    values = r["record"]["values"]
-    assert values["author"] == "agent:pai" and values["via"] == "tool:ledger"
-    # pai owns `notes` too, but the tool never declared it.
-    r = (await env.post(f"/test/app-data/{owned}/notes", headers=h)).json()
-    assert (r["status"], r["code"]) == (403, "AD-OUT-OF-SCOPE")
-    # Read-only in Kyle's App: create is outside the credential.
-    r = (await env.post(f"/test/app-data/{shared}/results", headers=h)).json()
-    assert (r["status"], r["code"]) == (403, "AD-OUT-OF-SCOPE")
-
-
 async def test_scope_is_minted_at_call_time_and_not_wider_later(env, sf):
     """A collection pai gains after the mint is not in this call's scope."""
     minted = (await _mint(env)).json()
     owned = await _app(sf, "agent:pai", [_collection("results")])
-    r = (await env.post(f"/test/app-data/{owned}/results",
-                        headers=_as_executor(minted))).json()
-    assert (r["status"], r["code"]) == (403, "AD-OUT-OF-SCOPE")
+    r = await env.post("/api/app-data/agent/records/create", headers=_as_executor(minted),
+                       json={"app": owned, "request_id": "r1", "collection": "results",
+                             "values": {"title": "x"}})
+    assert r.status_code == 403 and r.json()["detail"]["code"] == "AD-OUT-OF-SCOPE"
 
 
 def test_tool_only_collections_count_the_tool():
@@ -476,3 +439,83 @@ async def test_page_intent_credential_authenticates_nothing_yet(env, sf):
         await s.commit()
     assert (await env.get("/api/whoami", headers=_as_executor(
         {"credential": token, "call_id": "i" * 32}))).status_code == 401
+
+
+# --- the real app_data routes ----------------------------------------------------------
+
+RECORDS = "/api/app-data/agent/records"
+
+
+async def test_a_tool_call_writes_and_reads_through_the_record_routes(env, sf):
+    """End to end: the credential reaches the record routes with no
+    `app_data` grant, its writes are the agent via the tool, and a
+    collection reserved for the tool's writers is writable through it."""
+    owned = await _app(sf, "agent:pai", [
+        {**_collection("results"), "writers": {"create": ["tool:ledger"]}},
+        _collection("notes")])
+    shared = await _app(sf, "kyle", [_collection("results", read=["kyle", "agent:pai"])])
+    minted = (await _mint(env)).json()
+    h = _as_executor(minted)
+    r = await env.post(f"{RECORDS}/create", headers=h, json={
+        "app": owned, "request_id": "r1", "collection": "results",
+        "values": {"title": "won"}})
+    assert r.status_code == 200, r.text
+    record_id = r.json()["id"]
+    r = await env.post(f"{RECORDS}/get", headers=h, json={
+        "app": owned, "collection": "results", "id": record_id})
+    assert r.status_code == 200, r.text
+    values = r.json()["values"]
+    assert (values["title"], values["author"], values["via"]) == (
+        "won", "agent:pai", "tool:ledger")
+    r = await env.post(f"{RECORDS}/describe", headers=h, json={"app": owned})
+    assert r.status_code == 200, r.text
+    assert [c["collection"] for c in r.json()["collections"]] == ["results"]
+
+    def out_of_scope(resp):
+        return resp.status_code == 403 and resp.json()["detail"]["code"] == "AD-OUT-OF-SCOPE"
+    # Another collection pai owns but the tool never declared.
+    assert out_of_scope(await env.post(f"{RECORDS}/create", headers=h, json={
+        "app": owned, "request_id": "r2", "collection": "notes", "values": {"title": "x"}}))
+    assert out_of_scope(await env.post(f"{RECORDS}/get", headers=h, json={
+        "app": owned, "collection": "notes", "id": record_id}))
+    # A verb the tool never declared.
+    assert out_of_scope(await env.post(f"{RECORDS}/update", headers=h, json={
+        "app": owned, "request_id": "r3", "collection": "results", "id": record_id,
+        "values": {"title": "y"}, "expected_version": 1}))
+    assert out_of_scope(await env.post(f"{RECORDS}/delete", headers=h, json={
+        "app": owned, "request_id": "r4", "collection": "results", "id": record_id}))
+    # Another App: read-only there, so no create.
+    assert out_of_scope(await env.post(f"{RECORDS}/create", headers=h, json={
+        "app": shared, "request_id": "r5", "collection": "results",
+        "values": {"title": "x"}}))
+    # An App outside the scope altogether.
+    bobs = await _app(sf, "agent:bob", [_collection("results")])
+    assert out_of_scope(await env.post(f"{RECORDS}/describe", headers=h,
+                                       json={"app": bobs}))
+
+
+async def test_a_tool_call_reaches_no_builder_or_kyle_route(env, sf):
+    owned = await _app(sf, "agent:pai", [_collection("results")])
+    h = _as_executor((await _mint(env)).json())
+    for path, body in (("/api/app-data/agent/apps/list", {}),
+                       ("/api/app-data/agent/apps/get", {"app": owned}),
+                       ("/api/app-data/agent/apps/create",
+                        {"request_id": "c1", "name": "sneaky"})):
+        assert (await env.post(path, headers=h, json=body)).status_code == 403, path
+    assert (await env.get("/api/app-data/apps", headers=h)).status_code == 403
+    assert (await env.get(f"/api/app-data/apps/{owned}", headers=h)).status_code == 403
+
+
+async def test_a_tool_call_is_not_its_persona_run(env, seed_agent):
+    """The credential carries the agent and its run, so a route that trusts
+    those alone would take the tool call for the persona's own run."""
+    await seed_agent("pai", agent_type="persona")
+    await env.app.state.agent_store.reload()
+    h = _as_executor((await _mint(env)).json())
+    assert (await env.get("/api/external-chat/identities", headers=h)).status_code == 403
+
+
+async def test_a_tool_call_cannot_check_a_chat_identity_transport(env):
+    h = _as_executor((await _mint(env)).json())
+    r = await env.get("/api/chat-identities/discord-default/transport", headers=h)
+    assert r.status_code == 401
