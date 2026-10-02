@@ -74,6 +74,14 @@ class Recorder:
                     1 for b in content
                     if isinstance(b, dict) and b.get("type") == "tool_use"
                 )
+            elif run.runtime == "codex" and value.get("type") == "item.completed":
+                # Codex emits started/updated/completed frames for one call.
+                # Count only the completed item, after the transcript seq has
+                # claimed it, so retries and progress frames add nothing.
+                item = value.get("item") or {}
+                if isinstance(item, dict) and item.get("type") in (
+                        "mcp_tool_call", "command_execution"):
+                    run.tool_calls += 1
             # The terminal `result` frame carries the final assistant reply and
             # the per-model token breakdown.
             result_event = None

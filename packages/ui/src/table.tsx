@@ -36,8 +36,17 @@ export function Table({ className, ...props }: HTMLAttributes<HTMLTableElement>)
     if (el.firstElementChild) ro.observe(el.firstElementChild);
     return () => { el.removeEventListener("scroll", update); ro.disconnect(); };
   }, []);
+  // A container that scrolls must be reachable by keyboard, or arrow-key users
+  // can never see the clipped columns (axe: scrollable-region-focusable, QA-15).
+  // Only while it actually overflows — a table that fits gets no extra tab stop.
+  // A focusable region needs a name, so it is labelled as what it is.
+  const scrollable = overflow !== "";
   return (
-    <div ref={ref} className="ui-table-scroll overflow-x-auto" data-overflow={overflow}>
+    <div ref={ref} className="ui-table-scroll overflow-x-auto focus-visible:outline-2 focus-visible:outline-accent"
+         data-overflow={overflow}
+         tabIndex={scrollable ? 0 : undefined}
+         role={scrollable ? "region" : undefined}
+         aria-label={scrollable ? "Scrollable table" : undefined}>
       <table className={cn("w-full border-collapse text-sm [&_tbody_tr]:border-t [&_tbody_tr]:border-border", className)}
              {...props} />
     </div>

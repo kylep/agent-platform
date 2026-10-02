@@ -52,7 +52,7 @@ export const PAGES: PageRoute[] = [
   // the one thing on this table the wiki put there (docs/design/21).
   { path: "/memories", heading: "Memories", probe: /📖 promoted/, mobile: false },
   { path: "/changes", heading: "Pending Changes", probe: /skill: release-review/, mobile: false },
-  { path: "/schedules", heading: "Schedules", probe: /health-monitor/, mobile: false },
+  { path: "/schedules", heading: "Schedules", probe: /health-monitor/, mobile: true },
   { path: "/skills", heading: "Skills & Tools", probe: /stocks/, mobile: false },
   { path: "/secrets", heading: "Connections", probe: /Discord chat identities/, mobile: true },
   { path: "/dlq", heading: "Dead-letter queue", mobile: false },
@@ -72,7 +72,7 @@ export const PAGES: PageRoute[] = [
   { path: "/help/wiki", heading: "Wiki", probe: /wanted page|wiki-link/i, mobile: false },
   // The Relay section is read-only and env-fed, so its probe is the sentence
   // that tells an operator where the numbers actually come from.
-  { path: "/settings", heading: "Settings", probe: /AP_RELAY_MAX_HOPS/, mobile: false },
+  { path: "/settings", heading: "Settings", probe: /AP_RELAY_MAX_HOPS/, mobile: true },
 ];
 
 export const SMOKE_PAGES = PAGES.filter((p) => p.only !== "a11y");
