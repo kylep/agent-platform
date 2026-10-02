@@ -1289,6 +1289,38 @@ a.relay-action { color: var(--ds-link); }
   .live-view-table td::before { content: attr(data-label); color: var(--ds-text-muted);
     flex: 0 0 78px; text-align: left; }
 }
+/* typed/v2 pages (docs/design/39). A restricted field is a muted word, never
+   a blank: an empty value and one the viewer can't read must look different. */
+.v2-restricted { color: var(--ds-text-subtle); font-style: italic; font-size: .85em; }
+.v2-as-of { font-size: 12px; color: var(--ds-text-muted); }
+.live-view-metric .v2-as-of { margin-top: 2px; }
+.live-view-table > .muted, .v2-detail > .muted:last-child { margin: 8px 0 0; }
+.live-view-table > button { margin-top: 10px; }
+.v2-detail { grid-column: 1 / -1; min-width: 0; padding: 16px; background: var(--ds-surface);
+  border: 1px solid var(--ds-border); border-radius: var(--radius-lg); }
+.v2-detail h2 { margin-top: 0; }
+.v2-detail dl { display: grid; grid-template-columns: minmax(6rem, max-content) minmax(0, 1fr);
+  gap: 8px 16px; margin: 0; }
+.v2-detail dl > div { display: contents; }
+.v2-detail dt { color: var(--ds-text-muted); }
+.v2-detail dd { margin: 0; overflow-wrap: anywhere; }
+
+/* the state-App builder area: read-only definitions, notes and health */
+.state-apps { margin: 16px 0 28px; }
+.state-app-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.state-app-pages { display: flex; flex-wrap: wrap; gap: 6px 16px; margin-bottom: 8px; }
+.state-app-panel { min-width: 0; }
+.state-app-section { margin-bottom: 24px; min-width: 0; }
+.state-app-section ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+.state-app-section li { overflow-wrap: anywhere; }
+.state-app-section code { overflow-wrap: anywhere; }
+.definition { border: 1px solid var(--ds-border); border-radius: var(--radius-lg);
+  background: var(--ds-surface); margin-bottom: 8px; min-width: 0; }
+.definition summary { cursor: pointer; padding: 10px 12px; overflow-wrap: anywhere; }
+.json-view { margin: 0; padding: 10px 12px; border-top: 1px solid var(--ds-border);
+  overflow: auto; max-height: 28rem; font-size: 12px; }
+.build-notes { white-space: pre-wrap; overflow-wrap: anywhere; padding: 12px 16px;
+  background: var(--ds-surface); border: 1px solid var(--ds-border); border-radius: var(--radius-lg); }
 .live-editor-layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(18rem, .75fr);
   gap: 24px; margin-top: 24px; }
 .live-editor-layout > section { min-width: 0; }
