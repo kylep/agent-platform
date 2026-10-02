@@ -112,6 +112,8 @@ class AppDataRecord(Base):
               "ix_text2", "ix_time1"),
         Index("ix_app_data_records_t1_num", "app_id", "collection", "ix_text1", "ix_num1"),
         Index("ix_app_data_records_time", "app_id", "collection", "ix_time1"),
+        # Default ordering (newest first) and retention's age and count cuts.
+        Index("ix_app_data_records_created", "app_id", "collection", "created_at"),
         # SQLite has no index for a JSON blob, so this one is Postgres's alone.
         Index("ix_app_data_records_doc", "doc", postgresql_using="gin",
               postgresql_ops={"doc": "jsonb_path_ops"}).ddl_if(dialect="postgresql"),
