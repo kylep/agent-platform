@@ -203,6 +203,31 @@ internal tool is run by directory name and never registered by the broker,
 it is exempt from the core-name shadow rule below — a core `image_gen` broker
 tool and a `tools/image_gen/` directory are one feature, not a collision.
 
+## View actions
+
+A tool with `app_access` that includes `read` can offer read actions as
+**tool views**, which pages and agent queries bind
+(`docs/design/39-agent-built-apps.md`, "Tool views"):
+
+```yaml
+view_actions:
+  counts:                       # must be in the params `action` enum (`call` without one)
+    output_schema: {type: object, properties: {...}}   # required
+    max_rows: 50                # 1–10,000
+    max_bytes: 16384            # 1–262,144 (the executor's output cap)
+    sources: [source]           # roles from app_access.roles
+    params:                     # what a binding may pass; each must be a tool param
+      type: object
+      properties: {field: {type: string}}
+```
+
+The registry refuses a declaration that breaks any of those rules. A
+declaration alone admits nothing: the operation catalog
+(`scripts/compile_live_operation_catalog.py`) marks the action
+`view_eligible` only when its reviewed effect row is exactly
+`reads_sensitive`. The output schema, limits and source roles then come from
+the manifest. Typed/v1 Live Views never bind a tool view.
+
 ## The 300-second ceiling
 
 `timeout_seconds` accepts 1–300 and the executor clamps at 300 regardless of

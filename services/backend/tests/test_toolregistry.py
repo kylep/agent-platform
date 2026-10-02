@@ -208,6 +208,95 @@ def test_registry_loads_app_access_from_yaml(tmp_path):
     assert t.manifest.app_access.verbs == ["read", "update"]
 
 
+# --- view actions (design 39, "Tool views" -> Eligibility; plan D3) ----------
+
+VIEW_PARAMS = {"type": "object", "properties": {
+    "action": {"type": "string", "enum": ["counts", "sync"]},
+    "field": {"type": "string"}, "top": {"type": "integer"}}}
+COUNTS_OUTPUT = {"type": "object", "properties": {"rows": {"type": "array"}},
+                 "required": ["rows"], "additionalProperties": False}
+
+
+def view_manifest(view_actions, *, app_access=None, params=None):
+    return ToolManifest(
+        name="ok_tool", description="A perfectly valid description here.",
+        params=params or VIEW_PARAMS,
+        app_access=app_access or {"roles": ["source", "other"], "verbs": ["read"]},
+        view_actions=view_actions)
+
+
+def counts(**over):
+    action = {"output_schema": COUNTS_OUTPUT, "max_rows": 50, "max_bytes": 16384,
+              "sources": ["source"],
+              "params": {"type": "object", "properties": {"field": {"type": "string"}}}}
+    action.update(over)
+    return action
+
+
+def test_view_actions_are_optional_and_parsed():
+    m = ToolManifest(name="ok_tool", description="A perfectly valid description here.")
+    assert m.view_actions == {}
+    m = view_manifest({"counts": counts()})
+    va = m.view_actions["counts"]
+    assert (va.max_rows, va.max_bytes, va.sources) == (50, 16384, ["source"])
+    assert va.output_schema == COUNTS_OUTPUT
+    assert va.params["properties"] == {"field": {"type": "string"}}
+    # No params declared: the view passes nothing beyond the action.
+    bare = counts()
+    del bare["params"]
+    assert view_manifest({"counts": bare}).view_actions["counts"].params == {
+        "type": "object", "properties": {}, "additionalProperties": False}
+
+
+@pytest.mark.parametrize("bad", [
+    {"output_schema": None},                                  # missing output schema
+    {"output_schema": {"type": "array"}},                     # results are objects
+    {"output_schema": {"type": "object", "properties": []}},
+    {"max_rows": 0}, {"max_rows": 10_001},
+    {"max_bytes": 0}, {"max_bytes": 262_145},                 # over the executor's cap
+    {"sources": []},
+    {"sources": ["source", "source"]},
+    {"sources": ["nope"]},                                    # not an app_access role
+    {"params": {"type": "array"}},
+    {"params": {"type": "object", "properties": {"secret": {"type": "string"}}}},
+    {"params": {"type": "object", "properties": {"action": {"type": "string"}}}},
+    {"cache": "none"},                                        # unknown key
+])
+def test_view_action_manifest_errors(bad):
+    action = counts(**bad)
+    if bad.get("output_schema", "") is None:
+        del action["output_schema"]
+    with pytest.raises(ValueError):
+        view_manifest({"counts": action})
+
+
+def test_view_action_must_be_in_the_action_enum():
+    with pytest.raises(ValueError, match="action enum"):
+        view_manifest({"summarize": counts()})
+    # A tool with no action enum has the one action the catalog calls `call`.
+    single = {"type": "object", "properties": {"field": {"type": "string"}}}
+    assert view_manifest({"call": counts()}, params=single).view_actions["call"]
+    with pytest.raises(ValueError, match="action enum"):
+        view_manifest({"counts": counts()}, params=single)
+
+
+def test_view_actions_need_app_access_with_read():
+    with pytest.raises(ValueError, match="app_access"):
+        ToolManifest(name="ok_tool", description="A perfectly valid description here.",
+                     params=VIEW_PARAMS, view_actions={"counts": counts()})
+    with pytest.raises(ValueError, match="read"):
+        view_manifest({"counts": counts()},
+                      app_access={"roles": ["source"], "verbs": ["create"]})
+
+
+def test_registry_surfaces_a_bad_view_action_as_a_tool_error(tmp_path):
+    make_tool(tmp_path, yaml_text=GOOD_YAML + "app_access:\n  roles: [results]\n"
+              "  verbs: [read]\nview_actions:\n  call:\n    max_rows: 5\n"
+              "    max_bytes: 1024\n    sources: [results]\n")
+    t = ToolRegistry(tmp_path).get("echo")
+    assert t.manifest is None and "output_schema" in t.error
+
+
 def test_manifest_infra_defaults_and_secret_coercion():
     m = ToolManifest(name="ok_tool", description="A perfectly valid description here.")
     assert m.infra.database is False and m.infra.secrets == []

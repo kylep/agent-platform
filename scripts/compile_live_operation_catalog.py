@@ -8,12 +8,17 @@ from __future__ import annotations
 
 import ast
 import json
+import sys
 from pathlib import Path
 
 import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 OUTPUT = ROOT / "services/backend/agentplatform/live_operation_catalog.json"
+# The manifest model, so a view declaration the registry would refuse can't
+# compile into an eligible operation.
+sys.path.insert(0, str(ROOT / "services/backend"))
+from agentplatform.toolregistry import ToolManifest, ViewAction  # noqa: E402
 
 # Branches resolved by helpers or the default arm are not all visible as
 # `action == ...` in broker.py. The AST scan below adds any newly explicit arm.
@@ -218,19 +223,50 @@ def _core_actions() -> dict[str, list[str]]:
     return result
 
 
-def _custom_actions() -> dict[str, tuple[str, list[str]]]:
+def _custom_actions(tools: Path) -> dict[str, ToolManifest]:
     result = {}
-    for path in sorted((ROOT / "tools").glob("*/tool.yaml")):
-        manifest = yaml.safe_load(path.read_text())
-        name = manifest.get("name", path.parent.name)
-        assert name == path.parent.name, path
-        choices = manifest.get("params", {}).get("properties", {}).get("action", {}).get("enum")
-        result[name] = (manifest.get("category", "service_connector"),
-                        sorted(choices or ["call"]))
+    for path in sorted(tools.glob("*/tool.yaml")):
+        raw = yaml.safe_load(path.read_text()) or {}
+        raw.setdefault("name", path.parent.name)
+        manifest = ToolManifest(**raw)
+        assert manifest.name == path.parent.name, path
+        result[manifest.name] = manifest
     return result
 
 
-def compile_catalog() -> dict:
+def _custom_operation(manifest: ToolManifest, action: str) -> dict:
+    """Design 39, "Tool views" -> Eligibility: the manifest declares the view
+    action AND the reviewed effect row says it only reads. Either alone is not
+    enough, so a manifest edit can't admit an action the review hasn't seen."""
+    effects, classification = _effect_policy("mcp-custom", manifest.name, action)
+    operation = {
+        "id": f"tool.{manifest.name}.{action}@1", "source": "mcp-custom",
+        "tool": manifest.name, "action": action, "category": manifest.category,
+        "effects": effects, "output_classification": classification,
+        "view_eligible": False, "reason": "No reviewed human page adapter",
+        "input_schema": None, "output_schema": None,
+        "target_scope": None, "supported_callers": [], "limits": None,
+        "snapshot_eligible": False}
+    view: ViewAction | None = manifest.view_actions.get(action)
+    if view is None:
+        return operation
+    if effects != ["reads_sensitive"]:
+        operation["reason"] = "View action declared, but its reviewed effects are not only reads_sensitive"
+        return operation
+    operation.update({
+        "view_eligible": True,
+        "reason": "Declared view action over App tool roles",
+        "input_schema": view.params, "output_schema": view.output_schema,
+        "target_scope": list(view.sources),
+        # A page render, an agent's query and the materializer.
+        "supported_callers": ["human_session", "agent_run", "materializer"],
+        "limits": {"max_rows": view.max_rows, "max_output_bytes": view.max_bytes,
+                   "timeout_seconds": manifest.timeout_seconds,
+                   "provider_spend": False}})
+    return operation
+
+
+def compile_catalog(tools: Path = ROOT / "tools") -> dict:
     operations = []
     for tool, actions in sorted(_core_actions().items()):
         for action in actions:
@@ -243,17 +279,9 @@ def compile_catalog() -> dict:
                 "input_schema": None, "output_schema": None,
                 "target_scope": None, "supported_callers": [], "limits": None,
                 "snapshot_eligible": False})
-    for tool, (category, actions) in sorted(_custom_actions().items()):
-        for action in actions:
-            effects, classification = _effect_policy("mcp-custom", tool, action)
-            operations.append({
-                "id": f"tool.{tool}.{action}@1", "source": "mcp-custom",
-                "tool": tool, "action": action, "category": category,
-                "effects": effects, "output_classification": classification,
-                "view_eligible": False, "reason": "No reviewed human page adapter",
-                "input_schema": None, "output_schema": None,
-                "target_scope": None, "supported_callers": [], "limits": None,
-                "snapshot_eligible": False})
+    for _, manifest in sorted(_custom_actions(tools).items()):
+        for action in sorted(manifest.actions):
+            operations.append(_custom_operation(manifest, action))
     for operation_id, (app, classification) in sorted(APP_READS.items()):
         operations.append({
             "id": operation_id, "source": "app-adapter", "tool": app,

@@ -102,6 +102,70 @@ class AppAccess(BaseModel):
 # `broker.FILES_ARG`: the one argument name no manifest may claim.
 RESERVED_PARAM = "files"
 
+# The executor caps every tool's output at 256 KiB (tools/README.md); a view
+# action can only promise less.
+VIEW_MAX_BYTES = 262_144
+VIEW_MAX_ROWS = 10_000
+
+
+def _object_schema(v, what: str) -> dict:
+    # Structural only: jsonschema is a dev dependency, so the catalog lockstep
+    # test runs the full Draft 2020-12 check on what reaches the catalog.
+    if not isinstance(v, dict) or v.get("type") != "object":
+        raise ValueError(f"{what} must be a JSON Schema with type: object")
+    if not isinstance(v.get("properties", {}), dict):
+        raise ValueError(f"{what}.properties must be a mapping")
+    return v
+
+
+class ViewAction(BaseModel):
+    """A read action a tool offers as a tool view (docs/design/39, "Tool
+    views" -> Eligibility). Declaring one is necessary, not sufficient: the
+    catalog marks it `view_eligible` only when the reviewed effect row also
+    says it does nothing but `reads_sensitive`."""
+    model_config = {"extra": "forbid"}
+    output_schema: dict
+    max_rows: int
+    max_bytes: int
+    # App tool roles the action reads; the App's App tool fact maps each to a
+    # real collection, and the view's credential reaches only those.
+    sources: list[str]
+    # The arguments a view binding may pass, beside the fixed `action`.
+    params: dict = {"type": "object", "properties": {}, "additionalProperties": False}
+
+    @field_validator("output_schema")
+    @classmethod
+    def _output(cls, v: dict) -> dict:
+        return _object_schema(v, "output_schema")
+
+    @field_validator("params")
+    @classmethod
+    def _params(cls, v: dict) -> dict:
+        return _object_schema(v, "params")
+
+    @field_validator("max_rows")
+    @classmethod
+    def _rows(cls, v: int) -> int:
+        if not 1 <= v <= VIEW_MAX_ROWS:
+            raise ValueError(f"max_rows must be between 1 and {VIEW_MAX_ROWS}")
+        return v
+
+    @field_validator("max_bytes")
+    @classmethod
+    def _bytes(cls, v: int) -> int:
+        if not 1 <= v <= VIEW_MAX_BYTES:
+            raise ValueError(f"max_bytes must be between 1 and {VIEW_MAX_BYTES}")
+        return v
+
+    @field_validator("sources")
+    @classmethod
+    def _sources(cls, v: list[str]) -> list[str]:
+        if not v:
+            raise ValueError("sources must name at least one role")
+        if len(set(v)) != len(v):
+            raise ValueError("sources lists a role twice")
+        return v
+
 
 class ToolManifest(BaseModel):
     name: str
@@ -124,6 +188,8 @@ class ToolManifest(BaseModel):
     # Absent: the broker asks for no call credential and the tool can't reach
     # App data at all.
     app_access: AppAccess | None = None
+    # Per-action tool view declarations, keyed by action (plan decision D3).
+    view_actions: dict[str, ViewAction] = {}
 
     @field_validator("name")
     @classmethod
@@ -139,6 +205,41 @@ class ToolManifest(BaseModel):
         # a `tools/image_gen/` directory are one feature, not a collision.
         if self.name in CORE_TOOL_SUFFIXES and not self.internal:
             raise ValueError(f"{self.name!r} shadows a core platform tool")
+        return self
+
+    @property
+    def actions(self) -> list[str]:
+        """The catalog's action names: the `action` enum, or `call` for a
+        tool without one (scripts/compile_live_operation_catalog.py)."""
+        action = self.params.get("properties", {}).get("action", {})
+        choices = action.get("enum") if isinstance(action, dict) else None
+        return list(choices or ["call"])
+
+    @model_validator(mode="after")
+    def _view_actions_fit(self):
+        if not self.view_actions:
+            return self
+        # A view reads through the call credential, which binds only
+        # app_access roles; without `read` there is nothing for it to read.
+        if self.app_access is None or "read" not in self.app_access.verbs:
+            raise ValueError("view_actions need app_access with the read verb")
+        props = self.params.get("properties", {})
+        for name, va in self.view_actions.items():
+            if name not in self.actions:
+                raise ValueError(f"view action {name!r} is not in the action enum "
+                                 f"{self.actions}")
+            stray = [r for r in va.sources if r not in self.app_access.roles]
+            if stray:
+                raise ValueError(f"view action {name!r} sources {stray} are not "
+                                 "app_access roles")
+            # The executor validates every call against `params`, so a view
+            # argument the tool doesn't declare would fail at run time; the
+            # action itself is fixed by the binding, never a view argument.
+            bad = [p for p in va.params.get("properties", {})
+                   if p == "action" or p not in props]
+            if bad:
+                raise ValueError(f"view action {name!r} params {bad} are not tool "
+                                 "params (or name `action`)")
         return self
 
     @field_validator("description")
