@@ -181,24 +181,24 @@ pattern.
   - API routes: broker-backed agent routes checking the run token's frozen
     tools and App ownership; Kyle-session routes for the web.
   - Files: `appdata/lifecycle.py`, `api/app_data.py`.
-- [ ] **A10 Tools `apps` and `app_data`** (after A9).
+- [x] **A10 Tools `apps` and `app_data`** (after A9). (`cdaf1bd`, merged)
   - Broker tools with `@_metered` and grants.
   - Agentspec `GRANTABLE_PLATFORM_TOOLS` entries (Kyle-only, per R0).
   - Help topics, operation-catalog entries, facade classification, SDK
     regeneration.
-- [~] **A11 Quotas and scan budgets** (`85e7f08` on feat/r1a-a11; **not merged**: conflicts with A8/A9 in `appdata/records.py` and `test_appdata_models.py`; resolve by keeping both sides' hooks) (after A6).
+- [x] **A11 Quotas and scan budgets** (`85e7f08`, merged with settle on every commit path, `6a2c9eb`) (after A6).
   - Per App and per owner, set by Kyle, failing closed.
-- [ ] **A12 Performance gate** (after A7).
+- [x] **A12 Performance gate** (after A7). (`feat/r1a-a12`, merged; numbers and decisions in `appdata-perf-2026-10.md`. Scan cap is now 1M rows / 60 s. GIN drop, partial indexes and the c3 index go to R1b. PVC and `shared_buffers` sizing go in helm before M2.)
   - Load 10⁶ bars-shaped and 10⁶ results-shaped records on Postgres.
   - Measure the design's read paths and a 140k-record batch-job write.
   - Record the numbers and set timeouts from them.
-- [~] **A13 Skill v1 `app-building`.** (`3ca2b8f` on feat/r1a-a13, **held**: waits on Kyle's approval pin, see Needs Kyle)
+- [~] **A13 Skill v1 `app-building`.** (`3ca2b8f`. Manifest pin `ea3c6b6` approved by Codex at Kyle's direction; merged. Remaining: the attested-bundle pin after `plugin-release.yaml` runs on main.)
   - Add it to the reviewed plugin (version bump, release manifest digests).
   - Release through `plugin-release.yaml` attestation and pin the digests in
     `plugin_release.py`.
   - Assign it to Pai, Kai and Olu; grant `apps` and `app_data` to them from a
     Kyle session at deploy.
-- [~] **A14 Docs.** (`85c100c` cherry-picked; the skill-dependent doc test skips until the skill lands)
+- [x] **A14 Docs.** (`85c100c`, merged with the skill)
   - `docs/building-blocks/apps.md` rewrite (Apps as state), a new
     `app-data.md`, and glossary entries.
 - [ ] **A15 Live verification.** Deploy; then Pai builds a small App end to
@@ -239,29 +239,22 @@ drills.
 ## Needs Kyle (collected, not blocking)
 
 - **Grant `mcp__platform__apps` and `mcp__platform__app_data`** to `pai`, `kai`
-  and `olu` from his browser session, once R1a is deployed.
-  - These are Kyle-only grants (R0), and a cluster-admin bypass path was
-    refused as a security weakening.
-  - R1a's live verification (A15) waits on this. Everything else continues.
-
-- **Approve plugin release 0.2.0** (the `app-building` skill). Add this line to
-  `APPROVED_RELEASES` in `services/backend/agentplatform/plugin_release.py`:
-  `"0.2.0": "c660caae157f6972b686d97b9354ee00e706d27cde46fc5948b57182cae135b7"`
-  - That is the SHA-256 of `release.json` at `3ca2b8f` on `feat/r1a-a13`.
-  - The permission system refused the pin as a security-allowlist change, so
-    it's Kyle's line to add.
-  - The skill branch `feat/r1a-a13` stays unmerged until then. Merging it
-    without the pin would refuse the whole coding plugin, which coder and QA
-    depend on.
-  - After the pin, follow the attestation steps in the A13 notes
-    (`docs/agent-platform-coding-plugin.md`, the two-pin procedure).
+  and `olu` from his browser session (Playwright MCP only, never Chrome), once
+  R1a is deployed. These are Kyle-only grants (R0). Agents' use of Apps waits
+  on this. A15 is verified with Claude's admin key against the App data API
+  instead.
 
 ## Repairs
 
 - **A4:** move `TOOL_APP_DATA_URL` out of the tool's environment (readable from `/proc` by sibling tools under the same uid) into the stdin payload.
 - **A9:** publish doesn't lock out record writes that race its consistency check.
 - **A9:** prune the record-write `build_ops` rows.
-- **Integration:** all of R1a is merged on `feat/r1a` (worktree `~/gh/ap-r1a`). A11 is still running in `~/gh/ap-a11`, then A10, A12–A15, the phase review, the PR and the deploy.
+- **Done (`65f5af8`):** all the repairs above, plus housekeeping, quota routes, health limits and count checks.
+- **Phase review (Sol, Fable), all fixed on `feat/r1a-fix2`:**
+  - `6cab1c1`: an immutable upsert skipped artifact attach and detach.
+  - `be7d9cc`: tool-call credentials reached no route. Also the facade quota exclusions, SDK drift, retryable receipts, quota transfer on agent delete, and tool-call credentials rejected off App data.
+  - `c93f5c4`: a delete that would unlink needs `update` scope there.
+- **Integration:** all of R1a, A12–A14, the fixes and origin/main are merged on `feat/r1a`. Next: PR, CI, merge, deploy, A15.
 
 ## Live verification
 
