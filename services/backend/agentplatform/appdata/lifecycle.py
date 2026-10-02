@@ -63,7 +63,8 @@ REASON_MAX = 2000
 REQUEST_ID_MAX = 128
 RECENT_OPS = 20
 # Builder history: what `get` lists. Record writes share the table, not the list.
-BUILD_ACTIONS = ("create", "draft", "notes", "publish", "rollback", "retire")
+BUILD_ACTIONS = ("create", "draft", "notes", "publish", "rollback", "retire",
+                 "propose", "proposal_approve", "proposal_decline", "proposal_withdraw")
 SAMPLES_PER_COLLECTION = 200
 SAMPLE_IDS = 5
 SCAN_CHUNK = 1000

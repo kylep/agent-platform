@@ -30,7 +30,8 @@ CORE_BRANCHES = {
     # Dispatched by `action not in APPS_ACTIONS` and one body per arm, so the
     # verbs are listed here, in broker.APPS_ACTIONS / APP_DATA_ACTIONS order.
     "apps": ("schema", "list", "create", "get", "draft", "notes", "validate",
-             "preview", "publish", "rollback", "retire", "authority", "health"),
+             "preview", "publish", "rollback", "retire", "authority", "health",
+             "propose", "proposal"),
     "app_data": ("describe", "query", "get", "create", "update", "delete",
                  "delete_preview"),
 }

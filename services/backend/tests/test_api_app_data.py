@@ -259,6 +259,56 @@ async def test_a_builder_acts_only_on_its_own_apps(token_client, sf, seed_agent,
     assert listed == []
 
 
+async def test_proposal_routes_freeze_and_approve_a_widening_change(
+        token_client, admin_client, sf, seed_agent, agent_store):
+    app_id = await build(sf)
+    pai = await agent(sf, seed_agent, agent_store)
+    wider = {**HABITS, "fields": {**HABITS["fields"], "note": {
+        **HABITS["fields"]["note"], "access": {"read": ["owner", "kyle"]}}}}
+    drafted = await token_client.post(f"{AGENT}/apps/draft", headers=pai, json={
+        "app": app_id, "request_id": "wider-draft", "kind": "collection",
+        "definition": wider})
+    assert drafted.status_code == 200, drafted.text
+    proposed = await token_client.post(f"{AGENT}/apps/propose", headers=pai, json={
+        "app": app_id, "request_id": "wider-proposal", "reason": "Share notes"})
+    assert proposed.status_code == 200, proposed.text
+    proposal = proposed.json()
+    assert proposal["state"] == "open" and proposal["digest"]
+    proposal_id = proposal["id"]
+    got = await token_client.post(f"{AGENT}/apps/get", headers=pai,
+                                  json={"app": app_id})
+    assert [p["id"] for p in got.json()["open_proposals"]] == [proposal_id]
+    read = await token_client.post(f"{AGENT}/apps/proposal", headers=pai,
+                                   json={"proposal_id": proposal_id, "action": "get"})
+    assert read.status_code == 200 and read.json()["digest"] == proposal["digest"]
+
+    path = f"/api/app-data/proposals/{proposal_id}"
+    admin_key = await _key(sf, name="proposal-admin-key", role="admin")
+    assert (await token_client.get(path, headers=admin_key)).status_code == 403
+    assert (await token_client.post(f"{path}/approve", headers=admin_key,
+                                    json={"request_id": "a", "digest": proposal["digest"]})
+            ).status_code == 403
+    assert (await token_client.get(path, headers=pai)).status_code == 403
+    listing = await admin_client.get("/api/app-data/proposals", params={"state": "open"})
+    assert proposal_id in [p["id"] for p in listing.json()]
+    reviewed = await admin_client.get(path)
+    assert reviewed.status_code == 200, reviewed.text
+    assert reviewed.json()["diff"][0]["proposed"] == wider
+    wrong = await admin_client.post(f"{path}/approve", json={
+        "request_id": "wrong-digest", "digest": "0" * 64})
+    assert wrong.status_code == 409
+    approved = await admin_client.post(f"{path}/approve", json={
+        "request_id": "approve-wider", "digest": proposal["digest"]})
+    assert approved.status_code == 200, approved.text
+    assert approved.json()["state"] == "published"
+    assert (await admin_client.get(path)).json()["state"] == "published"
+    async with sf() as s:
+        row = (await s.execute(select(AppDataDefinition).where(
+            AppDataDefinition.app_id == app_id,
+            AppDataDefinition.proposal_id == proposal_id))).scalar_one()
+        assert row.author == "agent:pai" and row.approved_by == "kyle"
+
+
 # --- agent routes: the builder flow -----------------------------------------------------
 
 async def test_a_builder_builds_an_app_end_to_end(token_client, sf, seed_agent, agent_store):

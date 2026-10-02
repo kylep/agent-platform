@@ -108,6 +108,21 @@ def app_data(**kw):
      {"app": "habits", "request_id": "r1", "to_version": 2, "expected_approved_version": 3}),
     ({"action": "retire", "app": "habits", "request_id": "x1", "reason": "done"}, "retire",
      {"app": "habits", "request_id": "x1", "reason": "done"}),
+    ({"action": "propose", "app": "habits", "request_id": "q1",
+      "only": [{"kind": "collection", "name": "habits"}], "reason": "share"}, "propose",
+     {"app": "habits", "request_id": "q1",
+      "only": [{"kind": "collection", "name": "habits"}], "reason": "share"}),
+    ({"action": "propose", "app": "habits", "request_id": "q2",
+      "rollback_to": 1}, "propose",
+     {"app": "habits", "request_id": "q2", "rollback_to": 1}),
+    ({"action": "propose", "app": "habits", "request_id": "q3",
+      "transfer_to": "agent:kai"}, "propose",
+     {"app": "habits", "request_id": "q3", "transfer_to": "agent:kai"}),
+    ({"action": "proposal", "proposal_id": "p1", "proposal_action": "get"}, "proposal",
+     {"proposal_id": "p1", "action": "get"}),
+    ({"action": "proposal", "proposal_id": "p1", "proposal_action": "withdraw",
+      "request_id": "w1"}, "proposal",
+     {"proposal_id": "p1", "action": "withdraw", "request_id": "w1"}),
 ])
 def test_each_apps_action_is_one_post_with_the_routes_body(calls, kw, path, body):
     apps(**kw)
@@ -126,8 +141,8 @@ def test_the_first_publish_sends_a_null_version_never_omits_it(calls):
 def test_the_action_list_is_the_routes(calls):
     assert broker.APPS_ACTIONS == ("schema", "list", "create", "get", "draft", "notes",
                                    "validate", "preview", "publish", "rollback", "retire",
-                                   "authority", "health")
-    out = apps(action="propose", app="habits")
+                                   "authority", "health", "propose", "proposal")
+    out = apps(action="not-an-action", app="habits")
     assert out.startswith("error: action must be one of schema|list|")
     assert calls == []
 
@@ -138,6 +153,9 @@ def test_the_action_list_is_the_routes(calls):
     ({"action": "publish", "app": "habits"}, "request_id"),
     ({"action": "rollback", "app": "habits", "to_version": 1}, "request_id"),
     ({"action": "retire", "app": "habits"}, "request_id"),
+    ({"action": "propose", "app": "habits"}, "request_id"),
+    ({"action": "proposal", "proposal_action": "get"}, "proposal_id"),
+    ({"action": "proposal", "proposal_id": "p1", "proposal_action": "withdraw"}, "request_id"),
     ({"action": "notes", "app": "habits", "text": "x", "expected_revision": 0}, "request_id"),
     ({"action": "notes", "app": "habits", "text": "x", "request_id": "n"}, "expected_revision"),
     ({"action": "create", "request_id": "c"}, "name"),
@@ -168,7 +186,7 @@ def _refusal(status, code, message, detail=None):
     return f"error: {status} " + json.dumps({"detail": body})
 
 
-def test_a_widening_publish_says_propose_is_not_here_yet(calls):
+def test_a_widening_publish_points_to_propose(calls):
     calls.replies[f"{APPS}/publish"] = _refusal(
         409, "AL-NEEDS-PROPOSAL", "this widens the App's approved authority or drops "
         "stored data, which needs Kyle's approval: propose it",
@@ -176,7 +194,7 @@ def test_a_widening_publish_says_propose_is_not_here_yet(calls):
     out = apps(action="publish", app="habits", request_id="p", expected_approved_version=1)
     assert out.startswith("error: 409")
     assert "habits.note" in out
-    assert "not available yet" in out and "Kyle" in out
+    assert 'apps(action="propose"' in out and "Kyle" in out
 
 
 @pytest.mark.parametrize("code, word", [

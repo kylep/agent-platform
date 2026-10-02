@@ -18,12 +18,11 @@ when to build an App and how; this page is the reference it relies on.
 columns plus a JSON `doc`), `app_data_record_versions`, `app_data_build_ops`,
 `app_data_staging_sets` and `app_data_staged_records`, `app_data_quotas`,
 `app_data_scan_leases`, `app_data_write_counters`, `app_data_artifacts`,
-`app_data_artifact_refs` and `app_data_tool_calls`. The code is
+`app_data_artifact_refs`, `app_data_tool_calls` and `app_data_proposals`. The code is
 `services/backend/agentplatform/appdata/` and `api/app_data.py`.
 
-This page describes Release 1a. Proposals, sharing, action templates, tool
-views and App tool facts are Release 1b; what each release adds is listed at
-the end.
+Release 1a supplied the store and builder. Release 1b adds proposals,
+sharing, action templates, tool views and App tool facts.
 
 ## An App
 
@@ -83,6 +82,17 @@ revision and the approved version it was written against.
 5. **Rollback** makes an earlier version current again, under publish's
    checks.
 6. **Retire**, as above.
+
+**Proposals.** A change that needs Kyle's approval is frozen by `apps
+propose` with a fresh `request_id` and optional `only`, `rollback_to`, or
+`transfer_to`. It returns a SHA-256 digest, authority delta, validation
+summary, and base version. `apps proposal` reads or withdraws a proposal;
+`apps get` lists open proposals for that App. Kyle's browser session can list
+and inspect proposals at `/api/app-data/proposals`, then approve with the
+shown digest or decline with a reason. Admin API keys and agent runs cannot
+decide. Approval rechecks the frozen bundle against current records and
+authority; a moved App or changed delta makes it `stale` without publishing.
+Published, declined, withdrawn and stale proposals are final.
 
 **Build ops.** Every write (lifecycle and records) takes a `request_id`,
 stored with a hash of its arguments in the same transaction as the write.

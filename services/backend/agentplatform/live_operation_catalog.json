@@ -572,6 +572,44 @@
       "snapshot_eligible": false
     },
     {
+      "id": "core.apps.proposal@1",
+      "source": "mcp-core",
+      "tool": "apps",
+      "action": "proposal",
+      "category": "platform_capability",
+      "effects": [
+        "mutates_platform"
+      ],
+      "output_classification": "private",
+      "view_eligible": false,
+      "reason": "No reviewed human page adapter",
+      "input_schema": null,
+      "output_schema": null,
+      "target_scope": null,
+      "supported_callers": [],
+      "limits": null,
+      "snapshot_eligible": false
+    },
+    {
+      "id": "core.apps.propose@1",
+      "source": "mcp-core",
+      "tool": "apps",
+      "action": "propose",
+      "category": "platform_capability",
+      "effects": [
+        "mutates_platform"
+      ],
+      "output_classification": "private",
+      "view_eligible": false,
+      "reason": "No reviewed human page adapter",
+      "input_schema": null,
+      "output_schema": null,
+      "target_scope": null,
+      "supported_callers": [],
+      "limits": null,
+      "snapshot_eligible": false
+    },
+    {
       "id": "core.apps.publish@1",
       "source": "mcp-core",
       "tool": "apps",

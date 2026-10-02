@@ -29,14 +29,17 @@ from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, ConfigDict, Field
+from sqlalchemy import select
 
 from agentplatform.api.auth import authenticate
 from agentplatform.appdata import credentials as tc
 from agentplatform.appdata import lifecycle as L
+from agentplatform.appdata import proposals as P
 from agentplatform.appdata import quotas
 from agentplatform.appdata.access import Caller, RecordError
 from agentplatform.appdata.definitions import json_schemas
 from agentplatform.appdata.lifecycle import Actor
+from agentplatform.appdata.models import AppDataProposal
 from agentplatform.appdata.records import get_record, load_app, plan_delete
 from agentplatform.appdata.views import run_view
 from agentplatform.db import AgentDef
@@ -155,6 +158,67 @@ async def state_app_get(request: Request, app_id: str,
     async with request.app.state.session_factory() as s:
         try:
             return await L.get_app(s, actor, app_id)
+        except RecordError as exc:
+            raise _for_web(exc) from None
+
+
+@router.get("/api/app-data/proposals")
+async def state_proposals_list(request: Request, app: str | None = None,
+                               state: str | None = None,
+                               actor: Actor = Depends(kyle_session)):
+    async with request.app.state.session_factory() as s:
+        try:
+            if app:
+                return await P.list_proposals(s, actor, app, state=state)
+            stmt = select(AppDataProposal)
+            if state is not None:
+                stmt = stmt.where(AppDataProposal.state == state)
+            rows = (await s.execute(stmt.order_by(AppDataProposal.created_at.desc(),
+                                                  AppDataProposal.id).limit(100)))
+            return [P.view(p) for p in rows.scalars()]
+        except RecordError as exc:
+            raise _for_web(exc) from None
+
+
+@router.get("/api/app-data/proposals/{proposal_id}")
+async def state_proposal_get(request: Request, proposal_id: str,
+                             actor: Actor = Depends(kyle_session)):
+    async with request.app.state.session_factory() as s:
+        try:
+            return await P.review(s, actor, proposal_id)
+        except RecordError as exc:
+            raise _for_web(exc) from None
+
+
+class ProposalDecisionIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    request_id: str
+    digest: str | None = None
+    reason: str = ""
+
+
+@router.post("/api/app-data/proposals/{proposal_id}/approve")
+async def state_proposal_approve(request: Request, proposal_id: str,
+                                 body: ProposalDecisionIn,
+                                 actor: Actor = Depends(kyle_session)):
+    if not body.digest:
+        raise HTTPException(422, "approve requires the proposal digest shown in review")
+    async with request.app.state.session_factory() as s:
+        try:
+            return await P.approve(s, actor, proposal_id, request_id=body.request_id,
+                                   digest=body.digest)
+        except RecordError as exc:
+            raise _for_web(exc) from None
+
+
+@router.post("/api/app-data/proposals/{proposal_id}/decline")
+async def state_proposal_decline(request: Request, proposal_id: str,
+                                 body: ProposalDecisionIn,
+                                 actor: Actor = Depends(kyle_session)):
+    async with request.app.state.session_factory() as s:
+        try:
+            return await P.decline(s, actor, proposal_id, request_id=body.request_id,
+                                   reason=body.reason)
         except RecordError as exc:
             raise _for_web(exc) from None
 
@@ -337,6 +401,20 @@ class RetireIn(AppRef):
     reason: str = ""
 
 
+class ProposeIn(AppRef):
+    request_id: str
+    only: list[DefRef] | None = None
+    rollback_to: int | None = None
+    transfer_to: str | None = None
+    reason: str = ""
+
+
+class ProposalIn(_Body):
+    proposal_id: str
+    action: Literal["get", "withdraw"]
+    request_id: str | None = None
+
+
 def _only(only: list[DefRef] | None):
     return [o.model_dump() for o in only] if only is not None else None
 
@@ -368,7 +446,32 @@ async def apps_create(request: Request, body: CreateIn, actor: Actor = Depends(b
 
 @router.post("/api/app-data/agent/apps/get")
 async def apps_get(request: Request, body: AppRef, actor: Actor = Depends(builder)):
-    return await _call(request, lambda s: L.get_app(s, actor, body.app))
+    async def get_with_proposals(s):
+        result = await L.get_app(s, actor, body.app)
+        result["open_proposals"] = await P.list_proposals(s, actor, body.app, state="open")
+        return result
+    return await _call(request, get_with_proposals)
+
+
+@router.post("/api/app-data/agent/apps/propose")
+async def apps_propose(request: Request, body: ProposeIn,
+                       actor: Actor = Depends(builder)):
+    return await _call(request, lambda s: P.propose(
+        s, actor, body.app, request_id=body.request_id, only=_only(body.only),
+        rollback_to=body.rollback_to, transfer_to=body.transfer_to,
+        reason=body.reason))
+
+
+@router.post("/api/app-data/agent/apps/proposal")
+async def apps_proposal(request: Request, body: ProposalIn,
+                        actor: Actor = Depends(builder)):
+    if body.action == "withdraw":
+        if not body.request_id:
+            raise HTTPException(422, {"code": "AL-ARGS", "message":
+                                      "withdraw requires request_id"})
+        return await _call(request, lambda s: P.withdraw(
+            s, actor, body.proposal_id, request_id=body.request_id))
+    return await _call(request, lambda s: P.get(s, actor, body.proposal_id))
 
 
 @router.post("/api/app-data/agent/apps/draft")

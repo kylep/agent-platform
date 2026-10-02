@@ -77,8 +77,13 @@ self-publishes.
 
 Widening (sharing with another agent, retention, delete reach, links,
 tool-only collections, page action templates) is a **proposal** Kyle
-approves from his session. Proposals arrive in Release 1b; until then
-`publish` refuses a widening with `AL-NEEDS-PROPOSAL`. The full list is in
+approves from his browser session. `apps propose` freezes the selected drafts,
+a rollback, or an ownership transfer with a digest and the current approved
+version. `apps get` shows open proposals; `apps proposal` reads or withdraws
+one. Kyle reviews the frozen change and current diff, then approves by sending
+the shown digest or declines with a reason. A changed App or authority delta
+stales the proposal instead of silently publishing a different change. Every
+decision has a `request_id` for safe retries. The full list is in
 [App data](app-data.md#access-and-authority).
 
 ## The App Builder request path

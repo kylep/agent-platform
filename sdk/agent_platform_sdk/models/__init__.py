@@ -131,6 +131,10 @@ from .probe_in import ProbeIn
 from .probe_in_headers import ProbeInHeaders
 from .project_in import ProjectIn
 from .project_patch import ProjectPatch
+from .proposal_decision_in import ProposalDecisionIn
+from .proposal_in import ProposalIn
+from .proposal_in_action import ProposalInAction
+from .propose_in import ProposeIn
 from .prune_result import PruneResult
 from .publish_in import PublishIn
 from .publish_out import PublishOut
@@ -415,6 +419,10 @@ __all__ = (
     "ProbeInHeaders",
     "ProjectIn",
     "ProjectPatch",
+    "ProposalDecisionIn",
+    "ProposalIn",
+    "ProposalInAction",
+    "ProposeIn",
     "PrRef",
     "PrSummary",
     "PruneResult",

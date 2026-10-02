@@ -284,7 +284,7 @@ Shared-file notes for G1:
 
 #### G1
 
-- [ ] **B1 Index changes from the perf gate** (no deps) ∥.
+- [x] **B1 Index changes from the perf gate** (no deps) ∥.
   - **Goal:** drop the unused GIN index and make the half-used composites
     partial.
   - **Design:** "Storage"; `appdata-perf-2026-10.md` → "Index and
@@ -306,7 +306,7 @@ Shared-file notes for G1:
       and results query (`ix_text1 = … AND ix_text2 = …`) uses the partial
       index.
     - SQLite is unaffected.
-- [ ] **B2 Proposal store and engine** (no deps) ∥.
+- [x] **B2 Proposal store and engine** (no deps) ∥.
   - **Goal:** frozen, content-addressed proposals that Kyle's approval
     publishes atomically, or marks stale.
   - **Design:**
@@ -347,7 +347,7 @@ Shared-file notes for G1:
     - A data-dropping change and a wider rollback both go through proposals.
     - The proposal quota fails closed.
     - These run on SQLite and Postgres.
-- [ ] **B3 App tool facts in the language, and credential scope through
+- [x] **B3 App tool facts in the language, and credential scope through
   them** (no deps) ∥.
   - **Goal:** an App can declare which tools reach which collections
     through which roles, and tool-call credentials bind roles only through
@@ -385,7 +385,7 @@ Shared-file notes for G1:
     - The scope never exceeds the fact, the manifest or the agent's access.
     - Removing the fact removes the scope on the next mint.
     - An unknown key in a `tool` definition is refused.
-- [ ] **B4 Tool view declarations and catalog eligibility** (no deps) ∥.
+- [x] **B4 Tool view declarations and catalog eligibility** (no deps) ∥.
   - **Goal:** a tool can declare reviewed read actions as view actions, and
     the operation catalog marks exactly those `view_eligible`.
   - **Design:** "Tool views" → Eligibility.
@@ -410,7 +410,7 @@ Shared-file notes for G1:
       action not in the `action` enum are each manifest errors.
     - The catalog lockstep test catches drift.
     - Existing tools compile unchanged.
-- [ ] **B5 No-egress executor pool (infrastructure)** (no deps) ∥.
+- [x] **B5 No-egress executor pool (infrastructure)** (no deps) ∥.
   - **Goal:** a second tool-executor Deployment that runs only view actions
     and can reach nothing but the platform API.
   - **Design:** "Tool views" → Execution; "Trust boundaries and guards" →
@@ -438,7 +438,7 @@ Shared-file notes for G1:
       `files_in`.
     - Output over `max_bytes` fails.
     - The default pool's behaviour is unchanged.
-- [ ] **B6 Maintenance mode: flag, pause and restore marker** (no deps) ∥.
+- [x] **B6 Maintenance mode: flag, pause and restore marker** (no deps) ∥.
   - **Goal:** a platform-wide maintenance flag that pauses all automation,
     and that every restore starts in.
   - **Design:** "Lifecycle" → Restore, steps 1 and 4.
@@ -468,7 +468,7 @@ Shared-file notes for G1:
     - A dump restored into a fresh database comes up in `restore`.
     - The source database's mode never changes.
     - Only Kyle's session resumes; an admin key is refused.
-- [ ] **B7 Links** (no deps) ∥.
+- [x] **B7 Links** (no deps) ∥.
   - **Goal:** `url` fields hold only safe URLs, and those with `link: true`
     render as outbound links.
   - **Design:** "Collections" (`url`, text unless `link: true`); revision 3
@@ -494,7 +494,7 @@ Shared-file notes for G1:
 
 #### G2
 
-- [ ] **B8 Proposal routes and tools** (after B2) ∥.
+- [x] **B8 Proposal routes and tools** (after B2) ∥.
   - **Goal:** builders propose and track proposals, and Kyle reads,
     approves and declines them over HTTP.
   - **Design:** revision 3 "Tools" (`propose`, `proposal`); "Proposals".

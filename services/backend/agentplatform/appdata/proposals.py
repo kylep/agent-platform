@@ -83,6 +83,26 @@ async def get(session, actor: Actor, proposal_id: str) -> dict:
     return view(p)
 
 
+async def review(session, actor: Actor, proposal_id: str) -> dict:
+    """The frozen proposal beside the App's current approved definitions."""
+    p = await _proposal(session, proposal_id)
+    app = await session.get(AppDataApp, p.app_id)
+    _require_party(p, app, actor)
+    result = view(p)
+    result["current_approved_version"] = app.approved_version
+    result["current_authority_generation"] = app.authority_generation
+    if p.kind == "transfer":
+        result["diff"] = [{"field": "owner", "current": rec.owner_principal(app),
+                           "proposed": p.bundle["transfer_to"]}]
+    else:
+        current = L._bodies(L._approved(await L._rows(session, app.id), app))
+        result["diff"] = [
+            {"kind": kind, "name": name, "current": current.get((kind, name)),
+             "proposed": body}
+            for (kind, name), body in _changes(p.bundle).items()]
+    return result
+
+
 async def list_proposals(session, actor: Actor, app_ref: str, *,
                          state: str | None = None) -> list[dict]:
     """An App's proposals, newest first; the owner's and Kyle's to read."""
