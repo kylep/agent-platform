@@ -16,6 +16,7 @@ NAME = "agent-platform-coding"
 APPROVED_RELEASES = {
     "0.1.1": "3d2a0336ce7f970373c23c1728598ea4553027e9a852926aea5ceea1cb59f4c7",
     "0.2.0": "c660caae157f6972b686d97b9354ee00e706d27cde46fc5948b57182cae135b7",
+    "0.3.0": "b2f052ad8fc3c3573ac9bed6c887003977d4f9a8774d056be8c62b733a4968c2",
 }
 # SHA-256 of the signed workflow artifact from run 36195106940. Admission
 # reconstructs the same deterministic bundle from the runtime checkout, so

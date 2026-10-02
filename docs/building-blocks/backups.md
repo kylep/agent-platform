@@ -125,10 +125,20 @@ Re-delete them on `/apps/judgment/` after restoring.
    ```
 
 5. Restart the workloads at their recorded replica counts. Verify agents,
-   Kai's Chat Identity and its Discord connector, Relay, artifacts, and one
-   end-to-end run. Check Settings → Connections; some providers may require a
-   new token or verification. Remove `/private/tmp/ap-restore` from the trusted
+   Kai's Chat Identity and its Discord connector, Relay, artifacts, and App
+   records. Check Settings → Connections; some providers may require a new
+   token or verification. Remove `/private/tmp/ap-restore` from the trusted
    machine after verification.
+
+6. A restored database enters **restore maintenance mode** before scheduled
+   and event-driven automation may fire. Open **Settings → Restore report**
+   (`/settings/restore`): it reconciles each App tool/view binding against the
+   running tool registry and lists disabled bindings. Confirm the report,
+   agent grants, Secrets and a sample App page. Kyle then uses **Resume** in
+   his logged-in browser session. An admin API key may read maintenance
+   status but cannot resume automation. Verify one end-to-end run afterward.
+   The API exposes `GET /api/maintenance/status`, and Kyle's session can use
+   `GET /api/maintenance/restore-report` and `POST /api/maintenance/resume`.
 
 The archive captures PostgreSQL at one consistent `pg_dump` snapshot and
 Kubernetes Secrets moments later. It does not preserve in-flight Kafka events,

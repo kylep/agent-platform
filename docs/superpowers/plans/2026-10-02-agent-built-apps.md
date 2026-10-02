@@ -869,7 +869,7 @@ Shared-file notes for G1:
 
 #### G6
 
-- [ ] **B23 Docs and skill v2** (after B8–B22) ∥.
+- [x] **B23 Docs and skill v2** (after B8–B22) ∥.
   - **Goal:** builders and maintainers learn proposals, sharing, templates,
     App tools and tool views.
   - **Docs:**

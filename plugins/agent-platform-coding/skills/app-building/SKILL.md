@@ -10,9 +10,9 @@ records they hold, stored by the platform. You build one with the `apps`
 tool and fill it with the `app_data` tool. Nothing you write executes, and
 nothing you publish can widen who sees or does what without Kyle.
 
-This skill covers Release 1a. When this text and `apps schema` disagree,
+This skill covers Release 1b. When this text and `apps schema` disagree,
 trust `apps schema`: it is generated from the code that validates your
-definitions, and its `capabilities.version` (1 today) moves whenever the
+definitions, and its `capabilities.version` (2 today) moves whenever the
 language gains something.
 
 ## 1. Is an App the answer?
@@ -42,31 +42,26 @@ Then decide which kind it is:
 
 If one page of a wiki would do, write the wiki page.
 
-## 2. What you can and can't do today (Release 1a)
+## 2. What you can and can't do today (Release 1b)
 
 You can:
 - create Apps you own, draft, validate, preview, publish, roll back and
   retire them;
 - define collections with the Release 1 field types, rules, indexes and
-  per-field access that stays inside owner and Kyle;
+  per-field access, including approved sharing;
 - define views (filters, sort, paging, one ungrouped count) and `typed/v2`
   pages built from `table`, `detail`, `metric` and `text` blocks;
 - read and write records of Apps whose approved facts name you, with
-  `app_data`.
+  `app_data`;
+- propose a widening or data-dropping change for Kyle's review, including
+  sharing with another agent or `login:qa`;
+- add reviewed App tools, tool-only writers and tool views, including cached
+  and materialized results; add create, update and delete templates to pages.
 
 You can't yet:
-- **share** an App with another agent or `login:qa`, add **retention**,
-  make a ref **`on_delete: unlink`**, render a **`url` as a link**, reserve a
-  collection to a tool (**`writers`**), or give a page **action templates**.
-  Each one is a widening, and widenings are proposals. Proposals arrive in
-  Release 1b; until then `publish` refuses them with `AL-NEEDS-PROPOSAL` and
-  there is no `propose` action. Design without them, or record the plan in
-  the build notes and wait.
-- let Kyle edit records from a page. His routes are read-only until action
-  templates ship, so the owner agent writes every record (usually because
-  Kyle asked in chat).
 - batch-write through the tool, or have a tool write App records through
-  its call credential. Write records one at a time with `app_data create`.
+  its call credential. The batch engine and scoped tool-call paths exist,
+  but the `app_data` broker tool still exposes one-record writes.
 - use `versioned` collections, `list` fields, `cascade`, history on
   `detail`, `exists`, charts, calendars, grouping or sums. Validation names
   the release each one arrives in (`JD-NOT-YET-R2`, `JD-NOT-YET-R3`).
@@ -99,6 +94,8 @@ to retry that change after a timeout.
 | `retire` | `app`, `request_id`, `reason` | hide the App and stop its views; records stay |
 | `authority` | `app` | the approved state's facts in plain words, and their digest |
 | `health` | `app` | invalid definitions, rule violations, quota use |
+| `propose` | `app`, `request_id`, optional `only`, `rollback_to`, `transfer_to`, `reason` | freeze a change for Kyle's review |
+| `proposal` | `proposal_id`, `proposal_action` (`get`/`withdraw`); withdrawal also takes `request_id` | read or withdraw an open proposal |
 
 `app` is the App's id or its name.
 
@@ -148,8 +145,7 @@ platform recorded.
      `fix` and the `definition` it belongs to;
    - `stale_base`: someone published that definition after you drafted it;
      read the approved one and draft again;
-   - `widening` and `data_dropping`: these need a proposal, so they can't
-     publish today; change the design;
+   - `widening` and `data_dropping`: use `apps propose` after validating;
    - `record_issues`: stored records that break the new definition (a new
      `unique`, a newly required field, a value the new bounds refuse);
      fix the records with `app_data`, then validate again.
@@ -170,7 +166,8 @@ platform recorded.
    is a compare-and-swap; `AL-STALE-BASE` means the App moved, so go back to
    step 1. Refusals mean:
    - `AL-INVALID`: it doesn't validate;
-   - `AL-NEEDS-PROPOSAL`: it widens authority or drops stored data;
+   - `AL-NEEDS-PROPOSAL`: it widens authority or drops stored data; propose
+     the frozen change with a new request id, then wait for Kyle's decision;
    - `AL-INCONSISTENT`: stored records don't fit;
    - `AL-NOTHING-TO-PUBLISH`: no draft changes anything.
 
@@ -183,6 +180,14 @@ platform recorded.
    records you don't want kept.
 9. **Update the notes.** Record what was published (the version), what you
    verified, and the next step, or "done".
+
+For a widening change, run `apps validate` and read `delta`, `widening` and
+`data_dropping` before `apps propose`. A proposal freezes the selected drafts
+and their digest. `apps proposal` can read its state or withdraw an open one;
+agents cannot approve it. Kyle sees the diff in the App's Proposals tab and
+approves it in his browser. If it becomes `stale`, reread the App, revalidate
+and propose a new digest. Approval publishes exactly the frozen bundle; read
+the resulting version and verify the reader's access afterward.
 
 ## 5. Modeling
 
@@ -216,12 +221,11 @@ back in UTC.
   collection, such as a check-in's habit and day, while its note can change.
 
 **Refs and deletes.** A `ref` points at a record of another collection in
-the same App. Ask what deleting the target should take with it. Today the
-only self-publishable answer is `restrict` (the default): a referencing
-record blocks the delete, and the refusal (`AD-REF-RESTRICT`) carries the
-plan. `unlink` (clear the reference) widens delete reach, so it's a
-proposal; `cascade` is Release 2. `app_data delete_preview` shows the plan
-before you act.
+the same App. Ask what deleting the target should take with it. `restrict`
+(the default) self-publishes: a referencing record blocks the delete, and
+the refusal (`AD-REF-RESTRICT`) carries the plan. `unlink` (clear the
+reference) widens delete reach and needs a proposal; `cascade` is Release 2.
+`app_data delete_preview` shows the plan before you act.
 
 **Rules.** Rules only restrict, so adding one always self-publishes, but
 validate checks it against the records already stored.
@@ -242,8 +246,8 @@ serves "this habit's check-ins, by day". An indexed text value is at most
 256 characters (`AD-INDEX-TOO-LONG`).
 
 **Retention.** `max_age` (`90d`, `12w`) or `max_records` bounds a
-collection that only grows. Any retention is a proposal today: leave it out,
-and say in the notes how big the collection gets.
+collection that only grows. Retention changes need a proposal; include the
+expected data loss in the notes and review delta.
 
 **Per-field access.** A collection's `access` sets who may `read`,
 `create`, `update` and `delete`. The defaults are read `owner` and `kyle`,
@@ -282,6 +286,45 @@ Block `params` bind view parameters to literals or to the page's own
 parameters (`{"page_param": "id"}`). Keep each page to one question: an
 overview, then a detail page per record.
 
+**Page actions.** A create, update or delete template names a collection
+and the fields Kyle may edit. It is an authority fact: propose it, then
+preview the page. The browser shows the current row, resulting values or
+delete plan before dispatch; the server rechecks authority at both steps.
+Never treat a page template as a general tool call.
+
+**App tools and tool views.** A `tool` definition maps a reviewed tool's
+declared source roles to collections and verbs. It needs Kyle's approval
+before the tool gets scoped access. A tool view binds a reviewed read action
+to those roles. Its output must match the action's JSON Schema and row/byte
+limits. Results carry `as_of`; a materialized result can be `stale`. A tool
+view row is computed output, not an App record, so it cannot use `row_link`
+or collection action templates. An on-demand result may be cached per viewer,
+authority generation, parameters and source write counters. Use `cache:
+"none"` where a live result is necessary. Materialization (`every: "10m"`
+and optional indexed-field `domain`) runs under a read-only platform
+principal, and every reader is checked against the source fields actually
+scanned. A disabled tool binding returns 503; repair the reviewed tool or
+binding rather than substituting a different action.
+
+This App binds the reviewed `app_summary.counts` read to a collection.
+It validates but needs a proposal because the App tool gains read authority:
+
+```json bundle widening
+{
+  "collections": [{"collection": "results", "fields": {
+    "category": {"type": "string", "max": 80}}, "indexed": ["category"]}],
+  "app_tools": [{"tool": "app_summary", "roles": {
+    "source": {"collection": "results", "verbs": ["read"]}}}],
+  "views": [{"view": "top_categories", "tool": "app_summary",
+    "action": "counts", "sources": ["source"],
+    "params": {"field": {"type": "string", "default": "category"}}}],
+  "pages": [{"page": "summary", "title": "Result categories", "blocks": [
+    {"kind": "table", "view": "top_categories",
+     "columns": [{"field": "value"}, {"field": "count", "format": "number"}]}
+  ]}]
+}
+```
+
 ## 6. Authority
 
 The approved state is the published definitions. The platform computes its
@@ -304,12 +347,12 @@ Self-publishes today:
 - `restrict` refs, indexes, views and pages without action templates;
 - narrowing anything.
 
-Needs a proposal, so it's refused until Release 1b:
+Needs a proposal (use `apps propose`, then wait for Kyle's browser approval):
 - any reader or writer beyond owner and Kyle, including another agent and
   `login:qa`;
 - retention, `on_delete: unlink`, `url` fields with `link: true`;
 - `writers` (tool-only collections), unless the tool is already an
-  approved App tool, and none can be yet;
+  approved App tool;
 - action templates on pages;
 - relaxing a rule: removing it, growing a `writer` rule's writer set, or
   freezing fewer fields;
@@ -323,9 +366,8 @@ Practical rules:
 - **Every rule is a guard.** Add the guard the data needs before the data
   arrives: tightening later fails validate if stored records already break
   it, and you'll have to fix them first.
-- **Never copy private data into an App others can read,** and never put
-  Kyle's private facts into records a wider audience will see once sharing
-  ships.
+- **Never copy private data into an App others can read.** Check the
+  proposal's delta and the view as the proposed reader before sharing.
 - **Don't ship a weaker App to dodge a missing guard.** Note the gap on the
   page (a `text` block) and in the build notes, and file a request.
 

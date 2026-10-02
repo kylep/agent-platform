@@ -1,13 +1,13 @@
 {
   "name": "agent-platform-coding",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "files": {
-    "plugin.json": "95e52933ec45f6bcf2a442f221246cfa1cebf30a87f2bd01645deb2351b28899",
-    ".claude-plugin/plugin.json": "9c66716b209a3ac78993df8ec1507919b99e17ec8b07809f113e593dac2134a7",
-    ".codex-plugin/plugin.json": "0c562c555f1c832cfc96e84e01c8143c098d16b3665abd2c7f46173b34fd0c17",
+    "plugin.json": "066a67290a12e1fa5f9e50e11538737a09f4c11f394e45b7bfb9d140faea801c",
+    ".claude-plugin/plugin.json": "24a5722760f1f8db6d1ef0f7ba8efa450eb2760481a9e8d96240f94f4b4efbad",
+    ".codex-plugin/plugin.json": "b7475faf36f1f0c3356c654e263e8f19f2243c9596526500dc9ed482742aeafa",
     "skills/platform-change/SKILL.md": "561ce078822d5c3c83042e122676d60a13aa58166334f5bccd61a3585102691e",
     "skills/platform-orientation/SKILL.md": "0482b5a568bd0008ed68df580c74e81ccd460ef286887e068f365b735d6a4180",
     "skills/platform-regression/SKILL.md": "823c0b0053d53165670986115c2f8002715908e1b42cc3101df4ed8b6c03ef55",
-    "skills/app-building/SKILL.md": "4af71868ae7b31cb03890cd236ee0aba57e2cd96954aab9e7b25347a19567851"
+    "skills/app-building/SKILL.md": "624118ed90ea2a60cd080377d8aba0dda9b779e07aa72037837b07dfcb621d6c"
   }
 }

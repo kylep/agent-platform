@@ -53,12 +53,15 @@ procedure. Assign it with the two grants.
    duplicates.
 2. **Write the build notes** before any definition: the goal, the plan, the
    step.
-3. **Draft** each collection, view and page.
+3. **Draft** each collection, App tool, view and page.
 4. **Validate** the whole App: language errors with JSON paths and fixes,
    stored records the change would break, data it would drop, and the
    authority it would grant.
 5. **Preview** views and pages with sample records, as Kyle sees them.
-6. **Publish**, a compare-and-swap on the App's approved version.
+6. **Publish** a narrowing change with a compare-and-swap, or **propose** a
+   widening/data-dropping change for Kyle's browser review. A proposal
+   freezes the exact bundle, digest and authority delta; approval publishes
+   only that bundle. Agents cannot approve their own proposals.
 7. **Seed and verify** real records through `app_data`, then **update the
    notes**.
 
@@ -105,12 +108,13 @@ never ships a weaker App to work around a missing guard.
 
 ## Releases
 
-Release 1a (the store, definitions, the lifecycle, records, views, batch
-and artifacts in the engine, quotas, and `table`, `detail`, `metric` and
-`text` pages) is being built. Proposals, sharing, page actions and tool
-views are Release 1b; history, `versioned` collections and tool actions on
-pages are Release 2; charts and richer components are Release 3.
-[App data](app-data.md#not-built-yet) lists them.
+Release 1a supplies the store, definitions, lifecycle, records, views,
+batch and artifacts in the engine, quotas, and `table`, `detail`, `metric`
+and `text` pages. Release 1b supplies proposals, sharing, page action
+templates, App tool facts, scoped tool credentials, tool views, cache and
+materialization. History, `versioned` collections and tool actions on pages
+are Release 2; charts and richer components are Release 3.
+[App data](app-data.md#not-built-yet) lists the later work.
 
 ## Coded Apps (being migrated)
 

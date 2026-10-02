@@ -68,6 +68,10 @@ Version 0.2.0 adds `app-building` and makes the provenance workflow take the
 version from `release.json`. Its manifest approval and attestation are
 pending; this page records the run once it is pinned.
 
+Version 0.3.0 updates `app-building` for proposals, sharing, page templates,
+App tools and tool views. Its reviewed manifest and provenance bundle are
+versioned independently of 0.2.0, so older installations can be rolled back.
+
 For an update, edit and validate the source, bump the matching package and
 marketplace versions, regenerate `release.json`, then update/reinstall through
 each CLI. Retain the previous reviewed commit and package version for rollback.

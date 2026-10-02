@@ -477,7 +477,10 @@ App Builder requests if Apps need them.
   - `staging_sets`;
   - `budgets` (service principals and page actions);
   - `outbox` (migration only).
-- **Indexes:** fixed only, plus one GIN `jsonb_path_ops`.
+- **Indexes:** fixed, with partial text/time and text/number indexes where
+  their leading typed column is present. There is no GIN index on `doc`:
+  the published view language never filters arbitrary JSON. This was
+  corrected after the A12 performance gate.
 - **Quotas:** platform-owned. Migrated Apps get measured sizes:
   - stockmarket ~2M records and 1 GiB;
   - TCMS ~1.5M and 600 MiB;

@@ -18,7 +18,8 @@ when to build an App and how; this page is the reference it relies on.
 columns plus a JSON `doc`), `app_data_record_versions`, `app_data_build_ops`,
 `app_data_staging_sets` and `app_data_staged_records`, `app_data_quotas`,
 `app_data_scan_leases`, `app_data_write_counters`, `app_data_artifacts`,
-`app_data_artifact_refs`, `app_data_tool_calls` and `app_data_proposals`. The code is
+`app_data_artifact_refs`, `app_data_tool_calls`, `app_data_proposals`,
+`app_data_view_cache` and `app_data_materializations`. The code is
 `services/backend/agentplatform/appdata/` and `api/app_data.py`.
 
 Release 1a supplied the store and builder. Release 1b adds proposals,
@@ -174,7 +175,9 @@ composite indexes: two text-like fields (`string`, `enum`, `ref`) into
 `(app, collection, ix_text1, ix_time1)`,
 `(app, collection, ix_text1, ix_text2, ix_time1)`,
 `(app, collection, ix_text1, ix_num1)`, `(app, collection, ix_time1)` and
-`(app, collection, created_at)`, plus a GIN index over `doc` on Postgres.
+`(app, collection, created_at)`. The text/time and text/number indexes
+are partial where their leading typed column is non-null. There is no GIN
+index on `doc`: the published view language does not query arbitrary JSON.
 An indexed text value is at most 256 characters.
 
 ### Views
@@ -202,6 +205,35 @@ field's type or `{"param": name}`; an unset optional parameter with no
 default drops the filters that use it. Every declared parameter must be
 used. A count view takes no `fields`, `sort`, `limit` or `paging`.
 
+### Tool views
+
+A tool view binds a reviewed `view_actions` entry from a tool manifest to
+source roles in an approved App tool fact. The manifest and operation catalog
+must agree on input/output JSON Schema, source roles, row cap and byte cap.
+Its action may only read sensitive data. Publishing a new App tool or
+widening its verbs requires Kyle's approval; binding a view to an existing
+approved read role can self-publish. If the tool, catalog or source binding
+changes later, reads fail with 503 until repaired.
+
+On-demand calls run in the isolated **views executor**, which has platform
+API access but no internet egress. The executor gets a single-use credential
+for the actual viewer and can scan only the approved source collections.
+The scan rechecks readable fields, including filters and ordering. It is
+bounded to one million rows or 60 seconds per execution and charged against
+the App's scan quotas. Tool output must validate against the reviewed schema
+and byte/row limits. Tool-view rows carry display IDs, not App record IDs.
+
+Results include `as_of` and `stale`. By default a non-materialized result
+uses a bounded cache keyed by viewer, approved version, authority generation,
+parameters and source write counters; `cache: "none"` disables it. A
+materialized view declares `materialize: {"every": "10m", "domain":
+"<indexed-field>"}`. The dispatcher refreshes it on schedule or after a
+coalesced refresh request from a batch writer. Refresh uses a read-only
+system principal. Each reader is rechecked against every source field the
+refresh actually scanned; a later grant or revocation takes effect on the
+next read without another refresh. The UI shows the refresh time and a stale
+marker when the stored result has aged past its interval.
+
 ### Pages
 
 A `typed/v2` page has a `page` name, a `title`, optional `params` (up to 8)
@@ -218,10 +250,12 @@ Column formats: `auto`, `text`, `number`, `percent`, `date`, `datetime`,
 `relative_time`, `bool`. Block `params` bind each view parameter to a literal
 or to `{"page_param": name}`; every required view parameter must be bound. A
 `row_link` opens another page of the App, passing the row's id as a string
-page parameter. Pages also accept `actions` (create, update and delete
-templates) and blocks reference them, but a template is an authority fact
-that needs a proposal, and the renderer doesn't run them until `app_data.write@1`
-ships (Release 1b).
+page parameter. Tool-view rows are computed output, so they cannot use
+`row_link` or collection actions. Pages also accept `actions` (create,
+update and delete templates), which blocks may reference. Each template is
+an authority fact needing a proposal. Kyle sees a confirmation with the
+current row, resulting values or delete plan before the server dispatches
+the reviewed `app_data.write@1` operation.
 
 ### Example
 
@@ -296,9 +330,9 @@ row.
 **Authority facts** (`appdata/authority.py`) are computed from the
 definitions: field access `(principal, collection, field, verb)`, record
 delete, delete reach through refs, retention, rules (including tool-only
-writers), action templates, outbound links, App tools, and, in shapes the
-language doesn't accept yet, tool views, tool actions and service
-principals. `apps authority` prints them in plain words with a digest.
+writers), action templates, outbound links, App tools and tool views.
+Tool actions on pages and service principals arrive later. `apps authority`
+prints the current facts in plain words with a digest.
 
 A bundle **self-publishes** when every fact it computes is in the approved
 state, or narrower. A new App's approved state is empty, so its first
@@ -320,9 +354,11 @@ stored records. **New fields start private:** publish stores a field added
 to an existing collection with explicit access cut to owner and Kyle for
 every verb, so a field added to a shared collection reaches no one new.
 
-Widening and data-dropping changes need a proposal Kyle approves. Proposals
-arrive in Release 1b; until then `publish` refuses them with
-`AL-NEEDS-PROPOSAL`, and an App stays visible to its owner and Kyle only.
+Widening and data-dropping changes need a proposal Kyle approves.
+`publish` refuses them with `AL-NEEDS-PROPOSAL`. The builder calls `apps
+propose`, reads the frozen digest and delta, and waits for Kyle's decision
+in the App's Proposals tab. Other agents or QA can read only the fields the
+approved definition grants them.
 
 ## Records
 
@@ -423,13 +459,14 @@ run (an admin API key) is refused. Errors are
 
 | tool | actions (route suffix) |
 |---|---|
-| `apps` | `apps/schema`, `list`, `create`, `get`, `draft`, `notes`, `validate`, `preview`, `publish`, `rollback`, `retire`, `authority`, `health` |
+| `apps` | `apps/schema`, `list`, `create`, `get`, `draft`, `notes`, `validate`, `preview`, `publish`, `rollback`, `retire`, `authority`, `health`, `propose`, `proposal` |
 | `app_data` | `records/describe`, `query`, `get`, `create`, `update`, `delete`, `delete_preview` |
 
 `apps` acts only on Apps the caller owns (`AL-NOT-OWNER`), except `list`,
 which also shows Apps whose approved facts let the caller read.
 `app_data` runs every call through the records engine as the caller, so the
-App's approved facts decide.
+App's approved facts decide. The bulk batch/scan routes are for reviewed
+App tools with scoped call credentials; they are not general broker actions.
 
 A tool declaring `app_access` gets a tool-call credential per call
 ([tools.md](tools.md#app-access-tool-call-credentials)). Its scope in each
@@ -448,6 +485,7 @@ an admin API key, another login or an agent gets 403. Errors are
 | `GET /api/app-data/apps/{app}` | approved definitions, drafts, build notes, health, recent build ops |
 | `GET /api/app-data/apps/{app}/pages/{page}` | the published page's `typed/v2` definition |
 | `GET /api/app-data/apps/{app}/views/{view}?<param>=…&limit=&cursor=` | a view result as Kyle |
+| `GET /api/app-data/proposals/{id}` | a frozen proposal with its digest, delta and current status |
 
 `{app}` is the id or the name. In the console, `/apps` lists state Apps,
 `/apps/state/<id>` is the read-only builder area (definitions, drafts,
@@ -502,8 +540,8 @@ Codes are stable: a code never changes meaning.
 
 | release | adds |
 |---|---|
-| R1a, still open | the `apps` and `app_data` broker tools; batch through the tool; the daily retention, staging-set and build-op sweeps |
-| R1b | proposals and Kyle's review page; sharing; action templates and `app_data.write@1`; tool views, scans, cache and materialization; App tool facts; tool-only collections; links; restore maintenance mode |
+| R1a follow-ups | batch through the agent `app_data` broker tool; the daily retention, staging-set and build-op sweeps |
+| R1b follow-up | operator-run restore drill and migration of the existing coded Apps |
 | R2 | `versioned` collections, `list` fields (including objects), `pin_version`, `cascade`, `exists`, `new_version`, record history on `detail`, tool actions on pages |
 | R3 | grouping and aggregates beyond `count`, `fill_missing`, windows, `chart`, `calendar`, `sparkline`, `stat_row`, `list_filter`, `image`, `refresh` |
 
