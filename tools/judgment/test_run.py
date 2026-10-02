@@ -60,6 +60,21 @@ def _tuple(row, table):
     return tuple(row[c] for c in schema.COLUMNS[table])
 
 
+def _like(pattern: str, value: str) -> bool:
+    """SQL LIKE with ESCAPE '\\', as SEARCH_BELIEFS declares it."""
+    out, chars = [], iter(pattern)
+    for ch in chars:
+        if ch == "\\":
+            out.append(re.escape(next(chars)))
+        elif ch == "%":
+            out.append(".*")
+        elif ch == "_":
+            out.append(".")
+        else:
+            out.append(re.escape(ch))
+    return re.fullmatch("".join(out), value, re.DOTALL) is not None
+
+
 class FakeDB:
     """`app_judgment` in memory, with transactions: rollback restores the
     last commit, so a refused write is visibly absent."""
@@ -123,6 +138,11 @@ class FakeDB:
             return self._insert(sql, p)
         if sql == schema.LOCK_BELIEF:
             return [(r["id"], r["status"], r["current_version"]) for r in self._find("beliefs", id=p[0])]
+        if sql == schema.LOCK_PREDICTION:
+            return [(r["id"],) for r in self._find("predictions", id=p[0])]
+        if sql == schema.PRUNE_REQUESTS:
+            t["requests"] = [r for r in t["requests"] if not r["created_at"] < p[0]]
+            return []
         if sql == schema.BELIEF:
             return [_tuple(r, "beliefs") for r in self._find("beliefs", id=p[0])]
         if sql == schema.SET_BELIEF_HEAD:
@@ -139,11 +159,11 @@ class FakeDB:
             return [(len(self._find("belief_versions", belief_id=p[0],
                                     provenance="kyle_confirmed")),)]
         if sql == schema.SEARCH_BELIEFS:
-            needle = p[0].strip("%")
+            assert sql.count("ESCAPE '\\'") == 2, sql
             hits = []
             for b in sorted(t["beliefs"], key=lambda r: r["created_at"], reverse=True):
                 (v,) = self._find("belief_versions", belief_id=b["id"], version=b["current_version"])
-                if needle in v["claim"].lower() or needle in (v["scope"] or "").lower():
+                if _like(p[0], v["claim"].lower()) or _like(p[1], (v["scope"] or "").lower()):
                     hits.append((b["id"],))
             return hits[: p[2]]
         if sql == schema.ALL_BELIEFS:
@@ -174,7 +194,8 @@ class FakeDB:
             return [_tuple(r, "feedback") for r in sorted(t["feedback"], key=lambda r: r["created_at"])
                     if r["outcome"] in ("contradicted", "mixed") and r["id"] not in cited]
         if sql == schema.GET_REQUEST:
-            return [(r["action"], r["result"]) for r in self._find("requests", request_id=p[0])]
+            return [(r["action"], r["args_hash"], r["result"])
+                    for r in self._find("requests", request_id=p[0])]
         raise AssertionError(f"statement not in schema.py: {sql}")
 
 
@@ -537,11 +558,40 @@ def test_feedback_refuses_bad_outcome_and_future_source_at(db):
 
 def test_a_repeated_request_id_returns_the_first_receipt_and_writes_once(db):
     first = new_belief(db, request_id="kai-run-1:belief-1")
-    again = new_belief(db, request_id="kai-run-1:belief-1", claim="different text")
+    again = new_belief(db, request_id="kai-run-1:belief-1")
     assert again == first
     assert len(db.tables["beliefs"]) == 1 and len(db.tables["requests"]) == 1
     (req,) = db.tables["requests"]
     assert req["action"] == "belief" and json.loads(req["result"]) == first
+    assert req["args_hash"] == schema.args_hash(
+        {"claim": "Kyle prefers boring tech", "provenance": "inference",
+         "confidence": "medium", "request_id": "anything"})
+
+
+def test_a_request_id_reused_with_different_args_is_refused(db):
+    first = new_belief(db, request_id="kai-run-1:belief-1")
+    refused(db, run.action_belief, {"claim": "different text", "provenance": "inference",
+                                    "confidence": "medium", "request_id": "kai-run-1:belief-1"},
+            "request_id 'kai-run-1:belief-1' was already used for a different call")
+    assert len(db.tables["beliefs"]) == 1
+    # Key order doesn't make a different call; the canonical JSON is sorted.
+    assert run.action_belief(db, {"request_id": "kai-run-1:belief-1", "confidence": "medium",
+                                  "provenance": "inference",
+                                  "claim": "Kyle prefers boring tech"}) == first
+
+
+def test_request_ids_older_than_seven_days_are_pruned_by_the_next_write(db):
+    old = schema.now() - schema.REQUEST_TTL - timedelta(minutes=1)
+    db.seed("requests", request_id="old", action="belief", args_hash="0" * 64,
+            result='{"ok": true}', created_at=old)
+    db.seed("requests", request_id="fresh", action="belief", args_hash="0" * 64,
+            result='{"ok": true}', created_at=schema.now() - timedelta(days=6))
+    db.executed.clear()
+    new_prediction(db)
+    assert db.statements()[0] == schema.PRUNE_REQUESTS
+    assert [r["request_id"] for r in db.tables["requests"]] == ["fresh"]
+    # The pruned id is free again.
+    assert new_belief(db, request_id="old")["version"] == 1
 
 
 def test_a_request_id_reused_for_another_action_is_refused(db):
@@ -585,6 +635,38 @@ def test_a_failed_write_rolls_back_everything(db):
     assert db.tables == before and p["id"]
 
 
+# --- locks against the page's deletes ---------------------------------------------
+
+def test_feedback_locks_its_belief_then_its_prediction_before_checking_them(db):
+    b = new_belief(db)
+    p = new_prediction(db)
+    db.executed.clear()
+    run.action_feedback(db, {"prediction_id": p["id"], "belief_id": b["id"],
+                             "belief_version": 1, "kyle_words": "w", "source_ref": RELAY,
+                             "outcome": "supported"})
+    stmts = db.statements()
+    assert stmts.index(schema.LOCK_BELIEF) < stmts.index(schema.VERSION) \
+        < stmts.index(schema.LOCK_PREDICTION) < stmts.index(schema.INSERT_FEEDBACK)
+    assert schema.PREDICTION not in stmts and schema.LOCK_PREDICTION.endswith(" FOR UPDATE")
+
+
+def test_predict_locks_every_linked_belief_in_id_order_before_writing(db):
+    b1, b2 = new_belief(db), new_belief(db, claim="another")
+    v = confirm(db, b2["id"])
+    db.executed.clear()
+    ids = sorted([b1["id"], b2["id"]], reverse=True)
+    p = new_prediction(db, beliefs=ids)
+    locks = [(sql, params) for sql, params in db.executed if sql == schema.LOCK_BELIEF]
+    assert [params[0] for _, params in locks] == sorted(ids)
+    stmts = db.statements()
+    assert max(i for i, s in enumerate(stmts) if s == schema.LOCK_BELIEF) \
+        < stmts.index(schema.INSERT_PREDICTION)
+    assert schema.BELIEF not in stmts
+    links = {(r["belief_id"], r["belief_version"]) for r in db.tables["prediction_beliefs"]
+             if r["prediction_id"] == p["id"]}
+    assert links == {(b1["id"], 1), (b2["id"], v)}
+
+
 # --- recall -------------------------------------------------------------------
 
 def _block(out):
@@ -611,6 +693,18 @@ def test_recall_query_shows_current_confirmed_trail_and_contradictions(db):
     assert '"nah"' in out and "contradicted (relayed)" in out
     assert '"yes!"' not in out  # supporting feedback is in the full view only
     assert "coffee" not in out and "showing 1 of 1 beliefs" in out
+
+
+def test_recall_query_treats_like_wildcards_literally(db):
+    pct = new_belief(db, claim="Kyle is 100% sure about Postgres")
+    new_belief(db, claim="Kyle spent 1000 hours on it")
+    under = new_belief(db, claim="prefers snake_case")
+    new_belief(db, claim="prefers snakeXcase")
+    out = run.action_recall(db, {"query": "100%"})
+    assert pct["id"] in out and "1000 hours" not in out
+    out = run.action_recall(db, {"query": "snake_case"})
+    assert under["id"] in out and "snakeXcase" not in out
+    assert schema.like_pattern("A\\b%c_d") == "%a\\\\b\\%c\\_d%"
 
 
 def test_recall_hides_the_confirmed_line_when_it_is_current(db):

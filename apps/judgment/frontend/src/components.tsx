@@ -331,7 +331,7 @@ export function FeedbackItem({ fb, onChanged, showTargets = true }: {
 }
 
 function DeletePreviewList({ preview }: { preview: DeletePreview }) {
-  if (!preview.versions.length) {
+  if (!preview.versions.length && !preview.feedback.length && !preview.feedback_unlinked.length) {
     return <p>Only this feedback goes. No belief version cites it.</p>;
   }
   return (
@@ -348,6 +348,19 @@ function DeletePreviewList({ preview }: { preview: DeletePreview }) {
         <p>
           {plural(preview.beliefs_emptied.length, "belief")} would be left with no versions and will be deleted
           too: {preview.beliefs_emptied.map(short).join(", ")}.
+        </p>
+      )}
+      {preview.feedback.length > 0 && (
+        <p>
+          {plural(preview.feedback.length, "other feedback item")} spoke only to what goes, so will be deleted
+          too: {preview.feedback.map(short).join(", ")}.
+        </p>
+      )}
+      {preview.feedback_unlinked.length > 0 && (
+        <p>
+          {plural(preview.feedback_unlinked.length, "feedback item")} will keep{" "}
+          {preview.feedback_unlinked.length === 1 ? "its prediction but lose its" : "their predictions but lose their"}{" "}
+          belief link: {preview.feedback_unlinked.map(short).join(", ")}.
         </p>
       )}
     </>

@@ -25,7 +25,7 @@ pytest_plugins = ("pytest_asyncio",)
 DB_URL = os.environ.get("APP_DB_URL", "sqlite+aiosqlite:///:memory:")
 
 API = "/apps/judgment/api"
-KYLE = {"X-AP-User": "admin", "X-AP-Role": "admin"}
+KYLE = {"X-AP-User": "admin", "X-AP-Role": "admin", "X-AP-Auth": "session"}
 DAY = timedelta(days=1)
 
 
@@ -208,6 +208,14 @@ async def _call_all(client, sf, headers) -> dict:
     pytest.param({"X-AP-User": "kai", "X-AP-Role": "reader"}, id="query-app"),
     pytest.param({"X-AP-User": "ci-deploy", "X-AP-Role": "admin"}, id="admin-api-key"),
     pytest.param({"X-AP-User": "app:judgment", "X-AP-Role": "annotator"}, id="app-key"),
+    # A key's principal is its name: an admin key named `admin` matches Kyle's
+    # login on user and role, and only X-AP-Auth tells them apart.
+    pytest.param({"X-AP-User": "admin", "X-AP-Role": "admin", "X-AP-Auth": "key"},
+                 id="admin-key-named-admin"),
+    pytest.param({"X-AP-User": "admin", "X-AP-Role": "admin", "X-AP-Auth": "workload"},
+                 id="workload-named-admin"),
+    pytest.param({"X-AP-User": "admin", "X-AP-Role": "admin", "X-AP-Auth": ""},
+                 id="missing-auth-kind"),
 ])
 async def test_every_route_refuses_everyone_but_the_owner_session(client, sf, headers):
     for (method, path), r in (await _call_all(client, sf, headers)).items():
@@ -217,6 +225,17 @@ async def test_every_route_refuses_everyone_but_the_owner_session(client, sf, he
     n = len(ROUTES)
     assert [await _count(sf, t) for t in schema.COLUMNS] == [n, n, n, n, n, 0]
     assert await _count(sf, "feedback", "WHERE confirmed_at IS NOT NULL") == 0
+
+
+async def test_a_request_without_x_ap_auth_is_refused(sf):
+    """`query_app` and anything else that reaches the App without nginx's
+    auth_request carry no X-AP-Auth at all; admin user and role don't help."""
+    from judgmentapp.main import app
+    app.state.sf = sf
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://t",
+                                 headers={"X-AP-User": "admin", "X-AP-Role": "admin"}) as c:
+        r = await c.get(f"{API}/me")
+    assert r.status_code == 403 and "detail" in r.json()
 
 
 async def test_the_owner_session_reaches_every_route(client, sf):
@@ -317,6 +336,23 @@ async def test_correct_writes_kyle_words_as_a_confirmed_version(client, sf):
                           json={"expected_version": 2, "claim": "likes burritos",
                                 "scope": "lunch", "reason": "changed my mind"})
     assert (r.json()["scope"], r.json()["reason"]) == ("lunch", "changed my mind")
+
+
+async def test_correct_clears_scope_on_empty_and_keeps_it_when_left_out(client, sf):
+    bid = await belief(sf, "likes tacos", scope="weeknights")
+    r = await client.post(f"{API}/beliefs/{bid}/correct",
+                          json={"expected_version": 1, "claim": "likes tacos"})
+    assert r.json()["scope"] == "weeknights"  # None: carried over
+    r = await client.post(f"{API}/beliefs/{bid}/correct",
+                          json={"expected_version": 2, "claim": "likes tacos", "scope": ""})
+    assert r.status_code == 200, r.text
+    assert r.json()["scope"] is None  # "": Kyle blanked it
+    r = await client.post(f"{API}/beliefs/{bid}/correct",
+                          json={"expected_version": 3, "claim": "likes tacos", "scope": "   "})
+    assert r.json()["scope"] is None
+    assert [row[0] for row in await _rows(sf, "SELECT scope FROM belief_versions WHERE "
+                                              "belief_id = %s ORDER BY version", (bid,))] == \
+        ["weeknights", "weeknights", None, None]
 
 
 async def test_reject_records_the_reason_in_a_new_version(client, sf):
@@ -594,7 +630,7 @@ async def test_delete_feedback_takes_every_citing_version_and_falls_back(client,
                              "claim": "never sushi, even at parties"},
                             {"belief_id": born, "version": 1, "claim": "avoids raw fish"}],
                            key=lambda v: (v["belief_id"], v["version"])),
-        "beliefs_emptied": [born], "feedback": []}
+        "beliefs_emptied": [born], "feedback": [], "feedback_unlinked": []}
     assert await _count(sf, "belief_versions") == 6  # the preview deletes nothing
 
     r = await client.delete(f"{API}/feedback/{fid}")
@@ -661,17 +697,116 @@ async def test_an_emptied_belief_takes_feedback_left_with_no_target(client, sf):
                         "(SELECT 1 FROM beliefs b WHERE b.id = f.belief_id)") == 0
 
 
+async def test_deleting_a_version_takes_or_unlinks_the_feedback_on_it(client, sf):
+    """F1 produced v2; F2 speaks only to v2; F3 to v2 and a prediction; F4 to
+    v1. Deleting F1 takes v2, so F2 has no target left (and goes, taking the
+    version that cites it), F3 loses its belief link, F4 is untouched."""
+    pid = await prediction(sf)
+    f1 = await feedback(sf, prediction_id=pid, outcome="contradicted")
+    bid = await belief(sf, "likes tacos")
+    v2 = await add_version(sf, bid, "likes tacos on Fridays", feedback_id=f1)
+    f2 = await feedback(sf, belief_id=bid, belief_version=v2, outcome="supported")
+    f3 = await feedback(sf, prediction_id=pid, belief_id=bid, belief_version=v2)
+    f4 = await feedback(sf, belief_id=bid, belief_version=1)
+    other = await belief(sf, "eats late")
+    await add_version(sf, other, "eats late, from F2", feedback_id=f2)
+
+    preview = (await client.get(f"{API}/feedback/{f1}/delete-preview")).json()
+    assert {(v["belief_id"], v["version"]) for v in preview["versions"]} == \
+        {(bid, 2), (other, 2)}
+    assert preview["beliefs_emptied"] == []
+    assert preview["feedback"] == [f2] and preview["feedback_unlinked"] == [f3]
+
+    r = await client.delete(f"{API}/feedback/{f1}")
+    assert r.json()["deleted"] == {"beliefs": 0, "versions": 2, "links": 0, "feedback": 2,
+                                   "predictions": 0}
+    assert await _count(sf, "feedback", "WHERE id IN (%s, %s)", (f1, f2)) == 0
+    assert await _rows(sf, "SELECT prediction_id, belief_id, belief_version FROM feedback "
+                           "WHERE id = %s", (f3,)) == [(pid, None, None)]
+    assert await _rows(sf, "SELECT prediction_id, belief_id, belief_version FROM feedback "
+                           "WHERE id = %s", (f4,)) == [(None, bid, 1)]
+    assert (await _rows(sf, schema.BELIEF, (bid,)))[0][3] == 1
+    assert (await _rows(sf, schema.BELIEF, (other,)))[0][3] == 1
+    # No feedback names a version that is gone, and no version a gone feedback.
+    assert await _count(sf, "feedback f", "WHERE f.belief_id IS NOT NULL AND NOT EXISTS "
+                        "(SELECT 1 FROM belief_versions v WHERE v.belief_id = f.belief_id "
+                        "AND v.version = f.belief_version)") == 0
+    assert await _count(sf, "belief_versions v", "WHERE v.feedback_id IS NOT NULL AND NOT "
+                        "EXISTS (SELECT 1 FROM feedback f WHERE f.id = v.feedback_id)") == 0
+
+
+async def test_delete_prediction_locks_beliefs_then_the_prediction_before_planning(
+        client, sf, statements):
+    assert translate(schema.LOCK_PREDICTION, "postgresql").endswith(" FOR UPDATE")
+    pid = await prediction(sf)
+    statements.clear()
+    assert (await client.delete(f"{API}/predictions/{pid}")).status_code == 200
+
+    def first(prefix):
+        return next(i for i, s in enumerate(statements) if s.startswith(prefix))
+    assert first("SELECT ID FROM BELIEFS ORDER BY ID") \
+        < first("SELECT ID FROM PREDICTIONS WHERE ID =") \
+        < first("SELECT ID, PREDICTION_ID, BELIEF_ID, BELIEF_VERSION FROM FEEDBACK") \
+        < first("DELETE")
+
+
+async def test_search_beliefs_treats_like_wildcards_literally(sf):
+    pct = await belief(sf, "Kyle is 100% sure about Postgres")
+    await belief(sf, "Kyle spent 1000 hours on it")
+    under = await belief(sf, "prefers snake_case", scope="back\\slash")
+    await belief(sf, "prefers snakeXcase")
+
+    async def search(q):
+        pattern = schema.like_pattern(q)
+        return [r[0] for r in await _rows(sf, schema.SEARCH_BELIEFS, (pattern, pattern, 10))]
+    assert await search("100%") == [pct]
+    assert await search("SNAKE_case") == [under]
+    assert await search("back\\slash") == [under]
+    assert len(await search("Kyle")) == 2
+
+
 async def test_deleting_everything_leaves_the_tables_empty(client, sf):
     bid = await belief(sf, "likes tacos", "likes tacos on Fridays")
     pid = await prediction(sf, links=[(bid, 2)])
     fid = await feedback(sf, prediction_id=pid, belief_id=bid, belief_version=2,
                          outcome="contradicted")
     await add_version(sf, bid, "not on Fridays", feedback_id=fid)
+    # The tool's receipts for each of those writes.
+    await _write(sf, *[(schema.INSERT_REQUEST,
+                        (rid, action, "0" * 64, json.dumps(receipt), schema.now()))
+                       for rid, action, receipt in [
+                           ("r-belief", "belief", {"ok": True, "id": bid, "version": 1}),
+                           ("r-revise", "belief", {"ok": True, "id": bid, "version": 3}),
+                           ("r-predict", "predict", {"ok": True, "id": pid,
+                                                     "timing": "prospective"}),
+                           ("r-feedback", "feedback", {"ok": True, "id": fid})]])
     for path in (f"feedback/{fid}", f"predictions/{pid}", f"beliefs/{bid}"):
         assert (await client.delete(f"{API}/{path}")).status_code == 200, path
     for table in ("beliefs", "belief_versions", "predictions", "prediction_beliefs",
-                  "feedback"):
+                  "feedback", "requests"):
         assert await _count(sf, table) == 0, table
+    assert set(schema.COLUMNS) == {"beliefs", "belief_versions", "predictions",
+                                   "prediction_beliefs", "feedback", "requests"}
+
+
+async def test_a_delete_takes_the_receipts_that_name_what_it_deleted(client, sf):
+    pid = await prediction(sf)
+    fid = await feedback(sf, prediction_id=pid, outcome="contradicted")
+    bid = await belief(sf, "likes tacos")
+    await add_version(sf, bid, "not on Fridays", feedback_id=fid)
+    keep = await prediction(sf, "Other?")
+    await _write(sf, *[(schema.INSERT_REQUEST,
+                        (rid, "x", "0" * 64, json.dumps(receipt), schema.now()))
+                       for rid, receipt in [
+                           ("v1", {"ok": True, "id": bid, "version": 1}),
+                           ("v2", {"ok": True, "id": bid, "version": 2}),
+                           ("fb", {"ok": True, "id": fid}),
+                           ("other", {"ok": True, "id": keep, "timing": "prospective"})]])
+    assert (await client.delete(f"{API}/feedback/{fid}")).status_code == 200
+    # The feedback and the version it produced are gone, so are their receipts;
+    # the belief's first version and the other prediction keep theirs.
+    assert await _rows(sf, "SELECT request_id FROM requests ORDER BY request_id") == \
+        [("other",), ("v1",)]
 
 
 async def test_predictions_are_never_updated(client, sf, statements):
@@ -747,3 +882,31 @@ async def test_review_counts_and_resolved_prospective_items_only(client, sf):
 async def test_review_of_an_empty_store(client):
     body = (await client.get(f"{API}/review")).json()
     assert body["items"] == [] and body["counts"]["prospective_pending"] == 0
+
+
+# --- the frontend ----------------------------------------------------------------------------
+
+async def test_deep_links_get_index_html_and_api_404s_stay_json(client, tmp_path, monkeypatch):
+    from judgmentapp import main
+    (tmp_path / "index.html").write_text("<!doctype html><div id=root></div>")
+    (tmp_path / "assets").mkdir()
+    (tmp_path / "assets" / "app.js").write_text("console.log('judgment')")
+    (tmp_path.parent / "secret.txt").write_text("outside the static dir")
+    monkeypatch.setattr(main, "STATIC_DIR", tmp_path)
+
+    for path in ("/apps/judgment", "/apps/judgment/", f"/apps/judgment/beliefs/{'a' * 32}",
+                 "/apps/judgment/predictions?state=pending", "/apps/judgment/review"):
+        r = await client.get(path)
+        assert r.status_code == 200, path
+        assert r.headers["content-type"].startswith("text/html") and "id=root" in r.text, path
+    r = await client.get("/apps/judgment/assets/app.js")
+    assert r.status_code == 200 and r.text == "console.log('judgment')"
+    # A path that climbs out of the static dir gets the page, never the file.
+    r = await client.get("/apps/judgment/..%2Fsecret.txt")
+    assert "outside" not in r.text
+    for path in ("/apps/judgment/api/nope", "/apps/judgment/api", "/apps/judgment/api/beliefs/x/y"):
+        r = await client.get(path)
+        assert r.status_code == 404, path
+        assert r.headers["content-type"] == "application/json" and "detail" in r.json(), path
+    # The real API is still the API.
+    assert (await client.get(f"{API}/me")).json() == {"principal": "admin"}

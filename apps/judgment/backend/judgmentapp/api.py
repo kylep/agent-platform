@@ -1,10 +1,12 @@
 """Kyle's API, served under /apps/judgment/api/ (design 38, "The App").
 
 Only Kyle's own admin session gets in. nginx has vetted the session or key
-and stamps X-AP-User / X-AP-Role (the NetworkPolicy keeps anyone else from
-forging them); this router then demands role `admin` AND a principal in
+and stamps X-AP-User / X-AP-Role / X-AP-Auth (the NetworkPolicy keeps anyone
+else from forging them); this router then demands a login session
+(`X-AP-Auth: session`), role `admin` AND a principal in
 `schema.owner_principals()`. That refuses reader logins, `query_app` (always
-`reader`), app keys and admin API keys, whose principal is the key's name.
+`reader`, no X-AP-Auth), app keys and admin API keys, including a key someone
+named `admin`: a key's principal is its name, so only the kind tells it apart.
 
 The reads and the shared writes are the statements in `schema.py`, so the page
 and the tool agree by construction. What is here alone is what only the page
@@ -27,8 +29,10 @@ from judgmentapp.db import execute, query
 
 
 def require_owner(x_ap_user: str = Header(default=""),
-                  x_ap_role: str = Header(default="")) -> str:
-    if x_ap_role != "admin" or not x_ap_user or x_ap_user not in schema.owner_principals():
+                  x_ap_role: str = Header(default=""),
+                  x_ap_auth: str = Header(default="")) -> str:
+    if x_ap_auth != "session" or x_ap_role != "admin" or not x_ap_user \
+            or x_ap_user not in schema.owner_principals():
         raise HTTPException(403, "the judgment app answers only its owner's admin session")
     return x_ap_user
 
@@ -48,13 +52,16 @@ CONFIRM_FEEDBACK = "UPDATE feedback SET confirmed_at = %s WHERE id = %s AND conf
 SET_FEEDBACK_WORDS = "UPDATE feedback SET kyle_words = %s WHERE id = %s"
 
 # What a deletion plan reads: every reference, none of the text but the claims
-# the preview shows. Locking the belief rows first serialises with the tool's
-# new versions (they take LOCK_BELIEF), so no version slips in mid-plan.
-LOCK_ALL_BELIEFS = "SELECT id FROM beliefs FOR UPDATE"
+# the preview shows. Locking the belief rows first (in id order), then the
+# prediction being deleted, serialises with every tool write that references
+# them (they take LOCK_BELIEF / LOCK_PREDICTION in the same order), so no
+# version, link or feedback slips in mid-plan.
+LOCK_ALL_BELIEFS = "SELECT id FROM beliefs ORDER BY id FOR UPDATE"
 PLAN_BELIEFS = "SELECT id, status, current_version FROM beliefs"
 PLAN_VERSIONS = "SELECT belief_id, version, feedback_id, claim FROM belief_versions"
-PLAN_FEEDBACK = "SELECT id, prediction_id, belief_id FROM feedback"
+PLAN_FEEDBACK = "SELECT id, prediction_id, belief_id, belief_version FROM feedback"
 PLAN_LINKS = "SELECT prediction_id, belief_id FROM prediction_beliefs"
+PLAN_REQUESTS = "SELECT request_id, result FROM requests"
 
 UNLINK_FEEDBACK_BELIEF = ("UPDATE feedback SET belief_id = NULL, belief_version = NULL "
                           "WHERE id = %s")
@@ -64,6 +71,7 @@ DELETE_VERSION = "DELETE FROM belief_versions WHERE belief_id = %s AND version =
 DELETE_LINK = "DELETE FROM prediction_beliefs WHERE prediction_id = %s AND belief_id = %s"
 DELETE_BELIEF = "DELETE FROM beliefs WHERE id = %s"
 DELETE_PREDICTION = "DELETE FROM predictions WHERE id = %s"
+DELETE_REQUEST = "DELETE FROM requests WHERE request_id = %s"
 
 
 def _sf(request: Request):
@@ -399,8 +407,8 @@ async def add_feedback(request: Request, prediction_id: str, body: NewFeedback,
 async def delete_prediction(request: Request, prediction_id: str):
     _path_id(prediction_id, "prediction")
     async with _sf(request).begin() as s:
+        plan = await _plan(s, predictions=(prediction_id,))
         await _prediction(s, prediction_id)
-        plan = await _plan(s)
         plan.prediction(prediction_id)
         return {"deleted": await plan.run(s)}
 
@@ -445,8 +453,10 @@ async def feedback_delete_preview(request: Request, feedback_id: str):
         "versions": [{"belief_id": b, "version": v, "claim": plan.version_rows[(b, v)][1]}
                      for b, v in sorted(plan.versions)],
         "beliefs_emptied": sorted(plan.beliefs),
-        # Feedback left with no target once those beliefs go; usually empty.
+        # Feedback left with no target once those versions go: deleted too.
         "feedback": sorted(plan.feedback_ids - {feedback_id}),
+        # Feedback that keeps its prediction but loses its belief link.
+        "feedback_unlinked": plan.unlinked(),
     }
 
 
@@ -484,11 +494,24 @@ async def review(request: Request):
 
 # --- deletion (design 38, "Deletion policy") ---------------------------------------------
 
-async def _plan(s, *, lock: bool = True) -> "_Deletion":
+async def _plan(s, *, lock: bool = True, predictions: tuple[str, ...] = ()) -> "_Deletion":
+    """Read every reference, after taking the locks (beliefs, then the
+    predictions the delete removes) that keep the tool's writes out."""
     if lock:
         await query(s, LOCK_ALL_BELIEFS)
+        for pid in sorted(predictions):
+            await query(s, schema.LOCK_PREDICTION, (pid,))
     return _Deletion(await query(s, PLAN_BELIEFS), await query(s, PLAN_VERSIONS),
-                     await query(s, PLAN_FEEDBACK), await query(s, PLAN_LINKS))
+                     await query(s, PLAN_FEEDBACK), await query(s, PLAN_LINKS),
+                     await query(s, PLAN_REQUESTS))
+
+
+def _receipt(result) -> dict:
+    try:
+        out = json.loads(result)
+    except (TypeError, ValueError):
+        return {}
+    return out if isinstance(out, dict) else {}
 
 
 class _Deletion:
@@ -500,16 +523,20 @@ class _Deletion:
     - feedback: every version citing it; a belief left without versions goes
       (and so on through the belief rule), otherwise its head falls back to
       the newest remaining version.
+    - any version that goes, by either rule: feedback that targeted that exact
+      version loses its belief link, and goes if it has no target left (and
+      so on through the feedback rule).
 
     Predictions are never updated: a deleted belief or version leaves the
     prediction's own text and its link (whose claim then reads as null).
     """
 
-    def __init__(self, beliefs, versions, feedback, links):
+    def __init__(self, beliefs, versions, feedback, links, requests):
         self.belief_rows = {bid: (status, current) for bid, status, current in beliefs}
         self.version_rows = {(bid, v): (fid, claim) for bid, v, fid, claim in versions}
-        self.feedback_rows = {fid: (pid, bid) for fid, pid, bid in feedback}
+        self.feedback_rows = {fid: (pid, bid, bv) for fid, pid, bid, bv in feedback}
         self.link_rows = [(pid, bid) for pid, bid in links]
+        self.request_rows = [(rid, _receipt(result)) for rid, result in requests]
         self.beliefs: set[str] = set()
         self.predictions: set[str] = set()
         self.feedback_ids: set[str] = set()
@@ -520,7 +547,7 @@ class _Deletion:
             return
         self.beliefs.add(bid)
         self.versions |= {k for k in self.version_rows if k[0] == bid}
-        for fid, (_, target) in self.feedback_rows.items():
+        for fid, (_, target, _v) in self.feedback_rows.items():
             if target == bid:
                 self._lost_target(fid)
 
@@ -528,7 +555,7 @@ class _Deletion:
         if pid in self.predictions:
             return
         self.predictions.add(pid)
-        for fid, (target, _) in self.feedback_rows.items():
+        for fid, (target, _b, _v) in self.feedback_rows.items():
             if target == pid:
                 self._lost_target(fid)
 
@@ -538,24 +565,47 @@ class _Deletion:
         self.feedback_ids.add(fid)
         citing = {k for k, (cite, _) in self.version_rows.items() if cite == fid}
         self.versions |= citing
+        # Feedback on a version that just went loses that target.
+        for other, (_, bid, bv) in sorted(self.feedback_rows.items()):
+            if (bid, bv) in citing:
+                self._lost_target(other)
         for bid in sorted({b for b, _ in citing}):
             if not self._remaining(bid):
                 self.belief(bid)
 
+    def _belief_gone(self, fid: str) -> bool:
+        """Whether the belief version this feedback speaks to is going."""
+        _, bid, bv = self.feedback_rows[fid]
+        return bid is not None and (bid in self.beliefs or (bid, bv) in self.versions)
+
+    def unlinked(self) -> list[str]:
+        """Surviving feedback whose belief link the plan clears."""
+        return sorted(f for f in self.feedback_rows
+                      if f not in self.feedback_ids and self._belief_gone(f))
+
     def _lost_target(self, fid: str) -> None:
-        pid, bid = self.feedback_rows[fid]
-        if (pid is None or pid in self.predictions) and (bid is None or bid in self.beliefs):
+        pid, bid, _ = self.feedback_rows[fid]
+        if (pid is None or pid in self.predictions) and (bid is None or self._belief_gone(fid)):
             self.feedback(fid)
+
+    def _stale_requests(self) -> list[str]:
+        gone = self.beliefs | self.predictions | self.feedback_ids
+        stale = []
+        for rid, receipt in self.request_rows:
+            rec_id, version = receipt.get("id"), receipt.get("version")
+            if rec_id in gone or (rec_id, version) in self.versions:
+                stale.append(rid)
+        return sorted(stale)
 
     def _remaining(self, bid: str) -> list[int]:
         return sorted(v for b, v in self.version_rows if b == bid and (b, v) not in self.versions)
 
     async def run(self, s) -> dict:
         """The plan as explicit statements, inside the caller's transaction."""
-        for fid, (pid, bid) in sorted(self.feedback_rows.items()):
+        for fid, (pid, bid, _) in sorted(self.feedback_rows.items()):
             if fid in self.feedback_ids:
                 continue
-            if bid is not None and bid in self.beliefs:
+            if self._belief_gone(fid):
                 await execute(s, UNLINK_FEEDBACK_BELIEF, (fid,))
             if pid is not None and pid in self.predictions:
                 await execute(s, UNLINK_FEEDBACK_PREDICTION, (fid,))
@@ -574,6 +624,10 @@ class _Deletion:
         for bid, (status, current) in sorted(self.belief_rows.items()):
             if bid not in self.beliefs and (bid, current) in self.versions:
                 await execute(s, schema.SET_BELIEF_HEAD, (self._remaining(bid)[-1], status, bid))
+        # A tool receipt naming a deleted record would replay it as if it
+        # still existed (and keep its id around): it goes too.
+        for rid in self._stale_requests():
+            await execute(s, DELETE_REQUEST, (rid,))
         return {"beliefs": len(self.beliefs), "versions": len(self.versions),
                 "links": len(links), "feedback": len(self.feedback_ids),
                 "predictions": len(self.predictions)}

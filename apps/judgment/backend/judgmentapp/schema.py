@@ -16,6 +16,7 @@ both dialects agree.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
@@ -75,6 +76,8 @@ MAX_ALTERNATIVES = 10
 MAX_LINKED_BELIEFS = 20
 # Feedback this soon after its prediction is flagged in the review.
 QUICK_FEEDBACK = timedelta(minutes=10)
+# How long a request_id answers a retry with its first receipt.
+REQUEST_TTL = timedelta(days=7)
 
 # `relay:<channel id>/<message id>` (32 hex each, so the page can open the
 # room) or `discord:<channel id>/<message id>` (snowflakes).
@@ -155,6 +158,23 @@ def timestamp(name: str, value, *, required: bool = False) -> datetime | None:
     return ts
 
 
+def args_hash(args: dict) -> str:
+    """sha256 of a call's arguments as canonical JSON, without the request_id
+    itself, so a reused request_id can tell a retry from a different call."""
+    body = {k: v for k, v in args.items() if k != "request_id"}
+    canonical = json.dumps(body, sort_keys=True, separators=(",", ":"), ensure_ascii=False,
+                           default=str)
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def like_pattern(query: str) -> str:
+    """A substring LIKE pattern for SEARCH_BELIEFS: lowercased, with the
+    escape character and LIKE's wildcards escaped so `%` and `_` match
+    themselves."""
+    q = query.lower().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    return "%" + q + "%"
+
+
 def alternatives(value) -> str:
     """A JSON text list of 0..10 short strings."""
     if value is None:
@@ -182,7 +202,8 @@ COLUMNS = {
         "source_ref", "source_at", "outcome", "interpretation", "author", "confirmed_at",
     ],
     # Idempotency for the tool's writes: a retried call returns the receipt.
-    "requests": ["request_id", "action", "result", "created_at"],
+    # `args_hash` tells a retry (same arguments) from a reused id (different).
+    "requests": ["request_id", "action", "args_hash", "result", "created_at"],
 }
 
 UNIQUE = {"belief_versions": ["belief_id", "version"]}
@@ -203,8 +224,13 @@ INSERT_VERSION = (
     "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"
 )
 
-# Params: (id,). Taken before a new version; sqlite drops FOR UPDATE.
+# Params: (id,). Taken before a new version, and by every tool write that
+# references the belief, so a delete on the page can't remove it mid-write.
+# sqlite drops FOR UPDATE.
 LOCK_BELIEF = "SELECT id, status, current_version FROM beliefs WHERE id = %s FOR UPDATE"
+# Params: (id,). Taken by a tool write that references the prediction. Lock
+# order everywhere: beliefs (by id), then predictions, so writers can't deadlock.
+LOCK_PREDICTION = "SELECT id FROM predictions WHERE id = %s FOR UPDATE"
 
 # Params: (current_version, status, id).
 SET_BELIEF_HEAD = "UPDATE beliefs SET current_version = %s, status = %s WHERE id = %s"
@@ -224,9 +250,11 @@ INSERT_FEEDBACK = (
     "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"
 )
 
-INSERT_REQUEST = ("INSERT INTO requests (request_id, action, result, created_at) "
-                  "VALUES (%s, %s, %s, %s)")
-GET_REQUEST = "SELECT action, result FROM requests WHERE request_id = %s"
+INSERT_REQUEST = ("INSERT INTO requests (request_id, action, args_hash, result, created_at) "
+                  "VALUES (%s, %s, %s, %s, %s)")
+GET_REQUEST = "SELECT action, args_hash, result FROM requests WHERE request_id = %s"
+# Params: (cutoff,). Run at the start of each tool write; REQUEST_TTL old.
+PRUNE_REQUESTS = "DELETE FROM requests WHERE created_at < %s"
 
 # --- reads ------------------------------------------------------------------------------
 
@@ -238,12 +266,14 @@ VERSION = ("SELECT " + ", ".join(COLUMNS["belief_versions"]) + " FROM belief_ver
 HAS_CONFIRMED = ("SELECT COUNT(*) FROM belief_versions WHERE belief_id = %s "
                  "AND provenance = 'kyle_confirmed'")
 
-# Params: (pattern, pattern, limit) with pattern = '%' + lowercased query + '%'.
-# Matches the CURRENT version's claim or scope.
+# Params: (pattern, pattern, limit) with pattern = like_pattern(query).
+# Matches the CURRENT version's claim or scope. Backslash escapes the
+# wildcards on both sqlite and Postgres (standard_conforming_strings).
 SEARCH_BELIEFS = (
     "SELECT b.id FROM beliefs b JOIN belief_versions v "
     "ON v.belief_id = b.id AND v.version = b.current_version "
-    "WHERE LOWER(v.claim) LIKE %s OR LOWER(COALESCE(v.scope, '')) LIKE %s "
+    "WHERE LOWER(v.claim) LIKE %s ESCAPE '\\' "
+    "OR LOWER(COALESCE(v.scope, '')) LIKE %s ESCAPE '\\' "
     "ORDER BY b.created_at DESC LIMIT %s"
 )
 ALL_BELIEFS = "SELECT id FROM beliefs ORDER BY created_at DESC LIMIT %s"

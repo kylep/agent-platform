@@ -193,9 +193,10 @@ agent and an admin calling the broker directly.
 | `recall` | read | With `query`: matching beliefs, each with its current version, the latest Kyle-confirmed version if different, provenance, confidence, a one-line-per-version trail, and any contradicting or mixed feedback. With `id`: one belief, prediction or feedback item in full with its links. |
 | `pending` | read | Prospective predictions that aren't resolved (oldest first), plus contradicted or mixed feedback that no belief version cites yet ("awaiting revision"). |
 
-- **Writes** take an optional `request_id`. A repeat with the same id
-  returns the first result instead of writing twice, so a retried call is
-  safe. Writes print a minimal JSON receipt (`{"ok": true, "id", "version",
+- **Writes** take an optional `request_id`. A repeat with the same id and
+  the same arguments returns the first result instead of writing twice, so a
+  retried call is safe; the same id with different arguments is refused.
+  Request ids are kept for seven days. Writes print a minimal JSON receipt (`{"ok": true, "id", "version",
   "timing"}`), never the stored text, which keeps run transcripts lean.
 - **Reads** print plain text inside a `<judgment-records>` block marked as
   untrusted data, the way Relay history is, so stored text can't act as an
@@ -212,10 +213,13 @@ schema}.py`, DDL at startup, and tests on aiosqlite with an opt-in Postgres
 run through `APP_DB_URL`. `app.yaml` sets `ui: true`, `api: true` and
 `needs.postgres: true`, with no Kafka and no agent key.
 
-**Authorization:** every API route requires `X-AP-Role == "admin"` **and**
-`X-AP-User` in `JUDGMENT_OWNER_PRINCIPALS`. That admits Kyle's login session
-and refuses reader logins, `query_app` (always `reader`), app keys and admin
-API keys, each with its own test. `author` is stamped server-side as
+**Authorization:** every API route requires `X-AP-Auth == "session"`,
+`X-AP-Role == "admin"` **and** `X-AP-User` in `JUDGMENT_OWNER_PRINCIPALS`.
+nginx sets `X-AP-Auth` from `auth-check` (`session`, `key` or `workload`),
+because a key's principal is its name and a key could be named `admin`. That
+admits Kyle's login session and refuses reader logins, `query_app` (always
+`reader`, no `X-AP-Auth`), app keys and admin API keys (even one named
+`admin`), each with its own test. `author` is stamped server-side as
 `user:<X-AP-User>`; the frontend never sends it.
 
 **One page with tabs** (Vite + React + `@ap/ui`, workspace
@@ -252,6 +256,9 @@ can't reach.
   a derived claim can repeat its words. The belief's `current_version` falls
   back to the newest remaining version, and a belief left with no versions
   is deleted. Before confirming, the page lists what will go.
+- **Any deleted version:** feedback that spoke to that exact version loses
+  its belief link, and is deleted (by the feedback rule) if it targeted
+  nothing else. Tool receipts that name a deleted record are deleted too.
 - Every delete is an explicit `DELETE` sequence in one transaction rather
   than a database cascade, so SQLite and Postgres behave the same.
 

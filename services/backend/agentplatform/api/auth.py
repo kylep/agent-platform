@@ -122,11 +122,17 @@ async def authenticate(request: Request) -> tuple[str, str] | None:
     When the caller is a per-run API key, its `run_id` is stashed on
     `request.state.api_key_run_id` so run creation can attribute the new run's
     parent and enforce the chain-depth loop guard authoritatively (the caller
-    can't forge its own parent)."""
+    can't forge its own parent).
+
+    How the caller proved itself goes on `request.state.auth_kind`: "session"
+    (the login cookie), "key" (an `ap_` API key) or "workload" (a
+    ServiceAccount JWT). A key's principal is its name, so a name alone can't
+    tell Kyle's login from a key someone called `admin`; the kind can."""
     name = validate_session_cookie(request.app, request.cookies.get("ap_session"))
     if name is not None:
         role = await _lookup_role(request, name)
         if role is not None:
+            request.state.auth_kind = "session"
             return (name, role)
     header = request.headers.get("authorization", "")
     if header.startswith("Bearer "):
@@ -138,6 +144,7 @@ async def authenticate(request: Request) -> tuple[str, str] | None:
                     return None
                 request.state.api_key_run_id = k.run_id
                 request.state.api_key_agent = k.agent
+                request.state.auth_kind = "key"
                 return (k.name, k.role)
         elif token.count(".") == 2:
             # Workload identity (docs/design/13 A): a kubelet-projected,
@@ -168,6 +175,7 @@ async def authenticate(request: Request) -> tuple[str, str] | None:
                 request.state.api_key_run_id = run_id
                 request.state.api_key_agent = agent
                 request.state.frozen_tools = frozen
+                request.state.auth_kind = "workload"
                 return (principal, role)
     return None
 

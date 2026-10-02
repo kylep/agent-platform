@@ -95,6 +95,7 @@ _TYPES: dict[str, dict[str, tuple]] = {
     "requests": {
         "request_id": (String(100), dict(nullable=False)),
         "action": (String(16), dict(nullable=False)),
+        "args_hash": (String(64), dict(nullable=False)),
         "result": (Text, dict(nullable=False)),
         "created_at": (_TS, dict(nullable=False)),
     },

@@ -149,32 +149,38 @@ def _fetch(cur, sql: str, params: tuple, table: str | None = None):
     return dict(zip(schema.COLUMNS[table], row))
 
 
-def _replay(prior, action: str, request_id: str) -> dict:
-    prior_action, result = prior
+def _replay(prior, action: str, args_hash: str, request_id: str) -> dict:
+    """The first receipt, but only for a true retry: same action, same args."""
+    prior_action, prior_hash, result = prior
     if prior_action != action:
         raise ToolError(f"request_id {request_id!r} was already used for {prior_action}; "
                         f"use a new request_id for this {action}")
+    if prior_hash != args_hash:
+        raise ToolError(f"request_id {request_id!r} was already used for a different call; "
+                        f"use a new request_id for this one")
     return json.loads(result)
 
 
 def _write(conn, action: str, args: dict, body) -> dict:
-    """One transaction: replay a known request_id, else run `body`, record the
-    receipt under the request_id, commit. Anything raised rolls back, so a
-    refusal never leaves half a write."""
+    """One transaction: prune old request ids, replay a known request_id, else
+    run `body`, record the receipt under the request_id, commit. Anything
+    raised rolls back, so a refusal never leaves half a write."""
     _identity()
     _refuse_server_set(args)
     request_id = _request_id(args)
+    args_hash = schema.args_hash(args)
     try:
         with conn.cursor() as cur:
+            cur.execute(schema.PRUNE_REQUESTS, (schema.now() - schema.REQUEST_TTL,))
             if request_id:
                 prior = _fetch(cur, schema.GET_REQUEST, (request_id,))
                 if prior is not None:
                     conn.rollback()
-                    return _replay(prior, action, request_id)
+                    return _replay(prior, action, args_hash, request_id)
             receipt = body(cur, args)
             if request_id:
-                cur.execute(schema.INSERT_REQUEST, (request_id, action, json.dumps(receipt),
-                                                    schema.now()))
+                cur.execute(schema.INSERT_REQUEST, (request_id, action, args_hash,
+                                                    json.dumps(receipt), schema.now()))
         conn.commit()
         return receipt
     except Exception as e:
@@ -186,7 +192,7 @@ def _write(conn, action: str, args: dict, body) -> dict:
                 prior = _fetch(cur, schema.GET_REQUEST, (request_id,))
             conn.rollback()
             if prior is not None:
-                return _replay(prior, action, request_id)
+                return _replay(prior, action, args_hash, request_id)
         raise
 
 
@@ -316,13 +322,18 @@ def _predict(cur, args: dict) -> dict:
     if len(ids) > schema.MAX_LINKED_BELIEFS:
         raise ToolError(f"beliefs lists {len(ids)} ids; link at most "
                         f"{schema.MAX_LINKED_BELIEFS}, the ones this prediction rests on")
-    pinned = []
     for belief_id in ids:
         _check(schema.record_id, "beliefs[]", belief_id)
-        row = _fetch(cur, schema.BELIEF, (belief_id,), "beliefs")
+    # Lock each linked belief (in id order, the order every writer uses)
+    # before checking it exists, so a delete on the page can't remove it
+    # between the check and the link.
+    heads = {}
+    for belief_id in sorted(ids):
+        row = _fetch(cur, schema.LOCK_BELIEF, (belief_id,))
         if row is None:
             raise ToolError(f"no belief {belief_id} — recall to find it, or drop it from beliefs")
-        pinned.append((belief_id, row["current_version"]))
+        heads[belief_id] = row[2]
+    pinned = [(belief_id, heads[belief_id]) for belief_id in ids]
 
     prediction_id = schema.new_id()
     cur.execute(schema.INSERT_PREDICTION, (
@@ -358,11 +369,14 @@ def _feedback(cur, args: dict) -> dict:
     outcome = _check(schema.choice, "outcome", args.get("outcome"), schema.OUTCOMES)
     interpretation = _check(schema.text_field, "interpretation", args.get("interpretation"),
                             required=False)
-    if prediction_id and _fetch(cur, schema.PREDICTION, (prediction_id,)) is None:
-        raise ToolError(f"no prediction {prediction_id} — check the id with recall or pending")
-    if belief_id and _fetch(cur, schema.VERSION, (belief_id, belief_version)) is None:
+    # Lock the targets (belief first, then prediction: the page's delete
+    # order) before checking them, so a delete can't land in between.
+    if belief_id and (_fetch(cur, schema.LOCK_BELIEF, (belief_id,)) is None
+                      or _fetch(cur, schema.VERSION, (belief_id, belief_version)) is None):
         raise ToolError(f"belief {belief_id} has no version {belief_version} — recall it "
                         f"for the version the feedback speaks to")
+    if prediction_id and _fetch(cur, schema.LOCK_PREDICTION, (prediction_id,)) is None:
+        raise ToolError(f"no prediction {prediction_id} — check the id with recall or pending")
     feedback_id = schema.new_id()
     # Relayed: Kai's author, never confirmed here. Only Kyle's page confirms.
     cur.execute(schema.INSERT_FEEDBACK, (
@@ -528,7 +542,7 @@ def action_recall(conn, args: dict) -> str:
         query = _check(schema.text_field, "query", args.get("query"), required=False)
         # One extra row says whether there is more than the page shows.
         if query:
-            pattern = "%" + query.lower() + "%"
+            pattern = schema.like_pattern(query)
             cur.execute(schema.SEARCH_BELIEFS, (pattern, pattern, limit + 1))
         else:
             cur.execute(schema.ALL_BELIEFS, (limit + 1,))

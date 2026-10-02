@@ -32,7 +32,8 @@ export type Version = {
 
 export type Belief = { id: string; created_at: string; status: BeliefStatus; current_version: number };
 
-export type BeliefRow = Belief & { current: Version; confirmed: Version | null };
+/** `current` is null only if the head points at a version that's gone. */
+export type BeliefRow = Belief & { current: Version | null; confirmed: Version | null };
 
 export type BeliefPrediction = {
   id: string; scenario: string; predicted_choice: string; timing: Timing; created_at: string;
@@ -92,6 +93,10 @@ export type PredictionDetail = {
 export type DeletePreview = {
   versions: { belief_id: string; version: number; claim: string }[];
   beliefs_emptied: string[];
+  /** Other feedback deleted too: it spoke only to a version that goes. */
+  feedback: string[];
+  /** Feedback that keeps its prediction but loses its belief link. */
+  feedback_unlinked: string[];
 };
 
 export type Deleted = { deleted: Record<string, number> };

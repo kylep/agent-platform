@@ -29,7 +29,8 @@ Only Kai and Kyle.
 - **Kyle** uses the page. Its API answers only an admin login session whose
   principal is in `JUDGMENT_OWNER_PRINCIPALS` (default `admin`). Reader
   logins, the QA login, admin API keys and every agent's `query_app` get a
-  403.
+  403. It checks nginx's `X-AP-Auth: session`, so an admin API key that
+  happens to be named `admin` is refused too.
 - Nothing is copied into memory, the wiki or search indexes. Kai's prompt
   tells it to keep judgment records in the tool.
 
@@ -85,7 +86,8 @@ supersede or reject.
 `/apps/judgment/` has four tabs:
 
 - **Beliefs:** confirm a claim, correct it in your own words, reject it, or
-  delete it, with the full version trail.
+  delete it, with the full version trail. Confirming or correcting a
+  rejected belief makes it active again.
 - **Predictions:** pending and resolved, with flags; add your own feedback.
 - **Feedback:** what Kai relayed, waiting for you to confirm or correct.
 - **Review:** counts first (resolved by outcome, confirmed versus relayed,
@@ -97,7 +99,9 @@ supersede or reject.
 
 Deleting on the page removes the records from the App's tables for good.
 Deleting feedback also deletes every belief version that cites it, since a
-derived claim can repeat its words; the page lists what will go first.
+derived claim can repeat its words. Feedback on a deleted version loses that
+link, and goes too if it had no other target. The page lists what will go
+first.
 
 Two places deletion can't reach:
 - **Kai's run transcripts** hold its tool calls and their output. Only admins

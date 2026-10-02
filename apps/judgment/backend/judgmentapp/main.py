@@ -6,7 +6,7 @@ import os
 from pathlib import Path
 
 from fastapi import FastAPI
-from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse, JSONResponse
 
 from judgmentapp.api import router
 from judgmentapp.db import init_db, make_engine, make_session_factory
@@ -14,6 +14,7 @@ from judgmentapp.db import init_db, make_engine, make_session_factory
 logging.basicConfig(level=logging.INFO)
 
 STATIC_DIR = Path(os.environ.get("JUDGMENT_STATIC_DIR", "/app/static"))
+PREFIX = "/apps/judgment"
 
 
 @contextlib.asynccontextmanager
@@ -30,5 +31,21 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="judgment app", lifespan=lifespan)
 app.include_router(router)
 
-if STATIC_DIR.is_dir():
-    app.mount("/apps/judgment", StaticFiles(directory=STATIC_DIR, html=True), name="ui")
+
+@app.get(PREFIX, include_in_schema=False)
+@app.get(PREFIX + "/{path:path}", include_in_schema=False)
+async def frontend(path: str = ""):
+    """The built frontend, with an SPA fallback: a static file if one is
+    there, else index.html, so a deep link like /apps/judgment/beliefs/<id>
+    survives a reload. Unknown API paths stay JSON 404s."""
+    if path == "api" or path.startswith("api/"):
+        return JSONResponse({"detail": "Not Found"}, status_code=404)
+    root = STATIC_DIR.resolve()
+    if path:
+        candidate = (root / path).resolve()
+        if candidate.is_relative_to(root) and candidate.is_file():
+            return FileResponse(candidate)
+    index = root / "index.html"
+    if not index.is_file():
+        return JSONResponse({"detail": "Not Found"}, status_code=404)
+    return FileResponse(index)

@@ -21,8 +21,8 @@ description: >-
   shared: kyle_words, source_ref (required), outcome, and prediction_id
   and/or belief_id + belief_version; source_at and interpretation optional.
   source_ref is relay:<channel id>/<message id> (32 hex each) or discord:<channel id>/<message id>.
-  Writes take an optional request_id (a retry with the same one returns the
-  first receipt) and answer with a short JSON receipt. action=recall with
+  Writes take an optional request_id (a retry with the same one and the same
+  arguments returns the first receipt; different arguments are refused) and answer with a short JSON receipt. action=recall with
   query searches current claims (empty lists the newest); with id shows one
   belief, prediction or feedback item in full. action=pending lists
   prospective predictions still waiting for an outcome and contradicted or
@@ -118,7 +118,7 @@ params:
       description: "feedback: your reading of it, kept apart from his words"
     request_id:
       type: string
-      description: "writes: an idempotency key; a retry with the same one returns the first receipt"
+      description: "writes: an idempotency key, kept 7 days; a retry with the same one and the same arguments returns the first receipt"
     query:
       type: string
       description: "recall: words to find in current claims and scopes (empty lists the newest)"

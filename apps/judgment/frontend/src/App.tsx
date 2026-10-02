@@ -129,16 +129,18 @@ function BeliefsPage() {
           {data.map((b) => (
             <li key={b.id}>
               <Link to={`/beliefs/${b.id}`} className="jd-item">
-                <span className="jd-item-title jd-text">{b.current.claim}</span>
+                <span className="jd-item-title jd-text">
+                  {b.current ? b.current.claim : <span className="muted">No current version</span>}
+                </span>
                 <span className="jd-row">
                   <StatusChip status={b.status} />
-                  <ProvenanceChip provenance={b.current.provenance} />
-                  <ConfidenceChip confidence={b.current.confidence} />
+                  {b.current && <ProvenanceChip provenance={b.current.provenance} />}
+                  {b.current && <ConfidenceChip confidence={b.current.confidence} />}
                   <span className="muted jd-small">v{b.current_version}</span>
                   {b.confirmed && b.confirmed.version !== b.current_version && (
                     <span className="muted jd-small">Kyle confirmed v{b.confirmed.version}</span>
                   )}
-                  <span className="muted jd-small"><When iso={b.current.created_at} /></span>
+                  <span className="muted jd-small"><When iso={b.current?.created_at ?? b.created_at} /></span>
                 </span>
               </Link>
             </li>
@@ -267,7 +269,8 @@ function BeliefPage() {
                     void act(async () => {
                       await post(`/beliefs/${id}/correct`, {
                         expected_version, claim: claim.trim(),
-                        ...(scope.trim() ? { scope: scope.trim() } : {}),
+                        // Always sent: "" clears the scope; leaving it out would keep the old one.
+                        scope: scope.trim(),
                         ...(reason.trim() ? { reason: reason.trim() } : {}),
                       });
                       return "Corrected: a new kyle_confirmed version in your words.";
