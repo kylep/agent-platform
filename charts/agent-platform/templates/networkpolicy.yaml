@@ -34,8 +34,8 @@ spec:
 # the mcp-broker (it forwards every brokered tool call here with the caller's
 # own token), the mcp-facade (same, for external clients — design/17), and the
 # claude-proxy (its quota snapshot push — design/22), codex-proxy (OAuth
-# token rotation persistence — design/26), and the tool-executor (a tool
-# call's app-data endpoint — design/39).
+# token rotation persistence — design/26), and both tool-executor pools (a
+# tool call's app-data endpoint — design/39).
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -53,7 +53,7 @@ spec:
         - podSelector:
             matchExpressions:
               - {key: app.kubernetes.io/name, operator: In, values: [agent-platform]}
-              - {key: app.kubernetes.io/component, operator: In, values: [web, runner, mcp-broker, mcp-facade, claude-proxy, codex-proxy, connector-discord, tool-executor]}
+              - {key: app.kubernetes.io/component, operator: In, values: [web, runner, mcp-broker, mcp-facade, claude-proxy, codex-proxy, connector-discord, tool-executor, tool-executor-views]}
       ports:
         - port: 8000
           protocol: TCP
@@ -305,6 +305,10 @@ spec:
   podSelector:
     matchLabels:
       app.kubernetes.io/name: agent-platform
+    # The views pool has its own, narrower allow (below); policies add up, so
+    # selecting it here would reopen what that one closes.
+    matchExpressions:
+      - {key: app.kubernetes.io/component, operator: NotIn, values: [tool-executor-views]}
   policyTypes: [Egress]
   egress:
     - to:
@@ -326,6 +330,10 @@ spec:
   podSelector:
     matchLabels:
       app.kubernetes.io/name: agent-platform
+    # The views pool has its own, narrower allow (below); policies add up, so
+    # selecting it here would reopen what that one closes.
+    matchExpressions:
+      - {key: app.kubernetes.io/component, operator: NotIn, values: [tool-executor-views]}
   policyTypes: [Egress]
   egress:
     - to:
@@ -356,3 +364,44 @@ spec:
         - {port: 6443, protocol: TCP}
 {{- end }}
 {{- end }}
+---
+# The views pool (docs/design/39 "Tool views", plan D6): rendered whatever
+# `networkPolicy.enabled` and `.egress` say, because a view runs with the
+# viewer's authority and this is what keeps its output inside the platform.
+# Egress: DNS and the API, nothing else. Ingress: the API only.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ .Release.Name }}-tool-executor-views
+  labels:
+    {{- include "agent-platform.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "agent-platform.selectorLabels" (dict "Release" .Release "Chart" .Chart "component" "tool-executor-views") | nindent 6 }}
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: agent-platform
+              app.kubernetes.io/component: api
+      ports:
+        - port: 8000
+          protocol: TCP
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - {port: 53, protocol: UDP}
+        - {port: 53, protocol: TCP}
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: agent-platform
+              app.kubernetes.io/component: api
+      ports:
+        - port: 8000
+          protocol: TCP

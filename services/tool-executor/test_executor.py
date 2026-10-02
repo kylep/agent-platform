@@ -371,3 +371,126 @@ def test_body_cap_counts_chunks_without_a_content_length(monkeypatch):
     assert "body" not in seen
     assert drive([b"x" * 30, b"y" * 30]) == 200
     assert seen["body"] == b"x" * 30 + b"y" * 30
+
+
+# --- the views pool (docs/design/39 "Tool views") ----------------------------
+# AP_EXECUTOR_POOL=views runs only declared view actions, with nothing a view
+# could leak through or write with: no secrets, database, Kafka or files_in,
+# and an output the action's own max_bytes bounds.
+
+VIEW_ACTIONS = (
+    "view_actions:\n"
+    "  summary:\n"
+    "    output_schema: {type: object}\n"
+    "    max_rows: 10\n"
+    "    max_bytes: 64\n"
+    "    sources: [items]\n")
+VIEW_PARAMS = "    action: {type: string}\n"
+
+
+@pytest.fixture
+def views_pool(monkeypatch):
+    monkeypatch.setattr(executor, "POOL", "views")
+
+
+def make_view_tool(root, run_py="print('{}')\n", infra="", extra=VIEW_ACTIONS):
+    return make_tool(root, run_py=run_py, yaml_extra=VIEW_PARAMS + extra + infra)
+
+
+def _view(tool="envdump", action="summary", **extra):
+    return TestClient(executor.app).post(
+        "/run", json={"tool": tool, "args": {"action": action}, **extra})
+
+
+def test_pool_defaults_to_default_and_refuses_unknown_names():
+    assert executor.pool_from_env({}) == "default"
+    assert executor.pool_from_env({"AP_EXECUTOR_POOL": "views"}) == "views"
+    with pytest.raises(RuntimeError):
+        executor.pool_from_env({"AP_EXECUTOR_POOL": "view"})
+
+
+def test_views_pool_runs_a_declared_view_action(tools_root, scratch, views_pool):
+    make_view_tool(tools_root, run_py="print('{\"rows\": []}')\n")
+    body = _view().json()
+    assert body["ok"], body
+    assert json.loads(body["output"]) == {"rows": []}
+
+
+def test_views_pool_refuses_an_undeclared_action(tools_root, scratch, views_pool, tmp_path):
+    marker = tmp_path / "ran"
+    make_view_tool(tools_root, run_py=f"open({str(marker)!r}, 'w')\n")
+    r = _view(action="write")
+    assert r.status_code == 403 and "view action" in r.json()["detail"]
+    assert not marker.exists()
+
+
+def test_views_pool_refuses_a_tool_without_view_actions(tools_root, scratch, views_pool):
+    make_view_tool(tools_root, extra="")
+    r = _view()
+    assert r.status_code == 403 and "view action" in r.json()["detail"]
+
+
+def test_views_pool_refuses_a_call_without_an_action(tools_root, scratch, views_pool):
+    make_view_tool(tools_root)
+    r = TestClient(executor.app).post("/run", json={"tool": "envdump", "args": {}})
+    assert r.status_code == 403
+
+
+@pytest.mark.parametrize("infra,word", [
+    ("infra:\n  secrets: [yahoo]\n", "secrets"),
+    ("infra:\n  secrets:\n    - {name: yahoo}\n", "secrets"),
+    ("infra:\n  database: true\n", "database"),
+    ("infra:\n  kafka: true\n", "kafka"),
+])
+def test_views_pool_refuses_infra(tools_root, scratch, views_pool, monkeypatch, infra, word):
+    async def no_secrets(name):
+        raise AssertionError(f"views pool fetched secret {name}")
+    monkeypatch.setattr(executor, "fetch_secret_env", no_secrets)
+    make_view_tool(tools_root, infra=infra)
+    r = _view()
+    assert r.status_code == 403 and word in r.json()["detail"]
+
+
+def test_views_pool_refuses_files_in(tools_root, scratch, views_pool):
+    make_view_tool(tools_root)
+    r = _view(files_in=[{"name": "a.png", "b64": B64_PNG}])
+    assert r.status_code == 403 and "files_in" in r.json()["detail"]
+
+
+def test_views_pool_output_over_max_bytes_fails(tools_root, scratch, views_pool):
+    make_view_tool(tools_root, run_py="print('x' * 65)\n")
+    body = _view().json()
+    assert body["ok"] is False and "max_bytes" in body["error"]
+    assert "output" not in body
+
+
+def test_views_pool_output_at_max_bytes_is_whole(tools_root, scratch, views_pool):
+    make_view_tool(tools_root, run_py="import sys; sys.stdout.write('x' * 64)\n")
+    body = _view().json()
+    assert body["ok"] and body["output"] == "x" * 64
+
+
+def test_views_pool_refuses_a_missing_max_bytes(tools_root, scratch, views_pool):
+    make_view_tool(tools_root, extra=(
+        "view_actions:\n  summary:\n    output_schema: {type: object}\n"))
+    r = _view()
+    assert r.status_code == 403 and "max_bytes" in r.json()["detail"]
+
+
+def test_views_pool_returns_rows_not_files(tools_root, scratch, views_pool):
+    make_view_tool(tools_root, run_py=(
+        "import os\n"
+        "open(os.path.join(os.environ['TOOL_OUT_DIR'], 'big.bin'), 'wb').write(b'x' * 1000)\n"
+        "print('{}')\n"))
+    body = _view().json()
+    assert body["ok"] is False and "files" in body["error"]
+
+
+def test_default_pool_ignores_view_declarations(tools_root, scratch):
+    """The default pool's behaviour is unchanged: no action check, infra
+    honoured, and output truncated at OUTPUT_CAP rather than failed."""
+    assert executor.POOL == "default"
+    make_view_tool(tools_root, run_py="print('x' * (300 * 1024))\n",
+                   infra="infra:\n  kafka: true\n")
+    body = _view(action="anything").json()
+    assert body["ok"] and "truncated" in body["output"]

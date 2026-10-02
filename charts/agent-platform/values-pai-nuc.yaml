@@ -88,3 +88,12 @@ apps:
   ttrpg:
     storage: 2Gi
     storageClass: local-path
+
+# The views pool (docs/design/39 "Tool views"): the executor image in
+# AP_EXECUTOR_POOL=views mode, no-egress, for tool view actions only.
+# One replica, small requests: views are short reads over the API.
+toolExecutorViews:
+  replicas: 1
+  resources:
+    requests: {memory: 96Mi, cpu: 25m}
+    limits: {memory: 512Mi}

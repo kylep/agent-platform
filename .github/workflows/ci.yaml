@@ -129,6 +129,10 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+      # The views pool's chart tests render the chart (they skip without helm).
+      - uses: azure/setup-helm@v4
+      - name: Update chart dependencies
+        run: helm dependency update charts/agent-platform
       - name: Executor tests
         run: |
           pip install -q -r services/tool-executor/requirements.txt pytest

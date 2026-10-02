@@ -49,6 +49,14 @@ toolExecutor:
     tag: dev
     pullPolicy: IfNotPresent
 
+# The views pool (docs/design/39 "Tool views"): the executor image in
+# AP_EXECUTOR_POOL=views mode, no-egress, for tool view actions only.
+toolExecutorViews:
+  replicas: 1
+  resources:
+    requests: {memory: 96Mi, cpu: 25m}
+    limits: {memory: 512Mi}
+
 # Auth-injecting egress proxy for the Claude API (docs/design/09): the only pod
 # holding the Claude subscription token. Runner pods get a placeholder
 # credential + ANTHROPIC_BASE_URL pointed here, and never mount the

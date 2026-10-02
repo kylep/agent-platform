@@ -28,6 +28,12 @@ are enforced; a non-zero exit becomes a structured error for the model.
 
 Netpol makes this pod the single internet-egress point for agent-driven code;
 its clients are the broker and (for `internal` tools) the platform API.
+
+With AP_EXECUTOR_POOL=views (docs/design/39 "Tool views") the same image is
+the no-egress views pool: it runs only actions a tool declares under
+`view_actions`, refuses anything that could carry data out or write (secrets,
+`database`, `kafka`, `files_in`), and fails an output over the action's
+`max_bytes`. Its netpol lets it reach DNS and the platform API, nothing else.
 """
 import asyncio
 import base64
@@ -65,6 +71,19 @@ B64_CAP = FILE_CAP * 4 // 3 + 4
 BODY_CAP = FILES_IN_MAX * B64_CAP + 1024 * 1024
 NAME_MAX = 200
 SA_DIR = Path("/var/run/secrets/kubernetes.io/serviceaccount")
+POOLS = ("default", "views")
+
+
+def pool_from_env(environ) -> str:
+    """Which pool this process serves. A misspelt name fails at start rather
+    than quietly running the views pod as the unrestricted default."""
+    pool = environ.get("AP_EXECUTOR_POOL", "").strip() or "default"
+    if pool not in POOLS:
+        raise RuntimeError(f"AP_EXECUTOR_POOL must be one of {POOLS}, got {pool!r}")
+    return pool
+
+
+POOL = pool_from_env(os.environ)
 
 
 class BodyCap:
@@ -145,6 +164,28 @@ class RunIn(BaseModel):
     caller: Caller = Caller()
     files_in: list[FileIn] = []
     credential: CallCredential | None = None
+
+
+def view_action(manifest: dict, body: RunIn) -> dict:
+    """The views pool's gate, checked before anything is staged, fetched or
+    run: the call must name a declared view action, and the tool must need
+    nothing beyond the app-data endpoint. Returns the action's declaration."""
+    actions = manifest.get("view_actions")
+    action = body.args.get("action")
+    if not isinstance(actions, dict) or not isinstance(action, str) \
+            or not isinstance(actions.get(action), dict):
+        raise HTTPException(403, f"{body.tool}: not a declared view action: {action!r}")
+    infra = manifest.get("infra") or {}
+    for key in ("secrets", "database", "kafka"):
+        if infra.get(key):
+            raise HTTPException(403, f"{body.tool}: the views pool runs no tool with {key}")
+    if body.files_in:
+        raise HTTPException(403, "the views pool takes no files_in")
+    decl = actions[action]
+    max_bytes = decl.get("max_bytes")
+    if not isinstance(max_bytes, int) or isinstance(max_bytes, bool) or max_bytes <= 0:
+        raise HTTPException(403, f"{body.tool}.{action}: view action declares no max_bytes")
+    return decl
 
 
 def effective_timeout(manifest: dict) -> int:
@@ -486,6 +527,7 @@ async def healthz():
 @app.post("/run")
 async def run_tool(body: RunIn):
     manifest = load_manifest(body.tool)
+    view = view_action(manifest, body) if POOL == "views" else None
     try:
         jsonschema.validate(body.args, manifest["params"])
     except jsonschema.ValidationError as e:
@@ -534,6 +576,14 @@ async def run_tool(body: RunIn):
             detail = (err or out or b"").decode(errors="replace")[-2000:]
             log.warning("tool %s exited %s: %s", body.tool, proc.returncode, detail[:500])
             return {"ok": False, "error": f"tool exited {proc.returncode}: {detail}"}
+        if view is not None:
+            # A view's output is checked whole downstream, so it is never
+            # truncated into something that might still parse.
+            if len(out) > view["max_bytes"]:
+                return {"ok": False, "error": f"view output exceeds max_bytes ({view['max_bytes']})"}
+            if any(out_dir.iterdir()):
+                return {"ok": False, "error": "a view action returns rows on stdout, not files"}
+            return {"ok": True, "output": out.decode(errors="replace"), "files": [], "warnings": []}
         text = out.decode(errors="replace")
         if len(text) > OUTPUT_CAP:
             text = text[:OUTPUT_CAP] + f"\n…[truncated at {OUTPUT_CAP} bytes]"

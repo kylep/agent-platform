@@ -1,0 +1,103 @@
+# The views pool (docs/design/39 "Tool views"): the tool-executor image in
+# AP_EXECUTOR_POOL=views mode, which runs only declared view actions. A view
+# runs with the viewer's authority, so it must not be able to carry what it
+# reads anywhere: its NetworkPolicy (networkpolicy.yaml) lets it reach DNS and
+# the platform API only, whatever `networkPolicy.egress` says. Only the API
+# calls it.
+#
+# No SPIRE sidecar: the pool's one client is the API, and the deny policy
+# already pins that.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  # Its own identity, bound to no Role: the pool reads no secrets, and the API
+  # can tell its calls from the default pool's.
+  name: {{ .Release.Name }}-tool-executor-views
+  labels:
+    {{- include "agent-platform.labels" . | nindent 4 }}
+automountServiceAccountToken: false
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}-tool-executor-views
+  labels:
+    {{- include "agent-platform.selectorLabels" (dict "Release" .Release "Chart" .Chart "component" "tool-executor-views") | nindent 4 }}
+spec:
+  replicas: {{ .Values.toolExecutorViews.replicas }}
+  selector:
+    matchLabels:
+      {{- include "agent-platform.selectorLabels" (dict "Release" .Release "Chart" .Chart "component" "tool-executor-views") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "agent-platform.selectorLabels" (dict "Release" .Release "Chart" .Chart "component" "tool-executor-views") | nindent 8 }}
+    spec:
+      serviceAccountName: {{ .Release.Name }}-tool-executor-views
+      # No k8s API token; the projected ap-identity token below is the only
+      # one, and it is what binds a view credential to this pool.
+      automountServiceAccountToken: false
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: tool-executor
+          image: "{{ .Values.toolExecutor.image.repository }}:{{ .Values.toolExecutor.image.tag }}"
+          imagePullPolicy: {{ .Values.toolExecutor.image.pullPolicy | default "IfNotPresent" }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            runAsNonRoot: true
+            runAsUser: 1001
+            runAsGroup: 1001
+            capabilities:
+              drop: ["ALL"]
+          env:
+            - name: AP_EXECUTOR_POOL
+              value: "views"
+            - name: AP_TOOLS_ROOT
+              value: "/agents/tools"
+            # The api Service is hardcoded agent-platform-api (not release-named).
+            - name: AP_API_URL
+              value: "http://agent-platform-api:8000"
+            - name: AP_EXECUTOR_TOKEN_FILE
+              value: /var/run/ap-identity/token
+          ports:
+            - containerPort: 8000
+          readinessProbe:
+            httpGet: {path: /healthz, port: 8000}
+            initialDelaySeconds: 3
+            periodSeconds: 10
+          volumeMounts:
+            - name: agent-definitions
+              mountPath: /agents
+              readOnly: true
+            - name: ap-identity
+              mountPath: /var/run/ap-identity
+              readOnly: true
+          resources:
+            {{- toYaml .Values.toolExecutorViews.resources | nindent 12 }}
+      volumes:
+        - name: agent-definitions
+          persistentVolumeClaim:
+            claimName: {{ .Values.env.AP_AGENTS_VOLUME_CLAIM }}
+        - name: ap-identity
+          projected:
+            sources:
+              - serviceAccountToken:
+                  audience: agent-platform
+                  expirationSeconds: 3600
+                  path: token
+---
+apiVersion: v1
+kind: Service
+metadata:
+  # Hardcoded like the default pool's, so the API can default its URL.
+  name: agent-platform-tool-executor-views
+  labels:
+    {{- include "agent-platform.selectorLabels" (dict "Release" .Release "Chart" .Chart "component" "tool-executor-views") | nindent 4 }}
+spec:
+  selector:
+    {{- include "agent-platform.selectorLabels" (dict "Release" .Release "Chart" .Chart "component" "tool-executor-views") | nindent 4 }}
+  ports:
+    - port: 8000
+      targetPort: 8000
