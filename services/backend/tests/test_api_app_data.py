@@ -1,11 +1,14 @@
 """The `/api/app-data` routes (design 39): Kyle's read routes for the web,
 shaped exactly as services/web/src/lib/appData.ts documents, and the agent
 routes the `apps` and `app_data` broker tools call."""
+import copy
+
 import pytest
 from sqlalchemy import select
 
 from agentplatform.api import app_data as app_data_api
 from agentplatform.appdata import lifecycle as L
+from agentplatform.appdata import proposals as P
 from agentplatform.appdata.access import Caller
 from agentplatform.appdata.lifecycle import Actor
 from agentplatform.appdata.models import AppDataApp, AppDataDefinition
@@ -200,8 +203,67 @@ async def test_kyle_routes_refuse_everyone_but_kyles_session(client, token_clien
         await s.commit()
     assert (await token_client.post("/api/login", json={"principal": "qa",
                                                          "password": "pw"})).status_code == 200
-    for path in paths:
+    assert (await token_client.get(paths[0])).json() == []
+    for path in paths[1:]:
         assert (await token_client.get(path)).status_code == 403, path
+
+
+async def test_qa_session_reads_only_shared_app_facts(token_client, sf):
+    from argon2 import PasswordHasher
+
+    app_id = await build(sf)
+    shared = {**HABITS, "access": {"read": ["owner", "kyle", "login:qa"],
+                                   "create": ["owner"], "update": ["owner"],
+                                   "delete": ["owner"]}}
+    async with sf() as s:
+        await L.draft(s, PAI, app_id, request_id="qa-share-draft", kind="collection",
+                      definition=shared)
+    async with sf() as s:
+        p = await P.propose(s, PAI, app_id, request_id="qa-share-proposal")
+    async with sf() as s:
+        await P.approve(s, Actor("kyle"), p["id"], request_id="qa-share-approval",
+                        digest=p["digest"])
+    page_with_private_column = copy.deepcopy(OVERVIEW)
+    page_with_private_column["blocks"][1]["columns"].append({"field": "note"})
+    async with sf() as s:
+        await L.draft(s, PAI, app_id, request_id="qa-page-draft", kind="page",
+                      definition=page_with_private_column)
+    async with sf() as s:
+        await L.publish(s, PAI, app_id, request_id="qa-page-publish",
+                        expected_approved_version=2)
+    await add(sf, app_id, {"habit": "run", "day": "2026-10-02", "note": "private"})
+    async with sf() as s:
+        s.add(Principal(name="qa", role="reader", password_hash=PasswordHasher().hash("pw")))
+        await s.commit()
+    assert (await token_client.post("/api/login", json={"principal": "qa",
+                                                         "password": "pw"})).status_code == 200
+    listed = (await token_client.get("/api/app-data/apps")).json()
+    assert [a["id"] for a in listed] == [app_id]
+    detail = (await token_client.get(f"/api/app-data/apps/{app_id}")).json()
+    assert {x["kind"] for x in detail["approved"]} == {"page"}
+    assert detail["drafts"] == [] and detail["build_notes"] is None
+    assert detail["build_ops"] == [] and detail["health"]["quota"]["records"] == 0
+    page = (await token_client.get(f"/api/app-data/apps/{app_id}/pages/overview")).json()
+    assert page["definition"]["renderer"] == "typed/v2"
+    assert all("actions" not in c for c in page["definition"]["components"])
+    table = next(c for c in page["definition"]["components"] if c["kind"] == "table")
+    assert [c["field"] for c in table["columns"]] == ["habit", "day"]
+    view = (await token_client.get(f"/api/app-data/apps/{app_id}/views/recent")).json()
+    assert view["rows"][0]["values"]["note"] is None
+    assert "note" in view["rows"][0]["restricted"]
+    assert (await token_client.get("/api/app-data/proposals")).status_code == 403
+    assert (await token_client.put(f"/api/app-data/quotas/app/{app_id}",
+                                   json={"limits": {}})).status_code == 403
+
+    # Narrowing takes effect on the very next request, including the list.
+    async with sf() as s:
+        await L.draft(s, PAI, app_id, request_id="qa-unshare-draft", kind="collection",
+                      definition=HABITS)
+    async with sf() as s:
+        await L.publish(s, PAI, app_id, request_id="qa-unshare-publish",
+                        expected_approved_version=3)
+    assert (await token_client.get("/api/app-data/apps")).json() == []
+    assert (await token_client.get(f"/api/app-data/apps/{app_id}")).status_code == 403
 
 
 # --- agent routes: auth -----------------------------------------------------------------

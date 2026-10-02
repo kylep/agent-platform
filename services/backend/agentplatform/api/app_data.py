@@ -2,12 +2,12 @@
 
 Two doors, never the same caller:
 
-- **Kyle's routes** (`GET /api/app-data/apps…`, and the quota readout and
-  setter at `/api/app-data/quotas/{app|owner}/{id}`) serve the console. They
-  answer only Kyle's browser session (`auth_kind == "session"`, role
-  `admin`): not an admin API key, not another login, not an agent. Response
-  shapes are the contract at the top of services/web/src/lib/appData.ts, and
-  errors are FastAPI's `{"detail": "<text>"}`.
+- **Browser routes** (`GET /api/app-data/apps…`) answer Kyle's session and
+  the named QA reader login. QA sees only approved shares and fields, no
+  builder details or actions. Proposal decisions and quota routes still
+  answer only Kyle's admin session: never an API key or agent. Response
+  shapes are the contract in services/web/src/lib/appData.ts; errors are
+  FastAPI's `{"detail": "<text>"}`.
 - **Agent routes** (`POST /api/app-data/agent/…`) are what the `apps` and
   `app_data` broker tools call. They answer only an agent run whose grant set
   (the run token's frozen tools when it has them) holds the tool: `apps` for
@@ -37,11 +37,11 @@ from agentplatform.appdata import lifecycle as L
 from agentplatform.appdata import proposals as P
 from agentplatform.appdata import quotas
 from agentplatform.appdata.access import Caller, RecordError
-from agentplatform.appdata.definitions import json_schemas
+from agentplatform.appdata.definitions import TextBlock, ToolViewDef, json_schemas
 from agentplatform.appdata.lifecycle import Actor
 from agentplatform.appdata.models import AppDataProposal
 from agentplatform.appdata.records import get_record, load_app, plan_delete
-from agentplatform.appdata.views import run_view
+from agentplatform.appdata.views import check_view_access, run_view
 from agentplatform.db import AgentDef
 
 router = APIRouter()
@@ -64,6 +64,29 @@ async def kyle_session(request: Request) -> Actor:
     if getattr(request.state, "auth_kind", None) != "session" or role != "admin":
         raise HTTPException(403, "State Apps are read here only from Kyle's browser session")
     return KYLE
+
+
+async def app_reader_session(request: Request) -> Actor | Caller:
+    """A browser read is Kyle's, or the one QA login under its App facts.
+
+    A reader API key and an arbitrary reader account are not a QA login.
+    Write routes keep kyle_session and never accept this dependency.
+    """
+    ident = await authenticate(request)
+    if ident is None:
+        raise HTTPException(401)
+    name, role = ident
+    if getattr(request.state, "auth_kind", None) != "session":
+        raise HTTPException(403)
+    if role == "admin":
+        return KYLE
+    if name == "qa" and role == "reader":
+        return Caller("login:qa")
+    raise HTTPException(403)
+
+
+def _reader_caller(actor: Actor | Caller) -> Caller:
+    return actor.caller if isinstance(actor, Actor) else actor
 
 
 async def _agent(request: Request, tool: str) -> Actor:
@@ -147,16 +170,19 @@ def _for_agent(exc: RecordError) -> HTTPException:
 # --- Kyle's read routes -----------------------------------------------------------------
 
 @router.get("/api/app-data/apps")
-async def state_apps_list(request: Request, actor: Actor = Depends(kyle_session)):
+async def state_apps_list(request: Request,
+                          actor: Actor | Caller = Depends(app_reader_session)):
     async with request.app.state.session_factory() as s:
         return await L.list_apps(s, actor)
 
 
 @router.get("/api/app-data/apps/{app_id}")
 async def state_app_get(request: Request, app_id: str,
-                        actor: Actor = Depends(kyle_session)):
+                        actor: Actor | Caller = Depends(app_reader_session)):
     async with request.app.state.session_factory() as s:
         try:
+            if isinstance(actor, Caller):
+                return await L.get_readable_app(s, actor, app_id)
             return await L.get_app(s, actor, app_id)
         except RecordError as exc:
             raise _for_web(exc) from None
@@ -231,17 +257,17 @@ async def state_proposal_decline(request: Request, proposal_id: str,
 
 @router.get("/api/app-data/apps/{app_id}/pages/{page}")
 async def state_app_page(request: Request, app_id: str, page: str,
-                   actor: Actor = Depends(kyle_session)):
+                   actor: Actor | Caller = Depends(app_reader_session)):
     async with request.app.state.session_factory() as s:
         try:
-            return await published_page(s, actor.caller, app_id, page)
+            return await published_page(s, _reader_caller(actor), app_id, page)
         except RecordError as exc:
             raise _for_web(exc) from None
 
 
 @router.get("/api/app-data/apps/{app_id}/views/{view}")
 async def state_app_view(request: Request, app_id: str, view: str,
-                    actor: Actor = Depends(kyle_session)):
+                    actor: Actor | Caller = Depends(app_reader_session)):
     query = request.query_params
     params = {k: v for k, v in query.items() if k not in _PAGING}
     limit = query.get("limit")
@@ -252,7 +278,7 @@ async def state_app_view(request: Request, app_id: str, view: str,
             raise HTTPException(422, "limit is a number from 1 to 200") from None
     async with request.app.state.session_factory() as s:
         try:
-            return await published_view(s, actor.caller, app_id, view, params, limit=limit,
+            return await published_view(s, _reader_caller(actor), app_id, view, params, limit=limit,
                                         cursor=query.get("cursor"))
         except RecordError as exc:
             raise _for_web(exc) from None
@@ -311,9 +337,38 @@ async def published_page(session, caller: Caller, app_ref: str, name: str) -> di
         raise RecordError("AD-APP-RETIRED", f"App {app.name} is retired", 409)
     if not L.can_read_page(ctx, caller, page):
         raise RecordError("AD-FORBIDDEN", f"{caller.principal} may not read page {name}", 403)
+    definition = L.page_for_web(page, ctx.bundle)
+    if caller.principal == "login:qa":
+        visible = []
+        for block, component in zip(page.blocks, definition["components"]):
+            if isinstance(block, TextBlock):
+                visible.append(component)
+                continue
+            view = ctx.bundle.views[block.view]
+            try:
+                if isinstance(view, ToolViewDef):
+                    if not L._can_read_view(ctx, caller, view):
+                        continue
+                else:
+                    check_view_access(ctx, caller, view)
+            except RecordError:
+                continue
+            if not isinstance(view, ToolViewDef):
+                access = ctx.access(ctx.collection(view.collection), caller)
+                key = "columns" if component["kind"] == "table" else (
+                    "fields" if component["kind"] == "detail" else None)
+                if key:
+                    component[key] = [f for f in component[key] if access.can_read(f["field"])]
+                    if not component[key]:
+                        continue
+            visible.append(component)
+        if any(not isinstance(b, TextBlock) for b in page.blocks) and not any(
+                c["kind"] != "text" for c in visible):
+            raise RecordError("AD-FORBIDDEN", "no readable blocks on this page", 403)
+        definition["components"] = visible
     return {"app_id": app.id, "app_name": app.name, "page": name,
             "version": L.page_version(await L._rows(session, app.id), app, name),
-            "definition": L.page_for_web(page, ctx.bundle)}
+            "definition": definition}
 
 
 async def published_view(session, caller: Caller, app_ref: str, name: str, params: dict,

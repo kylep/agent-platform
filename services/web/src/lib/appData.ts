@@ -98,6 +98,7 @@ export type HealthDetail = HealthSummary & {
 };
 
 export type StateAppDetail = Omit<StateAppSummary, "health"> & {
+  read_only?: boolean;            // the QA login sees shared pages, not builder details
   approved: ApprovedDefinition[];
   drafts: DefinitionDraft[];
   build_notes: BuildNotes | null;

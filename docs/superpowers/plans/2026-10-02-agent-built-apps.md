@@ -630,7 +630,7 @@ Shared-file notes for G1:
     - The page passes the a11y spec.
     - `check-no-raw-hex` is green.
     - A visual review happens at the phase end.
-- [ ] **B13 Sharing** (after B8) ∥.
+- [x] **B13 Sharing** (after B8) ∥.
   - **Goal:** an App approved as shared works for the agents and the QA
     login it names, and for nothing more.
   - **Design:** revision 3 "Proposals" → "Sharing doesn't grant tools";

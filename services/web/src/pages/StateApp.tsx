@@ -149,7 +149,6 @@ export default function StateApp() {
   const { id = "" } = useParams();
   const [search, setSearch] = useSearchParams();
   const asked = search.get("tab");
-  const tab: Tab = TABS.some((t) => t.id === asked) ? asked as Tab : "pages";
   const [app, setApp] = useState<StateAppDetail | null>(null);
   const [error, setError] = useState<unknown>(null);
   useEffect(() => {
@@ -168,6 +167,8 @@ export default function StateApp() {
     </div>;
   }
   if (!app) return <div className="page"><p className="muted">Loading App…</p></div>;
+  const tabs = app.read_only ? TABS.filter((t) => t.id === "pages") : TABS;
+  const tab: Tab = tabs.some((t) => t.id === asked) ? asked as Tab : "pages";
   return <div className="page">
     <div className="page-header"><h1>{app.name}</h1></div>
     <p className="state-app-meta">
@@ -177,7 +178,7 @@ export default function StateApp() {
     </p>
     {app.description && <p className="muted">{app.description}</p>}
     <div className="tabs" role="tablist" aria-label="Builder" tabIndex={0}>
-      {TABS.map((t) => <button key={t.id} role="tab" id={`tab-${t.id}`} aria-selected={tab === t.id}
+      {tabs.map((t) => <button key={t.id} role="tab" id={`tab-${t.id}`} aria-selected={tab === t.id}
         aria-controls="state-app-panel" className={tab === t.id ? "tab active" : "tab"}
         onClick={() => setSearch(t.id === "pages" ? {} : { tab: t.id }, { replace: true })}>{t.label}</button>)}
     </div>

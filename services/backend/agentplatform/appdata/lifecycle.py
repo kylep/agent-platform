@@ -392,8 +392,34 @@ async def list_apps(session, actor: Actor) -> list[dict]:
     out = []
     for app in apps:
         if await _readable_by(session, app, actor.principal):
-            out.append(_summary(app, await _health(session, app, reuse=True)))
+            health = ({"status": "ok", "issues": 0, "checked_at": None}
+                      if actor.principal == "login:qa"
+                      else await _health(session, app, reuse=True))
+            out.append(_summary(app, health))
     return out
+
+
+async def get_readable_app(session, caller: Caller, app_ref: str) -> dict:
+    """QA's narrow builder shell: page names, not drafts, source definitions,
+    build notes, health internals or operations. Page/view reads apply the
+    collection and per-field facts separately on every request."""
+    app = await _app(session, app_ref)
+    if caller.principal != "login:qa" or not await _readable_by(session, app,
+                                                                   caller.principal):
+        raise _refuse("AL-NOT-READER", "this App is not shared with the QA login", 403)
+    ctx = await rec.load_app(session, app.id)
+    pages = [{"kind": "page", "name": name, "version": page_version(
+        await _rows(session, app.id), app, name), "published_at": "",
+        "published_by": "", "definition": {"page": name, "title": page.title}}
+        for name, page in sorted(ctx.bundle.pages.items())
+        if can_read_page(ctx, caller, page)]
+    return {**_summary(app, {"status": "ok", "issues": 0, "checked_at": None}),
+            "read_only": True, "approved": pages, "drafts": [], "build_notes": None,
+            "build_ops": [],
+            "health": {"status": "ok", "issues": 0, "checked_at": None,
+                       "invalid_bindings": [], "rule_violations": [],
+                       "quota": {"records": 0, "records_limit": 0,
+                                 "bytes": 0, "bytes_limit": 0}}}
 
 
 def _draft_view(row: AppDataDefinition) -> dict:
@@ -1304,7 +1330,11 @@ def _can_read_view(ctx: rec.AppContext, caller: Caller, view) -> bool:
             return False
         return all(ctx.access(ctx.collection(app_tool.roles[role].collection), caller)
                    .can_see_rows() for role in view.sources)
-    return ctx.access(ctx.collection(view.collection), caller).can_see_rows()
+    try:
+        check_view_access(ctx, caller, view)
+    except RecordError:
+        return False
+    return True
 
 
 # --- preview ----------------------------------------------------------------------------
