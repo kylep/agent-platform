@@ -75,6 +75,10 @@ would destroy newer state and kill the API serving the request. Use a fresh
 cluster or a deliberate maintenance window, and keep the archive and private
 identity on your trusted machine.
 
+A restore brings back everything the archive holds, including
+[Judgment](judgment.md) records Kyle deleted after the backup was taken.
+Re-delete them on `/apps/judgment/` after restoring.
+
 1. Check out the Agent Platform Git revision that produced the backup, or a
    compatible newer version. Deploy its chart to a fresh cluster so PostgreSQL
    and the platform-generated credentials exist. Do not restore old K3s

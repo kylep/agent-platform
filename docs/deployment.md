@@ -79,6 +79,7 @@ namespace are invisible to kubelet.
 | `agent-platform-app-news` | `apps/news` | `deploy/ap-app-news` |
 | `agent-platform-app-stockmarket` | `apps/stockmarket` | `deploy/ap-app-stockmarket` |
 | `agent-platform-app-running` | repository root with `-f apps/running/Dockerfile .` | `deploy/ap-app-running` |
+| `agent-platform-app-judgment` | repository root with `-f apps/judgment/Dockerfile .`, after `npm run build -w judgment-frontend` | `deploy/ap-app-judgment` |
 
 App images build from the **repository root** with `-f apps/<name>/Dockerfile .`
 and expect the frontend prebuilt on the host first

@@ -255,6 +255,11 @@ Every long-running piece of the platform. All of these are Deployments in the
   the `tcms` tool the QA reads and records through. The block is
   [tcms.md](tcms.md); the design record is
   `docs/design/25-qa-agent-and-tcms.md`.
+- **Judgment** — Kai's private store of beliefs about Kyle (versioned),
+  predictions written before he decides (immutable), and the feedback he
+  chooses to share. Only Kai (through the `judgment` tool) and Kyle (at
+  `/apps/judgment/`) can see it. The block is [judgment.md](judgment.md); the
+  design record is `docs/design/38-judgment-app.md`.
 - **Kyle (project owner)** — the sole operator of the reference deployment.
   Design docs quote him directly; those quotes are the historical record of a
   decision, not instructions to the reader.

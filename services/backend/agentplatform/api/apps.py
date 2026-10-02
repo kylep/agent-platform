@@ -215,10 +215,14 @@ async def query_app(request: Request, name: str, path: str,
 async def auth_check(request: Request):
     """nginx auth_request backend for /apps/<name>/ routes: 204 + identity
     headers when the caller holds a valid session cookie or API key, 401
-    otherwise. Apps receive X-AP-User / X-AP-Role and never see credentials."""
+    otherwise. Apps receive X-AP-User / X-AP-Role / X-AP-Auth and never see
+    credentials. X-AP-Auth is how the caller authenticated (session | key |
+    workload), so an App can admit only a login session: a key's principal is
+    its name, which may well be `admin`."""
     ident = await authenticate(request)
     if ident is None:
         raise HTTPException(401)
     name, role = ident
     return Response(status_code=204,
-                    headers={"X-AP-User": name, "X-AP-Role": role})
+                    headers={"X-AP-User": name, "X-AP-Role": role,
+                             "X-AP-Auth": request.state.auth_kind})

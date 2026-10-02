@@ -2189,6 +2189,101 @@
       "snapshot_eligible": false
     },
     {
+      "id": "tool.judgment.belief@1",
+      "source": "mcp-custom",
+      "tool": "judgment",
+      "action": "belief",
+      "category": "domain_capability",
+      "effects": [
+        "mutates_platform"
+      ],
+      "output_classification": "private",
+      "view_eligible": false,
+      "reason": "No reviewed human page adapter",
+      "input_schema": null,
+      "output_schema": null,
+      "target_scope": null,
+      "supported_callers": [],
+      "limits": null,
+      "snapshot_eligible": false
+    },
+    {
+      "id": "tool.judgment.feedback@1",
+      "source": "mcp-custom",
+      "tool": "judgment",
+      "action": "feedback",
+      "category": "domain_capability",
+      "effects": [
+        "mutates_platform"
+      ],
+      "output_classification": "private",
+      "view_eligible": false,
+      "reason": "No reviewed human page adapter",
+      "input_schema": null,
+      "output_schema": null,
+      "target_scope": null,
+      "supported_callers": [],
+      "limits": null,
+      "snapshot_eligible": false
+    },
+    {
+      "id": "tool.judgment.pending@1",
+      "source": "mcp-custom",
+      "tool": "judgment",
+      "action": "pending",
+      "category": "domain_capability",
+      "effects": [
+        "reads_sensitive"
+      ],
+      "output_classification": "private",
+      "view_eligible": false,
+      "reason": "No reviewed human page adapter",
+      "input_schema": null,
+      "output_schema": null,
+      "target_scope": null,
+      "supported_callers": [],
+      "limits": null,
+      "snapshot_eligible": false
+    },
+    {
+      "id": "tool.judgment.predict@1",
+      "source": "mcp-custom",
+      "tool": "judgment",
+      "action": "predict",
+      "category": "domain_capability",
+      "effects": [
+        "mutates_platform"
+      ],
+      "output_classification": "private",
+      "view_eligible": false,
+      "reason": "No reviewed human page adapter",
+      "input_schema": null,
+      "output_schema": null,
+      "target_scope": null,
+      "supported_callers": [],
+      "limits": null,
+      "snapshot_eligible": false
+    },
+    {
+      "id": "tool.judgment.recall@1",
+      "source": "mcp-custom",
+      "tool": "judgment",
+      "action": "recall",
+      "category": "domain_capability",
+      "effects": [
+        "reads_sensitive"
+      ],
+      "output_classification": "private",
+      "view_eligible": false,
+      "reason": "No reviewed human page adapter",
+      "input_schema": null,
+      "output_schema": null,
+      "target_scope": null,
+      "supported_callers": [],
+      "limits": null,
+      "snapshot_eligible": false
+    },
+    {
       "id": "tool.linear.comment@1",
       "source": "mcp-custom",
       "tool": "linear",

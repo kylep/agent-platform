@@ -114,6 +114,10 @@ jobs:
         run: |
           pip install -q -r apps/tcms/backend/requirements.txt aiosqlite pytest pytest-asyncio
           cd apps/tcms/backend && python -m pytest -q
+      - name: judgment app backend tests
+        run: |
+          pip install -q -r apps/judgment/backend/requirements.txt aiosqlite pytest pytest-asyncio
+          cd apps/judgment/backend && python -m pytest -q
 
   tools:
     # Custom platform tools (docs/design/12): executor invariants + every
@@ -159,6 +163,7 @@ jobs:
           npm run build -w news-frontend
           npm run build -w stockmarket-frontend
           npm run build -w tcms-frontend
+          npm run build -w judgment-frontend
       - name: Design-system token gate
         # No raw hex outside packages/ui/src/tokens.css — see packages/ui/README.md
         run: cd services/web && npm run check:tokens

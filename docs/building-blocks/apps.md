@@ -78,7 +78,11 @@ app's data is a human act.
 - **Routing/auth**: web nginx proxies `/apps/<name>/` → the app's Service
   with `auth_request` against `GET /api/auth-check`. The app never sees
   credentials — it receives trusted `X-AP-User` / `X-AP-Role` headers (its
-  API should refuse requests without them). NetworkPolicy makes nginx the
+  API should refuse requests without them), plus `X-AP-Auth` saying how the
+  caller authenticated: `session` (login cookie), `key` (`ap_` API key) or
+  `workload` (ServiceAccount token). A key's principal is its name, so an
+  App that must admit only a person's login checks `X-AP-Auth: session`.
+  `query_app` calls carry no `X-AP-Auth`. NetworkPolicy makes nginx the
   ONLY ingress to an app pod, so the guard can't be bypassed in-cluster.
 - **Agent output in**: an agent manifest's `result_topic:` feeds successful
   run results to the app's inbound topic via the recorder — the agent itself

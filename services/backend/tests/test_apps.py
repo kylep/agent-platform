@@ -135,6 +135,30 @@ async def test_auth_check_gates(client):
     assert r.headers["x-ap-user"] == "admin" and r.headers["x-ap-role"] == "admin"
 
 
+async def test_auth_check_says_how_the_caller_authenticated(admin_client, token_client):
+    """X-AP-Auth lets an App admit only a login session: an API key's principal
+    is its name, so a key named `admin` with role admin looks like Kyle's
+    login on X-AP-User / X-AP-Role alone."""
+    r = await admin_client.get("/api/auth-check")
+    assert r.status_code == 204 and r.headers["x-ap-auth"] == "session"
+
+    key = await admin_client.post("/api/api-keys", json={"name": "admin", "role": "admin"})
+    assert key.status_code == 201, key.text
+    r = await token_client.get("/api/auth-check",
+                               headers={"Authorization": f"Bearer {key.json()['token']}"})
+    assert r.status_code == 204
+    assert (r.headers["x-ap-user"], r.headers["x-ap-role"], r.headers["x-ap-auth"]) == \
+        ("admin", "admin", "key")
+
+    async def validate(_token):
+        return "system:serviceaccount:ap:ap-connector-discord"
+    token_client._transport.app.state.sa_validator = validate
+    r = await token_client.get("/api/auth-check",
+                               headers={"Authorization": "Bearer eyJh.eyJz.c2ln"})
+    assert r.status_code == 204, r.text
+    assert r.headers["x-ap-user"] == "connector-discord" and r.headers["x-ap-auth"] == "workload"
+
+
 async def test_query_app_rejects_traversal(admin_client):
     for bad in ("..%2Fsecrets", "..", "a/../../b", "a\\b"):
         r = await admin_client.get(f"/api/apps/news/query/{bad}")
