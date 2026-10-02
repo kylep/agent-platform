@@ -84,17 +84,17 @@ mismatch.
 (timestamps ISO 8601); `alternatives` is decoded to a list.
 
 ### Phase C — integrate, review, ship (orchestrator)
-- [ ] **T5** Merge T2–T4, full local suites, design-acceptance walk in tests.
-- [ ] **T6** Code review by Sol + Fable; fix findings.
+- [x] **T5** (merged into `feat/judgment-app`) Merge T2–T4, full local suites, design-acceptance walk in tests.
+- [x] **T6** (`6d68530`: nine findings fixed) Code review by Sol + Fable; fix findings.
 - [x] **T7** (commit `c84ec27`) Docs: `docs/building-blocks/judgment.md`, index row, glossary.
-- [ ] **T8** PR, CI green, merge.
-- [ ] **T9** Deploy: build frontend + App image, import, helm upgrade with
+- [x] **T8** (PR #31, `05d49d5`) PR, CI green, merge.
+- [x] **T9** (helm rev 88) Deploy: build frontend + App image, import, helm upgrade with
   `judgment` enabled; confirm the provisioner made `app_judgment` and
   `app-judgment-db`; App pod healthy; page loads for the admin session and
   refuses a reader key.
-- [ ] **T10** Kai: grant `mcp__platform__judgment`, append the prompt
+- [x] **T10** (Kai version 9) Kai: grant `mcp__platform__judgment`, append the prompt
   section (live edit, change-log version).
-- [ ] **T11** Live verification: through Kai, create a belief and a
+- [x] **T11** (Kai runs `fc77e517`, `b6baa985`; Kyle-session step pending, see the design's AS BUILT) Live verification: through Kai, create a belief and a
   prospective prediction, recall in a second run, attach relayed feedback;
   confirm on the page; prove another agent and a reader are refused; delete
   and confirm the rows are gone. Record evidence in the design's AS BUILT.

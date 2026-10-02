@@ -380,3 +380,61 @@ and append this section:
 - More than one owner (Pai, Olu): `OWNER_AGENT` becomes a set and rows are
   scoped by owner.
 - Any statistics beyond counts.
+
+## AS BUILT (2026-10-02)
+
+Shipped in PR #31 (`05d49d5`), deployed as helm rev 88. Code review by Sol and
+Fable after the build found nine issues, all fixed before merge (`6d68530`).
+
+### Deviations from the design above
+- **Session-only owner.** An admin API key named `admin` would have passed an
+  owner check on role and principal name alone, because a key's name is its
+  principal. The platform now reports how a caller authenticated:
+  `authenticate()` records `session` / `key` / `workload`, `auth_check`
+  returns it as `X-AP-Auth`, and nginx always sets that header on `/apps/`
+  requests, so a client can't supply its own. The App requires
+  `X-AP-Auth: session`. Any App can use the header.
+- **Relay refs carry their channel:** `relay:<channel>/<message>`, because the
+  console has no message-by-id route. The page links them to the room and
+  thread. Discord refs show their ids; a server-channel link needs a server id
+  the ref doesn't carry.
+- **Deleting a version** also unlinks feedback that targeted that exact
+  version, and deletes it if it is left with no target, recursively.
+- **Write locking:** the tool locks referenced beliefs (in id order) and
+  predictions before checking them; App deletes lock beliefs, then
+  predictions. Every writer takes locks in the same order.
+- **`request_id`** stores a hash of the call's arguments. Reusing an id for a
+  different call is refused. Receipts older than seven days are pruned, and
+  App deletes remove the receipts that name what they deleted.
+- **SPA fallback:** deep links like `/apps/judgment/beliefs/<id>` serve the
+  page on reload; unknown API paths stay JSON 404s.
+
+### Live evidence
+- The provisioner created role and schema `app_judgment` and secret
+  `app-judgment-db`. The App pod restarted once to pick up the secret after it
+  first started without it.
+- `/apps/judgment/` returns 401 without credentials. The API refuses an admin
+  API key with 403 ("the judgment app answers only its owner's admin
+  session"), and also refuses that key when it sends a forged
+  `X-AP-Auth: session`. `auth_check` reports `x-ap-auth: key` for it.
+- Kai was granted `mcp__platform__judgment`, and its prompt gained the
+  Judgment section (Kai version 9).
+- **Kai run `fc77e517…`** created a test belief `0462c3d7…` (v1, inference)
+  and a prospective prediction `57fc31ad…` linked to it. Its `kyle_confirmed`
+  write was refused. `recall` and `pending` returned the records inside the
+  untrusted block.
+- **Kai run `b6baa985…`**, a separate run, recalled both by id. It attached
+  relayed feedback `296a43c8…` (contradicted, with a `relay:` source) to the
+  prediction and belief v1, then revised the belief to v2 citing that
+  feedback. A repeated `request_id` returned the same receipt without writing
+  twice. Kai declined to paste the records into its reply, citing the new
+  prompt rule.
+
+### Known gaps
+- **Kyle's session path** (confirm, correct, delete on the page) is verified
+  in tests but not yet live: it needs Kyle's own login. Deleting the two test
+  records on the page is that check.
+- **Codex runs report `tool_calls: 0`** even when they call tools, so Kai's
+  two runs show zero (ENG-9).
+- **Other agents are refused** by the broker's grant check and by the tool's
+  identity check. Both are covered by tests; neither was exercised live.
