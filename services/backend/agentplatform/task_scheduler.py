@@ -8,6 +8,7 @@ from datetime import timedelta
 
 from sqlalchemy import and_, func, or_, select
 
+from agentplatform import maintenance_mode
 from agentplatform.db import (AgentDef, Conversation, RelayMessage, Run, RunState, ScheduledTask,
                               ScheduledTaskEvent, TaskScheduleGrant)
 from agentplatform.events import TOPIC_RUN_REQUESTS
@@ -66,6 +67,8 @@ async def fire_due_tasks(session_factory, producer, *, limit: int = 50) -> int:
     """Claim and fire due Tasks. Repeated ticks and crash recovery share one run ID."""
     owner = uuid.uuid4().hex
     async with session_factory() as s:
+        if await maintenance_mode.is_paused(s):
+            return 0          # Tasks stay scheduled; Kyle's resume releases them
         now = await _db_now(s)
         ids = (await s.execute(select(ScheduledTask.id).where(
             or_(ScheduledTask.status == "scheduled",

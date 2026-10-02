@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import base64
 import fcntl
+import gzip
 import hashlib
 import io
 import json
@@ -33,6 +34,23 @@ def validate_destination(bucket: str, prefix: str, recipient: str) -> None:
         raise ValueError("invalid object prefix")
     if not RECIPIENT_RE.fullmatch(recipient):
         raise ValueError("invalid age recipient")
+
+
+# Appended to the dump so every restore of it lands in maintenance mode, whatever
+# tool replays it (D14). The upsert is plain SQL both Postgres and SQLite run.
+RESTORE_MARKER_SQL = (
+    "\n-- agent-platform: a restore starts in maintenance mode\n"
+    "INSERT INTO platform_maintenance (id, mode, reason, entered_at, resumed_by) "
+    "VALUES (1, 'restore', 'restored from a backup', CURRENT_TIMESTAMP, NULL) "
+    "ON CONFLICT (id) DO UPDATE SET mode = excluded.mode, reason = excluded.reason, "
+    "entered_at = excluded.entered_at, resumed_by = NULL;\n")
+
+
+def append_restore_marker(dump: Path) -> None:
+    """Append the marker as a second gzip member (concatenated members are one
+    valid gzip stream). Only the dump's copy changes; the live database never does."""
+    with dump.open("ab") as out:
+        out.write(gzip.compress(RESTORE_MARKER_SQL.encode()))
 
 
 def _sha256(path: Path) -> str:
@@ -66,6 +84,7 @@ def write_archive(dump: Path, target: Path, recipient: str,
     """Stream the dump and Secret values through tar into age; persist ciphertext only."""
     if not dump.is_file() or dump.stat().st_size == 0:
         raise ValueError("PostgreSQL dump is missing or empty")
+    append_restore_marker(dump)     # before the checksum below covers it
     # Kubernetes returns Secret data as base64 strings. Validate before an
     # apparently successful archive can preserve malformed secret values.
     for item in secrets:
