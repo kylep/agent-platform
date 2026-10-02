@@ -30,8 +30,8 @@ The surface is CURATED into three tiers (curation 2026-08-24; see
   not the kitchen.
 - **EXCLUDE** — UI form-feeders, private-key import inspection, reviewer digests the client can compute,
   git-edit conveniences redundant with having the repo, and system-agent
-  endpoints. Never tools. 21 curated-out, plus 63 session/internal/streaming/
-  byte-serving/connector/run-only operations below — 271 graded operations in all.
+  endpoints. Never tools. 21 curated-out, plus 65 session/internal/streaming/
+  byte-serving/connector/run-only operations below — 273 graded operations in all.
 
 It is deliberately NOT the mcp-broker. The broker authenticates in-cluster run
 identities and scopes tools to an agent's grants (design/13, design/15). This
@@ -164,6 +164,9 @@ EXCLUDED_PATHS = (
     # role, so they are session-auth routes like /api/login — neither KEEP nor
     # GATE, because no bearer the facade forwards can ever be answered.
     (("GET",), r"^/api/app-data/apps(?:/|$)"),
+    # Kyle's App data quota readout and setter: his browser session only, the
+    # same door as the read routes above.
+    ("*", r"^/api/app-data/quotas/"),
 )
 
 # Curated out (curation 2026-08-24): UI plumbing, reviewer digests the client

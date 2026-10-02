@@ -93,9 +93,11 @@ def _refuse(code: str, message: str, status: int = 409, detail: Any = None):
 @dataclass(frozen=True)
 class Actor:
     """Who is calling: `kyle` (his browser session) or `agent:<name>` (a run),
-    with the run for attribution."""
+    with the run for attribution. `via_tool` is `tool:<name>` when an agent
+    acts through that tool's call credential (design 39)."""
     principal: str
     run_id: str | None = None
+    via_tool: str | None = None
 
     def __post_init__(self):
         if not PRINCIPAL_RE.fullmatch(self.principal):
@@ -103,7 +105,7 @@ class Actor:
 
     @property
     def caller(self) -> Caller:
-        return Caller(self.principal)
+        return Caller(self.principal, via_tool=self.via_tool)
 
 
 def display(principal: str | None) -> str:
@@ -248,6 +250,16 @@ async def _replay(session, actor: Actor, request_id: str, digest: str):
 
 Finish = Callable[[dict, str], Awaitable[dict]]
 
+# Refusals that describe the moment, not the call: a quota (its window turns,
+# usage falls, Kyle raises the limit) or a race (a publish moved the
+# definitions, a concurrent write won). Storing one as the receipt would
+# refuse every retry of the request_id forever.
+RETRYABLE_CODES = frozenset({"AD-DEFINITIONS-MOVED", "AL-CONFLICT"})
+
+
+def retryable(exc: RecordError) -> bool:
+    return exc.code.startswith("AD-QUOTA-") or exc.code in RETRYABLE_CODES
+
 
 async def _build_op(session, actor: Actor, *, request_id: str, op: str, app_id: str | None,
                     args: dict, work: Callable[[Finish], Awaitable[dict]]) -> dict:
@@ -256,9 +268,16 @@ async def _build_op(session, actor: Actor, *, request_id: str, op: str, app_id: 
     `work` does the write without committing and ends by awaiting
     `finish(result, summary)`, which stores the receipt and commits both
     together; it can do so inside a lock it holds. A refusal rolls the write
-    back and is stored as the receipt, so a retry is refused the same way."""
+    back and is stored as the receipt, so a retry is refused the same way,
+    unless it is one a retry can outgrow (a quota window, a concurrent
+    publish or write): that rolls back with no receipt, so the same
+    request_id can succeed later."""
     _check_request_id(request_id)
-    digest = args_hash(op, app_id, args)
+    # A call through a tool is a different call from the same args sent
+    # directly: it is checked against the tool's writers, so it never replays
+    # the other's receipt.
+    digest = args_hash(op, app_id, args if actor.via_tool is None
+                       else {**args, "via": actor.via_tool})
     replayed = await _replay(session, actor, request_id, digest)
     if replayed is not None:
         return replayed
@@ -280,6 +299,8 @@ async def _build_op(session, actor: Actor, *, request_id: str, op: str, app_id: 
         return await work(finish)
     except RecordError as exc:
         await session.rollback()
+        if retryable(exc):
+            raise
         session.add(receipt_row({"status": "refused", "summary": exc.message,
                                  "http_status": exc.status, "error": exc.as_dict()}, app_id))
         try:
@@ -1075,13 +1096,22 @@ async def transfer_owned_apps(session, agent: str) -> int:
     definition means whoever owns the App now, so access moves with it, and
     the generation bump retires cached results computed for the old owner.
     Doesn't commit: it rides the deletion's transaction."""
-    moved = await session.execute(
-        update(AppDataApp).where(AppDataApp.owner_kind == "agent",
-                                 AppDataApp.owner_id == agent)
+    app_ids = (await session.execute(
+        select(AppDataApp.id).where(AppDataApp.owner_kind == "agent",
+                                    AppDataApp.owner_id == agent)
+        .order_by(AppDataApp.id))).scalars().all()
+    if not app_ids:
+        return 0
+    await session.execute(
+        update(AppDataApp).where(AppDataApp.id.in_(app_ids))
         .values(owner_kind="kyle", owner_id="kyle", updated_at=utcnow(),
                 authority_generation=AppDataApp.authority_generation + 1)
         .execution_options(synchronize_session=False))
-    return moved.rowcount or 0
+    # Their storage moves with them, one App at a time in id order; each
+    # takes its App's quota row, then the two owners' (quotas' lock order).
+    for app_id in app_ids:
+        await quotas.transfer_owner(session, app_id, f"agent:{agent}", "kyle")
+    return len(app_ids)
 
 
 # --- authority and health ---------------------------------------------------------------
@@ -1434,9 +1464,11 @@ async def record_update(session, actor: Actor, app_ref: str, *, request_id: str,
 
 async def record_delete(session, actor: Actor, app_ref: str, *, request_id: str,
                         collection: str, record_id: str,
-                        expected_version: int | None = None) -> dict:
+                        expected_version: int | None = None,
+                        check_plan: Callable[[rec.DeletePlan], None] | None = None) -> dict:
     """Delete one record through its server-computed plan; a `restrict` ref
-    refuses it with the plan."""
+    refuses it with the plan. `check_plan` may refuse the plan before
+    anything is written (a tool call's scope over what it would unlink)."""
     app = await _app(session, app_ref)
 
     async def work(finish):
@@ -1447,6 +1479,8 @@ async def record_delete(session, actor: Actor, app_ref: str, *, request_id: str,
             await rec._authorize_delete(session, ctx, actor.caller, collection, [record_id],
                                         expected)
             plan = await rec.compute_plan(session, ctx, [(collection, record_id)])
+            if check_plan is not None:
+                check_plan(plan)
             summary = plan.summary(ctx, actor.caller)
             if plan.blocked:
                 raise RecordError("AD-REF-RESTRICT", "referenced by records whose ref is "

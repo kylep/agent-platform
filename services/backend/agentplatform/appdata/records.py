@@ -882,11 +882,14 @@ async def _authorize_delete(session, ctx: AppContext, caller: Caller, collection
 
 
 async def plan_delete(session, ctx: AppContext, caller: Caller, collection: str,
-                      ids: list[str]) -> dict:
-    """The preview: the same plan `delete_records` would run, without running it."""
+                      ids: list[str], *, check_plan=None) -> dict:
+    """The preview: the same plan `delete_records` would run, without running it.
+    `check_plan` refuses it the way the delete itself would be refused."""
     try:
         await _authorize_delete(session, ctx, caller, collection, ids, None)
         plan = await compute_plan(session, ctx, [(collection, rid) for rid in ids])
+        if check_plan is not None:
+            check_plan(plan)
         return plan.summary(ctx, caller)
     finally:
         await session.rollback()

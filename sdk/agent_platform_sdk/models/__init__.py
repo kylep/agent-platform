@@ -141,6 +141,8 @@ from .pull_request_file import PullRequestFile
 from .query_in import QueryIn
 from .query_in_params import QueryInParams
 from .quota import Quota
+from .quota_in import QuotaIn
+from .quota_in_limits import QuotaInLimits
 from .quota_ok import QuotaOk
 from .quota_reading import QuotaReading
 from .quota_window import QuotaWindow
@@ -425,6 +427,8 @@ __all__ = (
     "QueryIn",
     "QueryInParams",
     "Quota",
+    "QuotaIn",
+    "QuotaInLimits",
     "QuotaOk",
     "QuotaReading",
     "QuotaWindow",

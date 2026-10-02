@@ -284,6 +284,24 @@ def tool_call_caller(request) -> Caller | None:
     return Caller(principal=f"agent:{state.api_key_agent}", via_tool=state.via_tool)
 
 
+def require_plan_scope(request, app_id: str, plan) -> None:
+    """A delete is no wider than the credential either: the records it would
+    unlink in other collections are updates there, so a tool-call caller
+    needs `update` on each, or the whole delete is refused before anything
+    is written. (R2's cascade will need `delete` on its collections.)"""
+    state = request.state
+    if getattr(state, "auth_kind", None) != KIND_TOOL_CALL:
+        return
+    scope = state.tool_call.get("app_scope") or []
+    missing = sorted({c for c, _, _ in plan.unlinks
+                      if not scope_allows(scope, app_id, c, "update")})
+    if missing:
+        raise RecordError("AD-OUT-OF-SCOPE",
+                          f"this tool call may not update {', '.join(missing)} in App "
+                          f"{app_id}, which this delete would unlink", 403,
+                          {"unlinks": missing})
+
+
 def require_scope(request, app_id: str, collection: str, verb: str) -> None:
     """Never wider than the credential: a tool-call caller may touch only
     what its `app_scope` lists. Every other caller is the route's to judge."""
