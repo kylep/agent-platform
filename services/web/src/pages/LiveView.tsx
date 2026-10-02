@@ -162,6 +162,11 @@ function V2Cell({ row, column }: { row: ViewRow; column: Column }) {
     return <span className="v2-restricted" title="You can't read this field">restricted</span>;
   }
   const value = row.values[column.field];
+  if (column.format === "artifact" && typeof value === "string" &&
+      /^[0-9a-f]{32}$/.test(value)) {
+    return <a href={`/api/artifacts/${value}/content`} target="_blank"
+      rel="noopener noreferrer">Open artifact</a>;
+  }
   // `link` comes only from a `link: true` url field. The server already
   // refuses non-http(s) values; checking again keeps a stored odd value inert.
   if (column.format === "link" && typeof value === "string" && isWebUrl(value)) {

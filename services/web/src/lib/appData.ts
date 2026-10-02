@@ -156,7 +156,7 @@ export async function decideAppProposal(proposalId: string, action: "approve" | 
  *  string (`{query: "id"}` reads `?id=`). */
 export type ParamBinding = string | { query: string };
 
-export type ColumnFormat = "text" | "int" | "number" | "percent" | "date" | "datetime" | "bool" | "link";
+export type ColumnFormat = "text" | "int" | "number" | "percent" | "date" | "datetime" | "bool" | "link" | "artifact";
 
 export type Column = { field: string; label?: string; format?: ColumnFormat };
 

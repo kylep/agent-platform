@@ -118,6 +118,22 @@ async def test_page_is_the_published_definition_in_the_web_shape(admin_client, s
             ).status_code == 404
 
 
+async def test_artifact_fields_render_as_links_not_raw_ids(admin_client, sf):
+    collection = {"collection": "docs", "fields": {"file": {"type": "artifact"}},
+                  "access": {"read": ["owner", "kyle"], "create": ["owner"]}}
+    view = {"view": "files", "collection": "docs"}
+    page = {"page": "files", "title": "Files", "blocks": [
+        {"kind": "table", "view": "files", "columns": [{"field": "file"}]},
+        {"kind": "detail", "view": "files", "fields": ["file"]}]}
+    app_id = await build(sf, name="artifact_page", defs=(("collection", collection),
+        ("view", view), ("page", page)))
+    got = (await admin_client.get(f"/api/app-data/apps/{app_id}/pages/files")).json()
+    assert got["definition"]["components"][0]["columns"] == [
+        {"field": "file", "format": "artifact"}]
+    assert got["definition"]["components"][1]["fields"] == [
+        {"field": "file", "format": "artifact"}]
+
+
 async def test_a_page_kyle_cant_read_is_403(admin_client, sf):
     app_id = await build(sf, defs=(("collection", PRIVATE), ("view", DIARY),
                                    ("page", DIARY_PAGE)))

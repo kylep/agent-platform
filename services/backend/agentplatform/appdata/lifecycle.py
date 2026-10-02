@@ -1265,11 +1265,22 @@ def _link_fields(bundle, view_name: str) -> set[str]:
     return {n for n, f in c.fields.items() if f.type == "url" and f.link}
 
 
-def _column(column, links: frozenset | set = frozenset()) -> dict:
+def _artifact_fields(bundle, view_name: str) -> set[str]:
+    view = bundle.views.get(view_name)
+    c = bundle.collections.get(view.collection) if view is not None and not isinstance(
+        view, ToolViewDef) else None
+    if c is None:
+        return set()
+    return {n for n, f in c.fields.items() if f.type == "artifact"}
+
+
+def _column(column, links: frozenset | set = frozenset(),
+            artifacts: frozenset | set = frozenset()) -> dict:
     out = {"field": column.field}
     if column.label is not None:
         out["label"] = column.label
-    fmt = "link" if column.field in links else _FORMATS.get(column.format, column.format)
+    fmt = ("artifact" if column.field in artifacts else
+           "link" if column.field in links else _FORMATS.get(column.format, column.format))
     if fmt is not None:
         out["format"] = fmt
     return out
@@ -1292,7 +1303,8 @@ def page_for_web(page: PageDef, bundle, *, with_actions: bool = False) -> dict:
             item = {"kind": "metric", "label": block.label, "view": block.view}
         elif isinstance(block, TableBlock):
             item = {"kind": "table", "view": block.view,
-                    "columns": [_column(c, _link_fields(bundle, block.view))
+                    "columns": [_column(c, _link_fields(bundle, block.view),
+                                        _artifact_fields(bundle, block.view))
                                 for c in block.columns]}
             if block.title is not None:
                 item["label"] = block.title
@@ -1301,8 +1313,11 @@ def page_for_web(page: PageDef, bundle, *, with_actions: bool = False) -> dict:
                                     "params": {block.row_link.param: "id"}}
         else:
             links = _link_fields(bundle, block.view)
+            artifacts = _artifact_fields(bundle, block.view)
             item = {"kind": "detail", "view": block.view,
-                    "fields": [{"field": f, "format": "link"} if f in links else {"field": f}
+                    "fields": [{"field": f, "format": "artifact"} if f in artifacts
+                               else {"field": f, "format": "link"} if f in links
+                               else {"field": f}
                                for f in block.fields]}
             if block.title is not None:
                 item["label"] = block.title

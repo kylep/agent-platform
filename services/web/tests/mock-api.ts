@@ -1471,6 +1471,12 @@ const statePages: Record<string, Record<string, unknown>> = {
     { kind: "detail", label: "First source", view: "first_source", fields: [
       { field: "source", format: "link" }, { field: "home" }] },
   ] },
+  files: { renderer: "typed/v2", title: "Files", components: [
+    { kind: "table", label: "Documents", view: "files", columns: [
+      { field: "file", format: "artifact" }] },
+    { kind: "detail", label: "Latest", view: "files", fields: [
+      { field: "file", format: "artifact" }] },
+  ] },
   empty: { renderer: "typed/v2", title: "Skipped", components: [
     { kind: "table", label: "Skipped days", view: "skipped", columns: recentColumns },
     { kind: "detail", label: "Missing entry", view: "entry", params: { id: "nope" },
@@ -1523,6 +1529,9 @@ function stateView(view: string, params: URLSearchParams): { status?: number; js
     ];
     return { json: { rows: view === "sources" ? rows : rows.slice(0, 1), next_cursor: null, ...fresh } };
   }
+  if (view === "files") return { json: { rows: [{ id: "f1", values: {
+    file: "a".repeat(32) }, restricted: [] }, { id: "f2", values: { file: null },
+    restricted: ["file"] }], next_cursor: null, ...fresh } };
   if (view === "skipped") return { json: { rows: [], next_cursor: null, ...fresh } };
   if (view === "private_log") return { status: 403, json: { detail: "not a reader of this view" } };
   if (view === "broken_view") return { status: 503, json: { detail: "view no longer validates" } };

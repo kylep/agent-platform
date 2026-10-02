@@ -247,6 +247,18 @@ test("only link-format url fields render as outbound anchors", async ({ page }) 
   expect(unmatched).toEqual([]);
 });
 
+test("artifact fields open the authorized byte route without showing IDs", async ({ page }) => {
+  await mockApi(page);
+  await page.goto(pagePath("files"));
+  const content = `/api/artifacts/${"a".repeat(32)}/content`;
+  const table = page.locator(".live-view-table");
+  await expect(table.getByRole("link", { name: "Open artifact" })).toHaveAttribute("href", content);
+  await expect(table.locator(".v2-restricted")).toHaveText("restricted");
+  await expect(page.locator(".v2-detail").getByRole("link", { name: "Open artifact" }))
+    .toHaveAttribute("href", content);
+  await expect(page.getByText("a".repeat(32))).toHaveCount(0);
+});
+
 test("loading, then the data", async ({ page }) => {
   await mockApi(page);
   let release!: () => void;

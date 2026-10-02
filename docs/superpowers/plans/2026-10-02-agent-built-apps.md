@@ -784,7 +784,7 @@ Shared-file notes for G1:
     - The views pool is used, never the default pool.
     - Disabled bindings are refused.
     - An admin API key gets nothing.
-- [ ] **B19 App-owned artifacts: close-out** (after B7 and B13) ∥.
+- [x] **B19 App-owned artifacts: close-out** (after B7 and B13) ∥.
   - **Goal:** artifact fields render in v2 pages, and sharing and narrowing
     move artifact access with the owning field.
   - **Design:** "Collections" → Artifact fields; "Trust boundaries" →
@@ -795,12 +795,12 @@ Shared-file notes for G1:
     - Tests for the cases R1a couldn't reach:
       - sharing the owning field to `agent:x` by proposal lets x read the
         bytes and see feed events;
-      - narrowing it revokes both at once;
+      - narrowing it through self-publish revokes both at once;
       - `login:qa` reads only when shared.
   - **Files:** `appdata/lifecycle.py` (`page_for_web`), the web v2 cells,
     `tests/test_appdata_artifacts.py`, `services/web/tests/state-apps.spec.ts`.
   - **Tests prove:** the cases above, plus "a second referencing field
-    never widens", re-run under an approved proposal.
+    never widens", re-run after an approved sharing proposal.
 
 #### G5
 

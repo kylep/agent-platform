@@ -569,6 +569,98 @@ async def test_the_qa_login_reads_what_it_is_named_on(sf, client, admin_client):
     assert (await client.get(f"/api/artifacts/{file_}/content")).status_code == 404
 
 
+async def test_approved_sharing_and_narrowing_move_bytes_and_feed_together(
+        sf, token_client, admin_client, seed_agent, agent_store):
+    """The owning field, rather than the artifact grant, is the live authority."""
+    from types import SimpleNamespace
+    import httpx
+    from agentplatform.api.artifacts_feed import _may_see
+    from agentplatform.appdata import lifecycle as L, proposals as P
+    from agentplatform.appdata.lifecycle import Actor
+    from agentplatform.api.auth import ph
+    from agentplatform.db import Principal
+
+    owner = Actor("agent:pai")
+    initial = {"collection": "docs", "fields": {"file": {"type": "artifact"}},
+               "access": {"read": ["owner", "kyle"], "create": ["owner"],
+                          "update": ["owner"], "delete": ["owner"]}}
+    async with sf() as s:
+        app_id = (await L.create(s, owner, request_id="artifact-create", name="shared_docs",
+                                 description="Documents"))["app_id"]
+    async with sf() as s:
+        await L.draft(s, owner, app_id, request_id="artifact-initial", kind="collection",
+                      definition=initial)
+    async with sf() as s:
+        await L.publish(s, owner, app_id, request_id="artifact-publish",
+                        expected_approved_version=None)
+    async with sf() as s:
+        ctx = await load_app(s, app_id)
+        aid = (await app_artifacts.upload(s, ctx, PAI, "docs", "file", png_bytes(),
+                                          name="owned.png")).id
+    async with sf() as s:
+        ctx = await load_app(s, app_id)
+        await create_record(s, ctx, PAI, "docs", {"file": aid})
+    bob = await _agent_headers(sf, seed_agent, agent_store, "bob",
+                               grants=(ARTIFACTS_GRANT,))
+    request = SimpleNamespace(app=admin_client._transport.app)
+    frame = {"artifact": {"id": aid}, "app": {"app_id": app_id}}
+
+    async def visible():
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(
+                app=admin_client._transport.app), base_url="http://test") as agent_client:
+            status = (await agent_client.get(f"/api/artifacts/{aid}/content",
+                                             headers=bob)).status_code
+        return status, await _may_see(request, "agent:bob", frame)
+
+    assert await visible() == (404, False)
+    shared = {**initial, "fields": {"file": {"type": "artifact", "access": {
+        "read": ["owner", "kyle", "agent:bob", "login:qa"]}}}}
+    async with sf() as s:
+        await L.draft(s, owner, app_id, request_id="artifact-share", kind="collection",
+                      definition=shared)
+    async with sf() as s:
+        proposal = await P.propose(s, owner, app_id, request_id="artifact-share-propose")
+    async with sf() as s:
+        await P.approve(s, Actor("kyle"), proposal["id"],
+                        request_id="artifact-share-approve", digest=proposal["digest"])
+        s.add(Principal(name="qa", role="reader", password_hash=ph.hash("qa-pw-12345")))
+        await s.commit()
+    assert await visible() == (200, True)
+    assert (await token_client.post("/api/login", json={"principal": "qa",
+        "password": "qa-pw-12345"})).status_code == 200
+    assert (await token_client.get(f"/api/artifacts/{aid}/content")).status_code == 200
+    assert await _may_see(request, "login:qa", frame)
+
+    wider = {**shared, "fields": {**shared["fields"], "alternate": {
+        "type": "artifact", "access": {"read": ["owner", "kyle", "agent:bob",
+                                                "login:qa", "agent:carol"]}}}}
+    async with sf() as s:
+        await L.draft(s, owner, app_id, request_id="artifact-second-field",
+                      kind="collection", definition=wider)
+    async with sf() as s:
+        proposal = await P.propose(s, owner, app_id,
+                                   request_id="artifact-second-field-propose")
+    async with sf() as s:
+        await P.approve(s, Actor("kyle"), proposal["id"],
+                        request_id="artifact-second-field-approve",
+                        digest=proposal["digest"])
+    async with sf() as s:
+        ctx = await load_app(s, app_id)
+        await refused("AD-ARTIFACT-WIDENS", create_record(s, ctx, PAI, "docs",
+                                                           {"alternate": aid}))
+
+    async with sf() as s:
+        await L.draft(s, owner, app_id, request_id="artifact-narrow", kind="collection",
+                      definition=initial)
+    async with sf() as s:
+        # Narrowing needs no Kyle approval: the App lifecycle self-publishes it.
+        await L.publish(s, owner, app_id, request_id="artifact-narrow-publish",
+                        expected_approved_version=3)
+    assert await visible() == (404, False)
+    assert (await token_client.get(f"/api/artifacts/{aid}/content")).status_code == 404
+    assert not await _may_see(request, "login:qa", frame)
+
+
 async def test_the_owning_field_gone_from_the_definition_fails_closed(sf, admin_client):
     ctx = await make_app(sf, [docs()])
     aid = await _owned(sf, ctx, "file")
