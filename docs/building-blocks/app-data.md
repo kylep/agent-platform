@@ -10,7 +10,7 @@ Apps and a database restore brings every App back
 reads Apps and their pages from his browser session. Nothing an agent writes
 here executes.
 
-The [`app-building` skill](../agent-platform-coding-plugin.md) teaches agents
+The [`app-building` skill](../agent-platform-coding-plugin.md) (plugin release 0.2.0, pending its approval pin) teaches agents
 when to build an App and how; this page is the reference it relies on.
 
 **Lives in:** Postgres, in `app_data_*` tables of the platform database:
