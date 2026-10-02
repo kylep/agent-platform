@@ -1455,6 +1455,13 @@ const statePages: Record<string, Record<string, unknown>> = {
     { kind: "text", style: "paragraph", text: "Outbound", link: { path: "https://evil.example/x" } },
     { kind: "text", style: "paragraph", text: "Script", link: { path: "javascript:alert(1)" } },
   ] },
+  // `source` is a `link: true` url field; `home` is a plain url field.
+  outbound: { renderer: "typed/v2", title: "Sources", components: [
+    { kind: "table", label: "Sources", view: "sources",
+      columns: [{ field: "habit" }, { field: "source", format: "link" }, { field: "home" }] },
+    { kind: "detail", label: "First source", view: "first_source", fields: [
+      { field: "source", format: "link" }, { field: "home" }] },
+  ] },
   empty: { renderer: "typed/v2", title: "Skipped", components: [
     { kind: "table", label: "Skipped days", view: "skipped", columns: recentColumns },
     { kind: "detail", label: "Missing entry", view: "entry", params: { id: "nope" },
@@ -1497,6 +1504,15 @@ function stateView(view: string, params: URLSearchParams): { status?: number; js
   if (view === "entry") {
     const row = habitRows.find((r) => r.id === params.get("id"));
     return { json: { rows: row ? [row] : [], next_cursor: null, ...fresh } };
+  }
+  if (view === "sources" || view === "first_source") {
+    const rows = [
+      { id: "s1", values: { habit: "run", source: "https://example.org/run?a=1", home: "https://example.org/home" }, restricted: [] },
+      // Defense in depth: the server refuses this, but the web never anchors it.
+      { id: "s2", values: { habit: "read", source: "javascript:alert(1)", home: "https://example.org/x" }, restricted: [] },
+      { id: "s3", values: { habit: "swim", source: null, home: null }, restricted: [] },
+    ];
+    return { json: { rows: view === "sources" ? rows : rows.slice(0, 1), next_cursor: null, ...fresh } };
   }
   if (view === "skipped") return { json: { rows: [], next_cursor: null, ...fresh } };
   if (view === "private_log") return { status: 403, json: { detail: "not a reader of this view" } };
