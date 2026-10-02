@@ -179,6 +179,35 @@ def test_real_tools_dir_loads_image_gen_as_internal():
     assert all(x.error is None for x in reg.list()), [(x.name, x.error) for x in reg.list()]
 
 
+def test_manifest_app_access_is_optional_and_validated():
+    """`app_access` (design 39, "Tool-call credentials") is what a tool may
+    ask a call credential for: collection roles and verbs. Absent, the tool
+    gets no credential at all."""
+    m = ToolManifest(name="ok_tool", description="A perfectly valid description here.")
+    assert m.app_access is None
+    m = ToolManifest(name="ok_tool", description="A perfectly valid description here.",
+                     app_access={"roles": ["results", "runs"], "verbs": ["read", "create"]})
+    assert m.app_access.roles == ["results", "runs"]
+    assert m.app_access.verbs == ["read", "create"]
+    for bad in ({"roles": [], "verbs": ["read"]},            # nothing to bind
+                {"roles": ["results"], "verbs": []},          # nothing to do
+                {"roles": ["results"], "verbs": ["admin"]},   # not a verb
+                {"roles": ["Results!"], "verbs": ["read"]},   # not a collection name
+                {"roles": ["results", "results"], "verbs": ["read"]},
+                {"roles": ["results"], "verbs": ["read"], "apps": ["x"]}):  # unknown key
+        with pytest.raises(ValueError):
+            ToolManifest(name="ok_tool", description="A perfectly valid description here.",
+                         app_access=bad)
+
+
+def test_registry_loads_app_access_from_yaml(tmp_path):
+    make_tool(tmp_path, yaml_text=GOOD_YAML + "app_access:\n  roles: [results]\n"
+              "  verbs: [read, update]\n")
+    t = ToolRegistry(tmp_path).get("echo")
+    assert t.error is None, t.error
+    assert t.manifest.app_access.verbs == ["read", "update"]
+
+
 def test_manifest_infra_defaults_and_secret_coercion():
     m = ToolManifest(name="ok_tool", description="A perfectly valid description here.")
     assert m.infra.database is False and m.infra.secrets == []

@@ -239,3 +239,22 @@ class AppDataWriteCounter(Base):
     collection: Mapped[str] = mapped_column(String(64), primary_key=True)
     counter: Mapped[int] = mapped_column(BigInteger, default=0)
     updated_at: Mapped[datetime] = mapped_column(_TS, default=utcnow, onupdate=utcnow)
+
+
+class AppDataToolCall(Base):
+    """A minted tool-call credential (design 39, "Tool-call credentials"),
+    by jti. The API refuses the credential once `revoked_at` is set, which the
+    broker does when the call returns, so a copy outlives nothing."""
+    __tablename__ = "app_data_tool_calls"
+    jti: Mapped[str] = mapped_column(String(32), primary_key=True)
+    # The call (or, for Kyle's page actions in Release 2, the intent) it is for.
+    call_id: Mapped[str] = mapped_column(String(64), unique=True)
+    # tool_call | page_intent
+    kind: Mapped[str] = mapped_column(String(16))
+    run_id: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    agent: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    tool: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    action: Mapped[str] = mapped_column(String(64), default="")
+    created_at: Mapped[datetime] = mapped_column(_TS, default=utcnow)
+    expires_at: Mapped[datetime] = mapped_column(_TS, index=True)
+    revoked_at: Mapped[datetime | None] = mapped_column(_TS, nullable=True)

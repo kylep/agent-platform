@@ -13,6 +13,12 @@ token is NEVER forwarded outward; instead the broker resolves it via
 `/api/whoami` and enforces that the calling agent's definition declares the
 tool, then sends only the verified identity to the executor.
 
+The one exception to "no credentials of its own" (docs/design/39): for a
+custom tool that declares `app_access`, the broker presents its own projected
+ServiceAccount token to exchange the caller's identity for a tool-call
+credential bound to that one call, hands it to the executor (never the tool),
+and revokes it when the call returns. That token reaches nothing else.
+
 `agents_edit` / `agents_grant` (docs/design/15) are core tools on both counts:
 they forward the bearer like the rest, AND they check the declared grant like a
 custom tool, because they are authorized by a grant rather than by a role. Their
@@ -531,12 +537,17 @@ async def _files_in(files) -> tuple[list[dict], int, str | None]:
 class CustomTool(Tool):
     """An MCP tool whose schema comes from tool.yaml and whose execution is a
     verified forward to the tool-executor. The caller's token stays between
-    broker and platform API — the executor gets identity, never credentials."""
+    broker and platform API — the executor gets identity, never the caller's
+    credentials. A tool that declares `app_access` (docs/design/39) also gets a
+    tool-call credential for this one call, which the executor holds and the
+    tool process never sees; the broker revokes it when the call returns."""
 
     # The manifest's `timeout_seconds` (registry default when unset). A
     # declared field because fastmcp's Tool forbids extras; distinct from the
     # base class's own `timeout`, which is fastmcp's execution deadline.
     timeout_seconds: int = 30
+    # The manifest declares `app_access`: exchange for a call credential.
+    app_access: bool = False
 
     async def run(self, arguments: dict) -> ToolResult:
         t0 = _time.monotonic()
@@ -579,6 +590,15 @@ class CustomTool(Tool):
             await _audit(agent, run_id, initiated_by, self.name, arguments, decision, t0,
                          result_bytes=result_bytes, files_bytes=files_bytes)
 
+        jti = None
+        if self.app_access:
+            minted, error = await _mint_tool_call(self.name, arguments.get("action"))
+            if error:
+                await record("deny:no-credential")
+                return ToolResult(content=error)
+            jti = minted["jti"]
+            payload["credential"] = {"token": minted["credential"],
+                                     "call_id": minted["call_id"]}
         try:
             async with httpx.AsyncClient(
                     base_url=_EXECUTOR,
@@ -587,6 +607,11 @@ class CustomTool(Tool):
         except httpx.HTTPError as e:
             await record("error:executor-unreachable")
             return ToolResult(content=f"error: tool-executor unreachable ({e})")
+        finally:
+            # Revoked at return, whatever the outcome: a copy of the
+            # credential must not outlive the call it was minted for.
+            if jti is not None:
+                await _revoke_tool_call(jti)
         if r.status_code != 200:
             await record(f"error:http-{r.status_code}")
             return ToolResult(content=f"error: tool-executor returned {r.status_code}: {r.text[:500]}")
@@ -597,6 +622,53 @@ class CustomTool(Tool):
         output = body.get("output", "")
         await record("allow", result_bytes=len(output))
         return ToolResult(content=output)
+
+
+# --- tool-call credentials (docs/design/39) ----------------------------------
+# The broker's own workload identity: a projected, audience-bound
+# ServiceAccount token, used for the exchange and the revocation and nothing
+# else. Every other API call still carries only the caller's identity.
+_IDENTITY_FILE = Path(os.environ.get("AP_BROKER_TOKEN_FILE", "/var/run/ap-identity/token"))
+
+
+def _own_headers() -> dict:
+    try:
+        token = _IDENTITY_FILE.read_text().strip()
+    except OSError:
+        token = ""
+    return {"Authorization": f"Bearer {token}"} if token else {}
+
+
+async def _mint_tool_call(tool: str, action) -> tuple[dict | None, str | None]:
+    """Exchange the caller's identity for a credential bound to this call.
+    Fails closed: a tool that declared App access is not run without one."""
+    caller = _caller_headers()
+    own = _own_headers()
+    if not own:
+        return None, "error: this tool needs App access, and the broker has no workload identity to ask for it"
+    body = {"caller": {"authorization": caller.get("Authorization", ""),
+                       "run_token": caller.get("X-AP-Run-Token", "")},
+            "tool": tool, "action": action if isinstance(action, str) else ""}
+    try:
+        async with httpx.AsyncClient(base_url=_API, timeout=_API_TIMEOUT) as c:
+            r = await c.post("/api/tool-calls", json=body, headers=own)
+    except httpx.HTTPError as e:
+        return None, f"error: the platform API is unreachable ({e}) — retry shortly"
+    if r.status_code != 200:
+        return None, f"error: no App access for this call: {r.status_code} {r.text}".rstrip()
+    return r.json(), None
+
+
+async def _revoke_tool_call(jti: str) -> None:
+    """Best effort: a revocation that fails leaves the credential to expire
+    at the tool's timeout, and the executor has already dropped its endpoint."""
+    try:
+        async with httpx.AsyncClient(base_url=_API, timeout=_API_TIMEOUT) as c:
+            r = await c.delete(f"/api/tool-calls/{jti}", headers=_own_headers())
+        if r.status_code != 200:
+            log.warning("tool-call credential %s not revoked: %s", jti, r.status_code)
+    except httpx.HTTPError as e:
+        log.warning("tool-call credential %s not revoked: %s", jti, e)
 
 
 # --- agent definitions (docs/design/15) --------------------------------------
@@ -2184,7 +2256,7 @@ def _clamp_timeout(raw) -> int:
     return max(_TIMEOUT_MIN, min(value, _TIMEOUT_MAX))
 
 
-_registered: dict[str, tuple[str, int]] = {}  # name → (description, timeout): change detection
+_registered: dict[str, tuple[str, int, bool]] = {}  # name → (description, timeout, app_access): change detection
 
 
 def refresh_custom_tools() -> None:
@@ -2201,15 +2273,16 @@ def refresh_custom_tools() -> None:
             continue
         desc = m["description"]
         timeout = m["timeout_seconds"]
-        if _registered.get(name) == (desc, timeout):
+        app_access = bool(m.get("app_access"))
+        if _registered.get(name) == (desc, timeout, app_access):
             continue
         if name in _registered:
             mcp.local_provider.remove_tool(name)
         params = dict(m.get("params") or {"type": "object", "properties": {}})
         params["properties"] = {**(params.get("properties") or {}), FILES_ARG: _FILES_SCHEMA}
         mcp.add_tool(CustomTool(name=name, description=desc, parameters=params,
-                                timeout_seconds=timeout))
-        _registered[name] = (desc, timeout)
+                                timeout_seconds=timeout, app_access=app_access))
+        _registered[name] = (desc, timeout, app_access)
         log.info("custom tool registered: %s", name)
 
 
