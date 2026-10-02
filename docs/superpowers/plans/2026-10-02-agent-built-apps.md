@@ -65,7 +65,7 @@ worktrees.
 
 ### R0 — authority fixes (design: "Phase 0")
 
-- [~] **R0.1 Kyle-only tools.** A constant
+- [x] **R0.1 Kyle-only tools.** A constant
   `KYLE_ONLY_TOOLS = {"mcp__platform__apps", "mcp__platform__app_data",
   "mcp__platform__agents_grant", "mcp__platform__agents_edit"}`. Adding or
   removing any of them from any agent's `platform_tools` (create or update,
@@ -76,16 +76,16 @@ worktrees.
   (`_changed_fields`, `WriteScope.authorize`, the create path) and wherever
   the broker's `agents_grant` reaches it. Tests: a matrix of self, proxy
   (A grants B), mutual, create-with-grants, admin API key and Kyle session.
-- [~] **R0.2 Protected agents.** An agent whose `platform_tools` hold any
+- [x] **R0.2 Protected agents.** An agent whose `platform_tools` hold any
   `KYLE_ONLY_TOOLS` entry can be edited (any field, prompt included) only by a
   Kyle session or by itself through `agent_self` (which already forbids grant
   fields). `agents_edit` and `agents_grant` from any other agent are refused.
   Tests: Kai's `agents_edit` can't edit a builder, but can still edit an
   ordinary worker.
-- [~] **R0.3 No self-edits through `agents_grant` / `agents_edit`.** A caller
+- [x] **R0.3 No self-edits through `agents_grant` / `agents_edit`.** A caller
   targeting its own definition through those tools is refused; `agent_self`
   is the self path. Tests included.
-- [~] **R0.4 Audit and docs.**
+- [x] **R0.4 Audit and docs.**
   - A one-time marked migration that writes a change-log note for every agent
     currently holding a Kyle-only tool (today Kai), without changing access.
   - Rewrite the broker's "grant what you don't hold" docstring and the
@@ -121,7 +121,7 @@ pattern.
     - `app_data_write_counters`.
   - The fixed indexes from the design.
   - Model tests on SQLite and Postgres.
-- [ ] **A2 Definition language** ∥ A3, A4, A5.
+- [~] **A2 Definition language** (`d684571`; reconciled with A3 in `e02116b`) ∥ A3, A4, A5.
   - Pydantic models and validators for collections, views and v2 pages
     (Release 1 components). These cover field types, access, refs, rules,
     indexed fields, retention, filters and `within_last`.
@@ -134,7 +134,7 @@ pattern.
   - New fields start private; unmapped fields mean proposal.
   - Golden tests covering every fact type.
   - File: `appdata/authority.py`.
-- [ ] **A4 Tool-call credentials** ∥.
+- [~] **A4 Tool-call credentials** (`696952f`; repair: deliver the endpoint over stdin, not env) ∥.
   - Broker exchange; API endpoint minting a call credential (claims per the
     design; `cnf` set to the executor's ServiceAccount; `call_id`; `exp` set
     to the tool timeout).
@@ -153,7 +153,7 @@ pattern.
   - A builder area: App list, definitions with drafts, build notes, health
     (read-only).
   - Built against a contract fixture in `mock-api.ts`; Playwright specs.
-- [ ] **A6 Records engine** (after A1 and A2).
+- [~] **A6 Records engine** (`3594fea`; all appdata tests green on SQLite and Postgres 16) (after A1 and A2).
   - CRUD under `editable` / `immutable`.
   - Per-field access, enforced on results and predicates.
   - Refs with `restrict` / `unlink` and delete plans.
@@ -164,15 +164,15 @@ pattern.
     which retention and default ordering need.
   - Refuse side-column values over 256 characters.
   - Files: `appdata/records.py`, `appdata/views.py`, `appdata/retention.py`.
-- [ ] **A7 Batch and batch jobs** (after A6).
+- [~] **A7 Batch and batch jobs** (`6c2ba09`) (after A6).
   - `insert`, `upsert` and `skip_existing` modes.
   - Staging sets, with commit re-validation and 24-hour expiry.
-- [ ] **A8 Artifacts in records** (after A6).
+- [~] **A8 Artifacts in records** (`2a1ec09`) (after A6).
   - An `artifact` field and App-owned artifacts with an owning-field rule.
   - Byte, metadata and feed authorization; a 64 MiB cap counted against the
     App quota; deletion when the last reference goes.
   - Files: `api/artifacts*.py`, `artifact_store.py`, `appdata/artifacts.py`.
-- [ ] **A9 App lifecycle and APIs** (after A2, A3 and A6).
+- [~] **A9 App lifecycle and APIs** (`1a48afa`; agent routes listed in its report) (after A2, A3 and A6).
   - `create`, `draft`, `notes`, `validate` (the whole App, including
     records, and `stale_base`), `preview` (sample records, `as:`), `publish`
     (compare-and-swap, consistency, subset), `rollback`, `retire`, `authority`
@@ -186,19 +186,19 @@ pattern.
   - Agentspec `GRANTABLE_PLATFORM_TOOLS` entries (Kyle-only, per R0).
   - Help topics, operation-catalog entries, facade classification, SDK
     regeneration.
-- [ ] **A11 Quotas and scan budgets** (after A6).
+- [~] **A11 Quotas and scan budgets** (`85e7f08` on feat/r1a-a11; **not merged**: conflicts with A8/A9 in `appdata/records.py` and `test_appdata_models.py`; resolve by keeping both sides' hooks) (after A6).
   - Per App and per owner, set by Kyle, failing closed.
 - [ ] **A12 Performance gate** (after A7).
   - Load 10⁶ bars-shaped and 10⁶ results-shaped records on Postgres.
   - Measure the design's read paths and a 140k-record batch-job write.
   - Record the numbers and set timeouts from them.
-- [ ] **A13 Skill v1 `app-building`.**
+- [~] **A13 Skill v1 `app-building`.** (`3ca2b8f` on feat/r1a-a13, **held**: waits on Kyle's approval pin, see Needs Kyle)
   - Add it to the reviewed plugin (version bump, release manifest digests).
   - Release through `plugin-release.yaml` attestation and pin the digests in
     `plugin_release.py`.
   - Assign it to Pai, Kai and Olu; grant `apps` and `app_data` to them from a
     Kyle session at deploy.
-- [ ] **A14 Docs.**
+- [~] **A14 Docs.** (`85c100c` cherry-picked; the skill-dependent doc test skips until the skill lands)
   - `docs/building-blocks/apps.md` rewrite (Apps as state), a new
     `app-data.md`, and glossary entries.
 - [ ] **A15 Live verification.** Deploy; then Pai builds a small App end to
@@ -244,9 +244,32 @@ drills.
     refused as a security weakening.
   - R1a's live verification (A15) waits on this. Everything else continues.
 
+- **Approve plugin release 0.2.0** (the `app-building` skill). Add this line to
+  `APPROVED_RELEASES` in `services/backend/agentplatform/plugin_release.py`:
+  `"0.2.0": "c660caae157f6972b686d97b9354ee00e706d27cde46fc5948b57182cae135b7"`
+  - That is the SHA-256 of `release.json` at `3ca2b8f` on `feat/r1a-a13`.
+  - The permission system refused the pin as a security-allowlist change, so
+    it's Kyle's line to add.
+  - The skill branch `feat/r1a-a13` stays unmerged until then. Merging it
+    without the pin would refuse the whole coding plugin, which coder and QA
+    depend on.
+  - After the pin, follow the attestation steps in the A13 notes
+    (`docs/agent-platform-coding-plugin.md`, the two-pin procedure).
+
 ## Repairs
 
+- **A4:** move `TOOL_APP_DATA_URL` out of the tool's environment (readable from `/proc` by sibling tools under the same uid) into the stdin payload.
+- **A9:** publish doesn't lock out record writes that race its consistency check.
+- **A9:** prune the record-write `build_ops` rows.
+- **Integration:** all of R1a is merged on `feat/r1a` (worktree `~/gh/ap-r1a`). A11 is still running in `~/gh/ap-a11`, then A10, A12–A15, the phase review, the PR and the deploy.
+
 ## Live verification
+
+- **R0 (PR #36, `e60f862`, helm rev 89, 2026-10-03).** The admin API key's
+  PUT on `kai` was refused with 403 ("agent 'kai' is protected: it holds
+  agents_edit, agents_grant, so only Kyle's session…"). Kai's change log has
+  version 10, `changed_via=audit:kyle-only`. Sol's review findings (padded
+  names, chat-owner moves, images) were fixed before merge.
 
 ## Definition of done
 
