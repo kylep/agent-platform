@@ -20,6 +20,8 @@ Postgres.
   `services/web/src/lib/appData.ts`).
 - **Deletes** run a server-computed plan in one transaction: `restrict` refs
   block it, `unlink` refs are cleared.
+- **Quotas** (appdata/quotas.py): each write notes what it adds or frees,
+  and the public writes settle the charge just before their commit.
 - **`unique`** is checked under a per-collection lock: `pg_advisory_xact_lock`
   on Postgres, a process lock on SQLite (which serializes writers anyway).
 
@@ -41,6 +43,7 @@ from zoneinfo import ZoneInfo
 
 from sqlalchemy import and_, func, select
 
+from agentplatform.appdata import quotas
 from agentplatform.appdata.access import Access, Caller, RecordError, matches
 from agentplatform.appdata.definitions import (
     SYSTEM_FIELDS, AppBundle, CollectionDef, DefinitionError, RefField, UniqueRule,
@@ -414,13 +417,15 @@ async def _insert(session, ctx: AppContext, caller: Caller, c: CollectionDef,
     record_id = record_id or uuid.uuid4().hex
     await _check_unique(session, ctx, c, doc, record_id)
     now = utcnow()
+    size = quotas.doc_bytes(doc)
     record = AppDataRecord(app_id=ctx.app_id, collection=c.collection, id=record_id,
                            current_version=1, created_at=now, updated_at=now,
                            author=caller.author, via=caller.via,
                            collection_version=ctx.versions.get(c.collection, 1),
-                           doc=doc, **sides)
+                           doc=doc, size_bytes=size, **sides)
     session.add(record)
     await session.flush()
+    quotas.note(session, ctx, records=1, bytes=size, writes=1)
     return record
 
 
@@ -432,6 +437,7 @@ async def create_record(session, ctx: AppContext, caller: Caller, collection: st
             record = await _insert(session, ctx, caller, c, values)
             await bump_counters(session, ctx.app_id, [c.collection])
             row = present(ctx.access(c, caller), record)
+            await quotas.settle(session)
             await session.commit()
     except BaseException:
         await session.rollback()
@@ -471,6 +477,13 @@ async def _fetch(session, ctx: AppContext, c: CollectionDef, record_id: str, *,
 
 
 # --- update -----------------------------------------------------------------------------------
+
+def set_size(session, ctx: AppContext, record: AppDataRecord, *, writes: int = 0) -> None:
+    """Re-measure a record whose doc changed and note the difference."""
+    size = quotas.doc_bytes(record.doc)
+    quotas.note(session, ctx, bytes=size - (record.size_bytes or 0), writes=writes)
+    record.size_bytes = size
+
 
 def _history(record: AppDataRecord) -> AppDataRecordVersion:
     return AppDataRecordVersion(
@@ -518,6 +531,7 @@ async def _update(session, ctx: AppContext, caller: Caller, c: CollectionDef,
     await _check_unique(session, ctx, c, doc, record.id)
     session.add(_history(record))
     record.doc = doc
+    set_size(session, ctx, record, writes=1)
     for column, value in sides.items():
         setattr(record, column, value)
     record.current_version += 1
@@ -540,6 +554,7 @@ async def update_record(session, ctx: AppContext, caller: Caller, collection: st
                                    expected_version)
             await bump_counters(session, ctx.app_id, [c.collection])
             row = present(ctx.access(c, caller), record)
+            await quotas.settle(session)
             await session.commit()
     except BaseException:
         await session.rollback()
@@ -644,6 +659,7 @@ async def execute_plan(session, ctx: AppContext, caller: Caller, plan: DeletePla
             continue
         session.add(_history(record))
         record.doc = {k: v for k, v in record.doc.items() if k != name}
+        set_size(session, ctx, record)
         for column, value in side_columns(c, record.doc).items():
             setattr(record, column, value)
         record.current_version += 1
@@ -656,6 +672,12 @@ async def execute_plan(session, ctx: AppContext, caller: Caller, plan: DeletePla
     for collection, ids in by_collection.items():
         for i in range(0, len(ids), _CHUNK):
             chunk = ids[i:i + _CHUNK]
+            # Release exactly what these records were charged.
+            gone, size = (await session.execute(
+                select(func.count(), func.coalesce(func.sum(R.size_bytes), 0)).where(
+                    R.app_id == ctx.app_id, R.collection == collection, R.id.in_(chunk))
+            )).one()
+            quotas.note(session, ctx, records=-gone, bytes=-int(size))
             await session.execute(R.__table__.delete().where(
                 R.app_id == ctx.app_id, R.collection == collection, R.id.in_(chunk)))
             await session.execute(AppDataRecordVersion.__table__.delete().where(
@@ -680,6 +702,7 @@ async def delete_records(session, ctx: AppContext, caller: Caller, collection: s
             raise RecordError("AD-REF-RESTRICT", "referenced by records whose ref is "
                               "on_delete: restrict", 409, summary)
         await execute_plan(session, ctx, caller, plan)
+        await quotas.settle(session)
         await session.commit()
     except BaseException:
         await session.rollback()

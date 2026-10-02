@@ -137,6 +137,9 @@ class AppDataRecord(Base):
     ix_num1: Mapped[float | None] = mapped_column(Float, nullable=True)
     ix_time1: Mapped[datetime | None] = mapped_column(_TS, nullable=True)
     doc: Mapped[dict] = mapped_column(_JSON)
+    # What `doc` costs against the byte quota (appdata/quotas.doc_bytes),
+    # stored so a delete releases exactly what the write charged.
+    size_bytes: Mapped[int] = mapped_column(BigInteger, default=0)
 
 
 class AppDataRecordVersion(Base):
@@ -219,19 +222,46 @@ class AppDataStagedRecord(Base):
 
 class AppDataQuota(Base):
     """A platform-owned limit, set by Kyle, per App or per owner, with the
-    usage it is checked against. A breach fails closed."""
+    usage it is checked against. A breach fails closed (appdata/quotas.py).
+
+    A limit left None means the platform default from config; the row still
+    exists, because it holds the usage. The hourly counters are fixed
+    windows: `*_window` is the hour (epoch seconds // 3600) the count belongs
+    to, and a write in a later hour starts the count again."""
     __tablename__ = "app_data_quotas"
     # app | owner. scope_id is the App id or the owner's participant string.
     scope_kind: Mapped[str] = mapped_column(String(8), primary_key=True)
     scope_id: Mapped[str] = mapped_column(String(160), primary_key=True)
     max_records: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     max_bytes: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    writes_per_hour: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     scan_rows_per_hour: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     max_concurrent_scans: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # Owner rows: Apps (retired ones included). App rows: open drafts.
+    max_apps: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    max_open_drafts: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    max_open_proposals: Mapped[int | None] = mapped_column(Integer, nullable=True)
     used_records: Mapped[int] = mapped_column(BigInteger, default=0)
     used_bytes: Mapped[int] = mapped_column(BigInteger, default=0)
+    write_window: Mapped[int] = mapped_column(BigInteger, default=0)
+    writes_in_window: Mapped[int] = mapped_column(BigInteger, default=0)
+    scan_window: Mapped[int] = mapped_column(BigInteger, default=0)
+    scan_rows_in_window: Mapped[int] = mapped_column(BigInteger, default=0)
     set_by: Mapped[str] = mapped_column(String(160))
     updated_at: Mapped[datetime] = mapped_column(_TS, default=utcnow, onupdate=utcnow)
+
+
+class AppDataScanLease(Base):
+    """One running scan: a concurrency slot and the rows it reserved from the
+    hourly scan budgets. A scan is bounded in time, so a lease left behind by
+    a crashed worker lapses at `expires_at` instead of holding a slot."""
+    __tablename__ = "app_data_scan_leases"
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_uuid)
+    app_id: Mapped[str] = mapped_column(String(32), index=True)
+    owner: Mapped[str] = mapped_column(String(160), index=True)
+    reserved_rows: Mapped[int] = mapped_column(BigInteger)
+    started_at: Mapped[datetime] = mapped_column(_TS, default=utcnow)
+    expires_at: Mapped[datetime] = mapped_column(_TS, index=True)
 
 
 class AppDataWriteCounter(Base):
