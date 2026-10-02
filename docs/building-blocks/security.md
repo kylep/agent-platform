@@ -68,7 +68,8 @@ menu of specific, named actions — `stocks`, `discord_chat`, `memory`,
 2. **The broker checks who is calling** — it asks the platform API to
    verify the identity, then checks the agent's own definition (a database
    row an admin, or an agent holding `agents_grant`, controls) actually
-   lists that tool. Not declared = not allowed, no exceptions.
+   lists that tool. The tools that build or steer other agents are granted
+   only by Kyle's session (below). Not declared = not allowed, no exceptions.
 3. **The tool-executor runs the tool's code** — code a human reviewed and
    merged through a pull request. The model only ever picks the
    *arguments* (which ticker, which channel, what text). It can never
@@ -99,6 +100,28 @@ Steal either one and it's useless: the first is worthless off the pod,
 and the second is locked to the first. Even editing an agent's config
 mid-run changes nothing — the run's permissions were frozen when it
 started.
+
+## Who can change an agent
+
+Agent definitions are rows, and two platform tools write them: `agents_edit`
+(prose and config) and `agents_grant` (what an agent may do). An agent that
+could grant itself more, or rewrite a stronger agent's prompt, could escalate
+through either. So four tools — `apps`, `app_data`, `agents_edit` and
+`agents_grant` — are **Kyle-only**:
+
+- **Only Kyle's browser session** (logged in with the admin role) can add or
+  remove them, on any agent, at create or update. An admin API key is not
+  Kyle; neither is an agent's run token or its workload identity. This closes
+  self-grant, grant-by-proxy (A grants B, B grants A back) and mutual grants.
+- **An agent holding one is protected.** Only Kyle's session, or the agent
+  itself through `agent_self`, may change its definition, delete it, or set
+  its webhook secrets. Nobody with `agents_edit` can steer a builder.
+- **No agent edits itself** through `agents_edit` or `agents_grant`.
+  `agent_self` is the self path, and it can't touch grants.
+
+Other grants (`secrets`, `role`, `can_invoke`, `push_path_globs`) can still
+be handed to ordinary agents by an `agents_grant` holder; that is a known
+gap. Details in [Agents](agents.md#kyle-only-tools-and-protected-agents).
 
 ## The other guardrails, briefly
 
