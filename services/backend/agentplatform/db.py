@@ -1195,6 +1195,34 @@ def _ensure_columns(conn) -> None:
                 conn.exec_driver_sql(f'ALTER TABLE {qualified} ADD COLUMN {col.name} {ddl}')
 
 
+def _ensure_appdata_index_diet(conn) -> None:
+    """Drop the unused GIN index and make two composites partial (design 39,
+    "Storage"; appdata-perf-2026-10).
+
+    create_all never alters an index that exists, and these keep their names,
+    so a database booted before the change holds the old full indexes and would
+    keep them. Postgres only: SQLite never had the GIN index and keeps full
+    composites. Each step checks the live definition, so a re-run (the mark
+    lost, or a fresh database whose create_all already built the partials)
+    rebuilds nothing."""
+    mark_t = SchemaMark.__table__
+    if conn.execute(select(mark_t.c.name)
+                    .where(mark_t.c.name == APPDATA_INDEX_DIET_MARK)).first():
+        return
+    if conn.dialect.name == "postgresql":
+        from agentplatform.appdata.models import AppDataRecord
+        defs = dict(conn.exec_driver_sql(
+            "SELECT indexname, indexdef FROM pg_indexes "
+            "WHERE tablename = 'app_data_records' AND schemaname = current_schema()").all())
+        conn.exec_driver_sql("DROP INDEX IF EXISTS ix_app_data_records_doc")
+        for ix in AppDataRecord.__table__.indexes:
+            if ix.name in defs and " WHERE " not in defs[ix.name] \
+                    and ix.dialect_options["postgresql"]["where"] is not None:
+                conn.exec_driver_sql(f"DROP INDEX {ix.name}")
+                ix.create(conn)
+    conn.execute(mark_t.insert().values(name=APPDATA_INDEX_DIET_MARK, applied_at=utcnow()))
+
+
 def _ensure_agent_type_default(conn) -> None:
     """Old definitions predate Type; their existing job identity is Worker."""
     t = AgentDef.__table__
@@ -1311,6 +1339,7 @@ DEV_PROMPT_EDITS_MARK = "dev-prompt-edits-v1"
 BACKTEST_WORKER_MARK = "backtest-worker-v1"
 PERSONA_QUERY_APP_MARK = "persona-query-app-v1"
 KYLE_ONLY_AUDIT_MARK = "kyle-only-audit-v1"
+APPDATA_INDEX_DIET_MARK = "app-data-index-diet-v1"
 
 # The channels that become PROJECTS when Tickets ships (docs/design/20), and
 # the prefix each one's keys are stamped with. #standup is deliberately absent:
@@ -3610,6 +3639,7 @@ async def init_db(engine: AsyncEngine, default_grant: bool = True,
         await conn.run_sync(Base.metadata.create_all)
         await conn.run_sync(_ensure_columns)
         await conn.run_sync(_ensure_scope_indexes)
+        await conn.run_sync(_ensure_appdata_index_diet)
         await conn.run_sync(_ensure_agent_type_default)
         await conn.run_sync(_ensure_workbench_defaults)
         await conn.run_sync(_ensure_task_defaults)

@@ -31,6 +31,7 @@ from datetime import datetime
 
 from sqlalchemy import (JSON, BigInteger, Boolean, DateTime, Float, Index, Integer, String,
                         Text, UniqueConstraint)
+from sqlalchemy import text  # the partial indexes' predicates
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -124,15 +125,16 @@ class AppDataRecord(Base):
         # The design's fixed set: bars (symbol, day), results (run, ref) and
         # backtest series (experiment, strategy, day).
         Index("ix_app_data_records_t1_time", "app_id", "collection", "ix_text1", "ix_time1"),
+        # Partial on Postgres: a record that fills no ix_text2 / ix_num1 is in
+        # neither index, and the engine's results and bars queries always
+        # constrain the column, so the planner can prove the predicate.
         Index("ix_app_data_records_t1_t2_time", "app_id", "collection", "ix_text1",
-              "ix_text2", "ix_time1"),
-        Index("ix_app_data_records_t1_num", "app_id", "collection", "ix_text1", "ix_num1"),
+              "ix_text2", "ix_time1", postgresql_where=text("ix_text2 IS NOT NULL")),
+        Index("ix_app_data_records_t1_num", "app_id", "collection", "ix_text1", "ix_num1",
+              postgresql_where=text("ix_num1 IS NOT NULL")),
         Index("ix_app_data_records_time", "app_id", "collection", "ix_time1"),
         # Default ordering (newest first) and retention's age and count cuts.
         Index("ix_app_data_records_created", "app_id", "collection", "created_at"),
-        # SQLite has no index for a JSON blob, so this one is Postgres's alone.
-        Index("ix_app_data_records_doc", "doc", postgresql_using="gin",
-              postgresql_ops={"doc": "jsonb_path_ops"}).ddl_if(dialect="postgresql"),
     )
     # The primary key is the record's identity: one id per collection.
     app_id: Mapped[str] = mapped_column(String(32), primary_key=True)
