@@ -546,7 +546,8 @@ async def records_delete(request: Request, body: RecordDeleteIn,
         app = await _scoped(request, s, body.app, body.collection, "delete")
         return await L.record_delete(
             s, actor, app.id, request_id=body.request_id, collection=body.collection,
-            record_id=body.id, expected_version=body.expected_version)
+            record_id=body.id, expected_version=body.expected_version,
+            check_plan=lambda plan: tc.require_plan_scope(request, app.id, plan))
     return await _call(request, fn)
 
 
@@ -556,5 +557,7 @@ async def records_delete_preview(request: Request, body: DeletePreviewIn,
     async def fn(s):
         app = await _scoped(request, s, body.app, body.collection, "delete")
         ctx = await load_app(s, app.id)
-        return await plan_delete(s, ctx, actor.caller, body.collection, body.ids)
+        return await plan_delete(
+            s, ctx, actor.caller, body.collection, body.ids,
+            check_plan=lambda plan: tc.require_plan_scope(request, app.id, plan))
     return await _call(request, fn)

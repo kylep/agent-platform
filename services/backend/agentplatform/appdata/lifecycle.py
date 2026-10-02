@@ -1426,9 +1426,11 @@ async def record_update(session, actor: Actor, app_ref: str, *, request_id: str,
 
 async def record_delete(session, actor: Actor, app_ref: str, *, request_id: str,
                         collection: str, record_id: str,
-                        expected_version: int | None = None) -> dict:
+                        expected_version: int | None = None,
+                        check_plan: Callable[[rec.DeletePlan], None] | None = None) -> dict:
     """Delete one record through its server-computed plan; a `restrict` ref
-    refuses it with the plan."""
+    refuses it with the plan. `check_plan` may refuse the plan before
+    anything is written (a tool call's scope over what it would unlink)."""
     app = await _app(session, app_ref)
 
     async def work(finish):
@@ -1439,6 +1441,8 @@ async def record_delete(session, actor: Actor, app_ref: str, *, request_id: str,
             await rec._authorize_delete(session, ctx, actor.caller, collection, [record_id],
                                         expected)
             plan = await rec.compute_plan(session, ctx, [(collection, record_id)])
+            if check_plan is not None:
+                check_plan(plan)
             summary = plan.summary(ctx, actor.caller)
             if plan.blocked:
                 raise RecordError("AD-REF-RESTRICT", "referenced by records whose ref is "

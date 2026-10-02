@@ -45,6 +45,16 @@ app_access:
   roles: [results]
   verbs: [read, create]
 """
+SWEEPER_YAML = """\
+name: sweeper
+description: Deletes results; may or may not update the links that point at them.
+params: {type: object, properties: {}}
+app_access:
+  roles: [results, links]
+  verbs: [read, create, delete]
+"""
+TIDIER_YAML = SWEEPER_YAML.replace("sweeper", "tidier").replace(
+    "[read, create, delete]", "[read, create, update, delete]")
 PLAIN_YAML = """\
 name: plain
 description: A tool that declares no App access at all, for tests.
@@ -85,8 +95,11 @@ async def env(sf, producer, secret_store, agent_store, seed_agent, tmp_path):
     tools = tmp_path / "tools"
     _tool(tools, "ledger", LEDGER_YAML)
     _tool(tools, "plain", PLAIN_YAML)
+    _tool(tools, "sweeper", SWEEPER_YAML)
+    _tool(tools, "tidier", TIDIER_YAML)
     await seed_agent("pai", description="t",
-                     platform_tools=["mcp__platform__ledger", "mcp__platform__plain"])
+                     platform_tools=["mcp__platform__ledger", "mcp__platform__plain",
+                                     "mcp__platform__sweeper", "mcp__platform__tidier"])
     await seed_agent("bob", description="t", platform_tools=["mcp__platform__plain"])
     await agent_store.reload()
     keys = runjwt.generate_keypair()
@@ -107,7 +120,9 @@ async def env(sf, producer, secret_store, agent_store, seed_agent, tmp_path):
     app.state.sa_validator = validate
 
     run_jwt = runjwt.mint(keys["private_key"], run_id="run-1", agent="pai",
-                          initiated_by="kyle", tools=["mcp__platform__ledger"],
+                          initiated_by="kyle", tools=["mcp__platform__ledger",
+                                                      "mcp__platform__sweeper",
+                                                      "mcp__platform__tidier"],
                           sa_name="agent-pai", timeout_seconds=300)
     async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app),
                                  base_url="http://t") as c:
@@ -519,3 +534,55 @@ async def test_a_tool_call_cannot_check_a_chat_identity_transport(env):
     h = _as_executor((await _mint(env)).json())
     r = await env.get("/api/chat-identities/discord-default/transport", headers=h)
     assert r.status_code == 401
+
+
+async def test_a_delete_that_would_unlink_needs_update_scope_there(env, sf):
+    """Unlinking a ref is an update to the referring record: a tool call
+    without `update` on that collection is refused the whole delete, and its
+    preview says so, before anything is written."""
+    from agentplatform.appdata.access import Caller
+    from agentplatform.appdata.records import create_record, get_record, load_app
+    owned = await _app(sf, "agent:pai", [
+        _collection("results"),
+        {"collection": "links", "fields": {"run": {"type": "ref", "collection": "results",
+                                                   "on_delete": "unlink"}}}])
+    owner = Caller("agent:pai")
+    async with sf() as s:
+        ctx = await load_app(s, owned)
+        linked = (await create_record(s, ctx, owner, "results", {"title": "a"}))["id"]
+    async with sf() as s:
+        ctx = await load_app(s, owned)
+        link = (await create_record(s, ctx, owner, "links", {"run": linked}))["id"]
+    async with sf() as s:
+        ctx = await load_app(s, owned)
+        lone = (await create_record(s, ctx, owner, "results", {"title": "b"}))["id"]
+
+    h = _as_executor((await _mint(env, tool="sweeper")).json())
+    r = await env.post(f"{RECORDS}/delete_preview", headers=h, json={
+        "app": owned, "collection": "results", "ids": [linked]})
+    assert r.status_code == 403 and r.json()["detail"]["code"] == "AD-OUT-OF-SCOPE"
+    assert r.json()["detail"]["detail"] == {"unlinks": ["links"]}
+    r = await env.post(f"{RECORDS}/delete", headers=h, json={
+        "app": owned, "request_id": "d1", "collection": "results", "id": linked})
+    assert r.status_code == 403 and r.json()["detail"]["code"] == "AD-OUT-OF-SCOPE"
+    async with sf() as s:
+        ctx = await load_app(s, owned)
+        await get_record(s, ctx, owner, "results", linked)          # still there
+        assert (await get_record(s, ctx, owner, "links", link))["values"]["run"] == linked
+    # Nothing to unlink: the delete scope alone is enough.
+    r = await env.post(f"{RECORDS}/delete", headers=h, json={
+        "app": owned, "request_id": "d2", "collection": "results", "id": lone})
+    assert r.status_code == 200, r.text
+
+    # With update on `links` the same delete goes through and unlinks.
+    h = _as_executor((await _mint(env, tool="tidier")).json())
+    r = await env.post(f"{RECORDS}/delete_preview", headers=h, json={
+        "app": owned, "collection": "results", "ids": [linked]})
+    assert r.status_code == 200, r.text
+    r = await env.post(f"{RECORDS}/delete", headers=h, json={
+        "app": owned, "request_id": "d3", "collection": "results", "id": linked})
+    assert r.status_code == 200, r.text
+    async with sf() as s:
+        ctx = await load_app(s, owned)
+        values = (await get_record(s, ctx, owner, "links", link))["values"]
+    assert values.get("run") is None and values["via"] == "tool:tidier"
