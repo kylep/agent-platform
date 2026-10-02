@@ -108,8 +108,8 @@ with any issue and `warn` at 90% of the records or bytes limit it reports.
 
 ## Definitions
 
-`apps schema` returns the JSON Schema of every kind and a `capabilities`
-object (version 2), generated from `appdata/definitions.py`. Definitions are
+`apps schema` returns the JSON Schema of every kind and a versioned `capabilities`
+object generated from `appdata/definitions.py`. Definitions are
 closed: an unknown key is an error, never ignored. Definition names match
 `^[a-z][a-z0-9_]{0,39}$`. An App holds at most 50 collections, 100 views,
 50 pages and 20 App tools.
@@ -155,6 +155,15 @@ Every field spec takes `type`, `required` (default false), `label`,
 | `ref` | a record id in `collection` of the same App | `collection`, `on_delete` (`restrict` default, `unlink`) |
 | `url` | text, at most 2,000 characters | `max`, `link` (render as an outbound link) |
 | `artifact` | an artifact id (below) | |
+| `list` | up to 50 items (or a lower `max_items`); each item is a declared scalar or a one-level object with 1–32 declared scalar fields | `items`, `max_items` |
+
+A list of strings uses `{"type":"list","items":{"type":"string","max":100}}`.
+An object list uses `{"type":"list","items":{"type":"object","fields":
+{"action":{"type":"string","max":200},"passed":{"type":"bool"}}}}`.
+Every object item supplies exactly its declared fields. Lists are replaced as
+a whole on update and are limited to 1 MiB when encoded. They cannot be
+indexed, sorted, used in unique keys or filtered by a view. The containing
+field's read/write access covers the whole list, including every object item.
 
 **System fields** are on every record and can't be written or reused as
 field names: `id`, `created_at`, `updated_at`, `author`, `via`, `version`,

@@ -178,6 +178,57 @@ async def test_http_and_https_urls_are_stored_as_given(sf):
             assert row["values"]["u"] == url
 
 
+async def test_typed_lists_are_bounded_normalized_and_versioned_with_the_record(sf):
+    fields = {
+        "tags": {"type": "list", "items": {"type": "string", "max": 12}},
+        "steps": {"type": "list", "max_items": 2, "items": {"type": "object", "fields": {
+            "action": {"type": "string", "max": 30},
+            "at": {"type": "datetime"},
+            "score": {"type": "number", "min": 0, "max": 10},
+        }}},
+    }
+    ctx = await make_app(sf, [coll(fields=fields)], tz="America/Toronto")
+    first = {"action": "open", "at": "2026-10-02T08:30:00", "score": 3}
+    async with sf() as s:
+        row = await create_record(s, ctx, OWNER, "items", {"tags": ["smoke"],
+                                                       "steps": [first]})
+        assert row["values"]["steps"] == [{"action": "open",
+                                           "at": "2026-10-02T12:30:00.000000Z",
+                                           "score": 3.0}]
+        changed = await update_record(s, ctx, OWNER, "items", row["id"],
+                                      {"tags": ["smoke", "manual"]}, expected_version=1)
+        assert changed["values"]["tags"] == ["smoke", "manual"]
+        history = (await s.execute(select(AppDataRecordVersion))).scalar_one()
+        assert history.doc["tags"] == ["smoke"]
+        for bad in ({"tags": ["x" * 13]}, {"steps": [first] * 3},
+                    {"steps": [{**first, "score": 11}]},
+                    {"steps": [{**first, "nested": {}}]},
+                    {"steps": [{"action": "missing fields"}]},
+                    {"steps": "not a list"}):
+            await refused("AD-INVALID-VALUE", create_record(s, ctx, OWNER, "items", bad))
+
+
+async def test_an_object_list_cannot_amplify_a_record_past_one_mib(sf):
+    ctx = await make_app(sf, [coll(fields={"steps": {"type": "list", "items": {
+        "type": "object", "fields": {"a": {"type": "text"}, "b": {"type": "text"}}}}})])
+    async with sf() as s:
+        error = await refused("AD-INVALID-VALUE", create_record(
+            s, ctx, OWNER, "items", {"steps": [{"a": "x" * 16000,
+                                                  "b": "y" * 16000}] * 40}))
+        assert error.status == 413
+
+
+async def test_list_items_inherit_the_containing_fields_read_access(sf):
+    fields = {"private_steps": {"type": "list", "items": {"type": "string"},
+                                "access": {"read": ["owner"]}}}
+    ctx = await make_app(sf, [coll(fields=fields)])
+    async with sf() as s:
+        row = await create_record(s, ctx, OWNER, "items", {"private_steps": ["secret note"]})
+        visible = await get_record(s, ctx, KYLE, "items", row["id"])
+    assert visible["values"]["private_steps"] is None
+    assert "private_steps" in visible["restricted"]
+
+
 # --- side columns ----------------------------------------------------------------------------
 
 async def test_indexed_fields_fill_their_side_columns(sf):

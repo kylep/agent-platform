@@ -30,7 +30,8 @@ CODES: dict[str, str] = {
     "JD-REQUEST-PATH": "This isn't planned; file an App Builder request if the App needs it.",
     # Collections.
     "JD-FIELD-TYPE": "Use one of: string, text, int, number, bool, date, datetime, enum, "
-                     "ref, url, artifact.",
+                     "ref, url, artifact, list.",
+    "JD-LIST-ITEM": "Declare a bounded scalar item or an object with 1-32 scalar fields.",
     "JD-FIELD-RESERVED": "Rename the field; system fields are provided by the platform.",
     "JD-FIELD-BOUNDS": "Make `min` no larger than `max`, both inside the type's limits.",
     "JD-ENUM-VALUES": "List 1-100 distinct, non-empty values.",
@@ -66,6 +67,7 @@ CODES: dict[str, str] = {
     "JD-PARAM-TYPE": "Declare the parameter with a type that fits the field.",
     "JD-PARAM-OP": "Use a literal value with this operator.",
     "JD-SORT-DUPLICATE": "Sort on each field once.",
+    "JD-SORT-TYPE": "Sort on a scalar or system field, not a list.",
     "JD-TOOL-VIEW-ACTION": "Use an action admitted as a read-only tool view in the operation catalog.",
     "JD-TOOL-VIEW-SOURCE": "Name each source role declared by that action once.",
     "JD-TOOL-VIEW-BINDING": "Approve the tool's source role for read in this App first.",

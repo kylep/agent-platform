@@ -8,7 +8,7 @@ import {
   AppDataError, getPage, internalPath, isCount, pageHref, readView,
   confirmPageAction, dispatchPageAction,
   type ActionField, type PageAction, type PageActionIntent,
-  type Column, type ColumnFormat, type ParamBinding, type PublishedPage, type Scalar,
+  type Column, type ColumnFormat, type ParamBinding, type PublishedPage, type RecordValue,
   type V2Component, type ViewResult, type ViewRow,
 } from "../lib/appData";
 
@@ -126,8 +126,13 @@ function v2Label(column: Column): string {
   return column.label || column.field.charAt(0).toUpperCase() + column.field.slice(1).replaceAll("_", " ");
 }
 
-function v2Value(value: Scalar | undefined, format: ColumnFormat | undefined): string {
+function v2Value(value: RecordValue | undefined, format: ColumnFormat | undefined): string {
   if (value === null || value === undefined || value === "") return "—";
+  if (Array.isArray(value)) {
+    if (value.length === 0) return "—";
+    return value.map((item) => typeof item === "object" && item !== null
+      ? JSON.stringify(item) : String(item)).join(" · ");
+  }
   if (typeof value === "boolean" || format === "bool") return value === true ? "Yes" : "No";
   const n = typeof value === "number" ? value : Number(value);
   if (format === "int" && Number.isFinite(n)) return Math.round(n).toLocaleString();
@@ -182,6 +187,14 @@ function actionValues(fields: ActionField[], draft: Record<string, string>): Rec
   for (const field of fields) {
     const raw = draft[field.name];
     if (raw === undefined || raw === "") continue;
+    if (field.type === "list") {
+      let parsed: unknown;
+      try { parsed = JSON.parse(raw); }
+      catch { throw new Error(`${field.label || field.name} needs a valid JSON array.`); }
+      if (!Array.isArray(parsed)) throw new Error(`${field.label || field.name} needs a JSON array.`);
+      values[field.name] = parsed;
+      continue;
+    }
     values[field.name] = field.type === "bool" ? raw === "true"
       : field.type === "int" || field.type === "number" ? Number(raw) : raw;
   }
@@ -198,8 +211,10 @@ function ActionFieldInput({ field, value, onChange }: { field: ActionField; valu
         <option key={option} value={option}>{option}</option>)}
     </select></label>;
   }
-  if (field.type === "text") return <label>{label}<Textarea value={value}
-    maxLength={field.max} onChange={(e) => onChange(e.target.value)} /></label>;
+  if (field.type === "text" || field.type === "list") return <label>{label}
+    {field.type === "list" && <span className="muted">JSON array, up to {field.max_items || 50} items</span>}
+    <Textarea value={value} maxLength={field.type === "list" ? 1_048_576 : field.max}
+      onChange={(e) => onChange(e.target.value)} /></label>;
   const type = field.type === "date" ? "date" : field.type === "datetime" ? "datetime-local"
     : field.type === "int" || field.type === "number" ? "number" : "text";
   return <label>{label}<Input type={type} value={value}

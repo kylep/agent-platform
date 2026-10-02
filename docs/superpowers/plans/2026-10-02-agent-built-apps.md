@@ -1039,6 +1039,21 @@ Versioned mode, `pin_version`, cascade, lists (including objects), `exists`,
 `new_version`, and tool actions on pages (page-intent credentials, budgets,
 Task scheduling).
 
+- [ ] Typed list fields: up to 50 scalar or one-level object items, a 1 MiB
+  encoded-field ceiling, per-field access, JSON-array page input, and clear
+  refusals for sorting/filtering/indexing lists. Backend and web implementation
+  is in progress; verify and deploy before checking this item.
+- [ ] Versioned records and field-redacted history reads; `new_version` page
+  action and `detail.history` rendering.
+- [ ] Pinned version refs and recursive `cascade` plans, with cycle handling,
+  authorization over the whole plan and server-generated confirmations.
+- [ ] Bounded `exists` / `not_exists` view filters against declared refs.
+- [ ] Tool page actions: reviewed operation contract, frozen intent credential,
+  idempotent receipt, durable budget and Task request ID. Verify denial on
+  an unreviewed tool branch and on a changed target/authority generation.
+- [ ] Local and live gates: judgment-shaped fixtures, browser action flow,
+  backend/broker/web suites, and the maintenance-mode refusal.
+
 ### M1 — judgment · M2 — TCMS
 Each one: a definitions bundle, the copy job, the outbox, parity, cutover,
 the takeover gate, removal and a restore drill.

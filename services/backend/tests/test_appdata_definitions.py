@@ -461,7 +461,6 @@ def test_invalid_retention(retention, expected):
 
 @pytest.mark.parametrize("change, expected", [
     ({"write_mode": "versioned"}, ("JD-NOT-YET-R2", "$.write_mode")),
-    ({"fields": {"tags": {"type": "list", "of": "string"}}}, ("JD-NOT-YET-R2", "$.fields.tags.type")),
     ({"fields": {"r": {"type": "ref", "collection": "habits", "on_delete": "cascade"}}},
      ("JD-NOT-YET-R2", "$.fields.r.on_delete")),
     ({"fields": {"r": {"type": "ref", "collection": "habits", "pin_version": True}}},
@@ -1022,16 +1021,42 @@ def test_exported_schemas_accept_the_fixtures_and_refuse_bad_shapes():
             jsonschema.validate(bad, kinds[kind])
 
 
-def test_capabilities_list_release_one_and_deferred_features():
+def test_capabilities_list_built_and_deferred_features():
     caps = d.capabilities()
     assert caps["version"] == d.CAPABILITIES_VERSION
     assert set(caps["field_types"]) == {"string", "text", "int", "number", "bool", "date",
-                                        "datetime", "enum", "ref", "url", "artifact"}
+                                        "datetime", "enum", "ref", "url", "artifact", "list"}
     assert set(caps["components"]) == {"table", "detail", "metric", "text"}
     assert set(caps["filter_ops"]) == {"eq", "ne", "in", "lt", "lte", "gt", "gte",
                                        "is_null", "within_last", "contains"}
     assert caps["deferred"]["versioned"] == 2 and caps["deferred"]["chart"] == 3
     assert caps["limits"]["view_limit"] == 200 and caps["limits"]["indexed_fields"] == 4
+
+
+def test_lists_have_bounded_declared_items_and_cannot_be_indexed_or_filtered():
+    fields = {
+        "tags": {"type": "list", "items": {"type": "string", "max": 20}},
+        "steps": {"type": "list", "max_items": 25, "items": {"type": "object", "fields": {
+            "action": {"type": "string", "max": 100},
+            "passed": {"type": "bool"},
+        }}},
+    }
+    assert d.validate_collection({"collection": "cases", "fields": fields}).fields["steps"].max_items == 25
+    for bad in (
+        {"type": "list", "items": {"type": "object", "fields": {"nested": {
+            "type": "list", "items": {"type": "string"}}}}},
+        {"type": "list", "items": {"type": "string", "max": 1001}},
+        {"type": "list", "items": {"type": "ref", "collection": "cases"}},
+        {"type": "list", "items": {"type": "string"}, "max_items": 51},
+    ):
+        assert collection_errors({"collection": "cases", "fields": {"steps": bad}})
+    assert ("JD-INDEX-TYPE", "$.indexed[0]") in collection_errors(
+        {"collection": "cases", "fields": fields, "indexed": ["steps"]})
+    with pytest.raises(DefinitionError) as caught:
+        d.validate_app({"collections": [{"collection": "cases", "fields": fields}],
+                        "views": [{"view": "by_step", "collection": "cases",
+                                   "filter": [{"field": "steps", "op": "eq", "value": []}]}]})
+    assert any(e.code == "JD-FILTER-OP-TYPE" for e in caught.value.issues)
 
 
 def test_json_paths_escape_non_identifiers():

@@ -47,7 +47,7 @@ from agentplatform.appdata import records as rec
 from agentplatform.appdata.access import Caller, RecordError
 from agentplatform.appdata.definitions import (
     BUNDLE_KEYS, NAME_RE, SYSTEM_FIELDS, AppBundle, CollectionDef, DefinitionError, PageDef,
-    RefField, TableBlock, DetailBlock, MetricBlock, TextBlock, ToolViewDef, UniqueRule,
+    RefField, TableBlock, MetricBlock, TextBlock, ToolViewDef, UniqueRule,
     _fits_field,
     index_columns, validate_app, validate_definition)
 from agentplatform.appdata.models import (AppDataApp, AppDataBuildOp, AppDataDefinition,
@@ -1342,7 +1342,8 @@ def page_for_web(page: PageDef, bundle, *, with_actions: bool = False) -> dict:
                               "editable_fields": [
                                   {"name": name, **bundle.collections[t.collection].fields[name]
                                    .model_dump(mode="json", include={"type", "label", "required",
-                                                                     "min", "max", "values"},
+                                                                     "min", "max", "values",
+                                                                     "items", "max_items"},
                                                exclude_none=True)}
                                   for name in getattr(t, "editable_fields", [])]}
                              for t in page.actions]

@@ -42,6 +42,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import json
 import unicodedata
 import uuid
 import weakref
@@ -58,15 +59,17 @@ from agentplatform.appdata import artifacts as app_artifacts
 from agentplatform.appdata import quotas
 from agentplatform.appdata.access import Access, Caller, RecordError, matches
 from agentplatform.appdata.definitions import (
-    BUNDLE_KEYS, SYSTEM_FIELDS, AppBundle, CollectionDef, DefinitionError, RefField,
-    UniqueRule, WriterRule, ImmutableAfterCreateRule, _fits_field, index_columns,
-    validate_app)
+    BUNDLE_KEYS, SYSTEM_FIELDS, AppBundle, CollectionDef, DefinitionError,
+    ImmutableAfterCreateRule, ListField, ListObjectItem, RefField, UniqueRule,
+    WriterRule, _fits_field, index_columns, validate_app)
 from agentplatform.appdata.models import (AppDataApp, AppDataDefinition, AppDataRecord,
                                           AppDataRecordVersion, AppDataWriteCounter)
 from agentplatform.db import utcnow
 
 # The side columns are String(256); a longer value can't be indexed.
 MAX_INDEXED_TEXT = 256
+# A declared object list can otherwise multiply 50 items by 32 text fields.
+MAX_LIST_BYTES = 1024 * 1024
 # IN lists stay well under every driver's bound-parameter limit.
 _CHUNK = 500
 
@@ -213,6 +216,26 @@ def normalize_value(ctx: AppContext, c: CollectionDef, name: str, value: Any) ->
                           "with no credentials in it", 422, {"field": name})
     if spec.type == "datetime":
         return format_datetime(parse_datetime(value, ctx.tz))
+    if isinstance(spec, ListField):
+        def item_value(item_spec, item):
+            if isinstance(item_spec, ListObjectItem):
+                return {key: item_value(item_spec.fields[key], child)
+                        for key, child in item.items()}
+            if item_spec.type == "datetime":
+                return format_datetime(parse_datetime(item, ctx.tz))
+            if item_spec.type == "url" and not _safe_url(item):
+                raise RecordError("AD-URL", f"{name}: a url inside this list must be an "
+                                  "absolute http or https address with no credentials", 422,
+                                  {"field": name})
+            if item_spec.type == "number" and isinstance(item, int):
+                return float(item)
+            return item
+        items = [item_value(spec.items, item) for item in value]
+        encoded = json.dumps(items, ensure_ascii=False, separators=(",", ":")).encode()
+        if len(encoded) > MAX_LIST_BYTES:
+            raise RecordError("AD-INVALID-VALUE", f"{name}: list is over 1 MiB", 413,
+                              {"field": name})
+        return items
     if spec.type == "number" and isinstance(value, int):
         return float(value)
     return value

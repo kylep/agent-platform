@@ -31,7 +31,7 @@ from agentplatform.appdata.errors import (CODES, DefinitionError, DefinitionIssu
 
 # Bumped whenever the language accepts something new, so builders (and the
 # skill) can check `apps schema` for a capability before relying on it.
-CAPABILITIES_VERSION = 3   # 3: tool views (R1b)
+CAPABILITIES_VERSION = 4   # 4: typed list fields (R2)
 
 NAME_RE = re.compile(r"^[a-z][a-z0-9_]{0,39}$")
 _AGENT_RE = re.compile(r"^agent:[a-z0-9][a-z0-9-]{0,62}$")   # agentspec._NAME_RE
@@ -40,7 +40,7 @@ APP_VERBS = ("read", "create", "update", "delete")             # toolregistry.AP
 _ANCHOR_RE = re.compile(r"^(now|max\(([a-z][a-z0-9_]{0,39})\))$")
 
 FIELD_TYPES = ("string", "text", "int", "number", "bool", "date", "datetime", "enum",
-               "ref", "url", "artifact")
+               "ref", "url", "artifact", "list")
 # Read-only fields every record has; views and pages may use them, rules may not.
 SYSTEM_FIELDS = {"id": "id", "created_at": "datetime", "updated_at": "datetime",
                  "author": "principal", "via": "principal", "version": "int",
@@ -69,7 +69,7 @@ _INDEX_FAMILY = {"string": "text", "enum": "text", "ref": "text", "int": "num",
 # Syntax the design schedules for later. The value is the release number, or
 # None for features cut to the App Builder request path.
 DEFERRED: dict[str, int | None] = {
-    "versioned": 2, "list": 2, "pin_version": 2, "cascade": 2, "exists": 2,
+    "versioned": 2, "pin_version": 2, "cascade": 2, "exists": 2,
     "not_exists": 2, "new_version": 2, "tool_actions": 2, "detail_history": 2,
     "group_by": 3, "aggregates": 3, "fill_missing": 3, "normalize": 3, "downsample": 3,
     "chart": 3, "calendar": 3, "sparkline": 3, "stat_row": 3, "list_filter": 3,
@@ -316,9 +316,73 @@ class ArtifactField(_FieldBase):
     type: Literal["artifact"]
 
 
+class ListScalarItem(_Model):
+    """A scalar inside a list. Item access follows the containing field."""
+    type: Literal["string", "text", "int", "number", "bool", "date", "datetime", "enum",
+                  "url"]
+    min: int | float | None = None
+    max: int | float | None = None
+    values: list[str] | None = None
+
+    @model_validator(mode="after")
+    def _shape(self):
+        if self.type in ("string", "text", "url"):
+            limit = {"string": MAX_STRING, "text": MAX_TEXT, "url": MAX_URL}[self.type]
+            if self.values is not None:
+                raise _err("JD-LIST-ITEM", "text items cannot declare values")
+            if self.min is not None and (not isinstance(self.min, int)
+                                         or isinstance(self.min, bool)):
+                raise _err("JD-LIST-ITEM", "text item bounds must be integer lengths")
+            if self.max is None:
+                self.max = limit
+            if (not isinstance(self.max, int) or isinstance(self.max, bool)
+                    or not 1 <= self.max <= limit):
+                raise _err("JD-LIST-ITEM", "text item maximum is out of range")
+            if self.min is not None and not 0 <= self.min <= self.max:
+                raise _err("JD-LIST-ITEM", "text item minimum is out of range")
+        elif self.type in ("int", "number"):
+            if self.values is not None:
+                raise _err("JD-LIST-ITEM", "numeric items cannot declare values")
+            if self.type == "int" and any(
+                    v is not None and (not isinstance(v, int) or isinstance(v, bool))
+                    for v in (self.min, self.max)):
+                raise _err("JD-LIST-ITEM", "integer item bounds must be integers")
+            if any(v is not None and (isinstance(v, bool)
+                    or not isinstance(v, (int, float)) or not math.isfinite(v))
+                    for v in (self.min, self.max)):
+                raise _err("JD-LIST-ITEM", "numeric item bounds must be finite")
+            if self.min is not None and self.max is not None and self.min > self.max:
+                raise _err("JD-LIST-ITEM", "item minimum is larger than maximum")
+        elif self.type == "enum":
+            if (self.min is not None or self.max is not None or not self.values
+                    or len(self.values) > 100):
+                raise _err("JD-LIST-ITEM", "enum items need 1-100 values and no bounds")
+            if len(set(self.values)) != len(self.values) or any(
+                    not isinstance(v, str) or not 1 <= len(v) <= 64 for v in self.values):
+                raise _err("JD-LIST-ITEM", "enum item values must be unique short strings")
+        elif self.min is not None or self.max is not None or self.values is not None:
+            raise _err("JD-LIST-ITEM", "this item type does not take bounds or values")
+        return self
+
+
+class ListObjectItem(_Model):
+    type: Literal["object"]
+    fields: Annotated[dict[FieldName, ListScalarItem], Field(min_length=1, max_length=32)]
+
+
+ListItem = Annotated[ListScalarItem | ListObjectItem, Field(discriminator="type")]
+
+
+class ListField(_FieldBase):
+    """A bounded list of scalars or one-level declared objects (R2)."""
+    type: Literal["list"]
+    items: ListItem
+    max_items: Annotated[int, Field(ge=1, le=50)] = 50
+
+
 FieldSpec = Annotated[
     Union[StringField, TextField, IntField, NumberField, BoolField, DateField,
-          DatetimeField, EnumField, RefField, UrlField, ArtifactField],
+          DatetimeField, EnumField, RefField, UrlField, ArtifactField, ListField],
     Field(discriminator="type")]
 
 
@@ -722,11 +786,7 @@ def _field_type(collection: CollectionDef, name: str) -> str | None:
     return SYSTEM_FIELDS.get(name)
 
 
-def _fits_field(collection: CollectionDef, name: str, value: Any, *,
-                bounds: bool) -> bool:
-    """Does a literal fit the field? `bounds` also applies min/max (writes)."""
-    spec = collection.fields.get(name)
-    kind = _field_type(collection, name)
+def _fits_spec(spec: Any, kind: str, value: Any, *, bounds: bool) -> bool:
     if kind in ("string", "text", "url"):
         if not isinstance(value, str) or len(value) > spec.max:
             return False
@@ -749,7 +809,26 @@ def _fits_field(collection: CollectionDef, name: str, value: Any, *,
         return _is_date(value)
     if kind == "datetime":
         return _is_datetime(value)
+    if kind == "list":
+        return (isinstance(value, list) and len(value) <= spec.max_items and all(
+            _fits_list_item(spec.items, item, bounds=bounds) for item in value))
     return False
+
+
+def _fits_list_item(spec: ListScalarItem | ListObjectItem, value: Any, *,
+                    bounds: bool) -> bool:
+    if isinstance(spec, ListObjectItem):
+        return (isinstance(value, dict) and set(value) == set(spec.fields)
+                and all(_fits_spec(child, child.type, value[name], bounds=bounds)
+                        for name, child in spec.fields.items()))
+    return _fits_spec(spec, spec.type, value, bounds=bounds)
+
+
+def _fits_field(collection: CollectionDef, name: str, value: Any, *,
+                bounds: bool) -> bool:
+    """Does a literal fit the field? `bounds` also applies min/max (writes)."""
+    return _fits_spec(collection.fields.get(name), _field_type(collection, name),
+                      value, bounds=bounds)
 
 
 # Which declared parameter types a field of each type accepts.
@@ -793,10 +872,7 @@ def _deferred(kind: str, raw: Any, base: str) -> list[tuple[DefinitionIssue, str
         for name, spec in (fields.items() if isinstance(fields, dict) else ()):
             if not isinstance(spec, dict):
                 continue
-            if spec.get("type") == "list":
-                add("list", ["fields", name, "type"], "list", "list fields",
-                    suppress=["fields", name])
-            elif spec.get("type") == "message_ref":
+            if spec.get("type") == "message_ref":
                 add("message_ref", ["fields", name, "type"], "message_ref",
                     "message_ref fields", suppress=["fields", name])
             if "pin_version" in spec:
@@ -979,6 +1055,11 @@ def _check_collection(c: CollectionDef, base: str) -> list[DefinitionIssue]:
             if isinstance(rule, ImmutableAfterCreateRule) and c.write_mode == "immutable":
                 out.append(issue("JD-RULE-REDUNDANT", where,
                                  "immutable collections never update records"))
+            if isinstance(rule, UniqueRule) and any(
+                    name in c.fields and c.fields[name].type == "list"
+                    for name in rule.fields):
+                out.append(issue("JD-RULE-FIELD", where,
+                                 "a list cannot be a unique key"))
             key = (rule.kind, frozenset(rule.fields))
         if key in seen_rules:
             out.append(issue("JD-RULE-DUPLICATE", where,
@@ -1059,6 +1140,9 @@ def _check_view(v: ViewDef, c: CollectionDef, base: str) -> list[DefinitionIssue
         if not known(key.field):
             out.append(issue("JD-VIEW-FIELD", join_path(base, "sort", i, "field"),
                              "unknown field", key.field))
+        elif _field_type(c, key.field) == "list":
+            out.append(issue("JD-SORT-TYPE", join_path(base, "sort", i, "field"),
+                             "list fields cannot be sorted", key.field))
     for i, item in enumerate(v.filter):
         where = join_path(base, "filter", i)
         if not known(item.field):
@@ -1066,6 +1150,10 @@ def _check_view(v: ViewDef, c: CollectionDef, base: str) -> list[DefinitionIssue
                              item.field))
             continue
         ftype = _field_type(c, item.field)
+        if ftype == "list":
+            out.append(issue("JD-FILTER-OP-TYPE", join_path(where, "op"),
+                             "list fields cannot be filtered", item.op))
+            continue
         allowed = _OP_TYPES.get(item.op)
         if allowed is not None and ftype not in allowed:
             out.append(issue("JD-FILTER-OP-TYPE", join_path(where, "op"),

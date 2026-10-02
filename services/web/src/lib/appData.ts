@@ -161,8 +161,9 @@ export type ColumnFormat = "text" | "int" | "number" | "percent" | "date" | "dat
 export type Column = { field: string; label?: string; format?: ColumnFormat };
 
 export type ActionField = { name: string; type: "string" | "text" | "int" | "number" |
-  "bool" | "date" | "datetime" | "enum" | "ref" | "url" | "artifact";
-  label?: string; required?: boolean; min?: number; max?: number; values?: string[] };
+  "bool" | "date" | "datetime" | "enum" | "ref" | "url" | "artifact" | "list";
+  label?: string; required?: boolean; min?: number; max?: number; values?: string[];
+  max_items?: number; items?: unknown };
 export type PageAction = { name: string; kind: "create" | "update" | "delete";
   label: string; collection: string; editable_fields: ActionField[] };
 
@@ -202,10 +203,11 @@ export type PublishedPage = {
 };
 
 export type Scalar = string | number | boolean | null;
+export type RecordValue = Scalar | Scalar[] | Array<Record<string, Scalar>>;
 
 /** A record as the caller may see it. `id` is the system field; `values`
  *  holds every field the view selects, `null` where `restricted` names it. */
-export type ViewRow = { id: string; values: Record<string, Scalar>; restricted: string[] };
+export type ViewRow = { id: string; values: Record<string, RecordValue>; restricted: string[] };
 
 /** `as_of` is when the result was computed (a materialized view's refresh
  *  time); `stale` is the server's judgement that it's older than the view's
