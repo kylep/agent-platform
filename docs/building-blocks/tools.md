@@ -33,9 +33,16 @@ core tools) does that. An `agents_edit`/`agents_grant` holder sits on the same
 `tools` rung a custom-tool-only agent does: it earns a per-run token scoped to
 exactly those two tools and nothing else on `/api/*`.
 
+`apps` and `app_data`, the builder and records tools of agent-built
+[Apps](apps.md) ([App data](app-data.md#tools)), share their rule: all four
+are **Kyle-only** (`KYLE_ONLY_TOOLS`). Only Kyle's browser session can add
+one to an agent or remove it, and an agent holding one can be edited only by
+Kyle or by itself ([security.md](security.md)).
+
 Two of those show patterns worth copying. `prices` binds an **app's** DB secret
 (`infra.secrets: [app-stockmarket-db]`) and writes rows itself, returning only
-counts — a five-year backfill is ~3,800 rows, which is nothing for Postgres and
+counts (until stockmarket migrates to Apps as state, when it becomes the Yahoo
+Finance connector and writes through a tool-call credential instead) — a five-year backfill is ~3,800 rows, which is nothing for Postgres and
 ruinous for a model's context. `index_movers` keeps arithmetic out of the
 model: it computes each index holding's contribution in basis points and hands
 back a ranking, because a model asked to multiply ten weights by ten returns
@@ -167,6 +174,13 @@ token, for the call it names, while its run is current and before it's
 revoked. The caller is `agent:<name>` via `tool:<name>`, which is how records
 are stamped (`author`, `via`), and the `tools` role it carries reaches no
 other route.
+
+Release 1a mints, delivers and revokes the credential, but no App data route
+answers it yet: `POST /api/app-data/agent/…` serves agent runs holding
+`app_data`, and a tool-call credential holds no platform tool. Tool writes to
+Apps arrive with App tool facts, which bind a manifest's roles to an App's
+collections, in Release 1b ([App data](app-data.md#tools)). Until then a role
+names the collection of the same name.
 
 ## Internal tools
 

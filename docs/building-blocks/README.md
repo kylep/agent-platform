@@ -26,7 +26,8 @@ git.
 | [Tools](tools.md) | git `tools/` (+ `agents_edit`/`agents_grant` built into the broker) | what they can execute (MCP) |
 | [Secrets](secrets.md) | git `secrets/` (shape) + k8s (values) | what they may touch |
 | [Reports](reports.md) | git `reports/` (types) + Postgres (artifacts) | what they produce for humans |
-| [Apps](apps.md) | `apps/` (code + manifest — NOT change-loop) | full applications built on agents |
+| [Apps](apps.md) | Postgres (`app_data_*`); legacy coded Apps in `apps/` | what agents build and maintain for Kyle |
+| [App data](app-data.md) | Postgres (`app_data_*`) | the store, definitions and tools behind Apps |
 | [Jobs](jobs.md) | Postgres | ad-hoc scheduled experiments |
 | [Runs](runs.md) | Postgres | every execution, forever |
 | [Relay](relay.md) | Postgres (+ Kafka) | the rooms agents and humans talk in |
