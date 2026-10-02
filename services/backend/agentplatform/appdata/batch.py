@@ -1,9 +1,10 @@
 """Batch writes and batch jobs (design 39, "Collections" → "Batch writes").
 
 `batch` writes up to 5,000 records or 5 MiB into one collection in one
-transaction. Every record goes through the same `_insert` / `_update` path a
-single write takes, so access, tool-only writers, rules, refs and `unique`
-apply exactly as they do one at a time.
+transaction. Every record gets the checks a single write makes, so access,
+tool-only writers, rules, refs and `unique` apply exactly as they do one at a
+time; inserts are checked and written a chunk at a time
+(`records._insert_many`), which is what keeps a 140k-record commit to seconds.
 
 Modes:
 - **insert:** every record is new; a `unique` clash is that record's error.
@@ -58,7 +59,8 @@ from agentplatform.appdata.definitions import SYSTEM_FIELDS, CollectionDef, Uniq
 from agentplatform.appdata.models import AppDataRecord, AppDataStagedRecord, AppDataStagingSet
 from agentplatform.appdata.records import (R, AppContext, _check_input,
                                            _check_refs, _check_unique, _check_writer_rules,
-                                           _has_unique, _insert, _maybe_lock,
+                                           _has_unique, _insert, _insert_many, _maybe_lock,
+                                           can_bulk_insert,
                                            _require_active, _update, bump_counters,
                                            collection_lock, field_expr, format_datetime,
                                            load_app, normalize_value, scope, set_size,
@@ -266,6 +268,22 @@ class _Run:
         # map from holding every row it wrote.
         session.expunge(record)
 
+    async def insert_many(self, indexes: list[int], session, ctx: AppContext, caller: Caller,
+                          c: CollectionDef, records: list[dict], *,
+                          collection: str | None = None) -> None:
+        """`apply` in insert mode for many records at once (records._insert_many)."""
+        for index, outcome in zip(indexes, await _insert_many(session, ctx, caller, c,
+                                                              records)):
+            if isinstance(outcome, RecordError):
+                self.fail(index, outcome, collection)
+                if self.keep_ids:
+                    self.ids.append(None)
+                continue
+            self.counts["inserted"] += 1
+            self.touched.add(c.collection)
+            if self.keep_ids:
+                self.ids.append(outcome)
+
     def rejection(self) -> RecordError:
         return RecordError("AD-BATCH-REJECTED", f"{self.error_count} record(s) refused; "
                            "nothing was written", 422,
@@ -299,8 +317,12 @@ async def batch(session, ctx: AppContext, caller: Caller, collection: str, recor
         ctx.access(c, caller).require_verb("create")
         await check_quotas(session, ctx, records=len(records), bytes=size)
         async with _maybe_lock(session, ctx, c):
-            for i, values in enumerate(records):
-                await run.apply(i, session, ctx, caller, c, values, mode, key_fields)
+            if mode == "insert" and can_bulk_insert(c):
+                await run.insert_many(list(range(len(records))), session, ctx, caller, c,
+                                      records)
+            else:
+                for i, values in enumerate(records):
+                    await run.apply(i, session, ctx, caller, c, values, mode, key_fields)
             if run.error_count and on_error == "fail":
                 raise run.rejection()
             if run.touched:
@@ -448,6 +470,27 @@ async def stage(session, ctx: AppContext, caller: Caller, set_id: str, collectio
     return {**summary, "staged": len(records)}
 
 
+async def _replay(run: _Run, rows, session, ctx: AppContext, caller: Caller,
+                  cols: dict[str, CollectionDef]) -> None:
+    """Apply staged rows in arrival order. A stretch of inserts into one
+    collection goes in bulk; anything else, one record at a time."""
+    i = 0
+    while i < len(rows):
+        seq, collection, mode, key, doc = rows[i]
+        c = cols[collection]
+        if mode != "insert" or not can_bulk_insert(c):
+            await run.apply(seq, session, ctx, caller, c, doc, mode, key,
+                            collection=collection)
+            i += 1
+            continue
+        j = i
+        while j < len(rows) and rows[j].collection == collection and rows[j].mode == "insert":
+            j += 1
+        await run.insert_many([r.seq for r in rows[i:j]], session, ctx, caller, c,
+                              [r.doc for r in rows[i:j]], collection=collection)
+        i = j
+
+
 async def commit_staging_set(session, caller: Caller, set_id: str, *,
                              call_id: str | None = None, now: datetime | None = None) -> dict:
     """Re-validate and publish a set in one transaction, or refuse and leave it
@@ -486,9 +529,7 @@ async def commit_staging_set(session, caller: Caller, set_id: str, *,
                     .limit(_REPLAY_CHUNK))).all()
                 if not rows:
                     break
-                for seq, collection, mode, key, doc in rows:
-                    await run.apply(seq, session, ctx, caller, cols[collection], doc, mode,
-                                    key, collection=collection)
+                await _replay(run, rows, session, ctx, caller, cols)
                 last = rows[-1].seq
             if run.error_count:
                 raise run.rejection()

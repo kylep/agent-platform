@@ -7,17 +7,19 @@ run on Postgres too.
 """
 import os
 import uuid
+from datetime import timedelta
 
 import pytest
 from sqlalchemy import func, select
 
 from agentplatform.appdata import lifecycle as L
+from agentplatform.appdata import quotas
 from agentplatform.appdata.access import Caller, RecordError
 from agentplatform.appdata.lifecycle import Actor
 from agentplatform.appdata.models import (AppDataApp, AppDataBuildOp, AppDataDefinition,
                                           AppDataRecord)
 from agentplatform.appdata.records import create_record, load_app, update_record
-from agentplatform.db import Base, make_engine, make_session_factory
+from agentplatform.db import Base, make_engine, make_session_factory, utcnow
 
 PG_URL = os.environ.get("AP_TEST_PG_URL")
 BACKENDS = ["sqlite"] + (["postgres"] if PG_URL else [])
@@ -768,6 +770,31 @@ async def test_publish_reindexes_side_columns_when_indexed_fields_change(sf):
     assert record.ix_text1 == "run" and record.ix_time1 is not None
 
 
+async def test_a_reindex_flushes_a_chunk_at_a_time(sf, monkeypatch):
+    """A million-record reindex mustn't hold every record dirty in the
+    session until one flush at the end."""
+    from sqlalchemy import event
+    from sqlalchemy.orm import Session
+    monkeypatch.setattr(L, "SCAN_CHUNK", 3)
+    app_id = await built(sf, ("collection", habits()))
+    for day in range(1, 9):
+        await add_record(sf, app_id, "habits", {"habit": "run", "day": f"2026-09-0{day}"})
+    await draft(sf, app_id, "collection", habits(indexed=["habit", "day"]))
+    dirty = []
+
+    def note(session, context, instances):
+        dirty.append(sum(isinstance(o, AppDataRecord) for o in session.dirty))
+    event.listen(Session, "before_flush", note)
+    try:
+        await publish(sf, app_id, 1)
+    finally:
+        event.remove(Session, "before_flush", note)
+    assert max(dirty) <= 3 and sum(dirty) == 8
+    async with sf() as s:
+        records = (await s.execute(select(AppDataRecord))).scalars().all()
+    assert len(records) == 8 and all(r.ix_text1 == "run" and r.ix_time1 for r in records)
+
+
 async def test_publish_only_some_drafts(sf):
     app_id = await new_app(sf)
     await draft(sf, app_id, "collection", habits())
@@ -895,6 +922,74 @@ async def test_health_is_computed_on_read(sf):
     [v] = health["rule_violations"]
     assert v["collection"] == "habits" and v["rule"] == "unique(habit, day)"
     assert v["count"] == 2 and "dup" in v["record_ids"]
+
+
+async def test_lists_and_details_reuse_the_record_checks_and_health_refreshes_them(
+        sf, monkeypatch):
+    """The record checks scan whole collections (seconds on a million
+    records), so `apps list` and `get` reuse a recent result; the `health`
+    action always checks afresh, and a publish starts over."""
+    app_id = await built(sf, ("collection", habits(
+        rules=[{"kind": "unique", "fields": ["habit", "day"]}])))
+    await add_record(sf, app_id, "habits", {"habit": "run", "day": "2026-09-30"})
+    calls = []
+    real = L._duplicates
+
+    async def counting(*args, **kwargs):
+        calls.append(args)
+        return await real(*args, **kwargs)
+    monkeypatch.setattr(L, "_duplicates", counting)
+    await detail(sf, app_id)
+    async with sf() as s:
+        await L.list_apps(s, PAI)
+    await detail(sf, app_id)
+    assert len(calls) == 1
+    # A duplicate written around the engine: only a fresh check sees it...
+    async with sf() as s:
+        first = (await s.execute(select(AppDataRecord))).scalar_one()
+        s.add(AppDataRecord(app_id=app_id, collection="habits", id="dup", author="kyle",
+                            collection_version=1, doc=dict(first.doc)))
+        await s.commit()
+    assert (await detail(sf, app_id))["health"]["status"] == "ok"
+    async with sf() as s:
+        assert (await L.health(s, PAI, app_id))["status"] == "failing"
+    # ...and then the list and the detail show it too.
+    assert (await detail(sf, app_id))["health"]["status"] == "failing"
+    assert len(calls) == 2
+    # A new approved version is checked at once.
+    await draft(sf, app_id, "view", RECENT)
+    await publish(sf, app_id, 1)
+    await detail(sf, app_id)
+    assert len(calls) == 3
+
+
+async def test_record_checks_are_reused_for_a_limited_time(sf, monkeypatch):
+    app_id = await built(sf, ("collection", habits(
+        rules=[{"kind": "unique", "fields": ["habit", "day"]}])))
+    calls = []
+    real = L._duplicates
+
+    async def counting(*args, **kwargs):
+        calls.append(args)
+        return await real(*args, **kwargs)
+    monkeypatch.setattr(L, "_duplicates", counting)
+    await detail(sf, app_id)
+    later = utcnow() + L.HEALTH_TTL + timedelta(seconds=1)
+    monkeypatch.setattr(L, "utcnow", lambda: later)
+    await detail(sf, app_id)
+    assert len(calls) == 2
+
+
+async def test_health_quota_is_the_enforced_quota(sf):
+    """What quotas enforce, not a recount of every record on each read."""
+    app_id = await built(sf, ("collection", habits()))
+    await add_record(sf, app_id, "habits", {"habit": "run", "day": "2026-09-30"})
+    async with sf() as s:
+        health = await L.health(s, PAI, app_id)
+        used = (await quotas.describe(s, "app", app_id))
+    assert health["quota"] == {"records": 1, "records_limit": used["limits"]["max_records"],
+                               "bytes": used["used"]["bytes"],
+                               "bytes_limit": used["limits"]["max_bytes"]}
 
 
 async def test_health_reports_a_binding_that_no_longer_validates(sf):

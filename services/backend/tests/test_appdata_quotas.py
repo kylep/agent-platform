@@ -411,6 +411,17 @@ async def test_a_batch_charges_what_it_inserted(sf, settings):
     assert used["bytes"] == first["bytes"] + len("1234.5") - len("1.0")
 
 
+async def test_a_bulk_insert_charges_every_record_it_wrote(sf, settings):
+    ctx = await make_app(sf, [coll()])
+    records = [{"title": f"t{i}", "n": i % 10} for i in range(2_500)]
+    async with sf() as s:
+        out = await batch(s, ctx, OWNER, "items", records + [{"n": 1}], on_error="skip")
+    assert out["inserted"] == 2_500
+    used = await usage(sf, "app", ctx.app_id)
+    assert used["records"] == 2_500 and used["writes_this_hour"] == 2_500
+    assert used["bytes"] == sum(size_of(r) for r in records)
+
+
 async def test_an_immutable_replace_re_measures_the_record(sf, settings):
     ctx = await make_app(sf, [IMMUTABLE_BARS])
     bar = {"symbol": "X", "day": "2026-10-01", "close": 1.0}

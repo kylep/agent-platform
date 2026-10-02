@@ -278,6 +278,76 @@ async def test_sort_puts_nulls_last_both_ways(sf, indexed):
     assert await names(sf, ctx, desc) == ["charlie", "bravo", "alpha", "delta"]
 
 
+@pytest.mark.parametrize("field, required, nulls_last", [
+    ("created_at", False, False), ("id", False, False), ("day", True, False),
+    ("day", False, True), ("via", False, True)])
+def test_a_descending_key_that_is_never_null_keeps_the_index_order(field, required,
+                                                                   nulls_last):
+    """`DESC NULLS LAST` is not an order a btree index can be read in, so
+    Postgres would sort every match of a newest-first view (a symbol's 2,500
+    bars, a collection's million records) to return one page. A key that can't
+    be null orders the same either way, so it is left plain."""
+    from sqlalchemy import select
+    from sqlalchemy.dialects import postgresql
+
+    from agentplatform.appdata.records import R
+    from agentplatform.appdata.views import order_by
+    c = events(["day"])
+    c["fields"] = dict(FIELDS, day={"type": "date", "required": required})
+    coll = validate_app({"collections": [c]}).collections["events"]
+    sql = str(select(R.id).order_by(*order_by(coll, [(field, "desc")])).compile(
+        dialect=postgresql.dialect()))
+    assert sql.endswith("DESC NULLS LAST" if nulls_last else "DESC"), sql
+    asc = str(select(R.id).order_by(*order_by(coll, [(field, "asc")])).compile(
+        dialect=postgresql.dialect()))
+    assert asc.endswith("ASC NULLS LAST"), asc
+
+
+def test_a_cursor_on_a_never_null_key_is_a_range_the_index_can_seek():
+    """Without a plain bound on the leading key, the cursor's OR is only a
+    filter: every page re-reads every row before it, and a 1M-row scan goes
+    quadratic (it ran out of its 60 seconds at 611k rows)."""
+    from sqlalchemy.dialects import postgresql
+
+    from agentplatform.appdata.views import _after
+    c = events(["at"])
+    c["fields"] = dict(FIELDS, at={"type": "datetime", "required": True})
+    coll = validate_app({"collections": [c]}).collections["events"]
+    cond = str(_after(coll, [("at", "asc"), ("id", "asc")],
+                      ["2026-10-01T00:00:00.000000Z", "abc"]).compile(
+        dialect=postgresql.dialect()))
+    assert "ix_time1 >= " in cond and "IS NULL" not in cond, cond
+    desc = str(_after(coll, [("created_at", "desc"), ("id", "desc")],
+                      ["2026-10-01T00:00:00.000000Z", "abc"]).compile(
+        dialect=postgresql.dialect()))
+    assert "created_at <= " in desc and "IS NULL" not in desc, desc
+    # A key that can be null keeps its null branch and gets no range.
+    nullable = str(_after(coll, [("n", "asc"), ("id", "asc")], [3, "abc"]).compile(
+        dialect=postgresql.dialect()))
+    assert "IS NULL" in nullable and ">=" not in nullable, nullable
+
+
+@pytest.mark.parametrize("direction", ["asc", "desc"])
+async def test_paging_on_a_required_key_with_ties(sf, direction):
+    c = events(["at"])
+    c["fields"] = dict(FIELDS, at={"type": "datetime", "required": True})
+    ctx = await make_app(sf, [c])
+    await seed(sf, ctx, [{"name": f"r{i:02}", "at": f"2026-10-0{1 + i % 3}T10:00:00Z"}
+                         for i in range(17)])
+    view = view_of(c, sort=[{"field": "at", "dir": direction}], paging=True, limit=200)
+    everything = await names(sf, ctx, view)
+    assert len(everything) == 17
+    seen, cursor = [], None
+    async with sf() as s:
+        while True:
+            page = await execute_view(s, ctx, OWNER, view, limit=4, cursor=cursor)
+            seen += [r["values"]["name"] for r in page["rows"]]
+            cursor = page["next_cursor"]
+            if cursor is None:
+                break
+    assert seen == everything
+
+
 async def test_the_default_order_is_newest_first(sf):
     c = events()
     ctx = await make_app(sf, [c])

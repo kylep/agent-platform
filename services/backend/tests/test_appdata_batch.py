@@ -11,7 +11,7 @@ run on Postgres too.
 import os
 import time
 import uuid
-from datetime import timedelta
+from datetime import date, timedelta
 
 import pytest
 from sqlalchemy import func, select
@@ -641,3 +641,119 @@ async def test_a_20k_record_staged_commit(sf):
     assert await count(sf) == 20_000
     assert await count(sf, AppDataStagedRecord) == 0
     print(f"20k staged commit: {elapsed:.1f}s")
+
+
+# --- bulk inserts (design 39, "Batch writes": the performance gate) ------------------------------
+#
+# Inserts are checked a chunk at a time: refs and `unique` with one query per
+# chunk instead of one per record, and the rows written with one executemany.
+# The outcomes must be exactly the one-at-a-time path's.
+
+def statements(engine):
+    """Count the SQL statements the engine runs (a list that grows)."""
+    from sqlalchemy import event
+    seen = []
+    event.listen(engine.sync_engine, "before_cursor_execute",
+                 lambda conn, cursor, statement, *rest: seen.append(statement))
+    return seen
+
+
+async def test_a_bulk_insert_runs_a_bounded_number_of_statements(engine, sf):
+    ctx = await make_app(sf, [coll("runs", fields={"name": {"type": "string"}}),
+                              coll("bars", fields={
+                                  "symbol": {"type": "string", "required": True},
+                                  "day": {"type": "date", "required": True},
+                                  "note": {"type": "string"},
+                                  "run": {"type": "ref", "collection": "runs"}},
+                                  indexed=["symbol", "day"],
+                                  rules=[{"kind": "unique", "fields": ["symbol", "day"]},
+                                         {"kind": "unique", "fields": ["note"]}])])
+    async with sf() as s:
+        run = await create_record(s, ctx, OWNER, "runs", {"name": "r"})
+    day0 = date(2020, 1, 1)
+    records = [{"symbol": f"S{i % 50}", "day": (day0 + timedelta(days=i // 50)).isoformat(),
+                "note": f"n{i}", "run": run["id"]} for i in range(3_000)]
+    seen = statements(engine)
+    async with sf() as s:
+        result = await batch(s, ctx, OWNER, "bars", records)
+    assert result["inserted"] == 3_000 and result["errors"] == []
+    # A query per rule and per ref field for each chunk, a write per chunk,
+    # plus the call's own bookkeeping: never one per record.
+    assert len(seen) < 60, len(seen)
+    assert await count(sf) == 3_001
+    # The unique lookup seeks on each key column, not only on the App and
+    # collection: a planner expecting a small collection otherwise filters
+    # every record of it per lookup.
+    lookups = [q for q in seen if "SELECT DISTINCT" in q and "ix_text1" in q]
+    assert lookups and all("ix_text1 IN (" in q and "ix_time1 IN (" in q for q in lookups)
+
+
+async def test_a_record_refused_on_one_unique_rule_claims_none_of_its_keys(sf):
+    ctx = await make_app(sf, [coll("items", fields={
+        "a": {"type": "string"}, "b": {"type": "string"}},
+        rules=[{"kind": "unique", "fields": ["a"]}, {"kind": "unique", "fields": ["b"]}])])
+    async with sf() as s:
+        await batch(s, ctx, OWNER, "items", [{"a": "stored", "b": "taken"}])
+        result = await batch(s, ctx, OWNER, "items", [
+            {"a": "x", "b": "taken"},      # refused on b, so x stays free
+            {"a": "x", "b": "fresh"},      # inserted
+            {"a": "x", "b": "other"},      # now x is taken
+            {"a": "stored", "b": "new"}], on_error="skip")
+    assert result["inserted"] == 1
+    assert [(e["index"], e["code"]) for e in result["errors"]] == [
+        (0, "AD-UNIQUE"), (2, "AD-UNIQUE"), (3, "AD-UNIQUE")]
+    assert [e["detail"]["fields"] for e in result["errors"]] == [["b"], ["a"], ["a"]]
+    assert result["ids"][1] and result["ids"][0] is None
+
+
+@pytest.mark.parametrize("indexed", [[], ["symbol", "day"]])
+async def test_missing_unique_values_collide_in_bulk_as_one_at_a_time(sf, indexed):
+    ctx = await make_app(sf, [coll("bars", fields={
+        "symbol": {"type": "string"}, "day": {"type": "date"}}, indexed=indexed,
+        rules=[{"kind": "unique", "fields": ["symbol", "day"]}])])
+    async with sf() as s:
+        await batch(s, ctx, OWNER, "bars", [{"symbol": "X"}])
+        result = await batch(s, ctx, OWNER, "bars", [
+            {"symbol": "X"}, {"day": "2026-10-01"}, {"day": "2026-10-01"},
+            {"symbol": "X", "day": "2026-10-01"}, {"symbol": "X", "day": "2026-10-01"}],
+            on_error="skip")
+    assert [(e["index"], e["code"]) for e in result["errors"]] == [
+        (0, "AD-UNIQUE"), (2, "AD-UNIQUE"), (4, "AD-UNIQUE")]
+    assert result["inserted"] == 2
+
+
+@pytest.mark.parametrize("indexed", [[], ["symbol", "day", "close"]])
+async def test_bulk_unique_checks_compare_stored_values_by_type(sf, indexed):
+    """Dates, datetimes and numbers come back from the database in their own
+    types (and from SQLite without a timezone); a clash still has to match."""
+    ctx = await make_app(sf, [coll("bars", fields={
+        "symbol": {"type": "string"}, "day": {"type": "date"}, "close": {"type": "number"},
+        "at": {"type": "datetime"}}, indexed=indexed,
+        rules=[{"kind": "unique", "fields": ["symbol", "day"]},
+               {"kind": "unique", "fields": ["close"]},
+               {"kind": "unique", "fields": ["at"]}])])
+    async with sf() as s:
+        await batch(s, ctx, OWNER, "bars", [{"symbol": "X", "day": "2026-10-01",
+                                             "close": 2, "at": "2026-10-01T10:00:00Z"}])
+        result = await batch(s, ctx, OWNER, "bars", [
+            {"symbol": "X", "day": "2026-10-01", "close": 3},
+            {"symbol": "Y", "close": 2.0},
+            {"symbol": "Z", "at": "2026-10-01T06:00:00-04:00"},
+            {"symbol": "X", "day": "2026-10-02", "close": 4}], on_error="skip")
+    assert [(e["index"], e["detail"]["fields"]) for e in result["errors"]] == [
+        (0, ["symbol", "day"]), (1, ["close"]), (2, ["at"])]
+    assert result["inserted"] == 1
+
+
+async def test_a_bulk_commit_spans_replay_chunks_and_keeps_unique_across_them(sf):
+    ctx = await make_app(sf, [BARS])
+    async with sf() as s:
+        set_id = (await open_staging_set(s, ctx, OWNER, ["bars"]))["set_id"]
+        # The same bar at seq 0 and seq 1,500: two replay chunks apart.
+        bars = [{"symbol": "X", "day": (date(2000, 1, 1) + timedelta(days=i)).isoformat()}
+                for i in range(1_500)]
+        await stage(s, ctx, OWNER, set_id, "bars", bars)
+        await stage(s, ctx, OWNER, set_id, "bars", [bars[0]])
+        err = await refused("AD-BATCH-REJECTED", commit_staging_set(s, OWNER, set_id))
+    assert [(e["index"], e["code"]) for e in err.detail["errors"]] == [(1_500, "AD-UNIQUE")]
+    assert await count(sf) == 0

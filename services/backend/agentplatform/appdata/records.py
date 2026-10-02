@@ -43,7 +43,7 @@ from datetime import date, datetime, time, timezone
 from typing import Any
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import and_, func, select
+from sqlalchemy import and_, func, insert, select, tuple_
 
 from agentplatform.appdata import artifacts as app_artifacts
 from agentplatform.appdata import quotas
@@ -413,10 +413,9 @@ def _has_unique(c: CollectionDef) -> bool:
 
 # --- create ---------------------------------------------------------------------------------
 
-async def _insert(session, ctx: AppContext, caller: Caller, c: CollectionDef,
-                  values: dict, record_id: str | None = None) -> AppDataRecord:
-    """Validate and add one record. The caller holds the collection lock when
-    the collection has `unique` rules, and commits."""
+def _prepare(ctx: AppContext, caller: Caller, c: CollectionDef, values: dict) -> dict:
+    """A create's checks that need no database: access, values, required
+    fields and writer rules. Returns the doc as stored."""
     _require_active(ctx)
     access = ctx.access(c, caller)
     access.require_verb("create")
@@ -428,6 +427,14 @@ async def _insert(session, ctx: AppContext, caller: Caller, c: CollectionDef,
         raise RecordError("AD-REQUIRED", f"required fields missing: {', '.join(missing)}",
                           422, {"fields": missing})
     _check_writer_rules(ctx, c, caller, doc)
+    return doc
+
+
+async def _insert(session, ctx: AppContext, caller: Caller, c: CollectionDef,
+                  values: dict, record_id: str | None = None) -> AppDataRecord:
+    """Validate and add one record. The caller holds the collection lock when
+    the collection has `unique` rules, and commits."""
+    doc = _prepare(ctx, caller, c, values)
     await _check_refs(session, ctx, c, doc)
     sides = side_columns(c, doc)
     record_id = record_id or uuid.uuid4().hex
@@ -444,6 +451,153 @@ async def _insert(session, ctx: AppContext, caller: Caller, c: CollectionDef,
     await session.flush()
     quotas.note(session, ctx, records=1, bytes=size, writes=1)
     return record
+
+
+# --- bulk create ------------------------------------------------------------------------------
+#
+# A batch or a batch-job commit inserts thousands of records. One at a time,
+# each costs a ref lookup, a `unique` query and an INSERT round trip; in bulk,
+# a chunk costs one query per ref field and per unique rule and one
+# executemany. The outcome is the one-at-a-time path's exactly: the same
+# checks in the same order per record, and a chunk is checked as if its
+# records went in one after another (a record refused on any check claims
+# none of its unique keys).
+
+BULK_CHUNK = 1_000
+# Unique keys looked up per query, under every driver's bind-parameter limit.
+_KEY_CHUNK = 300
+
+
+def can_bulk_insert(c: CollectionDef) -> bool:
+    """Artifact fields claim artifacts record by record (artifacts.attach),
+    so those collections keep the one-at-a-time path."""
+    return not app_artifacts.artifact_fields(c)
+
+
+def _comparable(value: Any) -> Any:
+    # Postgres hands timestamps back aware and SQLite naive (both UTC).
+    if isinstance(value, datetime) and value.tzinfo is not None:
+        return _utc(value).replace(tzinfo=None)
+    return value
+
+
+def _unique_key(c: CollectionDef, rule: UniqueRule, doc: dict) -> tuple:
+    """The values `_check_unique` binds; None for a missing one (nulls
+    compare equal)."""
+    key = []
+    for name in rule.fields:
+        value = doc.get(name)
+        key.append(None if value is None else field_expr(c, name)[1](value))
+    return tuple(key)
+
+
+def _cmp(key: tuple) -> tuple:
+    return tuple(_comparable(v) for v in key)
+
+
+async def _stored_keys(session, ctx: AppContext, c: CollectionDef, rule: UniqueRule,
+                       keys: set[tuple]) -> set[tuple]:
+    """Which of `keys` a stored record already holds, as `_cmp` tuples."""
+    exprs = [field_expr(c, name)[0] for name in rule.fields]
+    found: set[tuple] = set()
+    full = sorted((k for k in keys if None not in k), key=repr)
+    for i in range(0, len(full), _KEY_CHUNK):
+        chunk = full[i:i + _KEY_CHUNK]
+        # Each field's own IN is redundant beside the row-value IN, but it's a
+        # condition an index can seek on. Without it, when the planner
+        # expects the collection to be small (a new one, stale statistics),
+        # it seeks on (app_id, collection) alone and runs the row-value IN
+        # as a filter over every record of the collection, once per chunk.
+        cond = and_(*(expr.in_(sorted({k[j] for k in chunk}, key=repr))
+                      for j, expr in enumerate(exprs)))
+        if len(exprs) > 1:
+            cond = and_(cond, tuple_(*exprs).in_(chunk))
+        rows = (await session.execute(select(*exprs).where(scope(ctx, c.collection), cond)
+                                      .distinct())).all()
+        found.update(_cmp(tuple(row)) for row in rows)
+    # A key with a missing value can't go in a row-value IN (NULL never
+    # matches); they're rare, so each is its own query.
+    for key in keys:
+        if None not in key:
+            continue
+        conds = [scope(ctx, c.collection)]
+        for expr, value in zip(exprs, key):
+            conds.append(expr.is_(None) if value is None else expr == value)
+        if (await session.execute(select(R.id).where(*conds).limit(1))).first():
+            found.add(_cmp(key))
+    return found
+
+
+async def _bulk_insert_chunk(session, ctx: AppContext, caller: Caller, c: CollectionDef,
+                             items: list[dict]) -> list:
+    out: list = [None] * len(items)
+    docs: dict[int, dict] = {}
+    for i, values in enumerate(items):
+        try:
+            docs[i] = _prepare(ctx, caller, c, values)
+        except RecordError as exc:
+            out[i] = exc
+    refs = {name: spec for name, spec in c.fields.items() if isinstance(spec, RefField)}
+    found_refs: dict[str, set] = {}
+    for name, spec in refs.items():
+        wanted = sorted({doc[name] for doc in docs.values() if doc.get(name) is not None})
+        found_refs[name] = set()
+        for i in range(0, len(wanted), _CHUNK):
+            # FOR SHARE, as _check_refs: a concurrent delete of a target waits.
+            found_refs[name].update((await session.execute(
+                select(R.id).where(scope(ctx, spec.collection),
+                                   R.id.in_(wanted[i:i + _CHUNK]))
+                .with_for_update(read=True))).scalars())
+    rules = [rule for rule in c.rules if isinstance(rule, UniqueRule)]
+    keys = {i: [_unique_key(c, rule, doc) for rule in rules] for i, doc in docs.items()}
+    stored = [await _stored_keys(session, ctx, c, rule, {k[n] for k in keys.values()})
+              for n, rule in enumerate(rules)]
+    claimed: list[set] = [set() for _ in rules]
+    rows = []
+    for i, doc in docs.items():
+        try:
+            for name, value in doc.items():
+                if name in refs and value not in found_refs[name]:
+                    raise RecordError("AD-REF-MISSING", f"{name}: no "
+                                      f"{refs[name].collection} record {value}", 422,
+                                      {"field": name})
+            sides = side_columns(c, doc)
+            for n, rule in enumerate(rules):
+                if _cmp(keys[i][n]) in stored[n] or _cmp(keys[i][n]) in claimed[n]:
+                    raise RecordError("AD-UNIQUE", f"another {c.collection} record has the "
+                                      f"same {', '.join(rule.fields)}", 409,
+                                      {"fields": rule.fields})
+        except RecordError as exc:
+            out[i] = exc
+            continue
+        for n in range(len(rules)):
+            claimed[n].add(_cmp(keys[i][n]))
+        now = utcnow()
+        record_id = uuid.uuid4().hex
+        rows.append({"app_id": ctx.app_id, "collection": c.collection, "id": record_id,
+                     "current_version": 1, "created_at": now, "updated_at": now,
+                     "author": caller.author, "via": caller.via,
+                     "collection_version": ctx.versions.get(c.collection, 1),
+                     "doc": doc, "size_bytes": quotas.doc_bytes(doc), **sides})
+        out[i] = record_id
+    if rows:
+        await session.execute(insert(R.__table__), rows)
+        quotas.note(session, ctx, records=len(rows),
+                    bytes=sum(row["size_bytes"] for row in rows), writes=len(rows))
+    return out
+
+
+async def _insert_many(session, ctx: AppContext, caller: Caller, c: CollectionDef,
+                       items: list[dict]) -> list:
+    """Insert `items` in arrival order, checked exactly as `_insert` checks
+    one. Returns, aligned with `items`, each new record's id or the
+    RecordError that refused it; a refused record changes nothing. Only for
+    collections `can_bulk_insert` admits. The caller holds the collection
+    lock when the collection has `unique` rules, and commits."""
+    out: list = []
+    for i in range(0, len(items), BULK_CHUNK):
+        out += await _bulk_insert_chunk(session, ctx, caller, c, items[i:i + BULK_CHUNK])
+    return out
 
 
 async def create_record(session, ctx: AppContext, caller: Caller, collection: str,

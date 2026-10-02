@@ -34,10 +34,11 @@ import json
 import re
 import uuid
 from dataclasses import dataclass, field as dc_field
+from datetime import datetime, timedelta
 from typing import Any, Awaitable, Callable
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import Text, and_, cast, func, select, update
+from sqlalchemy import and_, func, select, update
 from sqlalchemy.exc import IntegrityError
 
 from agentplatform.appdata import quotas
@@ -49,7 +50,7 @@ from agentplatform.appdata.definitions import (
     TableBlock, DetailBlock, MetricBlock, TextBlock, UniqueRule, _fits_field,
     index_columns, validate_app, validate_definition)
 from agentplatform.appdata.models import (AppDataApp, AppDataBuildOp, AppDataDefinition,
-                                          AppDataQuota, AppDataRecord)
+                                          AppDataRecord)
 from agentplatform.appdata.views import check_view_access, execute_view
 from agentplatform.db import utcnow
 
@@ -67,8 +68,15 @@ SAMPLES_PER_COLLECTION = 200
 SAMPLE_IDS = 5
 SCAN_CHUNK = 1000
 # Until Kyle sets an App's quota (A11), health measures use against these.
-DEFAULT_RECORDS_LIMIT = 100_000
-DEFAULT_BYTES_LIMIT = 64 * 1024 * 1024
+# The record checks behind an App's health scan whole collections (a GROUP BY
+# per unique rule, a count per required field): seconds on a million records.
+# Writes enforce the rules and publish checks stored records against new
+# ones, so a violation can only come from a write racing a publish or a row
+# written around the engine. `apps list` and `get` reuse a result this
+# young for the same approved version; the `health` action checks afresh.
+HEALTH_TTL = timedelta(hours=1)
+# app id -> ((approved_version, authority_generation), checked_at, violations)
+_record_checks: dict[str, tuple[tuple, datetime, list]] = {}
 QUOTA_WARN = 0.9
 
 _UNSET: Any = object()
@@ -359,7 +367,7 @@ async def list_apps(session, actor: Actor) -> list[dict]:
     out = []
     for app in apps:
         if await _readable_by(session, app, actor.principal):
-            out.append(_summary(app, await _health(session, app)))
+            out.append(_summary(app, await _health(session, app, reuse=True)))
     return out
 
 
@@ -403,7 +411,7 @@ async def get_app(session, actor: Actor, app_ref: str) -> dict:
                       "definition": r.body} for r in approved],
         "drafts": [_draft_view(r) for r in drafts],
         "build_notes": notes,
-        "health": await _health(session, app, rows),
+        "health": await _health(session, app, rows, reuse=True),
         "build_ops": [_op_view(op) for op in ops],
     })
     return out
@@ -872,12 +880,25 @@ def _settled_body(a: Assessment, key: tuple[str, str], body: dict) -> dict:
 
 
 async def _reindex(session, app_id: str, a: Assessment) -> None:
+    """Rebuild the side columns, flushing and dropping each chunk as it goes
+    so a million-record collection never sits in the session at once."""
     for name in a.reindex:
         c = a.bundle.collections[name]
+        pending: list[AppDataRecord] = []
         async for record in _scan(session, app_id, name):
             for column, value in rec.side_columns(c, record.doc).items():
                 setattr(record, column, value)
-        await session.flush()
+            pending.append(record)
+            if len(pending) >= SCAN_CHUNK:
+                await _flush_out(session, pending)
+        await _flush_out(session, pending)
+
+
+async def _flush_out(session, records: list[AppDataRecord]) -> None:
+    await session.flush()
+    for record in records:
+        session.expunge(record)
+    records.clear()
 
 
 def _published(entries) -> list[dict]:
@@ -1049,12 +1070,34 @@ async def health(session, actor: Actor, app_ref: str) -> dict:
     return await _health(session, app)
 
 
-async def _health(session, app: AppDataApp, rows=None) -> dict:
-    """Computed on read: approved definitions that no longer validate, stored
-    records that break a rule, and quota use."""
+async def _record_violations(session, app: AppDataApp, bundle) -> list[dict]:
+    violations = []
+    for name, c in sorted(bundle.collections.items()):
+        for fields in _unique_fields(c):
+            n, ids = await _duplicates(session, app.id, c, list(fields))
+            if n:
+                violations.append({"collection": name,
+                                   "rule": f"unique({', '.join(fields)})",
+                                   "count": n, "record_ids": ids})
+        for f, spec in c.fields.items():
+            if spec.required:
+                n, ids = await _missing(session, app.id, c, f)
+                if n:
+                    violations.append({"collection": name, "rule": f"required({f})",
+                                       "count": n, "record_ids": ids})
+    return violations
+
+
+async def _health(session, app: AppDataApp, rows=None, *, reuse: bool = False) -> dict:
+    """Approved definitions that no longer validate (checked on every read),
+    stored records that break a rule (reused for HEALTH_TTL when `reuse`),
+    and the quota use quotas enforce. `checked_at` is when the records were
+    checked."""
     rows = rows if rows is not None else await _rows(session, app.id)
     doc, where = _doc(_bodies(_approved(rows, app)))
     invalid, violations = [], []
+    now = utcnow()
+    checked_at = now
     try:
         bundle = validate_app(doc)
     except DefinitionError as exc:
@@ -1064,33 +1107,22 @@ async def _health(session, app: AppDataApp, rows=None) -> dict:
                     "code": i["code"], "message": i["message"]}
                    for i in _issues(exc, where)]
     if bundle is not None:
-        for name, c in sorted(bundle.collections.items()):
-            for fields in _unique_fields(c):
-                n, ids = await _duplicates(session, app.id, c, list(fields))
-                if n:
-                    violations.append({"collection": name,
-                                       "rule": f"unique({', '.join(fields)})",
-                                       "count": n, "record_ids": ids})
-            for f, spec in c.fields.items():
-                if spec.required:
-                    n, ids = await _missing(session, app.id, c, f)
-                    if n:
-                        violations.append({"collection": name, "rule": f"required({f})",
-                                           "count": n, "record_ids": ids})
-    records, size = (await session.execute(
-        select(func.count(), func.coalesce(func.sum(func.length(cast(AppDataRecord.doc,
-                                                                      Text))), 0))
-        .where(AppDataRecord.app_id == app.id))).one()
-    quota = await session.get(AppDataQuota, ("app", app.id))
-    records_limit = (quota.max_records if quota and quota.max_records is not None
-                     else DEFAULT_RECORDS_LIMIT)
-    bytes_limit = (quota.max_bytes if quota and quota.max_bytes is not None
-                   else DEFAULT_BYTES_LIMIT)
+        key = (app.approved_version, app.authority_generation)
+        cached = _record_checks.get(app.id)
+        if reuse and cached and cached[0] == key and now - cached[1] < HEALTH_TTL:
+            _, checked_at, violations = cached
+        else:
+            violations = await _record_violations(session, app, bundle)
+            _record_checks[app.id] = (key, now, violations)
+    usage = await quotas.describe(session, "app", app.id, now=now)
+    records, size = usage["used"]["records"], usage["used"]["bytes"]
+    records_limit = usage["limits"]["max_records"]
+    bytes_limit = usage["limits"]["max_bytes"]
     issues = len(invalid) + len(violations)
     status = "failing" if issues else (
         "warn" if records >= QUOTA_WARN * records_limit or size >= QUOTA_WARN * bytes_limit
         else "ok")
-    return {"status": status, "issues": issues, "checked_at": _ts(utcnow()),
+    return {"status": status, "issues": issues, "checked_at": _ts(checked_at),
             "invalid_bindings": invalid, "rule_violations": violations,
             "quota": {"records": int(records), "records_limit": int(records_limit),
                       "bytes": int(size), "bytes_limit": int(bytes_limit)}}

@@ -33,7 +33,7 @@ from sqlalchemy import and_, false, func, or_, select
 
 from agentplatform.appdata.access import Access, Caller, RecordError
 from agentplatform.appdata.definitions import (
-    VIEW_LIMIT, CollectionDef, ContainsFilter, InFilter, IsNullFilter,
+    SYSTEM_FIELDS, VIEW_LIMIT, CollectionDef, ContainsFilter, InFilter, IsNullFilter,
     ViewDef, WithinLastFilter, _ANCHOR_RE, _fits_param, _is_param_ref)
 from agentplatform.appdata.quotas import ScanBudget
 from agentplatform.appdata.records import (
@@ -226,6 +226,28 @@ def _sort_keys(view: ViewDef) -> list[tuple[str, str]]:
     return keys
 
 
+def _never_null(c: CollectionDef, name: str) -> bool:
+    if name in SYSTEM_FIELDS:
+        return name != "via"
+    return c.fields[name].required
+
+
+def order_by(c: CollectionDef, keys) -> list:
+    """ORDER BY for the sort keys, nulls last both ways. Postgres reads a
+    btree backwards as `DESC NULLS FIRST`, so `DESC NULLS LAST` can't use an
+    index and sorts every match; a key that is never null (the system fields
+    but `via`, and required fields, which publish keeps filled) orders the
+    same without the clause, and keeps the index order."""
+    out = []
+    for name, direction in keys:
+        expr, _ = field_expr(c, name)
+        if direction == "asc":
+            out.append(expr.asc().nulls_last())
+        else:
+            out.append(expr.desc() if _never_null(c, name) else expr.desc().nulls_last())
+    return out
+
+
 def _signature(view: ViewDef, keys) -> str:
     return hashlib.sha256(json.dumps([view.view, view.collection, keys]).encode()
                           ).hexdigest()[:16]
@@ -261,7 +283,13 @@ def _raw(record, name: str) -> Any:
 
 
 def _after(c: CollectionDef, keys, values: list):
-    """Rows strictly after the cursor row in (keys) order, nulls last."""
+    """Rows strictly after the cursor row in (keys) order, nulls last.
+
+    The OR of "beyond on this key, equal on the ones before" is right but no
+    index can seek to it, so when the leading key can't be null the same
+    condition also gets a plain range on it (`>=` / `<=` the cursor's value):
+    a page starts where the last one stopped instead of re-reading every row
+    before it."""
     options = []
     equal: list = []
     for (name, direction), value in zip(keys, values):
@@ -271,12 +299,19 @@ def _after(c: CollectionDef, keys, values: list):
             same = expr.is_(None)
         else:
             bound = conv(value)
-            beyond = or_(expr > bound if direction == "asc" else expr < bound,
-                         expr.is_(None))
+            beyond = expr > bound if direction == "asc" else expr < bound
+            if not _never_null(c, name):
+                beyond = or_(beyond, expr.is_(None))
             same = expr == bound
         options.append(and_(*equal, beyond) if equal else beyond)
         equal.append(same)
-    return or_(*options)
+    after = or_(*options)
+    (lead, direction), value = keys[0], values[0]
+    if value is not None and _never_null(c, lead):
+        expr, conv = field_expr(c, lead)
+        bound = conv(value)
+        after = and_(expr >= bound if direction == "asc" else expr <= bound, after)
+    return after
 
 
 # --- entry points ------------------------------------------------------------------------------
@@ -313,11 +348,7 @@ async def execute_view(session, ctx: AppContext, caller: Caller, view: ViewDef,
         if not view.paging:
             raise RecordError("AD-CURSOR", f"{view.view} doesn't page", 422)
         conds.append(_after(q.c, keys, _decode_cursor(cursor, sig, len(keys))))
-    order = []
-    for name, direction in keys:
-        expr, _ = field_expr(q.c, name)
-        order.append((expr.asc() if direction == "asc" else expr.desc()).nulls_last())
-    records = (await session.execute(select(R).where(*conds).order_by(*order)
+    records = (await session.execute(select(R).where(*conds).order_by(*order_by(q.c, keys))
                                      .limit(size + 1))).scalars().all()
     if budget is not None:
         budget.charge(len(records))
@@ -366,10 +397,7 @@ async def scan_view(session, ctx: AppContext, caller: Caller, view: ViewDef,
     q.check_access()
     conds = await q.conditions(session)
     keys = _sort_keys(view)
-    order = []
-    for name, direction in keys:
-        expr, _ = field_expr(q.c, name)
-        order.append((expr.asc() if direction == "asc" else expr.desc()).nulls_last())
+    order = order_by(q.c, keys)
     after = None
     while True:
         budget.check_time()
