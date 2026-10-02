@@ -372,6 +372,10 @@ and append this section:
 - Passing a run's initiator to custom tools, so relayed writes can require
   that Kyle started the run.
 - Database triggers or a separate read-only role for immutability.
+- A row lock on feedback when a new belief version cites it: a brand-new
+  belief citing feedback that is being deleted at that instant can keep a
+  dangling `feedback_id`. Revisions are already serialised through the
+  belief lock.
 - Replaying deletions after a backup restore.
 - More than one owner (Pai, Olu): `OWNER_AGENT` becomes a set and rows are
   scoped by owner.

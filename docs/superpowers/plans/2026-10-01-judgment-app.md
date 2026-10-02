@@ -24,7 +24,7 @@ implementer subagents; reviews by Fable, Sonnet, Sol, Astra.
 
 ### Phase B — parallel (T2 ∥ T3 ∥ T4)
 
-- [ ] **T2 The tool** (`tools/judgment/`): `tool.yaml` (category
+- [x] **T2 The tool** (commit `b81a2fb`; 88 tests; catalog + registry lockstep green) (`tools/judgment/`): `tool.yaml` (category
   `domain_capability`, `infra.secrets: [app-judgment-db]`, `timeout_seconds`
   30, params with an `action` enum `belief|predict|feedback|recall|pending`
   and per-action fields described in the description, tcms style),
@@ -37,7 +37,7 @@ implementer subagents; reviews by Fable, Sonnet, Sol, Astra.
   regenerate `services/backend/agentplatform/live_operation_catalog.json`;
   `services/backend/tests/test_operation_catalog.py` and
   `test_toolregistry.py` must pass.
-- [ ] **T3 The App backend** (`apps/judgment/`): `app.yaml`, `Dockerfile`,
+- [x] **T3 The App backend** (commit `2cdf80d`; 55 tests on aiosqlite and on Postgres 16) (`apps/judgment/`): `app.yaml`, `Dockerfile`,
   `backend/requirements.txt`, `backend/pytest.ini`,
   `backend/judgmentapp/{__init__,main,db,api}.py`,
   `backend/test_judgmentapp.py`. DDL from `schema.COLUMNS` with types in
@@ -48,7 +48,7 @@ implementer subagents; reviews by Fable, Sonnet, Sol, Astra.
   (`.github/workflows/ci.yaml` `apps` job step), Helm
   (`charts/agent-platform/values-pai-nuc.yaml` `apps.enabled`), and the
   `docs/deployment.md` image row.
-- [ ] **T4 The frontend** (`apps/judgment/frontend/`, workspace
+- [x] **T4 The frontend** (commit `68f0bba`; build + token gate clean; 390px both themes against a contract mock) (`apps/judgment/frontend/`, workspace
   `judgment-frontend`): one page, four tabs (Beliefs, Predictions, Feedback,
   Review), `@ap/ui`, Vite `base: "/apps/judgment/"`, built against the API
   contract below with a fixture mode for development. Both themes, no
@@ -86,7 +86,7 @@ mismatch.
 ### Phase C — integrate, review, ship (orchestrator)
 - [ ] **T5** Merge T2–T4, full local suites, design-acceptance walk in tests.
 - [ ] **T6** Code review by Sol + Fable; fix findings.
-- [ ] **T7** Docs: `docs/building-blocks/judgment.md`, index row, glossary.
+- [x] **T7** (commit `c84ec27`) Docs: `docs/building-blocks/judgment.md`, index row, glossary.
 - [ ] **T8** PR, CI green, merge.
 - [ ] **T9** Deploy: build frontend + App image, import, helm upgrade with
   `judgment` enabled; confirm the provisioner made `app_judgment` and
