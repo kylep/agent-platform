@@ -1,636 +1,761 @@
 # 39 — Agent-built Apps
 
-Status: **designed 2026-10-02**, revision 3, after two review passes by each
-of Fable, Sol, Sonnet and Astra. Awaiting Kyle's decisions on the open
-questions at the end. Kyle's framing: Apps are for agents. Agents build and
-maintain them, from simple reports to full tools; they can ask humans for new
-App Builder tools, but the agents themselves build the Apps. The build plan
-will be `docs/superpowers/plans/<date>-agent-built-apps.md`.
+Status: **revision 6 (final for review), 2026-10-02.**
+- **Review history:** revisions 1–3 had two review passes each by Fable,
+  Sol, Sonnet and Astra. Revision 4 rebuilt the design around Kyle's decisions
+  below, and revisions 4 and 5 had two passes by all four.
+- **This revision** folds in the last pass. It cuts what no migrated App needs
+  and resolves the remaining credential, budget, materialization, restore and
+  maintainer gaps.
+- **Build plan:** `docs/superpowers/plans/<date>-agent-built-apps.md`.
+
+Kyle's framing: Apps are for agents. Agents build and maintain them, from simple
+reports to full tools. They can ask humans for new App Builder tools, but the
+agents themselves build the Apps.
+
+**Kyle's decisions (2026-10-02)**
+1. **Builders:** any agent Kyle grants `apps` can build.
+2. **Single user:** the platform is single-user. A logged-in browser session with
+   the admin role is Kyle.
+3. **Apps are pure state, and the whole catalogue migrates.** A fresh install has
+   no Apps; restoring a backup brings every App back. Code lives only in tools.
 
 ## The problem
 
-Design 33 made an App's definition state: collections, live pages and actions
-are database rows an admin publishes without a deploy. That won the
-presentation layer. Three things still keep agents from building Apps:
-
-1. **Agents can't author anything.** Every live-view authoring route is
-   `require_admin` (`api/live_views.py:493-563`), and `_reader`
-   (`live_views.py:205-210`) rejects any agent-bound key ("Live Apps require a
-   human principal"). No platform tool lets an agent create an App or a page.
-2. **There is nowhere to put data.** A live page can read only ten hardcoded
-   bindings (`READ_FIELDS` / `TABLE_FIELDS`), and a page in a new App can bind
-   only Relay and wiki reads (`_check_app_bindings`, `live_views.py:186`).
-   Only two actions exist (`tickets.create@1`, `relay.channel.post@1`). An App
-   that owns records needs a coded domain service.
-3. **Nothing teaches them.** Even with tools, an agent needs to know when an
-   App is the answer, how to model data, what needs Kyle's approval, and how
-   to keep what it built working across many runs.
-
-The judgment App (design 38) is the measuring stick: one persona request, a
-design, three implementer agents, two review rounds, a platform auth change
-and about 3,000 lines of code.
+1. **Apps are still deployed code.**
+   - Six Apps (news, running, stockmarket, tcms, judgment, ttrpg) are services
+     with their own schemas, images, Kafka topics and API keys.
+   - The provisioner creates them from `apps/*/app.yaml`, and
+     `import_legacy_apps` re-creates them on every boot, so a fresh install gets
+     all six.
+   - A restored backup brings their schemas back owned by the wrong role and
+     unusable (`backup_restore.py` skips `app-*` secrets, and the provisioner has
+     no GRANT path).
+   - TTRPG's world lives on a volume and isn't backed up at all.
+2. **Agents can't author anything.** Live-view authoring is `require_admin`,
+   `_reader` rejects agent keys, and no platform tool creates an App.
+3. **There's nowhere to put data without code.** Live pages read ten hardcoded
+   bindings into those services and offer two actions.
+4. **Nothing teaches agents** when an App is the answer, how to model one, what
+   needs Kyle's approval, or how to keep it working.
 
 ## What this delivers
 
-- **Builders:** an `apps` tool with which agents create Apps they own and
-  draft, validate, preview, publish, propose, roll back and retire their
-  definitions. Every operation is versioned, attributed and resumable.
-- **Collections:** state-defined data with typed fields, write modes,
-  field-level access, references and rules. One generic `app_data` tool reads
-  and writes records for every App, so no App needs its own code.
-- **Views:** declared queries that pages and agents share.
-- **`typed/v2` pages:** tables, details, forms, metrics, charts and buttons
-  bound to views, under design 33's typed-render rules (no HTML, no
-  JavaScript).
-- **An authority model Kyle controls:** agents change what they build freely
-  until a change would widen what anyone can see or do. Widening is a frozen
-  proposal Kyle approves from his own session.
-- **A request path** for missing primitives, and an **`app-building` skill**
-  for Pai, Kai and Olu.
+- **Apps as state.**
+  - An App is rows in one platform-owned store: definitions plus records.
+  - A fresh install has none, and `pg_dump` restores them all, working.
+- **Code only in tools.** Tools do the computation and write Apps:
+  - connectors, such as Strava and Yahoo Finance;
+  - App tools, such as backtest, tcms, judgment, news, running and ttrpg;
+  - platform tools.
 
-Not delivered: author HTML/JavaScript, Apps visible to humans other than
-Kyle, cross-App reads, or an expression language.
+  A tool writes as its caller, through a per-call credential, or as a named
+  service principal Kyle approved. Tools also expose reviewed read actions that
+  pages can bind to.
+- **Builders.** Any agent granted `apps` creates and maintains Apps through
+  versioned, attributed, resumable steps.
+- **An authority model Kyle controls.** Changes publish freely until they widen
+  what anyone can see or do. Widening is a frozen proposal Kyle approves from his
+  session.
+- **The whole catalogue migrated.** Six Apps rebuilt as state, with data moved,
+  parity checked, and maintainers handed runbooks they've been tested against.
+  The coded services, schemas, images, keys and topics are deleted.
+- **A request path** for missing primitives, and an **`app-building` skill**.
+
+Not delivered:
+- author HTML or JavaScript;
+- Apps visible to humans other than Kyle;
+- cross-App reads;
+- an expression language.
 
 ## Starting point (review)
 
-### Live pages (design 33, as built)
-- **Tables:** `app_collections` (navigation identity; `owner_id` is a human
-  principal, default `admin`), `live_views` / `live_view_versions` (draft
-  JSON, immutable published versions), `live_operation_grants`,
-  `live_intents`, `live_invocations` (receipts), `live_snapshots`.
-- **`typed/v1`:** up to 50 blocks of `heading | paragraph | metric | table |
-  chat | action | link`, 10 reads and 10 actions. It is validated against
-  `READ_FIELDS` / `TABLE_FIELDS` and `operation_catalog.admitted()`, and the
-  renderer is a `Literal["typed/v1"]`.
-- **Rendering:** a trusted React switch in
-  `services/web/src/pages/LiveView.tsx`. A page whose published definition no
-  longer validates returns 503 at read time (`live_views.py:402`).
-- **Actions:** intent → call → receipt. They need a browser session and a
-  per-principal grant, run as the clicking human, and are re-checked at
-  dispatch. The flow is hardwired to the two operations
-  (`live_invocations.py:81, 163`) and their argument types and digest
-  (`:143`).
-- **Preview:** client-side, with sample data only (`LiveViewEditor.tsx`).
+### The six coded Apps (inventory, 2026-10-02)
 
-### Agents' authority today
-- Run tokens freeze an agent's tools at launch (`_caller_platform_tools`,
-  `agents.py:200`), and `authorization_generation` fences old runs after a
-  grant change.
-- **`agents_grant` can grant any grant field to any agent, including the
-  caller** (`agents.py:106, 172-234`).
-- **`agents_edit` can rewrite another agent's prompt.**
-- **`agent_self` edits the caller's own non-grant fields.**
+**news.**
+- **Data:** topics (~20); items (~30/day, about 10k/year, no retention).
+- **Written by:** a Kafka consumer on `app.news.inbound`, fed by the `news`
+  agent's result.
+- **Code to move:** digest parsing, freshness gates, URL and headline dedup
+  (`same_story` over 7 days), automatic topics, and the daily report.
+- **UI:** calendar heatmap, sparkline, item lists and ILIKE search.
 
-### Skills
-Skills are reviewed `SKILL.md` files in a pinned, CI-attested plugin release
-(`plugin_release.py`: `APPROVED_RELEASES`, `ATTESTED_BUNDLES`). Only
-`SKILL.md` is admitted, up to 64 KiB, and every change costs a release cycle.
+**running.**
+- **Data:** activities (~1/day); briefs (~52/year).
+- **Written by:** Kafka, fed by the `strava` tool's sync and the
+  `running-coach` agent's fenced brief JSON.
+- **Code to move:** stats (heatmap, weekly bars, streaks, PRs, pace),
+  `coach-context` and `sync_after`, brief cleaning, and the weekly report (the
+  app loop writes it under its key).
+- **UI:** calendar heatmap, bars, totals, PR board and lists.
 
-### Events
-Crons, webhooks, Jobs and one-time Tasks (design 37) start runs. Relay
-mentions and ticket assignment summon agents. `entrypoints.topics` is stored,
-but nothing consumes it.
+**stockmarket.**
+- **Data:**
+  - symbols;
+  - bars, 10⁵–10⁶ rows, with `day` stored as a string today;
+  - watchlist and briefs;
+  - five backtest tables, including `rows_gz` dataset blobs of tens of MB and
+    about 20k series plus about 120k events per experiment.
+- **Written by:**
+  - the `prices` tool (upsert) and the `backtest` tool, both binding the App's
+    database;
+  - Kafka, for briefs;
+  - the App key, which starts runs for watchlist backfills and reruns.
+
+  Pending symbols are retried by the daily sync.
+- **Code to move:** brief parsing, report rendering (343 lines, 2 MB cap), and
+  backtest read shaping (thinning to 400–500 points, monthly rollups).
+- **UI:**
+  - a normalized multi-line index chart anchored on the archive's newest day;
+  - stat tiles and an add-symbol form;
+  - backtest list, detail (value/contributed and drawdown charts) and compare.
+
+**tcms.**
+- **Data:**
+  - cases, about 1k, whose `steps`, `automation`, `tags` and `tickets` are JSON
+    lists, some of them lists of objects;
+  - runs;
+  - results, 10⁵–10⁶ rows with 90-day retention;
+  - coverage.
+- **Written by:** the `tcms` tool, which records results and coverage in one
+  transaction, de-duplicated by run. A 30-second reconciler publishes runs,
+  posts to `#qa` and prunes.
+- **Code to move:** windowed aggregates over the last 20–30 runs (flaky
+  same-commit flips, slowest, PERCENT_RANK prune candidates).
+- **UI:** pyramid, stat rows, sparklines, filtered tables and health tables.
+
+**judgment.**
+- **Data:** beliefs, versions, predictions, links, feedback and requests.
+- **Written by:** the `judgment` tool (Kai only), whose code enforces the guards;
+  and Kyle's page.
+- **Code to move:** resolution, flags, review counts, version-level delete
+  cascades and strict session auth.
+
+**ttrpg** (external repo `claude-ttrpg`).
+- **Engine:** a CLI over a world directory on a volume, with about 400 tests on
+  that persistence.
+- **Coordinator:** a 3-second loop that summons players through Relay, polls
+  runs and quota, and pauses on budget, all under the App's operator key.
+- **UI:** map renders, GM lens, table controls, and live updates over SSE.
+
+**Not actually live:** the Discord "post" formatters in news, running and
+stockmarket are called only from tests, and nothing consumes the
+`*.brief.posted` / `*.item.ingested` events. Neither is carried over.
+
+**Plumbing to retire:**
+- App images, Helm `apps.enabled`, and `app-<name>-db` / `-key` secrets;
+- `app.<name>.*` topics and the `result_topic` wiring for news, running and
+  stockmarket;
+- `AppProvisioner` and `import_legacy_apps`;
+- `query_app` and the ten live-view read adapters;
+- the `app:<name>` report-writing keys.
+
+### Unchanged from revision 3
+- **Live pages:** typed/v1, intent → call → receipt actions, and client-side
+  preview.
+- **Authority gaps:** `agents_grant` and `agents_edit` can reach any agent,
+  including the caller.
+- **Delivery:** skills ship in attested releases. `entrypoints.topics` has no
+  consumer.
+- **Credentials:** the executor receives identity, never credentials. Run JWTs
+  are bound to the agent's ServiceAccount and live for the run's timeout plus 10
+  minutes (`runjwt.py`).
+- **Artifacts:** stored in Postgres, 8 MiB per artifact, 2 GiB total
+  (`config.py`). The byte route checks artifact and run visibility only.
 
 ## Principles
 
-1. **Construction is not authority.** Agents build; Kyle decides who may see
-   or change what. A change that widens anyone's access or authority takes
-   effect only when Kyle approves its exact content.
-2. **Typed, not scripted.** Every App is data the platform interprets.
-   Nothing an agent writes ever executes.
-3. **An App is consistent or unpublished.** A publish validates the whole App,
-   including its existing records; nothing that publishes leaves a page or
-   view broken.
-4. **Data outlives definitions.** Records persist across schema versions, and
-   nothing an agent publishes silently drops data.
-5. **Builds are resumable.** An agent that loses its run mid-build can find
-   exactly where it stopped.
-6. **Code is the escape hatch, not the norm.** Domain services stay right for
-   genuine computation or external I/O. The request path turns repeated needs
-   into primitives.
+1. **Apps are state; code is tools.** No App has an image, a schema or a deploy.
+2. **Construction is not authority.** Widening needs Kyle's approval of exact
+   content.
+3. **Every writer is a named principal.** A tool writes either as its caller,
+   through a per-call credential, or as a service principal whose App facts Kyle
+   approved. Nothing writes an App with a standing, unnamed key.
+4. **Guards hold on every path.** If a tool's code enforces an App's rules, the
+   App can require that collection to be written only through that tool.
+5. **Typed, not scripted.** Nothing an agent writes executes.
+6. **An App is consistent or unpublished.**
+7. **Data outlives definitions.**
+8. **Builds and handovers are resumable.** An agent that didn't build an App can
+   take it over from what the platform records.
 
 ## Vocabulary
 
-- **App:** an immutable id, a name that is never reused, an owner, versioned
-  definitions (collections, views, pages, action templates) and build notes.
-- **Collection:** a typed record set inside one App.
-- **View:** a declared query over one collection.
-- **Page:** a `typed/v2` live view bound to views and action templates.
-- **Action template:** a named, closed-form write that a page offers Kyle.
-- **Bundle:** draft definitions published or proposed together.
-- **Approved state:** the App's published definitions. Everything in it was
-  self-published within the rules or approved by Kyle.
-- **`kyle`:** the platform's owner principals (setting `KYLE_PRINCIPALS`,
-  default `admin`), and only when authenticated by browser session
-  (`X-AP-Auth: session`, design 38). It is a stored identity, never a name
-  match.
-- **Builder:** an agent holding the `apps` tool.
-- **App tool:** the tool category for `apps`, `app_data`, `tcms`, `ttrpg`,
-  `backtest` and `judgment`.
+- **App:** an immutable id, a never-reused name, an owner (an agent or Kyle),
+  versioned definitions and build notes. All rows; no code.
+- **Collection, view, page, action template, bundle, approved state:** as in
+  revision 3.
+- **Tool view:** a view backed by a reviewed tool read action.
+- **Tool action:** a page button backed by a reviewed tool write action.
+- **Tool-call credential:** a token minted for one tool call (see below).
+- **Service principal:** `tool:<name>`, a tool's own identity for work with no
+  calling run. Its App facts are approved by Kyle.
+- **`kyle`:** a browser session (`X-AP-Auth: session`) with role `admin`.
+- **`login:qa`:** the QA agent's read-only browser login, a principal Apps may
+  name for reading.
+- **Builder:** holds `apps`. **Maintainer:** an App's owning agent.
+- **Connector, App tool, platform tool:** the tool categories. "Domain
+  capability" is retired, and `prices` becomes the Yahoo Finance connector.
+
+## Apps as state
+
+### Lifecycle
+
+- **Existence:** an App is only rows in `app_data`; there's no `app.yaml`,
+  provisioner or Helm toggle.
+- **Fresh install:** zero Apps. `apps/` is deleted after the migration.
+- **Restore:** `pg_dump` covers `app_data` and artifacts. Both are
+  platform-owned, so restore needs no per-App roles, grants or secrets.
+- **Restore is a database point in time, not a platform point in time.** Tool
+  code, Tasks already run and external systems have moved on, so restore runs
+  in **maintenance mode**:
+  1. The scheduler, Tasks, service principals and tool actions start paused.
+  2. The platform reconciles every App's tool facts against the current tool
+     catalog. Bindings to tools or actions that no longer exist are disabled
+     and reported.
+  3. It checks each App's outbox and Task watermarks.
+  4. Kyle resumes automation from the restore report.
+
+  A drill restores into a fresh cluster and checks that every App renders and
+  that nothing runs before resume.
+- **Retired Apps:** restoring an older backup returns them, with automation
+  paused, which is the point-in-time meaning. There are no tombstones.
+- **Export and import** are deferred. No migrated App needs them, and they
+  arrive through the request path if wanted.
+
+### Tool-call credentials
+
+Today the executor receives identity, never a credential. Revision 6 adds one,
+and keeps it out of tool code entirely:
+
+- **Exchange.** For a tool with App access, the broker asks the API for a
+  **tool-call credential**, presenting the caller's bearer and run JWT. Claims:
+  - `call_id`, `run_id`, `agent`, `tool`, `action`;
+  - the App and collection scope from the App's **App tool fact** (below);
+  - for view actions, the declared sources;
+  - `exp` set to the tool's timeout.
+- **A ceiling, not a grant.** The credential limits what the call may attempt,
+  and the API still checks every write against current facts.
+- **Executor-mediated.** The credential goes to the executor, never to the
+  tool process. The tool calls `app_data` through a per-call local endpoint the
+  executor exposes for that subprocess. The executor attaches the credential,
+  checks that the request belongs to the live `call_id`, and drops the endpoint
+  when the call returns. A credential copied out of the executor pod is
+  useless: the API verifies it with a distinct verifier, `cnf` set to the
+  executor's ServiceAccount, single `call_id`, and it's revoked at return.
+- **Recognition.** `authenticate` gains this credential kind and stamps
+  writes `author = agent:<name>, via = tool:<name>`.
+- **No run, no App access.** Admin API-key callers get no credential.
+- **Kyle's page actions** use a separate claim set: `principal = kyle`,
+  `intent_id`, the exact action, targets and budget, and no `run_id`. It's
+  minted from a confirmed intent and executor-mediated the same way.
+
+### Service principals
+
+Only the TTRPG coordinator works with no calling run, so service principals
+ship with M6, not before. A service principal `tool:<name>`:
+- has a dedicated ServiceAccount and workload identity;
+- holds **App facts** (collections and verbs) inside the App's authority,
+  where granting them is a proposal;
+- holds **platform grants** separately, as a Kyle-approved grant on
+  `tool:<name>` itself: post to one named Relay channel, schedule Tasks for
+  named agents, read quota. Each platform system enforces its own grant, and
+  Tasks (design 37) gains a service-principal creator;
+- runs under **durable budgets**: every Task, Relay post and record write is
+  charged atomically to a persistent counter *before* the effect, with a
+  stated reset period (hourly and daily). A restarted coordinator can't
+  exceed its budget. Kyle can revoke the grant, which takes effect on the
+  next charge.
+
+Reports (news, running, stockmarket) are generated by maintainer crons calling
+the tool's `report` action. They are agent calls, not service work.
+
+### Tool-only collections
+
+A collection may declare `writers: {create: [tool:judgment], update:
+[tool:judgment]}`. It can then be written only through that tool's credential,
+and the owner's direct `app_data` writes are refused. Code-enforced guards
+(judgment's confirmation rules, TCMS's recording transaction) can't be
+bypassed. Kyle's page writes to such a collection go through that tool's
+actions (tool actions on pages, Release 2).
+
+Adding the constraint self-publishes only when the tool is already an **App
+tool** of that App; otherwise it's part of the proposal that adds the tool.
+Removing it is a proposal.
+
+### Tool views
+
+A **tool view** binds a page or agent query to a tool read action.
+
+- **Eligibility.** The action is `view_eligible`:
+  - catalog effects are only `reads_sensitive`;
+  - `tool.yaml` declares an output JSON Schema, max rows and bytes, and
+    **source collection roles** that the App's App tool fact maps to real
+    collections.
+- **Execution.** On demand, the action runs with a credential built from the
+  *viewer's* facts, limited to the declared sources. It runs in a no-egress
+  executor pool, so it can't reach anything but the platform API.
+- **Bulk reads.** View actions read through `app_data scan`, a stream with
+  viewer facts applied. Scans are bounded:
+  - per execution: 2,000,000 rows and 60 seconds;
+  - per App: scan rows per hour and two concurrent scans;
+  - per owner: a total. Breaches fail closed.
+- **Materialized views** cover heavy views, such as TCMS's flaky, slowest and
+  prune, and stockmarket's backtest rollups.
+  - **Runs as:** the read-only principal `system:materializer`, limited to the
+    declared sources.
+  - **When:** on a schedule (`every: 10m`), plus refresh requests a tool makes
+    when it commits a batch job. Those are coalesced to at most once a minute.
+  - **Parameters:** a materialized view either declares a finite parameter
+    domain, such as "every experiment id", maintained as records are written,
+    or isn't materializable and uses the cache only.
+  - **Readers:** the intersection of the readers of every source field it read
+    or filtered on, recomputed on each access, so an access change takes
+    effect immediately.
+  - **Freshness:** results carry `as_of`, and pages show it.
+- **Cache.** Non-materialized results are cached, keyed by:
+  - the viewer;
+  - the App's approved version and authority generation;
+  - the parameters;
+  - the source collections' write counters.
+
+  `cache: none` turns it off (TTRPG).
+- **Binding.** Binding a tool view self-publishes for an existing App tool's
+  view action; otherwise it's a proposal.
+
+### What leaves the platform
+After the catalogue migrates:
+- App images and `apps/*`;
+- Helm `apps.enabled`;
+- `AppProvisioner` and `import_legacy_apps`;
+- `app-<name>-*` secrets and keys;
+- `app.<name>.*` topics and `result_topic` wiring;
+- `query_app`, which agents replace with `app_data query`;
+- the hardcoded read adapters, with every `typed/v1` page migrated to v2.
 
 ## The authority model
 
-### Effective authority facts
-The server computes an App's **effective authority** as a closed set of fact
-tuples, each derived from the definitions:
+As in revision 3, with these fact types:
 
 | fact | tuple |
 |---|---|
-| field access | `(principal, collection, field, verb)`, verb ∈ `read`, `create`, `update` |
+| field access | `(principal, collection, field, verb)` |
 | record delete | `(principal, collection, delete)` |
-| delete reach | `(collection → collection, on_delete)` edges, as a closure |
-| rules | each rule in canonical form, keyed by kind and target |
+| delete reach | `(collection → collection, on_delete)` closure |
+| retention | `(collection, max_age \| max_records)` |
+| rules | each rule canonical, including tool-only writers |
 | action templates | `(template, kind, collection, presets, editable_fields)` |
-| outbound links | `(collection, field)` that renders as an external link |
-| triggers (Release 3) | `(collection, event, summoned agent)` |
+| **App tools** | `(tool, role → collection, verbs)`: which tools may read or write which collections. This is the binding a tool's manifest roles resolve through |
+| tool views and actions | `(tool, action, sources, verbs, budget)` on pages |
+| service principals | `(tool:<name>, collections, verbs)`; platform grants live outside the App |
+| outbound links | `(collection, field)` |
 
-Principals are `owner`, `kyle` and named agents. Quotas are platform-owned:
-Kyle sets them and builders can't, so they aren't builder authority.
+- **Self-publish:** a bundle that is consistent with every fact present or
+  narrower. Unmapped fields mean proposal.
+- **New fields** start private.
+- **Rules:** adding self-publishes (tool-only writers only for existing App
+  tools); relaxing is a proposal.
+- **Always proposals:**
+  - action templates;
+  - adding an App tool or widening its verbs;
+  - tool actions;
+  - service principal facts;
+  - shorter retention;
+  - outbound links;
+  - wider delete reach;
+  - data-dropping changes;
+  - wider rollbacks;
+  - ownership transfers.
 
-### Self-publish vs proposal
-A bundle **self-publishes** when it is consistent and every fact in its
-effective authority is present in the approved state's, or narrower. The test
-is exhaustive over the tuple schema; a definition field the engine can't map
-to a tuple makes the bundle a proposal ("unknown means proposal").
+**Proposals:** a frozen digest plus a computed delta. Approval happens from
+Kyle's session, re-validates and compare-and-swaps atomically; anything that
+moved makes the proposal stale. A Relay card links to the review. Sharing
+never grants tools.
 
-- **New fields don't widen.** A new field's readers and writers default to
-  `owner` and `kyle` only, even in a collection shared more widely. Giving a
-  new field to existing readers is a proposal. So "add a field" self-publishes
-  without exposing anything new.
-- **Adding a rule self-publishes.** Every rule restricts.
-- **Relaxing a rule is a proposal.** Per kind:
-  - a `writer` rule's writer set grows, or its `value` qualifier is added,
-    changed or removed;
-  - `immutable_after_create` loses fields;
-  - `unique` or `required_when` is dropped or loses fields;
-  - a `lock`'s locked fields shrink, its `when` changes, `in: history`
-    becomes `current`, or `unless_writer` grows.
-
-  Any other change to an existing rule counts as a removal plus an addition,
-  so it's a proposal unless the engine proves the new rule strictly narrower.
-- **Always a proposal:**
-  - a new action template, or any change to one's target, presets or
-    editable fields (a template asks Kyle to act);
-  - an outbound link;
-  - a trigger;
-  - a wider delete reach;
-  - a change that drops data;
-  - a rollback to anything wider than the approved state;
-  - an ownership transfer.
-- **Granting a template brings its access with it.** A template that writes
-  a collection includes, in the same proposal, the `kyle` `create` / `update`
-  facts it needs, so approving the form makes it work.
-
-Maintenance of an App Kyle already approved as shared stays self-publishable
-as long as nothing widens. A new App starts with the narrowest approved
-state: owner and Kyle read, the owner writes, no templates.
-
-### Proposals
-- **Freeze.** `apps propose` freezes the bundle as a content-addressed
-  snapshot (digest over canonical JSON), with the approved-state version it
-  was computed against and the platform-generated authority delta. The delta
-  is the changed fact tuples in plain words, plus a validation summary.
-- **Review.** Kyle approves on the App's review page. The route requires
-  Kyle's session and the digest he was shown.
-- **Approve atomically.** In one transaction, approval re-runs consistency
-  checks against current records, re-computes the delta, and publishes with a
-  compare-and-swap on the base version. If the App moved or the delta
-  changed, the proposal becomes `stale`, and nothing publishes.
-- **Notify.** A Relay card in the owner's home channel, assigned to Kyle,
-  links to the review page. The card never approves anything.
-- **States:** `open`, `published`, `declined`, `stale` or `withdrawn`. The
-  builder reads status and can withdraw a proposal.
-- **Sharing doesn't grant tools.** A proposal that shares an App with another
-  agent only adds that agent's facts. The agent also needs the `app_data` tool,
-  a separate, Kyle-only grant. Running runs see neither, because their tokens
-  are frozen.
-
-### Phase 0: closing escalation first
-- **Kyle-only tools.** `KYLE_ONLY_TOOLS` (`apps`, `app_data`, `agents_grant`,
-  `agents_edit`) can be granted or removed **only by Kyle's session**, on any
-  target agent, on both create and update (`agents.py` `_changed_fields` /
-  `authorize`, and the create path at `:612`). This closes self-grant,
-  proxy-grant and mutual-grant for these four tools. It doesn't touch other
-  grant fields (`secrets`, `role`, `can_invoke`, `push_path_globs`), which
-  remain a separate, known gap.
-- **Protected agents.** An agent holding any `KYLE_ONLY_TOOLS` entry can be
-  edited (prompt included) only by Kyle's session or by `agent_self`. This
-  stops anyone with `agents_edit` from steering a builder.
-- **No self-edits** through `agents_grant` or `agents_edit`.
-- **Audit.** A migration records every current holder of a Kyle-only tool;
-  today that's Kai. Its access is kept until Kyle decides (open decision 2).
-- **Tests and docs.** A security test matrix: self, proxy, mutual,
-  create-with-grants, and editing a protected agent. The broker's "grant what
-  you don't hold" text is rewritten.
-- **Agent paths stay narrow.** Agents reach Apps only through the `apps` and
-  `app_data` tools, which use new broker-backed API routes checked against
-  the run token's frozen tools and App ownership. Browser live-view routes
-  stay human-only.
-- **Schema.** `app_collections` gains `owner_agent`, an immutable `id`, and
-  retired-name reservation. When an owner agent is deleted, its Apps transfer
-  to Kyle.
+**Phase 0:**
+- Kyle-only tools (`apps`, `app_data`, `agents_grant`, `agents_edit`);
+- protected agents, editable only by Kyle or themselves;
+- no self-edits;
+- an audit and a test matrix;
+- narrow agent paths;
+- `owner_agent`, with transfer to Kyle when the agent is deleted.
 
 ## Collections
 
-The `apps schema` action returns the full JSON Schema for every definition
-kind, so builders and validators share one source. An example:
+- **Field types:**
+  - `string`, `text`, `int`, `number`, `bool`, `date`, `datetime`, `enum`;
+  - `ref` (same App);
+  - `url` (text unless `link: true`);
+  - `artifact`;
+  - `list` of a scalar (Release 2);
+  - **`list` of `object`** (Release 2): one level of declared sub-fields, each a
+    scalar type, at most 50 items. This is for TCMS's steps and automation.
+  - `ref` with `pin_version` (Release 2).
 
-```json
-{
-  "collection": "habits",
-  "fields": {
-    "habit": {"type": "enum", "values": ["run", "read", "stretch"], "required": true},
-    "day":   {"type": "date", "required": true},
-    "done":  {"type": "bool", "required": true},
-    "note":  {"type": "string", "max": 500, "access": {"read": ["owner"]}}
-  },
-  "write_mode": "editable",
-  "access": {"read": ["owner", "kyle"], "create": ["owner"], "update": ["owner"],
-             "delete": ["kyle"]},
-  "rules": [{"kind": "unique", "fields": ["habit", "day"]}]
-}
-```
+  There is no free-form JSON.
+- **System fields:** `id`, `created_at`, `updated_at`, `author`, `via`,
+  `version`, `collection_version`.
+- **Write modes:** `editable` and `immutable` (Release 1); `versioned`
+  (Release 2).
+- **Access:** collection defaults with per-field overrides, checked per field
+  for the actual caller on every path (results, predicates, `expand`, history,
+  previews, tool views, scans).
+- **Tool-only writers:** see above.
+- **References:** same App only. `restrict` and `unlink` in Release 1, `cascade`
+  in Release 2, all with server-computed delete plans.
+- **Indexed fields:** up to four per collection, copied into typed side columns
+  `ix_text1`, `ix_text2`, `ix_num1`, `ix_time1`. Fixed composite indexes:
+  - `(app_id, collection, ix_text1, ix_time1)`
+  - `(app_id, collection, ix_text1, ix_text2, ix_time1)`
+  - `(app_id, collection, ix_text1, ix_num1)`
+  - `(app_id, collection, ix_time1)`
 
-- **Field types** (Release 1): `string` (≤ 1,000), `text` (≤ 16,000), `int`,
-  `number`, `bool`, `date`, `datetime`, `enum`, `ref` (same App), and `url`.
-  A `url` renders as plain text unless the field sets `link: true`, which is
-  an outbound-link fact. Release 2 adds `list` of a scalar (≤ 50 items) and
-  `ref` with `pin_version`. A general `message_ref` (Relay/Discord message
-  references) arrives via the request path if Apps need it. There is no
-  free-form JSON field.
-- **System fields** (read-only, available to views and rules): `id`,
-  `created_at`, `updated_at`, `author`, `version` and `collection_version`.
-  `author` is stamped from the run token or Kyle's session.
-- **Write modes:** `editable` (update in place with `expected_version`) and
-  `immutable` (write once) in Release 1; `versioned` (append a version per
-  update) in Release 2.
-- **Access:** a collection-level `access` sets defaults per verb, and a field
-  may override with its own `access` (narrower or wider). Every path checks
-  access per field, for the actual caller, at execution:
-  - query results;
-  - filter, sort, group and aggregate on a field the caller can't read is
-    refused, which closes inference side channels; this includes `exists`
-    sub-filters;
-  - `expand`, which returns restricted fields as `null` with a `restricted`
-    marker;
-  - record history;
-  - previews.
-- **References** stay inside one App, with `on_delete`:
-  - `restrict` refuses the delete while referenced;
-  - `unlink` clears the reference;
-  - `cascade` deletes the referencing records (Release 2).
+  These serve bars (symbol, day), results (run, ref) and backtest series
+  (experiment, strategy, day).
+- **Retention:** `max_age` or `max_records`, pruned daily by a platform job
+  through the delete plan, respecting `restrict`. It's an authority fact.
+- **Artifact fields:**
+  - An artifact written into an App field becomes **App-owned**: the byte route,
+    metadata reads and the artifact event feed all authorize it through the
+    referencing field's access, so the `artifacts` grant alone doesn't reach it.
+  - App-owned artifacts may be up to 64 MiB each, counted against the App's byte
+    quota (the platform total rises accordingly).
+  - They are deleted when their last referencing record is.
+  - **Single owning field.** An App-owned artifact has exactly one owning
+    field, the first one that references it. Another field may reference it
+    only if its readers are a subset of the owning field's readers, so a second
+    reference never widens access. The event feed is filtered per recipient
+    through the owning field.
 
-  Deletes run a server-computed plan in one transaction.
+### Batch writes
+
+`app_data batch`:
+- **Limits:** up to 5,000 records or 5 MiB per call, in one transaction, with
+  per-record errors.
+- **Modes:** `insert`, `upsert` (keyed on a `unique` rule; bars) or
+  `skip_existing` (TCMS runs). Upserts into `immutable` collections replace a
+  record only when its values differ, and nothing goes to `record_versions`.
+
+**Batch jobs** handle larger writes, such as TCMS results and backtest events:
+- `batch_job` opens a **staging set** bound to its creator (principal, tool,
+  call) and the collection versions.
+- Batches go into the set; staged records are invisible.
+- **Commit** re-validates creator authority, schema versions and quotas, then
+  publishes all of it in one transaction, or refuses.
+- Sets expire after 24 hours.
+
+**Release 1a performance gate:** load 10⁶ bars and 10⁶ results, then measure
+the stockmarket, TCMS and backtest read paths, a 140k-record backtest write,
+and one TCMS materialization. Timeouts are set from the numbers.
 
 ### Rules
-A closed set, and every rule is a guard:
-- **`writer`** `{field, value?, writers}`: only these writers may set this
-  field, or this value of it.
-- **`immutable_after_create`** `{fields}`.
-- **`unique`** `{fields}`, enforced under a per-collection advisory lock
-  (`pg_advisory_xact_lock` keyed on App and collection).
-- **`required_when`** `{field, when: {field: value}}` (Release 3).
-- **`lock`** `{when: {field, value, in: current|history}, lock: [fields],
-  unless_writer}` (Release 3).
 
-A rule added over existing records is checked against them first, under the
-same advisory lock. The publish lists the violating record ids and refuses
-until the bundle fixes them or narrows the rule.
+Release 1: `writer`, `immutable_after_create`, `unique` and tool-only
+writers. New rules are checked against existing records.
+
+`required_when`, `lock` and schema migrations are **deferred to the request
+path**: no migrated App needs them.
 
 ### Schema evolution
-- **Additive** changes publish under the normal rules: optional fields, wider
-  enums and limits, rules that existing records satisfy.
-- **Destructive** changes before Release 3 mean "new collection, copy, retire
-  the old one".
-- **Release 3** adds migration verbs (`rename`, `backfill`, `map`). Each is a
-  checkpointed, resumable batch, with a dry-run count in the proposal.
 
-Records keep the `collection_version` they were written under.
+Additive changes publish normally. A destructive change means a new
+collection, a copy and retiring the old one. Migration verbs arrive through
+App Builder requests if Apps need them.
 
 ### Storage
-- **One platform schema, `app_data`:**
-  - `records`: `app_id`, `collection`, `id`, `current_version`, system
-    fields, and `doc` (JSONB, validated on write);
-  - `record_versions`;
-  - `definitions`: every version of every collection, view, page, template
-    and the build notes, with `author`, `run_id` and `reason` stamped
-    server-side;
-  - `bundles` and `proposals`;
-  - `build_ops`, the builder receipts.
-- **Fixed indexes only:** `(app_id, collection, id)`,
-  `(app_id, collection, created_at)`, and one GIN `jsonb_path_ops` on `doc`.
-  There's no DDL at publish; row-scan caps bound every query.
-- **Quotas** (platform-owned):
-  - per App: records, bytes, writes per hour, views per page, scan rows per
-    query;
-  - per owner: Apps, open drafts, open proposals, and `build_ops` kept
-    (90 days).
 
-  Retired Apps keep counting until deleted.
-- **Also covered:** backup export, pruning and health checks.
-- **Why JSONB rows and not per-App tables:** agents evolve schemas often, and
-  generated DDL would make every additive change a migration. Coded services
-  remain for relational heavy lifting.
+- **One platform schema, `app_data`:**
+  - `records` (side columns plus JSONB `doc`);
+  - `record_versions`;
+  - `definitions`;
+  - `bundles` and `proposals`;
+  - `build_ops`;
+  - `staging_sets`;
+  - `budgets` (service principals and page actions);
+  - `outbox` (migration only).
+- **Indexes:** fixed only, plus one GIN `jsonb_path_ops`.
+- **Quotas:** platform-owned. Migrated Apps get measured sizes:
+  - stockmarket ~2M records and 1 GiB;
+  - TCMS ~1.5M and 600 MiB;
+  - news ~50k;
+  - running ~10k;
+  - judgment ~10k;
+  - TTRPG measured at M6.
+
+  Backup size and time are checked with these volumes, plus the TTRPG
+  snapshots.
 
 ## Views
 
-```json
-{
-  "view": "weekly_done",
-  "collection": "habits",
-  "filter": [{"field": "done", "op": "eq", "value": true},
-             {"field": "day", "op": "within_last", "value": "12w"}],
-  "group_by": [{"field": "day", "bucket": "week"}, {"field": "habit"}],
-  "aggregates": [{"fn": "count", "as": "days_done"}],
-  "fill_missing": true
-}
-```
-
-- **Filters:** `eq`, `ne`, `in`, `lt`, `lte`, `gt`, `gte`, `is_null` and
-  `within_last` in Release 1. Release 2 adds `contains` (escaped,
-  case-insensitive) and `exists` / `not_exists` over referencing records,
-  each with a sub-filter.
-- **Parameters:** `{param: name}`, type-checked.
-- **Sort and paging:** sort, limit ≤ 200, and paging.
-- **Grouping:** ungrouped `count` (for a `metric`) is in Release 1.
-  `group_by` and the other aggregates (`sum`, `min`, `max`, `avg`) arrive in
-  Release 3.
-- **Time:** each App has a timezone (default: the platform's
-  `default_timezone` setting), and weeks start Monday.
-  - `within_last: 12w` means the current, partial week plus the 11 full weeks
-    before it: 12 buckets, each keyed by its Monday date.
-  - The current bucket is flagged `partial: true`.
-  - `fill_missing` emits a zero row for every bucket × every value of each
-    other enum or bool `group_by` field in the window. It doesn't fill ref
-    groups.
-  - For the example: an empty week yields one zero row per habit; a habit
-    never completed yields 12 zero rows; a record dated on a Sunday at 23:59
-    local time counts in that week.
-- **Counting:** `count` counts records. "Days completed" means one record per
-  habit per day with a `unique` rule. The skill teaches that.
+As in revision 4, plus:
+- **`contains` moves to Release 1a,** escaped and case-insensitive, for news
+  search over about 10k items a year.
+- **`within_last` takes `anchor`:** `now` (the default) or `max(<field>)`, for
+  windows anchored on the newest data (stockmarket's index chart).
+- **Window functions (Release 3):** `normalize: first` and `downsample: N`.
+- **Time and `fill_missing`:** as in revision 4 (App timezone, Monday weeks,
+  `12w` = current partial week plus 11 full weeks).
 
 ## Pages (`typed/v2`)
 
-- **Renderer.** The `renderer` literal and `TypedBlock` kinds widen to
-  `typed/v2`, and v2 pages are validated against App definitions (not
-  `READ_FIELDS`). `LiveView.tsx` gains a v2 path, and an invalid v2 page
-  returns the same 503 state.
-- **Components** use `@ap/ui` tokens:
-  - `table` (columns, formats, row links);
-  - `detail` (one record, with history when versioned);
-  - `metric` (one ungrouped count in Release 1);
-  - `chart` (`bar` or `line`, explicit `x`, `y` and `series` bindings;
-    Release 3);
-  - `list_filter` (binds a view parameter);
-  - `text` (headings and paragraphs as text; links only to the App's pages and
-    platform pages).
-- **Action templates**, a closed set:
-  - `create {collection, presets, editable_fields}`;
-  - `update {collection, presets, editable_fields}` against the current
-    record, with `expected_version`;
-  - `delete {collection}`;
-  - `new_version {collection, copy_current: true, presets}` (Release 2).
-
-  The first three ship in Release 1 because `delete: [kyle]` needs a UI.
-- **Confirmation.** Clicking opens a server-generated confirmation showing
-  the target record, the exact resulting values (presets included) and, for
-  deletes, the delete plan.
-- **Intent binding.** The intent binds the page version, a digest of the
-  payload, the target's `version`, and for deletes the plan digest. At
-  dispatch the server recomputes them; any difference refuses the call and
-  asks Kyle to confirm again.
-- **Contract and auth.** Execution runs under a new admitted contract,
-  `app_data.write@1`, which generalizes the live-invocation flow to a
-  collection/record target with its own argument digest. It requires Kyle's
-  session at intent and dispatch.
-
-`typed/v1` pages keep working unchanged.
+- **Release 1:** table, detail, metric and text; `create`, `update` and
+  `delete` templates with server-generated confirmations. Intents bind
+  version, payload, target version and delete plan. Writes go through
+  `app_data.write@1` and need Kyle's session.
+- **Release 2 — tool actions on pages** (moved from 3, because judgment needs
+  them):
+  - **Credential:** each one mints a page-intent credential with the exact
+    action, targets and a budget. The credential carries the budget; the
+    store, Tasks and the `budgets` table enforce it.
+  - **Idempotency:** enforced at dispatch.
+  - **Starting work:** an action that starts agent work schedules a Task for
+    a named maintainer, with a `request_id` derived from the intent, so a
+    retry never schedules twice.
+- **Release 3:** chart, calendar, sparkline, stat_row, list_filter, image and
+  `refresh`.
+- **TTRPG:** its table drops from SSE to a 3–5 s poll. A `live` mode is an App
+  Builder request if needed.
 
 ## Tools
 
-### `apps` (builder)
-A Kyle-only grant. Every write takes a `request_id`. It is stored with a hash
-of the arguments; a replay with the same hash returns the stored receipt,
-and a different hash is refused. Receipts are kept in `build_ops`.
+### `apps` (builder) and `app_data` (records)
+As in revision 4, plus:
+- `app_data` adds `scan` (view actions only), `batch` modes and `batch_job`.
+- `apps` adds `authority`, which prints the App's current facts in plain words.
+- Export and import are deferred (see "Lifecycle").
 
-| action | what it does |
+### Tool changes for the migration
+
+| tool | becomes |
 |---|---|
-| `schema` | JSON Schemas for every definition kind, plus the kit's capabilities version. |
-| `list` | Apps the caller owns or can read, each with status, open drafts and open proposals. |
-| `get` | One App: approved state, drafts with revisions, open proposals, recent receipts, build notes, and health. |
-| `create` | A new App, with a never-reused name and the narrowest approved state. |
-| `draft` | Save one definition draft, with `expected_revision`. |
-| `notes` | Read or write the App's build notes (≤ 4 KB), with `expected_revision`. |
-| `validate` | Validate a bundle against the whole App and its records. Returns stable error codes with JSON paths, offending values and suggested fixes, the authority delta, and `stale_base` if the App moved. |
-| `preview` | Render a draft page or run a draft view without side effects. For an unpublished collection it uses builder-supplied sample records, which are not persisted; otherwise real data the caller may read. `as: kyle` or `as: <agent>` renders exactly what that principal would see, never more than the caller can. Also dry-runs action templates. |
-| `publish` | Publish a consistent bundle inside the approved state, with a compare-and-swap. Otherwise it refuses with the delta and suggests `propose`. |
-| `propose` | Freeze a bundle as a proposal; returns its id and digest. |
-| `proposal` | Read a proposal's status, or `withdraw` it. |
-| `rollback` | Restore earlier definitions, under the same checks as `publish`. |
-| `retire` | Hide an App and stop its views. Data and quota use persist; deletion is Kyle's. |
+| `prices` | **Yahoo Finance connector.** Upserts bars and symbols. Its daily sync also processes `pending` symbols. |
+| `strava` | Connector. Writes activities and a `sync_state` record (cursor and `completed_at`) to the Running App. |
+| `backtest` | App tool. Writes experiments through a `batch_job`. Datasets become App-owned artifacts (64 MiB parts). Materialized `series` view (parameter domain: experiment ids). `rerun` action (a Task for `stockmarket-data`, with a budget). |
+| new `stockmarket` | App tool. `add_symbol` (watchlist record plus `pending` symbol plus a backfill Task), `brief` (parse, clean, write), and `report`. |
+| `tcms` | App tool. `record_results` runs a `batch_job` (results and coverage atomically, `skip_existing` on the run), then marks the run `committed`. The `#qa` post is recorded as `notified_at` on the run. Every `record_results` and the nightly start by posting any committed-but-unnotified runs, so a crash never loses a notice. Materialized flaky, slowest and prune views. Tool-only collections. |
+| `judgment` | App tool. Tool-only collections. Guards, the version-level delete cascade, resolution and flags stay in code, as write actions and tool views. Kyle's page uses its actions. |
+| new `news` | App tool. `ingest` (parsing, freshness gates, 7-day dedup through `app_data`, topics) writes items **and a period receipt** (accepted and rejected counts per digest). `report` too. |
+| new `running` | App tool. Tool views `stats` and `coach_context` (including the sync freshness from `sync_state`). A `brief` action, keyed by completed week, refuses if the last sync completed before that week ended. `report` too. |
+| `ttrpg` | App tool, plus `tool:ttrpg` at M6. |
 
-**Health**, shown by `get`, is computed on read: bindings that no longer
-validate, records that violate a rule, and quota use. A daily job records it,
-so the skill's maintenance check is cheap.
+**A safety net replaces `result_topic`.** Producing agents' prompts require the
+tool call. Each maintainer's cron checks the period's **receipt** (a news
+receipt, a running brief, a stockmarket brief), not the presence of records.
+So "zero items accepted" never looks like a failure. A missing receipt raises a
+ticket in the App's home channel.
 
-### `app_data` (records)
-A Kyle-only grant; builders hold it. It serves an agent only for Apps whose
-approved state names that agent, and only up to that agent's facts. Actions:
+## TTRPG
 
-- `describe` — collections, fields and rules the caller may use;
-- `query` — run a view with parameters;
-- `get` — one record, with history;
-- `create`, and `update` with `expected_version`;
-- `delete` — only if the collection allows the caller;
-- `delete_preview`.
+The engine stays in `claude-ttrpg` (recommended), and the **App is
+authoritative**:
+- **World state lives in the App:**
+  - a **command ledger** (immutable, totally ordered by sequence);
+  - periodic **snapshots** (App-owned artifacts);
+  - small collections for pages.
+- **Ledger entries** record each command *and its resolved outcome* (dice,
+  random draws, engine decisions). Replay from a snapshot is therefore
+  deterministic without a deterministic engine.
+- **Writes:** the coordinator appends with a compare-and-swap on the next
+  sequence; concurrent writers lose and retry.
+- **Exactly-once effects:**
+  - each command has an id and two checkpoints: `dispatched` (Tasks and Relay
+    posts issued, each with a `request_id` from the command id) and `applied`;
+  - on restart, the engine rebuilds from the latest snapshot plus the ledger,
+    then finishes any command that is `dispatched` but not `applied`;
+  - the `request_id`s make re-dispatch a no-op.
+- **Volume:** a cache, rebuilt at start and after any restore.
+- **Engine work:** this needs a storage adapter in `claude-ttrpg`. **It is not
+  sized in this design.** Sizing it is the first M6 task, and M6's estimate
+  stays open until then.
+- **Coordinator:** runs as `tool:ttrpg`, with App facts on the TTRPG App and
+  platform grants for `#ttrpg-table`, Tasks for the four players and
+  `ttrpg-gm`, and quota reads, all under durable budgets. Pause and resume and
+  quota pauses keep today's semantics.
+- **Pages:** player-safe and GM-only views are separated by field access. GM
+  tool views are readable by `ttrpg-gm` and Kyle. Table controls are tool
+  actions.
 
-Writes take `request_id` with an argument hash. Reads come back in an
-untrusted-data block, and receipts carry ids only.
+## The catalogue migration
 
-### Platform plumbing
-- **Tool wiring:**
-  - broker `@_metered` wrappers with rate limits and audit;
-  - operation-catalog entries for both tools and `app_data.write@1`;
-  - facade classification and SDK regeneration;
-  - help topics.
-- **Storage:** the quota store and the `app_data` schema migration.
-- **Web:** a builder area (App list, drafts, proposals, review page) and a
-  server route for live preview.
-- **Naming:** `app_data` (records) is distinct from `query_app` (a coded
-  service's GET proxy) and from `read_live_view_data` (the external facade).
+**Order, by dependency:** judgment and TCMS need Release 2, which now includes
+tool actions on pages. Running, news and stockmarket need Release 3.
 
-## Automation (Release 3)
+| step | needs |
+|---|---|
+| R0 → R1a → R1b → R2 | — |
+| **M1 Judgment** | R2 (versioned, pin_version, tool actions on pages) and tool-only collections |
+| **M2 TCMS** | R2 (lists of objects), batch jobs, materialized views |
+| R3 | — |
+| **M3 Running** | calendar, bars, tool views, `brief` |
+| **M4 News** | `contains`, calendar, sparkline, new tool |
+| **M5 Stockmarket** | charts, normalize, anchor, artifacts, tool actions |
+| **M6 TTRPG** | the engine storage adapter (sized first); service principals |
 
-- **Maintenance:** builders schedule maintenance with Tasks and crons
-  (design 37).
-- **Data triggers:** a collection may declare `on_create` / `on_update`
-  triggers that summon the owner agent with the record id, through an
-  `app_data.events` topic. This is the first consumer of `entrypoints.topics`.
-- **Approval:** a trigger is an authority fact, so adding one is a proposal.
-- **Loops and cost:** events carry causal lineage, and a trigger never fires
-  on a write whose lineage already contains it. Per-owner budgets cap runs,
-  tokens and fan-out per hour.
+**Per App:**
+1. **Definitions.**
+   - A migration bundle, reviewed in its PR and published through Kyle's
+     approval, with these owners:
+     - news: `news-librarian`; its producer `news` holds a tool-only ingest
+       grant;
+     - running: `running-coach`;
+     - stockmarket: `stockmarket-data`;
+     - tcms: `qa`;
+     - judgment: `kai`;
+     - ttrpg: `ttrpg-gm`.
+   - A per-agent **authority matrix** (tools, App facts, skill) is approved with
+     it.
+2. **Data copy.**
+   - A checkpointed batch from `app_<name>` (or the TTRPG volume) into
+     `app_data`.
+   - Serial integer ids get new ids, recorded in a mapping table, and refs are
+     rewritten.
+   - Blobs become artifacts.
+   - It dry-runs first.
+3. **Two-way sync.**
+   - **Before cutover,** writes still land in the old App, including Kyle's page
+     writes such as judgment confirmations and watchlist adds. The copy job keeps
+     running incrementally from the old store to the new one by watermark, so
+     the new store doesn't drift.
+   - **At cutover,** the direction flips. Tools and pages write the new store,
+     and an **outbox** with a sequence watermark writes the old one.
+   - Writing back to the old store lasts **until removal**, so a rollback after
+     cutover loses nothing.
+4. **Parity.**
+   - Row counts.
+   - Sampled API-versus-view comparisons.
+   - Screenshots side by side (both themes, 390 and 1280).
+   - The agents' real flows.
+   - Query latency on the large collections.
+5. **Cutover.**
+   - Readers and pages switch.
+   - Prompts are updated: `query_app` becomes `app_data query`, result topics
+     become tool calls, and the new safety nets are added.
+   - TCMS cases and web e2e tests that assert old behaviour are rewritten.
+   - Old links redirect.
+6. **Takeover gate.** A fresh run of the maintainer, with no prior conversation
+   and only `apps get`, `apps schema`, `apps authority`, `app_data describe`,
+   tool help and the App's build notes, must complete the App's routine: the
+   brief, nightly, backtest, curation or turn. The build notes must hold:
+   - purpose and invariants;
+   - schemas and view parameters;
+   - dependencies and authority;
+   - a **runbook** covering freshness, failed receipts, retries, backfills,
+     restore and escalation.
+7. **Removal**, after a week clean.
+   - Old writes are disabled atomically at the watermark.
+   - Then the code, image, Helm entry, schema (after a final backup), secrets,
+     key, topics and `result_topic` wiring are deleted.
+8. **Restore drill.**
 
-## The App Builder request path
+**Done** when all six are migrated, `apps/` is empty, the provisioner,
+`query_app` and the adapters are gone, and a fresh install shows no Apps.
 
-When a builder needs something the kit lacks, it searches open
-`app-builder` tickets first and comments on a match. Otherwise it files one in
-`#eng`:
+## Automation, request path and skill
 
-```
-Need: <the primitive: component, field type, rule, view feature, connector>
-For: <App id and what its user is trying to do>
-Tried: <the closest existing primitive and why it falls short>
-Shape: <what the definition would look like if it existed>
-```
-
-It records the ticket key in the App's build notes. Before resuming, it
-checks `apps schema`'s capabilities version, so it never assumes a primitive
-shipped. It never ships a weaker App to work around a missing guard; it notes
-the gap on the App's page instead.
-
-## The `app-building` skill
-
-A single `SKILL.md` (≤ 64 KiB) in the plugin release, assigned to Pai, Kai and
-Olu. Formats and capabilities live in `apps schema`, so they evolve without a
-skill release. Expect at least two skill releases: one with Release 1 and one
-after the first real builds.
-
-1. **Is an App the answer?** One-off answers go in chat, durable knowledge in
-   the wiki, private facts in memory. An App is for something used
-   repeatedly, viewed by Kyle, or maintained. Decide whether it's a report or
-   a tool.
-2. **The build procedure, with checkpoints:**
-   1. `apps list` and `get`; read the build notes and open proposals.
-      Resume, never duplicate.
-   2. `schema`: check that the capabilities you need exist.
-   3. Write the build notes: the goal, planned definitions, and the step
-      you're on. This is the checkpoint before any mutation.
-   4. Draft, then `validate` until clean.
-   5. `preview` with sample records, then `as: kyle`, and dry-run each
-      template.
-   6. `publish`, or `propose` and record the proposal id in the notes. Waiting
-      for approval is a checkpoint; stop the run there.
-   7. After publish, write test records through `app_data`, then read them
-      back as each intended principal, and verify the page renders.
-   8. Update the notes: done, or the next step.
-3. **Modeling:**
-   - one collection per kind of thing;
-   - write modes by asking what must never be rewritten;
-   - `on_delete` by asking what a deletion should take with it;
-   - `unique` for "one per day" facts;
-   - bounded fields, minimal evidence;
-   - per-field access for anything sensitive.
-4. **Authority:**
-   - what self-publishes;
-   - new fields start private;
-   - every rule is a guard;
-   - writing a proposal Kyle can approve in thirty seconds;
-   - never copy private data into a more widely visible App;
-   - inspect existing records before tightening a rule.
-5. **Maintenance:**
-   - you own what you build;
-   - check health when summoned and weekly (a Task);
-   - fix forward; rollback restores definitions, not records;
-   - retire stale Apps.
-6. **Requests:** when and how to file an App Builder request.
-7. **Worked examples:**
-   - a reading list Olu owns and shares with Pai, by proposal (plus Kyle
-     granting Pai `app_data`);
-   - the habit log with its weekly chart and expected rows;
-   - judgment's predictions collection.
-
-## Judgment as the benchmark
-
-| requirement (design 38) | primitive | release |
-|---|---|---|
-| typed records, enums, limits | collections | 1 |
-| immutable predictions | `immutable` | 1 |
-| Kai and Kyle only; session-only Kyle | access + `kyle` identity | 1 |
-| only Kyle sets `kyle_confirmed` | `writer` rule with `value` | 1 |
-| Kyle deletes on the page | `delete` template | 1 |
-| versioned beliefs with history | `versioned` | 2 |
-| predictions pin belief versions | `ref` + `pin_version` | 2 |
-| pending = predictions with no resolving feedback | `not_exists` | 2 |
-| confirm = copy current as Kyle-confirmed | `new_version` template | 2 |
-| relayed requires a message reference | `required_when` + `message_ref` request | 3 |
-| Kai can't reject a confirmed belief | `lock` over history | 3 |
-| counts by outcome | grouped views | 3 |
-| delete feedback → delete the belief versions citing it, rewind current | not covered (version-level cascade) | — |
-| "mixed" on disagreement; 10-minute timing flags | not covered (derived logic) | — |
-| latest-confirmed beside current in recall | not covered (needs a latest-matching-version view) | — |
-
-About 75% is expressible by Release 3. **Judgment stays coded.** Release 4
-rebuilds it on collections as a labelled evaluation, with acceptance cases
-per release. Each uncovered row becomes an App Builder request.
+- **Automation:** Tasks and crons, as today. Data triggers are **deferred to
+  the request path**, since no migrated App needs them.
+- **Request path:** as in revision 4. Migration gaps become App Builder
+  requests.
+- **Skill:** as in revision 4, plus:
+  - taking over an App: read `authority`, the build notes and the runbook
+    first; never write a tool-only collection directly; check health before
+    acting;
+  - writing build notes that pass the takeover gate.
 
 ## Trust boundaries and guards
 
-- **No code execution:** definitions are data and components are
-  host-owned. Text renders as text; external links render only by approved
-  fact.
-- **Escalation:**
-  - Kyle-only tools; protected agents editable only by Kyle or themselves;
-    no self-edits.
-  - Frozen run tokens.
-  - Owner, access, rules, templates, links and triggers change only by
-    publish or approval, and widening always needs Kyle's session.
-- **Leakage:** field-level access is checked at execution on every path,
-  including predicates (no inference). New fields start private. Refs and
-  reads never cross Apps.
-- **Forged Kyle writes:**
-  - Kyle approves each template;
-  - the server-generated confirmation shows its exact effect;
-  - intents bind version, payload, target version and plan;
-  - Kyle's session is required.
-- **Misleading or stale approvals:** the platform computes the delta,
-  approval binds the digest, and approval re-validates atomically with a
-  compare-and-swap.
-- **Lifecycle tricks:** rollback runs publish's checks; ids are immutable and
-  names never reused; quotas persist across retire; Apps whose owner is
-  deleted transfer to Kyle.
-- **Prompt injection:** agents read records in an untrusted block; approval
-  cards carry platform text only.
-- **Cost:** App and owner quotas, build-metadata caps, and trigger lineage
-  and budgets.
+Revision 3's guards, plus:
+- **Tool-call credentials:**
+  - per call;
+  - executor-bound;
+  - limited to declared Apps, verbs and sources;
+  - revoked at return.
+
+  There are no reusable credentials in tool code.
+- **Executor-mediated credentials:** the tool process never holds a credential.
+  A credential copied out of the executor is bound to one live call and is
+  revoked when the call returns.
+- **Service principals:** a named identity. Its App facts are approved by
+  proposal and its platform grants are approved separately. Durable,
+  pre-charged budgets survive restarts.
+- **Tool views:**
+  - the viewer's authority, limited to declared sources;
+  - a no-egress executor pool;
+  - schema- and size-bounded output;
+  - an authority-versioned cache key;
+  - materialized summaries readable only by the intersection of their sources'
+    readers (output and filter fields), recomputed on each access;
+  - scan budgets per execution, per App, per owner and by concurrency.
+- **Tool actions:** an intent-bound credential with an exact action, targets
+  and budget, and idempotency.
+- **Tool-only collections:** code-enforced guards can't be bypassed through
+  direct writes.
+- **App-owned artifacts:** authorized through their referencing field on every
+  route, including the event feed.
+- **Retention** is an authority fact. Imports are deferred.
+- **Batch jobs** re-validate their creator's authority, schema and quotas at
+  commit.
+- **Restore** runs in maintenance mode: automation stays paused until the tool
+  catalog and authority are reconciled and Kyle resumes.
+- **Migration:**
+  - incremental copy before cutover;
+  - outbox after cutover, until removal;
+  - atomic disable of old writes.
 
 ## Rollout and effort
 
-| release | contents | rough size |
-|---|---|---|
-| **0** Authority | Kyle-only tools, protected agents, no self-edits, audit, security test matrix; `owner_agent`, immutable ids, name reservation; broker-backed agent routes | ~6 tasks, 3–4 days |
-| **1a** Build and store, owner-only | `app_data` store with `editable` / `immutable`, field-level access, refs (`restrict` / `unlink`), `writer` / `immutable_after_create` / `unique` rules; `app_data` tool; `apps` (schema, list, get, create, draft, notes, validate, preview, publish, rollback, retire); `typed/v2` table, detail and metric; the authority-fact engine with golden tests; quotas; skill v1. Kyle can view the App's pages; there are no Kyle write actions yet. | ~22 tasks, 4–5 weeks |
-| **1b** Approval and sharing | proposals, digest and CAS, the review page and Relay card, sharing with agents, action templates (create / update / delete) with server-generated confirmations and `app_data.write@1`, outbound links | ~14 tasks, 2–3 weeks |
-| **2** History and links | `versioned`, `pin_version`, `cascade`, `list`, `contains`, `exists` / `not_exists`, the `new_version` template, history in `detail` | ~10 tasks, 2 weeks |
-| **3** Richer Apps | `required_when`, `lock`, migrations, grouping and aggregates, buckets, charts, `list_filter`, data triggers with lineage and budgets | ~15 tasks, 3 weeks |
-| **4** Benchmark | Kai rebuilds judgment as an evaluation; each persona builds one real App | evaluation |
+Revision 6 cuts what no migrated App needs:
+- data triggers;
+- `required_when` and `lock`;
+- schema migrations;
+- export and import;
+- on-write materialization;
+- tombstones.
 
-Release 1a alone is useful: an agent can build and maintain an App that it
-and Kyle can see, such as a log, tracker or report it keeps itself.
-Kyle-facing forms wait for 1b, because every template is a proposal.
+Each comes back only through an App Builder request. Revision 6 also adds the
+hidden work the reviews found.
+
+| step | contents | rough size |
+|---|---|---|
+| **R0** | Authority fixes and their test matrix. | ~6 tasks, 1 week |
+| **R1a** | The store (indexed fields, retention, artifacts with owning fields, batch and batch jobs, `contains`). Executor-mediated tool-call credentials and their verifier. The `app_data` and `apps` tools. v2 table, detail and metric. The authority engine with golden tests. Quotas and scan budgets. The performance gate. Skill v1. Plus: broker, toolregistry and agentspec changes; SDK and facade regeneration; operation-catalog entries. | ~36 tasks, 8 weeks |
+| **R1b** | Proposals and the review page. Sharing. Action templates and `app_data.write@1`. Tool views: the no-egress executor pool (infrastructure), scan, cache, materialization. App tool facts. Tool-only collections. App-owned artifact auth. Links. Restore maintenance mode. | ~24 tasks, 5 weeks |
+| **R2** | versioned, pin_version, cascade, lists (including objects), exists, `new_version`, **tool actions on pages** (page-intent credentials, budgets, Task scheduling). | ~16 tasks, 4 weeks |
+| **M1, M2** | Judgment and TCMS, each with the copy job, outbox, parity, the takeover-gate run, and TCMS case and e2e rewrites. | ~12 and ~16 tasks, 2 + 3 weeks |
+| **R3** | Grouping and aggregates, windows, anchor, chart, calendar, sparkline, stat_row, list_filter, image, refresh. | ~16 tasks, 4 weeks |
+| **M3–M5** | Running, news and stockmarket, each with the new App tools, safety-net receipts, prompt rewrites, takeover gate, and e2e and screenshot parity. | ~14, 14 and 20 tasks, 3 + 3 + 4 weeks |
+| **M6** | TTRPG: service principals, durable budgets, ledger checkpoints, plus the `claude-ttrpg` storage adapter. | ~16 tasks here, plus an **unsized** engine project |
+| **Cleanup** | Delete the provisioner, `query_app`, adapters, `apps/` and the Helm templates. Prompt sweeps. Backup-size check. Fresh-install and restore drills. | ~10 tasks, 2 weeks |
+
+**Total:** about 9–10 months of build here, **excluding the TTRPG engine
+adapter**, which is sized as M6's first task. **Milestones:**
+- the first agent-built App after R1a, about 9 weeks in;
+- the first migrated App (judgment) after R2, about 4½ months in.
 
 ## Alternatives considered
 
-- **Agents write domain services through the coder.** That's today's path
-  (judgment): a PR, a deploy and a large review per App.
-- **Sandboxed author HTML/JavaScript.** Design 33 declined it for private
-  data: a sandbox protects the host, not the data from the code.
-- **Per-App generated tables.** Rejected for schema churn; coded services
-  keep that option.
-- **Publish everything, audit afterwards.** Rejected: the rules exist to
-  protect Kyle from the builder.
-- **Author-declared guards** (revision 1). Rejected: an owner could leave the
-  flag off and remove the rule later. Every rule is a guard.
-- **Collection-level read access only** (revision 2). Rejected: adding a
-  field silently shared new data with every existing reader.
+- **Keep coded Apps alongside agent-built ones.** Rejected by Kyle.
+- **Per-App tables.** Rejected: schema churn and broken restores.
+- **Tools keep binding App databases.** Rejected: they would bypass access and
+  rules, and break restores.
+- **Hand tools the run JWT.** Rejected: it's reusable for the whole run and
+  bound to the agent's identity. A per-call, executor-bound credential is the
+  minimum.
+- **Tool views computed purely through paged `app_data` reads.** Rejected:
+  TCMS-scale aggregates would need hundreds of calls. Use scan and
+  materialization instead.
+- **Author HTML/JavaScript for rich UIs.** Rejected for private data.
+- **Author-declared guards and collection-only access.** Rejected in revisions
+  2 and 3.
 
 ## Open decisions (Kyle)
 
-1. **Builders:** only Pai, Kai and Olu, or any agent Kyle grants `apps` to?
-2. **Kai's existing `agents_grant` and `agents_edit`:** keep them (now
-   Kyle-only grants that can't touch protected agents), or remove them in
-   Phase 0?
-3. **Sharing beyond Kyle:** Apps visible to other human principals stay out
-   of scope. Confirm.
-4. **Start:** Release 0 + 1a first (about 5–6 weeks) to get a first
-   agent-built App, then 1b?
+1. **Kai's `agents_grant` and `agents_edit`:** keep them under the new limits
+   (recommended), or remove them? Under the limits they become grants only Kyle
+   can make, and they can't touch agents that hold builder tools.
+2. **TTRPG engine:** keep `claude-ttrpg` separate, with only its state moving
+   into the App and a storage adapter written there (recommended), or bring the
+   engine into this repo?
+3. **Pace:** about 9–10 months, plus the TTRPG engine work. Proceed in this
+   order, with check-ins after R1a (the first agent-built App) and after M1
+   (the first migration)?

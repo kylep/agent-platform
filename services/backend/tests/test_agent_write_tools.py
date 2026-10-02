@@ -513,20 +513,20 @@ async def test_add_and_remove_are_set_operations(client, sf, seed_agent,
         "action": "add_grant", "name": "target", "field": "skills", "values": []})
 
 
-async def test_agents_grant_may_grant_itself_onward(client, sf, seed_agent,
-                                                    agent_store):
-    """The documented escalation (design/15): a grant-holder can hand the grant
-    tool to another agent. The control is that it is impossible to do quietly —
-    the change log names the granter, the tool and the agent."""
+async def test_agents_grant_may_not_grant_itself_onward(client, sf, seed_agent,
+                                                        agent_store):
+    """The escalation design/15 documented and design 39 Phase 0 closed: a
+    grant-holder can no longer hand the grant tool to another agent. Only
+    Kyle's session moves a Kyle-only tool, and nothing is written or logged."""
     await seed_agent("target")
     h = await granted(sf, seed_agent, agent_store, "granter", [TOOL_AGENTS_GRANT])
-    out = json.loads(await agenttools.agents_grant(api(client, h), {
+    out = await agenttools.agents_grant(api(client, h), {
         "action": "add_grant", "name": "target", "field": "platform_tools",
-        "values": [TOOL_AGENTS_GRANT]}))
-    assert out["platform_tools"] == [TOOL_AGENTS_GRANT]
-    v = (await versions_of(sf, "target"))[-1]
-    assert v.changed_via == "tool:agents_grant" and v.changed_by.endswith("granter")
-    assert v.snapshot["platform_tools"] == [TOOL_AGENTS_GRANT]
+        "values": [TOOL_AGENTS_GRANT]})
+    assert out.startswith("error:") and "403" in out and "Kyle" in out
+    async with sf() as s:
+        assert (await s.get(AgentDef, "target")).platform_tools in ([], None)
+    assert await versions_of(sf, "target") == []
 
 
 async def test_agents_grant_cannot_rewrite_prose(client, sf, seed_agent,

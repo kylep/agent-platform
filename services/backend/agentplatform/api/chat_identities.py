@@ -196,6 +196,11 @@ async def edit_chat_identity(request: Request, identity_id: str, body: EditIdent
             meta.status = "unprobed"
         from agentplatform.authority import assign_owner
         if "owner_agent" in body.model_fields_set:
+            if body.owner_agent != row.owner_agent:
+                # Moving an account rewrites both owners' rows; a protected
+                # agent's row is Kyle's to change (docs/design/39, Phase 0).
+                from agentplatform.api.agents import guard_agents
+                await guard_agents(session, request, actor, (row.owner_agent, body.owner_agent))
             await assign_owner(session, row, body.owner_agent)
         if body.token is not None:
             prior = row.owner_agent
@@ -303,6 +308,11 @@ async def delete_chat_identity(request: Request, identity_id: str,
             raise HTTPException(404, "unknown chat identity")
         secret, key = await _credential_ref(session, row)
         from agentplatform.authority import assign_owner
+        from agentplatform.api.agents import guard_agents
+        # Every row this deletion rewrites: the owner, and any agent still
+        # naming the account.
+        await guard_agents(session, request, actor, [row.owner_agent, *(await session.execute(
+            select(AgentDef.name).where(AgentDef.discord_identity_id == identity_id))).scalars()])
         await assign_owner(session, row, None)
         row.status = "deleting"
         bindings = (await session.execute(select(RelayBinding).where(

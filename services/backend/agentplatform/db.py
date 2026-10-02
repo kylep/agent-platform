@@ -1310,6 +1310,7 @@ CODER_RENAME_MARK = "coder-rename-v1"
 DEV_PROMPT_EDITS_MARK = "dev-prompt-edits-v1"
 BACKTEST_WORKER_MARK = "backtest-worker-v1"
 PERSONA_QUERY_APP_MARK = "persona-query-app-v1"
+KYLE_ONLY_AUDIT_MARK = "kyle-only-audit-v1"
 
 # The channels that become PROJECTS when Tickets ships (docs/design/20), and
 # the prefix each one's keys are stamped with. #standup is deliberately absent:
@@ -2512,6 +2513,45 @@ def _ensure_persona_app_reads(conn) -> None:
     conn.execute(mark_t.insert().values(name=PERSONA_QUERY_APP_MARK, applied_at=utcnow()))
 
 
+def _audit_kyle_only_holders(conn) -> None:
+    """Note in the change log every agent that already holds a Kyle-only tool
+    (docs/design/39, Phase 0), once.
+
+    Those grants were made before only Kyle's session could make them, so the
+    log should say who holds one as the rule takes effect. Access is NOT
+    changed: whether a holder keeps it is Kyle's decision. Each note is a
+    version whose snapshot is the definition as it stands, so the log reads as
+    "nothing changed here, but look"; which tools it holds is in `changed_by`.
+    """
+    from pydantic import ValidationError
+    from agentplatform.agentdefs import DEF_FIELDS, model_of
+    from agentplatform.agentspec import KYLE_ONLY_TOOLS
+    mark_t = SchemaMark.__table__
+    if conn.execute(select(mark_t.c.name)
+                    .where(mark_t.c.name == KYLE_ONLY_AUDIT_MARK)).first():
+        return
+    def_t, ver_t = AgentDef.__table__, AgentVersion.__table__
+    for row in conn.execute(select(def_t).order_by(def_t.c.name)).fetchall():
+        held = sorted(set(row.platform_tools or []) & KYLE_ONLY_TOOLS)
+        if not held:
+            continue
+        try:
+            snapshot = model_of(row).model_dump(mode="json")
+        except ValidationError:
+            # A quarantined row is still a holder; log its columns as they are.
+            snapshot = {f: getattr(row, f, None) for f in DEF_FIELDS}
+        names = ",".join(t.rsplit("__", 1)[-1] for t in held)
+        version = (conn.execute(select(func.max(ver_t.c.version)).where(
+            ver_t.c.agent == row.name)).scalar() or 0) + 1
+        conn.execute(ver_t.insert().values(
+            id=uuid.uuid4().hex, agent=row.name, version=version, snapshot=snapshot,
+            changed_by=f"platform:kyle-only-audit holds {names}",
+            changed_via="audit:kyle-only", created_at=utcnow()))
+        log.warning("agent %s holds Kyle-only tools %s; kept until Kyle decides",
+                    row.name, names)
+    conn.execute(mark_t.insert().values(name=KYLE_ONLY_AUDIT_MARK, applied_at=utcnow()))
+
+
 RUNNING_COACH_PROMPT = """You are **Running Coach**, Kyle's concise, practical running companion.
 
 Your trigger tells you which mode to use:
@@ -3652,3 +3692,5 @@ async def init_db(engine: AsyncEngine, default_grant: bool = True,
         await conn.run_sync(lambda c: _grant_to_every_agent(c, "mcp__platform__agent_self",
             "agent-self-default-v1", changed_by="platform:self-default-grant", default_grant=self_grant))
         await conn.run_sync(reconcile_system_agents)
+        # Last, so it sees every holder the seeds and sweeps above leave behind.
+        await conn.run_sync(_audit_kyle_only_holders)

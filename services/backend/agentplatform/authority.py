@@ -1,6 +1,7 @@
 """Current agent authority, independent of cached manifests and frozen grants."""
 from datetime import timezone
 from sqlalchemy import select, text
+from agentplatform.agentspec import KYLE_ONLY_TOOLS
 from agentplatform.db import (AgentDef, AgentVersion, ChatIdentity, Conversation,
                               RelayBinding, RelaySession, Run, SchemaMark, utcnow)
 
@@ -159,6 +160,11 @@ async def assign_owner(session, identity, owner):
                  if t not in ('mcp__platform__discord', 'mcp__platform__discord_chat')]
         if owned:
             tools.append('mcp__platform__discord')
+        # Only the derived Discord tool moves here. A Kyle-only tool is
+        # granted by Kyle's session alone (docs/design/39), never as a side
+        # effect of owning an account.
+        if set(tools) & KYLE_ONLY_TOOLS != set(agent.platform_tools or []) & KYLE_ONLY_TOOLS:
+            raise RuntimeError(f"assign_owner would change {name}'s Kyle-only tools")
         agent.platform_tools = tools
         from agentplatform.agentdefs import next_version, snapshot_of
         session.add(AgentVersion(agent=name, version=await next_version(session, name),

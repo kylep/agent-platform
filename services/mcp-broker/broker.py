@@ -707,9 +707,11 @@ async def agents_edit(action: str, name: str | None = None,
     It can NEVER change what an agent may DO — tools, skills, secrets,
     can_invoke, role, push_path_globs, may_delete_tests — that is the
     agents_grant tool, and attempting it here is
-    refused. CARE: this permission is about the KIND of change, not the target,
-    so you can rewrite the prompt (or add a cron) of an agent more privileged
-    than you are. Every write is logged against your name."""
+    refused. It can't edit YOURSELF (use agent_self) or a PROTECTED agent: one
+    holding apps, app_data, agents_edit or agents_grant, which only Kyle's
+    session may change. CARE: any other agent is in reach, including one more
+    privileged than you through its other grants, so you can rewrite its
+    prompt or add a cron. Every write is logged against your name."""
     return await _guarded("agents_edit", agenttools.agents_edit,
                           {"action": action, "name": name, "definition": definition})
 
@@ -750,9 +752,14 @@ async def agents_grant(action: str, name: str, field: str | None = None,
     not EXPOSE `role`, which is a choice about this tool's surface rather than
     a boundary — the server counts `role` as a grant, so an agents_grant holder
     can still set it through the API directly. The `system` flag is a real
-    boundary: admin-only, server-side. You can grant capabilities you do not
-    hold yourself, including this tool — the change log is the control, so make
-    the reason obvious."""
+    boundary: admin-only, server-side.
+
+    KYLE-ONLY: apps, app_data, agents_edit and agents_grant are granted and
+    removed only by Kyle's session — never by this tool, on any agent,
+    including a new one. You can't change your own grants (ask Kyle), or any
+    agent that holds one of those four (it is protected). Other capabilities
+    you may grant to other agents even if you don't hold them; the change log
+    names you, so make the reason obvious."""
     return await _guarded("agents_grant", agenttools.agents_grant, {
         "action": action, "name": name, "field": field, "values": values,
         "harness_tools": harness_tools, "platform_tools": platform_tools,
