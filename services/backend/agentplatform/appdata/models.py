@@ -380,5 +380,7 @@ class AppDataProposal(Base):
     decided_at: Mapped[datetime | None] = mapped_column(_TS, nullable=True)
     # Why it closed: Kyle's decline reason, or what made it stale.
     outcome: Mapped[dict | None] = mapped_column(_JSON, nullable=True)
+    # One Relay card for the proposal's lifetime; a state change edits it.
+    relay_message_id: Mapped[str | None] = mapped_column(String(32), nullable=True)
     created_at: Mapped[datetime] = mapped_column(_TS, default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(_TS, default=utcnow, onupdate=utcnow)

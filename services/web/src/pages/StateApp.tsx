@@ -2,7 +2,8 @@ import { useEffect, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 import { Chip } from "@ap/ui/chip";
 import {
-  AppDataError, getStateApp, pageHref,
+  AppDataError, getStateApp, listAppProposals, pageHref, proposalHref,
+  type AppProposal,
   type ApprovedDefinition, type DefinitionDraft, type HealthStatus, type StateAppDetail,
 } from "../lib/appData";
 import { TypedV2Page } from "./LiveView";
@@ -14,6 +15,7 @@ import { TypedV2Page } from "./LiveView";
 const TABS = [
   { id: "pages", label: "Pages" },
   { id: "definitions", label: "Definitions" },
+  { id: "proposals", label: "Proposals" },
   { id: "notes", label: "Build notes" },
   { id: "health", label: "Health" },
 ] as const;
@@ -79,6 +81,29 @@ function Notes({ app }: { app: StateAppDetail }) {
     <p className="muted">revision {notes.revision} · {notes.updated_by} {when(notes.updated_at)}</p>
     <pre className="build-notes">{notes.text}</pre>
   </>;
+}
+
+function Proposals({ app }: { app: StateAppDetail }) {
+  const [items, setItems] = useState<AppProposal[] | null>(null);
+  const [error, setError] = useState("");
+  useEffect(() => {
+    let active = true;
+    listAppProposals(app.id).then((rows) => { if (active) setItems(rows); })
+      .catch((e: unknown) => { if (active) setError(e instanceof Error ? e.message : "Could not load proposals."); });
+    return () => { active = false; };
+  }, [app.id]);
+  if (error) return <p className="error" role="alert">{error}</p>;
+  if (!items) return <p className="muted">Loading proposals…</p>;
+  if (!items.length) return <p className="muted">No proposals for this App.</p>;
+  return <section className="state-app-section" aria-labelledby="proposals-h">
+    <h2 id="proposals-h">Proposals</h2>
+    <ul>{items.map((p) => <li key={p.id}>
+      <Chip variant={p.state === "open" ? "warn" : "ok"}>{p.state}</Chip>{" "}
+      <Link to={proposalHref(app.id, p.id)}>{p.kind} · {p.proposer}</Link>{" "}
+      <span className="muted">{when(p.created_at)}</span>
+      {p.delta.widening[0] && <div>{p.delta.widening[0]}</div>}
+    </li>)}</ul>
+  </section>;
 }
 
 function Health({ app }: { app: StateAppDetail }) {
@@ -159,6 +184,7 @@ export default function StateApp() {
     <div role="tabpanel" id="state-app-panel" aria-labelledby={`tab-${tab}`} className="state-app-panel">
       {tab === "pages" && <Pages app={app} />}
       {tab === "definitions" && <><Approved items={app.approved} /><Drafts items={app.drafts} /></>}
+      {tab === "proposals" && <Proposals app={app} />}
       {tab === "notes" && <Notes app={app} />}
       {tab === "health" && <Health app={app} />}
     </div>

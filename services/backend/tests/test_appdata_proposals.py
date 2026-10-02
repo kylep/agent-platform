@@ -20,7 +20,8 @@ from agentplatform.appdata.models import (AppDataApp, AppDataBuildOp, AppDataDef
                                           AppDataProposal)
 from agentplatform.appdata.quotas import describe, set_quota
 from agentplatform.appdata.records import create_record, load_app
-from agentplatform.db import AgentDef, Base, make_engine, make_session_factory
+from agentplatform.db import (AgentDef, Base, Conversation, RelayMessage, RelayParticipant,
+                              make_engine, make_session_factory)
 
 PG_URL = os.environ.get("AP_TEST_PG_URL")
 BACKENDS = ["sqlite"] + (["postgres"] if PG_URL else [])
@@ -137,6 +138,40 @@ async def shared_draft(sf):
     app_id = await built(sf, ("collection", habits()))
     await draft(sf, app_id, "collection", habits(access=SHARED), expected_revision=0)
     return app_id
+
+
+async def test_proposal_relay_card_is_single_editable_notice(sf, engine, monkeypatch):
+    async with engine.begin() as conn:
+        await conn.run_sync(lambda sc: Base.metadata.create_all(
+            sc, tables=[Conversation.__table__, RelayParticipant.__table__,
+                        RelayMessage.__table__]))
+    app_id = await shared_draft(sf)
+    p = await propose(sf, app_id)
+    real_post = P.post_relay_message
+
+    async def unavailable(*args, **kwargs):
+        raise RuntimeError("relay unavailable")
+
+    monkeypatch.setattr(P, "post_relay_message", unavailable)
+    await P.notify(sf, None, p["id"])
+    assert (await proposal(sf, p["id"]))["state"] == "open"
+    monkeypatch.setattr(P, "post_relay_message", real_post)
+    await P.notify(sf, None, p["id"])
+    await P.notify(sf, None, p["id"])
+    async with sf() as s:
+        messages = list((await s.execute(select(RelayMessage))).scalars())
+        assert len(messages) == 1
+        card = messages[0].card
+        assert card["type"] == "app_proposal" and card["state"] == "open"
+        assert card["url"] == f"/apps/state/{app_id}/proposals/{p['id']}"
+        assert "actions" not in card and "Approve" not in messages[0].body
+        message_id = messages[0].id
+    await approve(sf, p["id"], p["digest"])
+    await P.notify(sf, None, p["id"])
+    async with sf() as s:
+        messages = list((await s.execute(select(RelayMessage))).scalars())
+        assert len(messages) == 1 and messages[0].id == message_id
+        assert messages[0].card["state"] == "published"
 
 
 # --- propose ----------------------------------------------------------------------------

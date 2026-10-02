@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import AxeBuilder from "@axe-core/playwright";
 import { mockApi, STATE_APP_ID } from "./mock-api";
 
 // State Apps (docs/design/39): the Apps list, the typed/v2 renderer and the
@@ -6,6 +7,61 @@ import { mockApi, STATE_APP_ID } from "./mock-api";
 
 const appPath = `/apps/state/${STATE_APP_ID}`;
 const pagePath = (page: string, qs = "") => `${appPath}/pages/${page}${qs}`;
+
+test("a proposal review shows the frozen delta and submits the shown digest", async ({ page }) => {
+  const unmatched = await mockApi(page);
+  const id = "6d".repeat(16);
+  const digest = "f".repeat(64);
+  let state = "open";
+  let submittedDigest = "";
+  await page.route(/\/api\/app-data\/proposals(?:\/|$|\?)/, async (route) => {
+    const url = new URL(route.request().url());
+    const review = { id, app_id: STATE_APP_ID, kind: "bundle", state, digest,
+      bundle: { changes: [] }, base_version: 4, authority_generation: 2,
+      current_approved_version: 4, current_authority_generation: 2,
+      delta: { added: ["agent:kai can read habits.day"], removed: [],
+               widening: ["Sharing habits.day with Kai"] },
+      validation: { data_dropping: [], reindex: [] }, proposer: "pai", run_id: null,
+      reason: "Kai needs this", decided_by: null, decided_at: null, outcome: null,
+      created_at: new Date().toISOString(),
+      diff: [{ kind: "collection", name: "habits", current: { access: ["pai"] },
+               proposed: { access: ["pai", "kai"] } }] };
+    if (url.pathname.endsWith("/approve")) {
+      submittedDigest = (route.request().postDataJSON() as { digest: string }).digest;
+      state = "published";
+      await route.fulfill({ json: { ...review, state } });
+    } else if (url.pathname.endsWith(`/${id}`)) {
+      await route.fulfill({ json: review });
+    } else await route.fulfill({ json: [review] });
+  });
+  await page.goto(`${appPath}?tab=proposals`);
+  await page.getByRole("link", { name: "bundle · pai" }).click();
+  await expect(page.getByText("Sharing habits.day with Kai")).toBeVisible();
+  await expect(page.getByText("Kai needs this")).toBeVisible();
+  await expect(page.getByText(/App changed since this proposal/)).toHaveCount(0);
+  const a11y = await new AxeBuilder({ page }).analyze();
+  expect(a11y.violations).toEqual([]);
+  await page.getByRole("button", { name: "Approve" }).click();
+  expect(submittedDigest).toBe(digest);
+  await expect(page.getByText("published", { exact: true })).toBeVisible();
+  expect(unmatched).toEqual([]);
+});
+
+test("a stale proposal cannot be approved", async ({ page }) => {
+  await mockApi(page);
+  const id = "6e".repeat(16);
+  await page.route(`**/api/app-data/proposals/${id}`, async (route) =>
+    route.fulfill({ json: { id, app_id: STATE_APP_ID, kind: "bundle", state: "open",
+      digest: "a".repeat(64), bundle: {}, base_version: 3, authority_generation: 2,
+      current_approved_version: 4, current_authority_generation: 2,
+      delta: { added: [], removed: [], widening: [] },
+      validation: { data_dropping: [], reindex: [] }, proposer: "pai", run_id: null,
+      reason: "", decided_by: null, decided_at: null, outcome: null,
+      created_at: new Date().toISOString(), diff: [] } }));
+  await page.goto(`${appPath}/proposals/${id}`);
+  await expect(page.getByRole("button", { name: "Approve" })).toBeDisabled();
+  await expect(page.getByText(/App changed since this proposal/)).toBeVisible();
+});
 
 test("the Apps page lists state Apps beside the legacy ones", async ({ page }) => {
   const unmatched = await mockApi(page);

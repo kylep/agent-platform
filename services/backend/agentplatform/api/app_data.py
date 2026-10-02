@@ -205,10 +205,13 @@ async def state_proposal_approve(request: Request, proposal_id: str,
         raise HTTPException(422, "approve requires the proposal digest shown in review")
     async with request.app.state.session_factory() as s:
         try:
-            return await P.approve(s, actor, proposal_id, request_id=body.request_id,
-                                   digest=body.digest)
+            result = await P.approve(s, actor, proposal_id, request_id=body.request_id,
+                                     digest=body.digest)
         except RecordError as exc:
             raise _for_web(exc) from None
+    await P.notify(request.app.state.session_factory, request.app.state.producer,
+                   proposal_id)
+    return result
 
 
 @router.post("/api/app-data/proposals/{proposal_id}/decline")
@@ -217,10 +220,13 @@ async def state_proposal_decline(request: Request, proposal_id: str,
                                  actor: Actor = Depends(kyle_session)):
     async with request.app.state.session_factory() as s:
         try:
-            return await P.decline(s, actor, proposal_id, request_id=body.request_id,
-                                   reason=body.reason)
+            result = await P.decline(s, actor, proposal_id, request_id=body.request_id,
+                                     reason=body.reason)
         except RecordError as exc:
             raise _for_web(exc) from None
+    await P.notify(request.app.state.session_factory, request.app.state.producer,
+                   proposal_id)
+    return result
 
 
 @router.get("/api/app-data/apps/{app_id}/pages/{page}")
@@ -456,10 +462,13 @@ async def apps_get(request: Request, body: AppRef, actor: Actor = Depends(builde
 @router.post("/api/app-data/agent/apps/propose")
 async def apps_propose(request: Request, body: ProposeIn,
                        actor: Actor = Depends(builder)):
-    return await _call(request, lambda s: P.propose(
+    result = await _call(request, lambda s: P.propose(
         s, actor, body.app, request_id=body.request_id, only=_only(body.only),
         rollback_to=body.rollback_to, transfer_to=body.transfer_to,
         reason=body.reason))
+    await P.notify(request.app.state.session_factory, request.app.state.producer,
+                   result["id"])
+    return result
 
 
 @router.post("/api/app-data/agent/apps/proposal")
@@ -469,8 +478,11 @@ async def apps_proposal(request: Request, body: ProposalIn,
         if not body.request_id:
             raise HTTPException(422, {"code": "AL-ARGS", "message":
                                       "withdraw requires request_id"})
-        return await _call(request, lambda s: P.withdraw(
+        result = await _call(request, lambda s: P.withdraw(
             s, actor, body.proposal_id, request_id=body.request_id))
+        await P.notify(request.app.state.session_factory, request.app.state.producer,
+                       body.proposal_id)
+        return result
     return await _call(request, lambda s: P.get(s, actor, body.proposal_id))
 
 

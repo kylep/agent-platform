@@ -28,6 +28,7 @@ import Apps from "./pages/Apps";
 import LiveViewPage from "./pages/LiveView";
 import LiveViewEditor from "./pages/LiveViewEditor";
 import StateApp from "./pages/StateApp";
+import ProposalReview from "./pages/ProposalReview";
 import Help from "./pages/Help";
 import Schedules from "./pages/Schedules";
 import Tasks from "./pages/Tasks";
@@ -75,6 +76,7 @@ export default function App() {
             {/* State Apps (docs/design/39). nginx serves /apps/state/ as the
                 SPA rather than proxying it as a coded App named "state". */}
             <Route path="/apps/state/:id" element={<StateApp />} />
+            <Route path="/apps/state/:id/proposals/:proposalId" element={<ProposalReview />} />
             <Route path="/apps/state/:appId/pages/:page" element={<LiveViewPage />} />
             <Route path="/live-views/:id" element={<LiveViewPage />} />
             <Route path="/live-views/new" element={<LiveViewEditor />} />

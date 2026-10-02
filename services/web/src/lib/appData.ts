@@ -105,6 +105,50 @@ export type StateAppDetail = Omit<StateAppSummary, "health"> & {
   build_ops: BuildOp[];           // newest first, at most 20
 };
 
+export type AppProposal = {
+  id: string; app_id: string; kind: "bundle" | "rollback" | "transfer";
+  state: "open" | "published" | "declined" | "withdrawn" | "stale";
+  digest: string; bundle: Record<string, unknown>; base_version: number | null;
+  authority_generation: number; delta: { added: string[]; removed: string[]; widening: string[] };
+  validation: { data_dropping: string[]; reindex: string[] };
+  proposer: string; run_id: string | null; reason: string;
+  decided_by: string | null; decided_at: string | null; outcome: Record<string, unknown> | null;
+  created_at: string;
+};
+
+export type AppProposalReview = AppProposal & {
+  current_approved_version: number | null;
+  current_authority_generation: number;
+  diff: { kind?: string; name?: string; field?: string; current: unknown; proposed: unknown }[];
+};
+
+export const proposalHref = (appId: string, proposalId: string) =>
+  `/apps/state/${encodeURIComponent(appId)}/proposals/${encodeURIComponent(proposalId)}`;
+
+export function listAppProposals(appId: string): Promise<AppProposal[]> {
+  return get(`/api/app-data/proposals?app=${encodeURIComponent(appId)}`);
+}
+
+export function getAppProposal(proposalId: string): Promise<AppProposalReview> {
+  return get(`/api/app-data/proposals/${encodeURIComponent(proposalId)}`);
+}
+
+export async function decideAppProposal(proposalId: string, action: "approve" | "decline",
+                                        digest: string, reason = ""): Promise<AppProposal> {
+  const res = await fetch(`/api/app-data/proposals/${encodeURIComponent(proposalId)}/${action}`,
+                          { method: "POST", credentials: "include",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({ request_id: globalThis.crypto?.randomUUID?.()
+                              ?? `review-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+                              digest, reason }) });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({})) as { detail?: unknown };
+    throw new AppDataError(res.status,
+      typeof body.detail === "string" ? body.detail : `Proposal ${action} failed`);
+  }
+  return res.json() as Promise<AppProposal>;
+}
+
 // --- typed/v2 pages (Release 1: table, detail, metric, text) ---------------
 
 /** A view parameter: a literal, or a value taken from the page URL's query

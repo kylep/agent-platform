@@ -591,7 +591,7 @@ Shared-file notes for G1:
 
 #### G3
 
-- [ ] **B11 Relay card for proposals** (after B8) ∥.
+- [x] **B11 Relay card for proposals** (after B8) ∥.
   - **Goal:** each new proposal posts a card that links to the review page
     and never approves anything.
   - **Design:** revision 3 "Proposals" → Notify.
@@ -607,7 +607,7 @@ Shared-file notes for G1:
     - Exactly one card per proposal, with the link.
     - A failed post doesn't fail the proposal.
     - The card carries no approve affordance.
-- [ ] **B12 Review page (web)** (after B8) ∥.
+- [x] **B12 Review page (web)** (after B8) ∥.
   - **Goal:** Kyle reviews and approves or declines a proposal from the
     builder area.
   - **Design:** revision 3 "Proposals" → Review; "Platform plumbing" →

@@ -28,6 +28,7 @@ declining are Kyle's alone.
 from __future__ import annotations
 
 import hashlib
+import logging
 from typing import Any
 
 from sqlalchemy import func, select, update
@@ -39,7 +40,13 @@ from agentplatform.appdata import quotas
 from agentplatform.appdata import records as rec
 from agentplatform.appdata.lifecycle import Actor, _refuse
 from agentplatform.appdata.models import AppDataApp, AppDataProposal
-from agentplatform.db import AgentDef, utcnow
+from agentplatform.db import AgentDef, RelayMessage, utcnow
+from agentplatform.relay import SYSTEM_AUTHOR
+from agentplatform.relay_dm import open_internal_dm
+from agentplatform.relay_store import (edit_message_card, post_relay_message,
+                                       publish_relay_message)
+
+log = logging.getLogger("appdata.proposals")
 
 # --- reading ----------------------------------------------------------------------------
 
@@ -75,6 +82,53 @@ def view(p: AppDataProposal) -> dict:
             "decided_by": L.display(p.decided_by) if p.decided_by else None,
             "decided_at": L._ts(p.decided_at), "outcome": p.outcome,
             "created_at": L._ts(p.created_at)}
+
+
+def _card(p: AppDataProposal, app: AppDataApp) -> tuple[dict, str]:
+    url = f"/apps/state/{app.id}/proposals/{p.id}"
+    lines = [str(x).replace("\n", " ")[:180]
+             for x in p.delta.get("widening", [])[:3]]
+    summary = "; ".join(lines) or p.kind
+    title = f"App proposal · {app.name}"
+    body = f"{title} — {p.state}: {summary}. [Review]({url})"
+    return ({"type": "app_proposal", "title": title, "body": body,
+             "proposal_id": p.id, "app_id": app.id, "state": p.state, "url": url}, body)
+
+
+async def notify(session_factory, producer, proposal_id: str) -> None:
+    """Best-effort, idempotent Relay card after the proposal transaction commits.
+
+    A failed notification never undoes an approved or frozen change. Retrying
+    the same API request checks the stored card id, so it can repair a missed
+    notification without posting a second one. A decision edits that card.
+    """
+    try:
+        async with session_factory() as s:
+            p = await s.get(AppDataProposal, proposal_id)
+            if p is None or not p.proposer.startswith("agent:"):
+                return
+            conv = await open_internal_dm(
+                s, [p.proposer, "user:kyle"], p.proposer.removeprefix("agent:"))
+            # open_internal_dm may commit when it creates the room. Lock only
+            # afterwards, then decide once whether to create or edit the card.
+            p = await s.get(AppDataProposal, proposal_id, with_for_update=True,
+                            populate_existing=True)
+            app = await s.get(AppDataApp, p.app_id)
+            card, body = _card(p, app)
+            msg = await s.get(RelayMessage, p.relay_message_id) \
+                if p.relay_message_id else None
+            if msg is not None and msg.card == card:
+                return
+            if msg is None:
+                msg = await post_relay_message(s, conv, author=SYSTEM_AUTHOR,
+                                               body=body, kind="event", card=card)
+                p.relay_message_id = msg.id
+            else:
+                msg = await edit_message_card(s, msg, card=card, body=body)
+            await s.commit()
+            await publish_relay_message(producer, conv, msg)
+    except Exception:
+        log.warning("proposal %s Relay notification failed", proposal_id, exc_info=True)
 
 
 async def get(session, actor: Actor, proposal_id: str) -> dict:
