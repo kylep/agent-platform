@@ -16,8 +16,21 @@ OPERATIONS = {item["id"]: item for item in _DATA["operations"]}
 
 
 def admitted(operation_id: str) -> bool:
+    """Admitted to a typed/v1 Live View. A custom tool's view action is a
+    design-39 tool view (`view_action`), which this page kind can't run."""
     item = OPERATIONS.get(operation_id)
-    return bool(item and item["view_eligible"] and "unknown" not in item["effects"])
+    return bool(item and item["view_eligible"] and item["source"] != "mcp-custom"
+                and "unknown" not in item["effects"])
+
+
+def view_action(tool: str, action: str) -> dict | None:
+    """The catalog row of a tool action a tool view may bind (docs/design/39,
+    "Tool views" -> Eligibility), or None when it isn't eligible."""
+    item = OPERATIONS.get(f"tool.{tool}.{action}@1")
+    if (item and item["source"] == "mcp-custom" and item["view_eligible"]
+            and item["effects"] == ["reads_sensitive"]):
+        return item
+    return None
 
 
 def listed(*, eligible_only: bool = False) -> list[dict]:
