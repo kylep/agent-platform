@@ -8,6 +8,7 @@ caller's `files_in`) and `out/` (whatever the tool writes comes back as
 import base64
 import json
 import os
+import sys
 from pathlib import Path
 
 import pytest
@@ -62,9 +63,15 @@ def test_env_minimalism_canary(tools_root):
         assert "LEAKY_PARENT_SECRET" not in env
         assert env["TOOL_CALLER_AGENT"] == "tester"
         assert env["TOOL_RUN_ID"] == "r1"
-        assert set(env) <= {"PATH", "HOME", "LANG", "TOOL_NAME",
-                            "TOOL_CALLER_AGENT", "TOOL_RUN_ID", "LC_CTYPE", "PWD",
-                            "TOOL_IN_DIR", "TOOL_OUT_DIR"}
+        allowed = {"PATH", "HOME", "LANG", "TOOL_NAME",
+                   "TOOL_CALLER_AGENT", "TOOL_RUN_ID", "LC_CTYPE", "PWD",
+                   "TOOL_IN_DIR", "TOOL_OUT_DIR"}
+        if sys.platform == "darwin":
+            # Apple's /usr/bin/python3 injects these SDK paths even when
+            # launched with an explicit, otherwise empty environment.
+            allowed |= {"SDKROOT", "CPATH", "LIBRARY_PATH", "MANPATH",
+                        "__CF_USER_TEXT_ENCODING"}
+        assert set(env) <= allowed
     finally:
         del os.environ["LEAKY_PARENT_SECRET"]
 
