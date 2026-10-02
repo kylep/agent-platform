@@ -1,5 +1,5 @@
 from http import HTTPStatus
-from typing import Any, cast
+from typing import Any
 from urllib.parse import quote
 
 import httpx
@@ -11,13 +11,13 @@ from ...types import Response
 
 
 def _get_kwargs(
-    artifact_id: str,
+    app_id: str,
 ) -> dict[str, Any]:
 
     _kwargs: dict[str, Any] = {
         "method": "get",
-        "url": "/api/artifacts/{artifact_id}/resource".format(
-            artifact_id=quote(str(artifact_id), safe=""),
+        "url": "/api/app-data/apps/{app_id}".format(
+            app_id=quote(str(app_id), safe=""),
         ),
     }
 
@@ -28,7 +28,7 @@ def _parse_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
 ) -> Any | HTTPValidationError | None:
     if response.status_code == 200:
-        response_200 = cast(Any, None)
+        response_200 = response.json()
         return response_200
 
     if response.status_code == 422:
@@ -54,17 +54,14 @@ def _build_response(
 
 
 def sync_detailed(
-    artifact_id: str,
+    app_id: str,
     *,
     client: AuthenticatedClient | Client,
 ) -> Response[Any | HTTPValidationError]:
-    """Artifact Resource
-
-     Private MCP Resource bytes; ownership is rechecked on every read. An
-    App-owned artifact's owner is its field, which `_row_or_404` checked.
+    """State App Get
 
     Args:
-        artifact_id (str):
+        app_id (str):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -75,7 +72,7 @@ def sync_detailed(
     """
 
     kwargs = _get_kwargs(
-        artifact_id=artifact_id,
+        app_id=app_id,
     )
 
     response = client.get_httpx_client().request(
@@ -86,17 +83,14 @@ def sync_detailed(
 
 
 def sync(
-    artifact_id: str,
+    app_id: str,
     *,
     client: AuthenticatedClient | Client,
 ) -> Any | HTTPValidationError | None:
-    """Artifact Resource
-
-     Private MCP Resource bytes; ownership is rechecked on every read. An
-    App-owned artifact's owner is its field, which `_row_or_404` checked.
+    """State App Get
 
     Args:
-        artifact_id (str):
+        app_id (str):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -107,23 +101,20 @@ def sync(
     """
 
     return sync_detailed(
-        artifact_id=artifact_id,
+        app_id=app_id,
         client=client,
     ).parsed
 
 
 async def asyncio_detailed(
-    artifact_id: str,
+    app_id: str,
     *,
     client: AuthenticatedClient | Client,
 ) -> Response[Any | HTTPValidationError]:
-    """Artifact Resource
-
-     Private MCP Resource bytes; ownership is rechecked on every read. An
-    App-owned artifact's owner is its field, which `_row_or_404` checked.
+    """State App Get
 
     Args:
-        artifact_id (str):
+        app_id (str):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -134,7 +125,7 @@ async def asyncio_detailed(
     """
 
     kwargs = _get_kwargs(
-        artifact_id=artifact_id,
+        app_id=app_id,
     )
 
     response = await client.get_async_httpx_client().request(**kwargs)
@@ -143,17 +134,14 @@ async def asyncio_detailed(
 
 
 async def asyncio(
-    artifact_id: str,
+    app_id: str,
     *,
     client: AuthenticatedClient | Client,
 ) -> Any | HTTPValidationError | None:
-    """Artifact Resource
-
-     Private MCP Resource bytes; ownership is rechecked on every read. An
-    App-owned artifact's owner is its field, which `_row_or_404` checked.
+    """State App Get
 
     Args:
-        artifact_id (str):
+        app_id (str):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -165,7 +153,7 @@ async def asyncio(
 
     return (
         await asyncio_detailed(
-            artifact_id=artifact_id,
+            app_id=app_id,
             client=client,
         )
     ).parsed

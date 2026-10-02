@@ -30,8 +30,8 @@ The surface is CURATED into three tiers (curation 2026-08-24; see
   not the kitchen.
 - **EXCLUDE** — UI form-feeders, private-key import inspection, reviewer digests the client can compute,
   git-edit conveniences redundant with having the repo, and system-agent
-  endpoints. Never tools. 21 curated-out, plus 39 session/internal/streaming/
-  byte-serving/connector/run-only operations below — 247 graded operations in all.
+  endpoints. Never tools. 21 curated-out, plus 63 session/internal/streaming/
+  byte-serving/connector/run-only operations below — 271 graded operations in all.
 
 It is deliberately NOT the mcp-broker. The broker authenticates in-cluster run
 identities and scopes tools to an agent's grants (design/13, design/15). This
@@ -153,6 +153,17 @@ EXCLUDED_PATHS = (
     # `/api/external-chat/{identities,endpoints,messages,send,deliveries/…}`
     # routes authenticate as an ordinary agent run and stay KEEP.
     ("*", r"^/api/external-chat/connector/"),
+    # State Apps (design/39). The agent routes answer only an agent RUN whose
+    # grant holds `apps` or `app_data` ("no run, no App access"): an MCP key
+    # carries no run, so every one 403s for every facade caller, admin keys
+    # included. Agents reach them through the broker's `apps` and `app_data`
+    # tools. A prefix, so R1b's batch and proposal routes are excluded the day
+    # they are written.
+    ("*", r"^/api/app-data/agent/"),
+    # Kyle's read routes answer only his browser SESSION, not an API key of any
+    # role, so they are session-auth routes like /api/login — neither KEEP nor
+    # GATE, because no bearer the facade forwards can ever be answered.
+    (("GET",), r"^/api/app-data/apps(?:/|$)"),
 )
 
 # Curated out (curation 2026-08-24): UI plumbing, reviewer digests the client

@@ -232,6 +232,21 @@ def test_active_run_only_routes_are_not_external_mcp_tools(tools, admin_tools):
     assert ("POST", "/api/runs/{run_id}/model-fallback") not in routes
 
 
+def test_state_apps_are_never_facade_tools(spec, tools, admin_tools):
+    """Design 39's two doors: the agent routes need an agent run holding the
+    tool, and Kyle's read routes need his browser session. A facade caller
+    holds an API key, which neither ever answers, so offering them (even
+    behind the admin flag) would advertise 24 tools that always 403."""
+    app_ops = {(m, p) for m, p in operations(spec) if p.startswith("/api/app-data/")}
+    assert len(app_ops) == 24
+    assert ("POST", "/api/app-data/agent/apps/publish") in app_ops
+    assert ("GET", "/api/app-data/apps/{app_id}/views/{view}") in app_ops
+    routes = {(t._route.method, t._route.path) for t in tools + admin_tools}
+    assert not app_ops & routes
+    # The older provisioned Apps' read proxy is a different door and stays.
+    assert ("GET", "/api/apps/{name}/query/{path}") in routes
+
+
 def test_method_scoped_gates_do_not_overreach(tools):
     """Method-scoping must not hide sibling verbs on a gated/curated path."""
     surface = {(t._route.method, t._route.path) for t in tools}
