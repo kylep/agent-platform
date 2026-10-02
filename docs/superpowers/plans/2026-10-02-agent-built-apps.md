@@ -757,7 +757,7 @@ Shared-file notes for G1:
 
 #### G4
 
-- [ ] **B18 Tool view execution** (after B5, B15 and B17) ∥.
+- [x] **B18 Tool view execution** (after B5, B15 and B17) ∥.
   - **Goal:** pages, `app_data query` and `apps preview` run a tool view on
     demand, in the views pool, as the viewer.
   - **Design:** "Tool views" (Execution, Binding); "Trust boundaries" →

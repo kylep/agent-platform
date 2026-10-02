@@ -1374,7 +1374,7 @@ def _can_read_view(ctx: rec.AppContext, caller: Caller, view) -> bool:
 async def preview(session, actor: Actor, app_ref: str, *, kind: str, name: str,
                   params: dict | None = None, as_: str | None = None,
                   samples: dict | None = None, limit: int | None = None,
-                  cursor: str | None = None) -> dict:
+                  cursor: str | None = None, app_state=None) -> dict:
     """Render a draft page or run a draft view, as the App would be with every
     draft published, without side effects. Unpublished collections read the
     builder's sample records, which are inserted in a transaction that is
@@ -1410,7 +1410,7 @@ async def preview(session, actor: Actor, app_ref: str, *, kind: str, name: str,
             if view is None:
                 raise _refuse("AL-NO-DEFINITION", f"no view {name}", 404)
             return await _view_as(session, ctx, builder, Caller(viewer), view, params,
-                                  limit, cursor)
+                                  limit, cursor, app_state=app_state)
         page = bundle.pages.get(name)
         if page is None:
             raise _refuse("AL-NO-DEFINITION", f"no page {name}", 404)
@@ -1428,7 +1428,7 @@ async def preview(session, actor: Actor, app_ref: str, *, kind: str, name: str,
                 try:
                     entry["result"] = await _view_as(session, ctx, builder, Caller(viewer),
                                                      bundle.views[block.view], bound,
-                                                     None, None)
+                                                     None, None, app_state=app_state)
                 except RecordError as exc:
                     entry["error"] = {**exc.as_dict(), "status": exc.status}
             blocks.append(entry)
@@ -1476,10 +1476,29 @@ async def _insert_samples(session, ctx: rec.AppContext, approved: dict, samples:
 
 
 async def _view_as(session, ctx: rec.AppContext, builder: Caller, viewer: Caller, view,
-                   params, limit, cursor) -> dict:
+                   params, limit, cursor, *, app_state=None) -> dict:
     """The view as `viewer` sees it, cut to what `builder` may see too."""
     if isinstance(view, ToolViewDef):
-        raise RecordError("AD-TOOL-VIEW-NOT-READY", "tool view execution is not ready", 409)
+        if app_state is None:
+            raise RecordError("AD-TOOL-VIEW-UNAVAILABLE", "view executor is unavailable", 503)
+        from agentplatform.appdata.toolviews import _binding, execute
+        _, _, sources = _binding(ctx, view, app_state)
+        for collection in sources.values():
+            if not ctx.versions.get(collection):
+                raise RecordError("AD-TOOL-VIEW-PREVIEW", "publish this source before "
+                                  "previewing its tool view", 409)
+            # An opaque tool may use any field in its declared source. A
+            # builder previewing as another viewer must see every field too.
+            access = ctx.access(ctx.collection(collection), builder)
+            access.require_rows()
+            for field in ctx.collection(collection).fields:
+                access.require_readable(field, "preview")
+        # The preview transaction contains rollback-only sample rows. The
+        # executor's credential has to be committed before its scan can use it,
+        # so mint it in a separate session and never commit preview samples.
+        async with app_state.session_factory() as credential_session:
+            return await execute(credential_session, ctx, viewer, view, params,
+                                 app_state, limit=limit, cursor=cursor)
     check_view_access(ctx, builder, view)
     out = await execute_view(session, ctx, viewer, view, params, limit=limit, cursor=cursor)
     if viewer.principal != builder.principal and "rows" in out:

@@ -369,13 +369,16 @@ def check_view_access(ctx: AppContext, caller: Caller, view: ViewDef) -> None:
 
 
 async def run_view(session, ctx: AppContext, caller: Caller, view_name: str,
-                   params: dict | None = None, **kwargs) -> dict:
+                   params: dict | None = None, *, app_state=None, **kwargs) -> dict:
     """Run one of the App's published views by name."""
     view = ctx.bundle.views.get(view_name)
     if view is None:
         raise RecordError("AD-NO-VIEW", f"no published view {view_name}", 404)
     if isinstance(view, ToolViewDef):
-        raise RecordError("AD-TOOL-VIEW-NOT-READY", "tool view execution is not ready", 409)
+        if app_state is None:
+            raise RecordError("AD-TOOL-VIEW-UNAVAILABLE", "view executor is unavailable", 503)
+        from agentplatform.appdata.toolviews import execute
+        return await execute(session, ctx, caller, view, params, app_state, **kwargs)
     return await execute_view(session, ctx, caller, view, params, **kwargs)
 
 

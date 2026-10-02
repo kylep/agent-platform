@@ -279,7 +279,7 @@ async def state_app_view(request: Request, app_id: str, view: str,
     async with request.app.state.session_factory() as s:
         try:
             return await published_view(s, _reader_caller(actor), app_id, view, params, limit=limit,
-                                        cursor=query.get("cursor"))
+                                        cursor=query.get("cursor"), app_state=request.app.state)
         except RecordError as exc:
             raise _for_web(exc) from None
 
@@ -373,13 +373,14 @@ async def published_page(session, caller: Caller, app_ref: str, name: str) -> di
 
 
 async def published_view(session, caller: Caller, app_ref: str, name: str, params: dict,
-                         *, limit=None, cursor=None) -> dict:
+                         *, limit=None, cursor=None, app_state=None) -> dict:
     """A retired App's views are stopped; its records stay."""
     app, ctx = await _loaded(session, app_ref)
     if app.status != "active":
         raise RecordError("AD-APP-RETIRED", f"App {app.name} is retired; its views are "
                           "stopped", 409)
-    return await run_view(session, ctx, caller, name, params, limit=limit, cursor=cursor)
+    return await run_view(session, ctx, caller, name, params, limit=limit, cursor=cursor,
+                          app_state=app_state)
 
 
 # --- agent routes: `apps` ---------------------------------------------------------------
@@ -575,7 +576,8 @@ async def apps_validate(request: Request, body: ValidateIn, actor: Actor = Depen
 async def apps_preview(request: Request, body: PreviewIn, actor: Actor = Depends(builder)):
     return await _call(request, lambda s: L.preview(
         s, actor, body.app, kind=body.kind, name=body.name, params=body.params,
-        as_=body.as_, samples=body.samples, limit=body.limit, cursor=body.cursor))
+        as_=body.as_, samples=body.samples, limit=body.limit, cursor=body.cursor,
+        app_state=request.app.state))
 
 
 @router.post("/api/app-data/agent/apps/publish")
@@ -675,7 +677,8 @@ async def records_query(request: Request, body: QueryIn,
             raise RecordError("AD-OUT-OF-SCOPE", f"this tool call may not read view "
                               f"{body.view}", 403)
         return await published_view(s, actor.caller, app.id, body.view, body.params,
-                                    limit=body.limit, cursor=body.cursor)
+                                    limit=body.limit, cursor=body.cursor,
+                                    app_state=request.app.state)
     return await _call(request, fn)
 
 
