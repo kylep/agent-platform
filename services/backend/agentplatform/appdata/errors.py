@@ -83,6 +83,10 @@ CODES: dict[str, str] = {
     "JD-TEMPLATE-REQUIRED": "Preset or make editable every required field.",
     "JD-TEMPLATE-IMMUTABLE": "Immutable collections can't be updated; use create or delete.",
     "JD-TEMPLATE-EMPTY": "Preset or make editable at least one field.",
+    # App tools (R1b).
+    "JD-TOOL-COLLECTION": "Bind the role to a collection defined in the same App.",
+    "JD-TOOL-VERB": "List each verb once, from read, create, update and delete; an "
+                    "immutable collection has no update.",
     # Bundles.
     "JD-DUPLICATE-NAME": "Give each definition of a kind a distinct name.",
 }

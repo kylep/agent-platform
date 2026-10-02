@@ -923,7 +923,7 @@ def test_count_view_may_be_parameterized():
 def test_json_schema_export_covers_every_kind():
     exported = d.json_schemas()
     assert exported["capabilities_version"] == d.CAPABILITIES_VERSION
-    assert set(exported["kinds"]) == {"collection", "view", "page", "bundle"}
+    assert set(exported["kinds"]) == {"collection", "view", "page", "tool", "bundle"}
     for schema in exported["kinds"].values():
         assert schema["type"] == "object"
         assert schema["additionalProperties"] is False
@@ -987,3 +987,85 @@ def test_presets_respect_field_bounds():
         bundle = {"collections": [links], "views": [], "pages": [page(presets)]}
         assert ("JD-PRESET-VALUE", f"$.pages[0].actions[0].presets.{path}") in errors_of(
             d.validate_app, bundle)
+
+
+# --- App tools (R1b) -------------------------------------------------------------
+
+LEDGER_TOOL = {"tool": "ledger", "roles": {
+    "log": {"collection": "habits", "verbs": ["read", "create"]}}}
+
+
+def tool_bundle(*tools, collections=None):
+    bundle = habit_bundle()
+    if collections is not None:
+        bundle["collections"] = collections
+        bundle["views"], bundle["pages"] = [], []
+    bundle["app_tools"] = [copy.deepcopy(t) for t in tools]
+    return bundle
+
+
+def test_an_app_tool_binds_roles_to_the_apps_collections():
+    parsed = d.validate_definition("tool", LEDGER_TOOL)
+    assert parsed.name == "ledger"
+    assert parsed.roles["log"].collection == "habits"
+    assert parsed.roles["log"].verbs == ["read", "create"]
+    app = d.validate_app(tool_bundle(LEDGER_TOOL))
+    assert set(app.app_tools) == {"ledger"}
+
+
+@pytest.mark.parametrize("body, expected", [
+    ({**LEDGER_TOOL, "surprise": 1}, ("JD-UNKNOWN-KEY", "$.surprise")),
+    ({"tool": "ledger", "roles": {"log": {"collection": "habits", "verbs": ["read"],
+                                          "as": "kyle"}}},
+     ("JD-UNKNOWN-KEY", "$.roles.log.as")),
+    ({"tool": "Ledger", "roles": LEDGER_TOOL["roles"]}, ("JD-NAME", "$.tool")),
+    ({"tool": "l", "roles": LEDGER_TOOL["roles"]}, ("JD-NAME", "$.tool")),
+    ({"tool": "ledger", "roles": {}}, ("JD-BOUNDS", "$.roles")),
+    ({"tool": "ledger"}, ("JD-MISSING", "$.roles")),
+    ({"tool": "ledger", "roles": {"Log": {"collection": "habits", "verbs": ["read"]}}},
+     ("JD-NAME", "$.roles.Log")),
+    ({"tool": "ledger", "roles": {"log": {"collection": "habits", "verbs": []}}},
+     ("JD-BOUNDS", "$.roles.log.verbs")),
+    ({"tool": "ledger", "roles": {"log": {"collection": "habits", "verbs": ["share"]}}},
+     ("JD-VALUE", "$.roles.log.verbs[0]")),
+    ({"tool": "ledger", "roles": {"log": {"collection": "habits",
+                                          "verbs": ["read", "read"]}}},
+     ("JD-TOOL-VERB", "$.roles.log.verbs[1]")),
+])
+def test_invalid_app_tools(body, expected):
+    assert expected in errors_of(d.validate_definition, "tool", body)
+
+
+def test_an_app_tool_binds_only_collections_in_the_app():
+    other = {"tool": "ledger", "roles": {"log": {"collection": "diary", "verbs": ["read"]}}}
+    assert ("JD-TOOL-COLLECTION", "$.app_tools[0].roles.log.collection") in errors_of(
+        d.validate_app, tool_bundle(other))
+
+
+def test_an_app_tools_verbs_stay_within_the_collections():
+    """An immutable collection has no update, so no tool may be bound to one."""
+    edit = {"tool": "judgment", "roles": {
+        "calls": {"collection": "predictions", "verbs": ["read", "update"]}}}
+    bundle = judgment_bundle()
+    bundle["app_tools"] = [edit]
+    assert ("JD-TOOL-VERB", "$.app_tools[0].roles.calls.verbs[1]") in errors_of(
+        d.validate_app, bundle)
+    edit["roles"]["calls"]["verbs"] = ["read", "create", "delete"]
+    d.validate_app(bundle)
+
+
+def test_app_tool_names_are_distinct():
+    assert ("JD-DUPLICATE-NAME", "$.app_tools[1].tool") in errors_of(
+        d.validate_app, tool_bundle(LEDGER_TOOL, LEDGER_TOOL))
+
+
+def test_tool_only_writers_and_app_tools_together_validate():
+    habits = with_changes(HABITS, writers={"create": ["tool:ledger"]})
+    d.validate_app(tool_bundle(LEDGER_TOOL, collections=[habits]))
+
+
+def test_app_tools_are_in_the_schema_and_capabilities():
+    schemas = d.json_schemas()
+    assert "tool" in schemas["kinds"]
+    assert "app_tools" in schemas["kinds"]["bundle"]["properties"]
+    assert d.capabilities()["version"] >= 2 and "app_tools" in d.capabilities()

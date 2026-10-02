@@ -183,6 +183,7 @@ test("the builder area: pages, definitions, build notes and health", async ({ pa
   await expect(approved).toContainText("collection");
   await expect(approved).toContainText("habits");
   await expect(approved).toContainText("v2");
+  await expect(approved).toContainText("tracker");   // an App tool, shown like the rest
   const drafts = page.getByRole("region", { name: "Drafts" });
   await expect(drafts).toContainText("revision 3");
   await expect(drafts).toContainText("based on v2");

@@ -509,3 +509,98 @@ async def test_quota_routes_answer_only_kyles_session(client, token_client, sf, 
     async with sf() as s:
         row = await s.get(AppDataQuota, ("app", app_id))
     assert row is None or row.max_records is None
+
+
+# --- App tools (design 39, "The authority model"; R1b B3) ------------------------------
+
+TRACKER = {"tool": "tracker", "roles": {"log": {"collection": "habits",
+                                               "verbs": ["read", "create"]}}}
+
+
+async def approve(sf, app_id, kind, body):
+    """Stand in for Kyle's approval (proposals arrive with B2/B8): the
+    definition goes live as the App's next approved version."""
+    async with sf() as s:
+        app = await s.get(AppDataApp, app_id)
+        version = (app.approved_version or 0) + 1
+        s.add(AppDataDefinition(app_id=app_id, kind=kind, name=body[kind], version=version,
+                                body=body, state="published", author="kyle"))
+        app.approved_version = version
+        await s.commit()
+    return version
+
+
+async def publish(sf, app_id, *drafts, request_id="p-tools"):
+    async with sf() as s:
+        app = await s.get(AppDataApp, app_id)
+        expected = app.approved_version
+    for i, (kind, body) in enumerate(drafts):
+        async with sf() as s:
+            await L.draft(s, PAI, app_id, request_id=f"{request_id}-d{i}", kind=kind,
+                          definition=body)
+    async with sf() as s:
+        try:
+            return await L.publish(s, PAI, app_id, request_id=request_id,
+                                   expected_approved_version=expected)
+        except L.LifecycleError as exc:
+            return exc
+
+
+def _tracker(*verbs):
+    return {"tool": "tracker", "roles": {"log": {"collection": "habits",
+                                                 "verbs": list(verbs)}}}
+
+
+async def test_adding_an_app_tool_is_a_proposal(sf):
+    app_id = await build(sf)
+    refused = await publish(sf, app_id, ("tool", TRACKER))
+    assert isinstance(refused, L.LifecycleError) and refused.code == "AL-NEEDS-PROPOSAL"
+    assert "new: tool tracker may create habits (role log)" in refused.detail["widening"]
+
+
+async def test_widening_an_app_tool_is_a_proposal_and_narrowing_self_publishes(sf):
+    app_id = await build(sf)
+    await approve(sf, app_id, "tool", _tracker("read", "create"))
+    refused = await publish(sf, app_id, ("tool", _tracker("read", "create", "update")),
+                            request_id="p-wide")
+    assert isinstance(refused, L.LifecycleError) and refused.code == "AL-NEEDS-PROPOSAL"
+    assert refused.detail["widening"] == ["new: tool tracker may update habits (role log)"]
+    async with sf() as s:
+        await L.draft(s, PAI, app_id, request_id="discard", kind="tool", name="tracker",
+                      discard=True, expected_revision=1)
+    out = await publish(sf, app_id, ("tool", _tracker("read")), request_id="p-narrow")
+    assert not isinstance(out, L.LifecycleError), out.detail
+    async with sf() as s:
+        ctx = await load_app(s, app_id)
+    assert ctx.bundle.app_tools["tracker"].roles["log"].verbs == ["read"]
+    async with sf() as s:
+        detail = await L.get_app(s, PAI, app_id)
+    assert {"kind": "tool", "name": "tracker"} in [
+        {"kind": d["kind"], "name": d["name"]} for d in detail["approved"]]
+
+
+async def test_tool_only_writers_self_publish_only_for_an_approved_app_tool(sf):
+    app_id = await build(sf)
+    await approve(sf, app_id, "tool", TRACKER)
+    out = await publish(sf, app_id, ("collection", {**HABITS, "writers": {
+        "create": ["tool:tracker"]}}), request_id="p-ours")
+    assert not isinstance(out, L.LifecycleError), out.detail
+
+    other = await build(sf, name="other")
+    refused = await publish(sf, other, ("collection", {**HABITS, "writers": {
+        "create": ["tool:tracker"]}}), request_id="p-theirs")
+    assert isinstance(refused, L.LifecycleError) and refused.code == "AL-NEEDS-PROPOSAL"
+    assert any("not an approved App tool" in line for line in refused.detail["widening"])
+
+
+async def test_an_app_tool_naming_a_missing_collection_is_reported_against_it(sf):
+    app_id = await build(sf)
+    async with sf() as s:
+        await L.draft(s, PAI, app_id, request_id="d-bad", kind="tool", definition={
+            "tool": "tracker", "roles": {"log": {"collection": "nope", "verbs": ["read"]}}})
+    async with sf() as s:
+        report = await L.validate(s, PAI, app_id, expected_approved_version=1)
+    assert report["publishable"] is False
+    [error] = report["errors"]
+    assert error["code"] == "JD-TOOL-COLLECTION"
+    assert error["definition"] == {"kind": "tool", "name": "tracker"}

@@ -6,10 +6,12 @@ is a widening Kyle approves. This module is pure.
 
 It reads the definition language of `appdata/definitions.py` (A2): either a
 validated `AppBundle` (the normal path, after `validate_app`) or the same
-`{"collections": [...], "views": [...], "pages": [...]}` document. The key
-sets and defaults below are derived from A2's models, so a key the language
-gains is known here at once, and a key it doesn't have is `unmapped`, which is
-always a proposal: unknown means proposal.
+`{"collections": [...], "views": [...], "pages": [...], "app_tools": [...]}`
+document. App tools are stored as the `tool` definition kind and sit under
+`app_tools` in both (`definitions.BUNDLE_KEYS`). The key sets and defaults
+below are derived from A2's models, so a key the language gains is known here
+at once, and a key it doesn't have is `unmapped`, which is always a proposal:
+unknown means proposal.
 
 A few fact types cover syntax A2 refuses today. The engine keeps them, keyed
 to the shape A2 will use, so their facts are settled before the language
@@ -20,8 +22,7 @@ opens them; until then they reach it only as raw documents:
   (Release 2);
 - page actions with `kind: "tool"`, `tool`, `action`, `sources`, `verbs` and
   `budget` (Release 2);
-- top-level `app_tools: [{tool, roles: {role: {collection, verbs}}}]` and tool
-  views `{view, tool, action, sources}` (R1b);
+- tool views `{view, tool, action, sources}` (R1b);
 - top-level `service_principals: [{principal: "tool:<name>", collections:
   {collection: [verbs]}}]` (M6);
 - the `required_when` and `lock` rules (request path).
@@ -71,7 +72,7 @@ DEFAULT_ACCESS = {verb: tuple(principals)
 PRIVATE = {verb: {"owner", "kyle"} for verb in COLLECTION_VERBS}
 
 TOP_KEYS = frozenset(f.name for f in dataclasses.fields(lang.AppBundle)) | {
-    "app_tools", "service_principals"}                                  # R1b, M6
+    "service_principals"}                                               # M6
 COLLECTION_KEYS = _keys(lang.CollectionDef)
 DEFAULT_WRITE_MODE = lang.CollectionDef.model_fields["write_mode"].default
 WRITE_MODES = frozenset(_literal(lang.CollectionDef, "write_mode")) | {"versioned"}  # R2

@@ -76,16 +76,35 @@ def _collection(name, read=None):
     return body
 
 
-async def _app(sf, owner, collections):
+# Every collection a test tool's manifest names by role, bound role-for-role
+# with every verb: the App tool facts these Apps' owners had Kyle approve.
+ALL_VERBS = ["read", "create", "update", "delete"]
+BOUND = [{"tool": tool, "roles": {r: {"collection": r, "verbs": ALL_VERBS} for r in roles}}
+         for tool, roles in (("ledger", ["results"]), ("sweeper", ["results", "links"]),
+                             ("tidier", ["results", "links"]))]
+
+
+def _bound(collections, tools):
+    """The App tools of `tools` (BOUND by default) whose roles all name one of
+    `collections`: a definition can't bind a collection the App lacks."""
+    names = {c["collection"] for c in collections}
+    return [t for t in (BOUND if tools is None else tools)
+            if {b["collection"] for b in t["roles"].values()} <= names]
+
+
+async def _app(sf, owner, collections, tools=None):
     kind, owner_id = ("kyle", "kyle") if owner == "kyle" else ("agent", owner[6:])
     app_id = uuid.uuid4().hex
     async with sf() as s:
         s.add(AppDataApp(id=app_id, name=f"app_{app_id[:10]}", owner_kind=kind,
-                         owner_id=owner_id))
+                         owner_id=owner_id, approved_version=1))
         for body in collections:
             s.add(AppDataDefinition(app_id=app_id, kind="collection",
                                     name=body["collection"], version=1, body=body,
                                     state="published", author=owner))
+        for body in _bound(collections, tools):
+            s.add(AppDataDefinition(app_id=app_id, kind="tool", name=body["tool"],
+                                    version=1, body=body, state="published", author="kyle"))
         await s.commit()
     return app_id
 
@@ -586,3 +605,64 @@ async def test_a_delete_that_would_unlink_needs_update_scope_there(env, sf):
         ctx = await load_app(s, owned)
         values = (await get_record(s, ctx, owner, "links", link))["values"]
     assert values.get("run") is None and values["via"] == "tool:tidier"
+
+
+# --- scope through the App tool fact (design 39, "The authority model"; R1b B3) ---------
+
+def _entry(minted, app_id):
+    return [e for e in minted["app_scope"] if e["app_id"] == app_id]
+
+
+async def test_no_app_tool_fact_no_scope_even_when_a_collection_matches_the_role(env, sf):
+    """The role is `results` and the App has a `results` collection, but no
+    App tool fact for ledger: the name match alone binds nothing."""
+    unbound = await _app(sf, "agent:pai", [_collection("results")], tools=[])
+    other_tool = await _app(sf, "agent:pai", [_collection("results")], tools=[
+        {"tool": "sweeper", "roles": {"results": {"collection": "results",
+                                                  "verbs": ALL_VERBS}}}])
+    minted = (await _mint(env)).json()
+    assert _entry(minted, unbound) == [] and _entry(minted, other_tool) == []
+    r = await env.post(f"{RECORDS}/create", headers=_as_executor(minted), json={
+        "app": unbound, "request_id": "r1", "collection": "results",
+        "values": {"title": "x"}})
+    assert r.status_code == 403 and r.json()["detail"]["code"] == "AD-OUT-OF-SCOPE"
+
+
+async def test_a_role_binds_the_collection_its_fact_names(env, sf):
+    """The fact, not the role's name, picks the collection."""
+    app_id = await _app(sf, "agent:pai", [_collection("results"), _collection("scores")],
+                        tools=[{"tool": "ledger", "roles": {"results": {
+                            "collection": "scores", "verbs": ALL_VERBS}}}])
+    minted = (await _mint(env)).json()
+    assert _entry(minted, app_id) == [
+        {"app_id": app_id, "collections": ["scores"], "verbs": ["read", "create"]}]
+
+
+@pytest.mark.parametrize("fact_verbs, owner_read, expected", [
+    # The fact is the narrowest: read only, though the manifest asks for create.
+    (["read"], None, ["read"]),
+    # The manifest is the narrowest: update and delete in the fact, never declared.
+    (ALL_VERBS, None, ["read", "create"]),
+    # The agent's own access is the narrowest: Kyle's App, pai may only read.
+    (ALL_VERBS, ["kyle", "agent:pai"], ["read"]),
+])
+async def test_scope_never_exceeds_the_fact_the_manifest_or_the_agent(env, sf, fact_verbs,
+                                                                      owner_read, expected):
+    owner = "kyle" if owner_read else "agent:pai"
+    app_id = await _app(sf, owner, [_collection("results", read=owner_read)], tools=[
+        {"tool": "ledger", "roles": {"results": {"collection": "results",
+                                                 "verbs": fact_verbs}}}])
+    minted = (await _mint(env)).json()
+    assert _entry(minted, app_id) == [
+        {"app_id": app_id, "collections": ["results"], "verbs": expected}]
+
+
+async def test_removing_the_fact_removes_the_scope_on_the_next_mint(env, sf):
+    app_id = await _app(sf, "agent:pai", [_collection("results")])
+    assert _entry((await _mint(env)).json(), app_id)
+    async with sf() as s:
+        s.add(AppDataDefinition(app_id=app_id, kind="tool", name="ledger", version=2,
+                                body={}, removed=True, state="published", author="agent:pai"))
+        (await s.get(AppDataApp, app_id)).approved_version = 2
+        await s.commit()
+    assert _entry((await _mint(env)).json(), app_id) == []

@@ -278,7 +278,7 @@ class CreateIn(_Body):
 
 
 class DefRef(_Body):
-    kind: Literal["collection", "view", "page"]
+    kind: Literal["collection", "view", "page", "tool"]
     name: str
 
 

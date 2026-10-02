@@ -58,8 +58,9 @@ from agentplatform.appdata import artifacts as app_artifacts
 from agentplatform.appdata import quotas
 from agentplatform.appdata.access import Access, Caller, RecordError, matches
 from agentplatform.appdata.definitions import (
-    SYSTEM_FIELDS, AppBundle, CollectionDef, DefinitionError, RefField, UniqueRule,
-    WriterRule, ImmutableAfterCreateRule, _fits_field, index_columns, validate_app)
+    BUNDLE_KEYS, SYSTEM_FIELDS, AppBundle, CollectionDef, DefinitionError, RefField,
+    UniqueRule, WriterRule, ImmutableAfterCreateRule, _fits_field, index_columns,
+    validate_app)
 from agentplatform.appdata.models import (AppDataApp, AppDataDefinition, AppDataRecord,
                                           AppDataRecordVersion, AppDataWriteCounter)
 from agentplatform.db import utcnow
@@ -137,10 +138,10 @@ async def load_app(session, app_id: str) -> AppContext:
     if app is None:
         raise RecordError("AD-NO-APP", f"no App {app_id}", 404)
     latest = state_at(await published_rows(session, app_id), app.approved_version)
-    bundle = {"collections": [], "views": [], "pages": []}
+    bundle: dict[str, list] = {key: [] for key in BUNDLE_KEYS.values()}
     versions: dict[str, int] = {}
     for (kind, name), row in sorted(latest.items()):
-        bundle[kind + "s"].append(row.body)
+        bundle[BUNDLE_KEYS[kind]].append(row.body)
         if kind == "collection":
             versions[name] = row.version
     try:

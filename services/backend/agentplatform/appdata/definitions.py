@@ -31,11 +31,12 @@ from agentplatform.appdata.errors import (CODES, DefinitionError, DefinitionIssu
 
 # Bumped whenever the language accepts something new, so builders (and the
 # skill) can check `apps schema` for a capability before relying on it.
-CAPABILITIES_VERSION = 1
+CAPABILITIES_VERSION = 2   # 2: App tools (R1b)
 
 NAME_RE = re.compile(r"^[a-z][a-z0-9_]{0,39}$")
 _AGENT_RE = re.compile(r"^agent:[a-z0-9][a-z0-9-]{0,62}$")   # agentspec._NAME_RE
 _TOOL_RE = re.compile(r"^tool:[a-z][a-z0-9_]{1,40}$")        # toolregistry._NAME
+APP_VERBS = ("read", "create", "update", "delete")             # toolregistry.APP_VERBS
 _ANCHOR_RE = re.compile(r"^(now|max\(([a-z][a-z0-9_]{0,39})\))$")
 
 FIELD_TYPES = ("string", "text", "int", "number", "bool", "date", "datetime", "enum",
@@ -130,6 +131,23 @@ def _tool_writer(value: str) -> str:
     return value
 
 
+def _tool_name(value: str) -> str:
+    # A tool's registry name, and a definition name too (it keys the
+    # definition row): toolregistry._NAME's shape inside NAME_RE's.
+    if not (NAME_RE.fullmatch(value) and _TOOL_RE.fullmatch("tool:" + value)):
+        raise _err("JD-NAME", "not a valid tool name")
+    return value
+
+
+def _distinct_verbs(values: list[str]) -> list[str]:
+    seen: set[str] = set()
+    for index, value in enumerate(values):
+        if value in seen:
+            raise _err("JD-TOOL-VERB", "verb listed twice", rel=[index])
+        seen.add(value)
+    return values
+
+
 def _distinct_principals(values: list[str]) -> list[str]:
     seen: set[str] = set()
     for index, value in enumerate(values):
@@ -147,6 +165,7 @@ def _anchor(value: str) -> str:
 
 Name = Annotated[str, AfterValidator(_name)]
 FieldName = Annotated[str, AfterValidator(_field_name)]
+ToolName = Annotated[str, AfterValidator(_tool_name)]
 Label = Annotated[str, Field(min_length=1, max_length=80)]
 Description = Annotated[str, Field(max_length=500)]
 ReadPrincipals = Annotated[
@@ -590,9 +609,32 @@ class PageDef(_Model):
         return self.page
 
 
+# --- App tools (R1b) --------------------------------------------------------------
+
+class ToolRole(_Model):
+    collection: Name
+    verbs: Annotated[list[Literal["read", "create", "update", "delete"]],
+                     Field(min_length=1, max_length=len(APP_VERBS)),
+                     AfterValidator(_distinct_verbs)]
+
+
+class ToolDef(_Model):
+    """An App tool (design 39, "The authority model"): the collection each
+    of a tool's manifest roles binds in this App, and the verbs it may use
+    there. A tool-call credential's scope is this, cut down to the manifest
+    and the calling agent's own access; a tool with no App tool here gets
+    nothing in this App. Adding one or widening its verbs is a proposal."""
+    tool: ToolName
+    roles: Annotated[dict[Name, ToolRole], Field(min_length=1, max_length=20)]
+
+    @property
+    def name(self) -> str:
+        return self.tool
+
+
 KIND_MODELS: dict[str, type[_Model]] = {
-    "collection": CollectionDef, "view": ViewDef, "page": PageDef}
-_NAME_KEY = {"collection": "collection", "view": "view", "page": "page"}
+    "collection": CollectionDef, "view": ViewDef, "page": PageDef, "tool": ToolDef}
+_NAME_KEY = {"collection": "collection", "view": "view", "page": "page", "tool": "tool"}
 
 
 # --- value checks --------------------------------------------------------------
@@ -1067,6 +1109,23 @@ class AppBundle:
     collections: dict[str, CollectionDef] = dc_field(default_factory=dict)
     views: dict[str, ViewDef] = dc_field(default_factory=dict)
     pages: dict[str, PageDef] = dc_field(default_factory=dict)
+    app_tools: dict[str, ToolDef] = dc_field(default_factory=dict)
+
+
+def _check_tool(t: ToolDef, app: AppBundle, names, base: str) -> list[DefinitionIssue]:
+    out: list[DefinitionIssue] = []
+    for role, binding in t.roles.items():
+        where = join_path(base, "roles", role)
+        if binding.collection not in names["collections"]:
+            out.append(issue("JD-TOOL-COLLECTION", join_path(where, "collection"),
+                             "no such collection in this App", binding.collection))
+            continue
+        c = app.collections.get(binding.collection)
+        if c is not None and c.write_mode == "immutable" and "update" in binding.verbs:
+            out.append(issue("JD-TOOL-VERB",
+                             join_path(where, "verbs", binding.verbs.index("update")),
+                             "the collection is immutable", "update"))
+    return out
 
 
 def _check_page(p: PageDef, app: AppBundle, names: dict[str, set[str]],
@@ -1203,7 +1262,7 @@ def _single(kind: str, raw: Any, base: str = "$"):
     model, issues = _parse(kind, raw, base)
     if model is not None:
         check = {"collection": _check_collection, "view": _check_view_alone,
-                 "page": _check_page_alone}[kind]
+                 "page": _check_page_alone, "tool": lambda *_: []}[kind]
         issues += check(model, base)
     return model, issues
 
@@ -1230,14 +1289,20 @@ def validate_page(raw: Any) -> PageDef:
     return validate_definition("page", raw)
 
 
-_BUNDLE_LIMITS = {"collections": 50, "views": 100, "pages": 50}
-_BUNDLE_KIND = {"collections": "collection", "views": "view", "pages": "page"}
+_BUNDLE_LIMITS = {"collections": 50, "views": 100, "pages": 50, "app_tools": 20}
+_BUNDLE_KIND = {"collections": "collection", "views": "view", "pages": "page",
+                "app_tools": "tool"}
+# Definition kind -> its key in a bundle document: where lifecycle and
+# records put each stored definition. App tools are `app_tools`, the
+# authority engine's name for them, not `tools`.
+BUNDLE_KEYS = {kind: key for key, kind in _BUNDLE_KIND.items()}
 
 
 def validate_app(bundle: Any) -> AppBundle:
     """Validate a whole App: every definition, then the references between them.
 
-    `bundle` is `{"collections": [...], "views": [...], "pages": [...]}`."""
+    `bundle` is `{"collections": [...], "views": [...], "pages": [...],
+    "app_tools": [...]}`."""
     if not isinstance(bundle, dict):
         raise DefinitionError([issue("JD-TYPE", "$", "a bundle must be an object", bundle)])
     issues: list[DefinitionIssue] = []
@@ -1295,6 +1360,11 @@ def validate_app(bundle: Any) -> AppBundle:
         if p is None or raw is not _raw_for(bundle, "pages", p.name):
             continue
         issues += _check_page(p, app, names, join_path("$", "pages", i))
+    for i, raw in enumerate(_list(bundle.get("app_tools"))):
+        t = app.app_tools.get(raw.get("tool") if isinstance(raw, dict) else None)
+        if t is None or raw is not _raw_for(bundle, "app_tools", t.name):
+            continue
+        issues += _check_tool(t, app, names, join_path("$", "app_tools", i))
     if issues:
         raise DefinitionError(issues)
     return app
@@ -1315,6 +1385,7 @@ class _BundleSchema(_Model):
         default_factory=list)
     views: Annotated[list[ViewDef], Field(max_length=100)] = Field(default_factory=list)
     pages: Annotated[list[PageDef], Field(max_length=50)] = Field(default_factory=list)
+    app_tools: Annotated[list[ToolDef], Field(max_length=20)] = Field(default_factory=list)
 
 
 def capabilities() -> dict:
@@ -1330,6 +1401,7 @@ def capabilities() -> dict:
         "aggregates": ["count (ungrouped)"],
         "components": list(COMPONENTS),
         "action_templates": list(TEMPLATE_KINDS),
+        "app_tools": {"roles": "role -> {collection, verbs}", "verbs": list(APP_VERBS)},
         "limits": {"view_limit": VIEW_LIMIT, "indexed_fields": MAX_INDEXED,
                    "string_max": MAX_STRING, "text_max": MAX_TEXT,
                    "retention_days_max": MAX_RETENTION_DAYS,

@@ -46,15 +46,15 @@ from agentplatform.appdata import authority as A
 from agentplatform.appdata import records as rec
 from agentplatform.appdata.access import Caller, RecordError
 from agentplatform.appdata.definitions import (
-    NAME_RE, SYSTEM_FIELDS, AppBundle, CollectionDef, DefinitionError, PageDef, RefField,
-    TableBlock, DetailBlock, MetricBlock, TextBlock, UniqueRule, _fits_field,
+    BUNDLE_KEYS, NAME_RE, SYSTEM_FIELDS, AppBundle, CollectionDef, DefinitionError, PageDef,
+    RefField, TableBlock, DetailBlock, MetricBlock, TextBlock, UniqueRule, _fits_field,
     index_columns, validate_app, validate_definition)
 from agentplatform.appdata.models import (AppDataApp, AppDataBuildOp, AppDataDefinition,
                                           AppDataRecord)
 from agentplatform.appdata.views import check_view_access, execute_view
 from agentplatform.db import utcnow
 
-KINDS = ("collection", "view", "page")
+KINDS = ("collection", "view", "page", "tool")
 APP_NAME_RE = re.compile(r"^[a-z][a-z0-9_-]{0,47}$")
 PRINCIPAL_RE = re.compile(r"^(kyle|agent:[a-z0-9][a-z0-9-]{0,62})$")
 NOTES_MAX_BYTES = 4096
@@ -172,17 +172,17 @@ def _bodies(state: dict) -> dict[tuple[str, str], dict]:
 def _doc(bodies: dict[tuple[str, str], dict]) -> tuple[dict, dict]:
     """The bundle document A2 validates, plus where each definition sits in it,
     so an issue's JSON path can name the definition it's about."""
-    doc: dict[str, list] = {"collections": [], "views": [], "pages": []}
+    doc: dict[str, list] = {BUNDLE_KEYS[kind]: [] for kind in KINDS}
     where: dict[tuple[str, int], tuple[str, str]] = {}
     order = {kind: i for i, kind in enumerate(KINDS)}
     for kind, name in sorted(bodies, key=lambda k: (order[k[0]], k[1])):
-        plural = kind + "s"
-        where[(plural, len(doc[plural]))] = (kind, name)
-        doc[plural].append(bodies[(kind, name)])
+        key = BUNDLE_KEYS[kind]
+        where[(key, len(doc[key]))] = (kind, name)
+        doc[key].append(bodies[(kind, name)])
     return doc, where
 
 
-_PATH = re.compile(r"^\$\.(collections|views|pages)\[(\d+)\]")
+_PATH = re.compile(rf"^\$\.({'|'.join(BUNDLE_KEYS[k] for k in KINDS)})\[(\d+)\]")
 
 
 def _issues(exc: DefinitionError, where: dict) -> list[dict]:
@@ -459,7 +459,8 @@ async def draft(session, actor: Actor, app_ref: str, *, request_id: str, kind: s
     async def work(finish):
         _require_active(app)
         if kind not in KINDS:
-            raise _refuse("AL-KIND", "kind is collection, view or page", 422, {"kind": kind})
+            raise _refuse("AL-KIND", f"kind is one of {', '.join(KINDS)}", 422,
+                          {"kind": kind})
         if remove and discard:
             raise _refuse("AL-ARGS", "remove and discard are separate calls", 422)
         if not isinstance(reason, str) or len(reason) > REASON_MAX:

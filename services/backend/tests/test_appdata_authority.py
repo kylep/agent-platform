@@ -829,3 +829,24 @@ def test_settled_bundle_still_validates():
     # A validated bundle settles the same way.
     assert settle_new_fields(lang.validate_app(draft), approved_defs)["collections"][1][
         "fields"]["mood"]["access"] == settled["collections"][1]["fields"]["mood"]["access"]
+
+
+# --- App tools in the language (R1b, B3) ---------------------------------------
+
+def test_a_validated_app_tool_computes_the_same_facts_as_its_document():
+    """The stored `tool` kind reaches the engine as the `app_tools` key, so a
+    validated bundle and the document it came from grant the same."""
+    doc = app(habits(writers={"create": ["tool:tracker"]}),
+              app_tools=[{"tool": "tracker", "roles": {
+                  "log": {"collection": "habits", "verbs": ["read", "create"]}}}])
+    bundle = lang.validate_app(doc)
+    assert compute_facts(bundle) == compute_facts(doc)
+    assert of_kind(compute_facts(bundle), "app_tool") == [
+        ("app_tool", "tracker", "log", "habits", "create"),
+        ("app_tool", "tracker", "log", "habits", "read")]
+    assert not of_kind(compute_facts(bundle), "unmapped")
+
+
+def test_a_tools_key_that_isnt_app_tools_is_unmapped():
+    tools = [{"tool": "tracker", "roles": {"log": {"collection": "habits", "verbs": ["read"]}}}]
+    assert of_kind(compute_facts(app(tools=tools)), "unmapped") == [("unmapped", "tools")]

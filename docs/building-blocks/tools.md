@@ -78,7 +78,7 @@ infra:
 timeout_seconds: 45       # wall clock; 1–300
 internal: false           # true → API-only; the broker never offers it to agents
 app_access:               # optional: App data this tool may reach (design 39)
-  roles: [results]        #   collection roles (until R1b: same-name collections)
+  roles: [results]        #   collection roles, bound per App by its App tool
   verbs: [read, create]   #   read | create | update | delete
 ```
 
@@ -161,7 +161,8 @@ credentials"). The tool never holds it:
    (the executor's ServiceAccount), `jti`, and `exp` (the tool's timeout plus
    30 s).
 2. `app_scope` is the caller's own reach, acting through the tool, cut down to
-   the manifest's roles and verbs. It's a ceiling: every record operation is
+   each App's approved App tool for the tool (which binds the manifest's roles
+   to collections) and to the manifest's verbs. It's a ceiling: every record operation is
    still checked against the App's current definitions.
 3. The executor gets the credential in the run request and opens a
    per-call endpoint on `127.0.0.1` behind a random path. The tool sees only
@@ -179,12 +180,10 @@ revoked. The caller is `agent:<name>` via `tool:<name>`, which is how records
 are stamped (`author`, `via`), and the `tools` role it carries reaches no
 other route.
 
-Release 1a mints, delivers and revokes the credential, but no App data route
-answers it yet: `POST /api/app-data/agent/…` serves agent runs holding
-`app_data`, and a tool-call credential holds no platform tool. Tool writes to
-Apps arrive with App tool facts, which bind a manifest's roles to an App's
-collections, in Release 1b ([App data](app-data.md#tools)). Until then a role
-names the collection of the same name.
+A role binds a collection only through the App's App tool
+([App data](app-data.md#app-tools)), which Kyle approves per App. An App with
+no App tool for the tool contributes nothing to the scope, even if it has a
+collection named like the role.
 
 ## Internal tools
 
