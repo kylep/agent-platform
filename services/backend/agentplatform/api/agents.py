@@ -35,8 +35,8 @@ from pydantic import BaseModel, ValidationError
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
-from agentplatform.agentdefs import (DEF_FIELDS, AgentDefModel, apply_snapshot,
-                                     model_of, next_version, snapshot_of,
+from agentplatform.agentdefs import (DEF_FIELDS, AgentDefModel, _clean_names,
+                                     apply_snapshot, model_of, next_version, snapshot_of,
                                      validate_def)
 from agentplatform.agentspec import (CODEX_MODELS, GRANTABLE_PLATFORM_TOOLS, KNOWN_MODELS,
                                      KYLE_ONLY_TOOLS, TOOL_ARTIFACTS, TOOL_IMAGE_GEN, TOOL_QUOTA,
@@ -206,7 +206,7 @@ class WriteScope:
         so a reserved tool that doesn't ship yet is refused as authority (403)
         rather than reported as unknown (422) to a caller who may not grant it
         either way."""
-        moved = (set(before or []) ^ set(after or [])) & KYLE_ONLY_TOOLS
+        moved = kyle_only_held(before) ^ kyle_only_held(after)
         if moved and not self.kyle:
             raise HTTPException(403, "only Kyle's session may grant or remove "
                                      f"{', '.join(sorted(moved))}")
@@ -222,7 +222,7 @@ class WriteScope:
             raise HTTPException(403, "an agent cannot change its own definition "
                                      "through agents_edit or agents_grant; use the "
                                      "agent_self tool")
-        held = set(row.platform_tools or []) & KYLE_ONLY_TOOLS
+        held = kyle_only_held(row.platform_tools)
         if held and not self.kyle:
             raise HTTPException(403, f"agent {row.name!r} is protected: it holds "
                                      f"{', '.join(sorted(held))}, so only Kyle's "
@@ -237,6 +237,14 @@ class WriteScope:
                                      "agents_edit tool")
 
 
+def kyle_only_held(tools) -> set[str]:
+    """The KYLE_ONLY_TOOLS in a grant list, read the way validation will store
+    it: `_clean_names` strips each name, so " mcp__platform__agents_edit "
+    must count as the tool it becomes, not as a stranger to the check."""
+    names = _clean_names(list(tools or []))
+    return {t for t in names if isinstance(t, str)} & KYLE_ONLY_TOOLS
+
+
 def _kyle_session(request: Request, role: str) -> bool:
     """Whether this authenticated request is Kyle's browser session.
     `auth_kind` is set by `authenticate`, which every caller here has run."""
@@ -249,6 +257,17 @@ def _admin_scope(request: Request, principal: str) -> WriteScope:
     return WriteScope(principal, admin=True, may_edit=True, may_grant=True,
                       kyle=_kyle_session(request, "admin"),
                       agent=getattr(request.state, "api_key_agent", None))
+
+
+async def guard_agents(session, request: Request, principal: str, names) -> None:
+    """`guard_target` for writers outside this module that change an agent
+    row as a side effect (a chat account's owner). Missing names pass: there
+    is nothing there to protect."""
+    scope = _admin_scope(request, principal)
+    for name in {n for n in names if n}:
+        row = await session.get(AgentDef, name)
+        if row is not None:
+            scope.guard_target(row)
 
 
 async def _caller_platform_tools(request: Request, agent: str) -> list[str]:
@@ -663,6 +682,9 @@ async def create_agent(request: Request, body: AgentCreateIn,
     payload["platform_tools"] = _with_grants(payload["platform_tools"], _asked_for(body))
     scope.authorize_kyle_only([], payload["platform_tools"])
     model = _model(request, payload, body.name, _registries(request))
+    # Again on what validation made of it, in case it normalized a name into
+    # one of the four.
+    scope.authorize_kyle_only([], model.platform_tools)
     # A grant the new agent is BORN with is still a grant. "Born with" means
     # beyond the defaults, which is what a blank row reads as — so the same
     # diff that authorizes an update authorizes a create.
@@ -684,6 +706,8 @@ async def create_agent(request: Request, body: AgentCreateIn,
         # snapshot is the definition that actually exists.
         row.platform_tools = _with_grants(row.platform_tools,
                                           _by_default(st.settings, body))
+        # And on exactly what is about to be written.
+        scope.authorize_kyle_only([], row.platform_tools)
         async with _conflict_as_409(s, duplicate="an agent with that name "
                                                  "already exists"):
             s.add(row)
@@ -733,6 +757,8 @@ async def update_agent(request: Request, name: str, body: AgentDefIn,
             raise HTTPException(403, "only an admin may change the system flag")
         if not (grants or edits):
             return await _annotated(s, row)
+        # Again on the validated set, just before it is written.
+        scope.authorize_kyle_only(row.platform_tools, model.platform_tools)
         if grants or any(f in edits for f in ("enabled", "agent_type")):
             row.authorization_generation = (row.authorization_generation or 0) + 1
         _apply(row, model)
@@ -818,17 +844,26 @@ async def _may_set_image(s, request: Request, name: str) -> None:
     if ident is None:
         raise HTTPException(401)
     principal, role = ident
-    if role == "admin":
+    # A protected agent's face is Kyle's or its own, like the rest of it.
+    target = await s.get(AgentDef, name)
+    protected = target is not None and bool(kyle_only_held(target.platform_tools))
+    if role == "admin" and (not protected or _kyle_session(request, role)):
         return
     agent = getattr(request.state, "api_key_agent", None)
     if agent is not None:
         granted = await _caller_platform_tools(request, agent)
-        if TOOL_AGENTS_EDIT in granted:
+        if TOOL_AGENTS_EDIT in granted and not protected:
             return
+        if protected and agent != name:
+            raise HTTPException(403, f"agent {name!r} is protected: only Kyle's session or "
+                                     "the agent itself may set its image")
         run = await _run_of(s, request, Caller(participant_of(agent=agent), agent, principal),
                             writing=True)
         if run.agent == name and (TOOL_ARTIFACTS in granted or TOOL_IMAGE_GEN in granted):
             return
+    if protected:
+        raise HTTPException(403, f"agent {name!r} is protected: only Kyle's session or the "
+                                 "agent itself may set its image")
     raise HTTPException(403, "an agent's image is set by the admin session, an agents_edit "
                              "holder, or the agent itself")
 
@@ -1084,6 +1119,10 @@ async def import_agents(request: Request, body: list[AgentCreateIn],
                     results.append({"name": model.name, "status": "unchanged"})
                     continue
                 _managed_guard(row, model)
+                if status == "updated":
+                    scope.guard_target(row)
+                scope.authorize_kyle_only(row.platform_tools if status == "updated" else [],
+                                          model.platform_tools)
                 await _check_discord_identity(s, model)
                 row.authorization_generation = (row.authorization_generation or 0) + 1
                 _apply(row, model)

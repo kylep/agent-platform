@@ -210,6 +210,36 @@ async def test_ordinary_grants_still_flow_through_agents_grant(client, sf, seed_
     assert out["platform_tools"] == ["mcp__platform__runs_read"]
 
 
+@pytest.mark.parametrize("spelled", [" mcp__platform__agents_edit ",
+                                     "\tmcp__platform__agents_grant\n",
+                                     "mcp__platform__app_data  "])
+async def test_a_padded_name_is_the_tool_it_becomes(client, token_client, sf, seed_agent,
+                                                   agent_store, spelled):
+    """Validation strips grant names before storing them, so the check must
+    read them the same way, on create, update and import."""
+    h = await kai_and_worker(sf, seed_agent, agent_store)
+    r = await client.put("/api/agents/worker", headers=h,
+                         json=a_def("worker", platform_tools=[spelled]))
+    assert r.status_code == 403 and "Kyle" in r.json()["detail"], r.text
+    r = await client.post("/api/agents", headers=h,
+                          json=a_def("minted", platform_tools=[spelled]))
+    assert r.status_code == 403, r.text
+    key = await bearer(sf, None, role="admin", name="ops-key")
+    r = await token_client.post("/api/agents/import", headers=key,
+                                json=[a_def("minted", platform_tools=[spelled])])
+    assert r.status_code == 403, r.text
+    assert await _tools(sf, "worker") == [] and await _tools(sf, "minted") is None
+
+
+def test_kyle_only_held_normalizes_like_validation():
+    from agentplatform.agentdefs import AgentDefModel
+    from agentplatform.api.agents import kyle_only_held
+    raw = [" mcp__platform__agents_edit", "", "mcp__platform__agents_edit ",
+           "mcp__platform__relay"]
+    stored = AgentDefModel(name="x", prompt="p", platform_tools=raw).platform_tools
+    assert kyle_only_held(raw) == set(stored) & KYLE_ONLY_TOOLS == {TOOL_AGENTS_EDIT}
+
+
 # --- R0.2: protected agents --------------------------------------------------
 
 async def test_kai_cannot_edit_a_builder_but_can_edit_a_worker(client, sf, seed_agent,
@@ -312,6 +342,75 @@ async def test_a_protected_agent_edits_itself_through_agent_self(client, sf, see
                            json={"expected_version": version, "prompt": "# my own words"})
     assert r.status_code == 200, r.text
     assert await _prompt(sf, "steward") == "# my own words"
+
+
+async def _persona(seed_agent, agent_store, name, tools):
+    await seed_agent(name, agent_type="persona", enabled=True, platform_tools=tools)
+    await agent_store.reload()
+
+
+async def test_moving_a_chat_account_onto_or_off_a_protected_agent_is_kyle_only(
+        admin_client, token_client, sf, seed_agent, agent_store):
+    """Owning an account rewrites the owner's row (its Discord identity and
+    the derived Discord tool), so it is a change to a protected agent."""
+    await _persona(seed_agent, agent_store, "builder", [TOOL_AGENTS_EDIT])
+    await _persona(seed_agent, agent_store, "chatty", [])
+    key = await bearer(sf, None, role="admin", name="ops-key")
+    path = "/api/chat-identities/discord-default"
+    r = await token_client.patch(path, headers=key,
+                                 json={"display_name": "Bot", "owner_agent": "builder"})
+    assert r.status_code == 403 and "protected" in r.json()["detail"], r.text
+    # Kyle may; the protected agent keeps exactly its Kyle-only tools.
+    r = await admin_client.patch(path, json={"display_name": "Bot", "owner_agent": "builder"})
+    assert r.status_code == 200, r.text
+    assert set(await _tools(sf, "builder")) == {TOOL_AGENTS_EDIT, "mcp__platform__discord"}
+    # Off it again, to another persona or by deleting the account: Kyle only.
+    r = await token_client.patch(path, headers=key,
+                                 json={"display_name": "Bot", "owner_agent": "chatty"})
+    assert r.status_code == 403, r.text
+    r = await token_client.delete(path, headers=key)
+    assert r.status_code == 403, r.text
+    async with sf() as s:
+        assert (await s.get(AgentDef, "builder")).discord_identity_id == "discord-default"
+    # An ordinary persona is still the admin key's to move.
+    r = await admin_client.patch(path, json={"display_name": "Bot", "owner_agent": None})
+    assert r.status_code == 200, r.text
+    r = await token_client.patch(path, headers=key,
+                                 json={"display_name": "Bot", "owner_agent": "chatty"})
+    assert r.status_code == 200, r.text
+
+
+async def test_assign_owner_never_moves_a_kyle_only_tool(sf, seed_agent):
+    from agentplatform.authority import assign_owner
+    from agentplatform.db import ChatIdentity
+    await seed_agent("builder", agent_type="persona", enabled=True,
+                     platform_tools=[TOOL_AGENTS_GRANT, "mcp__platform__discord_chat"])
+    async with sf() as s:
+        await assign_owner(s, await s.get(ChatIdentity, "discord-default"), "builder")
+        await s.commit()
+    assert await _tools(sf, "builder") == [TOOL_AGENTS_GRANT, "mcp__platform__discord"]
+
+
+async def test_a_protected_agents_image_is_kyle_or_its_own(admin_client, token_client, sf,
+                                                          seed_agent, agent_store):
+    from .test_agents_api import _image, _run_headers
+    art = await _image(admin_client)
+    body = {"artifact_id": art["id"]}
+    kai = await kai_and_worker(sf, seed_agent, agent_store)
+    key = await bearer(sf, None, role="admin", name="ops-key")
+    own = await _run_headers(sf, seed_agent, agent_store, "steward",
+                             grants=("mcp__platform__artifacts", TOOL_AGENTS_EDIT))
+    for h in (kai, key):
+        r = await token_client.put("/api/agents/steward/image", json=body, headers=h)
+        assert r.status_code == 403 and "protected" in r.json()["detail"], r.text
+    r = await token_client.put("/api/agents/steward/image", json=body, headers=own)
+    assert r.status_code == 200, r.text
+    r = await admin_client.put("/api/agents/steward/image", json={"artifact_id": None})
+    assert r.status_code == 200, r.text
+    # An ordinary worker's face is still Kai's and the admin key's to set.
+    for h in (kai, key):
+        r = await token_client.put("/api/agents/worker/image", json=body, headers=h)
+        assert r.status_code == 200, r.text
 
 
 # --- R0.3: no self-edits through agents_edit / agents_grant ------------------
