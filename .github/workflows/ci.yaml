@@ -50,6 +50,9 @@ jobs:
           git diff --exit-code sdk/ \
             || (echo "::error::sdk/ is stale — run 'python sdk/regenerate.py' and commit" && exit 1)
 
+  # The runner is the in-pod process every agent run executes in (services/runner):
+  # it renders the agent's markdown, drives Claude Code or Codex, and runs a dev
+  # run's Workbench steps. This job runs its unit tests only; it builds no image.
   runner:
     # No build job for services/runner/Dockerfile.dev (several GB — CI runners cannot afford it); tests/test_runner_dev_image.py is its drift guard.
     runs-on: ubuntu-latest
