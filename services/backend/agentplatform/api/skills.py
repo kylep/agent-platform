@@ -133,10 +133,16 @@ async def skill_wizard(request: Request, body: SkillWizardIn,
         "secrets with state/severity) followed by concise, imperative usage "
         "instructions an agent can follow without guessing. Match the style of "
         f"the existing skills under `skills/`. Only create/modify files under {scope}.")
-    run = Run(agent="coder", trigger="wizard", requested_by=principal,
-              initiated_by=principal, prompt=prompt)
+    from agentplatform.authority import current_generation
     async with st.session_factory() as s:
-        s.add(run); await s.commit()
+        generation = await current_generation(s, "coder")
+        if generation is None:
+            raise HTTPException(409, "the coder agent is missing or disabled")
+        run = Run(agent="coder", trigger="wizard", requested_by=principal,
+                  initiated_by=principal, prompt=prompt,
+                  authorization_generation=generation)
+        s.add(run)
+        await s.commit()
     try:
         await st.producer.publish(TOPIC_RUN_REQUESTS, run.id,
                                   {"type": "run", "run_id": run.id}, type="run.request")

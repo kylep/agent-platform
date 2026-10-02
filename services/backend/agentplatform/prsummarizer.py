@@ -17,6 +17,7 @@ import logging
 
 from sqlalchemy import select
 
+from agentplatform.authority import current_generation
 from agentplatform.db import ACTIVE_STATES, Run, RunState
 from agentplatform.events import TOPIC_RUN_REQUESTS
 
@@ -73,10 +74,15 @@ class PrSummarizer:
                 .order_by(Run.created_at.desc()).limit(30))).scalars())
 
     async def _dispatch(self, number: int, sha: str, prompt: str) -> None:
-        run = Run(agent=SUMMARIZER_AGENT, trigger="pr-summary",
-                  requested_by="pr-summarizer", initiated_by="admin", prompt=prompt,
-                  tags=run_tags(number, sha))
         async with self.sf() as s:
+            # Stamp the agent's current authority generation: a run without it
+            # is "revoked before launch" by the launcher (design 34).
+            generation = await current_generation(s, SUMMARIZER_AGENT)
+            if generation is None:
+                return
+            run = Run(agent=SUMMARIZER_AGENT, trigger="pr-summary",
+                      requested_by="pr-summarizer", initiated_by="admin", prompt=prompt,
+                      tags=run_tags(number, sha), authorization_generation=generation)
             s.add(run)
             await s.commit()
         try:
