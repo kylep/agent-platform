@@ -4,9 +4,11 @@ import json
 import shutil
 import stat
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
+from agentplatform import backup_export
 from agentplatform.backup_export import inspect_archive, write_archive
 
 
@@ -60,3 +62,28 @@ def test_archive_round_trip_and_tamper_detection(tmp_path: Path):
     broken.write_bytes(target.read_bytes()[:-100])
     with pytest.raises(ValueError):
         inspect_archive(broken, identity.read_text())
+
+
+@pytest.mark.skipif(not shutil.which("age") or not shutil.which("age-keygen"),
+                    reason="age CLI unavailable")
+def test_extract_pauses_restore_of_an_older_archive(tmp_path: Path, monkeypatch):
+    identity = tmp_path / "identity.txt"
+    subprocess.run(["age-keygen", "-o", str(identity)], check=True, capture_output=True)
+    recipient = subprocess.run(["age-keygen", "-y", str(identity)], check=True,
+                               capture_output=True, text=True).stdout.strip()
+    dump = tmp_path / "database.sql.gz"
+    dump.write_bytes(gzip.compress(b"CREATE TABLE sample (id int);\n"))
+    target = tmp_path / "old.tar.age"
+    # An older exporter encrypted the dump without a restore marker.
+    monkeypatch.setattr(backup_export, "append_restore_marker", lambda _path: None)
+    write_archive(dump, target, recipient, "agent-platform", [],
+                  created_at="2026-09-30T12:00:00+00:00")
+    output = tmp_path / "extracted"
+    subprocess.run([
+        sys.executable, str(Path(__file__).resolve().parents[3] / "scripts" / "backup_restore.py"),
+        "extract", str(target), "--identity", str(identity), "--output", str(output),
+    ], check=True, capture_output=True)
+    restored_sql = gzip.decompress((output / "database.sql.gz").read_bytes())
+    assert b"CREATE TABLE sample" in restored_sql
+    assert b"CREATE TABLE IF NOT EXISTS public.platform_maintenance" in restored_sql
+    assert b"VALUES (1, 'restore'" in restored_sql

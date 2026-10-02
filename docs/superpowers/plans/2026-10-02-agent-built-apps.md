@@ -951,6 +951,29 @@ Shared-file notes for G1:
   Record what was verified and what is waiting on Kyle under
   "Live verification".
 
+  **Live verification, 2026-10-02:** R1b was merged to `main` at `67715bb`
+  and deployed as Helm revision 91. API, dispatcher, recorder, broker,
+  executor, web and the restarted MCP facade rolled out healthy. The three
+  intended `app_data_records` indexes are present (the broad GIN is gone),
+  and the `tool-executor-views` pod can reach the API but cannot connect to
+  the public internet. The live operation catalog exposes `app_data.write@1`
+  and `tool.app_summary.counts@1`. Approve, decline, intent dispatch and
+  resume all returned 403 for an admin API key; maintenance read `running`.
+  A current encrypted backup was restored with `ON_ERROR_STOP=1` into a
+  disposable PostgreSQL 18 database. After running current schema setup,
+  it retained 17 agents, created the new App tables empty, and remained in
+  `restore` mode with materialization disabled. This drill exposed an old
+  archive compatibility gap and `pg_dump`'s empty `search_path`; the
+  extractor now appends a schema-qualified restore marker after verifying
+  the archive, and the exporter writes the same marker for new backups.
+
+  **Needs Kyle's session:** grant `apps` and `app_data` to Pai, Kai and Olu,
+  then run the agent proposal and template flows listed above. Those routes
+  correctly refuse the admin API key; they cannot be completed through the
+  current CLI credential. The QA shared-page and real-restore resume checks
+  also remain. The live PostgreSQL PVC is still 2 GiB and must grow before
+  the high-volume TCMS and stockmarket migrations.
+
 #### Decisions needed (recommendations; proceed on them unless Kyle objects)
 
 - **D1. Where App tool facts live.** The authority engine expects a

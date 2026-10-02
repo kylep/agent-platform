@@ -36,11 +36,15 @@ def validate_destination(bucket: str, prefix: str, recipient: str) -> None:
         raise ValueError("invalid age recipient")
 
 
-# Appended to the dump so every restore of it lands in maintenance mode, whatever
-# tool replays it (D14). The upsert is plain SQL both Postgres and SQLite run.
+# Appended to the pg_dump so every restore lands in maintenance mode. pg_dump
+# sets search_path to empty, so the table must be qualified with public.
 RESTORE_MARKER_SQL = (
     "\n-- agent-platform: a restore starts in maintenance mode\n"
-    "INSERT INTO platform_maintenance (id, mode, reason, entered_at, resumed_by) "
+    "CREATE TABLE IF NOT EXISTS public.platform_maintenance ("
+    "id integer PRIMARY KEY, mode varchar(16) NOT NULL DEFAULT 'running', "
+    "reason text NOT NULL DEFAULT '', entered_at timestamptz, "
+    "resumed_by varchar(128));\n"
+    "INSERT INTO public.platform_maintenance (id, mode, reason, entered_at, resumed_by) "
     "VALUES (1, 'restore', 'restored from a backup', CURRENT_TIMESTAMP, NULL) "
     "ON CONFLICT (id) DO UPDATE SET mode = excluded.mode, reason = excluded.reason, "
     "entered_at = excluded.entered_at, resumed_by = NULL;\n")

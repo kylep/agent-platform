@@ -4,16 +4,22 @@ import sqlite3
 from datetime import datetime, timedelta, timezone
 
 import pytest
-from sqlalchemy import select
-
 from agentplatform import maintenance_mode as mm
 from agentplatform.agents import AgentInfo, Manifest
 from agentplatform.backup_export import RESTORE_MARKER_SQL, append_restore_marker
-from agentplatform.db import Run, ScheduledJob, ScheduledTask, make_engine, \
-    make_session_factory, init_db, utcnow
-from agentplatform.events import FakeProducer, TOPIC_RUN_INBOUND
+from agentplatform.db import (
+    Run,
+    ScheduledJob,
+    ScheduledTask,
+    init_db,
+    make_engine,
+    make_session_factory,
+    utcnow,
+)
+from agentplatform.events import TOPIC_RUN_INBOUND, FakeProducer
 from agentplatform.scheduler import Scheduler, next_fire
 from agentplatform.task_scheduler import fire_due_tasks
+from sqlalchemy import select
 
 
 class FakeStore:
@@ -150,13 +156,14 @@ async def test_a_dump_with_the_marker_restores_into_a_fresh_database_paused(tmp_
     append_restore_marker(dump)
     sql = gzip.decompress(dump.read_bytes()).decode()
     assert sql.startswith("-- plain pg_dump output\n") and RESTORE_MARKER_SQL in sql
-    # Replay it against a fresh schema, as pg_restore/psql would.
+    # Exercise the marker's state change in SQLite; the archive itself is a
+    # PostgreSQL dump, so only the public schema qualifier is removed here.
     db = tmp_path / "fresh.db"
     engine = make_engine(f"sqlite+aiosqlite:///{db}")
     await init_db(engine)
     await engine.dispose()
     con = sqlite3.connect(db)
-    con.executescript(sql)
+    con.executescript(sql.replace("public.platform_maintenance", "platform_maintenance"))
     con.commit()
     con.close()
     engine = make_engine(f"sqlite+aiosqlite:///{db}")

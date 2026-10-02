@@ -16,7 +16,7 @@ import tarfile
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "services" / "backend"))
-from agentplatform.backup_export import inspect_archive
+from agentplatform.backup_export import append_restore_marker, inspect_archive
 
 MEMBERS = {"manifest.json", "database.sql.gz", "secrets.json"}
 GENERATED_EXACT = {"ap-internal", "ap-kafka-kraft", "ap-kafka-user-passwords",
@@ -48,6 +48,10 @@ def extract(encrypted: Path, key: Path, output: Path) -> None:
         _, error = process.communicate()
         if process.returncode:
             raise ValueError(f"decryption failed: {error.decode(errors='replace')[:180]}")
+        # Archives made before the maintenance table existed have no marker.
+        # Add it only after verifying the archive's original checksums, so an
+        # old recovery also pauses automation when the SQL is replayed.
+        append_restore_marker(output / "database.sql.gz")
     except BaseException:
         if process.poll() is None:
             process.kill()

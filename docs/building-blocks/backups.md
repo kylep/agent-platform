@@ -85,7 +85,9 @@ Re-delete them on `/apps/judgment/` after restoring.
    ServiceAccount tokens or Helm release Secrets.
 2. Decrypt and verify the archive on the trusted machine. The resulting
    directory contains **plaintext** SQL and Secret values; it is created mode
-   0700 and files mode 0600. Remove it after the restore.
+   0700 and files mode 0600. The extractor appends the restore-mode marker
+   after verifying the archive, including for older backups made before the
+   maintenance table existed. Remove the directory after the restore.
 
    ```sh
    python3 scripts/backup_restore.py extract ap-recovery-YYYYMMDDTHHMMSSZ.tar.age \
