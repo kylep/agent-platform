@@ -95,6 +95,26 @@ test("text links reach only the App's pages and platform pages", async ({ page }
   }
 });
 
+test("only link-format url fields render as outbound anchors", async ({ page }) => {
+  const unmatched = await mockApi(page);
+  await page.goto(pagePath("outbound"));
+  const table = page.locator(".live-view-table").filter({ hasText: "Sources" });
+  const anchor = table.getByRole("link", { name: "https://example.org/run?a=1" });
+  await expect(anchor).toHaveAttribute("href", "https://example.org/run?a=1");
+  await expect(anchor).toHaveAttribute("rel", "noopener noreferrer");
+  await expect(anchor).toHaveAttribute("target", "_blank");
+  // A plain url field is text, and so is a link-format value that isn't http(s).
+  await expect(table.getByText("https://example.org/home", { exact: true })).toBeVisible();
+  await expect(table.getByRole("link", { name: "https://example.org/home" })).toHaveCount(0);
+  await expect(table.getByText("javascript:alert(1)", { exact: true })).toBeVisible();
+  await expect(table.getByRole("link", { name: "javascript:alert(1)" })).toHaveCount(0);
+  // The detail renders the same way.
+  const detail = page.locator(".v2-detail");
+  await expect(detail.locator("dd").nth(0).locator("a")).toHaveAttribute("rel", "noopener noreferrer");
+  await expect(detail.locator("dd").nth(1).locator("a")).toHaveCount(0);
+  expect(unmatched).toEqual([]);
+});
+
 test("loading, then the data", async ({ page }) => {
   await mockApi(page);
   let release!: () => void;

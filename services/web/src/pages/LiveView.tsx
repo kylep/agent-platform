@@ -116,7 +116,8 @@ function TrustedAction({ viewId, label, alias, channel, operation }: {
 // --- typed/v2: pages of a state App (docs/design/39) ------------------------
 // Same trust rule as v1: every value is plain React text, and the only links
 // are row links and text links the renderer builds itself, to this App's
-// pages or a platform path. Each component reads its own view, so a view the
+// pages or a platform path. The one outbound exception is a `link: true` url
+// field, which arrives as format "link". Each component reads its own view, so a view the
 // viewer can't read or that broke fails that component, not the page.
 
 function v2Label(column: Column): string {
@@ -145,11 +146,26 @@ function v2Value(value: Scalar | undefined, format: ColumnFormat | undefined): s
   return String(value);
 }
 
+function isWebUrl(value: string): boolean {
+  try {
+    const url = new URL(value);
+    return (url.protocol === "http:" || url.protocol === "https:") && !url.username && !url.password;
+  } catch {
+    return false;
+  }
+}
+
 function V2Cell({ row, column }: { row: ViewRow; column: Column }) {
   if (row.restricted.includes(column.field)) {
     return <span className="v2-restricted" title="You can't read this field">restricted</span>;
   }
-  return <>{v2Value(row.values[column.field], column.format)}</>;
+  const value = row.values[column.field];
+  // `link` comes only from a `link: true` url field. The server already
+  // refuses non-http(s) values; checking again keeps a stored odd value inert.
+  if (column.format === "link" && typeof value === "string" && isWebUrl(value)) {
+    return <a href={value} rel="noopener noreferrer" target="_blank">{value}</a>;
+  }
+  return <>{v2Value(value, column.format)}</>;
 }
 
 function viewError(error: unknown): string {

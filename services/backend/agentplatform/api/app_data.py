@@ -243,7 +243,7 @@ async def published_page(session, caller: Caller, app_ref: str, name: str) -> di
         raise RecordError("AD-FORBIDDEN", f"{caller.principal} may not read page {name}", 403)
     return {"app_id": app.id, "app_name": app.name, "page": name,
             "version": L.page_version(await L._rows(session, app.id), app, name),
-            "definition": L.page_for_web(page)}
+            "definition": L.page_for_web(page, ctx.bundle)}
 
 
 async def published_view(session, caller: Caller, app_ref: str, name: str, params: dict,

@@ -109,7 +109,7 @@ export type StateAppDetail = Omit<StateAppSummary, "health"> & {
  *  string (`{query: "id"}` reads `?id=`). */
 export type ParamBinding = string | { query: string };
 
-export type ColumnFormat = "text" | "int" | "number" | "percent" | "date" | "datetime" | "bool";
+export type ColumnFormat = "text" | "int" | "number" | "percent" | "date" | "datetime" | "bool" | "link";
 
 export type Column = { field: string; label?: string; format?: ColumnFormat };
 

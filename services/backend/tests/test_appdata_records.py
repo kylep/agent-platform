@@ -155,6 +155,29 @@ async def test_every_field_type_validates_and_normalizes(sf):
             await refused("AD-INVALID-VALUE", create_record(s, ctx, OWNER, "items", bad))
 
 
+@pytest.mark.parametrize("url", [
+    "javascript:alert(1)", "data:text/html,hi", "/relative/path", "//host.test/x",
+    "example.com", "ftp://x.test", "https://user:pw@x.test/", "https://user@x.test/",
+    "https://x.test/\x00", "https://x.test/a\nb", "https://x.test/\x7f", "https:///nohost",
+    "http:x.test", " https://x.test"])
+async def test_a_url_that_isnt_a_plain_http_or_https_address_is_refused(sf, url):
+    ctx = await make_app(sf, [coll(fields={"u": {"type": "url"}})])
+    async with sf() as s:
+        err = await refused("AD-URL", create_record(s, ctx, OWNER, "items", {"u": url}))
+        assert err.detail == {"field": "u"}
+        good = await create_record(s, ctx, OWNER, "items", {"u": "https://x.test/a?b=1#c"})
+        await refused("AD-URL", update_record(s, ctx, OWNER, "items", good["id"],
+                                              {"u": url}, expected_version=1))
+
+
+async def test_http_and_https_urls_are_stored_as_given(sf):
+    ctx = await make_app(sf, [coll(fields={"u": {"type": "url"}})])
+    async with sf() as s:
+        for url in ("http://x.test", "HTTPS://X.test:8443/p?q=1"):
+            row = await create_record(s, ctx, OWNER, "items", {"u": url})
+            assert row["values"]["u"] == url
+
+
 # --- side columns ----------------------------------------------------------------------------
 
 async def test_indexed_fields_fill_their_side_columns(sf):

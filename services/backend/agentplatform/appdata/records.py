@@ -42,12 +42,14 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import unicodedata
 import uuid
 import weakref
 from contextlib import AsyncExitStack, asynccontextmanager
 from dataclasses import dataclass, field as dc_field
 from datetime import date, datetime, time, timezone
 from typing import Any
+from urllib.parse import urlsplit
 from zoneinfo import ZoneInfo
 
 from sqlalchemy import and_, func, insert, select, tuple_
@@ -178,6 +180,20 @@ def _date_instant(value: str) -> datetime:
     return datetime.combine(date.fromisoformat(value), time(), tzinfo=timezone.utc)
 
 
+def _safe_url(value: str) -> bool:
+    """Only an absolute http(s) URL with a host and no userinfo. The control
+    check runs on the raw text because urlsplit silently strips some of it."""
+    if any(unicodedata.category(ch) in ("Cc", "Zs", "Zl", "Zp") for ch in value):
+        return False
+    try:
+        parts = urlsplit(value)
+        parts.port  # noqa: B018 - raises on a malformed port
+    except ValueError:
+        return False
+    return (parts.scheme.lower() in ("http", "https") and bool(parts.hostname)
+            and "@" not in parts.netloc and "\\" not in value)
+
+
 def normalize_value(ctx: AppContext, c: CollectionDef, name: str, value: Any) -> Any:
     """The value as stored, or a refusal naming the field."""
     if value is None:
@@ -186,6 +202,9 @@ def normalize_value(ctx: AppContext, c: CollectionDef, name: str, value: Any) ->
     if not _fits_field(c, name, value, bounds=True):
         raise RecordError("AD-INVALID-VALUE", f"{name}: value does not fit the "
                           f"{spec.type} field", 422, {"field": name})
+    if spec.type == "url" and not _safe_url(value):
+        raise RecordError("AD-URL", f"{name}: a url is an absolute http or https address "
+                          "with no credentials in it", 422, {"field": name})
     if spec.type == "datetime":
         return format_datetime(parse_datetime(value, ctx.tz))
     if spec.type == "number" and isinstance(value, int):

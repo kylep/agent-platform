@@ -1206,17 +1206,27 @@ def _binding(value):
     return str(value)
 
 
-def _column(column) -> dict:
+def _link_fields(bundle, view_name: str) -> set[str]:
+    """The `link: true` url fields behind a view: the only ones the web may
+    render as outbound anchors."""
+    view = bundle.views.get(view_name)
+    c = bundle.collections.get(view.collection) if view is not None else None
+    if c is None:
+        return set()
+    return {n for n, f in c.fields.items() if f.type == "url" and f.link}
+
+
+def _column(column, links: frozenset | set = frozenset()) -> dict:
     out = {"field": column.field}
     if column.label is not None:
         out["label"] = column.label
-    fmt = _FORMATS.get(column.format, column.format)
+    fmt = "link" if column.field in links else _FORMATS.get(column.format, column.format)
     if fmt is not None:
         out["format"] = fmt
     return out
 
 
-def page_for_web(page: PageDef) -> dict:
+def page_for_web(page: PageDef, bundle) -> dict:
     """A validated page as `PageV2` (services/web/src/lib/appData.ts). Action
     templates aren't rendered: running them is `app_data.write@1` (R1b)."""
     components = []
@@ -1230,15 +1240,18 @@ def page_for_web(page: PageDef) -> dict:
             item = {"kind": "metric", "label": block.label, "view": block.view}
         elif isinstance(block, TableBlock):
             item = {"kind": "table", "view": block.view,
-                    "columns": [_column(c) for c in block.columns]}
+                    "columns": [_column(c, _link_fields(bundle, block.view))
+                                for c in block.columns]}
             if block.title is not None:
                 item["label"] = block.title
             if block.row_link is not None:
                 item["row_link"] = {"page": block.row_link.page,
                                     "params": {block.row_link.param: "id"}}
         else:
+            links = _link_fields(bundle, block.view)
             item = {"kind": "detail", "view": block.view,
-                    "fields": [{"field": f} for f in block.fields]}
+                    "fields": [{"field": f, "format": "link"} if f in links else {"field": f}
+                               for f in block.fields]}
             if block.title is not None:
                 item["label"] = block.title
         if getattr(block, "params", None):
@@ -1325,7 +1338,7 @@ async def preview(session, actor: Actor, app_ref: str, *, kind: str, name: str,
                 except RecordError as exc:
                     entry["error"] = {**exc.as_dict(), "status": exc.status}
             blocks.append(entry)
-        return {"page": name, "definition": page_for_web(page), "blocks": blocks}
+        return {"page": name, "definition": page_for_web(page, bundle), "blocks": blocks}
     finally:
         await session.rollback()
 

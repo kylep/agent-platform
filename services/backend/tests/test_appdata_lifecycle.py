@@ -567,6 +567,52 @@ async def test_preview_as_another_principal_never_shows_more_than_the_caller(sf)
     assert as_me["rows"][0]["values"]["mine"] == "m"
 
 
+def links_app(link):
+    """A collection with a url field, a view, and a page showing it both ways."""
+    fields = {"title": {"type": "string"}, "src": {"type": "url", "link": link},
+              "note": {"type": "url"}}
+    page = {"page": "p", "title": "P", "blocks": [
+        {"kind": "table", "view": "all",
+         "columns": [{"field": "title"}, {"field": "src"}, {"field": "note"},
+                     {"field": "title", "format": "text"}]},
+        {"kind": "detail", "view": "all", "fields": ["src", "note", "title"]}]}
+    return [("collection", {"collection": "links", "fields": fields}),
+            ("view", {"view": "all", "collection": "links"}), ("page", page)]
+
+
+async def test_page_marks_only_link_true_url_fields_as_links(sf):
+    app_id = await new_app(sf)
+    for kind, body in links_app(True):
+        await draft(sf, app_id, kind, body)
+    async with sf() as s:
+        out = await L.preview(s, PAI, app_id, kind="page", name="p")
+    table, detail = out["definition"]["components"]
+    assert table["columns"] == [{"field": "title"}, {"field": "src", "format": "link"},
+                                {"field": "note"}, {"field": "title", "format": "text"}]
+    assert detail["fields"] == [{"field": "src", "format": "link"}, {"field": "note"},
+                                {"field": "title"}]
+
+
+async def test_a_link_false_url_gets_no_link_format(sf):
+    app_id = await new_app(sf)
+    for kind, body in links_app(False):
+        await draft(sf, app_id, kind, body)
+    async with sf() as s:
+        out = await L.preview(s, PAI, app_id, kind="page", name="p")
+    table, detail = out["definition"]["components"]
+    assert all(c.get("format") != "link" for c in table["columns"])
+    assert all("format" not in f for f in detail["fields"])
+
+
+async def test_turning_link_on_is_a_proposal_not_a_publish(sf):
+    app_id = await built(sf, *links_app(False))
+    await draft(sf, app_id, "collection", links_app(True)[0][1])
+    async with sf() as s:
+        err = await refused("AL-NEEDS-PROPOSAL", L.publish(
+            s, PAI, app_id, request_id=rid(), expected_approved_version=1))
+    assert any("outbound link" in w for w in err.detail["widening"])
+
+
 async def test_preview_as_a_principal_that_cant_read_is_refused(sf):
     app_id = await new_app(sf)
     await draft(sf, app_id, "collection", habits())
