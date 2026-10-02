@@ -62,6 +62,10 @@ def queue_wake(args: argparse.Namespace, count: int) -> None:
         [args.codex, "queue", "--thread", args.thread, "--model", args.model,
          "--message", message],
         check=True, timeout=30, stdout=subprocess.DEVNULL,
+        # launchd's default PATH omits Homebrew. The codex executable uses
+        # /usr/bin/env node, so add the executable's own bin directory.
+        env={**os.environ, "PATH": str(Path(args.codex).parent) + os.pathsep
+             + os.environ.get("PATH", "")},
     )
     LOG.info("Queued Codex wake for %d new message(s)", count)
 
