@@ -886,7 +886,7 @@ Shared-file notes for G1:
   - **Tests prove:** `test_help.py` and the skill's
     `test_appdata_doc_examples.py` examples validate against the shipped
     language.
-- [ ] **B24 Performance re-check** (after B1 and B21) ∥.
+- [x] **B24 Performance re-check** (after B1 and B21) ∥. Full-volume results, same-day R1a control and R1b cache/materialization timings are in `appdata-perf-2026-10.md`.
   - **Goal:** confirm that the index changes didn't regress A12's paths,
     and measure the new ones.
   - **Design:** `appdata-perf-2026-10.md`.

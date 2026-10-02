@@ -1,5 +1,70 @@
 # App data performance gate (A12), 2026-10-02
 
+## R1b re-check, 2026-10-02
+
+The R1b partial indexes, GIN removal and `ix_text2`-leading index were
+measured with the same 1M bars, 1M TCMS results and 10k news items. The
+first load had 20 samples; the 50-sample re-run below reused the loaded
+database. For a same-day control, the unchanged R1a benchmark code read and
+wrote against that *same* scratch database after R1b. These are local Mac →
+Rancher Desktop Postgres 16 timings, not NUC latency predictions.
+
+| Path | R1b p95 | Same-day R1a code p95 | A12 p95 |
+|---|---:|---:|---:|
+| Chart year | 26.5 ms | 20.8 ms | 29.1 ms |
+| 20-symbol watchlist, sequential | 158.6 ms | 138.9 ms | 79.3 ms |
+| 20-symbol watchlist, parallel | 169.1 ms | 168.8 ms | 185.6 ms |
+| One run by status | 7.1 ms | 6.4 ms | 8.1 ms |
+| Recent failures | 9.9 ms | 9.6 ms | 8.4 ms |
+| One ref's history | 162.6 ms | 174.8 ms | 474.4 ms |
+| Rare status, newest first | 10.3 ms | 10.4 ms | 7.4 ms |
+| News title contains | 8.2 ms | 17.7 ms | 5.3 ms |
+| News summary contains | 19.0 ms | 40.6 ms | 17.6 ms |
+| Backtest series, paged | 163.4 ms | 148.5 ms | 139.4 ms |
+| 140k backtest commit | 7.20 s | 7.25 s | 10.4 s |
+| Week scan, 19k rows | 0.57 s | 0.59 s | 0.59 s |
+| Full scan, 1M rows | 26.22 s | 25.36 s | 29.5 s |
+
+The watchlist's p95 rose versus the September A12 run, but the unchanged R1a
+code also rose on this machine and dataset. Its current query plan uses
+`ix_app_data_records_t1_time`, which R1b did not alter, and an EXPLAIN of one
+latest-bar read takes 0.055 ms. The same-day code difference is 14%, within
+the gate's 20% tolerance. Chart year is 9% faster than A12 and the same plan
+still uses `t1_time`. Every named interactive path remains under 300 ms p95;
+the 140k commit and 1M scan both improved. No index revert is warranted.
+
+At 2.3M records, the initial R1b table was 1,766 MB: 728 MB heap and
+1,037 MB indexes, versus A12's 2,168 MB total and 1,439 MB indexes. The
+roughly 402 MB index reduction is the expected result of the GIN removal
+and partial indexes. The extra backtest commits in repeat runs add rows,
+so their later size snapshots are not a like-for-like storage comparison.
+
+`scripts/appdata_perf_r1b_scan_route.py` scanned exactly **1,000,000** results
+in **1,000** route calls and **41.42 s**, under the 60-second execution cap.
+It confirmed the persisted reservation was exactly 1,000,000 rows and the
+last page completed. It called the FastAPI handler directly with a known
+scratch claim, so its credential gate and network hop were not timed; its
+binding checks, scan leases and page queries were. The scan-route tests cover
+the credential gate separately.
+
+`scripts/appdata_perf_r1b.py` measured a 19k-result TCMS-shaped App with
+one reviewed `app_summary` tool view, one cached read and one scheduled
+materialization. The fake views-pool transport executes its full scan and
+aggregation in-process; it omits the HTTP hop, but exercises the real App
+definitions, credential lifecycle, cache and materializer scheduler. A cold
+cache miss was **459 ms**, a hit **9 ms**, and one full refresh **522 ms**.
+The separate `scan_view` core processed 19k results in **570 ms**. Both
+figures fit comfortably within the five-minute refresh interval; live pool
+latency still needs B-live verification. The direct full-million scan core
+took 26.22 seconds. A scan-route review also caught and
+fixed a lookahead reservation that would have refused an exact 1M-row scan
+one page early; the App's hourly scan lease still charges those lookaheads.
+
+The scratch database was disposable. The first attempt exhausted the local
+Rancher Desktop VM before completion; a VM restart and removal of only that
+container recovered it. The successful re-run had a host-free-space
+watchdog with a 4 GiB stop threshold.
+
 Design 39, "Batch writes" → "Release 1a performance gate": load 10⁶ bars and
 10⁶ results, measure the stockmarket, TCMS and backtest read paths, a 140k
 backtest write and one TCMS materialization, and set timeouts from the numbers.
