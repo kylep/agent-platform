@@ -166,6 +166,11 @@ def _effect_policy(source: str, tool: str, action: str) -> tuple[list[str], str]
         if tool == "tcms":
             return (["mutates_platform"] if action in ("sync_cases", "record_results")
                     else ["reads_sensitive"]), "internal"
+        if tool == "judgment":
+            # Kai's private record of Kyle (docs/design/38); every action is
+            # owner-only and none of it is page-eligible.
+            return (["reads_sensitive"] if action in ("recall", "pending")
+                    else ["mutates_platform"]), "private"
         if tool == "ttrpg":
             return (["mutates_platform"] if action in ("roll", "floor", "command")
                     else ["reads_sensitive"]), "private"
