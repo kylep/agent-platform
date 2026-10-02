@@ -45,6 +45,7 @@ AUDIENCE = "agent-platform/tool-call"
 ALGORITHM = "ES256"
 KIND_TOOL_CALL = "tool_call"
 KIND_PAGE_INTENT = "page_intent"
+KIND_VIEW_EXEC = "view_exec"
 HEADER = "x-ap-tool-call"
 CALL_ID_HEADER = "x-ap-tool-call-id"
 # Beyond the tool's own timeout: the executor stages files and starts the
@@ -94,6 +95,22 @@ def mint_page_intent(private_key_pem: str, *, intent_id: str, action: str,
     return jwt.encode(claims, private_key_pem, algorithm=ALGORITHM), claims
 
 
+def mint_view_exec(private_key_pem: str, *, call_id: str, principal: str,
+                   app_id: str, tool: str, action: str,
+                   sources: dict[str, str], cnf_sa: str,
+                   ttl_seconds: int, jti: str | None = None) -> tuple[str, dict]:
+    """A read-only, single-execution credential for the isolated views pool."""
+    now = int(time.time())
+    claims = {
+        "iss": ISSUER, "aud": AUDIENCE, "iat": now, "exp": now + ttl_seconds,
+        "kind": KIND_VIEW_EXEC, "jti": jti or uuid.uuid4().hex,
+        "call_id": call_id, "principal": principal, "app_id": app_id,
+        "tool": tool, "action": action, "sources": sources,
+        "cnf": {"sa": cnf_sa},
+    }
+    return jwt.encode(claims, private_key_pem, algorithm=ALGORITHM), claims
+
+
 def _str(claims: dict, key: str) -> bool:
     return isinstance(claims.get(key), str) and bool(claims[key])
 
@@ -128,7 +145,19 @@ def _page_intent_shape(claims: dict) -> bool:
             and not any(k in claims for k in ("run_id", "call_id", "agent", "tool")))
 
 
-_SHAPES = {KIND_TOOL_CALL: _tool_call_shape, KIND_PAGE_INTENT: _page_intent_shape}
+def _view_exec_shape(claims: dict) -> bool:
+    sources = claims.get("sources")
+    return (all(_str(claims, k) for k in (
+        "call_id", "principal", "app_id", "tool", "action"))
+        and isinstance(sources, dict) and bool(sources)
+        and all(isinstance(role, str) and isinstance(collection, str)
+                and role and collection for role, collection in sources.items())
+        and not any(k in claims for k in ("run_id", "agent", "app_scope", "intent_id")))
+
+
+_SHAPES = {KIND_TOOL_CALL: _tool_call_shape,
+           KIND_PAGE_INTENT: _page_intent_shape,
+           KIND_VIEW_EXEC: _view_exec_shape}
 
 
 def verify(public_key_pem: str, token: str, *, expected_sa: str,
@@ -198,7 +227,9 @@ async def record(session, claims: dict) -> None:
         jti=claims["jti"], call_id=claims.get("call_id") or claims.get("intent_id"),
         kind=claims["kind"], run_id=claims.get("run_id"), agent=claims.get("agent"),
         tool=claims.get("tool"), action=claims.get("action") or "",
-        expires_at=datetime.fromtimestamp(claims["exp"], timezone.utc)))
+        expires_at=datetime.fromtimestamp(claims["exp"], timezone.utc),
+        scan_rows=0 if claims["kind"] == KIND_VIEW_EXEC else None,
+        scan_fields=[] if claims["kind"] == KIND_VIEW_EXEC else None))
 
 
 async def revoke(session, jti: str) -> bool:

@@ -27,11 +27,13 @@ from .conftest import REPO_APPS, REPO_REPORTS, REPO_SECRETS, REPO_SKILLS
 # JWT-shaped bearers; the fake TokenReview below decides who each one is.
 BROKER = "broker.sa.token"
 EXECUTOR = "executor.sa.token"
+VIEWS_EXECUTOR = "views.sa.token"
 PAI_SA = "pai.sa.token"
 BOB_SA = "bob.sa.token"
 IDENTITIES = {
     BROKER: "system:serviceaccount:ap:ap-mcp-broker",
     EXECUTOR: "system:serviceaccount:ap:ap-tool-executor",
+    VIEWS_EXECUTOR: "system:serviceaccount:ap:ap-tool-executor-views",
     PAI_SA: "system:serviceaccount:ap:agent-pai",
     BOB_SA: "system:serviceaccount:ap:agent-bob",
 }

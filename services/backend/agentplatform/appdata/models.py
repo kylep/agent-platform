@@ -346,6 +346,9 @@ class AppDataToolCall(Base):
     created_at: Mapped[datetime] = mapped_column(_TS, default=utcnow)
     expires_at: Mapped[datetime] = mapped_column(_TS, index=True)
     revoked_at: Mapped[datetime | None] = mapped_column(_TS, nullable=True)
+    # Nullable for credentials minted before the view-execution rollout.
+    scan_rows: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    scan_fields: Mapped[list | None] = mapped_column(_JSON, nullable=True)
 
 
 class AppDataProposal(Base):

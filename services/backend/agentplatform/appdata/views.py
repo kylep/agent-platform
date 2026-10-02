@@ -415,3 +415,34 @@ async def scan_view(session, ctx: AppContext, caller: Caller, view: ViewDef,
         if len(records) < SCAN_CHUNK:
             return
         after = [_raw(records[-1], name) for name, _ in keys]
+
+
+async def scan_page(session, ctx: AppContext, caller: Caller, view: ViewDef,
+                    *, limit: int, cursor: str | None, budget: ScanBudget) -> dict:
+    """One keyset page of an ad-hoc scan under the same read checks as a view.
+
+    The short response fits the executor's per-call proxy. The view-execution
+    credential persists the execution's aggregate row/time budget across pages.
+    """
+    if view.is_count or not 1 <= limit <= SCAN_CHUNK:
+        raise RecordError("AD-SCAN-SPEC", "scan needs 1-1000 rows per page", 422)
+    q = _Query(ctx, caller, view, resolve_params(view, {}), utcnow())
+    q.check_access()
+    conds = await q.conditions(session)
+    keys = _sort_keys(view)
+    sig = _signature(view, keys)
+    if cursor is not None:
+        conds.append(_after(q.c, keys, _decode_cursor(cursor, sig, len(keys))))
+    budget.check_time()
+    records = (await session.execute(select(R).where(*conds)
+                                     .order_by(*order_by(q.c, keys))
+                                     .limit(limit + 1))).scalars().all()
+    budget.charge(len(records))
+    more = len(records) > limit
+    selected = records[:limit]
+    next_cursor = (_encode_cursor(sig, [_raw(selected[-1], name) for name, _ in keys])
+                   if more else None)
+    rows = [present(q.access, row, view.fields) for row in selected]
+    for record in records:
+        session.expunge(record)
+    return {"rows": rows, "next_cursor": next_cursor}

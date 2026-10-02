@@ -677,7 +677,7 @@ Shared-file notes for G1:
     - Presets aren't editable.
     - No actions render for the QA login.
     - a11y passes.
-- [ ] **B15 View-execution credential and `app_data scan`** (after B3, B5
+- [x] **B15 View-execution credential and `app_data scan`** (after B3, B5
   and B10) ∥.
   - **Goal:** a view action can stream rows from its declared sources as
     its viewer, through a per-call credential held by the views pool.

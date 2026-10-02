@@ -22,6 +22,7 @@ from .api_key_role_in import ApiKeyRoleIn
 from .api_key_view import ApiKeyView
 from .app_collection_in import AppCollectionIn
 from .app_collection_patch import AppCollectionPatch
+from .app_data_scan_response_app_data_scan import AppDataScanResponseAppDataScan
 from .app_ref import AppRef
 from .app_view import AppView
 from .artifact_patch import ArtifactPatch
@@ -210,6 +211,9 @@ from .run_duration_point import RunDurationPoint
 from .run_in import RunIn
 from .run_summary import RunSummary
 from .scan_ack_in import ScanAckIn
+from .scan_in import ScanIn
+from .scan_in_filter_item import ScanInFilterItem
+from .scan_in_sort_item import ScanInSortItem
 from .schedule_row import ScheduleRow
 from .schedule_toggle import ScheduleToggle
 from .secret_access_view import SecretAccessView
@@ -321,6 +325,7 @@ __all__ = (
     "ApiKeyView",
     "AppCollectionIn",
     "AppCollectionPatch",
+    "AppDataScanResponseAppDataScan",
     "AppRef",
     "AppView",
     "ArtifactPatch",
@@ -503,6 +508,9 @@ __all__ = (
     "RunIn",
     "RunSummary",
     "ScanAckIn",
+    "ScanIn",
+    "ScanInFilterItem",
+    "ScanInSortItem",
     "ScheduleRow",
     "ScheduleToggle",
     "SecretAccessView",

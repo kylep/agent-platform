@@ -225,19 +225,34 @@ async def _authenticate_tool_call(request: Request, token: str,
     if token.count(".") != 2:
         return None
     sa_name = await workload_sa(request, token)
-    if sa_name is None or sa_name != request.app.state.settings.tool_executor_service_account:
+    settings = request.app.state.settings
+    if sa_name is None or sa_name not in (
+            settings.tool_executor_service_account,
+            settings.tool_executor_views_service_account):
         return None
     keys = await _tc.keypair(request.app.state)
     # TODO(R2): admit KIND_PAGE_INTENT here once page intents are minted;
     # until then a page-intent credential authenticates nothing.
-    claims = _tc.verify(keys["public_key"], credential, expected_sa=sa_name)
+    claims = _tc.verify(keys["public_key"], credential, expected_sa=sa_name,
+                        kinds=(_tc.KIND_TOOL_CALL, _tc.KIND_VIEW_EXEC))
     if claims is None:
+        return None
+    if claims["kind"] == _tc.KIND_VIEW_EXEC:
+        if (sa_name != settings.tool_executor_views_service_account
+                or request.url.path != "/api/app-data/scan"):
+            return None
+    elif sa_name != settings.tool_executor_service_account:
         return None
     if request.headers.get(_tc.CALL_ID_HEADER, "") != claims["call_id"]:
         return None
     async with request.app.state.session_factory() as session:
         if not await _tc.is_live(session, claims):
             return None
+    if claims["kind"] == _tc.KIND_VIEW_EXEC:
+        request.state.auth_kind = _tc.KIND_VIEW_EXEC
+        request.state.view_exec = claims
+        request.state.frozen_tools = []
+        return (claims["principal"], "tools")
     if not await _current_run(request, claims["run_id"]):
         return None
     request.state.auth_kind = _tc.KIND_TOOL_CALL

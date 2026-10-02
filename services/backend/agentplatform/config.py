@@ -67,6 +67,7 @@ class Settings(BaseSettings):
     # credential is bound to (`cnf`, docs/design/39). The broker's account
     # above is the only caller that may mint or revoke one.
     tool_executor_service_account: str = "ap-tool-executor"
+    tool_executor_views_service_account: str = "ap-tool-executor-views"
     mcp_broker_mtls_target: str = "agent-platform-mcp-broker:8443"
     agents_volume_claim: str = "agent-definitions"
     session_secret: str = "dev-insecure"
