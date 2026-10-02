@@ -5,7 +5,12 @@ import httpx
 import pytest
 from agentplatform.appdata import toolviews
 from agentplatform.appdata.access import Caller, RecordError
-from agentplatform.appdata.models import AppDataDefinition, AppDataToolCall
+from agentplatform.appdata.models import (
+    AppDataApp,
+    AppDataDefinition,
+    AppDataToolCall,
+    AppDataViewCache,
+)
 from agentplatform.appdata.records import create_record, load_app
 from agentplatform.appdata.views import run_view
 from agentplatform.toolregistry import ToolRegistry
@@ -122,3 +127,62 @@ async def test_tool_view_refuses_invalid_or_oversize_output(scan_env, sf, monkey
             await run_view(s, ctx, Caller("kyle"), "summary",
                            app_state=scan_env.app.state)
     assert exc.value.code == code
+
+
+async def test_cache_hits_then_misses_for_source_write_viewer_and_versions(scan_env, sf,
+                                                                            monkeypatch):
+    app_id = await _published(sf, scan_env)
+    calls = _fake_pool(monkeypatch, scan_env)
+
+    async def read(principal="kyle", params=None):
+        async with sf() as s:
+            ctx = await load_app(s, app_id)
+            return await run_view(s, ctx, Caller(principal), "summary", params,
+                                  app_state=scan_env.app.state)
+
+    first = await read()
+    assert await read() == first
+    assert len(calls) == 2  # one pool call and its scan
+    async with sf() as s:
+        ctx = await load_app(s, app_id)
+        await create_record(s, ctx, Caller("kyle"), "results", {"title": "new"})
+    await read()
+    assert len(calls) == 4
+    await read("login:qa")
+    assert len(calls) == 6
+    await read(params={"field": "private"})
+    assert len(calls) == 8
+    async with sf() as s:
+        app = await s.get(AppDataApp, app_id)
+        app.approved_version += 1
+        await s.commit()
+    await read()
+    assert len(calls) == 10
+    async with sf() as s:
+        app = await s.get(AppDataApp, app_id)
+        app.authority_generation += 1
+        await s.commit()
+    await read()
+    assert len(calls) == 12
+
+
+async def test_cache_none_bypasses_store_and_byte_cap_prunes(scan_env, sf, monkeypatch):
+    from sqlalchemy import func, select
+
+    app_id = await _published(sf, scan_env)
+    calls = _fake_pool(monkeypatch, scan_env)
+    async with sf() as s:
+        ctx = await load_app(s, app_id)
+        ctx.bundle.views["summary"].cache = "none"
+        await run_view(s, ctx, Caller("kyle"), "summary", app_state=scan_env.app.state)
+        await run_view(s, ctx, Caller("kyle"), "summary", app_state=scan_env.app.state)
+    assert len(calls) == 4
+    async with sf() as s:
+        assert (await s.execute(select(func.count()).select_from(AppDataViewCache))).scalar() == 0
+
+    scan_env.app.state.settings.app_data_view_cache_max_bytes = 260
+    async with sf() as s:
+        ctx = await load_app(s, app_id)
+        await run_view(s, ctx, Caller("kyle"), "summary", app_state=scan_env.app.state)
+        await run_view(s, ctx, Caller("login:qa"), "summary", app_state=scan_env.app.state)
+        assert (await s.execute(select(func.count()).select_from(AppDataViewCache))).scalar() == 1

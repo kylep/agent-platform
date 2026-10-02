@@ -86,6 +86,7 @@ class AppContext:
     versions: dict[str, int] = dc_field(default_factory=dict)
     # The App's approved version these definitions were read at.
     approved_version: int | None = None
+    authority_generation: int = 0
 
     def collection(self, name: str) -> CollectionDef:
         c = self.bundle.collections.get(name)
@@ -156,7 +157,8 @@ async def load_app(session, app_id: str) -> AppContext:
                           "longer validate", 503, exc.as_dict()["errors"]) from exc
     return AppContext(app_id=app.id, owner=owner_principal(app), bundle=validated,
                       timezone=app.timezone or "UTC", status=app.status, name=app.name,
-                      versions=versions, approved_version=app.approved_version)
+                      versions=versions, approved_version=app.approved_version,
+                      authority_generation=app.authority_generation)
 
 
 # --- values ---------------------------------------------------------------------------

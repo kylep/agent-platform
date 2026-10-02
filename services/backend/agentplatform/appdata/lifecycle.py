@@ -1506,7 +1506,7 @@ async def _view_as(session, ctx: rec.AppContext, builder: Caller, viewer: Caller
         # so mint it in a separate session and never commit preview samples.
         async with app_state.session_factory() as credential_session:
             return await execute(credential_session, ctx, viewer, view, params,
-                                 app_state, limit=limit, cursor=cursor)
+                                 app_state, limit=limit, cursor=cursor, use_cache=False)
     check_view_access(ctx, builder, view)
     out = await execute_view(session, ctx, viewer, view, params, limit=limit, cursor=cursor)
     if viewer.principal != builder.principal and "rows" in out:

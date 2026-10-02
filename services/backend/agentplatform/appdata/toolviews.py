@@ -8,7 +8,7 @@ import uuid
 import httpx
 import jsonschema
 
-from agentplatform.appdata import credentials
+from agentplatform.appdata import credentials, viewcache
 from agentplatform.appdata.access import Caller, RecordError
 from agentplatform.appdata.definitions import ToolViewDef
 from agentplatform.appdata.views import _as_of, resolve_params
@@ -43,7 +43,8 @@ def _binding(ctx, view: ToolViewDef, app_state):
 
 
 async def execute(session, ctx, caller: Caller, view: ToolViewDef, params: dict | None,
-                  app_state, *, limit: int | None = None, cursor: str | None = None) -> dict:
+                  app_state, *, limit: int | None = None, cursor: str | None = None,
+                  use_cache: bool = True) -> dict:
     if cursor is not None:
         raise RecordError("AD-CURSOR", "tool views do not page", 422)
     if limit is not None and not 1 <= limit <= 200:
@@ -58,6 +59,13 @@ async def execute(session, ctx, caller: Caller, view: ToolViewDef, params: dict 
         jsonschema.validate(arguments, approved["input_schema"])
     except jsonschema.ValidationError as exc:
         raise RecordError("AD-PARAM-TYPE", f"tool view parameters: {exc.message}", 422) from None
+    cache_key = None
+    if use_cache and view.cache != "none" and view.materialize is None:
+        cache_key = await viewcache.key(session, ctx, caller, view,
+                                        {**arguments, "__limit": limit}, sources)
+        cached = await viewcache.get(session, cache_key)
+        if cached is not None:
+            return cached
     call_id = uuid.uuid4().hex
     keys = await credentials.keypair(app_state)
     token, claim = credentials.mint_view_exec(
@@ -103,11 +111,16 @@ async def execute(session, ctx, caller: Caller, view: ToolViewDef, params: dict 
         if rows is not None:
             if not isinstance(rows, list) or len(rows) > approved["limits"]["max_rows"]:
                 raise RecordError("AD-TOOL-VIEW-ROWS", "tool view output exceeds its row limit", 502)
-            return {"rows": [{"values": row, "restricted": []} for row in rows[:limit]],
-                    "next_cursor": None, "as_of": _as_of(utcnow()), "stale": False}
-        if "count" in parsed:
-            return {"count": parsed["count"], "as_of": _as_of(utcnow()), "stale": False}
-        raise RecordError("AD-TOOL-VIEW-INVALID", "tool view output has no rows or count", 502)
+            result = {"rows": [{"values": row, "restricted": []} for row in rows[:limit]],
+                      "next_cursor": None, "as_of": _as_of(utcnow()), "stale": False}
+        elif "count" in parsed:
+            result = {"count": parsed["count"], "as_of": _as_of(utcnow()), "stale": False}
+        else:
+            raise RecordError("AD-TOOL-VIEW-INVALID", "tool view output has no rows or count", 502)
+        if cache_key is not None:
+            await viewcache.put(session, cache_key, ctx, caller, view, result,
+                                max_bytes=app_state.settings.app_data_view_cache_max_bytes)
+        return result
     finally:
         # A copy of the credential is dead as soon as the executor answers,
         # even on invalid output or a network failure.

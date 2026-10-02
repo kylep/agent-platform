@@ -804,7 +804,7 @@ Shared-file notes for G1:
 
 #### G5
 
-- [ ] **B20 Tool view cache** (after B18) ∥.
+- [x] **B20 Tool view cache** (after B18) ∥.
   - **Goal:** non-materialized tool-view results are cached under an
     authority-versioned key.
   - **Design:** "Tool views" → Cache.

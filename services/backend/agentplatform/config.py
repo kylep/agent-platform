@@ -275,6 +275,7 @@ class Settings(BaseSettings):
     app_data_owner_max_open_proposals: int = 20
     # One scan execution, whatever the hourly budgets have left.
     app_data_scan_max_rows: int = 1_000_000
+    app_data_view_cache_max_bytes: int = 64 * 1024 * 1024
     app_data_scan_max_seconds: float = 60
     # Idempotent builder receipts are kept this long, then pruned.
     app_data_build_ops_retention_days: int = 90

@@ -296,6 +296,19 @@ class AppDataWriteCounter(Base):
     updated_at: Mapped[datetime] = mapped_column(_TS, default=utcnow, onupdate=utcnow)
 
 
+class AppDataViewCache(Base):
+    """Bounded, authority-versioned tool-view result cache."""
+    __tablename__ = "app_data_view_cache"
+    key: Mapped[str] = mapped_column(String(64), primary_key=True)
+    app_id: Mapped[str] = mapped_column(String(32), index=True)
+    view: Mapped[str] = mapped_column(String(64))
+    principal: Mapped[str] = mapped_column(String(128))
+    result: Mapped[dict] = mapped_column(_JSON)
+    bytes: Mapped[int] = mapped_column(Integer)
+    created_at: Mapped[datetime] = mapped_column(_TS, default=utcnow)
+    accessed_at: Mapped[datetime] = mapped_column(_TS, default=utcnow, index=True)
+
+
 class AppDataArtifact(Base):
     """An App-owned artifact (design 39, "Collections" → "Artifact fields").
 
