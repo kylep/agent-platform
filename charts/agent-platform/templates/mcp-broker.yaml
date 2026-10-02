@@ -15,8 +15,11 @@ spec:
         {{- include "agent-platform.selectorLabels" (dict "Release" .Release "Chart" .Chart "component" "mcp-broker") | nindent 8 }}
     spec:
       # Identity-only ServiceAccount (zero RBAC): SPIRE attests the pod by its
-      # SA, giving it spiffe://<td>/ns/<ns>/sa/<release>-mcp-broker. The token
-      # itself stays unmounted — this pod never calls the k8s API.
+      # SA, giving it spiffe://<td>/ns/<ns>/sa/<release>-mcp-broker. The
+      # apiserver token stays unmounted — this pod never calls the k8s API;
+      # the projected `ap-identity` token below is audience-bound to the
+      # platform API, which accepts it only to exchange and revoke tool-call
+      # credentials (docs/design/39).
       serviceAccountName: {{ .Release.Name }}-mcp-broker
       automountServiceAccountToken: false
       securityContext:
@@ -43,6 +46,8 @@ spec:
             {{- end }}
             - name: AP_TOOLS_ROOT
               value: "/agents/tools"
+            - name: AP_BROKER_TOKEN_FILE
+              value: /var/run/ap-identity/token
             # Audit events (design/13 E) ride Kafka; the dispatcher-side
             # consumer writes them. Computed like backendEnv's, NOT from
             # .Values.env (which never carried this key).
@@ -74,6 +79,9 @@ spec:
             # from the synced checkout to register them dynamically.
             - name: agent-definitions
               mountPath: /agents
+              readOnly: true
+            - name: ap-identity
+              mountPath: /var/run/ap-identity
               readOnly: true
           resources:
             requests: {memory: 128Mi, cpu: 50m}
@@ -143,6 +151,13 @@ spec:
         - name: agent-definitions
           persistentVolumeClaim:
             claimName: {{ .Values.env.AP_AGENTS_VOLUME_CLAIM }}
+        - name: ap-identity
+          projected:
+            sources:
+              - serviceAccountToken:
+                  audience: agent-platform
+                  expirationSeconds: 3600
+                  path: token
         {{- if .Values.spire.enabled }}
         - name: spiffe-workload-api
           csi:

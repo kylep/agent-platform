@@ -16,6 +16,10 @@ PR-reviewed `run.py` as a subprocess with a minimal environment:
     caller's `files_in` land in the first by name; whatever the tool writes to
     the second comes back as `files` — the way a tool returns something that
     is not text, since stdout stays a capped text channel.
+  - TOOL_APP_DATA_URL (docs/design/39) when the broker sent a tool-call
+    credential: a per-call local endpoint that forwards `/api/app-data/**` to
+    the platform API with the credential attached. The credential itself stays
+    in this process; the endpoint is gone when the call returns.
 
 The subprocess never sees this process's environment. Timeout and output cap
 are enforced; a non-zero exit becomes a structured error for the model.
@@ -28,6 +32,7 @@ import base64
 import json
 import logging
 import os
+import secrets
 import shutil
 import signal
 import ssl
@@ -124,11 +129,20 @@ class FileIn(BaseModel):
     b64: str
 
 
+class CallCredential(BaseModel):
+    """A tool-call credential (docs/design/39), minted for this one call. The
+    executor attaches it to the call's app-data requests; it is never put
+    where the tool process can read it."""
+    token: str
+    call_id: str
+
+
 class RunIn(BaseModel):
     tool: str
     args: dict = {}
     caller: Caller = Caller()
     files_in: list[FileIn] = []
+    credential: CallCredential | None = None
 
 
 def effective_timeout(manifest: dict) -> int:
@@ -271,7 +285,8 @@ async def fetch_secret_env(secret_name: str) -> dict[str, str]:
     return {k: base64.b64decode(v).decode() for k, v in data.items()}
 
 
-async def build_env(manifest: dict, caller: Caller, in_dir: Path, out_dir: Path) -> dict[str, str]:
+async def build_env(manifest: dict, caller: Caller, in_dir: Path, out_dir: Path,
+                    app_data_url: str | None = None) -> dict[str, str]:
     infra = manifest.get("infra") or {}
     env = {
         # Minimal, explicit base — never os.environ.
@@ -284,6 +299,9 @@ async def build_env(manifest: dict, caller: Caller, in_dir: Path, out_dir: Path)
         "TOOL_IN_DIR": str(in_dir),
         "TOOL_OUT_DIR": str(out_dir),
     }
+    if app_data_url:
+        # The endpoint, never the credential behind it.
+        env["TOOL_APP_DATA_URL"] = app_data_url
     for secret in infra.get("secrets") or []:
         name = secret["name"] if isinstance(secret, dict) else secret
         env.update(await fetch_secret_env(name))
@@ -298,6 +316,137 @@ async def build_env(manifest: dict, caller: Caller, in_dir: Path, out_dir: Path)
         if bootstrap:
             env["AP_KAFKA_BOOTSTRAP"] = bootstrap
     return env
+
+
+# --- the per-call app-data endpoint (docs/design/39) -------------------------
+# The API trusts a tool-call credential only beside this pod's own projected
+# ServiceAccount token (its `cnf`), so a credential copied out of here is
+# useless; the tool never holds either. It reaches App data through a local
+# endpoint that exists for exactly one call.
+API_URL = os.environ.get("AP_API_URL", "http://agent-platform-api:8000").rstrip("/")
+IDENTITY_FILE = Path(os.environ.get("AP_EXECUTOR_TOKEN_FILE", "/var/run/ap-identity/token"))
+APP_DATA_PREFIX = "/api/app-data"
+PROXY_BODY_CAP = 8 * 1024 * 1024
+PROXY_RESPONSE_CAP = 16 * 1024 * 1024
+PROXY_TIMEOUT = 60
+_PROXY_METHODS = {"GET", "POST", "PUT", "PATCH", "DELETE"}
+# Only what describes the body crosses: never the tool's own Authorization,
+# cookies or identity headers.
+_PROXY_HEADERS = ("content-type", "accept")
+# A seam for tests; None is a real network client.
+_api_transport = None
+
+
+def _executor_token() -> str:
+    try:
+        return IDENTITY_FILE.read_text().strip()
+    except OSError:
+        return ""
+
+
+def _escapes_prefix(path: str) -> bool:
+    """A path the API might resolve outside /api/app-data: a dot segment, an
+    encoded dot or separator, a backslash or an empty segment."""
+    lowered = path.lower()
+    if any(bad in lowered for bad in ("%2e", "%2f", "%5c", "\\", "//")):
+        return True
+    return any(seg in (".", "..") for seg in path.split("/"))
+
+
+class AppDataProxy:
+    """One call's app-data endpoint on 127.0.0.1. A random path prefix names
+    the call, so a request belongs to this call only if it carries it; after
+    `close` nothing listens at all."""
+
+    def __init__(self, credential: CallCredential):
+        self.credential = credential
+        self.nonce = secrets.token_urlsafe(18)
+        self.live = False
+        self.port = 0
+        self._server: asyncio.AbstractServer | None = None
+        self._writers: set[asyncio.StreamWriter] = set()
+
+    @property
+    def url(self) -> str:
+        return f"http://127.0.0.1:{self.port}/{self.nonce}{APP_DATA_PREFIX}"
+
+    async def start(self) -> None:
+        self._server = await asyncio.start_server(self._handle, "127.0.0.1", 0)
+        self.port = self._server.sockets[0].getsockname()[1]
+        self.live = True
+
+    async def close(self) -> None:
+        self.live = False
+        if self._server is None:
+            return
+        self._server.close()
+        for w in list(self._writers):
+            w.close()
+        await self._server.wait_closed()
+
+    async def _handle(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
+        self._writers.add(writer)
+        try:
+            try:
+                status, ctype, body = await self._serve(reader)
+            except (asyncio.IncompleteReadError, asyncio.LimitOverrunError, ValueError):
+                status, ctype, body = 400, "text/plain", b"bad request"
+            head = (f"HTTP/1.1 {status} {'OK' if status < 400 else 'Error'}\r\n"
+                    f"Content-Type: {ctype}\r\nContent-Length: {len(body)}\r\n"
+                    "Connection: close\r\n\r\n").encode()
+            writer.write(head + body)
+            await writer.drain()
+        except (ConnectionError, RuntimeError):
+            pass
+        finally:
+            self._writers.discard(writer)
+            writer.close()
+
+    async def _serve(self, reader: asyncio.StreamReader) -> tuple[int, str, bytes]:
+        method, target, _ = (await reader.readuntil(b"\r\n")).decode("latin-1").split(" ", 2)
+        headers: dict[str, str] = {}
+        for _ in range(100):
+            line = (await reader.readuntil(b"\r\n")).decode("latin-1").strip()
+            if not line:
+                break
+            k, _, v = line.partition(":")
+            headers[k.strip().lower()] = v.strip()
+        else:
+            return 431, "text/plain", b"too many headers"
+        if "transfer-encoding" in headers:
+            return 411, "text/plain", b"send a Content-Length"
+        length = int(headers.get("content-length") or 0)
+        if length < 0 or length > PROXY_BODY_CAP:
+            return 413, "text/plain", b"body too large"
+        body = await reader.readexactly(length) if length else b""
+        if not self.live:
+            return 410, "text/plain", b"this tool call has returned"
+        path, sep, query = target.partition("?")
+        prefix = f"/{self.nonce}"
+        if not path.startswith(prefix + "/"):
+            return 404, "text/plain", b"not this call's endpoint"
+        path = path[len(prefix):]
+        if not (path == APP_DATA_PREFIX or path.startswith(APP_DATA_PREFIX + "/")) \
+                or _escapes_prefix(path):
+            return 403, "text/plain", b"only /api/app-data is reachable from a tool"
+        if method not in _PROXY_METHODS:
+            return 405, "text/plain", b"method not allowed"
+        token = _executor_token()
+        if not token:
+            return 503, "text/plain", b"the executor has no workload identity"
+        out = {k: headers[k] for k in _PROXY_HEADERS if k in headers}
+        out.update({"Authorization": f"Bearer {token}",
+                    "X-AP-Tool-Call": self.credential.token,
+                    "X-AP-Tool-Call-Id": self.credential.call_id})
+        try:
+            async with httpx.AsyncClient(base_url=API_URL, transport=_api_transport,
+                                         timeout=PROXY_TIMEOUT) as c:
+                r = await c.request(method, path + sep + query, content=body, headers=out)
+        except httpx.HTTPError as e:
+            return 502, "text/plain", f"platform API unreachable: {e}".encode()
+        if len(r.content) > PROXY_RESPONSE_CAP:
+            return 502, "text/plain", b"platform API answer too large"
+        return r.status_code, r.headers.get("content-type", "application/octet-stream"), r.content
 
 
 def _kill_group(proc: asyncio.subprocess.Process) -> None:
@@ -332,12 +481,16 @@ async def run_tool(body: RunIn):
         return {"ok": False, "error": f"arguments do not match the tool's schema: {e.message}"}
 
     scratch = Path(tempfile.mkdtemp(prefix="tool-", dir=SCRATCH_DIR))
+    proxy = AppDataProxy(body.credential) if body.credential else None
     try:
         in_dir, out_dir = scratch / "in", scratch / "out"
         in_dir.mkdir()
         out_dir.mkdir()
         stage_files_in(in_dir, body.files_in)
-        env = await build_env(manifest, body.caller, in_dir, out_dir)
+        if proxy is not None:
+            await proxy.start()
+        env = await build_env(manifest, body.caller, in_dir, out_dir,
+                              proxy.url if proxy else None)
         timeout = effective_timeout(manifest)
         # Its own session, so the whole process group — anything run.py forks
         # included — can be killed as one. A surviving grandchild would keep
@@ -358,8 +511,11 @@ async def run_tool(body: RunIn):
             _kill_group(proc)
             await proc.wait()
             return {"ok": False, "error": f"tool timed out after {timeout}s"}
-        # run.py exited; nothing it left behind gets to touch out/ after this.
+        # run.py exited; nothing it left behind gets to touch out/ after this,
+        # or to reach App data through this call's endpoint.
         _kill_group(proc)
+        if proxy is not None:
+            await proxy.close()
 
         if proc.returncode != 0:
             detail = (err or out or b"").decode(errors="replace")[-2000:]
@@ -371,6 +527,8 @@ async def run_tool(body: RunIn):
         files, warnings = collect_files_out(out_dir)
         return {"ok": True, "output": text, "files": files, "warnings": warnings}
     finally:
+        if proxy is not None:
+            await proxy.close()
         shutil.rmtree(scratch, ignore_errors=True)
 
 
