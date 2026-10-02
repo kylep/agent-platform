@@ -243,6 +243,28 @@ Design sections:
 - **`url` fields with `link: true`** parse and produce `link` facts. Values
   aren't scheme-checked, and nothing renders them as links.
 
+**Decisions for R1b (Claude, 2026-10-02; Kyle delegated these).** Each one
+takes the planner's recommendation:
+- **D1** App tools live in a new definition kind, `tool`.
+- **D2** Drop the credential's same-name role fallback. No `tool.yaml` uses `app_access` yet.
+- **D3** Per-action `view_actions` go in `tool.yaml`. Eligibility needs both that and the reviewed effect-policy row.
+- **D4** `scan` takes a spec on a role, and records the fields it used.
+- **D5** Add a third credential kind, `view_exec`: minted only by the API, read-only, and used for Kyle's renders and the materializer.
+- **D6** The views pool always renders its own deny-all egress policy, whatever the global setting says.
+- **D7** The tool-view cache is a Postgres table with a byte cap.
+- **D8** Parameter domains are read as distinct values at each refresh.
+- **D9** The owner's "home channel" is the owner agent's DM with Kyle.
+- **D10** Proposal kinds are `bundle`, `rollback` and `transfer`.
+- **D11** On an approved publish the proposer stays the author, `approved_by=kyle` is stamped, and the authority generation is bumped.
+- **D12** `app_data.write@1` gets new intent and receipt tables in appdata.
+- **D13** Templates on tool-only verbs are refused at validation.
+- **D14** The export appends a restore marker to the dump. The outbox check waits for M1.
+- **D15** Maintenance pauses crons, schedules, jobs, Tasks and materialization. Runs Kyle starts are still allowed.
+- **D16** The QA login gets the read routes, filtered by what it may see.
+- **D17** The ref-history index is deferred to M2.
+- **D18** Drop the GIN index, and B23 updates the design's "Storage" section.
+- **D19** Ship the small generic `app_summary` view tool.
+
 Parallel groups (each group's tasks go out together; each implementer is told
 which paths the others own):
 - **G1** ∥ B1, B2, B3, B4, B5, B6, B7
