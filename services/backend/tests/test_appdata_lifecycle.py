@@ -985,3 +985,268 @@ async def test_update_record_still_works_through_the_engine(sf):
         out = await update_record(s, ctx, Caller("agent:pai"), "habits", row["id"],
                                   {"done": True}, expected_version=1)
     assert out["values"]["done"] is True
+
+
+# --- publish vs concurrent record writes ---------------------------------------------------
+# Publish checks the stored records, then commits the definitions they passed
+# for. Record writes take the same per-collection locks, so none lands in
+# between; one that waited behind a publish re-reads the definitions it was
+# checked against and is refused if they moved.
+
+UNIQUE_DAY = {"kind": "unique", "fields": ["habit", "day"]}
+DUPLICATE = {"habit": "run", "day": "2026-09-30"}
+
+
+async def _write_via(path, sf, app_id, values):
+    async with sf() as s:
+        if path == "records":
+            ctx = await load_app(s, app_id)
+            return await create_record(s, ctx, Caller("agent:pai"), "habits", values)
+        if path == "lifecycle":
+            return await L.record_create(s, PAI, app_id, request_id=rid(),
+                                         collection="habits", values=values)
+        from agentplatform.appdata.batch import batch
+        ctx = await load_app(s, app_id)
+        return await batch(s, ctx, Caller("agent:pai"), "habits", [values])
+
+
+def _pause_after_record_checks(monkeypatch):
+    """Hold publish between its record checks and its commit."""
+    import asyncio
+    checked, go = asyncio.Event(), asyncio.Event()
+    original = L._check_records
+
+    async def paused(*args, **kw):
+        await original(*args, **kw)
+        checked.set()
+        await go.wait()
+
+    monkeypatch.setattr(L, "_check_records", paused)
+    return checked, go
+
+
+async def _count(sf, app_id):
+    async with sf() as s:
+        return (await s.execute(select(func.count()).select_from(AppDataRecord).where(
+            AppDataRecord.app_id == app_id))).scalar_one()
+
+
+@pytest.mark.parametrize("path", ["records", "lifecycle", "batch"])
+async def test_a_write_racing_a_publish_waits_and_is_refused_on_the_old_definitions(
+        sf, monkeypatch, path):
+    import asyncio
+    app_id = await built(sf, ("collection", habits()))
+    await add_record(sf, app_id, "habits", DUPLICATE)
+    await draft(sf, app_id, "collection", habits(rules=[UNIQUE_DAY]))
+    checked, go = _pause_after_record_checks(monkeypatch)
+    publishing = asyncio.create_task(publish(sf, app_id, 1))
+    await checked.wait()
+    # Under version 1 this duplicate is fine; under version 2 it isn't.
+    writing = asyncio.create_task(_write_via(path, sf, app_id, DUPLICATE))
+    await asyncio.sleep(0.2)
+    assert not writing.done(), "the write landed inside the publish's check"
+    go.set()
+    assert (await publishing)["approved_version"] == 2
+    err = await refused("AD-DEFINITIONS-MOVED", writing)
+    assert err.status == 409 and err.detail["collections"] == ["habits"]
+    assert await _count(sf, app_id) == 1
+
+
+async def test_a_plain_write_waits_behind_a_publish_that_requires_a_field(sf, monkeypatch):
+    """No `unique` anywhere: the write's shared lock still waits for the
+    publish's exclusive one."""
+    import asyncio
+    app_id = await built(sf, ("collection", habits()))
+    await add_record(sf, app_id, "habits", {**DUPLICATE, "done": True})
+    body = habits()
+    body["fields"]["done"] = {"type": "bool", "required": True}
+    await draft(sf, app_id, "collection", body)
+    checked, go = _pause_after_record_checks(monkeypatch)
+    publishing = asyncio.create_task(publish(sf, app_id, 1))
+    await checked.wait()
+    writing = asyncio.create_task(_write_via("records", sf, app_id,
+                                             {"habit": "read", "day": "2026-09-30"}))
+    await asyncio.sleep(0.2)
+    assert not writing.done()
+    go.set()
+    await publishing
+    await refused("AD-DEFINITIONS-MOVED", writing)
+    assert await _count(sf, app_id) == 1
+
+
+async def test_a_publish_waits_for_a_write_in_flight_and_then_sees_it(sf, monkeypatch):
+    import asyncio
+    from agentplatform.appdata import records as rec_mod
+    app_id = await built(sf, ("collection", habits()))
+    await add_record(sf, app_id, "habits", DUPLICATE)
+    await draft(sf, app_id, "collection", habits(rules=[UNIQUE_DAY]))
+    inserted, go = asyncio.Event(), asyncio.Event()
+    original = rec_mod.bump_counters
+
+    async def paused(*args, **kw):
+        inserted.set()
+        await go.wait()
+        return await original(*args, **kw)
+
+    monkeypatch.setattr(rec_mod, "bump_counters", paused)
+    writing = asyncio.create_task(_write_via("records", sf, app_id, DUPLICATE))
+    await inserted.wait()
+    publishing = asyncio.create_task(publish(sf, app_id, 1))
+    await asyncio.sleep(0.2)
+    assert not publishing.done(), "the publish checked while a write was mid-transaction"
+    go.set()
+    await writing
+    err = await refused("AL-INCONSISTENT", publishing)
+    assert err.detail["record_issues"][0]["code"] == "AL-RECORDS-UNIQUE"
+    assert (await detail(sf, app_id))["approved_version"] == 1
+
+
+async def test_a_publish_that_leaves_a_collection_alone_doesnt_stale_its_writes(sf):
+    app_id = await built(sf, ("collection", habits()))
+    async with sf() as s:
+        ctx = await load_app(s, app_id)
+    await draft(sf, app_id, "view", RECENT)
+    await publish(sf, app_id, 1)
+    async with sf() as s:
+        await create_record(s, ctx, Caller("agent:pai"), "habits", DUPLICATE)
+    await draft(sf, app_id, "collection", habits(rules=[UNIQUE_DAY]))
+    await publish(sf, app_id, 2)
+    async with sf() as s:
+        err = await refused("AD-DEFINITIONS-MOVED", create_record(
+            s, ctx, Caller("agent:pai"), "habits", {"habit": "x", "day": "2026-09-30"}))
+    assert err.detail["approved_version"] == 3
+
+
+async def test_a_rollback_takes_the_same_locks(sf, monkeypatch):
+    import asyncio
+    strict = habits()
+    strict["fields"]["done"] = {"type": "bool", "required": True}
+    app_id = await built(sf, ("collection", strict))
+    await draft(sf, app_id, "collection", habits())
+    await publish(sf, app_id, 1)
+    await add_record(sf, app_id, "habits", {**DUPLICATE, "done": True})
+    checked, go = _pause_after_record_checks(monkeypatch)
+    async with sf() as s:
+        rolling = asyncio.create_task(L.rollback(s, PAI, app_id, request_id=rid(),
+                                                 to_version=1, expected_approved_version=2))
+        await checked.wait()
+        writing = asyncio.create_task(_write_via("records", sf, app_id,
+                                                 {"habit": "x", "day": "2026-09-30"}))
+        await asyncio.sleep(0.2)
+        assert not writing.done()
+        go.set()
+        assert (await rolling)["approved_version"] == 3
+    await refused("AD-DEFINITIONS-MOVED", writing)
+
+
+async def test_concurrent_writes_never_leave_a_published_unique_broken(sf):
+    """Real concurrency, no pauses: whatever the interleaving, a publish that
+    went through leaves no duplicates behind it."""
+    import asyncio
+    app_id = await built(sf, ("collection", habits()))
+    await draft(sf, app_id, "collection", habits(rules=[UNIQUE_DAY]))
+
+    async def write(i):
+        try:
+            await _write_via("records", sf, app_id, {"habit": "run", "day": "2026-09-30"})
+            return "ok"
+        except RecordError as exc:
+            return exc.code
+
+    async def pub():
+        try:
+            await publish(sf, app_id, 1)
+            return "published"
+        except RecordError as exc:
+            return exc.code
+
+    results = await asyncio.gather(*(write(i) for i in range(4)), pub(),
+                                   *(write(i) for i in range(4, 8)))
+    async with sf() as s:
+        dupes = (await s.execute(select(func.count()).select_from(AppDataRecord).where(
+            AppDataRecord.app_id == app_id))).scalar_one()
+    if "published" in results:
+        assert dupes <= 1, results
+    else:
+        assert "AL-INCONSISTENT" in results
+
+
+async def test_delete_waiting_for_publish_notices_a_new_incoming_ref(sf, monkeypatch):
+    import asyncio
+    from agentplatform.appdata.records import delete_record
+
+    links = {"collection": "links", "fields": {"habit": {"type": "string"}}}
+    app_id = await built(sf, ("collection", habits()), ("collection", links))
+    target = await add_record(sf, app_id, "habits", DUPLICATE)
+    await add_record(sf, app_id, "links", {"habit": target["id"]})
+    links["fields"]["habit"] = {"type": "ref", "collection": "habits",
+                                 "on_delete": "restrict"}
+    await draft(sf, app_id, "collection", links, expected_revision=0)
+    checked, go = _pause_after_record_checks(monkeypatch)
+
+    async with sf() as s:
+        ctx = await load_app(s, app_id)
+    publishing = asyncio.create_task(publish(sf, app_id, 1))
+
+    async def delete():
+        async with sf() as s:
+            return await delete_record(s, ctx, Caller("agent:pai"), "habits", target["id"])
+
+    deleting = None
+    try:
+        await asyncio.wait_for(checked.wait(), 5)
+        deleting = asyncio.create_task(delete())
+        await asyncio.sleep(0.1)
+        assert not deleting.done()
+        go.set()
+        await asyncio.wait_for(publishing, 5)
+        err = await refused("AD-DEFINITIONS-MOVED", asyncio.wait_for(deleting, 5))
+        assert err.detail["collections"] == ["links"]
+        assert await _count(sf, app_id) == 2
+        async with sf() as s:
+            fresh = await load_app(s, app_id)
+            await refused("AD-REF-RESTRICT", delete_record(
+                s, fresh, Caller("agent:pai"), "habits", target["id"]))
+    finally:
+        go.set()
+        for task in (publishing, deleting):
+            if task is not None:
+                task.cancel()
+        await asyncio.gather(*(t for t in (publishing, deleting) if t is not None),
+                             return_exceptions=True)
+
+
+async def test_publish_holds_changed_collection_locks_sorted_through_commit(sf, monkeypatch):
+    from contextlib import asynccontextmanager
+    from sqlalchemy import event
+    from agentplatform.appdata import records
+
+    app_id = await new_app(sf)
+    for name in ("zeta", "alpha"):
+        await draft(sf, app_id, "collection", habits(collection=name))
+    original = records.collection_lock
+    held, committed = [], []
+
+    @asynccontextmanager
+    async def tracked(session, aid, name, *, shared=False):
+        assert not shared
+        async with original(session, aid, name, shared=shared):
+            held.append(name)
+            try:
+                yield
+            finally:
+                held.remove(name)
+
+    original_check = L._check_records
+
+    async def checked(*args, **kwargs):
+        assert held == ["alpha", "zeta"]
+        await original_check(*args, **kwargs)
+
+    monkeypatch.setattr(records, "collection_lock", tracked)
+    monkeypatch.setattr(L, "_check_records", checked)
+    async with sf() as s:
+        event.listen(s.sync_session, "after_commit", lambda _: committed.append(list(held)))
+        await L.publish(s, PAI, app_id, request_id=rid(), expected_approved_version=None)
+    assert committed == [["alpha", "zeta"]]
+    assert held == []

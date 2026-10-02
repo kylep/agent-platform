@@ -30,6 +30,12 @@ Rules of the game:
   `infra.database: true`, and `TOOL_CALLER_AGENT` / `TOOL_RUN_ID` (the caller
   identity the broker verified, not anything the model supplied). Nothing
   else — never assume `os.environ` carries more.
+- Stdin is the JSON arguments object. A tool that declares `app_access` also
+  finds `_app_data: {"url": "http://127.0.0.1:<port>/<nonce>/api/app-data"}`
+  there: its per-call App-data endpoint, dead once the call returns. It
+  arrives on stdin rather than in the environment because a sibling tool
+  running as the same uid can read `/proc/<pid>/environ`. `_app_data` is
+  reserved — the executor drops whatever the model put under it.
 - Exit non-zero with a message on stderr to signal an error to the model.
 - Output is capped at 256 KiB; keep results tight and structured (JSON).
 - A new pip dependency means the executor image must be rebuilt; `tool.yaml`

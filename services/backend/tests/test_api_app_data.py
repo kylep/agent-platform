@@ -434,3 +434,78 @@ async def test_deleting_an_agent_hands_its_apps_to_kyle(admin_client, sf, seed_a
     assert (app.owner_kind, app.owner_id) == ("kyle", "kyle")
     listed = (await admin_client.get("/api/app-data/apps")).json()
     assert listed[0]["owner"] == "kyle"
+
+
+# --- Kyle's quota routes ----------------------------------------------------------------
+
+QUOTA = "/api/app-data/quotas"
+
+
+async def test_kyle_reads_and_sets_a_quota(admin_client, sf):
+    app_id = await build(sf)
+    await add(sf, app_id, {"habit": "run", "day": "2026-10-01"})
+    got = (await admin_client.get(f"{QUOTA}/app/{app_id}")).json()
+    assert got["scope"] == "app" and got["scope_id"] == app_id
+    assert got["set_by"] == "default" and got["set"] == {}
+    assert got["used"]["records"] == 1
+    r = await admin_client.put(f"{QUOTA}/app/{app_id}",
+                               json={"limits": {"max_records": 10, "max_bytes": 4096}})
+    assert r.status_code == 200, r.text
+    out = r.json()
+    assert out["set"] == {"max_records": 10, "max_bytes": 4096}
+    assert out["limits"]["max_records"] == 10 and out["set_by"] == "kyle"
+    # null puts a limit back to the default.
+    out = (await admin_client.put(f"{QUOTA}/app/{app_id}",
+                                  json={"limits": {"max_records": None}})).json()
+    assert out["set"] == {"max_bytes": 4096} and out["limits"]["max_records"] == 250_000
+    out = (await admin_client.put(f"{QUOTA}/owner/agent:pai",
+                                  json={"limits": {"max_apps": 3}})).json()
+    assert out["scope_id"] == "agent:pai" and out["limits"]["max_apps"] == 3
+    assert (await admin_client.get(f"{QUOTA}/owner/agent:pai")).json()["used"]["records"] == 1
+
+
+@pytest.mark.parametrize("path,body", [
+    ("app/a1", {"limits": {"max_apps": 3}}),          # an owner limit on an App
+    ("owner/kyle", {"limits": {"max_open_drafts": 1}}),
+    ("app/a1", {"limits": {"max_records": -1}}),
+    ("app/a1", {"limits": {"max_records": True}}),
+    ("app/a1", {"limits": {}}),
+    ("tenant/a1", {"limits": {"max_records": 1}}),
+])
+async def test_the_quota_setter_refuses_what_isnt_a_limit(admin_client, path, body):
+    r = await admin_client.put(f"{QUOTA}/{path}", json=body)
+    assert r.status_code == 422, r.text
+    assert isinstance(r.json()["detail"], str)
+
+
+async def test_the_quota_routes_refuse_bad_bodies_and_scopes(admin_client):
+    assert (await admin_client.put(f"{QUOTA}/app/a1", json={"max_records": 1})
+            ).status_code == 422
+    assert (await admin_client.get(f"{QUOTA}/tenant/a1")).status_code == 422
+    assert (await admin_client.get(f"{QUOTA}/app/{'x' * 161}")).status_code == 422
+
+
+async def test_quota_routes_answer_only_kyles_session(client, token_client, sf, seed_agent,
+                                                      agent_store):
+    from argon2 import PasswordHasher
+
+    from agentplatform.appdata.models import AppDataQuota
+    app_id = await build(sf)
+    path = f"{QUOTA}/app/{app_id}"
+    body = {"limits": {"max_records": 10 ** 9}}
+    assert (await token_client.get(path)).status_code == 401
+    assert (await token_client.put(path, json=body)).status_code == 401
+    admin_key = await _key(sf, name="ops", role="admin")
+    agent_headers = await agent(sf, seed_agent, agent_store)
+    for headers in (admin_key, agent_headers):
+        assert (await token_client.get(path, headers=headers)).status_code == 403
+        assert (await token_client.put(path, json=body, headers=headers)).status_code == 403
+    async with sf() as s:
+        s.add(Principal(name="qa", role="reader", password_hash=PasswordHasher().hash("pw")))
+        await s.commit()
+    assert (await token_client.post("/api/login", json={"principal": "qa",
+                                                         "password": "pw"})).status_code == 200
+    assert (await token_client.put(path, json=body)).status_code == 403
+    async with sf() as s:
+        row = await s.get(AppDataQuota, ("app", app_id))
+    assert row is None or row.max_records is None

@@ -100,7 +100,8 @@ app_access:               # optional: App data this tool may reach (design 39)
    a **minimal env**: the declared secrets' keys (fetched from k8s at call
    time — never baked into any pod), `TOOL_DB_URL` when `database: true`,
    `TOOL_CALLER_AGENT` / `TOOL_RUN_ID`, the two file-sink directories
-   below, and `TOOL_APP_DATA_URL` for a tool with `app_access`. Timeout
+   below. A tool with `app_access` also finds its App-data endpoint in the
+   stdin arguments as `_app_data.url` (see "App access"). Timeout
    enforced, output capped at 256 KiB, non-zero exit →
    structured error the model can read.
 
@@ -164,7 +165,10 @@ credentials"). The tool never holds it:
    still checked against the App's current definitions.
 3. The executor gets the credential in the run request and opens a
    per-call endpoint on `127.0.0.1` behind a random path. The tool sees only
-   `TOOL_APP_DATA_URL`. The endpoint forwards `/api/app-data/**` and nothing
+   its URL, as `_app_data: {"url": ...}` in the stdin arguments — not the
+   environment, which a sibling tool under the same uid could read from
+   `/proc/<pid>/environ`. The executor drops any `_app_data` the model sent.
+   The endpoint forwards `/api/app-data/**` and nothing
    else, attaching the credential, its call id and the executor's own
    ServiceAccount token, and it's closed when the call returns.
 4. The broker then revokes the `jti` (`DELETE /api/tool-calls/{jti}`).
