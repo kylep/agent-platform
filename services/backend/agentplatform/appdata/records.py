@@ -22,6 +22,8 @@ Postgres.
   block it, `unlink` refs are cleared.
 - **`unique`** is checked under a per-collection lock: `pg_advisory_xact_lock`
   on Postgres, a process lock on SQLite (which serializes writers anyway).
+- **Artifact fields** make the artifact App-owned on write and delete it with
+  its last reference (`appdata/artifacts.py`), in the write's transaction.
 
 Transactions: like `ticket_store`, every public write makes exactly one
 commit, at the end, and rolls back on refusal. The underscore helpers don't
@@ -41,6 +43,7 @@ from zoneinfo import ZoneInfo
 
 from sqlalchemy import and_, func, select
 
+from agentplatform.appdata import artifacts as app_artifacts
 from agentplatform.appdata.access import Access, Caller, RecordError, matches
 from agentplatform.appdata.definitions import (
     SYSTEM_FIELDS, AppBundle, CollectionDef, DefinitionError, RefField, UniqueRule,
@@ -413,6 +416,7 @@ async def _insert(session, ctx: AppContext, caller: Caller, c: CollectionDef,
     sides = side_columns(c, doc)
     record_id = record_id or uuid.uuid4().hex
     await _check_unique(session, ctx, c, doc, record_id)
+    await app_artifacts.attach(session, ctx, caller, c, record_id, doc)
     now = utcnow()
     record = AppDataRecord(app_id=ctx.app_id, collection=c.collection, id=record_id,
                            current_version=1, created_at=now, updated_at=now,
@@ -516,6 +520,14 @@ async def _update(session, ctx: AppContext, caller: Caller, c: CollectionDef,
     doc = {name: value for name, value in doc.items() if value is not None}
     sides = side_columns(c, doc)
     await _check_unique(session, ctx, c, doc, record.id)
+    moved = [name for name in app_artifacts.artifact_fields(c) if name in changed]
+    # The new values first, so an artifact moving between two fields of this
+    # record is never without a reference in between.
+    await app_artifacts.attach(session, ctx, caller, c, record.id,
+                               {name: changed[name] for name in moved})
+    await app_artifacts.detach_fields(session, ctx, c.collection, record.id,
+                                      {name: record.doc[name] for name in moved
+                                       if record.doc.get(name) is not None})
     session.add(_history(record))
     record.doc = doc
     for column, value in sides.items():
@@ -656,6 +668,7 @@ async def execute_plan(session, ctx: AppContext, caller: Caller, plan: DeletePla
     for collection, ids in by_collection.items():
         for i in range(0, len(ids), _CHUNK):
             chunk = ids[i:i + _CHUNK]
+            await app_artifacts.detach_records(session, ctx, collection, chunk)
             await session.execute(R.__table__.delete().where(
                 R.app_id == ctx.app_id, R.collection == collection, R.id.in_(chunk)))
             await session.execute(AppDataRecordVersion.__table__.delete().where(

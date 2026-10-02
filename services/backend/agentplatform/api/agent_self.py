@@ -5,6 +5,7 @@ from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, ConfigDict, Field
 
 from agentplatform import artifact_store
+from agentplatform.appdata import artifacts as app_artifacts
 from agentplatform.agentdefs import next_version, snapshot_of
 from agentplatform.agentspec import CODEX_MODELS, KNOWN_MODELS, TOOL_SELF
 from agentplatform.authority import assert_readable_run, ensure_run_authority
@@ -123,7 +124,8 @@ async def set_self_avatar(request: Request, body: AgentImageIn):
         view = None
         if body.artifact_id is not None:
             art = await artifact_store.get(session, body.artifact_id)
-            if art is None:
+            # A face is shown to everyone; an App-owned picture never is one.
+            if art is None or await app_artifacts.ownership(session, art.id) is not None:
                 raise HTTPException(404, "unknown artifact")
             if art.kind != "image":
                 raise HTTPException(422, "avatar must be an image artifact")

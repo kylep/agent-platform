@@ -242,3 +242,36 @@ class AppDataWriteCounter(Base):
     collection: Mapped[str] = mapped_column(String(64), primary_key=True)
     counter: Mapped[int] = mapped_column(BigInteger, default=0)
     updated_at: Mapped[datetime] = mapped_column(_TS, default=utcnow, onupdate=utcnow)
+
+
+class AppDataArtifact(Base):
+    """An App-owned artifact (design 39, "Collections" → "Artifact fields").
+
+    The artifact row and its bytes stay in `artifacts` / `artifact_blobs`;
+    this row is what takes it out of the plain artifact surface. Every
+    artifact route, the list and the event feed look here first, and an
+    artifact named here is authorized through its owning field's read access
+    and nothing else. The owning field is the first one that referenced it
+    (or the one an upload named); it never changes. `size` is the bytes the
+    App is charged, copied so the App's usage is one sum over this table."""
+    __tablename__ = "app_data_artifacts"
+    artifact_id: Mapped[str] = mapped_column(String(32), primary_key=True)
+    app_id: Mapped[str] = mapped_column(String(32), index=True)
+    collection: Mapped[str] = mapped_column(String(64))
+    field: Mapped[str] = mapped_column(String(64))
+    size: Mapped[int] = mapped_column(BigInteger)
+    created_at: Mapped[datetime] = mapped_column(_TS, default=utcnow)
+
+
+class AppDataArtifactRef(Base):
+    """One record field holding an App-owned artifact. The artifact is
+    deleted when its last row here goes; an upload with none yet is swept
+    after a day."""
+    __tablename__ = "app_data_artifact_refs"
+    __table_args__ = (Index("ix_app_data_artifact_refs_record", "app_id", "collection",
+                            "record_id"),)
+    artifact_id: Mapped[str] = mapped_column(String(32), primary_key=True)
+    app_id: Mapped[str] = mapped_column(String(32), primary_key=True)
+    collection: Mapped[str] = mapped_column(String(64), primary_key=True)
+    record_id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    field: Mapped[str] = mapped_column(String(64), primary_key=True)

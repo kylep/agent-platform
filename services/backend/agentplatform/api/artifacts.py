@@ -21,6 +21,12 @@ The `relay` role — the per-run participant role — reaches `/api/artifacts/*`
 as it reaches Relay, Tickets and the Wiki, always as the agent the token
 names — and, as with the Wiki, behind the grant itself (`require_artifacts_access`):
 there is no room to be a member of here, so the role alone would bound nothing.
+
+An App-owned artifact (docs/design/39, `appdata/artifacts.py`) is not the
+grant's: every read route authorizes it through its owning field's read access
+for the caller, whether or not the caller holds the grant, the list and the
+stats leave it out, and the writes here refuse it, since it goes when its last
+record does.
 """
 import base64
 import binascii
@@ -44,24 +50,34 @@ from agentplatform.api.agents import TOOL_AGENTS_EDIT
 from agentplatform.api.auth import authenticate
 from agentplatform.api.relay import READ, WRITE, Caller, require_relay_access
 from agentplatform.api.tickets import _run_of
+from agentplatform.appdata import artifacts as app_artifacts
 from agentplatform.artifact_store import ArtifactRuleError
 from agentplatform.image_gen_service import ImageGenError
 
 router = APIRouter()
 
 
-def require_artifacts_access(*roles: str):
+NOT_GRANTED = "this agent is not granted the artifacts tool"
+
+
+def require_artifacts_access(*roles: str, app_owned: bool = False):
     """`require_relay_access`, plus the grant this door is behind — the wiki's
     fence (`require_wiki_access`) for the wiki's reason: the participant grants
     share ONE role, an artifact is not in a room, and without this an agent
     granted only `mcp__platform__relay` would read and write every artifact on
     the platform. Either artifact grant opens it: the artist holds `image_gen`
     and needs the store its pictures land in. Humans are unaffected — their
-    authority is the role, as everywhere else."""
+    authority is the role, as everywhere else.
+
+    `app_owned` marks the routes that read ONE artifact: an agent without the
+    grant passes the door, and `_row_or_404` serves it only an App-owned
+    artifact its App facts let it read, refusing everything else with the
+    door's own 403, so an agent without the grant learns nothing new."""
     inner = require_relay_access(*roles)
 
     async def dep(request: Request) -> Caller:
         caller = await inner(request)
+        request.state.artifacts_granted = True
         if caller.agent is None:
             return caller
         # Frozen at launch with the run's token, the same answer /api/whoami
@@ -70,7 +86,9 @@ def require_artifacts_access(*roles: str):
         if caller.agent not in relay_api._agent_set(request):
             raise HTTPException(403, "unknown or disabled agent")
         if TOOL_ARTIFACTS not in granted and TOOL_IMAGE_GEN not in granted:
-            raise HTTPException(403, "this agent is not granted the artifacts tool")
+            if not app_owned:
+                raise HTTPException(403, NOT_GRANTED)
+            request.state.artifacts_granted = False
         return caller
 
     return dep
@@ -182,13 +200,40 @@ def _rule(e: ArtifactRuleError | ImageGenError) -> HTTPException:
     return HTTPException(e.status, str(e))
 
 
-async def _row_or_404(s, artifact_id: str, request: Request | None = None):
+async def _row_or_404(s, artifact_id: str, request: Request):
     row = await store.get(s, artifact_id)
+    granted = getattr(request.state, "artifacts_granted", True)
     if row is None:
-        raise HTTPException(404, "unknown artifact")
-    if request is not None:
-        await _readable_artifact(s, request, row)
+        raise HTTPException(404 if granted else 403,
+                            "unknown artifact" if granted else NOT_GRANTED)
+    await _authorize_read(s, request, row)
     return row
+
+
+async def _authorize_read(s, request: Request, row) -> None:
+    """An App-owned artifact through its owning field, as a 404 when that
+    refuses (it's no business of a stranger's that the id exists); anything
+    else behind the grant and its run's visibility, as before."""
+    granted = getattr(request.state, "artifacts_granted", True)
+    own = await app_artifacts.ownership(s, row.id)
+    if own is not None:
+        principal = await app_artifacts.request_principal(
+            request, getattr(request.state, "api_key_agent", None))
+        if await app_artifacts.may_read(s, own, principal):
+            return
+        raise HTTPException(404 if granted else 403,
+                            "unknown artifact" if granted else NOT_GRANTED)
+    if not granted:
+        raise HTTPException(403, NOT_GRANTED)
+    await _readable_artifact(s, request, row)
+
+
+async def _plain_or_409(s, row) -> None:
+    """The writes here are the plain surface's. An App-owned artifact goes
+    when its last record does, so renaming or deleting it here is refused."""
+    if await app_artifacts.ownership(s, row.id) is not None:
+        raise HTTPException(409, "this artifact belongs to an App record; it changes "
+                                 "and goes with the record, not here")
 
 
 async def _readable_artifact(s, request, row):
@@ -363,7 +408,8 @@ async def artifact_stats(request: Request,
             count, used = await store.usage(s)
             spend = await image_gen.spend_stats(s, st.settings)
         else:
-            rows = await _visible_artifacts(s, request, (await s.execute(select(Artifact))).scalars().all())
+            rows = await _visible_artifacts(s, request, (await s.execute(
+                select(Artifact).where(store.not_app_owned()))).scalars().all())
             live = [row for row in rows if row.deleted_at is None]
             count, used = len(live), sum(row.size for row in live)
             month = image_gen.month_start(st.settings)
@@ -398,14 +444,16 @@ async def image_models(request: Request,
 
 @router.get("/api/artifacts/{artifact_id}", response_model=ArtifactView)
 async def get_artifact(request: Request, artifact_id: str,
-                       caller: Caller = Depends(require_artifacts_access(*READ))):
+                       caller: Caller = Depends(require_artifacts_access(
+                           *READ, app_owned=True))):
     async with request.app.state.session_factory() as s:
         return store.artifact_view(await _row_or_404(s, artifact_id, request))
 
 
 @router.get("/api/artifacts/{artifact_id}/content", response_class=Response)
 async def artifact_content(request: Request, artifact_id: str,
-                           caller: Caller = Depends(require_artifacts_access(*READ))):
+                           caller: Caller = Depends(require_artifacts_access(
+                               *READ, app_owned=True))):
     """The bytes. Inline for the four rasters — the browser renders exactly
     what Pillow already decoded on the way in — and a download for anything
     else, whatever it called itself."""
@@ -420,13 +468,16 @@ async def artifact_content(request: Request, artifact_id: str,
 
 @router.get("/api/artifacts/{artifact_id}/resource", response_class=Response)
 async def artifact_resource(request: Request, artifact_id: str,
-                            caller: Caller = Depends(require_artifacts_access(*READ))):
-    """Private MCP Resource bytes; ownership is rechecked on every read."""
+                            caller: Caller = Depends(require_artifacts_access(
+                                *READ, app_owned=True))):
+    """Private MCP Resource bytes; ownership is rechecked on every read. An
+    App-owned artifact's owner is its field, which `_row_or_404` checked."""
     async with request.app.state.session_factory() as s:
         row = await _row_or_404(s, artifact_id, request)
         ident = await authenticate(request)
-        if caller.participant != row.owner and (caller.agent is not None or
-                                                 ident is None or ident[1] != "admin"):
+        if (await app_artifacts.ownership(s, artifact_id) is None
+                and caller.participant != row.owner
+                and (caller.agent is not None or ident is None or ident[1] != "admin")):
             raise HTTPException(404, "unknown artifact")
         data = await store.content(s, artifact_id)
     if data is None:
@@ -437,7 +488,8 @@ async def artifact_resource(request: Request, artifact_id: str,
 
 @router.get("/api/artifacts/{artifact_id}/thumb", response_class=Response)
 async def artifact_thumb(request: Request, artifact_id: str,
-                         caller: Caller = Depends(require_artifacts_access(*READ))):
+                         caller: Caller = Depends(require_artifacts_access(
+                             *READ, app_owned=True))):
     """The raster thumb the store made — an image's only; a file has none and
     says 404 rather than serving its bytes small."""
     async with request.app.state.session_factory() as s:
@@ -477,7 +529,7 @@ async def create_artifact(request: Request,
         if isinstance(parent_id, str):
             parent = await store.get(s, parent_id)
             if parent is not None:
-                await _readable_artifact(s, request, parent)
+                await _authorize_read(s, request, parent)
         try:
             row = await store.create(s, data=data, owner=caller.participant,
                                      run_id=run.id if run is not None else None,
@@ -549,6 +601,7 @@ async def patch_artifact(request: Request, artifact_id: str, body: ArtifactPatch
                          caller: Caller = Depends(require_artifacts_access(*WRITE))):
     async with request.app.state.session_factory() as s:
         row = await _row_or_404(s, artifact_id, request)
+        await _plain_or_409(s, row)
         await _may_modify(request, caller, row.owner)
         try:
             row = await store.patch(s, artifact_id, name=body.name, tags=body.tags)
@@ -566,6 +619,7 @@ async def delete_artifact(request: Request, artifact_id: str,
     st = request.app.state
     async with st.session_factory() as s:
         row = await _row_or_404(s, artifact_id, request)
+        await _plain_or_409(s, row)
         await _may_modify(request, caller, row.owner)
         row = await store.soft_delete(s, artifact_id, producer=st.producer, agent=caller.agent)
         return store.artifact_view(row)

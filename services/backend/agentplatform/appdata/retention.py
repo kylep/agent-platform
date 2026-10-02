@@ -19,6 +19,7 @@ from datetime import datetime, timedelta, timezone
 from sqlalchemy import select
 
 from agentplatform.appdata.access import SYSTEM_RETENTION
+from agentplatform.appdata.artifacts import sweep_unreferenced
 from agentplatform.appdata.definitions import retention_days
 from agentplatform.appdata.records import (R, AppContext, compute_plan, execute_plan,
                                            scope)
@@ -97,5 +98,9 @@ async def prune_collection(session, ctx: AppContext, collection: str, *,
 
 
 async def prune_app(session, ctx: AppContext, *, now: datetime | None = None) -> list[dict]:
-    return [(await prune_collection(session, ctx, name, now=now)).as_dict()
-            for name, c in ctx.bundle.collections.items() if c.retention is not None]
+    """Prune every collection with retention, then sweep the App's artifact
+    uploads that no record ever referenced."""
+    out = [(await prune_collection(session, ctx, name, now=now)).as_dict()
+           for name, c in ctx.bundle.collections.items() if c.retention is not None]
+    await sweep_unreferenced(session, ctx.app_id, now=now)
+    return out
