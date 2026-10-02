@@ -65,8 +65,12 @@ installation and rollback mechanics, not the quality of agent decisions when
 the skills fire.
 
 Version 0.2.0 adds `app-building` and makes the provenance workflow take the
-version from `release.json`. Its manifest approval and attestation are
-pending; this page records the run once it is pinned.
+version from `release.json`. Its attested bundle came from CI run
+`37051563083` on main commit `fd593559c9af09e6898b147399fb01834316e13f`.
+The downloaded artifact passed GitHub attestation verification against the
+main-branch `plugin-release.yaml` workflow. Its SHA-256 matches a bundle
+reconstructed in Linux. macOS `gzip -n` emits different compressed bytes for
+the same tar stream, so use a Linux container to reproduce this digest locally.
 
 For an update, edit and validate the source, bump the matching package and
 marketplace versions, regenerate `release.json`, then update/reinstall through

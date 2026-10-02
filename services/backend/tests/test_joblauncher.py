@@ -1,4 +1,5 @@
 import json
+import sys
 
 from kubernetes.client.rest import ApiException
 
@@ -302,13 +303,12 @@ def test_build_job_binds_secrets_via_envfrom(tmp_path):
 
 
 def _admit_pending_attestation(monkeypatch, package):
-    """Until the provenance workflow's attested digest for this version is
-    pinned, admit the checkout's own bundle (as tests/test_skills.py does)."""
+    """Admit a pending release or macOS gzip reproduction for launcher tests."""
     import hashlib
     from agentplatform import plugin_release
 
     version = json.loads((package / "release.json").read_text())["version"]
-    if version not in plugin_release.ATTESTED_BUNDLES:
+    if version not in plugin_release.ATTESTED_BUNDLES or sys.platform == "darwin":
         monkeypatch.setitem(plugin_release.ATTESTED_BUNDLES, version, hashlib.sha256(
             plugin_release.release_bundle(package)).hexdigest())
 
