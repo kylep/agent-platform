@@ -213,6 +213,10 @@ class Settings(BaseSettings):
     # total is a 507 with a message the Studio shows.
     artifacts_max_bytes: int = 8 * 1024 * 1024
     artifacts_total_max_bytes: int = 2 * 1024 ** 3
+    # An App-owned artifact (docs/design/39, "Artifact fields"): a dataset or
+    # a snapshot a tool keeps in a record, so bigger than a screenshot. Its
+    # bytes count against the App's quota, not the total above.
+    app_artifacts_max_bytes: int = 64 * 1024 * 1024
     # A delete is `deleted_at` so a card naming a gone artifact still says
     # "deleted"; the dispatcher hard-deletes rows (and their bytes) this long
     # after, in the retention loop that prunes transcripts.

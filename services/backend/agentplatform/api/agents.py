@@ -781,6 +781,7 @@ async def set_agent_image(request: Request, name: str, body: AgentImageIn):
     `artifact: null` for a clear — so the Studio and the #art feed see the
     face change as they see the picture land."""
     from agentplatform import artifact_store
+    from agentplatform.appdata import artifacts as app_artifacts
     st = request.app.state
     async with st.session_factory() as s:
         # Authority first, as a dependency would have it: a stranger learns
@@ -792,7 +793,9 @@ async def set_agent_image(request: Request, name: str, body: AgentImageIn):
         view = None
         if body.artifact_id is not None:
             art = await artifact_store.get(s, body.artifact_id)
-            if art is None:
+            # A face is shown to everyone; an App-owned picture is its field's
+            # readers' alone, so it's never one (docs/design/39).
+            if art is None or await app_artifacts.ownership(s, art.id) is not None:
                 raise HTTPException(404, "unknown artifact")
             if art.kind != "image":
                 raise HTTPException(422, "an agent's image must be an image artifact")

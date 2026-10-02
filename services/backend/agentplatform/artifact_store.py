@@ -11,6 +11,11 @@ here in that order — one commit, then a best-effort publish, the wiki shape.
 
 Reads are as narrow as the writes are careful: a list never selects the blob
 table, and a soft-deleted row reads as absent to everything but the pruner.
+
+An App-owned artifact (docs/design/39, `appdata/artifacts.py`) is in these
+tables too, but it isn't the plain surface's: the list and the usage the
+total cap measures leave it out, and `get` hands it to callers that check
+ownership before serving it.
 """
 import asyncio
 import hashlib
@@ -20,9 +25,10 @@ import logging
 import re
 
 from PIL import Image
-from sqlalchemy import Text, cast, func, select
+from sqlalchemy import Text, cast, exists, func, select
 from sqlalchemy.orm import defer
 
+from agentplatform.appdata.models import AppDataArtifact
 from agentplatform.config import get_settings
 from agentplatform.db import Artifact, ArtifactBlob, utcnow
 from agentplatform.events import TOPIC_ARTIFACTS_EVENTS
@@ -189,16 +195,25 @@ def measure_and_thumb(data: bytes) -> tuple[int, int, bytes]:
 
 async def create(session, *, data: bytes, owner: str, name=None, claimed_mime=None,
                  source: str = "upload", meta=None, tags=None, run_id: str | None = None,
-                 producer=None, settings=None, allow_generated: bool = False) -> Artifact:
+                 producer=None, settings=None, allow_generated: bool = False,
+                 max_bytes: int | None = None, count_total: bool = True,
+                 before_commit=None, event_extra: dict | None = None) -> Artifact:
     """Store bytes as a new artifact and tell the topic. `owner` is a
     participant string the CALLER resolved from a token — nothing here checks
     it, because nothing here can. `allow_generated` is the generate route's
-    key to the one source a client may not claim."""
+    key to the one source a client may not claim.
+
+    The App upload (`appdata.artifacts.upload`) is the one caller of the last
+    four: its own cap instead of `artifacts_max_bytes`, no platform total
+    (the App's quota bounds it), its ownership row added by `before_commit`
+    in the same transaction as the artifact, and the owner named on the
+    event, so no frame ever goes out for an artifact that isn't yet owned."""
     settings = settings or get_settings()
+    cap = settings.artifacts_max_bytes if max_bytes is None else max_bytes
     if not data:
         raise ArtifactRuleError(400, "an artifact needs bytes")
-    if len(data) > settings.artifacts_max_bytes:
-        raise ArtifactRuleError(413, f"an artifact is at most {settings.artifacts_max_bytes} bytes")
+    if len(data) > cap:
+        raise ArtifactRuleError(413, f"an artifact is at most {cap} bytes")
     name, tags, meta = clean_name(name), clean_tags(tags), clean_meta(meta)
     allowed = SOURCES if allow_generated else CLIENT_SOURCES
     if source not in allowed:
@@ -215,11 +230,12 @@ async def create(session, *, data: bytes, owner: str, name=None, claimed_mime=No
     # Read-then-insert, not a lock: two uploads landing together can each
     # pass this and overrun the cap by at most one artifact (8 MiB) per
     # concurrent writer, which the cap — a budget, not a disk — can absorb.
-    _, used = await usage(session)
-    if used + len(data) > settings.artifacts_total_max_bytes:
-        raise ArtifactRuleError(507, "the artifact store is at its cap "
-                                     f"({settings.artifacts_total_max_bytes} bytes); "
-                                     "delete something before saving more")
+    if count_total:
+        _, used = await usage(session)
+        if used + len(data) > settings.artifacts_total_max_bytes:
+            raise ArtifactRuleError(507, "the artifact store is at its cap "
+                                         f"({settings.artifacts_total_max_bytes} bytes); "
+                                         "delete something before saving more")
     row = Artifact(name=name, mime=mime, size=len(data),
                    sha256=hashlib.sha256(data).hexdigest(),
                    kind="image" if mime in RASTERS else "file",
@@ -228,9 +244,11 @@ async def create(session, *, data: bytes, owner: str, name=None, claimed_mime=No
     session.add(row)
     await session.flush()
     session.add(ArtifactBlob(artifact_id=row.id, data=data))
+    if before_commit is not None:
+        await before_commit(session, row)
     await session.commit()
     await publish_artifact_event(producer, event="created", artifact=artifact_view(row),
-                                 agent=_agent_of(owner))
+                                 agent=_agent_of(owner), extra=event_extra)
     return row
 
 
@@ -290,10 +308,16 @@ async def publish_face_clears(producer, agents: list[str]) -> None:
 
 # --- reads -----------------------------------------------------------------------
 
+def not_app_owned():
+    """The plain surface's artifacts: those no App owns."""
+    return ~exists().where(AppDataArtifact.artifact_id == Artifact.id)
+
+
 def list_query():
     """The metadata columns and nothing else — never the blob table, and the
     thumb deferred so the grid's query is rows of a few hundred bytes."""
-    return select(Artifact).options(defer(Artifact.thumb)).where(Artifact.deleted_at.is_(None))
+    return select(Artifact).options(defer(Artifact.thumb)).where(
+        Artifact.deleted_at.is_(None), not_app_owned())
 
 
 async def get(session, artifact_id: str) -> Artifact | None:
@@ -347,9 +371,10 @@ async def list_artifacts(session, *, kind: str | None = None, owner: str | None 
 async def usage(session) -> tuple[int, int]:
     """(count, bytes) of the live artifacts — what the total cap is measured
     against and what the stats show. Soft-deleted rows do not count: the
-    caller was told to delete something to make room, and it did."""
+    caller was told to delete something to make room, and it did. Nor do
+    App-owned ones, which count against their App instead."""
     row = (await session.execute(select(func.count(Artifact.id), func.sum(Artifact.size))
-                                 .where(Artifact.deleted_at.is_(None)))).one()
+                                 .where(Artifact.deleted_at.is_(None), not_app_owned()))).one()
     return int(row[0] or 0), int(row[1] or 0)
 
 
@@ -377,7 +402,7 @@ def artifact_view(a: Artifact) -> dict:
 
 
 async def publish_artifact_event(producer, *, event: str, artifact: dict | None,
-                                 agent: str | None = None) -> None:
+                                 agent: str | None = None, extra: dict | None = None) -> None:
     """Best-effort, after the commit: the row is the record, so a broker that
     is down costs the Studio a live update and never the artifact. Keyed by
     the artifact; an `agent_image` clear has none, so it keys by the agent
@@ -387,7 +412,8 @@ async def publish_artifact_event(producer, *, event: str, artifact: dict | None,
     key = artifact["id"] if artifact else agent
     try:
         await producer.publish(TOPIC_ARTIFACTS_EVENTS, key,
-                               {"event": event, "artifact": artifact, "agent": agent},
+                               {"event": event, "artifact": artifact, "agent": agent,
+                                **(extra or {})},
                                type="artifacts.event")
     except Exception:
         log.warning("artifacts.events publish failed for %s %s", key, event, exc_info=True)
