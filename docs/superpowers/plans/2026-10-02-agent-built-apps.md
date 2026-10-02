@@ -246,7 +246,33 @@ drills.
 
 ## Repairs
 
+- **A4:** move `TOOL_APP_DATA_URL` out of the tool's environment (readable from `/proc` by sibling tools under the same uid) into the stdin payload.
+- **A9:** publish doesn't lock out record writes that race its consistency check.
+- **A9:** prune the record-write `build_ops` rows.
+- **A13 release, step 1 (needs Kyle):** add `"0.2.0": "c660caae157f6972b686d97b9354ee00e706d27cde46fc5948b57182cae135b7"` (the SHA-256 of `plugins/agent-platform-coding/release.json` at the A13 commit) to `APPROVED_RELEASES` in `services/backend/agentplatform/plugin_release.py`. It approves exact skill text, and the auto-mode classifier refused it from an agent, so Kyle adds or confirms it. Until then `test_skills.py` (3 tests) and `test_joblauncher.py::test_plugin_assignment_pins_approved_release_at_launch` fail with "plugin release is not approved", and the catalog refuses the whole package (coder and QA are blocked). Any edit to a package file changes the digest: rerun the regeneration, re-pin.
+- **A13 release, step 2 (after the R1a PR merges to `main`):**
+  1. The `Coding plugin provenance` workflow runs on the push (paths `plugins/agent-platform-coding/**`, `plugin_release.py`, the workflow). It verifies with `verify_release(root, attested=False)`, prints `sha256sum dist/agent-platform-coding-0.2.0.tar.gz`, attests it and uploads artifact `agent-platform-coding-0.2.0`. If it didn't run: `gh workflow run plugin-release.yaml --ref main`.
+  2. `RUN_ID=$(gh run list -R kylep/agent-platform --workflow plugin-release.yaml --branch main -L 1 --json databaseId -q '.[0].databaseId')`
+  3. `gh run download $RUN_ID -R kylep/agent-platform -n agent-platform-coding-0.2.0 -D /tmp/ap-plugin-release`
+  4. `gh attestation verify /tmp/ap-plugin-release/agent-platform-coding-0.2.0.tar.gz -R kylep/agent-platform --signer-workflow kylep/agent-platform/.github/workflows/plugin-release.yaml --source-ref refs/heads/main`
+  5. `shasum -a 256 /tmp/ap-plugin-release/agent-platform-coding-0.2.0.tar.gz` must equal the run log's `sha256sum` line and `release_bundle(Path("plugins/agent-platform-coding"))` reproduced from the merged `main` checkout.
+  6. A follow-up PR adds `"0.2.0": "<that digest>"` to `ATTESTED_BUNDLES` with the run id in its comment, and records the run in `docs/agent-platform-coding-plugin.md`. The tests then hold the real pin (`test_plugin_catalog_requires_the_attested_bundle` compares it). That PR re-triggers the workflow, which re-attests identical bytes: expected.
+  7. **Deploy only after that PR merges.** Before it, the deployed catalog refuses the package ("plugin bytes differ from the attested release bundle").
+  8. From Kyle's session: assign `app-building` to `pai`, `kai` and `olu`, and grant them `mcp__platform__apps` and `mcp__platform__app_data` (see Needs Kyle).
+- **A13 ↔ A10:** the skill and `app-data.md` name the tools' actions and arguments after the agent routes (`apps`: schema, list, create, get, draft, notes, validate, preview, publish, rollback, retire, authority, health; `app_data`: describe, query, get, create, update, delete, delete_preview; arguments as the route bodies). A10 must expose exactly these, or the skill needs a new release (steps 1–2 again). If A10 adds `batch`/`batch_job`, update section 2 of the skill and "Batch writes" in `app-data.md`.
+- **A4 ↔ A9:** `/api/app-data/agent/*` refuse tool-call credentials (`_authenticate_tool_call` sets `frozen_tools = []`, and `_agent` requires the tool in it), so an `app_access` tool can't reach App data yet. Documented as R1b in `tools.md` and `app-data.md`; decide whether R1a wires it.
+- **A9 ↔ A11:** `apps health` reports quota against `lifecycle.DEFAULT_RECORDS_LIMIT`/`DEFAULT_BYTES_LIMIT` (100,000 records, 64 MiB) when no quota row exists, but writes are enforced against the config defaults (250,000, 256 MiB). Read limits through `quotas.defaults`.
+- **A11:** `quotas.check_new_app` (max Apps) and `check_new_draft` (open drafts) aren't called by `lifecycle.create`/`draft`; `set_quota` and `quotas.describe` have no route.
+- **A6/A7/A8/A9:** nothing schedules `retention.prune_app`, `batch.prune_staging_sets`, `quotas.prune_build_ops` or `artifacts.sweep_unreferenced`.
+- **Integration:** all of R1a is merged on `feat/r1a` (worktree `~/gh/ap-r1a`). A11 is still running in `~/gh/ap-a11`, then A10, A12–A15, the phase review, the PR and the deploy.
+
 ## Live verification
+
+- **R0 (PR #36, `e60f862`, helm rev 89, 2026-10-03).** The admin API key's
+  PUT on `kai` was refused with 403 ("agent 'kai' is protected: it holds
+  agents_edit, agents_grant, so only Kyle's session…"). Kai's change log has
+  version 10, `changed_via=audit:kyle-only`. Sol's review findings (padded
+  names, chat-owner moves, images) were fixed before merge.
 
 ## Definition of done
 

@@ -63,8 +63,13 @@ def release_bundle(root: Path) -> bytes:
                           capture_output=True, check=True).stdout
 
 
-def verify_release(root: Path) -> list[Path]:
-    """Return verified skill dirs. Reject extras, symlinks, drift and authority."""
+def verify_release(root: Path, *, attested: bool = True) -> list[Path]:
+    """Return verified skill dirs. Reject extras, symlinks, drift and authority.
+
+    `attested=False` is for the provenance workflow alone: it builds the
+    bundle that gets attested, so the attested digest can't be pinned yet.
+    Every other check still applies, the approved manifest digest included.
+    Catalog admission always requires the attested bundle."""
     release_path = root / "release.json"
     if not release_path.is_file() or release_path.is_symlink():
         raise ValueError("missing skills-only release manifest")
@@ -110,7 +115,7 @@ def verify_release(root: Path) -> list[Path]:
             if not isinstance(interface, dict) or set(interface) - INTERFACE_FIELDS \
                     or interface.get("capabilities") != []:
                 raise ValueError("Codex plugin interface is not skills-only")
-    if hashlib.sha256(release_bundle(root)).hexdigest() != ATTESTED_BUNDLES.get(
+    if attested and hashlib.sha256(release_bundle(root)).hexdigest() != ATTESTED_BUNDLES.get(
             release["version"]):
         raise ValueError("plugin bytes differ from the attested release bundle")
     return [root / path.rsplit("/", 1)[0] for path in sorted(expected)
