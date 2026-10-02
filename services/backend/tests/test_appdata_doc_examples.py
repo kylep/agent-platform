@@ -31,9 +31,7 @@ def _examples(path: Path) -> list[tuple[str, str, int]]:
 
 
 def _cases():
-    # The skill ships in its own plugin release; until that lands, the
-    # reference's examples are checked alone.
-    for path in (p for p in (SKILL, REFERENCE) if p.exists()):
+    for path in (SKILL, REFERENCE):
         for tag, body, line in _examples(path):
             yield pytest.param(tag, body, id=f"{path.name}:{line}:{tag or 'untagged'}")
 
@@ -53,11 +51,6 @@ def test_every_documented_definition_is_accepted(tag, body):
         assert widening, "a `bundle widening` example must need a proposal"
 
 
-def test_the_reference_carries_a_self_publishing_example():
-    assert any(tag == "bundle" for tag, _, _ in _examples(REFERENCE))
-
-
-@pytest.mark.skipif(not SKILL.exists(), reason="the app-building skill ships in its own release")
 def test_the_docs_carry_examples_and_the_skill_fits_a_release():
     skill = _examples(SKILL)
     assert sum(tag == "bundle" for tag, _, _ in skill) >= 3

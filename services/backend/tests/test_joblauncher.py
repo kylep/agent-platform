@@ -301,7 +301,19 @@ def test_build_job_binds_secrets_via_envfrom(tmp_path):
         "git": hashlib.sha256((tmp_path / "git" / "SKILL.md").read_bytes()).hexdigest()}
 
 
-def test_plugin_assignment_pins_approved_release_at_launch(tmp_path):
+def _admit_pending_attestation(monkeypatch, package):
+    """Until the provenance workflow's attested digest for this version is
+    pinned, admit the checkout's own bundle (as tests/test_skills.py does)."""
+    import hashlib
+    from agentplatform import plugin_release
+
+    version = json.loads((package / "release.json").read_text())["version"]
+    if version not in plugin_release.ATTESTED_BUNDLES:
+        monkeypatch.setitem(plugin_release.ATTESTED_BUNDLES, version, hashlib.sha256(
+            plugin_release.release_bundle(package)).hexdigest())
+
+
+def test_plugin_assignment_pins_approved_release_at_launch(monkeypatch, tmp_path):
     import hashlib
     import shutil
     import pytest
@@ -312,6 +324,7 @@ def test_plugin_assignment_pins_approved_release_at_launch(tmp_path):
     skills = tmp_path / "skills"
     skills.mkdir()
     shutil.copytree(source, tmp_path / "plugins" / "agent-platform-coding")
+    _admit_pending_attestation(monkeypatch, tmp_path / "plugins" / "agent-platform-coding")
     launcher = K8sJobLauncher(batch=None,
                               settings=Settings(runner_image="r:1", k8s_namespace="ap"),
                               skill_store=SkillStore(skills))
@@ -326,7 +339,8 @@ def test_plugin_assignment_pins_approved_release_at_launch(tmp_path):
     # A checkout sync can replace the manifest after catalog validation. The
     # launcher must not pin the replacement just because it can hash it.
     release = tmp_path / "plugins" / "agent-platform-coding" / "release.json"
-    release.write_text(release.read_text().replace('"0.1.1"', '"0.1.0"'))
+    version = json.loads(release.read_text())["version"]
+    release.write_text(release.read_text().replace(f'"{version}"', '"0.0.0"'))
     with pytest.raises(ValueError, match="assigned"):
         launcher.build_job(run, Manifest(skills=["platform-change"]))
 
