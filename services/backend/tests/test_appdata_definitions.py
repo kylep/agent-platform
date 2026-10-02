@@ -1000,6 +1000,11 @@ def test_tool_view_requires_reviewed_action_and_approved_read_source(monkeypatch
     bundle["pages"] = [page]
     d.validate_app(bundle)
 
+    page["blocks"][0]["row_link"] = {"page": "home", "param": "habit"}
+    with pytest.raises(DefinitionError) as raised:
+        d.validate_app(bundle)
+    assert "JD-PAGE-LINK" in {item.code for item in raised.value.issues}
+
 
 def test_exported_schemas_accept_the_fixtures_and_refuse_bad_shapes():
     jsonschema = pytest.importorskip("jsonschema")

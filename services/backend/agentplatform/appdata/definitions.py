@@ -1254,8 +1254,8 @@ def _check_page(p: PageDef, app: AppBundle, names: dict[str, set[str]],
                 out.append(issue("JD-PAGE-ACTION", join_path(where, "actions"),
                                  "a tool view cannot carry a collection action"))
             if isinstance(block, TableBlock) and block.row_link is not None:
-                out += _check_row_link(block.row_link, app, names,
-                                       join_path(where, "row_link"))
+                out.append(issue("JD-PAGE-LINK", join_path(where, "row_link"),
+                                 "tool view rows are not App records and cannot link by record id"))
             continue
         collection = app.collections.get(view.collection) if view else None
         if view is None or collection is None:

@@ -268,7 +268,9 @@ function ActionPanel({ appId, page, selected, onClose, onDone }: {
 
 function viewError(error: unknown): string {
   if (error instanceof AppDataError && error.status === 403) return "You can't read this view.";
-  if (error instanceof AppDataError && error.status === 503) return "This view no longer validates.";
+  if (error instanceof AppDataError && error.status === 503) {
+    return "This view is disabled because its source or tool binding changed.";
+  }
   return `This view is unavailable: ${error instanceof Error ? error.message : "unknown error"}`;
 }
 

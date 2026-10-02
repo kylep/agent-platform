@@ -1485,6 +1485,15 @@ const statePages: Record<string, Record<string, unknown>> = {
   stale: { renderer: "typed/v2", title: "Streaks", components: [
     { kind: "metric", label: "Days done (rollup)", view: "done_rollup" },
   ] },
+  tool_views: { renderer: "typed/v2", title: "Summary", components: [
+    { kind: "table", label: "Top colours", view: "tool_colours",
+      columns: [{ field: "value", label: "Colour" }, { field: "count", format: "int" }] },
+    { kind: "detail", label: "Top colour", view: "tool_top",
+      fields: [{ field: "value", label: "Colour" }, { field: "count", format: "int" }] },
+    { kind: "metric", label: "Total", view: "tool_total" },
+    { kind: "table", label: "Disabled source", view: "tool_disabled",
+      columns: [{ field: "value" }] },
+  ] },
   mixed: { renderer: "typed/v2", title: "Mixed", components: [
     { kind: "metric", label: "Days done", view: "done_count" },
     { kind: "table", label: "Private log", view: "private_log", columns: [{ field: "habit" }] },
@@ -1508,6 +1517,12 @@ function stateView(view: string, params: URLSearchParams): { status?: number; js
   const fresh = { as_of: AS_OF, stale: false };
   if (view === "done_count") return { json: { count: 23, ...fresh } };
   if (view === "done_rollup") return { json: { count: 19, as_of: STALE_AS_OF, stale: true } };
+  if (view === "tool_colours" || view === "tool_top") return { json: {
+    rows: [{ id: "tool-row-0", values: { value: "blue", count: 12 }, restricted: [] }],
+    next_cursor: null, as_of: STALE_AS_OF, stale: true } };
+  if (view === "tool_total") return { json: { count: 42, as_of: AS_OF, stale: false } };
+  if (view === "tool_disabled") return { status: 503,
+    json: { detail: "the source binding changed" } };
   if (view === "recent") {
     // Two pages: the cursor is the index the next page starts at.
     const start = Number(params.get("cursor") ?? 0);
@@ -1637,6 +1652,10 @@ export async function mockApi(page: Page): Promise<string[]> {
   await page.route("**/api/**", async (route: Route) => {
     const url = new URL(route.request().url());
     const path = url.pathname;
+    if (path === "/api/maintenance/status") {
+      await route.fulfill({ json: { mode: "running" } });
+      return;
+    }
     if (path === "/api/quota" || path === "/api/quota/refresh") {
       await route.fulfill({ json: quotaSnapshot() });
       return;

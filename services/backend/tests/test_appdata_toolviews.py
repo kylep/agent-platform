@@ -91,7 +91,8 @@ async def test_tool_view_scans_as_viewer_and_revokes_credential(scan_env, sf, mo
         ctx = await load_app(s, app_id)
         out = await run_view(s, ctx, Caller("login:qa"), "summary",
                              app_state=scan_env.app.state)
-    assert out["rows"] == [{"values": {"value": "blue", "count": 1}, "restricted": []}]
+    assert out["rows"] == [{"id": "tool-row-0", "values": {"value": "blue", "count": 1},
+                            "restricted": []}]
     assert out["next_cursor"] is None and out["stale"] is False
     assert calls == [("http://agent-platform-tool-executor-views:8000", 65), 200]
     async with sf() as s:

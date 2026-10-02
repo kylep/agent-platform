@@ -116,7 +116,8 @@ async def execute(session, ctx, caller: Caller, view: ToolViewDef, params: dict 
         if rows is not None:
             if not isinstance(rows, list) or len(rows) > approved["limits"]["max_rows"]:
                 raise RecordError("AD-TOOL-VIEW-ROWS", "tool view output exceeds its row limit", 502)
-            result = {"rows": [{"values": row, "restricted": []} for row in rows[:limit]],
+            result = {"rows": [{"id": f"tool-row-{index}", "values": row, "restricted": []}
+                               for index, row in enumerate(rows[:limit])],
                       "next_cursor": None, "as_of": _as_of(utcnow()), "stale": False}
         elif "count" in parsed:
             result = {"count": parsed["count"], "as_of": _as_of(utcnow()), "stale": False}

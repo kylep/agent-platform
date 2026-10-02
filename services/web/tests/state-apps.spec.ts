@@ -310,8 +310,34 @@ test("a denied or invalid view fails only its own component", async ({ page }) =
     .toHaveText("23");
   await expect(page.locator(".live-view-table")).toContainText("You can't read this view.");
   await expect(page.locator(".live-view-metric").filter({ hasText: "Broken count" }))
-    .toContainText("This view no longer validates.");
+    .toContainText("This view is disabled because its source or tool binding changed.");
 });
+
+for (const theme of ["dark", "light"] as const) {
+  for (const width of [390, 1280]) {
+    test(`tool views render at ${width} in ${theme}`, async ({ page }) => {
+      await page.addInitScript((selected) => localStorage.setItem("theme", selected), theme);
+      await page.setViewportSize({ width, height: 844 });
+      const unmatched = await mockApi(page);
+      await page.goto(pagePath("tool_views"));
+      await expect(page.locator("html")).toHaveAttribute("data-theme", theme);
+      const table = page.locator(".live-view-table").filter({ hasText: "Top colours" });
+      await expect(table.locator("tbody tr")).toHaveCount(1);
+      await expect(table.locator("tbody tr")).toContainText("blue");
+      await expect(table.locator(".v2-as-of")).toContainText(/stale/i);
+      await expect(page.locator(".v2-detail")).toContainText("blue");
+      await expect(page.locator(".v2-detail .v2-as-of")).toContainText(/stale/i);
+      await expect(page.locator(".live-view-metric strong")).toHaveText("42");
+      await expect(page.locator(".live-view-metric .v2-as-of")).toContainText("As of");
+      await expect(page.locator(".live-view-table").filter({ hasText: "Disabled source" }))
+        .toContainText("This view is disabled because its source or tool binding changed.");
+      const overflow = await page.evaluate(() =>
+        document.documentElement.scrollWidth - document.documentElement.clientWidth);
+      expect(overflow).toBeLessThanOrEqual(1);
+      expect(unmatched).toEqual([]);
+    });
+  }
+}
 
 test("the builder area: pages, definitions, build notes and health", async ({ page }) => {
   const unmatched = await mockApi(page);

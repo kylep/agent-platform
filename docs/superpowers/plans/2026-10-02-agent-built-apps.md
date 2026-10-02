@@ -852,7 +852,7 @@ Shared-file notes for G1:
     - The domain follows new values.
     - Nothing refreshes under maintenance.
     - A materializer credential can't write.
-- [ ] **B22 Tool views in the web** (after B18) ∥.
+- [x] **B22 Tool views in the web** (after B18) ∥.
   - **Goal:** pages show tool-view results like any view, with their
     freshness.
   - **Design:** "Tool views" → Freshness; "Pages".
