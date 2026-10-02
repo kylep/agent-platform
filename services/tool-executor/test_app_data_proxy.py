@@ -1,10 +1,11 @@
 """The executor's half of tool-call credentials (docs/design/39).
 
 When the broker sends a credential with a run, the executor opens a per-call
-endpoint on localhost and gives the tool only its URL. The endpoint forwards
-`/api/app-data/**` and nothing else to the platform API, attaching the
-credential and this pod's ServiceAccount token, and it is gone when the call
-returns. The credential never reaches the tool's environment.
+endpoint on localhost and gives the tool only its URL, under `_app_data` in
+the stdin arguments — never the environment, which a sibling tool under the
+same uid can read from /proc. The endpoint forwards `/api/app-data/**` and
+nothing else to the platform API, attaching the credential and this pod's
+ServiceAccount token, and it is gone when the call returns.
 """
 import json
 import socket
@@ -20,7 +21,7 @@ CRED = {"token": "cred.header.sig", "call_id": "c" * 32}
 PROBE = r'''
 import json, os, sys, urllib.request, urllib.error
 args = json.load(sys.stdin)
-base = os.environ["TOOL_APP_DATA_URL"]
+base = args["_app_data"]["url"]
 root = base[:-len("/api/app-data")]
 port = base.split(":")[2].split("/")[0]
 def call(url, method="GET", data=None, headers=None):
@@ -30,7 +31,7 @@ def call(url, method="GET", data=None, headers=None):
             return [r.status, r.read().decode()]
     except urllib.error.HTTPError as e:
         return [e.code, e.read().decode()]
-out = {"url": base, "env": dict(os.environ)}
+out = {"url": base, "env": dict(os.environ), "args": args}
 out["ok"] = call(base + "/apps/a1/records/results", "POST", b'{"title": "x"}',
                  {"Content-Type": "application/json", "Authorization": "Bearer stolen",
                   "Cookie": "ap_session=x", "X-AP-Tool-Call": "forged"})
@@ -119,26 +120,74 @@ def test_proxy_forwards_only_app_data_with_the_credential_attached(tools_root, a
     assert json.loads(first.content) == {"title": "x"}
 
 
-def test_tool_env_has_the_endpoint_never_the_credential(tools_root, api):
+def test_endpoint_arrives_on_stdin_never_in_the_environment(tools_root, api):
     _probe_tool(tools_root)
-    env = json.loads(_run()["output"])["env"]
-    assert env["TOOL_APP_DATA_URL"].startswith("http://127.0.0.1:")
+    out = json.loads(_run({"x": "y"})["output"])
+    env, args = out["env"], out["args"]
+    assert args == {"x": "y", "_app_data": {"url": out["url"]}}
+    assert out["url"].startswith("http://127.0.0.1:")
+    # Nothing in /proc/<pid>/environ names the endpoint or the credential.
     blob = json.dumps(env)
+    assert out["url"] not in blob and "127.0.0.1" not in blob
     assert CRED["token"] not in blob and "executor.sa.token" not in blob
     assert CRED["call_id"] not in blob
+    # Nor does the credential ride along on stdin.
+    assert CRED["token"] not in json.dumps(args)
     # The minimal-env canary (test_executor.py) covers the rest of the set.
     assert {k for k in env if k.startswith(("TOOL_", "AP_"))} == {
-        "TOOL_NAME", "TOOL_CALLER_AGENT", "TOOL_RUN_ID", "TOOL_IN_DIR", "TOOL_OUT_DIR",
-        "TOOL_APP_DATA_URL"}
+        "TOOL_NAME", "TOOL_CALLER_AGENT", "TOOL_RUN_ID", "TOOL_IN_DIR", "TOOL_OUT_DIR"}
+
+
+def test_a_model_supplied_endpoint_is_replaced(tools_root, api):
+    _probe_tool(tools_root)
+    out = json.loads(_run({"_app_data": {"url": "http://evil.example/api/app-data"}})["output"])
+    assert out["args"]["_app_data"]["url"] == out["url"]
+    assert "evil" not in out["url"]
+
+
+def _argdump_tool(root):
+    d = root / "argdump"
+    d.mkdir()
+    (d / "tool.yaml").write_text("name: argdump\ndescription: Dumps its stdin and env for tests.\n")
+    (d / "run.py").write_text("import json, os, sys\nprint(json.dumps("
+                              "{'args': json.load(sys.stdin), 'env': dict(os.environ)}))\n")
 
 
 def test_no_credential_no_endpoint(tools_root, api):
-    d = tools_root / "envdump"
-    d.mkdir()
-    (d / "tool.yaml").write_text("name: envdump\ndescription: Dumps its environment for tests.\n")
-    (d / "run.py").write_text("import json, os\nprint(json.dumps(dict(os.environ)))\n")
-    body = TestClient(executor.app).post("/run", json={"tool": "envdump"}).json()
-    assert "TOOL_APP_DATA_URL" not in json.loads(body["output"])
+    _argdump_tool(tools_root)
+    body = TestClient(executor.app).post("/run", json={"tool": "argdump"}).json()
+    out = json.loads(body["output"])
+    assert "_app_data" not in out["args"]
+    assert not any("APP_DATA" in k for k in out["env"])
+
+
+def test_no_credential_drops_a_model_supplied_endpoint(tools_root, api):
+    _argdump_tool(tools_root)
+    body = TestClient(executor.app).post("/run", json={
+        "tool": "argdump", "args": {"_app_data": {"url": "http://evil.example"}}}).json()
+    assert json.loads(body["output"])["args"] == {}
+
+
+def test_subprocess_receives_only_the_executor_endpoint_on_stdin(tools_root, monkeypatch):
+    """Exercise real subprocess delivery independently of the proxy's listener."""
+    _argdump_tool(tools_root)
+    endpoints = []
+
+    async def started(proxy):
+        proxy.port = 12345
+        endpoints.append(proxy.url)
+
+    monkeypatch.setattr(executor.AppDataProxy, "start", started)
+    args = {"query": "hello", "_app_data": {"url": "http://untrusted.example"}}
+    body = TestClient(executor.app).post("/run", json={
+        "tool": "argdump", "args": args, "credential": CRED}).json()
+    assert body["ok"], body
+    out = json.loads(body["output"])
+    assert out["args"] == {"query": "hello", "_app_data": {"url": endpoints[0]}}
+    assert "TOOL_APP_DATA_URL" not in out["env"]
+    assert endpoints[0] not in json.dumps(out["env"])
+    assert CRED["token"] not in body["output"]
+    assert "untrusted.example" not in body["output"]
 
 
 @pytest.mark.parametrize("args", [{}, {"x": "fail"}])
@@ -158,7 +207,8 @@ def test_endpoint_dies_on_timeout(tools_root, api, tmp_path):
                                  "timeout_seconds: 1\n")
     note = tmp_path / "url"
     (d / "run.py").write_text(
-        f"import os, time\nopen({str(note)!r}, 'w').write(os.environ['TOOL_APP_DATA_URL'])\n"
+        f"import json, sys, time\n"
+        f"open({str(note)!r}, 'w').write(json.load(sys.stdin)['_app_data']['url'])\n"
         "time.sleep(30)\n")
     body = _run()
     assert not body["ok"] and "timed out" in body["error"]

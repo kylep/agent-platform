@@ -16,10 +16,12 @@ PR-reviewed `run.py` as a subprocess with a minimal environment:
     caller's `files_in` land in the first by name; whatever the tool writes to
     the second comes back as `files` — the way a tool returns something that
     is not text, since stdout stays a capped text channel.
-  - TOOL_APP_DATA_URL (docs/design/39) when the broker sent a tool-call
-    credential: a per-call local endpoint that forwards `/api/app-data/**` to
-    the platform API with the credential attached. The credential itself stays
-    in this process; the endpoint is gone when the call returns.
+  - `_app_data: {"url": ...}` in the stdin arguments (docs/design/39) when
+    the broker sent a tool-call credential: a per-call local endpoint that
+    forwards `/api/app-data/**` to the platform API with the credential
+    attached. The credential itself stays in this process; the endpoint is
+    gone when the call returns. Sending it on stdin keeps it out of
+    /proc/<pid>/environ, which sibling tools running as the same uid can read.
 
 The subprocess never sees this process's environment. Timeout and output cap
 are enforced; a non-zero exit becomes a structured error for the model.
@@ -285,8 +287,8 @@ async def fetch_secret_env(secret_name: str) -> dict[str, str]:
     return {k: base64.b64decode(v).decode() for k, v in data.items()}
 
 
-async def build_env(manifest: dict, caller: Caller, in_dir: Path, out_dir: Path,
-                    app_data_url: str | None = None) -> dict[str, str]:
+async def build_env(manifest: dict, caller: Caller, in_dir: Path,
+                    out_dir: Path) -> dict[str, str]:
     infra = manifest.get("infra") or {}
     env = {
         # Minimal, explicit base — never os.environ.
@@ -299,9 +301,6 @@ async def build_env(manifest: dict, caller: Caller, in_dir: Path, out_dir: Path,
         "TOOL_IN_DIR": str(in_dir),
         "TOOL_OUT_DIR": str(out_dir),
     }
-    if app_data_url:
-        # The endpoint, never the credential behind it.
-        env["TOOL_APP_DATA_URL"] = app_data_url
     for secret in infra.get("secrets") or []:
         name = secret["name"] if isinstance(secret, dict) else secret
         env.update(await fetch_secret_env(name))
@@ -449,6 +448,20 @@ class AppDataProxy:
         return r.status_code, r.headers.get("content-type", "application/octet-stream"), r.content
 
 
+# The reserved stdin key carrying the per-call App-data endpoint. The model
+# controls arguments, so whatever it put under this key is dropped first: only
+# the executor names an endpoint.
+APP_DATA_ARG = "_app_data"
+
+
+def tool_stdin(args: dict, app_data_url: str | None) -> bytes:
+    payload = {k: v for k, v in args.items() if k != APP_DATA_ARG}
+    if app_data_url:
+        # The endpoint, never the credential behind it.
+        payload[APP_DATA_ARG] = {"url": app_data_url}
+    return json.dumps(payload).encode()
+
+
 def _kill_group(proc: asyncio.subprocess.Process) -> None:
     try:
         os.killpg(proc.pid, signal.SIGKILL)
@@ -489,8 +502,7 @@ async def run_tool(body: RunIn):
         stage_files_in(in_dir, body.files_in)
         if proxy is not None:
             await proxy.start()
-        env = await build_env(manifest, body.caller, in_dir, out_dir,
-                              proxy.url if proxy else None)
+        env = await build_env(manifest, body.caller, in_dir, out_dir)
         timeout = effective_timeout(manifest)
         # Its own session, so the whole process group — anything run.py forks
         # included — can be killed as one. A surviving grandchild would keep
@@ -506,7 +518,8 @@ async def run_tool(body: RunIn):
         )
         try:
             out, err = await asyncio.wait_for(
-                proc.communicate(json.dumps(body.args).encode()), timeout=timeout)
+                proc.communicate(tool_stdin(body.args, proxy.url if proxy else None)),
+                timeout=timeout)
         except asyncio.TimeoutError:
             _kill_group(proc)
             await proc.wait()

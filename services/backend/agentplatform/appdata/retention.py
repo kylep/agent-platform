@@ -22,8 +22,8 @@ from agentplatform.appdata import quotas
 from agentplatform.appdata.access import SYSTEM_RETENTION
 from agentplatform.appdata.artifacts import sweep_unreferenced
 from agentplatform.appdata.definitions import retention_days
-from agentplatform.appdata.records import (R, AppContext, compute_plan, execute_plan,
-                                           scope)
+from agentplatform.appdata.records import (R, AppContext, compute_plan, delete_lock,
+                                           execute_plan, scope)
 from agentplatform.db import utcnow
 
 CHUNK = 1_000
@@ -81,21 +81,24 @@ async def prune_collection(session, ctx: AppContext, collection: str, *,
             break
         after = tuple(rows[-1])
         targets = [(collection, rid) for _, rid in rows]
-        plan = await compute_plan(session, ctx, targets)
-        # Drop what a restrict ref holds. Dropping a record can't block
-        # another (blocks come only from records outside the delete set, and
-        # cascade, which could chain, is Release 2), so one pass settles it.
-        held = {(target, rid) for target, rid, *_ in plan.blocked}
-        if held:
-            kept = [t for t in targets if t not in held]
-            result.kept += len(targets) - len(kept)
-            plan = await compute_plan(session, ctx, kept) if kept else None
-        if plan is not None and plan.deletes:
-            await execute_plan(session, ctx, SYSTEM_RETENTION, plan)
-            result.deleted += len(plan.deletes)
-            result.unlinked += len(plan.unlinks)
-        await quotas.settle(session)
-        await session.commit()
+        # The locks any delete takes, so a chunk never lands inside a
+        # publish's record check.
+        async with delete_lock(session, ctx, collection):
+            plan = await compute_plan(session, ctx, targets)
+            # Drop what a restrict ref holds. Dropping a record can't block
+            # another (blocks come only from records outside the delete set, and
+            # cascade, which could chain, is Release 2), so one pass settles it.
+            held = {(target, rid) for target, rid, *_ in plan.blocked}
+            if held:
+                kept = [t for t in targets if t not in held]
+                result.kept += len(targets) - len(kept)
+                plan = await compute_plan(session, ctx, kept) if kept else None
+            if plan is not None and plan.deletes:
+                await execute_plan(session, ctx, SYSTEM_RETENTION, plan)
+                result.deleted += len(plan.deletes)
+                result.unlinked += len(plan.unlinks)
+            await quotas.settle(session)
+            await session.commit()
     return result
 
 

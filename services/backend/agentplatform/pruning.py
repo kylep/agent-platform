@@ -190,6 +190,74 @@ class LiveDataPruner:
             await asyncio.sleep(interval_seconds)
 
 
+class AppDataPruner:
+    """App data housekeeping (docs/design/39). Daily: each active App's
+    retention and its unreferenced artifact uploads (`retention.prune_app`),
+    then builder and record-write receipts past their retention. Hourly:
+    staging sets past their 24 hours, and tool-call credential rows a day
+    past expiry. One App failing to prune is logged and the rest still run."""
+
+    def __init__(self, session_factory):
+        self.sf = session_factory
+
+    async def prune_apps_once(self, now=None) -> dict:
+        from agentplatform.appdata import quotas
+        from agentplatform.appdata.models import AppDataApp
+        from agentplatform.appdata.records import load_app
+        from agentplatform.appdata.retention import prune_app
+        now = now or utcnow()
+        async with self.sf() as s:
+            app_ids = (await s.execute(select(AppDataApp.id).where(
+                AppDataApp.status == "active").order_by(AppDataApp.id))).scalars().all()
+        pruned, failed = 0, []
+        for app_id in app_ids:
+            # A session per App: prune_app commits chunk by chunk, and a
+            # failure mustn't leave the next App a broken transaction.
+            async with self.sf() as s:
+                try:
+                    await prune_app(s, await load_app(s, app_id), now=now)
+                    pruned += 1
+                except Exception:
+                    await s.rollback()
+                    failed.append(app_id)
+                    log.exception("app data prune failed for App %s", app_id)
+        async with self.sf() as s:
+            receipts = await quotas.prune_build_ops(s, now=now)
+        if receipts or failed:
+            log.info("app data prune: %d Apps, %d failed, %d receipts dropped",
+                     pruned, len(failed), receipts)
+        return {"apps": pruned, "failed": failed, "build_ops": receipts}
+
+    async def prune_hourly_once(self, now=None) -> dict:
+        from agentplatform.appdata import credentials
+        from agentplatform.appdata.batch import prune_staging_sets
+        now = now or utcnow()
+        async with self.sf() as s:
+            expired = await prune_staging_sets(s, now=now)
+        async with self.sf() as s:
+            calls = await credentials.prune(s, now=now)
+            await s.commit()
+        if expired or calls:
+            log.info("app data sweep: %d staging sets expired, %d credential rows dropped",
+                     expired, calls)
+        return {"staging_sets": expired, "tool_calls": calls}
+
+    async def run_forever(self, daily_seconds: int = 86400,
+                          hourly_seconds: int = 3600) -> None:
+        await asyncio.gather(_every(self.prune_apps_once, daily_seconds, "app data prune"),
+                             _every(self.prune_hourly_once, hourly_seconds,
+                                    "app data sweep"))
+
+
+async def _every(fn, interval_seconds: int, label: str) -> None:
+    while True:
+        try:
+            await fn()
+        except Exception:
+            log.exception("%s failed", label)
+        await asyncio.sleep(interval_seconds)
+
+
 async def sweep_orphaned_keys_forever(session_factory, interval_seconds: int = 900) -> None:
     """Containment + hygiene: revoke per-run API keys whose run already
     terminated but whose terminal-frame revocation never happened (crashed

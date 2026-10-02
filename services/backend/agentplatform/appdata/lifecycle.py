@@ -37,7 +37,7 @@ from dataclasses import dataclass, field as dc_field
 from typing import Any, Awaitable, Callable
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import Text, and_, cast, func, select, update
+from sqlalchemy import and_, func, select, update
 from sqlalchemy.exc import IntegrityError
 
 from agentplatform.appdata import quotas
@@ -49,7 +49,7 @@ from agentplatform.appdata.definitions import (
     TableBlock, DetailBlock, MetricBlock, TextBlock, UniqueRule, _fits_field,
     index_columns, validate_app, validate_definition)
 from agentplatform.appdata.models import (AppDataApp, AppDataBuildOp, AppDataDefinition,
-                                          AppDataQuota, AppDataRecord)
+                                          AppDataRecord)
 from agentplatform.appdata.views import check_view_access, execute_view
 from agentplatform.db import utcnow
 
@@ -66,9 +66,6 @@ BUILD_ACTIONS = ("create", "draft", "notes", "publish", "rollback", "retire")
 SAMPLES_PER_COLLECTION = 200
 SAMPLE_IDS = 5
 SCAN_CHUNK = 1000
-# Until Kyle sets an App's quota (A11), health measures use against these.
-DEFAULT_RECORDS_LIMIT = 100_000
-DEFAULT_BYTES_LIMIT = 64 * 1024 * 1024
 QUOTA_WARN = 0.9
 
 _UNSET: Any = object()
@@ -324,6 +321,9 @@ async def create(session, actor: Actor, *, request_id: str, name: str,
                           "retired or not; names are never reused", 409)
         kind, owner_id = ("kyle", "kyle") if actor.principal == "kyle" \
             else ("agent", actor.principal.removeprefix("agent:"))
+        # Holds the owner's quota row to the commit, so two creates can't
+        # both take the last slot.
+        await quotas.check_new_app(session, actor.principal)
         app = AppDataApp(name=name, owner_kind=kind, owner_id=owner_id, timezone=timezone,
                          description=description, status="active", notes="",
                          notes_revision=0, authority_generation=0)
@@ -469,6 +469,9 @@ async def draft(session, actor: Actor, app_ref: str, *, request_id: str, kind: s
             raise _refuse("AL-NOT-PUBLISHED", f"{kind} {target} isn't in the approved state; "
                           "discard its draft instead", 409)
         if row is None:
+            # A new open draft counts against the App's limit; editing one
+            # already open doesn't.
+            await quotas.check_new_draft(session, app.id)
             row = AppDataDefinition(app_id=app.id, kind=kind, name=target, version=0,
                                     state="draft", revision=1)
             session.add(row)
@@ -893,6 +896,31 @@ def _summary_line(verb: str, version: int, entries: list[dict]) -> str:
 
 # --- publish, rollback, retire ----------------------------------------------------------
 
+def _locked_by(current: dict, candidate: dict) -> set[str]:
+    """The collections whose stored records a move from `current` to
+    `candidate` checks: every collection added, changed or removed, and the
+    targets of those collections' refs, whose ids the ref check reads."""
+    names = {name for kind, name in set(current) | set(candidate)
+             if kind == "collection"
+             and current.get((kind, name)) != candidate.get((kind, name))}
+    for name in list(names):
+        body = candidate.get(("collection", name)) or {}
+        fields = body.get("fields") if isinstance(body, dict) else None
+        for spec in (fields or {}).values():
+            if isinstance(spec, dict) and spec.get("type") == "ref" \
+                    and isinstance(spec.get("collection"), str):
+                names.add(spec["collection"])
+    return names
+
+
+def _consistency_lock(session, app_id: str, current: dict, candidate: dict):
+    """Hold every checked collection's lock exclusive across the record
+    checks and the commit: record writes take the same locks, so none lands
+    between a check passing and the definitions it passed for going live, and
+    one that waited re-reads the definitions after (`records.write_lock`)."""
+    return rec.locked_collections(session, app_id, exclusive=_locked_by(current, candidate))
+
+
 async def publish(session, actor: Actor, app_ref: str, *, request_id: str,
                   expected_approved_version: int | None, only=None,
                   reason: str = "") -> dict:
@@ -915,31 +943,32 @@ async def publish(session, actor: Actor, app_ref: str, *, request_id: str,
         if not changes:
             raise _refuse("AL-NOTHING-TO-PUBLISH", "no draft changes the approved state",
                           409)
-        a = await _assess(session, app, current, _overlay(current, changes),
-                          drafts=changes, rows=rows)
-        _refuse_assessment(app, a)
-        version = await _swap_version(session, app, expected_approved_version)
-        now = utcnow()
-        entries = []
-        for key, row in drafts.items():
-            if key not in changes:
-                await session.delete(row)
-                continue
-            row.state, row.version = "published", version
-            if not row.removed:
-                row.body = _settled_body(a, key, row.body)
-            row.author, row.run_id = actor.principal, actor.run_id
-            row.reason = reason or row.reason
-            row.updated_at = now
-            entries.append({"kind": key[0], "name": key[1], "version": version,
-                            **({"removed": True} if row.removed else {})})
-        await session.flush()
-        await _reindex(session, app.id, a)
-        entries = _published(entries)
-        return await finish({"app_id": app.id, "approved_version": version,
-                             "authority_generation": app.authority_generation,
-                             "published": entries, "digest": A.digest(a.facts)},
-                            _summary_line("Published", version, entries))
+        candidate = _overlay(current, changes)
+        async with _consistency_lock(session, app.id, current, candidate):
+            a = await _assess(session, app, current, candidate, drafts=changes, rows=rows)
+            _refuse_assessment(app, a)
+            version = await _swap_version(session, app, expected_approved_version)
+            now = utcnow()
+            entries = []
+            for key, row in drafts.items():
+                if key not in changes:
+                    await session.delete(row)
+                    continue
+                row.state, row.version = "published", version
+                if not row.removed:
+                    row.body = _settled_body(a, key, row.body)
+                row.author, row.run_id = actor.principal, actor.run_id
+                row.reason = reason or row.reason
+                row.updated_at = now
+                entries.append({"kind": key[0], "name": key[1], "version": version,
+                                **({"removed": True} if row.removed else {})})
+            await session.flush()
+            await _reindex(session, app.id, a)
+            entries = _published(entries)
+            return await finish({"app_id": app.id, "approved_version": version,
+                                 "authority_generation": app.authority_generation,
+                                 "published": entries, "digest": A.digest(a.facts)},
+                                _summary_line("Published", version, entries))
 
     return await _build_op(session, actor, request_id=request_id, op="publish",
                            app_id=app.id, args=args, work=work)
@@ -965,33 +994,35 @@ async def rollback(session, actor: Actor, app_ref: str, *, request_id: str, to_v
         rows = await _rows(session, app.id)
         current = _bodies(_approved(rows, app))
         target = _bodies(rec.state_at(rows, to_version))
-        a = await _assess(session, app, current, target)
-        _refuse_assessment(app, a)
-        version = await _swap_version(session, app, expected_approved_version)
-        entries = []
-        for key in sorted(set(current) | set(target)):
-            if key in target:
-                body = _settled_body(a, key, target[key])
-                if current.get(key) == body:
-                    continue
-            else:
-                body = {}
-            session.add(AppDataDefinition(
-                app_id=app.id, kind=key[0], name=key[1], version=version, body=body,
-                state="published", removed=key not in target, revision=1,
-                base_version=expected_approved_version, author=actor.principal,
-                run_id=actor.run_id, reason=reason or f"rollback to version {to_version}"))
-            entries.append({"kind": key[0], "name": key[1], "version": version,
-                            **({} if key in target else {"removed": True})})
-        await session.flush()
-        await _reindex(session, app.id, a)
-        entries = _published(entries)
-        return await finish({"app_id": app.id, "approved_version": version,
-                             "rolled_back_to": to_version,
-                             "authority_generation": app.authority_generation,
-                             "published": entries, "digest": A.digest(a.facts)},
-                            _summary_line(f"Rolled back to {to_version} as", version,
-                                          entries))
+        async with _consistency_lock(session, app.id, current, target):
+            a = await _assess(session, app, current, target)
+            _refuse_assessment(app, a)
+            version = await _swap_version(session, app, expected_approved_version)
+            entries = []
+            for key in sorted(set(current) | set(target)):
+                if key in target:
+                    body = _settled_body(a, key, target[key])
+                    if current.get(key) == body:
+                        continue
+                else:
+                    body = {}
+                session.add(AppDataDefinition(
+                    app_id=app.id, kind=key[0], name=key[1], version=version, body=body,
+                    state="published", removed=key not in target, revision=1,
+                    base_version=expected_approved_version, author=actor.principal,
+                    run_id=actor.run_id,
+                    reason=reason or f"rollback to version {to_version}"))
+                entries.append({"kind": key[0], "name": key[1], "version": version,
+                                **({} if key in target else {"removed": True})})
+            await session.flush()
+            await _reindex(session, app.id, a)
+            entries = _published(entries)
+            return await finish({"app_id": app.id, "approved_version": version,
+                                 "rolled_back_to": to_version,
+                                 "authority_generation": app.authority_generation,
+                                 "published": entries, "digest": A.digest(a.facts)},
+                                _summary_line(f"Rolled back to {to_version} as", version,
+                                              entries))
 
     return await _build_op(session, actor, request_id=request_id, op="rollback",
                            app_id=app.id, args=args, work=work)
@@ -1051,7 +1082,8 @@ async def health(session, actor: Actor, app_ref: str) -> dict:
 
 async def _health(session, app: AppDataApp, rows=None) -> dict:
     """Computed on read: approved definitions that no longer validate, stored
-    records that break a rule, and quota use."""
+    records that break a rule, and quota use: what the App is charged against
+    the limits `quotas` enforces (Kyle's, else the configured defaults)."""
     rows = rows if rows is not None else await _rows(session, app.id)
     doc, where = _doc(_bodies(_approved(rows, app)))
     invalid, violations = [], []
@@ -1077,15 +1109,10 @@ async def _health(session, app: AppDataApp, rows=None) -> dict:
                     if n:
                         violations.append({"collection": name, "rule": f"required({f})",
                                            "count": n, "record_ids": ids})
-    records, size = (await session.execute(
-        select(func.count(), func.coalesce(func.sum(func.length(cast(AppDataRecord.doc,
-                                                                      Text))), 0))
-        .where(AppDataRecord.app_id == app.id))).one()
-    quota = await session.get(AppDataQuota, ("app", app.id))
-    records_limit = (quota.max_records if quota and quota.max_records is not None
-                     else DEFAULT_RECORDS_LIMIT)
-    bytes_limit = (quota.max_bytes if quota and quota.max_bytes is not None
-                   else DEFAULT_BYTES_LIMIT)
+    quota = await quotas.describe(session, "app", app.id)
+    records, size = quota["used"]["records"], quota["used"]["bytes"]
+    records_limit = quota["limits"]["max_records"]
+    bytes_limit = quota["limits"]["max_bytes"]
     issues = len(invalid) + len(violations)
     status = "failing" if issues else (
         "warn" if records >= QUOTA_WARN * records_limit or size >= QUOTA_WARN * bytes_limit
@@ -1333,7 +1360,7 @@ async def record_create(session, actor: Actor, app_ref: str, *, request_id: str,
     async def work(finish):
         ctx = await rec.load_app(session, app.id)
         c = ctx.collection(collection)
-        async with rec._maybe_lock(session, ctx, c):
+        async with rec.write_lock(session, ctx, [c.collection]):
             record = await rec._insert(session, ctx, actor.caller, c, values)
             await rec.bump_counters(session, ctx.app_id, [c.collection])
             return await finish({"collection": c.collection, "id": record.id,
@@ -1353,7 +1380,7 @@ async def record_update(session, actor: Actor, app_ref: str, *, request_id: str,
     async def work(finish):
         ctx = await rec.load_app(session, app.id)
         c = ctx.collection(collection)
-        async with rec._maybe_lock(session, ctx, c):
+        async with rec.write_lock(session, ctx, [c.collection]):
             record = await rec._update(session, ctx, actor.caller, c, record_id, values,
                                        expected_version)
             await rec.bump_counters(session, ctx.app_id, [c.collection])
@@ -1377,16 +1404,19 @@ async def record_delete(session, actor: Actor, app_ref: str, *, request_id: str,
     async def work(finish):
         ctx = await rec.load_app(session, app.id)
         expected = {record_id: expected_version} if expected_version is not None else None
-        await rec._authorize_delete(session, ctx, actor.caller, collection, [record_id],
-                                    expected)
-        plan = await rec.compute_plan(session, ctx, [(collection, record_id)])
-        summary = plan.summary(ctx, actor.caller)
-        if plan.blocked:
-            raise RecordError("AD-REF-RESTRICT", "referenced by records whose ref is "
-                              "on_delete: restrict", 409, summary)
-        await rec.execute_plan(session, ctx, actor.caller, plan)
-        return await finish({"collection": collection, "id": record_id, "deleted": True,
-                             "plan": summary}, f"Deleted {collection} {record_id}.")
+        ctx.collection(collection)
+        async with rec.delete_lock(session, ctx, collection):
+            await rec._authorize_delete(session, ctx, actor.caller, collection, [record_id],
+                                        expected)
+            plan = await rec.compute_plan(session, ctx, [(collection, record_id)])
+            summary = plan.summary(ctx, actor.caller)
+            if plan.blocked:
+                raise RecordError("AD-REF-RESTRICT", "referenced by records whose ref is "
+                                  "on_delete: restrict", 409, summary)
+            await rec.execute_plan(session, ctx, actor.caller, plan)
+            return await finish({"collection": collection, "id": record_id,
+                                 "deleted": True, "plan": summary},
+                                f"Deleted {collection} {record_id}.")
 
     return _strip_app(await _build_op(
         session, actor, request_id=request_id, op="record_delete", app_id=app.id,

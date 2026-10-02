@@ -45,7 +45,6 @@ from __future__ import annotations
 
 import json
 import uuid
-from contextlib import AsyncExitStack
 from dataclasses import dataclass, field as dc_field
 from datetime import datetime, timedelta, timezone
 from typing import Any
@@ -58,11 +57,10 @@ from agentplatform.appdata.definitions import SYSTEM_FIELDS, CollectionDef, Uniq
 from agentplatform.appdata.models import AppDataRecord, AppDataStagedRecord, AppDataStagingSet
 from agentplatform.appdata.records import (R, AppContext, _check_input,
                                            _check_refs, _check_unique, _check_writer_rules,
-                                           _has_unique, _insert, _maybe_lock,
-                                           _require_active, _update, bump_counters,
-                                           collection_lock, field_expr, format_datetime,
+                                           _insert, _require_active, _update,
+                                           bump_counters, field_expr, format_datetime,
                                            load_app, normalize_value, scope, set_size,
-                                           side_columns)
+                                           side_columns, write_lock)
 from agentplatform.db import utcnow
 
 MAX_BATCH_RECORDS = 5_000
@@ -298,7 +296,7 @@ async def batch(session, ctx: AppContext, caller: Caller, collection: str, recor
         _require_active(ctx)
         ctx.access(c, caller).require_verb("create")
         await check_quotas(session, ctx, records=len(records), bytes=size)
-        async with _maybe_lock(session, ctx, c):
+        async with write_lock(session, ctx, [c.collection]):
             for i, values in enumerate(records):
                 await run.apply(i, session, ctx, caller, c, values, mode, key_fields)
             if run.error_count and on_error == "fail":
@@ -472,12 +470,7 @@ async def commit_staging_set(session, caller: Caller, set_id: str, *,
         for c in cols.values():
             ctx.access(c, caller).require_verb("create")
         await check_quotas(session, ctx, records=st.record_count, bytes=st.bytes)
-        async with AsyncExitStack() as locks:
-            # Sorted, so two commits over the same collections can't deadlock.
-            for name in sorted(cols):
-                if _has_unique(cols[name]):
-                    await locks.enter_async_context(collection_lock(session, ctx.app_id,
-                                                                    name))
+        async with write_lock(session, ctx, cols):
             last = -1
             while True:
                 rows = (await session.execute(

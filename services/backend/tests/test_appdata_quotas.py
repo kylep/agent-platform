@@ -575,6 +575,111 @@ async def test_open_drafts_per_app(sf, settings):
     assert err.detail["max"] == 1 and err.detail["used"] == 1
 
 
+async def _lifecycle_create(sf, actor, name):
+    from agentplatform.appdata import lifecycle as L
+    async with sf() as s:
+        return await L.create(s, actor, request_id=f"c-{name}", name=name)
+
+
+async def _lifecycle_draft(sf, actor, app_id, body, request_id, revision=None):
+    from agentplatform.appdata import lifecycle as L
+    async with sf() as s:
+        return await L.draft(s, actor, app_id, request_id=request_id, kind="collection",
+                             definition=body, expected_revision=revision)
+
+
+async def test_lifecycle_create_counts_against_the_owners_apps(sf, settings):
+    from agentplatform.appdata.lifecycle import Actor
+    settings(app_data_owner_max_apps=1)
+    pai, bob = Actor("agent:pai"), Actor("agent:bob")
+    await _lifecycle_create(sf, pai, "first")
+    err = await refused("AD-QUOTA-APPS", _lifecycle_create(sf, pai, "second"))
+    assert err.status == 413 and err.detail["scope_id"] == "agent:pai"
+    async with sf() as s:
+        names = (await s.execute(select(AppDataApp.name))).scalars().all()
+        # The refusal is the receipt: a retry answers the same way.
+        receipt = (await s.execute(select(AppDataBuildOp).where(
+            AppDataBuildOp.request_id == "c-second"))).scalar_one()
+    assert names == ["first"] and receipt.receipt["status"] == "refused"
+    # Another owner's slots are its own.
+    await _lifecycle_create(sf, bob, "bobs")
+    await kyle_sets(sf, "owner", "agent:pai", max_apps=2)
+    await _lifecycle_create(sf, pai, "third")
+
+
+async def test_lifecycle_draft_counts_new_open_drafts_only(sf, settings):
+    from agentplatform.appdata.lifecycle import Actor
+    settings(app_data_app_max_open_drafts=1)
+    pai = Actor("agent:pai")
+    app_id = (await _lifecycle_create(sf, pai, "drafty"))["app_id"]
+    await _lifecycle_draft(sf, pai, app_id, coll("one"), "d1")
+    # Editing the open draft in place isn't a new one.
+    out = await _lifecycle_draft(sf, pai, app_id, coll("one", indexed=["title"]), "d2",
+                                 revision=1)
+    assert out["revision"] == 2
+    err = await refused("AD-QUOTA-DRAFTS", _lifecycle_draft(sf, pai, app_id, coll("two"),
+                                                            "d3"))
+    assert err.status == 413 and err.detail["scope_id"] == app_id
+    async with sf() as s:
+        drafts = (await s.execute(select(AppDataDefinition.name).where(
+            AppDataDefinition.app_id == app_id))).scalars().all()
+    assert drafts == ["one"]
+
+
+@pytest.mark.parametrize("kind", ["app", "draft"])
+async def test_lifecycle_concurrent_creates_cannot_share_the_last_quota_slot(sf, settings, kind):
+    import asyncio
+    from agentplatform.appdata.lifecycle import Actor
+
+    pai = Actor("agent:pai")
+    settings(app_data_owner_max_apps=1, app_data_app_max_open_drafts=1)
+    if kind == "draft":
+        app_id = (await _lifecycle_create(sf, pai, "draft-race"))["app_id"]
+
+    async def create_one(name):
+        try:
+            if kind == "app":
+                await _lifecycle_create(sf, pai, name)
+            else:
+                await _lifecycle_draft(sf, pai, app_id, coll(name), f"draft-{name}")
+            return "created"
+        except RecordError as exc:
+            return exc.code
+
+    results = await asyncio.gather(create_one("first"), create_one("second"))
+    expected = "AD-QUOTA-APPS" if kind == "app" else "AD-QUOTA-DRAFTS"
+    assert sorted(results) == sorted(["created", expected])
+    async with sf() as s:
+        model = AppDataApp if kind == "app" else AppDataDefinition
+        assert (await s.execute(select(func.count()).select_from(model))).scalar_one() == 1
+
+
+async def test_health_measures_against_the_enforced_limits(sf, settings):
+    from agentplatform.appdata import lifecycle as L
+    from agentplatform.appdata.lifecycle import Actor
+    settings(app_data_app_max_records=4, app_data_app_max_bytes=1 << 20)
+    ctx = await make_app(sf, [coll()])
+    for title in "abcd":
+        await create(sf, ctx, {"title": title})
+    async with sf() as s:
+        health = await L.health(s, Actor("kyle"), ctx.app_id)
+    assert health["quota"] == {"records": 4, "records_limit": 4,
+                               "bytes": (await usage(sf, "app", ctx.app_id))["bytes"],
+                               "bytes_limit": 1 << 20}
+    assert health["status"] == "warn"
+    # Without a setting, the configured defaults, which is what writes meet.
+    settings()
+    async with sf() as s:
+        health = await L.health(s, Actor("kyle"), ctx.app_id)
+    assert health["quota"]["records_limit"] == 250_000
+    assert health["quota"]["bytes_limit"] == 256 * 1024 ** 2
+    assert health["status"] == "ok"
+    await kyle_sets(sf, "app", ctx.app_id, max_records=4)
+    async with sf() as s:
+        health = await L.health(s, Actor("kyle"), ctx.app_id)
+    assert health["quota"]["records_limit"] == 4 and health["status"] == "warn"
+
+
 async def test_open_proposals_per_app_and_owner(sf, settings):
     settings(app_data_app_max_open_proposals=2, app_data_owner_max_open_proposals=3)
     async with sf() as s:
