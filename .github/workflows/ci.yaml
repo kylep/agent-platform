@@ -159,6 +159,7 @@ jobs:
           npm run build -w news-frontend
           npm run build -w stockmarket-frontend
           npm run build -w tcms-frontend
+          npm run build -w judgment-frontend
       - name: Design-system token gate
         # No raw hex outside packages/ui/src/tokens.css — see packages/ui/README.md
         run: cd services/web && npm run check:tokens
