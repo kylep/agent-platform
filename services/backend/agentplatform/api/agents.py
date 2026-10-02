@@ -810,6 +810,9 @@ async def delete_agent(request: Request, name: str,
         owned = (await s.execute(select(ChatIdentity).where(ChatIdentity.owner_agent == name))).scalars().all()
         for account in owned:
             await assign_owner(s, account, None)
+        # Its state Apps outlive it: they pass to Kyle (docs/design/39).
+        from agentplatform.appdata.lifecycle import transfer_owned_apps
+        await transfer_owned_apps(s, name)
         async with _conflict_as_409(s):
             await _log_version(s, row, changed_by=scope.principal,
                                changed_via=f"delete:{scope.changed_via(grants=False)}")
