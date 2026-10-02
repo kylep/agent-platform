@@ -33,9 +33,16 @@ core tools) does that. An `agents_edit`/`agents_grant` holder sits on the same
 `tools` rung a custom-tool-only agent does: it earns a per-run token scoped to
 exactly those two tools and nothing else on `/api/*`.
 
+`apps` and `app_data`, the builder and records tools of agent-built
+[Apps](apps.md) ([App data](app-data.md#tools)), share their rule: all four
+are **Kyle-only** (`KYLE_ONLY_TOOLS`). Only Kyle's browser session can add
+one to an agent or remove it, and an agent holding one can be edited only by
+Kyle or by itself ([security.md](security.md)).
+
 Two of those show patterns worth copying. `prices` binds an **app's** DB secret
 (`infra.secrets: [app-stockmarket-db]`) and writes rows itself, returning only
-counts — a five-year backfill is ~3,800 rows, which is nothing for Postgres and
+counts (until stockmarket migrates to Apps as state, when it becomes the Yahoo
+Finance connector and writes through a tool-call credential instead) — a five-year backfill is ~3,800 rows, which is nothing for Postgres and
 ruinous for a model's context. `index_movers` keeps arithmetic out of the
 model: it computes each index holding's contribution in basis points and hands
 back a ranking, because a model asked to multiply ten weights by ten returns
@@ -93,7 +100,8 @@ app_access:               # optional: App data this tool may reach (design 39)
    a **minimal env**: the declared secrets' keys (fetched from k8s at call
    time — never baked into any pod), `TOOL_DB_URL` when `database: true`,
    `TOOL_CALLER_AGENT` / `TOOL_RUN_ID`, the two file-sink directories
-   below, and `TOOL_APP_DATA_URL` for a tool with `app_access`. Timeout
+   below. A tool with `app_access` also finds its App-data endpoint in the
+   stdin arguments as `_app_data.url` (see "App access"). Timeout
    enforced, output capped at 256 KiB, non-zero exit →
    structured error the model can read.
 
@@ -157,7 +165,10 @@ credentials"). The tool never holds it:
    still checked against the App's current definitions.
 3. The executor gets the credential in the run request and opens a
    per-call endpoint on `127.0.0.1` behind a random path. The tool sees only
-   `TOOL_APP_DATA_URL`. The endpoint forwards `/api/app-data/**` and nothing
+   its URL, as `_app_data: {"url": ...}` in the stdin arguments — not the
+   environment, which a sibling tool under the same uid could read from
+   `/proc/<pid>/environ`. The executor drops any `_app_data` the model sent.
+   The endpoint forwards `/api/app-data/**` and nothing
    else, attaching the credential, its call id and the executor's own
    ServiceAccount token, and it's closed when the call returns.
 4. The broker then revokes the `jti` (`DELETE /api/tool-calls/{jti}`).
@@ -167,6 +178,13 @@ token, for the call it names, while its run is current and before it's
 revoked. The caller is `agent:<name>` via `tool:<name>`, which is how records
 are stamped (`author`, `via`), and the `tools` role it carries reaches no
 other route.
+
+Release 1a mints, delivers and revokes the credential, but no App data route
+answers it yet: `POST /api/app-data/agent/…` serves agent runs holding
+`app_data`, and a tool-call credential holds no platform tool. Tool writes to
+Apps arrive with App tool facts, which bind a manifest's roles to an App's
+collections, in Release 1b ([App data](app-data.md#tools)). Until then a role
+names the collection of the same name.
 
 ## Internal tools
 

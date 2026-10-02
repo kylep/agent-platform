@@ -182,10 +182,18 @@ async def keypair(app_state) -> dict[str, str]:
 
 # --- revocation ----------------------------------------------------------------
 
+async def prune(session, *, now: datetime | None = None) -> int:
+    """Drop credential rows a day past expiry. Doesn't commit; returns how
+    many went. A mint does this too, and the dispatcher's hourly sweep keeps
+    the table short when nothing is being minted."""
+    result = await session.execute(delete(AppDataToolCall).where(
+        AppDataToolCall.expires_at < (now or _now()) - _KEEP_EXPIRED))
+    return result.rowcount or 0
+
+
 async def record(session, claims: dict) -> None:
     """Note a freshly minted credential's jti, and drop rows long expired."""
-    await session.execute(delete(AppDataToolCall).where(
-        AppDataToolCall.expires_at < _now() - _KEEP_EXPIRED))
+    await prune(session)
     session.add(AppDataToolCall(
         jti=claims["jti"], call_id=claims.get("call_id") or claims.get("intent_id"),
         kind=claims["kind"], run_id=claims.get("run_id"), agent=claims.get("agent"),

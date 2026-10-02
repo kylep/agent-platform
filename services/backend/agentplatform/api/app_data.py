@@ -2,7 +2,8 @@
 
 Two doors, never the same caller:
 
-- **Kyle's read routes** (`GET /api/app-data/apps…`) serve the console. They
+- **Kyle's routes** (`GET /api/app-data/apps…`, and the quota readout and
+  setter at `/api/app-data/quotas/{app|owner}/{id}`) serve the console. They
   answer only Kyle's browser session (`auth_kind == "session"`, role
   `admin`): not an admin API key, not another login, not an agent. Response
   shapes are the contract at the top of services/web/src/lib/appData.ts, and
@@ -25,6 +26,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from agentplatform.api.auth import authenticate
 from agentplatform.appdata import lifecycle as L
+from agentplatform.appdata import quotas
 from agentplatform.appdata.access import Caller, RecordError
 from agentplatform.appdata.definitions import json_schemas
 from agentplatform.appdata.lifecycle import Actor
@@ -140,6 +142,44 @@ async def state_app_view(request: Request, app_id: str, view: str,
         try:
             return await published_view(s, actor.caller, app_id, view, params, limit=limit,
                                         cursor=query.get("cursor"))
+        except RecordError as exc:
+            raise _for_web(exc) from None
+
+
+# --- Kyle's quota routes ------------------------------------------------------------------
+# Limits are platform-owned: only Kyle reads or moves them, and only here.
+
+class QuotaIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    # A limit's name -> a whole number, or null to return it to the default.
+    limits: dict[str, Any]
+
+
+def _quota_scope(scope_kind: str, scope_id: str) -> None:
+    if not 1 <= len(scope_id) <= 160:
+        raise HTTPException(422, "scope_id is 1 to 160 characters")
+
+
+@router.get("/api/app-data/quotas/{scope_kind}/{scope_id}")
+async def app_data_quota_get(request: Request, scope_kind: str, scope_id: str,
+                             actor: Actor = Depends(kyle_session)):
+    _quota_scope(scope_kind, scope_id)
+    async with request.app.state.session_factory() as s:
+        try:
+            return await quotas.describe(s, scope_kind, scope_id)
+        except RecordError as exc:
+            raise _for_web(exc) from None
+
+
+@router.put("/api/app-data/quotas/{scope_kind}/{scope_id}")
+async def app_data_quota_set(request: Request, scope_kind: str, scope_id: str,
+                             body: QuotaIn, actor: Actor = Depends(kyle_session)):
+    _quota_scope(scope_kind, scope_id)
+    async with request.app.state.session_factory() as s:
+        try:
+            # kyle_session is the proof set_quota asks for.
+            return await quotas.set_quota(s, scope_kind, scope_id, body.limits,
+                                          set_by=actor.principal, is_kyle=True)
         except RecordError as exc:
             raise _for_web(exc) from None
 

@@ -247,6 +247,16 @@ async def test_executor_presents_it_as_the_agent_via_the_tool(env):
     assert (await env.get("/api/runs", headers=_as_executor(minted))).status_code == 403
 
 
+async def test_a_tool_call_cannot_read_or_set_app_data_quotas(env):
+    """The executor's proxy forwards all of /api/app-data/**, and Kyle's quota
+    routes live under it: they still answer only Kyle's session."""
+    minted = (await _mint(env)).json()
+    path = "/api/app-data/quotas/owner/agent:pai"
+    assert (await env.get(path, headers=_as_executor(minted))).status_code == 403
+    assert (await env.put(path, headers=_as_executor(minted),
+                          json={"limits": {"max_records": 10 ** 9}})).status_code == 403
+
+
 async def test_replay_after_return_is_rejected(env):
     minted = (await _mint(env)).json()
     h = _as_executor(minted)

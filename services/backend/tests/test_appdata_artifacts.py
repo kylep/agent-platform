@@ -25,6 +25,8 @@ from sqlalchemy import func, select
 from agentplatform import artifact_store as store
 from agentplatform.api.artifacts_feed import STREAM
 from agentplatform.appdata import artifacts as app_artifacts
+from agentplatform.appdata import batch as batch_mod
+from agentplatform.appdata import quotas
 from agentplatform.appdata.access import Caller, RecordError
 from agentplatform.appdata.models import (AppDataApp, AppDataArtifact, AppDataArtifactRef,
                                           AppDataDefinition)
@@ -304,6 +306,23 @@ async def test_clearing_or_replacing_the_value_deletes_the_old_artifact(sf):
     assert await gone(sf, new)
 
 
+async def test_an_immutable_upsert_replacing_the_value_moves_ownership(sf):
+    # A batch upsert into an immutable collection replaces the record whole;
+    # it must claim the new artifact and release the old one as an update does.
+    ctx = await make_app(sf, [docs(write_mode="immutable", rules=[
+        {"kind": "unique", "fields": ["title"]}])])
+    old, new = await plain(sf), await plain(sf)
+    async with sf() as s:
+        await batch_mod.batch(s, ctx, PAI, "docs", [{"title": "a", "file": old}],
+                              mode="upsert", key=["title"])
+    async with sf() as s:
+        await batch_mod.batch(s, ctx, PAI, "docs", [{"title": "a", "file": new}],
+                              mode="upsert", key=["title"])
+    assert await gone(sf, old)
+    assert (await ownership(sf, new)).field == "file"
+    assert len(await refs(sf, new)) == 1
+
+
 async def test_moving_it_between_fields_of_one_record_keeps_it(sf):
     ctx = await make_app(sf, [docs()])
     aid = await plain(sf)
@@ -343,6 +362,41 @@ async def test_an_upload_never_referenced_is_swept_after_a_day(sf):
     async with sf() as s:
         await prune_app(s, ctx, now=app_artifacts.utcnow() + timedelta(hours=25))
     assert await gone(sf, orphan.id) and not await gone(sf, used.id)
+
+
+async def _used(sf, ctx) -> dict:
+    """(records, bytes) charged to the App and to its owner."""
+    out = {}
+    async with sf() as s:
+        for scope_kind, scope_id in (("app", ctx.app_id), ("owner", ctx.owner)):
+            used = (await quotas.describe(s, scope_kind, scope_id))["used"]
+            out[scope_kind] = (used["records"], used["bytes"])
+    return out
+
+
+async def test_deleting_the_record_releases_its_artifacts_bytes(sf):
+    ctx = await make_app(sf, [docs()])
+    aid = await plain(sf, data=b"p" * 500)
+    async with sf() as s:
+        row = await create_record(s, ctx, PAI, "docs", {"title": "a", "file": aid})
+    doc = quotas.doc_bytes({"title": "a", "file": aid})
+    assert await _used(sf, ctx) == {"app": (1, 500 + doc), "owner": (1, 500 + doc)}
+    async with sf() as s:
+        await delete_record(s, ctx, PAI, "docs", row["id"])
+    assert await gone(sf, aid)
+    assert await _used(sf, ctx) == {"app": (0, 0), "owner": (0, 0)}
+
+
+async def test_the_orphan_sweep_releases_an_uploads_bytes(sf):
+    ctx = await make_app(sf, [docs()])
+    async with sf() as s:
+        orphan = await app_artifacts.upload(s, ctx, PAI, "docs", "file", b"x" * 300,
+                                            name="o.bin")
+    assert await _used(sf, ctx) == {"app": (0, 300), "owner": (0, 300)}
+    async with sf() as s:
+        await prune_app(s, ctx, now=app_artifacts.utcnow() + timedelta(hours=25))
+    assert await gone(sf, orphan.id)
+    assert await _used(sf, ctx) == {"app": (0, 0), "owner": (0, 0)}
 
 
 # --- the upload helper, the cap and the App's bytes ----------------------------------------

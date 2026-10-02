@@ -33,7 +33,7 @@ against its owner, and it keeps counting as one of the owner's Apps.
 a skipped record isn't a write; deletes aren't), in fixed one-hour windows.
 
 **Scan budgets** bound tool-view scans: one execution reads at most
-2,000,000 rows in 60 seconds, an App runs at most two scans at once, and an
+1,000,000 rows in 60 seconds, an App runs at most two scans at once, and an
 App and its owner each have scan rows per hour. `scan_budget` takes a lease
 before the scan: a concurrency slot plus a reservation of the rows it may
 read, so two concurrent scans can't both spend the same hourly headroom. A

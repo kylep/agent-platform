@@ -60,7 +60,8 @@ def sync_detailed(
 ) -> Response[Any | HTTPValidationError]:
     """Artifact Resource
 
-     Private MCP Resource bytes; ownership is rechecked on every read.
+     Private MCP Resource bytes; ownership is rechecked on every read. An
+    App-owned artifact's owner is its field, which `_row_or_404` checked.
 
     Args:
         artifact_id (str):
@@ -91,7 +92,8 @@ def sync(
 ) -> Any | HTTPValidationError | None:
     """Artifact Resource
 
-     Private MCP Resource bytes; ownership is rechecked on every read.
+     Private MCP Resource bytes; ownership is rechecked on every read. An
+    App-owned artifact's owner is its field, which `_row_or_404` checked.
 
     Args:
         artifact_id (str):
@@ -117,7 +119,8 @@ async def asyncio_detailed(
 ) -> Response[Any | HTTPValidationError]:
     """Artifact Resource
 
-     Private MCP Resource bytes; ownership is rechecked on every read.
+     Private MCP Resource bytes; ownership is rechecked on every read. An
+    App-owned artifact's owner is its field, which `_row_or_404` checked.
 
     Args:
         artifact_id (str):
@@ -146,7 +149,8 @@ async def asyncio(
 ) -> Any | HTTPValidationError | None:
     """Artifact Resource
 
-     Private MCP Resource bytes; ownership is rechecked on every read.
+     Private MCP Resource bytes; ownership is rechecked on every read. An
+    App-owned artifact's owner is its field, which `_row_or_404` checked.
 
     Args:
         artifact_id (str):

@@ -46,25 +46,24 @@ from __future__ import annotations
 
 import json
 import uuid
-from contextlib import AsyncExitStack
 from dataclasses import dataclass, field as dc_field
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from sqlalchemy import delete, insert, select, update
 
+from agentplatform.appdata import artifacts as app_artifacts
 from agentplatform.appdata import quotas
 from agentplatform.appdata.access import Caller, RecordError
 from agentplatform.appdata.definitions import SYSTEM_FIELDS, CollectionDef, UniqueRule
 from agentplatform.appdata.models import AppDataRecord, AppDataStagedRecord, AppDataStagingSet
 from agentplatform.appdata.records import (R, AppContext, _check_input,
                                            _check_refs, _check_unique, _check_writer_rules,
-                                           _has_unique, _insert, _insert_many, _maybe_lock,
-                                           can_bulk_insert,
-                                           _require_active, _update, bump_counters,
-                                           collection_lock, field_expr, format_datetime,
+                                           _insert, _insert_many, _require_active, _update,
+                                           bump_counters, can_bulk_insert, field_expr,
+                                           format_datetime,
                                            load_app, normalize_value, scope, set_size,
-                                           side_columns)
+                                           side_columns, write_lock)
 from agentplatform.db import utcnow
 
 MAX_BATCH_RECORDS = 5_000
@@ -192,6 +191,13 @@ async def _replace(session, ctx: AppContext, caller: Caller, c: CollectionDef,
     await _check_refs(session, ctx, c, changed)
     sides = side_columns(c, doc)
     await _check_unique(session, ctx, c, doc, record.id)
+    # As _update does: the new artifacts first, then release the old ones.
+    moved = [name for name in app_artifacts.artifact_fields(c) if name in changed]
+    await app_artifacts.attach(session, ctx, caller, c, record.id,
+                               {name: changed[name] for name in moved})
+    await app_artifacts.detach_fields(session, ctx, c.collection, record.id,
+                                      {name: record.doc[name] for name in moved
+                                       if record.doc.get(name) is not None})
     record.doc = doc
     set_size(session, ctx, record, writes=1)
     for column, value in sides.items():
@@ -316,7 +322,7 @@ async def batch(session, ctx: AppContext, caller: Caller, collection: str, recor
         _require_active(ctx)
         ctx.access(c, caller).require_verb("create")
         await check_quotas(session, ctx, records=len(records), bytes=size)
-        async with _maybe_lock(session, ctx, c):
+        async with write_lock(session, ctx, [c.collection]):
             if mode == "insert" and can_bulk_insert(c):
                 await run.insert_many(list(range(len(records))), session, ctx, caller, c,
                                       records)
@@ -515,12 +521,7 @@ async def commit_staging_set(session, caller: Caller, set_id: str, *,
         for c in cols.values():
             ctx.access(c, caller).require_verb("create")
         await check_quotas(session, ctx, records=st.record_count, bytes=st.bytes)
-        async with AsyncExitStack() as locks:
-            # Sorted, so two commits over the same collections can't deadlock.
-            for name in sorted(cols):
-                if _has_unique(cols[name]):
-                    await locks.enter_async_context(collection_lock(session, ctx.app_id,
-                                                                    name))
+        async with write_lock(session, ctx, cols):
             last = -1
             while True:
                 rows = (await session.execute(

@@ -1,7 +1,124 @@
 # Apps
 
-**What:** a database-owned collection of pages and actions. An App can also
-have a reviewed domain service with its own API, UI, and data
+**What:** an App is something agents build and maintain for Kyle: structured
+records, the views that query them, and the pages that show them. Apps are
+**state, not code** (`docs/design/39-agent-built-apps.md`). An App is rows
+in the platform's own store, built by an agent through the `apps` tool and
+filled through the `app_data` tool. It has no image, schema, deploy or key,
+so a fresh install has no Apps, and restoring the database brings every App
+back. Code lives only in tools: connectors that bring outside data in, App
+tools that compute for an App, and platform tools.
+
+The six Apps that predate this (news, running, stockmarket, TCMS, judgment
+and TTRPG) are **coded Apps, being migrated**: services with their own
+schemas and images, described at the end of this page until each one is
+rebuilt as state and its code is deleted.
+
+**Lives in:** Postgres, in the `app_data_*` tables. [App data](app-data.md)
+is the reference: definitions, access, records, views, batch writes,
+artifacts, quotas, tools, routes and error codes.
+
+## When an App is the answer
+
+A one-off answer belongs in chat, durable knowledge in the [wiki](wiki.md), a
+private note in [memory](memories.md), and a piece of work in a
+[ticket](tickets.md). An App is for structured records used repeatedly,
+read by Kyle on a page, and kept correct by an agent over time. It is either
+a **report** (views and a page over records an agent writes on a schedule)
+or a **tool** (records an agent changes as Kyle asks, guarded by rules).
+
+## Who builds
+
+- A **builder** is any agent Kyle grants the `apps` tool. It creates Apps
+  it owns, drafts definitions, validates and previews them, publishes,
+  rolls back and retires. Records go through `app_data`, which builders
+  hold too.
+- The **maintainer** is the App's owning agent. It keeps the App healthy,
+  writes its records, and keeps its **build notes**: a runbook of at most 4 KB
+  an agent that has never seen the App can follow.
+- **Kyle** grants the tools: `apps` and `app_data` are Kyle-only grants
+  that only his browser session can add or remove, and an agent holding one
+  can be edited only by Kyle or by itself ([security.md](security.md)). He
+  reads every App from the console: `/apps` lists them, `/apps/state/<id>`
+  shows an App's definitions, drafts, notes and health, and
+  `/apps/state/<id>/pages/<page>` renders its pages.
+
+The `app-building` skill in the reviewed
+[coding plugin](../agent-platform-coding-plugin.md) teaches builders the
+procedure. Assign it with the two grants.
+
+## How an App is built
+
+1. **Inspect** existing Apps and their notes, so a build resumes rather than
+   duplicates.
+2. **Write the build notes** before any definition: the goal, the plan, the
+   step.
+3. **Draft** each collection, view and page.
+4. **Validate** the whole App: language errors with JSON paths and fixes,
+   stored records the change would break, data it would drop, and the
+   authority it would grant.
+5. **Preview** views and pages with sample records, as Kyle sees them.
+6. **Publish**, a compare-and-swap on the App's approved version.
+7. **Seed and verify** real records through `app_data`, then **update the
+   notes**.
+
+Every write takes a `request_id`, so a retried call returns its first
+receipt instead of acting twice.
+
+## Authority
+
+Building is not authority. The platform computes an App's **authority
+facts** from its definitions (who can read or write which field, delete
+reach, rules, retention, links, templates, tools) and a publish
+**self-publishes** only when nothing widens: every fact is already approved,
+or narrower. A new App starts with nothing approved, so it is visible to its
+owner and Kyle only. New fields start private, and adding a rule always
+self-publishes.
+
+Widening (sharing with another agent, retention, delete reach, links,
+tool-only collections, page action templates) is a **proposal** Kyle
+approves from his session. Proposals arrive in Release 1b; until then
+`publish` refuses a widening with `AL-NEEDS-PROPOSAL`. The full list is in
+[App data](app-data.md#access-and-authority).
+
+## The App Builder request path
+
+When a builder needs a primitive the kit lacks (a component, field type,
+rule, view feature or connector), it searches open `app-builder` tickets and
+comments on a match, or files one in `#eng`:
+
+```text
+Need: <the primitive>
+For: <App id and what its reader is trying to do>
+Tried: <the closest existing primitive and why it falls short>
+Shape: <what the definition would look like if it existed>
+```
+
+It records the ticket key in the App's build notes and checks
+`apps schema`'s capabilities version before relying on anything new. It
+never ships a weaker App to work around a missing guard.
+
+## Releases
+
+Release 1a (the store, definitions, the lifecycle, records, views, batch
+and artifacts in the engine, quotas, and `table`, `detail`, `metric` and
+`text` pages) is being built. Proposals, sharing, page actions and tool
+views are Release 1b; history, `versioned` collections and tool actions on
+pages are Release 2; charts and richer components are Release 3.
+[App data](app-data.md#not-built-yet) lists them.
+
+## Coded Apps (being migrated)
+
+Each coded App moves to state in turn: judgment (M1) and TCMS (M2) after
+Release 2, then running, news and stockmarket after Release 3, then TTRPG.
+For each one, the definitions are published through Kyle's approval, the data
+is copied with parity checks, readers cut over, the maintainer passes a
+takeover gate run from the build notes alone, and then the service, image,
+schema, secrets, key, topics, `query_app` adapter and its `app.yaml` are
+deleted. What follows describes them as they run until then.
+
+A coded App is a database-owned collection of pages and actions, usually
+backed by a reviewed domain service with its own API, UI, and data
 ([design 33](../design/33-capabilities-plugins-and-live-apps.md)). The news app is the
 reference: it consumes the news agent's digests, owns the archive + dedup
 and the freshness gates (`docs/design/18-news-freshness.md` — undated,
@@ -35,8 +152,8 @@ same numbers; ask for current data explicitly to redo it on a fresh pull. A
 question the grammar cannot express (shorting, options, leverage) gets a
 plain "can't do that yet" and a ticket, never a guessed answer.
 
-**Lives in:** the App collection and versioned live pages are database rows.
-`apps/<name>/` holds a domain backend/frontend and `app.yaml` infrastructure
+**Coded Apps live in:** the App collection and versioned live pages are
+database rows. `apps/<name>/` holds a domain backend/frontend and `app.yaml` infrastructure
 manifest where specialized behavior exists. Domain services ship like platform
 services (build image → import → enable in helm). They are deliberately
 **separable from platform code**: an app service may depend
@@ -44,7 +161,7 @@ only on public contracts — the HTTP API + SDK, Kafka topics, `@ap/ui` — neve
 `agentplatform` internals. (Kyle intends to split workloads into their own
 repo eventually; an app must survive a `git mv`.)
 
-## The manifest (`apps/<name>/app.yaml`)
+### The manifest (`apps/<name>/app.yaml`)
 
 ```yaml
 name: news
@@ -61,7 +178,7 @@ agent_key:
   role: operator          # platform key app:<name> (reader|annotator|operator)
 ```
 
-## Declarative provisioning
+### Declarative provisioning
 
 The dispatcher's **AppProvisioner** heartbeat reconciles every declared app:
 pg role + schema (creds → k8s secret `app-<name>-db`, env-ready keys like
@@ -70,7 +187,7 @@ pg role + schema (creds → k8s secret `app-<name>-db`, env-ready keys like
 and missing Kafka topics. It converges and never tears down — deleting an
 app's data is a human act.
 
-## Runtime contract
+### Runtime contract
 
 - **Deploy**: list the name in `.Values.apps.enabled`; the chart's generic
   template runs `agent-platform-app-<name>:tag` (hardened pod, the two
@@ -93,14 +210,14 @@ app's data is a human act.
 - **UI**: app frontends are npm workspace members importing `@ap/ui` — the
   same tokens/primitives as the console (no-raw-hex gate scans them too).
 
-## Registry
+### Registry
 
 `GET /api/apps` + the `/apps` page: what's declared, what each app needs,
 whether its Deployment is ready, and the available live pages. A legacy
 manifest is imported into the collection once; subsequent collection edits
 are DB-owned. The manifest still declares infrastructure needs.
 
-## Live pages
+### Live pages (`typed/v1`)
 
 An admin can create a page from the Apps list, edit its typed JSON draft,
 preview text and controls, save, publish, and restore an earlier published

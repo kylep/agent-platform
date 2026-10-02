@@ -1,5 +1,6 @@
 from datetime import timedelta
 
+import pytest
 from sqlalchemy import func, select
 
 from agentplatform.agents import AgentStore
@@ -142,3 +143,156 @@ async def test_artifact_pruner_undresses_an_agent_still_wearing_the_artifact(sf,
     clears = [e["data"] for e in producer.envelopes if e["type"] == "artifacts.event"]
     assert [(c["event"], c["agent"], c["artifact"]) for c in clears] == [
         ("agent_image", "news", None)]
+
+
+# --- App data (docs/design/39) ----------------------------------------------------
+# The housekeeping the appdata modules define, run by the dispatcher: daily,
+# each active App's retention and orphaned uploads, then old receipts; hourly,
+# expired staging sets and long-expired tool-call credential rows.
+
+async def _app_data_fixture(sf):
+    from agentplatform.appdata import artifacts as app_artifacts
+    from agentplatform.appdata.access import Caller
+    from agentplatform.appdata.records import create_record
+
+    from .test_appdata_artifacts import docs, make_app
+    pai = Caller("agent:pai")
+    ctx = await make_app(sf, [docs(retention={"max_records": 1})])
+    for title in ("old", "new"):
+        async with sf() as s:
+            await create_record(s, ctx, pai, "docs", {"title": title})
+    async with sf() as s:
+        orphan = await app_artifacts.upload(s, ctx, pai, "docs", "file", b"x" * 10,
+                                            name="o.bin")
+    return ctx, orphan.id
+
+
+async def _titles(sf, app_id):
+    from agentplatform.appdata.models import AppDataRecord
+    async with sf() as s:
+        return sorted(r.doc.get("title") for r in (await s.execute(
+            select(AppDataRecord).where(AppDataRecord.app_id == app_id))).scalars())
+
+
+async def test_app_data_pruner_runs_retention_and_the_sweep_for_active_apps(sf):
+    from agentplatform.appdata.models import AppDataApp
+    from agentplatform.pruning import AppDataPruner
+
+    from .test_appdata_artifacts import gone
+    active, orphan = await _app_data_fixture(sf)
+    retired, kept_orphan = await _app_data_fixture(sf)
+    async with sf() as s:
+        (await s.get(AppDataApp, retired.app_id)).status = "retired"
+        await s.commit()
+    out = await AppDataPruner(sf).prune_apps_once(now=utcnow() + timedelta(hours=25))
+    assert out["apps"] == 1 and out["failed"] == []
+    assert await _titles(sf, active.app_id) == ["new"]
+    assert await gone(sf, orphan)
+    # A retired App is read-only; nothing prunes it.
+    assert await _titles(sf, retired.app_id) == ["new", "old"]
+    assert not await gone(sf, kept_orphan)
+
+
+async def test_app_data_pruner_drops_old_receipts_record_writes_included(sf):
+    from agentplatform.appdata.models import AppDataBuildOp
+    from agentplatform.pruning import AppDataPruner
+    now = utcnow()
+    async with sf() as s:
+        for op, age in [("publish", 91), ("record_create", 91), ("record_delete", 120),
+                        ("record_update", 89), ("draft", 1)]:
+            s.add(AppDataBuildOp(principal="agent:pai", request_id=f"{op}-{age}", op=op,
+                                 args_hash="h", created_at=now - timedelta(days=age)))
+        await s.commit()
+    out = await AppDataPruner(sf).prune_apps_once(now=now)
+    assert out["build_ops"] == 3
+    async with sf() as s:
+        left = sorted((await s.execute(select(AppDataBuildOp.op))).scalars())
+    assert left == ["draft", "record_update"]
+
+
+async def test_one_app_failing_to_prune_doesnt_stop_the_rest(sf, monkeypatch):
+    from agentplatform.appdata import retention
+    from agentplatform.pruning import AppDataPruner
+    first, _ = await _app_data_fixture(sf)
+    second, _ = await _app_data_fixture(sf)
+    broken = min(first.app_id, second.app_id)
+    healthy = max(first.app_id, second.app_id)
+    original = retention.prune_app
+
+    async def flaky(session, ctx, **kw):
+        if ctx.app_id == broken:
+            raise RuntimeError("boom")
+        return await original(session, ctx, **kw)
+
+    monkeypatch.setattr(retention, "prune_app", flaky)
+    out = await AppDataPruner(sf).prune_apps_once()
+    assert out == {"apps": 1, "failed": [broken], "build_ops": 0}
+    assert await _titles(sf, healthy) == ["new"]
+    assert await _titles(sf, broken) == ["new", "old"]
+
+
+async def test_app_data_pruner_expires_staging_sets_and_old_credentials(sf):
+    from agentplatform.appdata.models import (AppDataStagedRecord, AppDataStagingSet,
+                                              AppDataToolCall)
+    from agentplatform.pruning import AppDataPruner
+    now = utcnow()
+    async with sf() as s:
+        s.add(AppDataStagingSet(id="stale", app_id="a1", creator="agent:pai",
+                                expires_at=now - timedelta(minutes=1)))
+        s.add(AppDataStagingSet(id="fresh", app_id="a1", creator="agent:pai",
+                                expires_at=now + timedelta(hours=1)))
+        s.add(AppDataStagedRecord(set_id="stale", seq=0, collection="c", mode="insert",
+                                  doc={}))
+        for jti, expired_ago in [("old", timedelta(days=2)), ("recent", timedelta(hours=1)),
+                                 ("live", -timedelta(minutes=5))]:
+            s.add(AppDataToolCall(jti=jti, call_id=jti, kind="tool_call",
+                                  expires_at=now - expired_ago))
+        await s.commit()
+    out = await AppDataPruner(sf).prune_hourly_once(now=now)
+    assert out == {"staging_sets": 1, "tool_calls": 1}
+    async with sf() as s:
+        assert (await s.get(AppDataStagingSet, "stale")).state == "expired"
+        assert (await s.get(AppDataStagingSet, "fresh")).state == "open"
+        assert (await s.execute(select(func.count()).select_from(AppDataStagedRecord))
+                ).scalar_one() == 0
+        assert sorted((await s.execute(select(AppDataToolCall.jti))).scalars()) == [
+            "live", "recent"]
+
+
+async def test_app_data_pruner_runs_daily_and_hourly_and_survives_a_failure(sf, monkeypatch):
+    import asyncio
+
+    from agentplatform import pruning
+    calls, sleeps = [], []
+
+    async def daily():
+        calls.append("daily")
+        raise RuntimeError("a bad night")
+
+    async def hourly():
+        calls.append("hourly")
+
+    real_sleep = asyncio.sleep
+
+    async def fake_sleep(seconds):
+        sleeps.append(seconds)
+        await real_sleep(0.01)
+
+    pruner = pruning.AppDataPruner(sf)
+    monkeypatch.setattr(pruner, "prune_apps_once", daily)
+    monkeypatch.setattr(pruner, "prune_hourly_once", hourly)
+    monkeypatch.setattr(pruning.asyncio, "sleep", fake_sleep)
+    with pytest.raises(asyncio.TimeoutError):
+        await asyncio.wait_for(pruner.run_forever(), timeout=0.2)
+    assert {86400, 3600} <= set(sleeps)
+    # The daily pass failing didn't stop it being tried again.
+    assert calls.count("daily") >= 2 and "hourly" in calls
+
+
+def test_the_dispatcher_runs_the_app_data_pruner():
+    import inspect
+
+    from agentplatform import dispatcher_main
+    src = inspect.getsource(dispatcher_main.main)
+    assert "AppDataPruner(session_factory)" in src
+    assert "app_data_pruner.run_forever()" in src

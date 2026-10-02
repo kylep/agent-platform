@@ -41,7 +41,7 @@ CORE_TOOL_SUFFIXES = frozenset({
     "runs_read", "runs_write", "metrics", "query_app",
     "agents_edit", "agents_grant", "relay", "tickets", "wiki",
     "get_quota_usage", "artifacts", "image_gen", "quota_ok", "agent_self",
-    "discord", "health_incident", "tasks",
+    "discord", "health_incident", "tasks", "apps", "app_data",
 })
 
 

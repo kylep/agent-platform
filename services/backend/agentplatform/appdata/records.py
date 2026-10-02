@@ -22,8 +22,15 @@ Postgres.
   block it, `unlink` refs are cleared.
 - **Quotas** (appdata/quotas.py): each write notes what it adds or frees,
   and the public writes settle the charge just before their commit.
-- **`unique`** is checked under a per-collection lock: `pg_advisory_xact_lock`
-  on Postgres, a process lock on SQLite (which serializes writers anyway).
+- **Every write holds its collections' locks** (`write_lock`): a
+  transaction-scoped advisory lock on Postgres, a process lock on SQLite
+  (which serializes writers anyway). A write to a collection with `unique`
+  rules takes it exclusive, so the check and the insert are one step; any
+  other write takes it shared, so plain writes still run side by side. A
+  publish takes it exclusive for every collection it changes, so its check
+  over the stored records can't race a write; a write that waited behind a
+  publish re-reads the definitions it was checked against and is refused if
+  they moved.
 - **Artifact fields** make the artifact App-owned on write and delete it with
   its last reference (`appdata/artifacts.py`), in the write's transaction.
 
@@ -37,7 +44,7 @@ import asyncio
 import hashlib
 import uuid
 import weakref
-from contextlib import asynccontextmanager
+from contextlib import AsyncExitStack, asynccontextmanager
 from dataclasses import dataclass, field as dc_field
 from datetime import date, datetime, time, timezone
 from typing import Any
@@ -74,6 +81,8 @@ class AppContext:
     name: str = ""
     # collection -> the published definition version records are stamped with.
     versions: dict[str, int] = dc_field(default_factory=dict)
+    # The App's approved version these definitions were read at.
+    approved_version: int | None = None
 
     def collection(self, name: str) -> CollectionDef:
         c = self.bundle.collections.get(name)
@@ -141,7 +150,7 @@ async def load_app(session, app_id: str) -> AppContext:
                           "longer validate", 503, exc.as_dict()["errors"]) from exc
     return AppContext(app_id=app.id, owner=owner_principal(app), bundle=validated,
                       timezone=app.timezone or "UTC", status=app.status, name=app.name,
-                      versions=versions)
+                      versions=versions, approved_version=app.approved_version)
 
 
 # --- values ---------------------------------------------------------------------------
@@ -299,19 +308,76 @@ def dialect(session) -> str:
 
 
 @asynccontextmanager
-async def collection_lock(session, app_id: str, collection: str):
-    """Serialize `unique` checks per collection. On Postgres the lock is the
-    transaction's and is released by its commit or rollback; on SQLite a
-    process lock is held across the block, so the caller commits inside it."""
+async def collection_lock(session, app_id: str, collection: str, *, shared: bool = False):
+    """One collection's lock. On Postgres the lock is the transaction's and is
+    released by its commit or rollback; `shared` holders exclude only an
+    exclusive one. On SQLite a process lock is held across the block (shared
+    or not), so the caller commits inside it."""
     if dialect(session) == "postgresql":
-        await session.execute(select(func.pg_advisory_xact_lock(
-            lock_key(app_id, collection))))
+        fn = func.pg_advisory_xact_lock_shared if shared else func.pg_advisory_xact_lock
+        await session.execute(select(fn(lock_key(app_id, collection))))
         yield
         return
     locks = _process_locks.setdefault(asyncio.get_running_loop(), {})
     lock = locks.setdefault((app_id, collection), asyncio.Lock())
     async with lock:
         yield
+
+
+@asynccontextmanager
+async def locked_collections(session, app_id: str, exclusive=(), shared=()):
+    """Take several collections' locks in one sorted order, so two holders of
+    overlapping sets can't deadlock. A name in both sets is taken exclusive."""
+    exclusive = set(exclusive)
+    async with AsyncExitStack() as stack:
+        for name in sorted(exclusive | set(shared)):
+            await stack.enter_async_context(collection_lock(
+                session, app_id, name, shared=name not in exclusive))
+        yield
+
+
+@asynccontextmanager
+async def write_lock(session, ctx: AppContext, collections, *, delete_target: str | None = None):
+    """Hold the locks a record write needs: exclusive on a collection with
+    `unique` rules, shared otherwise. Once they're held no publish can be
+    mid-check on these collections; one that committed while this write
+    waited may have changed the definitions `ctx` holds, so the write is
+    refused rather than checked against stale ones."""
+    names = set(collections)
+    exclusive = {n for n in names
+                 if n in ctx.bundle.collections and _has_unique(ctx.bundle.collections[n])}
+    async with locked_collections(session, ctx.app_id, exclusive, names - exclusive):
+        await _require_current(session, ctx, names, delete_target=delete_target)
+        yield
+
+
+async def _require_current(session, ctx: AppContext, names: set[str], *,
+                           delete_target: str | None = None) -> None:
+    approved = (await session.execute(select(AppDataApp.approved_version).where(
+        AppDataApp.id == ctx.app_id))).scalar_one_or_none()
+    if approved == ctx.approved_version:
+        return
+    # A publish that left these collections alone (a view, a page, another
+    # collection) doesn't make this write stale.
+    rows = await published_rows(session, ctx.app_id)
+    now = state_at(rows, approved)
+    if delete_target is not None:
+        # Publishing a new incoming ref also locks its target. A delete
+        # waiting there must notice refs absent from its original context,
+        # even when the target collection's own definition hasn't changed.
+        names = names | {name for (kind, name), row in now.items()
+                         if kind == "collection" and any(
+                             spec.get("type") == "ref"
+                             and spec.get("collection") == delete_target
+                             for spec in row.body.get("fields", {}).values())}
+    moved = sorted(n for n in names
+                   if (now[("collection", n)].version if ("collection", n) in now else None)
+                   != ctx.versions.get(n))
+    if moved:
+        raise RecordError("AD-DEFINITIONS-MOVED", "the App published new definitions "
+                          "for this write's collections while it waited; read them "
+                          "and retry", 409, {"collections": moved,
+                                             "approved_version": approved})
 
 
 async def bump_counters(session, app_id: str, collections) -> None:
@@ -432,8 +498,8 @@ def _prepare(ctx: AppContext, caller: Caller, c: CollectionDef, values: dict) ->
 
 async def _insert(session, ctx: AppContext, caller: Caller, c: CollectionDef,
                   values: dict, record_id: str | None = None) -> AppDataRecord:
-    """Validate and add one record. The caller holds the collection lock when
-    the collection has `unique` rules, and commits."""
+    """Validate and add one record. The caller holds `write_lock` on the
+    collection, and commits."""
     doc = _prepare(ctx, caller, c, values)
     await _check_refs(session, ctx, c, doc)
     sides = side_columns(c, doc)
@@ -592,8 +658,8 @@ async def _insert_many(session, ctx: AppContext, caller: Caller, c: CollectionDe
     """Insert `items` in arrival order, checked exactly as `_insert` checks
     one. Returns, aligned with `items`, each new record's id or the
     RecordError that refused it; a refused record changes nothing. Only for
-    collections `can_bulk_insert` admits. The caller holds the collection
-    lock when the collection has `unique` rules, and commits."""
+    collections `can_bulk_insert` admits. The caller holds `write_lock` on
+    the collection, as for `_insert`, and commits."""
     out: list = []
     for i in range(0, len(items), BULK_CHUNK):
         out += await _bulk_insert_chunk(session, ctx, caller, c, items[i:i + BULK_CHUNK])
@@ -604,7 +670,7 @@ async def create_record(session, ctx: AppContext, caller: Caller, collection: st
                         values: dict) -> dict:
     c = ctx.collection(collection)
     try:
-        async with _maybe_lock(session, ctx, c):
+        async with write_lock(session, ctx, [c.collection]):
             record = await _insert(session, ctx, caller, c, values)
             await bump_counters(session, ctx.app_id, [c.collection])
             row = present(ctx.access(c, caller), record)
@@ -616,13 +682,12 @@ async def create_record(session, ctx: AppContext, caller: Caller, collection: st
     return row
 
 
-@asynccontextmanager
-async def _maybe_lock(session, ctx: AppContext, c: CollectionDef):
-    if _has_unique(c):
-        async with collection_lock(session, ctx.app_id, c.collection):
-            yield
-    else:
-        yield
+def delete_lock(session, ctx: AppContext, collection: str):
+    """A delete's locks: the target collection and every collection whose
+    refs to it the plan may unlink."""
+    return write_lock(session, ctx, {collection} | {c.collection
+                                                    for c, _, _ in ctx.refs_to(collection)},
+                      delete_target=collection)
 
 
 # --- read -------------------------------------------------------------------------------------
@@ -728,7 +793,7 @@ async def update_record(session, ctx: AppContext, caller: Caller, collection: st
     a 409 with the current version, never a silent overwrite."""
     c = ctx.collection(collection)
     try:
-        async with _maybe_lock(session, ctx, c):
+        async with write_lock(session, ctx, [c.collection]):
             record = await _update(session, ctx, caller, c, record_id, values,
                                    expected_version)
             await bump_counters(session, ctx.app_id, [c.collection])
@@ -875,15 +940,18 @@ async def delete_records(session, ctx: AppContext, caller: Caller, collection: s
     """Compute the plan and run it in one transaction, or refuse with the plan
     when a `restrict` ref blocks it."""
     try:
-        await _authorize_delete(session, ctx, caller, collection, ids, expected_versions)
-        plan = await compute_plan(session, ctx, [(collection, rid) for rid in ids])
-        summary = plan.summary(ctx, caller)
-        if plan.blocked:
-            raise RecordError("AD-REF-RESTRICT", "referenced by records whose ref is "
-                              "on_delete: restrict", 409, summary)
-        await execute_plan(session, ctx, caller, plan)
-        await quotas.settle(session)
-        await session.commit()
+        ctx.collection(collection)
+        async with delete_lock(session, ctx, collection):
+            await _authorize_delete(session, ctx, caller, collection, ids,
+                                    expected_versions)
+            plan = await compute_plan(session, ctx, [(collection, rid) for rid in ids])
+            summary = plan.summary(ctx, caller)
+            if plan.blocked:
+                raise RecordError("AD-REF-RESTRICT", "referenced by records whose ref is "
+                                  "on_delete: restrict", 409, summary)
+            await execute_plan(session, ctx, caller, plan)
+            await quotas.settle(session)
+            await session.commit()
     except BaseException:
         await session.rollback()
         raise

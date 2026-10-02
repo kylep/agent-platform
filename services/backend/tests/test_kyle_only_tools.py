@@ -81,9 +81,8 @@ async def test_self_grant_is_refused(client, sf, seed_agent, agent_store):
 @pytest.mark.parametrize("tool", sorted(KYLE_ONLY_TOOLS))
 async def test_proxy_grant_is_refused_for_every_kyle_only_tool(
         client, sf, seed_agent, agent_store, tool):
-    """A grants B — the side door self-grant would otherwise use. The two App
-    tools don't exist yet; the refusal is still 403 (authority), not 422
-    (unknown tool), so the rule is in place before they ship."""
+    """A grants B — the side door self-grant would otherwise use. The refusal
+    is 403 (authority) for every one of them, the App tools included."""
     h = await kai_and_worker(sf, seed_agent, agent_store)
     out = await agenttools.agents_grant(api(client, h), {
         "action": "add_grant", "name": "worker", "field": "platform_tools",
@@ -189,14 +188,18 @@ async def test_kyle_session_grants_and_removes(admin_client, sf, seed_agent,
     assert r.status_code == 201 and r.json()["platform_tools"] == [TOOL_AGENTS_EDIT]
 
 
-async def test_kyle_still_cannot_grant_a_tool_that_does_not_exist_yet(admin_client,
-                                                                     seed_agent):
-    """Reserving the App tools is not shipping them: Kyle's grant of one passes
-    authority and then meets validation, until the tool exists."""
+async def test_kyle_grants_the_app_tools_now_they_exist(admin_client, seed_agent):
+    """They were reserved first (authority passed, validation refused them as
+    unknown); now that they ship (A10), Kyle's session grant goes through, and
+    a name that is still not a tool is refused as before."""
     await seed_agent("worker")
-    r = await admin_client.put("/api/agents/worker",
-                               json=a_def("worker", platform_tools=[TOOL_APPS]))
-    assert r.status_code == 422 and TOOL_APPS in r.text
+    r = await admin_client.put("/api/agents/worker", json=a_def(
+        "worker", platform_tools=[TOOL_APPS, TOOL_APP_DATA]))
+    assert r.status_code == 200, r.text
+    assert r.json()["platform_tools"] == [TOOL_APPS, TOOL_APP_DATA]
+    r = await admin_client.put("/api/agents/worker", json=a_def(
+        "worker", platform_tools=["mcp__platform__app_builder"]))
+    assert r.status_code == 422 and "mcp__platform__app_builder" in r.text
 
 
 async def test_ordinary_grants_still_flow_through_agents_grant(client, sf, seed_agent,

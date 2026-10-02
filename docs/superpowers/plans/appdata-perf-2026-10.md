@@ -191,20 +191,20 @@ The benchmark doesn't raise any scan limit.
       stockmarket's whole measured size.
     - Staging calls are 5,000 records each, and the interactive timeout covers
       them (~0.1 s each).
-- **Scan:**
-  - Keep 60 s per execution, two concurrent scans per App, and the hourly row
-    budgets.
-  - Lower `app_data_scan_max_rows` from 2M to 1M, or raise
-    `app_data_scan_max_seconds` to 120 s.
-  - At ~34k rows/s here, 2M rows needs ~59 s, which leaves no headroom on the
-    NUC's smaller `shared_buffers`. A scan near the row cap would fail on time
-    instead of rows.
-  - Kyle's call. This change leaves the config as the design states it.
+- **Scan (decided):** 60 s per execution as the design says, and the
+  per-scan row cap lowered from 2M to 1M (`app_data_scan_max_rows`).
+  - At ~34k rows/s here, 2M rows needed ~59 s: no headroom, and a scan near
+    the row cap would have failed on time instead of rows. 1M rows takes
+    ~30 s.
+  - Two concurrent scans per App and the hourly row budgets are unchanged.
 - **Materialization refresh:** one week of TCMS results scans in 0.6 s. A full
   year of results (1M rows) takes 30 s, so a 10-minute `every:` is
   comfortable.
 
-## Index and side-column findings (not changed here)
+## Index and side-column findings
+
+The GIN drop, the partial indexes and the c3 index are **R1b items**.
+The PVC size and `shared_buffers` are handled in Helm before M2.
 
 - **The NUC's Postgres PVC (2 GiB) can't hold the migrated volumes.**
   - The design's quotas (stockmarket ~2M and TCMS ~1.5M records) come to about
