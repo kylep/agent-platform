@@ -826,7 +826,7 @@ Shared-file notes for G1:
       - other parameters.
     - `cache: none` never stores.
     - The cap prunes.
-- [ ] **B21 Materialized views** (after B18) ∥.
+- [x] **B21 Materialized views** (after B18) ∥.
   - **Goal:** heavy tool views refresh on a schedule as
     `system:materializer`, and are read with readers computed per access.
   - **Design:** "Tool views" → Materialized views.

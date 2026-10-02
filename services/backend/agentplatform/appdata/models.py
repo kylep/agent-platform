@@ -309,6 +309,29 @@ class AppDataViewCache(Base):
     accessed_at: Mapped[datetime] = mapped_column(_TS, default=utcnow, index=True)
 
 
+class AppDataMaterialization(Base):
+    """Last completed result for one materialized view parameter set."""
+    __tablename__ = "app_data_materializations"
+    key: Mapped[str] = mapped_column(String(64), primary_key=True)
+    app_id: Mapped[str] = mapped_column(String(32), index=True)
+    view: Mapped[str] = mapped_column(String(64))
+    params: Mapped[dict] = mapped_column(_JSON)
+    sources: Mapped[dict] = mapped_column(_JSON)
+    definition_digest: Mapped[str] = mapped_column(String(64))
+    result: Mapped[dict] = mapped_column(_JSON)
+    read_fields: Mapped[list] = mapped_column(_JSON)
+    refreshed_at: Mapped[datetime] = mapped_column(_TS, default=utcnow)
+
+
+class AppDataMaterializeRequest(Base):
+    """A coalesced batch-writer request to refresh a view soon."""
+    __tablename__ = "app_data_materialize_requests"
+    app_id: Mapped[str] = mapped_column(String(32), primary_key=True)
+    view: Mapped[str] = mapped_column(String(64), primary_key=True)
+    requested_at: Mapped[datetime] = mapped_column(_TS, default=utcnow)
+    consumed_at: Mapped[datetime | None] = mapped_column(_TS, nullable=True)
+
+
 class AppDataArtifact(Base):
     """An App-owned artifact (design 39, "Collections" → "Artifact fields").
 

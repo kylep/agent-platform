@@ -69,6 +69,25 @@ async def test_materialization_is_refused_under_restore(sf):
         assert not await mm.materialization_allowed(s)
 
 
+async def test_scheduler_only_ticks_materializer_when_running(sf, now):
+    seen = []
+
+    async def materializer(factory, *, now):
+        seen.append(now)
+
+    sch = Scheduler(sf, FakeStore([]), FakeProducer(), materializer=materializer)
+    async with sf() as s:
+        await mm.enter_restore(s, "restore")
+        await s.commit()
+    await sch.tick(now)
+    assert seen == []
+    async with sf() as s:
+        await mm.resume(s, "kyle")
+        await s.commit()
+    await sch.tick(now + timedelta(minutes=1))
+    assert seen == [now + timedelta(minutes=1)]
+
+
 async def test_no_cron_fires_under_restore_and_nothing_catches_up(sf, now):
     producer = FakeProducer()
     sch = Scheduler(sf, FakeStore([_agent("cronbot", "*/10 * * * *")]), producer)

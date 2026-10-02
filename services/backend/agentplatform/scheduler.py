@@ -129,10 +129,11 @@ def _due_entry(crons: list["CronEntry"], now: datetime, tz: str = "") -> "CronEn
 
 
 class Scheduler:
-    def __init__(self, session_factory, agent_store, producer):
+    def __init__(self, session_factory, agent_store, producer, *, materializer=None):
         self.sf = session_factory
         self.agents = agent_store
         self.producer = producer
+        self.materializer = materializer
 
     async def tick(self, now: datetime) -> None:
         await self.agents.reload()
@@ -156,6 +157,11 @@ class Scheduler:
         from agentplatform.task_scheduler import fire_due_tasks, reconcile_task_runs
         if not paused:
             await fire_due_tasks(self.sf, self.producer)
+            if self.materializer is not None:
+                try:
+                    await self.materializer(self.sf, now=now)
+                except Exception:
+                    log.warning("App materializer tick failed", exc_info=True)
         await reconcile_task_runs(self.sf)
 
     async def _tick_agent(self, name: str, crons: list["CronEntry"], now: datetime,

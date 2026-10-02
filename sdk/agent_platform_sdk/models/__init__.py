@@ -162,6 +162,7 @@ from .record_delete_in import RecordDeleteIn
 from .record_ref import RecordRef
 from .record_update_in import RecordUpdateIn
 from .record_update_in_values import RecordUpdateInValues
+from .refresh_in import RefreshIn
 from .refresh_quota_provider import RefreshQuotaProvider
 from .relay_binding_in import RelayBindingIn
 from .relay_binding_in_config import RelayBindingInConfig
@@ -459,6 +460,7 @@ __all__ = (
     "RecordRef",
     "RecordUpdateIn",
     "RecordUpdateInValues",
+    "RefreshIn",
     "RefreshQuotaProvider",
     "RelayBindingIn",
     "RelayBindingInConfig",

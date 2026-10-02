@@ -59,7 +59,7 @@ async def test_scan_pages_as_viewer_and_records_fields_used(scan_env, sf):
     assert second.json()["next_cursor"] is None
     async with sf() as s:
         row = await s.get(AppDataToolCall, claim["jti"])
-        assert row.scan_fields == ["id", "title"]
+        assert row.scan_fields == ["results.id", "results.title"]
         assert row.scan_rows == 4  # limit + lookahead reserved for each page
     forbidden = await scan_env.post("/api/app-data/scan", headers=headers,
                                json={"role": "results", "fields": ["private"]})
@@ -88,6 +88,11 @@ async def test_scan_credential_is_sender_and_route_bound(scan_env, sf):
     other_route = await scan_env.post("/api/app-data/agent/records/describe", headers=headers,
                                  json={"app": app_id})
     assert other_route.status_code == 401
+    write = await scan_env.post("/api/app-data/agent/records/create", headers=headers,
+                                json={"app": app_id, "collection": "results",
+                                      "request_id": uuid.uuid4().hex,
+                                      "values": {"title": "forbidden"}})
+    assert write.status_code == 401
     no_credential = await scan_env.post("/api/app-data/scan", json=body)
     assert no_credential.status_code == 401
 

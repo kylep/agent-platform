@@ -98,7 +98,8 @@ async def test_tool_view_scans_as_viewer_and_revokes_credential(scan_env, sf, mo
         from sqlalchemy import select
         row = (await s.execute(select(AppDataToolCall).where(
             AppDataToolCall.kind == "view_exec"))).scalar_one()
-        assert row.revoked_at is not None and row.scan_fields == ["created_at", "id", "title"]
+        assert row.revoked_at is not None and row.scan_fields == [
+            "source.created_at", "source.id", "source.title"]
 
 
 async def test_tool_view_cannot_infer_a_hidden_field(scan_env, sf, monkeypatch):

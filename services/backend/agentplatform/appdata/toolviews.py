@@ -11,6 +11,7 @@ import jsonschema
 from agentplatform.appdata import credentials, viewcache
 from agentplatform.appdata.access import Caller, RecordError
 from agentplatform.appdata.definitions import ToolViewDef
+from agentplatform.appdata.models import AppDataToolCall
 from agentplatform.appdata.views import _as_of, resolve_params
 from agentplatform.db import utcnow
 from agentplatform.operation_catalog import view_action
@@ -44,7 +45,8 @@ def _binding(ctx, view: ToolViewDef, app_state):
 
 async def execute(session, ctx, caller: Caller, view: ToolViewDef, params: dict | None,
                   app_state, *, limit: int | None = None, cursor: str | None = None,
-                  use_cache: bool = True) -> dict:
+                  use_cache: bool = True, materializing: bool = False,
+                  capture_fields: list[str] | None = None) -> dict:
     if cursor is not None:
         raise RecordError("AD-CURSOR", "tool views do not page", 422)
     if limit is not None and not 1 <= limit <= 200:
@@ -52,6 +54,9 @@ async def execute(session, ctx, caller: Caller, view: ToolViewDef, params: dict 
     if ctx.status != "active":
         raise RecordError("AD-APP-RETIRED", "retired Apps do not run tool views", 409)
     approved, manifest, sources = _binding(ctx, view, app_state)
+    if view.materialize is not None and not materializing:
+        from agentplatform.appdata.materialized import read
+        return await read(session, ctx, caller, view, params, sources)
     for collection in sources.values():
         ctx.access(ctx.collection(collection), caller).require_rows()
     arguments = resolve_params(view, params)
@@ -120,6 +125,10 @@ async def execute(session, ctx, caller: Caller, view: ToolViewDef, params: dict 
         if cache_key is not None:
             await viewcache.put(session, cache_key, ctx, caller, view, result,
                                 max_bytes=app_state.settings.app_data_view_cache_max_bytes)
+        if capture_fields is not None:
+            call = await session.get(AppDataToolCall, claim["jti"])
+            await session.refresh(call)
+            capture_fields.extend(call.scan_fields or [])
         return result
     finally:
         # A copy of the credential is dead as soon as the executor answers,

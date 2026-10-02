@@ -649,6 +649,34 @@ class DeletePreviewIn(AppRef):
     ids: list[str] = Field(min_length=1, max_length=100)
 
 
+class RefreshIn(AppRef):
+    view: str
+
+
+@router.post("/api/app-data/agent/records/request_refresh")
+async def records_request_refresh(request: Request, body: RefreshIn,
+                                  actor: Actor = Depends(records_caller)):
+    if getattr(request.state, "auth_kind", None) != tc.KIND_TOOL_CALL:
+        raise HTTPException(403, "refresh requests come from a batch writer's tool call")
+    async def fn(s):
+        from agentplatform.appdata.materialized import request_refresh
+        app, ctx = await _loaded(s, body.app)
+        view = ctx.bundle.views.get(body.view)
+        if not isinstance(view, ToolViewDef) or view.materialize is None:
+            raise RecordError("AD-NOT-MATERIALIZED", "no materialized view by that name", 404)
+        fact = ctx.bundle.app_tools.get(view.tool)
+        sources = {fact.roles[role].collection for role in view.sources} if fact else set()
+        scope = request.state.tool_call.get("app_scope") or []
+        if not any(entry["app_id"] == app.id
+                   and set(entry["collections"]) & sources
+                   and set(entry["verbs"]) & {"create", "update", "delete"}
+                   for entry in scope):
+            raise RecordError("AD-OUT-OF-SCOPE", "this tool call cannot request a refresh", 403)
+        queued = await request_refresh(s, ctx, view)
+        return {"queued": queued, "view": view.view}
+    return await _call(request, fn)
+
+
 @router.post("/api/app-data/agent/records/describe")
 async def records_describe(request: Request, body: AppRef,
                            actor: Actor = Depends(records_caller)):

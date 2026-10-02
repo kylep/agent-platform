@@ -1,6 +1,7 @@
 import asyncio
 import base64
 import logging
+from types import SimpleNamespace
 
 from kubernetes import client as k8s
 from kubernetes import config as k8s_config
@@ -26,6 +27,7 @@ from agentplatform.prsummarizer import PrSummarizer
 from agentplatform.relay_router import RelayRouter
 from agentplatform.reportregistry import ReportTypeRegistry
 from agentplatform.scheduler import Scheduler
+from agentplatform.appdata.materialized import refresh_due
 from agentplatform.secretregistry import SecretRegistry
 from agentplatform.secrets import K8sSecretStore
 from agentplatform.skills import SkillStore
@@ -98,7 +100,12 @@ async def main() -> None:
     dispatcher = Dispatcher(settings, session_factory, producer, agent_store, launcher,
                             skill_store=skill_store, verifier=verifier)
     watcher = JobWatcher(batch, settings, session_factory, producer)
-    scheduler = Scheduler(session_factory, agent_store, producer)
+    materializer_state = SimpleNamespace(
+        settings=settings, secret_store=K8sSecretStore(core, settings.k8s_namespace),
+        tool_registry=ToolRegistry(settings.tools_root))
+    scheduler = Scheduler(session_factory, agent_store, producer,
+                          materializer=lambda sf, now: refresh_due(
+                              sf, materializer_state, now=now))
     pruner = TranscriptPruner(session_factory, agent_store, settings)
     report_pruner = ReportPruner(session_factory, ReportTypeRegistry(settings.reports_root))
     artifact_pruner = ArtifactPruner(session_factory, settings, producer)

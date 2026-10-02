@@ -84,7 +84,8 @@ async def app_data_scan(request: Request, body: ScanIn) -> dict:
             if issues:
                 raise RecordError("AD-SCAN-SPEC", "invalid scan specification", 422,
                                   [i.as_dict() for i in issues])
-            caller = Caller(claim["principal"])
+            caller = Caller(claim["principal"],
+                            system=claim["principal"] == "system:materializer")
             query = _Query(ctx, caller, view, {}, datetime.now(timezone.utc))
             query.check_access()
             for field in body.fields:
@@ -115,7 +116,8 @@ async def app_data_scan(request: Request, body: ScanIn) -> dict:
                 raise RecordError("AD-QUOTA-SCAN-EXECUTION", "scan execution row limit reached", 413,
                                   {"max": max_rows, "used": row.scan_rows or 0})
             row.scan_rows = (row.scan_rows or 0) + reserve
-            row.scan_fields = sorted(set(row.scan_fields or []).union(used))
+            row.scan_fields = sorted(set(row.scan_fields or []).union(
+                f"{body.role}.{field}" for field in used))
             await s.commit()
             async with quotas.scan_budget(s, ctx) as budget:
                 return await scan_page(s, ctx, caller, view, limit=body.limit,
