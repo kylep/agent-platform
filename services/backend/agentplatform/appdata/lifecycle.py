@@ -940,6 +940,51 @@ def _summary_line(verb: str, version: int, entries: list[dict]) -> str:
 
 # --- publish, rollback, retire ----------------------------------------------------------
 
+async def _publish_core(session, app: AppDataApp, a: Assessment, *, expected: int | None,
+                        changes: dict[tuple[str, str], dict | None], author: str,
+                        run_id: str | None, reason: str, drafts: dict | None = None,
+                        approved_by: str | None = None,
+                        proposal_id: str | None = None) -> tuple[int, list[dict]]:
+    """Make `changes` ({(kind, name): body, or None to remove}) the next
+    approved version, once `a` has passed: the compare-and-swap, a row per
+    change (a draft in `drafts` is published in place, anything else gets a
+    new row), the settled bodies and the reindex. Publish, rollback and an
+    approved proposal all end here. Doesn't commit."""
+    version = await _swap_version(session, app, expected)
+    now = utcnow()
+    entries = []
+    for key, body in changes.items():
+        row = (drafts or {}).get(key)
+        if row is None:
+            row = AppDataDefinition(app_id=app.id, kind=key[0], name=key[1], revision=1,
+                                    base_version=expected, reason=reason)
+            session.add(row)
+        else:
+            row.reason = reason or row.reason
+        row.state, row.version, row.removed = "published", version, body is None
+        row.body = {} if body is None else _settled_body(a, key, body)
+        row.author, row.run_id = author, run_id
+        row.approved_by, row.proposal_id = approved_by, proposal_id
+        row.updated_at = now
+        entries.append({"kind": key[0], "name": key[1], "version": version,
+                        **({"removed": True} if body is None else {})})
+    await session.flush()
+    await _reindex(session, app.id, a)
+    return version, _published(entries)
+
+
+def rollback_changes(a: Assessment, current: dict, target: dict) -> dict:
+    """What making `target` current changes: each definition whose settled
+    body differs, and a removal for each one `target` lacks."""
+    out: dict[tuple[str, str], dict | None] = {}
+    for key in sorted(set(current) | set(target)):
+        if key not in target:
+            out[key] = None
+        elif current.get(key) != _settled_body(a, key, target[key]):
+            out[key] = target[key]
+    return out
+
+
 def _locked_by(current: dict, candidate: dict) -> set[str]:
     """The collections whose stored records a move from `current` to
     `candidate` checks: every collection added, changed or removed, and the
@@ -991,24 +1036,14 @@ async def publish(session, actor: Actor, app_ref: str, *, request_id: str,
         async with _consistency_lock(session, app.id, current, candidate):
             a = await _assess(session, app, current, candidate, drafts=changes, rows=rows)
             _refuse_assessment(app, a)
-            version = await _swap_version(session, app, expected_approved_version)
-            now = utcnow()
-            entries = []
             for key, row in drafts.items():
                 if key not in changes:
                     await session.delete(row)
-                    continue
-                row.state, row.version = "published", version
-                if not row.removed:
-                    row.body = _settled_body(a, key, row.body)
-                row.author, row.run_id = actor.principal, actor.run_id
-                row.reason = reason or row.reason
-                row.updated_at = now
-                entries.append({"kind": key[0], "name": key[1], "version": version,
-                                **({"removed": True} if row.removed else {})})
-            await session.flush()
-            await _reindex(session, app.id, a)
-            entries = _published(entries)
+            version, entries = await _publish_core(
+                session, app, a, expected=expected_approved_version,
+                changes={key: None if row.removed else row.body
+                         for key, row in changes.items()},
+                drafts=changes, author=actor.principal, run_id=actor.run_id, reason=reason)
             return await finish({"app_id": app.id, "approved_version": version,
                                  "authority_generation": app.authority_generation,
                                  "published": entries, "digest": A.digest(a.facts)},
@@ -1041,26 +1076,10 @@ async def rollback(session, actor: Actor, app_ref: str, *, request_id: str, to_v
         async with _consistency_lock(session, app.id, current, target):
             a = await _assess(session, app, current, target)
             _refuse_assessment(app, a)
-            version = await _swap_version(session, app, expected_approved_version)
-            entries = []
-            for key in sorted(set(current) | set(target)):
-                if key in target:
-                    body = _settled_body(a, key, target[key])
-                    if current.get(key) == body:
-                        continue
-                else:
-                    body = {}
-                session.add(AppDataDefinition(
-                    app_id=app.id, kind=key[0], name=key[1], version=version, body=body,
-                    state="published", removed=key not in target, revision=1,
-                    base_version=expected_approved_version, author=actor.principal,
-                    run_id=actor.run_id,
-                    reason=reason or f"rollback to version {to_version}"))
-                entries.append({"kind": key[0], "name": key[1], "version": version,
-                                **({} if key in target else {"removed": True})})
-            await session.flush()
-            await _reindex(session, app.id, a)
-            entries = _published(entries)
+            version, entries = await _publish_core(
+                session, app, a, expected=expected_approved_version,
+                changes=rollback_changes(a, current, target), author=actor.principal,
+                run_id=actor.run_id, reason=reason or f"rollback to version {to_version}")
             return await finish({"app_id": app.id, "approved_version": version,
                                  "rolled_back_to": to_version,
                                  "authority_generation": app.authority_generation,
