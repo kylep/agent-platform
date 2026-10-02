@@ -2,106 +2,116 @@
 
 Design 39, "The authority model". A bundle self-publishes when every fact it
 computes is present in the approved state's facts, or narrower; anything else
-is a widening Kyle approves. This module is pure: it works on plain dict
-definitions so it stays independent of the definition models
-(`appdata/definitions.py`), which validate the same shape.
+is a widening Kyle approves. This module is pure.
 
-Expected definition shape (lists may also be given as {name: item} maps):
+It reads the definition language of `appdata/definitions.py` (A2): either a
+validated `AppBundle` (the normal path, after `validate_app`) or the same
+`{"collections": [...], "views": [...], "pages": [...]}` document. The key
+sets and defaults below are derived from A2's models, so a key the language
+gains is known here at once, and a key it doesn't have is `unmapped`, which is
+always a proposal: unknown means proposal.
 
-    {
-      "collections": [{
-        "collection": "habits",
-        "write_mode": "editable" | "immutable" | "versioned",   # default editable
-        "access": {"read": [...], "create": [...], "update": [...], "delete": [...]},
-        "fields": {
-          "day":  {"type": "date", "access": {"read": ["owner"]}},   # per-verb override
-          "src":  {"type": "url", "link": true},                     # outbound link
-          "run":  {"type": "ref", "ref": "runs", "on_delete": "restrict" | "unlink" | "cascade"},
-          "steps": {"type": "list", "items": {"type": "object", "fields": {...}}}
-        },
-        "rules": [{"kind": "writer", "field": "f", "value": v?, "writers": [...]},
-                  {"kind": "immutable_after_create", "fields": [...]},
-                  {"kind": "unique", "fields": [...]},
-                  {"kind": "required_when", "field": "f", "when": {"g": v}},
-                  {"kind": "lock", "when": {"field": "f", "value": v, "in": "current" | "history"},
-                   "lock": [...], "unless_writer": [...]}],
-        "writers": {"create": ["tool:x"], "update": ["tool:x"]},   # tool-only writers
-        "retention": {"max_age": "90d" | "12w" | "1y" | <days>, "max_records": <n>},
-        "indexed": [...]
-      }],
-      "views": [{"view": "v", "collection": "habits", "filter": [...], ...}
-                | {"view": "v", "tool": "t", "action": "a", "sources": ["role"], ...}],
-      "pages": [{"page": "p", "renderer": "typed/v2", "title": "...",
-                 "blocks": [{"kind": "table", ...}],
-                 "actions": [{"alias": "x", "template": "add"}
-                             | {"alias": "x", "tool": "t", "action": "a", "sources": ["role"],
-                                "verbs": [...], "budget": {...}}]}],
-      "templates": [{"template": "add", "kind": "create" | "update" | "delete" | "new_version",
-                     "collection": "habits", "presets": {...}, "editable_fields": [...]}],
-      "app_tools": [{"tool": "t", "roles": {"role": {"collection": "habits", "verbs": [...]}}}],
-      "service_principals": [{"principal": "tool:t", "collections": {"habits": [...]}}]
-    }
+A few fact types cover syntax A2 refuses today. The engine keeps them, keyed
+to the shape A2 will use, so their facts are settled before the language
+opens them; until then they reach it only as raw documents:
+
+- `on_delete: cascade`, `write_mode: versioned`, `list` fields (one level of
+  `items: {type: object, fields: {...}}`) and `new_version` templates
+  (Release 2);
+- page actions with `kind: "tool"`, `tool`, `action`, `sources`, `verbs` and
+  `budget` (Release 2);
+- top-level `app_tools: [{tool, roles: {role: {collection, verbs}}}]` and tool
+  views `{view, tool, action, sources}` (R1b);
+- top-level `service_principals: [{principal: "tool:<name>", collections:
+  {collection: [verbs]}}]` (M6);
+- the `required_when` and `lock` rules (request path).
 
 Principals are strings: the symbolic `owner`, `kyle`, and named principals
 such as `agent:bob` or `login:qa`. A verb missing from a collection's `access`
-gets the narrowest default (owner and Kyle read, the owner writes, nobody
-deletes). Keys the engine doesn't know become `unmapped` facts, which are
-always a proposal: unknown means proposal.
+gets A2's default; `null` anywhere A2 allows it means "inherit".
 """
 from __future__ import annotations
 
 import copy
+import dataclasses
 import hashlib
 import json
-import re
+import typing
 
-SYSTEM_FIELDS = ("id", "created_at", "updated_at", "author", "via", "version",
-                 "collection_version")
-FIELD_VERBS = ("read", "create", "update")
-COLLECTION_VERBS = FIELD_VERBS + ("delete",)
-DEFAULT_ACCESS = {"read": ("owner", "kyle"), "create": ("owner",), "update": ("owner",),
-                  "delete": ()}
+from pydantic import BaseModel, ValidationError
+
+from agentplatform.appdata import definitions as lang
+
+
+def _keys(model: type[BaseModel]) -> frozenset[str]:
+    """The keys a definition model accepts, as written (aliases included)."""
+    return frozenset(info.alias or name for name, info in model.model_fields.items())
+
+
+def _tagged(union, tag: str) -> dict[str, type[BaseModel]]:
+    """Tag value -> model for one of A2's discriminated unions."""
+    members = typing.get_args(typing.get_args(union)[0])
+    return {value: model for model in members
+            for value in typing.get_args(model.model_fields[tag].annotation)}
+
+
+def _literal(model: type[BaseModel], name: str) -> tuple:
+    return typing.get_args(model.model_fields[name].annotation)
+
+
+SYSTEM_FIELDS = tuple(lang.SYSTEM_FIELDS)
+FIELD_VERBS = tuple(lang.FieldAccess.model_fields)
+COLLECTION_VERBS = tuple(lang.CollectionAccess.model_fields)
+WRITER_VERBS = tuple(lang.Writers.model_fields)
+DEFAULT_ACCESS = {verb: tuple(principals)
+                  for verb, principals in lang.CollectionAccess().model_dump().items()}
 # New fields and collections start private: owner and Kyle only. Anything
 # beyond is a proposal. Kyle writes only through templates, which are always
 # proposals, so his facts here open nothing by themselves.
-PRIVATE = {verb: {"owner", "kyle"} for verb in ("read", "create", "update", "delete")}
+PRIVATE = {verb: {"owner", "kyle"} for verb in COLLECTION_VERBS}
 
-FIELD_TYPES = {"string", "text", "int", "number", "bool", "date", "datetime", "enum", "ref",
-               "url", "artifact", "list", "object"}
-WRITE_MODES = {"editable", "immutable", "versioned"}
-ON_DELETE = {"restrict", "unlink", "cascade"}
-TEMPLATE_KINDS = {"create", "update", "delete", "new_version"}
-BLOCK_KINDS = {"table", "detail", "metric", "text", "heading", "paragraph", "chart",
-               "calendar", "sparkline", "stat_row", "list_filter", "image", "refresh"}
+TOP_KEYS = frozenset(f.name for f in dataclasses.fields(lang.AppBundle)) | {
+    "app_tools", "service_principals"}                                  # R1b, M6
+COLLECTION_KEYS = _keys(lang.CollectionDef)
+DEFAULT_WRITE_MODE = lang.CollectionDef.model_fields["write_mode"].default
+WRITE_MODES = frozenset(_literal(lang.CollectionDef, "write_mode")) | {"versioned"}  # R2
 
-TOP_KEYS = {"collections", "views", "pages", "templates", "app_tools", "service_principals",
-            "notes", "timezone"}
-COLLECTION_KEYS = {"collection", "title", "description", "fields", "write_mode", "access",
-                   "rules", "writers", "retention", "indexed"}
-FIELD_KEYS = {"type", "required", "description", "label", "title", "max", "min", "values",
-              "default", "ref", "on_delete", "link", "access", "indexed", "items", "fields",
-              "pin_version", "unit", "format"}
-RULE_KEYS = {"writer": {"kind", "field", "value", "writers"},
-             "immutable_after_create": {"kind", "fields"},
-             "unique": {"kind", "fields"},
-             "required_when": {"kind", "field", "when"},
-             "lock": {"kind", "when", "lock", "unless_writer"}}
-TEMPLATE_KEYS = {"template", "kind", "collection", "presets", "editable_fields", "label",
-                 "title", "description", "copy_current"}
-VIEW_KEYS = {"view", "collection", "title", "description", "filter", "sort", "limit", "params",
-             "group_by", "aggregates", "fill_missing", "expand", "fields", "page_size",
-             "normalize", "downsample"}
-TOOL_VIEW_KEYS = {"view", "tool", "action", "sources", "params", "cache", "materialize",
-                  "title", "description", "limit"}
-PAGE_KEYS = {"page", "renderer", "title", "description", "blocks", "actions", "params", "nav"}
-TEMPLATE_ACTION_KEYS = {"alias", "template", "label", "confirm"}
-TOOL_ACTION_KEYS = {"alias", "tool", "action", "sources", "verbs", "budget", "label", "confirm"}
+FIELD_KEYS = {kind: _keys(model) for kind, model in _tagged(lang.FieldSpec, "type").items()}
+DEFAULT_ON_DELETE = lang.RefField.model_fields["on_delete"].default
+ON_DELETE = frozenset(_literal(lang.RefField, "on_delete")) | {"cascade"}   # R2
+# Release 2 lists: one level of declared sub-fields, each a scalar type.
+LIST_KEYS = _keys(lang.BoolField) | {"items"}
+OBJECT_ITEM_KEYS = frozenset({"type", "fields"})
+
+RULE_KEYS = {kind: _keys(model) for kind, model in _tagged(lang.Rule, "kind").items()}
+RULE_KEYS.update({                                                     # request path
+    "required_when": frozenset({"kind", "field", "when"}),
+    "lock": frozenset({"kind", "when", "lock", "unless_writer"})})
+
+VIEW_KEYS = _keys(lang.ViewDef)
+TOOL_VIEW_KEYS = frozenset({"view", "tool", "action", "sources", "description", "params",
+                            "cache", "materialize"})                    # R1b
+PAGE_KEYS = _keys(lang.PageDef)
+BLOCK_KEYS = {kind: _keys(model) for kind, model in _tagged(lang.Block, "kind").items()}
+TEMPLATE_KEYS = {kind: _keys(model)
+                 for kind, model in _tagged(lang.ActionTemplate, "kind").items()}
+TEMPLATE_KEYS["new_version"] = TEMPLATE_KEYS["update"]                 # R2
+TOOL_ACTION_KEYS = frozenset({"name", "kind", "label", "tool", "action", "sources", "verbs",
+                              "budget"})                                # R2
 
 KIND_ORDER = ("access", "delete", "delete_reach", "retention", "rule", "template", "app_tool",
               "tool_view", "tool_action", "service_principal", "link", "unmapped")
-_DURATION = re.compile(r"^(\d+)([dwy])$")
-_DAYS = {"d": 1, "w": 7, "y": 365}
 _PAST = {"create": "created", "update": "updated", "delete": "deleted"}
+
+
+def as_definitions(definitions) -> dict:
+    """A validated `AppBundle` as the document it was validated from, keeping
+    only what the author set: defaults stay A2's to fill in."""
+    if isinstance(definitions, lang.AppBundle):
+        return {f.name: [model.model_dump(by_alias=True, exclude_unset=True)
+                         for model in getattr(definitions, f.name).values()]
+                for f in dataclasses.fields(definitions)}
+    return definitions
 
 
 def canon(value) -> str:
@@ -128,18 +138,20 @@ def initial_approved_facts() -> frozenset:
     return frozenset()
 
 
-def _items(value, name_key):
-    if isinstance(value, dict):
-        return [(name, item) for name, item in value.items()]
-    if isinstance(value, list):
-        return [(item.get(name_key) if isinstance(item, dict) else None, item) for item in value]
-    return None
+def _items(value):
+    """A definition list, or None: A2 takes lists only, never {name: item} maps."""
+    return list(value) if isinstance(value, list) else None
 
 
 def _strings(value):
     if isinstance(value, list) and all(isinstance(v, str) for v in value):
         return tuple(sorted(set(value)))
     return None
+
+
+def _set(mapping, key):
+    """A2 treats an explicit null like a missing key: the default applies."""
+    return isinstance(mapping, dict) and mapping.get(key) is not None
 
 
 class _Facts:
@@ -158,8 +170,11 @@ class _Facts:
                 self.unmapped(f"{path}.{key}")
 
 
-def compute_facts(definitions: dict) -> frozenset:
-    """Every authority fact the definitions grant, as a hashable set of tuples."""
+def compute_facts(definitions) -> frozenset:
+    """Every authority fact the definitions grant, as a hashable set of tuples.
+
+    `definitions` is a validated `AppBundle` or the document A2 validates."""
+    definitions = as_definitions(definitions)
     out = _Facts()
     if not isinstance(definitions, dict):
         out.unmapped("definitions")
@@ -167,34 +182,40 @@ def compute_facts(definitions: dict) -> frozenset:
     for key in definitions:
         if key not in TOP_KEYS:
             out.unmapped(key)
-
-    tools = _app_tools(out, definitions.get("app_tools", []))
-    edges = {}
-    for name, collection in _items(definitions.get("collections", []), "collection") or []:
-        _collection(out, name, collection, edges)
-    _delete_reach(out, edges)
-    for name, template in _items(definitions.get("templates", []), "template") or []:
-        _template(out, name, template)
-    for name, view in _items(definitions.get("views", []), "view") or []:
-        _view(out, name, view, tools)
-    for name, page in _items(definitions.get("pages", []), "page") or []:
-        _page(out, name, page, tools)
-    for _, sp in _items(definitions.get("service_principals", []), "principal") or []:
-        _service_principal(out, sp)
-    for key in ("collections", "views", "pages", "templates", "app_tools", "service_principals"):
-        if key in definitions and _items(definitions[key], "") is None:
+    lists = {}
+    for key in ("collections", "views", "pages", "app_tools", "service_principals"):
+        lists[key] = _items(definitions.get(key, []))
+        if lists[key] is None:
             out.unmapped(key)
+            lists[key] = []
+
+    tools = _app_tools(out, lists["app_tools"])
+    edges = {}
+    for c in lists["collections"]:
+        _collection(out, c, edges)
+    _delete_reach(out, edges)
+    for view in lists["views"]:
+        _view(out, view, tools)
+    for page in lists["pages"]:
+        _page(out, page, tools)
+    for sp in lists["service_principals"]:
+        _service_principal(out, sp)
     return frozenset(out.facts)
 
 
-def _collection(out, name, c, edges):
+def _name(item, key):
+    return item.get(key) if isinstance(item, dict) else None
+
+
+def _collection(out, c, edges):
+    name = _name(c, "collection")
     path = f"collections.{name}"
-    if not isinstance(name, str) or not isinstance(c, dict):
+    if not isinstance(name, str):
         out.unmapped(path)
         return
     out.unknown_keys(c, COLLECTION_KEYS, path)
     out.add("declared", name)
-    mode = c.get("write_mode", "editable")
+    mode = c["write_mode"] if _set(c, "write_mode") else DEFAULT_WRITE_MODE
     if mode not in WRITE_MODES:
         out.unmapped(f"{path}.write_mode={mode}")
     # An immutable collection grants no update, so making it editable is a widening.
@@ -207,7 +228,7 @@ def _collection(out, name, c, edges):
     out.unknown_keys(access, COLLECTION_VERBS, f"{path}.access")
     defaults = {}
     for verb in COLLECTION_VERBS:
-        principals = _strings(access[verb]) if verb in access else DEFAULT_ACCESS[verb]
+        principals = _strings(access[verb]) if _set(access, verb) else DEFAULT_ACCESS[verb]
         if principals is None:
             out.unmapped(f"{path}.access.{verb}")
             principals = ()
@@ -229,13 +250,13 @@ def _collection(out, name, c, edges):
             out.unmapped(fpath)
             continue
         out.add("declared", name, field)
-        override = spec.get("access", {})
+        override = spec.get("access") if _set(spec, "access") else {}
         if not isinstance(override, dict):
             out.unmapped(f"{fpath}.access")
             override = {}
         out.unknown_keys(override, FIELD_VERBS, f"{fpath}.access")
         for verb in verbs:
-            principals = _strings(override[verb]) if verb in override else defaults[verb]
+            principals = _strings(override[verb]) if _set(override, verb) else defaults[verb]
             if principals is None:
                 out.unmapped(f"{fpath}.access.{verb}")
                 continue
@@ -249,52 +270,67 @@ def _collection(out, name, c, edges):
         rules = []
     for i, rule in enumerate(rules):
         _rule(out, name, rule, f"{path}.rules.{i}")
-    writers = c.get("writers", {})
+    writers = c.get("writers") if _set(c, "writers") else {}
     if not isinstance(writers, dict):
         out.unmapped(f"{path}.writers")
         writers = {}
     for verb, tools in writers.items():
+        if tools is None and verb in WRITER_VERBS:
+            continue
         tools = _strings(tools)
-        if verb not in COLLECTION_VERBS or tools is None:
+        if verb not in WRITER_VERBS or tools is None:
             out.unmapped(f"{path}.writers.{verb}")
             continue
         out.add("rule", "writers", name, verb, tools)
-    _retention(out, name, c.get("retention"), f"{path}.retention")
+    if _set(c, "retention"):
+        _retention(out, name, c["retention"], f"{path}.retention")
 
 
 def _field_shape(out, collection, field, spec, path, edges, top):
-    """Links and refs, including inside lists of objects. Only top-level fields
-    carry access; a sub-field can't widen its parent's readers."""
-    out.unknown_keys(spec, FIELD_KEYS if top else FIELD_KEYS - {"access"}, path)
+    """Links and refs, including inside lists of objects (Release 2). Only
+    top-level fields carry access; a sub-field can't widen its parent's readers."""
     kind = spec.get("type")
-    if kind not in FIELD_TYPES:
+    if kind == "list" and top:
+        known = LIST_KEYS
+    elif kind in FIELD_KEYS:
+        known = FIELD_KEYS[kind]
+    else:
         out.unmapped(f"{path}.type={kind}")
+        return
+    out.unknown_keys(spec, known if top else known - {"access"}, path)
     if spec.get("link") is True:
         out.add("link", collection, field)
     elif "link" in spec and spec["link"] is not False:
         out.unmapped(f"{path}.link")
     if kind == "ref":
-        mode = spec.get("on_delete", "restrict")
-        target = spec.get("ref")
+        mode = spec["on_delete"] if _set(spec, "on_delete") else DEFAULT_ON_DELETE
+        target = spec.get("collection")
         if mode not in ON_DELETE or not isinstance(target, str):
-            out.unmapped(f"{path}.ref")
+            out.unmapped(f"{path}.collection")
         else:
             edges.setdefault(target, set()).add((collection, mode))
-    items = spec.get("items")
-    if isinstance(items, dict):
-        _field_shape(out, collection, field, items, f"{path}.items", edges, top=False)
-    elif items is not None:
-        out.unmapped(f"{path}.items")
-    subfields = spec.get("fields")
-    if isinstance(subfields, dict):
-        for sub, subspec in subfields.items():
-            if isinstance(subspec, dict):
-                _field_shape(out, collection, f"{field}.{sub}", subspec,
-                             f"{path}.fields.{sub}", edges, top=False)
-            else:
-                out.unmapped(f"{path}.fields.{sub}")
-    elif subfields is not None:
+    if kind == "list":
+        _list_items(out, collection, field, spec.get("items"), f"{path}.items", edges)
+
+
+def _list_items(out, collection, field, items, path, edges):
+    if not isinstance(items, dict):
+        out.unmapped(path)
+        return
+    if items.get("type") != "object":
+        _field_shape(out, collection, field, items, path, edges, top=False)
+        return
+    out.unknown_keys(items, OBJECT_ITEM_KEYS, path)
+    subfields = items.get("fields")
+    if not isinstance(subfields, dict):
         out.unmapped(f"{path}.fields")
+        return
+    for sub, subspec in subfields.items():
+        if isinstance(subspec, dict):
+            _field_shape(out, collection, f"{field}.{sub}", subspec,
+                         f"{path}.fields.{sub}", edges, top=False)
+        else:
+            out.unmapped(f"{path}.fields.{sub}")
 
 
 def _delete_reach(out, edges):
@@ -312,28 +348,16 @@ def _delete_reach(out, edges):
 
 
 def _retention(out, collection, retention, path):
-    if retention is None:
-        return
-    if not isinstance(retention, dict):
+    # A2's own model decides the syntax, so the two can't disagree on a duration.
+    try:
+        parsed = lang.Retention.model_validate(retention)
+    except ValidationError:
         out.unmapped(path)
         return
-    out.unknown_keys(retention, {"max_age", "max_records"}, path)
-    if "max_age" in retention:
-        age = retention["max_age"]
-        match = _DURATION.match(age) if isinstance(age, str) else None
-        if isinstance(age, int) and not isinstance(age, bool) and age > 0:
-            out.add("retention", collection, "max_age_days", age)
-        elif match:
-            out.add("retention", collection, "max_age_days",
-                    int(match.group(1)) * _DAYS[match.group(2)])
-        else:
-            out.unmapped(f"{path}.max_age")
-    if "max_records" in retention:
-        count = retention["max_records"]
-        if isinstance(count, int) and not isinstance(count, bool) and count > 0:
-            out.add("retention", collection, "max_records", count)
-        else:
-            out.unmapped(f"{path}.max_records")
+    if parsed.max_age is not None:
+        out.add("retention", collection, "max_age_days", lang.retention_days(parsed))
+    if parsed.max_records is not None:
+        out.add("retention", collection, "max_records", parsed.max_records)
 
 
 def _rule(out, collection, rule, path):
@@ -347,7 +371,7 @@ def _rule(out, collection, rule, path):
         if writers is None or not isinstance(rule.get("field"), str):
             out.unmapped(path)
             return
-        value = canon(rule["value"]) if "value" in rule else None
+        value = canon(rule["value"]) if _set(rule, "value") else None
         out.add("rule", "writer", collection, rule["field"], value, writers)
     elif kind in ("immutable_after_create", "unique"):
         fields = _strings(rule.get("fields"))
@@ -374,20 +398,19 @@ def _rule(out, collection, rule, path):
                 when.get("in", "current"), locked, unless)
 
 
-def _template(out, name, t):
-    path = f"templates.{name}"
-    if not isinstance(t, dict) or t.get("kind") not in TEMPLATE_KINDS \
-            or not isinstance(t.get("collection"), str):
-        out.unmapped(path)
-        return
-    out.unknown_keys(t, TEMPLATE_KEYS, path)
+def _template(out, page, t, path):
+    """A page's action template. Its name is page-scoped in A2, so the fact
+    names it `<page>.<name>`: the same form on another page is another approval."""
+    kind = t["kind"]
+    out.unknown_keys(t, TEMPLATE_KEYS[kind], path)
     presets = t.get("presets", {})
     editable = _strings(t.get("editable_fields", []))
-    if not isinstance(presets, dict) or editable is None:
+    if not isinstance(t.get("name"), str) or not isinstance(t.get("collection"), str) \
+            or not isinstance(presets, dict) or editable is None:
         out.unmapped(path)
         return
-    kind, collection = t["kind"], t["collection"]
-    out.add("template", name, kind, collection, canon(presets), editable)
+    collection = t["collection"]
+    out.add("template", f"{page}.{t['name']}", kind, collection, canon(presets), editable)
     # Approving the form approves the access it needs to work.
     if kind == "delete":
         out.add("delete", "kyle", collection)
@@ -397,11 +420,12 @@ def _template(out, name, t):
         out.add("access", "kyle", collection, field, verb)
 
 
-def _app_tools(out, value):
-    """App tool facts, plus each tool's role map for resolving view and action sources."""
+def _app_tools(out, entries):
+    """App tool facts (R1b), plus each tool's role map for resolving view and
+    action sources."""
     roles_by_tool = {}
-    for _, entry in _items(value, "tool") or []:
-        tool = entry.get("tool") if isinstance(entry, dict) else None
+    for entry in entries:
+        tool = _name(entry, "tool")
         if not isinstance(tool, str) or not isinstance(entry.get("roles"), dict):
             out.unmapped(f"app_tools.{tool}")
             continue
@@ -435,14 +459,15 @@ def _sources(out, tool, sources, tools, path):
     return tuple(resolved)
 
 
-def _view(out, name, view, tools):
-    path = f"views.{name}"
+def _view(out, view, tools):
+    path = f"views.{_name(view, 'view')}"
     if not isinstance(view, dict):
         out.unmapped(path)
         return
     if "tool" not in view:
         out.unknown_keys(view, VIEW_KEYS, path)
         return
+    # A tool view (R1b): a reviewed tool read action instead of a collection.
     out.unknown_keys(view, TOOL_VIEW_KEYS, path)
     tool, action = view.get("tool"), view.get("action")
     if not isinstance(tool, str) or not isinstance(action, str):
@@ -453,9 +478,10 @@ def _view(out, name, view, tools):
         out.add("tool_view", tool, action, sources, ("read",), None)
 
 
-def _page(out, name, page, tools):
+def _page(out, page, tools):
+    name = _name(page, "page")
     path = f"pages.{name}"
-    if not isinstance(page, dict):
+    if not isinstance(name, str):
         out.unmapped(path)
         return
     out.unknown_keys(page, PAGE_KEYS, path)
@@ -465,32 +491,39 @@ def _page(out, name, page, tools):
         return
     for i, block in enumerate(blocks):
         kind = block.get("kind") if isinstance(block, dict) else None
-        if kind not in BLOCK_KINDS:
+        if kind not in BLOCK_KEYS:
             out.unmapped(f"{path}.blocks.{i}.kind={kind}")
-        elif "tool" in block:
-            # Tool bindings live in views and actions, where they're facts.
-            out.unmapped(f"{path}.blocks.{i}.tool")
+        else:
+            # A block's `tool` is unknown here: tool bindings live in views and
+            # actions, where they're facts.
+            out.unknown_keys(block, BLOCK_KEYS[kind], f"{path}.blocks.{i}")
     for i, action in enumerate(actions):
-        alias = action.get("alias", i) if isinstance(action, dict) else i
-        apath = f"{path}.actions.{alias}"
-        if isinstance(action, dict) and "template" in action:
-            out.unknown_keys(action, TEMPLATE_ACTION_KEYS, apath)
-        elif isinstance(action, dict) and "tool" in action:
-            out.unknown_keys(action, TOOL_ACTION_KEYS, apath)
-            tool, act = action.get("tool"), action.get("action")
-            verbs = _strings(action.get("verbs", []))
-            if not isinstance(tool, str) or not isinstance(act, str) or verbs is None:
-                out.unmapped(apath)
-                continue
-            sources = _sources(out, tool, action.get("sources", []), tools, apath)
-            if sources is not None:
-                out.add("tool_action", tool, act, sources, verbs, canon(action.get("budget")))
+        kind = action.get("kind") if isinstance(action, dict) else None
+        apath = f"{path}.actions.{_name(action, 'name') or i}"
+        if kind in TEMPLATE_KEYS:
+            _template(out, name, action, apath)
+        elif kind == "tool":
+            _tool_action(out, action, tools, apath)
         else:
             out.unmapped(apath)
 
 
+def _tool_action(out, action, tools, path):
+    """A page button backed by a reviewed tool write action (Release 2)."""
+    out.unknown_keys(action, TOOL_ACTION_KEYS, path)
+    tool, act = action.get("tool"), action.get("action")
+    verbs = _strings(action.get("verbs", []))
+    if not isinstance(tool, str) or not isinstance(act, str) or verbs is None:
+        out.unmapped(path)
+        return
+    sources = _sources(out, tool, action.get("sources", []), tools, path)
+    if sources is not None:
+        out.add("tool_action", tool, act, sources, verbs, canon(action.get("budget")))
+
+
 def _service_principal(out, sp):
-    principal = sp.get("principal") if isinstance(sp, dict) else None
+    """A tool's own identity's App facts (M6)."""
+    principal = _name(sp, "principal")
     path = f"service_principals.{principal}"
     if not isinstance(principal, str) or not isinstance(sp.get("collections"), dict):
         out.unmapped(path)
@@ -507,7 +540,7 @@ def _service_principal(out, sp):
 
 # --- settle -------------------------------------------------------------------
 
-def settle_new_fields(definitions: dict, approved_definitions: dict) -> dict:
+def settle_new_fields(definitions, approved_definitions) -> dict:
     """Pin explicit private access on fields new to an existing collection.
 
     A field with no access of its own inherits the collection's defaults, so a
@@ -515,12 +548,15 @@ def settle_new_fields(definitions: dict, approved_definitions: dict) -> dict:
     Settling narrows each unset verb to its default intersected with the
     private set; publish stores the settled bundle so the field stays private
     until a proposal shares it. New collections are left alone: all their facts
-    are new and checked as such."""
-    settled = copy.deepcopy(definitions)
-    approved = {name: c for name, c in _items(approved_definitions.get("collections", []),
-                                               "collection") or [] if isinstance(c, dict)}
-    for name, c in _items(settled.get("collections", []), "collection") or []:
-        if name not in approved or not isinstance(c, dict) or not isinstance(c.get("fields"), dict):
+    are new and checked as such. Either argument may be a validated
+    `AppBundle`; the result is the definition document."""
+    settled = copy.deepcopy(as_definitions(definitions))
+    approved = {_name(c, "collection"): c
+                for c in _items(as_definitions(approved_definitions).get("collections", []))
+                or [] if isinstance(c, dict)}
+    for c in _items(settled.get("collections", [])) or []:
+        name = _name(c, "collection")
+        if name not in approved or not isinstance(c.get("fields"), dict):
             continue
         old_fields = approved[name].get("fields") or {}
         access = c.get("access") if isinstance(c.get("access"), dict) else {}
@@ -529,8 +565,8 @@ def settle_new_fields(definitions: dict, approved_definitions: dict) -> dict:
                 continue
             pinned = dict(spec.get("access") or {})
             for verb in FIELD_VERBS:
-                if verb not in pinned:
-                    default = access.get(verb, DEFAULT_ACCESS[verb])
+                if pinned.get(verb) is None:
+                    default = access[verb] if _set(access, verb) else DEFAULT_ACCESS[verb]
                     pinned[verb] = [p for p in default if p in PRIVATE[verb]]
             spec["access"] = pinned
     return settled
