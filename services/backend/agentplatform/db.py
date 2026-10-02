@@ -1041,6 +1041,18 @@ class Schedule(Base):
     next_fire: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
 
+class PlatformMaintenance(Base):
+    """The platform-wide maintenance flag (design 39, Lifecycle -> Restore): a
+    single row, id 1. No row means `running`. A restored dump carries a
+    `restore` row appended by the export (backup_export.RESTORE_MARKER_SQL), so
+    every restore path comes up paused until Kyle resumes."""
+    __tablename__ = "platform_maintenance"
+    id: Mapped[int] = mapped_column(primary_key=True, default=1)
+    mode: Mapped[str] = mapped_column(String(16), default="running", server_default="running")
+    reason: Mapped[str] = mapped_column(Text, default="", server_default="")
+    entered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    resumed_by: Mapped[str | None] = mapped_column(String(128), nullable=True)
+
 class ScheduledJob(Base):
     """A recurring task on a cron. Decouples the schedule from the agent (1:many
     — one agent can back many jobs, each with its own cron + prompt), unlike an

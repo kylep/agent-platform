@@ -24,6 +24,7 @@ from croniter import croniter
 from sqlalchemy import select
 
 from agentplatform.db import ACTIVE_STATES, Run, Schedule, ScheduledJob, utcnow
+from agentplatform import maintenance_mode
 from agentplatform.events import TOPIC_RUN_INBOUND
 from agentplatform.relay import SCHEDULER_AUTHOR
 from agentplatform.relay_store import summon_channel
@@ -135,6 +136,8 @@ class Scheduler:
 
     async def tick(self, now: datetime) -> None:
         await self.agents.reload()
+        async with self.sf() as s:
+            paused = await maintenance_mode.is_paused(s)
         # Declared schedules: the crons on the agent's row, e.g. the
         # health-monitor system agent.
         for info in self.agents.list():
@@ -143,19 +146,20 @@ class Scheduler:
             # period, forever (docs/design/15).
             if info.error is None and info.enabled and info.entrypoints.crons:
                 await self._tick_agent(info.name, info.entrypoints.crons, now,
-                                       info.entrypoints.timezone)
+                                       info.entrypoints.timezone, paused)
         # First-class Scheduled Jobs (1:many — one agent, many cron+prompt jobs).
         async with self.sf() as s:
             jobs = (await s.execute(select(ScheduledJob))).scalars().all()
         for job in jobs:
             if is_valid_cron(job.cron):
-                await self._tick_job(job.id, now)
+                await self._tick_job(job.id, now, paused)
         from agentplatform.task_scheduler import fire_due_tasks, reconcile_task_runs
-        await fire_due_tasks(self.sf, self.producer)
+        if not paused:
+            await fire_due_tasks(self.sf, self.producer)
         await reconcile_task_runs(self.sf)
 
     async def _tick_agent(self, name: str, crons: list["CronEntry"], now: datetime,
-                          tz: str = "") -> None:
+                          tz: str = "", paused: bool = False) -> None:
         """One agent may declare several cron triggers (`entrypoints.crons`);
         the Schedule row tracks the EARLIEST upcoming fire across all of them,
         and the run carries the prompt of whichever one came due."""
@@ -174,6 +178,12 @@ class Scheduler:
                 return
             if not sched.enabled or now < as_utc(sched.next_fire):
                 return
+            if paused:
+                # Maintenance: a due fire is dropped, not held, so resuming
+                # never replays what the pause swallowed.
+                sched.next_fire = soonest
+                await s.commit()
+                return
             run_id = uuid.uuid4().hex
             due = _due_entry(crons, now, tz)
             prompt, model = due.prompt.strip() or GENERIC_PROMPT, due.model
@@ -191,7 +201,7 @@ class Scheduler:
         except Exception:
             log.warning("publish failed for scheduled run %s", run_id)
 
-    async def _tick_job(self, job_id: str, now: datetime) -> None:
+    async def _tick_job(self, job_id: str, now: datetime, paused: bool = False) -> None:
         """Fire one Scheduled Job when due — either as a run on its own agent,
         or as a message in its own Relay channel."""
         run_id = agent = prompt = channel = model = None
@@ -205,6 +215,11 @@ class Scheduler:
                 await s.commit()
                 return
             if not job.enabled or now < as_utc(job.next_fire):
+                return
+            if paused:
+                # As for agent crons: skip the fire, don't queue it.
+                job.next_fire = next_fire(job.cron, now, job.timezone)
+                await s.commit()
                 return
             if job.run_when == "discord_unaddressed":
                 from agentplatform.external_chat import has_scan_activity
