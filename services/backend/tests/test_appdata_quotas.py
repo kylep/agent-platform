@@ -314,6 +314,25 @@ async def test_an_ownership_transfer_moves_the_usage(sf, settings):
     assert (kyle["records"], kyle["bytes"]) == (1, size_of({"title": "a"}))
 
 
+async def test_deleting_an_owner_agent_moves_its_usage_to_kyle(sf, settings):
+    """transfer_owned_apps hands the Apps to Kyle and their storage with them,
+    so the deleted agent's scope is freed and Kyle's limit sees the App."""
+    from agentplatform.appdata import lifecycle as L
+    one = await make_app(sf, [coll()])
+    two = await make_app(sf, [coll()])
+    bobs = await make_app(sf, [coll()], owner="agent:bob")
+    for ctx in (one, two, two):
+        await create(sf, ctx, {"title": "a"})
+    await create(sf, bobs, {"title": "b"}, caller=Caller("agent:bob"))
+    async with sf() as s:
+        assert await L.transfer_owned_apps(s, "pai") == 2
+        await s.commit()
+    pai, kyle = await usage(sf, "owner", "agent:pai"), await usage(sf, "owner", "kyle")
+    assert (pai["records"], pai["bytes"]) == (0, 0)
+    assert (kyle["records"], kyle["bytes"]) == (3, 3 * size_of({"title": "a"}))
+    assert (await usage(sf, "owner", "agent:bob"))["records"] == 1
+
+
 # --- writes per hour ---------------------------------------------------------------------------
 
 async def test_writes_per_hour_is_a_fixed_window(sf, settings, monkeypatch):
@@ -336,6 +355,57 @@ async def test_writes_per_hour_is_a_fixed_window(sf, settings, monkeypatch):
     clock["now"] = NOW + timedelta(minutes=30)
     await create(sf, ctx, {"title": "b"})
     assert (await usage(sf, "app", ctx.app_id))["records"] == 1
+
+
+async def test_a_retry_after_a_write_quota_refusal_can_succeed(sf, settings, monkeypatch):
+    """A quota refusal describes the moment, not the call: it leaves no
+    receipt, so once Kyle raises the limit the same request_id goes through
+    instead of replaying the stale refusal."""
+    from agentplatform.appdata import lifecycle as L
+    monkeypatch.setattr(quotas, "utcnow", lambda: NOW)
+    ctx = await make_app(sf, [coll()])
+    await kyle_sets(sf, "app", ctx.app_id, writes_per_hour=1)
+    pai = L.Actor("agent:pai")
+
+    async def write(request_id, title):
+        async with sf() as s:
+            return await L.record_create(s, pai, ctx.app_id, request_id=request_id,
+                                         collection="items", values={"title": title})
+
+    await write("w1", "a")
+    err = await refused("AD-QUOTA-WRITES", write("w2", "b"))
+    assert err.status == 429
+    async with sf() as s:
+        assert (await s.execute(select(AppDataBuildOp).where(
+            AppDataBuildOp.request_id == "w2"))).scalar_one_or_none() is None
+    await kyle_sets(sf, "app", ctx.app_id, writes_per_hour=5)
+    out = await write("w2", "b")
+    assert out["version"] == 1 and not out.get("replayed")
+    assert (await write("w2", "b"))["replayed"] is True
+    assert (await usage(sf, "app", ctx.app_id))["records"] == 2
+
+
+async def test_a_definitions_moved_refusal_leaves_no_receipt(sf, settings, monkeypatch):
+    from agentplatform.appdata import lifecycle as L
+    from agentplatform.appdata import records as rec
+    ctx = await make_app(sf, [coll()])
+    real = rec.write_lock
+    calls = {"n": 0}
+
+    def moved_once(*a, **kw):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise RecordError("AD-DEFINITIONS-MOVED", "moved", 409)
+        return real(*a, **kw)
+    monkeypatch.setattr(rec, "write_lock", moved_once)
+
+    async def write():
+        async with sf() as s:
+            return await L.record_create(s, L.Actor("agent:pai"), ctx.app_id,
+                                         request_id="m1", collection="items",
+                                         values={"title": "a"})
+    await refused("AD-DEFINITIONS-MOVED", write())
+    assert (await write())["version"] == 1
 
 
 async def test_the_owner_write_budget_spans_its_apps(sf, settings, monkeypatch):
@@ -597,13 +667,14 @@ async def test_lifecycle_create_counts_against_the_owners_apps(sf, settings):
     assert err.status == 413 and err.detail["scope_id"] == "agent:pai"
     async with sf() as s:
         names = (await s.execute(select(AppDataApp.name))).scalars().all()
-        # The refusal is the receipt: a retry answers the same way.
+        # A quota refusal leaves no receipt: a retry can outgrow it.
         receipt = (await s.execute(select(AppDataBuildOp).where(
-            AppDataBuildOp.request_id == "c-second"))).scalar_one()
-    assert names == ["first"] and receipt.receipt["status"] == "refused"
+            AppDataBuildOp.request_id == "c-second"))).scalar_one_or_none()
+    assert names == ["first"] and receipt is None
     # Another owner's slots are its own.
     await _lifecycle_create(sf, bob, "bobs")
-    await kyle_sets(sf, "owner", "agent:pai", max_apps=2)
+    await kyle_sets(sf, "owner", "agent:pai", max_apps=3)
+    await _lifecycle_create(sf, pai, "second")
     await _lifecycle_create(sf, pai, "third")
 
 

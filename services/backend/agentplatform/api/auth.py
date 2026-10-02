@@ -145,6 +145,8 @@ async def authenticate(request: Request) -> tuple[str, str] | None:
     if tool_call:
         # A present tool-call credential decides the request on its own: it
         # is never a fallback to whatever else the bearer would have been.
+        if not tool_call_route(request.url.path):
+            return None
         return await _authenticate_tool_call(request, token, tool_call)
     return await authenticate_bearer(request, token, request.headers.get("x-ap-run-token", ""))
 
@@ -196,6 +198,20 @@ async def authenticate_bearer(request: Request, token: str,
     return None
 
 
+# Where a tool-call credential authenticates at all. It stands for an agent
+# and its run, so a route that trusts `api_key_agent`/`api_key_run_id` alone
+# (persona messaging, chat-identity transport, memory, ...) would take it as
+# the run itself. Outside these it authenticates nothing: whoami (identity
+# only, no authority) and the app_data routes, whose module lets it through to
+# the record routes and refuses it on the builder, Kyle and quota routes.
+TOOL_CALL_PATHS = ("/api/whoami",)
+TOOL_CALL_PREFIXES = ("/api/app-data/",)
+
+
+def tool_call_route(path: str) -> bool:
+    return path in TOOL_CALL_PATHS or path.startswith(TOOL_CALL_PREFIXES)
+
+
 async def _authenticate_tool_call(request: Request, token: str,
                                   credential: str) -> tuple[str, str] | None:
     """A tool-call credential (docs/design/39), presented by the executor
@@ -203,9 +219,9 @@ async def _authenticate_tool_call(request: Request, token: str,
     for the call it names, and only until the broker revokes it at return.
 
     The principal is the agent acting through the tool; the role is `tools`,
-    which no allow-list names, so the only routes that answer it are the
-    `app_data` ones that check `auth_kind == "tool_call"` and keep to the
-    credential's `app_scope`."""
+    which no allow-list names, and `authenticate` admits it only on
+    `tool_call_route`s, so the only routes that answer it are the `app_data`
+    record ones, which keep to the credential's `app_scope`."""
     if token.count(".") != 2:
         return None
     sa_name = await workload_sa(request, token)

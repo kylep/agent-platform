@@ -236,11 +236,12 @@ def test_state_apps_are_never_facade_tools(spec, tools, admin_tools):
     """Design 39's two doors: the agent routes need an agent run holding the
     tool, and Kyle's read routes need his browser session. A facade caller
     holds an API key, which neither ever answers, so offering them (even
-    behind the admin flag) would advertise 24 tools that always 403."""
+    behind the admin flag) would advertise 26 tools that always 403."""
     app_ops = {(m, p) for m, p in operations(spec) if p.startswith("/api/app-data/")}
-    assert len(app_ops) == 24
+    assert len(app_ops) == 26
     assert ("POST", "/api/app-data/agent/apps/publish") in app_ops
     assert ("GET", "/api/app-data/apps/{app_id}/views/{view}") in app_ops
+    assert ("PUT", "/api/app-data/quotas/{scope_kind}/{scope_id}") in app_ops
     routes = {(t._route.method, t._route.path) for t in tools + admin_tools}
     assert not app_ops & routes
     # The older provisioned Apps' read proxy is a different door and stays.
