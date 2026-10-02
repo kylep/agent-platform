@@ -248,6 +248,34 @@ class Settings(BaseSettings):
     # "today" is measured in wherever the platform counts a day. Not the
     # scheduler's per-job field — that is each job's own.
     local_timezone: str = "America/Toronto"
+    # Agent-built App quotas (docs/design/39, "Storage", "Tool views";
+    # appdata/quotas.py). These are the defaults a new App and a new owner
+    # get; Kyle raises one App or owner with `set_quota`, which is how the
+    # migrated Apps get their measured sizes (stockmarket ~2M records and
+    # 1 GiB, TCMS ~1.5M and 600 MiB). Every limit fails closed.
+    # Per App: storage is records plus bytes (each record's JSON doc, and
+    # App-owned artifact bytes once those land); writes are records created
+    # or changed per hour; scans are rows read by tool-view scans per hour.
+    app_data_app_max_records: int = 250_000
+    app_data_app_max_bytes: int = 256 * 1024 ** 2
+    app_data_app_writes_per_hour: int = 200_000
+    app_data_app_scan_rows_per_hour: int = 20_000_000
+    app_data_app_max_concurrent_scans: int = 2
+    app_data_app_max_open_drafts: int = 100
+    app_data_app_max_open_proposals: int = 5
+    # Per owner (an agent, or Kyle), summed over every App it owns, retired
+    # ones included: a retired App's records still take space.
+    app_data_owner_max_records: int = 5_000_000
+    app_data_owner_max_bytes: int = 4 * 1024 ** 3
+    app_data_owner_writes_per_hour: int = 1_000_000
+    app_data_owner_scan_rows_per_hour: int = 60_000_000
+    app_data_owner_max_apps: int = 20
+    app_data_owner_max_open_proposals: int = 20
+    # One scan execution, whatever the hourly budgets have left.
+    app_data_scan_max_rows: int = 2_000_000
+    app_data_scan_max_seconds: float = 60
+    # Idempotent builder receipts are kept this long, then pruned.
+    app_data_build_ops_retention_days: int = 90
     # (The news pipeline settings are gone: news presentation lives in the news
     # APP now — the recorder just honors each manifest's `result_topic`.)
 

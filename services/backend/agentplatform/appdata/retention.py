@@ -18,6 +18,7 @@ from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import select
 
+from agentplatform.appdata import quotas
 from agentplatform.appdata.access import SYSTEM_RETENTION
 from agentplatform.appdata.artifacts import sweep_unreferenced
 from agentplatform.appdata.definitions import retention_days
@@ -93,6 +94,7 @@ async def prune_collection(session, ctx: AppContext, collection: str, *,
             await execute_plan(session, ctx, SYSTEM_RETENTION, plan)
             result.deleted += len(plan.deletes)
             result.unlinked += len(plan.unlinks)
+        await quotas.settle(session)
         await session.commit()
     return result
 

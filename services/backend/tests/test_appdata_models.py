@@ -15,10 +15,8 @@ APP_DATA_TABLES = {
     "app_data_apps", "app_data_definitions", "app_data_records",
     "app_data_record_versions", "app_data_build_ops", "app_data_staging_sets",
     "app_data_staged_records", "app_data_quotas", "app_data_write_counters",
-    "app_data_artifacts", "app_data_artifact_refs",
-
-
-    "app_data_tool_calls",
+    "app_data_artifacts", "app_data_artifact_refs", "app_data_tool_calls",
+    "app_data_scan_leases",
 }
 
 # The design's composite indexes ("Collections" → "Indexed fields"), by name.

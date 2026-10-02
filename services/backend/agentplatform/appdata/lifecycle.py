@@ -40,6 +40,7 @@ from zoneinfo import ZoneInfo
 from sqlalchemy import Text, and_, cast, func, select, update
 from sqlalchemy.exc import IntegrityError
 
+from agentplatform.appdata import quotas
 from agentplatform.appdata import authority as A
 from agentplatform.appdata import records as rec
 from agentplatform.appdata.access import Caller, RecordError
@@ -263,6 +264,8 @@ async def _build_op(session, actor: Actor, *, request_id: str, op: str, app_id: 
     async def finish(result: dict, summary: str) -> dict:
         session.add(receipt_row({"status": "succeeded", "summary": summary,
                                  "result": result}, result.get("app_id", app_id)))
+        # Charge the record writes' quota usage with the receipt.
+        await quotas.settle(session)
         await session.commit()
         return result
 

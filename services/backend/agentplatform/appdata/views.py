@@ -35,6 +35,7 @@ from agentplatform.appdata.access import Access, Caller, RecordError
 from agentplatform.appdata.definitions import (
     VIEW_LIMIT, CollectionDef, ContainsFilter, InFilter, IsNullFilter,
     ViewDef, WithinLastFilter, _ANCHOR_RE, _fits_param, _is_param_ref)
+from agentplatform.appdata.quotas import ScanBudget
 from agentplatform.appdata.records import (
     R, AppContext, field_expr, field_type, format_datetime, parse_datetime, present,
     scope)
@@ -286,9 +287,12 @@ def _as_of(now: datetime) -> str:
 
 async def execute_view(session, ctx: AppContext, caller: Caller, view: ViewDef,
                        params: dict | None = None, *, limit: int | None = None,
-                       cursor: str | None = None, now: datetime | None = None) -> dict:
+                       cursor: str | None = None, now: datetime | None = None,
+                       budget: ScanBudget | None = None) -> dict:
     """Run a validated view for one caller: `{rows, next_cursor, as_of, stale}`
-    or, for a count view, `{count, as_of, stale}`."""
+    or, for a count view, `{count, as_of, stale}`. Under a scan `budget` (a
+    tool view's execution) the rows it read are charged: a count view's
+    matches, or a page's rows."""
     now = now or utcnow()
     q = _Query(ctx, caller, view, resolve_params(view, params), now)
     q.check_access()
@@ -296,6 +300,8 @@ async def execute_view(session, ctx: AppContext, caller: Caller, view: ViewDef,
     if view.is_count:
         count = (await session.execute(select(func.count()).select_from(R)
                                        .where(*conds))).scalar_one()
+        if budget is not None:
+            budget.charge(count)
         return {"count": count, "as_of": _as_of(now), "stale": False}
 
     if limit is not None and not 1 <= limit <= VIEW_LIMIT:
@@ -313,6 +319,8 @@ async def execute_view(session, ctx: AppContext, caller: Caller, view: ViewDef,
         order.append((expr.asc() if direction == "asc" else expr.desc()).nulls_last())
     records = (await session.execute(select(R).where(*conds).order_by(*order)
                                      .limit(size + 1))).scalars().all()
+    if budget is not None:
+        budget.charge(len(records))
     more = len(records) > size
     records = records[:size]
     next_cursor = None
@@ -336,3 +344,44 @@ async def run_view(session, ctx: AppContext, caller: Caller, view_name: str,
     if view is None:
         raise RecordError("AD-NO-VIEW", f"no published view {view_name}", 404)
     return await execute_view(session, ctx, caller, view, params, **kwargs)
+
+
+# How many rows a scan fetches per query.
+SCAN_CHUNK = 1_000
+
+
+async def scan_view(session, ctx: AppContext, caller: Caller, view: ViewDef,
+                    params: dict | None = None, *, budget: ScanBudget,
+                    now: datetime | None = None):
+    """`app_data scan`: every row a record view selects, in its order, for one
+    caller, streamed in keyset chunks with no page limit. Bounded only by the
+    scan `budget` (quotas.scan_budget), which every row read is charged to:
+    past the execution's rows or seconds, or the hour's, it raises and the
+    stream stops."""
+    if view.is_count:
+        raise RecordError("AD-SCAN-COUNT-VIEW", f"{view.view} is a count view; run it, "
+                          "don't scan it", 422)
+    now = now or utcnow()
+    q = _Query(ctx, caller, view, resolve_params(view, params), now)
+    q.check_access()
+    conds = await q.conditions(session)
+    keys = _sort_keys(view)
+    order = []
+    for name, direction in keys:
+        expr, _ = field_expr(q.c, name)
+        order.append((expr.asc() if direction == "asc" else expr.desc()).nulls_last())
+    after = None
+    while True:
+        budget.check_time()
+        where = conds if after is None else [*conds, _after(q.c, keys, after)]
+        records = (await session.execute(select(R).where(*where).order_by(*order)
+                                         .limit(SCAN_CHUNK))).scalars().all()
+        for record in records:
+            budget.charge()
+            row = present(q.access, record, view.fields)
+            # A 2M-row scan mustn't keep every row in the identity map.
+            session.expunge(record)
+            yield row
+        if len(records) < SCAN_CHUNK:
+            return
+        after = [_raw(records[-1], name) for name, _ in keys]

@@ -35,6 +35,7 @@ helpers flush into the record write's transaction.
 """
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import datetime, timedelta
 
 from sqlalchemy import delete, func, select
@@ -42,7 +43,8 @@ from sqlalchemy import delete, func, select
 from agentplatform import artifact_store as store
 from agentplatform.appdata.access import Access, Caller, RecordError
 from agentplatform.appdata.definitions import ArtifactField, CollectionDef
-from agentplatform.appdata.models import AppDataArtifact, AppDataArtifactRef
+from agentplatform.appdata import quotas
+from agentplatform.appdata.models import AppDataApp, AppDataArtifact, AppDataArtifactRef
 from agentplatform.config import get_settings
 from agentplatform.db import AgentDef, Artifact, ArtifactBlob, utcnow
 
@@ -64,10 +66,21 @@ def field_readers(c: CollectionDef, field: str) -> set[str]:
     return set(override if override is not None else c.access.read)
 
 
+@dataclass(frozen=True)
+class _Owned:
+    """The two fields `quotas.note` reads off an App context."""
+    app_id: str
+    owner: str
+
+
+def _owner(owner_kind: str, owner_id: str | None) -> str:
+    return "kyle" if owner_kind == "kyle" else f"agent:{owner_id}"
+
+
 async def check_app_bytes(session, ctx, adding: int) -> None:
-    """The quota hook: A11 refuses here, failing closed, when `adding` more
-    bytes would take the App past its quota. `app_bytes` is the usage."""
-    return None
+    """Charge `adding` bytes to the App's quota with the referencing write;
+    `quotas.settle` refuses, failing closed, if that takes it over."""
+    quotas.add_bytes(session, ctx, adding)
 
 
 async def app_bytes(session, app_id: str) -> int:
@@ -221,6 +234,15 @@ async def _collect(session, artifact_ids: set[str]) -> None:
 async def _delete(session, artifact_ids: list[str]) -> None:
     if not artifact_ids:
         return
+    # Release the bytes each owning App was charged, in this transaction.
+    freed = (await session.execute(
+        select(AppDataArtifact.app_id, AppDataApp.owner_kind, AppDataApp.owner_id,
+               func.sum(AppDataArtifact.size))
+        .join(AppDataApp, AppDataApp.id == AppDataArtifact.app_id)
+        .where(AppDataArtifact.artifact_id.in_(artifact_ids))
+        .group_by(AppDataArtifact.app_id, AppDataApp.owner_kind, AppDataApp.owner_id))).all()
+    for app_id, owner_kind, owner_id, size in freed:
+        quotas.add_bytes(session, _Owned(app_id, _owner(owner_kind, owner_id)), -int(size or 0))
     # Claiming refuses a face, but a face set after the claim would point at
     # a thumb that 404s: clear it in this transaction, as the pruner does.
     await store.unlink_agent_images(session, artifact_ids)
@@ -242,6 +264,7 @@ async def sweep_unreferenced(session, app_id: str, *, now: datetime | None = Non
     )).scalars())
     # Re-checked under the lock, so a reference landing meanwhile keeps it.
     await _collect(session, set(ids))
+    await quotas.settle(session)
     await session.commit()
     return len(ids)
 
@@ -281,6 +304,8 @@ async def upload(session, ctx, caller: Caller, collection: str, field: str, data
     async def own(s, row):
         s.add(AppDataArtifact(artifact_id=row.id, app_id=ctx.app_id, collection=collection,
                               field=field, size=row.size))
+        # The store commits right after this: charge the bytes first.
+        await quotas.settle(s)
 
     if owner is None:
         owner = caller.principal if caller.principal.startswith("agent:") \

@@ -52,6 +52,7 @@ from typing import Any
 
 from sqlalchemy import delete, insert, select, update
 
+from agentplatform.appdata import quotas
 from agentplatform.appdata.access import Caller, RecordError
 from agentplatform.appdata.definitions import SYSTEM_FIELDS, CollectionDef, UniqueRule
 from agentplatform.appdata.models import AppDataRecord, AppDataStagedRecord, AppDataStagingSet
@@ -60,7 +61,8 @@ from agentplatform.appdata.records import (R, AppContext, _check_input,
                                            _has_unique, _insert, _maybe_lock,
                                            _require_active, _update, bump_counters,
                                            collection_lock, field_expr, format_datetime,
-                                           load_app, normalize_value, scope, side_columns)
+                                           load_app, normalize_value, scope, set_size,
+                                           side_columns)
 from agentplatform.db import utcnow
 
 MAX_BATCH_RECORDS = 5_000
@@ -80,11 +82,12 @@ SS = AppDataStagingSet
 
 
 async def check_quotas(session, ctx: AppContext, *, records: int, bytes: int) -> None:
-    """The quota call site (design 39, "Storage" → "Quotas"). A11 fills it in:
-    per-App and per-owner limits, failing closed with a RecordError. `records`
-    and `bytes` are what the write may add at most (an upsert that matches
-    adds none)."""
-    return None
+    """The quota pre-check (design 39, "Storage" → "Quotas"): refuse up front
+    when the App or its owner has no room left, before replaying anything.
+    `records` and `bytes` are what the write may add at most (an upsert that
+    matches adds none); the exact charge is `quotas.settle`, just before the
+    commit."""
+    await quotas.precheck(session, ctx, records=records, bytes=bytes)
 
 
 # --- input --------------------------------------------------------------------------------
@@ -188,6 +191,7 @@ async def _replace(session, ctx: AppContext, caller: Caller, c: CollectionDef,
     sides = side_columns(c, doc)
     await _check_unique(session, ctx, c, doc, record.id)
     record.doc = doc
+    set_size(session, ctx, record, writes=1)
     for column, value in sides.items():
         setattr(record, column, value)
     record.current_version += 1
@@ -301,6 +305,7 @@ async def batch(session, ctx: AppContext, caller: Caller, collection: str, recor
                 raise run.rejection()
             if run.touched:
                 await bump_counters(session, ctx.app_id, run.touched)
+            await quotas.settle(session)
             await session.commit()
     except BaseException:
         await session.rollback()
@@ -492,6 +497,7 @@ async def commit_staging_set(session, caller: Caller, set_id: str, *,
             await _drop_staged(session, st.id)
             st.state = "committed"
             st.committed_at = utcnow()
+            await quotas.settle(session)
             await session.commit()
     except BaseException:
         await session.rollback()
