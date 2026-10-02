@@ -112,6 +112,10 @@ class AppDataDefinition(Base):
     author: Mapped[str] = mapped_column(String(160))
     run_id: Mapped[str | None] = mapped_column(String(32), nullable=True)
     reason: Mapped[str] = mapped_column(Text, default="")
+    # A version published by approving a proposal: who approved it (`kyle`)
+    # and which proposal. The proposer stays the `author`.
+    approved_by: Mapped[str | None] = mapped_column(String(160), nullable=True)
+    proposal_id: Mapped[str | None] = mapped_column(String(32), nullable=True)
     created_at: Mapped[datetime] = mapped_column(_TS, default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(_TS, default=utcnow, onupdate=utcnow)
 
@@ -342,3 +346,39 @@ class AppDataToolCall(Base):
     created_at: Mapped[datetime] = mapped_column(_TS, default=utcnow)
     expires_at: Mapped[datetime] = mapped_column(_TS, index=True)
     revoked_at: Mapped[datetime | None] = mapped_column(_TS, nullable=True)
+
+
+class AppDataProposal(Base):
+    """A change only Kyle's approval publishes (design 39, "Proposals"): a
+    widening bundle, a wider rollback, or an ownership transfer. What Kyle
+    reviews is frozen here, content-addressed by `digest`, with the approved
+    version and authority generation it was computed against; approval
+    publishes it only if neither has moved and the delta is the same."""
+    __tablename__ = "app_data_proposals"
+    __table_args__ = (Index("ix_app_data_proposals_app_state", "app_id", "state"),)
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_uuid)
+    app_id: Mapped[str] = mapped_column(String(32))
+    # bundle | rollback | transfer
+    kind: Mapped[str] = mapped_column(String(16))
+    # The frozen change: {changes: [...]}, plus rollback_to or transfer_to.
+    bundle: Mapped[dict] = mapped_column(_JSON)
+    # sha256 over the canonical bundle, base and delta: what Kyle approves.
+    digest: Mapped[str] = mapped_column(String(64))
+    base_version: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    authority_generation: Mapped[int] = mapped_column(Integer)
+    # The authority delta in plain words (A.describe): added, removed, widening.
+    delta: Mapped[dict] = mapped_column(_JSON)
+    # What validate reported at propose: data dropping, reindexing.
+    validation: Mapped[dict] = mapped_column(_JSON)
+    # open | published | declined | stale | withdrawn; only open ever changes.
+    state: Mapped[str] = mapped_column(String(16), default="open")
+    # The participant string that proposed it, and the run.
+    proposer: Mapped[str] = mapped_column(String(160))
+    run_id: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    reason: Mapped[str] = mapped_column(Text, default="")
+    decided_by: Mapped[str | None] = mapped_column(String(160), nullable=True)
+    decided_at: Mapped[datetime | None] = mapped_column(_TS, nullable=True)
+    # Why it closed: Kyle's decline reason, or what made it stale.
+    outcome: Mapped[dict | None] = mapped_column(_JSON, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(_TS, default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(_TS, default=utcnow, onupdate=utcnow)
