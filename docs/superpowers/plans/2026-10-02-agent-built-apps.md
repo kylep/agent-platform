@@ -971,8 +971,10 @@ Shared-file notes for G1:
   then run the agent proposal and template flows listed above. Those routes
   correctly refuse the admin API key; they cannot be completed through the
   current CLI credential. The QA shared-page and real-restore resume checks
-  also remain. The live PostgreSQL PVC is still 2 GiB and must grow before
-  the high-volume TCMS and stockmarket migrations.
+  also remain. The live PostgreSQL PVC still advertises 2 GiB; pai's
+  `local-path` class has no expansion support, although its backing filesystem
+  currently has 339 GiB free. Size and restore mechanics must be resolved
+  before the high-volume TCMS and stockmarket migrations.
 
 #### Decisions needed (recommendations; proceed on them unless Kyle objects)
 
@@ -1039,10 +1041,11 @@ Versioned mode, `pin_version`, cascade, lists (including objects), `exists`,
 `new_version`, and tool actions on pages (page-intent credentials, budgets,
 Task scheduling).
 
-- [ ] Typed list fields: up to 50 scalar or one-level object items, a 1 MiB
+- [x] Typed list fields (`af83213`, deployed 2026-10-02): up to 50 scalar or one-level object items, a 1 MiB
   encoded-field ceiling, per-field access, JSON-array page input, and clear
-  refusals for sorting/filtering/indexing lists. Backend and web implementation
-  is in progress; verify and deploy before checking this item.
+  refusals for sorting/filtering/indexing lists. The backend suite passed
+  2,981 tests (3 skipped), web lint/build passed, and the live API reports
+  capabilities v4 with `list`; deployed web carries the JSON-array editor.
 - [ ] Versioned records and field-redacted history reads; `new_version` page
   action and `detail.history` rendering.
 - [ ] Pinned version refs and recursive `cascade` plans, with cycle handling,
