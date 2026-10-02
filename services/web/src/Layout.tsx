@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { NavLink, Outlet, useLocation } from "react-router-dom";
+import { Link, NavLink, Outlet, useLocation } from "react-router-dom";
 import { api, type AppView, type PullRequest } from "./api";
 import { buildPlatformNav, SideNav, type LinkComponent } from "@ap/ui/sidenav";
 import { QuotaBars } from "@ap/ui/quota";
@@ -29,6 +29,7 @@ export default function Layout() {
 function PlatformLayout() {
   const [pendingChanges, setPendingChanges] = useState(0);
   const [apps, setApps] = useState<AppView[]>([]);
+  const [restoreMode, setRestoreMode] = useState(false);
   const location = useLocation();
   const quota = useQuota();
 
@@ -44,6 +45,11 @@ function PlatformLayout() {
     return () => clearInterval(id);
   }, []);
   useEffect(refreshBadges, [location.pathname]);
+  useEffect(() => {
+    api<{ mode: string }>("/api/maintenance/status")
+      .then((status) => setRestoreMode(status.mode === "restore"))
+      .catch(() => {});
+  }, [location.pathname]);
 
   const entries = useMemo(() =>
     buildPlatformNav(apps.filter((a) => a.ui && a.ready)
@@ -56,6 +62,9 @@ function PlatformLayout() {
                badges={{ "/changes": pendingChanges }} LinkComponent={routerLink}
                belowBrand={<QuotaBars {...quota} />} />
       <main className="main">
+        {restoreMode && <div role="status" className="notice">
+          Automation is paused after a restore. <Link to="/settings/restore">Review restored state</Link>.
+        </div>}
         <Outlet />
       </main>
     </div>

@@ -3,6 +3,7 @@ from fastapi import APIRouter, Depends, Request
 from fastapi import HTTPException
 
 from agentplatform import maintenance_mode
+from agentplatform.appdata import restore as app_restore
 from agentplatform.api.auth import READ_ROLES, require_admin, require_role
 from agentplatform.pruning import TranscriptPruner
 
@@ -39,6 +40,17 @@ async def maintenance_status(request: Request):
     """Whether automation is paused. Any admin credential may read it."""
     async with request.app.state.session_factory() as s:
         return await maintenance_mode.status(s)
+
+
+@router.get("/api/maintenance/restore-report")
+async def restore_report(request: Request, principal: str = Depends(require_admin)):
+    """Kyle's inspection of a restored database before automation resumes."""
+    if getattr(request.state, "auth_kind", None) != "session":
+        raise HTTPException(403, "only Kyle's session can inspect the restore report")
+    async with request.app.state.session_factory() as s:
+        mode = await maintenance_mode.status(s)
+        report = await app_restore.report(s, request.app.state.tool_registry)
+        return {"maintenance": mode, **report}
 
 
 @router.post("/api/maintenance/resume")

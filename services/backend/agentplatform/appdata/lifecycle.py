@@ -1175,10 +1175,10 @@ async def authority(session, actor: Actor, app_ref: str) -> dict:
             "facts": A.describe(facts)}
 
 
-async def health(session, actor: Actor, app_ref: str) -> dict:
+async def health(session, actor: Actor, app_ref: str, *, tool_registry=None) -> dict:
     app = await _app(session, app_ref)
     _require_reader(app, actor)
-    return await _health(session, app)
+    return await _health(session, app, tool_registry=tool_registry)
 
 
 async def _record_violations(session, app: AppDataApp, bundle) -> list[dict]:
@@ -1199,7 +1199,8 @@ async def _record_violations(session, app: AppDataApp, bundle) -> list[dict]:
     return violations
 
 
-async def _health(session, app: AppDataApp, rows=None, *, reuse: bool = False) -> dict:
+async def _health(session, app: AppDataApp, rows=None, *, reuse: bool = False,
+                  tool_registry=None) -> dict:
     """Approved definitions that no longer validate (checked on every read),
     stored records that break a rule (reused for HEALTH_TTL when `reuse`),
     and the quota use quotas enforce. `checked_at` is when the records were
@@ -1225,18 +1226,25 @@ async def _health(session, app: AppDataApp, rows=None, *, reuse: bool = False) -
         else:
             violations = await _record_violations(session, app, bundle)
             _record_checks[app.id] = (key, now, violations)
+    disabled = []
+    if tool_registry is not None:
+        from agentplatform.appdata.restore import for_app
+        disabled = await for_app(session, app, tool_registry)
     usage = await quotas.describe(session, "app", app.id, now=now)
     records, size = usage["used"]["records"], usage["used"]["bytes"]
     records_limit = usage["limits"]["max_records"]
     bytes_limit = usage["limits"]["max_bytes"]
-    issues = len(invalid) + len(violations)
+    issues = len(invalid) + len(violations) + len(disabled)
     status = "failing" if issues else (
         "warn" if records >= QUOTA_WARN * records_limit or size >= QUOTA_WARN * bytes_limit
         else "ok")
-    return {"status": status, "issues": issues, "checked_at": _ts(checked_at),
-            "invalid_bindings": invalid, "rule_violations": violations,
-            "quota": {"records": int(records), "records_limit": int(records_limit),
-                      "bytes": int(size), "bytes_limit": int(bytes_limit)}}
+    out = {"status": status, "issues": issues, "checked_at": _ts(checked_at),
+           "invalid_bindings": invalid, "rule_violations": violations,
+           "quota": {"records": int(records), "records_limit": int(records_limit),
+                     "bytes": int(size), "bytes_limit": int(bytes_limit)}}
+    if tool_registry is not None:
+        out["disabled_bindings"] = disabled
+    return out
 
 
 # --- pages for the web ------------------------------------------------------------------

@@ -171,6 +171,17 @@ async def test_only_kyles_session_resumes(client, admin_client, token_client, sf
     assert r.json()["resumed_by"] == "admin"
 
 
+async def test_restore_report_is_session_only(admin_client, token_client):
+    report = await admin_client.get("/api/maintenance/restore-report")
+    assert report.status_code == 200
+    assert report.json()["apps"] == []
+    key = (await admin_client.post("/api/api-keys", json={
+        "name": "report-check", "role": "admin"})).json()["token"]
+    denied = await token_client.get("/api/maintenance/restore-report", headers={
+        "Authorization": f"Bearer {key}"})
+    assert denied.status_code == 403
+
+
 async def test_an_admin_api_key_reads_but_cannot_resume(admin_client, token_client, sf):
     key = (await admin_client.post("/api/api-keys", json={"name": "ci", "role": "admin"})).json()
     token = key["token"]

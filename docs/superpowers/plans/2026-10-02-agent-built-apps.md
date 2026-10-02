@@ -711,7 +711,7 @@ Shared-file notes for G1:
     - The per-execution, per-App, per-owner and concurrency budgets fail
       closed.
     - The fields-used record is exact.
-- [ ] **B16 Restore reconcile, report and resume** (after B6 and B10) ∥.
+- [x] **B16 Restore reconcile, report and resume** (after B6 and B10) ∥.
   - **Goal:** after a restore, the platform reconciles every App's tool
     bindings against the current catalog, and Kyle resumes from a report.
   - **Design:** "Lifecycle" → Restore, steps 2–4; "Retired Apps".

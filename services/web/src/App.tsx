@@ -35,6 +35,7 @@ import Tasks from "./pages/Tasks";
 import Skills from "./pages/Skills";
 import Settings from "./pages/Settings";
 import Backups from "./pages/Backups";
+import RestoreReport from "./pages/RestoreReport";
 
 export default function App() {
   return (
@@ -90,6 +91,7 @@ export default function App() {
             <Route path="/secrets" element={<Secrets />} />
             <Route path="/settings" element={<Settings />} />
             <Route path="/backups" element={<Backups />} />
+            <Route path="/settings/restore" element={<RestoreReport />} />
             <Route path="*" element={<NotFound />} />
           </Route>
         </Route>

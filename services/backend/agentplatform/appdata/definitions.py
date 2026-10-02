@@ -1223,7 +1223,7 @@ def _check_tool_view(v: ToolViewDef, app: AppBundle, base: str) -> list[Definiti
 
 
 def _check_page(p: PageDef, app: AppBundle, names: dict[str, set[str]],
-                base: str) -> list[DefinitionIssue]:
+                base: str, *, allow_unavailable_tool_views: bool = False) -> list[DefinitionIssue]:
     out: list[DefinitionIssue] = []
     templates = {t.name: t for t in p.actions}
     for i, template in enumerate(p.actions):
@@ -1242,7 +1242,10 @@ def _check_page(p: PageDef, app: AppBundle, names: dict[str, set[str]],
             continue
         view = app.views.get(block.view)
         if isinstance(view, ToolViewDef):
-            if isinstance(block, MetricBlock) != view.is_count:
+            from agentplatform.operation_catalog import view_action
+            unavailable = (allow_unavailable_tool_views
+                           and view_action(view.tool, view.action) is None)
+            if not unavailable and isinstance(block, MetricBlock) != view.is_count:
                 out.append(issue("JD-PAGE-METRIC", join_path(where, "view"),
                                  "metrics need a count result; tables and details need rows",
                                  block.view))
@@ -1412,7 +1415,7 @@ _BUNDLE_KIND = {"collections": "collection", "views": "view", "pages": "page",
 BUNDLE_KEYS = {kind: key for key, kind in _BUNDLE_KIND.items()}
 
 
-def validate_app(bundle: Any) -> AppBundle:
+def validate_app(bundle: Any, *, allow_unavailable_tool_views: bool = False) -> AppBundle:
     """Validate a whole App: every definition, then the references between them.
 
     `bundle` is `{"collections": [...], "views": [...], "pages": [...],
@@ -1465,7 +1468,10 @@ def validate_app(bundle: Any) -> AppBundle:
             continue
         base = join_path("$", "views", i)
         if isinstance(v, ToolViewDef):
-            issues += _check_tool_view(v, app, base)
+            found = _check_tool_view(v, app, base)
+            if allow_unavailable_tool_views:
+                found = [item for item in found if item.code != "JD-TOOL-VIEW-ACTION"]
+            issues += found
             continue
         if v.collection not in names["collections"]:
             issues.append(issue("JD-VIEW-COLLECTION", join_path(base, "collection"),
@@ -1476,7 +1482,8 @@ def validate_app(bundle: Any) -> AppBundle:
         p = app.pages.get(raw.get("page") if isinstance(raw, dict) else None)
         if p is None or raw is not _raw_for(bundle, "pages", p.name):
             continue
-        issues += _check_page(p, app, names, join_path("$", "pages", i))
+        issues += _check_page(p, app, names, join_path("$", "pages", i),
+                              allow_unavailable_tool_views=allow_unavailable_tool_views)
     for i, raw in enumerate(_list(bundle.get("app_tools"))):
         t = app.app_tools.get(raw.get("tool") if isinstance(raw, dict) else None)
         if t is None or raw is not _raw_for(bundle, "app_tools", t.name):

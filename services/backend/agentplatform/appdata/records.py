@@ -145,7 +145,10 @@ async def load_app(session, app_id: str) -> AppContext:
         if kind == "collection":
             versions[name] = row.version
     try:
-        validated = validate_app(bundle)
+        # A restored App may refer to a reviewed view action that the running
+        # code no longer provides. Keep its other records/pages readable; the
+        # tool-view dispatch reports that binding as disabled (503).
+        validated = validate_app(bundle, allow_unavailable_tool_views=True)
     except DefinitionError as exc:
         # The same refusal a broken page answers with: the App's published
         # state no longer validates, so nothing reads or writes through it.

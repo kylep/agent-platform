@@ -261,6 +261,16 @@ def create_app(settings, session_factory, producer, secret_store=None, agent_sto
         # changing the domain service that still supplies their data/UI.
         from agentplatform.app_collections import import_legacy_apps
         await import_legacy_apps(st.session_factory, st.app_registry)
+        # Restored databases start paused. Reconcile approved App bindings
+        # against this code's tool catalog before Kyle inspects and resumes.
+        from agentplatform import maintenance_mode
+        from agentplatform.appdata import restore as app_restore
+        async with st.session_factory() as s:
+            if await maintenance_mode.is_paused(s):
+                st.restore_report = await app_restore.report(s, st.tool_registry)
+                logging.getLogger("api").warning(
+                    "restore mode: %s disabled App bindings; automation remains paused",
+                    st.restore_report["disabled_count"])
         # The feed only needs a session for presence (a run event names a run,
         # not a room), so it is handed the factory here, once it is real.
         st.feed.session_factory = st.session_factory

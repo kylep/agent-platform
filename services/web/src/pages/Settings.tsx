@@ -282,6 +282,7 @@ export default function Settings() {
       <ApiKeysSection />
       <section><h2>Connections</h2><p className="muted">Manage Discord chat identities and other connector credentials on <Link to="/secrets">Connections</Link>.</p></section>
       <section><h2>Backups</h2><p className="muted">Create and inspect encrypted recovery exports under <Link to="/backups">Backups</Link>.</p></section>
+      <section><h2>Restore</h2><p className="muted">Inspect App bindings and Task watermarks before resuming automation after a restore. <Link to="/settings/restore">Open restore report</Link>.</p></section>
       <RelaySection />
     </div>
   );

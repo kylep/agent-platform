@@ -3,7 +3,6 @@ from pathlib import Path
 
 import httpx
 import pytest
-
 from agentplatform.appdata import toolviews
 from agentplatform.appdata.access import Caller, RecordError
 from agentplatform.appdata.models import AppDataDefinition, AppDataToolCall

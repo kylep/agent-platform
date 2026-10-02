@@ -609,7 +609,8 @@ async def apps_authority(request: Request, body: AppRef, actor: Actor = Depends(
 
 @router.post("/api/app-data/agent/apps/health")
 async def apps_health(request: Request, body: AppRef, actor: Actor = Depends(builder)):
-    return await _call(request, lambda s: L.health(s, actor, body.app))
+    return await _call(request, lambda s: L.health(
+        s, actor, body.app, tool_registry=request.app.state.tool_registry))
 
 
 # --- agent routes: `app_data` -----------------------------------------------------------
