@@ -1263,6 +1263,20 @@ a.relay-action { color: var(--ds-link); }
 .live-view-action input, .live-view-action textarea { display: block; width: 100%; box-sizing: border-box;
   margin-top: 4px; }
 .live-view-action textarea { min-height: 88px; }
+.v2-action-panel { position: fixed; z-index: 100; left: 50%; top: 50%;
+  transform: translate(-50%, -50%); width: min(620px, calc(100vw - 32px));
+  max-height: calc(100vh - 48px); overflow: auto; box-sizing: border-box;
+  padding: 24px; background: var(--ds-surface); color: var(--ds-text);
+  border: 1px solid var(--ds-border); border-radius: 12px;
+  box-shadow: 0 0 0 100vmax rgb(0 0 0 / 70%); }
+.v2-action-panel h2 { margin-top: 0; }
+.v2-action-panel label { display: block; margin: 12px 0; }
+.v2-action-panel input, .v2-action-panel textarea, .v2-action-panel select {
+  display: block; width: 100%; box-sizing: border-box; }
+.v2-action-panel pre { white-space: pre-wrap; overflow-wrap: anywhere;
+  padding: 12px; background: var(--ds-canvas); border: 1px solid var(--ds-border);
+  border-radius: 6px; }
+.live-view-table td > button, .v2-detail > button { margin-right: 6px; margin-bottom: 4px; }
 .live-view-table { min-width: 0; }
 .live-view-table h2 { margin-bottom: 10px; }
 .live-view-table .table-scroll { overflow-x: auto; }

@@ -6,6 +6,8 @@ import { Chip } from "@ap/ui/chip";
 import { Input, Textarea } from "@ap/ui/field";
 import {
   AppDataError, getPage, internalPath, isCount, pageHref, readView,
+  confirmPageAction, dispatchPageAction,
+  type ActionField, type PageAction, type PageActionIntent,
   type Column, type ColumnFormat, type ParamBinding, type PublishedPage, type Scalar,
   type V2Component, type ViewResult, type ViewRow,
 } from "../lib/appData";
@@ -168,6 +170,97 @@ function V2Cell({ row, column }: { row: ViewRow; column: Column }) {
   return <>{v2Value(value, column.format)}</>;
 }
 
+type SelectedAction = { action: PageAction; row: ViewRow | null };
+
+function actionValues(fields: ActionField[], draft: Record<string, string>): Record<string, unknown> {
+  const values: Record<string, unknown> = {};
+  for (const field of fields) {
+    const raw = draft[field.name];
+    if (raw === undefined || raw === "") continue;
+    values[field.name] = field.type === "bool" ? raw === "true"
+      : field.type === "int" || field.type === "number" ? Number(raw) : raw;
+  }
+  return values;
+}
+
+function ActionFieldInput({ field, value, onChange }: { field: ActionField; value: string;
+  onChange: (value: string) => void }) {
+  const label = field.label || columnLabel(field.name);
+  if (field.type === "enum" || field.type === "bool") {
+    const options = field.type === "bool" ? ["true", "false"] : field.values || [];
+    return <label>{label}<select value={value} onChange={(e) => onChange(e.target.value)}>
+      <option value="">Choose…</option>{options.map((option) =>
+        <option key={option} value={option}>{option}</option>)}
+    </select></label>;
+  }
+  if (field.type === "text") return <label>{label}<Textarea value={value}
+    maxLength={field.max} onChange={(e) => onChange(e.target.value)} /></label>;
+  const type = field.type === "date" ? "date" : field.type === "datetime" ? "datetime-local"
+    : field.type === "int" || field.type === "number" ? "number" : "text";
+  return <label>{label}<Input type={type} value={value}
+    min={type === "number" ? field.min : undefined}
+    max={type === "number" ? field.max : undefined}
+    maxLength={type === "text" ? field.max : undefined}
+    step={field.type === "int" ? 1 : field.type === "number" ? "any" : undefined}
+    onChange={(e) => onChange(e.target.value)} /></label>;
+}
+
+function ActionPanel({ appId, page, selected, onClose, onDone }: {
+  appId: string; page: string; selected: SelectedAction;
+  onClose: () => void; onDone: (message: string) => void;
+}) {
+  const { action, row } = selected;
+  const [draft, setDraft] = useState<Record<string, string>>({});
+  const [intent, setIntent] = useState<PageActionIntent | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  async function prepare() {
+    setBusy(true); setError(null);
+    try {
+      setIntent(await confirmPageAction(appId, page, action.name, row?.id || null,
+        actionValues(action.editable_fields, draft)));
+    } catch (e) { setError(e instanceof Error ? e.message : "Could not prepare the action."); }
+    finally { setBusy(false); }
+  }
+  async function finish() {
+    if (!intent) return;
+    setBusy(true); setError(null);
+    try {
+      const receipt = await dispatchPageAction(intent);
+      onDone(receipt.deleted ? "Record deleted." : receipt.version ? "Record saved." : "Action complete.");
+    } catch (e) {
+      const message = e instanceof Error ? e.message : "Could not dispatch the action.";
+      if (e instanceof AppDataError && e.status === 409) {
+        setIntent(null);
+        setError("The page or record changed. Review it and confirm again.");
+      } else setError(message);
+    } finally { setBusy(false); }
+  }
+  return <section className="v2-action-panel" role="dialog" aria-modal="true"
+    aria-labelledby="v2-action-title">
+    <h2 id="v2-action-title">{action.label}</h2>
+    {intent ? <>
+      <p>Review the exact change before continuing.</p>
+      {intent.confirmation.current != null && <><h3>Current record</h3>
+        <pre>{JSON.stringify(intent.confirmation.current, null, 2)}</pre></>}
+      {intent.confirmation.resulting_values != null && <><h3>Resulting values</h3>
+        <pre>{JSON.stringify(intent.confirmation.resulting_values, null, 2)}</pre></>}
+      {intent.confirmation.delete_plan != null && <><h3>Delete plan</h3>
+        <pre>{JSON.stringify(intent.confirmation.delete_plan, null, 2)}</pre></>}
+      <Button onClick={finish} disabled={busy}>{busy ? "Saving…" : "Confirm action"}</Button>{" "}
+      <Button variant="secondary" onClick={() => setIntent(null)} disabled={busy}>Edit</Button>
+    </> : <>
+      {action.kind === "delete" ? <p>Review the affected records before deleting.</p>
+        : action.editable_fields.map((field) => <ActionFieldInput key={field.name}
+          field={field} value={draft[field.name] || ""}
+          onChange={(value) => setDraft({ ...draft, [field.name]: value })} />)}
+      <Button onClick={prepare} disabled={busy}>{busy ? "Preparing…" : "Review change"}</Button>
+    </>}{" "}
+    <Button variant="secondary" onClick={onClose} disabled={busy}>Cancel</Button>
+    {error && <p role="alert" className="error">{error}</p>}
+  </section>;
+}
+
 function viewError(error: unknown): string {
   if (error instanceof AppDataError && error.status === 403) return "You can't read this view.";
   if (error instanceof AppDataError && error.status === 503) return "This view no longer validates.";
@@ -230,17 +323,23 @@ function V2Metric({ appId, component }: { appId: string; component: Extract<V2Co
   </div>;
 }
 
-function V2Table({ appId, component }: { appId: string; component: Extract<V2Component, { kind: "table" }> }) {
+function V2Table({ appId, component, actions, onAction }: { appId: string;
+  component: Extract<V2Component, { kind: "table" }>;
+  actions: PageAction[]; onAction: (action: PageAction, row: ViewRow | null) => void }) {
   const { result, error, more, loadMore } = useView(appId, component);
   const rows = result && !isCount(result) ? result.rows : [];
   const link = component.row_link;
+  const available = actions.filter((action) => component.actions?.includes(action.name));
   return <section className="live-view-table">
     <h2>{component.label || "Records"}</h2>
+    {available.filter((action) => action.kind === "create").map((action) =>
+      <Button key={action.name} onClick={() => onAction(action, null)}>{action.label}</Button>)}
     {!result && error ? <p className="error">{viewError(error)}</p>
       : !result ? <p className="muted">Loading records…</p>
       : rows.length ? <>
         <div className="table-scroll"><table><thead><tr>
           {component.columns.map((column) => <th key={column.field}>{v2Label(column)}</th>)}
+          {available.some((action) => action.kind !== "create") && <th>Actions</th>}
         </tr></thead><tbody>{rows.map((row) => <tr key={row.id}>
           {component.columns.map((column, i) => <td key={column.field} data-label={v2Label(column)}>
             {i === 0 && link && !row.restricted.includes(column.field)
@@ -249,6 +348,11 @@ function V2Table({ appId, component }: { appId: string; component: Extract<V2Com
                 <V2Cell row={row} column={column} /></Link>
               : <V2Cell row={row} column={column} />}
           </td>)}
+          {available.some((action) => action.kind !== "create") && <td data-label="Actions">
+            {available.filter((action) => action.kind !== "create").map((action) =>
+              <Button key={action.name} variant="secondary"
+                onClick={() => onAction(action, row)}>{action.label}</Button>)}
+          </td>}
         </tr>)}</tbody></table></div>
         {!isCount(result) && result.next_cursor &&
           <Button variant="secondary" onClick={loadMore} disabled={more}>{more ? "Loading…" : "Load more"}</Button>}
@@ -258,9 +362,12 @@ function V2Table({ appId, component }: { appId: string; component: Extract<V2Com
   </section>;
 }
 
-function V2Detail({ appId, component }: { appId: string; component: Extract<V2Component, { kind: "detail" }> }) {
+function V2Detail({ appId, component, actions, onAction }: { appId: string;
+  component: Extract<V2Component, { kind: "detail" }>;
+  actions: PageAction[]; onAction: (action: PageAction, row: ViewRow | null) => void }) {
   const { result, error } = useView(appId, component);
   const row = result && !isCount(result) ? result.rows[0] : undefined;
+  const available = actions.filter((action) => component.actions?.includes(action.name));
   return <section className="v2-detail">
     <h2>{component.label || "Record"}</h2>
     {error ? <p className="error">{viewError(error)}</p>
@@ -269,6 +376,10 @@ function V2Detail({ appId, component }: { appId: string; component: Extract<V2Co
           <dt>{v2Label(column)}</dt><dd><V2Cell row={row} column={column} /></dd>
         </div>)}</dl>
       : <p className="muted">Record not found.</p>}
+    {available.filter((action) => action.kind === "create" || row).map((action) =>
+      <Button key={action.name} variant="secondary"
+        onClick={() => onAction(action, action.kind === "create" ? null : row || null)}>
+        {action.label}</Button>)}
     {result && <p className="muted"><AsOf result={result} /></p>}
   </section>;
 }
@@ -281,11 +392,15 @@ function V2Text({ appId, component }: { appId: string; component: Extract<V2Comp
   return component.style === "heading" ? <h2>{body}</h2> : <p>{body}</p>;
 }
 
-function V2Block({ appId, component }: { appId: string; component: V2Component }) {
+function V2Block({ appId, component, actions, onAction }: { appId: string;
+  component: V2Component; actions: PageAction[];
+  onAction: (action: PageAction, row: ViewRow | null) => void }) {
   if (component.kind === "text") return <V2Text appId={appId} component={component} />;
   if (component.kind === "metric") return <V2Metric appId={appId} component={component} />;
-  if (component.kind === "table") return <V2Table appId={appId} component={component} />;
-  if (component.kind === "detail") return <V2Detail appId={appId} component={component} />;
+  if (component.kind === "table") return <V2Table appId={appId} component={component}
+    actions={actions} onAction={onAction} />;
+  if (component.kind === "detail") return <V2Detail appId={appId} component={component}
+    actions={actions} onAction={onAction} />;
   return null;
 }
 
@@ -296,6 +411,9 @@ export function TypedV2Page({ appId, page, embedded = false }: {
 }) {
   const [published, setPublished] = useState<PublishedPage | null>(null);
   const [error, setError] = useState<unknown>(null);
+  const [selected, setSelected] = useState<SelectedAction | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [refresh, setRefresh] = useState(0);
   useEffect(() => {
     let active = true;
     setPublished(null); setError(null);
@@ -320,12 +438,18 @@ export function TypedV2Page({ appId, page, embedded = false }: {
   if (!published) return <div className={embedded ? undefined : "page"}><p className="muted">Loading page…</p></div>;
   return <div className={embedded ? undefined : "page"}>
     <div className="page-header"><Title>{published.definition.title}</Title></div>
+    {notice && <p role="status">{notice}</p>}
     {!embedded && <p className="muted"><Link to="/apps">Apps</Link> / <Link
       to={`/apps/state/${encodeURIComponent(appId)}`}>{published.app_name}</Link> / {published.page}</p>}
     <div className="live-view-blocks">
       {published.definition.components.map((component, index) =>
-        <V2Block key={index} appId={appId} component={component} />)}
+        <V2Block key={`${index}-${refresh}`} appId={appId} component={component}
+          actions={published.definition.actions || []}
+          onAction={(action, row) => { setNotice(null); setSelected({ action, row }); }} />)}
     </div>
+    {selected && <ActionPanel key={`${selected.action.name}-${selected.row?.id || "new"}`}
+      appId={appId} page={page} selected={selected} onClose={() => setSelected(null)}
+      onDone={(message) => { setSelected(null); setNotice(message); setRefresh((n) => n + 1); }} />}
   </div>;
 }
 

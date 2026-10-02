@@ -8,10 +8,11 @@ from agentplatform.appdata.access import Caller
 from agentplatform.appdata.lifecycle import Actor
 from agentplatform.appdata.models import AppDataPageIntent, AppDataPageReceipt
 from agentplatform.appdata.records import load_app, update_record
-from agentplatform.db import utcnow
+from agentplatform.db import Principal, utcnow
+from argon2 import PasswordHasher
 from sqlalchemy import select
 
-from .test_api_app_data import OVERVIEW, PAI, add, agent, build
+from .test_api_app_data import HABITS, OVERVIEW, PAI, add, agent, build
 from .test_relay_api import _key
 
 PAGE = {**copy.deepcopy(OVERVIEW), "actions": [
@@ -55,6 +56,12 @@ async def dispatch(client, intent):
 
 async def test_create_confirmation_presets_and_single_receipt(admin_client, sf):
     app_id = await setup_app(sf)
+    page = (await admin_client.get(f"/api/app-data/apps/{app_id}/pages/overview")).json()
+    assert [a["name"] for a in page["definition"]["actions"]] == [
+        "log", "rename", "remove"]
+    assert page["definition"]["components"][1]["actions"] == [
+        "log", "rename", "remove"]
+    assert page["definition"]["actions"][0]["editable_fields"][0]["type"] == "string"
     bad = await admin_client.post(path(app_id), json={"template": "log", "values": {
         "habit": "run", "day": "2026-10-02", "done": False}})
     assert bad.status_code == 422
@@ -145,3 +152,25 @@ async def test_page_write_refuses_api_keys_and_agents(token_client, admin_client
         for route, body in paths:
             assert (await token_client.post(route, json=body,
                                             headers=headers)).status_code == 403
+
+
+async def test_shared_reader_sees_no_page_actions(token_client, sf):
+    app_id = await setup_app(sf, "shared-actions")
+    shared = copy.deepcopy(HABITS)
+    shared["access"]["read"].append("login:qa")
+    async with sf() as s:
+        await L.draft(s, PAI, app_id, request_id="share-actions", kind="collection",
+                      definition=shared)
+    async with sf() as s:
+        proposal = await P.propose(s, PAI, app_id, request_id="propose-share-actions")
+    async with sf() as s:
+        await P.approve(s, Actor("kyle"), proposal["id"],
+                        request_id="approve-share-actions", digest=proposal["digest"])
+        s.add(Principal(name="qa", role="reader", password_hash=PasswordHasher().hash("pw")))
+        await s.commit()
+    assert (await token_client.post("/api/login", json={"principal": "qa",
+                                                         "password": "pw"})).status_code == 200
+    page = (await token_client.get(f"/api/app-data/apps/{app_id}/pages/overview")).json()
+    assert "actions" not in page["definition"]
+    assert all("actions" not in block for block in page["definition"]["components"])
+    assert (await token_client.post(path(app_id), json={"template": "log"})).status_code == 403

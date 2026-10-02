@@ -1275,9 +1275,12 @@ def _column(column, links: frozenset | set = frozenset()) -> dict:
     return out
 
 
-def page_for_web(page: PageDef, bundle) -> dict:
-    """A validated page as `PageV2` (services/web/src/lib/appData.ts). Action
-    templates aren't rendered: running them is `app_data.write@1` (R1b)."""
+def page_for_web(page: PageDef, bundle, *, with_actions: bool = False) -> dict:
+    """A validated page as `PageV2` (services/web/src/lib/appData.ts).
+
+    Only Kyle sees the actionable metadata; dispatch still resolves and checks
+    the published template server-side, never trusting this presentation data.
+    """
     components = []
     for block in page.blocks:
         if isinstance(block, TextBlock):
@@ -1305,8 +1308,22 @@ def page_for_web(page: PageDef, bundle) -> dict:
                 item["label"] = block.title
         if getattr(block, "params", None):
             item["params"] = {k: _binding(v) for k, v in block.params.items()}
+        if with_actions and getattr(block, "actions", None):
+            item["actions"] = list(block.actions)
         components.append(item)
-    return {"renderer": "typed/v2", "title": page.title, "components": components}
+    result = {"renderer": "typed/v2", "title": page.title, "components": components}
+    if with_actions and page.actions:
+        result["actions"] = [{"name": t.name, "kind": t.kind,
+                              "label": t.label or t.name.replace("_", " ").title(),
+                              "collection": t.collection,
+                              "editable_fields": [
+                                  {"name": name, **bundle.collections[t.collection].fields[name]
+                                   .model_dump(mode="json", include={"type", "label", "required",
+                                                                     "min", "max", "values"},
+                                               exclude_none=True)}
+                                  for name in getattr(t, "editable_fields", [])]}
+                             for t in page.actions]
+    return result
 
 
 def page_version(rows, app: AppDataApp, name: str) -> int | None:

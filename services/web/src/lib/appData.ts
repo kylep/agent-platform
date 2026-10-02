@@ -160,6 +160,12 @@ export type ColumnFormat = "text" | "int" | "number" | "percent" | "date" | "dat
 
 export type Column = { field: string; label?: string; format?: ColumnFormat };
 
+export type ActionField = { name: string; type: "string" | "text" | "int" | "number" |
+  "bool" | "date" | "datetime" | "enum" | "ref" | "url" | "artifact";
+  label?: string; required?: boolean; min?: number; max?: number; values?: string[] };
+export type PageAction = { name: string; kind: "create" | "update" | "delete";
+  label: string; collection: string; editable_fields: ActionField[] };
+
 /** A row link opens another page of the same App with query parameters
  *  filled from the row: `{page: "entry", params: {id: "id"}}` links to
  *  `…/pages/entry?id=<row.id>`. Only same-App pages are linkable. */
@@ -171,13 +177,21 @@ export type TextLink = { page: string } | { path: string };
 
 export type V2Component =
   | { kind: "table"; label?: string; view: string; params?: Record<string, ParamBinding>;
-      columns: Column[]; row_link?: RowLink; limit?: number }
+      columns: Column[]; row_link?: RowLink; limit?: number; actions?: string[] }
   | { kind: "detail"; label?: string; view: string; params?: Record<string, ParamBinding>;
-      fields: Column[] }
+      fields: Column[]; actions?: string[] }
   | { kind: "metric"; label: string; view: string; params?: Record<string, ParamBinding> }
   | { kind: "text"; style: "heading" | "paragraph"; text: string; link?: TextLink };
 
-export type PageV2 = { renderer: "typed/v2"; title: string; components: V2Component[] };
+export type PageV2 = { renderer: "typed/v2"; title: string; components: V2Component[];
+  actions?: PageAction[] };
+
+export type PageActionIntent = { intent_id: string; expires_at: string; digest: string;
+  action: PageAction["kind"]; collection: string; record_id: string | null;
+  confirmation: { current: unknown; resulting_values: unknown; changes: unknown;
+    delete_plan: unknown; restricted?: string[] } };
+export type PageActionReceipt = { collection: string; id: string; version?: number;
+  deleted?: boolean; replayed?: boolean; plan?: unknown };
 
 export type PublishedPage = {
   app_id: string;
@@ -244,6 +258,33 @@ export function getStateApp(appId: string): Promise<StateAppDetail> {
 
 export function getPage(appId: string, page: string): Promise<PublishedPage> {
   return get(`${base(appId)}/pages/${encodeURIComponent(page)}`);
+}
+
+async function post<T>(path: string, body: unknown): Promise<T> {
+  const res = await fetch(path, { method: "POST", credentials: "include",
+    headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+  if (res.status === 401) {
+    window.location.href = "/login";
+    throw new AppDataError(401, "Sign in again.");
+  }
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({})) as { detail?: unknown };
+    throw new AppDataError(res.status,
+      typeof data.detail === "string" ? data.detail : "Could not perform this action.");
+  }
+  return res.json() as Promise<T>;
+}
+
+export function confirmPageAction(appId: string, page: string, template: string,
+                                  recordId: string | null, values: Record<string, unknown>):
+  Promise<PageActionIntent> {
+  return post(`${base(appId)}/pages/${encodeURIComponent(page)}/intents`,
+    { template, record_id: recordId, values });
+}
+
+export function dispatchPageAction(intent: PageActionIntent): Promise<PageActionReceipt> {
+  return post(`/api/app-data/page-intents/${encodeURIComponent(intent.intent_id)}/dispatch`,
+    { digest: intent.digest });
 }
 
 export function readView(appId: string, view: string, params: Record<string, string>,

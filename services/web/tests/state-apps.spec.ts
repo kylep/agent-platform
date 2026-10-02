@@ -93,7 +93,7 @@ test("a v2 page renders text, a metric and a table with formats and row links", 
   await expect(metric.locator("strong")).toHaveText("23");
 
   const table = page.locator(".live-view-table").filter({ hasText: "Recent days" });
-  await expect(table.locator("thead th")).toHaveText(["Habit", "Day", "Done", "Streak", "Score", "Note"]);
+  await expect(table.locator("thead th")).toHaveText(["Habit", "Day", "Done", "Streak", "Score", "Note", "Actions"]);
   const first = table.locator("tbody tr").first();
   await expect(first.locator("td").nth(2)).toHaveText("Yes");
   await expect(first.locator("td").nth(4)).toHaveText("75%");
@@ -105,14 +105,90 @@ test("a v2 page renders text, a metric and a table with formats and row links", 
   expect(unmatched).toEqual([]);
 });
 
+test("page templates confirm create, update and delete before dispatch", async ({ page }) => {
+  const unmatched = await mockApi(page);
+  const sent: { template: string; values: Record<string, unknown> }[] = [];
+  page.on("request", (request) => {
+    if (request.method() === "POST" && request.url().includes("/pages/overview/intents")) {
+      sent.push(request.postDataJSON() as { template: string; values: Record<string, unknown> });
+    }
+  });
+  await page.goto(pagePath("overview"));
+  await page.getByRole("button", { name: "Log habit" }).click();
+  const dialog = page.getByRole("dialog", { name: "Log habit" });
+  await dialog.getByLabel("Habit").fill("swim");
+  await dialog.getByLabel("Day").fill("2026-10-02");
+  await dialog.getByRole("button", { name: "Review change" }).click();
+  await expect(dialog.getByText(/"done": true/)).toBeVisible();
+  expect(sent[0].values).toEqual({ habit: "swim", day: "2026-10-02" });
+  const a11y = await new AxeBuilder({ page }).analyze();
+  expect(a11y.violations).toEqual([]);
+  await dialog.getByRole("button", { name: "Confirm action" }).click();
+  await expect(page.getByRole("status")).toContainText("Record saved.");
+
+  const first = page.locator(".live-view-table tbody tr").first();
+  await first.getByRole("button", { name: "Rename" }).click();
+  const rename = page.getByRole("dialog", { name: "Rename" });
+  await rename.getByLabel("Habit").fill("walk");
+  await rename.getByRole("button", { name: "Review change" }).click();
+  await expect(rename.getByText(/"habit": "walk"/)).toBeVisible();
+  await rename.getByRole("button", { name: "Confirm action" }).click();
+  await expect(page.getByRole("status")).toContainText("Record saved.");
+
+  await page.locator(".live-view-table tbody tr").first().getByRole("button", { name: "Remove" }).click();
+  const remove = page.getByRole("dialog", { name: "Remove" });
+  await remove.getByRole("button", { name: "Review change" }).click();
+  await expect(remove.getByRole("heading", { name: "Delete plan" })).toBeVisible();
+  await remove.getByRole("button", { name: "Confirm action" }).click();
+  await expect(page.getByRole("status")).toContainText("Record deleted.");
+  expect(sent.map((s) => s.template)).toEqual(["log", "rename", "remove"]);
+  expect(unmatched).toEqual([]);
+});
+
+test("stale page confirmation asks for a new review", async ({ page }) => {
+  await mockApi(page);
+  let refuse = true;
+  await page.route("**/api/app-data/page-intents/*/dispatch", async (route) => {
+    if (refuse) {
+      refuse = false;
+      await route.fulfill({ status: 409, json: { detail: "confirm again" } });
+    } else await route.fallback();
+  });
+  await page.goto(pagePath("overview"));
+  await page.getByRole("button", { name: "Log habit" }).click();
+  const dialog = page.getByRole("dialog", { name: "Log habit" });
+  await dialog.getByLabel("Habit").fill("swim");
+  await dialog.getByLabel("Day").fill("2026-10-02");
+  await dialog.getByRole("button", { name: "Review change" }).click();
+  await dialog.getByRole("button", { name: "Confirm action" }).click();
+  await expect(dialog.getByRole("alert")).toContainText("confirm again");
+  await dialog.getByRole("button", { name: "Review change" }).click();
+  await dialog.getByRole("button", { name: "Confirm action" }).click();
+  await expect(page.getByRole("status")).toContainText("Record saved.");
+});
+
+test("a shared reader page has no action controls", async ({ page }) => {
+  await mockApi(page);
+  await page.route(`**/api/app-data/apps/${STATE_APP_ID}/pages/overview`, async (route) => {
+    await route.fulfill({ json: { app_id: STATE_APP_ID, app_name: "habits",
+      page: "overview", version: 1, definition: { renderer: "typed/v2", title: "Habits",
+        components: [{ kind: "table", label: "Recent days", view: "recent",
+          columns: [{ field: "habit" }] }] } } });
+  });
+  await page.goto(pagePath("overview"));
+  await expect(page.getByRole("button", { name: "Log habit" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Rename" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Remove" })).toHaveCount(0);
+});
+
 test("a restricted field is a muted marker, never the value or an empty cell", async ({ page }) => {
   await mockApi(page);
   await page.goto(pagePath("overview"));
   const row = page.locator(".live-view-table tbody tr").nth(1);
-  const note = row.locator("td").last();
+  const note = row.locator("td").nth(5);
   await expect(note.locator(".v2-restricted")).toHaveText("restricted");
   // An empty-but-readable value is a dash, distinct from restricted.
-  await expect(page.locator(".live-view-table tbody tr").nth(2).locator("td").last()).toHaveText("—");
+  await expect(page.locator(".live-view-table tbody tr").nth(2).locator("td").nth(5)).toHaveText("—");
 });
 
 test("a table pages through its view with the cursor", async ({ page }) => {

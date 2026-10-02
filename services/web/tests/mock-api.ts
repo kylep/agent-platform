@@ -1436,12 +1436,21 @@ const recentColumns = [
 
 // One page per renderer state; `mixed` holds the per-component failures.
 const statePages: Record<string, Record<string, unknown>> = {
-  overview: { renderer: "typed/v2", title: "Habits", components: [
+  overview: { renderer: "typed/v2", title: "Habits", actions: [
+    { name: "log", kind: "create", collection: "habits", label: "Log habit",
+      editable_fields: [{ name: "habit", type: "string", required: true },
+                        { name: "day", type: "date", required: true }] },
+    { name: "rename", kind: "update", collection: "habits", label: "Rename",
+      editable_fields: [{ name: "habit", type: "string" }] },
+    { name: "remove", kind: "delete", collection: "habits", label: "Remove",
+      editable_fields: [] },
+  ], components: [
     { kind: "text", style: "heading", text: "This week" },
     { kind: "text", style: "paragraph", text: "Logged by pai every evening." },
     { kind: "metric", label: "Days done", view: "done_count" },
     { kind: "table", label: "Recent days", view: "recent", columns: recentColumns,
-      row_link: { page: "entry", params: { id: "id" } }, limit: 3 },
+      row_link: { page: "entry", params: { id: "id" } }, limit: 3,
+      actions: ["log", "rename", "remove"] },
   ] },
   entry: { renderer: "typed/v2", title: "Habit day", components: [
     { kind: "detail", label: "Entry", view: "entry", params: { id: { query: "id" } },
@@ -1614,6 +1623,8 @@ export async function unfixtured(page: Page, glob: string): Promise<void> {
 
 export async function mockApi(page: Page): Promise<string[]> {
   const unmatched: string[] = [];
+  const pageIntents = new Map<string, { template: string; record_id: string | null;
+    values: Record<string, unknown> }>();
   await page.route("**/api/**", async (route: Route) => {
     const url = new URL(route.request().url());
     const path = url.pathname;
@@ -1680,6 +1691,35 @@ export async function mockApi(page: Page): Promise<string[]> {
         await route.fulfill({ status: answer.status ?? 200, json: answer.json });
         return;
       }
+    }
+    if (path.match(/^\/api\/app-data\/apps\/[^/]+\/pages\/[^/]+\/intents$/)
+        && route.request().method() === "POST") {
+      const body = route.request().postDataJSON() as { template: string;
+        record_id: string | null; values: Record<string, unknown> };
+      const id = `intent-${pageIntents.size + 1}`;
+      pageIntents.set(id, body);
+      await route.fulfill({ status: 201, json: {
+        intent_id: id, digest: "a".repeat(64), expires_at: AS_OF,
+        action: body.template === "log" ? "create" : body.template === "remove" ? "delete" : "update",
+        collection: "habits", record_id: body.record_id,
+        confirmation: {
+          current: body.record_id ? { id: body.record_id, values: { habit: "run" }, version: 1 } : null,
+          resulting_values: body.template === "remove" ? null : { ...body.values,
+            ...(body.template === "log" ? { done: true } : {}) },
+          changes: body.values,
+          delete_plan: body.template === "remove" ? { deletes: [{ collection: "habits",
+            id: body.record_id }] } : null,
+        },
+      } });
+      return;
+    }
+    const dispatch = /^\/api\/app-data\/page-intents\/(intent-\d+)\/dispatch$/.exec(path);
+    if (dispatch && route.request().method() === "POST") {
+      const intent = pageIntents.get(dispatch[1]);
+      if (!intent) { await route.fulfill({ status: 404, json: { detail: "unknown intent" } }); return; }
+      await route.fulfill({ json: { collection: "habits", id: intent.record_id || "new-record",
+        ...(intent.template === "remove" ? { deleted: true } : { version: 2 }) } });
+      return;
     }
     if (path === "/api/tickets" && route.request().method() === "GET") {
       await route.fulfill({ json: ticketList(url.searchParams) });

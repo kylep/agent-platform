@@ -337,7 +337,8 @@ async def published_page(session, caller: Caller, app_ref: str, name: str) -> di
         raise RecordError("AD-APP-RETIRED", f"App {app.name} is retired", 409)
     if not L.can_read_page(ctx, caller, page):
         raise RecordError("AD-FORBIDDEN", f"{caller.principal} may not read page {name}", 403)
-    definition = L.page_for_web(page, ctx.bundle)
+    definition = L.page_for_web(page, ctx.bundle,
+                                with_actions=caller.principal == "kyle")
     if caller.principal == "login:qa":
         visible = []
         for block, component in zip(page.blocks, definition["components"]):

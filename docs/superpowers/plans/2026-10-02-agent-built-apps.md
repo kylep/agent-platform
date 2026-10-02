@@ -657,7 +657,7 @@ Shared-file notes for G1:
     - The QA login can't write, can't see unshared Apps, and gets no
       template actions.
     - Narrowing by an approved proposal takes effect on the next request.
-- [ ] **B14 Action templates, web** (after B9) ∥.
+- [x] **B14 Action templates, web** (after B9) ∥.
   - **Goal:** v2 table and detail blocks show their templates, and confirm
     through the server's confirmation.
   - **Design:** revision 3 "Pages" (confirmation, intent binding).
