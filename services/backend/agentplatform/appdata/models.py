@@ -384,3 +384,36 @@ class AppDataProposal(Base):
     relay_message_id: Mapped[str | None] = mapped_column(String(32), nullable=True)
     created_at: Mapped[datetime] = mapped_column(_TS, default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(_TS, default=utcnow, onupdate=utcnow)
+
+
+class AppDataPageIntent(Base):
+    """Kyle's five-minute confirmation of one published page template."""
+    __tablename__ = "app_data_page_intents"
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_uuid)
+    app_id: Mapped[str] = mapped_column(String(32), index=True)
+    page: Mapped[str] = mapped_column(String(64))
+    page_version: Mapped[int] = mapped_column(Integer)
+    approved_version: Mapped[int] = mapped_column(Integer)
+    authority_generation: Mapped[int] = mapped_column(Integer)
+    template: Mapped[str] = mapped_column(String(64))
+    verb: Mapped[str] = mapped_column(String(16))
+    collection: Mapped[str] = mapped_column(String(64))
+    record_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    record_version: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    values: Mapped[dict] = mapped_column(_JSON, default=dict)
+    payload_digest: Mapped[str] = mapped_column(String(64))
+    plan_digest: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    confirmation: Mapped[dict] = mapped_column(_JSON)
+    created_at: Mapped[datetime] = mapped_column(_TS, default=utcnow)
+    expires_at: Mapped[datetime] = mapped_column(_TS)
+
+
+class AppDataPageReceipt(Base):
+    """One committed write per intent; retry returns this exact outcome."""
+    __tablename__ = "app_data_page_receipts"
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_uuid)
+    intent_id: Mapped[str] = mapped_column(String(32), unique=True)
+    app_id: Mapped[str] = mapped_column(String(32), index=True)
+    principal: Mapped[str] = mapped_column(String(160))
+    result: Mapped[dict] = mapped_column(_JSON)
+    created_at: Mapped[datetime] = mapped_column(_TS, default=utcnow)

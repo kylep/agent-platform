@@ -20,7 +20,8 @@ def test_catalog_matches_broker_and_custom_manifest_actions():
     assert checked_in == compiled
     assert len(compiled["operations"]) == len(operation_catalog.OPERATIONS)
     assert {item["id"] for item in compiled["operations"] if item["view_eligible"]} == (
-        set(READ_FIELDS) | {"tickets.create@1", "relay.channel.post@1"})
+        set(READ_FIELDS) | {"tickets.create@1", "relay.channel.post@1",
+                            "app_data.write@1"})
     assert {item["id"] for item in compiled["operations"]
             if "unknown" in item["effects"]} == {
         "core.query_app.call@1", "tool.linear.raw_graphql@1",

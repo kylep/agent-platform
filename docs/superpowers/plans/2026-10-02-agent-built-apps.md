@@ -518,7 +518,7 @@ Shared-file notes for G1:
     - A non-owner can't propose.
     - Replaying a `request_id` returns the stored receipt.
     - The lockstep suites are green.
-- [ ] **B9 Action templates and `app_data.write@1`, server side** (after
+- [x] **B9 Action templates and `app_data.write@1`, server side** (after
   B4) ∥.
   - **Goal:** Kyle's session runs a page's create, update or delete
     template through a confirmed, digest-bound intent.

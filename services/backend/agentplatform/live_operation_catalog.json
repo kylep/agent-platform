@@ -2,6 +2,56 @@
   "schema_version": 1,
   "operations": [
     {
+      "id": "app_data.write@1",
+      "source": "human-adapter",
+      "tool": "app_data",
+      "action": "write",
+      "category": "platform_capability",
+      "effects": [
+        "mutates_platform"
+      ],
+      "output_classification": "private",
+      "view_eligible": true,
+      "reason": "Only a published typed/v2 template through Kyle's confirmed intent",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "intent_id": {
+            "type": "string"
+          },
+          "digest": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "intent_id",
+          "digest"
+        ],
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "additionalProperties": false
+      },
+      "target_scope": "approved_app_page_template",
+      "supported_callers": [
+        "human_session"
+      ],
+      "limits": {
+        "intent_ttl_seconds": 300,
+        "provider_spend": false
+      },
+      "snapshot_eligible": false
+    },
+    {
       "id": "core.agent_self.avatar@1",
       "source": "mcp-core",
       "tool": "agent_self",

@@ -118,6 +118,9 @@ from .observe_quota_quota_observe_in_headers import ObserveQuotaQuotaObserveInHe
 from .ok import Ok
 from .ok_id import OkId
 from .ok_id_state import OkIdState
+from .page_action_dispatch_in import PageActionDispatchIn
+from .page_action_intent_in import PageActionIntentIn
+from .page_action_intent_in_values import PageActionIntentInValues
 from .password_change import PasswordChange
 from .pr_ref import PrRef
 from .pr_summary import PrSummary
@@ -410,6 +413,9 @@ __all__ = (
     "Ok",
     "OkId",
     "OkIdState",
+    "PageActionDispatchIn",
+    "PageActionIntentIn",
+    "PageActionIntentInValues",
     "PasswordChange",
     "PreviewIn",
     "PreviewInParams",

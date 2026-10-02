@@ -1333,7 +1333,13 @@ def _check_template(t, app: AppBundle, names, where: str) -> list[DefinitionIssu
         return [issue("JD-PAGE-ACTION", join_path(where, "collection"),
                       "no such collection in this App", t.collection)]
     c = app.collections.get(t.collection)
-    if c is None or isinstance(t, DeleteTemplate):
+    if c is None:
+        return []
+    if c.writers is not None and getattr(c.writers, t.kind) is not None:
+        return [issue("JD-TEMPLATE-TOOL-ONLY", join_path(where, "collection"),
+                      "a page template cannot bypass this collection's tool-only writer",
+                      t.collection)]
+    if isinstance(t, DeleteTemplate):
         return []
     out: list[DefinitionIssue] = []
     if isinstance(t, UpdateTemplate) and c.write_mode == "immutable":

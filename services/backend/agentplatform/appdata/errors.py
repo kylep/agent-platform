@@ -89,6 +89,7 @@ CODES: dict[str, str] = {
     "JD-PRESET-VALUE": "Preset a value the field accepts, inside its bounds.",
     "JD-TEMPLATE-REQUIRED": "Preset or make editable every required field.",
     "JD-TEMPLATE-IMMUTABLE": "Immutable collections can't be updated; use create or delete.",
+    "JD-TEMPLATE-TOOL-ONLY": "Use the approved tool for this collection's write; a page template cannot bypass it.",
     "JD-TEMPLATE-EMPTY": "Preset or make editable at least one field.",
     # App tools (R1b).
     "JD-TOOL-COLLECTION": "Bind the role to a collection defined in the same App.",

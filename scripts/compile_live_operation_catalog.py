@@ -316,6 +316,20 @@ def compile_catalog(tools: Path = ROOT / "tools") -> dict:
             "limits": {"max_rows": 10, "max_output_bytes": 32768,
                        "provider_spend": False}, "snapshot_eligible": False})
     operations.append({
+        "id": "app_data.write@1", "source": "human-adapter", "tool": "app_data",
+        "action": "write", "category": "platform_capability",
+        "effects": ["mutates_platform"], "output_classification": "private",
+        "view_eligible": True,
+        "reason": "Only a published typed/v2 template through Kyle's confirmed intent",
+        "input_schema": {"type": "object", "properties": {
+            "intent_id": {"type": "string"}, "digest": {"type": "string"}},
+            "required": ["intent_id", "digest"], "additionalProperties": False},
+        "output_schema": _object_schema({"id": "string"}),
+        "target_scope": "approved_app_page_template",
+        "supported_callers": ["human_session"],
+        "limits": {"intent_ttl_seconds": 300, "provider_spend": False},
+        "snapshot_eligible": False})
+    operations.append({
         "id": "tickets.create@1", "source": "human-adapter", "tool": "tickets",
         "action": "create", "category": "platform_capability",
         "effects": ["mutates_platform"], "output_classification": "private",

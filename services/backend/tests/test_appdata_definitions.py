@@ -815,6 +815,18 @@ def test_update_template_on_immutable_collection_is_refused():
         d.validate_app, bundle)
 
 
+def test_page_template_cannot_bypass_tool_only_writer():
+    bundle = judgment_bundle()
+    page = copy.deepcopy(JUDGMENT_PAGES[0])
+    page["actions"] = [{"name": "forge", "kind": "create",
+                        "collection": "predictions",
+                        "editable_fields": ["scenario", "alternatives",
+                                            "predicted_choice", "confidence", "timing"]}]
+    bundle["pages"] = [page]
+    assert ("JD-TEMPLATE-TOOL-ONLY", "$.pages[0].actions[0].collection") in errors_of(
+        d.validate_app, bundle)
+
+
 def test_duplicate_template_names_are_refused():
     page = habit_page(actions=HABIT_PAGE["actions"] + [
         {"name": "log_habit", "kind": "delete", "collection": "habits"}])

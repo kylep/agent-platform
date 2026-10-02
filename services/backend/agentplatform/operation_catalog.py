@@ -20,6 +20,7 @@ def admitted(operation_id: str) -> bool:
     design-39 tool view (`view_action`), which this page kind can't run."""
     item = OPERATIONS.get(operation_id)
     return bool(item and item["view_eligible"] and item["source"] != "mcp-custom"
+                and operation_id != "app_data.write@1"
                 and "unknown" not in item["effects"])
 
 

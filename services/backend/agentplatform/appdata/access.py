@@ -37,6 +37,10 @@ class Caller:
     principal: str
     via_tool: str | None = None
     system: bool = False
+    # Server-only scope from Kyle's confirmed page intent. A template is an
+    # approved authority fact, but it doesn't widen the collection's ordinary
+    # access lists; only this dispatch path may exercise it.
+    page_scope: tuple[str, str, frozenset[str]] | None = None
 
     @property
     def author(self) -> str:
@@ -103,6 +107,10 @@ class Access:
         return matches(self.caller, self._field_list(field, "read"), self.owner)
 
     def can_write(self, field: str, verb: str) -> bool:
+        scope = self.caller.page_scope
+        if scope is not None and scope[:2] == (self.collection.collection, verb) \
+                and field in scope[2]:
+            return True
         return matches(self.caller, self._field_list(field, verb), self.owner)
 
     def can_see_rows(self) -> bool:
@@ -114,6 +122,9 @@ class Access:
                    for f in self.collection.fields)
 
     def can_verb(self, verb: str) -> bool:
+        if self.caller.page_scope is not None and self.caller.page_scope[:2] == (
+                self.collection.collection, verb):
+            return True
         """The collection-level verb: who may create, update or delete at all.
         Create and update also pass when the caller may write some field, so a
         field-level grant narrower than the default is usable."""
