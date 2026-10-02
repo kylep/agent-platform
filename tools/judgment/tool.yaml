@@ -20,7 +20,7 @@ description: >-
   true if you already know his answer). action=feedback records what Kyle
   shared: kyle_words, source_ref (required), outcome, and prediction_id
   and/or belief_id + belief_version; source_at and interpretation optional.
-  source_ref is relay:<32-hex message id> or discord:<channel id>/<message id>.
+  source_ref is relay:<channel id>/<message id> (32 hex each) or discord:<channel id>/<message id>.
   Writes take an optional request_id (a retry with the same one returns the
   first receipt) and answer with a short JSON receipt. action=recall with
   query searches current claims (empty lists the newest); with id shows one
@@ -70,7 +70,7 @@ params:
       description: "belief: the feedback that prompted this version"
     source_ref:
       type: string
-      description: "belief (kyle_relayed) / feedback: relay:<32-hex> or discord:<channel>/<message>"
+      description: "belief (kyle_relayed) / feedback: relay:<channel>/<message> or discord:<channel>/<message>"
     scenario:
       type: string
       description: "predict: the decision Kyle faces"

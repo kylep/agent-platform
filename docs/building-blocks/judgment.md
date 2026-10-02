@@ -45,9 +45,10 @@ Every belief version says where the claim came from:
 | `inference` | Kai's reasoning | Kai |
 | `imported` | text from another assistant or an export | Kai |
 
-`kyle_relayed` records must carry a `source_ref`: `relay:<message id>` or
-`discord:<channel id>/<message id>`. The page renders it as a link, so a
-claim of "Kyle said" can be checked. Only Kyle's confirmation produces
+`kyle_relayed` records must carry a `source_ref`:
+`relay:<channel id>/<message id>` or `discord:<channel id>/<message id>`.
+The page links a Relay ref to its room and thread, so a claim of "Kyle
+said" can be checked; a Discord ref shows its ids. Only Kyle's confirmation produces
 `kyle_confirmed`. Kai can't reject or supersede a belief Kyle confirmed, and
 when Kai looks a belief up it always sees the latest confirmed version beside
 the current one.

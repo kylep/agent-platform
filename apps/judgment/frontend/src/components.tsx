@@ -128,23 +128,26 @@ export function Flags({ flags }: { flags: string[] }) {
 
 // --- source links -----------------------------------------------------------------------
 
-const RELAY_REF = /^relay:([0-9a-f]{32})$/;
+const RELAY_REF = /^relay:([0-9a-f]{32})\/([0-9a-f]{32})$/;
 const DISCORD_REF = /^discord:(\d+)\/(\d+)$/;
 
-/** A `source_ref` as a link Kyle can follow to check what it points at.
- * Relay links leave the app for the console (a full page load, by design). */
+/** A `source_ref` Kyle can follow to check what it points at. A Relay ref
+ * opens its room in the console with the message's thread (a full page load,
+ * by design). A Discord ref is shown as its ids: a server-channel link needs
+ * the server id, which the ref doesn't carry. */
 export function SourceLink({ value }: { value: string | null }) {
   if (!value) return <span className="muted">no source</span>;
   const relay = RELAY_REF.exec(value);
   if (relay) {
-    return <a href={`/relay?message=${relay[1]}`} className="jd-ref" title={value}>Relay message {short(relay[1])}</a>;
+    return (
+      <a href={`/relay?channel=${relay[1]}&thread=${relay[2]}`} className="jd-ref" title={value}>
+        Relay message {short(relay[2])}
+      </a>
+    );
   }
   const discord = DISCORD_REF.exec(value);
   if (discord) {
-    return (
-      <a href={`https://discord.com/channels/@me/${discord[1]}/${discord[2]}`} className="jd-ref"
-         target="_blank" rel="noopener noreferrer" title={value}>Discord message ↗</a>
-    );
+    return <code className="jd-ref" title={value}>Discord #{discord[1]} · message {discord[2]}</code>;
   }
   return <code className="jd-ref">{value}</code>;
 }

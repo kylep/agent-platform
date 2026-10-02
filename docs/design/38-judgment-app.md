@@ -108,8 +108,10 @@ because the tool-executor image doesn't carry SQLAlchemy.
 All timestamps are server-set UTC. Text fields are bounded (claim 1,000
 characters, `source_ref` 200, others 4,000) so "minimal necessary evidence"
 is enforced rather than hoped for. `source_ref` has a strict format:
-`relay:<32-hex message id>` or `discord:<channel id>/<message id>`. The page
-renders it as a link so Kyle can check what it points at.
+`relay:<channel id>/<message id>` (32 hex each) or
+`discord:<channel id>/<message id>`. The page links a Relay ref to its room
+and thread so Kyle can check it, and shows a Discord ref as its ids (a
+server-channel link would need the server id).
 
 **`beliefs`**
 - `id`, `created_at`, `status` (`active` | `superseded` | `rejected`),

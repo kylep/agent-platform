@@ -99,7 +99,7 @@ async def belief(sf, *claims, provenance="inference", status="active", at=None,
     for n, claim in enumerate(claims, 1):
         steps.append((schema.INSERT_VERSION,
                       _version_params(bid, n, claim, provenance=provenance, scope=scope,
-                                      source_ref="relay:" + "a" * 32
+                                      source_ref="relay:" + "c" * 32 + "/" + "a" * 32
                                       if provenance == "kyle_relayed" else None,
                                       at=at + timedelta(minutes=n))))
     await _write(sf, *steps)

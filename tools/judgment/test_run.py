@@ -22,7 +22,7 @@ _spec = importlib.util.spec_from_file_location(
 schema = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(schema)
 
-RELAY = "relay:" + "a" * 32
+RELAY = "relay:" + "c" * 32 + "/" + "a" * 32
 DISCORD = "discord:123456789/987654321"
 T0 = datetime(2026, 9, 1, 9, 0, tzinfo=timezone.utc)
 
@@ -277,7 +277,7 @@ def test_belief_kyle_relayed_requires_a_source_ref(db):
 
 def test_belief_refuses_a_malformed_source_ref(db):
     refused(db, run.action_belief, {"claim": "x", "provenance": "observed", "confidence": "low",
-                                    "source_ref": "https://evil.example"}, "relay:<32-hex")
+                                    "source_ref": "https://evil.example"}, "relay:<channel id>")
 
 
 @pytest.mark.parametrize("field", ["author", "confirmed_at", "timing", "created_at"])

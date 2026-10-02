@@ -76,8 +76,9 @@ MAX_LINKED_BELIEFS = 20
 # Feedback this soon after its prediction is flagged in the review.
 QUICK_FEEDBACK = timedelta(minutes=10)
 
-# `relay:<32 hex>` or `discord:<channel id>/<message id>` (snowflakes).
-SOURCE_REF_RE = re.compile(r"^(relay:[0-9a-f]{32}|discord:\d{1,25}/\d{1,25})$")
+# `relay:<channel id>/<message id>` (32 hex each, so the page can open the
+# room) or `discord:<channel id>/<message id>` (snowflakes).
+SOURCE_REF_RE = re.compile(r"^(relay:[0-9a-f]{32}/[0-9a-f]{32}|discord:\d{1,25}/\d{1,25})$")
 ID_RE = re.compile(r"^[0-9a-f]{32}$")
 REQUEST_ID_RE = re.compile(r"^[A-Za-z0-9._:-]{1,100}$")
 
@@ -123,7 +124,7 @@ def choice(name: str, value, allowed: tuple, *, required: bool = True) -> str | 
 def source_ref(value, *, required: bool) -> str | None:
     value = text_field("source_ref", value, required=required)
     if value is not None and not SOURCE_REF_RE.match(value):
-        raise ValidationError("source_ref must be relay:<32-hex message id> or "
+        raise ValidationError("source_ref must be relay:<channel id>/<message id> (32 hex each) or "
                               "discord:<channel id>/<message id>")
     return value
 
