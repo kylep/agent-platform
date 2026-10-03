@@ -30,8 +30,11 @@ pages. The guarded copy command is staged, not run live. Do not freeze Kai or
 remove Judgment until this gap is closed. Track the missing signed page-intent
 tool actions and browser acceptance in **ENG-10**.
 
-The foundation and Running path are on `main` through `b991c05`. The current
+The foundation and Running path are on `main` through `8875f93`. The current
 next batch should finish Judgment's review workflow and cutover together;
-avoid separate foundation deployments. The earlier
+avoid separate foundation deployments. Kyle paused the migration on
+2026-10-03 to preserve the 75% weekly Codex quota floor. See the
+[resume checkpoint](2026-10-03-app-migration-resume.md) for exact state,
+commands and remaining gates. The earlier
 `2026-10-02-agent-built-apps-paused-checkpoint.md` is historical and its
 0/6 count is superseded by this file.

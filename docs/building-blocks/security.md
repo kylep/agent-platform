@@ -109,11 +109,13 @@ could grant itself more, or rewrite a stronger agent's prompt, could escalate
 through either. So four tools — `apps`, `app_data`, `agents_edit` and
 `agents_grant` — are **Kyle-only**:
 
-- **Only Kyle's browser session** (logged in with the admin role) can add or
-  remove them, on any agent, at create or update. An admin API key is not
-  Kyle; neither is an agent's run token or its workload identity. This closes
+- **Kyle's browser session or an explicitly trusted admin API key** can add or
+  remove them, on any agent, at create or update. Trusted keys are configured
+  by immutable key ID in private Helm values (`env.AP_TRUSTED_ADMIN_KEY_IDS`),
+  never by a reusable display name. Other admin API keys, agent run tokens and
+  workload identities cannot. This closes
   self-grant, grant-by-proxy (A grants B, B grants A back) and mutual grants.
-- **An agent holding one is protected.** Only Kyle's session, or the agent
+- **An agent holding one is protected.** Only that human authority, or the agent
   itself through `agent_self`, may change its definition, delete it, or set
   its webhook secrets. Nobody with `agents_edit` can steer a builder.
 - **No agent edits itself** through `agents_edit` or `agents_grant`.

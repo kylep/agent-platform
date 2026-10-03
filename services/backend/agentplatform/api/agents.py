@@ -13,9 +13,9 @@ authorization instead, at two levels:
   must not be able to escalate, its own agent or any other's.
 
 Three rules sit above both (docs/design/39, Phase 0). The KYLE_ONLY_TOOLS are
-granted and removed only by Kyle's browser session — not an admin API key, not
-an agent — so no agent can widen itself through a proxy or a partner. An agent
-holding one is PROTECTED: only Kyle's session, or the agent itself through
+granted and removed only by Kyle's browser session or an explicitly trusted
+admin API key — not an agent — so no agent can widen itself through a proxy or
+a partner. An agent holding one is PROTECTED: only that human authority, or itself through
 `agent_self`, may change it. And no agent changes its own definition through
 `agents_edit` / `agents_grant`; `agent_self` is the narrow self path.
 
@@ -246,9 +246,21 @@ def kyle_only_held(tools) -> set[str]:
 
 
 def _kyle_session(request: Request, role: str) -> bool:
-    """Whether this authenticated request is Kyle's browser session.
-    `auth_kind` is set by `authenticate`, which every caller here has run."""
-    return role == "admin" and getattr(request.state, "auth_kind", None) == "session"
+    """Kyle's browser session or an explicitly trusted, unscoped admin key.
+
+    `auth_kind` and the verified key ID come from `authenticate`, never from a
+    caller-provided key name or header. Run and agent keys cannot qualify.
+    """
+    if role != "admin":
+        return False
+    if getattr(request.state, "auth_kind", None) == "session":
+        return True
+    if getattr(request.state, "auth_kind", None) != "key":
+        return False
+    if getattr(request.state, "api_key_agent", None) or getattr(request.state, "api_key_run_id", None):
+        return False
+    trusted = {key.strip() for key in request.app.state.settings.trusted_admin_key_ids.split(",")}
+    return getattr(request.state, "api_key_id", None) in trusted
 
 
 def _admin_scope(request: Request, principal: str) -> WriteScope:

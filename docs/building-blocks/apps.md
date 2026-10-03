@@ -37,7 +37,7 @@ or a **tool** (records an agent changes as Kyle asks, guarded by rules).
   writes its records, and keeps its **build notes**: a runbook of at most 4 KB
   an agent that has never seen the App can follow.
 - **Kyle** grants the tools: `apps` and `app_data` are Kyle-only grants
-  that only his browser session can add or remove, and an agent holding one
+  that his browser session or explicitly trusted admin API keys can add or remove, and an agent holding one
   can be edited only by Kyle or by itself ([security.md](security.md)). He
   reads every App from the console: `/apps` lists them, `/apps/state/<id>`
   shows an App's definitions, drafts, notes and health, and

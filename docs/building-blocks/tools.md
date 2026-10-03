@@ -35,7 +35,8 @@ exactly those two tools and nothing else on `/api/*`.
 
 `apps` and `app_data`, the builder and records tools of agent-built
 [Apps](apps.md) ([App data](app-data.md#tools)), share their rule: all four
-are **Kyle-only** (`KYLE_ONLY_TOOLS`). Only Kyle's browser session can add
+are **Kyle-only** (`KYLE_ONLY_TOOLS`). Kyle's browser session or an explicitly
+trusted admin API key can add
 one to an agent or remove it, and an agent holding one can be edited only by
 Kyle or by itself ([security.md](security.md)).
 

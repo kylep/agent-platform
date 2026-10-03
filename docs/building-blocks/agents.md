@@ -169,13 +169,13 @@ Four platform tools build or steer other agents: `apps`, `app_data`,
 them, enforced by the API on every write:
 
 - **Only Kyle grants them.** Adding or removing one on any agent — on create,
-  update, rollback or import — needs Kyle's browser session (logged in, admin
-  role). An admin API key, an agent's run token or a workload identity is
-  refused with a 403. So no agent can grant one to itself, to a proxy that
+  update, rollback or import — needs Kyle's browser session or an explicitly
+  trusted admin API key configured by immutable key ID. Other admin keys, an
+  agent's run token and workload identities are refused with a 403. So no agent can grant one to itself, to a proxy that
   grants it back, or to a partner.
 - **Holders are protected.** An agent holding any of the four can be changed
   (prompt included), deleted, or have its webhook secrets set only by Kyle's
-  session, or by itself through `agent_self`, which can't touch grants.
+  session or a trusted admin key, or by itself through `agent_self`, which can't touch grants.
   `agents_edit` and `agents_grant` from any other agent are refused.
 - **No self-edits.** An agent can't change its own definition through
   `agents_edit` or `agents_grant`; `agent_self` is the self path.

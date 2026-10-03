@@ -6,6 +6,7 @@ from fastapi import APIRouter, HTTPException, Request, Response, Depends
 from itsdangerous import BadSignature, URLSafeSerializer
 from pydantic import BaseModel, Field
 from sqlalchemy import select
+from agentplatform.api import schemas as S
 from agentplatform.agentspec import platform_token_role
 from agentplatform.apikeys import hash_token
 from agentplatform.appdata import credentials as _tc
@@ -15,7 +16,6 @@ ph = PasswordHasher()
 # A hash no password matches, verified on the login path's miss branch so an
 # unknown principal name costs the same as a wrong password.
 _NO_SUCH_PRINCIPAL_HASH = ph.hash(secrets.token_urlsafe(32))
-from agentplatform.api import schemas as S
 router = APIRouter()
 
 class Creds(BaseModel):
@@ -163,6 +163,7 @@ async def authenticate_bearer(request: Request, token: str,
                 return None
             request.state.api_key_run_id = k.run_id
             request.state.api_key_agent = k.agent
+            request.state.api_key_id = k.id
             request.state.auth_kind = "key"
             return (k.name, k.role)
     elif token.count(".") == 2:

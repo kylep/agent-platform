@@ -72,6 +72,10 @@ class Settings(BaseSettings):
     mcp_broker_mtls_target: str = "agent-platform-mcp-broker:8443"
     agents_volume_claim: str = "agent-definitions"
     session_secret: str = "dev-insecure"
+    # Explicit key IDs whose admin role may exercise the same agent-definition
+    # authority as Kyle's browser session. Names are not identifiers: an admin
+    # can create another key with the same display name.
+    trusted_admin_key_ids: str = ""
     global_concurrency: int = 3
     run_timeout_seconds: int = 1800
     # GC finished run Jobs + pods this long after they finish (k8s TTL

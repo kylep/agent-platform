@@ -24,9 +24,10 @@ import pytest
 from sqlalchemy import select
 
 from agentplatform.agentspec import KYLE_ONLY_TOOLS
+from agentplatform.apikeys import hash_token
 from agentplatform.api.agents import TOOL_AGENTS_EDIT, TOOL_AGENTS_GRANT
 from agentplatform.db import (KYLE_ONLY_AUDIT_MARK, AgentDef, AgentVersion,
-                              SchemaMark, init_db, make_engine,
+                              ApiKey, SchemaMark, init_db, make_engine,
                               make_session_factory)
 
 from .test_agent_self import own_run
@@ -150,6 +151,33 @@ async def test_an_admin_api_key_is_not_kyle(client, token_client, sf, seed_agent
                                json=a_def("worker", skills=["git"],
                                           platform_tools=["mcp__platform__runs_read"]))
     assert r.status_code == 200, r.text
+
+
+async def test_only_explicit_admin_key_ids_share_kyles_agent_authority(
+        client, token_client, sf, seed_agent):
+    await seed_agent("worker")
+    await seed_agent("builder", platform_tools=[TOOL_APPS])
+    trusted = await bearer(sf, None, role="admin", name="codex-laptop")
+    same_name = await bearer(sf, None, role="admin", name="codex-laptop")
+    scoped = await bearer(sf, "worker", role="admin", name="claude-laptop")
+    async with sf() as s:
+        key = (await s.execute(select(ApiKey).where(
+            ApiKey.key_hash == hash_token(trusted["Authorization"].removeprefix("Bearer "))
+        ))).scalar_one()
+        trusted_id = key.id
+    client._transport.app.state.settings.trusted_admin_key_ids = trusted_id
+
+    r = await token_client.put("/api/agents/worker", headers=trusted,
+                               json=a_def("worker", platform_tools=[TOOL_APP_DATA]))
+    assert r.status_code == 200, r.text
+    r = await token_client.put("/api/agents/builder", headers=trusted,
+                               json=a_def("builder", prompt="# changed",
+                                          platform_tools=[TOOL_APPS]))
+    assert r.status_code == 200, r.text
+    for header in (same_name, scoped):
+        r = await token_client.put("/api/agents/worker", headers=header,
+                                   json=a_def("worker", platform_tools=[]))
+        assert r.status_code == 403, r.text
 
 
 async def test_a_workload_identity_is_not_kyle(client, token_client, sf, seed_agent,

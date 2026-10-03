@@ -1,11 +1,12 @@
 # Agent-built Apps: efficient delivery plan
 
-**Status:** resumed by Kyle; implementation in progress. See design 39's
+**Status:** paused by Kyle on 2026-10-03 after Running cutover (1/6). See the
+[resume checkpoint](2026-10-03-app-migration-resume.md). See design 39's
 direction correction for HTML+DSL, generic calculation, and outcome-based
 App migration.
 **Source of truth for behavior:** [design 39](../../design/39-agent-built-apps.md).
 **Detailed backlog and live evidence:** [original build plan](2026-10-02-agent-built-apps.md).
-**Current working tree:** [pause checkpoint](2026-10-02-agent-built-apps-checkpoint.md).
+**Current state:** [live status](2026-10-03-app-migration-live-status.md).
 
 ## Delivery contract
 

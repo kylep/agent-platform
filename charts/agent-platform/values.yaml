@@ -228,6 +228,9 @@ agents:
 # AP_INTERNAL_SECRET is the same kind of value: no default, required, and it
 # authenticates the claude-proxy's quota push to the API (docs/design/22).
 env:
+  # Comma-separated IDs of Kyle's trusted admin API keys. Configure in the
+  # private Helm values on the cluster; do not identify keys by display name.
+  AP_TRUSTED_ADMIN_KEY_IDS: ""
   AP_K8S_NAMESPACE: ""
   AP_GLOBAL_CONCURRENCY: "3"
   AP_RUN_TIMEOUT_SECONDS: "1800"
