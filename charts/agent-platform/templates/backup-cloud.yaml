@@ -108,7 +108,9 @@ spec:
                 requests: {memory: 128Mi, cpu: 50m}
                 limits: {memory: 512Mi}
               volumeMounts:
-                - {name: work, mountPath: /work, readOnly: true}
+                # Export appends the restore marker to this private dump copy
+                # before encrypting it; the source database is unchanged.
+                - {name: work, mountPath: /work}
                 - {name: backups, mountPath: /backups}
                 - {name: connection, mountPath: /backup-connection, readOnly: true}
           volumes:

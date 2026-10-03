@@ -68,6 +68,9 @@ rules:
   - apiGroups: ["batch"]
     resources: ["cronjobs", "jobs"]
     verbs: ["get", "create"]
+  - apiGroups: ["batch"]
+    resources: ["jobs/status"]
+    verbs: ["get"]
   # The /apps registry reports app Deployment readiness.
   - apiGroups: ["apps"]
     resources: ["deployments"]
