@@ -102,7 +102,8 @@ percentage only after a migration or comparable user-visible milestone,
 rather than after each capability. Respect Kyle's weekly quota floor of 10%
 left, and check it at milestone boundaries.
 
-**Immediate resume decision:** either finish the uncommitted history slice as
-part of the complete R2 versioned-record journey, or set it aside and prove
-the simpler agent-built App journey first. The latter provides the fastest
-evidence that the shipped foundation delivers the project's purpose.
+**Immediate resume path:** preserve the uncommitted history slice without
+deploying it, verify the six-App gap map, then start Judgment with a small
+agent-built App smoke gate. Fold the history work into Judgment's end-to-end
+journey when its real behavior requires it. The efficient delivery plan above
+sets the milestone gates and token budget.
