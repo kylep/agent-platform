@@ -1,8 +1,8 @@
 """Reviewed Running App state and a lossless legacy snapshot mapping.
 
 This is a migration recipe, not a seed provisioner: a fresh install creates
-zero Apps. The live definition must be published by Running Coach and approved
-before records are copied. No Strava credential or private activity lives here.
+zero Apps. The one-shot cutover records this reviewed bundle and copies data
+in one transaction. No Strava credential or private activity lives here.
 """
 from __future__ import annotations
 

@@ -1,7 +1,8 @@
 """One-time Judgment App definition and snapshot recipe for the state migration.
 
-The live App is published into Postgres by Kai/Kyle; this file is a reviewed
-copy recipe, not a provisioner. Remove it after cutover and restore proof.
+The one-shot cutover records this reviewed bundle and copies source data
+into Postgres. This file is a copy recipe, not a fresh-install provisioner.
+Remove it after cutover and restore proof.
 No records or credentials belong here.
 """
 from __future__ import annotations
