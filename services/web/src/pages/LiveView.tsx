@@ -362,11 +362,14 @@ function V2Chart({ appId, component }: { appId: string; component: Extract<V2Com
           const n = values[i];
           const value = Number.isFinite(n) && n >= 0 ? n : 0;
           const label = String(row.values[component.x] ?? "");
+          const shortLabel = /^\d{4}-\d{2}-\d{2}$/.test(label)
+            ? new Date(`${label}T12:00:00`).toLocaleDateString(undefined, { month: "short", day: "numeric" })
+            : label;
           return <div key={`${row.id}-${i}`} className="v2-bar-item"
             title={`${label}: ${value.toLocaleString()} ${component.unit || ""}`}>
             <span className="v2-bar-number">{value.toLocaleString()}</span>
             <span className="v2-bar-track"><span style={{ height: `${Math.max(2, value / maximum * 100)}%` }} /></span>
-            <span className="v2-bar-label">{label}</span>
+            <span className="v2-bar-label">{shortLabel}</span>
           </div>;
         })}
       </div>}

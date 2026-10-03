@@ -4,6 +4,7 @@ import { api, type AppView, type PullRequest } from "./api";
 import { buildPlatformNav, SideNav, type LinkComponent } from "@ap/ui/sidenav";
 import { QuotaBars } from "@ap/ui/quota";
 import { useQuota } from "./components/quota/useQuota";
+import { listStateApps, type StateAppSummary } from "./lib/appData";
 
 // The console shell: the shared platform sidebar (from @ap/ui — app
 // frontends render the same one) around the routed pages. Console-specific
@@ -29,6 +30,7 @@ export default function Layout() {
 function PlatformLayout() {
   const [pendingChanges, setPendingChanges] = useState(0);
   const [apps, setApps] = useState<AppView[]>([]);
+  const [stateApps, setStateApps] = useState<StateAppSummary[]>([]);
   const [restoreMode, setRestoreMode] = useState(false);
   const location = useLocation();
   const quota = useQuota();
@@ -41,6 +43,7 @@ function PlatformLayout() {
   useEffect(() => {
     refreshBadges();
     api<AppView[]>("/api/apps").then(setApps).catch(() => {});
+    listStateApps().then(setStateApps).catch(() => {});
     const id = setInterval(refreshBadges, 20000);
     return () => clearInterval(id);
   }, []);
@@ -52,8 +55,15 @@ function PlatformLayout() {
   }, [location.pathname]);
 
   const entries = useMemo(() =>
-    buildPlatformNav(apps.filter((a) => a.ui && a.ready)
-      .map((a) => ({ name: a.name, icon: a.icon, display_name: a.display_name }))), [apps]);
+    buildPlatformNav([
+      ...stateApps.filter((a) => a.status === "active" && a.approved_version !== null)
+        .map((a) => ({ name: a.name, icon: a.name === "running" ? "🏃" : "🧩",
+          display_name: a.name === "running" ? "Running Coach" : a.name,
+          to: `/apps/state/${encodeURIComponent(a.id)}/pages/home` })),
+      ...apps.filter((a) => a.ui && a.ready && !stateApps.some((s) =>
+        s.name === a.name && s.status === "active" && s.approved_version !== null))
+        .map((a) => ({ name: a.name, icon: a.icon, display_name: a.display_name })),
+    ]), [apps, stateApps]);
 
   return (
     <div className="layout">

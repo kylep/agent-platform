@@ -1826,5 +1826,8 @@ a.relay-action { color: var(--ds-link); }
 .ap-stack { display: grid; gap: var(--ds-space-4, 1rem); }
 .ap-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 20rem), 1fr)); gap: var(--ds-space-4, 1rem); }
 .ap-card { min-width: 0; padding: var(--ds-space-5, 1.25rem); border: 1px solid var(--ds-border, currentColor); border-radius: var(--ds-radius-lg, 1rem); }
+.ap-card > .v2-chart, .ap-card > .v2-calendar, .ap-card > .v2-stat-row {
+  padding: 0; border: 0; background: transparent;
+}
 .ap-hero { display: grid; gap: var(--ds-space-2, .5rem); padding-block: var(--ds-space-5, 1.25rem); }
 .ap-muted { color: var(--ds-text-muted, inherit); }
