@@ -19,7 +19,9 @@ SYNC then wrote two activities directly to the state App. Playwright verified
 the page, 50 visible activity rows, both briefs, the sidebar entry, readable
 week labels and no browser errors. Helm revision 93 removed `ap-app-running`.
 Pre- and post-cutover encrypted backups uploaded to GCS. The old Running
-database is retained.
+database is retained. The post-cutover file matched its SHA-256 receipt and
+passed offline decryption/manifest inspection. An existing weekly report
+was re-saved successfully through `running.report`.
 
 Judgment preflight: 41 beliefs, 66 versions, four predictions, one link and
 six feedback rows; 25 earlier belief snapshots. The state adapter and bundle

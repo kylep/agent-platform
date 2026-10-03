@@ -46,7 +46,11 @@ sidebar link and twelve readable weekly labels, and Helm revision 93 removed
 the old Running deployment. The legacy database schema is retained for
 recovery. Post-cutover backup `ap-cloud-backup-manual-gzd4c` succeeded and
 uploaded `ap-recovery-20261003T041032Z.tar.age` to the configured GCS bucket.
-A disposable-cluster restore drill remains outstanding.
+The downloaded encrypted copy matched SHA-256
+`935636c00c914cf684c07735412b0989e8ab70d8ddd8f021a15cde0eb0d734a4`,
+and offline inspection decrypted and verified its archive manifest and members.
+A Running Coach `running.report` call re-saved the existing 2026-09-21 brief's
+report successfully. A disposable-cluster restore drill remains outstanding.
 
 The SYNC prompt reads `running.coach_context` to get `sync_after`, calls
 `strava.sync` with that date, then calls `running.recover_reports`. The Monday
