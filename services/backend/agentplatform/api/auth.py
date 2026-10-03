@@ -163,7 +163,6 @@ async def authenticate_bearer(request: Request, token: str,
                 return None
             request.state.api_key_run_id = k.run_id
             request.state.api_key_agent = k.agent
-            request.state.api_key_name = k.name
             request.state.auth_kind = "key"
             return (k.name, k.role)
     elif token.count(".") == 2:

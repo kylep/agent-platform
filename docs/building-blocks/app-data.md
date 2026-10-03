@@ -483,8 +483,7 @@ limits are defined but not yet checked by `create` and `draft`.
 ## Tools
 
 Both tools are **Kyle-only grants** (`KYLE_ONLY_TOOLS`): Kyle's browser
-session or a specifically configured, unbound human admin API key can add
-them to or remove them from an agent. Agent/run keys and workload identities
+session can add them to or remove them from an agent. Agent/run keys and workload identities
 cannot, even when they hold `agents_grant`. An agent holding one is editable
 only by Kyle's human authority or itself ([security.md](security.md)). They
 call the agent routes `POST /api/app-data/agent/…`, which answer only an

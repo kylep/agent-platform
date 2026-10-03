@@ -72,10 +72,6 @@ class Settings(BaseSettings):
     mcp_broker_mtls_target: str = "agent-platform-mcp-broker:8443"
     agents_volume_claim: str = "agent-definitions"
     session_secret: str = "dev-insecure"
-    # Optional names of unbound, human-held admin API keys allowed to exercise
-    # Kyle's builder/grant authority through the external MCP facade. Never
-    # applies to agent/run keys or workload identities.
-    human_admin_key_names: str = ""
     global_concurrency: int = 3
     run_timeout_seconds: int = 1800
     # GC finished run Jobs + pods this long after they finish (k8s TTL

@@ -152,28 +152,6 @@ async def test_an_admin_api_key_is_not_kyle(client, token_client, sf, seed_agent
     assert r.status_code == 200, r.text
 
 
-async def test_named_human_mcp_key_can_grant_builder_tools(
-        client, token_client, sf, seed_agent):
-    """Only an explicitly configured, unbound human key gains this authority."""
-    client._transport.app.state.settings.human_admin_key_names = "codex-laptop"
-    await seed_agent("worker")
-    human = await bearer(sf, None, role="admin", name="codex-laptop")
-    r = await token_client.put("/api/agents/worker", headers=human,
-                               json=a_def("worker", platform_tools=[TOOL_APPS, TOOL_APP_DATA]))
-    assert r.status_code == 200, r.text
-    assert set(await _tools(sf, "worker")) == {TOOL_APPS, TOOL_APP_DATA}
-    other = await bearer(sf, None, role="admin", name="other-admin")
-    r = await token_client.put("/api/agents/worker", headers=other,
-                               json=a_def("worker"))
-    assert r.status_code == 403
-
-    # A matching label cannot turn an agent-bound admin key into Kyle.
-    bound = await bearer(sf, "worker", role="admin", name="codex-laptop")
-    r = await token_client.put("/api/agents/worker", headers=bound,
-                               json=a_def("worker", platform_tools=[]))
-    assert r.status_code == 403
-
-
 async def test_a_workload_identity_is_not_kyle(client, token_client, sf, seed_agent,
                                               agent_store):
     """The ServiceAccount path (design 13 A) resolves to the agent's grant like
