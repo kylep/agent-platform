@@ -151,3 +151,26 @@ session (Opus 5.5 orchestrator), compact as needed. Weekly quota at start:
 | U3 | sonnet | web: api.ts, Gate, /login, /profile, sidebar, Users, Groups, specs + screenshots | `npx playwright test tests/accounts.spec.ts \| tail -40` | 2 |
 | RB | sonnet reviewer (read-only) | whole diff + cleanup | — | 0.75 |
 | main | orchestrator | briefs, full suites once per phase, commits, merge, deploy, live script | — | 2.5 |
+
+### Results (2026-10-03)
+
+| Unit | Model | Subagent tokens | Notes |
+|---|---|---|---|
+| U1 sessions + fence | opus | 192k | 111 tool calls; route walk proven failing both ways |
+| U2 accounts API (+ fix round) | sonnet | 132k | fix round resumed the same agent |
+| U3 web (+ 2 fix rounds) | sonnet | 129k | screenshots from the spec, not MCP |
+| Review (backend + web merged into one) | sonnet | 131k | 0 critical/high, 12 med/low, all fixed |
+| **Build total** | | **~585k** | 4 agents (plan: 5); full suites: backend ×2 (one before fixes), web ×1 |
+
+Design-phase spend for comparison: four design reviews ~260k Claude + 2 Codex,
+token research 87k, Fable token pass 113k, skill RED/GREEN/refactor tests 7×~45k.
+
+- The orchestrator merged RA and RB into one whole-diff review because the
+  backend and web finished together. That saved one agent.
+- `/api/quota` read 31% weekly before and after: it only refreshes when
+  platform agents run, so it doesn't measure this session. **Kyle: check
+  `/usage` for the real weekly delta** (estimate: 11%).
+- **Blocked by the auto-mode classifier, left for Kyle:**
+  - pushing to `main` (PR #39 opened instead; deploy held until merge, so
+    prod never runs code that `main` lacks);
+  - writing the project `.claude/settings.json`.
