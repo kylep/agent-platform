@@ -27,7 +27,8 @@ Judgment preflight: 41 beliefs, 66 versions, four predictions, one link and
 six feedback rows; 25 earlier belief snapshots. The state adapter and bundle
 exist, but the rich Kyle review workflow is not yet represented in state
 pages. The guarded copy command is staged, not run live. Do not freeze Kai or
-remove Judgment until this gap is closed.
+remove Judgment until this gap is closed. Track the missing signed page-intent
+tool actions and browser acceptance in **ENG-10**.
 
 The foundation and Running path are on `main` through `b991c05`. The current
 next batch should finish Judgment's review workflow and cutover together;
