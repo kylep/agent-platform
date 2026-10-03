@@ -1,5 +1,13 @@
 # Agent-built Apps — build plan
 
+> **Process update, 2026-10-02:** Kyle paused the per-primitive build loop to
+> reduce token use. Use the
+> [efficient delivery plan](2026-10-02-agent-built-apps-efficient-delivery.md)
+> for milestone order, review/test/deploy cadence and quota gates; retain this
+> file for behavior requirements and prior live evidence. The historical
+> "no check-ins" and per-task loop instructions below do not override the
+> pause or the revised delivery process.
+
 **Design:** `docs/design/39-agent-built-apps.md`, revision 6. Kyle's final
 decisions (2026-10-02):
 - **Kai keeps `agents_grant` / `agents_edit`** under the new limits.
