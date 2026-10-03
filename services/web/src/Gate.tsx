@@ -18,6 +18,7 @@ export default function Gate() {
   const [loading, setLoading] = useState(true);
   // undefined = not asked for this stretch of navigation, null = anonymous.
   const [me, setMe] = useState<Me | null | undefined>(undefined);
+  const [meFailed, setMeFailed] = useState(false);
   const selfAuth = SELF_AUTH_PATHS.includes(location.pathname);
 
   useEffect(() => {
@@ -26,6 +27,7 @@ export default function Gate() {
     // Visiting a self-auth page forgets the old answer, so a fresh sign-in is
     // never judged by the anonymous result from before it.
     if (selfAuth) setMe(undefined);
+    setMeFailed(false);
     const setup = api<SetupState>("/api/setup-state")
       .then((s) => { if (!cancelled) setState(s); })
       .catch(() => {});
@@ -34,7 +36,9 @@ export default function Gate() {
     const who = selfAuth ? Promise.resolve() : getMe()
       .then((m) => { if (!cancelled) setMe(m); })
       .catch((err) => {
-        if (!cancelled && err instanceof Error && err.message === "401") setMe(null);
+        if (cancelled) return;
+        if (err instanceof Error && err.message === "401") setMe(null);
+        else setMeFailed(true);
       });
     Promise.all([setup, who]).finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
@@ -52,7 +56,7 @@ export default function Gate() {
       </div>
     );
   }
-  if (!state) return <div className="page-loading">Unable to reach the API.</div>;
+  if (!state || (!selfAuth && !loading && meFailed)) return <div className="page-loading">Unable to reach the API.</div>;
 
   if (state.needs_admin && location.pathname !== "/setup") {
     return <Navigate to="/setup" replace />;

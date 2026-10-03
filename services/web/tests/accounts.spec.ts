@@ -70,7 +70,7 @@ test("the admin signs in to the console", async ({ page }) => {
   await setup(page);
   await page.goto("/login");
   await page.getByLabel("Password").fill("pw");
-  await page.getByRole("button", { name: "Log in" }).click();
+  await page.getByRole("button", { name: "Sign in", exact: true }).click();
   await expect(page).toHaveURL(/\/$/);
 });
 
@@ -121,6 +121,17 @@ test("the admin sidebar carries Profile, Sign out and the Settings children", as
   await nav.getByRole("button", { name: "Sign out" }).click();
   await expect(page).toHaveURL(/\/login$/);
   expect(st.who).toBeNull();
+});
+
+test("every sidebar entry is reachable at 1280x800 with the footer pinned", async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await setup(page, { who: admin });
+  await page.goto("/settings/users");
+  const dlq = page.locator("nav.nav").getByRole("link", { name: "DLQ" });
+  await dlq.scrollIntoViewIfNeeded();
+  await dlq.click();
+  await expect(page).toHaveURL(/\/dlq$/);
+  await expect(page.locator("nav.nav").getByRole("button", { name: "Sign out" })).toBeInViewport();
 });
 
 test("users: system rows are read-only, state rows carry the actions", async ({ page }) => {

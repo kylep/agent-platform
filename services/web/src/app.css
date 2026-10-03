@@ -1837,3 +1837,8 @@ a.relay-action { color: var(--ds-link); }
 .profile-facts dd { margin: 0; }
 .nav-account { display: flex; flex-direction: column; gap: 4px; align-items: stretch; }
 .nav-account .nav-signout { background: none; border: none; text-align: left; font: inherit; cursor: pointer; width: 100%; }
+
+@media (min-width: 561px) {
+  .layout > .nav { position: sticky; top: 0; align-self: flex-start; height: 100vh; min-height: 0; overflow-y: auto; }
+  .layout > .nav .nav-foot { position: sticky; bottom: 0; background: var(--ds-surface); }
+}

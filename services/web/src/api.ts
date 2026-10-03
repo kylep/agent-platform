@@ -757,10 +757,10 @@ export async function api<T>(path: string, opts: RequestInit = {}): Promise<T> {
     ...opts,
   });
   // /api/me, /api/register and /api/logout answer 401 as plain data (anonymous,
-  // wrong state); the caller decides where to go. `/api/me/` is matched with
-  // its slash so /api/memories is not swept in.
+  // wrong state); the caller decides where to go. `/api/me/password` is NOT one: a 401
+  // there is a lost session and goes to /login.
   const isAuthCall = path.startsWith("/api/login") || path.startsWith("/api/setup")
-    || path === "/api/me" || path.startsWith("/api/me/")
+    || path === "/api/me"
     || path.startsWith("/api/register") || path.startsWith("/api/logout");
   if (res.status === 401) {
     if (!isAuthCall) window.location.href = "/login";

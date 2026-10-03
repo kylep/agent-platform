@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
-import { Link, NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
-import { api, logout, type AppView, type PullRequest } from "./api";
+import { Link, NavLink, Outlet, useLocation, useNavigate, useOutletContext } from "react-router-dom";
+import { api, logout, type Me, type AppView, type PullRequest } from "./api";
 import { buildPlatformNav, SideNav, ThemeToggle, type LinkComponent } from "@ap/ui/sidenav";
 import { QuotaBars } from "@ap/ui/quota";
 import { useQuota } from "./components/quota/useQuota";
@@ -35,6 +35,7 @@ function PlatformLayout() {
   const location = useLocation();
   const navigate = useNavigate();
   const quota = useQuota();
+  const { me } = useOutletContext<{ me?: Me | null }>();
 
   async function signOut() {
     try { await logout(); } catch { /* leave either way */ }
@@ -60,6 +61,7 @@ function PlatformLayout() {
       .catch(() => {});
   }, [location.pathname]);
 
+  const isAdmin = me?.role === "admin";
   const entries = useMemo(() =>
     buildPlatformNav([
       ...stateApps.filter((a) => a.status === "active" && a.approved_version !== null)
@@ -69,7 +71,9 @@ function PlatformLayout() {
       ...apps.filter((a) => a.ui && a.ready && !stateApps.some((s) =>
         s.name === a.name && s.status === "active" && s.approved_version !== null))
         .map((a) => ({ name: a.name, icon: a.icon, display_name: a.display_name })),
-    ]), [apps, stateApps]);
+    ]).map((e) => e.to !== "/settings" ? e : { ...e, children: e.children?.filter((c) =>
+      isAdmin || !["/settings/users", "/settings/groups"].includes(c.to)) }),
+  [apps, stateApps, isAdmin]);
 
   return (
     <div className="layout">

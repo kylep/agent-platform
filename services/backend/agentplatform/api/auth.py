@@ -1,3 +1,4 @@
+import asyncio
 import secrets
 import time
 from datetime import timedelta
@@ -96,37 +97,52 @@ async def resolve_session(app, cookie: str | None) -> tuple[Principal, str] | No
 SESSION_RECHECK_SECONDS = 60.0
 
 
-def _recheck_cache(app) -> dict:
-    return app.state.__dict__.setdefault("_session_recheck", {})
+# session-id hash -> (re-ask after, principal id). One per process, keyed by
+# the session and not the cookie, so a revoke in this process evicts exactly
+# the entries it ended. A revoke handled by ANOTHER replica is still seen only
+# when the entry lapses, so SESSION_RECHECK_SECONDS bounds that case.
+_LIVE: dict[str, tuple[float, str | None]] = {}
 
 
-def signed_in_now(app, cookie: str) -> None:
+def signed_in_now(app, cookie: str, principal_id: str | None = None) -> None:
     """Record that `cookie` resolved just now, so a stream that was opened on
     it is not re-asked until SESSION_RECHECK_SECONDS have passed."""
-    cache = _recheck_cache(app)
+    sid = _sid(app, cookie)
+    if sid is None:
+        return
     now = time.monotonic()
-    cache[hash_token(cookie)] = now + SESSION_RECHECK_SECONDS
-    if len(cache) > 1024:
-        for k in [k for k, exp in cache.items() if exp <= now]:
-            del cache[k]
+    _LIVE[hash_token(sid)] = (now + SESSION_RECHECK_SECONDS, principal_id)
+    if len(_LIVE) > 1024:
+        for k in [k for k, (exp, _) in _LIVE.items() if exp <= now]:
+            del _LIVE[k]
+
+
+def _evict_sessions(principal_id: str | None = None, keep_hash: str | None = None,
+                    id_hash: str | None = None) -> None:
+    """Forget cached positive answers for sessions this process just revoked."""
+    for k in [k for k, (_, pid) in _LIVE.items()
+              if k != keep_hash and (k == id_hash or (principal_id and pid == principal_id))]:
+        del _LIVE[k]
 
 
 async def still_signed_in(app, cookie: str | None) -> bool:
     """Whether a stream opened on `cookie` may keep going: True while its
     session resolves, re-asked at most every SESSION_RECHECK_SECONDS per
-    cookie (one browser holds several streams). Only positive answers are
-    cached; a miss closes the stream."""
-    if not cookie:
+    session (one browser holds several streams). Only positive answers are
+    cached; a miss closes the stream. Revokes in this process evict the cache,
+    so a sign-out here ends its streams at once."""
+    sid = _sid(app, cookie) if cookie else None
+    if sid is None:
         return False
-    cache = _recheck_cache(app)
-    key = hash_token(cookie)
-    hit = cache.get(key)
-    if hit is not None and hit > time.monotonic():
+    key = hash_token(sid)
+    hit = _LIVE.get(key)
+    if hit is not None and hit[0] > time.monotonic():
         return True
-    if await resolve_session(app, cookie) is None:
-        cache.pop(key, None)
+    resolved = await resolve_session(app, cookie)
+    if resolved is None:
+        _LIVE.pop(key, None)
         return False
-    signed_in_now(app, cookie)
+    signed_in_now(app, cookie, resolved[0].id)
     return True
 
 
@@ -139,7 +155,7 @@ def stream_cookie(request: Request) -> str | None:
         return None
     cookie = request.cookies.get("ap_session")
     if cookie:
-        signed_in_now(request.app, cookie)
+        signed_in_now(request.app, cookie, getattr(request.state, "principal_id", None))
     return cookie
 
 
@@ -157,13 +173,16 @@ async def revoke_sessions(session, principal_id: str, keep_sid: str | None = Non
     caller's own, on a password change). The caller commits."""
     q = update(LoginSession).where(LoginSession.principal_id == principal_id,
                                    LoginSession.revoked_at.is_(None))
-    if keep_sid is not None:
-        q = q.where(LoginSession.id_hash != hash_token(keep_sid))
+    keep = hash_token(keep_sid) if keep_sid is not None else None
+    if keep is not None:
+        q = q.where(LoginSession.id_hash != keep)
+    _evict_sessions(principal_id=principal_id, keep_hash=keep)
     await session.execute(q.values(revoked_at=utcnow()))
 
 
 async def revoke_session(session, sid: str) -> None:
     """Revoke one session by its cookie id. The caller commits."""
+    _evict_sessions(id_hash=hash_token(sid))
     await session.execute(update(LoginSession).where(
         LoginSession.id_hash == hash_token(sid),
         LoginSession.revoked_at.is_(None)).values(revoked_at=utcnow()))
@@ -546,6 +565,18 @@ def require_role(*allowed: str):
 require_admin = require_role("admin")
 
 
+def require_browser_session(request: Request) -> None:
+    """403 unless the caller came in on a login cookie: never a key, workload
+    token or tool-call credential. `authenticate` must have run first."""
+    if getattr(request.state, "auth_kind", None) != "session":
+        raise HTTPException(403, "browser session required")
+
+
+async def require_admin_session(request: Request, _: str = Depends(require_admin)) -> None:
+    """The admin, signed in through the browser: not an admin API key."""
+    require_browser_session(request)
+
+
 @router.get("/api/whoami", response_model=S.WhoAmI)
 async def whoami(request: Request):
     """Verified caller identity (docs/design/12): the MCP broker calls this
@@ -613,8 +644,8 @@ async def login(request: Request, response: Response, creds: Creds):
     # tell a guesser which principal names exist — so a miss still pays for
     # an argon2 verify rather than answering in a tenth of the time.
     try:
-        ph.verify(p.password_hash if p is not None and p.password_hash
-                  else _NO_SUCH_PRINCIPAL_HASH, creds.password)
+        await asyncio.to_thread(ph.verify, p.password_hash if p is not None and p.password_hash
+                                else _NO_SUCH_PRINCIPAL_HASH, creds.password)
     except VerifyMismatchError:
         raise HTTPException(401)
     if p is None or not p.password_hash:
@@ -641,26 +672,25 @@ class PasswordChange(BaseModel):
     new_password: str
 
 
-@router.post("/api/change-password", response_model=S.Ok, dependencies=[Depends(require_admin)])
+@router.post("/api/change-password", response_model=S.Ok,
+             dependencies=[Depends(require_admin_session)])
 async def change_password(request: Request, body: PasswordChange):
     """Rotate the admin password from Settings (re-auth with the current one),
     replacing the postgres-row-delete-and-re-setup workaround. The admin's
     browser session only (docs/design/40): no API key, MCP client or agent may
     rotate it. The account's other sessions are signed out; this one stays."""
-    if getattr(request.state, "auth_kind", None) != "session":
-        raise HTTPException(403, "browser session required")
     principal_id = request.state.principal_id
     async with request.app.state.session_factory() as s:
         p = await lock_principal(s, principal_id)
         if p is None or not p.password_hash:
             raise HTTPException(401)
         try:
-            ph.verify(p.password_hash, body.old_password)
+            await asyncio.to_thread(ph.verify, p.password_hash, body.old_password)
         except VerifyMismatchError:
             raise HTTPException(403, "current password is incorrect")
         if len(body.new_password) < 8:
             raise HTTPException(422, "new password must be at least 8 characters")
-        p.password_hash = ph.hash(body.new_password)
+        p.password_hash = await asyncio.to_thread(ph.hash, body.new_password)
         await revoke_sessions(s, principal_id, keep_sid=request.state.session_id)
         await s.commit()
     return {"ok": True}

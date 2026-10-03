@@ -6,6 +6,7 @@ Accounts are addressed by principal id. Everything that manages people answers
 the admin's BROWSER SESSION only — an admin API key, the MCP facade and agents
 can't — and every row lock and session revocation goes through the helpers in
 `auth`, so a reset or delete can never race a login into a live session."""
+import asyncio
 import re
 
 from argon2.exceptions import VerifyMismatchError
@@ -16,8 +17,8 @@ from sqlalchemy.exc import IntegrityError
 
 from agentplatform.api import schemas as S
 from agentplatform.api.auth import (SYSTEM_PRINCIPALS, USER_PREFIX, USER_ROLE, USERNAME_RE,
-                                    authenticate, lock_principal, ph, require_admin,
-                                    revoke_sessions, start_session)
+                                    authenticate, lock_principal, ph, require_admin_session,
+                                    require_browser_session, revoke_sessions, start_session)
 from agentplatform.db import LoginSession, PlatformSetting, Principal, UserGroup, utcnow
 
 router = APIRouter()
@@ -27,22 +28,12 @@ MAX_GROUP_NAME = 64
 REGISTRATION_KEY = "registration_open"
 
 
-def _session_only(request: Request) -> None:
-    if getattr(request.state, "auth_kind", None) != "session":
-        raise HTTPException(403, "browser session required")
-
-
-async def require_admin_session(request: Request, _: str = Depends(require_admin)) -> None:
-    """The admin, signed in through the browser: not an admin API key."""
-    _session_only(request)
-
-
 async def require_session(request: Request) -> None:
     """Any signed-in browser session, the no-access `user` tier included
     (/api/me* is in USER_PATHS, so the fence in `authenticate` lets it by)."""
     if await authenticate(request) is None:
         raise HTTPException(401)
-    _session_only(request)
+    require_browser_session(request)
 
 
 def _is_state(p: Principal) -> bool:
@@ -71,18 +62,12 @@ async def _registration_open(s) -> bool:
 
 async def _group_refs(s, principals: list[Principal]) -> dict[str, S.GroupRef | None]:
     """principal id -> its group. A group id that resolves to nothing reads as
-    none and is cleared: the one write on a read path, and only when the FK
-    did not already catch it."""
+    none (the postgres FK already nulls it; sqlite or a race may leave one)."""
     wanted = {p.group_id for p in principals if p.group_id}
     names = {}
     if wanted:
         names = {g.id: g.name for g in (await s.execute(
             select(UserGroup).where(UserGroup.id.in_(wanted)))).scalars()}
-    dangling = [p.id for p in principals if p.group_id and p.group_id not in names]
-    if dangling:
-        await s.execute(update(Principal).where(Principal.id.in_(dangling))
-                        .values(group_id=None))
-        await s.commit()
     return {p.id: (S.GroupRef(id=p.group_id, name=names[p.group_id])
                    if p.group_id in names else None) for p in principals}
 
@@ -118,7 +103,7 @@ async def register(request: Request, response: Response, body: RegisterIn):
     _check_new_password(body.password, body.confirm)
     if username in SYSTEM_PRINCIPALS:
         raise HTTPException(409, "that username is reserved")
-    hashed = ph.hash(body.password)
+    hashed = await asyncio.to_thread(ph.hash, body.password)
     p = Principal(name=USER_PREFIX + username, role=USER_ROLE, password_hash=hashed)
     async with request.app.state.session_factory() as s:
         s.add(p)
@@ -158,10 +143,10 @@ async def change_my_password(request: Request, body: MyPasswordIn):
         if not _is_state(p):
             raise HTTPException(403, "system accounts change their password in Settings")
         try:
-            ph.verify(p.password_hash, body.current)
+            await asyncio.to_thread(ph.verify, p.password_hash, body.current)
         except VerifyMismatchError:
             raise HTTPException(403, "current password is incorrect")
-        p.password_hash = ph.hash(body.new)
+        p.password_hash = await asyncio.to_thread(ph.hash, body.new)
         await revoke_sessions(s, p.id, keep_sid=request.state.session_id)
         await s.commit()
     return {"ok": True}
@@ -198,7 +183,7 @@ async def reset_user_password(request: Request, user_id: str, body: ResetPasswor
     _check_new_password(body.password, body.confirm)
     async with request.app.state.session_factory() as s:
         p = await _state_user(s, user_id)
-        p.password_hash = ph.hash(body.password)
+        p.password_hash = await asyncio.to_thread(ph.hash, body.password)
         await revoke_sessions(s, p.id)
         await s.commit()
     return {"ok": True}
@@ -216,7 +201,10 @@ async def set_user_group(request: Request, user_id: str, body: UserGroupIn):
         if body.group_id is not None and await s.get(UserGroup, body.group_id) is None:
             raise HTTPException(422, "unknown group")
         p.group_id = body.group_id
-        await s.commit()
+        try:
+            await s.commit()
+        except IntegrityError:
+            raise HTTPException(422, "unknown group")
         return await _user_view(s, p)
 
 

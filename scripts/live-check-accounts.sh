@@ -7,9 +7,17 @@
 set -uo pipefail
 AP_URL="${AP_URL:-http://pai:8090}"
 : "${AGENT_PLATFORM_ADMIN:?source exports.sh first}"
-tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT
+tmp=$(mktemp -d)
 admin="$tmp/admin.jar" user="$tmp/user.jar"
-fails=0
+fails=0 was_open=""
+restore() {  # put registration back the way it was, then clean up
+  if [[ -n "$was_open" ]]; then
+    curl -s -o /dev/null -b "$admin" -X PUT -H 'content-type: application/json' \
+      -d "{\"open\":$was_open}" "$AP_URL/api/settings/registration"
+  fi
+  rm -rf "$tmp"
+}
+trap restore EXIT
 
 check() {  # check <name> <expected-status> <actual-status>
   if [[ "$2" == "$3" ]]; then echo "PASS $1 ($3)"; else echo "FAIL $1 (want $2, got $3)"; fails=$((fails+1)); fi
@@ -24,6 +32,7 @@ body=$(jq -n --arg p "$AGENT_PLATFORM_ADMIN" '{principal:"admin",password:$p}')
 check "admin login" 200 "$(status -c "$admin" -H 'content-type: application/json' -d "$body" "$AP_URL/api/login")"
 check "admin /api/me" 200 "$(status -b "$admin" "$AP_URL/api/me")"
 check "admin still reaches /api/agents" 200 "$(status -b "$admin" "$AP_URL/api/agents")"
+was_open=$(curl -s -b "$admin" "$AP_URL/api/settings/registration" | jq -r '.open // empty')
 check "registration open" 200 \
   "$(status -b "$admin" -X PUT -H 'content-type: application/json' -d '{"open":true}' "$AP_URL/api/settings/registration")"
 
@@ -45,6 +54,10 @@ check "user logout" 200 "$(status -b "$user" -X POST "$AP_URL/api/logout")"
 check "replayed cookie dead after logout" 401 "$(status -b "$tmp/stolen.jar" "$AP_URL/api/me")"
 
 id=$(curl -s -b "$admin" "$AP_URL/api/users" | jq -r --arg u "$name" '.[] | select(.username==$u) | .id')
-check "cleanup: delete $name" 200 "$(status -b "$admin" -X DELETE "$AP_URL/api/users/$id")"
+if [[ -n "$id" ]]; then
+  check "cleanup: delete $name" 200 "$(status -b "$admin" -X DELETE "$AP_URL/api/users/$id")"
+else
+  echo "FAIL cleanup: $name not found"; fails=$((fails+1))
+fi
 
 echo "---"; echo "$fails failure(s)"; exit $(( fails > 0 ))

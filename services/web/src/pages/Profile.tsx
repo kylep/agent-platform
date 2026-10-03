@@ -47,7 +47,7 @@ export default function Profile() {
 
   if (!me) return <div className="auth-page"><div className="muted">Loading…</div></div>;
 
-  const isAdmin = me.role === "admin";
+  const isSystem = me.kind === "system";
   return (
     <div className="auth-page">
       <div className="auth-form" style={{ maxWidth: 420 }}>
@@ -58,8 +58,8 @@ export default function Profile() {
           <dt className="muted">Member since</dt>
           <dd>{me.created_at ? new Date(me.created_at).toLocaleDateString() : "—"}</dd>
         </dl>
-        {isAdmin ? (
-          <p className="muted">Change the admin password in <Link to="/settings">Settings</Link>.</p>
+        {isSystem ? (
+          <p className="muted">Change this account's password in <Link to="/settings">Settings</Link>.</p>
         ) : (
           <form className="form-col" onSubmit={onSubmit}>
             <h2>Change password</h2>
@@ -74,12 +74,12 @@ export default function Profile() {
                    value={confirm} onChange={(e) => { setConfirm(e.target.value); setSaved(false); }} />
             {error && <div className="error">{error}</div>}
             {saved && <div className="muted">Password changed.</div>}
-            <Button type="submit" disabled={busy || !current || !next}>
+            <Button type="submit" className="w-full" disabled={busy || !current || !next}>
               {busy ? "Saving…" : "Change password"}
             </Button>
           </form>
         )}
-        <Button variant="secondary" onClick={signOut}>Sign out</Button>
+        <Button variant="secondary" className="w-full" onClick={signOut}>Sign out</Button>
       </div>
     </div>
   );

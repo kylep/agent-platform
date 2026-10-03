@@ -561,15 +561,13 @@ async def test_group_crud_and_membership(admin_client, user_client):
                                      json={"name": "x"})).status_code == 404
 
 
-async def test_a_dangling_group_id_reads_as_none_and_is_cleared(admin_client, user_client, sf):
+async def test_a_dangling_group_id_reads_as_none(admin_client, user_client, sf):
     async with sf() as s:
         await s.execute(update(Principal).where(Principal.name == "user:alice")
                         .values(group_id="d" * 32))
         await s.commit()
     assert (await user_client.get("/api/me")).json()["group"] is None
-    async with sf() as s:
-        p = (await s.execute(select(Principal).where(Principal.name == "user:alice"))).scalar_one()
-        assert p.group_id is None
+    assert (await admin_client.get("/api/users")).status_code == 200   # reads stay reads
 
 
 async def test_people_routes_refuse_an_admin_api_key_and_a_user(admin_client, user_client,
@@ -593,3 +591,32 @@ async def test_people_routes_refuse_an_admin_api_key_and_a_user(admin_client, us
 async def test_user_prefixed_api_key_names_are_refused(admin_client):
     r = await admin_client.post("/api/api-keys", json={"name": "user:eve", "role": "reader"})
     assert r.status_code == 422
+
+
+async def test_logout_evicts_the_stream_recheck_cache(user_client, sf):
+    cookie = user_client.cookies.get("ap_session")
+    app = user_client._transport.app
+    assert await auth.still_signed_in(app, cookie)          # cached for 60 s
+    await user_client.post("/api/logout")
+    assert not await auth.still_signed_in(app, cookie)
+
+
+async def test_a_reset_evicts_the_recheck_cache(admin_client, user_client):
+    cookie = user_client.cookies.get("ap_session")
+    app = user_client._transport.app
+    assert await auth.still_signed_in(app, cookie)
+    uid = await _id_of(admin_client, "alice")
+    await admin_client.post(f"/api/users/{uid}/password", json={"password": "r", "confirm": "r"})
+    assert not await auth.still_signed_in(app, cookie)
+
+
+async def test_an_api_key_that_is_named_user_cannot_be_edited(admin_client, sf):
+    from agentplatform.apikeys import hash_token
+    from agentplatform.db import ApiKey
+    async with sf() as s:
+        k = ApiKey(name="user:old", role="reader", key_hash=hash_token("ap_x"), prefix="ap_x")
+        s.add(k)
+        await s.commit()
+        kid = k.id
+    r = await admin_client.patch(f"/api/api-keys/{kid}", json={"role": "operator"})
+    assert r.status_code == 409

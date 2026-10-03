@@ -82,6 +82,8 @@ async def change_api_key_role(request: Request, key_id: str, body: ApiKeyRoleIn)
             raise HTTPException(409, "revoked key cannot be edited")
         if _managed(key):
             raise HTTPException(409, "platform-managed key role comes from its declaration")
+        if key.name.startswith(USER_PREFIX):
+            raise HTTPException(409, "user: names are reserved for human accounts")
         key.role = body.role
         await s.commit()
         return _view(key)

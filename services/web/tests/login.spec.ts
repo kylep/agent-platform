@@ -17,7 +17,7 @@ test("login sends {principal, password} with admin prefilled", async ({ page }) 
   await expect(page.getByLabel("Password")).toBeFocused();
 
   await page.keyboard.type("hunter2");
-  await page.getByRole("button", { name: "Log in" }).click();
+  await page.getByRole("button", { name: "Sign in" }).click();
   expect((await posted).postDataJSON()).toEqual({ principal: "admin", password: "hunter2" });
   await expect(page).toHaveURL(/\/$/);
 });
@@ -29,7 +29,7 @@ test("a named principal replaces admin and a 401 reads as one message", async ({
   await page.getByLabel("Username").fill("qa");
   await page.getByLabel("Password").fill("wrong");
   const posted = page.waitForRequest((r) => r.method() === "POST" && r.url().endsWith("/api/login"));
-  await page.getByRole("button", { name: "Log in" }).click();
+  await page.getByRole("button", { name: "Sign in" }).click();
   expect((await posted).postDataJSON()).toEqual({ principal: "qa", password: "wrong" });
   // One 401 for a bad name and a bad password alike — the form must not tell
   // a guesser which principals exist.

@@ -15,6 +15,7 @@ from agentplatform import ticket_store
 from agentplatform.api.auth import (
     INVOKE_ROLES,
     require_admin,
+    require_browser_session,
     role_allows,
 )
 from agentplatform.api.live_views import TypedDefinition, _accessible_app, _reader
@@ -52,8 +53,7 @@ def _interactive(request: Request, ident: tuple[str, str]) -> None:
     """Trusted page actions require the authenticated browser session."""
     # `authenticate` records how it resolved `ident`; only a live browser
     # session counts, never a key or workload token.
-    if getattr(request.state, "auth_kind", None) != "session":
-        raise HTTPException(403, "browser session required")
+    require_browser_session(request)
 
 
 class GrantIn(BaseModel):

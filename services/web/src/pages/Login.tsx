@@ -44,7 +44,7 @@ export default function Login() {
     setError(null);
     setBusy(true);
     try {
-      await login(principal.trim() || DEFAULT_PRINCIPAL, password);
+      await login(principal.trim().toLowerCase() || DEFAULT_PRINCIPAL, password);
       await landed();
     } catch {
       // One message for a bad name and a bad password — the API's 401 does
@@ -109,7 +109,7 @@ export default function Login() {
               onChange={(e) => setPassword(e.target.value)}
             />
             {error && <div className="error">{error}</div>}
-            <Button type="submit" disabled={busy}>{busy ? "Logging in…" : "Log in"}</Button>
+            <Button type="submit" disabled={busy}>{busy ? "Signing in…" : "Sign in"}</Button>
           </form>
         ) : (
           <form className="form-col" onSubmit={onRegister}>
