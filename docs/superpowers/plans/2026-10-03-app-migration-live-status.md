@@ -35,6 +35,8 @@ next batch should finish Judgment's review workflow and cutover together;
 avoid separate foundation deployments. Kyle paused the migration on
 2026-10-03 to preserve the 75% weekly Codex quota floor. See the
 [resume checkpoint](2026-10-03-app-migration-resume.md) for exact state,
-commands and remaining gates. The earlier
+commands and remaining gates. A separate admin-key authority change was
+deployed as Helm revision 94 during this pause; it did not migrate another
+App. The earlier
 `2026-10-02-agent-built-apps-paused-checkpoint.md` is historical and its
 0/6 count is superseded by this file.

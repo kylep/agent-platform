@@ -87,9 +87,14 @@ grants and protected agents. The backend now accepts **only explicitly
 configured active key IDs** for that check, never a display name or an
 agent/run key. Both existing IDs belong in private Helm values under
 `env.AP_TRUSTED_ADMIN_KEY_IDS`; no token or key ID is committed. This changes
-the human-admin path, not agent tool grants. Verify with a focused real API
-call after deploy and keep the two key roles at `admin`. The relevant tests
-are `services/backend/tests/test_kyle_only_tools.py` (30 passed locally).
+the human-admin path, not agent tool grants. Helm revision **94** deployed
+this change. Both keys (`codex-laptop`, `kyle-claude-code-mcp`) were verified
+active with role `admin`, private values held exactly two unique trusted IDs,
+and a no-op full-definition update of protected Kai through Codex's MCP key
+succeeded without appending a version. All four affected deployments were
+ready after rollout. Claude's own bearer was not exercised in this session;
+its active admin role and ID were verified. The relevant local tests are
+`services/backend/tests/test_kyle_only_tools.py` (30 passed).
 
 ## Operational constraints and resume commands
 
