@@ -88,6 +88,9 @@ _ALLOWED_HOSTS = [h for h in os.environ.get(
 EXCLUDED_PATHS = (
     ("*", r"^/api/login$"),
     ("*", r"^/api/logout$"),
+    # The admin's own password (docs/design/40) answers only the admin's
+    # browser session: no API key or MCP client may rotate it.
+    ("*", r"^/api/change-password$"),
     ("*", r"^/api/setup$"),
     ("*", r"^/api/runs/\{run_id\}/session$"),
     ("*", r"^/api/runs/\{run_id\}/agentdef$"),
@@ -230,7 +233,6 @@ GATED_ADMIN = (
     (("PUT",),    r"^/api/live-views/\{view_id\}/draft$"),
     (("POST",),   r"^/api/live-views/\{view_id\}/publish$"),
     (("POST",),   r"^/api/live-views/\{view_id\}/rollback/\{version\}$"),
-    (("POST",),   r"^/api/change-password$"),
     ("*",         r"^/api/api-keys$"),                            # list + mint
     (("DELETE",), r"^/api/api-keys/\{key_id\}$"),                 # revoke
     ("*",         r"^/api/secrets"),   # list/put/verify/declare/declaration/quick-edit

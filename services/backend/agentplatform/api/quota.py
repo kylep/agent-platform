@@ -45,7 +45,7 @@ from pydantic import ValidationError
 from agentplatform import quota_store
 from agentplatform.api import relay as relay_api
 from agentplatform.api import schemas as S
-from agentplatform.api.auth import READ_ROLES, require_role
+from agentplatform.api.auth import READ_ROLES, require_role, still_signed_in, stream_cookie
 from agentplatform.db import AgentDef, utcnow
 from agentplatform.quota import (Observation, _percent, is_stale,
                                  parse_codex_usage, parse_observation,
@@ -451,9 +451,15 @@ async def quota_stream(request: Request, caller: str = Depends(require_role(*VIE
     feed = request.app.state.quota_feed
     queue = feed.subscribe(STREAM)
 
+    # A browser stream outlives no session (docs/design/40): it is
+    # re-checked at most once a minute and ends on sign-out.
+    cookie = stream_cookie(request)
+
     async def stream():
         try:
             while True:
+                if cookie and not await still_signed_in(request.app, cookie):
+                    return
                 try:
                     # Read per wait: it is a module global a test turns down
                     # without patching the route.

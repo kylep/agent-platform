@@ -1,22 +1,39 @@
 import secrets
+import time
+from datetime import timedelta
 
 from argon2 import PasswordHasher
 from argon2.exceptions import VerifyMismatchError
 from fastapi import APIRouter, HTTPException, Request, Response, Depends
 from itsdangerous import BadSignature, URLSafeSerializer
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import select, update
 from agentplatform.api import schemas as S
 from agentplatform.agentspec import platform_token_role
 from agentplatform.apikeys import hash_token
 from agentplatform.appdata import credentials as _tc
-from agentplatform.db import ApiKey, ChatIdentity, Principal
+from agentplatform.db import ApiKey, ChatIdentity, LoginSession, Principal, utcnow
 
 ph = PasswordHasher()
 # A hash no password matches, verified on the login path's miss branch so an
 # unknown principal name costs the same as a wrong password.
 _NO_SUCH_PRINCIPAL_HASH = ph.hash(secrets.token_urlsafe(32))
 router = APIRouter()
+
+# Human accounts (docs/design/40). System principals are defined in code and
+# listed but never modified through the account routes; state users are rows
+# with role `user`, stored as `user:<username>` so they never share a name with
+# a system principal, an API key or an agent identity.
+SYSTEM_PRINCIPALS = ("admin", "qa")
+USER_PREFIX = "user:"
+# One username rule for register AND login, so a name that registers can sign
+# in. `admin` and `qa` match it too.
+USERNAME_RE = r"^[a-z0-9][a-z0-9_-]{0,63}$"
+# The no-access tier. No allow-list names it, API_KEY_ROLES excludes it, and
+# `authenticate` refuses it everywhere but USER_PATHS (the fence): a signed-in
+# user can see that they are signed in and nothing else.
+USER_ROLE = "user"
+USER_PATHS = ("/api/me", "/api/me/password", "/api/logout", "/api/setup-state")
 
 class Creds(BaseModel):
     password: str
@@ -25,11 +42,12 @@ class Creds(BaseModel):
     # Any row with a password_hash can be named — role comes from the row, so
     # naming `qa` buys a reader cookie and nothing more. Bounded to a short
     # lowercase slug so the lookup never sees an arbitrary string.
+    # A state user gives the bare username (`alice` opens `user:alice`).
     principal: str = Field(default="admin", min_length=1, max_length=64,
-                           pattern=r"^[a-z][a-z0-9_-]*$")
+                           pattern=USERNAME_RE)
 
-def _signer(request: Request) -> URLSafeSerializer:
-    return URLSafeSerializer(request.app.state.settings.session_secret, salt="ap-session")
+def _signer(app) -> URLSafeSerializer:
+    return URLSafeSerializer(app.state.settings.session_secret, salt="ap-session")
 
 async def _principal(request: Request, name: str) -> Principal | None:
     async with request.app.state.session_factory() as s:
@@ -39,21 +57,140 @@ async def _principal(request: Request, name: str) -> Principal | None:
 async def _admin(request: Request) -> Principal | None:
     return await _principal(request, "admin")
 
-def validate_session_cookie(app, cookie: str | None) -> str | None:
-    """Validate an `ap_session` cookie against the app's session secret.
-
-    Returns the principal name on success, or None if the cookie is
-    missing or invalid. Shared by REST (require_admin) and websocket
-    (tail) auth paths so both use the same signer/salt.
-    """
+def _sid(app, cookie: str | None) -> str | None:
+    """The session id inside a signed `ap_session` cookie, or None. The
+    signature is checked before anything touches the database. A cookie from
+    before server-side sessions holds a principal name, not an id, and is
+    refused: everyone signs in once after the deploy."""
     if not cookie:
         return None
-    signer = URLSafeSerializer(app.state.settings.session_secret, salt="ap-session")
     try:
-        data = signer.loads(cookie)
+        data = _signer(app).loads(cookie)
     except BadSignature:
         return None
-    return data["principal"]
+    sid = data.get("sid") if isinstance(data, dict) else None
+    return sid if isinstance(sid, str) and sid else None
+
+
+async def resolve_session(app, cookie: str | None) -> tuple[Principal, str] | None:
+    """The (Principal, session id) a browser cookie stands for, or None when
+    it is missing, forged, old-format, expired or revoked, or its principal is
+    gone. One query. Shared by `authenticate`, the websocket tail and stream
+    revalidation."""
+    sid = _sid(app, cookie)
+    if sid is None:
+        return None
+    async with app.state.session_factory() as s:
+        p = (await s.execute(
+            select(Principal)
+            .join(LoginSession, LoginSession.principal_id == Principal.id)
+            .where(LoginSession.id_hash == hash_token(sid),
+                   LoginSession.revoked_at.is_(None),
+                   LoginSession.expires_at > utcnow()))).scalar_one_or_none()
+    return (p, sid) if p is not None else None
+
+
+# Long-lived streams (tail, the SSE feeds) re-ask at most this often whether
+# the session that opened them is still live. A module global so a test can
+# turn it down to 0.
+SESSION_RECHECK_SECONDS = 60.0
+
+
+def _recheck_cache(app) -> dict:
+    return app.state.__dict__.setdefault("_session_recheck", {})
+
+
+def signed_in_now(app, cookie: str) -> None:
+    """Record that `cookie` resolved just now, so a stream that was opened on
+    it is not re-asked until SESSION_RECHECK_SECONDS have passed."""
+    cache = _recheck_cache(app)
+    now = time.monotonic()
+    cache[hash_token(cookie)] = now + SESSION_RECHECK_SECONDS
+    if len(cache) > 1024:
+        for k in [k for k, exp in cache.items() if exp <= now]:
+            del cache[k]
+
+
+async def still_signed_in(app, cookie: str | None) -> bool:
+    """Whether a stream opened on `cookie` may keep going: True while its
+    session resolves, re-asked at most every SESSION_RECHECK_SECONDS per
+    cookie (one browser holds several streams). Only positive answers are
+    cached; a miss closes the stream."""
+    if not cookie:
+        return False
+    cache = _recheck_cache(app)
+    key = hash_token(cookie)
+    hit = cache.get(key)
+    if hit is not None and hit > time.monotonic():
+        return True
+    if await resolve_session(app, cookie) is None:
+        cache.pop(key, None)
+        return False
+    signed_in_now(app, cookie)
+    return True
+
+
+def stream_cookie(request: Request) -> str | None:
+    """The session cookie an SSE stream keeps revalidating, or None when the
+    request authenticated another way (keys and workload tokens are not
+    browser sessions). The request has just resolved it, which counts as the
+    first check."""
+    if getattr(request.state, "auth_kind", None) != "session":
+        return None
+    cookie = request.cookies.get("ap_session")
+    if cookie:
+        signed_in_now(request.app, cookie)
+    return cookie
+
+
+async def lock_principal(session, principal_id: str) -> Principal | None:
+    """The principal row under `SELECT ... FOR UPDATE` (a no-op on sqlite).
+    Login, password change, reset and delete all take it, so a login that
+    verified a password can never land a session after that password was
+    replaced."""
+    return (await session.execute(select(Principal).where(
+        Principal.id == principal_id).with_for_update())).scalar_one_or_none()
+
+
+async def revoke_sessions(session, principal_id: str, keep_sid: str | None = None) -> None:
+    """Revoke every live session of `principal_id` except `keep_sid` (the
+    caller's own, on a password change). The caller commits."""
+    q = update(LoginSession).where(LoginSession.principal_id == principal_id,
+                                   LoginSession.revoked_at.is_(None))
+    if keep_sid is not None:
+        q = q.where(LoginSession.id_hash != hash_token(keep_sid))
+    await session.execute(q.values(revoked_at=utcnow()))
+
+
+async def revoke_session(session, sid: str) -> None:
+    """Revoke one session by its cookie id. The caller commits."""
+    await session.execute(update(LoginSession).where(
+        LoginSession.id_hash == hash_token(sid),
+        LoginSession.revoked_at.is_(None)).values(revoked_at=utcnow()))
+
+
+async def start_session(request: Request, response: Response, principal_id: str,
+                        verified_hash: str) -> bool:
+    """Open a session for `principal_id` and set its cookie, provided its
+    password hash is still the one the caller verified. Returns False, with
+    no session, when the row is gone or the hash changed in between (a reset
+    or change raced the login)."""
+    settings = request.app.state.settings
+    sid = secrets.token_urlsafe(32)
+    now = utcnow()
+    max_age = timedelta(days=settings.session_max_age_days)
+    async with request.app.state.session_factory() as s:
+        row = await lock_principal(s, principal_id)
+        if row is None or row.password_hash != verified_hash:
+            await s.rollback()
+            return False
+        s.add(LoginSession(id_hash=hash_token(sid), principal_id=principal_id,
+                           created_at=now, expires_at=now + max_age))
+        await s.commit()
+    response.set_cookie("ap_session", _signer(request.app).dumps({"sid": sid}),
+                        max_age=int(max_age.total_seconds()), httponly=True,
+                        samesite="lax", secure=settings.session_cookie_secure)
+    return True
 
 # Roles. reader/operator/admin are the human scopes; `annotator`
 # is a narrow machine role (read runs + annotate only) for system agents, so a
@@ -102,12 +239,6 @@ def role_allows(role: str | None, allowed: tuple[str, ...]) -> bool:
     return role is not None and (role == "admin" or role in allowed)
 
 
-async def _lookup_role(request: Request, name: str) -> str | None:
-    async with request.app.state.session_factory() as s:
-        p = (await s.execute(select(Principal).where(Principal.name == name))).scalar_one_or_none()
-        return p.role if p else None
-
-
 async def _lookup_api_key(request: Request, token: str) -> ApiKey | None:
     async with request.app.state.session_factory() as s:
         return (await s.execute(select(ApiKey).where(
@@ -130,13 +261,26 @@ async def authenticate(request: Request) -> tuple[str, str] | None:
     ServiceAccount JWT) or "tool_call" (a tool-call credential beside the
     executor's ServiceAccount JWT, docs/design/39). A key's principal is its
     name, so a name alone can't tell Kyle's login from a key someone called
-    `admin`; the kind can."""
-    name = validate_session_cookie(request.app, request.cookies.get("ap_session"))
-    if name is not None:
-        role = await _lookup_role(request, name)
-        if role is not None:
-            request.state.auth_kind = "session"
-            return (name, role)
+    `admin`; the kind can.
+
+    The fence (docs/design/40): a caller whose role is `user`, however it came
+    in, gets 403 outside USER_PATHS. Many handlers only ask "is anyone signed
+    in?", so the no-access tier is stopped here, once."""
+    ident = await _authenticate(request)
+    if (ident is not None and ident[1] == USER_ROLE
+            and request.url.path not in USER_PATHS):
+        raise HTTPException(403)
+    return ident
+
+
+async def _authenticate(request: Request) -> tuple[str, str] | None:
+    resolved = await resolve_session(request.app, request.cookies.get("ap_session"))
+    if resolved is not None:
+        p, sid = resolved
+        request.state.auth_kind = "session"
+        request.state.session_id = sid
+        request.state.principal_id = p.id
+        return (p.name, p.role)
     header = request.headers.get("authorization", "")
     if not header.startswith("Bearer "):
         return None
@@ -442,8 +586,10 @@ async def setup_state(request: Request):
     from agentplatform.api.secrets import secret_listing
     needs_admin = await _admin(request) is None
     # Secret names/health are only exposed pre-setup (for the first-launch gate)
-    # or to an authenticated caller — not to anonymous callers post-setup.
-    authed = await authenticate(request) is not None
+    # or to an authenticated caller — not to anonymous callers post-setup,
+    # and not to a no-access `user`, who is signed in but may see nothing.
+    ident = await authenticate(request)
+    authed = ident is not None and ident[1] != USER_ROLE
     secrets = await secret_listing(request) if (needs_admin or authed) else []
     return {"needs_admin": needs_admin, "secrets": secrets}
 
@@ -458,7 +604,10 @@ async def setup(request: Request, creds: Creds):
 
 @router.post("/api/login", response_model=S.Ok)
 async def login(request: Request, response: Response, creds: Creds):
-    p = await _principal(request, creds.principal)
+    # `admin` and `qa` are the rows named exactly so; a state user is
+    # `user:<username>`. The bare name is tried first.
+    p = (await _principal(request, creds.principal)
+         or await _principal(request, USER_PREFIX + creds.principal))
     # One 401 for "no such row", "no password on the row" (an API-key-only
     # principal is not a login) and "wrong password": the response must not
     # tell a guesser which principal names exist — so a miss still pays for
@@ -470,12 +619,19 @@ async def login(request: Request, response: Response, creds: Creds):
         raise HTTPException(401)
     if p is None or not p.password_hash:
         raise HTTPException(401)
-    response.set_cookie("ap_session", _signer(request).dumps({"principal": p.name}),
-                        httponly=True, samesite="lax")
+    # The row is locked and its hash re-checked before the session lands, so
+    # a reset or change that raced this login leaves no live session.
+    if not await start_session(request, response, p.id, p.password_hash):
+        raise HTTPException(401)
     return {"ok": True}
 
 @router.post("/api/logout", response_model=S.Ok)
-async def logout(response: Response):
+async def logout(request: Request, response: Response):
+    sid = _sid(request.app, request.cookies.get("ap_session"))
+    if sid is not None:
+        async with request.app.state.session_factory() as s:
+            await revoke_session(s, sid)
+            await s.commit()
     response.delete_cookie("ap_session")
     return {"ok": True}
 
@@ -488,18 +644,23 @@ class PasswordChange(BaseModel):
 @router.post("/api/change-password", response_model=S.Ok, dependencies=[Depends(require_admin)])
 async def change_password(request: Request, body: PasswordChange):
     """Rotate the admin password from Settings (re-auth with the current one),
-    replacing the postgres-row-delete-and-re-setup workaround."""
-    admin = await _admin(request)
-    if admin is None:
-        raise HTTPException(401)
-    try:
-        ph.verify(admin.password_hash, body.old_password)
-    except VerifyMismatchError:
-        raise HTTPException(403, "current password is incorrect")
-    if len(body.new_password) < 8:
-        raise HTTPException(422, "new password must be at least 8 characters")
+    replacing the postgres-row-delete-and-re-setup workaround. The admin's
+    browser session only (docs/design/40): no API key, MCP client or agent may
+    rotate it. The account's other sessions are signed out; this one stays."""
+    if getattr(request.state, "auth_kind", None) != "session":
+        raise HTTPException(403, "browser session required")
+    principal_id = request.state.principal_id
     async with request.app.state.session_factory() as s:
-        p = await s.get(Principal, admin.id)
+        p = await lock_principal(s, principal_id)
+        if p is None or not p.password_hash:
+            raise HTTPException(401)
+        try:
+            ph.verify(p.password_hash, body.old_password)
+        except VerifyMismatchError:
+            raise HTTPException(403, "current password is incorrect")
+        if len(body.new_password) < 8:
+            raise HTTPException(422, "new password must be at least 8 characters")
         p.password_hash = ph.hash(body.new_password)
+        await revoke_sessions(s, principal_id, keep_sid=request.state.session_id)
         await s.commit()
     return {"ok": True}

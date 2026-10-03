@@ -16,7 +16,6 @@ from agentplatform.api.auth import (
     INVOKE_ROLES,
     require_admin,
     role_allows,
-    validate_session_cookie,
 )
 from agentplatform.api.live_views import TypedDefinition, _accessible_app, _reader
 from agentplatform.db import (
@@ -51,7 +50,9 @@ COUNTED_CALL_STATES = ("dispatched", "succeeded", "failed", "outcome_unknown")
 
 def _interactive(request: Request, ident: tuple[str, str]) -> None:
     """Trusted page actions require the authenticated browser session."""
-    if validate_session_cookie(request.app, request.cookies.get("ap_session")) != ident[0]:
+    # `authenticate` records how it resolved `ident`; only a live browser
+    # session counts, never a key or workload token.
+    if getattr(request.state, "auth_kind", None) != "session":
         raise HTTPException(403, "browser session required")
 
 

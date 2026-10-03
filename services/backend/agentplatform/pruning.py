@@ -12,6 +12,7 @@ from agentplatform.db import (
     LiveIntent,
     LiveInvocation,
     LiveSnapshot,
+    LoginSession,
     Run,
     TranscriptEvent,
     utcnow,
@@ -188,6 +189,32 @@ class LiveDataPruner:
             except Exception:
                 log.exception("live data prune failed")
             await asyncio.sleep(interval_seconds)
+
+
+class SessionPruner:
+    """Browser sign-ins (docs/design/40): delete `login_sessions` rows that
+    expired or were revoked more than a week ago. A dead row already refuses
+    its cookie; the week only keeps recent sign-outs around to look at."""
+
+    GRACE = timedelta(days=7)
+
+    def __init__(self, session_factory):
+        self.sf = session_factory
+
+    async def prune_once(self, now=None) -> int:
+        cutoff = (now or utcnow()) - self.GRACE
+        async with self.sf() as s:
+            res = await s.execute(delete(LoginSession).where(or_(
+                LoginSession.expires_at < cutoff,
+                LoginSession.revoked_at < cutoff)))
+            await s.commit()
+        count = res.rowcount or 0
+        if count:
+            log.info("pruned %d dead login sessions", count)
+        return count
+
+    async def run_forever(self, interval_seconds: int = 86400) -> None:
+        await _every(self.prune_once, interval_seconds, "session prune")
 
 
 class AppDataPruner:

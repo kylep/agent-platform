@@ -198,9 +198,10 @@ def test_admin_flag_restores_gated(spec, admin_tools):
         sorted({(t._route.method, t._route.path) for t in admin_tools})
     names = {t.name for t in admin_tools}
     for gated in ("mint_api_key", "put_secret", "delete_agent", "import_agents",
-                  "prune_transcripts", "discard_dlq", "change_password", "relay_notify"):
+                  "prune_transcripts", "discard_dlq", "relay_notify"):
         assert gated in names, f"{gated} not restored by the flag"
-    for curated in ("tool_wizard", "save_report", "setup_state"):
+    # change_password is the admin's browser session only (docs/design/40).
+    for curated in ("tool_wizard", "save_report", "setup_state", "change_password"):
         assert curated not in names, f"{curated} came back with the flag"
 
 

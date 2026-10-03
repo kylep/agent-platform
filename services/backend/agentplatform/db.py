@@ -2,7 +2,7 @@ import logging
 import uuid
 from datetime import datetime, timedelta, timezone
 from enum import StrEnum
-from sqlalchemy import (Boolean, JSON, DateTime, Float, Index, Integer, LargeBinary, String,
+from sqlalchemy import (Boolean, JSON, DateTime, Float, ForeignKey, Index, Integer, LargeBinary, String,
                         Text, UniqueConstraint, case, func, select, text)
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
@@ -1026,6 +1026,26 @@ class Principal(Base):
     name: Mapped[str] = mapped_column(String(128), unique=True)
     role: Mapped[str] = mapped_column(String(32))
     password_hash: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    # "Member since" (docs/design/40). Nullable because `_ensure_columns` adds
+    # it to a live table; rows from before it existed read as unknown.
+    created_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True, default=utcnow)
+
+
+class LoginSession(Base):
+    """One browser sign-in (docs/design/40). The `ap_session` cookie carries a
+    random id; only its sha256 is stored, so a database read cannot be replayed
+    as a cookie. Sessions bind to `principals.id`, never the name, so a deleted
+    and re-registered username does not inherit them. Logout, a password change
+    or reset revoke rows here; deleting the principal cascades."""
+    __tablename__ = "login_sessions"
+    id_hash: Mapped[str] = mapped_column(String(64), primary_key=True)
+    principal_id: Mapped[str] = mapped_column(
+        String(32), ForeignKey("principals.id", ondelete="CASCADE"), index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
 
 class SecretMeta(Base):
     __tablename__ = "secrets_meta"

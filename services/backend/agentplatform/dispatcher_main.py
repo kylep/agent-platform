@@ -21,6 +21,7 @@ from agentplatform.ingest import Ingestor, ToolAuditIngestor
 from agentplatform.joblauncher import JobWatcher, K8sJobLauncher
 from agentplatform.github import GitHubClient
 from agentplatform.pruning import (AppDataPruner, ArtifactPruner, LiveDataPruner, ReportPruner,
+                                   SessionPruner,
                                    TranscriptPruner, sweep_orphaned_keys_forever)
 from agentplatform.mergedtickets import MergedTicketCloser
 from agentplatform.prsummarizer import PrSummarizer
@@ -111,6 +112,7 @@ async def main() -> None:
     artifact_pruner = ArtifactPruner(session_factory, settings, producer)
     live_data_pruner = LiveDataPruner(session_factory)
     app_data_pruner = AppDataPruner(session_factory)
+    session_pruner = SessionPruner(session_factory)
     app_provisioner = AppProvisioner(AppRegistry(settings.apps_root), engine,
                                      session_factory,
                                      K8sSecretStore(core, settings.k8s_namespace),
@@ -142,6 +144,7 @@ async def main() -> None:
                              artifact_pruner.run_forever(),
                              live_data_pruner.run_forever(),
                              app_data_pruner.run_forever(),
+                             session_pruner.run_forever(),
                              app_provisioner.run_forever(), tool_provisioner.run_forever(),
                              ingestor.run_forever(), audit_ingestor.run_forever(),
                              conv_ingestor.run_forever(), relay_router.run_forever(),
