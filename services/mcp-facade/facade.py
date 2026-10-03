@@ -18,20 +18,20 @@ The surface is CURATED into three tiers (curation 2026-08-24; see
   model registry and the stats, plus encrypted backup listing, Job control and
   one-time Tasks — schedule, read, edit, cancel, their run log and the usage
   report (which still require admin authority in the API, or a Task-granted
-  agent run). Always tools. 137 of them.
+  agent run). Always tools. 147 of them.
 - **GATE** — authorized-but-sharp: the credential/secret plane, backup
   credential configuration, admin audit
   reads, destructive/bulk ops, the relay channel lifecycle (creating, renaming
   and archiving rooms), a system row into a room one is not in, and
   archiving a wiki page, and the Task schedule grants (which agent may
   schedule which). Offered ONLY when `AP_MCP_ADMIN_TOOLS` is truthy
-  (`admin_tools_enabled()`). 50 of them. The
+  (`admin_tools_enabled()`). 49 of them. The
   role ladder authorizes every call regardless — the flag controls the MENU,
   not the kitchen.
 - **EXCLUDE** — UI form-feeders, private-key import inspection, reviewer digests the client can compute,
   git-edit conveniences redundant with having the repo, and system-agent
-  endpoints. Never tools. 21 curated-out, plus 65 session/internal/streaming/
-  byte-serving/connector/run-only operations below — 273 graded operations in all.
+  endpoints. Never tools. 21 curated-out, plus 87 session/internal/streaming/
+  byte-serving/connector/run-only operations below — 304 graded operations in all.
 
 It is deliberately NOT the mcp-broker. The broker authenticates in-cluster run
 identities and scopes tools to an agent's grants (design/13, design/15). This
@@ -92,6 +92,13 @@ EXCLUDED_PATHS = (
     # browser session: no API key or MCP client may rotate it.
     ("*", r"^/api/change-password$"),
     ("*", r"^/api/setup$"),
+    # Human accounts (docs/design/40): registration, the caller's own profile and
+    # people/group/registration management answer a browser session only.
+    ("*", r"^/api/register$"),
+    ("*", r"^/api/me(?:/|$)"),
+    ("*", r"^/api/users(?:/|$)"),
+    ("*", r"^/api/groups(?:/|$)"),
+    ("*", r"^/api/settings/registration$"),
     ("*", r"^/api/runs/\{run_id\}/session$"),
     ("*", r"^/api/runs/\{run_id\}/agentdef$"),
     # Self-management and model fallback require the owning active run's key;

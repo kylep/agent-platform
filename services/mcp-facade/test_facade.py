@@ -175,11 +175,11 @@ async def test_backup_resource_forwards_admin_and_returns_only_ciphertext(spec, 
 
 def test_everything_else_is_a_tool(spec, tools):
     """The default surface, by construction: exactly the operations that are
-    not design-17-excluded, not curated out, and not gated. Pinned at 137."""
+    not design-17-excluded, not curated out, and not gated. Pinned at 147."""
     hidden = {(m, p) for m, p in operations(spec) if matches(ALL_RULES, m, p)}
     expected = set(operations(spec)) - hidden
     assert {(t._route.method, t._route.path) for t in tools} == expected
-    assert len(tools) == len(expected) == 137, \
+    assert len(tools) == len(expected) == 147, \
         sorted({(t._route.method, t._route.path) for t in tools})
     assert {("GET", "/api/backups"), ("POST", "/api/backups/run"),
             ("GET", "/api/backups/jobs/{name}")} <= {
@@ -187,14 +187,14 @@ def test_everything_else_is_a_tool(spec, tools):
 
 
 def test_admin_flag_restores_gated(spec, admin_tools):
-    """With AP_MCP_ADMIN_TOOLS on, the gated set returns (187 total) but the
+    """With AP_MCP_ADMIN_TOOLS on, the gated set returns (196 total) but the
     design-17 exclusions and CURATED_OUT never come back."""
     still_hidden = facade.EXCLUDED_PATHS + facade.CURATED_OUT
     hidden = {(m, p) for m, p in operations(spec)
               if matches(still_hidden, m, p)}
     expected = set(operations(spec)) - hidden
     assert {(t._route.method, t._route.path) for t in admin_tools} == expected
-    assert len(admin_tools) == len(expected) == 187, \
+    assert len(admin_tools) == len(expected) == 196, \
         sorted({(t._route.method, t._route.path) for t in admin_tools})
     names = {t.name for t in admin_tools}
     for gated in ("mint_api_key", "put_secret", "delete_agent", "import_agents",
@@ -237,14 +237,19 @@ def test_state_apps_are_never_facade_tools(spec, tools, admin_tools):
     """Design 39's two doors: the agent routes need an agent run holding the
     tool, and Kyle's read routes need his browser session. A facade caller
     holds an API key, which neither ever answers, so offering them (even
-    behind the admin flag) would advertise 26 tools that always 403."""
+    behind the admin flag) would advertise 40 tools that always 403."""
     app_ops = {(m, p) for m, p in operations(spec) if p.startswith("/api/app-data/")}
-    assert len(app_ops) == 26
+    assert len(app_ops) == 40
     assert ("POST", "/api/app-data/agent/apps/publish") in app_ops
     assert ("GET", "/api/app-data/apps/{app_id}/views/{view}") in app_ops
     assert ("PUT", "/api/app-data/quotas/{scope_kind}/{scope_id}") in app_ops
     routes = {(t._route.method, t._route.path) for t in tools + admin_tools}
-    assert not app_ops & routes
+    # Proposals, scan and page intents are deliberate facade tools (an admin key
+    # answers them); the agent, session-read and quota doors above are not.
+    session_only = {(m, p) for m, p in app_ops
+                    if p.startswith(("/api/app-data/agent/", "/api/app-data/quotas/"))
+                    or (m == "GET" and p.startswith("/api/app-data/apps"))}
+    assert session_only and not session_only & routes
     # The older provisioned Apps' read proxy is a different door and stays.
     assert ("GET", "/api/apps/{name}/query/{path}") in routes
 

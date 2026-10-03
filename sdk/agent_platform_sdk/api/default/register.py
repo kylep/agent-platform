@@ -7,19 +7,19 @@ from ... import errors
 from ...client import AuthenticatedClient, Client
 from ...models.http_validation_error import HTTPValidationError
 from ...models.ok import Ok
-from ...models.password_change import PasswordChange
+from ...models.register_in import RegisterIn
 from ...types import Response
 
 
 def _get_kwargs(
     *,
-    body: PasswordChange,
+    body: RegisterIn,
 ) -> dict[str, Any]:
     headers: dict[str, Any] = {}
 
     _kwargs: dict[str, Any] = {
         "method": "post",
-        "url": "/api/change-password",
+        "url": "/api/register",
     }
 
     _kwargs["json"] = body.to_dict()
@@ -63,17 +63,12 @@ def _build_response(
 def sync_detailed(
     *,
     client: AuthenticatedClient | Client,
-    body: PasswordChange,
+    body: RegisterIn,
 ) -> Response[HTTPValidationError | Ok]:
-    """Change Password
-
-     Rotate the admin password from Settings (re-auth with the current one),
-    replacing the postgres-row-delete-and-re-setup workaround. The admin's
-    browser session only (docs/design/40): no API key, MCP client or agent may
-    rotate it. The account's other sessions are signed out; this one stays.
+    """Register
 
     Args:
-        body (PasswordChange):
+        body (RegisterIn):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -97,17 +92,12 @@ def sync_detailed(
 def sync(
     *,
     client: AuthenticatedClient | Client,
-    body: PasswordChange,
+    body: RegisterIn,
 ) -> HTTPValidationError | Ok | None:
-    """Change Password
-
-     Rotate the admin password from Settings (re-auth with the current one),
-    replacing the postgres-row-delete-and-re-setup workaround. The admin's
-    browser session only (docs/design/40): no API key, MCP client or agent may
-    rotate it. The account's other sessions are signed out; this one stays.
+    """Register
 
     Args:
-        body (PasswordChange):
+        body (RegisterIn):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -126,17 +116,12 @@ def sync(
 async def asyncio_detailed(
     *,
     client: AuthenticatedClient | Client,
-    body: PasswordChange,
+    body: RegisterIn,
 ) -> Response[HTTPValidationError | Ok]:
-    """Change Password
-
-     Rotate the admin password from Settings (re-auth with the current one),
-    replacing the postgres-row-delete-and-re-setup workaround. The admin's
-    browser session only (docs/design/40): no API key, MCP client or agent may
-    rotate it. The account's other sessions are signed out; this one stays.
+    """Register
 
     Args:
-        body (PasswordChange):
+        body (RegisterIn):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -158,17 +143,12 @@ async def asyncio_detailed(
 async def asyncio(
     *,
     client: AuthenticatedClient | Client,
-    body: PasswordChange,
+    body: RegisterIn,
 ) -> HTTPValidationError | Ok | None:
-    """Change Password
-
-     Rotate the admin password from Settings (re-auth with the current one),
-    replacing the postgres-row-delete-and-re-setup workaround. The admin's
-    browser session only (docs/design/40): no API key, MCP client or agent may
-    rotate it. The account's other sessions are signed out; this one stays.
+    """Register
 
     Args:
-        body (PasswordChange):
+        body (RegisterIn):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.

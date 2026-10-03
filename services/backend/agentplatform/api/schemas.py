@@ -1649,4 +1649,40 @@ class SetupState(BaseModel):
     secrets: list[SecretStatus]
 
 
+# --- human accounts (docs/design/40) -----------------------------------------
+
+class GroupRef(BaseModel):
+    id: str
+    name: str
+
+
+class MeOut(BaseModel):
+    id: str
+    username: str
+    role: str
+    kind: Literal["system", "state"]
+    group: GroupRef | None
+    created_at: datetime | None
+
+
+class UserOut(BaseModel):
+    """One account in the admin's list. Never carries the password hash."""
+    id: str
+    username: str
+    kind: Literal["system", "state"]
+    group: GroupRef | None
+    created_at: datetime | None
+
+
+class GroupOut(BaseModel):
+    id: str
+    name: str
+    created_at: datetime
+    member_count: int
+
+
+class RegistrationState(BaseModel):
+    open: bool
+
+
 __all__ = [n for n in dir() if n[0].isupper()]

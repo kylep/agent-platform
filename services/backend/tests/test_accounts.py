@@ -314,6 +314,8 @@ PUBLIC_PATHS = {
     ("GET", "/api/setup-state"),       # the first-launch gate; secrets hidden
     ("POST", "/api/setup"),            # once, before the admin exists
     ("POST", "/api/login"),
+    ("GET", "/api/register"),          # the login page asks whether to show the tab
+    ("POST", "/api/register"),         # self-registration, while open
     ("POST", "/api/logout"),           # only revokes the cookie it is sent
     ("POST", "/api/webhooks/{path}"),  # per-path secret (docs/design/16)
     ("POST", "/api/internal/quota"),   # shared internal secret (docs/design/22)
@@ -402,3 +404,192 @@ async def test_route_walk_an_anonymous_caller_reaches_only_public_paths(admin_cl
     async with _other(admin_client) as anon:
         hits = await _walk(anon, app)
     assert [h for h in hits if (h[0], h[1]) not in PUBLIC_PATHS] == []
+
+
+# --- U2: register, me, users, groups -----------------------------------------
+
+async def _register(c, username="bob", pw="bob-pw", confirm=None):
+    return await c.post("/api/register", json={
+        "username": username, "password": pw, "confirm": pw if confirm is None else confirm})
+
+
+async def _id_of(c, username) -> str:
+    users = (await c.get("/api/users")).json()
+    return next(u["id"] for u in users if u["username"] == username)
+
+
+async def _sessions_for(sf, pid):
+    return [x for x in await _sessions(sf) if x.principal_id == pid]
+
+
+async def test_register_signs_in_and_me_describes_the_user(client):
+    await client.post("/api/setup", json={"password": ADMIN_PW})
+    assert (await client.get("/api/register")).json() == {"open": True}
+    r = await _register(client, "Bob")
+    assert r.status_code == 200, r.text
+    me = (await client.get("/api/me")).json()
+    assert me["username"] == "bob" and me["role"] == "user" and me["kind"] == "state"
+    assert me["group"] is None and me["created_at"]
+    # The fence still holds: a registered user reaches nothing else.
+    assert (await client.get("/api/whoami")).status_code == 403
+    await client.post("/api/logout")
+    assert (await client.get("/api/me")).status_code == 401
+    r = await client.post("/api/login", json={"principal": "bob", "password": "bob-pw"})
+    assert r.status_code == 200
+
+
+async def test_register_validation(client, sf):
+    await client.post("/api/setup", json={"password": ADMIN_PW})
+    assert (await _register(client, "bob", "x", confirm="y")).status_code == 422
+    assert (await _register(client, "bob", "")).status_code == 422
+    assert (await _register(client, "bob", "p" * 1025)).status_code == 422
+    assert (await _register(client, "-bob")).status_code == 422
+    assert (await _register(client, "has space")).status_code == 422
+    assert (await _register(client, "admin")).status_code == 409
+    assert (await _register(client, "qa")).status_code == 409
+    assert (await _register(client, "7days")).status_code == 200      # digit-leading
+    await client.post("/api/logout")
+    assert (await client.post("/api/login", json={
+        "principal": "7days", "password": "bob-pw"})).status_code == 200
+    async with _other(client) as c2:
+        assert (await _register(c2, "7DAYS")).status_code == 409       # duplicate, case-folded
+
+
+async def test_registration_closed_refuses_and_reports(admin_client):
+    async with _other(admin_client) as anon:
+        assert (await admin_client.put("/api/settings/registration",
+                                       json={"open": False})).json() == {"open": False}
+        assert (await anon.get("/api/register")).json() == {"open": False}
+        assert (await _register(anon)).status_code == 403
+        await admin_client.put("/api/settings/registration", json={"open": True})
+        assert (await _register(anon)).status_code == 200
+
+
+async def test_user_changes_own_password_and_keeps_only_this_session(user_client):
+    async with _other(user_client) as phone:
+        await phone.post("/api/login", json={"principal": "alice", "password": "user-pw"})
+        r = await user_client.post("/api/me/password", json={
+            "current": "wrong", "new": "n", "confirm": "n"})
+        assert r.status_code == 403
+        r = await user_client.post("/api/me/password", json={
+            "current": "user-pw", "new": "n", "confirm": "m"})
+        assert r.status_code == 422
+        r = await user_client.post("/api/me/password", json={
+            "current": "user-pw", "new": "", "confirm": ""})
+        assert r.status_code == 422
+        r = await user_client.post("/api/me/password", json={
+            "current": "user-pw", "new": "fresh", "confirm": "fresh"})
+        assert r.status_code == 200
+        assert (await user_client.get("/api/me")).status_code == 200
+        assert (await phone.get("/api/me")).status_code == 401
+    r = await user_client.post("/api/login", json={"principal": "alice", "password": "fresh"})
+    assert r.status_code == 200
+
+
+async def test_me_for_admin_is_system_and_me_password_is_refused(admin_client, token_client):
+    me = (await admin_client.get("/api/me")).json()
+    assert me["username"] == "admin" and me["kind"] == "system" and me["role"] == "admin"
+    r = await admin_client.post("/api/me/password", json={
+        "current": ADMIN_PW, "new": "n", "confirm": "n"})
+    assert r.status_code == 403
+    token = (await admin_client.post("/api/api-keys", json={
+        "name": "ci", "role": "admin"})).json()["token"]
+    assert (await token_client.get("/api/me", headers={
+        "Authorization": f"Bearer {token}"})).status_code == 403
+
+
+async def test_users_list_never_carries_the_hash_and_marks_kinds(admin_client, sf):
+    await _seed_user(sf)
+    users = (await admin_client.get("/api/users")).json()
+    assert {u["username"]: u["kind"] for u in users} == {"admin": "system", "alice": "state"}
+    for u in users:
+        assert set(u) == {"id", "username", "kind", "group", "created_at"}
+
+
+async def test_admin_reset_revokes_all_and_system_rows_are_untouchable(admin_client, user_client):
+    uid = await _id_of(admin_client, "alice")
+    assert (await admin_client.post(f"/api/users/{uid}/password", json={
+        "password": "a", "confirm": "b"})).status_code == 422
+    assert (await admin_client.post(f"/api/users/{uid}/password", json={
+        "password": "reset", "confirm": "reset"})).status_code == 200
+    assert (await user_client.get("/api/me")).status_code == 401
+    assert (await user_client.post("/api/login", json={
+        "principal": "alice", "password": "reset"})).status_code == 200
+    admin_id = await _id_of(admin_client, "admin")
+    for r in (await admin_client.post(f"/api/users/{admin_id}/password",
+                                      json={"password": "x", "confirm": "x"}),
+              await admin_client.delete(f"/api/users/{admin_id}"),
+              await admin_client.put(f"/api/users/{admin_id}/group", json={"group_id": None}),
+              await admin_client.delete("/api/users/nope")):
+        assert r.status_code == 404
+
+
+async def test_admin_delete_revokes_and_frees_the_name(admin_client, user_client, sf):
+    uid = await _id_of(admin_client, "alice")
+    assert (await admin_client.delete(f"/api/users/{uid}")).status_code == 200
+    assert (await user_client.get("/api/me")).status_code == 401
+    assert await _sessions_for(sf, uid) == []
+    async with _other(admin_client) as c:
+        assert (await _register(c, "alice")).status_code == 200
+        # The re-registered name did not inherit the old session.
+        assert (await user_client.get("/api/me")).status_code == 401
+
+
+async def test_group_crud_and_membership(admin_client, user_client):
+    assert (await admin_client.post("/api/groups", json={"name": " "})).status_code == 422
+    r = await admin_client.post("/api/groups", json={"name": "Family"})
+    assert r.status_code == 201 and r.json()["member_count"] == 0
+    gid = r.json()["id"]
+    assert (await admin_client.post("/api/groups", json={"name": "FAMILY"})).status_code == 409
+    other = (await admin_client.post("/api/groups", json={"name": "Friends"})).json()["id"]
+    assert (await admin_client.patch(f"/api/groups/{other}",
+                                     json={"name": "family"})).status_code == 409
+    assert (await admin_client.patch(f"/api/groups/{gid}",
+                                     json={"name": "FAMILY"})).json()["name"] == "FAMILY"
+    uid = await _id_of(admin_client, "alice")
+    assert (await admin_client.put(f"/api/users/{uid}/group",
+                                   json={"group_id": "nope"})).status_code == 422
+    r = await admin_client.put(f"/api/users/{uid}/group", json={"group_id": gid})
+    assert r.json()["group"] == {"id": gid, "name": "FAMILY"}
+    assert (await user_client.get("/api/me")).json()["group"]["name"] == "FAMILY"
+    groups = {g["name"]: g["member_count"] for g in (await admin_client.get("/api/groups")).json()}
+    assert groups == {"FAMILY": 1, "Friends": 0}
+    assert (await admin_client.delete(f"/api/groups/{gid}")).status_code == 200
+    assert (await user_client.get("/api/me")).json()["group"] is None
+    assert (await admin_client.delete(f"/api/groups/{gid}")).status_code == 404
+    assert (await admin_client.patch(f"/api/groups/{gid}",
+                                     json={"name": "x"})).status_code == 404
+
+
+async def test_a_dangling_group_id_reads_as_none_and_is_cleared(admin_client, user_client, sf):
+    async with sf() as s:
+        await s.execute(update(Principal).where(Principal.name == "user:alice")
+                        .values(group_id="d" * 32))
+        await s.commit()
+    assert (await user_client.get("/api/me")).json()["group"] is None
+    async with sf() as s:
+        p = (await s.execute(select(Principal).where(Principal.name == "user:alice"))).scalar_one()
+        assert p.group_id is None
+
+
+async def test_people_routes_refuse_an_admin_api_key_and_a_user(admin_client, user_client,
+                                                                 token_client):
+    token = (await admin_client.post("/api/api-keys", json={
+        "name": "ci", "role": "admin"})).json()["token"]
+    h = {"Authorization": f"Bearer {token}"}
+    for method, path, body in (
+            ("GET", "/api/users", None), ("GET", "/api/groups", None),
+            ("POST", "/api/groups", {"name": "g"}),
+            ("GET", "/api/settings/registration", None),
+            ("PUT", "/api/settings/registration", {"open": False}),
+            ("DELETE", "/api/users/x", None)):
+        r = await token_client.request(method, path, json=body, headers=h)
+        assert r.status_code == 403, (method, path)
+        r = await user_client.request(method, path, json=body)
+        assert r.status_code == 403, (method, path)
+    assert (await admin_client.get("/api/settings/registration")).json() == {"open": True}
+
+
+async def test_user_prefixed_api_key_names_are_refused(admin_client):
+    r = await admin_client.post("/api/api-keys", json={"name": "user:eve", "role": "reader"})
+    assert r.status_code == 422

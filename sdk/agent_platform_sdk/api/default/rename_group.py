@@ -1,25 +1,29 @@
 from http import HTTPStatus
 from typing import Any
+from urllib.parse import quote
 
 import httpx
 
 from ... import errors
 from ...client import AuthenticatedClient, Client
+from ...models.group_in import GroupIn
+from ...models.group_out import GroupOut
 from ...models.http_validation_error import HTTPValidationError
-from ...models.ok import Ok
-from ...models.password_change import PasswordChange
 from ...types import Response
 
 
 def _get_kwargs(
+    group_id: str,
     *,
-    body: PasswordChange,
+    body: GroupIn,
 ) -> dict[str, Any]:
     headers: dict[str, Any] = {}
 
     _kwargs: dict[str, Any] = {
-        "method": "post",
-        "url": "/api/change-password",
+        "method": "patch",
+        "url": "/api/groups/{group_id}".format(
+            group_id=quote(str(group_id), safe=""),
+        ),
     }
 
     _kwargs["json"] = body.to_dict()
@@ -32,9 +36,9 @@ def _get_kwargs(
 
 def _parse_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> HTTPValidationError | Ok | None:
+) -> GroupOut | HTTPValidationError | None:
     if response.status_code == 200:
-        response_200 = Ok.from_dict(response.json())
+        response_200 = GroupOut.from_dict(response.json())
 
         return response_200
 
@@ -51,7 +55,7 @@ def _parse_response(
 
 def _build_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> Response[HTTPValidationError | Ok]:
+) -> Response[GroupOut | HTTPValidationError]:
     return Response(
         status_code=HTTPStatus(response.status_code),
         content=response.content,
@@ -61,29 +65,27 @@ def _build_response(
 
 
 def sync_detailed(
+    group_id: str,
     *,
     client: AuthenticatedClient | Client,
-    body: PasswordChange,
-) -> Response[HTTPValidationError | Ok]:
-    """Change Password
-
-     Rotate the admin password from Settings (re-auth with the current one),
-    replacing the postgres-row-delete-and-re-setup workaround. The admin's
-    browser session only (docs/design/40): no API key, MCP client or agent may
-    rotate it. The account's other sessions are signed out; this one stays.
+    body: GroupIn,
+) -> Response[GroupOut | HTTPValidationError]:
+    """Rename Group
 
     Args:
-        body (PasswordChange):
+        group_id (str):
+        body (GroupIn):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[HTTPValidationError | Ok]
+        Response[GroupOut | HTTPValidationError]
     """
 
     kwargs = _get_kwargs(
+        group_id=group_id,
         body=body,
     )
 
@@ -95,58 +97,54 @@ def sync_detailed(
 
 
 def sync(
+    group_id: str,
     *,
     client: AuthenticatedClient | Client,
-    body: PasswordChange,
-) -> HTTPValidationError | Ok | None:
-    """Change Password
-
-     Rotate the admin password from Settings (re-auth with the current one),
-    replacing the postgres-row-delete-and-re-setup workaround. The admin's
-    browser session only (docs/design/40): no API key, MCP client or agent may
-    rotate it. The account's other sessions are signed out; this one stays.
+    body: GroupIn,
+) -> GroupOut | HTTPValidationError | None:
+    """Rename Group
 
     Args:
-        body (PasswordChange):
+        group_id (str):
+        body (GroupIn):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        HTTPValidationError | Ok
+        GroupOut | HTTPValidationError
     """
 
     return sync_detailed(
+        group_id=group_id,
         client=client,
         body=body,
     ).parsed
 
 
 async def asyncio_detailed(
+    group_id: str,
     *,
     client: AuthenticatedClient | Client,
-    body: PasswordChange,
-) -> Response[HTTPValidationError | Ok]:
-    """Change Password
-
-     Rotate the admin password from Settings (re-auth with the current one),
-    replacing the postgres-row-delete-and-re-setup workaround. The admin's
-    browser session only (docs/design/40): no API key, MCP client or agent may
-    rotate it. The account's other sessions are signed out; this one stays.
+    body: GroupIn,
+) -> Response[GroupOut | HTTPValidationError]:
+    """Rename Group
 
     Args:
-        body (PasswordChange):
+        group_id (str):
+        body (GroupIn):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[HTTPValidationError | Ok]
+        Response[GroupOut | HTTPValidationError]
     """
 
     kwargs = _get_kwargs(
+        group_id=group_id,
         body=body,
     )
 
@@ -156,30 +154,28 @@ async def asyncio_detailed(
 
 
 async def asyncio(
+    group_id: str,
     *,
     client: AuthenticatedClient | Client,
-    body: PasswordChange,
-) -> HTTPValidationError | Ok | None:
-    """Change Password
-
-     Rotate the admin password from Settings (re-auth with the current one),
-    replacing the postgres-row-delete-and-re-setup workaround. The admin's
-    browser session only (docs/design/40): no API key, MCP client or agent may
-    rotate it. The account's other sessions are signed out; this one stays.
+    body: GroupIn,
+) -> GroupOut | HTTPValidationError | None:
+    """Rename Group
 
     Args:
-        body (PasswordChange):
+        group_id (str):
+        body (GroupIn):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        HTTPValidationError | Ok
+        GroupOut | HTTPValidationError
     """
 
     return (
         await asyncio_detailed(
+            group_id=group_id,
             client=client,
             body=body,
         )

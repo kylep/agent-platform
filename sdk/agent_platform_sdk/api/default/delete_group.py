@@ -1,5 +1,6 @@
 from http import HTTPStatus
 from typing import Any
+from urllib.parse import quote
 
 import httpx
 
@@ -7,26 +8,20 @@ from ... import errors
 from ...client import AuthenticatedClient, Client
 from ...models.http_validation_error import HTTPValidationError
 from ...models.ok import Ok
-from ...models.password_change import PasswordChange
 from ...types import Response
 
 
 def _get_kwargs(
-    *,
-    body: PasswordChange,
+    group_id: str,
 ) -> dict[str, Any]:
-    headers: dict[str, Any] = {}
 
     _kwargs: dict[str, Any] = {
-        "method": "post",
-        "url": "/api/change-password",
+        "method": "delete",
+        "url": "/api/groups/{group_id}".format(
+            group_id=quote(str(group_id), safe=""),
+        ),
     }
 
-    _kwargs["json"] = body.to_dict()
-
-    headers["Content-Type"] = "application/json"
-
-    _kwargs["headers"] = headers
     return _kwargs
 
 
@@ -61,19 +56,14 @@ def _build_response(
 
 
 def sync_detailed(
+    group_id: str,
     *,
     client: AuthenticatedClient | Client,
-    body: PasswordChange,
 ) -> Response[HTTPValidationError | Ok]:
-    """Change Password
-
-     Rotate the admin password from Settings (re-auth with the current one),
-    replacing the postgres-row-delete-and-re-setup workaround. The admin's
-    browser session only (docs/design/40): no API key, MCP client or agent may
-    rotate it. The account's other sessions are signed out; this one stays.
+    """Delete Group
 
     Args:
-        body (PasswordChange):
+        group_id (str):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -84,7 +74,7 @@ def sync_detailed(
     """
 
     kwargs = _get_kwargs(
-        body=body,
+        group_id=group_id,
     )
 
     response = client.get_httpx_client().request(
@@ -95,19 +85,14 @@ def sync_detailed(
 
 
 def sync(
+    group_id: str,
     *,
     client: AuthenticatedClient | Client,
-    body: PasswordChange,
 ) -> HTTPValidationError | Ok | None:
-    """Change Password
-
-     Rotate the admin password from Settings (re-auth with the current one),
-    replacing the postgres-row-delete-and-re-setup workaround. The admin's
-    browser session only (docs/design/40): no API key, MCP client or agent may
-    rotate it. The account's other sessions are signed out; this one stays.
+    """Delete Group
 
     Args:
-        body (PasswordChange):
+        group_id (str):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -118,25 +103,20 @@ def sync(
     """
 
     return sync_detailed(
+        group_id=group_id,
         client=client,
-        body=body,
     ).parsed
 
 
 async def asyncio_detailed(
+    group_id: str,
     *,
     client: AuthenticatedClient | Client,
-    body: PasswordChange,
 ) -> Response[HTTPValidationError | Ok]:
-    """Change Password
-
-     Rotate the admin password from Settings (re-auth with the current one),
-    replacing the postgres-row-delete-and-re-setup workaround. The admin's
-    browser session only (docs/design/40): no API key, MCP client or agent may
-    rotate it. The account's other sessions are signed out; this one stays.
+    """Delete Group
 
     Args:
-        body (PasswordChange):
+        group_id (str):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -147,7 +127,7 @@ async def asyncio_detailed(
     """
 
     kwargs = _get_kwargs(
-        body=body,
+        group_id=group_id,
     )
 
     response = await client.get_async_httpx_client().request(**kwargs)
@@ -156,19 +136,14 @@ async def asyncio_detailed(
 
 
 async def asyncio(
+    group_id: str,
     *,
     client: AuthenticatedClient | Client,
-    body: PasswordChange,
 ) -> HTTPValidationError | Ok | None:
-    """Change Password
-
-     Rotate the admin password from Settings (re-auth with the current one),
-    replacing the postgres-row-delete-and-re-setup workaround. The admin's
-    browser session only (docs/design/40): no API key, MCP client or agent may
-    rotate it. The account's other sessions are signed out; this one stays.
+    """Delete Group
 
     Args:
-        body (PasswordChange):
+        group_id (str):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -180,7 +155,7 @@ async def asyncio(
 
     return (
         await asyncio_detailed(
+            group_id=group_id,
             client=client,
-            body=body,
         )
     ).parsed

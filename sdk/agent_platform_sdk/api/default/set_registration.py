@@ -6,20 +6,19 @@ import httpx
 from ... import errors
 from ...client import AuthenticatedClient, Client
 from ...models.http_validation_error import HTTPValidationError
-from ...models.ok import Ok
-from ...models.password_change import PasswordChange
+from ...models.registration_state import RegistrationState
 from ...types import Response
 
 
 def _get_kwargs(
     *,
-    body: PasswordChange,
+    body: RegistrationState,
 ) -> dict[str, Any]:
     headers: dict[str, Any] = {}
 
     _kwargs: dict[str, Any] = {
-        "method": "post",
-        "url": "/api/change-password",
+        "method": "put",
+        "url": "/api/settings/registration",
     }
 
     _kwargs["json"] = body.to_dict()
@@ -32,9 +31,9 @@ def _get_kwargs(
 
 def _parse_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> HTTPValidationError | Ok | None:
+) -> HTTPValidationError | RegistrationState | None:
     if response.status_code == 200:
-        response_200 = Ok.from_dict(response.json())
+        response_200 = RegistrationState.from_dict(response.json())
 
         return response_200
 
@@ -51,7 +50,7 @@ def _parse_response(
 
 def _build_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> Response[HTTPValidationError | Ok]:
+) -> Response[HTTPValidationError | RegistrationState]:
     return Response(
         status_code=HTTPStatus(response.status_code),
         content=response.content,
@@ -63,24 +62,19 @@ def _build_response(
 def sync_detailed(
     *,
     client: AuthenticatedClient | Client,
-    body: PasswordChange,
-) -> Response[HTTPValidationError | Ok]:
-    """Change Password
-
-     Rotate the admin password from Settings (re-auth with the current one),
-    replacing the postgres-row-delete-and-re-setup workaround. The admin's
-    browser session only (docs/design/40): no API key, MCP client or agent may
-    rotate it. The account's other sessions are signed out; this one stays.
+    body: RegistrationState,
+) -> Response[HTTPValidationError | RegistrationState]:
+    """Set Registration
 
     Args:
-        body (PasswordChange):
+        body (RegistrationState):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[HTTPValidationError | Ok]
+        Response[HTTPValidationError | RegistrationState]
     """
 
     kwargs = _get_kwargs(
@@ -97,24 +91,19 @@ def sync_detailed(
 def sync(
     *,
     client: AuthenticatedClient | Client,
-    body: PasswordChange,
-) -> HTTPValidationError | Ok | None:
-    """Change Password
-
-     Rotate the admin password from Settings (re-auth with the current one),
-    replacing the postgres-row-delete-and-re-setup workaround. The admin's
-    browser session only (docs/design/40): no API key, MCP client or agent may
-    rotate it. The account's other sessions are signed out; this one stays.
+    body: RegistrationState,
+) -> HTTPValidationError | RegistrationState | None:
+    """Set Registration
 
     Args:
-        body (PasswordChange):
+        body (RegistrationState):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        HTTPValidationError | Ok
+        HTTPValidationError | RegistrationState
     """
 
     return sync_detailed(
@@ -126,24 +115,19 @@ def sync(
 async def asyncio_detailed(
     *,
     client: AuthenticatedClient | Client,
-    body: PasswordChange,
-) -> Response[HTTPValidationError | Ok]:
-    """Change Password
-
-     Rotate the admin password from Settings (re-auth with the current one),
-    replacing the postgres-row-delete-and-re-setup workaround. The admin's
-    browser session only (docs/design/40): no API key, MCP client or agent may
-    rotate it. The account's other sessions are signed out; this one stays.
+    body: RegistrationState,
+) -> Response[HTTPValidationError | RegistrationState]:
+    """Set Registration
 
     Args:
-        body (PasswordChange):
+        body (RegistrationState):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[HTTPValidationError | Ok]
+        Response[HTTPValidationError | RegistrationState]
     """
 
     kwargs = _get_kwargs(
@@ -158,24 +142,19 @@ async def asyncio_detailed(
 async def asyncio(
     *,
     client: AuthenticatedClient | Client,
-    body: PasswordChange,
-) -> HTTPValidationError | Ok | None:
-    """Change Password
-
-     Rotate the admin password from Settings (re-auth with the current one),
-    replacing the postgres-row-delete-and-re-setup workaround. The admin's
-    browser session only (docs/design/40): no API key, MCP client or agent may
-    rotate it. The account's other sessions are signed out; this one stays.
+    body: RegistrationState,
+) -> HTTPValidationError | RegistrationState | None:
+    """Set Registration
 
     Args:
-        body (PasswordChange):
+        body (RegistrationState):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        HTTPValidationError | Ok
+        HTTPValidationError | RegistrationState
     """
 
     return (
