@@ -48,6 +48,7 @@ from agentplatform.appdata.access import Caller, RecordError
 from agentplatform.appdata.definitions import (
     BUNDLE_KEYS, NAME_RE, SYSTEM_FIELDS, AppBundle, CollectionDef, DefinitionError, PageDef,
     RefField, TableBlock, MetricBlock, TextBlock, ToolViewDef, UniqueRule,
+    ChartBlock, CalendarBlock, StatRowBlock,
     _fits_field,
     index_columns, validate_app, validate_definition)
 from agentplatform.appdata.models import (AppDataApp, AppDataBuildOp, AppDataDefinition,
@@ -1319,6 +1320,19 @@ def page_for_web(page: PageDef, bundle, *, with_actions: bool = False) -> dict:
             if block.row_link is not None:
                 item["row_link"] = {"page": block.row_link.page,
                                     "params": {block.row_link.param: "id"}}
+        elif isinstance(block, (ChartBlock, CalendarBlock)):
+            item = {"kind": block.kind, "view": block.view, "unit": block.unit}
+            if isinstance(block, ChartBlock):
+                item.update(x=block.x, y=block.y)
+            else:
+                item.update(day=block.day, value=block.value)
+            if block.title is not None:
+                item["label"] = block.title
+        elif isinstance(block, StatRowBlock):
+            item = {"kind": "stat_row", "view": block.view,
+                    "columns": [_column(c) for c in block.columns]}
+            if block.title is not None:
+                item["label"] = block.title
         else:
             links = _link_fields(bundle, block.view)
             artifacts = _artifact_fields(bundle, block.view)
@@ -1327,14 +1341,20 @@ def page_for_web(page: PageDef, bundle, *, with_actions: bool = False) -> dict:
                                else {"field": f, "format": "link"} if f in links
                                else {"field": f}
                                for f in block.fields]}
+            if block.history:
+                item["history"] = {"collection": bundle.views[block.view].collection}
             if block.title is not None:
                 item["label"] = block.title
         if getattr(block, "params", None):
             item["params"] = {k: _binding(v) for k, v in block.params.items()}
+        if block.slot is not None:
+            item["slot"] = block.slot
         if with_actions and getattr(block, "actions", None):
             item["actions"] = list(block.actions)
         components.append(item)
     result = {"renderer": "typed/v2", "title": page.title, "components": components}
+    if page.layout is not None:
+        result["layout"] = page.layout
     if with_actions and page.actions:
         result["actions"] = [{"name": t.name, "kind": t.kind,
                               "label": t.label or t.name.replace("_", " ").title(),
@@ -1536,7 +1556,7 @@ async def describe_records(session, caller: Caller, app_ref: str) -> dict:
             "fields": {f: {"type": spec.type, "required": spec.required,
                            "read": access.can_read(f),
                            "create": access.can_write(f, "create"),
-                           "update": c.write_mode == "editable"
+                           "update": c.write_mode != "immutable"
                            and access.can_write(f, "update")}
                        for f, spec in c.fields.items()},
             "delete": access.can_verb("delete") and access.tool_allowed("delete"),
@@ -1638,6 +1658,125 @@ async def record_delete(session, actor: Actor, app_ref: str, *, request_id: str,
         session, actor, request_id=request_id, op="record_delete", app_id=app.id,
         args={"collection": collection, "id": record_id,
               "expected_version": expected_version}, work=_with_app(app, work)))
+
+
+def _transaction_shape(operations: list[dict], guards: list[dict]) -> None:
+    """Bound a call and reject ambiguous input before any write."""
+    if not isinstance(operations, list) or not 1 <= len(operations) <= 100:
+        raise RecordError("AD-TRANSACTION-SHAPE", "transaction needs 1–100 operations", 422)
+    if not isinstance(guards, list) or len(guards) > 100:
+        raise RecordError("AD-TRANSACTION-SHAPE", "at most 100 version guards", 422)
+    if len(_canon({"operations": operations, "guards": guards}).encode()) > 512 * 1024:
+        raise RecordError("AD-TRANSACTION-SHAPE", "transaction exceeds 512 KiB", 413)
+    for operation in operations:
+        if not isinstance(operation, dict):
+            raise RecordError("AD-TRANSACTION-SHAPE", "every operation must be an object", 422)
+        verb = operation.get("op")
+        required = {"op", "collection", "values"} if verb == "create" else (
+            {"op", "collection", "id", "values", "expected_version"}
+            if verb == "update" else {"op", "collection", "id"} if verb == "delete"
+            else None)
+        allowed = required | ({"id"} if verb == "create" else
+                              {"expected_version"} if verb == "delete" else set()) \
+            if required is not None else set()
+        if required is None or not required <= operation.keys() or set(operation) - allowed:
+            raise RecordError("AD-TRANSACTION-SHAPE", "invalid operation fields", 422)
+        if not isinstance(operation["collection"], str) or not operation["collection"]:
+            raise RecordError("AD-TRANSACTION-SHAPE", "collection is required", 422)
+        if verb in ("create", "update") and not isinstance(operation["values"], dict):
+            raise RecordError("AD-TRANSACTION-SHAPE", "values must be an object", 422)
+        if "id" in operation and (not isinstance(operation["id"], str)
+                                   or not re.fullmatch(r"[0-9a-f]{32}", operation["id"])):
+            raise RecordError("AD-TRANSACTION-SHAPE", "id must be 32 lowercase hex digits", 422)
+        if "expected_version" in operation and (
+                isinstance(operation["expected_version"], bool)
+                or not isinstance(operation["expected_version"], int)
+                or operation["expected_version"] < 1):
+            raise RecordError("AD-TRANSACTION-SHAPE", "expected_version must be positive", 422)
+    for guard in guards:
+        if (not isinstance(guard, dict) or set(guard) !=
+                {"collection", "id", "version"} or
+                not isinstance(guard["collection"], str) or
+                not isinstance(guard["id"], str) or
+                not re.fullmatch(r"[0-9a-f]{32}", guard["id"]) or
+                isinstance(guard["version"], bool) or
+                not isinstance(guard["version"], int) or guard["version"] < 1):
+            raise RecordError("AD-TRANSACTION-SHAPE", "invalid version guard", 422)
+
+
+async def record_transaction(session, actor: Actor, app_ref: str, *, request_id: str,
+                             operations: list[dict], guards: list[dict] | None = None,
+                             check_scope: Callable[[str, str], None] | None = None,
+                             check_plan: Callable[[rec.DeletePlan], None] | None = None
+                             ) -> dict:
+    """One idempotent, ordered App transaction across collections.
+
+    Tool code supplies domain validation; this engine owns authorization,
+    typed values, refs, version guards, quota and the atomic receipt. A tool
+    cannot widen its one-call credential by naming another collection here.
+    """
+    guards = [] if guards is None else guards
+    _transaction_shape(operations, guards)
+    app = await _app(session, app_ref)
+    for guard in guards:
+        if check_scope:
+            check_scope(guard["collection"], "read")
+    for operation in operations:
+        if check_scope:
+            check_scope(operation["collection"], operation["op"])
+
+    async def work(finish):
+        ctx = await rec.load_app(session, app.id)
+        # A single sorted lock set gives cross-collection writes one order;
+        # delete plans may touch refs outside the explicitly named targets.
+        async with rec.write_lock(session, ctx, list(ctx.bundle.collections)):
+            for guard in guards:
+                c = ctx.collection(guard["collection"])
+                ctx.access(c, actor.caller).require_rows()
+                row = await rec._fetch(session, ctx, c, guard["id"])
+                if row.current_version != guard["version"]:
+                    raise RecordError("AD-VERSION-CONFLICT", "a guarded record changed", 409,
+                                      {"collection": c.collection, "id": guard["id"],
+                                       "version": row.current_version})
+            result, changed = [], set()
+            for operation in operations:
+                verb, collection = operation["op"], operation["collection"]
+                c = ctx.collection(collection)
+                if verb == "create":
+                    row = await rec._insert(session, ctx, actor.caller, c,
+                                            operation["values"], operation.get("id"))
+                    changed.add(collection)
+                    result.append({"op": verb, "collection": collection, "id": row.id,
+                                   "version": row.current_version})
+                elif verb == "update":
+                    row = await rec._update(session, ctx, actor.caller, c, operation["id"],
+                                            operation["values"],
+                                            operation["expected_version"])
+                    changed.add(collection)
+                    result.append({"op": verb, "collection": collection, "id": row.id,
+                                   "version": row.current_version})
+                else:
+                    rid = operation["id"]
+                    expected = ({rid: operation["expected_version"]}
+                                if "expected_version" in operation else None)
+                    await rec._authorize_delete(session, ctx, actor.caller, collection,
+                                                [rid], expected)
+                    plan = await rec.compute_plan(session, ctx, [(collection, rid)])
+                    if check_plan:
+                        check_plan(plan)
+                    if plan.blocked:
+                        raise RecordError("AD-REF-RESTRICT", "delete is blocked by a "
+                                          "reference", 409, plan.summary(ctx, actor.caller))
+                    await rec.execute_plan(session, ctx, actor.caller, plan)
+                    result.append({"op": verb, "collection": collection, "id": rid,
+                                   "deleted": True})
+            if changed:
+                await rec.bump_counters(session, app.id, changed)
+            return await finish({"results": result}, f"Applied {len(result)} App writes.")
+
+    return _strip_app(await _build_op(
+        session, actor, request_id=request_id, op="record_transaction", app_id=app.id,
+        args={"operations": operations, "guards": guards}, work=_with_app(app, work)))
 
 
 def _with_app(app: AppDataApp, work):

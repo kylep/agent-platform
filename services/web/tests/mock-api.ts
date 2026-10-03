@@ -1436,6 +1436,15 @@ const recentColumns = [
 
 // One page per renderer state; `mixed` holds the per-component failures.
 const statePages: Record<string, Record<string, unknown>> = {
+  composed: { renderer: "typed/v2", title: "Composed habits",
+    layout: '<section class="ap-grid"><div class="ap-card"><h2>My week</h2>' +
+      '<ap-view name="count"></ap-view></div><div class="ap-card">' +
+      '<ap-view name="days"></ap-view></div></section>',
+    components: [
+      { kind: "metric", slot: "count", label: "Days done", view: "done_count" },
+      { kind: "table", slot: "days", label: "Recent days", view: "recent",
+        columns: recentColumns },
+    ] },
   overview: { renderer: "typed/v2", title: "Habits", actions: [
     { name: "log", kind: "create", collection: "habits", label: "Log habit",
       editable_fields: [{ name: "habit", type: "string", required: true },

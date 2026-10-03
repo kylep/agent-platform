@@ -1,15 +1,15 @@
-import { useEffect, useState } from "react";
+import { createElement, useEffect, useState, type ReactNode } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 import { api } from "../api";
 import { Button } from "@ap/ui/button";
 import { Chip } from "@ap/ui/chip";
 import { Input, Textarea } from "@ap/ui/field";
 import {
-  AppDataError, getPage, internalPath, isCount, pageHref, readView,
+  AppDataError, getPage, internalPath, isCount, pageHref, readView, readRecordHistory,
   confirmPageAction, dispatchPageAction,
   type ActionField, type PageAction, type PageActionIntent,
   type Column, type ColumnFormat, type ParamBinding, type PublishedPage, type RecordValue,
-  type V2Component, type ViewResult, type ViewRow,
+  type RecordHistory, type V2Component, type ViewResult, type ViewRow,
 } from "../lib/appData";
 
 type Block = { kind: "heading" | "paragraph" | "metric" | "table" | "chat" | "action" | "link"; text: string; label: string; value: string;
@@ -341,8 +341,76 @@ function V2Metric({ appId, component }: { appId: string; component: Extract<V2Co
     <span className="muted">{component.label}</span>
     {error ? <span className="error">{viewError(error)}</span>
       : !result ? <span className="muted">Loading…</span>
-      : <><strong>{isCount(result) ? result.count.toLocaleString() : "—"}</strong><AsOf result={result} /></>}
+      : <><strong>{isCount(result)
+          ? ("count" in result ? result.count : result.value)?.toLocaleString() ?? "—"
+          : "—"}</strong><AsOf result={result} /></>}
   </div>;
+}
+
+function V2Chart({ appId, component }: { appId: string; component: Extract<V2Component, { kind: "chart" }> }) {
+  const { result, error } = useView(appId, component);
+  const rows = result && !isCount(result) ? result.rows : [];
+  const values = rows.map((row) => Number(row.values[component.y]));
+  const maximum = Math.max(1, ...values.filter((n) => Number.isFinite(n) && n >= 0));
+  return <section className="v2-chart">
+    <h2>{component.label || "Chart"}</h2>
+    {error ? <p role="alert" className="error">{viewError(error)}</p>
+      : !result ? <p className="muted">Loading chart…</p>
+      : rows.length === 0 ? <p className="muted">No data yet.</p>
+      : <div className="v2-bars" role="img" aria-label={component.label || "Bar chart"}>
+        {rows.map((row, i) => {
+          const n = values[i];
+          const value = Number.isFinite(n) && n >= 0 ? n : 0;
+          const label = String(row.values[component.x] ?? "");
+          return <div key={`${row.id}-${i}`} className="v2-bar-item"
+            title={`${label}: ${value.toLocaleString()} ${component.unit || ""}`}>
+            <span className="v2-bar-number">{value.toLocaleString()}</span>
+            <span className="v2-bar-track"><span style={{ height: `${Math.max(2, value / maximum * 100)}%` }} /></span>
+            <span className="v2-bar-label">{label}</span>
+          </div>;
+        })}
+      </div>}
+    {result && <AsOf result={result} />}
+  </section>;
+}
+
+function V2Calendar({ appId, component }: { appId: string; component: Extract<V2Component, { kind: "calendar" }> }) {
+  const { result, error } = useView(appId, component);
+  const rows = result && !isCount(result) ? result.rows : [];
+  const values = rows.map((row) => Number(row.values[component.value]));
+  const maximum = Math.max(1, ...values.filter((n) => Number.isFinite(n) && n >= 0));
+  return <section className="v2-calendar">
+    <h2>{component.label || "Calendar"}</h2>
+    {error ? <p role="alert" className="error">{viewError(error)}</p>
+      : !result ? <p className="muted">Loading calendar…</p>
+      : rows.length === 0 ? <p className="muted">No data yet.</p>
+      : <div className="v2-day-grid" role="img" aria-label={component.label || "Activity calendar"}>
+        {rows.map((row, i) => {
+          const n = values[i];
+          const value = Number.isFinite(n) && n >= 0 ? n : 0;
+          const day = String(row.values[component.day] ?? "").slice(0, 10);
+          return <span key={`${row.id}-${i}`} className="v2-day"
+            style={{ opacity: value ? 0.25 + 0.75 * Math.sqrt(value / maximum) : undefined }}
+            title={`${day}: ${value.toLocaleString()} ${component.unit || ""}`} />;
+        })}
+      </div>}
+    {result && <AsOf result={result} />}
+  </section>;
+}
+
+function V2StatRow({ appId, component }: { appId: string; component: Extract<V2Component, { kind: "stat_row" }> }) {
+  const { result, error } = useView(appId, component);
+  const row = result && !isCount(result) ? result.rows[0] : null;
+  return <section className="v2-stat-row">
+    {component.label && <h2>{component.label}</h2>}
+    {error ? <p role="alert" className="error">{viewError(error)}</p>
+      : !result ? <p className="muted">Loading stats…</p>
+      : row ? <div className="v2-stat-items">{component.columns.map((column) =>
+          <div key={column.field}><span className="muted">{v2Label(column)}</span>
+            <strong><V2Cell row={row} column={column} /></strong></div>)}</div>
+        : <p className="muted">No data yet.</p>}
+    {result && <AsOf result={result} />}
+  </section>;
 }
 
 function V2Table({ appId, component, actions, onAction }: { appId: string;
@@ -402,8 +470,48 @@ function V2Detail({ appId, component, actions, onAction }: { appId: string;
       <Button key={action.name} variant="secondary"
         onClick={() => onAction(action, action.kind === "create" ? null : row || null)}>
         {action.label}</Button>)}
+    {row && component.history && <V2History key={row.id} appId={appId}
+      collection={component.history.collection} recordId={row.id}
+      fields={component.fields} />}
     {result && <p className="muted"><AsOf result={result} /></p>}
   </section>;
+}
+
+function V2History({ appId, collection, recordId, fields }: { appId: string;
+  collection: string; recordId: string; fields: Column[] }) {
+  const [page, setPage] = useState<RecordHistory | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  async function load(beforeVersion?: number) {
+    setBusy(true); setError(null);
+    try {
+      const next = await readRecordHistory(appId, collection, recordId, beforeVersion);
+      setPage(beforeVersion && page ? {
+        versions: [...page.versions, ...next.versions],
+        next_before_version: next.next_before_version,
+      } : next);
+    } catch (e) { setError(e instanceof Error ? e.message : "History is unavailable."); }
+    finally { setBusy(false); }
+  }
+  return <div className="v2-detail-history">
+    <Button variant="secondary" onClick={() => page ? setPage(null) : void load()}
+      disabled={busy} aria-expanded={page !== null}>
+      {page ? "Hide history" : "Show history"}
+    </Button>
+    {error && <p role="alert" className="error">{error}</p>}
+    {page && <div role="region" aria-label="Record history">{page.versions.map(({ version, record }) =>
+      <details key={version}>
+        <summary>Version {version}</summary>
+        <dl>{fields.map((column) => <div key={column.field}>
+          <dt>{v2Label(column)}</dt><dd><V2Cell row={record} column={column} /></dd>
+        </div>)}</dl>
+      </details>)}
+      {page.next_before_version && <Button variant="secondary" disabled={busy}
+        onClick={() => void load(page.next_before_version || undefined)}>
+        {busy ? "Loading…" : "Older versions"}
+      </Button>}
+    </div>}
+  </div>;
 }
 
 function V2Text({ appId, component }: { appId: string; component: Extract<V2Component, { kind: "text" }> }) {
@@ -419,11 +527,46 @@ function V2Block({ appId, component, actions, onAction }: { appId: string;
   onAction: (action: PageAction, row: ViewRow | null) => void }) {
   if (component.kind === "text") return <V2Text appId={appId} component={component} />;
   if (component.kind === "metric") return <V2Metric appId={appId} component={component} />;
+  if (component.kind === "chart") return <V2Chart appId={appId} component={component} />;
+  if (component.kind === "calendar") return <V2Calendar appId={appId} component={component} />;
+  if (component.kind === "stat_row") return <V2StatRow appId={appId} component={component} />;
   if (component.kind === "table") return <V2Table appId={appId} component={component}
     actions={actions} onAction={onAction} />;
   if (component.kind === "detail") return <V2Detail appId={appId} component={component}
     actions={actions} onAction={onAction} />;
   return null;
+}
+
+const layoutTags = new Set(["section", "div", "header", "footer", "article", "aside",
+  "h1", "h2", "h3", "p", "span", "strong", "em", "small", "ul", "ol", "li", "hr", "br"]);
+const layoutClasses = new Set(["ap-layout", "ap-stack", "ap-grid", "ap-card",
+  "ap-hero", "ap-muted"]);
+
+function V2Layout({ layout, components, renderBlock }: { layout: string;
+  components: V2Component[]; renderBlock: (component: V2Component, index: number) => ReactNode }) {
+  // The server validates the same small HTML vocabulary. Reconstruct React
+  // nodes from text and allowlisted tags rather than interpreting authored
+  // HTML, attributes, scripts or event handlers.
+  const document = new DOMParser().parseFromString(layout, "text/html");
+  const slots = new Map(components.map((component, index) => [component.slot, index]));
+  function render(node: Node, key: string): ReactNode {
+    if (node.nodeType === Node.TEXT_NODE) return node.textContent;
+    if (node.nodeType !== Node.ELEMENT_NODE) return null;
+    const element = node as Element;
+    const tag = element.tagName.toLowerCase();
+    if (tag === "ap-view") {
+      const index = slots.get(element.getAttribute("name") || "");
+      return index === undefined ? null : renderBlock(components[index], index);
+    }
+    if (!layoutTags.has(tag)) return null;
+    const className = (element.getAttribute("class") || "").split(/\s+/)
+      .filter((name) => layoutClasses.has(name)).join(" ");
+    const children = Array.from(element.childNodes).map((child, index) =>
+      render(child, `${key}-${index}`));
+    return createElement(tag, { key, className: className || undefined }, ...children);
+  }
+  return <div className="ap-layout">{Array.from(document.body.childNodes).map((node, index) =>
+    render(node, `root-${index}`))}</div>;
 }
 
 /** One published typed/v2 page. `embedded` drops the page chrome for the
@@ -463,12 +606,18 @@ export function TypedV2Page({ appId, page, embedded = false }: {
     {notice && <p role="status">{notice}</p>}
     {!embedded && <p className="muted"><Link to="/apps">Apps</Link> / <Link
       to={`/apps/state/${encodeURIComponent(appId)}`}>{published.app_name}</Link> / {published.page}</p>}
-    <div className="live-view-blocks">
-      {published.definition.components.map((component, index) =>
+    {(() => {
+      const renderBlock = (component: V2Component, index: number) =>
         <V2Block key={`${index}-${refresh}`} appId={appId} component={component}
           actions={published.definition.actions || []}
-          onAction={(action, row) => { setNotice(null); setSelected({ action, row }); }} />)}
-    </div>
+          onAction={(action, row) => { setNotice(null); setSelected({ action, row }); }} />;
+      return published.definition.layout
+        ? <V2Layout layout={published.definition.layout}
+            components={published.definition.components} renderBlock={renderBlock} />
+        : <div className="live-view-blocks">
+            {published.definition.components.map(renderBlock)}
+          </div>;
+    })()}
     {selected && <ActionPanel key={`${selected.action.name}-${selected.row?.id || "new"}`}
       appId={appId} page={page} selected={selected} onClose={() => setSelected(null)}
       onDone={(message) => { setSelected(null); setNotice(message); setRefresh((n) => n + 1); }} />}

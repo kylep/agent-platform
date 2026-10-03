@@ -1,5 +1,48 @@
 # 39 — Agent-built Apps
 
+## Direction correction — 2026-10-02
+
+Kyle approved small changes to the existing Apps as long as they still serve
+their purpose. The migration is **not** a pixel- or table-for-table port. The
+first acceptance question for each App is what the user gets from it; each
+feature is then kept, simplified, or dropped. In particular, a new App need
+not preserve an old service's implementation boundaries.
+
+The builder should be **HTML plus a bounded, declarative App DSL**, backed by
+generic storage. The DSL composes five platform capabilities:
+
+1. **Data:** typed collections, relations, queries, and migrations.
+2. **Calculation:** typed expressions and operators over App data (filter,
+   map, arithmetic, group, aggregate, date bucket, bounded window). The
+   platform validates the graph and executes it with explicit row, time, and
+   output budgets. The DSL cannot supply SQL, Python, JavaScript, imports,
+   URLs, or an arbitrary function body. App-specific code is a last resort.
+3. **Presentation:** sanitized HTML/CSS with declarative data bindings,
+   reusable controls, and host-rendered charts. HTML is layout, never an
+   execution surface; scripts and event-handler attributes are rejected.
+4. **Actions:** named, explicit forms/buttons that invoke an approved data
+   operation or Tool through the platform, with a durable result receipt.
+5. **Automation:** the same actions can run on a schedule or event, rather
+   than requiring an App-owned service.
+
+There is one human user. Authority protects the distinction between viewing
+data and an agent or Tool changing it, and between a reviewed Tool operation
+and arbitrary execution. It is not a general multi-tenant policy product.
+Keep a narrow grant check at the server boundary; do not make the App author
+manage a large permission hierarchy.
+
+The six-App inventory below now enumerates **requirements**, not immutable
+behaviors. Running is the first complete local proof: its activity history,
+trends and coach brief must remain useful, but its current screens and tables
+may be simplified. A generic operator is added only when the proof or a named
+later App needs it. Existing typed pages may serve as an implementation
+substrate while HTML+DSL replaces the authoring surface; they are not the
+product contract.
+
+This direction supersedes conflicting statements below that prescribe only
+typed pages, prohibit all expressions, or require exact UI parity. The data
+copy, no-RCE boundary, backup, rollback and end-to-end behavior checks remain.
+
 Status: **revision 6 (final for review), 2026-10-02.**
 - **Review history:** revisions 1–3 had two review passes each by Fable,
   Sol, Sonnet and Astra. Revision 4 rebuilt the design around Kyle's decisions

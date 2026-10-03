@@ -13,7 +13,7 @@ authorization instead, at two levels:
   must not be able to escalate, its own agent or any other's.
 
 Three rules sit above both (docs/design/39, Phase 0). The KYLE_ONLY_TOOLS are
-granted and removed only by Kyle's browser session — not an admin API key, not
+granted and removed only by Kyle's session or an unbound human admin API key — not
 an agent — so no agent can widen itself through a proxy or a partner. An agent
 holding one is PROTECTED: only Kyle's session, or the agent itself through
 `agent_self`, may change it. And no agent changes its own definition through
@@ -175,8 +175,8 @@ class WriteScope:
     admin: bool
     may_edit: bool
     may_grant: bool
-    # Kyle's own browser session: the admin role AND the login cookie. An
-    # admin API key has the role but not the cookie, and is not Kyle.
+    # Kyle's session or an unbound human admin API key. A run-bound or
+    # agent-bound key is never the human, even if someone mislabels its role.
     kyle: bool = False
     # The agent the credential is bound to, or None for a human.
     agent: str | None = None
@@ -201,14 +201,14 @@ class WriteScope:
                                      f"or the agents_edit tool: {', '.join(edit_fields)}")
 
     def authorize_kyle_only(self, before, after) -> None:
-        """403 unless Kyle's session, when a write would add or remove any
+        """403 unless Kyle's human authority, when a write would add or remove any
         KYLE_ONLY_TOOLS entry. Checked on the raw payload, ahead of validation,
         so a reserved tool that doesn't ship yet is refused as authority (403)
         rather than reported as unknown (422) to a caller who may not grant it
         either way."""
         moved = kyle_only_held(before) ^ kyle_only_held(after)
         if moved and not self.kyle:
-            raise HTTPException(403, "only Kyle's session may grant or remove "
+            raise HTTPException(403, "only Kyle's session or human admin key may grant or remove "
                                      f"{', '.join(sorted(moved))}")
 
     def guard_target(self, row: AgentDef) -> None:
@@ -226,7 +226,7 @@ class WriteScope:
         if held and not self.kyle:
             raise HTTPException(403, f"agent {row.name!r} is protected: it holds "
                                      f"{', '.join(sorted(held))}, so only Kyle's "
-                                     "session (or the agent itself, through "
+                                     "session or human admin key (or the agent itself, through "
                                      "agent_self) may change it")
 
     def require_edit(self, what: str) -> None:
@@ -246,9 +246,21 @@ def kyle_only_held(tools) -> set[str]:
 
 
 def _kyle_session(request: Request, role: str) -> bool:
-    """Whether this authenticated request is Kyle's browser session.
-    `auth_kind` is set by `authenticate`, which every caller here has run."""
-    return role == "admin" and getattr(request.state, "auth_kind", None) == "session"
+    """Whether this request holds Kyle's human authority.
+
+    Named laptop MCP keys may be explicitly configured as human delegates.
+    Agent/run keys and workload identities never qualify.
+    """
+    if role != "admin":
+        return False
+    kind = getattr(request.state, "auth_kind", None)
+    trusted = {part.strip() for part in request.app.state.settings
+               .human_admin_key_names.split(",") if part.strip()}
+    return kind == "session" or (
+        kind == "key"
+        and getattr(request.state, "api_key_name", None) in trusted
+        and getattr(request.state, "api_key_agent", None) is None
+        and getattr(request.state, "api_key_run_id", None) is None)
 
 
 def _admin_scope(request: Request, principal: str) -> WriteScope:

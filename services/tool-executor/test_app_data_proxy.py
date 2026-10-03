@@ -37,6 +37,9 @@ out["ok"] = call(base + "/apps/a1/records/results", "POST", b'{"title": "x"}',
                   "Cookie": "ap_session=x", "X-AP-Tool-Call": "forged"})
 out["query"] = call(base + "/apps/a1/query?limit=2")
 out["other"] = call(root + "/api/agents")
+out["report"] = call(root + "/api/reports", "POST", b'{}',
+                     {"Content-Type": "application/json"})
+out["report_get"] = call(root + "/api/reports")
 out["traverse"] = call(root + "/api/app-data/../agents")
 out["encoded"] = call(base + "/%2e%2e/agents")
 out["prefix_lookalike"] = call(root + "/api/app-dataX")
@@ -80,8 +83,8 @@ def _probe_tool(root, name="probe"):
     (d / "run.py").write_text(PROBE)
 
 
-def _run(args=None, credential=CRED):
-    body = {"tool": "probe", "args": args or {}, "caller": {"agent": "pai", "run_id": "r1"}}
+def _run(args=None, credential=CRED, tool="probe"):
+    body = {"tool": tool, "args": args or {}, "caller": {"agent": "pai", "run_id": "r1"}}
     if credential:
         body["credential"] = credential
     return TestClient(executor.app).post("/run", json=body).json()
@@ -103,7 +106,7 @@ def test_proxy_forwards_only_app_data_with_the_credential_attached(tools_root, a
     assert out["ok"][0] == 200 and json.loads(out["ok"][1]) == {
         "path": "/api/app-data/apps/a1/records/results"}
     assert out["query"][0] == 200
-    for probe in ("other", "traverse", "encoded", "prefix_lookalike"):
+    for probe in ("other", "report", "report_get", "traverse", "encoded", "prefix_lookalike"):
         assert out[probe][0] == 403, (probe, out[probe])
     assert out["no_nonce"][0] == 404 and out["wrong_nonce"][0] == 404
     # Exactly the two app-data requests reached the API.
@@ -118,6 +121,19 @@ def test_proxy_forwards_only_app_data_with_the_credential_attached(tools_root, a
     assert first.headers["content-type"] == "application/json"
     assert "cookie" not in first.headers
     assert json.loads(first.content) == {"title": "x"}
+
+
+def test_only_running_report_actions_can_reach_the_report_route(tools_root, api):
+    _probe_tool(tools_root, "running")
+    for action, allowed in (("dashboard", False), ("brief", True),
+                            ("report", True), ("recover_reports", True)):
+        result = _run({"action": action}, tool="running")
+        assert result["ok"], result
+        out = json.loads(result["output"])
+        assert out["report"][0] == (200 if allowed else 403)
+        assert out["report_get"][0] == 403
+    assert [r.url.path for r in api if r.url.path == "/api/reports"] == [
+        "/api/reports"] * 3
 
 
 def test_endpoint_arrives_on_stdin_never_in_the_environment(tools_root, api):

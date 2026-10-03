@@ -69,7 +69,8 @@ def test_sync_publishes_without_returning_activities(monkeypatch):
         published.append((rows, after))
     monkeypatch.setattr(run, "_publish_activities", capture)
     out = run.act(None, {"action": "sync", "after": "2026-08-01", "per_page": 50})
-    assert out == {"synced": 1, "after": "2026-08-01", "latest": "2026-08-11"}
+    assert out == {"synced": 1, "after": "2026-08-01", "latest": "2026-08-11",
+                   "destination": "legacy_kafka"}
     assert published[0][0][0]["distance_m"] == 5000
 
 

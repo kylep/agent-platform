@@ -15,6 +15,7 @@ submitted document, the offending value and a suggested fix. All issues are
 reported together, so one `apps validate` round trip shows the whole picture.
 """
 from __future__ import annotations
+from html.parser import HTMLParser
 
 import math
 import re
@@ -31,7 +32,7 @@ from agentplatform.appdata.errors import (CODES, DefinitionError, DefinitionIssu
 
 # Bumped whenever the language accepts something new, so builders (and the
 # skill) can check `apps schema` for a capability before relying on it.
-CAPABILITIES_VERSION = 4   # 4: typed list fields (R2)
+CAPABILITIES_VERSION = 8   # 8: bounded, declarative numeric calculations
 
 NAME_RE = re.compile(r"^[a-z][a-z0-9_]{0,39}$")
 _AGENT_RE = re.compile(r"^agent:[a-z0-9][a-z0-9-]{0,62}$")   # agentspec._NAME_RE
@@ -47,8 +48,8 @@ SYSTEM_FIELDS = {"id": "id", "created_at": "datetime", "updated_at": "datetime",
                  "collection_version": "int"}
 FILTER_OPS = ("eq", "ne", "in", "lt", "lte", "gt", "gte", "is_null", "within_last",
               "contains")
-COMPONENTS = ("table", "detail", "metric", "text")
-TEMPLATE_KINDS = ("create", "update", "delete")
+COMPONENTS = ("table", "detail", "metric", "text", "chart", "calendar", "stat_row")
+TEMPLATE_KINDS = ("create", "update", "new_version", "delete")
 
 MAX_STRING = 1_000
 MAX_TEXT = 16_000
@@ -69,16 +70,16 @@ _INDEX_FAMILY = {"string": "text", "enum": "text", "ref": "text", "int": "num",
 # Syntax the design schedules for later. The value is the release number, or
 # None for features cut to the App Builder request path.
 DEFERRED: dict[str, int | None] = {
-    "versioned": 2, "pin_version": 2, "cascade": 2, "exists": 2,
-    "not_exists": 2, "new_version": 2, "tool_actions": 2, "detail_history": 2,
-    "group_by": 3, "aggregates": 3, "fill_missing": 3, "normalize": 3, "downsample": 3,
-    "chart": 3, "calendar": 3, "sparkline": 3, "stat_row": 3, "list_filter": 3,
+    "pin_version": 2, "cascade": 2, "exists": 2,
+    "not_exists": 2, "tool_actions": 2,
+    "fill_missing": 3, "normalize": 3, "downsample": 3,
+    "sparkline": 3, "list_filter": 3,
     "image": 3, "refresh": 3,
     "required_when": None, "lock": None, "message_ref": None,
 }
-_DEFERRED_VIEW_KEYS = ("group_by", "fill_missing", "normalize", "downsample")
-_DEFERRED_AGGREGATES = ("sum", "min", "max", "avg")
-_DEFERRED_COMPONENTS = ("chart", "calendar", "sparkline", "stat_row", "list_filter", "image")
+_DEFERRED_VIEW_KEYS = ("fill_missing", "normalize", "downsample")
+_DEFERRED_AGGREGATES: tuple[str, ...] = ()
+_DEFERRED_COMPONENTS = ("sparkline", "list_filter", "image")
 
 
 def _err(code: str, message: str, rel: list | None = None, fix: str | None = None):
@@ -427,7 +428,7 @@ class CollectionDef(_Model):
     collection: Name
     description: Description | None = None
     fields: Annotated[dict[FieldName, FieldSpec], Field(min_length=1, max_length=64)]
-    write_mode: Literal["editable", "immutable"] = "editable"
+    write_mode: Literal["editable", "immutable", "versioned"] = "editable"
     access: CollectionAccess = Field(default_factory=CollectionAccess)
     writers: Writers | None = None
     rules: Annotated[list[Rule], Field(max_length=20)] = Field(default_factory=list)
@@ -533,8 +534,24 @@ Filter = Annotated[Union[CompareFilter, InFilter, IsNullFilter, WithinLastFilter
 
 
 class Aggregate(_Model):
-    fn: Literal["count"]
+    fn: Literal["count", "sum", "avg", "min", "max"]
     as_: Name = Field(alias="as")
+    field: Name | None = None
+    divide_by: Annotated[float, Field(gt=0, le=1_000_000_000)] = 1
+
+    @model_validator(mode="after")
+    def _field_for_numeric(self):
+        if (self.fn == "count") != (self.field is None):
+            raise _err("JD-AGGREGATE-FIELD",
+                       "count has no field; numeric aggregates need one")
+        if self.fn == "count" and self.divide_by != 1:
+            raise _err("JD-AGGREGATE-SCALE", "count cannot be scaled")
+        return self
+
+
+class GroupBy(_Model):
+    field: Name
+    bucket: Literal["day", "week", "month"] | None = None
 
 
 class ViewDef(_Model):
@@ -550,6 +567,7 @@ class ViewDef(_Model):
     paging: bool = False
     aggregates: Annotated[list[Aggregate], Field(max_length=5)] = Field(
         default_factory=list)
+    group_by: GroupBy | None = None
 
     @property
     def name(self) -> str:
@@ -557,8 +575,8 @@ class ViewDef(_Model):
 
     @property
     def is_count(self) -> bool:
-        """Release 1's only aggregate: one ungrouped count, for a metric."""
-        return bool(self.aggregates)
+        """A scalar calculation is rendered by a metric block."""
+        return bool(self.aggregates) and self.group_by is None
 
 
 class MaterializeDef(_Model):
@@ -629,21 +647,25 @@ class Link(_Model):
 BlockParams = Annotated[dict[Name, Any], Field(max_length=10)]
 
 
-class TextBlock(_Model):
+class _BlockBase(_Model):
+    slot: Name | None = None
+
+
+class TextBlock(_BlockBase):
     kind: Literal["text"]
     style: Literal["heading", "paragraph"] = "paragraph"
     text: Annotated[str, Field(min_length=1, max_length=4000)]
     link: Link | None = None
 
 
-class MetricBlock(_Model):
+class MetricBlock(_BlockBase):
     kind: Literal["metric"]
     label: Label
     view: Name
     params: BlockParams = Field(default_factory=dict)
 
 
-class TableBlock(_Model):
+class TableBlock(_BlockBase):
     kind: Literal["table"]
     view: Name
     title: Label | None = None
@@ -653,16 +675,49 @@ class TableBlock(_Model):
     actions: Annotated[list[Name], Field(max_length=5)] = Field(default_factory=list)
 
 
-class DetailBlock(_Model):
+class DetailBlock(_BlockBase):
     kind: Literal["detail"]
     view: Name
     title: Label | None = None
     fields: Annotated[list[Name], Field(min_length=1, max_length=64)]
     params: BlockParams = Field(default_factory=dict)
     actions: Annotated[list[Name], Field(max_length=5)] = Field(default_factory=list)
+    history: bool = False
 
 
-Block = Annotated[Union[TextBlock, MetricBlock, TableBlock, DetailBlock],
+class ChartBlock(_BlockBase):
+    """A bounded bar chart over rows already authorized by its view."""
+    kind: Literal["chart"]
+    view: Name
+    title: Label | None = None
+    x: Name
+    y: Name
+    params: BlockParams = Field(default_factory=dict)
+    unit: Annotated[str, Field(max_length=20)] = ""
+
+
+class CalendarBlock(_BlockBase):
+    """A day grid over at most 200 rows (26 weeks plus the current week)."""
+    kind: Literal["calendar"]
+    view: Name
+    title: Label | None = None
+    day: Name
+    value: Name
+    params: BlockParams = Field(default_factory=dict)
+    unit: Annotated[str, Field(max_length=20)] = ""
+
+
+class StatRowBlock(_BlockBase):
+    """Several labeled scalar values from one authorized result row."""
+    kind: Literal["stat_row"]
+    view: Name
+    title: Label | None = None
+    columns: Annotated[list[Column], Field(min_length=1, max_length=8)]
+    params: BlockParams = Field(default_factory=dict)
+
+
+Block = Annotated[Union[TextBlock, MetricBlock, TableBlock, DetailBlock,
+                        ChartBlock, CalendarBlock, StatRowBlock],
                   Field(discriminator="kind")]
 
 
@@ -684,6 +739,11 @@ class UpdateTemplate(_WriteTemplate):
     kind: Literal["update"]
 
 
+class NewVersionTemplate(_WriteTemplate):
+    """A reviewed edit whose prior snapshot remains visible to readers."""
+    kind: Literal["new_version"]
+
+
 class DeleteTemplate(_Model):
     name: Name
     kind: Literal["delete"]
@@ -691,7 +751,8 @@ class DeleteTemplate(_Model):
     label: Label | None = None
 
 
-ActionTemplate = Annotated[Union[CreateTemplate, UpdateTemplate, DeleteTemplate],
+ActionTemplate = Annotated[Union[CreateTemplate, UpdateTemplate, NewVersionTemplate,
+                                 DeleteTemplate],
                            Field(discriminator="kind")]
 
 
@@ -703,6 +764,7 @@ class PageDef(_Model):
     params: Annotated[dict[Name, ParamSpec], Field(max_length=8)] = Field(
         default_factory=dict)
     blocks: Annotated[list[Block], Field(max_length=50)] = Field(default_factory=list)
+    layout: Annotated[str, Field(min_length=1, max_length=20_000)] | None = None
     actions: Annotated[list[ActionTemplate], Field(max_length=10)] = Field(
         default_factory=list)
 
@@ -866,8 +928,6 @@ def _deferred(kind: str, raw: Any, base: str) -> list[tuple[DefinitionIssue, str
                       join_path(base, *(suppress if suppress is not None else segments))))
 
     if kind == "collection":
-        if raw.get("write_mode") == "versioned":
-            add("versioned", ["write_mode"], "versioned", "versioned write mode")
         fields = raw.get("fields")
         for name, spec in (fields.items() if isinstance(fields, dict) else ()):
             if not isinstance(spec, dict):
@@ -906,15 +966,10 @@ def _deferred(kind: str, raw: Any, base: str) -> list[tuple[DefinitionIssue, str
             if block.get("kind") in _DEFERRED_COMPONENTS:
                 add(block["kind"], ["blocks", index, "kind"], block["kind"],
                     f"the {block['kind']} component", suppress=["blocks", index])
-            elif block.get("kind") == "detail" and "history" in block:
-                add("detail_history", ["blocks", index, "history"], block["history"],
-                    "record history on detail")
         for index, action in enumerate(_list(raw.get("actions"))):
-            if isinstance(action, dict) and action.get("kind") in ("new_version", "tool"):
-                feature = "new_version" if action["kind"] == "new_version" else "tool_actions"
-                add(feature, ["actions", index, "kind"], action["kind"],
-                    "new_version templates" if feature == "new_version"
-                    else "tool actions on pages", suppress=["actions", index])
+            if isinstance(action, dict) and action.get("kind") == "tool":
+                add("tool_actions", ["actions", index, "kind"], action["kind"],
+                    "tool actions on pages", suppress=["actions", index])
     return found
 
 
@@ -1110,13 +1165,20 @@ def _check_view_alone(v: ViewDef, base: str) -> list[DefinitionIssue]:
             out.append(issue("JD-PARAM-UNUSED", join_path(base, "params", name),
                              "parameter is never used", name))
     if v.aggregates:
-        if len(v.aggregates) != 1:
+        if v.group_by is None and len(v.aggregates) != 1:
             out.append(issue("JD-VIEW-COUNT", join_path(base, "aggregates"),
-                             "Release 1 views have at most one count", len(v.aggregates)))
-        for key in ("fields", "sort", "limit", "paging"):
+                             "a scalar calculation needs one aggregate", len(v.aggregates)))
+        aliases = [agg.as_ for agg in v.aggregates]
+        if len(aliases) != len(set(aliases)):
+            out.append(issue("JD-AGGREGATE-ALIAS", join_path(base, "aggregates"),
+                             "aggregate names must be unique"))
+        for key in ("fields", "sort", "paging", *(("limit",) if v.group_by is None else ())):
             if key in v.model_fields_set:
                 out.append(issue("JD-VIEW-COUNT", join_path(base, key),
-                                 f"a count view can't set {key}"))
+                                 f"a calculated view can't set {key}"))
+    elif v.group_by is not None:
+        out.append(issue("JD-GROUP-BY", join_path(base, "group_by"),
+                         "group_by needs at least one aggregate"))
     seen: set[str] = set()
     for i, key in enumerate(v.sort):
         if key.field in seen:
@@ -1131,6 +1193,23 @@ def _check_view(v: ViewDef, c: CollectionDef, base: str) -> list[DefinitionIssue
 
     def known(name: str) -> bool:
         return name in c.fields or name in SYSTEM_FIELDS
+
+    if v.group_by is not None:
+        name = v.group_by.field
+        if not known(name):
+            out.append(issue("JD-VIEW-FIELD", join_path(base, "group_by", "field"),
+                             "unknown group field", name))
+        elif v.group_by.bucket and _field_type(c, name) not in ("date", "datetime"):
+            out.append(issue("JD-GROUP-BY", join_path(base, "group_by", "bucket"),
+                             "date buckets need a date or datetime field"))
+        elif name in {agg.as_ for agg in v.aggregates}:
+            out.append(issue("JD-AGGREGATE-ALIAS", join_path(base, "group_by"),
+                             "an aggregate cannot replace the group field"))
+    for i, agg in enumerate(v.aggregates):
+        if agg.field is not None and (not known(agg.field)
+                                      or _field_type(c, agg.field) not in ("int", "number")):
+            out.append(issue("JD-AGGREGATE-FIELD", join_path(base, "aggregates", i, "field"),
+                             "numeric aggregates need an int or number field"))
 
     for i, name in enumerate(v.fields or []):
         if not known(name):
@@ -1199,8 +1278,77 @@ def _check_filter_value(v: ViewDef, c: CollectionDef, item, where: str):
     return []
 
 
+_LAYOUT_TAGS = frozenset({
+    "section", "div", "header", "footer", "article", "aside", "h1", "h2", "h3",
+    "p", "span", "strong", "em", "small", "ul", "ol", "li", "hr", "br", "ap-view"})
+_LAYOUT_CLASSES = frozenset({
+    "ap-layout", "ap-stack", "ap-grid", "ap-card", "ap-hero", "ap-muted"})
+
+
+class _LayoutScanner(HTMLParser):
+    """A tiny layout vocabulary: content and named slots, never executable HTML."""
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.slots: list[str] = []
+        self.errors: list[str] = []
+        self.stack: list[str] = []
+
+    def handle_starttag(self, tag, attrs):
+        if tag not in _LAYOUT_TAGS:
+            self.errors.append(f"unsupported layout tag: {tag}")
+            return
+        keys = [name for name, _ in attrs]
+        allowed = {"name"} if tag == "ap-view" else {"class"}
+        if len(keys) != len(set(keys)) or any(name not in allowed for name in keys):
+            self.errors.append(f"unsupported attribute on {tag}")
+        values = dict(attrs)
+        if tag == "ap-view":
+            name = values.get("name")
+            if not isinstance(name, str) or not NAME_RE.fullmatch(name):
+                self.errors.append("an ap-view needs a valid name")
+            else:
+                self.slots.append(name)
+        elif "class" in values and any(
+                token not in _LAYOUT_CLASSES for token in (values["class"] or "").split()):
+            self.errors.append("layout class is not in the approved vocabulary")
+        if tag not in {"hr", "br"}:
+            self.stack.append(tag)
+
+    def handle_startendtag(self, tag, attrs):
+        if tag not in {"hr", "br"}:
+            self.errors.append("only hr and br may self-close")
+            return
+        self.handle_starttag(tag, attrs)
+
+    def handle_endtag(self, tag):
+        if not self.stack or self.stack[-1] != tag:
+            self.errors.append("layout tags must be properly nested")
+        else:
+            self.stack.pop()
+
+    def handle_comment(self, data):
+        self.errors.append("layout comments are not supported")
+
+    def handle_decl(self, decl):
+        self.errors.append("layout declarations are not supported")
+
+
 def _check_page_alone(p: PageDef, base: str) -> list[DefinitionIssue]:
     out: list[DefinitionIssue] = []
+    if p.layout is not None:
+        scanner = _LayoutScanner()
+        scanner.feed(p.layout)
+        scanner.close()
+        if scanner.stack:
+            scanner.errors.append("layout has unclosed tags")
+        slots = [b.slot for b in p.blocks]
+        if None in slots or len(slots) != len(set(slots)) or sorted(slots) != sorted(scanner.slots):
+            scanner.errors.append("each block needs one unique matching ap-view slot")
+        for message in scanner.errors:
+            out.append(issue("JD-PAGE-LAYOUT", join_path(base, "layout"), message))
+    elif any(b.slot is not None for b in p.blocks):
+        out.append(issue("JD-PAGE-LAYOUT", join_path(base, "blocks"),
+                         "block slots require a layout"))
     templates: dict[str, Any] = {}
     for i, template in enumerate(p.actions):
         if template.name in templates:
@@ -1331,8 +1479,8 @@ def _check_page(p: PageDef, app: AppBundle, names: dict[str, set[str]],
         view = app.views.get(block.view)
         if isinstance(view, ToolViewDef):
             from agentplatform.operation_catalog import view_action
-            unavailable = (allow_unavailable_tool_views
-                           and view_action(view.tool, view.action) is None)
+            action = view_action(view.tool, view.action)
+            unavailable = allow_unavailable_tool_views and action is None
             if not unavailable and isinstance(block, MetricBlock) != view.is_count:
                 out.append(issue("JD-PAGE-METRIC", join_path(where, "view"),
                                  "metrics need a count result; tables and details need rows",
@@ -1341,9 +1489,29 @@ def _check_page(p: PageDef, app: AppBundle, names: dict[str, set[str]],
             if getattr(block, "actions", []):
                 out.append(issue("JD-PAGE-ACTION", join_path(where, "actions"),
                                  "a tool view cannot carry a collection action"))
+            if isinstance(block, DetailBlock) and block.history:
+                out.append(issue("JD-PAGE-HISTORY", join_path(where, "history"),
+                                 "a tool view does not identify an App record"))
             if isinstance(block, TableBlock) and block.row_link is not None:
                 out.append(issue("JD-PAGE-LINK", join_path(where, "row_link"),
                                  "tool view rows are not App records and cannot link by record id"))
+            if action is not None and isinstance(block, (ChartBlock, CalendarBlock, StatRowBlock)):
+                fields = (action.get("output_schema", {}).get("properties", {})
+                          .get("rows", {}).get("items", {}).get("properties", {}))
+                if isinstance(block, StatRowBlock):
+                    names_to_check = [("columns", j, col.field) for j, col in
+                                      enumerate(block.columns)]
+                else:
+                    names_to_check = [(axis, None, name) for axis, name in
+                                      ((("x", block.x), ("y", block.y))
+                                       if isinstance(block, ChartBlock) else
+                                       (("day", block.day), ("value", block.value)))]
+                for axis, j, name in names_to_check:
+                    if name not in fields:
+                        path = join_path(where, axis, j, "field") if j is not None else \
+                            join_path(where, axis)
+                        out.append(issue("JD-PAGE-COLUMN", path,
+                                         "the tool view doesn't return this field", name))
             continue
         collection = app.collections.get(view.collection) if view else None
         if view is None or collection is None:
@@ -1354,8 +1522,26 @@ def _check_page(p: PageDef, app: AppBundle, names: dict[str, set[str]],
                              block.view))
             continue
         out += _check_block_params(block, view, p, where)
-        available = set(view.fields) if view.fields else set(collection.fields) | set(
-            SYSTEM_FIELDS)
+        calculated = bool(view.aggregates)
+        available = ({view.group_by.field} if view.group_by is not None else set()) | {
+            agg.as_ for agg in view.aggregates} if calculated else (
+                set(view.fields) if view.fields else set(collection.fields) | set(SYSTEM_FIELDS))
+        if calculated:
+            if isinstance(block, DetailBlock):
+                out.append(issue("JD-PAGE-CALC", where,
+                                 "calculated rows are not records; use a table or chart"))
+            if getattr(block, "actions", []):
+                out.append(issue("JD-PAGE-ACTION", join_path(where, "actions"),
+                                 "calculated rows cannot carry record actions"))
+            if isinstance(block, TableBlock) and block.row_link is not None:
+                out.append(issue("JD-PAGE-LINK", join_path(where, "row_link"),
+                                 "calculated rows have no record id"))
+        def display_type(name: str) -> str | None:
+            if calculated:
+                if view.group_by is not None and name == view.group_by.field:
+                    return ("date" if view.group_by.bucket else _field_type(collection, name))
+                return "number" if name in available else None
+            return _field_type(collection, name) if name in available else None
         if isinstance(block, TableBlock):
             for j, column in enumerate(block.columns):
                 if column.field not in available:
@@ -1366,11 +1552,36 @@ def _check_page(p: PageDef, app: AppBundle, names: dict[str, set[str]],
                 out += _check_row_link(block.row_link, app, names,
                                        join_path(where, "row_link"))
         if isinstance(block, DetailBlock):
+            if block.history and collection.write_mode != "versioned":
+                out.append(issue("JD-PAGE-HISTORY", join_path(where, "history"),
+                                 "history requires a versioned collection"))
             for j, name in enumerate(block.fields):
                 if name not in available:
                     out.append(issue("JD-PAGE-COLUMN", join_path(where, "fields", j),
                                      "the view doesn't return this field", name))
+        if isinstance(block, (ChartBlock, CalendarBlock)):
+            axes = (("x", block.x), ("y", block.y)) if isinstance(block, ChartBlock) \
+                else (("day", block.day), ("value", block.value))
+            for axis, field in axes:
+                if field not in available:
+                    out.append(issue("JD-PAGE-COLUMN", join_path(where, axis),
+                                     "the view doesn't return this field", field))
+            expected = ("date", "datetime") if isinstance(block, CalendarBlock) else \
+                ("date", "datetime", "string", "enum")
+            if display_type(axes[0][1]) not in expected:
+                out.append(issue("JD-PAGE-COLUMN", join_path(where, axes[0][0]),
+                                 "the horizontal axis must be a date or label", axes[0][1]))
+            if display_type(axes[1][1]) not in ("int", "number"):
+                out.append(issue("JD-PAGE-COLUMN", join_path(where, axes[1][0]),
+                                 "the value axis must be numeric", axes[1][1]))
+        if isinstance(block, StatRowBlock):
+            for j, column in enumerate(block.columns):
+                if column.field not in available:
+                    out.append(issue("JD-PAGE-COLUMN", join_path(where, "columns", j, "field"),
+                                     "the view doesn't return this field", column.field))
         for j, name in enumerate(getattr(block, "actions", [])):
+            if calculated:
+                continue
             template = templates.get(name)
             if template is not None and template.collection != view.collection:
                 out.append(issue("JD-PAGE-ACTION", join_path(where, "actions", j),
@@ -1426,13 +1637,17 @@ def _check_template(t, app: AppBundle, names, where: str) -> list[DefinitionIssu
     c = app.collections.get(t.collection)
     if c is None:
         return []
-    if c.writers is not None and getattr(c.writers, t.kind) is not None:
+    verb = "update" if isinstance(t, NewVersionTemplate) else t.kind
+    if c.writers is not None and getattr(c.writers, verb) is not None:
         return [issue("JD-TEMPLATE-TOOL-ONLY", join_path(where, "collection"),
                       "a page template cannot bypass this collection's tool-only writer",
                       t.collection)]
     if isinstance(t, DeleteTemplate):
         return []
     out: list[DefinitionIssue] = []
+    if isinstance(t, NewVersionTemplate) and c.write_mode != "versioned":
+        out.append(issue("JD-TEMPLATE-VERSIONED", join_path(where, "kind"),
+                         "new_version requires a versioned collection", t.kind))
     if isinstance(t, UpdateTemplate) and c.write_mode == "immutable":
         out.append(issue("JD-TEMPLATE-IMMUTABLE", join_path(where, "kind"),
                          "the collection is immutable", t.kind))
@@ -1606,12 +1821,14 @@ def capabilities() -> dict:
         "version": CAPABILITIES_VERSION,
         "field_types": list(FIELD_TYPES),
         "system_fields": sorted(SYSTEM_FIELDS),
-        "write_modes": ["editable", "immutable"],
+        "write_modes": ["editable", "immutable", "versioned"],
         "principals": ["owner", "kyle", "agent:<name>", "login:qa (read only)"],
         "rules": ["writer", "immutable_after_create", "unique"],
         "on_delete": ["restrict", "unlink"],
         "filter_ops": list(FILTER_OPS),
-        "aggregates": ["count (ungrouped)"],
+        "aggregates": ["count", "sum", "avg", "min", "max"],
+        "group_by": ["field", "date bucket: day, week, month"],
+        "calculation_scan_limit": 10_000,
         "components": list(COMPONENTS),
         "action_templates": list(TEMPLATE_KINDS),
         "app_tools": {"roles": "role -> {collection, verbs}", "verbs": list(APP_VERBS)},

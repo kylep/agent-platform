@@ -105,6 +105,18 @@ test("a v2 page renders text, a metric and a table with formats and row links", 
   expect(unmatched).toEqual([]);
 });
 
+test("a composed HTML layout places live DSL blocks without authored script", async ({ page }) => {
+  const unmatched = await mockApi(page);
+  await page.goto(pagePath("composed"));
+  const grid = page.locator(".ap-layout .ap-grid");
+  await expect(grid.getByRole("heading", { name: "My week" })).toBeVisible();
+  await expect(grid.locator(".ap-card").first().locator(".live-view-metric strong"))
+    .toHaveText("23");
+  await expect(grid.locator(".ap-card").nth(1).locator(".live-view-table tbody tr").first())
+    .toBeVisible();
+  expect(unmatched).toEqual([]);
+});
+
 test("page templates confirm create, update and delete before dispatch", async ({ page }) => {
   const unmatched = await mockApi(page);
   const sent: { template: string; values: Record<string, unknown> }[] = [];
@@ -212,6 +224,38 @@ test("a row link opens the detail page for one record", async ({ page }) => {
   await expect(detail.locator("dd").nth(2)).toHaveText("No");
   await expect(detail.locator("dd").nth(3).locator(".v2-restricted")).toHaveText("restricted");
   expect(unmatched).toEqual([]);
+});
+
+test("versioned detail loads and redacts history on demand", async ({ page }) => {
+  await mockApi(page);
+  let historyCalls = 0;
+  await page.route(`**/api/app-data/apps/${STATE_APP_ID}/pages/entry`, async (route) =>
+    route.fulfill({ json: { app_id: STATE_APP_ID, app_name: "habits", page: "entry",
+      version: 2, definition: { renderer: "typed/v2", title: "Habit day", components: [{
+        kind: "detail", view: "entry", params: { id: { query: "id" } },
+        fields: [{ field: "habit" }, { field: "note" }],
+        history: { collection: "habits" },
+      }] } } }));
+  await page.route(`**/api/app-data/apps/${STATE_APP_ID}/records/habits/r2/history`,
+    async (route) => {
+      historyCalls += 1;
+      await route.fulfill({ json: { versions: [
+        { version: 2, record: { id: "r2", values: { habit: "read", note: null },
+          restricted: ["note"] } },
+        { version: 1, record: { id: "r2", values: { habit: "write", note: null },
+          restricted: ["note"] } },
+      ], next_before_version: null } });
+    });
+  await page.goto(pagePath("entry", "?id=r2"));
+  await expect(page.getByRole("button", { name: "Show history" })).toBeVisible();
+  expect(historyCalls).toBe(0);
+  await page.getByRole("button", { name: "Show history" }).click();
+  await expect(page.getByRole("region", { name: "Record history" })).toContainText("Version 1");
+  await page.getByText("Version 1").click();
+  const history = page.getByRole("region", { name: "Record history" });
+  await expect(history).toContainText("write");
+  await expect(history.locator(".v2-restricted")).toHaveCount(2);
+  expect(historyCalls).toBe(1);
 });
 
 test("text links reach only the App's pages and platform pages", async ({ page }) => {

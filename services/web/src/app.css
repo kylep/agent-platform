@@ -1251,6 +1251,25 @@ a.relay-action { color: var(--ds-link); }
 .live-view-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .live-view-controls code { overflow-wrap: anywhere; }
 .live-view-blocks > p, .live-view-blocks > h2, .live-view-action, .live-view-table, .live-view-chat { grid-column: 1 / -1; }
+.v2-chart, .v2-calendar, .v2-stat-row { grid-column: 1 / -1; min-width: 0; padding: 16px;
+  background: var(--ds-surface); border: 1px solid var(--ds-border); border-radius: 12px; }
+.v2-chart h2, .v2-calendar h2, .v2-stat-row h2 { margin: 0 0 12px; }
+.v2-bars { display: flex; align-items: end; gap: 8px; min-height: 180px; overflow-x: auto; }
+.v2-bar-item { display: flex; flex: 1 0 42px; min-width: 42px; max-width: 120px;
+  flex-direction: column; align-items: center; gap: 4px; font-size: 12px; }
+.v2-bar-track { width: 100%; height: 130px; display: flex; align-items: end;
+  background: var(--ds-surface-raised); border-radius: 5px 5px 0 0; }
+.v2-bar-track > span { display: block; width: 100%; background: var(--ds-accent);
+  border-radius: 5px 5px 0 0; }
+.v2-bar-label { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.v2-day-grid { display: grid; grid-auto-flow: column; grid-template-rows: repeat(7, 13px);
+  grid-auto-columns: 13px; gap: 3px; overflow-x: auto; padding-bottom: 8px; }
+.v2-day { display: block; width: 13px; height: 13px; border-radius: 3px;
+  background: var(--ds-accent); }
+.v2-day:not([style]) { background: var(--ds-surface-raised); }
+.v2-stat-items { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 130px), 1fr)); gap: 16px; }
+.v2-stat-items > div { display: flex; flex-direction: column; gap: 4px; }
+.v2-stat-items strong { font-size: 1.3rem; overflow-wrap: anywhere; }
 .live-view-blocks > p { white-space: pre-wrap; }
 .live-view-metric { display: flex; flex-direction: column; gap: 4px; min-width: 0;
   padding: 16px; background: var(--ds-surface); border: 1px solid var(--ds-border);
@@ -1803,3 +1822,9 @@ a.relay-action { color: var(--ds-link); }
 .task-form h2 { margin-top: 0; }
 .task-form label { color: var(--ds-text-muted); font-size: 13px; }
 .task-form input, .task-form textarea { width: 100%; padding: 9px; border: 1px solid var(--ds-border); border-radius: 6px; background: var(--ds-surface); color: var(--ds-text); }
+.ap-layout { display: grid; gap: var(--ds-space-6, 1.5rem); }
+.ap-stack { display: grid; gap: var(--ds-space-4, 1rem); }
+.ap-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 20rem), 1fr)); gap: var(--ds-space-4, 1rem); }
+.ap-card { min-width: 0; padding: var(--ds-space-5, 1.25rem); border: 1px solid var(--ds-border, currentColor); border-radius: var(--ds-radius-lg, 1rem); }
+.ap-hero { display: grid; gap: var(--ds-space-2, .5rem); padding-block: var(--ds-space-5, 1.25rem); }
+.ap-muted { color: var(--ds-text-muted, inherit); }

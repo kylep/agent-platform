@@ -16,8 +16,9 @@ from agentplatform.appdata.access import Caller, RecordError
 from agentplatform.appdata.models import (AppDataApp, AppDataDefinition, AppDataRecord,
                                           AppDataRecordVersion)
 from agentplatform.appdata.records import (create_record, delete_record, delete_records,
-                                           get_record, load_app, lock_key, plan_delete,
-                                           update_record, write_counter)
+                                           get_record, get_record_version, load_app, lock_key,
+                                           plan_delete, record_history, update_record,
+                                           write_counter)
 from agentplatform.db import Base, make_engine, make_session_factory
 
 PG_URL = os.environ.get("AP_TEST_PG_URL")
@@ -227,6 +228,47 @@ async def test_list_items_inherit_the_containing_fields_read_access(sf):
         visible = await get_record(s, ctx, KYLE, "items", row["id"])
     assert visible["values"]["private_steps"] is None
     assert "private_steps" in visible["restricted"]
+
+
+async def test_versioned_history_pages_and_masks_past_values_with_current_access(sf):
+    fields = {"title": {"type": "string"},
+              "private": {"type": "text", "access": {"read": ["owner"]}}}
+    ctx = await make_app(sf, [coll(fields=fields, write_mode="versioned")])
+    async with sf() as s:
+        row = await create_record(s, ctx, OWNER, "items", {"title": "first",
+                                                        "private": "old secret"})
+        await update_record(s, ctx, OWNER, "items", row["id"],
+                            {"title": "second"}, expected_version=1)
+        await update_record(s, ctx, OWNER, "items", row["id"],
+                            {"title": "third"}, expected_version=2)
+        first_page = await record_history(s, ctx, KYLE, "items", row["id"], limit=2)
+        assert [v["version"] for v in first_page["versions"]] == [3, 2]
+        assert first_page["next_before_version"] == 2
+        assert [v["record"]["values"]["title"] for v in first_page["versions"]] == [
+            "third", "second"]
+        assert all(v["record"]["values"]["private"] is None
+                   and "private" in v["record"]["restricted"]
+                   for v in first_page["versions"])
+        last = await record_history(s, ctx, KYLE, "items", row["id"], limit=2,
+                                    before_version=2)
+        assert [v["version"] for v in last["versions"]] == [1]
+        assert last["next_before_version"] is None
+        old = await get_record_version(s, ctx, OWNER, "items", row["id"], 1)
+        assert old["values"]["private"] == "old secret"
+        assert old["values"]["version"] == 1
+        await refused("AD-NOT-FOUND", get_record_version(s, ctx, OWNER, "items",
+                                                          row["id"], 4))
+
+
+async def test_editable_records_keep_internal_audit_without_exposing_history(sf):
+    ctx = await make_app(sf, [coll()])
+    async with sf() as s:
+        row = await create_record(s, ctx, OWNER, "items", {"title": "a"})
+        await update_record(s, ctx, OWNER, "items", row["id"],
+                            {"title": "b"}, expected_version=1)
+        await refused("AD-NOT-VERSIONED", record_history(s, ctx, OWNER,
+                                                          "items", row["id"]))
+        assert (await s.execute(select(AppDataRecordVersion))).first() is not None
 
 
 # --- side columns ----------------------------------------------------------------------------

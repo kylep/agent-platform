@@ -1,22 +1,28 @@
 # Agent-built Apps: efficient delivery plan
 
-**Status:** planning only; implementation remains paused at Kyle's request.
+**Status:** resumed by Kyle; implementation in progress. See design 39's
+direction correction for HTML+DSL, generic calculation, and outcome-based
+App migration.
 **Source of truth for behavior:** [design 39](../../design/39-agent-built-apps.md).
 **Detailed backlog and live evidence:** [original build plan](2026-10-02-agent-built-apps.md).
 **Current working tree:** [pause checkpoint](2026-10-02-agent-built-apps-checkpoint.md).
 
 ## Delivery contract
 
-The finish line has not changed: six Apps migrated into database-owned state,
+The finish line remains six Apps migrated into database-owned state,
 maintainers operating them through the new interfaces, old App machinery
 removed, fresh install empty, restore working, and final images live on pai.
-Today the **foundation is deployed; 0/6 Apps are migrated**. The uncommitted
+Minor changes to App screens, workflows and data layout are allowed when they
+preserve the user's outcome. Do not encode every legacy implementation detail
+as a platform requirement.
+At the 2026-10-02 checkpoint the **foundation was deployed; 0/6 Apps were
+migrated**. The uncommitted
 versioned-history work is neither shipped nor a completed user journey. Do not
 forecast completion from a percentage until at least one migration has
 provided a measured cost and exposed the reusable work.
 
-This plan changes the *order and process*, not the required correctness
-properties. A platform primitive is built when a named App's acceptance
+This plan changes the *order and process*, not the data safety properties. A
+platform primitive is built when a named App's acceptance
 scenario needs it. A milestone ends in a visible working App, not an API
 capability version. The first agent-created App smoke check is the opening
 gate of the Judgment milestone, with no separate review or deployment cycle.
@@ -59,7 +65,18 @@ until a scenario names its consumer.
 testable reason; the first migration's acceptance script and storage path are
 written. Preparation is a short inventory, not a research phase.
 
-### 1. Judgment and the first live agent-built App
+### 1. Running and the first live state App
+
+Running is the first cutover because its live source has 50 activities and
+two briefs, its copy has an atomic ID-and-document comparison, and its coach
+and Strava writer can be switched together. The one-shot migration records
+the approved bundle as `migration:running`, with Running Coach as owner. It is
+not a fresh-install provisioner. Use the procedure in
+`docs/building-blocks/running-state-cutover.md`, verify the live page and
+report receipts, then retire the coded Running service after a restore check.
+The separate agent-created smoke proof is paired with the next App.
+
+### 2. Judgment and an agent-created App proof
 
 First use the shipped foundation to have an agent create and publish a small
 collection, view and page, propose a sharing change, then let Kyle approve
@@ -77,7 +94,7 @@ authority generation, maintenance writes and wrong callers are denied; one
 fresh maintainer run succeeds with only documented App interfaces. Remove
 Judgment's old path only after cutover and rollback evidence.
 
-### 2. TCMS and storage capacity
+### 3. TCMS and storage capacity
 
 Resolve pai's non-expandable 2 GiB PostgreSQL PVC with an explicit capacity
 and restore plan **before** moving the large result set. Reuse Judgment's
@@ -89,19 +106,16 @@ once, measured query limits and backup size, a scratch restore of migrated
 state, and a fresh QA maintainer run. No high-volume copy or cutover without
 capacity margin and a demonstrated restore path.
 
-### 3. Running and news
+### 4. News
 
-Implement as two independently reversible App cutovers. They may share a
-single integration review, broad test run and deployment if both are ready;
-do not hold one indefinitely for the other. Introduce only the R3 components
-their current pages use. Preserve running's sync and weekly-brief receipt;
-preserve news freshness, 7-day dedup, actual notifications and the separate
+Introduce only the components the current pages use. Preserve news freshness,
+7-day dedup, actual notifications and the separate
 gatherer/projector/connector privileges.
 
 **Gate:** each App independently passes data and user-flow parity, its safety
 receipt, permission denial and a fresh maintainer takeover.
 
-### 4. Stockmarket
+### 5. Stockmarket
 
 Reuse the migration and presentation work. Move bars, briefs, watchlist and
 backtests with the necessary artifact handling and bounded chart queries.
@@ -110,7 +124,7 @@ backtests with the necessary artifact handling and bounded chart queries.
 worst-case backtest output handled within limits, receipt/retry behavior and
 maintainer takeover.
 
-### 5. TTRPG and removal
+### 6. TTRPG and removal
 
 Only after its adapter contract and effort are measured, implement the
 `claude-ttrpg` storage adapter in that repository and the minimum principals,
@@ -143,12 +157,10 @@ deployments**. Record the before/after five-hour and weekly quota readings
 as observations; do not invent a linear token-to-quota conversion. Use a
 script to collect test and live evidence, and read its short result once.
 
-The historical memory's **20% headroom** is the admission threshold for a
-new milestone. Kyle's requested **10% left** is the hard floor for active
-work: below 20%, finish an already-open milestone only if its remaining
-steps plausibly fit above 10%; otherwise checkpoint it. Never start a new
-large phase that is likely to run into the reserve. Recalibrate the budget
-after Judgment using measured usage and actual remaining scope.
+Kyle's current **75% weekly left** rule is the hard floor for this migration.
+Check the fresh Codex reading at each cutover boundary and checkpoint before
+crossing it. Recalibrate the remaining App sequence from Running's measured
+cost; the older 20%/10% guidance does not apply to this work item.
 
 ## What not to trade away
 

@@ -320,6 +320,54 @@ async def test_a_frozen_run_token_without_the_tool_is_refused(token_client, sf, 
     assert r.status_code == 403
 
 
+async def test_versioned_history_routes_require_the_run_grant_and_page_by_version(
+        token_client, sf, seed_agent, agent_store):
+    definition = {**HABITS, "write_mode": "versioned"}
+    app_id = await build(sf, name="history", defs=(("collection", definition),))
+    row = await add(sf, app_id, {"habit": "run", "day": "2026-10-02", "note": "private"})
+    pai = await agent(sf, seed_agent, agent_store)
+    base = {"app": app_id, "collection": "habits", "id": row["id"]}
+    changed = await token_client.post(f"{AGENT}/records/update", headers=pai, json={
+        **base, "request_id": "history-update", "values": {"habit": "walk"},
+        "expected_version": 1})
+    assert changed.status_code == 200, changed.text
+    got = await token_client.post(f"{AGENT}/records/history", headers=pai,
+                                  json={**base, "limit": 1})
+    assert got.status_code == 200, got.text
+    assert [v["version"] for v in got.json()["versions"]] == [2]
+    assert got.json()["next_before_version"] == 2
+    previous = await token_client.post(f"{AGENT}/records/version", headers=pai,
+                                       json={**base, "version": 1})
+    assert previous.status_code == 200 and previous.json()["values"]["habit"] == "run"
+    assert (await token_client.post(f"{AGENT}/records/history", headers=pai,
+                                    json={**base, "before_version": 1})).json()["versions"] == []
+    no_tool = await agent(sf, seed_agent, agent_store, name="history-no-tool", tools=(APPS,))
+    assert (await token_client.post(f"{AGENT}/records/history", headers=no_tool,
+                                    json=base)).status_code == 403
+
+
+async def test_transaction_route_requires_run_grant_and_commits_one_receipt(
+        token_client, sf, seed_agent, agent_store):
+    app_id = await build(sf, name="atomic", defs=(("collection", HABITS),))
+    pai = await agent(sf, seed_agent, agent_store)
+    body = {"app": app_id, "request_id": "two-habits", "operations": [
+        {"op": "create", "collection": "habits", "values": {
+            "habit": "run", "day": "2026-10-02"}},
+        {"op": "create", "collection": "habits", "values": {
+            "habit": "read", "day": "2026-10-02"}}]}
+    created = await token_client.post(f"{AGENT}/records/transaction", headers=pai,
+                                      json=body)
+    assert created.status_code == 200, created.text
+    assert len(created.json()["results"]) == 2
+    replay = await token_client.post(f"{AGENT}/records/transaction", headers=pai,
+                                     json=body)
+    assert replay.status_code == 200 and replay.json()["replayed"]
+    no_tool = await agent(sf, seed_agent, agent_store, name="atomic-no-tool",
+                          tools=(APPS,))
+    assert (await token_client.post(f"{AGENT}/records/transaction", headers=no_tool,
+                                    json=body)).status_code == 403
+
+
 async def test_a_builder_acts_only_on_its_own_apps(token_client, sf, seed_agent, agent_store):
     app_id = await build(sf)
     bob = await agent(sf, seed_agent, agent_store, name="bob")

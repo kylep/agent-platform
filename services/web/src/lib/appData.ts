@@ -164,7 +164,7 @@ export type ActionField = { name: string; type: "string" | "text" | "int" | "num
   "bool" | "date" | "datetime" | "enum" | "ref" | "url" | "artifact" | "list";
   label?: string; required?: boolean; min?: number; max?: number; values?: string[];
   max_items?: number; items?: unknown };
-export type PageAction = { name: string; kind: "create" | "update" | "delete";
+export type PageAction = { name: string; kind: "create" | "update" | "new_version" | "delete";
   label: string; collection: string; editable_fields: ActionField[] };
 
 /** A row link opens another page of the same App with query parameters
@@ -176,16 +176,23 @@ export type RowLink = { page: string; params: Record<string, string> };
  *  starting with one `/`). Anything else renders as plain text. */
 export type TextLink = { page: string } | { path: string };
 
-export type V2Component =
+export type V2Component = (
   | { kind: "table"; label?: string; view: string; params?: Record<string, ParamBinding>;
       columns: Column[]; row_link?: RowLink; limit?: number; actions?: string[] }
   | { kind: "detail"; label?: string; view: string; params?: Record<string, ParamBinding>;
-      fields: Column[]; actions?: string[] }
+      fields: Column[]; actions?: string[]; history?: { collection: string } }
   | { kind: "metric"; label: string; view: string; params?: Record<string, ParamBinding> }
-  | { kind: "text"; style: "heading" | "paragraph"; text: string; link?: TextLink };
+  | { kind: "chart"; label?: string; view: string; x: string; y: string;
+      params?: Record<string, ParamBinding>; unit?: string }
+  | { kind: "calendar"; label?: string; view: string; day: string; value: string;
+      params?: Record<string, ParamBinding>; unit?: string }
+  | { kind: "stat_row"; label?: string; view: string; columns: Column[];
+      params?: Record<string, ParamBinding> }
+  | { kind: "text"; style: "heading" | "paragraph"; text: string; link?: TextLink }
+) & { slot?: string };
 
 export type PageV2 = { renderer: "typed/v2"; title: string; components: V2Component[];
-  actions?: PageAction[] };
+  actions?: PageAction[]; layout?: string };
 
 export type PageActionIntent = { intent_id: string; expires_at: string; digest: string;
   action: PageAction["kind"]; collection: string; record_id: string | null;
@@ -208,16 +215,19 @@ export type RecordValue = Scalar | Scalar[] | Array<Record<string, Scalar>>;
 /** A record as the caller may see it. `id` is the system field; `values`
  *  holds every field the view selects, `null` where `restricted` names it. */
 export type ViewRow = { id: string; values: Record<string, RecordValue>; restricted: string[] };
+export type RecordHistory = { versions: { version: number; record: ViewRow }[];
+  next_before_version: number | null };
 
 /** `as_of` is when the result was computed (a materialized view's refresh
  *  time); `stale` is the server's judgement that it's older than the view's
  *  schedule allows, and the page says so. */
 export type ViewRows = { rows: ViewRow[]; next_cursor: string | null; as_of: string; stale: boolean };
 export type ViewCount = { count: number; as_of: string; stale: boolean };
-export type ViewResult = ViewRows | ViewCount;
+export type ViewValue = { value: number | null; as_of: string; stale: boolean };
+export type ViewResult = ViewRows | ViewCount | ViewValue;
 
-export function isCount(result: ViewResult): result is ViewCount {
-  return "count" in result;
+export function isCount(result: ViewResult): result is ViewCount | ViewValue {
+  return "count" in result || "value" in result;
 }
 
 // --- client ----------------------------------------------------------------
@@ -296,6 +306,12 @@ export function readView(appId: string, view: string, params: Record<string, str
   if (opts.cursor) query.set("cursor", opts.cursor);
   const qs = query.toString();
   return get(`${base(appId)}/views/${encodeURIComponent(view)}${qs ? `?${qs}` : ""}`);
+}
+
+export function readRecordHistory(appId: string, collection: string, recordId: string,
+                                  beforeVersion?: number): Promise<RecordHistory> {
+  const query = beforeVersion ? `?before_version=${beforeVersion}` : "";
+  return get(`${base(appId)}/records/${encodeURIComponent(collection)}/${encodeURIComponent(recordId)}/history${query}`);
 }
 
 /** Where a page of a state App lives in the console. */

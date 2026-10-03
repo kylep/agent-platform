@@ -73,6 +73,21 @@ def test_immutable_collection_has_no_update_facts():
     assert not [f for f in facts if f[0] == "access" and f[4] == "update"]
 
 
+def test_exposing_past_versions_of_an_existing_collection_needs_approval():
+    current = compute_facts(app(habits()))
+    proposed = compute_facts(app(habits(write_mode="versioned")))
+    assert ("history", "owner", "habits") in proposed
+    assert ("history", "kyle", "habits") in proposed
+    assert any("past versions" in line for line in widening(current, proposed))
+    # A new private App may start versioned without a proposal, as with its
+    # private read access; sharing its history more widely still needs one.
+    assert widening(initial_approved_facts(), proposed) == []
+    shared = compute_facts(app(habits(write_mode="versioned",
+                                     access={"read": ["owner", "kyle", "agent:qa"]})))
+    assert any("agent:qa can read past versions" in line
+               for line in widening(initial_approved_facts(), shared))
+
+
 def test_delete_reach_closure_follows_cascades():
     # Deferred: `on_delete: cascade` is Release 2.
     defs = app(

@@ -59,10 +59,12 @@ PLATFORM_MCP_AGENT_TOOLS: list[str] = [
     "mcp__platform__agents_grant",
 ]
 
-# The tools only Kyle's browser session may grant or remove, on any agent
+# The tools only Kyle's browser session or a configured human admin key may
+# grant or remove, on any agent
 # (docs/design/39, Phase 0). Each lets its holder build or steer other agents,
 # so letting an agent hand one out would let it widen its own reach through a
-# proxy. An agent holding any of them is also PROTECTED: only Kyle's session,
+# proxy. An agent holding any of them is also PROTECTED: only Kyle's human
+# authority,
 # or the agent itself through agent_self, may change its definition. `apps` and
 # `app_data` were reserved here before they shipped, so the rule was in place
 # the moment they did.

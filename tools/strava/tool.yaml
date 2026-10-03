@@ -36,4 +36,7 @@ infra:
     - strava
   database: true
   kafka: true
+app_access:
+  roles: [activities, sync]
+  verbs: [read, create, update]
 timeout_seconds: 45

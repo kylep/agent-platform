@@ -398,8 +398,9 @@ class AppDataProxy:
     the call, so a request belongs to this call only if it carries it; after
     `close` nothing listens at all."""
 
-    def __init__(self, credential: CallCredential):
+    def __init__(self, credential: CallCredential, *, allow_running_report: bool = False):
         self.credential = credential
+        self.allow_running_report = allow_running_report
         self.nonce = secrets.token_urlsafe(18)
         self.live = False
         self.port = 0
@@ -466,9 +467,10 @@ class AppDataProxy:
         if not path.startswith(prefix + "/"):
             return 404, "text/plain", b"not this call's endpoint"
         path = path[len(prefix):]
-        if not (path == APP_DATA_PREFIX or path.startswith(APP_DATA_PREFIX + "/")) \
-                or _escapes_prefix(path):
-            return 403, "text/plain", b"only /api/app-data is reachable from a tool"
+        report_path = path == "/api/reports" and method == "POST" and self.allow_running_report
+        if not (report_path or path == APP_DATA_PREFIX
+                or path.startswith(APP_DATA_PREFIX + "/")) or _escapes_prefix(path):
+            return 403, "text/plain", b"only this tool's approved platform routes are reachable"
         if method not in _PROXY_METHODS:
             return 405, "text/plain", b"method not allowed"
         token = _executor_token()
@@ -536,7 +538,11 @@ async def run_tool(body: RunIn):
         return {"ok": False, "error": f"arguments do not match the tool's schema: {e.message}"}
 
     scratch = Path(tempfile.mkdtemp(prefix="tool-", dir=SCRATCH_DIR))
-    proxy = AppDataProxy(body.credential) if body.credential else None
+    proxy = (AppDataProxy(body.credential,
+                          allow_running_report=(body.tool == "running" and
+                                                body.args.get("action") in ("brief", "report",
+                                                                            "recover_reports")))
+             if body.credential else None)
     try:
         in_dir, out_dir = scratch / "in", scratch / "out"
         in_dir.mkdir()

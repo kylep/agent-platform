@@ -73,6 +73,8 @@ function StateApps() {
             <span>owner {a.owner}</span>
             <span>{a.approved_version === null ? "never published" : `v${a.approved_version}`}</span>
             {a.health.issues > 0 && <span>{a.health.issues} {a.health.issues === 1 ? "issue" : "issues"}</span>}
+            {a.name === "running" && a.approved_version !== null &&
+              <Link to={`/apps/state/${encodeURIComponent(a.id)}/pages/home`}>Open Running →</Link>}
           </div>
         </div>))}</div>}
   </section>;

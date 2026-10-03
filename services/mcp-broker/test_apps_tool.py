@@ -227,6 +227,13 @@ def test_an_ordinary_refusal_passes_through_untouched(calls):
       "cursor": "abc"}),
     ({"action": "get", "app": "habits", "collection": "habits", "id": "r1"}, "get",
      {"app": "habits", "collection": "habits", "id": "r1"}),
+    ({"action": "history", "app": "habits", "collection": "habits", "id": "r1",
+      "limit": 10, "before_version": 5}, "history",
+     {"app": "habits", "collection": "habits", "id": "r1", "limit": 10,
+      "before_version": 5}),
+    ({"action": "version", "app": "habits", "collection": "habits", "id": "r1",
+      "version": 2}, "version",
+     {"app": "habits", "collection": "habits", "id": "r1", "version": 2}),
     ({"action": "create", "app": "habits", "collection": "habits", "request_id": "w1",
       "values": {"habit": "run"}}, "create",
      {"app": "habits", "collection": "habits", "request_id": "w1",
@@ -245,6 +252,12 @@ def test_an_ordinary_refusal_passes_through_untouched(calls):
     ({"action": "delete_preview", "app": "habits", "collection": "habits",
       "ids": ["r1", "r2"]}, "delete_preview",
      {"app": "habits", "collection": "habits", "ids": ["r1", "r2"]}),
+    ({"action": "transaction", "app": "habits", "request_id": "pair-1",
+      "operations": [{"op": "create", "collection": "habits", "values": {"habit": "run"}}],
+      "guards": []}, "transaction",
+     {"app": "habits", "request_id": "pair-1",
+      "operations": [{"op": "create", "collection": "habits", "values": {"habit": "run"}}],
+      "guards": []}),
 ])
 def test_each_app_data_action_is_one_post_with_the_routes_body(calls, kw, path, body):
     app_data(**kw)
@@ -252,8 +265,9 @@ def test_each_app_data_action_is_one_post_with_the_routes_body(calls, kw, path, 
 
 
 def test_the_record_action_list_is_the_routes(calls):
-    assert broker.APP_DATA_ACTIONS == ("describe", "query", "get", "create", "update",
-                                       "delete", "delete_preview")
+    assert broker.APP_DATA_ACTIONS == ("describe", "query", "get", "history", "version",
+                                       "create", "update", "delete", "delete_preview",
+                                       "transaction")
     out = app_data(action="batch", app="habits")
     assert out.startswith("error: action must be one of describe|query|")
     assert calls == []
@@ -264,6 +278,8 @@ def test_the_record_action_list_is_the_routes(calls):
     ({"action": "query", "app": "habits"}, "view"),
     ({"action": "get", "app": "habits", "collection": "habits"}, "id"),
     ({"action": "get", "app": "habits", "id": "r1"}, "collection"),
+    ({"action": "version", "app": "habits", "collection": "habits", "id": "r1"},
+     "version"),
     ({"action": "create", "app": "habits", "collection": "habits", "values": {}},
      "request_id"),
     ({"action": "create", "app": "habits", "collection": "habits", "request_id": "w"},
@@ -294,6 +310,9 @@ def assert_untrusted(out: str, app: str):
 @pytest.mark.parametrize("kw", [
     {"action": "query", "app": "habits", "view": "recent"},
     {"action": "get", "app": "habits", "collection": "habits", "id": "r1"},
+    {"action": "history", "app": "habits", "collection": "habits", "id": "r1"},
+    {"action": "version", "app": "habits", "collection": "habits", "id": "r1",
+     "version": 1},
     {"action": "delete_preview", "app": "habits", "collection": "habits", "ids": ["r1"]},
 ])
 def test_record_reads_are_an_untrusted_block(calls, kw):

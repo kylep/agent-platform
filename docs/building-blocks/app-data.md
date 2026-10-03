@@ -132,7 +132,7 @@ only.
 | `collection` | the name |
 | `description` | at most 500 characters |
 | `fields` | 1–64 fields, `{name: spec}` |
-| `write_mode` | `editable` (default) or `immutable` |
+| `write_mode` | `editable` (default), `immutable`, or `versioned` |
 | `access` | `read`, `create`, `update`, `delete`: principal lists |
 | `writers` | tool-only verbs: `{create\|update\|delete: ["tool:<name>"]}` |
 | `rules` | up to 20 |
@@ -169,6 +169,14 @@ field's read/write access covers the whole list, including every object item.
 field names: `id`, `created_at`, `updated_at`, `author`, `via`, `version`,
 `collection_version`.
 
+`versioned` records can be updated with the normal compare-and-swap
+`expected_version`; each change preserves the previous snapshot. The
+`app_data` tool's `history` action returns newest-first pages (at most 100
+versions, with an exclusive `before_version` cursor), and `version` reads one
+numbered snapshot. Both apply the **current** field-read policy, including to
+old values. Editable records keep internal audit rows but do not expose them
+through these actions. Deleting a record removes its history too.
+
 **Rules:**
 - `{"kind": "unique", "fields": [...]}` on up to four fields, checked under
   a per-collection lock (`pg_advisory_xact_lock` on Postgres);
@@ -200,7 +208,8 @@ An indexed text value is at most 256 characters.
 | `sort` | up to 3 `{field, dir}`; default `created_at` descending |
 | `limit` | 1–200, default 50 |
 | `paging` | keyset paging with an opaque `cursor` |
-| `aggregates` | exactly one `{"fn": "count", "as": name}` makes a count view |
+| `aggregates` | `count`, `sum`, `avg`, `min`, `max`; numeric operators name a numeric `field`, and may set a positive `divide_by` for units |
+| `group_by` | optional `{field, bucket}`; a date/datetime field can bucket by `day`, `week` (Monday), or `month` |
 
 Filter operators: `eq`, `ne`, `lt`, `lte`, `gt`, `gte` (ordered types),
 `in` (a literal list of 1–50), `is_null` (`true`/`false`), `contains`
@@ -212,7 +221,13 @@ before it. `anchor: "max(<field>)"` measures back from the newest value among
 the records the other filters select. A filter value is a literal of the
 field's type or `{"param": name}`; an unset optional parameter with no
 default drops the filters that use it. Every declared parameter must be
-used. A count view takes no `fields`, `sort`, `limit` or `paging`.
+used. A scalar calculation has one aggregate and returns one value. A grouped
+calculation may have up to five measures and returns rows sorted by group.
+Calculated rows do not identify source records, so they cannot carry record
+actions or row links. Calculations scan at most 10,000 matching records and
+return at most the view's `limit` groups; exceeding either bound is an error,
+never a partial answer. The DSL supplies typed operators, not executable
+code, SQL, JavaScript or an arbitrary expression.
 
 ### Tool views
 
@@ -246,12 +261,20 @@ marker when the stored result has aged past its interval.
 ### Pages
 
 A `typed/v2` page has a `page` name, a `title`, optional `params` (up to 8)
-and up to 50 `blocks`:
+and up to 50 `blocks`. A page may also supply `layout`: static HTML with
+named `<ap-view name="slot"></ap-view>` elements. Each block then declares
+one matching `slot`. The platform validates matching slots, proper nesting,
+approved structural tags and the classes `ap-layout`, `ap-stack`,
+`ap-grid`, `ap-card`, `ap-hero`, `ap-muted`. It refuses scripts,
+event attributes, custom styles, arbitrary links and unknown tags. The web
+client reconstructs safe React elements and inserts authorized blocks at
+their slots; authored HTML never executes and cannot call an API itself.
+Actions still use the block's reviewed action template.
 
 | block | keys |
 |---|---|
 | `text` | `style` (`heading`/`paragraph`), `text` (≤ 4,000), optional `link` to `{page}` of this App or `{path}` on the platform |
-| `metric` | `label`, a count `view`, `params` |
+| `metric` | `label`, a scalar calculation `view`, `params` |
 | `table` | a record `view`, `title`, 1–12 `columns` (`field`, `label`, `format`), `params`, optional `row_link: {page, param}` |
 | `detail` | a record `view`, `title`, `fields`, `params`: the first record the view returns |
 
@@ -392,8 +415,9 @@ approved definition grants them.
 - **Reads** return `{id, values, restricted}` per row.
 - **Retired Apps** refuse writes (`AD-APP-RETIRED`) and their views.
 
-A view result is `{rows, next_cursor, as_of, stale}`, or `{count, as_of,
-stale}` for a count view. Parameters given as query-string text are coerced
+A view result is `{rows, next_cursor, as_of, stale}`, `{count, as_of,
+stale}` for a count, or `{value, as_of, stale}` for another scalar calculation.
+Parameters given as query-string text are coerced
 to their declared types. `limit` overrides the view's own, up to 200; a
 cursor belongs to one view (`AD-CURSOR`).
 
@@ -458,9 +482,11 @@ limits are defined but not yet checked by `create` and `draft`.
 
 ## Tools
 
-Both tools are **Kyle-only grants** (`KYLE_ONLY_TOOLS`): only Kyle's browser
-session can add them to or remove them from an agent, and an agent holding
-one is editable only by Kyle or itself ([security.md](security.md)). They
+Both tools are **Kyle-only grants** (`KYLE_ONLY_TOOLS`): Kyle's browser
+session or a specifically configured, unbound human admin API key can add
+them to or remove them from an agent. Agent/run keys and workload identities
+cannot, even when they hold `agents_grant`. An agent holding one is editable
+only by Kyle's human authority or itself ([security.md](security.md)). They
 call the agent routes `POST /api/app-data/agent/…`, which answer only an
 agent run: the run's frozen grants must hold the tool, and a caller with no
 run (an admin API key) is refused. Errors are
@@ -469,7 +495,7 @@ run (an admin API key) is refused. Errors are
 | tool | actions (route suffix) |
 |---|---|
 | `apps` | `apps/schema`, `list`, `create`, `get`, `draft`, `notes`, `validate`, `preview`, `publish`, `rollback`, `retire`, `authority`, `health`, `propose`, `proposal` |
-| `app_data` | `records/describe`, `query`, `get`, `create`, `update`, `delete`, `delete_preview` |
+| `app_data` | `records/describe`, `query`, `get`, `history`, `version`, `create`, `update`, `delete`, `delete_preview` |
 
 `apps` acts only on Apps the caller owns (`AL-NOT-OWNER`), except `list`,
 which also shows Apps whose approved facts let the caller read.

@@ -749,6 +749,76 @@ async def get_record(session, ctx: AppContext, caller: Caller, collection: str,
     return present(access, record)
 
 
+def _versioned(ctx: AppContext, caller: Caller, collection: str) -> tuple[CollectionDef, Access]:
+    c = ctx.collection(collection)
+    access = ctx.access(c, caller)
+    access.require_rows()
+    if c.write_mode != "versioned":
+        raise RecordError("AD-NOT-VERSIONED", f"{collection} does not expose record history",
+                          409)
+    return c, access
+
+
+def _at_version(access: Access, current: AppDataRecord,
+                old: AppDataRecordVersion) -> dict:
+    """Present a past snapshot through today's field permissions, never the
+    writer's old ones. A widened or narrowed grant takes effect immediately."""
+    snapshot = AppDataRecord(
+        app_id=current.app_id, collection=current.collection, id=current.id,
+        current_version=old.version, created_at=current.created_at,
+        updated_at=old.updated_at, author=old.author, via=old.via,
+        collection_version=old.collection_version, doc=old.doc)
+    return present(access, snapshot)
+
+
+async def get_record_version(session, ctx: AppContext, caller: Caller, collection: str,
+                             record_id: str, version: int) -> dict:
+    c, access = _versioned(ctx, caller, collection)
+    if version < 1:
+        raise RecordError("AD-VERSION", "version must be positive", 422)
+    current = await _fetch(session, ctx, c, record_id)
+    if version == current.current_version:
+        return present(access, current)
+    if version > current.current_version:
+        raise RecordError("AD-NOT-FOUND", f"no {collection} version {version}", 404)
+    old = await session.get(AppDataRecordVersion,
+                            (ctx.app_id, collection, record_id, version))
+    if old is None:
+        raise RecordError("AD-NOT-FOUND", f"no {collection} version {version}", 404)
+    return _at_version(access, current, old)
+
+
+async def record_history(session, ctx: AppContext, caller: Caller, collection: str,
+                         record_id: str, *, limit: int = 50,
+                         before_version: int | None = None) -> dict:
+    """Newest first; `before_version` is an exclusive keyset cursor. The
+    current row and older snapshots use the same redaction policy."""
+    c, access = _versioned(ctx, caller, collection)
+    if not 1 <= limit <= 100 or before_version is not None and before_version < 1:
+        raise RecordError("AD-VERSION", "limit is 1-100 and before_version is positive", 422)
+    current = await _fetch(session, ctx, c, record_id)
+    ceiling = min(current.current_version, before_version - 1 if before_version else
+                  current.current_version)
+    if ceiling < 1:
+        return {"versions": [], "next_before_version": None}
+    rows: list[tuple[int, dict]] = []
+    if ceiling == current.current_version:
+        rows.append((current.current_version, present(access, current)))
+    older = (await session.execute(
+        select(AppDataRecordVersion).where(
+            AppDataRecordVersion.app_id == ctx.app_id,
+            AppDataRecordVersion.collection == collection,
+            AppDataRecordVersion.record_id == record_id,
+            AppDataRecordVersion.version <= min(ceiling, current.current_version - 1))
+        .order_by(AppDataRecordVersion.version.desc()).limit(limit + 1)
+    )).scalars().all()
+    rows.extend((old.version, _at_version(access, current, old)) for old in older)
+    more = len(rows) > limit
+    page = rows[:limit]
+    return {"versions": [{"version": version, "record": value} for version, value in page],
+            "next_before_version": page[-1][0] if more else None}
+
+
 async def _fetch(session, ctx: AppContext, c: CollectionDef, record_id: str, *,
                  lock: bool = False) -> AppDataRecord:
     stmt = select(R).where(scope(ctx, c.collection), R.id == record_id)

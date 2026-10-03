@@ -460,7 +460,6 @@ def test_invalid_retention(retention, expected):
 
 
 @pytest.mark.parametrize("change, expected", [
-    ({"write_mode": "versioned"}, ("JD-NOT-YET-R2", "$.write_mode")),
     ({"fields": {"r": {"type": "ref", "collection": "habits", "on_delete": "cascade"}}},
      ("JD-NOT-YET-R2", "$.fields.r.on_delete")),
     ({"fields": {"r": {"type": "ref", "collection": "habits", "pin_version": True}}},
@@ -476,7 +475,8 @@ def test_deferred_collection_features_name_their_release(change, expected):
 
 def test_deferred_error_message_says_not_available_yet():
     with pytest.raises(DefinitionError) as caught:
-        d.validate_collection(with_changes(HABITS, write_mode="versioned"))
+        d.validate_collection(with_changes(HABITS, fields={"r": {
+            "type": "ref", "collection": "habits", "on_delete": "cascade"}}))
     assert "not available yet (Release 2)" in caught.value.issues[0].message
 
 
@@ -492,7 +492,8 @@ def test_errors_carry_value_and_fix_and_serialize():
 
 
 def test_all_issues_are_reported_together():
-    body = with_changes(HABITS, surprise=1, write_mode="versioned",
+    body = with_changes(HABITS, surprise=1, fields={"r": {
+        "type": "ref", "collection": "habits", "on_delete": "cascade"}},
                         access={"read": ["everyone"]})
     codes = {code for code, _ in collection_errors(body)}
     assert {"JD-UNKNOWN-KEY", "JD-NOT-YET-R2", "JD-PRINCIPAL"} <= codes
@@ -650,12 +651,9 @@ def test_number_fields_accept_int_params_and_values():
 
 
 @pytest.mark.parametrize("change, expected", [
-    ({"group_by": [{"field": "day", "bucket": "week"}]}, ("JD-NOT-YET-R3", "$.group_by")),
     ({"fill_missing": True}, ("JD-NOT-YET-R3", "$.fill_missing")),
     ({"normalize": "first"}, ("JD-NOT-YET-R3", "$.normalize")),
     ({"downsample": 400}, ("JD-NOT-YET-R3", "$.downsample")),
-    ({"aggregates": [{"fn": "sum", "field": "x", "as": "total"}]},
-     ("JD-NOT-YET-R3", "$.aggregates[0].fn")),
     ({"filter": [{"op": "exists", "collection": "feedback", "filter": []}]},
      ("JD-NOT-YET-R2", "$.filter[0].op")),
     ({"filter": [{"op": "not_exists", "collection": "feedback", "filter": []}]},
@@ -790,8 +788,9 @@ def test_page_blocks_bound():
      ("JD-TEMPLATE-EMPTY", "$.pages[0].actions[0]")),
     ({"name": "a", "kind": "delete", "collection": "habits", "presets": {"done": True}},
      ("JD-UNKNOWN-KEY", "$.pages[0].actions[0].presets")),
-    ({"name": "a", "kind": "new_version", "collection": "habits"},
-     ("JD-NOT-YET-R2", "$.pages[0].actions[0].kind")),
+    ({"name": "a", "kind": "new_version", "collection": "habits",
+      "editable_fields": ["habit"]},
+     ("JD-TEMPLATE-VERSIONED", "$.pages[0].actions[0].kind")),
     ({"name": "a", "kind": "tool", "collection": "habits"},
      ("JD-NOT-YET-R2", "$.pages[0].actions[0].kind")),
     ({"name": "a", "kind": "launch", "collection": "habits"},
@@ -833,10 +832,7 @@ def test_duplicate_template_names_are_refused():
 
 
 @pytest.mark.parametrize("block, expected", [
-    ({"kind": "chart", "type": "bar", "view": "recent"}, "JD-NOT-YET-R3"),
-    ({"kind": "calendar", "view": "recent"}, "JD-NOT-YET-R3"),
     ({"kind": "sparkline", "view": "recent"}, "JD-NOT-YET-R3"),
-    ({"kind": "stat_row", "views": ["recent"]}, "JD-NOT-YET-R3"),
     ({"kind": "list_filter", "param": "habit"}, "JD-NOT-YET-R3"),
     ({"kind": "image", "field": "x"}, "JD-NOT-YET-R3"),
 ])
@@ -846,15 +842,33 @@ def test_deferred_page_components_name_their_release(block, expected):
     assert all(code == expected for code, _ in errors)
 
 
+def test_chart_calendar_and_stat_row_validate_axes_against_source_fields():
+    body = habit_bundle()
+    body["pages"][0]["blocks"] = [
+        {"kind": "chart", "view": "recent", "x": "day", "y": "done"},
+        {"kind": "calendar", "view": "recent", "day": "day", "value": "habit"},
+        {"kind": "stat_row", "view": "recent",
+         "columns": [{"field": "does_not_exist"}]},
+    ]
+    errors = errors_of(d.validate_app, body)
+    assert ("JD-PAGE-COLUMN", "$.pages[0].blocks[0].y") in errors
+    assert ("JD-PAGE-COLUMN", "$.pages[0].blocks[1].value") in errors
+    assert ("JD-PAGE-COLUMN", "$.pages[0].blocks[2].columns[0].field") in errors
+
+
 def test_page_refresh_is_release_three():
     assert ("JD-NOT-YET-R3", "$.refresh") in errors_of(
         d.validate_page, habit_page(refresh=30))
 
 
-def test_detail_history_and_tool_actions_are_release_two():
-    errors = errors_of(d.validate_page, habit_page(blocks=[
-        {"kind": "detail", "view": "by_habit", "fields": ["day"], "history": True}]))
-    assert ("JD-NOT-YET-R2", "$.blocks[0].history") in errors
+def test_detail_history_requires_versioned_records():
+    bundle = habit_bundle()
+    bundle["pages"] = [habit_page(blocks=[
+        {"kind": "detail", "view": "recent", "fields": ["day"], "history": True}])]
+    assert ("JD-PAGE-HISTORY", "$.pages[0].blocks[0].history") in errors_of(
+        d.validate_app, bundle)
+    bundle["collections"][0]["write_mode"] = "versioned"
+    assert d.validate_app(bundle).pages["home"].blocks[0].history is True
 
 
 # --- bundles -----------------------------------------------------------------
@@ -890,9 +904,9 @@ def test_bundle_reports_shape_and_cross_errors_together():
 
 def test_bundle_views_over_an_invalid_collection_are_not_double_reported():
     bundle = habit_bundle()
-    bundle["collections"][0]["write_mode"] = "versioned"
+    bundle["collections"][0]["write_mode"] = "append"
     errors = errors_of(d.validate_app, bundle)
-    assert errors == [("JD-NOT-YET-R2", "$.collections[0].write_mode")]
+    assert errors == [("JD-VALUE", "$.collections[0].write_mode")]
 
 
 def test_bundle_shape():
@@ -927,6 +941,27 @@ def test_count_view_may_be_parameterized():
                                          "view": "count_for",
                                          "params": {"h": {"page_param": "habit"}}})
     d.validate_app(bundle)
+
+
+def test_html_layout_has_named_slots_and_no_executable_surface():
+    bundle = habit_bundle()
+    bundle["pages"][0]["layout"] = (
+        '<section class="ap-grid">' +
+        ''.join(f'<ap-view name="{name}"></ap-view>' for name in
+                ("intro", "days", "recent", "by_habit", "tickets")) +
+        '</section>')
+    for block, slot in zip(bundle["pages"][0]["blocks"],
+                           ("intro", "days", "recent", "by_habit", "tickets")):
+        block["slot"] = slot
+    d.validate_app(bundle)
+    for broken in (
+        bundle["pages"][0]["layout"].replace("<section", "<script"),
+        bundle["pages"][0]["layout"].replace('class="ap-grid"', 'onclick="alert(1)"'),
+        bundle["pages"][0]["layout"].replace('name="recent"', 'name="days"'),
+    ):
+        changed = copy.deepcopy(bundle)
+        changed["pages"][0]["layout"] = broken
+        assert ("JD-PAGE-LAYOUT", "$.pages[0].layout") in errors_of(d.validate_app, changed)
 
 
 # --- schema export -----------------------------------------------------------
@@ -1026,10 +1061,12 @@ def test_capabilities_list_built_and_deferred_features():
     assert caps["version"] == d.CAPABILITIES_VERSION
     assert set(caps["field_types"]) == {"string", "text", "int", "number", "bool", "date",
                                         "datetime", "enum", "ref", "url", "artifact", "list"}
-    assert set(caps["components"]) == {"table", "detail", "metric", "text"}
+    assert set(caps["components"]) == {"table", "detail", "metric", "text",
+                                       "chart", "calendar", "stat_row"}
     assert set(caps["filter_ops"]) == {"eq", "ne", "in", "lt", "lte", "gt", "gte",
                                        "is_null", "within_last", "contains"}
-    assert caps["deferred"]["versioned"] == 2 and caps["deferred"]["chart"] == 3
+    assert "versioned" in caps["write_modes"] and "versioned" not in caps["deferred"]
+    assert "chart" not in caps["deferred"]
     assert caps["limits"]["view_limit"] == 200 and caps["limits"]["indexed_fields"] == 4
 
 

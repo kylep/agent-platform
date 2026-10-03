@@ -163,6 +163,7 @@ async def authenticate_bearer(request: Request, token: str,
                 return None
             request.state.api_key_run_id = k.run_id
             request.state.api_key_agent = k.agent
+            request.state.api_key_name = k.name
             request.state.auth_kind = "key"
             return (k.name, k.role)
     elif token.count(".") == 2:
@@ -204,7 +205,7 @@ async def authenticate_bearer(request: Request, token: str,
 # the run itself. Outside these it authenticates nothing: whoami (identity
 # only, no authority) and the app_data routes, whose module lets it through to
 # the record routes and refuses it on the builder, Kyle and quota routes.
-TOOL_CALL_PATHS = ("/api/whoami",)
+TOOL_CALL_PATHS = ("/api/whoami", "/api/reports")
 TOOL_CALL_PREFIXES = ("/api/app-data/",)
 
 

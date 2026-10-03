@@ -85,12 +85,20 @@ CODES: dict[str, str] = {
     "JD-PAGE-LINK": "Link to a page of this App that declares the parameter, or to a "
                     "platform path such as `/tickets`.",
     "JD-PAGE-ACTION": "Name an action template the page declares, on the block's collection.",
-    "JD-TEMPLATE-KIND": "Use create, update or delete.",
+    "JD-PAGE-HISTORY": "Show history only for a versioned collection's record detail.",
+    "JD-PAGE-LAYOUT": "Use approved HTML tags/classes and one named ap-view per block; scripts and event attributes are forbidden.",
+    "JD-PAGE-CALC": "Calculated groups are display rows, not editable source records.",
+    "JD-AGGREGATE-FIELD": "Count records, or name an int/number field for a numeric calculation.",
+    "JD-AGGREGATE-SCALE": "Scale only numeric calculations by a positive divisor.",
+    "JD-AGGREGATE-ALIAS": "Give each calculated measure a distinct name that does not replace the group field.",
+    "JD-GROUP-BY": "Group by a declared field; date buckets need a date or datetime field.",
+    "JD-TEMPLATE-KIND": "Use create, update, new_version or delete.",
     "JD-TEMPLATE-FIELD": "Name a field the template's collection defines (not a system field), "
                          "once, in either `presets` or `editable_fields`.",
     "JD-PRESET-VALUE": "Preset a value the field accepts, inside its bounds.",
     "JD-TEMPLATE-REQUIRED": "Preset or make editable every required field.",
     "JD-TEMPLATE-IMMUTABLE": "Immutable collections can't be updated; use create or delete.",
+    "JD-TEMPLATE-VERSIONED": "Use new_version only with a versioned collection.",
     "JD-TEMPLATE-TOOL-ONLY": "Use the approved tool for this collection's write; a page template cannot bypass it.",
     "JD-TEMPLATE-EMPTY": "Preset or make editable at least one field.",
     # App tools (R1b).

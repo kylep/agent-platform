@@ -35,7 +35,8 @@ KYLE = Caller("kyle")
 def _page_caller(template, collection) -> Caller:
     fields = frozenset(getattr(template, "editable_fields", [])) | frozenset(
         getattr(template, "presets", {}))
-    return Caller("kyle", page_scope=(collection.collection, template.kind, fields))
+    verb = "update" if template.kind == "new_version" else template.kind
+    return Caller("kyle", page_scope=(collection.collection, verb, fields))
 
 
 def _digest(value) -> str:
@@ -72,8 +73,11 @@ async def _published(session, app_ref: str, page_name: str, template_name: str):
                                    for b in page.blocks):
         raise RecordError("AD-NO-TEMPLATE", "no action template bound to this page", 404)
     collection = ctx.collection(template.collection)
-    if collection.writers is not None and getattr(collection.writers, template.kind):
+    verb = "update" if template.kind == "new_version" else template.kind
+    if collection.writers is not None and getattr(collection.writers, verb):
         raise RecordError("AD-TOOL-ONLY", "this collection writes only through its tool", 403)
+    if template.kind == "new_version" and collection.write_mode != "versioned":
+        raise RecordError("AD-NOT-VERSIONED", "new_version requires a versioned collection", 409)
     version = L.page_version(await L._rows(session, app.id), app, page_name)
     return app, ctx, template, collection, version
 
@@ -102,7 +106,7 @@ async def _snapshot(session, ctx, template, collection, record_id, editable):
         raise RecordError("AD-TEMPLATE-TARGET", "update and delete need a record id", 422)
     access = ctx.access(collection, caller)
     access.require_rows()
-    access.require_verb(template.kind)
+    access.require_verb("update" if template.kind == "new_version" else template.kind)
     row = await rec._fetch(session, ctx, collection, record_id)
     current = rec.present(access, row)
     if isinstance(template, DeleteTemplate):
@@ -209,7 +213,7 @@ async def dispatch(session, intent_id: str, digest: str) -> dict:
             await rec.bump_counters(session, app.id, [collection.collection])
             result = {"collection": collection.collection, "id": row.id,
                       "version": row.current_version}
-        elif intent.verb == "update":
+        elif intent.verb in ("update", "new_version"):
             row = await rec._update(session, ctx, caller, collection, intent.record_id,
                                     intent.values, intent.record_version)
             await rec.bump_counters(session, app.id, [collection.collection])

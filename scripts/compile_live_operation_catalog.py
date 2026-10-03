@@ -167,6 +167,10 @@ def _effect_policy(source: str, tool: str, action: str) -> tuple[list[str], str]
     if source == "mcp-custom":
         if tool == "app_summary" and action == "counts":
             return ["reads_sensitive"], "private"
+        if tool == "running":
+            return (["reads_sensitive"] if action in ("dashboard", "calendar", "weekly",
+                                                      "coach_context")
+                    else ["mutates_platform"]), "private"
         if tool == "image_gen":
             return (["reads_sensitive"] if action == "models"
                     else ["incurs_cost", "mutates_platform"]), "private"

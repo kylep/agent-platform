@@ -12,7 +12,7 @@ from agentplatform.db import Principal, utcnow
 from argon2 import PasswordHasher
 from sqlalchemy import select
 
-from .test_api_app_data import HABITS, OVERVIEW, PAI, add, agent, build
+from .test_api_app_data import DONE, HABITS, OVERVIEW, PAI, RECENT, add, agent, build
 from .test_relay_api import _key
 
 PAGE = {**copy.deepcopy(OVERVIEW), "actions": [
@@ -137,6 +137,43 @@ async def test_update_delete_and_changed_frozen_payload(admin_client, sf):
     assert gone.status_code == 200 and gone.json()["deleted"] is True
     replay = await dispatch(admin_client, deletion)
     assert replay.status_code == 200 and replay.json()["replayed"] is True
+
+
+async def test_new_version_page_action_and_field_redacted_history(admin_client, token_client,
+                                                                   sf):
+    collection = copy.deepcopy(HABITS)
+    collection["write_mode"] = "versioned"
+    app_id = await build(sf, name="version-action", defs=(("collection", collection),
+                         ("view", RECENT), ("view", DONE), ("page", OVERVIEW)))
+    page = copy.deepcopy(PAGE)
+    page["actions"].append({"name": "revise", "kind": "new_version",
+                            "collection": "habits", "editable_fields": ["habit"]})
+    page["blocks"][1]["actions"].append("revise")
+    page["blocks"].append({"kind": "detail", "view": "recent", "fields": ["habit", "note"],
+                           "history": True})
+    async with sf() as s:
+        await L.draft(s, PAI, app_id, request_id="draft-version-page", kind="page",
+                      definition=page)
+    async with sf() as s:
+        proposal = await P.propose(s, PAI, app_id, request_id="propose-version-page")
+    async with sf() as s:
+        await P.approve(s, Actor("kyle"), proposal["id"],
+                        request_id="approve-version-page", digest=proposal["digest"])
+    row = await add(sf, app_id, {"habit": "run", "day": "2026-10-02", "note": "private"})
+    published = (await admin_client.get(f"/api/app-data/apps/{app_id}/pages/overview")).json()
+    assert published["definition"]["components"][-1]["history"] == {
+        "collection": "habits"}
+    intent = await confirm(admin_client, app_id, "revise", record_id=row["id"],
+                           values={"habit": "walk"})
+    assert intent["action"] == "new_version"
+    assert (await dispatch(admin_client, intent)).json()["version"] == 2
+    path = f"/api/app-data/apps/{app_id}/records/habits/{row['id']}/history"
+    history = (await admin_client.get(path)).json()
+    assert [v["version"] for v in history["versions"]] == [2, 1]
+    assert [v["record"]["values"]["habit"] for v in history["versions"]] == ["walk", "run"]
+    assert all(v["record"]["values"]["note"] is None for v in history["versions"])
+    assert all("note" in v["record"]["restricted"] for v in history["versions"])
+    assert (await token_client.get(path)).status_code in (401, 403)
 
 
 async def test_page_write_refuses_api_keys_and_agents(token_client, admin_client, sf,

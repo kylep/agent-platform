@@ -25,6 +25,8 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
+import state_sync
+
 BASE = "https://www.strava.com/api/v3"
 TOKEN_URL = "https://www.strava.com/oauth/token"
 UA = "agent-platform-strava-tool"
@@ -361,9 +363,13 @@ def act(conn, args: dict) -> dict:
             rows.extend(batch)
             if len(batch) < per_page:
                 break
-        asyncio.run(_publish_activities(rows, args.get("after")))
+        stored = (state_sync.sync(args, rows, args.get("after"))
+                  if "_app_data" in args else False)
+        if not stored:
+            asyncio.run(_publish_activities(rows, args.get("after")))
         return {"synced": len(rows), "after": args.get("after"),
-                "latest": max((row["date"] for row in rows), default=None)}
+                "latest": max((row["date"] for row in rows), default=None),
+                "destination": "state_app" if stored else "legacy_kafka"}
     if action == "activity":
         aid = (args.get("id") or "").strip()
         if not aid:

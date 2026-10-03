@@ -435,6 +435,46 @@ async def test_count_views(sf):
     assert result["count"] == 2 and set(result) == {"count", "as_of", "stale"}
 
 
+async def test_generic_sum_and_weekly_group_are_bounded_data_calculations(sf):
+    c = events()
+    ctx = await make_app(sf, [c])
+    await seed(sf, ctx, ROWS[:3] + [{"name": "next", "n": 4,
+                                    "day": "2026-10-06"}])
+    total = view_of(c, aggregates=[{"fn": "sum", "field": "n", "as": "total"}])
+    weeks = view_of(c, aggregates=[{"fn": "count", "as": "runs"},
+                                   {"fn": "sum", "field": "n", "as": "distance"}],
+                    group_by={"field": "day", "bucket": "week"})
+    async with sf() as s:
+        scalar = await execute_view(s, ctx, OWNER, total)
+        grouped = await execute_view(s, ctx, OWNER, weeks)
+    assert scalar["value"] == 10
+    assert [row["values"] for row in grouped["rows"]] == [
+        {"day": "2026-09-28", "runs": 3, "distance": 6},
+        {"day": "2026-10-05", "runs": 1, "distance": 4},
+    ]
+
+
+async def test_calculation_cannot_read_a_hidden_measure(sf):
+    c = events()
+    ctx = await make_app(sf, [c])
+    await seed(sf, ctx, [{"name": "x", "secret": "hidden"}])
+    view = view_of(c, aggregates=[{"fn": "count", "as": "n"}],
+                   group_by={"field": "secret"})
+    async with sf() as s:
+        await refused("AD-PREDICATE-FORBIDDEN", execute_view(s, ctx, OWNER, view))
+
+
+async def test_calculation_refuses_an_unbounded_scan(sf, monkeypatch):
+    from agentplatform.appdata import views
+    c = events()
+    ctx = await make_app(sf, [c])
+    await seed(sf, ctx, ROWS[:2])
+    view = view_of(c, aggregates=[{"fn": "sum", "field": "n", "as": "total"}])
+    monkeypatch.setattr(views, "CALC_SCAN_LIMIT", 1)
+    async with sf() as s:
+        await refused("AD-CALC-LIMIT", execute_view(s, ctx, OWNER, view))
+
+
 async def test_run_view_reads_the_published_view(sf):
     c = events()
     published = {"view": "recent", "collection": "events", "sort": [{"field": "name"}]}

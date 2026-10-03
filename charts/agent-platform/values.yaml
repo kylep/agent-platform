@@ -33,6 +33,11 @@ images:
 mcpFacade:
   adminTools: false
 
+# Names of unbound admin API keys held by Kyle's coding harnesses. These keys
+# can grant App Builder tools through the external MCP facade; agent/run keys
+# cannot. Set to [] for browser-session-only delegation.
+humanAdminKeyNames: [codex-laptop, kyle-claude-code-mcp]
+
 # The MCP broker exposes the platform API as MCP tools over HTTP so token-
 # bearing agents can act without a shell (see docs/design/08).
 mcpBroker:

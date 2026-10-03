@@ -27,7 +27,7 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select
 
@@ -40,7 +40,8 @@ from agentplatform.appdata.access import Caller, RecordError
 from agentplatform.appdata.definitions import TextBlock, ToolViewDef, json_schemas
 from agentplatform.appdata.lifecycle import Actor
 from agentplatform.appdata.models import AppDataProposal
-from agentplatform.appdata.records import get_record, load_app, plan_delete
+from agentplatform.appdata.records import (get_record, get_record_version, load_app,
+                                           plan_delete, record_history)
 from agentplatform.appdata.views import check_view_access, run_view
 from agentplatform.db import AgentDef
 
@@ -265,6 +266,23 @@ async def state_app_page(request: Request, app_id: str, page: str,
             raise _for_web(exc) from None
 
 
+@router.get("/api/app-data/apps/{app_id}/records/{collection}/{record_id}/history")
+async def state_app_record_history(request: Request, app_id: str, collection: str,
+                                   record_id: str, limit: int = Query(default=20, ge=1, le=100),
+                                   before_version: int | None = Query(default=None, ge=1),
+                                   actor: Actor | Caller = Depends(app_reader_session)):
+    async with request.app.state.session_factory() as s:
+        try:
+            app, ctx = await _loaded(s, app_id)
+            if app.status != "active":
+                raise RecordError("AD-APP-RETIRED", "this App is retired", 409)
+            return await record_history(s, ctx, _reader_caller(actor), collection,
+                                        record_id, limit=limit,
+                                        before_version=before_version)
+        except RecordError as exc:
+            raise _for_web(exc) from None
+
+
 @router.get("/api/app-data/apps/{app_id}/views/{view}")
 async def state_app_view(request: Request, app_id: str, view: str,
                     actor: Actor | Caller = Depends(app_reader_session)):
@@ -361,6 +379,15 @@ async def published_page(session, caller: Caller, app_ref: str, name: str) -> di
                 if key:
                     component[key] = [f for f in component[key] if access.can_read(f["field"])]
                     if not component[key]:
+                        continue
+                if component["kind"] in ("chart", "calendar"):
+                    axes = ("x", "y") if component["kind"] == "chart" else ("day", "value")
+                    if any(not access.can_read(component[axis]) for axis in axes):
+                        continue
+                if component["kind"] == "stat_row":
+                    component["columns"] = [f for f in component["columns"]
+                                            if access.can_read(f["field"])]
+                    if not component["columns"]:
                         continue
             visible.append(component)
         if any(not isinstance(b, TextBlock) for b in page.blocks) and not any(
@@ -627,6 +654,15 @@ class RecordRef(AppRef):
     id: str
 
 
+class RecordHistoryIn(RecordRef):
+    limit: int = Field(default=50, ge=1, le=100)
+    before_version: int | None = Field(default=None, ge=1)
+
+
+class RecordVersionIn(RecordRef):
+    version: int = Field(ge=1)
+
+
 class RecordCreateIn(AppRef):
     request_id: str
     collection: str
@@ -642,6 +678,12 @@ class RecordUpdateIn(RecordRef):
 class RecordDeleteIn(RecordRef):
     request_id: str
     expected_version: int | None = None
+
+
+class RecordTransactionIn(AppRef):
+    request_id: str
+    operations: list[dict[str, Any]] = Field(min_length=1, max_length=100)
+    guards: list[dict[str, Any]] = Field(default_factory=list, max_length=100)
 
 
 class DeletePreviewIn(AppRef):
@@ -700,7 +742,16 @@ async def records_query(request: Request, body: QueryIn,
     async def fn(s):
         app, ctx = await _loaded(s, body.app)
         view = ctx.bundle.views.get(body.view)
-        if view is not None:
+        if isinstance(view, ToolViewDef):
+            fact = ctx.bundle.app_tools.get(view.tool)
+            if fact is None:
+                raise RecordError("AD-TOOL-VIEW-DISABLED", "tool view binding is unavailable", 503)
+            for role in view.sources:
+                binding = fact.roles.get(role)
+                if binding is None:
+                    raise RecordError("AD-TOOL-VIEW-DISABLED", "tool view source is unavailable", 503)
+                tc.require_scope(request, app.id, binding.collection, "read")
+        elif view is not None:
             tc.require_scope(request, app.id, view.collection, "read")
         elif _scope_for(request, app.id) is not None:
             raise RecordError("AD-OUT-OF-SCOPE", f"this tool call may not read view "
@@ -718,6 +769,28 @@ async def records_get(request: Request, body: RecordRef,
         app = await _scoped(request, s, body.app, body.collection, "read")
         ctx = await load_app(s, app.id)
         return await get_record(s, ctx, actor.caller, body.collection, body.id)
+    return await _call(request, fn)
+
+
+@router.post("/api/app-data/agent/records/history")
+async def records_history(request: Request, body: RecordHistoryIn,
+                          actor: Actor = Depends(records_caller)):
+    async def fn(s):
+        app = await _scoped(request, s, body.app, body.collection, "read")
+        ctx = await load_app(s, app.id)
+        return await record_history(s, ctx, actor.caller, body.collection, body.id,
+                                    limit=body.limit, before_version=body.before_version)
+    return await _call(request, fn)
+
+
+@router.post("/api/app-data/agent/records/version")
+async def records_version(request: Request, body: RecordVersionIn,
+                          actor: Actor = Depends(records_caller)):
+    async def fn(s):
+        app = await _scoped(request, s, body.app, body.collection, "read")
+        ctx = await load_app(s, app.id)
+        return await get_record_version(s, ctx, actor.caller, body.collection, body.id,
+                                        body.version)
     return await _call(request, fn)
 
 
@@ -750,6 +823,20 @@ async def records_delete(request: Request, body: RecordDeleteIn,
         return await L.record_delete(
             s, actor, app.id, request_id=body.request_id, collection=body.collection,
             record_id=body.id, expected_version=body.expected_version,
+            check_plan=lambda plan: tc.require_plan_scope(request, app.id, plan))
+    return await _call(request, fn)
+
+
+@router.post("/api/app-data/agent/records/transaction")
+async def records_transaction(request: Request, body: RecordTransactionIn,
+                              actor: Actor = Depends(records_caller)):
+    async def fn(s):
+        app = await L._app(s, body.app)
+        return await L.record_transaction(
+            s, actor, app.id, request_id=body.request_id,
+            operations=body.operations, guards=body.guards,
+            check_scope=lambda collection, verb: tc.require_scope(
+                request, app.id, collection, verb),
             check_plan=lambda plan: tc.require_plan_scope(request, app.id, plan))
     return await _call(request, fn)
 

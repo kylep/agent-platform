@@ -151,6 +151,11 @@ class _Query:
 
     def check_access(self) -> None:
         self.access.require_rows()
+        if self.view.group_by is not None:
+            self.access.require_readable(self.view.group_by.field, "group")
+        for aggregate in self.view.aggregates:
+            if aggregate.field is not None:
+                self.access.require_readable(aggregate.field, "aggregate")
         for item in self.view.filter:
             self.access.require_readable(item.field, "filter")
             if isinstance(item, WithinLastFilter):
@@ -320,6 +325,55 @@ def _as_of(now: datetime) -> str:
     return format_datetime(now)
 
 
+CALC_SCAN_LIMIT = 10_000
+
+
+def _bucket(ctx: AppContext, value: Any, kind: str | None, ftype: str) -> Any:
+    if value is None or kind is None:
+        return value
+    local = _localize(ctx, value, ftype).date()
+    if kind == "week":
+        local -= timedelta(days=local.weekday())
+    elif kind == "month":
+        local = local.replace(day=1)
+    return local.isoformat()
+
+
+def _calculate(ctx: AppContext, view: ViewDef, records: list) -> list[dict]:
+    """Execute only declared numeric operators; no App-authored expression runs."""
+    groups: dict[Any, list] = {}
+    for record in records:
+        key = (_bucket(ctx, _raw(record, view.group_by.field), view.group_by.bucket,
+                       field_type(ctx.collection(view.collection), view.group_by.field))
+               if view.group_by is not None else None)
+        groups.setdefault(key, []).append(record)
+    if view.group_by is None:
+        groups.setdefault(None, [])
+    out = []
+    for key, members in sorted(groups.items(), key=lambda item: (item[0] is None,
+                                                                   str(item[0]))):
+        values = ({view.group_by.field: key} if view.group_by is not None else {})
+        for aggregate in view.aggregates:
+            numbers = ([_raw(record, aggregate.field) for record in members
+                        if _raw(record, aggregate.field) is not None]
+                       if aggregate.field is not None else [])
+            if aggregate.fn == "count":
+                value = len(members)
+            elif aggregate.fn == "sum":
+                value = sum(numbers)
+            elif aggregate.fn == "avg":
+                value = sum(numbers) / len(numbers) if numbers else None
+            elif aggregate.fn == "min":
+                value = min(numbers) if numbers else None
+            else:
+                value = max(numbers) if numbers else None
+            if value is not None and aggregate.divide_by != 1:
+                value = value / aggregate.divide_by
+            values[aggregate.as_] = value
+        out.append(values)
+    return out
+
+
 async def execute_view(session, ctx: AppContext, caller: Caller, view: ViewDef,
                        params: dict | None = None, *, limit: int | None = None,
                        cursor: str | None = None, now: datetime | None = None,
@@ -332,12 +386,33 @@ async def execute_view(session, ctx: AppContext, caller: Caller, view: ViewDef,
     q = _Query(ctx, caller, view, resolve_params(view, params), now)
     q.check_access()
     conds = await q.conditions(session)
-    if view.is_count:
+    if view.aggregates and view.group_by is None and view.aggregates[0].fn == "count":
         count = (await session.execute(select(func.count()).select_from(R)
                                        .where(*conds))).scalar_one()
         if budget is not None:
             budget.charge(count)
         return {"count": count, "as_of": _as_of(now), "stale": False}
+
+    if view.aggregates:
+        if limit is not None and not 1 <= limit <= VIEW_LIMIT:
+            raise RecordError("AD-LIMIT", f"limit must be 1-{VIEW_LIMIT}", 422)
+        records = (await session.execute(select(R).where(*conds)
+                     .limit(CALC_SCAN_LIMIT + 1))).scalars().all()
+        if len(records) > CALC_SCAN_LIMIT:
+            raise RecordError("AD-CALC-LIMIT",
+                              "calculation exceeds its bounded scan", 422)
+        if budget is not None:
+            budget.charge(len(records))
+        calculated = _calculate(ctx, view, records)
+        if view.group_by is None:
+            return {"value": next(iter(calculated[0].values())), "as_of": _as_of(now),
+                    "stale": False}
+        size = limit or view.limit
+        if len(calculated) > size:
+            raise RecordError("AD-CALC-LIMIT", "too many calculation groups", 422)
+        return {"rows": [{"id": str(row[view.group_by.field]), "values": row,
+                          "restricted": []} for row in calculated],
+                "next_cursor": None, "as_of": _as_of(now), "stale": False}
 
     if limit is not None and not 1 <= limit <= VIEW_LIMIT:
         raise RecordError("AD-LIMIT", f"limit must be 1-{VIEW_LIMIT}", 422)

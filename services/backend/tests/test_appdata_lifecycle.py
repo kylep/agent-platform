@@ -114,6 +114,46 @@ async def built(sf, *defs, actor=PAI):
     return app_id
 
 
+async def test_record_transaction_links_new_records_atomically_and_replays(sf):
+    parent = {"collection": "parents", "fields": {
+        "title": {"type": "string", "required": True}}}
+    child = {"collection": "children", "fields": {
+        "parent": {"type": "ref", "collection": "parents", "required": True,
+                   "on_delete": "restrict"},
+        "title": {"type": "string", "required": True}}}
+    app_id = await built(sf, ("collection", parent), ("collection", child))
+    p, c = rid(), rid()
+    ops = [{"op": "create", "collection": "parents", "id": p,
+            "values": {"title": "parent"}},
+           {"op": "create", "collection": "children", "id": c,
+            "values": {"parent": p, "title": "child"}}]
+    async with sf() as s:
+        first = await L.record_transaction(s, PAI, app_id, request_id="pair-1",
+                                           operations=ops)
+    assert [r["id"] for r in first["results"]] == [p, c]
+    async with sf() as s:
+        replay = await L.record_transaction(s, PAI, app_id, request_id="pair-1",
+                                            operations=ops)
+        assert replay["results"] == first["results"] and replay["replayed"]
+        assert (await s.execute(select(func.count()).select_from(AppDataRecord))) \
+            .scalar_one() == 2
+    bad = [{"op": "create", "collection": "parents", "id": rid(),
+            "values": {"title": "orphaned if partial"}},
+           {"op": "create", "collection": "children", "id": rid(),
+            "values": {"parent": rid(), "title": "bad ref"}}]
+    async with sf() as s:
+        await refused("AD-REF-MISSING", L.record_transaction(
+            s, PAI, app_id, request_id="pair-2", operations=bad))
+    async with sf() as s:
+        assert (await s.execute(select(func.count()).select_from(AppDataRecord))) \
+            .scalar_one() == 2
+        await refused("AD-VERSION-CONFLICT", L.record_transaction(
+            s, PAI, app_id, request_id="guard-1", guards=[
+                {"collection": "parents", "id": p, "version": 2}],
+            operations=[{"op": "update", "collection": "parents", "id": p,
+                         "expected_version": 1, "values": {"title": "changed"}}]))
+
+
 async def seed_approved(sf, app_id, version, *defs):
     """Write published rows straight into the tables: an approved state the
     lifecycle couldn't produce in Release 1a (sharing is a proposal, R1b)."""

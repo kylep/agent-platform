@@ -432,6 +432,25 @@
       "snapshot_eligible": false
     },
     {
+      "id": "core.app_data.history@1",
+      "source": "mcp-core",
+      "tool": "app_data",
+      "action": "history",
+      "category": "platform_capability",
+      "effects": [
+        "mutates_platform"
+      ],
+      "output_classification": "private",
+      "view_eligible": false,
+      "reason": "No reviewed human page adapter",
+      "input_schema": null,
+      "output_schema": null,
+      "target_scope": null,
+      "supported_callers": [],
+      "limits": null,
+      "snapshot_eligible": false
+    },
+    {
       "id": "core.app_data.query@1",
       "source": "mcp-core",
       "tool": "app_data",
@@ -451,10 +470,48 @@
       "snapshot_eligible": false
     },
     {
+      "id": "core.app_data.transaction@1",
+      "source": "mcp-core",
+      "tool": "app_data",
+      "action": "transaction",
+      "category": "platform_capability",
+      "effects": [
+        "mutates_platform"
+      ],
+      "output_classification": "private",
+      "view_eligible": false,
+      "reason": "No reviewed human page adapter",
+      "input_schema": null,
+      "output_schema": null,
+      "target_scope": null,
+      "supported_callers": [],
+      "limits": null,
+      "snapshot_eligible": false
+    },
+    {
       "id": "core.app_data.update@1",
       "source": "mcp-core",
       "tool": "app_data",
       "action": "update",
+      "category": "platform_capability",
+      "effects": [
+        "mutates_platform"
+      ],
+      "output_classification": "private",
+      "view_eligible": false,
+      "reason": "No reviewed human page adapter",
+      "input_schema": null,
+      "output_schema": null,
+      "target_scope": null,
+      "supported_callers": [],
+      "limits": null,
+      "snapshot_eligible": false
+    },
+    {
+      "id": "core.app_data.version@1",
+      "source": "mcp-core",
+      "tool": "app_data",
+      "action": "version",
       "category": "platform_capability",
       "effects": [
         "mutates_platform"
@@ -3003,6 +3060,324 @@
       "target_scope": null,
       "supported_callers": [],
       "limits": null,
+      "snapshot_eligible": false
+    },
+    {
+      "id": "tool.running.brief@1",
+      "source": "mcp-custom",
+      "tool": "running",
+      "action": "brief",
+      "category": "domain_capability",
+      "effects": [
+        "mutates_platform"
+      ],
+      "output_classification": "private",
+      "view_eligible": false,
+      "reason": "No reviewed human page adapter",
+      "input_schema": null,
+      "output_schema": null,
+      "target_scope": null,
+      "supported_callers": [],
+      "limits": null,
+      "snapshot_eligible": false
+    },
+    {
+      "id": "tool.running.calendar@1",
+      "source": "mcp-custom",
+      "tool": "running",
+      "action": "calendar",
+      "category": "domain_capability",
+      "effects": [
+        "reads_sensitive"
+      ],
+      "output_classification": "private",
+      "view_eligible": true,
+      "reason": "Declared view action over App tool roles",
+      "input_schema": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "rows": {
+            "type": "array",
+            "maxItems": 190,
+            "items": {
+              "type": "object",
+              "properties": {
+                "day": {
+                  "type": "string",
+                  "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"
+                },
+                "distance_km": {
+                  "type": "number",
+                  "minimum": 0
+                },
+                "count": {
+                  "type": "integer",
+                  "minimum": 0
+                }
+              },
+              "required": [
+                "day",
+                "distance_km",
+                "count"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "rows"
+        ],
+        "additionalProperties": false
+      },
+      "target_scope": [
+        "activities"
+      ],
+      "supported_callers": [
+        "human_session",
+        "agent_run",
+        "materializer"
+      ],
+      "limits": {
+        "max_rows": 190,
+        "max_output_bytes": 24576,
+        "timeout_seconds": 60,
+        "provider_spend": false
+      },
+      "snapshot_eligible": false
+    },
+    {
+      "id": "tool.running.coach_context@1",
+      "source": "mcp-custom",
+      "tool": "running",
+      "action": "coach_context",
+      "category": "domain_capability",
+      "effects": [
+        "reads_sensitive"
+      ],
+      "output_classification": "private",
+      "view_eligible": false,
+      "reason": "No reviewed human page adapter",
+      "input_schema": null,
+      "output_schema": null,
+      "target_scope": null,
+      "supported_callers": [],
+      "limits": null,
+      "snapshot_eligible": false
+    },
+    {
+      "id": "tool.running.dashboard@1",
+      "source": "mcp-custom",
+      "tool": "running",
+      "action": "dashboard",
+      "category": "domain_capability",
+      "effects": [
+        "reads_sensitive"
+      ],
+      "output_classification": "private",
+      "view_eligible": true,
+      "reason": "Declared view action over App tool roles",
+      "input_schema": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "rows": {
+            "type": "array",
+            "maxItems": 1,
+            "items": {
+              "type": "object",
+              "properties": {
+                "total_km": {
+                  "type": "number",
+                  "minimum": 0
+                },
+                "activities": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "runs": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "total_elevation_m": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "longest_run_km": {
+                  "type": "number",
+                  "minimum": 0
+                },
+                "fastest_5k": {
+                  "type": "string",
+                  "maxLength": 32
+                },
+                "fastest_10k": {
+                  "type": "string",
+                  "maxLength": 32
+                },
+                "longest_streak": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "current_streak": {
+                  "type": "integer",
+                  "minimum": 0
+                }
+              },
+              "required": [
+                "total_km",
+                "activities",
+                "runs",
+                "total_elevation_m",
+                "longest_run_km",
+                "fastest_5k",
+                "fastest_10k",
+                "longest_streak",
+                "current_streak"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "rows"
+        ],
+        "additionalProperties": false
+      },
+      "target_scope": [
+        "activities"
+      ],
+      "supported_callers": [
+        "human_session",
+        "agent_run",
+        "materializer"
+      ],
+      "limits": {
+        "max_rows": 1,
+        "max_output_bytes": 4096,
+        "timeout_seconds": 60,
+        "provider_spend": false
+      },
+      "snapshot_eligible": false
+    },
+    {
+      "id": "tool.running.recover_reports@1",
+      "source": "mcp-custom",
+      "tool": "running",
+      "action": "recover_reports",
+      "category": "domain_capability",
+      "effects": [
+        "mutates_platform"
+      ],
+      "output_classification": "private",
+      "view_eligible": false,
+      "reason": "No reviewed human page adapter",
+      "input_schema": null,
+      "output_schema": null,
+      "target_scope": null,
+      "supported_callers": [],
+      "limits": null,
+      "snapshot_eligible": false
+    },
+    {
+      "id": "tool.running.report@1",
+      "source": "mcp-custom",
+      "tool": "running",
+      "action": "report",
+      "category": "domain_capability",
+      "effects": [
+        "mutates_platform"
+      ],
+      "output_classification": "private",
+      "view_eligible": false,
+      "reason": "No reviewed human page adapter",
+      "input_schema": null,
+      "output_schema": null,
+      "target_scope": null,
+      "supported_callers": [],
+      "limits": null,
+      "snapshot_eligible": false
+    },
+    {
+      "id": "tool.running.weekly@1",
+      "source": "mcp-custom",
+      "tool": "running",
+      "action": "weekly",
+      "category": "domain_capability",
+      "effects": [
+        "reads_sensitive"
+      ],
+      "output_classification": "private",
+      "view_eligible": true,
+      "reason": "Declared view action over App tool roles",
+      "input_schema": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "rows": {
+            "type": "array",
+            "maxItems": 12,
+            "items": {
+              "type": "object",
+              "properties": {
+                "week_start": {
+                  "type": "string",
+                  "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"
+                },
+                "distance_km": {
+                  "type": "number",
+                  "minimum": 0
+                },
+                "runs": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "moving_time_s": {
+                  "type": "integer",
+                  "minimum": 0
+                }
+              },
+              "required": [
+                "week_start",
+                "distance_km",
+                "runs",
+                "moving_time_s"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "rows"
+        ],
+        "additionalProperties": false
+      },
+      "target_scope": [
+        "activities"
+      ],
+      "supported_callers": [
+        "human_session",
+        "agent_run",
+        "materializer"
+      ],
+      "limits": {
+        "max_rows": 12,
+        "max_output_bytes": 4096,
+        "timeout_seconds": 60,
+        "provider_spend": false
+      },
       "snapshot_eligible": false
     },
     {

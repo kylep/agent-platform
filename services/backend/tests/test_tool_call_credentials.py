@@ -30,12 +30,14 @@ EXECUTOR = "executor.sa.token"
 VIEWS_EXECUTOR = "views.sa.token"
 PAI_SA = "pai.sa.token"
 BOB_SA = "bob.sa.token"
+COACH_SA = "coach.sa.token"
 IDENTITIES = {
     BROKER: "system:serviceaccount:ap:ap-mcp-broker",
     EXECUTOR: "system:serviceaccount:ap:ap-tool-executor",
     VIEWS_EXECUTOR: "system:serviceaccount:ap:ap-tool-executor-views",
     PAI_SA: "system:serviceaccount:ap:agent-pai",
     BOB_SA: "system:serviceaccount:ap:agent-bob",
+    COACH_SA: "system:serviceaccount:ap:agent-running-coach",
 }
 
 LEDGER_YAML = """\
@@ -270,6 +272,59 @@ async def test_a_tool_call_cannot_read_or_set_app_data_quotas(env):
     assert (await env.get(path, headers=_as_executor(minted))).status_code == 403
     assert (await env.put(path, headers=_as_executor(minted),
                           json={"limits": {"max_records": 10 ** 9}})).status_code == 403
+
+
+async def test_running_report_call_is_bound_to_coach_briefs_and_report_action(
+        env, sf, seed_agent):
+    """The executor gains one narrow report route, not a general report API key."""
+    from pathlib import Path
+    _tool(Path(env.app.state.settings.tools_root), "running", """\
+name: running
+description: A reviewed Running App tool with a bounded weekly report action.
+params: {type: object, properties: {action: {type: string}}, required: [action]}
+app_access:
+  roles: [briefs]
+  verbs: [read, create, update]
+""")
+    await seed_agent("running-coach", description="coach",
+                     platform_tools=["mcp__platform__running"])
+    await env.app.state.agent_store.reload()
+    async with sf() as s:
+        s.add(Run(id="run-coach", agent="running-coach", trigger="manual",
+                  requested_by="t", prompt="x", state=RunState.RUNNING))
+        app_id = uuid.uuid4().hex
+        s.add(AppDataApp(id=app_id, name="running", owner_kind="agent",
+                         owner_id="running-coach", approved_version=1))
+        s.add(AppDataDefinition(app_id=app_id, kind="collection", name="briefs",
+                                version=1, state="published", author="agent:running-coach",
+                                body={"collection": "briefs", "fields": {
+                                    "body": {"type": "text", "max": 2000}}}))
+        s.add(AppDataDefinition(app_id=app_id, kind="tool", name="running",
+                                version=1, state="published", author="kyle", body={
+                                    "tool": "running", "roles": {"briefs": {
+                                        "collection": "briefs",
+                                        "verbs": ["read", "create", "update"]}}}))
+        await s.commit()
+    keys = await env.app.state.secret_store.get(runjwt.SECRET_NAME)
+    frozen = runjwt.mint(keys["private_key"], run_id="run-coach",
+                         agent="running-coach", initiated_by="kyle",
+                         tools=["mcp__platform__running"],
+                         sa_name="agent-running-coach", timeout_seconds=300)
+    caller = {"authorization": f"Bearer {COACH_SA}", "run_token": frozen}
+    minted = (await _mint(env, tool="running", caller=caller, action="report")).json()
+    body = {"type": "weekly-running", "date": "2026-09-21", "html": "<p>good week</p>"}
+    r = await env.post("/api/reports", headers=_as_executor(minted), json=body)
+    assert r.status_code == 201, r.text
+    assert (await env.get("/api/reports", headers=_as_executor(minted))).status_code == 403
+    other = (await _mint(env, tool="running", caller=caller, action="dashboard")).json()
+    assert (await env.post("/api/reports", headers=_as_executor(other),
+                           json=body)).status_code == 403
+    assert (await env.post("/api/reports", headers=_as_executor(minted), json={
+        **body, "type": "daily-news"})).status_code == 403
+    assert (await env.delete(f"/api/tool-calls/{minted['jti']}",
+                             headers=_broker())).status_code == 200
+    assert (await env.post("/api/reports", headers=_as_executor(minted),
+                           json=body)).status_code == 401
 
 
 async def test_replay_after_return_is_rejected(env):

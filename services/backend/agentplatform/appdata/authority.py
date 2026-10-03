@@ -75,7 +75,7 @@ TOP_KEYS = frozenset(f.name for f in dataclasses.fields(lang.AppBundle)) | {
     "service_principals"}                                               # M6
 COLLECTION_KEYS = _keys(lang.CollectionDef)
 DEFAULT_WRITE_MODE = lang.CollectionDef.model_fields["write_mode"].default
-WRITE_MODES = frozenset(_literal(lang.CollectionDef, "write_mode")) | {"versioned"}  # R2
+WRITE_MODES = frozenset(_literal(lang.CollectionDef, "write_mode"))
 
 FIELD_KEYS = {kind: _keys(model) for kind, model in _tagged(lang.FieldSpec, "type").items()}
 DEFAULT_ON_DELETE = lang.RefField.model_fields["on_delete"].default
@@ -100,7 +100,7 @@ TEMPLATE_KEYS["new_version"] = TEMPLATE_KEYS["update"]                 # R2
 TOOL_ACTION_KEYS = frozenset({"name", "kind", "label", "tool", "action", "sources", "verbs",
                               "budget"})                                # R2
 
-KIND_ORDER = ("access", "delete", "delete_reach", "retention", "rule", "template", "app_tool",
+KIND_ORDER = ("access", "history", "delete", "delete_reach", "retention", "rule", "template", "app_tool",
               "tool_view", "tool_action", "service_principal", "link", "unmapped")
 _PAST = {"create": "created", "update": "updated", "delete": "deleted"}
 
@@ -264,6 +264,12 @@ def _collection(out, c, edges):
             for principal in principals:
                 out.add("access", principal, name, field, verb)
         _field_shape(out, name, field, spec, fpath, edges, top=True)
+
+    if mode == "versioned":
+        readers = {fact[1] for fact in out.facts
+                   if fact[0] == "access" and fact[2] == name and fact[4] == "read"}
+        for principal in readers:
+            out.add("history", principal, name)
 
     rules = c.get("rules", [])
     if not isinstance(rules, list):
@@ -592,6 +598,9 @@ def widening(approved_facts, new_facts) -> list[str]:
         if kind == "access" and ("declared", fact[2], fact[3]) not in approved \
                 and fact[1] in PRIVATE[fact[4]]:
             continue
+        if kind == "history" and ("declared", fact[2]) not in approved \
+                and fact[1] in PRIVATE["read"]:
+            continue
         if kind == "delete" and ("declared", fact[2]) not in approved \
                 and fact[1] in PRIVATE["delete"]:
             continue
@@ -663,6 +672,8 @@ def _line(fact) -> str:
     kind = fact[0]
     if kind == "access":
         return f"{fact[1]} can {fact[4]} {fact[2]}.{fact[3]}"
+    if kind == "history":
+        return f"{fact[1]} can read past versions of {fact[2]} records"
     if kind == "delete":
         return f"{fact[1]} can delete {fact[2]} records"
     if kind == "delete_reach":
