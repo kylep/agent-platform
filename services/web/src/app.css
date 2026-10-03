@@ -1831,3 +1831,9 @@ a.relay-action { color: var(--ds-link); }
 }
 .ap-hero { display: grid; gap: var(--ds-space-2, .5rem); padding-block: var(--ds-space-5, 1.25rem); }
 .ap-muted { color: var(--ds-text-muted, inherit); }
+
+/* accounts (docs/design/40) */
+.profile-facts { display: grid; grid-template-columns: max-content 1fr; gap: 4px 16px; margin: 0; font-size: 14px; }
+.profile-facts dd { margin: 0; }
+.nav-account { display: flex; flex-direction: column; gap: 4px; align-items: stretch; }
+.nav-account .nav-signout { background: none; border: none; text-align: left; font: inherit; cursor: pointer; width: 100%; }

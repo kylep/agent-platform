@@ -33,6 +33,9 @@ import Help from "./pages/Help";
 import Schedules from "./pages/Schedules";
 import Tasks from "./pages/Tasks";
 import Skills from "./pages/Skills";
+import Profile from "./pages/Profile";
+import SettingsUsers from "./pages/SettingsUsers";
+import SettingsGroups from "./pages/SettingsGroups";
 import Settings from "./pages/Settings";
 import Backups from "./pages/Backups";
 import RestoreReport from "./pages/RestoreReport";
@@ -44,6 +47,7 @@ export default function App() {
         <Route element={<Gate />}>
           <Route path="/setup" element={<Setup />} />
           <Route path="/login" element={<Login />} />
+          <Route path="/profile" element={<Profile />} />
           <Route element={<Layout />}>
             <Route path="/" element={<Dashboard />} />
             <Route path="/agents" element={<Agents />} />
@@ -90,6 +94,8 @@ export default function App() {
             <Route path="/tasks" element={<Tasks />} />
             <Route path="/secrets" element={<Secrets />} />
             <Route path="/settings" element={<Settings />} />
+            <Route path="/settings/users" element={<SettingsUsers />} />
+            <Route path="/settings/groups" element={<SettingsGroups />} />
             <Route path="/backups" element={<Backups />} />
             <Route path="/settings/restore" element={<RestoreReport />} />
             <Route path="*" element={<NotFound />} />

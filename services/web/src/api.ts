@@ -707,13 +707,61 @@ export function login(principal: string, password: string): Promise<{ ok: boolea
   return api("/api/login", { method: "POST", body: JSON.stringify({ principal, password }) });
 }
 
+// --- Human accounts and groups (docs/design/40) -----------------------------
+export type Me = { id: string; username: string; role: string; kind: "system" | "state";
+  group: { id: string; name: string } | null; created_at: string | null };
+export type UserRow = { id: string; username: string; kind: "system" | "state";
+  group: { id: string; name: string } | null; created_at: string | null };
+export type GroupRow = { id: string; name: string; member_count: number; created_at?: string };
+
+const json = (body: unknown): RequestInit => ({ method: "POST", body: JSON.stringify(body) });
+export const getMe = () => api<Me>("/api/me");
+export const registrationOpen = () => api<{ open: boolean }>("/api/register");
+export const register = (username: string, password: string, confirm: string) =>
+  api<{ ok: boolean }>("/api/register", json({ username, password, confirm }));
+export const logout = () => api<{ ok: boolean }>("/api/logout", { method: "POST" });
+export const changeMyPassword = (current: string, next: string, confirm: string) =>
+  api<{ ok: boolean }>("/api/me/password", json({ current, new: next, confirm }));
+export const listUsers = () => api<UserRow[]>("/api/users");
+export const resetUserPassword = (id: string, password: string, confirm: string) =>
+  api<{ ok: boolean }>(`/api/users/${id}/password`, json({ password, confirm }));
+export const setUserGroup = (id: string, groupId: string | null) =>
+  api<unknown>(`/api/users/${id}/group`, { method: "PUT", body: JSON.stringify({ group_id: groupId }) });
+export const deleteUser = (id: string) => api<unknown>(`/api/users/${id}`, { method: "DELETE" });
+export const listGroups = () => api<GroupRow[]>("/api/groups");
+export const createGroup = (name: string) => api<GroupRow>("/api/groups", json({ name }));
+export const renameGroup = (id: string, name: string) =>
+  api<GroupRow>(`/api/groups/${id}`, { method: "PATCH", body: JSON.stringify({ name }) });
+export const deleteGroup = (id: string) => api<unknown>(`/api/groups/${id}`, { method: "DELETE" });
+export const getRegistration = () => api<{ open: boolean }>("/api/settings/registration");
+export const setRegistration = (open: boolean) =>
+  api<{ open: boolean }>("/api/settings/registration", { method: "PUT", body: JSON.stringify({ open }) });
+
+/** The human-readable part of an `api()` failure: FastAPI's `detail` when the
+ *  body carries one, else the raw message. */
+export function apiErrorMessage(err: unknown, fallback: string): string {
+  if (!(err instanceof Error)) return fallback;
+  const m = /^\d+: ([\s\S]*)$/.exec(err.message);
+  if (!m) return fallback;
+  try {
+    const d = (JSON.parse(m[1]) as { detail?: unknown }).detail;
+    if (typeof d === "string") return d;
+  } catch { /* not JSON */ }
+  return m[1] || fallback;
+}
+
 export async function api<T>(path: string, opts: RequestInit = {}): Promise<T> {
   const res = await fetch(path, {
     credentials: "include",
     headers: { "Content-Type": "application/json" },
     ...opts,
   });
-  const isAuthCall = path.startsWith("/api/login") || path.startsWith("/api/setup");
+  // /api/me, /api/register and /api/logout answer 401 as plain data (anonymous,
+  // wrong state); the caller decides where to go. `/api/me/` is matched with
+  // its slash so /api/memories is not swept in.
+  const isAuthCall = path.startsWith("/api/login") || path.startsWith("/api/setup")
+    || path === "/api/me" || path.startsWith("/api/me/")
+    || path.startsWith("/api/register") || path.startsWith("/api/logout");
   if (res.status === 401) {
     if (!isAuthCall) window.location.href = "/login";
     throw new Error("401");

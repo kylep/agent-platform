@@ -1062,6 +1062,11 @@ function wikiWrite(path: string, method: string, body: Record<string, unknown>):
 
 const FIXTURES: Record<string, unknown> = {
   "/api/setup-state": { needs_admin: false, secrets },
+  // Every page now passes through Gate's /api/me; the default caller is the
+  // admin. accounts.spec.ts layers `mockAccounts` over this for the rest.
+  "/api/me": { id: "ad".repeat(16), username: "admin", role: "admin", kind: "system",
+               group: null, created_at: null },
+  "/api/register": { open: false },
   "/api/agents": agentRows,
   "/api/agents/health-monitor": { ...healthMonitor, face: FACES["health-monitor"], image_artifact_id: null },
   // news has a definition too, so its own page (and its Tickets tab) can be
@@ -1812,4 +1817,129 @@ export async function mockApi(page: Page): Promise<string[]> {
     await route.fulfill({ status: 404, json: { detail: `no fixture for ${path}` } });
   });
   return unmatched;
+}
+
+// --- Human accounts (docs/design/40) ----------------------------------------
+// A stateful stand-in for the people routes, layered OVER mockApi (a route
+// registered later wins; `fallback` hands everything else down to it).
+export type AccountsMock = {
+  who: { username: string; role: "admin" | "user"; group_id: string | null } | null;
+  open: boolean;
+  users: { id: string; username: string; kind: "system" | "state"; group_id: string | null;
+           created_at: string }[];
+  groups: { id: string; name: string }[];
+  calls: { method: string; path: string; body: unknown }[];
+  meHits: number;
+};
+
+export async function mockAccounts(page: Page, init: Partial<AccountsMock> = {}): Promise<AccountsMock> {
+  const hex = (n: number) => String(n).padStart(2, "0").repeat(16);
+  const st: AccountsMock = {
+    who: null, open: true, calls: [], meHits: 0,
+    groups: [{ id: hex(1), name: "family" }, { id: hex(2), name: "guests" }],
+    users: [
+      { id: hex(10), username: "admin", kind: "system", group_id: null, created_at: "2026-01-01T00:00:00Z" },
+      { id: hex(11), username: "qa", kind: "system", group_id: null, created_at: "2026-01-01T00:00:00Z" },
+      { id: hex(12), username: "alice", kind: "state", group_id: hex(1), created_at: "2026-09-01T00:00:00Z" },
+      { id: hex(13), username: "bob", kind: "state", group_id: null, created_at: "2026-09-15T00:00:00Z" },
+    ],
+    ...init,
+  };
+  const groupOf = (id: string | null) => {
+    const g = st.groups.find((x) => x.id === id);
+    return g ? { id: g.id, name: g.name } : null;
+  };
+  const meOf = () => {
+    const w = st.who!;
+    const u = st.users.find((x) => x.username === w.username);
+    return { id: u?.id ?? hex(99), username: w.username, role: w.role,
+             kind: u?.kind ?? "state",
+             group: groupOf(w.group_id), created_at: u?.created_at ?? "2026-10-01T00:00:00Z" };
+  };
+  await page.route("**/api/**", async (route: Route) => {
+    const req = route.request();
+    const path = new URL(req.url()).pathname;
+    const method = req.method();
+    const body = req.postDataJSON() ?? undefined;
+    const mine = path === "/api/me" || path.startsWith("/api/me/") || path === "/api/login"
+      || path === "/api/logout" || path === "/api/register" || path.startsWith("/api/users")
+      || path.startsWith("/api/groups") || path === "/api/settings/registration";
+    if (!mine) { await route.fallback(); return; }
+    if (method !== "GET") st.calls.push({ method, path, body });
+    const deny = (status = 401) => route.fulfill({ status, json: { detail: "denied" } });
+    if (path === "/api/register" && method === "GET") return route.fulfill({ json: { open: st.open } });
+    if (path === "/api/register") {
+      if (!st.open) return deny(403);
+      const b = body as { username: string; password: string; confirm: string };
+      if (b.password !== b.confirm) return route.fulfill({ status: 422, json: { detail: "passwords do not match" } });
+      if (st.users.some((u) => u.username === b.username)) {
+        return route.fulfill({ status: 409, json: { detail: "username taken" } });
+      }
+      st.users.push({ id: hex(20 + st.users.length), username: b.username, kind: "state",
+                      group_id: null, created_at: "2026-10-03T00:00:00Z" });
+      st.who = { username: b.username, role: "user", group_id: null };
+      return route.fulfill({ json: { ok: true } });
+    }
+    if (path === "/api/login") {
+      const b = body as { principal: string; password: string };
+      const u = st.users.find((x) => x.username === b.principal);
+      if (!u || b.password === "wrong") return deny();
+      st.who = { username: u.username, role: u.kind === "system" ? "admin" : "user", group_id: u.group_id };
+      return route.fulfill({ json: { ok: true } });
+    }
+    if (path === "/api/logout") { st.who = null; return route.fulfill({ json: { ok: true } }); }
+    if (path === "/api/me") {
+      st.meHits++;
+      return st.who ? route.fulfill({ json: meOf() }) : deny();
+    }
+    if (!st.who) return deny();
+    if (path === "/api/me/password") {
+      const b = body as { current: string; new: string; confirm: string };
+      if (b.current === "wrong") return route.fulfill({ status: 403, json: { detail: "current password is wrong" } });
+      if (b.new !== b.confirm) return route.fulfill({ status: 422, json: { detail: "passwords do not match" } });
+      return route.fulfill({ json: { ok: true } });
+    }
+    if (st.who.role !== "admin") return deny(403);
+    const row = (u: AccountsMock["users"][number]) => ({
+      id: u.id, username: u.username, kind: u.kind, group: groupOf(u.group_id), created_at: u.created_at });
+    if (path === "/api/users") return route.fulfill({ json: st.users.map(row) });
+    const um = /^\/api\/users\/([0-9a-f]{32})(\/password|\/group)?$/.exec(path);
+    if (um) {
+      const u = st.users.find((x) => x.id === um[1]);
+      if (!u || u.kind !== "state") return route.fulfill({ status: 404, json: { detail: "no such user" } });
+      if (um[2] === "/group") u.group_id = (body as { group_id: string | null }).group_id;
+      if (!um[2] && method === "DELETE") st.users = st.users.filter((x) => x !== u);
+      return route.fulfill({ json: { ok: true } });
+    }
+    const members = (id: string) => st.users.filter((u) => u.group_id === id).length;
+    if (path === "/api/groups" && method === "GET") {
+      return route.fulfill({ json: st.groups.map((g) => ({ ...g, member_count: members(g.id) })) });
+    }
+    if (path === "/api/groups") {
+      const name = (body as { name: string }).name;
+      if (st.groups.some((g) => g.name.toLowerCase() === name.toLowerCase())) {
+        return route.fulfill({ status: 409, json: { detail: "group name taken" } });
+      }
+      const g = { id: hex(40 + st.groups.length), name };
+      st.groups.push(g);
+      return route.fulfill({ json: { ...g, member_count: 0 } });
+    }
+    const gm = /^\/api\/groups\/([0-9a-f]{32})$/.exec(path);
+    if (gm) {
+      const g = st.groups.find((x) => x.id === gm[1]);
+      if (!g) return route.fulfill({ status: 404, json: { detail: "no such group" } });
+      if (method === "PATCH") g.name = (body as { name: string }).name;
+      if (method === "DELETE") {
+        st.groups = st.groups.filter((x) => x !== g);
+        st.users.forEach((u) => { if (u.group_id === g.id) u.group_id = null; });
+      }
+      return route.fulfill({ json: { ...g, member_count: members(g.id) } });
+    }
+    if (path === "/api/settings/registration") {
+      if (method === "PUT") st.open = (body as { open: boolean }).open;
+      return route.fulfill({ json: { open: st.open } });
+    }
+    return route.fallback();
+  });
+  return st;
 }
