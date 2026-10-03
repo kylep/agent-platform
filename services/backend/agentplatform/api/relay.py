@@ -22,7 +22,7 @@ from sqlalchemy.orm import aliased
 
 from agentplatform.api.auth import (ANNOTATE_ROLES, INVOKE_ROLES, READ_ROLES,
                                     authenticate, connector_identity, require_role,
-                                    role_allows)
+                                    role_allows, still_signed_in, stream_cookie)
 from agentplatform.conversation import continue_conversation
 from agentplatform.db import (ACTIVE_STATES, Conversation, RELAY_SEED_CHANNELS,
                               RelayInvocation)
@@ -1026,6 +1026,10 @@ async def relay_events(request: Request, channel_id: str, after: str | None = No
             feed.unsubscribe(channel_id, queue)
             raise
 
+    # A browser stream outlives no session (docs/design/40): it is
+    # re-checked at most once a minute and ends on sign-out.
+    cookie = stream_cookie(request)
+
     async def stream():
         last = cursor
         try:
@@ -1033,6 +1037,8 @@ async def relay_events(request: Request, channel_id: str, after: str | None = No
                 last = data.get("id") or last
                 yield _frame("message", data)
             while True:
+                if cookie and not await still_signed_in(request.app, cookie):
+                    return
                 try:
                     # The interval is read per wait on purpose: it is a module
                     # global a test can turn down without patching the route.

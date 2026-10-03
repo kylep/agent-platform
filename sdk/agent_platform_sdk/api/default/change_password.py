@@ -68,7 +68,9 @@ def sync_detailed(
     """Change Password
 
      Rotate the admin password from Settings (re-auth with the current one),
-    replacing the postgres-row-delete-and-re-setup workaround.
+    replacing the postgres-row-delete-and-re-setup workaround. The admin's
+    browser session only (docs/design/40): no API key, MCP client or agent may
+    rotate it. The account's other sessions are signed out; this one stays.
 
     Args:
         body (PasswordChange):
@@ -100,7 +102,9 @@ def sync(
     """Change Password
 
      Rotate the admin password from Settings (re-auth with the current one),
-    replacing the postgres-row-delete-and-re-setup workaround.
+    replacing the postgres-row-delete-and-re-setup workaround. The admin's
+    browser session only (docs/design/40): no API key, MCP client or agent may
+    rotate it. The account's other sessions are signed out; this one stays.
 
     Args:
         body (PasswordChange):
@@ -127,7 +131,9 @@ async def asyncio_detailed(
     """Change Password
 
      Rotate the admin password from Settings (re-auth with the current one),
-    replacing the postgres-row-delete-and-re-setup workaround.
+    replacing the postgres-row-delete-and-re-setup workaround. The admin's
+    browser session only (docs/design/40): no API key, MCP client or agent may
+    rotate it. The account's other sessions are signed out; this one stays.
 
     Args:
         body (PasswordChange):
@@ -157,7 +163,9 @@ async def asyncio(
     """Change Password
 
      Rotate the admin password from Settings (re-auth with the current one),
-    replacing the postgres-row-delete-and-re-setup workaround.
+    replacing the postgres-row-delete-and-re-setup workaround. The admin's
+    browser session only (docs/design/40): no API key, MCP client or agent may
+    rotate it. The account's other sessions are signed out; this one stays.
 
     Args:
         body (PasswordChange):

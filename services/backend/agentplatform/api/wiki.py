@@ -54,6 +54,7 @@ from agentplatform.wiki import (SLUG_RE, budget_body, find_links, is_stale,
                                 line_counts, slugify, unified_diff)
 from agentplatform.wiki_store import (WikiBudgetError, WikiConflictError,
                                       WikiExistsError, WikiRuleError)
+from agentplatform.api.auth import still_signed_in, stream_cookie
 
 router = APIRouter()
 
@@ -545,9 +546,15 @@ async def wiki_stream(request: Request,
     feed = request.app.state.wiki_feed
     queue = feed.subscribe(STREAM)
 
+    # A browser stream outlives no session (docs/design/40): it is
+    # re-checked at most once a minute and ends on sign-out.
+    cookie = stream_cookie(request)
+
     async def stream():
         try:
             while True:
+                if cookie and not await still_signed_in(request.app, cookie):
+                    return
                 try:
                     # Read per wait: it is a module global a test turns down
                     # without patching the route.

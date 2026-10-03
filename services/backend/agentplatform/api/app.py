@@ -20,6 +20,7 @@ from agentplatform.api import apps as apps_api
 from agentplatform.api import artifacts as artifacts_api
 from agentplatform.api import artifacts_feed as artifacts_feed_api
 from agentplatform.api import audit as audit_api
+from agentplatform.api import accounts as accounts_api
 from agentplatform.api import auth
 from agentplatform.api import backups as backups_api
 from agentplatform.api import conversations as conversations_api
@@ -457,6 +458,7 @@ def create_app(settings, session_factory, producer, secret_store=None, agent_sto
     st.tool_registry = ToolRegistry(Path(settings.tools_root))
 
     app.include_router(auth.router)
+    app.include_router(accounts_api.router)
     app.include_router(backups_api.router)
     app.include_router(apps_api.router)
     app.include_router(app_data_api.router)

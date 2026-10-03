@@ -11,7 +11,7 @@ from fastapi import APIRouter, Depends, Request
 from fastapi.responses import StreamingResponse
 
 from agentplatform.api import relay as relay_api
-from agentplatform.api.auth import require_admin
+from agentplatform.api.auth import require_admin, still_signed_in, stream_cookie
 from agentplatform.events import TOPIC_WORKBENCH_EVENTS
 from agentplatform.relay_feed import OVERFLOW, TopicFeed
 
@@ -31,9 +31,15 @@ async def workbench_stream(request: Request):
     feed = request.app.state.workbench_feed
     queue = feed.subscribe(STREAM)
 
+    # A browser stream outlives no session (docs/design/40): it is
+    # re-checked at most once a minute and ends on sign-out.
+    cookie = stream_cookie(request)
+
     async def stream():
         try:
             while True:
+                if cookie and not await still_signed_in(request.app, cookie):
+                    return
                 try:
                     # Read per wait: a module global a test turns down.
                     event, data = await asyncio.wait_for(

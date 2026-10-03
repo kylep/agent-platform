@@ -22,6 +22,7 @@ from agentplatform.api.artifacts import require_artifacts_access
 from agentplatform.api.relay import READ, Caller
 from agentplatform.events import TOPIC_ARTIFACTS_EVENTS
 from agentplatform.relay_feed import OVERFLOW, TopicFeed
+from agentplatform.api.auth import still_signed_in, stream_cookie
 
 router = APIRouter()
 
@@ -39,9 +40,15 @@ async def artifacts_stream(request: Request,
     queue = feed.subscribe(STREAM)
     principal = await app_artifacts.request_principal(request, caller.agent)
 
+    # A browser stream outlives no session (docs/design/40): it is
+    # re-checked at most once a minute and ends on sign-out.
+    cookie = stream_cookie(request)
+
     async def stream():
         try:
             while True:
+                if cookie and not await still_signed_in(request.app, cookie):
+                    return
                 try:
                     # Read per wait: a module global a test turns down.
                     event, data = await asyncio.wait_for(

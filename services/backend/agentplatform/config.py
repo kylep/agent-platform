@@ -72,6 +72,12 @@ class Settings(BaseSettings):
     mcp_broker_mtls_target: str = "agent-platform-mcp-broker:8443"
     agents_volume_claim: str = "agent-definitions"
     session_secret: str = "dev-insecure"
+    # Browser sign-ins (docs/design/40): how long a session lives before its
+    # holder signs in again, and whether the cookie is marked Secure. Secure
+    # stays off while the console is served over plain http://pai:8090, or the
+    # browser would never send the cookie back.
+    session_max_age_days: int = 30
+    session_cookie_secure: bool = False
     # Explicit key IDs whose admin role may exercise the same agent-definition
     # authority as Kyle's browser session. Names are not identifiers: an admin
     # can create another key with the same display name.

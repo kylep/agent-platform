@@ -52,6 +52,7 @@ from agentplatform.events import TOPIC_TICKETS_EVENTS
 from agentplatform.tickets import (CLOSED_STATES, budget_body, is_stale,
                                    participant_label)
 from agentplatform.ticket_store import TicketBudgetError, TicketRuleError
+from agentplatform.api.auth import still_signed_in, stream_cookie
 
 router = APIRouter()
 
@@ -398,10 +399,16 @@ async def ticket_stream(request: Request,
         readable = await _readable(s, caller, agents)
     queue = feed.subscribe(STREAM)
 
+    # A browser stream outlives no session (docs/design/40): it is
+    # re-checked at most once a minute and ends on sign-out.
+    cookie = stream_cookie(request)
+
     async def stream():
         allowed = readable
         try:
             while True:
+                if cookie and not await still_signed_in(request.app, cookie):
+                    return
                 try:
                     # Read per wait: it is a module global a test turns down
                     # without patching the route.

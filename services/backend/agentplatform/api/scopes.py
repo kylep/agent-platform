@@ -221,7 +221,7 @@ async def list_projects(request: Request):
         return [await _project_view(s, row) for row in rows]
 
 
-@router.post("/api/projects", status_code=201)
+@router.post("/api/projects", status_code=201, dependencies=[Depends(require_role("admin"))])
 async def create_project(request: Request, body: ProjectIn):
     _slug(body.slug)
     async with request.app.state.session_factory() as s:

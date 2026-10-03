@@ -82,6 +82,9 @@ from .entrypoints_in import EntrypointsIn
 from .fallback_in import FallbackIn
 from .generate_in import GenerateIn
 from .grant_in import GrantIn
+from .group_in import GroupIn
+from .group_out import GroupOut
+from .group_ref import GroupRef
 from .help_topic import HelpTopic
 from .help_topic_detail import HelpTopicDetail
 from .http_validation_error import HTTPValidationError
@@ -100,6 +103,8 @@ from .job_view import JobView
 from .kafka_health import KafkaHealth
 from .list_artifacts_kind_type_0 import ListArtifactsKindType0
 from .list_artifacts_source_type_0 import ListArtifactsSourceType0
+from .me_out import MeOut
+from .me_out_kind import MeOutKind
 from .memory_in import MemoryIn
 from .memory_patch import MemoryPatch
 from .memory_view import MemoryView
@@ -110,6 +115,7 @@ from .metrics_overview import MetricsOverview
 from .metrics_overview_by_state import MetricsOverviewByState
 from .model_option import ModelOption
 from .model_usage import ModelUsage
+from .my_password_in import MyPasswordIn
 from .notes_in import NotesIn
 from .notify_in import NotifyIn
 from .observation_in import ObservationIn
@@ -159,11 +165,18 @@ from .receipt_in import ReceiptIn
 from .record_create_in import RecordCreateIn
 from .record_create_in_values import RecordCreateInValues
 from .record_delete_in import RecordDeleteIn
+from .record_history_in import RecordHistoryIn
 from .record_ref import RecordRef
+from .record_transaction_in import RecordTransactionIn
+from .record_transaction_in_guards_item import RecordTransactionInGuardsItem
+from .record_transaction_in_operations_item import RecordTransactionInOperationsItem
 from .record_update_in import RecordUpdateIn
 from .record_update_in_values import RecordUpdateInValues
+from .record_version_in import RecordVersionIn
 from .refresh_in import RefreshIn
 from .refresh_quota_provider import RefreshQuotaProvider
+from .register_in import RegisterIn
+from .registration_state import RegistrationState
 from .relay_binding_in import RelayBindingIn
 from .relay_binding_in_config import RelayBindingInConfig
 from .relay_binding_ref import RelayBindingRef
@@ -200,6 +213,7 @@ from .report_meta import ReportMeta
 from .report_meta_meta import ReportMetaMeta
 from .report_saved import ReportSaved
 from .report_type_view import ReportTypeView
+from .reset_password_in import ResetPasswordIn
 from .retention import Retention
 from .retention_per_agent_days import RetentionPerAgentDays
 from .retire_in import RetireIn
@@ -275,6 +289,9 @@ from .tool_wizard_secret import ToolWizardSecret
 from .typed_block import TypedBlock
 from .typed_block_kind import TypedBlockKind
 from .typed_definition import TypedDefinition
+from .user_group_in import UserGroupIn
+from .user_out import UserOut
+from .user_out_kind import UserOutKind
 from .validate_in import ValidateIn
 from .validation_error import ValidationError
 from .validation_error_context import ValidationErrorContext
@@ -382,6 +399,9 @@ __all__ = (
     "FallbackIn",
     "GenerateIn",
     "GrantIn",
+    "GroupIn",
+    "GroupOut",
+    "GroupRef",
     "HelpTopic",
     "HelpTopicDetail",
     "HTTPValidationError",
@@ -403,6 +423,8 @@ __all__ = (
     "MemoryIn",
     "MemoryPatch",
     "MemoryView",
+    "MeOut",
+    "MeOutKind",
     "MergeResult",
     "MessageAccepted",
     "MessageIn",
@@ -410,6 +432,7 @@ __all__ = (
     "MetricsOverviewByState",
     "ModelOption",
     "ModelUsage",
+    "MyPasswordIn",
     "NotesIn",
     "NotifyIn",
     "ObservationIn",
@@ -457,11 +480,18 @@ __all__ = (
     "RecordCreateIn",
     "RecordCreateInValues",
     "RecordDeleteIn",
+    "RecordHistoryIn",
     "RecordRef",
+    "RecordTransactionIn",
+    "RecordTransactionInGuardsItem",
+    "RecordTransactionInOperationsItem",
     "RecordUpdateIn",
     "RecordUpdateInValues",
+    "RecordVersionIn",
     "RefreshIn",
     "RefreshQuotaProvider",
+    "RegisterIn",
+    "RegistrationState",
     "RelayBindingIn",
     "RelayBindingInConfig",
     "RelayBindingRef",
@@ -498,6 +528,7 @@ __all__ = (
     "ReportMetaMeta",
     "ReportSaved",
     "ReportTypeView",
+    "ResetPasswordIn",
     "Retention",
     "RetentionPerAgentDays",
     "RetireIn",
@@ -573,6 +604,9 @@ __all__ = (
     "TypedBlock",
     "TypedBlockKind",
     "TypedDefinition",
+    "UserGroupIn",
+    "UserOut",
+    "UserOutKind",
     "ValidateIn",
     "ValidationError",
     "ValidationErrorContext",

@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 from sqlalchemy import select
 
-from agentplatform.api.auth import API_KEY_ROLES, require_admin
+from agentplatform.api.auth import API_KEY_ROLES, USER_PREFIX, require_admin
 from agentplatform.apikeys import generate_token, hash_token, token_prefix
 from agentplatform.db import ApiKey, utcnow
 
@@ -47,6 +47,8 @@ async def mint_api_key(request: Request, body: ApiKeyIn):
         raise HTTPException(422, f"role must be one of {API_KEY_ROLES}")
     if body.name.startswith("app:"):
         raise HTTPException(422, "app: names are reserved for platform-managed keys")
+    if body.name.startswith(USER_PREFIX):
+        raise HTTPException(422, "user: names are reserved for human accounts")
     token = generate_token()
     key = ApiKey(name=body.name, role=body.role,
                  key_hash=hash_token(token), prefix=token_prefix(token))
@@ -80,6 +82,8 @@ async def change_api_key_role(request: Request, key_id: str, body: ApiKeyRoleIn)
             raise HTTPException(409, "revoked key cannot be edited")
         if _managed(key):
             raise HTTPException(409, "platform-managed key role comes from its declaration")
+        if key.name.startswith(USER_PREFIX):
+            raise HTTPException(409, "user: names are reserved for human accounts")
         key.role = body.role
         await s.commit()
         return _view(key)

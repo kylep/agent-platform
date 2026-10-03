@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
-import { Link, NavLink, Outlet, useLocation } from "react-router-dom";
-import { api, type AppView, type PullRequest } from "./api";
-import { buildPlatformNav, SideNav, type LinkComponent } from "@ap/ui/sidenav";
+import { Link, NavLink, Outlet, useLocation, useNavigate, useOutletContext } from "react-router-dom";
+import { api, logout, type Me, type AppView, type PullRequest } from "./api";
+import { buildPlatformNav, SideNav, ThemeToggle, type LinkComponent } from "@ap/ui/sidenav";
 import { QuotaBars } from "@ap/ui/quota";
 import { useQuota } from "./components/quota/useQuota";
 import { listStateApps, type StateAppSummary } from "./lib/appData";
@@ -33,7 +33,14 @@ function PlatformLayout() {
   const [stateApps, setStateApps] = useState<StateAppSummary[]>([]);
   const [restoreMode, setRestoreMode] = useState(false);
   const location = useLocation();
+  const navigate = useNavigate();
   const quota = useQuota();
+  const { me } = useOutletContext<{ me?: Me | null }>();
+
+  async function signOut() {
+    try { await logout(); } catch { /* leave either way */ }
+    navigate("/login", { replace: true });
+  }
 
   function refreshBadges() {
     api<PullRequest[]>("/api/pull-requests")
@@ -54,6 +61,7 @@ function PlatformLayout() {
       .catch(() => {});
   }, [location.pathname]);
 
+  const isAdmin = me?.role === "admin";
   const entries = useMemo(() =>
     buildPlatformNav([
       ...stateApps.filter((a) => a.status === "active" && a.approved_version !== null)
@@ -63,14 +71,21 @@ function PlatformLayout() {
       ...apps.filter((a) => a.ui && a.ready && !stateApps.some((s) =>
         s.name === a.name && s.status === "active" && s.approved_version !== null))
         .map((a) => ({ name: a.name, icon: a.icon, display_name: a.display_name })),
-    ]), [apps, stateApps]);
+    ]).map((e) => e.to !== "/settings" ? e : { ...e, children: e.children?.filter((c) =>
+      isAdmin || !["/settings/users", "/settings/groups"].includes(c.to)) }),
+  [apps, stateApps, isAdmin]);
 
   return (
     <div className="layout">
       <SideNav entries={entries} activePath={location.pathname}
                activeSearch={location.search}
                badges={{ "/changes": pendingChanges }} LinkComponent={routerLink}
-               belowBrand={<QuotaBars {...quota} />} />
+               belowBrand={<QuotaBars {...quota} />}
+               footer={<div className="nav-account">
+                 <NavLink to="/profile" className="nav-link">Profile</NavLink>
+                 <button type="button" className="nav-link nav-signout" onClick={signOut}>Sign out</button>
+                 <ThemeToggle />
+               </div>} />
       <main className="main">
         {restoreMode && <div role="status" className="notice">
           Automation is paused after a restore. <Link to="/settings/restore">Review restored state</Link>.

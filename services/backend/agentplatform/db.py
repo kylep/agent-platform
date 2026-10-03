@@ -2,7 +2,8 @@ import logging
 import uuid
 from datetime import datetime, timedelta, timezone
 from enum import StrEnum
-from sqlalchemy import (Boolean, JSON, DateTime, Float, Index, Integer, LargeBinary, String,
+from typing import Any
+from sqlalchemy import (Boolean, JSON, DateTime, Float, ForeignKey, Index, Integer, LargeBinary, String,
                         Text, UniqueConstraint, case, func, select, text)
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
@@ -1026,6 +1027,49 @@ class Principal(Base):
     name: Mapped[str] = mapped_column(String(128), unique=True)
     role: Mapped[str] = mapped_column(String(32))
     password_hash: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    # "Member since" (docs/design/40). Nullable because `_ensure_columns` adds
+    # it to a live table; rows from before it existed read as unknown.
+    created_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True, default=utcnow)
+    # The group a state user belongs to (docs/design/40). The foreign key
+    # (ON DELETE SET NULL) is added by `_ensure_accounts_ddl` on postgres; on
+    # sqlite the group routes null it themselves and a dangling id reads as none.
+    group_id: Mapped[str | None] = mapped_column(String(32), nullable=True)
+
+
+class UserGroup(Base):
+    """A named set of state users (docs/design/40). Name only for now; grants
+    attach here later. Unique on lower(name), an index `_ensure_accounts_ddl`
+    creates because a plain unique column would be case-sensitive."""
+    __tablename__ = "user_groups"
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=lambda: uuid.uuid4().hex)
+    name: Mapped[str] = mapped_column(String(64))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class PlatformSetting(Base):
+    """Small platform-wide switches (docs/design/40: `registration_open`)."""
+    __tablename__ = "platform_settings"
+    key: Mapped[str] = mapped_column(String(64), primary_key=True)
+    value: Mapped[Any] = mapped_column(JSON)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow,
+                                                 onupdate=utcnow)
+
+
+class LoginSession(Base):
+    """One browser sign-in (docs/design/40). The `ap_session` cookie carries a
+    random id; only its sha256 is stored, so a database read cannot be replayed
+    as a cookie. Sessions bind to `principals.id`, never the name, so a deleted
+    and re-registered username does not inherit them. Logout, a password change
+    or reset revoke rows here; deleting the principal cascades."""
+    __tablename__ = "login_sessions"
+    id_hash: Mapped[str] = mapped_column(String(64), primary_key=True)
+    principal_id: Mapped[str] = mapped_column(
+        String(32), ForeignKey("principals.id", ondelete="CASCADE"), index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
 
 class SecretMeta(Base):
     __tablename__ = "secrets_meta"
@@ -1861,6 +1905,32 @@ def _ensure_relay_ddl(conn) -> None:
                     f"ALTER TABLE {table} ALTER COLUMN agent DROP NOT NULL")
         conn.exec_driver_sql("CREATE INDEX IF NOT EXISTS ix_relay_messages_body_fts "
                              "ON relay_messages USING GIN (to_tsvector('english', body))")
+
+
+def _ensure_accounts_ddl(conn) -> None:
+    """Schema the model declarations cannot express for human accounts
+    (docs/design/40): the case-insensitive unique group name, and on postgres
+    the group foreign key (login_sessions' own FK is declared on its model, so
+    create_all builds it). Dangling ids are cleared before the group FK is
+    added so it cannot fail on old data. Marked, so a boot after the first is
+    one SELECT; the index is IF NOT EXISTS and runs regardless."""
+    conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uq_user_groups_lower_name "
+                      "ON user_groups (lower(name))"))
+    mark = SchemaMark.__table__
+    name = "accounts-v1"
+    if conn.execute(select(mark.c.name).where(mark.c.name == name)).first():
+        return
+    if conn.dialect.name == "postgresql":
+        conn.execute(text("UPDATE principals SET group_id = NULL WHERE group_id IS NOT NULL "
+                          "AND group_id NOT IN (SELECT id FROM user_groups)"))
+        if not conn.execute(text("SELECT 1 FROM pg_constraint WHERE conname = :n")
+                            .bindparams(n="fk_principals_group_id")).first():
+            conn.exec_driver_sql(
+                "ALTER TABLE principals ADD CONSTRAINT fk_principals_group_id "
+                "FOREIGN KEY (group_id) REFERENCES user_groups (id) ON DELETE SET NULL")
+    for (k,) in conn.execute(text("SELECT name FROM api_keys WHERE name LIKE 'user:%'")):
+        log.warning("api key %r starts with 'user:', which is now reserved", k)
+    conn.execute(mark.insert().values(name=name, applied_at=utcnow()))
 
 
 def _ensure_connected_chat_defaults(conn) -> None:
@@ -3657,6 +3727,7 @@ async def init_db(engine: AsyncEngine, default_grant: bool = True,
         await conn.run_sync(_ensure_task_defaults)
         await conn.run_sync(_ensure_memory_key_index)
         await conn.run_sync(_ensure_relay_ddl)
+        await conn.run_sync(_ensure_accounts_ddl)
         await conn.run_sync(_ensure_relay_backfill)
         await conn.run_sync(_ensure_connected_chat_defaults)
         await conn.run_sync(_ensure_default_chat_identity)
