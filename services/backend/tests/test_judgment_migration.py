@@ -1,17 +1,25 @@
 """The legacy Judgment copy must preserve its meaningful history and links."""
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 from sqlalchemy import func, select
 
 from agentplatform.appdata.definitions import validate_app
-from agentplatform.appdata.judgment_migration import bundle, convert_snapshot, import_snapshot
-from agentplatform.appdata.models import (AppDataApp, AppDataDefinition, AppDataRecord,
-                                          AppDataRecordVersion)
+from agentplatform.appdata.judgment_cutover import verify_copy
+from agentplatform.appdata.judgment_migration import (
+    bundle,
+    convert_snapshot,
+    import_snapshot,
+)
+from agentplatform.appdata.models import (
+    AppDataApp,
+    AppDataDefinition,
+    AppDataRecord,
+    AppDataRecordVersion,
+)
 from agentplatform.db import Base, make_engine, make_session_factory
 
-
-NOW = datetime(2026, 10, 1, tzinfo=timezone.utc)
+NOW = datetime(2026, 10, 1, tzinfo=UTC)
 
 
 def snapshot():
@@ -110,5 +118,29 @@ async def test_import_is_atomic_and_never_overwrites_destination(sf):
             .scalar_one() == 6
         assert (await s.execute(select(func.count()).select_from(AppDataRecordVersion))) \
             .scalar_one() == 1
+        assert await verify_copy(s, "a" * 32, convert_snapshot(snapshot())) == {
+            "verified_records": 6, "verified_history": 1}
         with pytest.raises(ValueError, match="destination is not empty"):
             await import_snapshot(s, snapshot(), dry_run=False)
+
+
+async def test_parity_check_rejects_a_changed_historical_document(sf):
+    definitions = bundle()
+    async with sf() as s:
+        s.add(AppDataApp(id="a" * 32, name="judgment", owner_kind="agent",
+                         owner_id="kai", approved_version=1))
+        for kind, plural in (("collection", "collections"), ("view", "views"),
+                             ("page", "pages"), ("tool", "app_tools")):
+            for body in definitions[plural]:
+                s.add(AppDataDefinition(app_id="a" * 32, kind=kind,
+                                        name=body[kind], version=1, body=body,
+                                        state="published", author="migration:judgment"))
+        await s.commit()
+    async with sf() as s:
+        await import_snapshot(s, snapshot(), dry_run=False)
+        await s.flush()
+        old = (await s.execute(select(AppDataRecordVersion))).scalar_one()
+        old.doc = {**old.doc, "claim": "wrong"}
+        await s.flush()
+        with pytest.raises(RuntimeError, match="historical document differs"):
+            await verify_copy(s, "a" * 32, convert_snapshot(snapshot()))

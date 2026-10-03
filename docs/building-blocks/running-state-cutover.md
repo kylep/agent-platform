@@ -23,18 +23,30 @@ image. Fresh installs do **not** create this App automatically.
    approved, Running Coach-owned App only if absent; it refuses a nonempty
    destination. The source share lock, copy and per-record comparison are in
    one transaction, so any failure rolls the destination back.
-5. Update Running Coach in one definition write: grant `running`, `apps` and
-   `app_data`; remove `query_app`; clear `result_topic`; replace its prompt
-   and crons with the state-backed schedule below. The direct Strava sync
-   tool writes the App using its scoped tool-call credential. Running Coach
-   can maintain its definitions through `apps` and use records through
-   `app_data`.
+5. Update Running Coach in one definition write: grant `running`; remove
+   `query_app`; clear `result_topic`; replace its prompt and crons with the
+   state-backed schedule below. The direct Strava sync tool writes the App
+   using its scoped tool-call credential. `apps` and `app_data` are separate
+   Kyle-session grants; this migration does not grant them to an API key or
+   to Running Coach.
 6. Run one bounded Strava sync and compare activity counts, total distance,
    personal records, heatmap and the two copied briefs in the browser. Run
    `running.recover_reports`; it retries at most two unposted reports per
    call. Confirm the latest report exists and there are no duplicate posts.
    Only then disable the old Running deployment in Helm and leave its database
    intact until the next verified backup and a restore drill.
+
+## Live cutover (2026-10-03)
+
+The encrypted preflight backup uploaded successfully. The copy preserved 50
+activities and two briefs (52 verified records). A Running Coach SYNC run
+then wrote two activities directly to the state App and reported zero pending
+briefs. Playwright loaded the published page with no errors, verified the
+sidebar link and twelve readable weekly labels, and Helm revision 93 removed
+the old Running deployment. The legacy database schema is retained for
+recovery. Post-cutover backup `ap-cloud-backup-manual-gzd4c` succeeded and
+uploaded `ap-recovery-20261003T041032Z.tar.age` to the configured GCS bucket.
+A disposable-cluster restore drill remains outstanding.
 
 The SYNC prompt reads `running.coach_context` to get `sync_after`, calls
 `strava.sync` with that date, then calls `running.recover_reports`. The Monday
