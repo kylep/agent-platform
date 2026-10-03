@@ -160,6 +160,16 @@ def _scope_for(request: Request, app_id: str) -> set[str] | None:
             if entry["app_id"] == app_id for c in entry["collections"]}
 
 
+def _view_in_scope(ctx, view: dict, scope: set[str]) -> bool:
+    """A tool view names source roles, while a collection view names one collection."""
+    if "collection" in view:
+        return view["collection"] in scope
+    fact = ctx.bundle.app_tools.get(view.get("tool"))
+    return fact is not None and all(
+        role in fact.roles and fact.roles[role].collection in scope
+        for role in view.get("sources", []))
+
+
 def _for_web(exc: RecordError) -> HTTPException:
     return HTTPException(exc.status, exc.message)
 
@@ -730,8 +740,9 @@ async def records_describe(request: Request, body: AppRef,
                               403)
         out = await L.describe_records(s, actor.caller, app.id)
         if scope is not None:
+            ctx = await load_app(s, app.id)
             out["collections"] = [c for c in out["collections"] if c["collection"] in scope]
-            out["views"] = [v for v in out["views"] if v["collection"] in scope]
+            out["views"] = [v for v in out["views"] if _view_in_scope(ctx, v, scope)]
         return out
     return await _call(request, fn)
 

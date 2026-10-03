@@ -2,6 +2,7 @@
 shaped exactly as services/web/src/lib/appData.ts documents, and the agent
 routes the `apps` and `app_data` broker tools call."""
 import copy
+from types import SimpleNamespace
 
 import pytest
 from sqlalchemy import select
@@ -10,9 +11,11 @@ from agentplatform.api import app_data as app_data_api
 from agentplatform.appdata import lifecycle as L
 from agentplatform.appdata import proposals as P
 from agentplatform.appdata.access import Caller
+from agentplatform.appdata.definitions import validate_app
 from agentplatform.appdata.lifecycle import Actor
 from agentplatform.appdata.models import AppDataApp, AppDataDefinition
 from agentplatform.appdata.records import create_record, load_app
+from agentplatform.appdata.running_migration import bundle as running_bundle
 from agentplatform.db import Principal
 
 from .test_relay_api import _agent_token, _key
@@ -22,6 +25,18 @@ APPS = "mcp__platform__apps"
 APP_DATA = "mcp__platform__app_data"
 PAI = Actor("agent:pai")
 AGENT = "/api/app-data/agent"
+
+
+def test_scoped_describe_handles_tool_view_source_roles():
+    ctx = SimpleNamespace(bundle=validate_app(running_bundle()))
+    assert app_data_api._view_in_scope(
+        ctx, {"view": "dashboard", "tool": "running", "sources": ["activities"]},
+        {"activities"})
+    assert not app_data_api._view_in_scope(
+        ctx, {"view": "dashboard", "tool": "running", "sources": ["activities"]},
+        {"briefs"})
+    assert app_data_api._view_in_scope(
+        ctx, {"view": "weekly", "collection": "activities"}, {"activities"})
 
 HABITS = {"collection": "habits",
           "fields": {"habit": {"type": "string", "required": True},
