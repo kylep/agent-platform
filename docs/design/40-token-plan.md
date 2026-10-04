@@ -174,3 +174,18 @@ token research 87k, Fable token pass 113k, skill RED/GREEN/refactor tests 7×~45
   - pushing to `main` (PR #39 opened instead; deploy held until merge, so
     prod never runs code that `main` lacks);
   - writing the project `.claude/settings.json`.
+
+### Live (2026-10-04)
+
+- **Deployed** backend, web and facade images to pai; the previous images are
+  tagged `:pre40` for rollback.
+- **API startup** logged no errors (the migration ran on the live database).
+- **`scripts/live-check-accounts.sh`**: 18/18 PASS.
+  - Anonymous `POST /api/projects` and help routes get 401.
+  - The admin logs in and still reaches agents.
+  - Register works, and the new account has role `user`.
+  - That user gets 403 on agents, runs, whoami, help, users and secrets.
+  - Setup-state shows the user no secrets.
+  - A cookie replayed after logout gets 401.
+  - The test user is deleted, and registration is restored to its previous
+    state.

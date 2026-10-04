@@ -6,7 +6,13 @@
 # to http://pai:8090.
 set -uo pipefail
 AP_URL="${AP_URL:-http://pai:8090}"
-: "${AGENT_PLATFORM_ADMIN:?source exports.sh first}"
+# EXPORTS_FILE: an exports.sh to load the admin password from, for callers
+# that can't source it into their own shell first.
+if [[ -z "${AGENT_PLATFORM_ADMIN:-}" && -n "${EXPORTS_FILE:-}" ]]; then
+  # shellcheck disable=SC1090
+  source "$EXPORTS_FILE"
+fi
+: "${AGENT_PLATFORM_ADMIN:?source exports.sh first, or set EXPORTS_FILE}"
 tmp=$(mktemp -d)
 admin="$tmp/admin.jar" user="$tmp/user.jar"
 fails=0 was_open=""
