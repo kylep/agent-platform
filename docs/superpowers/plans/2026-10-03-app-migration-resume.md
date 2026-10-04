@@ -8,6 +8,7 @@ operated as database-owned state Apps, with old workloads removed after live
 parity and a restore proof. This is a checkpoint, not a descoping decision.
 
 Read these first, in this order: this file;
+[execution retro](2026-10-04-app-migration-retro.md);
 [live status](2026-10-03-app-migration-live-status.md);
 [efficient delivery plan](2026-10-02-agent-built-apps-efficient-delivery.md);
 the relevant App's cutover runbook. Consult
