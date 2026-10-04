@@ -705,6 +705,7 @@ class CalendarBlock(_BlockBase):
     value: Name
     params: BlockParams = Field(default_factory=dict)
     unit: Annotated[str, Field(max_length=20)] = ""
+    day_link: RowLink | None = None
 
 
 class StatRowBlock(_BlockBase):
@@ -1551,6 +1552,9 @@ def _check_page(p: PageDef, app: AppBundle, names: dict[str, set[str]],
             if block.row_link is not None:
                 out += _check_row_link(block.row_link, app, names,
                                        join_path(where, "row_link"))
+        if isinstance(block, CalendarBlock) and block.day_link is not None:
+            out += _check_row_link(block.day_link, app, names,
+                                   join_path(where, "day_link"))
         if isinstance(block, DetailBlock):
             if block.history and collection.write_mode != "versioned":
                 out.append(issue("JD-PAGE-HISTORY", join_path(where, "history"),

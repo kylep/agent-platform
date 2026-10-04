@@ -94,18 +94,13 @@ jobs:
         run: cd services/mcp-facade && python -m pytest -q
 
   apps:
-    # App backends (docs/design/11) — separable from platform code, tested
-    # separately. One step per app.
+    # Remaining coded App backends; News now runs in the platform backend.
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - name: news app backend tests
-        run: |
-          pip install -q -r apps/news/backend/requirements.txt aiosqlite pytest pytest-asyncio
-          cd apps/news/backend && python -m pytest -q
       - name: stockmarket app backend tests
         run: |
           pip install -q -r apps/stockmarket/backend/requirements.txt aiosqlite pytest pytest-asyncio

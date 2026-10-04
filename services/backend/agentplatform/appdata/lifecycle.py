@@ -1326,6 +1326,9 @@ def page_for_web(page: PageDef, bundle, *, with_actions: bool = False) -> dict:
                 item.update(x=block.x, y=block.y)
             else:
                 item.update(day=block.day, value=block.value)
+                if block.day_link is not None:
+                    item["day_link"] = {"page": block.day_link.page,
+                                        "param": block.day_link.param}
             if block.title is not None:
                 item["label"] = block.title
         elif isinstance(block, StatRowBlock):
@@ -1353,6 +1356,9 @@ def page_for_web(page: PageDef, bundle, *, with_actions: bool = False) -> dict:
             item["actions"] = list(block.actions)
         components.append(item)
     result = {"renderer": "typed/v2", "title": page.title, "components": components}
+    if page.params:
+        result["params"] = {name: spec.model_dump(mode="json", exclude_none=True)
+                            for name, spec in page.params.items()}
     if page.layout is not None:
         result["layout"] = page.layout
     if with_actions and page.actions:

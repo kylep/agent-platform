@@ -128,12 +128,15 @@ deleted. What follows describes them as they run until then.
 
 A coded App is a database-owned collection of pages and actions, usually
 backed by a reviewed domain service with its own API, UI, and data
-([design 33](../design/33-capabilities-plugins-and-live-apps.md)). The news app is the
-reference: it consumes the news agent's digests, owns the archive + dedup
-and the freshness gates (`docs/design/18-news-freshness.md` — undated,
-stale, hub-URL and re-worded-repeat stories are rejected as
-`app.news.item.rejected` events, never posted), posts the Discord digest,
-writes the daily-news report, and serves a browser at `/apps/news/`. The **stockmarket** app is the second: it owns the price
+([design 33](../design/33-capabilities-plugins-and-live-apps.md)). **News** has
+since moved to a database-owned state App at `/apps/state/news/pages/home`.
+Its platform consumer reads `app.news.inbound`, applies the deterministic
+freshness and dedup gates, writes state records, emits rejected and accepted
+events, and updates the `daily-news` report. The legacy archive tables remain
+read-only for rollback. The news-librarian reads the state App through
+`app_data`.
+
+The **stockmarket** app is the second: it owns the price
 archive, charts the indexes and your watchlist at `/apps/stockmarket/`, and
 ingests the weekday market brief the same way.
 

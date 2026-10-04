@@ -392,9 +392,13 @@ function V2Calendar({ appId, component }: { appId: string; component: Extract<V2
           const n = values[i];
           const value = Number.isFinite(n) && n >= 0 ? n : 0;
           const day = String(row.values[component.day] ?? "").slice(0, 10);
-          return <span key={`${row.id}-${i}`} className="v2-day"
-            style={{ opacity: value ? 0.25 + 0.75 * Math.sqrt(value / maximum) : undefined }}
-            title={`${day}: ${value.toLocaleString()} ${component.unit || ""}`} />;
+          const style = { opacity: value ? 0.25 + 0.75 * Math.sqrt(value / maximum) : undefined };
+          const title = `${day}: ${value.toLocaleString()} ${component.unit || ""}`;
+          return component.day_link && day
+            ? <Link key={`${row.id}-${i}`} className="v2-day" style={style} title={title}
+                aria-label={`Open ${day}`}
+                to={pageHref(appId, component.day_link.page, { [component.day_link.param]: day })} />
+            : <span key={`${row.id}-${i}`} className="v2-day" style={style} title={title} />;
         })}
       </div>}
     {result && <AsOf result={result} />}
@@ -577,6 +581,8 @@ function V2Layout({ layout, components, renderBlock }: { layout: string;
 export function TypedV2Page({ appId, page, embedded = false }: {
   appId: string; page: string; embedded?: boolean;
 }) {
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [queryDraft, setQueryDraft] = useState<Record<string, string>>({});
   const [published, setPublished] = useState<PublishedPage | null>(null);
   const [error, setError] = useState<unknown>(null);
   const [selected, setSelected] = useState<SelectedAction | null>(null);
@@ -589,6 +595,9 @@ export function TypedV2Page({ appId, page, embedded = false }: {
       .catch((e) => { if (active) setError(e); });
     return () => { active = false; };
   }, [appId, page]);
+  useEffect(() => {
+    setQueryDraft(Object.fromEntries(searchParams.entries()));
+  }, [searchParams]);
   const Title = embedded ? "h2" : "h1";
   if (error) {
     const status = error instanceof AppDataError ? error.status : 0;
@@ -609,6 +618,20 @@ export function TypedV2Page({ appId, page, embedded = false }: {
     {notice && <p role="status">{notice}</p>}
     {!embedded && <p className="muted"><Link to="/apps">Apps</Link> / <Link
       to={`/apps/state/${encodeURIComponent(appId)}`}>{published.app_name}</Link> / {published.page}</p>}
+    {published.definition.params && <form className="live-view-controls" onSubmit={(event) => {
+      event.preventDefault();
+      const next = new URLSearchParams(searchParams);
+      for (const name of Object.keys(published.definition.params || {})) {
+        const value = queryDraft[name]?.trim();
+        if (value) next.set(name, value); else next.delete(name);
+      }
+      setSearchParams(next);
+    }}>{Object.entries(published.definition.params).map(([name, spec]) =>
+      <label key={name}>{name.charAt(0).toUpperCase() + name.slice(1).replaceAll("_", " ")}
+        <Input type={spec.type === "date" ? "date" : "search"}
+          value={queryDraft[name] ?? ""} maxLength={spec.type === "date" ? undefined : 200}
+          onChange={(event) => setQueryDraft({ ...queryDraft, [name]: event.target.value })} />
+      </label>)}<Button type="submit">Apply</Button></form>}
     {(() => {
       const renderBlock = (component: V2Component, index: number) =>
         <V2Block key={`${index}-${refresh}`} appId={appId} component={component}

@@ -1,17 +1,12 @@
-"""Digest handling, ported from the platform's newsprojector (which this app
-replaces — news presentation belongs to the news app, not the recorder).
+"""Deterministic digest parsing and freshness gates for the state News writer.
 
 The gatherer agent is credential-less and only emits a structured digest as
 its run result; the platform recorder publishes that text to app.news.inbound
-verbatim. Everything here is deterministic code operating on UNTRUSTED,
-agent-produced text: parse defensively, sanitize anything that reaches
-Discord, canonicalize URLs for dedup. An injected digest can't make this code
+verbatim. Everything here is deterministic code operating on untrusted,
+agent-produced text: parse defensively and canonicalize URLs for dedup.
+An injected digest cannot make this code
 do anything but produce bounded text and rows.
-
-(Deliberate duplication: this logic used to live in
-agentplatform/newsprojector.py. Apps depend only on public contracts — never
-platform internals — so the code moved here wholesale; the platform side was
-deleted.)"""
+"""
 from __future__ import annotations
 
 import json

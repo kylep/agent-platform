@@ -68,7 +68,9 @@ test("the Apps page lists state Apps beside the legacy ones", async ({ page }) =
   await page.goto("/apps");
   const states = page.getByRole("region", { name: "State Apps" });
   const habits = states.locator(".state-app-card").filter({ hasText: "habits" });
-  await expect(habits.getByRole("link", { name: "habits" })).toHaveAttribute("href", appPath);
+  await expect(habits.getByRole("link", { name: "habits", exact: true })).toHaveAttribute("href", appPath);
+  await expect(habits.getByRole("link", { name: "Open habits" }))
+    .toHaveAttribute("href", `${appPath}/pages/home`);
   await expect(habits).toContainText("pai");
   await expect(habits).toContainText(/failing/i);
   await expect(habits).toContainText("2 issues");

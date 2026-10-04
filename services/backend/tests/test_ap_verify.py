@@ -55,8 +55,6 @@ def _names(suites):
         ("services/web/src/App.tsx", "web-lint"),
         ("services/web/src/App.tsx", "web-storybook"),
         ("packages/ui/src/sidenav.tsx", "web-playwright"),
-        ("apps/news/backend/newsapp/__init__.py", "app-news-backend"),
-        ("apps/news/frontend/src/main.tsx", "app-news-frontend"),
         ("tools/prices/run.py", "tool-prices"),
         ("charts/agent-platform/values.yaml", "helm"),
     ],

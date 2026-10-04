@@ -8,6 +8,7 @@ from agentplatform.apikeys import hash_token
 from agentplatform.appprovisioner import AppProvisioner, pg_ident
 from agentplatform.appregistry import AppRegistry
 from agentplatform.app_collections import import_legacy_apps
+from agentplatform.appdata.models import AppDataApp
 from agentplatform.db import ApiKey, AppCollection
 from agentplatform.secrets import InMemorySecretStore
 
@@ -105,7 +106,18 @@ async def test_legacy_app_import_keeps_db_metadata(tmp_path, sf):
     await import_legacy_apps(sf, registry)
     async with sf() as session:
         row = await session.get(AppCollection, "running")
-        assert row.description == "Edited in the platform"
+    assert row.description == "Edited in the platform"
+
+
+async def test_retired_coded_app_catalogue_row_is_hidden_after_state_cutover(
+        admin_client, sf):
+    async with sf() as session:
+        session.add(AppCollection(name="news", display_name="News",
+                                  source_app="news", owner_id="admin"))
+        session.add(AppDataApp(name="news", owner_kind="agent", owner_id="news"))
+        await session.commit()
+    apps = (await admin_client.get("/api/apps")).json()
+    assert all(app["name"] != "news" for app in apps)
 
 
 async def test_db_app_collections_can_be_created_and_edited(admin_client, client):
@@ -190,14 +202,14 @@ async def test_query_app_forwards_params(admin_client, monkeypatch):
         return real(transport=httpx.MockTransport(upstream), base_url="http://up", **kw)
 
     monkeypatch.setattr(apps_mod.httpx, "AsyncClient", fake_client)
-    r = await admin_client.get("/api/apps/news/query/items",
+    r = await admin_client.get("/api/apps/stockmarket/query/summary",
                                params={"params": _json.dumps({"q": "postgres", "limit": 5})})
     assert r.status_code == 200
-    assert captured[-1] == "http://up/apps/news/api/items?q=postgres&limit=5"
-    r = await admin_client.get("/api/apps/news/query/items", params={"topic": "security"})
+    assert captured[-1] == "http://up/apps/stockmarket/api/summary?q=postgres&limit=5"
+    r = await admin_client.get("/api/apps/stockmarket/query/summary", params={"topic": "security"})
     assert r.status_code == 200
-    assert captured[-1] == "http://up/apps/news/api/items?topic=security"
-    r = await admin_client.get("/api/apps/news/query/items", params={"params": "[1,2]"})
+    assert captured[-1] == "http://up/apps/stockmarket/api/summary?topic=security"
+    r = await admin_client.get("/api/apps/stockmarket/query/summary", params={"params": "[1,2]"})
     assert r.status_code == 400
-    r = await admin_client.get("/api/apps/news/query/items", params={"params": "{nope"})
+    r = await admin_client.get("/api/apps/stockmarket/query/summary", params={"params": "{nope"})
     assert r.status_code == 400

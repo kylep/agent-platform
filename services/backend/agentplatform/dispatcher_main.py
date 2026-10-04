@@ -29,6 +29,7 @@ from agentplatform.relay_router import RelayRouter
 from agentplatform.reportregistry import ReportTypeRegistry
 from agentplatform.scheduler import Scheduler
 from agentplatform.appdata.materialized import refresh_due
+from agentplatform.appdata.news_ingest import NewsStateIngestor
 from agentplatform.secretregistry import SecretRegistry
 from agentplatform.secrets import K8sSecretStore
 from agentplatform.skills import SkillStore
@@ -123,6 +124,7 @@ async def main() -> None:
     ingestor = Ingestor(settings, session_factory, producer)
     audit_ingestor = ToolAuditIngestor(settings, session_factory, producer)
     conv_ingestor = ConversationIngestor(settings, session_factory, producer)
+    news_ingestor = NewsStateIngestor(session_factory, settings.kafka_bootstrap, producer)
     # Relay's router (docs/design/19): mentions become runs here, next to the
     # connector ingest, because both are consumers that materialize work.
     relay_router = RelayRouter(settings, session_factory, producer, agent_store)
@@ -147,7 +149,8 @@ async def main() -> None:
                              session_pruner.run_forever(),
                              app_provisioner.run_forever(), tool_provisioner.run_forever(),
                              ingestor.run_forever(), audit_ingestor.run_forever(),
-                             conv_ingestor.run_forever(), relay_router.run_forever(),
+                             conv_ingestor.run_forever(), news_ingestor.run_forever(),
+                             relay_router.run_forever(),
                              verifier.run_forever(),
                              sweep_orphaned_keys_forever(session_factory),
                              pr_summarizer.run_forever(), merged_tickets.run_forever())

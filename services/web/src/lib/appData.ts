@@ -185,14 +185,16 @@ export type V2Component = (
   | { kind: "chart"; label?: string; view: string; x: string; y: string;
       params?: Record<string, ParamBinding>; unit?: string }
   | { kind: "calendar"; label?: string; view: string; day: string; value: string;
-      params?: Record<string, ParamBinding>; unit?: string }
+      params?: Record<string, ParamBinding>; unit?: string;
+      day_link?: { page: string; param: string } }
   | { kind: "stat_row"; label?: string; view: string; columns: Column[];
       params?: Record<string, ParamBinding> }
   | { kind: "text"; style: "heading" | "paragraph"; text: string; link?: TextLink }
 ) & { slot?: string };
 
 export type PageV2 = { renderer: "typed/v2"; title: string; components: V2Component[];
-  actions?: PageAction[]; layout?: string };
+  actions?: PageAction[]; layout?: string;
+  params?: Record<string, { type: string; required?: boolean; default?: unknown }> };
 
 export type PageActionIntent = { intent_id: string; expires_at: string; digest: string;
   action: PageAction["kind"]; collection: string; record_id: string | null;

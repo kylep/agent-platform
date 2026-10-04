@@ -39,12 +39,16 @@ TOPIC_ARTIFACTS_EVENTS = "artifacts.events"    # every create/delete → Studio 
 TOPIC_WORKBENCH_EVENTS = "workbench.events"    # every publish/refusal with its file list → Changes SSE, audit
 # Infra
 TOPIC_TOOL_AUDIT = "platform.tool.audit"   # broker → audit trail (design/13 E)
+TOPIC_NEWS_INBOUND = "app.news.inbound"     # gatherer digest → state News writer
+TOPIC_NEWS_INGESTED = "app.news.item.ingested"
+TOPIC_NEWS_REJECTED = "app.news.item.rejected"
 
 TOPIC_DEAD_LETTER = "dead.letter"          # consumer processing failures
 
 ALL_TOPICS = [
     TOPIC_RUN_INBOUND, TOPIC_RUN_REQUESTS, TOPIC_RUN_EVENTS, TOPIC_RUN_TRANSCRIPT,
     TOPIC_TOOL_AUDIT,
+    TOPIC_NEWS_INBOUND, TOPIC_NEWS_INGESTED, TOPIC_NEWS_REJECTED,
     TOPIC_RUN_DLQ, TOPIC_CONVERSATION_INBOUND, TOPIC_CONVERSATION_OUTBOUND,
     TOPIC_CHANNEL_POST, TOPIC_RELAY_MESSAGES, TOPIC_RELAY_INVOCATIONS,
     TOPIC_TICKETS_EVENTS, TOPIC_WIKI_EVENTS, TOPIC_QUOTA_EVENTS,
