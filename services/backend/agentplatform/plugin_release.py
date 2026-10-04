@@ -25,6 +25,8 @@ ATTESTED_BUNDLES = {
     "0.1.1": "733fca6e6b80dc4d89cbd73f5f6d2d94c110336c24f0ddd5f87ee8e3527a37d0",
     # GitHub Actions run 37051563083, main fd593559c9af09e6898b147399fb01834316e13f.
     "0.2.0": "48ffc117b3f4f87b665db6fb28d7895cfae6bcf7d67de08f26cb8da0bb05d5ea",
+    # GitHub Actions run 37075454272, main 67715bb6da296361b5c728f574df75c04510bd3b.
+    "0.3.0": "91aa35115253298eb32edb44727296e8e682eeadc1defaaf37cdb1aaaa20921b",
 }
 MAX_FILE_BYTES = 64 * 1024
 SKILL_PATH = re.compile(r"skills/[a-z][a-z0-9-]{0,63}/SKILL\.md$")
