@@ -253,6 +253,11 @@ from .skill_quick_edit_in import SkillQuickEditIn
 from .skill_view import SkillView
 from .skill_wizard_in import SkillWizardIn
 from .snapshot_in import SnapshotIn
+from .staging_finish_in import StagingFinishIn
+from .staging_open_in import StagingOpenIn
+from .staging_write_in import StagingWriteIn
+from .staging_write_in_mode import StagingWriteInMode
+from .staging_write_in_records_item import StagingWriteInRecordsItem
 from .sync_status import SyncStatus
 from .task_grant_in import TaskGrantIn
 from .task_in import TaskIn
@@ -568,6 +573,11 @@ __all__ = (
     "SkillView",
     "SkillWizardIn",
     "SnapshotIn",
+    "StagingFinishIn",
+    "StagingOpenIn",
+    "StagingWriteIn",
+    "StagingWriteInMode",
+    "StagingWriteInRecordsItem",
     "SyncStatus",
     "TaskGrantIn",
     "TaskIn",
