@@ -21,3 +21,4 @@ npm run build
 
 `Dockerfile` builds the static bundle and serves it via nginx, proxying
 `/api/` to the backend.
+
