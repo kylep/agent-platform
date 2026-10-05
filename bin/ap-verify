@@ -109,9 +109,18 @@ def _sh(*steps: str) -> list[str]:
     return ["sh", "-c", " && ".join(steps)]
 
 
-def suite_table(root: Path, out: Path | None = None) -> list[dict]:
+def wants_coverage(flag: bool | None, all_mode: bool) -> bool:
+    """Whether the backend suite collects coverage. Only the nightly (`--all`)
+    feeds the TCMS coverage report (the QA agent uploads coverage-backend.xml),
+    and `--cov` costs ~30s of an 8-core run, so `--changed` skips it by default.
+    `--coverage` / `--no-coverage` override either way."""
+    return all_mode if flag is None else flag
+
+
+def suite_table(root: Path, out: Path | None = None, coverage: bool = True) -> list[dict]:
     """Every suite CI runs, in the order it should run here. `out` is where
-    the junit/coverage/json reports land; None means no report flags."""
+    the junit/coverage/json reports land; None means no report flags.
+    `coverage=False` drops the backend suite's `--cov` flags (JUnit stays)."""
     root = Path(root)
     out = Path(out) if out is not None else None
     py = python_for_suites()
@@ -124,7 +133,7 @@ def suite_table(root: Path, out: Path | None = None) -> list[dict]:
         junit = out / "junit-backend.xml"
         backend_cmd.append(f"--junitxml={junit}")
         backend_artifacts.append(junit)
-        if has_module(py, "pytest_cov"):
+        if coverage and has_module(py, "pytest_cov"):
             cov = out / "coverage-backend.xml"
             backend_cmd += ["--cov=agentplatform", f"--cov-report=xml:{cov}"]
             backend_artifacts.append(cov)
@@ -448,6 +457,9 @@ def main(argv: list[str] | None = None) -> int:
                       help="run every suite, and merge the per-suite JUnit files into <out>/junit-all.xml")
     ap.add_argument("--base", default=DEFAULT_BASE, help=f"ref to diff against (default {DEFAULT_BASE})")
     ap.add_argument("--out", default=None, help="report directory (default <repo>/.ap/verify)")
+    ap.add_argument("--coverage", action=argparse.BooleanOptionalAction, default=None,
+                    help="collect backend coverage (coverage-backend.xml). Default: on for --all "
+                         "(the nightly TCMS upload), off for --changed, where it only slows the run")
     ap.add_argument("--list", action="store_true", help="print the suite table and what would run; run nothing")
     ap.add_argument("--timeout", type=int, default=default_timeout(),
                     help=f"seconds per suite (default $AP_VERIFY_TIMEOUT, else {DEFAULT_TIMEOUT})")
@@ -469,7 +481,7 @@ def main(argv: list[str] | None = None) -> int:
             base_error = str(exc)
             print(f"ap-verify: {exc}; running every suite", file=sys.stderr)
 
-    table = suite_table(root, out=out)
+    table = suite_table(root, out=out, coverage=wants_coverage(args.coverage, args.all))
     selected = select(table, changed)
     mode_name = "all" if changed is None else f"changed vs {args.base}"
 
