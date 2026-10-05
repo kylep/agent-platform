@@ -10,7 +10,7 @@ cases:
     automation:
       - pytest:services/backend/tests/test_apps.py::test_registry_parses_and_validates
       - pytest:services/backend/tests/test_apps.py::test_pg_ident_rules
-      - pytest:services/backend/tests/test_apps.py::test_apps_endpoint_lists_declared
+      - pytest:services/backend/tests/test_apps.py::test_db_app_collections_can_be_created_and_edited
     tags: [registry]
 
   - key: apps.key-minted-once

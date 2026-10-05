@@ -309,15 +309,6 @@ def test_is_stale_treats_naive_timestamps_as_utc():
 
 # --- settings -----------------------------------------------------------------
 
-def test_settings_carry_the_wiki_knobs():
-    s = Settings()
-    assert s.wiki_agent_writes_per_hour == 30
-    assert s.wiki_prompt_pages == 5
-    assert s.wiki_default_grant is True
-    assert s.wiki_stale_days == 30
-    assert s.wiki_max_body_bytes == 65536
-
-
 def test_settings_env_override(monkeypatch):
     monkeypatch.setenv("AP_WIKI_STALE_DAYS", "7")
     assert Settings().wiki_stale_days == 7

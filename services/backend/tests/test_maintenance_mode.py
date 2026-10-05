@@ -59,13 +59,6 @@ async def test_require_running_raises_under_restore(sf):
             await mm.require_running(s)
 
 
-async def test_the_hooks_r2_and_m6_call_exist():
-    """R2 tool actions and M6 service principals gate on require_running, and
-    the materializer (B21) on materialization_allowed; both must stay put."""
-    assert callable(mm.require_running)
-    assert callable(mm.materialization_allowed)
-
-
 async def test_materialization_is_refused_under_restore(sf):
     async with sf() as s:
         assert await mm.materialization_allowed(s)

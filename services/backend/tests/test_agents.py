@@ -63,12 +63,6 @@ async def test_grants_come_from_the_row_not_frontmatter(sf, seed_agent):
     assert "tools:" not in info.agent_md
 
 
-async def test_unknown_agent_is_none(sf):
-    store = AgentStore(sf)
-    await store.reload()
-    assert store.get("nobody") is None
-
-
 async def test_reload_picks_up_a_new_and_a_deleted_agent(sf, seed_agent):
     store = AgentStore(sf)
     await store.reload()

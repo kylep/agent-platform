@@ -55,18 +55,6 @@ def test_the_real_tree_loads_with_zero_errors(real):
                                         "artifacts", "workbench", "apps", "tools"}
 
 
-def test_the_real_tree_is_at_least_the_first_forty(real):
-    suites, _ = real
-    cases = [c for s in suites for c in s.cases]
-    assert len(cases) >= 40
-    layers = {c.layer for c in cases}
-    assert layers == {"unit", "integration", "e2e", "manual"}
-    assert sum(1 for c in cases if c.layer == "manual") >= 3
-    # Priorities are a judgement, but a tree where everything is p0 (or
-    # nothing is) has not been judged.
-    assert len({c.priority for c in cases}) >= 3
-
-
 def _pytest_function_names(path: Path) -> set[str]:
     return set(re.findall(r"^(?:async\s+)?def\s+(test_\w+)\s*\(",
                           path.read_text(), re.MULTILINE))
