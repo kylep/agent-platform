@@ -91,8 +91,8 @@ async def test_filters(sf, indexed, flt, expected):
     assert await names(sf, ctx, view) == expected
 
 
-@pytest.mark.parametrize("indexed", [[], ["name"]])
-@pytest.mark.parametrize("field", ["note", "name"])
+# "note" is never indexed by the ["name"] layout, so note+["name"] repeats the doc path.
+@pytest.mark.parametrize("field, indexed", [("note", []), ("name", []), ("name", ["name"])])
 @pytest.mark.parametrize("needle, expected", [
     ("hello", ["Hello World"]), ("WORLD", ["Hello World"]),
     # Pattern characters are the caller's text, not wildcards.

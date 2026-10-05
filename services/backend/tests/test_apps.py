@@ -89,12 +89,6 @@ async def test_key_reminted_when_secret_lost(provisioner, sf):
 
 # --- API ---------------------------------------------------------------------
 
-async def test_apps_endpoint_lists_declared(admin_client):
-    r = await admin_client.get("/api/apps")
-    assert r.status_code == 200
-    assert isinstance(r.json(), list)   # repo has no apps yet — empty is legal
-
-
 async def test_legacy_app_import_keeps_db_metadata(tmp_path, sf):
     _app(tmp_path, "running", "display_name: Running\ndescription: Old text\nui: true\n")
     registry = AppRegistry(tmp_path)

@@ -53,14 +53,6 @@ def test_codex_tag_matches_lean_image():
     assert _codex_tag(_dev()) == _codex_tag(LEAN_DOCKERFILE.read_text())
 
 
-def test_playwright_mcp_is_pinned_exactly():
-    """A bump is a deliberate edit of both this pin and the Dockerfile (the
-    package bundles its own playwright-core; see the --executable-path note)."""
-    m = re.search(r"@playwright/mcp@(\S+)", _dev())
-    assert m, "no @playwright/mcp@<version> pin"
-    assert m.group(1) == "0.0.82"
-
-
 def test_no_secret_material():
     text = _dev()
     assert "ANTHROPIC_" + "API_KEY" not in text

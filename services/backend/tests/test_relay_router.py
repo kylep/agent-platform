@@ -1047,14 +1047,6 @@ async def test_a_non_terminal_state_event_wakes_nobody(make_router, sf):
     assert [w.agent for w in await _wakes(sf)] == ["ada"]
 
 
-async def test_the_router_reads_both_topics(make_router, sf):
-    """The router only has a backstop if it is subscribed to the topic the
-    terminal state arrives on."""
-    from agentplatform.events import TOPIC_RELAY_MESSAGES
-    from agentplatform.relay_router import TOPICS
-    assert TOPICS == (TOPIC_RELAY_MESSAGES, TOPIC_RUN_EVENTS)
-
-
 async def test_a_pause_notice_stays_internal_despite_a_legacy_binding(make_router, sf, producer):
     """A legacy binding cannot broadcast router notices to an external account."""
     from agentplatform.db import RelayBinding

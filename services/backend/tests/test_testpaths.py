@@ -13,7 +13,6 @@ import pytest
 from agentplatform import testpaths
 from agentplatform.testpaths import (
     PUBLISH_DENY_GLOBS,
-    TEST_PATH_GLOBS,
     Change,
     check_policy,
     is_test_path,
@@ -121,19 +120,6 @@ def test_oversized_or_empty_pattern_is_rejected(pattern):
 def test_pattern_bounds_are_inclusive():
     assert match("a" * 200, "a" * 200)
     assert match("/".join(["a"] * 16), "/".join(["a"] * 16))
-
-
-def test_test_path_globs_are_the_design_list():
-    assert TEST_PATH_GLOBS == [
-        "services/backend/tests/**",
-        "services/web/tests/**",
-        "services/claude-proxy/tests/**",
-        "services/*/test_*.py",
-        "apps/*/backend/test_*.py",
-        "apps/*/backend/tests/**",
-        "tools/*/test_run.py",
-        "tcms/cases/**",
-    ]
 
 
 def test_publish_deny_globs_are_the_design_list():

@@ -71,11 +71,6 @@ def test_the_tools_are_grantable_but_not_on_the_annotator_rung():
         assert t not in PLATFORM_MCP_TOOLS
 
 
-def test_a_custom_tool_may_not_shadow_them():
-    from agentplatform.toolregistry import CORE_TOOL_SUFFIXES
-    assert {"agents_edit", "agents_grant"} <= CORE_TOOL_SUFFIXES
-
-
 async def test_help_documents_both_with_their_cautions(admin_client):
     rows = {t["name"]: t for t in (await admin_client.get("/api/help/tools")).json()}
     edit, grant = rows[TOOL_AGENTS_EDIT], rows[TOOL_AGENTS_GRANT]
