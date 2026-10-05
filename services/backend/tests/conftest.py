@@ -34,6 +34,24 @@ def _no_ambient_settings_env(monkeypatch):
     monkeypatch.delenv("AP_CLAUDE_PROXY_URL", raising=False)
     monkeypatch.delenv("AP_KAFKA_BOOTSTRAP", raising=False)
 
+@pytest.fixture(scope="session", autouse=True)
+def _cheap_password_hashing():
+    """Argon2 is slow on purpose (~0.09s for hash+verify at production cost), and
+    admin_client pays that on every use. The hash embeds its own parameters, so
+    verify() still accepts hashes made at the production cost; no test asserts
+    the cost itself."""
+    from argon2 import PasswordHasher
+    from argon2.profiles import CHEAPEST
+    import agentplatform.api.accounts as accounts, agentplatform.api.auth as auth
+    import agentplatform.qaprincipal as qaprincipal
+    mp = pytest.MonkeyPatch()
+    cheap = PasswordHasher.from_parameters(CHEAPEST)
+    for module in (auth, accounts, qaprincipal):
+        mp.setattr(module, "ph", cheap)
+    yield
+    mp.undo()
+
+
 def _file_engine(path):
     # StaticPool = one shared connection, which is what ":memory:" gives for free;
     # a file DB would otherwise pool several and change the locking behaviour.
