@@ -120,6 +120,57 @@ def test_select_all_returns_whole_table_in_order(apv):
 # ---------------------------------------------------------------- backend flags
 
 
+def test_backend_parallelism_respects_pod_quota_and_host_limit(apv, tmp_path):
+    quota = tmp_path / "cpu.max"
+    quota.write_text("300000 100000")
+    assert apv.backend_workers(cpu_count=32, quota_path=quota) == 3
+    quota.write_text("150000 100000")
+    assert apv.backend_workers(cpu_count=32, quota_path=quota) == 2
+    quota.write_text("max 100000")
+    assert apv.backend_workers(cpu_count=32, quota_path=quota) == 4
+    assert apv.backend_workers(cpu_count=1, quota_path=quota) == 1
+    quota.write_text("bad quota")
+    assert apv.backend_workers(cpu_count=2, quota_path=quota) == 2
+    assert apv.backend_workers(cpu_count=2, quota_path=tmp_path / "missing") == 2
+
+
+def test_backend_runs_same_tests_with_reports_under_xdist(apv, tmp_path, monkeypatch):
+    monkeypatch.setattr(apv, "has_module", lambda py, name: True)
+    monkeypatch.setattr(apv, "backend_workers", lambda: 3)
+    backend = next(s for s in apv.suite_table(REPO_ROOT, out=tmp_path) if s["name"] == "backend")
+    assert backend["cmd"][backend["cmd"].index("-n") + 1] == "3"
+    assert "tests" in backend["cmd"] and "--timeout=120" in backend["cmd"]
+    assert "--cov=agentplatform" in backend["cmd"]
+    assert f"--junitxml={tmp_path / 'junit-backend.xml'}" in backend["cmd"]
+    monkeypatch.setattr(apv, "has_module", lambda py, name: name != "xdist")
+    backend = next(s for s in apv.suite_table(REPO_ROOT) if s["name"] == "backend")
+    assert "-n" not in backend["cmd"] and "tests" in backend["cmd"]
+
+
+def test_progress_is_visible_while_the_suite_is_still_running(apv, tmp_path):
+    import threading
+    import time
+    release = tmp_path / "release"
+    suite = _fake("progress", "import pathlib,time; print('started', flush=True); "
+                  f"p=pathlib.Path({str(release)!r}); "
+                  "exec('while not p.exists(): time.sleep(0.01)')")
+    results = []
+    worker = threading.Thread(target=lambda: results.append(
+        apv.run_one(suite, REPO_ROOT, timeout=10, log_dir=tmp_path)))
+    worker.start()
+    try:
+        deadline = time.monotonic() + 5
+        log = tmp_path / "progress.log"
+        while time.monotonic() < deadline and (not log.exists() or not log.read_text()):
+            time.sleep(0.01)
+        assert worker.is_alive()
+        assert log.read_text() == "started\n"
+    finally:
+        release.touch()
+        worker.join(timeout=12)
+    assert results[0]["exit"] == 0
+
+
 def test_backend_gets_junit_and_cov_only_when_pytest_cov_imports(apv, tmp_path, monkeypatch):
     monkeypatch.setattr(apv, "has_module", lambda py, name: True)
     table = apv.suite_table(REPO_ROOT, out=tmp_path)

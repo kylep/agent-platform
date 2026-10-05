@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import os
 import shlex
 import shutil
@@ -86,6 +87,19 @@ def has_module(py: str, name: str) -> bool:
     return r.returncode == 0
 
 
+def backend_workers(cpu_count=None, quota_path=Path("/sys/fs/cgroup/cpu.max")) -> int:
+    """Bound xdist to four workers and the pod's CPU quota. `-n auto` sees
+    the host's cores inside a container and can exhaust its memory budget."""
+    workers = min(4, cpu_count or os.cpu_count() or 1)
+    try:
+        quota, period = quota_path.read_text().split()
+        if quota != "max" and int(quota) > 0 and int(period) > 0:
+            workers = min(workers, math.ceil(int(quota) / int(period)))
+    except (OSError, ValueError):
+        pass
+    return max(1, workers)
+
+
 def _pythonpath(root: Path) -> dict:
     """For suites that import agentplatform without installing it (the facade
     in CI installs the backend; a bare checkout does not)."""
@@ -119,6 +133,8 @@ def suite_table(root: Path, out: Path | None = None) -> list[dict]:
     pytest_q = [py, "-m", "pytest", "-q"]
 
     backend_cmd = pytest_q + ["--timeout=120", "tests"]
+    if has_module(py, "xdist"):
+        backend_cmd += ["-n", str(backend_workers())]
     backend_artifacts = []
     if out is not None:
         junit = out / "junit-backend.xml"
@@ -318,6 +334,7 @@ def _pump(stream, tail: deque, log) -> None:
     for line in stream:
         if log is not None:
             log.write(line)
+            log.flush()
         tail.append(line.rstrip("\n"))
     stream.close()
 
