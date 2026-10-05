@@ -18,7 +18,7 @@ from pathlib import Path
 
 import ingest
 import pytest
-import run
+import legacy as run
 from cases import split_ref
 
 HERE = Path(__file__).resolve().parent
@@ -27,7 +27,7 @@ REPO = HERE.parents[1]
 MIB = 1024 * 1024
 
 _spec = importlib.util.spec_from_file_location(
-    "tcmsapp.schema", REPO / "apps" / "tcms" / "backend" / "tcmsapp" / "schema.py")
+    "tcmsapp.schema", HERE / "schema.py")
 schema = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(schema)
 
@@ -583,7 +583,7 @@ def test_sync_cases_upserts_and_retires(tmp_path, monkeypatch):
 
 def test_sync_cases_reads_the_repos_case_tree_by_default():
     assert run.CASES_DIR == REPO / "tcms" / "cases"
-    assert run.SCHEMA_PATH == REPO / "apps" / "tcms" / "backend" / "tcmsapp" / "schema.py"
+    assert run.SCHEMA_PATH == HERE / "schema.py"
     assert run.CASES_DIR.is_dir() and run.SCHEMA_PATH.is_file()
 
 
@@ -829,7 +829,8 @@ def test_tool_yaml_shape():
     import yaml
     doc = yaml.safe_load((HERE / "tool.yaml").read_text())
     assert doc["name"] == "tcms"
-    assert doc["infra"]["secrets"] == ["app-tcms-db"]
+    assert "infra" not in doc
+    assert doc["app_access"]["roles"] == ["cases", "runs", "results", "coverage"]
     assert doc["timeout_seconds"] == 120
     props = doc["params"]["properties"]
     assert props["action"]["enum"] == ["sync_cases", "record_results", "cases", "case",

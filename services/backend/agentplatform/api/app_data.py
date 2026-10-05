@@ -705,6 +705,91 @@ class RefreshIn(AppRef):
     view: str
 
 
+class StagingOpenIn(AppRef):
+    collections: list[str] = Field(min_length=1, max_length=16)
+
+
+class StagingWriteIn(AppRef):
+    set_id: str
+    collection: str
+    records: list[dict[str, Any]] = Field(min_length=1, max_length=5000)
+    mode: Literal["insert", "upsert", "skip_existing"] = "insert"
+    key: list[str] | None = None
+
+
+class StagingFinishIn(AppRef):
+    set_id: str
+
+
+def _staging_call(request: Request) -> dict:
+    """Staging lasts only for the executor's current, scoped tool call."""
+    if getattr(request.state, "auth_kind", None) != tc.KIND_TOOL_CALL:
+        raise HTTPException(403, "a scoped tool-call credential is required")
+    return request.state.tool_call
+
+
+@router.post("/api/app-data/agent/records/staging/open")
+async def records_staging_open(request: Request, body: StagingOpenIn,
+                               actor: Actor = Depends(records_caller)):
+    claim = _staging_call(request)
+    async def fn(s):
+        from agentplatform.appdata.batch import open_staging_set
+        app, ctx = await _loaded(s, body.app)
+        for collection in body.collections:
+            tc.require_scope(request, app.id, collection, "create")
+        return await open_staging_set(s, ctx, actor.caller, body.collections,
+                                      call_id=claim["call_id"], run_id=claim["run_id"])
+    return await _call(request, fn)
+
+
+@router.post("/api/app-data/agent/records/staging/stage")
+async def records_staging_stage(request: Request, body: StagingWriteIn,
+                                actor: Actor = Depends(records_caller)):
+    claim = _staging_call(request)
+    async def fn(s):
+        from agentplatform.appdata.batch import stage
+        app, ctx = await _loaded(s, body.app)
+        tc.require_scope(request, app.id, body.collection, "create")
+        if body.mode == "upsert":
+            tc.require_scope(request, app.id, body.collection, "update")
+        return await stage(s, ctx, actor.caller, body.set_id, body.collection,
+                           body.records, mode=body.mode, key=body.key,
+                           call_id=claim["call_id"])
+    return await _call(request, fn)
+
+
+@router.post("/api/app-data/agent/records/staging/commit")
+async def records_staging_commit(request: Request, body: StagingFinishIn,
+                                 actor: Actor = Depends(records_caller)):
+    claim = _staging_call(request)
+    async def fn(s):
+        from agentplatform.appdata.batch import commit_staging_set
+        from agentplatform.appdata.models import AppDataStagingSet
+        app = await L._app(s, body.app)
+        staging = await s.get(AppDataStagingSet, body.set_id)
+        if staging is None or staging.app_id != app.id:
+            raise RecordError("AD-STAGING-NOT-FOUND", "staging set not found", 404)
+        for collection in staging.collection_versions:
+            tc.require_scope(request, app.id, collection, "create")
+        return await commit_staging_set(s, actor.caller, body.set_id,
+                                        call_id=claim["call_id"])
+    return await _call(request, fn)
+
+
+@router.post("/api/app-data/agent/records/staging/abandon")
+async def records_staging_abandon(request: Request, body: StagingFinishIn,
+                                  actor: Actor = Depends(records_caller)):
+    claim = _staging_call(request)
+    async def fn(s):
+        from agentplatform.appdata.batch import abandon_staging_set
+        app = await L._app(s, body.app)
+        if _scope_for(request, app.id) is None:
+            raise RecordError("AD-OUT-OF-SCOPE", "this App is outside the tool call", 403)
+        return await abandon_staging_set(s, actor.caller, body.set_id,
+                                         call_id=claim["call_id"])
+    return await _call(request, fn)
+
+
 @router.post("/api/app-data/agent/records/request_refresh")
 async def records_request_refresh(request: Request, body: RefreshIn,
                                   actor: Actor = Depends(records_caller)):

@@ -64,9 +64,7 @@ params:
       type: integer
       description: "runtime_report (10) / flaky (20) / prune_candidates (50): how many recent runs to look across"
   required: [action]
-infra:
-  # The app's provisioned DB secret (docs/design/11, the `prices` pattern):
-  # this tool writes the tcms app's tables directly and the executor envs
-  # APP_DB_* from it. The app owns the DDL; the tool creates nothing.
-  secrets: [app-tcms-db]
+app_access:
+  roles: [cases, runs, results, coverage]
+  verbs: [read, create, update]
 timeout_seconds: 120

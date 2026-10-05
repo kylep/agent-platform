@@ -321,6 +321,7 @@ class ListScalarItem(_Model):
     """A scalar inside a list. Item access follows the containing field."""
     type: Literal["string", "text", "int", "number", "bool", "date", "datetime", "enum",
                   "url"]
+    nullable: bool = False
     min: int | float | None = None
     max: int | float | None = None
     values: list[str] | None = None
@@ -898,9 +899,10 @@ def _fits_list_item(spec: ListScalarItem | ListObjectItem, value: Any, *,
                     bounds: bool) -> bool:
     if isinstance(spec, ListObjectItem):
         return (isinstance(value, dict) and set(value) == set(spec.fields)
-                and all(_fits_spec(child, child.type, value[name], bounds=bounds)
+                and all(_fits_list_item(child, value[name], bounds=bounds)
                         for name, child in spec.fields.items()))
-    return _fits_spec(spec, spec.type, value, bounds=bounds)
+    return (value is None and spec.nullable) or _fits_spec(spec, spec.type, value,
+                                                            bounds=bounds)
 
 
 def _fits_field(collection: CollectionDef, name: str, value: Any, *,

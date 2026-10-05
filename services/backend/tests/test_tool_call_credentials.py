@@ -537,6 +537,33 @@ async def test_page_intent_credential_authenticates_nothing_yet(env, sf):
 RECORDS = "/api/app-data/agent/records"
 
 
+async def test_scoped_tool_call_stages_and_commits_a_batch(env, sf):
+    owned = await _app(sf, "agent:pai", [
+        {**_collection("results"), "writers": {"create": ["tool:ledger"]}},
+        _collection("notes")])
+    h = _as_executor((await _mint(env)).json())
+    opened = await env.post(f"{RECORDS}/staging/open", headers=h, json={
+        "app": owned, "collections": ["results"]})
+    assert opened.status_code == 200, opened.text
+    set_id = opened.json()["set_id"]
+    staged = await env.post(f"{RECORDS}/staging/stage", headers=h, json={
+        "app": owned, "set_id": set_id, "collection": "results",
+        "records": [{"title": "first"}, {"title": "second"}]})
+    assert staged.status_code == 200, staged.text
+    committed = await env.post(f"{RECORDS}/staging/commit", headers=h, json={
+        "app": owned, "set_id": set_id})
+    assert committed.status_code == 200, committed.text
+    assert committed.json()["inserted"] == 2
+    refused = await env.post(f"{RECORDS}/staging/open", headers=h, json={
+        "app": owned, "collections": ["notes"]})
+    assert refused.status_code == 403
+    assert refused.json()["detail"]["code"] == "AD-OUT-OF-SCOPE"
+    denied = await env.post(f"{RECORDS}/staging/open", headers={
+        "Authorization": f"Bearer {env.run_jwt}"}, json={
+        "app": owned, "collections": ["results"]})
+    assert denied.status_code in (401, 403)
+
+
 async def test_a_tool_call_writes_and_reads_through_the_record_routes(env, sf):
     """End to end: the credential reaches the record routes with no
     `app_data` grant, its writes are the agent via the tool, and a
