@@ -617,16 +617,16 @@ def test_permission_args_dev_default_is_off(tmp_path, monkeypatch):
 _DEV_SHELL_TOOLS = ["Bash", "Read", "Edit", "Write", "NotebookEdit", "Glob", "Grep"]
 
 
-def test_assigned_skills_are_preloaded_without_granting_tools(tmp_path, monkeypatch):
-    definition = _payload(skills=["platform-orientation", "platform-change"])
+def test_definition_skill_names_do_not_bypass_launch_verification(tmp_path, monkeypatch):
+    definition = _payload(skills=["unverified-skill"])
     monkeypatch.setattr(runner, "_agentdef", lambda: (definition, None))
     monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("AP_SKILLS", "")
     runner._install_agent("newsy")
+    runner._write_claude_skill_context("newsy", definition, False)
     text = runner._agent_path("newsy").read_text()
-    assert 'skills: ["platform-orientation", "platform-change"]\n' in text
+    assert "unverified-skill" not in text
     assert runner._agent_tools("newsy") == ["WebSearch", "WebFetch", "mcp__platform__memory"]
-    with pytest.raises(ValueError, match="invalid assigned skill"):
-        runner._render_agent_md(_payload(skills=["bad\nskills: anything"]))
 
 
 def test_claude_main_session_receives_verified_skill_instructions(tmp_path, monkeypatch):
