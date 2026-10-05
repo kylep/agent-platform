@@ -1,0 +1,26 @@
+name: stockmarket
+category: domain_capability
+description: >-
+  Maintain the Stockmarket App. Record a cleaned daily brief, add or remove a
+  watched symbol, or read the latest brief. Price bars are loaded separately
+  by the Yahoo prices connector; backtests use the backtest tool.
+params:
+  type: object
+  properties:
+    action:
+      type: string
+      enum: [brief, add_symbol, remove_symbol, latest]
+    brief:
+      type: object
+      description: "brief: session JSON with day, body, tags, indexes and movers"
+    symbol:
+      type: string
+      description: "add_symbol/remove_symbol: Yahoo ticker, e.g. XIU.TO"
+    label:
+      type: string
+      description: "add_symbol: optional display label"
+  required: [action]
+app_access:
+  roles: [symbols, watchlist, briefs]
+  verbs: [read, create, update, delete]
+timeout_seconds: 60

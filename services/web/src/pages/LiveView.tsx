@@ -439,7 +439,9 @@ function V2Table({ appId, component, actions, onAction }: { appId: string;
           {available.some((action) => action.kind !== "create") && <th>Actions</th>}
         </tr></thead><tbody>{rows.map((row) => <tr key={row.id}>
           {component.columns.map((column, i) => <td key={column.field} data-label={v2Label(column)}>
-            {i === 0 && link && !row.restricted.includes(column.field)
+            {i === 0 && link && !row.restricted.includes(column.field) &&
+              Object.values(link.params).every((field) => field === "id" ||
+                (!row.restricted.includes(field) && row.values[field] != null))
               ? <Link to={pageHref(appId, link.page, Object.fromEntries(Object.entries(link.params).map(
                   ([param, field]) => [param, field === "id" ? row.id : String(row.values[field] ?? "")])))}>
                 <V2Cell row={row} column={column} /></Link>

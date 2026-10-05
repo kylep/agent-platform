@@ -307,14 +307,6 @@ def resolve_kind(args: dict) -> str:
 
 def main() -> int:
     args = json.load(sys.stdin)
-    if "_app_data" in args:
-        try:
-            from state import run as state_run
-            print(json.dumps(state_run(args)))
-            return 0
-        except Exception as exc:
-            print(f"Stockmarket state connector failed: {str(exc)[:500]}", file=sys.stderr)
-            return 2
     try:
         conn = connect()
     except Exception as e:

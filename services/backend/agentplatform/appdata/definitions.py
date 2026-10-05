@@ -628,9 +628,10 @@ class Column(_Model):
 
 
 class RowLink(_Model):
-    """Opens another page of the App with the row's record id as `param`."""
+    """Opens another page with a record id or an explicitly named row field."""
     page: Name
     param: Name
+    field: Name = "id"
 
 
 class Link(_Model):
@@ -1649,6 +1650,10 @@ def _check_row_link(link: RowLink, app: AppBundle, names, where: str):
             return [issue("JD-PAGE-LINK", join_path(where, "param"),
                           "the target page needs a string parameter of this name",
                           link.param)]
+    if link.field != "id" and not any(
+            link.field in collection.fields for collection in app.collections.values()):
+        return [issue("JD-PAGE-LINK", join_path(where, "field"),
+                      "no collection has this link field", link.field)]
     return []
 
 

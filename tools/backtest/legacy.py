@@ -523,11 +523,7 @@ def main():
         args = json.load(sys.stdin)
         if not isinstance(args, dict):
             raise ToolError("arguments must be a JSON object", 2)
-        if "_app_data" in args:
-            from state import run as state_run
-            out = state_run(args)
-        else:
-            out = dispatch(args)
+        out = dispatch(args)
     except ToolError as e:
         print(" ".join(str(e).split()), file=sys.stderr)
         return e.code

@@ -1319,7 +1319,7 @@ def page_for_web(page: PageDef, bundle, *, with_actions: bool = False) -> dict:
                 item["label"] = block.title
             if block.row_link is not None:
                 item["row_link"] = {"page": block.row_link.page,
-                                    "params": {block.row_link.param: "id"}}
+                                    "params": {block.row_link.param: block.row_link.field}}
         elif isinstance(block, (ChartBlock, CalendarBlock)):
             item = {"kind": block.kind, "view": block.view, "unit": block.unit}
             if isinstance(block, ChartBlock):

@@ -36,10 +36,7 @@ params:
       enum: [research, fx]
       default: research
       description: "Kind for symbols not yet tracked (research or fx); tracked symbols keep theirs"
-infra:
-  # The app's provisioned DB secret: this tool writes bars straight into
-  # app_stockmarket rather than relaying thousands of rows through an agent's
-  # context. The executor envs APP_DB_* from the secret the AppProvisioner
-  # made for the app (docs/design/11).
-  secrets: [app-stockmarket-db]
+app_access:
+  roles: [symbols, bars]
+  verbs: [read, create, update]
 timeout_seconds: 120

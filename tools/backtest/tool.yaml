@@ -1,5 +1,5 @@
 name: backtest
-category: service_connector
+category: domain_capability
 description: >-
   Backtest investment strategies on the stockmarket app's price archive. You
   write a declarative spec (period, money in, costs, 1-8 strategies built from
@@ -36,12 +36,7 @@ params:
       default: false
       description: "rerun: run the stored spec on current prices instead of the pinned dataset"
   required: [action]
-infra:
-  # The app's provisioned DB secret: the tool reads bars/symbols and writes
-  # the result into the five backtest_* tables of app_stockmarket (a result
-  # can be ~20 MB, which no model context or Kafka message should carry).
-  secrets: [app-stockmarket-db]
-  # One small backtest.completed notice per run on app.stockmarket.backtest;
-  # the app renders the report from the stored rows.
-  kafka: true
-timeout_seconds: 120
+app_access:
+  roles: [symbols, bars, datasets, experiments, results, metrics_parts, series, events]
+  verbs: [read, create, update]
+timeout_seconds: 300
