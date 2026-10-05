@@ -36,6 +36,9 @@ def field(kind: str, *, required: bool = False, max: int | None = None) -> dict:
 def _collection(name: str, fields: dict, unique: list[str], indexes: list[str],
                 writers: list[str]) -> dict:
     access = dict(ACCESS)
+    if name == "briefs":
+        # Pai delivers collected briefs; she does not maintain market records.
+        access["read"] = [*READ, "agent:pai"]
     if "tool:stockmarket" in writers:
         access.update(create=["owner", "agent:stockmarket"],
                       update=["owner", "agent:stockmarket"])

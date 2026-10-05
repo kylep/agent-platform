@@ -2,6 +2,9 @@
 import base64
 from datetime import datetime, timezone
 
+import pytest
+
+from agentplatform.appdata.access import Access, Caller, RecordError
 from agentplatform.appdata.definitions import validate_app
 from agentplatform.appdata.stockmarket_migration import bundle, convert
 
@@ -11,6 +14,22 @@ def test_market_bundle_is_publishable():
     assert len(parsed.collections) == 10
     assert {"home", "backtests", "backtest"} == set(parsed.pages)
     assert parsed.app_tools["backtest"].roles["bars"].verbs == ["read"]
+
+
+def test_pai_can_read_delivery_briefs_without_market_write_access():
+    parsed = validate_app(bundle())
+    pai = Caller("agent:pai")
+    briefs = Access(parsed.collections["briefs"], pai, "agent:stockmarket-data")
+    briefs.require_rows()
+    assert all(briefs.can_read(field) for field in ("day", "body", "indexes_json",
+                                                   "source_created_at"))
+    for verb in ("create", "update", "delete"):
+        with pytest.raises(RecordError, match="AD-FORBIDDEN"):
+            briefs.require_verb(verb)
+    for name, collection in parsed.collections.items():
+        if name != "briefs":
+            with pytest.raises(RecordError, match="AD-FORBIDDEN"):
+                Access(collection, pai, "agent:stockmarket-data").require_rows()
 
 
 def test_pinned_dataset_parts_roundtrip_exact_bytes():
