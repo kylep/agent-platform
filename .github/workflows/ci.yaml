@@ -322,6 +322,13 @@ jobs:
         # The UI's backpressure: each page must render the production build
         # with zero console errors, zero unfixtured API calls, and no
         # serious/critical axe violations. See services/web/tests/.
+        #
+        # Equal-count sharding put all ~50 slow axe tests (a11y.spec.ts) in
+        # shard 1 (76s vs 39-46s). Weights are tests-per-shard (51/166/149 of
+        # 366). The PWTEST_ prefix is semi-internal, so re-check after a
+        # Playwright bump; if ignored, shards fall back to equal-count (harmless).
+        env:
+          PWTEST_SHARD_WEIGHTS: "51:166:149"
         run: cd services/web && npx playwright test --shard=${{ matrix.shard }}/3
 
   helm:
