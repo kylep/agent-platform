@@ -617,6 +617,18 @@ def test_permission_args_dev_default_is_off(tmp_path, monkeypatch):
 _DEV_SHELL_TOOLS = ["Bash", "Read", "Edit", "Write", "NotebookEdit", "Glob", "Grep"]
 
 
+def test_assigned_skills_are_preloaded_without_granting_tools(tmp_path, monkeypatch):
+    definition = _payload(skills=["platform-orientation", "platform-change"])
+    monkeypatch.setattr(runner, "_agentdef", lambda: (definition, None))
+    monkeypatch.setenv("HOME", str(tmp_path))
+    runner._install_agent("newsy")
+    text = runner._agent_path("newsy").read_text()
+    assert 'skills: ["platform-orientation", "platform-change"]\n' in text
+    assert runner._agent_tools("newsy") == ["WebSearch", "WebFetch", "mcp__platform__memory"]
+    with pytest.raises(ValueError, match="invalid assigned skill"):
+        runner._render_agent_md(_payload(skills=["bad\nskills: anything"]))
+
+
 def test_dev_render_lists_the_shell_tools_in_the_tools_line():
     """Claude Code reads the agent file's `tools:` as the ENABLED set, and
     `--allowedTools` only pre-approves within it — so a dev agent file that

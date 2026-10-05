@@ -471,6 +471,15 @@ def _render_agent_md(d: dict, dev: bool = False) -> str:
     front = [f"name: {d['name']}", f"description: {_agent_description(d)}"]
     if tools:
         front.append("tools: " + ", ".join(tools))
+    # Installing files alone does not load instructions: the explicit tools
+    # list disables dynamic Skill discovery. Preload the assigned, verified
+    # skills through Claude's agent frontmatter without adding tool authority.
+    skills = d.get("skills") or []
+    if skills:
+        if not all(isinstance(name, str) and re.fullmatch(r"[a-z][a-z0-9-]{0,63}", name)
+                   for name in skills):
+            raise ValueError("invalid assigned skill name")
+        front.append("skills: " + json.dumps(skills))
     return "---\n" + "\n".join(front) + "\n---\n\n" + (d.get("prompt") or "")
 
 
