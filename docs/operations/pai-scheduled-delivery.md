@@ -38,11 +38,11 @@ was removed because whole-definition validation refused it.
   proves Pai can read briefs, cannot mutate them, and cannot read the other
   Stockmarket collections.
 
-The market collector currently selects the newest daily bar, including live
-intraday prices. Until its completed-session selector is repaired, Pai labels
-briefs collected before their market day's close as intraday snapshots and gives
-the collection time. Repairing collection is separate from delivery; never
-silently present an intraday brief as a completed-session close.
+The completed-session selector was repaired in `0b5d5b1`: it excludes the live
+daily bar until the exchange's regular close plus a fifteen-minute grace period.
+A live Monday verification returned Friday's session for all three indexes.
+Previously archived intraday snapshots remain explicitly labeled; Pai gives
+their collection time and does not present them as completed-session closes.
 
 ## Migration acceptance
 
