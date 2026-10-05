@@ -136,6 +136,23 @@ def test_backend_gets_junit_and_cov_only_when_pytest_cov_imports(apv, tmp_path, 
     assert "--junitxml" in cmd and "--cov" not in cmd
 
 
+def test_coverage_is_dropped_but_junit_kept_when_asked(apv, tmp_path, monkeypatch):
+    monkeypatch.setattr(apv, "has_module", lambda py, name: True)
+    table = apv.suite_table(REPO_ROOT, out=tmp_path, coverage=False)
+    backend = next(s for s in table if s["name"] == "backend")
+    cmd = " ".join(backend["cmd"])
+    assert f"--junitxml={tmp_path / 'junit-backend.xml'}" in cmd and "--cov" not in cmd
+    assert not any(a.name == "coverage-backend.xml" for a in backend["artifacts"])
+
+
+def test_only_the_full_run_collects_coverage_unless_overridden(apv):
+    # --changed (the everyday loop) skips it; --all (the nightly TCMS upload) keeps it.
+    assert apv.wants_coverage(None, all_mode=False) is False
+    assert apv.wants_coverage(None, all_mode=True) is True
+    assert apv.wants_coverage(True, all_mode=False) is True
+    assert apv.wants_coverage(False, all_mode=True) is False
+
+
 def test_playwright_reporters_point_into_out(apv, tmp_path):
     table = apv.suite_table(REPO_ROOT, out=tmp_path)
     pw = next(s for s in table if s["name"] == "web-playwright")
@@ -312,19 +329,19 @@ def test_list_cli_prints_cwd_beside_suite_name():
 
 def test_cli_exit_mirrors_ok(apv, tmp_path, monkeypatch):
     monkeypatch.setattr(apv, "suite_table",
-                        lambda root, out=None: [_fake("bad", "raise SystemExit(3)", globs=["**"])])
+                        lambda root, out=None, coverage=True: [_fake("bad", "raise SystemExit(3)", globs=["**"])])
     out = tmp_path / "verify"
     assert apv.main(["--all", "--out", str(out)]) == 1
     data = json.loads((out / "verify.json").read_text())
     assert data["ok"] is False and data["suites"][0]["exit"] == 3
 
     monkeypatch.setattr(apv, "suite_table",
-                        lambda root, out=None: [_fake("good", "pass", globs=["**"])])
+                        lambda root, out=None, coverage=True: [_fake("good", "pass", globs=["**"])])
     assert apv.main(["--all", "--out", str(out)]) == 0
 
 
 def test_skip_marks_a_suite_skipped_without_failing(apv, tmp_path, monkeypatch):
-    monkeypatch.setattr(apv, "suite_table", lambda root, out=None: [
+    monkeypatch.setattr(apv, "suite_table", lambda root, out=None, coverage=True: [
         _fake("bad", "raise SystemExit(1)", globs=["**"]),
         _fake("good", "pass", globs=["**"])])
     out = tmp_path / "verify"
@@ -432,7 +449,7 @@ def test_all_writes_junit_all_and_lists_it(apv, tmp_path, monkeypatch):
     coverage) and the TCMS reads one JUnit document."""
     out = tmp_path / "verify"
     files = _junit_fixtures(out)
-    monkeypatch.setattr(apv, "suite_table", lambda root, out=None: [
+    monkeypatch.setattr(apv, "suite_table", lambda root, out=None, coverage=True: [
         _fake("backend", "pass", globs=["**"], artifacts=[files[0]]),
         _fake("web-playwright", "pass", globs=["**"], artifacts=[files[1]])])
     assert apv.main(["--all", "--out", str(out)]) == 0
@@ -446,7 +463,7 @@ def test_changed_does_not_write_junit_all(apv, tmp_path, monkeypatch):
     per-suite files as before, no merge (nothing ingests a partial run)."""
     out = tmp_path / "verify"
     files = _junit_fixtures(out)
-    monkeypatch.setattr(apv, "suite_table", lambda root, out=None: [
+    monkeypatch.setattr(apv, "suite_table", lambda root, out=None, coverage=True: [
         _fake("backend", "pass", globs=["**"], artifacts=[files[0]])])
     monkeypatch.setattr(apv, "changed_paths", lambda root, base: (["x/y.py"], "abc123abc123"))
     assert apv.main(["--changed", "--out", str(out)]) == 0
