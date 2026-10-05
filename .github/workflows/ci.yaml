@@ -70,6 +70,7 @@ jobs:
               - 'services/backend/agentplatform/workbench.py'
             codex_proxy:
               - 'services/codex-proxy/**'
+              - 'charts/**'
             apps:
               - 'apps/**'
             tools:
@@ -283,13 +284,45 @@ jobs:
         run: cd services/web && npm run check:tokens
       - name: Storybook builds
         run: cd services/web && npm run build:storybook
+
+  # The Playwright UI gate is ~145s of the old single web job, so it runs as its own
+  # three shards (Playwright's native --shard, fullyParallel is already on).
+  web-ui:
+    needs: changes
+    if: needs.changes.outputs.web == 'true'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+      - name: Install workspaces and build web
+        run: npm ci && cd services/web && npm run build
+      - name: Cache Playwright browser
+        id: pw-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
       - name: Install Playwright browser
-        run: cd services/web && npx playwright install --with-deps chromium
-      - name: UI gate — smoke + axe over every page (mocked API)
+        # The cache holds the browser download only; the OS packages always install.
+        run: |
+          cd services/web
+          if [ "${{ steps.pw-cache.outputs.cache-hit }}" = "true" ]; then
+            npx playwright install-deps chromium
+          else
+            npx playwright install --with-deps chromium
+          fi
+      - name: UI gate — smoke + axe over every page (mocked API), shard ${{ matrix.shard }}/3
         # The UI's backpressure: each page must render the production build
         # with zero console errors, zero unfixtured API calls, and no
         # serious/critical axe violations. See services/web/tests/.
-        run: cd services/web && npx playwright test
+        run: cd services/web && npx playwright test --shard=${{ matrix.shard }}/3
 
   helm:
     needs: changes
@@ -383,7 +416,7 @@ jobs:
   # The one check to require once branch protection is on. Skipped jobs are fine
   # (the `changes` job chose not to run them); a failed or cancelled one is not.
   ci-ok:
-    needs: [changes, backend, runner, codex-proxy, mcp-facade, apps, tools, web, helm, claude-proxy, secret-scan, security-scan, subscription-guard]
+    needs: [changes, backend, runner, codex-proxy, mcp-facade, apps, tools, web, web-ui, helm, claude-proxy, secret-scan, security-scan, subscription-guard]
     if: always()
     runs-on: ubuntu-latest
     steps:
