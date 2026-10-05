@@ -110,7 +110,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2]
+        # "extras" is a third parallel job for the small suites that ride along with
+        # the backend (broker, discord, SDK drift), so neither test shard carries them.
+        shard: [1, 2, extras]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -121,6 +123,7 @@ jobs:
       - name: Install backend
         run: pip install -e 'services/backend[dev]'
       - name: Run backend tests (shard ${{ matrix.shard }} of 2)
+        if: matrix.shard != 'extras'
         # Includes the end-to-end SDK exercise (tests/test_sdk_integration.py):
         # the generated client drives the real ASGI app over httpx with a
         # genuine ap_ key — auth, RBAC, typed responses for real — and the
@@ -130,19 +133,19 @@ jobs:
         # data only unbalances the shards, it never drops a test).
         run: pytest -n auto --splits 2 --group ${{ matrix.shard }} --durations-path .test_durations services/backend/tests
       - name: Broker tool tests
-        if: matrix.shard == 1
+        if: matrix.shard == 'extras'
         # The broker's own tools (services/mcp-broker): the modules that reach
         # the API with the caller's token. They stub fastmcp rather than
         # installing an MCP runtime, so they ride along with the backend job.
         run: pytest services/mcp-broker
       - name: Discord connector tests
-        if: matrix.shard == 1
+        if: matrix.shard == 'extras'
         # The bridge (services/connector-discord): it stubs discord.py and
         # aiokafka rather than installing a gateway client, so like the broker's
         # tests it rides along with the backend job.
         run: pytest services/connector-discord
       - name: SDK is in sync with the API
-        if: matrix.shard == 1
+        if: matrix.shard == 'extras'
         # The SDK is generated from the OpenAPI spec; regenerate and fail if the
         # committed output differs, so it can never drift. Generator is pinned.
         run: |
