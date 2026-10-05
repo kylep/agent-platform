@@ -37,16 +37,14 @@ cases:
     tags: [api, security]
 
   - key: apps.news-ingest-gates
-    title: The news app rejects stale, undated and duplicate items and treats garbage as a no-op
+    title: The news state App rejects stale, undated, hub-URL and duplicate-story items
     layer: unit
     priority: p1
-    steps: [ingest a digest with a stale item, an undated one, a duplicate story and one that is not JSON]
-    expected: only fresh dated new items are stored and tagged, rejections are counted for the footer, garbage stores nothing
+    steps: [ingest a digest with a stale item, an undated one, a hub-page URL and a fresh one, then replay the fresh story from another domain]
+    expected: only the fresh dated new item is stored, each rejection carries its reason, and the replayed story is rejected as a duplicate
     automation:
-      - pytest:apps/news/backend/test_newsapp.py::test_ingest_rejects_stale_and_undated_items
-      - pytest:apps/news/backend/test_newsapp.py::test_ingest_dedups_and_tags
-      - pytest:apps/news/backend/test_newsapp.py::test_ingest_garbage_is_noop
-      - pytest:apps/news/backend/test_newsapp.py::test_format_post_footer_counts_filtered_items
+      - pytest:services/backend/tests/test_news_state_migration.py::test_freshness_gates_and_story_dedup
+      - pytest:services/backend/tests/test_news_state_migration.py::test_cutover_then_dedup_and_fresh_story
     tags: [news, freshness]
 
   - key: apps.running-sanitizes-and-rolls-up

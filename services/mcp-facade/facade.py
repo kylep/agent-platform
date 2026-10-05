@@ -30,8 +30,8 @@ The surface is CURATED into three tiers (curation 2026-08-24; see
   not the kitchen.
 - **EXCLUDE** — UI form-feeders, private-key import inspection, reviewer digests the client can compute,
   git-edit conveniences redundant with having the repo, and system-agent
-  endpoints. Never tools. 21 curated-out, plus 87 session/internal/streaming/
-  byte-serving/connector/run-only operations below — 304 graded operations in all.
+  endpoints. Never tools. 21 curated-out, plus 91 session/internal/streaming/
+  byte-serving/connector/run-only operations below — 308 graded operations in all.
 
 It is deliberately NOT the mcp-broker. The broker authenticates in-cluster run
 identities and scopes tools to an agent's grants (design/13, design/15). This
