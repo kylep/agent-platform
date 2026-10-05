@@ -153,7 +153,9 @@ test("the pages fit a phone: the tab strip scrolls itself, the row's buttons sta
   await page.setViewportSize({ width: 390, height: 844 });
 
   await page.goto("/agents/health-monitor");
-  await expect(page.getByRole("button", { name: "Report" })).toBeAttached();
+  // The rail also has an "Expand Reporting" button. Select the exact tab
+  // so a slower rail render cannot turn this layout assertion ambiguous.
+  await expect(page.locator(".tabs").getByRole("button", { name: "Report", exact: true })).toBeAttached();
   // The strip is wider than the phone; it scrolls within itself, never the page.
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
   await expect(page.locator(".tabs")).toHaveAttribute("tabindex", "0");
