@@ -752,8 +752,24 @@ class DeleteTemplate(_Model):
     label: Label | None = None
 
 
+class ToolActionTemplate(_Model):
+    """A reviewed server adapter, invoked only through Kyle's confirmed intent.
+
+    Unlike a record template, this may operate on a tool-only collection. The
+    adapter is admitted by the checked-in page-action registry; an App author
+    cannot provide executable code or widen an adapter's target or inputs.
+    """
+    kind: Literal["tool_action"]
+    name: Name
+    collection: Name
+    operation: Name
+    label: Label | None = None
+    editable_fields: Annotated[list[Name], Field(max_length=16)] = Field(
+        default_factory=list)
+
+
 ActionTemplate = Annotated[Union[CreateTemplate, UpdateTemplate, NewVersionTemplate,
-                                 DeleteTemplate],
+                                 DeleteTemplate, ToolActionTemplate],
                            Field(discriminator="kind")]
 
 
@@ -1640,6 +1656,15 @@ def _check_template(t, app: AppBundle, names, where: str) -> list[DefinitionIssu
                       "no such collection in this App", t.collection)]
     c = app.collections.get(t.collection)
     if c is None:
+        return []
+    if isinstance(t, ToolActionTemplate):
+        from agentplatform.appdata.page_tool_actions import REVIEWED
+        reviewed = REVIEWED.get(t.operation)
+        if (reviewed is None or reviewed.collection != t.collection
+                or tuple(t.editable_fields) != reviewed.editable_fields):
+            return [issue("JD-PAGE-TOOL-ACTION", where,
+                          "page action must match a reviewed operation, collection, "
+                          "and exact editable fields", t.operation)]
         return []
     verb = "update" if isinstance(t, NewVersionTemplate) else t.kind
     if c.writers is not None and getattr(c.writers, verb) is not None:

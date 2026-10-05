@@ -39,7 +39,7 @@ def test_prediction_pins_the_observed_version_and_guards_it(monkeypatch):
         calls.append((action, copy.deepcopy(body)))
         if action == "get":
             return {"id": body["id"], "version": 3,
-                    "values": {"claim": "a belief"}}
+                    "values": {"claim": "a belief", "number": 2}}
         return {"results": []}
 
     monkeypatch.setattr(state, "_call", fake)
@@ -51,7 +51,7 @@ def test_prediction_pins_the_observed_version_and_guards_it(monkeypatch):
     tx = calls[-1][1]
     assert tx["guards"] == [{"collection": "beliefs", "id": "b" * 32,
                              "version": 3}]
-    assert tx["operations"][1]["values"]["belief_version"] == 3
+    assert tx["operations"][1]["values"]["belief_version"] == 2
     assert tx["operations"][1]["values"]["prediction"] == result["id"]
 
 

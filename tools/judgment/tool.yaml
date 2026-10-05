@@ -127,9 +127,7 @@ params:
       default: 10
       description: "recall with query: beliefs to show (max 50)"
   required: [action]
-infra:
-  # The App's provisioned DB secret (docs/design/38): this tool reads and
-  # writes app_judgment directly. The App owns the DDL; the tool creates
-  # nothing.
-  secrets: [app-judgment-db]
+app_access:
+  roles: [beliefs, versions, predictions, links, feedback]
+  verbs: [read, create, update]
 timeout_seconds: 30

@@ -164,8 +164,9 @@ export type ActionField = { name: string; type: "string" | "text" | "int" | "num
   "bool" | "date" | "datetime" | "enum" | "ref" | "url" | "artifact" | "list";
   label?: string; required?: boolean; min?: number; max?: number; values?: string[];
   max_items?: number; items?: unknown };
-export type PageAction = { name: string; kind: "create" | "update" | "new_version" | "delete";
-  label: string; collection: string; editable_fields: ActionField[] };
+export type PageAction = { name: string; kind: "create" | "update" | "new_version" | "delete" |
+  "tool_action"; label: string; collection: string; destructive?: boolean;
+  editable_fields: ActionField[] };
 
 /** A row link opens another page of the same App with query parameters
  *  filled from the row: `{page: "entry", params: {id: "id"}}` links to

@@ -270,7 +270,7 @@ function ActionPanel({ appId, page, selected, onClose, onDone }: {
       <Button onClick={finish} disabled={busy}>{busy ? "Saving…" : "Confirm action"}</Button>{" "}
       <Button variant="secondary" onClick={() => setIntent(null)} disabled={busy}>Edit</Button>
     </> : <>
-      {action.kind === "delete" ? <p>Review the affected records before deleting.</p>
+      {action.kind === "delete" || action.destructive ? <p>Review the affected records before deleting.</p>
         : action.editable_fields.map((field) => <ActionFieldInput key={field.name}
           field={field} value={draft[field.name] || ""}
           onChange={(value) => setDraft({ ...draft, [field.name]: value })} />)}

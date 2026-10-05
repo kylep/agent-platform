@@ -12,13 +12,12 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
-import run
+import legacy as run
 
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parents[1]
 
-_spec = importlib.util.spec_from_file_location(
-    "judgmentapp.schema", REPO / "apps" / "judgment" / "backend" / "judgmentapp" / "schema.py")
+_spec = importlib.util.spec_from_file_location("judgmentapp.schema", HERE / "schema.py")
 schema = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(schema)
 
@@ -871,7 +870,9 @@ def test_tool_yaml_shape():
     import yaml
     doc = yaml.safe_load((HERE / "tool.yaml").read_text())
     assert doc["name"] == "judgment" and doc["category"] == "domain_capability"
-    assert doc["infra"]["secrets"] == ["app-judgment-db"]
+    assert doc["app_access"]["roles"] == ["beliefs", "versions", "predictions",
+                                            "links", "feedback"]
+    assert not doc.get("infra", {}).get("secrets")
     assert doc["timeout_seconds"] == 30
     props = doc["params"]["properties"]
     assert props["action"]["enum"] == ["belief", "predict", "feedback", "recall", "pending"]

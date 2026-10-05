@@ -81,7 +81,7 @@ FIELD_KEYS = {kind: _keys(model) for kind, model in _tagged(lang.FieldSpec, "typ
 DEFAULT_ON_DELETE = lang.RefField.model_fields["on_delete"].default
 ON_DELETE = frozenset(_literal(lang.RefField, "on_delete")) | {"cascade"}   # R2
 # Release 2 lists: one level of declared sub-fields, each a scalar type.
-LIST_KEYS = _keys(lang.BoolField) | {"items"}
+LIST_KEYS = _keys(lang.ListField)
 OBJECT_ITEM_KEYS = frozenset({"type", "fields"})
 
 RULE_KEYS = {kind: _keys(model) for kind, model in _tagged(lang.Rule, "kind").items()}
@@ -410,6 +410,20 @@ def _template(out, page, t, path):
     names it `<page>.<name>`: the same form on another page is another approval."""
     kind = t["kind"]
     out.unknown_keys(t, TEMPLATE_KEYS[kind], path)
+    if kind == "tool_action":
+        from agentplatform.appdata.page_tool_actions import REVIEWED
+        operation = t.get("operation")
+        reviewed = REVIEWED.get(operation)
+        if reviewed is None or reviewed.collection != t.get("collection"):
+            out.unmapped(path)
+            return
+        verbs = (("delete",) if "_delete_" in operation else
+                 ("update", "create") if operation.endswith("_belief") else
+                 ("update",))
+        out.add("tool_action", reviewed.app, operation,
+                (f"collection={reviewed.collection}",), verbs,
+                canon({"principal_per_hour": 30, "app_per_hour": 120}))
+        return
     presets = t.get("presets", {})
     editable = _strings(t.get("editable_fields", []))
     if not isinstance(t.get("name"), str) or not isinstance(t.get("collection"), str) \

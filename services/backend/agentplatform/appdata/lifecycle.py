@@ -1365,6 +1365,8 @@ def page_for_web(page: PageDef, bundle, *, with_actions: bool = False) -> dict:
         result["actions"] = [{"name": t.name, "kind": t.kind,
                               "label": t.label or t.name.replace("_", " ").title(),
                               "collection": t.collection,
+                              "destructive": getattr(t, "operation", "").endswith(
+                                  ("delete_belief", "delete_prediction", "delete_feedback")),
                               "editable_fields": [
                                   {"name": name, **bundle.collections[t.collection].fields[name]
                                    .model_dump(mode="json", include={"type", "label", "required",

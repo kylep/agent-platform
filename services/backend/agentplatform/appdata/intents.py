@@ -17,8 +17,9 @@ from sqlalchemy import func, select
 from agentplatform.appdata import lifecycle as L
 from agentplatform.appdata import quotas
 from agentplatform.appdata import records as rec
+from agentplatform.appdata import page_tool_actions as pta
 from agentplatform.appdata.access import Caller, RecordError
-from agentplatform.appdata.definitions import CreateTemplate, DeleteTemplate
+from agentplatform.appdata.definitions import CreateTemplate, DeleteTemplate, ToolActionTemplate
 from agentplatform.appdata.models import (
     AppDataApp,
     AppDataPageIntent,
@@ -74,7 +75,13 @@ async def _published(session, app_ref: str, page_name: str, template_name: str):
         raise RecordError("AD-NO-TEMPLATE", "no action template bound to this page", 404)
     collection = ctx.collection(template.collection)
     verb = "update" if template.kind == "new_version" else template.kind
-    if collection.writers is not None and getattr(collection.writers, verb):
+    if isinstance(template, ToolActionTemplate):
+        admitted = pta.REVIEWED.get(template.operation)
+        if (admitted is None or admitted.app != app.name
+                or admitted.collection != template.collection
+                or tuple(template.editable_fields) != admitted.editable_fields):
+            raise RecordError("JD-REVIEW-ACTION", "review action is not admitted", 403)
+    elif collection.writers is not None and getattr(collection.writers, verb):
         raise RecordError("AD-TOOL-ONLY", "this collection writes only through its tool", 403)
     if template.kind == "new_version" and collection.write_mode != "versioned":
         raise RecordError("AD-NOT-VERSIONED", "new_version requires a versioned collection", 409)
@@ -83,6 +90,8 @@ async def _published(session, app_ref: str, page_name: str, template_name: str):
 
 
 async def _snapshot(session, ctx, template, collection, record_id, editable):
+    if isinstance(template, ToolActionTemplate):
+        return await pta.prepare(session, ctx, template.operation, record_id, editable)
     caller = _page_caller(template, collection)
     if not isinstance(editable, dict):
         raise RecordError("AD-TEMPLATE-VALUES", "editable values must be an object", 422)
@@ -177,7 +186,9 @@ async def dispatch(session, intent_id: str, digest: str) -> dict:
         raise RecordError("AD-NO-INTENT", "unknown page intent", 404)
     app = await L._app(session, first.app_id)
     ctx = await rec.load_app(session, app.id)
-    lock = (rec.delete_lock(session, ctx, first.collection) if first.verb == "delete"
+    lock = (rec.write_lock(session, ctx, list(ctx.bundle.collections))
+            if first.verb == "tool_action" else
+            rec.delete_lock(session, ctx, first.collection) if first.verb == "delete"
             else rec.write_lock(session, ctx, [first.collection]))
     async with lock:
         intent = await session.get(AppDataPageIntent, intent_id, with_for_update=True,
@@ -207,8 +218,12 @@ async def dispatch(session, intent_id: str, digest: str) -> dict:
                 or normalized != intent.values):
             raise _refuse("the target or delete plan changed")
         await _budget(session, app.id)
-        caller = _page_caller(action, collection)
-        if intent.verb == "create":
+        caller = _page_caller(action, collection) if not isinstance(
+            action, ToolActionTemplate) else None
+        if isinstance(action, ToolActionTemplate):
+            result = await pta.apply(session, ctx, action.operation, intent.record_id,
+                                     intent.values, intent.record_version, intent.id)
+        elif intent.verb == "create":
             row = await rec._insert(session, ctx, caller, collection, intent.values)
             await rec.bump_counters(session, app.id, [collection.collection])
             result = {"collection": collection.collection, "id": row.id,

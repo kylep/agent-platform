@@ -5,6 +5,8 @@ import pytest
 from sqlalchemy import func, select
 
 from agentplatform.appdata.definitions import validate_app
+from agentplatform.appdata import intents
+from agentplatform.appdata.access import RecordError
 from agentplatform.appdata.judgment_cutover import verify_copy
 from agentplatform.appdata.judgment_migration import (
     bundle,
@@ -68,6 +70,8 @@ def test_copy_keeps_ids_authors_versions_and_dangling_historical_pin():
     assert belief.id == "b" * 32 and belief.version == 3
     assert belief.author == "user:admin"
     assert belief.doc["claim"] == "corrected"
+    assert belief.doc["number"] == 3
+    assert belief.history[0]["doc"]["number"] == 1
     assert belief.history[0]["version"] == 1
     assert "status" not in belief.history[0]["doc"]
     assert records["prediction_beliefs"][0].doc["belief_version"] == 2
@@ -144,3 +148,110 @@ async def test_parity_check_rejects_a_changed_historical_document(sf):
         await s.flush()
         with pytest.raises(RuntimeError, match="historical document differs"):
             await verify_copy(s, "a" * 32, convert_snapshot(snapshot()))
+
+
+async def _seed_review(sf, source=None):
+    definitions = bundle()
+    async with sf() as s:
+        s.add(AppDataApp(id="a" * 32, name="judgment", owner_kind="agent",
+                         owner_id="kai", approved_version=1))
+        for kind, plural in (("collection", "collections"), ("view", "views"),
+                             ("page", "pages"), ("tool", "app_tools")):
+            for body in definitions[plural]:
+                s.add(AppDataDefinition(app_id="a" * 32, kind=kind,
+                                        name=body[kind], version=1, body=body,
+                                        state="published", author="migration:judgment"))
+        await s.commit()
+    async with sf() as s:
+        await import_snapshot(s, source or snapshot(), dry_run=False)
+        await s.commit()
+
+
+async def test_review_confirms_belief_once_with_tool_only_writer(sf):
+    await _seed_review(sf)
+    async with sf() as s:
+        intent = await intents.create(s, "judgment", page="belief",
+                                      template="confirm_belief", record_id="b" * 32)
+    async with sf() as s:
+        first = await intents.dispatch(s, intent["intent_id"], intent["digest"])
+        second = await intents.dispatch(s, intent["intent_id"], intent["digest"])
+        assert first["belief_version"] == 4
+        assert second["replayed"] is True
+        rows = (await s.execute(select(AppDataRecord).where(
+            AppDataRecord.app_id == "a" * 32,
+            AppDataRecord.collection == "belief_versions"))).scalars().all()
+        assert sorted(row.doc["number"] for row in rows) == [1, 3, 4]
+
+
+async def test_delete_feedback_restores_prior_domain_version_without_reusing_storage_version(sf):
+    source = snapshot()
+    source["belief_versions"][1]["feedback_id"] = "f" * 32
+    source["feedback"][0]["belief_version"] = 1
+    await _seed_review(sf, source)
+    async with sf() as s:
+        intent = await intents.create(s, "judgment", page="review",
+                                      template="delete_feedback", record_id="f" * 32)
+        assert intent["confirmation"]["delete_plan"]["head_changes"]["b" * 32][
+            "number"] == 1
+    async with sf() as s:
+        result = await intents.dispatch(s, intent["intent_id"], intent["digest"])
+        assert result["deleted"] is True
+        belief = await s.get(AppDataRecord, ("a" * 32, "beliefs", "b" * 32))
+        assert belief.current_version == 4
+        assert belief.doc["number"] == 1
+        assert belief.doc["claim"] == "original"
+        assert await s.get(AppDataRecord, ("a" * 32, "feedback", "f" * 32)) is None
+        assert await s.get(AppDataRecord, ("a" * 32, "belief_versions", "3" * 32)) is None
+
+
+async def test_review_correction_rejection_and_feedback_confirmation(sf):
+    await _seed_review(sf)
+    async with sf() as s:
+        with pytest.raises(RecordError, match="claim needs nonempty text"):
+            await intents.create(s, "judgment", page="belief",
+                                 template="correct_belief", record_id="b" * 32,
+                                 values={"claim": "  "})
+        correction = await intents.create(s, "judgment", page="belief",
+                                          template="correct_belief", record_id="b" * 32,
+                                          values={"claim": "new claim"})
+    async with sf() as s:
+        assert (await intents.dispatch(s, correction["intent_id"],
+                                       correction["digest"]))["belief_version"] == 4
+        belief = await s.get(AppDataRecord, ("a" * 32, "beliefs", "b" * 32))
+        assert belief.doc["claim"] == "new claim"
+        assert belief.doc["provenance"] == "kyle_confirmed"
+        rejection = await intents.create(s, "judgment", page="belief",
+                                         template="reject_belief", record_id="b" * 32,
+                                         values={"reason": "Not true now"})
+    async with sf() as s:
+        assert (await intents.dispatch(s, rejection["intent_id"],
+                                       rejection["digest"]))["belief_version"] == 5
+        belief = await s.get(AppDataRecord, ("a" * 32, "beliefs", "b" * 32))
+        assert belief.doc["status"] == "rejected"
+        feedback = await intents.create(s, "judgment", page="review",
+                                        template="confirm_feedback", record_id="f" * 32,
+                                        values={"kyle_words": "Kyle corrected the quote"})
+    async with sf() as s:
+        result = await intents.dispatch(s, feedback["intent_id"], feedback["digest"])
+        assert result["version"] == 2
+        row = await s.get(AppDataRecord, ("a" * 32, "feedback", "f" * 32))
+        assert row.doc["kyle_words"] == "Kyle corrected the quote"
+        assert row.doc["confirmed_at"] is not None
+
+
+async def test_review_delete_plan_change_needs_fresh_confirmation(sf):
+    await _seed_review(sf)
+    async with sf() as s:
+        intent = await intents.create(s, "judgment", page="prediction",
+                                      template="delete_prediction", record_id="p" * 32)
+        # A newly linked item changes the bounded delete plan, even if the
+        # prediction itself has not moved.
+        existing = (await s.execute(select(AppDataRecord).where(
+            AppDataRecord.collection == "prediction_beliefs"))).scalar_one()
+        s.add(AppDataRecord(app_id="a" * 32, collection="prediction_beliefs",
+                            id="9" * 32, current_version=1, collection_version=1,
+                            doc=dict(existing.doc), author="agent:kai", size_bytes=1))
+        await s.commit()
+    async with sf() as s:
+        with pytest.raises(RecordError, match="confirm again"):
+            await intents.dispatch(s, intent["intent_id"], intent["digest"])

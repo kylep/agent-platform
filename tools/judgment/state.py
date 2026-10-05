@@ -18,8 +18,7 @@ from urllib.parse import urlsplit
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 from xml.sax.saxutils import escape
 
-SCHEMA_PATH = (Path(__file__).resolve().parents[2] / "apps" / "judgment" /
-               "backend" / "judgmentapp" / "schema.py")
+SCHEMA_PATH = Path(__file__).resolve().with_name("schema.py")
 _spec = importlib.util.spec_from_file_location("judgmentapp_schema", SCHEMA_PATH)
 schema = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(schema)
@@ -85,6 +84,12 @@ def _values(row: dict) -> dict:
             **(row.get("values") or {})}
 
 
+def _public_belief(row: dict) -> dict:
+    """Do not expose the storage revision as the belief's domain version."""
+    return {**row, "record_version": row["version"],
+            "version": row["number"]}
+
+
 def _get(base: str, collection: str, record_id: str) -> dict:
     return _values(_call(base, "get", collection=collection, id=record_id))
 
@@ -132,7 +137,7 @@ def _belief(base: str, args: dict) -> dict:
         provenance = _provenance(args.get("provenance"))
         source_ref = schema.source_ref(args.get("source_ref"),
                                        required=provenance == "kyle_relayed")
-        values = {"claim": _text("claim", args.get("claim")),
+        values = {"number": 1, "claim": _text("claim", args.get("claim")),
                   "scope": _text("scope", args.get("scope"), False),
                   "evidence": _text("evidence", args.get("evidence"), False),
                   "provenance": provenance, "source_ref": source_ref,
@@ -141,7 +146,7 @@ def _belief(base: str, args: dict) -> dict:
                   "reason": _text("reason", args.get("reason"), False),
                   "feedback": feedback_id, "status": "active"}
         belief_id, version_id = _new_id(args, "belief"), _new_id(args, "belief-version-1")
-        version = {k: v for k, v in values.items() if k != "status"}
+        version = {k: v for k, v in values.items() if k not in ("status", "number")}
         version.update(belief=belief_id, number=1)
         _transaction(base, args, [
             {"op": "create", "collection": "beliefs", "id": belief_id,
@@ -155,8 +160,8 @@ def _belief(base: str, args: dict) -> dict:
     if type(expected) is not int or expected < 1:
         raise JudgmentError("expected_version is required with id")
     current = _get(base, "beliefs", belief_id)
-    if current["version"] != expected:
-        raise JudgmentError(f"belief is at version {current['version']}, not {expected}")
+    if current["number"] != expected:
+        raise JudgmentError(f"belief is at version {current['number']}, not {expected}")
     reason = _text("reason", args.get("reason"))
     status = schema.choice("status", args.get("status"), schema.BELIEF_STATUSES,
                            required=False)
@@ -175,6 +180,7 @@ def _belief(base: str, args: dict) -> dict:
                                     required=provenance == "kyle_relayed")
                   if content else current.get("source_ref"))
     values = {
+        "number": expected + 1,
         "claim": _text("claim", args.get("claim"), False) or current["claim"],
         "scope": (_text("scope", args["scope"], False) if args.get("scope") is not None
                   else current.get("scope")),
@@ -187,14 +193,14 @@ def _belief(base: str, args: dict) -> dict:
         "reason": reason, "feedback": feedback_id,
         "status": status or current["status"]}
     version_id = _new_id(args, f"belief-version-{belief_id}-{expected + 1}")
-    version = {k: v for k, v in values.items() if k != "status"}
+    version = {k: v for k, v in values.items() if k not in ("status", "number")}
     version.update(belief=belief_id, number=expected + 1)
     _transaction(base, args, [
         {"op": "update", "collection": "beliefs", "id": belief_id,
-         "expected_version": expected, "values": values},
+         "expected_version": current["version"], "values": values},
         {"op": "create", "collection": "belief_versions", "id": version_id,
          "values": version}], guards=[{"collection": "beliefs", "id": belief_id,
-                                       "version": expected}])
+                                       "version": current["version"]}])
     return {"ok": True, "id": belief_id, "version": expected + 1}
 
 
@@ -226,7 +232,7 @@ def _predict(base: str, args: dict) -> dict:
         operations.append({"op": "create", "collection": "prediction_beliefs",
                            "id": _new_id(args, f"prediction-link-{bid}"), "values": {
                                "prediction": prediction_id, "belief": bid,
-                               "belief_version": belief["version"]}})
+                               "belief_version": belief["number"]}})
         guards.append({"collection": "beliefs", "id": bid,
                        "version": belief["version"]})
     _transaction(base, args, operations, guards)
@@ -280,6 +286,7 @@ def _read(base: str, args: dict) -> dict:
                         raise
                 else:
                     if collection == "beliefs":
+                        row = _public_belief(row)
                         row["history"] = _call(base, "history", collection="beliefs",
                                                 id=record_id, limit=50).get("versions", [])
                     return {"collection": collection, "record": row}
@@ -289,7 +296,8 @@ def _read(base: str, args: dict) -> dict:
         if type(limit) is not int or not 1 <= limit <= 50:
             raise JudgmentError("limit must be 1–50")
         view = "belief_search" if query else "beliefs_recent"
-        return {"beliefs": _query(base, view, {"query": query} if query else {}, limit)}
+        return {"beliefs": [_public_belief(row) for row in _query(
+            base, view, {"query": query} if query else {}, limit)]}
     predictions = _query(base, "predictions_recent", limit=100)
     feedback = _query(base, "feedback_recent", limit=100)
     resolved = {row["prediction"] for row in feedback
