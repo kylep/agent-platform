@@ -1,7 +1,10 @@
 name: CI
 
 on:
+  # Pushes to main only: a feature branch is covered by its pull_request run,
+  # and running both doubled the runner time for every push.
   push:
+    branches: [main]
     paths-ignore:
       - 'docs/**'
   pull_request:
@@ -31,7 +34,7 @@ jobs:
         # the generated client drives the real ASGI app over httpx with a
         # genuine ap_ key — auth, RBAC, typed responses for real — and the
         # platform skill's documented /api paths are held to the live OpenAPI.
-        run: pytest services/backend/tests
+        run: pytest -n auto services/backend/tests
       - name: Broker tool tests
         # The broker's own tools (services/mcp-broker): the modules that reach
         # the API with the caller's token. They stub fastmcp rather than
