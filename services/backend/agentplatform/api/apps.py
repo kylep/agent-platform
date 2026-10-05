@@ -14,7 +14,6 @@ from sqlalchemy import select
 from agentplatform.api import schemas as S
 from agentplatform.api.auth import READ_ROLES, authenticate, require_admin, require_role
 from agentplatform.app_collections import APP_NAME
-from agentplatform.appdata.models import AppDataApp
 from agentplatform.db import AppCollection, utcnow
 
 router = APIRouter()
@@ -53,18 +52,15 @@ async def list_apps(request: Request):
         collections = (await session.execute(
             select(AppCollection).order_by(AppCollection.name)
         )).scalars().all()
-        state_names = set((await session.execute(
-            select(AppDataApp.name).where(AppDataApp.status == "active")
-        )).scalars())
     out = []
     for collection in collections:
         if (not collection.source_app and ident[1] != "admin"
                 and collection.owner_id != ident[0]):
             continue
         info = reg.get(collection.source_app) if collection.source_app else None
-        if collection.source_app and info is None and collection.name in state_names:
-            # Keep the old catalogue row for rollback, but show only the
-            # replacement state App once its service manifest is retired.
+        if collection.source_app and info is None:
+            # A retired coded App has no running service or usable page. Keep
+            # its catalogue row for recovery, but do not advertise a dead App.
             continue
         sp = info.spec if info else None
         ready, replicas = (_deployment_ready(request, info.name)

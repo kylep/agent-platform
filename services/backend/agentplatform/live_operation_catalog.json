@@ -2664,7 +2664,7 @@
       "source": "mcp-custom",
       "tool": "backtest",
       "action": "describe_primitives",
-      "category": "service_connector",
+      "category": "domain_capability",
       "effects": [
         "unknown"
       ],
@@ -2683,7 +2683,7 @@
       "source": "mcp-custom",
       "tool": "backtest",
       "action": "rerun",
-      "category": "service_connector",
+      "category": "domain_capability",
       "effects": [
         "unknown"
       ],
@@ -2702,7 +2702,7 @@
       "source": "mcp-custom",
       "tool": "backtest",
       "action": "run",
-      "category": "service_connector",
+      "category": "domain_capability",
       "effects": [
         "unknown"
       ],
@@ -2721,7 +2721,7 @@
       "source": "mcp-custom",
       "tool": "backtest",
       "action": "validate",
-      "category": "service_connector",
+      "category": "domain_capability",
       "effects": [
         "unknown"
       ],
@@ -3145,7 +3145,7 @@
       "limits": {
         "max_rows": 190,
         "max_output_bytes": 24576,
-        "timeout_seconds": 60,
+        "timeout_seconds": 120,
         "provider_spend": false
       },
       "snapshot_eligible": false
@@ -3263,7 +3263,7 @@
       "limits": {
         "max_rows": 1,
         "max_output_bytes": 4096,
-        "timeout_seconds": 60,
+        "timeout_seconds": 120,
         "provider_spend": false
       },
       "snapshot_eligible": false
@@ -3375,9 +3375,85 @@
       "limits": {
         "max_rows": 12,
         "max_output_bytes": 4096,
-        "timeout_seconds": 60,
+        "timeout_seconds": 120,
         "provider_spend": false
       },
+      "snapshot_eligible": false
+    },
+    {
+      "id": "tool.stockmarket.add_symbol@1",
+      "source": "mcp-custom",
+      "tool": "stockmarket",
+      "action": "add_symbol",
+      "category": "domain_capability",
+      "effects": [
+        "unknown"
+      ],
+      "output_classification": "restricted",
+      "view_eligible": false,
+      "reason": "No reviewed human page adapter",
+      "input_schema": null,
+      "output_schema": null,
+      "target_scope": null,
+      "supported_callers": [],
+      "limits": null,
+      "snapshot_eligible": false
+    },
+    {
+      "id": "tool.stockmarket.brief@1",
+      "source": "mcp-custom",
+      "tool": "stockmarket",
+      "action": "brief",
+      "category": "domain_capability",
+      "effects": [
+        "unknown"
+      ],
+      "output_classification": "restricted",
+      "view_eligible": false,
+      "reason": "No reviewed human page adapter",
+      "input_schema": null,
+      "output_schema": null,
+      "target_scope": null,
+      "supported_callers": [],
+      "limits": null,
+      "snapshot_eligible": false
+    },
+    {
+      "id": "tool.stockmarket.latest@1",
+      "source": "mcp-custom",
+      "tool": "stockmarket",
+      "action": "latest",
+      "category": "domain_capability",
+      "effects": [
+        "unknown"
+      ],
+      "output_classification": "restricted",
+      "view_eligible": false,
+      "reason": "No reviewed human page adapter",
+      "input_schema": null,
+      "output_schema": null,
+      "target_scope": null,
+      "supported_callers": [],
+      "limits": null,
+      "snapshot_eligible": false
+    },
+    {
+      "id": "tool.stockmarket.remove_symbol@1",
+      "source": "mcp-custom",
+      "tool": "stockmarket",
+      "action": "remove_symbol",
+      "category": "domain_capability",
+      "effects": [
+        "unknown"
+      ],
+      "output_classification": "restricted",
+      "view_eligible": false,
+      "reason": "No reviewed human page adapter",
+      "input_schema": null,
+      "output_schema": null,
+      "target_scope": null,
+      "supported_callers": [],
+      "limits": null,
       "snapshot_eligible": false
     },
     {
@@ -3663,120 +3739,6 @@
         "mutates_platform"
       ],
       "output_classification": "internal",
-      "view_eligible": false,
-      "reason": "No reviewed human page adapter",
-      "input_schema": null,
-      "output_schema": null,
-      "target_scope": null,
-      "supported_callers": [],
-      "limits": null,
-      "snapshot_eligible": false
-    },
-    {
-      "id": "tool.ttrpg.command@1",
-      "source": "mcp-custom",
-      "tool": "ttrpg",
-      "action": "command",
-      "category": "domain_capability",
-      "effects": [
-        "mutates_platform"
-      ],
-      "output_classification": "private",
-      "view_eligible": false,
-      "reason": "No reviewed human page adapter",
-      "input_schema": null,
-      "output_schema": null,
-      "target_scope": null,
-      "supported_callers": [],
-      "limits": null,
-      "snapshot_eligible": false
-    },
-    {
-      "id": "tool.ttrpg.floor@1",
-      "source": "mcp-custom",
-      "tool": "ttrpg",
-      "action": "floor",
-      "category": "domain_capability",
-      "effects": [
-        "mutates_platform"
-      ],
-      "output_classification": "private",
-      "view_eligible": false,
-      "reason": "No reviewed human page adapter",
-      "input_schema": null,
-      "output_schema": null,
-      "target_scope": null,
-      "supported_callers": [],
-      "limits": null,
-      "snapshot_eligible": false
-    },
-    {
-      "id": "tool.ttrpg.gm_view@1",
-      "source": "mcp-custom",
-      "tool": "ttrpg",
-      "action": "gm_view",
-      "category": "domain_capability",
-      "effects": [
-        "reads_sensitive"
-      ],
-      "output_classification": "private",
-      "view_eligible": false,
-      "reason": "No reviewed human page adapter",
-      "input_schema": null,
-      "output_schema": null,
-      "target_scope": null,
-      "supported_callers": [],
-      "limits": null,
-      "snapshot_eligible": false
-    },
-    {
-      "id": "tool.ttrpg.help@1",
-      "source": "mcp-custom",
-      "tool": "ttrpg",
-      "action": "help",
-      "category": "domain_capability",
-      "effects": [
-        "reads_sensitive"
-      ],
-      "output_classification": "private",
-      "view_eligible": false,
-      "reason": "No reviewed human page adapter",
-      "input_schema": null,
-      "output_schema": null,
-      "target_scope": null,
-      "supported_callers": [],
-      "limits": null,
-      "snapshot_eligible": false
-    },
-    {
-      "id": "tool.ttrpg.roll@1",
-      "source": "mcp-custom",
-      "tool": "ttrpg",
-      "action": "roll",
-      "category": "domain_capability",
-      "effects": [
-        "mutates_platform"
-      ],
-      "output_classification": "private",
-      "view_eligible": false,
-      "reason": "No reviewed human page adapter",
-      "input_schema": null,
-      "output_schema": null,
-      "target_scope": null,
-      "supported_callers": [],
-      "limits": null,
-      "snapshot_eligible": false
-    },
-    {
-      "id": "tool.ttrpg.view@1",
-      "source": "mcp-custom",
-      "tool": "ttrpg",
-      "action": "view",
-      "category": "domain_capability",
-      "effects": [
-        "reads_sensitive"
-      ],
-      "output_classification": "private",
       "view_eligible": false,
       "reason": "No reviewed human page adapter",
       "input_schema": null,

@@ -1,16 +1,17 @@
 """Apps: the app.yaml contract, the provisioner, the registry API
 (docs/design/11)."""
+from types import SimpleNamespace
+
 import httpx
 import pytest
-from sqlalchemy import select
-
 from agentplatform.apikeys import hash_token
-from agentplatform.appprovisioner import AppProvisioner, pg_ident
-from agentplatform.appregistry import AppRegistry
 from agentplatform.app_collections import import_legacy_apps
 from agentplatform.appdata.models import AppDataApp
+from agentplatform.appprovisioner import AppProvisioner, pg_ident
+from agentplatform.appregistry import AppRegistry
 from agentplatform.db import ApiKey, AppCollection
 from agentplatform.secrets import InMemorySecretStore
+from sqlalchemy import select
 
 
 def _app(tmp_path, name, yaml_text):
@@ -120,6 +121,16 @@ async def test_retired_coded_app_catalogue_row_is_hidden_after_state_cutover(
     assert all(app["name"] != "news" for app in apps)
 
 
+async def test_retired_coded_app_without_state_replacement_is_hidden(
+        admin_client, sf):
+    async with sf() as session:
+        session.add(AppCollection(name="ttrpg", display_name="The Living Table",
+                                  source_app="ttrpg", owner_id="admin"))
+        await session.commit()
+    apps = (await admin_client.get("/api/apps")).json()
+    assert all(app["name"] != "ttrpg" for app in apps)
+
+
 async def test_db_app_collections_can_be_created_and_edited(admin_client, client):
     created = await admin_client.post("/api/app-collections", json={
         "name": "my-app", "display_name": "My App", "description": "First pass"})
@@ -188,7 +199,12 @@ async def test_query_app_forwards_params(admin_client, monkeypatch):
     (what the broker sends) and a JSON `params` object (what OpenAPI-derived
     clients like the external facade can express). Both reach the app."""
     import json as _json
+
     from agentplatform.api import apps as apps_mod
+    # The proxy contract is independent of the retired Stockmarket manifest.
+    monkeypatch.setattr("agentplatform.appregistry.AppRegistry.get",
+                        lambda _registry, name: SimpleNamespace(
+                            spec=SimpleNamespace(api=True)) if name == "stockmarket" else None)
     captured = []
 
     async def upstream(request):

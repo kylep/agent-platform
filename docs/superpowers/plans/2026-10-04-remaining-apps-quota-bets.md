@@ -1,5 +1,11 @@
 # Quota bets: finish the four remaining App migrations
 
+**Scope changed 2026-10-05:** Kyle explicitly requested retiring TTRPG as an
+Agent Platform App and leaving `claude-ttrpg` alone. The original four-App
+finish condition will not occur, so these bets cannot have a fair winner.
+The three completed migrations and actual quota reading belong in the final
+retrospective; the forecasts below remain unchanged as a historical record.
+
 Locked on 2026-10-04 before implementation. The baseline is the last verified
 Codex seven-day reading: **68% left** at 2026-10-04 23:03:10 UTC, resetting
 2026-10-09 21:10:18 UTC. That reading was approximately 15 minutes old when

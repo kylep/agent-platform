@@ -149,18 +149,19 @@ apps:
   enabled: []
   tag: dev
   pullPolicy: IfNotPresent
-  ttrpg:
-    storage: 2Gi
-    storageClass: ""
-    channel: ttrpg-table
-    gmAgent: ttrpg-gm
-    players: [ttrpg-meowcicles, ttrpg-squakee, ttrpg-spike, ttrpg-fluffy]
   resources:
     requests:
       memory: 128Mi
       cpu: 50m
     limits:
       memory: 256Mi
+
+# Preserve the retired TTRPG world volume on pai for manual recovery. It is
+# deliberately not part of Apps or mounted by any workload.
+legacyTtrpgWorld:
+  keep: false
+  storage: 2Gi
+  storageClass: ""
 
 # SPIRE mTLS (docs/design/13 B). Requires the spiffe/spire chart installed
 # (see charts/spire/values-pai.yaml). When enabled: broker + executor bind

@@ -1,5 +1,13 @@
 # Agent-built Apps: live migration status
 
+**Update 2026-10-05:** Running, News, Judgment, TCMS and Stockmarket are live
+as state Apps. Kyle removed TTRPG from this migration's scope and requested
+that its Agent Platform App be retired without changing `claude-ttrpg`.
+The TTRPG world was archived and its PVC retained; see
+[retirement and recovery](../../building-blocks/ttrpg-retirement.md).
+The status and quota floor below describe the earlier 2026-10-03 checkpoint,
+not today's deployment.
+
 The user's finish line is all six coded Apps moved into database-owned state,
 with maintainers and browser workflows working and the old workloads removed.
 Minor UI changes are acceptable. Stop before Codex weekly quota falls below

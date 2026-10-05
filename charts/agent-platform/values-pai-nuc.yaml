@@ -84,10 +84,11 @@ connectors:
 # provisioned from apps/<name>/app.yaml by the dispatcher before the
 # Deployment first starts.
 apps:
-  enabled: [news, stockmarket, running, tcms, ttrpg, judgment]
-  ttrpg:
-    storage: 2Gi
-    storageClass: local-path
+  enabled: []
+legacyTtrpgWorld:
+  keep: true
+  storage: 2Gi
+  storageClass: local-path
 
 # The views pool (docs/design/39 "Tool views"): the executor image in
 # AP_EXECUTOR_POOL=views mode, no-egress, for tool view actions only.
