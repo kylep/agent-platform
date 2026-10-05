@@ -1,51 +1,138 @@
 name: CI
 
 on:
-  # Pushes to main only: a feature branch is covered by its pull_request run,
-  # and running both doubled the runner time for every push.
+  # Pushes to main run EVERYTHING (the `changes` job below only filters pull
+  # requests), docs-only pushes included: main is where a skipped-test escape
+  # gets caught. A feature branch is covered by its pull_request run.
   push:
     branches: [main]
-    paths-ignore:
-      - 'docs/**'
   pull_request:
+  schedule:
+    - cron: "17 7 * * *"   # nightly full run, a second backstop for filtered PRs
+  workflow_dispatch:
 
 # A newer push contains the preceding commit on the same branch. Avoid
-# spending runner time on a stale full-suite run while the developer iterates.
+# spending runner time on a stale run while the developer iterates. Never on
+# main: a later push must not cancel the run that gates the earlier one.
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 # Least privilege: jobs only need to read the repo.
 permissions:
   contents: read
 
 jobs:
-  backend:
+  # Decides which jobs a pull request needs. Pushes to main, the nightly run and
+  # manual runs set every output true. Anything the filters below don't name
+  # still reaches `backend` (it is "everything except web-only paths"), and a
+  # change to CI itself runs everything. Secret and security scans always run.
+  changes:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      backend: ${{ steps.out.outputs.backend }}
+      web: ${{ steps.out.outputs.web }}
+      facade: ${{ steps.out.outputs.facade }}
+      runner: ${{ steps.out.outputs.runner }}
+      codex_proxy: ${{ steps.out.outputs.codex_proxy }}
+      apps: ${{ steps.out.outputs.apps }}
+      tools: ${{ steps.out.outputs.tools }}
+      chart: ${{ steps.out.outputs.chart }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
+        id: f
+        with:
+          predicate-quantifier: every   # "**" plus exclusions means: not only these paths
+          filters: |
+            global:
+              - '.github/**'
+              - '.pre-commit-config.yaml'
+              - 'bin/ap-verify'
+            web:
+              - 'services/web/**'
+              - 'packages/ui/**'
+              - 'apps/*/frontend/**'
+              - 'package.json'
+              - 'package-lock.json'
+            backend:
+              - '**'
+              - '!services/web/**'
+              - '!packages/ui/**'
+              - '!apps/*/frontend/**'
+              - '!package.json'
+              - '!package-lock.json'
+            facade:
+              - 'services/mcp-facade/**'
+              - 'services/backend/**'
+            runner:
+              - 'services/runner/**'
+              - 'services/backend/agentplatform/workbench.py'
+            codex_proxy:
+              - 'services/codex-proxy/**'
+            apps:
+              - 'apps/**'
+            tools:
+              - 'tools/**'
+              - 'services/tool-executor/**'
+              - 'charts/**'
+            chart:
+              - 'charts/**'
+              - 'services/claude-proxy/**'
+      - name: Combine with the run-everything cases
+        id: out
+        env:
+          FULL: ${{ github.event_name != 'pull_request' || steps.f.outputs.global == 'true' }}
+          F: ${{ toJSON(steps.f.outputs) }}
+        run: |
+          for k in backend web facade runner codex_proxy apps tools chart; do
+            v=$(echo "$F" | jq -r --arg k "$k" '.[$k]')
+            if [ "$FULL" = "true" ] || [ "$v" = "true" ]; then echo "$k=true" >> "$GITHUB_OUTPUT"; else echo "$k=false" >> "$GITHUB_OUTPUT"; fi
+          done
+
+  backend:
+    needs: changes
+    if: needs.changes.outputs.backend == 'true'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+          cache: pip
+          cache-dependency-path: services/backend/pyproject.toml
       - name: Install backend
         run: pip install -e 'services/backend[dev]'
-      - name: Run backend tests
+      - name: Run backend tests (shard ${{ matrix.shard }} of 2)
         # Includes the end-to-end SDK exercise (tests/test_sdk_integration.py):
         # the generated client drives the real ASGI app over httpx with a
         # genuine ap_ key — auth, RBAC, typed responses for real — and the
         # platform skill's documented /api paths are held to the live OpenAPI.
-        run: pytest -n auto services/backend/tests
+        # Shards are balanced by recorded durations (.test_durations; refresh with
+        # `pytest -n auto --store-durations` when the suite changes a lot — stale
+        # data only unbalances the shards, it never drops a test).
+        run: pytest -n auto --splits 2 --group ${{ matrix.shard }} --durations-path .test_durations services/backend/tests
       - name: Broker tool tests
+        if: matrix.shard == 1
         # The broker's own tools (services/mcp-broker): the modules that reach
         # the API with the caller's token. They stub fastmcp rather than
         # installing an MCP runtime, so they ride along with the backend job.
         run: pytest services/mcp-broker
       - name: Discord connector tests
+        if: matrix.shard == 1
         # The bridge (services/connector-discord): it stubs discord.py and
         # aiokafka rather than installing a gateway client, so like the broker's
         # tests it rides along with the backend job.
         run: pytest services/connector-discord
       - name: SDK is in sync with the API
+        if: matrix.shard == 1
         # The SDK is generated from the OpenAPI spec; regenerate and fail if the
         # committed output differs, so it can never drift. Generator is pinned.
         run: |
@@ -58,6 +145,8 @@ jobs:
   # run's Workbench steps. This job runs its unit tests only; it builds no image.
   runner:
     # No build job for services/runner/Dockerfile.dev (several GB — CI runners cannot afford it); tests/test_runner_dev_image.py is its drift guard.
+    needs: changes
+    if: needs.changes.outputs.runner == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -70,6 +159,8 @@ jobs:
         run: cd services/runner && python -m pytest -q
 
   codex-proxy:
+    needs: changes
+    if: needs.changes.outputs.codex_proxy == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -85,6 +176,8 @@ jobs:
     # API's own OpenAPI document, so its tests need BOTH the backend (to build
     # the real spec) and fastmcp. Same spec the SDK drift check uses: an API
     # change that would newly expose an excluded endpoint fails here.
+    needs: changes
+    if: needs.changes.outputs.facade == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -98,6 +191,8 @@ jobs:
 
   apps:
     # Remaining coded App backends; News now runs in the platform backend.
+    needs: changes
+    if: needs.changes.outputs.apps == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -121,6 +216,8 @@ jobs:
     # Custom platform tools (docs/design/12): executor invariants + every
     # tool's own tests, run against the union of tool requirements exactly as
     # the executor image bakes them.
+    needs: changes
+    if: needs.changes.outputs.tools == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -150,12 +247,15 @@ jobs:
           done
 
   web:
+    needs: changes
+    if: needs.changes.outputs.web == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
+          cache: npm
       - name: Install workspaces and build web
         # npm workspaces: the root install links @ap/ui (packages/ui) into
         # services/web and any apps/*/frontend.
@@ -179,6 +279,8 @@ jobs:
         run: cd services/web && npx playwright test
 
   helm:
+    needs: changes
+    if: needs.changes.outputs.chart == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -194,6 +296,8 @@ jobs:
     # The proxy has no source of its own — it is nginx, njs and the chart's
     # ConfigMap — so its tests render the chart and run the real image over the
     # render. Runners have Docker, so the integration tests run for real here.
+    needs: changes
+    if: needs.changes.outputs.chart == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -262,3 +366,17 @@ jobs:
         # ignored scratch files. Documentation may describe the guard.
         run: |
           ! git grep -n -I -e 'sk-ant-' -e 'ANTHROPIC_API_KEY' -- . ':!docs/**' ':!.github/workflows/ci.yaml'
+
+  # The one check to require once branch protection is on. Skipped jobs are fine
+  # (the `changes` job chose not to run them); a failed or cancelled one is not.
+  ci-ok:
+    needs: [changes, backend, runner, codex-proxy, mcp-facade, apps, tools, web, helm, claude-proxy, secret-scan, security-scan, subscription-guard]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Fail on any failed or cancelled job
+        env:
+          RESULTS: ${{ toJSON(needs.*.result) }}
+        run: |
+          echo "$RESULTS"
+          if echo "$RESULTS" | grep -qE '"(failure|cancelled)"'; then exit 1; fi
