@@ -20,6 +20,8 @@ dev = ["pytest>=8", "pytest-asyncio>=0.24", "httpx>=0.27",
        # pytest_cov imports, and --timeout=120 so one hung test cannot eat
        # the whole per-suite budget.
        "pytest-cov>=5", "pytest-timeout>=2.3",
+       # CI runs the suite with `-n auto`; each worker builds its own seeded DB template.
+       "pytest-xdist>=3.6",
        # SDK generation + the generated client's runtime deps, so CI can
        # regenerate sdk/ and import it (see sdk/regenerate.py). The generator is
        # PINNED: its output must be byte-stable for the CI drift check.

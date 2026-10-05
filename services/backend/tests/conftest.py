@@ -1,6 +1,10 @@
+import asyncio
+import shutil
 from pathlib import Path
 
 import pytest, httpx
+from sqlalchemy.ext.asyncio import create_async_engine
+from sqlalchemy.pool import StaticPool
 from agentplatform.agents import AgentStore
 
 # Use shipped declarations except for Skills: the live catalogue is empty,
@@ -30,10 +34,50 @@ def _no_ambient_settings_env(monkeypatch):
     monkeypatch.delenv("AP_CLAUDE_PROXY_URL", raising=False)
     monkeypatch.delenv("AP_KAFKA_BOOTSTRAP", raising=False)
 
+@pytest.fixture(scope="session", autouse=True)
+def _cheap_password_hashing():
+    """Argon2 is slow on purpose (~0.09s for hash+verify at production cost), and
+    admin_client pays that on every use. The hash embeds its own parameters, so
+    verify() still accepts hashes made at the production cost; no test asserts
+    the cost itself."""
+    from argon2 import PasswordHasher
+    from argon2.profiles import CHEAPEST
+    import agentplatform.api.accounts as accounts, agentplatform.api.auth as auth
+    import agentplatform.qaprincipal as qaprincipal
+    mp = pytest.MonkeyPatch()
+    cheap = PasswordHasher.from_parameters(CHEAPEST)
+    for module in (auth, accounts, qaprincipal):
+        mp.setattr(module, "ph", cheap)
+    yield
+    mp.undo()
+
+
+def _file_engine(path):
+    # StaticPool = one shared connection, which is what ":memory:" gives for free;
+    # a file DB would otherwise pool several and change the locking behaviour.
+    return create_async_engine(f"sqlite+aiosqlite:///{path}", poolclass=StaticPool
+                               ).execution_options(schema_translate_map={"memory_store": None})
+
+
+@pytest.fixture(scope="session")
+def _template_db(tmp_path_factory):
+    """init_db costs ~0.17s and nearly every test wants a fresh, fully seeded DB,
+    so build it once per worker and copy the file per test."""
+    path = tmp_path_factory.mktemp("dbtemplate") / "template.db"
+
+    async def build():
+        engine = _file_engine(path)
+        await init_db(engine)
+        await engine.dispose()
+    asyncio.run(build())
+    return path
+
+
 @pytest.fixture
-async def sf():
-    engine = make_engine("sqlite+aiosqlite:///:memory:")
-    await init_db(engine)
+async def sf(_template_db, tmp_path):
+    path = tmp_path / "test.db"
+    shutil.copyfile(_template_db, path)
+    engine = _file_engine(path)
     yield make_session_factory(engine)
     await engine.dispose()
 
