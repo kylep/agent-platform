@@ -63,9 +63,12 @@ function Drafts({ items }: { items: DefinitionDraft[] }) {
 }
 
 function Pages({ app }: { app: StateAppDetail }) {
-  const pages = app.approved.filter((d) => d.kind === "page").map((d) => d.name);
+  const definitions = app.approved.filter((d) => d.kind === "page");
+  const pages = definitions.map((d) => d.name);
   if (pages.length === 0) return <p className="muted">No published pages yet.</p>;
-  const shown = pages.includes("overview") ? "overview" : pages[0];
+  const shown = pages.includes("home") ? "home" : pages.includes("overview") ? "overview"
+    : definitions.find((d) => !d.definition.params || Object.keys(d.definition.params).length === 0)?.name
+      ?? pages[0];
   return <>
     <nav className="state-app-pages" aria-label="Pages">
       {pages.map((name) => <Link key={name} to={pageHref(app.id, name)}>{name}</Link>)}

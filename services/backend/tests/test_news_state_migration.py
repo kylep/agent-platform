@@ -52,6 +52,14 @@ def test_olu_scheduled_reader_can_read_news_without_write_access():
                 access.require_verb(verb)
 
 
+def test_page_inputs_inherit_required_view_parameters():
+    parsed = validate_app(bundle())
+    day = page_for_web(parsed.pages["day"], parsed)
+    assert day["params"]["day"]["required"] is True
+    home = page_for_web(parsed.pages["home"], parsed)
+    assert not home["params"]["q"].get("required")
+
+
 def test_missing_topic_and_duplicate_refused():
     source = snapshot()
     source["items"][0]["topic_id"] = 99

@@ -624,6 +624,9 @@ export function TypedV2Page({ appId, page, embedded = false }: {
     </div>;
   }
   if (!published) return <div className={embedded ? undefined : "page"}><p className="muted">Loading page…</p></div>;
+  const missingParams = Object.entries(published.definition.params || {})
+    .filter(([name, spec]) => spec.required && !searchParams.get(name)?.trim())
+    .map(([name]) => name);
   return <div className={embedded ? undefined : "page"}>
     <div className="page-header"><Title>{published.definition.title}</Title></div>
     {notice && <p role="status">{notice}</p>}
@@ -640,10 +643,11 @@ export function TypedV2Page({ appId, page, embedded = false }: {
     }}>{Object.entries(published.definition.params).map(([name, spec]) =>
       <label key={name}>{name.charAt(0).toUpperCase() + name.slice(1).replaceAll("_", " ")}
         <Input type={spec.type === "date" ? "date" : "search"}
+          required={spec.required}
           value={queryDraft[name] ?? ""} maxLength={spec.type === "date" ? undefined : 200}
           onChange={(event) => setQueryDraft({ ...queryDraft, [name]: event.target.value })} />
       </label>)}<Button type="submit">Apply</Button></form>}
-    {(() => {
+    {missingParams.length ? <p role="status">Enter {missingParams.join(", ")} to load this page.</p> : (() => {
       const renderBlock = (component: V2Component, index: number) =>
         <V2Block key={`${index}-${refresh}`} appId={appId} component={component}
           actions={published.definition.actions || []}

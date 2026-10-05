@@ -1359,6 +1359,15 @@ def page_for_web(page: PageDef, bundle, *, with_actions: bool = False) -> dict:
     if page.params:
         result["params"] = {name: spec.model_dump(mode="json", exclude_none=True)
                             for name, spec in page.params.items()}
+        # A required view parameter bound from the URL makes that page input
+        # required too, even when the builder omitted the page-level flag.
+        for block in page.blocks:
+            view = bundle.views.get(getattr(block, "view", None))
+            if view is None:
+                continue
+            for name, binding in (getattr(block, "params", None) or {}).items():
+                if isinstance(binding, dict) and "page_param" in binding and view.params[name].required:
+                    result["params"][binding["page_param"]]["required"] = True
     if page.layout is not None:
         result["layout"] = page.layout
     if with_actions and page.actions:

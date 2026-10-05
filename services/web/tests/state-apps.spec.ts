@@ -8,6 +8,43 @@ import { mockApi, STATE_APP_ID } from "./mock-api";
 const appPath = `/apps/state/${STATE_APP_ID}`;
 const pagePath = (page: string, qs = "") => `${appPath}/pages/${page}${qs}`;
 
+test("required page inputs wait for a value before reading the view", async ({ page }) => {
+  await mockApi(page);
+  let reads = 0;
+  await page.route(`**/api/app-data/apps/${STATE_APP_ID}/pages/entry`, (route) =>
+    route.fulfill({ json: { app_id: STATE_APP_ID, app_name: "habits", page: "entry",
+      version: 1, definition: { renderer: "typed/v2", title: "Habit day",
+        params: { id: { type: "string", required: true } },
+        components: [{ kind: "detail", view: "entry", params: { id: { query: "id" } },
+          fields: [{ field: "habit" }] }] } } }));
+  page.on("request", (request) => { if (request.url().includes("/views/entry")) reads += 1; });
+  await page.goto(pagePath("entry"));
+  await expect(page.getByRole("status")).toHaveText("Enter id to load this page.");
+  expect(reads).toBe(0);
+  await page.getByLabel("Id", { exact: true }).fill("r2");
+  await page.getByRole("button", { name: "Apply", exact: true }).click();
+  await expect(page.locator(".v2-detail")).toContainText("read");
+  expect(reads).toBe(1);
+});
+
+test("the builder previews home before an alphabetically earlier detail page", async ({ page }) => {
+  await mockApi(page);
+  await page.route(`**/api/app-data/apps/${STATE_APP_ID}`, async (route) => {
+    const detail = { id: STATE_APP_ID, name: "habits", owner: "pai", status: "active",
+      approved_version: 1, health: { status: "ok" }, approved: [
+      { kind: "page", name: "detail", definition: { params: { id: { type: "string" } } } },
+      { kind: "page", name: "home", definition: {} },
+      { kind: "page", name: "overview", definition: {} },
+    ] };
+    await route.fulfill({ json: detail });
+  });
+  await page.route(`**/api/app-data/apps/${STATE_APP_ID}/pages/home`, (route) =>
+    route.fulfill({ json: { app_id: STATE_APP_ID, app_name: "habits", page: "home",
+      version: 1, definition: { renderer: "typed/v2", title: "Home preview", components: [] } } }));
+  await page.goto(appPath);
+  await expect(page.getByRole("heading", { name: "Home preview" })).toBeVisible();
+});
+
 test("a proposal review shows the frozen delta and submits the shown digest", async ({ page }) => {
   const unmatched = await mockApi(page);
   const id = "6d".repeat(16);
