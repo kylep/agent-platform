@@ -12,3 +12,4 @@ COPY agentplatform ./agentplatform
 RUN pip install --no-cache-dir --no-deps .
 USER nobody
 CMD ["python", "-m", "agentplatform.api_main"]
+
