@@ -5,6 +5,8 @@ as state Apps. Kyle removed TTRPG from this migration's scope and requested
 that its Agent Platform App be retired without changing `claude-ttrpg`.
 The TTRPG world was archived and its PVC retained; see
 [retirement and recovery](../../building-blocks/ttrpg-retirement.md).
+The retired Running, Judgment and TCMS service manifests were removed from
+the App catalogue; their source code and old tables remain for recovery.
 The status and quota floor below describe the earlier 2026-10-03 checkpoint,
 not today's deployment.
 
