@@ -56,7 +56,7 @@ def _query(root, view, params=None):
     out = _call(root, "query", view=view, params=params or {}, limit=100)
     if out.get("next_cursor"):
         raise RuntimeError(f"{view} exceeded its bounded first page")
-    return [{"id": row["id"], "version": row["version"],
+    return [{"id": row["id"], "version": row["values"]["version"],
              **(row.get("values") or {})} for row in out.get("rows", [])]
 
 

@@ -63,7 +63,7 @@ def rows(root, view, params=None, *, cap=200_000):
     while True:
         response = call(root, "query", view=view, params=params or {}, limit=200,
                         **({"cursor": cursor} if cursor else {}))
-        out.extend({"id": row["id"], "version": row["version"],
+        out.extend({"id": row["id"], "version": row["values"]["version"],
                     **(row.get("values") or {})} for row in response.get("rows", []))
         if len(out) > cap:
             raise ToolError(f"{view} exceeded {cap} records")

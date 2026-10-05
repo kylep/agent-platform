@@ -38,8 +38,8 @@ def test_prediction_pins_the_observed_version_and_guards_it(monkeypatch):
     def fake(base, action, **body):
         calls.append((action, copy.deepcopy(body)))
         if action == "get":
-            return {"id": body["id"], "version": 3,
-                    "values": {"claim": "a belief", "number": 2}}
+            return {"id": body["id"],
+                    "values": {"version": 3, "claim": "a belief", "number": 2}}
         return {"results": []}
 
     monkeypatch.setattr(state, "_call", fake)
@@ -61,7 +61,7 @@ def test_feedback_never_claims_kyles_confirmation(monkeypatch):
     def fake(base, action, **body):
         calls.append((action, copy.deepcopy(body)))
         if action == "get":
-            return {"id": body["id"], "version": 1, "values": {}}
+            return {"id": body["id"], "values": {"version": 1}}
         return {"results": []}
 
     monkeypatch.setattr(state, "_call", fake)

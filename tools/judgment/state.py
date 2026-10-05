@@ -80,7 +80,7 @@ def _call(base: str, action: str, **body) -> dict:
 
 
 def _values(row: dict) -> dict:
-    return {"id": row["id"], "version": row["version"],
+    return {"id": row["id"], "version": row["values"]["version"],
             **(row.get("values") or {})}
 
 

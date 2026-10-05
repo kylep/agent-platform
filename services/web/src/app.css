@@ -1299,6 +1299,9 @@ a.relay-action { color: var(--ds-link); }
 .live-view-table { min-width: 0; }
 .live-view-table h2 { margin-bottom: 10px; }
 .live-view-table .table-scroll { overflow-x: auto; }
+.v2-long-cell { max-width: min(36ch, 40vw); }
+.v2-long-cell summary { cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.v2-long-cell pre { max-height: 24rem; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; }
 .live-view-table table { width: 100%; border-collapse: collapse; }
 .live-view-table th, .live-view-table td { text-align: left; padding: 9px 12px;
   border-bottom: 1px solid var(--ds-border); }

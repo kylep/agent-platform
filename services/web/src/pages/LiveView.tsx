@@ -162,7 +162,7 @@ function isWebUrl(value: string): boolean {
   }
 }
 
-function V2Cell({ row, column }: { row: ViewRow; column: Column }) {
+function V2Cell({ row, column, compact = false }: { row: ViewRow; column: Column; compact?: boolean }) {
   if (row.restricted.includes(column.field)) {
     return <span className="v2-restricted" title="You can't read this field">restricted</span>;
   }
@@ -176,6 +176,15 @@ function V2Cell({ row, column }: { row: ViewRow; column: Column }) {
   // refuses non-http(s) values; checking again keeps a stored odd value inert.
   if (column.format === "link" && typeof value === "string" && isWebUrl(value)) {
     return <a href={value} rel="noopener noreferrer" target="_blank">{value}</a>;
+  }
+  if (compact && typeof value === "string" && value.length > 220) {
+    let expanded = value;
+    if (column.field.endsWith("_json")) {
+      try { expanded = JSON.stringify(JSON.parse(value), null, 2); }
+      catch { /* Keep the original text if this is not JSON. */ }
+    }
+    return <details className="v2-long-cell"><summary>{value.slice(0, 120)}…</summary>
+      <pre>{expanded}</pre></details>;
   }
   return <>{v2Value(value, column.format)}</>;
 }
@@ -445,7 +454,7 @@ function V2Table({ appId, component, actions, onAction }: { appId: string;
               ? <Link to={pageHref(appId, link.page, Object.fromEntries(Object.entries(link.params).map(
                   ([param, field]) => [param, field === "id" ? row.id : String(row.values[field] ?? "")])))}>
                 <V2Cell row={row} column={column} /></Link>
-              : <V2Cell row={row} column={column} />}
+              : <V2Cell row={row} column={column} compact />}
           </td>)}
           {available.some((action) => action.kind !== "create") && <td data-label="Actions">
             {available.filter((action) => action.kind !== "create").map((action) =>

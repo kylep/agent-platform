@@ -9,6 +9,7 @@ Discord. A hostile brief can produce bounded text and one row — nothing else.
 from __future__ import annotations
 
 import json
+import math
 import re
 
 # The brief's tag vocabulary. Fixed, unlike the news app's auto-created
@@ -53,7 +54,7 @@ def sanitize(s: str, limit: int = 600) -> str:
     """Neutralize Discord control sequences in agent-controlled text:
     @everyone/@here defanged with a zero-width space, raw mention tokens
     removed, newlines collapsed, length clamped."""
-    zwsp = "​"
+    zwsp = "\u200b"
     s = str(s).replace("\n", " ").replace("\r", " ")
     s = s.replace("@everyone", f"@{zwsp}everyone").replace("@here", f"@{zwsp}here")
     s = _MENTION_RE.sub("", s)
@@ -67,7 +68,7 @@ def _number(v, limit: float) -> float | None:
         f = float(v)
     except (TypeError, ValueError):
         return None
-    if f != f or f in (float("inf"), float("-inf")) or abs(f) > limit:
+    if not math.isfinite(f) or abs(f) > limit:
         return None
     return round(f, 2)
 

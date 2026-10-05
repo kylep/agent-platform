@@ -54,7 +54,7 @@ def rows(root, view, params=None, *, cap=100_000):
     while True:
         out = call(root, "query", view=view, params=params or {}, limit=200,
                    **({"cursor": cursor} if cursor else {}))
-        result.extend({"id": row["id"], "version": row["version"],
+        result.extend({"id": row["id"], "version": row["values"]["version"],
                        **(row.get("values") or {})} for row in out.get("rows", []))
         if len(result) > cap:
             raise RuntimeError(f"{view} exceeded {cap} rows")

@@ -68,7 +68,7 @@ def _rows(base, view, params=None, *, limit=200, max_rows=100_000):
     while True:
         out = _call(base, "query", view=view, params=params or {}, limit=limit,
                     **({"cursor": cursor} if cursor else {}))
-        rows.extend({"id": row["id"], "version": row["version"],
+        rows.extend({"id": row["id"], "version": row["values"]["version"],
                      **(row.get("values") or {})} for row in out.get("rows", []))
         if len(rows) > max_rows:
             raise legacy.ToolError(f"TCMS {view} exceeded {max_rows} rows")
@@ -79,7 +79,7 @@ def _rows(base, view, params=None, *, limit=200, max_rows=100_000):
 
 def _record(base, collection, record_id):
     out = _call(base, "get", collection=collection, id=record_id)
-    return {"id": out["id"], "version": out["version"], **(out.get("values") or {})}
+    return {"id": out["id"], "version": out["values"]["version"], **(out.get("values") or {})}
 
 
 def _stage(base, collections, batches):
@@ -94,7 +94,7 @@ def _stage(base, collections, batches):
     except Exception:
         try:
             _call(base, "staging/abandon", set_id=set_id)
-        except Exception:
+        except Exception:  # noqa: BLE001, S110 - retain the staging failure
             pass
         raise
 
