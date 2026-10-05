@@ -17,11 +17,37 @@ import json
 import math
 import re
 import sys
+from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 
 SYMBOL_RE = re.compile(r"^[A-Z0-9.^-]{1,12}$")
 # Yahoo publishes only the top ten holdings; that is ~50% of QQQ, ~38% of SPY
 # and ~45% of XIU, which is enough to explain most single-name-driven days.
 LOOKBACK = "5d"
+
+
+def completed_closes(closes: dict[str, float], metadata: dict, now=None):
+    """Exclude a live daily bar. Yahoo's regular session end handles early
+    closes; wait 15 minutes for delayed quotes. Missing session metadata
+    conservatively excludes today's bar rather than claiming a final close.
+    The tool supports North American ETFs; history metadata supplies the
+    actual exchange timezone when available.
+    """
+    now = now or datetime.now(timezone.utc)
+    tz = ZoneInfo(metadata.get("exchangeTimezoneName") or "America/New_York")
+    today = now.astimezone(tz).date().isoformat()
+    completed_today = False
+    regular = (metadata.get("currentTradingPeriod") or {}).get("regular") or {}
+    try:
+        start = datetime.fromtimestamp(regular["start"], tz)
+        end = datetime.fromtimestamp(regular["end"], tz)
+        completed_today = (start.date().isoformat() == today
+                           and end > start
+                           and now >= end + timedelta(minutes=15))
+    except (KeyError, TypeError, ValueError, OverflowError):
+        pass
+    return {day: close for day, close in closes.items()
+            if day < today or (day == today and completed_today)}
 
 
 def clean_symbol(raw: str) -> str:
@@ -120,14 +146,18 @@ def holding_closes(symbols: list[str], index: str) -> dict[str, dict[str, float]
     return out
 
 
-def build(index: str) -> dict:
+def build(index: str, *, now=None) -> dict:
     import yfinance
     ticker = yfinance.Ticker(index)
     idx_closes = series_closes(ticker.history(period=LOOKBACK, auto_adjust=True))
-    idx = session_return(idx_closes)
+    try:
+        metadata = ticker.history_metadata or {}
+    except Exception:
+        metadata = {}
+    idx = session_return(completed_closes(idx_closes, metadata, now))
     if idx is None:
         raise LookupError(
-            f"no recent price data for {index!r} — check the ticker (Yahoo "
+            f"no comparable completed-session price data for {index!r} — check the ticker (Yahoo "
             f"conventions; TSX tickers end in .TO)")
     day, idx_ret = idx
 
