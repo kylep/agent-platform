@@ -11,8 +11,11 @@ description: >-
   (absent keys retire) and returns counts plus validation errors by file.
   action=record_results is how a run's results get in, and the ONLY way: it
   never accepts counts or statuses as arguments. Upload ap-verify's report
-  files (junit XML, Playwright JSON, coverage.xml) with `bin/ap-upload FILE...`
-  and pass the printed artifact ids in `files` (at most 4), with commit_sha
+  files with `bin/ap-upload FILE...`: junit-backend.xml (pytest results),
+  playwright-web.json (browser results), and coverage-backend.xml. Do not
+  submit junit-web.xml or junit-all.xml: Playwright's JUnit duplicates its
+  JSON results and is rejected. Keep other suite logs as separate artifacts.
+  Pass the printed artifact ids in `files` (at most 4), with commit_sha
   (required), branch and verify (the verify.json object); the tool parses the
   files, links each result to a case by its automation ref, and returns the
   run id, totals by status and the unlinked count. A file that is not one of
