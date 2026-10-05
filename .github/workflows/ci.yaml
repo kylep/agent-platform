@@ -113,7 +113,7 @@ jobs:
       matrix:
         # "extras" is a third parallel job for the small suites that ride along with
         # the backend (broker, discord, SDK drift), so neither test shard carries them.
-        shard: [1, 2, extras]
+        shard: [1, 2, 3, extras]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -123,7 +123,7 @@ jobs:
           cache-dependency-path: services/backend/pyproject.toml
       - name: Install backend
         run: pip install -e 'services/backend[dev]'
-      - name: Run backend tests (shard ${{ matrix.shard }} of 2)
+      - name: Run backend tests (shard ${{ matrix.shard }} of 3)
         if: matrix.shard != 'extras'
         # Includes the end-to-end SDK exercise (tests/test_sdk_integration.py):
         # the generated client drives the real ASGI app over httpx with a
@@ -132,7 +132,7 @@ jobs:
         # Shards are balanced by recorded durations (.test_durations; refresh with
         # `pytest -n auto --store-durations` when the suite changes a lot — stale
         # data only unbalances the shards, it never drops a test).
-        run: pytest -n auto --splits 2 --group ${{ matrix.shard }} --durations-path .test_durations services/backend/tests
+        run: pytest -n auto --splits 3 --group ${{ matrix.shard }} --durations-path .test_durations services/backend/tests
       - name: Broker tool tests
         if: matrix.shard == 'extras'
         # The broker's own tools (services/mcp-broker): the modules that reach
