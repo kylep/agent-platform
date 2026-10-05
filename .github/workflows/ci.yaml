@@ -43,10 +43,14 @@ jobs:
       chart: ${{ steps.out.outputs.chart }}
     steps:
       - uses: actions/checkout@v4
+      # Two passes, because the quantifier applies to every filter in a step:
+      # "some" = a file matching ANY pattern selects the job (the alternatives
+      # below); "every" = a file must match ALL patterns, which is what
+      # "everything except web-only paths" needs (`**` plus exclusions).
       - uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
         id: f
         with:
-          predicate-quantifier: every   # "**" plus exclusions means: not only these paths
+          predicate-quantifier: some
           filters: |
             global:
               - '.github/**'
@@ -58,13 +62,6 @@ jobs:
               - 'apps/*/frontend/**'
               - 'package.json'
               - 'package-lock.json'
-            backend:
-              - '**'
-              - '!services/web/**'
-              - '!packages/ui/**'
-              - '!apps/*/frontend/**'
-              - '!package.json'
-              - '!package-lock.json'
             facade:
               - 'services/mcp-facade/**'
               - 'services/backend/**'
@@ -82,14 +79,27 @@ jobs:
             chart:
               - 'charts/**'
               - 'services/claude-proxy/**'
+      - uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
+        id: g
+        with:
+          predicate-quantifier: every
+          filters: |
+            backend:
+              - '**'
+              - '!services/web/**'
+              - '!packages/ui/**'
+              - '!apps/*/frontend/**'
+              - '!package.json'
+              - '!package-lock.json'
       - name: Combine with the run-everything cases
         id: out
         env:
           FULL: ${{ github.event_name != 'pull_request' || steps.f.outputs.global == 'true' }}
           F: ${{ toJSON(steps.f.outputs) }}
+          G: ${{ toJSON(steps.g.outputs) }}
         run: |
           for k in backend web facade runner codex_proxy apps tools chart; do
-            v=$(echo "$F" | jq -r --arg k "$k" '.[$k]')
+            v=$(echo "$F $G" | jq -rs --arg k "$k" 'map(.[$k] // empty) | first // "false"')
             if [ "$FULL" = "true" ] || [ "$v" = "true" ]; then echo "$k=true" >> "$GITHUB_OUTPUT"; else echo "$k=false" >> "$GITHUB_OUTPUT"; fi
           done
 
