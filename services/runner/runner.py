@@ -566,6 +566,26 @@ def _install_skills(runtime: str = "claude") -> None:
         (target / "SKILL.md").write_bytes(data)
 
 
+def _write_claude_skill_context(agent: str, definition: dict, dev: bool) -> None:
+    # `claude --agent` runs a main session, where subagent skill frontmatter
+    # alone does not reliably preload instructions. Include the installed,
+    # checksum-pinned bytes in its system prompt; no Read/Skill grant needed.
+    hashes = json.loads(os.environ.get("AP_SKILL_HASHES", "{}"))
+    sections = []
+    for name in (n.strip() for n in os.environ.get("AP_SKILLS", "").split(",") if n.strip()):
+        if not re.fullmatch(r"[a-z][a-z0-9-]{0,63}", name):
+            raise ValueError("invalid assigned skill name")
+        path = Path.home() / ".claude" / "skills" / name / "SKILL.md"
+        data = path.read_bytes()
+        if path.is_symlink() or hashlib.sha256(data).hexdigest() != hashes.get(name):
+            raise ValueError(f"assigned skill changed before context load: {name}")
+        sections.append(f"Assigned skill {name} ({path}):\n\n{data.decode()}")
+    rendered = dict(definition)
+    if sections:
+        rendered["prompt"] = (rendered.get("prompt") or "") + "\n\n" + "\n\n".join(sections)
+    _agent_path(agent).write_text(_render_agent_md(rendered, dev=dev))
+
+
 def _resume_work_context(prompt: str, user_message: str) -> str:
     """Restate run-scoped context on a resumed CLI turn, where the initial
     prompt is replaced by AP_USER_MESSAGE. Keep it out of stored chat history.
@@ -749,6 +769,8 @@ async def _run(producer, run_id: str, agent: str, prompt: str) -> int:
         _agent_path(agent).write_text(_render_agent_md(definition, dev=dev))
     try:
         _install_skills(runtime)
+        if runtime == "claude":
+            _write_claude_skill_context(agent, definition, dev)
     except (ValueError, OSError) as exc:
         return await _abort(producer, run_id, f"skill install failed: {exc}")
 
@@ -953,6 +975,8 @@ async def _run(producer, run_id: str, agent: str, prompt: str) -> int:
             final_sid, final_text, final_error = None, "", ""
             try:
                 _install_skills(runtime)
+                if runtime == "claude":
+                    _write_claude_skill_context(agent, definition, dev)
                 _args, _ = await _configure_attempt(False)
                 rc = await _invoke(_args(None))
             except Exception as exc:

@@ -629,6 +629,27 @@ def test_assigned_skills_are_preloaded_without_granting_tools(tmp_path, monkeypa
         runner._render_agent_md(_payload(skills=["bad\nskills: anything"]))
 
 
+def test_claude_main_session_receives_verified_skill_instructions(tmp_path, monkeypatch):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("AP_SKILLS", "platform-change")
+    data = b"---\nname: platform-change\n---\nVerify changes before publishing.\n"
+    monkeypatch.setenv("AP_SKILL_HASHES", json.dumps({"platform-change": hashlib.sha256(data).hexdigest()}))
+    path = tmp_path / ".claude/skills/platform-change/SKILL.md"
+    path.parent.mkdir(parents=True)
+    path.write_bytes(data)
+    definition = _payload(skills=["platform-change"])
+    runner._agent_path("newsy").parent.mkdir(parents=True)
+    runner._write_claude_skill_context("newsy", definition, False)
+    text = runner._agent_path("newsy").read_text()
+    assert "Verify changes before publishing." in text
+    assert str(path) in text
+    assert definition["prompt"] == "You are newsy.\n"
+    assert runner._agent_tools("newsy") == ["WebSearch", "WebFetch", "mcp__platform__memory"]
+    path.write_text("Replaced after installation")
+    with pytest.raises(ValueError, match="changed before context load"):
+        runner._write_claude_skill_context("newsy", definition, False)
+
+
 def test_dev_render_lists_the_shell_tools_in_the_tools_line():
     """Claude Code reads the agent file's `tools:` as the ENABLED set, and
     `--allowedTools` only pre-approves within it — so a dev agent file that
