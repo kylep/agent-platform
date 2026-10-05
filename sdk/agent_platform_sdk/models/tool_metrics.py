@@ -1,10 +1,16 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import Any, TypeVar
+from typing import TYPE_CHECKING, Any, TypeVar
 
 from attrs import define as _attrs_define
 from attrs import field as _attrs_field
+
+from ..types import UNSET, Unset
+
+if TYPE_CHECKING:
+    from ..models.tool_denial_sample import ToolDenialSample
+
 
 T = TypeVar("T", bound="ToolMetrics")
 
@@ -18,6 +24,7 @@ class ToolMetrics:
         denials (int):
         errors (int):
         tool (str):
+        recent_denials (list[ToolDenialSample] | Unset):
     """
 
     avg_latency_ms: float
@@ -25,6 +32,7 @@ class ToolMetrics:
     denials: int
     errors: int
     tool: str
+    recent_denials: list[ToolDenialSample] | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -38,6 +46,13 @@ class ToolMetrics:
 
         tool = self.tool
 
+        recent_denials: list[dict[str, Any]] | Unset = UNSET
+        if not isinstance(self.recent_denials, Unset):
+            recent_denials = []
+            for recent_denials_item_data in self.recent_denials:
+                recent_denials_item = recent_denials_item_data.to_dict()
+                recent_denials.append(recent_denials_item)
+
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
@@ -49,11 +64,15 @@ class ToolMetrics:
                 "tool": tool,
             }
         )
+        if recent_denials is not UNSET:
+            field_dict["recent_denials"] = recent_denials
 
         return field_dict
 
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
+        from ..models.tool_denial_sample import ToolDenialSample
+
         d = dict(src_dict)
         avg_latency_ms = d.pop("avg_latency_ms")
 
@@ -65,12 +84,24 @@ class ToolMetrics:
 
         tool = d.pop("tool")
 
+        _recent_denials = d.pop("recent_denials", UNSET)
+        recent_denials: list[ToolDenialSample] | Unset = UNSET
+        if _recent_denials is not UNSET:
+            recent_denials = []
+            for recent_denials_item_data in _recent_denials:
+                recent_denials_item = ToolDenialSample.from_dict(
+                    recent_denials_item_data
+                )
+
+                recent_denials.append(recent_denials_item)
+
         tool_metrics = cls(
             avg_latency_ms=avg_latency_ms,
             calls=calls,
             denials=denials,
             errors=errors,
             tool=tool,
+            recent_denials=recent_denials,
         )
 
         tool_metrics.additional_properties = d

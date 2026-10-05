@@ -21,7 +21,7 @@ from agentplatform.appdata.records import bump_counters, load_app, normalize_val
 
 
 def bundle() -> dict:
-    read = ["owner", "kyle", "agent:news-librarian", "agent:pai"]
+    read = ["owner", "kyle", "agent:news-librarian", "agent:pai", "agent:olu"]
     private = {"read": read, "create": ["owner"],
                "update": ["owner"], "delete": ["kyle"]}
     return {

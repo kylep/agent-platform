@@ -179,7 +179,26 @@ async def metrics_tools(request: Request, hours: int = 24):
             .order_by(func.count().desc()))
     async with request.app.state.session_factory() as s:
         rows = (await s.execute(stmt)).all()
+        # Give the health worker enough evidence to distinguish a broken
+        # scheduled reader from correctly rejected unauthenticated traffic.
+        # Five newest denials per tool, same window as the aggregate. Never
+        # expose arguments, their digests, credentials or result content.
+        ranked = (select(ToolAudit.tool, ToolAudit.ts, ToolAudit.agent,
+                         ToolAudit.run_id, ToolAudit.action, ToolAudit.decision,
+                         func.row_number().over(partition_by=ToolAudit.tool,
+                             order_by=ToolAudit.ts.desc()).label("rank"))
+                  .where(ToolAudit.ts >= cutoff,
+                         ToolAudit.decision.like("deny%"))).subquery()
+        samples = (await s.execute(select(ranked).where(ranked.c.rank <= 5)
+                                  .order_by(ranked.c.ts.desc()))).all()
+    by_tool = defaultdict(list)
+    for sample in samples:
+        by_tool[sample.tool].append({
+            "ts": as_utc(sample.ts).isoformat() if sample.ts else None,
+            "agent": sample.agent, "run_id": sample.run_id,
+            "action": sample.action, "decision": sample.decision})
     return [{"tool": r.tool, "calls": int(r.calls or 0),
              "denials": int(r.denials or 0), "errors": int(r.errors or 0),
-             "avg_latency_ms": round(float(r.avg_latency_ms or 0), 1)}
+             "avg_latency_ms": round(float(r.avg_latency_ms or 0), 1),
+             "recent_denials": by_tool[r.tool]}
             for r in rows]

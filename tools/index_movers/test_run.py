@@ -49,7 +49,7 @@ def test_weekend_keeps_last_actual_session():
 
 
 def test_cutoff_uses_exchange_date_not_utc_date():
-    now = _at("2026-10-05", "19:00").astimezone(ZoneInfo("UTC"))
+    now = _at("2026-10-05", "21:00").astimezone(ZoneInfo("UTC"))
     assert completed_closes({"2026-10-05": 100}, {}, now) == {}
 
 

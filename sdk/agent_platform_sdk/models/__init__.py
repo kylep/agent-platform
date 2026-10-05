@@ -280,6 +280,7 @@ from .ticket_stats import TicketStats
 from .ticket_thinking import TicketThinking
 from .ticket_view import TicketView
 from .tool_audit_view import ToolAuditView
+from .tool_denial_sample import ToolDenialSample
 from .tool_detail import ToolDetail
 from .tool_detail_files import ToolDetailFiles
 from .tool_detail_params import ToolDetailParams
@@ -600,6 +601,7 @@ __all__ = (
     "TicketThinking",
     "TicketView",
     "ToolAuditView",
+    "ToolDenialSample",
     "ToolDetail",
     "ToolDetailFiles",
     "ToolDetailParams",

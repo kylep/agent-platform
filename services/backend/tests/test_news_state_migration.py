@@ -6,6 +6,7 @@ import pytest
 from sqlalchemy import func, select
 
 from agentplatform.appdata import news_cutover
+from agentplatform.appdata.access import Access, Caller, RecordError
 from agentplatform.appdata.definitions import validate_app
 from agentplatform.appdata.lifecycle import page_for_web
 from agentplatform.appdata.models import AppDataApp, AppDataRecord
@@ -38,6 +39,17 @@ def test_definition_and_conversion():
     assert next(block for block in home["components"]
                 if block["kind"] == "calendar")["day_link"] == {
                     "page": "day", "param": "day"}
+
+
+def test_olu_scheduled_reader_can_read_news_without_write_access():
+    parsed = validate_app(bundle())
+    for collection in parsed.collections.values():
+        access = Access(collection, Caller("agent:olu"), "agent:news")
+        access.require_rows()
+        assert all(access.can_read(field) for field in collection.fields)
+        for verb in ("create", "update", "delete"):
+            with pytest.raises(RecordError, match="AD-FORBIDDEN"):
+                access.require_verb(verb)
 
 
 def test_missing_topic_and_duplicate_refused():

@@ -117,3 +117,33 @@ async def test_historical_retired_agent_is_not_enabled_health_target(admin_clien
     assert rows['retired-worker']['enabled'] is False
     assert rows['disabled-worker']['enabled'] is False
     assert rows['retired-worker']['failure_streak'] == 1
+
+
+async def test_tool_metrics_attribute_bounded_denials_without_argument_data(admin_client, sf):
+    from agentplatform.db import ToolAudit
+    now = utcnow()
+    async with sf() as s:
+        for i in range(7):
+            s.add(ToolAudit(tool="apps", agent="pai", run_id=f"run-{i}",
+                action="list", decision="deny:undeclared", args_digest="sensitive-digest",
+                ts=now - timedelta(minutes=i)))
+        s.add(ToolAudit(tool="apps", agent="pai", decision="allow", ts=now))
+        s.add(ToolAudit(tool="apps", agent="pai", decision="deny:undeclared",
+                        ts=now - timedelta(hours=25)))
+        s.add(ToolAudit(tool="agents_grant", agent="unknown", decision="deny:unauthenticated",
+                        ts=now))
+        await s.commit()
+    response = await admin_client.get("/api/metrics/tools")
+    assert response.status_code == 200
+    rows = {row["tool"]: row for row in response.json()}
+    assert rows["apps"]["calls"] == 8
+    assert rows["apps"]["denials"] == 7
+    samples = rows["apps"]["recent_denials"]
+    assert [sample["run_id"] for sample in samples] == [f"run-{i}" for i in range(5)]
+    assert samples[0]["agent"] == "pai" and samples[0]["action"] == "list"
+    assert samples[0]["decision"] == "deny:undeclared" and samples[0]["ts"]
+    assert rows["agents_grant"]["recent_denials"][0]["decision"] == "deny:unauthenticated"
+    assert "sensitive-digest" not in response.text
+    assert "args_digest" not in response.text and "initiated_by" not in response.text
+    short_window = {row["tool"]: row for row in (await admin_client.get("/api/metrics/tools?hours=1")).json()}
+    assert short_window["apps"]["denials"] == 7

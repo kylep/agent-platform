@@ -489,12 +489,21 @@ class ToolAuditView(BaseModel):
     result_bytes: int
 
 
+class ToolDenialSample(BaseModel):
+    ts: str | None
+    agent: str
+    run_id: str | None
+    action: str | None
+    decision: str
+
+
 class ToolMetrics(BaseModel):
     tool: str
     calls: int
     denials: int
     errors: int
     avg_latency_ms: float
+    recent_denials: list[ToolDenialSample] = Field(default_factory=list)
 
 
 # --- help --------------------------------------------------------------------
