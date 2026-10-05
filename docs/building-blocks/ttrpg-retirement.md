@@ -3,8 +3,10 @@
 The Living Table was removed from Agent Platform Apps on 2026-10-05 at Kyle's
 request. The separate `claude-ttrpg` repository was not changed. The platform
 no longer deploys `ap-app-ttrpg`, lists it as an App, or offers its `ttrpg`
-custom tool. `ttrpg-gm` is disabled rather than deleted, preserving its
-configuration and history. Historical `#ttrpg-table` Relay messages remain.
+custom tool. Kyle subsequently requested deletion of `ttrpg-gm`; the agent
+definition is gone, while the platform retains its runs, memories and
+tombstone version for audit or recreation. Historical `#ttrpg-table` Relay
+messages remain.
 
 The world data was **not deleted**. The `ap-ttrpg-world` PVC is retained by
 `legacyTtrpgWorld.keep` in the pai Helm values and has a Helm keep annotation.
