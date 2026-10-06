@@ -249,3 +249,15 @@ async def test_persona_only_migration_strips_workers_once_and_keeps_personas(sf,
         assert (await session.get(AgentDef, "muse")).platform_tools == [TOOL]
         log = (await session.execute(select(AgentVersion).where(AgentVersion.agent == "grunt"))).scalars().all()
         assert log[-1].changed_via == "migration" and log[-1].changed_by == "platform:agent-self-persona-only"
+
+
+async def test_self_edit_survives_a_retired_tool_grant(client, sf, seed_agent, agent_store):
+    _, headers = await own_run(sf, seed_agent, agent_store,
+        platform_tools=[TOOL, "mcp__platform__retired_tool"])
+    version = (await client.get("/api/agent-self", headers=headers)).json()["version"]
+    ok = await client.patch("/api/agent-self", headers=headers, json={"expected_version": version,
+        "crons": [{"schedule": "0 8 * * *", "prompt": "daily"}]})
+    assert ok.status_code == 200, ok.text
+    async with sf() as session:
+        # The dead grant is left for an admin to retire; self-edit never touches grants.
+        assert "mcp__platform__retired_tool" in (await session.get(AgentDef, "companion")).platform_tools

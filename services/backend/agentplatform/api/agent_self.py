@@ -150,7 +150,15 @@ async def update_self_profile(request: Request, body: SelfProfileIn):
             # Only the two cron fields move; webhooks and topics are carried over.
             payload["entrypoints"] = {**(row.entrypoints or {}), **{
                 key: value for key, value in changes.items() if key in cron_change}}
-        model = _model(request, payload, row.name, _registries(request))
+        # Grants the row ALREADY holds stay valid here even if the registry has
+        # since dropped them (a retired tool): self-edit never adds a grant, and
+        # a dead one must not block an unrelated change. Admin writes still
+        # validate every name.
+        registries = _registries(request)
+        registries["skill_names"] |= set(row.skills or [])
+        registries["secret_names"] |= set(row.secrets or [])
+        registries["tool_names"] |= set(row.platform_tools or [])
+        model = _model(request, payload, row.name, registries)
         _managed_guard(row, model)
         changes = {key: getattr(model, key) for key in changes if key not in cron_change and getattr(model, key) != getattr(row, key)}
         entry_new = model.model_dump(mode="json")["entrypoints"] if cron_change else None
