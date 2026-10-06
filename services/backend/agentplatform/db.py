@@ -2277,12 +2277,12 @@ def _ensure_artist_seed(conn) -> None:
     name = "artist"
     if not conn.execute(select(def_t.c.name).where(def_t.c.name == name)).first():
         from agentplatform.agentdefs import AgentDefModel
-        from agentplatform.agentspec import TOOL_ARTIFACTS, TOOL_IMAGE_GEN, TOOL_RELAY, TOOL_SELF
+        from agentplatform.agentspec import TOOL_ARTIFACTS, TOOL_IMAGE_GEN, TOOL_RELAY
         snapshot = AgentDefModel(
             name=name, prompt=ARTIST_PROMPT, description=ARTIST_DESCRIPTION,
             model="sonnet", system=False, responds_to_all=False, can_invoke=False,
             platform_tools=[TOOL_IMAGE_GEN, TOOL_ARTIFACTS, TOOL_RELAY,
-                            "mcp__platform__memory", TOOL_SELF, "mcp__platform__tasks"],
+                            "mcp__platform__memory", "mcp__platform__tasks"],
         ).model_dump(mode="json")
         version = (conn.execute(select(func.max(ver_t.c.version))
                                 .where(ver_t.c.agent == name)).scalar() or 0) + 1
@@ -2343,6 +2343,47 @@ def _ensure_codex_artist_seed(conn) -> None:
             return
     conn.execute(mark_t.insert().values(name=CODEX_ARTIST_SEED_MARK,
                                         applied_at=utcnow()))
+
+
+SELF_PERSONA_ONLY_MARK = "agent-self-persona-only-v1"
+
+
+def _revoke_agent_self_from_workers(conn) -> None:
+    """One-time: agent_self is a persona privilege, so strip the stored grant
+    from every non-persona definition (the default-grant sweep had given it to
+    all of them). Same shape as `_retire_seeded_skills`: one change-log version
+    per edit, and a lost version race retries on the next boot. The server
+    refuses non-personas regardless; this keeps the stored grants honest."""
+    from sqlalchemy import func, inspect as sa_inspect
+    from sqlalchemy.exc import IntegrityError
+    if not sa_inspect(conn).has_table("agent_defs"):
+        return
+    mark_t = SchemaMark.__table__
+    if conn.execute(select(mark_t.c.name).where(mark_t.c.name == SELF_PERSONA_ONLY_MARK)).first():
+        return
+    from agentplatform.agentdefs import model_of
+    tool = "mcp__platform__agent_self"
+    def_t, ver_t = AgentDef.__table__, AgentVersion.__table__
+    for row in conn.execute(select(def_t)).all():
+        if row.agent_type == "persona" or tool not in (row.platform_tools or []):
+            continue
+        tools = [t for t in row.platform_tools if t != tool]
+        snapshot = {**model_of(row).model_dump(mode="json"), "platform_tools": tools}
+        version = (conn.execute(select(func.max(ver_t.c.version))
+                                .where(ver_t.c.agent == row.name)).scalar() or 0) + 1
+        try:
+            with conn.begin_nested():
+                conn.execute(def_t.update().where(def_t.c.name == row.name).values(
+                    platform_tools=tools,
+                    authorization_generation=(row.authorization_generation or 0) + 1))
+                conn.execute(ver_t.insert().values(
+                    id=uuid.uuid4().hex, agent=row.name, version=version,
+                    snapshot=snapshot, changed_by="platform:agent-self-persona-only",
+                    changed_via="migration", created_at=utcnow()))
+        except IntegrityError:
+            log.warning("agent_self revocation lost a version race for %s", row.name)
+            return
+    conn.execute(mark_t.insert().values(name=SELF_PERSONA_ONLY_MARK, applied_at=utcnow()))
 
 
 def _retire_seeded_skills(conn) -> None:
@@ -2885,7 +2926,7 @@ def _ensure_engineer_seed(conn) -> None:
     if not conn.execute(select(def_t.c.name).where(def_t.c.name == name)).first():
         from agentplatform.agentdefs import AgentDefModel
         from agentplatform.agentspec import (TOOL_ARTIFACTS, TOOL_QUOTA_OK, TOOL_RELAY,
-                                             TOOL_SELF, TOOL_TICKETS, TOOL_WIKI)
+                                             TOOL_TICKETS, TOOL_WIKI)
         snapshot = AgentDefModel(
             name=name, prompt=CODER_PROMPT, description=ENGINEER_DESCRIPTION,
             model="opus", role="dev", system=False, responds_to_all=False,
@@ -2893,7 +2934,7 @@ def _ensure_engineer_seed(conn) -> None:
             concurrency=1, timeout_seconds=5400,
             quota_5h_max_pct=95, quota_7d_max_pct=90,
             platform_tools=[TOOL_RELAY, TOOL_TICKETS, TOOL_WIKI, TOOL_QUOTA_OK,
-                            TOOL_ARTIFACTS, "mcp__platform__memory", TOOL_SELF,
+                            TOOL_ARTIFACTS, "mcp__platform__memory",
                             "mcp__platform__tasks"],
             harness_tools=["Glob", "Grep"],
             push_path_globs=[], may_delete_tests=False,
@@ -3112,7 +3153,7 @@ def _ensure_qa_seed(conn) -> None:
     if not conn.execute(select(def_t.c.name).where(def_t.c.name == name)).first():
         from agentplatform.agentdefs import AgentDefModel
         from agentplatform.agentspec import (TOOL_ARTIFACTS, TOOL_PLAYWRIGHT_MCP,
-                                             TOOL_QUOTA_OK, TOOL_RELAY, TOOL_SELF,
+                                             TOOL_QUOTA_OK, TOOL_RELAY,
                                              TOOL_TICKETS, TOOL_WIKI)
         from agentplatform.testpaths import TEST_PATH_GLOBS
         # `tcms` is a custom tool (tools/tcms), so its grant is spelled the
@@ -3127,7 +3168,7 @@ def _ensure_qa_seed(conn) -> None:
             quota_5h_max_pct=80, quota_7d_max_pct=50,
             platform_tools=[TOOL_RELAY, TOOL_TICKETS, TOOL_WIKI, TOOL_QUOTA_OK,
                             TOOL_ARTIFACTS, "mcp__platform__tcms", "mcp__platform__memory",
-                            TOOL_SELF, "mcp__platform__tasks"],
+                            "mcp__platform__tasks"],
             harness_tools=["Glob", "Grep", TOOL_PLAYWRIGHT_MCP],
             secrets=["qa-web-login"],
             push_path_globs=list(TEST_PATH_GLOBS), may_delete_tests=True,
@@ -3603,7 +3644,8 @@ def _ensure_memory_default_grant(conn, default_grant: bool = True) -> None:
 
 def _grant_to_every_agent(conn, tool: str, mark: str, *, changed_by: str,
                           default_grant: bool, include_disabled: bool = False,
-                          include_system: bool = True) -> None:
+                          include_system: bool = True,
+                          only_agent_type: str | None = None) -> None:
     """The one-time sweep behind a default-granted platform tool.
 
     "Default-granted" is implemented honestly, as rows: new agents get it from
@@ -3650,7 +3692,8 @@ def _grant_to_every_agent(conn, tool: str, mark: str, *, changed_by: str,
         # NULL on any row written before it existed, and NULL reads as the
         # column default (True) everywhere else — see agentdefs.model_of.
         tools = list(row.platform_tools or [])
-        if (row.enabled is False and not include_disabled) or (row.system and not include_system) or tool in tools:
+        if (row.enabled is False and not include_disabled) or (row.system and not include_system) or tool in tools \
+                or (only_agent_type and row.agent_type != only_agent_type):
             continue
         granted = tools + [tool]
         try:
@@ -3803,7 +3846,9 @@ async def init_db(engine: AsyncEngine, default_grant: bool = True,
         await conn.run_sync(_retire_seeded_skills)
         await conn.run_sync(migrate_authority)
         await conn.run_sync(lambda c: _grant_to_every_agent(c, "mcp__platform__agent_self",
-            "agent-self-default-v1", changed_by="platform:self-default-grant", default_grant=self_grant))
+            "agent-self-default-v1", changed_by="platform:self-default-grant", default_grant=self_grant,
+            only_agent_type="persona"))
+        await conn.run_sync(_revoke_agent_self_from_workers)
         await conn.run_sync(reconcile_system_agents)
         # Last, so it sees every holder the seeds and sweeps above leave behind.
         await conn.run_sync(_audit_kyle_only_holders)

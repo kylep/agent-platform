@@ -151,7 +151,7 @@ async def test_the_coder_is_seeded_with_its_grants_role_and_thresholds(engine, s
         assert (row.timeout_seconds, row.concurrency) == (5400, 1)
         assert (row.quota_5h_max_pct, row.quota_7d_max_pct) == (95, 90)
         assert row.platform_tools == [TOOL_RELAY, TOOL_TICKETS, TOOL_WIKI,
-                                      TOOL_QUOTA_OK, TOOL_ARTIFACTS, "mcp__platform__memory", TOOL_SELF,
+                                      TOOL_QUOTA_OK, TOOL_ARTIFACTS, "mcp__platform__memory",
                                       "mcp__platform__tasks"]
         # The shell tools come from the profile, not the grant; WebFetch is
         # deliberately absent — the repo and the wiki are its sources.
@@ -196,7 +196,7 @@ async def test_the_coder_has_exactly_one_version_after_a_fresh_init(engine, sfx)
         (1, "system:coder", "seed")]
     snap = versions[0].snapshot
     assert snap["platform_tools"] == [TOOL_RELAY, TOOL_TICKETS, TOOL_WIKI,
-                                      TOOL_QUOTA_OK, TOOL_ARTIFACTS, "mcp__platform__memory", TOOL_SELF,
+                                      TOOL_QUOTA_OK, TOOL_ARTIFACTS, "mcp__platform__memory",
                                       "mcp__platform__tasks"]
     assert (snap["system"], snap["role"], snap["model"]) == (False, "dev", "opus")
     assert (snap["quota_5h_max_pct"], snap["quota_7d_max_pct"]) == (95, 90)

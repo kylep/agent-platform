@@ -585,4 +585,4 @@ async def test_the_wiki_default_can_be_turned_off_platform_wide(admin_client, sf
     assert r.status_code == 201, r.text
     assert r.json()["platform_tools"] == [RELAY_GRANT, TICKETS_GRANT, QUOTA_GRANT,
                                           ARTIFACTS_GRANT, "mcp__platform__memory",
-                                          "mcp__platform__agent_self"]
+]

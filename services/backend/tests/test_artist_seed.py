@@ -54,7 +54,7 @@ async def test_the_artist_is_seeded_with_its_grants(engine, sfx):
         assert row.responds_to_all is False
         assert (row.model, row.role) == ("sonnet", "operator")
         assert row.platform_tools == [TOOL_IMAGE_GEN, TOOL_ARTIFACTS, TOOL_RELAY,
-                                      "mcp__platform__memory", TOOL_SELF,
+                                      "mcp__platform__memory",
                                       "mcp__platform__tasks"]
         assert (row.harness_tools, row.skills, row.secrets) == ([], [], [])
         assert row.entrypoints == {"crons": [], "webhooks": [], "topics": [],
@@ -75,7 +75,7 @@ async def test_codex_artist_is_a_separate_subscription_backed_specialist(engine,
         assert (row.system, row.enabled, row.can_invoke) == (True, True, False)
         # Code-owned since design 34: the registry, not the seed, sets its grants.
         assert row.system_source == "platform:codex-artist"
-        assert row.platform_tools == [TOOL_SELF, TOOL_ARTIFACTS, TOOL_RELAY, "mcp__platform__memory"]
+        assert row.platform_tools == [ TOOL_ARTIFACTS, TOOL_RELAY, "mcp__platform__memory"]
         assert TOOL_IMAGE_GEN not in row.platform_tools
         assert row.skills == []
         assert row.prompt == CODEX_ARTIST_PROMPT
@@ -86,7 +86,6 @@ async def test_codex_artist_is_a_separate_subscription_backed_specialist(engine,
     # The seed's row, then the registry adopting it (docs/design/34).
     assert [(v.changed_by, v.changed_via) for v in versions] == [
         ("system:codex-artist", "seed"),
-        ("platform:self-default-grant", "migration"),
         ("system:registry", "registry:before-adoption"),
         ("system:registry", "registry:reconcile")]
     assert versions[0].snapshot["system"] is True
@@ -178,7 +177,7 @@ async def test_the_artist_has_exactly_one_version_after_a_fresh_init(engine, sfx
         (1, "system:artist", "seed")]
     assert versions[0].snapshot["platform_tools"] == [TOOL_IMAGE_GEN, TOOL_ARTIFACTS,
                                                        TOOL_RELAY, "mcp__platform__memory",
-                                                       TOOL_SELF, "mcp__platform__tasks"]
+ "mcp__platform__tasks"]
     assert versions[0].snapshot["system"] is False
     assert versions[0].snapshot["model"] == "sonnet"
 

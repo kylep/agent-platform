@@ -248,9 +248,8 @@ async def test_the_wiki_agent_is_seeded(engine, sfx):
             AgentVersion.agent == "wiki"))).scalars())
         assert [(v.version, v.changed_by, v.changed_via) for v in versions] == [
             (1, "system:wiki", "migration"),
-            (2, "platform:self-default-grant", "migration"),
-            (3, "system:registry", "registry:before-adoption"),
-            (4, "system:registry", "registry:reconcile")]
+            (2, "system:registry", "registry:before-adoption"),
+            (3, "system:registry", "registry:reconcile")]
         assert versions[0].snapshot["platform_tools"] == [
                 TOOL_RELAY, TOOL_TICKETS, TOOL_WIKI, TOOL_QUOTA, TOOL_ARTIFACTS,
                 "mcp__platform__memory"]
@@ -334,10 +333,10 @@ async def test_the_librarian_seeds_are_idempotent(engine, sfx):
     # The librarian, both artists (docs/design/23), the engineer
     # (docs/design/24), the QA (docs/design/25) and the three registry-only
     # system workers (docs/design/34). One version each, except the two legacy
-    # seeds the registry adopts (wiki, codex-artist): seed, agent_self sweep,
+    # seeds the registry adopts (wiki, codex-artist): seed,
     # before-adoption snapshot, reconcile. standup + gardener + eng-queue +
     # qa-nightly.
-    assert await counts() == [8, 14, 4]
+    assert await counts() == [8, 12, 4]
 
 
 async def test_a_gardener_job_that_already_exists_is_adopted(engine, sfx):

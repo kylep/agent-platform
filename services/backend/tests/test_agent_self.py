@@ -10,6 +10,7 @@ TOOL = "mcp__platform__agent_self"
 
 
 async def own_run(sf, seed_agent, agent_store, name="companion", **fields):
+    fields.setdefault("agent_type", "persona")
     await seed_agent(name, platform_tools=fields.pop("platform_tools", [TOOL]), runtime="codex", **fields)
     await agent_store.reload()
     async with sf() as session:
@@ -133,9 +134,9 @@ async def test_profile_change_revokes_other_run_but_new_run_can_resume(client, s
 
 async def test_self_grant_is_default_and_opt_out_survives_restart(admin_client, sf):
     from agentplatform.db import init_db
-    r = await admin_client.post("/api/agents", json={"name": "self-enabled", "prompt": "hi"})
+    r = await admin_client.post("/api/agents", json={"name": "self-enabled", "prompt": "hi", "agent_type": "persona"})
     assert r.status_code == 201 and TOOL in r.json()["platform_tools"]
-    r = await admin_client.post("/api/agents", json={"name": "self-disabled", "prompt": "hi", "agent_self": False})
+    r = await admin_client.post("/api/agents", json={"name": "self-disabled", "prompt": "hi", "agent_type": "persona", "agent_self": False})
     assert r.status_code == 201 and TOOL not in r.json()["platform_tools"]
     await init_db(sf.kw["bind"])
     async with sf() as session:
@@ -225,3 +226,26 @@ async def test_self_cron_prompt_and_model_are_bounded(client, sf, seed_agent, ag
     good = await client.patch("/api/agent-self", headers=headers, json={"expected_version": version,
         "crons": [{"schedule": "0 8 * * *", "prompt": "x", "model": "gpt-5.6-luna"}]})
     assert good.status_code == 200, good.text
+
+
+async def test_self_refused_for_a_worker_even_with_the_grant(client, sf, seed_agent, agent_store):
+    _, headers = await own_run(sf, seed_agent, agent_store, name="grunt", agent_type="worker")
+    assert (await client.get("/api/agent-self", headers=headers)).status_code == 403
+    assert (await client.patch("/api/agent-self", headers=headers, json={
+        "expected_version": 0, "crons": []})).status_code == 403
+
+
+async def test_persona_only_migration_strips_workers_once_and_keeps_personas(sf, seed_agent):
+    from sqlalchemy import delete
+    from agentplatform.db import SchemaMark, SELF_PERSONA_ONLY_MARK, init_db
+    await seed_agent("grunt", agent_type="worker", platform_tools=[TOOL, "mcp__platform__relay"])
+    await seed_agent("muse", agent_type="persona", platform_tools=[TOOL])
+    async with sf() as session:
+        await session.execute(delete(SchemaMark).where(SchemaMark.name == SELF_PERSONA_ONLY_MARK))
+        await session.commit()
+    await init_db(sf.kw["bind"])
+    async with sf() as session:
+        assert (await session.get(AgentDef, "grunt")).platform_tools == ["mcp__platform__relay"]
+        assert (await session.get(AgentDef, "muse")).platform_tools == [TOOL]
+        log = (await session.execute(select(AgentVersion).where(AgentVersion.agent == "grunt"))).scalars().all()
+        assert log[-1].changed_via == "migration" and log[-1].changed_by == "platform:agent-self-persona-only"

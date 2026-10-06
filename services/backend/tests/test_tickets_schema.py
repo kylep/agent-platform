@@ -298,8 +298,7 @@ async def test_health_monitor_learns_to_open_tickets(engine, sfx):
         (5, "platform:quota-default-grant", "migration"),
         (6, "platform:artifacts-default-grant", "migration"),
         (7, "platform:memory-default-grant", "migration"),
-        (8, "platform:tasks-default-grant", "migration"),
-        (9, "platform:self-default-grant", "migration")]
+        (8, "platform:tasks-default-grant", "migration")]
     assert versions[-1].snapshot["prompt"] == (await _agent_prompt(sfx))
     # Once only: the appended paragraph is not re-appended on the next boot.
     before = await _agent_prompt(sfx)

@@ -533,7 +533,8 @@ def _by_default(settings, body) -> list[str]:
     is the explicit opt-out, True is the caller asking (see `_asked_for`). Only
     the None case is a platform default."""
     return [tool for tool, setting in DEFAULT_GRANTS
-            if getattr(body, _knob(tool)) is None and getattr(settings, setting)]
+            if getattr(body, _knob(tool)) is None and getattr(settings, setting)
+            and (tool != "mcp__platform__agent_self" or body.agent_type == "persona")]
 
 
 async def _log_version(session, row: AgentDef, *, changed_by: str, changed_via: str):

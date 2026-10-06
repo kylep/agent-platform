@@ -102,6 +102,10 @@ async def actor(session, request):
     row = await session.get(AgentDef, name, with_for_update=True)
     if row is None:
         raise HTTPException(403, "agent no longer exists")
+    # Self-modification is a persona privilege; a worker's definition is Kyle's,
+    # whatever its stored grants say.
+    if row.agent_type != "persona":
+        raise HTTPException(403, "agent_self is only for persona agents")
     return row, run
 
 
