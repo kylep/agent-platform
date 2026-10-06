@@ -118,11 +118,11 @@ async def test_retired_coded_app_catalogue_row_is_hidden_after_state_cutover(
 async def test_retired_coded_app_without_state_replacement_is_hidden(
         admin_client, sf):
     async with sf() as session:
-        session.add(AppCollection(name="ttrpg", display_name="The Living Table",
-                                  source_app="ttrpg", owner_id="admin"))
+        session.add(AppCollection(name="retired-app", display_name="Retired App",
+                                  source_app="retired-app", owner_id="admin"))
         await session.commit()
     apps = (await admin_client.get("/api/apps")).json()
-    assert all(app["name"] != "ttrpg" for app in apps)
+    assert all(app["name"] != "retired-app" for app in apps)
 
 
 async def test_db_app_collections_can_be_created_and_edited(admin_client, client):

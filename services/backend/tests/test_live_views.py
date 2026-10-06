@@ -98,8 +98,8 @@ async def test_duplicate_slug_and_missing_app(admin_client):
 
 async def test_domain_link_stays_inside_its_app(admin_client):
     await admin_client.post("/api/app-collections", json={
-        "name": "ttrpg", "display_name": "Tabletop RPG"})
-    base = {"app_name": "ttrpg", "slug": "table"}
+        "name": "tabletop", "display_name": "Tabletop"})
+    base = {"app_name": "tabletop", "slug": "table"}
     for href in ("https://example.com", "javascript:alert(1)", "/apps/news/"):
         denied = await admin_client.post("/api/live-views", json={**base,
             "definition": {"title": "Table", "blocks": [
@@ -107,7 +107,7 @@ async def test_domain_link_stays_inside_its_app(admin_client):
         assert denied.status_code == 422
     accepted = await admin_client.post("/api/live-views", json={**base,
         "definition": {"title": "Table", "blocks": [
-            {"kind": "link", "label": "Play", "href": "/apps/ttrpg/"}]}})
+            {"kind": "link", "label": "Play", "href": "/apps/tabletop/"}]}})
     assert accepted.status_code == 201
 
 
@@ -228,15 +228,15 @@ async def test_relay_page_read_rechecks_membership_and_cannot_be_snapshotted(
     await admin_client.post(f"/api/relay/channels/{channel_id}/messages",
                             json={"body": "The table is ready."})
     await admin_client.post("/api/app-collections", json={
-        "name": "ttrpg", "display_name": "Tabletop RPG"})
+        "name": "tabletop", "display_name": "Tabletop"})
     missing_target = await admin_client.post("/api/live-views", json={
-        "app_name": "ttrpg", "slug": "bad-relay", "definition": {
+        "app_name": "tabletop", "slug": "bad-relay", "definition": {
             "title": "Table", "reads": [{"alias": "chat",
                 "operation": "relay.channel.read@1"}],
             "blocks": [{"kind": "table", "source": "chat"}]}})
     assert missing_target.status_code == 422
     made = await admin_client.post("/api/live-views", json={
-        "app_name": "ttrpg", "slug": "table-chat", "definition": {
+        "app_name": "tabletop", "slug": "table-chat", "definition": {
             "title": "Table", "reads": [{"alias": "chat",
                 "operation": "relay.channel.read@1", "channel_id": channel_id}],
             "blocks": [{"kind": "chat", "source": "chat"}]}})

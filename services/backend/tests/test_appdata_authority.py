@@ -502,9 +502,9 @@ def test_tool_actions_are_always_proposals():
 
 
 def test_service_principal_facts_are_proposals():
-    sp = [{"principal": "tool:ttrpg", "collections": {"habits": ["read"]}}]
+    sp = [{"principal": "tool:sample", "collections": {"habits": ["read"]}}]
     assert widening(compute_facts(app()), compute_facts(app(service_principals=sp))) == [
-        "new: service principal tool:ttrpg may read habits"]
+        "new: service principal tool:sample may read habits"]
 
 
 def test_field_override_widening_is_a_proposal():

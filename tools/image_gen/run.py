@@ -1,7 +1,7 @@
 """image_gen tool: text-to-image (and reference-guided edits) via OpenAI,
 Google Gemini, or Black Forest Labs FLUX — stdlib only (urllib).
 
-Ported from claude-ttrpg/tools/imagegen.py into the platform's tool contract
+Ported from a standalone imagegen script into the platform's tool contract
 (docs/design/23): JSON args on stdin, one JSON summary line on stdout, the
 image itself in the file sink (`TOOL_OUT_DIR/image.<ext>`) with a
 `image.<ext>.meta.json` sidecar the executor folds into the file's `meta`.
@@ -53,7 +53,7 @@ KEY_ENV = {
     "bfl": ("BFL_API_KEY", "bfl-api-key"),
 }
 
-# OpenAI has no "default" tier; "high" is what the ttrpg tool always used.
+# OpenAI has no "default" tier; "high" is what the original script always used.
 DEFAULT_QUALITY = {"openai": "high"}
 
 # One wall-clock budget for the whole call, under the 180 s manifest timeout
