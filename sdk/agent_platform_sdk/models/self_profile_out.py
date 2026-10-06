@@ -1,10 +1,14 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import Any, TypeVar, cast
+from typing import TYPE_CHECKING, Any, TypeVar, cast
 
 from attrs import define as _attrs_define
 from attrs import field as _attrs_field
+
+if TYPE_CHECKING:
+    from ..models.cron_entry import CronEntry
+
 
 T = TypeVar("T", bound="SelfProfileOut")
 
@@ -15,6 +19,7 @@ class SelfProfileOut:
     Attributes:
         backup_model (str):
         backup_runtime (None | str):
+        crons (list[CronEntry]):
         description (str):
         image_artifact_id (None | str):
         model (str):
@@ -22,11 +27,13 @@ class SelfProfileOut:
         prompt (str):
         runtime (str):
         system_source (None | str):
+        timezone (str):
         version (int):
     """
 
     backup_model: str
     backup_runtime: None | str
+    crons: list[CronEntry]
     description: str
     image_artifact_id: None | str
     model: str
@@ -34,6 +41,7 @@ class SelfProfileOut:
     prompt: str
     runtime: str
     system_source: None | str
+    timezone: str
     version: int
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
@@ -42,6 +50,11 @@ class SelfProfileOut:
 
         backup_runtime: None | str
         backup_runtime = self.backup_runtime
+
+        crons = []
+        for crons_item_data in self.crons:
+            crons_item = crons_item_data.to_dict()
+            crons.append(crons_item)
 
         description = self.description
 
@@ -59,6 +72,8 @@ class SelfProfileOut:
         system_source: None | str
         system_source = self.system_source
 
+        timezone = self.timezone
+
         version = self.version
 
         field_dict: dict[str, Any] = {}
@@ -67,6 +82,7 @@ class SelfProfileOut:
             {
                 "backup_model": backup_model,
                 "backup_runtime": backup_runtime,
+                "crons": crons,
                 "description": description,
                 "image_artifact_id": image_artifact_id,
                 "model": model,
@@ -74,6 +90,7 @@ class SelfProfileOut:
                 "prompt": prompt,
                 "runtime": runtime,
                 "system_source": system_source,
+                "timezone": timezone,
                 "version": version,
             }
         )
@@ -82,6 +99,8 @@ class SelfProfileOut:
 
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
+        from ..models.cron_entry import CronEntry
+
         d = dict(src_dict)
         backup_model = d.pop("backup_model")
 
@@ -91,6 +110,13 @@ class SelfProfileOut:
             return cast(None | str, data)
 
         backup_runtime = _parse_backup_runtime(d.pop("backup_runtime"))
+
+        crons = []
+        _crons = d.pop("crons")
+        for crons_item_data in _crons:
+            crons_item = CronEntry.from_dict(crons_item_data)
+
+            crons.append(crons_item)
 
         description = d.pop("description")
 
@@ -116,11 +142,14 @@ class SelfProfileOut:
 
         system_source = _parse_system_source(d.pop("system_source"))
 
+        timezone = d.pop("timezone")
+
         version = d.pop("version")
 
         self_profile_out = cls(
             backup_model=backup_model,
             backup_runtime=backup_runtime,
+            crons=crons,
             description=description,
             image_artifact_id=image_artifact_id,
             model=model,
@@ -128,6 +157,7 @@ class SelfProfileOut:
             prompt=prompt,
             runtime=runtime,
             system_source=system_source,
+            timezone=timezone,
             version=version,
         )
 

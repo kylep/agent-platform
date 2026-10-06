@@ -29,3 +29,18 @@ def test_self_backup_call_cannot_smuggle_primary_fields(monkeypatch):
     assert calls == [{'backup_runtime': 'claude', 'backup_model': 'claude-sonnet-5-5', 'expected_version': 2}]
     asyncio.run(fn(action='backup', model='', expected_version=3))
     assert calls[-1] == {'backup_runtime': None, 'backup_model': '', 'expected_version': 3}
+
+
+def test_self_schedule_sends_only_cron_fields(monkeypatch):
+    calls = []
+    async def call(method, path, params=None, json=None, **kw):
+        calls.append((method, path, json))
+        return '{}'
+    monkeypatch.setattr(broker, '_call', call)
+    fn = broker.agent_self.__wrapped__
+    assert 'crons' in asyncio.run(fn(action='schedule', expected_version=1))
+    assert 'expected_version' in asyncio.run(fn(action='schedule', crons=[]))
+    assert calls == []
+    cron = [{'schedule': '0 8 * * *', 'prompt': 'p'}]
+    asyncio.run(fn(action='schedule', crons=cron, prompt='must not change', expected_version=2))
+    assert calls == [('PATCH', '/api/agent-self', {'crons': cron, 'expected_version': 2})]

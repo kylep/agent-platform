@@ -186,3 +186,30 @@ async def test_self_primary_and_backup_edit_restriction_also_applies_to_broad_ed
     version = (await client.get('/api/agent-self', headers=headers)).json()['version']
     response = await client.patch('/api/agent-self', headers=headers, json={'expected_version': version, 'model': 'gpt-6-astra', 'backup_model': 'claude-sonnet-5'})
     assert response.status_code == 422 and 'never both' in response.text
+
+
+async def test_self_crons_replace_own_list_with_bounds_and_keep_sessions(client, sf, seed_agent, agent_store):
+    run_id, headers = await own_run(sf, seed_agent, agent_store)
+    version = (await client.get("/api/agent-self", headers=headers)).json()["version"]
+    ok = await client.patch("/api/agent-self", headers=headers, json={"expected_version": version,
+        "crons": [{"schedule": "0 8 * * *", "prompt": "daily"}], "timezone": "America/Toronto"})
+    assert ok.status_code == 200, ok.text
+    body = ok.json()
+    assert body["version"] == version + 1 and body["timezone"] == "America/Toronto"
+    assert [c["schedule"] for c in body["crons"]] == ["0 8 * * *"]
+    async with sf() as session:
+        agent = await session.get(AgentDef, "companion")
+        run = await session.get(Run, run_id)
+        assert agent.entrypoints["crons"][0]["prompt"] == "daily"
+        assert agent.platform_tools == [TOOL]
+        assert agent.authorization_generation == run.authorization_generation
+        audit = (await session.execute(select(AgentVersion).where(AgentVersion.agent == "companion"))).scalars().all()
+        assert audit[-1].changed_via == "tool:agent_self"
+    for crons in ([{"schedule": "*/5 * * * *", "prompt": "x"}],
+                  [{"schedule": "0,30 * * * *", "prompt": "x"}],
+                  [{"schedule": "nope", "prompt": "x"}],
+                  [{"schedule": "0 8 * * *", "prompt": "x"}] * 7):
+        bad = await client.patch("/api/agent-self", headers=headers, json={"expected_version": version + 1, "crons": crons})
+        assert bad.status_code == 422, crons
+    cleared = await client.patch("/api/agent-self", headers=headers, json={"expected_version": version + 1, "crons": []})
+    assert cleared.status_code == 200 and cleared.json()["crons"] == []

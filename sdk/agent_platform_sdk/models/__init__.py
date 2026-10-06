@@ -65,6 +65,7 @@ from .create_identity_in import CreateIdentityIn
 from .create_in import CreateIn
 from .create_view import CreateView
 from .creds import Creds
+from .cron_entry import CronEntry
 from .cron_entry_in import CronEntryIn
 from .cron_preview import CronPreview
 from .def_ref import DefRef
@@ -388,6 +389,7 @@ __all__ = (
     "CreateIn",
     "CreateView",
     "Creds",
+    "CronEntry",
     "CronEntryIn",
     "CronPreview",
     "DefRef",

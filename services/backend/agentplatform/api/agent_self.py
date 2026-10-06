@@ -1,12 +1,15 @@
 """Self-management is a narrow capability, never an agent-definition editor."""
+from datetime import UTC, datetime, timedelta
 from typing import Literal
+
+from croniter import croniter
 
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, ConfigDict, Field
 
 from agentplatform import artifact_store
 from agentplatform.appdata import artifacts as app_artifacts
-from agentplatform.agentdefs import next_version, snapshot_of
+from agentplatform.agentdefs import CronEntry, next_version, snapshot_of
 from agentplatform.agentspec import CODEX_MODELS, KNOWN_MODELS, TOOL_SELF
 from agentplatform.authority import assert_readable_run, ensure_run_authority
 from agentplatform.db import ACTIVE_STATES, AgentDef, AgentVersion, Run
@@ -15,6 +18,26 @@ from agentplatform.api.agents import _caller_platform_tools, _managed_guard, _mo
 from agentplatform.api.schemas import AgentImageIn
 
 router = APIRouter(tags=["agent-self"])
+
+# An agent that schedules itself spends the shared quota unattended, so the
+# server bounds what it may declare: a handful of triggers, none firing more
+# often than hourly. Kyle's admin routes are not subject to these.
+MAX_SELF_CRONS = 6
+MIN_CRON_INTERVAL = timedelta(hours=1)
+
+
+def _check_cron_rate(schedule: str) -> None:
+    """422 if two consecutive fires of `schedule` are closer than the floor.
+    Sampled over the next 48 fires: enough to see every gap in a daily or
+    weekly pattern, while a `*/5` or `0,5 * * * *` fails on the first pair."""
+    it = croniter(schedule, datetime(2026, 1, 1, tzinfo=UTC))
+    prev = it.get_next(datetime)
+    for _ in range(48):
+        nxt = it.get_next(datetime)
+        if nxt - prev < MIN_CRON_INTERVAL:
+            raise HTTPException(422, f"cron {schedule!r} fires more often than every "
+                                     f"{int(MIN_CRON_INTERVAL.total_seconds() // 60)} minutes")
+        prev = nxt
 
 
 class SelfProfileIn(BaseModel):
@@ -25,6 +48,10 @@ class SelfProfileIn(BaseModel):
     backup_runtime: Literal["claude", "codex"] | None = None
     backup_model: str | None = Field(default=None, max_length=64)
     runtime: Literal["claude", "codex"] | None = None
+    # The COMPLETE list of this agent's own cron triggers (replaces it), read in
+    # `timezone`; webhooks and topics are never touched through here.
+    crons: list[CronEntry] | None = Field(default=None, max_length=MAX_SELF_CRONS)
+    timezone: str | None = Field(default=None, max_length=64)
     expected_version: int = Field(ge=0)
 
 
@@ -37,13 +64,17 @@ class SelfProfileOut(BaseModel):
     backup_runtime: str | None
     backup_model: str
     image_artifact_id: str | None
+    crons: list[CronEntry]
+    timezone: str
     version: int
     system_source: str | None
 
 
 def profile_view(row, version):
+    entry = row.entrypoints or {}
     return {field: getattr(row, field) for field in
-            ("name", "prompt", "description", "runtime", "model", "backup_runtime", "backup_model", "image_artifact_id", "system_source")} | {"version": version}
+            ("name", "prompt", "description", "runtime", "model", "backup_runtime", "backup_model", "image_artifact_id", "system_source")} | {
+        "crons": entry.get("crons") or [], "timezone": entry.get("timezone") or "", "version": version}
 
 
 async def actor(session, request):
@@ -96,17 +127,32 @@ async def update_self_profile(request: Request, body: SelfProfileIn):
             raise HTTPException(422, "profile fields cannot be null; use an empty model for the platform default")
         if "runtime" in changes and changes["runtime"] != row.runtime and "model" not in changes:
             raise HTTPException(422, "changing runtime requires an explicit model, or an empty model for its default")
-        model = _model(request, {**_payload(row), **changes}, row.name, _registries(request))
+        payload = {**_payload(row), **changes}
+        cron_change = {"crons", "timezone"} & changes.keys()
+        if cron_change:
+            for entry in changes.get("crons") or []:
+                _check_cron_rate(entry["schedule"])
+            payload.pop("crons", None)
+            payload.pop("timezone", None)
+            # Only the two cron fields move; webhooks and topics are carried over.
+            payload["entrypoints"] = {**(row.entrypoints or {}), **{
+                key: value for key, value in changes.items() if key in cron_change}}
+        model = _model(request, payload, row.name, _registries(request))
         _managed_guard(row, model)
-        changes = {key: getattr(model, key) for key in changes if getattr(model, key) != getattr(row, key)}
+        changes = {key: getattr(model, key) for key in changes if key not in cron_change and getattr(model, key) != getattr(row, key)}
+        entry_new = model.model_dump(mode="json")["entrypoints"] if cron_change else None
+        if entry_new is not None and entry_new != (row.entrypoints or {}):
+            changes["entrypoints"] = entry_new
         if not changes:
             return profile_view(row, version)
         for key, value in changes.items():
             setattr(row, key, value)
         # Same grants, new persona/model context. Other active runs and all old
         # sessions lose authority; ONLY this already authenticated run may finish.
-        row.authorization_generation = (row.authorization_generation or 0) + 1
-        run.authorization_generation = row.authorization_generation
+        # A schedule-only change alters neither, so it leaves sessions alone.
+        if changes.keys() != {"entrypoints"}:
+            row.authorization_generation = (row.authorization_generation or 0) + 1
+            run.authorization_generation = row.authorization_generation
         version += 1
         session.add(AgentVersion(agent=row.name, version=version, snapshot=snapshot_of(row),
             changed_by=f"run:{run.id}", changed_via="tool:agent_self"))
