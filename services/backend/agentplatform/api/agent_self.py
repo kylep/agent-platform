@@ -26,6 +26,13 @@ MAX_SELF_CRONS = 6
 MIN_CRON_INTERVAL = timedelta(hours=1)
 
 
+class SelfCron(CronEntry):
+    """A cron entry an agent writes for itself: a bounded prompt, and a model
+    that is empty (the agent's own) or one the platform knows about."""
+    prompt: str = Field(default="", max_length=8000)
+    model: str = Field(default="", max_length=64)
+
+
 def _check_cron_rate(schedule: str) -> None:
     """422 if two consecutive fires of `schedule` are closer than the floor.
     Sampled over the next 48 fires: enough to see every gap in a daily or
@@ -50,7 +57,7 @@ class SelfProfileIn(BaseModel):
     runtime: Literal["claude", "codex"] | None = None
     # The COMPLETE list of this agent's own cron triggers (replaces it), read in
     # `timezone`; webhooks and topics are never touched through here.
-    crons: list[CronEntry] | None = Field(default=None, max_length=MAX_SELF_CRONS)
+    crons: list[SelfCron] | None = Field(default=None, max_length=MAX_SELF_CRONS)
     timezone: str | None = Field(default=None, max_length=64)
     expected_version: int = Field(ge=0)
 
@@ -132,6 +139,8 @@ async def update_self_profile(request: Request, body: SelfProfileIn):
         if cron_change:
             for entry in changes.get("crons") or []:
                 _check_cron_rate(entry["schedule"])
+                if entry.get("model") and entry["model"] not in {m["id"] for m in (*KNOWN_MODELS, *CODEX_MODELS)}:
+                    raise HTTPException(422, f"unknown cron model: {entry['model']!r}")
             payload.pop("crons", None)
             payload.pop("timezone", None)
             # Only the two cron fields move; webhooks and topics are carried over.

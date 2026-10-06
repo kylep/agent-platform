@@ -242,6 +242,7 @@ from .secret_key_in import SecretKeyIn
 from .secret_quick_edit_in import SecretQuickEditIn
 from .secret_status import SecretStatus
 from .secret_verify import SecretVerify
+from .self_cron import SelfCron
 from .self_profile_in import SelfProfileIn
 from .self_profile_in_backup_runtime_type_0 import SelfProfileInBackupRuntimeType0
 from .self_profile_in_runtime_type_0 import SelfProfileInRuntimeType0
@@ -564,6 +565,7 @@ __all__ = (
     "SecretQuickEditIn",
     "SecretStatus",
     "SecretVerify",
+    "SelfCron",
     "SelfProfileIn",
     "SelfProfileInBackupRuntimeType0",
     "SelfProfileInRuntimeType0",

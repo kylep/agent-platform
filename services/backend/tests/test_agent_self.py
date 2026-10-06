@@ -213,3 +213,15 @@ async def test_self_crons_replace_own_list_with_bounds_and_keep_sessions(client,
         assert bad.status_code == 422, crons
     cleared = await client.patch("/api/agent-self", headers=headers, json={"expected_version": version + 1, "crons": []})
     assert cleared.status_code == 200 and cleared.json()["crons"] == []
+
+
+async def test_self_cron_prompt_and_model_are_bounded(client, sf, seed_agent, agent_store):
+    _, headers = await own_run(sf, seed_agent, agent_store)
+    version = (await client.get("/api/agent-self", headers=headers)).json()["version"]
+    for entry in ({"schedule": "0 8 * * *", "prompt": "x" * 8001},
+                  {"schedule": "0 8 * * *", "prompt": "x", "model": "gpt-9-imaginary"}):
+        bad = await client.patch("/api/agent-self", headers=headers, json={"expected_version": version, "crons": [entry]})
+        assert bad.status_code == 422, entry
+    good = await client.patch("/api/agent-self", headers=headers, json={"expected_version": version,
+        "crons": [{"schedule": "0 8 * * *", "prompt": "x", "model": "gpt-5.6-luna"}]})
+    assert good.status_code == 200, good.text

@@ -12,7 +12,7 @@ from ..models.self_profile_in_runtime_type_0 import SelfProfileInRuntimeType0
 from ..types import UNSET, Unset
 
 if TYPE_CHECKING:
-    from ..models.cron_entry import CronEntry
+    from ..models.self_cron import SelfCron
 
 
 T = TypeVar("T", bound="SelfProfileIn")
@@ -25,7 +25,7 @@ class SelfProfileIn:
         expected_version (int):
         backup_model (None | str | Unset):
         backup_runtime (None | SelfProfileInBackupRuntimeType0 | Unset):
-        crons (list[CronEntry] | None | Unset):
+        crons (list[SelfCron] | None | Unset):
         description (None | str | Unset):
         model (None | str | Unset):
         prompt (None | str | Unset):
@@ -36,7 +36,7 @@ class SelfProfileIn:
     expected_version: int
     backup_model: None | str | Unset = UNSET
     backup_runtime: None | SelfProfileInBackupRuntimeType0 | Unset = UNSET
-    crons: list[CronEntry] | None | Unset = UNSET
+    crons: list[SelfCron] | None | Unset = UNSET
     description: None | str | Unset = UNSET
     model: None | str | Unset = UNSET
     prompt: None | str | Unset = UNSET
@@ -132,7 +132,7 @@ class SelfProfileIn:
 
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
-        from ..models.cron_entry import CronEntry
+        from ..models.self_cron import SelfCron
 
         d = dict(src_dict)
         expected_version = d.pop("expected_version")
@@ -165,7 +165,7 @@ class SelfProfileIn:
 
         backup_runtime = _parse_backup_runtime(d.pop("backup_runtime", UNSET))
 
-        def _parse_crons(data: object) -> list[CronEntry] | None | Unset:
+        def _parse_crons(data: object) -> list[SelfCron] | None | Unset:
             if data is None:
                 return data
             if isinstance(data, Unset):
@@ -176,14 +176,14 @@ class SelfProfileIn:
                 crons_type_0 = []
                 _crons_type_0 = data
                 for crons_type_0_item_data in _crons_type_0:
-                    crons_type_0_item = CronEntry.from_dict(crons_type_0_item_data)
+                    crons_type_0_item = SelfCron.from_dict(crons_type_0_item_data)
 
                     crons_type_0.append(crons_type_0_item)
 
                 return crons_type_0
             except (TypeError, ValueError, AttributeError, KeyError):
                 pass
-            return cast(list[CronEntry] | None | Unset, data)
+            return cast(list[SelfCron] | None | Unset, data)
 
         crons = _parse_crons(d.pop("crons", UNSET))
 
