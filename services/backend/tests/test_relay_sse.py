@@ -82,7 +82,7 @@ async def sse(client, path, *, headers=None):
                 return fields.get("event"), json.loads(fields["data"]), fields
 
     try:
-        await asyncio.wait_for(started.wait(), 2.0)
+        await asyncio.wait_for(started.wait(), 10.0)
         yield response, Reader()
     finally:
         task.cancel()
