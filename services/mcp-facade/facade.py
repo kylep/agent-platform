@@ -24,14 +24,15 @@ The surface is CURATED into three tiers (curation 2026-08-24; see
   reads, destructive/bulk ops, the relay channel lifecycle (creating, renaming
   and archiving rooms), a system row into a room one is not in, and
   archiving a wiki page, and the Task schedule grants (which agent may
-  schedule which). Offered ONLY when `AP_MCP_ADMIN_TOOLS` is truthy
-  (`admin_tools_enabled()`). 49 of them. The
+  schedule which), and a room's watcher list and watch-turn log. Offered
+  ONLY when `AP_MCP_ADMIN_TOOLS` is truthy (`admin_tools_enabled()`). 52 of
+  them. The
   role ladder authorizes every call regardless — the flag controls the MENU,
   not the kitchen.
 - **EXCLUDE** — UI form-feeders, private-key import inspection, reviewer digests the client can compute,
   git-edit conveniences redundant with having the repo, and system-agent
   endpoints. Never tools. 21 curated-out, plus 91 session/internal/streaming/
-  byte-serving/connector/run-only operations below — 308 graded operations in all.
+  byte-serving/connector/run-only operations below — 311 graded operations in all.
 
 It is deliberately NOT the mcp-broker. The broker authenticates in-cluster run
 identities and scopes tools to an agent's grants (design/13, design/15). This
@@ -277,6 +278,12 @@ GATED_ADMIN = (
     # as `^/api/live-operation-grants` — so list/add/remove all gate. The Tasks
     # themselves (and the admin-only usage report) stay KEEP.
     ("*",         r"^/api/tasks/grants"),
+    # Room watchers (design/41, all `require_admin`): the watcher list decides
+    # which agents an unaddressed post in a room can wake — the same class of
+    # decision as binding the room — and the watch-turn log is an admin audit
+    # read of why each watcher answered or declined. An agent key gets 403.
+    (("GET", "PUT"), r"^/api/relay/channels/\{channel_id\}/watchers$"),
+    (("GET",),    r"^/api/relay/channels/\{channel_id\}/watch-turns$"),
 )
 
 # operationId -> MCP tool name. Keys are route function names (api/app.py sets
