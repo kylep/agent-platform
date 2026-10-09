@@ -410,6 +410,18 @@ export type RelayChannel = {
   project_id?: string | null;
 };
 
+export type RoomWatchers = { channel_id: string; dispatch_mode: string; agents: string[]; warnings: string[] };
+export type WatchTurn = { position: number; agent: string; state: string; outcome: string | null; reason: string | null; run_id: string | null };
+export type WatchRound = { round_id: string; state: string; created_at: string; turns: WatchTurn[] };
+
+export const getWatchers = (channelId: string) =>
+  api<RoomWatchers>(`/api/relay/channels/${encodeURIComponent(channelId)}/watchers`);
+export const putWatchers = (channelId: string, agents: string[]) =>
+  api<RoomWatchers>(`/api/relay/channels/${encodeURIComponent(channelId)}/watchers`,
+    { method: "PUT", body: JSON.stringify({ agents }) });
+export const getWatchTurns = (channelId: string, limit = 10) =>
+  api<WatchRound[]>(`/api/relay/channels/${encodeURIComponent(channelId)}/watch-turns?limit=${limit}`);
+
 export type Team = { id: string; slug: string; name: string; description: string; agents: string[]; humans: string[]; relay_channel_id: string; archived: boolean };
 export type Project = { id: string; slug: string; name: string; description: string; team_slug: string | null; agents: string[]; archived: boolean };
 

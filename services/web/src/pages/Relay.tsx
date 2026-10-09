@@ -1,6 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
-import { api, type Project, type Team, type RelayChannel, type RelayChannelDetail, type RelayMessage } from "../api";
+import { api, apiErrorMessage, getMe, getWatchers, getWatchTurns, putWatchers,
+  type Project, type Team, type RelayChannel, type RelayChannelDetail, type RelayMessage,
+  type WatchRound } from "../api";
+import { Button } from "@ap/ui/button";
+import { Select } from "@ap/ui/field";
 import ChannelView from "../components/relay/ChannelView";
 import Rail from "../components/relay/Rail";
 import Search from "../components/relay/Search";
@@ -224,14 +228,96 @@ function Room({ channelId, thread, highlight, onHighlighted, onThread, onPopout 
   onPopout?: () => void;
 }) {
   const room = useChannel(channelId);
+  const [admin, setAdmin] = useState(false);
+  useEffect(() => { getMe().then((m) => setAdmin(m.role === "admin")).catch(() => setAdmin(false)); }, []);
+  const watchable = admin && room.channel?.home === "external" && room.channel?.kind === "channel";
   return (
     <>
       <ChannelView room={room} onThread={onThread} highlight={highlight}
-                   onHighlighted={onHighlighted} onPopout={onPopout} />
+                   onHighlighted={onHighlighted} onPopout={onPopout}
+                   settings={watchable ? <WatchersRow channelId={channelId} agents={room.agents} /> : undefined} />
       {thread && (
         <ThreadPane room={room} threadId={thread} highlight={highlight}
                     onHighlighted={onHighlighted} onClose={() => onThread(null)} />
       )}
     </>
+  );
+}
+
+
+/** Watchers (docs/design/41): the ordered agents that take a turn on an
+ * unaddressed human post in a connected room. Admin-only; the API enforces it. */
+function WatchersRow({ channelId, agents }: { channelId: string; agents: string[] }) {
+  const [list, setList] = useState<string[]>([]);
+  const [saved, setSaved] = useState<string[]>([]);
+  const [warnings, setWarnings] = useState<string[]>([]);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [rounds, setRounds] = useState<WatchRound[]>([]);
+
+  const apply = (w: { agents: string[]; warnings: string[] }) => {
+    setList(w.agents); setSaved(w.agents); setWarnings(w.warnings);
+  };
+  useEffect(() => {
+    getWatchers(channelId).then(apply)
+      .catch((err) => setError(apiErrorMessage(err, "Could not load the watchers.")));
+    getWatchTurns(channelId, 10).then(setRounds).catch(() => {});
+  }, [channelId]);
+
+  const move = (i: number, d: number) => setList((l) => {
+    const next = [...l];
+    [next[i], next[i + d]] = [next[i + d], next[i]];
+    return next;
+  });
+  const save = async () => {
+    setBusy(true); setError(null);
+    try { apply(await putWatchers(channelId, list)); }
+    catch (err) { setError(apiErrorMessage(err, "Could not save the watchers.")); }
+    finally { setBusy(false); }
+  };
+  const addable = agents.filter((a) => !list.includes(a));
+  const dirty = list.join("\n") !== saved.join("\n");
+  const turns = rounds.flatMap((r) => r.turns.map((t) => ({ ...t, round: r.round_id })));
+
+  return (
+    <details className="relay-watchers">
+      <summary><strong>Watchers</strong>{" "}
+        <span className="muted">{saved.length ? saved.join(" → ") : "none"}</span></summary>
+      <div className="relay-watchers-body">
+        <div className="relay-watchers-chips">
+          {list.map((a, i) => (
+            <span key={a} className="relay-watcher-chip">
+              <span className="muted">{i + 1}.</span> {a}
+              <Button variant="secondary" size="sm" disabled={i === 0} onClick={() => move(i, -1)}
+                      aria-label={`Move ${a} up`}>↑</Button>
+              <Button variant="secondary" size="sm" disabled={i === list.length - 1} onClick={() => move(i, 1)}
+                      aria-label={`Move ${a} down`}>↓</Button>
+              <Button variant="secondary" size="sm" onClick={() => setList((l) => l.filter((x) => x !== a))}
+                      aria-label={`Remove ${a}`}>×</Button>
+            </span>
+          ))}
+          {list.length === 0 && <span className="muted">No watchers: only @mentions wake an agent.</span>}
+        </div>
+        <div className="relay-watchers-add">
+          <Select value="" aria-label="Add a watcher"
+                  onChange={(e) => e.target.value && setList((l) => [...l, e.target.value])}>
+            <option value="">Add an agent…</option>
+            {addable.map((a) => <option key={a} value={a}>{a}</option>)}
+          </Select>
+          <Button size="sm" onClick={save} disabled={busy || !dirty}>{busy ? "Saving…" : "Save"}</Button>
+        </div>
+        {error && <div className="error">{error}</div>}
+        {warnings.map((w) => <div key={w} className="muted">{w}</div>)}
+        <div className="relay-watchers-turns">
+          <strong>Recent watch turns</strong>
+          {turns.length === 0 && <div className="muted">None yet.</div>}
+          {turns.map((t) => (
+            <div key={`${t.round}:${t.position}`} className="muted">
+              {t.agent} · {t.outcome ?? t.state}{t.reason ? ` · ${t.reason}` : ""}
+            </div>
+          ))}
+        </div>
+      </div>
+    </details>
   );
 }

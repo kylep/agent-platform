@@ -207,6 +207,19 @@ class DiscordConnector:
         if self.client.user and after.id == self.client.user.id:
             await self._permissions_changed()
 
+    @staticmethod
+    def _mentioned_bot_ids(message) -> list[str]:
+        """Every bot this post pings, in the order it names them. Written
+        mentions come first, in text order (the multi-mention queue relies on
+        it); bots Discord pinged without a written mention, a reply-ping being
+        the usual case, follow. A post that pings any bot is addressed and is
+        never a room watcher's turn (docs/design/41)."""
+        bots = {str(user.id) for user in message.mentions if getattr(user, "bot", False)}
+        ordered = [bot_id for bot_id in dict.fromkeys(
+            re.findall(r"<@!?(\d+)>", getattr(message, "content", "") or "")) if bot_id in bots]
+        ordered += sorted(bots - set(ordered))
+        return ordered[:16]
+
     async def on_message(self, message):
         if self.client.user is None or message.author.id == self.client.user.id:
             return
@@ -229,10 +242,7 @@ class DiscordConnector:
                    "addressed": addressed,
                    "author_bot": bool(getattr(message.author, "bot", False) or
                                       getattr(message, "webhook_id", None)),
-                   "mentioned_bot_ids": [bot_id for bot_id in dict.fromkeys(
-                       re.findall(r"<@!?(\d+)>", getattr(message, "content", "") or ""))
-                       if any(str(user.id) == bot_id and getattr(user, "bot", False)
-                              for user in message.mentions)][:16],
+                   "mentioned_bot_ids": self._mentioned_bot_ids(message),
                    "co_mentioned": [str(getattr(user, "display_name", user.name))[:80]
                                     for user in message.mentions
                                     if getattr(user, "bot", False) and user.id != self.client.user.id][:8]}

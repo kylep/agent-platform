@@ -20,7 +20,7 @@ from sqlalchemy import Text, case, cast, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import aliased
 
-from agentplatform.api.auth import (ANNOTATE_ROLES, INVOKE_ROLES, READ_ROLES,
+from agentplatform.api.auth import (ANNOTATE_ROLES, INVOKE_ROLES, READ_ROLES, require_admin,
                                     authenticate, connector_identity, require_role,
                                     role_allows, still_signed_in, stream_cookie)
 from agentplatform.conversation import continue_conversation
@@ -1224,3 +1224,46 @@ async def relay_stats(request: Request):
                          "global_per_hour": settings.relay_global_invocations_per_hour,
                          "cooldown_seconds": settings.relay_agent_cooldown_seconds,
                          "context_messages": settings.relay_context_messages}}
+
+
+# --- room watchers (docs/design/41) -----------------------------------------
+# Admin-only: who watches a room decides which agents a stranger's post can
+# wake, so it is configuration, never something an agent or a key can set.
+
+@router.get("/api/relay/channels/{channel_id}/watchers", response_model=S.RoomWatchersView,
+            dependencies=[Depends(require_admin)])
+async def get_room_watchers(request: Request, channel_id: str):
+    from agentplatform.room_watchers import list_watchers
+    async with request.app.state.session_factory() as s:
+        conv = await s.get(Conversation, channel_id)
+        if conv is None:
+            raise HTTPException(404, "unknown channel")
+        return {"channel_id": conv.id, "dispatch_mode": room_dispatch_mode(conv),
+                "agents": await list_watchers(s, conv.id), "warnings": []}
+
+
+@router.put("/api/relay/channels/{channel_id}/watchers", response_model=S.RoomWatchersView)
+async def put_room_watchers(request: Request, channel_id: str, body: S.RoomWatchersIn,
+                            principal: str = Depends(require_admin)):
+    from agentplatform.room_watchers import WatcherConfigError, list_watchers, set_watchers
+    async with request.app.state.session_factory() as s:
+        conv = await s.get(Conversation, channel_id)
+        if conv is None:
+            raise HTTPException(404, "unknown channel")
+        try:
+            warnings = await set_watchers(s, conv, body.agents, by=principal or "admin")
+        except WatcherConfigError as exc:
+            raise HTTPException(422, str(exc))
+        await s.commit()
+        return {"channel_id": conv.id, "dispatch_mode": room_dispatch_mode(conv),
+                "agents": await list_watchers(s, conv.id), "warnings": warnings}
+
+
+@router.get("/api/relay/channels/{channel_id}/watch-turns", response_model=list[S.WatchRoundView],
+            dependencies=[Depends(require_admin)])
+async def get_watch_turns(request: Request, channel_id: str, limit: int = Query(20, ge=1, le=100)):
+    from agentplatform.room_watchers import recent_turns
+    async with request.app.state.session_factory() as s:
+        if await s.get(Conversation, channel_id) is None:
+            raise HTTPException(404, "unknown channel")
+        return await recent_turns(s, channel_id, limit)

@@ -219,6 +219,8 @@ from .retention import Retention
 from .retention_per_agent_days import RetentionPerAgentDays
 from .retire_in import RetireIn
 from .rollback_in import RollbackIn
+from .room_watchers_in import RoomWatchersIn
+from .room_watchers_view import RoomWatchersView
 from .run_accepted import RunAccepted
 from .run_agent_def import RunAgentDef
 from .run_detail import RunDetail
@@ -303,6 +305,8 @@ from .user_out_kind import UserOutKind
 from .validate_in import ValidateIn
 from .validation_error import ValidationError
 from .validation_error_context import ValidationErrorContext
+from .watch_round_view import WatchRoundView
+from .watch_turn_view import WatchTurnView
 from .webhook_entry_in import WebhookEntryIn
 from .webhook_secret_in import WebhookSecretIn
 from .webhook_secret_state import WebhookSecretState
@@ -542,6 +546,8 @@ __all__ = (
     "RetentionPerAgentDays",
     "RetireIn",
     "RollbackIn",
+    "RoomWatchersIn",
+    "RoomWatchersView",
     "RunAccepted",
     "RunAgentDef",
     "RunDetail",
@@ -626,6 +632,8 @@ __all__ = (
     "ValidateIn",
     "ValidationError",
     "ValidationErrorContext",
+    "WatchRoundView",
+    "WatchTurnView",
     "WebhookEntryIn",
     "WebhookSecretIn",
     "WebhookSecretState",

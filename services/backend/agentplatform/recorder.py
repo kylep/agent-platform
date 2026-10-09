@@ -205,6 +205,11 @@ class Recorder:
         if conv.home == "external":
             from agentplatform.authority import ensure_run_authority
             from agentplatform.external_chat import queue_final, ExternalChatError
+            from agentplatform.room_watchers import record_decline
+            if not failed and await record_decline(s, run, text):
+                # A watcher declined its turn (docs/design/41): nothing is
+                # delivered, and the turn records why.
+                return None
             if not failed and await ensure_run_authority(s, run):
                 try:
                     await queue_final(s, run, text)

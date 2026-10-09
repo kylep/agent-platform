@@ -155,3 +155,14 @@ def test_private_thread_requires_own_rest_membership(module):
     assert not c._permissions(thread)["can_read"]
     thread.get_member = lambda user_id: object() if user_id == 99 else None
     assert c._permissions(thread)["can_read"]
+
+
+def test_a_reply_ping_reports_the_pinged_bot_without_a_written_mention(module):
+    DiscordConnector = module.DiscordConnector
+    pinged = types.SimpleNamespace(id=99, bot=True)
+    human = types.SimpleNamespace(id=7, bot=False)
+    message = types.SimpleNamespace(content="sounds good", mentions=[pinged, human])
+    assert DiscordConnector._mentioned_bot_ids(message) == ["99"]
+    written = types.SimpleNamespace(content="<@100> and you", mentions=[pinged, types.SimpleNamespace(id=100, bot=True)])
+    assert DiscordConnector._mentioned_bot_ids(written) == ["100", "99"]
+    assert DiscordConnector._mentioned_bot_ids(types.SimpleNamespace(content="hi", mentions=[])) == []

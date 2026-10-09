@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import { Chip } from "@ap/ui/chip";
 import { Button } from "@ap/ui/button";
 import { agentName, channelLabel, mentionableIn, otherParticipant } from "../../lib/relay";
@@ -23,8 +23,10 @@ import { splitThreads, type Room } from "./useChannel";
 // pane beside it is looking at the same live messages rather than at a second
 // copy of them.
 
-export default function ChannelView({ room, onThread, highlight, onHighlighted, onPopout }: {
+export default function ChannelView({ room, onThread, highlight, onHighlighted, onPopout, settings }: {
   room: Room;
+  // Room settings the host wants under the header (admin-only rows).
+  settings?: ReactNode;
   // Absent = this host has nowhere to put a thread (AgentDetail's dm tab), so
   // the pane must not offer to open one.
   onThread?: (id: string) => void;
@@ -107,6 +109,8 @@ export default function ChannelView({ room, onThread, highlight, onHighlighted, 
           </Button>
         )}
       </header>
+
+      {settings}
 
       {error && <div className="error">{error}</div>}
 

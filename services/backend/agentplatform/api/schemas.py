@@ -866,7 +866,7 @@ class RelayChannel(BaseModel):
     kind: str            # dm | channel | group
     home: str            # relay | external
     reply_mode: str      # linear | threaded
-    dispatch_mode: str   # facade | mentions | default
+    dispatch_mode: str   # facade | mentions | default | watchers
     default_agent: str | None
     name: str | None     # slug, channels only
     # The room's display name: `#general` for a channel, the group's name, the
@@ -1028,6 +1028,42 @@ class RelayReactionIn(BaseModel):
     # sequence a keyboard offers and still nothing anybody would call a word.
     emoji: str = Field(min_length=1, max_length=16,
                        pattern=r"^[^\s<>&\x00-\x1f\x7f]{1,16}$")
+
+
+class RoomWatchersIn(BaseModel):
+    """The room's complete, ordered watcher list (docs/design/41). Empty
+    restores mention-only dispatch."""
+    model_config = ConfigDict(extra="forbid")
+    agents: list[str] = Field(default_factory=list, max_length=5)
+
+
+class RoomWatchersView(BaseModel):
+    channel_id: str
+    dispatch_mode: str
+    agents: list[str]
+    warnings: list[str] = []
+
+
+class WatchTurnView(BaseModel):
+    position: int
+    agent: str
+    state: str
+    outcome: str
+    reason: str
+    run_id: str | None
+    delivery_id: str | None
+    started_at: str | None
+    finished_at: str | None
+
+
+class WatchRoundView(BaseModel):
+    round_id: str
+    state: str
+    anchor_message_id: str
+    last_message_id: str
+    created_at: str
+    closed_at: str | None
+    turns: list[WatchTurnView]
 
 
 class RelayBindingIn(BaseModel):

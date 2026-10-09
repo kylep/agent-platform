@@ -544,6 +544,53 @@ class RelayMentionQueue(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
+class RoomWatcher(Base):
+    """An agent that watches a room (docs/design/41): unaddressed human posts
+    open a watch round, and each watcher takes a turn in `position` order."""
+    __tablename__ = "room_watchers"
+    __table_args__ = (UniqueConstraint("channel_id", "position"),)
+    channel_id: Mapped[str] = mapped_column(String(32), primary_key=True)
+    agent: Mapped[str] = mapped_column(String(128), primary_key=True)
+    position: Mapped[int] = mapped_column(Integer)
+    created_by: Mapped[str] = mapped_column(String(128), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class WatchRound(Base):
+    """One burst of unaddressed human posts in a watched room. Posts that arrive
+    while a round is open join it, so a busy room costs one turn per watcher
+    per round rather than per post. `anchor_message_id` is unique: three
+    connectors reporting the same post race to open exactly one round."""
+    __tablename__ = "watch_rounds"
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=lambda: uuid.uuid4().hex)
+    channel_id: Mapped[str] = mapped_column(String(32), index=True)
+    anchor_message_id: Mapped[str] = mapped_column(String(32), unique=True)
+    last_message_id: Mapped[str] = mapped_column(String(32))
+    state: Mapped[str] = mapped_column(String(16), default="open", index=True)   # open | done
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    closed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class WatchTurn(Base):
+    """One watcher's turn in a round, and the record of why it did or did not
+    answer: `outcome` is answered | declined | failed | delivery_failed |
+    skipped_no_observation | skipped_access | skipped_removed | skipped_budget."""
+    __tablename__ = "watch_turns"
+    round_id: Mapped[str] = mapped_column(String(32), primary_key=True)
+    position: Mapped[int] = mapped_column(Integer, primary_key=True)
+    agent: Mapped[str] = mapped_column(String(128))
+    identity_id: Mapped[str] = mapped_column(String(64))
+    observation_id: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    state: Mapped[str] = mapped_column(String(16), default="pending")   # pending | running | done
+    outcome: Mapped[str] = mapped_column(String(32), default="")
+    reason: Mapped[str] = mapped_column(String(256), default="")
+    run_id: Mapped[str | None] = mapped_column(String(32), nullable=True, index=True)
+    delivery_id: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
 class RelayInvocation(Base):
     """Every routing decision, including every suppression — the record that
     answers "why did nothing happen when I mentioned it?". Mirrored from the

@@ -22,6 +22,7 @@ failure window is: an invocation row that says `invoked` with a run_id, and no
 Run behind it (the handler raised, and `consume_forever` dead-lettered the
 message). That is deliberately the visible direction — the row names the run
 that is missing — rather than a run nothing explains."""
+import asyncio
 import logging
 import uuid
 from datetime import timedelta
@@ -94,9 +95,11 @@ class RelayRouter:
         self.sf = session_factory
         self.producer = producer
         self.agents = agent_store
+        self._watch_lock = asyncio.Lock()
 
     async def run_forever(self) -> None:
         await self._recover_mention_queues()
+        watch_loop = asyncio.create_task(self._watch_forever())
         consumer = AIOKafkaConsumer(
             *TOPICS, bootstrap_servers=self.settings.kafka_bootstrap,
             group_id=CONSUMER_GROUP, enable_auto_commit=False,
@@ -109,7 +112,36 @@ class RelayRouter:
         try:
             await consume_forever(consumer, self.producer, self._on_message)
         finally:
+            watch_loop.cancel()
             await consumer.stop()
+
+    async def _watch_forever(self) -> None:
+        """The watch-round reconciler (docs/design/41): the source of truth that
+        advances rounds whose events were lost, skips watchers whose connector
+        never reported a post, and times out unresolved deliveries."""
+        while True:
+            await asyncio.sleep(self.settings.relay_watch_reconcile_seconds)
+            try:
+                await self._advance_watch(None)
+            except Exception:
+                log.exception("watch reconciler tick failed")
+
+    async def _advance_watch(self, round_id: str | None) -> None:
+        """One advance at a time per process: the reconciler and the event fast
+        paths would otherwise race to start the same turn."""
+        from agentplatform import room_watchers
+        async with self._watch_lock:
+            if round_id is None:
+                await room_watchers.advance_open_rounds(self)
+            else:
+                await room_watchers.advance_round(self, round_id)
+
+    async def _advance_watch_for_run(self, run_id: str) -> None:
+        from agentplatform import room_watchers
+        async with self.sf() as s:
+            round_id = await room_watchers.round_for_run(s, run_id)
+        if round_id:
+            await self._advance_watch(round_id)
 
     async def _recover_mention_queues(self) -> None:
         """Resume committed queues after a dispatcher restart (Kafka starts at
@@ -130,6 +162,7 @@ class RelayRouter:
             await self.handle(data)
             if data.get("run_id"):
                 await self._advance_mention_queue(data["run_id"])
+                await self._advance_watch_for_run(data["run_id"])
             return
         # `run.events` carries every state of every run on the platform, and
         # only the last one frees an agent. The state is taken from the EVENT
@@ -141,6 +174,7 @@ class RelayRouter:
             await self._mark_queue_terminal(data["run_id"])
             await self.on_run_terminal(data["run_id"])
             await self._advance_mention_queue(data["run_id"])
+            await self._advance_watch_for_run(data["run_id"])
 
     async def _mark_queue_terminal(self, run_id: str) -> None:
         async with self.sf() as s:
@@ -183,7 +217,19 @@ class RelayRouter:
             if conv.home == "external":
                 from agentplatform.external_chat import ExternalObservation, owned_identity, ExternalChatError
                 observation = await s.get(ExternalObservation, data.get("external_observation_id") or "")
-                if (observation is None or observation.message_id != msg.id or not observation.addressed):
+                if observation is None or observation.message_id != msg.id:
+                    return
+                if not observation.addressed:
+                    # Not addressed to this bot. In a watched room an
+                    # unaddressed human post opens (or joins) a watch round
+                    # (docs/design/41); anywhere else it is ambient and ignored.
+                    from agentplatform import room_watchers
+                    round_id = None
+                    if room_watchers.is_candidate(conv, observation):
+                        round_id = await room_watchers.observe(s, conv, msg)
+                        await s.commit()
+                    if round_id:
+                        await self._advance_watch(round_id)
                     return
                 try:
                     account = await owned_identity(s, observation.identity_id)
@@ -707,7 +753,10 @@ class RelayRouter:
         the room a fresh budget."""
         cutoff = utcnow() - timedelta(hours=1)
         counted = select(func.count()).select_from(RelayInvocation).where(
-            RelayInvocation.decision == "invoked", RelayInvocation.created_at >= cutoff)
+            RelayInvocation.decision == "invoked", RelayInvocation.created_at >= cutoff,
+            # Watch turns have their own per-room cap (docs/design/41), so room
+            # chatter can never spend the budget a human's @mention needs.
+            RelayInvocation.reason != "watch")
         return ((await s.scalar(counted.where(
                     RelayInvocation.channel_id == channel_id))) or 0,
                 (await s.scalar(counted)) or 0)
@@ -779,7 +828,7 @@ class RelayRouter:
     # --- the run -------------------------------------------------------------
 
     async def _spec(self, s, conv, mention, agent: str, hop: int, run_id: str, *,
-                    wake, enabled, explicit, observation=None) -> dict:
+                    wake, enabled, explicit, observation=None, watch=None) -> dict:
         # A summons inside a thread is answered from the thread (docs/design/20):
         # "in a thread" is `thread_root` set and nothing cleverer, because the
         # one message that opens a ticket's thread is its card, and a card
@@ -819,7 +868,8 @@ class RelayRouter:
             your_tickets=(() if ticket is not None
                           else await self._your_tickets(s, agent)),
             wiki_pages=await self._wiki_pages(s, mention, window, thread_root),
-            external_co_mentioned=(observation.co_mentioned or ()) if observation else ())
+            external_co_mentioned=(observation.co_mentioned or ()) if observation else (),
+            watch=watch)
         # prompt and user_message are the same text on purpose: for a relay run
         # the built context IS the turn, and the run page shows it as what the
         # agent was asked.

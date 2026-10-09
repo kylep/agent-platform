@@ -149,6 +149,15 @@ class Settings(BaseSettings):
     # in that channel gets a coalesced wake instead of a second run: three
     # mentions during one reply become one follow-up, never three.
     relay_agent_cooldown_seconds: int = 20
+    # Room watchers (docs/design/41). Watch turns are capped per room per hour,
+    # separately from the mention caps above. A watcher whose connector never
+    # reports the post is skipped after `observation_seconds`; a turn whose
+    # delivery is still unresolved after `delivery_seconds` is closed as
+    # delivery_failed so the next watcher is not held hostage.
+    relay_watch_turns_per_room_hour: int = 12
+    relay_watch_observation_seconds: int = 60
+    relay_watch_delivery_seconds: int = 120
+    relay_watch_reconcile_seconds: int = 15
     # How many recent channel messages a mention run is shown as context.
     relay_context_messages: int = 30
     # Rendered history budget, separate from the complete current summons.

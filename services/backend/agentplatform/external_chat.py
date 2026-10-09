@@ -306,6 +306,11 @@ async def scan_batch(session, agent: str, identity_id: str, limit: int = SCAN_LI
     first_at = utcnow() - SCAN_FIRST_LOOKBACK
     batch = []
     for ep, _ in accesses:
+        # A watched room's unaddressed posts are already handled by its
+        # watchers (docs/design/41); sweeping it too would answer twice.
+        room = await session.get(Conversation, ep.channel_id) if ep.channel_id else None
+        if room is not None and room.dispatch_mode == "watchers":
+            continue
         cursor = await session.get(ExternalScanCursor,
             (identity_id, ep.id, account.ownership_generation))
         boundary = cursor.last_at if cursor else first_at
@@ -385,12 +390,20 @@ async def queue_send(session, *, agent, run_id, identity_id, external_ref, text,
     ep, _ = await endpoint_access(session, account, external_ref, send=True)
     # Lock the endpoint while checking the addressed-turn fence.
     await session.execute(select(ExternalEndpoint).where(ExternalEndpoint.id == ep.id).with_for_update())
+    # A watch turn (docs/design/41) is started by unaddressed human text, so it
+    # may answer only the post it was routed, in that room, as itself.
+    from agentplatform.room_watchers import running_turn_for_run
+    watch_turn = await running_turn_for_run(session, run.id)
+    if watch_turn is not None and (not answer_to or watch_turn.identity_id != identity_id):
+        raise ExternalChatError("a watch turn may only answer the post it was routed")
     if answer_to:
         obs = (await session.execute(select(ExternalObservation).where(
             ExternalObservation.identity_id == identity_id, ExternalObservation.endpoint_id == ep.id,
-            ExternalObservation.message_id == answer_to, ExternalObservation.addressed.is_(True),
+            ExternalObservation.message_id == answer_to,
             ExternalObservation.ownership_generation == account.ownership_generation))).scalars().first()
-        if not obs or run.trigger_message_id != answer_to:
+        routed = obs is not None and (obs.addressed or (
+            watch_turn is not None and watch_turn.observation_id == obs.id))
+        if not routed or run.trigger_message_id != answer_to:
             raise ExternalChatError("answer must reference this run's addressed turn")
         existing = (await session.execute(select(ExternalDelivery).where(
             ExternalDelivery.identity_id == identity_id, ExternalDelivery.endpoint_id == ep.id,
@@ -417,8 +430,13 @@ async def queue_final(session, run, text):
     if not observation_id or not run.trigger_message_id:
         return None
     obs = await session.get(ExternalObservation, observation_id)
-    if not obs or not obs.addressed or obs.message_id != run.trigger_message_id:
+    if not obs or obs.message_id != run.trigger_message_id:
         return None
+    if not obs.addressed:
+        from agentplatform.room_watchers import running_turn_for_run
+        turn = await running_turn_for_run(session, run.id)
+        if turn is None or turn.observation_id != obs.id:
+            return None
     account = await session.get(ChatIdentity, obs.identity_id)
     if account and account.owner_agent == run.agent and account.ownership_generation == obs.ownership_generation:
         ep = await session.get(ExternalEndpoint, obs.endpoint_id)
