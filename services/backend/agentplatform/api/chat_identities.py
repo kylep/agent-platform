@@ -86,7 +86,7 @@ async def list_chat_identities(request: Request, include_deleted: bool = False,
                        "secret_refs": row.secret_refs,
                        "configured": await _configured(request, row),
                        "bound_routes": counts.get(row.id, 0),
-                       "owner_agent": row.owner_agent,
+                       "owner_agent": row.owner_agent, "provider_user_id": row.provider_user_id,
                        "ownership_generation": row.ownership_generation or 0,
                        "access_expires_at": row.access_expires_at,
                        "connected": row.status == "active" and not expired(row.access_expires_at)})

@@ -1,10 +1,10 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { type ChangeEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { api, apiErrorMessage, getMe, getWatchers, getWatchTurns, putWatchers,
   type Project, type Team, type RelayChannel, type RelayChannelDetail, type RelayMessage,
-  type WatchRound } from "../api";
+  type RoomWatchers, type WatchRound } from "../api";
 import { Button } from "@ap/ui/button";
-import { Select } from "@ap/ui/field";
+import { Input, Select } from "@ap/ui/field";
 import ChannelView from "../components/relay/ChannelView";
 import Rail from "../components/relay/Rail";
 import Search from "../components/relay/Search";
@@ -254,9 +254,14 @@ function WatchersRow({ channelId, agents }: { channelId: string; agents: string[
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [rounds, setRounds] = useState<WatchRound[]>([]);
+  // Conversation mode (docs/design/41 §11): watchers reply to each other.
+  const [convo, setConvo] = useState({ conversation: false, turn_cap: 500, turns_per_hour: 12 });
+  const [savedConvo, setSavedConvo] = useState(convo);
 
-  const apply = (w: { agents: string[]; warnings: string[] }) => {
+  const apply = (w: RoomWatchers) => {
     setList(w.agents); setSaved(w.agents); setWarnings(w.warnings);
+    const c = { conversation: w.conversation, turn_cap: w.turn_cap, turns_per_hour: w.turns_per_hour };
+    setConvo(c); setSavedConvo(c);
   };
   useEffect(() => {
     getWatchers(channelId).then(apply)
@@ -271,12 +276,14 @@ function WatchersRow({ channelId, agents }: { channelId: string; agents: string[
   });
   const save = async () => {
     setBusy(true); setError(null);
-    try { apply(await putWatchers(channelId, list)); }
+    try { apply(await putWatchers(channelId, { agents: list, ...convo })); }
     catch (err) { setError(apiErrorMessage(err, "Could not save the watchers.")); }
     finally { setBusy(false); }
   };
   const addable = agents.filter((a) => !list.includes(a));
-  const dirty = list.join("\n") !== saved.join("\n");
+  const dirty = list.join("\n") !== saved.join("\n") || JSON.stringify(convo) !== JSON.stringify(savedConvo);
+  const num = (key: "turn_cap" | "turns_per_hour") => (e: ChangeEvent<HTMLInputElement>) =>
+    setConvo((c) => ({ ...c, [key]: Math.max(1, Number(e.target.value) || 1) }));
   const turns = rounds.flatMap((r) => r.turns.map((t) => ({ ...t, round: r.round_id })));
 
   return (
@@ -306,6 +313,21 @@ function WatchersRow({ channelId, agents }: { channelId: string; agents: string[
           </Select>
           <Button size="sm" onClick={save} disabled={busy || !dirty}>{busy ? "Saving…" : "Save"}</Button>
         </div>
+        <div className="relay-watchers-convo">
+          <label>
+            <input type="checkbox" checked={convo.conversation}
+                   onChange={(e) => setConvo((c) => ({ ...c, conversation: e.target.checked }))} />{" "}
+            Conversation: watchers reply to each other
+          </label>
+          <label>Turn cap{" "}
+            <Input type="number" min={1} max={5000} value={convo.turn_cap} onChange={num("turn_cap")}
+                   aria-label="Conversation turn cap" />
+          </label>
+          <label>Turns per hour{" "}
+            <Input type="number" min={1} max={1000} value={convo.turns_per_hour} onChange={num("turns_per_hour")}
+                   aria-label="Watch turns per hour" />
+          </label>
+        </div>
         {error && <div className="error">{error}</div>}
         {warnings.map((w) => <div key={w} className="muted">{w}</div>)}
         <div className="relay-watchers-turns">
@@ -313,7 +335,7 @@ function WatchersRow({ channelId, agents }: { channelId: string; agents: string[
           {turns.length === 0 && <div className="muted">None yet.</div>}
           {turns.map((t) => (
             <div key={`${t.round}:${t.position}`} className="muted">
-              {t.agent} · {t.outcome ?? t.state}{t.reason ? ` · ${t.reason}` : ""}
+              {t.pass_no ? `pass ${t.pass_no + 1} · ` : ""}{t.agent} · {t.outcome ?? t.state}{t.reason ? ` · ${t.reason}` : ""}
             </div>
           ))}
         </div>

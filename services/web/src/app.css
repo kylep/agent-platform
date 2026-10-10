@@ -363,6 +363,8 @@
 .relay-watchers summary { cursor: pointer; }
 .relay-watchers-body { display: flex; flex-direction: column; gap: 8px; padding-top: 8px; }
 .relay-watchers-chips, .relay-watchers-add { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.relay-watchers-convo { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
+.relay-watchers-convo input[type=number] { width: 80px; }
 .relay-watcher-chip {
   display: inline-flex; align-items: center; gap: 4px;
   border: 1px solid var(--ds-border); border-radius: 999px; padding: 2px 4px 2px 10px;

@@ -834,6 +834,8 @@ class RelayBindingView(BaseModel):
 
 class ChatIdentityView(BaseModel):
     owner_agent: str | None = None
+    # The account's own user id on the provider, as its connector reports it.
+    provider_user_id: str | None = None
     ownership_generation: int = 0
     connected: bool = False
     access_expires_at: datetime | None = None
@@ -1035,17 +1037,25 @@ class RoomWatchersIn(BaseModel):
     restores mention-only dispatch."""
     model_config = ConfigDict(extra="forbid")
     agents: list[str] = Field(default_factory=list, max_length=5)
+    # Conversation settings (§11). Omitted = unchanged.
+    conversation: bool | None = None
+    turn_cap: int | None = Field(default=None, ge=1, le=5000)
+    turns_per_hour: int | None = Field(default=None, ge=1, le=1000)
 
 
 class RoomWatchersView(BaseModel):
     channel_id: str
     dispatch_mode: str
     agents: list[str]
+    conversation: bool = False
+    turn_cap: int = 500
+    turns_per_hour: int = 12
     warnings: list[str] = []
 
 
 class WatchTurnView(BaseModel):
     position: int
+    pass_no: int = 0
     agent: str
     state: str
     outcome: str

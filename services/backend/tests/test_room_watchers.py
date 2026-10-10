@@ -323,3 +323,123 @@ async def test_the_sweep_skips_watched_rooms(world, sf):
     await _watch(sf, ["pai"])
     async with sf() as s:
         assert await chat.scan_batch(s, "pai", "discord-pai") == []
+
+
+# --- conversation rooms (§11) ----------------------------------------------
+
+async def _converse(sf, agents=("pai", "kai", "olu"), **fields):
+    await _watch(sf, list(agents))
+    async with sf() as s:
+        conv = await s.get(Conversation, (await _room(sf)).id)
+        conv.watch_conversation = True
+        for key, value in fields.items():
+            setattr(conv, key, value)
+        await s.commit()
+
+
+async def _say(router, sf, name, text, pid):
+    """`name`'s bot posts; every other persona's connector observes it. If the
+    post is a watch answer, its delivery's receipt names it, as in production."""
+    async with sf() as s:
+        ep = await rw.room_endpoint(s, await _room(sf))
+        pending = (await s.execute(select(chat.ExternalDelivery).where(
+            chat.ExternalDelivery.agent == name, chat.ExternalDelivery.endpoint_id == "x"))).scalars()
+        for d in pending:
+            d.endpoint_id, d.receipts = ep.id, {"0": pid}
+        await s.commit()
+    bot_id = dict(PERSONAS)[name]
+    others = tuple(n for n, _ in PERSONAS if n != name)
+    return await _post(router, sf, text, pid, who=others, author=bot_id, bot=True)
+
+
+async def _pass_turns(sf):
+    async with sf() as s:
+        return [(t.pass_no or 0, t.agent, t.outcome) for t in (await s.execute(
+            select(WatchTurn).order_by(WatchTurn.round_id, WatchTurn.position))).scalars()]
+
+
+async def test_a_watcher_bot_post_opens_a_conversation_that_runs_until_all_decline(world, sf):
+    router = await world()
+    await _converse(sf)
+    await _say(router, sf, "pai", "Opening question for the roundtable", "o1")
+    runs = await _runs(sf)
+    assert [r.agent for r in runs] == ["kai"]               # Pai doesn't answer herself
+    assert "turn 1 of at most 500" in runs[0].prompt
+    await _end(sf, runs[0].id)
+    await _say(router, sf, "kai", "Kai's view", "k1")
+    await router._advance_watch(None)
+    olu = (await _runs(sf))[1]
+    assert olu.agent == "olu" and "Kai's view" in olu.prompt
+    await _end(sf, olu.id, decline=True)
+    await router._advance_watch(None)
+    # Kai answered in pass 0, so pass 1 asks everyone but Kai.
+    pai = (await _runs(sf))[2]
+    assert pai.agent == "pai" and "turn 3 of at most 500" in pai.prompt
+    await _end(sf, pai.id, decline=True)
+    await router._advance_watch(None)
+    await _end(sf, (await _runs(sf))[3].id, decline=True)
+    await router._advance_watch(None)
+    assert await _pass_turns(sf) == [(0, "kai", "answered"), (0, "olu", "declined"),
+                                     (1, "pai", "declined"), (1, "olu", "declined")]
+    async with sf() as s:
+        assert (await s.execute(select(WatchRound))).scalar_one().state == "done"
+
+
+async def test_only_watcher_bots_open_a_conversation(world, sf):
+    router = await world()
+    await _converse(sf, agents=("kai", "olu"))
+    await _post(router, sf, "a stranger bot", "s1", author="999", bot=True)
+    await _say(router, sf, "pai", "pai is not a watcher here", "p1")
+    assert await _turns(sf) == [] and await _runs(sf) == []
+
+
+async def test_a_conversation_stops_at_its_turn_cap(world, sf):
+    router = await world()
+    await _converse(sf, watch_turn_cap=2)
+    await _say(router, sf, "pai", "go", "o1")
+    for pid in ("a1", "a2"):
+        run = (await _runs(sf))[-1]
+        await _end(sf, run.id)
+        await _say(router, sf, run.agent, f"{run.agent} answers", pid)
+        await router._advance_watch(None)
+    assert len(await _runs(sf)) == 2
+    assert await _pass_turns(sf) == [(0, "kai", "answered"), (0, "olu", "answered")]
+    async with sf() as s:
+        assert (await s.execute(select(WatchRound))).scalar_one().state == "done"
+
+
+async def test_a_late_watch_answer_never_opens_a_new_conversation(world, sf):
+    router = await world()
+    await _converse(sf, watch_turn_cap=1)
+    await _say(router, sf, "pai", "go", "o1")
+    kai = (await _runs(sf))[0]
+    await _end(sf, kai.id)
+    async with sf() as s:
+        ep = await rw.room_endpoint(s, await _room(sf))
+        d = (await s.execute(select(chat.ExternalDelivery))).scalar_one()
+        d.endpoint_id, d.receipts = ep.id, {"0": "k-late"}
+        await s.commit()
+    await router._advance_watch(None)                        # cap reached: round closes
+    await _say(router, sf, "kai", "Kai's answer, observed late", "k-late")
+    async with sf() as s:
+        assert len((await s.execute(select(WatchRound))).scalars().all()) == 1
+
+
+async def test_a_human_post_in_a_conversation_room_still_opens_a_round(world, sf):
+    router = await world()
+    await _converse(sf)
+    await _post(router, sf, "hey all", "h1")
+    assert [r.agent for r in await _runs(sf)] == ["pai"]
+
+
+async def test_conversation_settings_api(world, sf, admin_client):
+    await world()
+    cid = (await _room(sf)).id
+    r = await admin_client.put(f"/api/relay/channels/{cid}/watchers", json={
+        "agents": ["pai", "kai"], "conversation": True, "turn_cap": 40, "turns_per_hour": 30})
+    assert r.status_code == 200, r.text
+    assert (r.json()["conversation"], r.json()["turn_cap"], r.json()["turns_per_hour"]) == (True, 40, 30)
+    r = await admin_client.put(f"/api/relay/channels/{cid}/watchers", json={"agents": ["pai"]})
+    assert r.json()["conversation"] is True and r.json()["turn_cap"] == 40   # omitted = unchanged
+    assert (await admin_client.put(f"/api/relay/channels/{cid}/watchers",
+                                   json={"agents": [], "turn_cap": 0})).status_code == 422

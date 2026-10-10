@@ -31,6 +31,7 @@ class ChatIdentityView:
         connected (bool | Unset):  Default: False.
         owner_agent (None | str | Unset):
         ownership_generation (int | Unset):  Default: 0.
+        provider_user_id (None | str | Unset):
     """
 
     bound_routes: int
@@ -44,6 +45,7 @@ class ChatIdentityView:
     connected: bool | Unset = False
     owner_agent: None | str | Unset = UNSET
     ownership_generation: int | Unset = 0
+    provider_user_id: None | str | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -79,6 +81,12 @@ class ChatIdentityView:
 
         ownership_generation = self.ownership_generation
 
+        provider_user_id: None | str | Unset
+        if isinstance(self.provider_user_id, Unset):
+            provider_user_id = UNSET
+        else:
+            provider_user_id = self.provider_user_id
+
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
@@ -100,6 +108,8 @@ class ChatIdentityView:
             field_dict["owner_agent"] = owner_agent
         if ownership_generation is not UNSET:
             field_dict["ownership_generation"] = ownership_generation
+        if provider_user_id is not UNSET:
+            field_dict["provider_user_id"] = provider_user_id
 
         return field_dict
 
@@ -152,6 +162,15 @@ class ChatIdentityView:
 
         ownership_generation = d.pop("ownership_generation", UNSET)
 
+        def _parse_provider_user_id(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        provider_user_id = _parse_provider_user_id(d.pop("provider_user_id", UNSET))
+
         chat_identity_view = cls(
             bound_routes=bound_routes,
             configured=configured,
@@ -164,6 +183,7 @@ class ChatIdentityView:
             connected=connected,
             owner_agent=owner_agent,
             ownership_generation=ownership_generation,
+            provider_user_id=provider_user_id,
         )
 
         chat_identity_view.additional_properties = d

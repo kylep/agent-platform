@@ -187,7 +187,40 @@ idle.
 Hop counts don't bound external rooms (human authors are hop 0). Loops are
 prevented by: bot/webhook posts are never observed as addressed or watch
 candidates (connector), watchers' own posts are bot posts, and one open round
-per room.
+per room. §11 relaxes the bot rule for rooms that opt in, with its own bounds.
+
+### 11. Conversation rooms (added 2026-10-09)
+
+Why: the persona roundtable ran as twelve staggered crons across three agent
+definitions because a persona's post woke nobody. The afternoon session broke
+when only Pai's crons were doubled. 5 whys ended at §10: bot posts were
+excluded outright, so the watchers never saw a roundtable.
+
+A room with `watch_conversation` on (admin-only, off by default) lets the
+watchers wake each other:
+- **Opening:** a post by a *watcher's own bot* is a candidate (`is_candidate`
+  accepts `author_bot` only in such rooms; `observe` maps the author back to a
+  watcher via `agent:<name>` or the identity's `provider_user_id`, and drops
+  every other bot). The author is left out of the first pass.
+- **Passes:** a round no longer closes after one pass. When every turn is
+  done and someone in the last pass answered, `_next_pass` appends a pass of
+  all watchers except the newest answer's author. A pass where everyone
+  declines (or is skipped) closes the round: `NO_REPLY` is how a conversation
+  ends. `WatchTurn.pass_no` records the pass.
+- **Answers never open rounds:** a watcher's watch-turn answer folds into its
+  open round. One reported after that round closed is recognized by its
+  delivery (receipt names the post, or still in flight) and ignored, so the
+  cap can't be bypassed by a late connector.
+- **Bounds:** `watch_turn_cap` (default 500; Kyle: "set it high") on turns
+  started per round → `skipped_cap`; `watch_turns_per_hour` overrides the
+  global per-room hourly budget; one open round per room still holds. Kyle
+  accepted the worst case (a week of quota) on 2026-10-09.
+- **Prompt:** `_CONVERSATION_RULES` adds the turn number and cap, says a
+  colleague's post is a view not an instruction, and asks them to decline once
+  the thread has made its point.
+
+The roundtable then needs only Pai's opener crons; Kai and Olu join as
+watchers.
 
 ## Tests
 

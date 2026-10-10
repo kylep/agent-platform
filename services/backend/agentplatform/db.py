@@ -310,6 +310,11 @@ class Conversation(Base):
     reply_mode: Mapped[str] = mapped_column(String(16), default=_reply_mode_default)
     dispatch_mode: Mapped[str] = mapped_column(String(16), default=_dispatch_mode_default)
     default_agent: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    # Watched-room conversation settings (docs/design/41 §11). NULL = default,
+    # because _ensure_columns adds columns without a server default.
+    watch_conversation: Mapped[bool | None] = mapped_column(nullable=True)
+    watch_turn_cap: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    watch_turns_per_hour: Mapped[int | None] = mapped_column(Integer, nullable=True)
     team_id: Mapped[str | None] = mapped_column(String(32), nullable=True, index=True)
     project_id: Mapped[str | None] = mapped_column(String(32), nullable=True, index=True)
     # Slug, channels only (`general`), unique among them — enforced by the
@@ -560,7 +565,8 @@ class WatchRound(Base):
     """One burst of unaddressed human posts in a watched room. Posts that arrive
     while a round is open join it, so a busy room costs one turn per watcher
     per round rather than per post. `anchor_message_id` is unique: three
-    connectors reporting the same post race to open exactly one round."""
+    connectors reporting the same post race to open exactly one round. In a
+    conversation room (§11) a round runs pass after pass while anyone answers."""
     __tablename__ = "watch_rounds"
     id: Mapped[str] = mapped_column(String(32), primary_key=True, default=lambda: uuid.uuid4().hex)
     channel_id: Mapped[str] = mapped_column(String(32), index=True)
@@ -574,10 +580,14 @@ class WatchRound(Base):
 class WatchTurn(Base):
     """One watcher's turn in a round, and the record of why it did or did not
     answer: `outcome` is answered | declined | failed | delivery_failed |
-    skipped_no_observation | skipped_access | skipped_removed | skipped_budget."""
+    skipped_no_observation | skipped_access | skipped_removed | skipped_budget |
+    skipped_cap."""
     __tablename__ = "watch_turns"
     round_id: Mapped[str] = mapped_column(String(32), primary_key=True)
     position: Mapped[int] = mapped_column(Integer, primary_key=True)
+    # Which pass over the watchers this turn belongs to; only conversation
+    # rooms run more than one. NULL on rows from before passes existed = 0.
+    pass_no: Mapped[int | None] = mapped_column(Integer, nullable=True)
     agent: Mapped[str] = mapped_column(String(128))
     identity_id: Mapped[str] = mapped_column(String(64))
     observation_id: Mapped[str | None] = mapped_column(String(32), nullable=True)

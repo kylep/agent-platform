@@ -221,12 +221,13 @@ class RelayRouter:
                     return
                 if not observation.addressed:
                     # Not addressed to this bot. In a watched room an
-                    # unaddressed human post opens (or joins) a watch round
+                    # unaddressed human post opens (or joins) a watch round,
+                    # and so does a watcher's own post in a conversation room
                     # (docs/design/41); anywhere else it is ambient and ignored.
                     from agentplatform import room_watchers
                     round_id = None
                     if room_watchers.is_candidate(conv, observation):
-                        round_id = await room_watchers.observe(s, conv, msg)
+                        round_id = await room_watchers.observe(s, conv, msg, observation)
                         await s.commit()
                     if round_id:
                         await self._advance_watch(round_id)

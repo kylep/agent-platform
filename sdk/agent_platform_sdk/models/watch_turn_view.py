@@ -6,6 +6,8 @@ from typing import Any, TypeVar, cast
 from attrs import define as _attrs_define
 from attrs import field as _attrs_field
 
+from ..types import UNSET, Unset
+
 T = TypeVar("T", bound="WatchTurnView")
 
 
@@ -22,6 +24,7 @@ class WatchTurnView:
         run_id (None | str):
         started_at (None | str):
         state (str):
+        pass_no (int | Unset):  Default: 0.
     """
 
     agent: str
@@ -33,6 +36,7 @@ class WatchTurnView:
     run_id: None | str
     started_at: None | str
     state: str
+    pass_no: int | Unset = 0
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -58,6 +62,8 @@ class WatchTurnView:
 
         state = self.state
 
+        pass_no = self.pass_no
+
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
@@ -73,6 +79,8 @@ class WatchTurnView:
                 "state": state,
             }
         )
+        if pass_no is not UNSET:
+            field_dict["pass_no"] = pass_no
 
         return field_dict
 
@@ -117,6 +125,8 @@ class WatchTurnView:
 
         state = d.pop("state")
 
+        pass_no = d.pop("pass_no", UNSET)
+
         watch_turn_view = cls(
             agent=agent,
             delivery_id=delivery_id,
@@ -127,6 +137,7 @@ class WatchTurnView:
             run_id=run_id,
             started_at=started_at,
             state=state,
+            pass_no=pass_no,
         )
 
         watch_turn_view.additional_properties = d

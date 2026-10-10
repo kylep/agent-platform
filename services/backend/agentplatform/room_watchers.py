@@ -37,6 +37,11 @@ log = logging.getLogger(__name__)
 
 MAX_WATCHERS = 5
 WATCHERS_MODE = "watchers"
+# Conversation rooms (§11): turns one round may start before it stops.
+DEFAULT_TURN_CAP = 500
+MAX_TURN_CAP = 5000
+# How far back a watcher's watch-turn delivery can explain one of its posts.
+ANSWER_LOOKBACK = timedelta(minutes=15)
 # A delivery that is still in one of these has not resolved yet.
 OPEN_DELIVERY = ("pending", "claimed")
 # A succeeded run's final rides a different topic than its terminal state; give
@@ -127,18 +132,101 @@ async def set_watchers(s, conv, agents: list[str], *, by: str) -> list[str]:
     return warnings
 
 
+def conversation_on(conv) -> bool:
+    return bool(getattr(conv, "watch_conversation", None)) and conv.dispatch_mode == WATCHERS_MODE
+
+
+def turn_cap(conv) -> int:
+    return getattr(conv, "watch_turn_cap", None) or DEFAULT_TURN_CAP
+
+
+def hourly_budget(conv, settings) -> int:
+    return getattr(conv, "watch_turns_per_hour", None) or settings.relay_watch_turns_per_room_hour
+
+
 def is_candidate(conv, observation) -> bool:
     """Message-level facts only, so every bot's observation agrees: a human post
     in a watched channel that addresses no bot at all (no @mention, no reply-ping
-    — the connector reports both in `mentioned_bot_ids`)."""
-    return (getattr(conv, "dispatch_mode", None) == WATCHERS_MODE and conv.kind == "channel"
-            and observation is not None and not observation.addressed
-            and not observation.author_bot and not (observation.mentioned_bot_ids or []))
+    — the connector reports both in `mentioned_bot_ids`). In a conversation
+    room a bot post is a candidate too; `observe` then admits only a watcher's
+    own bot (§11). Bot posts never take the addressed path, so their pings
+    don't disqualify them."""
+    if not (getattr(conv, "dispatch_mode", None) == WATCHERS_MODE and conv.kind == "channel"
+            and observation is not None and not observation.addressed):
+        return False
+    if observation.author_bot:
+        return conversation_on(conv)
+    return not (observation.mentioned_bot_ids or [])
 
 
-async def observe(s, conv, msg) -> str | None:
+async def _watcher_author(s, conv, msg, watchers: list[str]) -> str | None:
+    """The watcher whose bot wrote `msg`, or None. The mirror names the author
+    `agent:<name>` when the sender's receipt landed first, else
+    `<connector>:<provider user id>`, which maps back through the identity."""
+    kind, _, ref = (msg.author or "").partition(":")
+    if kind == "agent":
+        return ref if ref in watchers else None
+    owner = (await s.execute(select(ChatIdentity.owner_agent).where(
+        ChatIdentity.connector == kind, ChatIdentity.provider_user_id == ref,
+        ChatIdentity.status == "active").limit(1))).scalar_one_or_none()
+    return owner if owner in watchers else None
+
+
+async def _is_watch_answer(s, conv, msg, agent: str) -> bool:
+    """True if `msg` is a watcher's answer on a watch turn. An answer continues
+    its own round (or nothing, once that round is over) and must never open a
+    new one, or the turn cap would not bound a conversation. Matched by the
+    delivery: its receipt names the post, or it is still in flight (the other
+    bots can observe a post before the sender's receipt arrives)."""
+    from agentplatform.external_chat import ExternalDelivery
+    watch_runs = select(WatchTurn.run_id).where(WatchTurn.run_id.is_not(None))
+    if msg.run_id and await s.scalar(select(func.count()).select_from(WatchTurn).where(
+            WatchTurn.run_id == msg.run_id)):
+        return True
+    ep = await room_endpoint(s, conv)
+    if ep is None:
+        return True
+    deliveries = (await s.execute(select(ExternalDelivery).where(
+        ExternalDelivery.agent == agent, ExternalDelivery.endpoint_id == ep.id,
+        ExternalDelivery.created_at >= utcnow() - ANSWER_LOOKBACK,
+        ExternalDelivery.run_id.in_(watch_runs)))).scalars()
+    return any(d.state in OPEN_DELIVERY or msg.external_message_id in (d.receipts or {}).values()
+               for d in deliveries)
+
+
+async def _add_pass(s, round_, ep, watchers: list[str], pass_no: int, start: int,
+                    exclude: str | None) -> int:
+    """Append one turn per watcher (except `exclude`, who wrote the post being
+    answered). Returns how many turns were added."""
+    from agentplatform.external_chat import ExternalChatError
+    added = 0
+    for agent in watchers:
+        if agent == exclude:
+            continue
+        turn = WatchTurn(round_id=round_.id, position=start + added, pass_no=pass_no,
+                         agent=agent, identity_id="")
+        try:
+            turn.identity_id = (await watch_identity(s, agent, ep)).id if ep else ""
+            if not ep:
+                raise ExternalChatError("room has no endpoint")
+        except ExternalChatError as exc:
+            turn.state, turn.outcome, turn.reason = "done", "skipped_access", str(exc)[:256]
+            turn.finished_at = utcnow()
+        s.add(turn)
+        added += 1
+    await s.flush()
+    return added
+
+
+async def observe(s, conv, msg, observation=None) -> str | None:
     """Open a round for this post, or fold it into the room's open round.
     Idempotent: three connectors reporting one post open exactly one round."""
+    watchers = await list_watchers(s, conv.id)
+    author = None
+    if observation is not None and observation.author_bot:
+        author = await _watcher_author(s, conv, msg, watchers)
+        if author is None:
+            return None  # a bot that isn't one of this room's watchers
     open_round = (await s.execute(select(WatchRound).where(
         WatchRound.channel_id == conv.id, WatchRound.state == "open").limit(1))).scalar_one_or_none()
     if open_round is not None:
@@ -147,8 +235,9 @@ async def observe(s, conv, msg) -> str | None:
             if last is None or (as_utc(msg.created_at), msg.id) > (as_utc(last.created_at), last.id):
                 open_round.last_message_id = msg.id
         return open_round.id
-    watchers = await list_watchers(s, conv.id)
     if not watchers:
+        return None
+    if author is not None and await _is_watch_answer(s, conv, msg, author):
         return None
     ep = await room_endpoint(s, conv)
     round_ = WatchRound(channel_id=conv.id, anchor_message_id=msg.id, last_message_id=msg.id)
@@ -160,18 +249,7 @@ async def observe(s, conv, msg) -> str | None:
         existing = (await s.execute(select(WatchRound).where(
             WatchRound.anchor_message_id == msg.id))).scalar_one_or_none()
         return existing.id if existing else None
-    from agentplatform.external_chat import ExternalChatError
-    for position, agent in enumerate(watchers):
-        turn = WatchTurn(round_id=round_.id, position=position, agent=agent, identity_id="")
-        try:
-            turn.identity_id = (await watch_identity(s, agent, ep)).id if ep else ""
-            if not ep:
-                raise ExternalChatError("room has no endpoint")
-        except ExternalChatError as exc:
-            turn.state, turn.outcome, turn.reason = "done", "skipped_access", str(exc)[:256]
-            turn.finished_at = utcnow()
-        s.add(turn)
-    await s.flush()
+    await _add_pass(s, round_, ep, watchers, 0, 0, exclude=author)
     return round_.id
 
 
@@ -198,16 +276,21 @@ def _finish(turn, outcome: str, reason: str = "") -> None:
     turn.finished_at = utcnow()
 
 
-async def _observation_for(s, turn, round_):
-    """This watcher's own observation of the round's newest post it has seen."""
+async def _observation_for(s, turn, round_, conv):
+    """This watcher's own observation of the round's newest post it has seen.
+    In a conversation room that includes the other watchers' posts; a bot never
+    observes its own, so a turn is never routed to its own words."""
     from agentplatform.external_chat import ExternalObservation
-    rows = (await s.execute(select(ExternalObservation, RelayMessage).join(
+    query = select(ExternalObservation, RelayMessage).join(
         RelayMessage, RelayMessage.id == ExternalObservation.message_id).where(
         ExternalObservation.identity_id == turn.identity_id,
         RelayMessage.channel_id == round_.channel_id,
         RelayMessage.created_at >= (await s.get(RelayMessage, round_.anchor_message_id)).created_at,
-        ExternalObservation.addressed.is_(False), ExternalObservation.author_bot.is_(False))
-        .order_by(RelayMessage.created_at.desc(), RelayMessage.id.desc()).limit(1))).first()
+        ExternalObservation.addressed.is_(False))
+    if not conversation_on(conv):
+        query = query.where(ExternalObservation.author_bot.is_(False))
+    rows = (await s.execute(query.order_by(
+        RelayMessage.created_at.desc(), RelayMessage.id.desc()).limit(1))).first()
     return (rows[0], rows[1]) if rows else (None, None)
 
 
@@ -249,80 +332,121 @@ async def _settle_running(s, turn, settings) -> bool:
     return True
 
 
-async def _budget_left(s, channel_id: str, settings) -> bool:
+async def _budget_left(s, conv, settings) -> bool:
     cutoff = utcnow() - timedelta(hours=1)
     used = await s.scalar(select(func.count()).select_from(WatchTurn).join(
         WatchRound, WatchRound.id == WatchTurn.round_id).where(
-        WatchRound.channel_id == channel_id, WatchTurn.run_id.is_not(None),
+        WatchRound.channel_id == conv.id, WatchTurn.run_id.is_not(None),
         WatchTurn.started_at >= cutoff))
-    return (used or 0) < settings.relay_watch_turns_per_room_hour
+    return (used or 0) < hourly_budget(conv, settings)
+
+
+async def _turns_started(s, round_id: str) -> int:
+    return await s.scalar(select(func.count()).select_from(WatchTurn).where(
+        WatchTurn.round_id == round_id, WatchTurn.run_id.is_not(None))) or 0
+
+
+async def _next_pass(s, round_, conv, turns) -> bool:
+    """Conversation rooms (§11): after a pass in which someone answered, queue
+    another pass, skipping whoever wrote the newest answer. A pass where every
+    watcher declines (or was skipped) ends the conversation, as does the cap."""
+    if conv is None or not conversation_on(conv) or not turns:
+        return False
+    last_pass = max(t.pass_no or 0 for t in turns)
+    answered = [t for t in turns if (t.pass_no or 0) == last_pass and t.outcome == "answered"]
+    if not answered or await _turns_started(s, round_.id) >= turn_cap(conv):
+        return False
+    watchers = await list_watchers(s, conv.id)
+    added = await _add_pass(s, round_, await room_endpoint(s, conv), watchers, last_pass + 1,
+                            max(t.position for t in turns) + 1, exclude=answered[-1].agent)
+    return added > 0
 
 
 async def advance_round(router, round_id: str) -> None:
     """Move one round forward as far as it can go right now."""
-    from agentplatform.external_chat import ExternalChatError
-    from agentplatform.relay_store import enabled_agents, explicit_members
-    settings = router.settings
-    spec = invocation = None
+    started = None
     async with router.sf() as s:
         round_ = await s.get(WatchRound, round_id)
         if round_ is None or round_.state != "open":
             return
         conv = await s.get(Conversation, round_.channel_id)
-        turns = list((await s.execute(select(WatchTurn).where(
-            WatchTurn.round_id == round_id).order_by(WatchTurn.position))).scalars())
-        for turn in turns:
-            if turn.state == "done":
-                continue
-            if turn.state == "running":
-                if not await _settle_running(s, turn, settings):
-                    break
-                continue
-            # pending, and every earlier turn is done
-            configured = await s.get(RoomWatcher, (round_.channel_id, turn.agent))
-            if conv is None or conv.dispatch_mode != WATCHERS_MODE or configured is None:
-                _finish(turn, "skipped_removed", "no longer a watcher of this room")
-                continue
-            ep = await room_endpoint(s, conv)
-            try:
-                account = await watch_identity(s, turn.agent, ep, send=True)
-            except ExternalChatError as exc:
-                _finish(turn, "skipped_access", str(exc))
-                continue
-            observation, trigger = await _observation_for(s, turn, round_)
-            if observation is None:
-                last = await s.get(RelayMessage, round_.last_message_id)
-                waited = utcnow() - as_utc(last.created_at if last else round_.created_at)
-                if waited < timedelta(seconds=settings.relay_watch_observation_seconds):
-                    break
-                _finish(turn, "skipped_no_observation",
-                        f"{turn.agent}'s connector did not report the post within "
-                        f"{settings.relay_watch_observation_seconds}s")
-                continue
-            if not await _budget_left(s, round_.channel_id, settings):
-                _finish(turn, "skipped_budget",
-                        f"room watch budget ({settings.relay_watch_turns_per_room_hour}/hour) spent")
-                continue
-            run_id = uuid.uuid4().hex
-            turn.identity_id, turn.observation_id = account.id, observation.id
-            turn.state, turn.run_id, turn.started_at = "running", run_id, utcnow()
-            enabled = await enabled_agents(s)
-            enabled.intersection_update(router._live_agents())
-            spec = await router._spec(s, conv, trigger, turn.agent, 0, run_id, wake=None,
-                                      enabled=enabled, explicit=await explicit_members(s, conv.id),
-                                      observation=observation,
-                                      watch=(turn.position + 1, len(turns)))
-            invocation = await router._record(s, channel_id=conv.id, message_id=trigger.id,
-                                              agent=turn.agent, decision="invoked",
-                                              reason="watch", run_id=run_id, hop=0)
-            break
-        else:
-            round_.state, round_.closed_at = "done", utcnow()
+        while True:
+            turns = list((await s.execute(select(WatchTurn).where(
+                WatchTurn.round_id == round_id).order_by(WatchTurn.position))).scalars())
+            started = await _advance_turns(router, s, round_, conv, turns)
+            if started is not None or any(t.state != "done" for t in turns):
+                break
+            if not await _next_pass(s, round_, conv, turns):
+                round_.state, round_.closed_at = "done", utcnow()
+                break
         await s.commit()
-    if spec is not None:
+    if started is not None:
         from agentplatform.materialize import materialize_run
+        spec, invocation = started
         await materialize_run(router.sf, router.producer, spec)
         await router._publish(invocation)
+
+
+async def _advance_turns(router, s, round_, conv, turns):
+    """Settle running turns and start the next pending one, in position order.
+    Returns (spec, invocation) for a started turn; None when the round is
+    blocked on a running turn or an observation, or every turn is done."""
+    from agentplatform.external_chat import ExternalChatError
+    from agentplatform.relay_store import enabled_agents, explicit_members
+    settings = router.settings
+    for turn in turns:
+        if turn.state == "done":
+            continue
+        if turn.state == "running":
+            if not await _settle_running(s, turn, settings):
+                return None
+            continue
+        # pending, and every earlier turn is done
+        configured = await s.get(RoomWatcher, (round_.channel_id, turn.agent))
+        if conv is None or conv.dispatch_mode != WATCHERS_MODE or configured is None:
+            _finish(turn, "skipped_removed", "no longer a watcher of this room")
+            continue
+        ep = await room_endpoint(s, conv)
+        try:
+            account = await watch_identity(s, turn.agent, ep, send=True)
+        except ExternalChatError as exc:
+            _finish(turn, "skipped_access", str(exc))
+            continue
+        observation, trigger = await _observation_for(s, turn, round_, conv)
+        if observation is None:
+            last = await s.get(RelayMessage, round_.last_message_id)
+            waited = utcnow() - as_utc(last.created_at if last else round_.created_at)
+            if waited < timedelta(seconds=settings.relay_watch_observation_seconds):
+                return None
+            _finish(turn, "skipped_no_observation",
+                    f"{turn.agent}'s connector did not report the post within "
+                    f"{settings.relay_watch_observation_seconds}s")
+            continue
+        conversation = conversation_on(conv)
+        if conversation and await _turns_started(s, round_.id) >= turn_cap(conv):
+            _finish(turn, "skipped_cap", f"conversation reached its {turn_cap(conv)}-turn cap")
+            continue
+        if not await _budget_left(s, conv, settings):
+            _finish(turn, "skipped_budget",
+                    f"room watch budget ({hourly_budget(conv, settings)}/hour) spent")
+            continue
+        run_id = uuid.uuid4().hex
+        turn.identity_id, turn.observation_id = account.id, observation.id
+        turn.state, turn.run_id, turn.started_at = "running", run_id, utcnow()
+        enabled = await enabled_agents(s)
+        enabled.intersection_update(router._live_agents())
+        in_pass = [t for t in turns if (t.pass_no or 0) == (turn.pass_no or 0)]
+        watch = (in_pass.index(turn) + 1, len(in_pass))
+        if conversation:
+            watch += (await _turns_started(s, round_.id), turn_cap(conv))
+        spec = await router._spec(s, conv, trigger, turn.agent, 0, run_id, wake=None,
+                                  enabled=enabled, explicit=await explicit_members(s, conv.id),
+                                  observation=observation, watch=watch)
+        invocation = await router._record(s, channel_id=conv.id, message_id=trigger.id,
+                                          agent=turn.agent, decision="invoked",
+                                          reason="watch", run_id=run_id, hop=0)
+        return spec, invocation
+    return None
 
 
 async def advance_open_rounds(router) -> None:
@@ -352,7 +476,7 @@ async def recent_turns(s, channel_id: str, limit: int = 20) -> list[dict]:
         out.append({"round_id": r.id, "state": r.state, "anchor_message_id": r.anchor_message_id,
                     "last_message_id": r.last_message_id, "created_at": r.created_at.isoformat(),
                     "closed_at": r.closed_at.isoformat() if r.closed_at else None,
-                    "turns": [{"position": t.position, "agent": t.agent, "state": t.state,
+                    "turns": [{"position": t.position, "pass_no": t.pass_no or 0, "agent": t.agent, "state": t.state,
                                "outcome": t.outcome, "reason": t.reason, "run_id": t.run_id,
                                "delivery_id": t.delivery_id,
                                "started_at": t.started_at.isoformat() if t.started_at else None,

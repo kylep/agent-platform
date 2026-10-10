@@ -1229,23 +1229,31 @@ async def relay_stats(request: Request):
 # --- room watchers (docs/design/41) -----------------------------------------
 # Admin-only: who watches a room decides which agents a stranger's post can
 # wake, so it is configuration, never something an agent or a key can set.
+# The same goes for conversation mode, which lets the watchers wake each other.
+
+async def _watchers_view(request, s, conv, warnings):
+    from agentplatform import room_watchers as rw
+    return {"channel_id": conv.id, "dispatch_mode": room_dispatch_mode(conv),
+            "agents": await rw.list_watchers(s, conv.id),
+            "conversation": bool(conv.watch_conversation), "turn_cap": rw.turn_cap(conv),
+            "turns_per_hour": rw.hourly_budget(conv, request.app.state.settings),
+            "warnings": warnings}
+
 
 @router.get("/api/relay/channels/{channel_id}/watchers", response_model=S.RoomWatchersView,
             dependencies=[Depends(require_admin)])
 async def get_room_watchers(request: Request, channel_id: str):
-    from agentplatform.room_watchers import list_watchers
     async with request.app.state.session_factory() as s:
         conv = await s.get(Conversation, channel_id)
         if conv is None:
             raise HTTPException(404, "unknown channel")
-        return {"channel_id": conv.id, "dispatch_mode": room_dispatch_mode(conv),
-                "agents": await list_watchers(s, conv.id), "warnings": []}
+        return await _watchers_view(request, s, conv, [])
 
 
 @router.put("/api/relay/channels/{channel_id}/watchers", response_model=S.RoomWatchersView)
 async def put_room_watchers(request: Request, channel_id: str, body: S.RoomWatchersIn,
                             principal: str = Depends(require_admin)):
-    from agentplatform.room_watchers import WatcherConfigError, list_watchers, set_watchers
+    from agentplatform.room_watchers import WatcherConfigError, set_watchers
     async with request.app.state.session_factory() as s:
         conv = await s.get(Conversation, channel_id)
         if conv is None:
@@ -1254,9 +1262,14 @@ async def put_room_watchers(request: Request, channel_id: str, body: S.RoomWatch
             warnings = await set_watchers(s, conv, body.agents, by=principal or "admin")
         except WatcherConfigError as exc:
             raise HTTPException(422, str(exc))
+        if body.conversation is not None:
+            conv.watch_conversation = body.conversation
+        if body.turn_cap is not None:
+            conv.watch_turn_cap = body.turn_cap
+        if body.turns_per_hour is not None:
+            conv.watch_turns_per_hour = body.turns_per_hour
         await s.commit()
-        return {"channel_id": conv.id, "dispatch_mode": room_dispatch_mode(conv),
-                "agents": await list_watchers(s, conv.id), "warnings": warnings}
+        return await _watchers_view(request, s, conv, warnings)
 
 
 @router.get("/api/relay/channels/{channel_id}/watch-turns", response_model=list[S.WatchRoundView],

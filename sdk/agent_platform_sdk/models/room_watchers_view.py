@@ -18,12 +18,18 @@ class RoomWatchersView:
         agents (list[str]):
         channel_id (str):
         dispatch_mode (str):
+        conversation (bool | Unset):  Default: False.
+        turn_cap (int | Unset):  Default: 500.
+        turns_per_hour (int | Unset):  Default: 12.
         warnings (list[str] | Unset):
     """
 
     agents: list[str]
     channel_id: str
     dispatch_mode: str
+    conversation: bool | Unset = False
+    turn_cap: int | Unset = 500
+    turns_per_hour: int | Unset = 12
     warnings: list[str] | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
@@ -33,6 +39,12 @@ class RoomWatchersView:
         channel_id = self.channel_id
 
         dispatch_mode = self.dispatch_mode
+
+        conversation = self.conversation
+
+        turn_cap = self.turn_cap
+
+        turns_per_hour = self.turns_per_hour
 
         warnings: list[str] | Unset = UNSET
         if not isinstance(self.warnings, Unset):
@@ -47,6 +59,12 @@ class RoomWatchersView:
                 "dispatch_mode": dispatch_mode,
             }
         )
+        if conversation is not UNSET:
+            field_dict["conversation"] = conversation
+        if turn_cap is not UNSET:
+            field_dict["turn_cap"] = turn_cap
+        if turns_per_hour is not UNSET:
+            field_dict["turns_per_hour"] = turns_per_hour
         if warnings is not UNSET:
             field_dict["warnings"] = warnings
 
@@ -61,12 +79,21 @@ class RoomWatchersView:
 
         dispatch_mode = d.pop("dispatch_mode")
 
+        conversation = d.pop("conversation", UNSET)
+
+        turn_cap = d.pop("turn_cap", UNSET)
+
+        turns_per_hour = d.pop("turns_per_hour", UNSET)
+
         warnings = cast(list[str], d.pop("warnings", UNSET))
 
         room_watchers_view = cls(
             agents=agents,
             channel_id=channel_id,
             dispatch_mode=dispatch_mode,
+            conversation=conversation,
+            turn_cap=turn_cap,
+            turns_per_hour=turns_per_hour,
             warnings=warnings,
         )
 

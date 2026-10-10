@@ -410,15 +410,20 @@ export type RelayChannel = {
   project_id?: string | null;
 };
 
-export type RoomWatchers = { channel_id: string; dispatch_mode: string; agents: string[]; warnings: string[] };
-export type WatchTurn = { position: number; agent: string; state: string; outcome: string | null; reason: string | null; run_id: string | null };
+export type RoomWatchers = {
+  channel_id: string; dispatch_mode: string; agents: string[]; warnings: string[];
+  conversation: boolean; turn_cap: number; turns_per_hour: number;
+};
+export type RoomWatchersIn = Pick<RoomWatchers, "agents"> &
+  Partial<Pick<RoomWatchers, "conversation" | "turn_cap" | "turns_per_hour">>;
+export type WatchTurn = { position: number; pass_no?: number; agent: string; state: string; outcome: string | null; reason: string | null; run_id: string | null };
 export type WatchRound = { round_id: string; state: string; created_at: string; turns: WatchTurn[] };
 
 export const getWatchers = (channelId: string) =>
   api<RoomWatchers>(`/api/relay/channels/${encodeURIComponent(channelId)}/watchers`);
-export const putWatchers = (channelId: string, agents: string[]) =>
+export const putWatchers = (channelId: string, body: RoomWatchersIn) =>
   api<RoomWatchers>(`/api/relay/channels/${encodeURIComponent(channelId)}/watchers`,
-    { method: "PUT", body: JSON.stringify({ agents }) });
+    { method: "PUT", body: JSON.stringify(body) });
 export const getWatchTurns = (channelId: string, limit = 10) =>
   api<WatchRound[]>(`/api/relay/channels/${encodeURIComponent(channelId)}/watch-turns?limit=${limit}`);
 
