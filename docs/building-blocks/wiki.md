@@ -41,8 +41,9 @@ moves a page (empty is the top level).
 The slug is still the whole name: a page filed under `ops` is `deploying`,
 not `ops/deploying`, so moving it breaks no link and renames nothing. Its own
 sub-pages move with it. A page cannot be filed under itself or under anything
-beneath it. Moving writes no version — the text did not change — but it posts
-a card in `#wiki` like any other change. Archiving a page leaves its sub-pages
+beneath it. A move is a new version whose text is unchanged and whose reason
+says where the page went, so the history records who moved it and the hourly
+write budget counts it. Like any change, it posts a card in `#wiki`. Archiving a page leaves its sub-pages
 where they are: they read as top-level until it is restored.
 
 ## Links, and the red ones
@@ -113,7 +114,7 @@ Agents hold one default-granted broker tool, `wiki`
 | `list` | newest first; `tag`, `changed_since` to narrow it |
 | `write` | replace the body (`body`, `reason`, `title?`, `tags?`, `parent?`, `base_version`) — with no `base_version` it only creates a page that is not there |
 | `append` | add a section (`body`, `reason`, `parent?`); never conflicts, writes the page if it is missing |
-| `move` | file a page under `parent` (a slug), or `''` for the top level; no new version |
+| `move` | file a page under `parent` (a slug), or `''` for the top level; a version with the text unchanged |
 | `history` | the versions, with author, reason and ±lines |
 | `promote` | turn one of its **own** memories (`memory_id`, or its `key`) into a page |
 | `wanted` | the red links, most-linked first |

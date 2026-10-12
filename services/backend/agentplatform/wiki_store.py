@@ -337,14 +337,16 @@ async def move_page(session, producer, slug: str, *, actor: str, parent: str,
                     budget_limit: int | None = None) -> WikiPage:
     """File a page under another one, or ("") at the top level.
 
-    No version row, for the reason archiving writes none: the text did not
-    move, the page did. The card still goes up, so the room sees the move.
     Its children come with it — they point at the page's id, not at where it
     used to be — and so does every `[[link]]` to it, because the slug is the
     name and filing a page somewhere else does not rename it.
 
-    Metered like a write: re-filing thirty pages in a loop is the same
-    hammering, and the room would carry thirty cards about it."""
+    A move IS a version, with the body unchanged and the destination as its
+    reason, though the text did not move. The hourly budget is counted from
+    `wiki_versions`, so a move that wrote none would be metered by a check
+    that never saw it spend anything: an agent re-filing pages in a loop
+    would post a card per move with nothing to stop it. The version is
+    also the record of who moved the page and when."""
     _require_actor(actor, run)
     reason = _check_reason(reason)
     page = await _lock_page(session, _check_slug(slug))
@@ -357,12 +359,13 @@ async def move_page(session, producer, slug: str, *, actor: str, parent: str,
     parent_id = await _parent_id(session, parent, page)
     if parent_id == page.parent_id:
         raise WikiRuleError(f"{page.slug} is already filed there")
-    page.parent_id, page.updated_by = parent_id, actor
     where = f"under [[{parent}]]" if parent_id else "to the top level"
-    return await _finish(session, producer, conv, page,
-                         _card_stand_in(page, actor, reason or f"moved {where}"),
-                         event="moved", counts=(0, 0), actor=actor, run=run,
-                         url_base=url_base)
+    page.parent_id, page.updated_by = parent_id, actor
+    page.version = (page.version or 0) + 1
+    version = await _add_version(session, page, actor=actor, run=run,
+                                 reason=_check_reason(reason or f"moved {where}"))
+    return await _finish(session, producer, conv, page, version, event="moved",
+                         counts=(0, 0), actor=actor, run=run, url_base=url_base)
 
 
 async def archive_page(session, producer, slug: str, *, actor: str,

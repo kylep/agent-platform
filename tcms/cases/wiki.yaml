@@ -42,12 +42,13 @@ cases:
     layer: integration
     priority: p1
     steps: [create ops, nuc under ops, deploying under nuc, open nuc, move nuc, try to file ops under its own sub-page]
-    expected: nuc shows ops as its breadcrumb and its children by title; a move writes no version and keeps children; a loop is a 400
+    expected: nuc shows ops as its breadcrumb and its children by title; a move is a version that the budget counts and keeps children; a loop is a 400
     automation:
       - pytest:services/backend/tests/test_wiki_api.py::test_a_page_lists_its_children_and_its_breadcrumb
       - pytest:services/backend/tests/test_wiki_api.py::test_moving_a_page_keeps_its_children
       - pytest:services/backend/tests/test_wiki_store.py::test_a_page_cannot_be_filed_under_itself_or_its_own_branch
       - pytest:services/backend/tests/test_wiki_store.py::test_an_archived_parent_drops_out_of_the_breadcrumb
+      - pytest:services/backend/tests/test_wiki_store.py::test_an_agent_moving_pages_spends_its_hourly_budget
       - pytest:services/mcp-broker/test_wiki_tool.py::test_move_re_files_a_page_and_empty_is_the_top_level
       - "playwright:services/web/tests/wiki.spec.ts::a page shows where it is filed and lists the pages under it"
     tags: [api, tree, ui]

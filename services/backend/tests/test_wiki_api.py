@@ -614,7 +614,7 @@ async def test_moving_a_page_keeps_its_children(admin_client):
 
     r = await admin_client.post("/api/wiki/pages/nuc/move", json={"parent": "ops"})
     assert r.status_code == 200, r.text
-    assert r.json()["version"] == 1
+    assert r.json()["version"] == 2
     r = await admin_client.get("/api/wiki/pages/deploying")
     assert [a["slug"] for a in r.json()["ancestors"]] == ["ops", "nuc"]
 

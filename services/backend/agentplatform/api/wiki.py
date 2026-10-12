@@ -367,8 +367,8 @@ async def append_wiki_page(request: Request, slug: str, body: S.WikiAppendIn,
 async def move_wiki_page(request: Request, slug: str, body: S.WikiMoveIn,
                          caller: Caller = Depends(require_wiki_access(*WRITE))):
     """File a page under another one, or ("") at the top level. The page keeps
-    its slug, its links and its children; no version is written, because the
-    text did not move."""
+    its slug, its links and its children. The move is a version with the body
+    unchanged, so the agent's hourly budget counts it."""
     slug = _slug(slug)
     st = request.app.state
     return await _write(request, caller, lambda s, **kw: store.move_page(

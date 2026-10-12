@@ -773,7 +773,7 @@ async def test_a_parent_must_be_a_live_page(sf, producer):
     assert [p.slug for p in await _pages(sf)] == ["home", "old"]
 
 
-async def test_a_move_writes_no_version_and_posts_a_card(sf, producer):
+async def test_a_move_is_a_version_with_the_same_body_and_posts_a_card(sf, producer):
     await _create(sf, producer, slug="ops", title="Ops")
     page = await _create(sf, producer)
     room = await _room(sf)
@@ -781,8 +781,10 @@ async def test_a_move_writes_no_version_and_posts_a_card(sf, producer):
     async with sf() as s:
         moved = await store.move_page(s, producer, "deploying", actor="user:admin",
                                       parent="ops")
-    assert moved.version == 1
-    assert len(await _versions(sf, page.id)) == 1
+    assert moved.version == 2
+    versions = await _versions(sf, page.id)
+    assert [v.body for v in versions] == [page.body, page.body]
+    assert versions[-1].reason == "moved under [[ops]]"
     cards = (await _messages(sf, room.id))[before:]
     assert len(cards) == 1 and "moved under [[ops]]" in cards[0].body
     assert _wiki_events(producer)[-1]["event"] == "moved"
@@ -848,6 +850,22 @@ async def test_archived_children_are_not_listed(sf, producer):
         await store.archive_page(s, producer, "deploying", actor="user:admin")
     async with sf() as s:
         assert [p.slug for p in await store.children(s, ops)] == ["backups"]
+
+
+async def test_an_agent_moving_pages_spends_its_hourly_budget(sf, producer,
+                                                                seed_agent):
+    await seed_agent("pai", description="t")
+    run = await _run(sf, agent="pai")
+    await _create(sf, producer, slug="ops", title="Ops")
+    await _create(sf, producer)
+    for parent in ("ops", ""):
+        async with sf() as s:
+            await store.move_page(s, producer, "deploying", actor="agent:pai",
+                                  parent=parent, run=run, budget_limit=2)
+    async with sf() as s:
+        with pytest.raises(store.WikiBudgetError):
+            await store.move_page(s, producer, "deploying", actor="agent:pai",
+                                  parent="ops", run=run, budget_limit=2)
 
 
 def test_query_words_keep_short_words_a_person_typed():

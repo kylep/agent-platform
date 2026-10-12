@@ -394,8 +394,10 @@ global: filing a page somewhere else does not rename it and breaks no
 `[[link]]`. `wiki_store._parent_id` is the one check — a parent is a live page,
 not the page itself, and not anywhere beneath it — and runs after the room
 lock, so two moves that would close a loop are judged one after the other.
-`move_page` writes no version (the text did not move) but posts a card and a
-`moved` event, and is metered like a write. An archived parent drops out of
+`move_page` writes a version with the body unchanged and the destination as
+its reason. It posts a card and a `moved` event. A version-less first cut was
+caught in review: the hourly budget counts `wiki_versions`, so moves were
+never counted against it. An archived parent drops out of
 its children's breadcrumb rather than re-filing them, so restoring it puts the
 branch back untouched. `GET /api/wiki/pages/{slug}` carries `ancestors`
 (breadcrumb) and `children` (live, by title), which the page renders above its
