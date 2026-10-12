@@ -748,3 +748,108 @@ async def test_search_for_prompt_caps_what_it_scores(sf, monkeypatch):
     for i in range(6):
         await _page(sf, f"dedup-{i}", f"Dedup {i}", body="one story per day")
     assert len(await _search(sf, "dedup story", limit=10)) == 3
+
+
+# --- hierarchy -----------------------------------------------------------------
+
+
+async def test_a_page_created_under_a_parent_is_its_child(sf, producer):
+    ops = await _create(sf, producer, slug="ops", title="Ops")
+    child = await _create(sf, producer, parent="ops")
+    assert child.parent_id == ops.id
+    async with sf() as s:
+        assert [p.slug for p in await store.children(s, ops)] == ["deploying"]
+        assert [p.slug for p in await store.ancestors(s, child)] == ["ops"]
+
+
+async def test_a_parent_must_be_a_live_page(sf, producer):
+    with pytest.raises(store.WikiRuleError, match="no page called nowhere"):
+        await _create(sf, producer, parent="nowhere")
+    await _create(sf, producer, slug="old", title="Old")
+    async with sf() as s:
+        await store.archive_page(s, producer, "old", actor="user:admin")
+    with pytest.raises(store.WikiRuleError, match="archived"):
+        await _create(sf, producer, parent="old")
+    assert [p.slug for p in await _pages(sf)] == ["home", "old"]
+
+
+async def test_a_move_writes_no_version_and_posts_a_card(sf, producer):
+    await _create(sf, producer, slug="ops", title="Ops")
+    page = await _create(sf, producer)
+    room = await _room(sf)
+    before = len(await _messages(sf, room.id))
+    async with sf() as s:
+        moved = await store.move_page(s, producer, "deploying", actor="user:admin",
+                                      parent="ops")
+    assert moved.version == 1
+    assert len(await _versions(sf, page.id)) == 1
+    cards = (await _messages(sf, room.id))[before:]
+    assert len(cards) == 1 and "moved under [[ops]]" in cards[0].body
+    assert _wiki_events(producer)[-1]["event"] == "moved"
+    assert _wiki_events(producer)[-1]["page"]["parent_id"] == moved.parent_id
+    async with sf() as s:
+        top = await store.move_page(s, producer, "deploying", actor="user:admin",
+                                    parent="")
+    assert top.parent_id is None
+
+
+async def test_a_move_to_where_it_already_is_is_refused(sf, producer):
+    await _create(sf, producer)
+    async with sf() as s:
+        with pytest.raises(store.WikiRuleError, match="already filed"):
+            await store.move_page(s, producer, "deploying", actor="user:admin",
+                                  parent="")
+
+
+async def test_a_page_cannot_be_filed_under_itself_or_its_own_branch(sf, producer):
+    await _create(sf, producer, slug="a", title="A")
+    await _create(sf, producer, slug="b", title="B", parent="a")
+    await _create(sf, producer, slug="c", title="C", parent="b")
+    for target in ("a", "c"):
+        async with sf() as s:
+            with pytest.raises(store.WikiRuleError, match="cannot be filed under"):
+                await store.move_page(s, producer, "a", actor="user:admin",
+                                      parent=target)
+    # Sideways and upwards are fine: c straight under a.
+    async with sf() as s:
+        c = await store.move_page(s, producer, "c", actor="user:admin", parent="a")
+        assert [p.slug for p in await store.ancestors(s, c)] == ["a"]
+
+
+async def test_a_write_can_re_file_a_page_and_none_leaves_it(sf, producer):
+    await _create(sf, producer, slug="ops", title="Ops")
+    await _create(sf, producer, parent="ops")
+    async with sf() as s:
+        page = await store.write_page(s, producer, "deploying", actor="user:admin",
+                                      body="New text.", base_version=1)
+        assert page.parent_id is not None
+        page = await store.write_page(s, producer, "deploying", actor="user:admin",
+                                      body="Newer.", base_version=2, parent="")
+        assert page.parent_id is None
+
+
+async def test_an_archived_parent_drops_out_of_the_breadcrumb(sf, producer):
+    ops = await _create(sf, producer, slug="ops", title="Ops")
+    child = await _create(sf, producer, parent="ops")
+    async with sf() as s:
+        await store.archive_page(s, producer, "ops", actor="user:admin")
+    async with sf() as s:
+        assert await store.ancestors(s, child) == []
+        await store.restore_page(s, producer, "ops", actor="user:admin")
+    async with sf() as s:
+        assert [p.id for p in await store.ancestors(s, child)] == [ops.id]
+
+
+async def test_archived_children_are_not_listed(sf, producer):
+    ops = await _create(sf, producer, slug="ops", title="Ops")
+    await _create(sf, producer, parent="ops")
+    await _create(sf, producer, slug="backups", title="Backups", parent="ops")
+    async with sf() as s:
+        await store.archive_page(s, producer, "deploying", actor="user:admin")
+    async with sf() as s:
+        assert [p.slug for p in await store.children(s, ops)] == ["backups"]
+
+
+def test_query_words_keep_short_words_a_person_typed():
+    assert store.query_words("DNS on k3s, dns!") == ["dns", "on", "k3s"]
+    assert store.query_words("a !") == []

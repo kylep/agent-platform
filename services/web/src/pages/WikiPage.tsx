@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { Button } from "@ap/ui/button";
 import { Chip } from "@ap/ui/chip";
+import { Input } from "@ap/ui/field";
 import { Editor } from "../components/wiki/Editor";
 import { History } from "../components/wiki/History";
 import { WikiBody } from "../components/wiki/WikiBody";
@@ -11,7 +12,8 @@ import { participantLabel } from "../lib/relay";
 import { ago } from "../lib/time";
 import { useTitle } from "../lib/title";
 import {
-  restoreVersion, SLUG_RE, type WikiCitations, type WikiPage as Page,
+  restoreVersion, SLUG_RE, slugify, type WikiCitations, type WikiPage as Page,
+  type WikiPageRef,
 } from "../lib/wiki";
 
 // One page (docs/design/21). Everything on it is a link back into where it
@@ -21,6 +23,8 @@ import {
 
 export default function WikiPage() {
   const { slug = "" } = useParams<{ slug: string }>();
+  // Set by "Add a sub-page": where a page that does not exist yet is to go.
+  const [search] = useSearchParams();
   const wiki = useWiki();
   const page = useWikiPage(slug);
   const [editing, setEditing] = useState(false);
@@ -35,6 +39,10 @@ export default function WikiPage() {
 
   const detail = page.detail;
   const row = detail?.page ?? null;
+  const ancestors = detail?.ancestors ?? [];
+  const parentSlug = row
+    ? (ancestors[ancestors.length - 1]?.slug ?? "")
+    : (search.get("parent") ?? "");
   useTitle(row?.title ?? slug, "Wiki");
 
   // A slug nobody has written is not a missing page, it is an invitation: the
@@ -125,6 +133,7 @@ export default function WikiPage() {
 
   return (
     <div className="page page-wiki-page">
+      <Crumbs ancestors={ancestors} />
       <div className="wiki-page-head">
         <div>
           <h1>{row?.title ?? slug}</h1>
@@ -162,7 +171,8 @@ export default function WikiPage() {
                 turns blue.
               </p>
             )}
-            <Editor slug={slug} page={row} onSaved={saved} onDirty={markDirty}
+            <Editor slug={slug} page={row} parent={parentSlug}
+                    onSaved={saved} onDirty={markDirty}
                     onReload={() => page.reload().then((d) => d?.page ?? null)}
                     onCancel={() => { setDirty(false); setEditing(false); }} />
           </>
@@ -173,6 +183,7 @@ export default function WikiPage() {
                 page in its own <main>. */}
             <div className="wiki-main">
               <WikiBody text={row?.body ?? ""} slugs={wiki.slugs} />
+              {row && <SubPages parent={row} pages={detail?.children ?? []} />}
             </div>
             <aside className="wiki-rail wiki-page-rail" aria-label="What points here">
               <section className="wiki-rail-block" aria-label="Backlinks">
@@ -197,6 +208,61 @@ export default function WikiPage() {
                  onSelect={page.showDiff} onRestore={restore} />
       )}
     </div>
+  );
+}
+
+/** Where this page is filed, from the wiki's front door down. Nothing for a
+ * top-level page: a breadcrumb of one step is a link to the page you are on. */
+function Crumbs({ ancestors }: { ancestors: WikiPageRef[] }) {
+  if (ancestors.length === 0) return null;
+  return (
+    <nav className="wiki-crumbs" aria-label="Breadcrumb">
+      <Link to="/wiki">Wiki</Link>
+      {ancestors.map((a) => (
+        <span key={a.slug}>
+          <span className="wiki-crumb-sep" aria-hidden="true"> / </span>
+          <Link to={`/wiki/${a.slug}`}>{a.title}</Link>
+        </span>
+      ))}
+    </nav>
+  );
+}
+
+/** The pages filed under this one, always, at its foot — the way Notion lists
+ * a page's children. Computed by the server from where pages are filed, never
+ * written into the body, so it cannot go stale when one moves.
+ *
+ * Adding one is naming it: the slug comes from the title, and the editor
+ * opens on that slug already filed here. */
+function SubPages({ parent, pages }: { parent: Page; pages: WikiPageRef[] }) {
+  const navigate = useNavigate();
+  const [title, setTitle] = useState("");
+  const slug = slugify(title);
+
+  return (
+    <section className="wiki-children" aria-label="Sub-pages">
+      <h2 className="wiki-rail-head">Pages under {parent.title}</h2>
+      {pages.length > 0
+        ? (
+          <ul className="wiki-list">
+            {pages.map((c) => (
+              <li key={c.slug}><Link to={`/wiki/${c.slug}`}>📄 {c.title}</Link></li>
+            ))}
+          </ul>
+        )
+        : <p className="muted">No pages are filed under this one yet.</p>}
+      <form className="wiki-child-new"
+            onSubmit={(e) => {
+              e.preventDefault();
+              if (!slug) return;
+              navigate(`/wiki/${slug}?parent=${encodeURIComponent(parent.slug)}`);
+              setTitle("");
+            }}>
+        <Input aria-label="New sub-page title" value={title} maxLength={120}
+               onChange={(e) => setTitle(e.target.value)} placeholder="New sub-page title" />
+        <Button type="submit" variant="secondary" disabled={!slug}>Add sub-page</Button>
+      </form>
+    </section>
   );
 }
 

@@ -17,6 +17,7 @@ class WikiPageIn:
         slug (str):
         title (str):
         body (str | Unset):  Default: ''.
+        parent (None | str | Unset):
         reason (str | Unset):  Default: ''.
         tags (list[str] | Unset):
     """
@@ -24,6 +25,7 @@ class WikiPageIn:
     slug: str
     title: str
     body: str | Unset = ""
+    parent: None | str | Unset = UNSET
     reason: str | Unset = ""
     tags: list[str] | Unset = UNSET
 
@@ -33,6 +35,12 @@ class WikiPageIn:
         title = self.title
 
         body = self.body
+
+        parent: None | str | Unset
+        if isinstance(self.parent, Unset):
+            parent = UNSET
+        else:
+            parent = self.parent
 
         reason = self.reason
 
@@ -50,6 +58,8 @@ class WikiPageIn:
         )
         if body is not UNSET:
             field_dict["body"] = body
+        if parent is not UNSET:
+            field_dict["parent"] = parent
         if reason is not UNSET:
             field_dict["reason"] = reason
         if tags is not UNSET:
@@ -66,6 +76,15 @@ class WikiPageIn:
 
         body = d.pop("body", UNSET)
 
+        def _parse_parent(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        parent = _parse_parent(d.pop("parent", UNSET))
+
         reason = d.pop("reason", UNSET)
 
         tags = cast(list[str], d.pop("tags", UNSET))
@@ -74,6 +93,7 @@ class WikiPageIn:
             slug=slug,
             title=title,
             body=body,
+            parent=parent,
             reason=reason,
             tags=tags,
         )

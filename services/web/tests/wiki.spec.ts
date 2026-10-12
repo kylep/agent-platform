@@ -325,3 +325,50 @@ test("a wiki link is a chip, cut to the same pattern as a ticket key",
   expect(wanted.style).toBe("dashed");
   expect(existing.style).toBe("solid");
 });
+
+test("a page shows where it is filed and lists the pages under it",
+     async ({ page }) => {
+  await mockApi(page);
+  const creates: Record<string, unknown>[] = [];
+  const edits: Record<string, unknown>[] = [];
+  page.on("request", (r) => {
+    const path = new URL(r.url()).pathname;
+    if (r.method() === "POST" && path === "/api/wiki/pages") creates.push(r.postDataJSON());
+    if (r.method() === "PUT" && path === "/api/wiki/pages/deploying") edits.push(r.postDataJSON());
+  });
+  await page.goto("/wiki/deploying");
+  const crumbs = page.getByRole("navigation", { name: "Breadcrumb" });
+  await expect(crumbs.locator('a[href="/wiki/home"]')).toHaveText("The wiki");
+
+  const under = page.getByRole("region", { name: "Sub-pages" });
+  await expect(under).toContainText("Pages under Deploying");
+  await expect(under.locator('a[href="/wiki/rollback"]')).toContainText("Rolling back");
+
+  // Adding one is naming it: the editor opens on the slug, filed here.
+  await under.getByLabel("New sub-page title").fill("Blue/green cutover");
+  await under.getByRole("button", { name: "Add sub-page" }).click();
+  await expect(page).toHaveURL(/\/wiki\/blue-green-cutover\?parent=deploying$/);
+  await expect(page.getByLabel("Filed under")).toHaveValue("deploying");
+  await page.getByLabel("Page body").fill("Flip the service, then drain.");
+  await page.getByRole("button", { name: "Create page" }).click();
+  await expect.poll(() => creates.length).toBe(1);
+  expect(creates[0].slug).toBe("blue-green-cutover");
+  expect(creates[0].parent).toBe("deploying");
+
+  // An edit that leaves the field alone does not re-file the page.
+  await page.goto("/wiki/deploying");
+  await page.getByRole("button", { name: "Edit" }).click();
+  await expect(page.getByLabel("Filed under")).toHaveValue("home");
+  await page.getByRole("button", { name: "Save" }).click();
+  await expect.poll(() => edits.length).toBe(1);
+  expect(edits[0]).not.toHaveProperty("parent");
+});
+
+test("a top-level page has no breadcrumb but still offers a sub-page",
+     async ({ page }) => {
+  await mockApi(page);
+  await page.goto("/wiki/kyle-location");
+  await expect(page.getByRole("navigation", { name: "Breadcrumb" })).toHaveCount(0);
+  await expect(page.getByRole("region", { name: "Sub-pages" }))
+    .toContainText("No pages are filed under this one yet.");
+});

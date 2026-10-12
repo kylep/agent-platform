@@ -29,7 +29,7 @@ from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import JSONResponse, StreamingResponse
-from sqlalchemy import cast, func, or_, select
+from sqlalchemy import cast, false, func, or_, select
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import defer
 
@@ -146,7 +146,7 @@ def _utc(when: datetime) -> datetime:
     return when.astimezone(timezone.utc) if when.tzinfo is not None else when
 
 
-def _matching(bind, q: str):
+def _matching(bind, q: str, match: str = "all"):
     """`q` as a `(filter, ranking)` pair — the one place search is defined.
 
     Postgres has the GIN tsvector `db.py` builds, so it answers by relevance;
@@ -161,9 +161,25 @@ def _matching(bind, q: str):
     the prompt search is handed a whole room's worth of talk with nobody to ask.
     ANDing also keeps the two dialects honest about each other — a substring
     match on the phrase is narrow in the same direction, where an OR on one side
-    only would make the UI answer differently on a dev's sqlite than in prod."""
+    only would make the UI answer differently on a dev's sqlite than in prod.
+
+    `match="any"` is the wider net, asked for explicitly by a caller whose
+    every-word search came back empty: the prompt search's OR over the same
+    words (`wiki_store.or_query`), ranked so the pages carrying the most of
+    them come first. On sqlite it is a substring match per word."""
+    if match == "any":
+        words = store.query_words(q)
+        if not words:
+            return false(), None
+        if bind.dialect.name == "postgresql":
+            vector = store.indexed_vector()
+            query = store.or_query(words)
+            return vector.op("@@")(query), func.ts_rank(vector, query).desc()
+        return or_(*[clause for word in words for clause in (
+            func.lower(WikiPage.title).contains(word, autoescape=True),
+            func.lower(WikiPage.body).contains(word, autoescape=True))]), None
     if bind.dialect.name == "postgresql":
-        vector = func.to_tsvector("english", WikiPage.title + " " + WikiPage.body)
+        vector = store.indexed_vector()
         query = func.plainto_tsquery("english", q)
         return vector.op("@@")(query), func.ts_rank(vector, query).desc()
     needle = q.lower()
@@ -317,7 +333,8 @@ async def create_wiki_page(request: Request, body: S.WikiPageIn,
     st = request.app.state
     return await _write(request, caller, lambda s, **kw: store.create_page(
         s, st.producer, slug=slug, title=body.title, body=body.body,
-        tags=body.tags, reason=body.reason, url_base=URL_BASE, **kw))
+        tags=body.tags, reason=body.reason, parent=body.parent,
+        url_base=URL_BASE, **kw))
 
 
 @router.put("/api/wiki/pages/{slug}", response_model=S.WikiPageView)
@@ -329,7 +346,8 @@ async def write_wiki_page(request: Request, slug: str, body: S.WikiWriteIn,
     st = request.app.state
     return await _write(request, caller, lambda s, **kw: store.write_page(
         s, st.producer, slug, body=body.body, title=body.title, tags=body.tags,
-        base_version=body.base_version, reason=body.reason, url_base=URL_BASE, **kw))
+        base_version=body.base_version, reason=body.reason, parent=body.parent,
+        url_base=URL_BASE, **kw))
 
 
 @router.post("/api/wiki/pages/{slug}/append", response_model=S.WikiPageView)
@@ -342,6 +360,19 @@ async def append_wiki_page(request: Request, slug: str, body: S.WikiAppendIn,
     st = request.app.state
     return await _write(request, caller, lambda s, **kw: store.append_page(
         s, st.producer, slug, body=body.body, reason=body.reason,
+        parent=body.parent, url_base=URL_BASE, **kw))
+
+
+@router.post("/api/wiki/pages/{slug}/move", response_model=S.WikiPageView)
+async def move_wiki_page(request: Request, slug: str, body: S.WikiMoveIn,
+                         caller: Caller = Depends(require_wiki_access(*WRITE))):
+    """File a page under another one, or ("") at the top level. The page keeps
+    its slug, its links and its children; no version is written, because the
+    text did not move."""
+    slug = _slug(slug)
+    st = request.app.state
+    return await _write(request, caller, lambda s, **kw: store.move_page(
+        s, st.producer, slug, parent=body.parent, reason=body.reason,
         url_base=URL_BASE, **kw))
 
 
@@ -455,16 +486,28 @@ async def list_wiki_pages(request: Request, q: str | None = None,
                           tag: str | None = None,
                           changed_since: datetime | None = None,
                           source_memory_id: str | None = None,
+                          parent: str | None = None,
+                          match: str = Query("all", pattern="^(all|any)$"),
                           limit: int = Query(LIST_LIMIT, ge=1, le=LIST_LIMIT),
                           caller: Caller = Depends(require_wiki_access(*READ))):
     """The wiki, filtered. Newest first, or by relevance when `q` is a search
     the dialect can rank. Archived pages are excluded from all of it: they are
-    out of the wiki by definition, and their history is read by slug."""
+    out of the wiki by definition, and their history is read by slug.
+
+    `match=any` widens `q` from every word to any of them (see `_matching`);
+    `parent` narrows to the pages filed directly under that slug, and "" to
+    the top level."""
     async with request.app.state.session_factory() as s:
         stmt = select(WikiPage).where(WikiPage.archived_at.is_(None))
         order = WikiPage.updated_at.desc()
+        if parent is not None:
+            if parent:
+                above = await _page_or_404(s, _slug(parent))
+                stmt = stmt.where(WikiPage.parent_id == above.id)
+            else:
+                stmt = stmt.where(WikiPage.parent_id.is_(None))
         if q:
-            clause, rank = _matching(s.get_bind(), q)
+            clause, rank = _matching(s.get_bind(), q, match)
             stmt = stmt.where(clause)
             order = rank if rank is not None else order
         if tag:
@@ -589,8 +632,16 @@ async def get_wiki_page(request: Request, slug: str,
         view = await _one(s, page)
         links = await store.backlinks(s, slug)
         cited = await _cited_in(s, slug, await _readable(s, caller, agents))
+        above = await store.ancestors(s, page)
+        below = await store.children(s, page)
     return {"page": view, "cited_in": cited,
-            "backlinks": [{"slug": p.slug, "title": p.title} for p in links]}
+            "backlinks": [_ref(p) for p in links],
+            "ancestors": [_ref(p) for p in above],
+            "children": [_ref(p) for p in below]}
+
+
+def _ref(page) -> dict:
+    return {"slug": page.slug, "title": page.title}
 
 
 @router.get("/api/wiki/pages/{slug}/history", response_model=list[S.WikiHistoryRow])

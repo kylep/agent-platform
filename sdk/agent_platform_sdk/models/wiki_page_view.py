@@ -32,6 +32,7 @@ class WikiPageView:
         updated_at (None | str):
         updated_by (str):
         version (int):
+        parent_id (None | str | Unset):
         updated_by_face (None | RelayFace | Unset):
     """
 
@@ -48,6 +49,7 @@ class WikiPageView:
     updated_at: None | str
     updated_by: str
     version: int
+    parent_id: None | str | Unset = UNSET
     updated_by_face: None | RelayFace | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
@@ -84,6 +86,12 @@ class WikiPageView:
 
         version = self.version
 
+        parent_id: None | str | Unset
+        if isinstance(self.parent_id, Unset):
+            parent_id = UNSET
+        else:
+            parent_id = self.parent_id
+
         updated_by_face: dict[str, Any] | None | Unset
         if isinstance(self.updated_by_face, Unset):
             updated_by_face = UNSET
@@ -111,6 +119,8 @@ class WikiPageView:
                 "version": version,
             }
         )
+        if parent_id is not UNSET:
+            field_dict["parent_id"] = parent_id
         if updated_by_face is not UNSET:
             field_dict["updated_by_face"] = updated_by_face
 
@@ -168,6 +178,15 @@ class WikiPageView:
 
         version = d.pop("version")
 
+        def _parse_parent_id(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        parent_id = _parse_parent_id(d.pop("parent_id", UNSET))
+
         def _parse_updated_by_face(data: object) -> None | RelayFace | Unset:
             if data is None:
                 return data
@@ -199,6 +218,7 @@ class WikiPageView:
             updated_at=updated_at,
             updated_by=updated_by,
             version=version,
+            parent_id=parent_id,
             updated_by_face=updated_by_face,
         )
 

@@ -20,6 +20,7 @@ class WikiWriteIn:
         Attributes:
             base_version (int):
             body (str):
+            parent (None | str | Unset):
             reason (str | Unset):  Default: ''.
             tags (list[str] | None | Unset):
             title (None | str | Unset):
@@ -27,6 +28,7 @@ class WikiWriteIn:
 
     base_version: int
     body: str
+    parent: None | str | Unset = UNSET
     reason: str | Unset = ""
     tags: list[str] | None | Unset = UNSET
     title: None | str | Unset = UNSET
@@ -35,6 +37,12 @@ class WikiWriteIn:
         base_version = self.base_version
 
         body = self.body
+
+        parent: None | str | Unset
+        if isinstance(self.parent, Unset):
+            parent = UNSET
+        else:
+            parent = self.parent
 
         reason = self.reason
 
@@ -61,6 +69,8 @@ class WikiWriteIn:
                 "body": body,
             }
         )
+        if parent is not UNSET:
+            field_dict["parent"] = parent
         if reason is not UNSET:
             field_dict["reason"] = reason
         if tags is not UNSET:
@@ -76,6 +86,15 @@ class WikiWriteIn:
         base_version = d.pop("base_version")
 
         body = d.pop("body")
+
+        def _parse_parent(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        parent = _parse_parent(d.pop("parent", UNSET))
 
         reason = d.pop("reason", UNSET)
 
@@ -108,6 +127,7 @@ class WikiWriteIn:
         wiki_write_in = cls(
             base_version=base_version,
             body=body,
+            parent=parent,
             reason=reason,
             tags=tags,
             title=title,

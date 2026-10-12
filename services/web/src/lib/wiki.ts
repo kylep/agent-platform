@@ -30,6 +30,7 @@ export type WikiPage = {
   created_by: string;
   updated_by: string;
   source_memory_id: string | null;   // set when the page was promoted
+  parent_id?: string | null;    // the page this one is filed under
   created_at: string | null;
   updated_at: string | null;
   archived_at: string | null;
@@ -55,6 +56,10 @@ export type WikiPageDetail = {
   page: WikiPage;
   backlinks: WikiPageRef[];
   cited_in: WikiCitations;
+  // The pages above this one, top level first: the breadcrumb.
+  ancestors?: WikiPageRef[];
+  // The live pages filed directly under it, by title: listed at its foot.
+  children?: WikiPageRef[];
 };
 
 export type WikiVersion = {
@@ -87,7 +92,7 @@ export type WikiStats = {
  * page AND what the edit was, because "recent changes" is a list of edits and
  * the page alone says nothing about who changed it or why. */
 export type WikiEvent = {
-  event: string;                // created | edited | appended | archived | restored | promoted
+  event: string;                // created | edited | appended | moved | archived | restored | promoted
   page: WikiPage;
   version: number;
   author: string;
@@ -223,11 +228,17 @@ async function write<T>(path: string, method: string, body?: unknown): Promise<T
 
 /** What a human types into the editor. `tags` is sent as given — on a write
  * the API reads `null` as "leave them alone", which the editor never means:
- * what is in the field IS the page's tags. */
-export type WikiDraft = { body: string; title: string; reason: string; tags: string[] };
+ * what is in the field IS the page's tags. `parent` is the slug the page is
+ * filed under: left out, it stays where it is; "" is the top level. */
+export type WikiDraft = {
+  body: string; title: string; reason: string; tags: string[]; parent?: string;
+};
 
 export function createPage(slug: string, draft: WikiDraft): Promise<WikiPage> {
-  return write<WikiPage>("/api/wiki/pages", "POST", { slug, ...draft });
+  // A create with no parent is a top-level page; the API wants it absent.
+  const { parent, ...rest } = draft;
+  return write<WikiPage>("/api/wiki/pages", "POST",
+                         parent ? { slug, ...rest, parent } : { slug, ...rest });
 }
 
 export function savePage(slug: string, draft: WikiDraft, baseVersion: number):

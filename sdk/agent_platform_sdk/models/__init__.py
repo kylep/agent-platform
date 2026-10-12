@@ -319,6 +319,7 @@ from .wiki_citation import WikiCitation
 from .wiki_citations import WikiCitations
 from .wiki_diff_view import WikiDiffView
 from .wiki_history_row import WikiHistoryRow
+from .wiki_move_in import WikiMoveIn
 from .wiki_page_detail import WikiPageDetail
 from .wiki_page_in import WikiPageIn
 from .wiki_page_ref import WikiPageRef
@@ -646,6 +647,7 @@ __all__ = (
     "WikiCitations",
     "WikiDiffView",
     "WikiHistoryRow",
+    "WikiMoveIn",
     "WikiPageDetail",
     "WikiPageIn",
     "WikiPageRef",

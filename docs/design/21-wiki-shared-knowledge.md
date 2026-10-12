@@ -387,11 +387,35 @@ hardcodes the threshold client-side while the count uses the server's
 `wiki_stale_days`, which `/api/wiki/stats` should carry the way the ticket
 stats do.
 
+**Page tree (added 2026-10-12).** Pages nest, Notion-style. `wiki_pages`
+gained `parent_id` (an id, so a move never touches the children; not a foreign
+key, like every wiki join; not versioned, like tags). Slugs stay flat and
+global: filing a page somewhere else does not rename it and breaks no
+`[[link]]`. `wiki_store._parent_id` is the one check — a parent is a live page,
+not the page itself, and not anywhere beneath it — and runs after the room
+lock, so two moves that would close a loop are judged one after the other.
+`move_page` writes no version (the text did not move) but posts a card and a
+`moved` event, and is metered like a write. An archived parent drops out of
+its children's breadcrumb rather than re-filing them, so restoring it puts the
+branch back untouched. `GET /api/wiki/pages/{slug}` carries `ancestors`
+(breadcrumb) and `children` (live, by title), which the page renders above its
+title and at its foot, with an "Add sub-page" box; the editor gained a
+"Filed under" field. The tool gained `move` and a `parent` argument, and `read`
+shows `path` and `children`.
+
+**Search, revisited the same day.** The search box's postgres query bound the
+`' '` separator as a parameter, so it never matched the GIN expression and
+every search scanned the table; it now uses `wiki_store.indexed_vector()`,
+the prompt search's spelling. `match=any` widens a search to any of its words
+(ranked); the tool and the rail fall back to it, labelled, when no page has
+every word. Tool writes answer `saved [[slug]] vN` instead of echoing the
+whole page.
+
 ## Not done (deliberately)
 
 - **Rich text and attachments.** Markdown only; images by URL only.
-- **Namespaces / spaces / page trees.** Flat slugs and tags; a tree is a
-  later doc if ten agents ever need one.
+- **Namespaces / spaces.** Slugs are flat and global even inside the page tree
+  (see AS BUILT); a page's place is where it is filed, not part of its name.
 - **Permissions per page.** Every participant can read and write every page;
   history is the accountability.
 - **Auto-promotion.** Memories graduate by an explicit action (human click or

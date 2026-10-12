@@ -1294,6 +1294,8 @@ class WikiPageView(BaseModel):
     updated_by: str
     # The memory this page was promoted from, if it was (docs/design/21).
     source_memory_id: str | None
+    # The page this one is filed under; None at the top level.
+    parent_id: str | None = None
     created_at: str | None
     updated_at: str | None
     archived_at: str | None
@@ -1302,7 +1304,8 @@ class WikiPageView(BaseModel):
 
 
 class WikiPageRef(BaseModel):
-    """A page named from somewhere else: a backlink in the sidebar."""
+    """A page named from somewhere else: a backlink in the sidebar, a step in
+    the breadcrumb, a child at the foot of the page."""
     slug: str
     title: str
 
@@ -1331,6 +1334,11 @@ class WikiPageDetail(BaseModel):
     page: WikiPageView
     backlinks: list[WikiPageRef]
     cited_in: WikiCitations
+    # The pages above this one, top level first: the breadcrumb.
+    ancestors: list[WikiPageRef] = []
+    # The live pages filed directly under it, by title: what the page lists
+    # at its foot.
+    children: list[WikiPageRef] = []
 
 
 class WikiVersionView(BaseModel):
@@ -1411,6 +1419,8 @@ class WikiPageIn(BaseModel):
     body: str = Field(default="", max_length=65536)
     tags: list[str] = Field(default=[], max_length=20)
     reason: str = Field(default="", max_length=200)
+    # The slug of the page to file this one under; absent is the top level.
+    parent: str | None = Field(default=None, max_length=64)
 
 
 class WikiWriteIn(BaseModel):
@@ -1424,11 +1434,24 @@ class WikiWriteIn(BaseModel):
     title: str | None = Field(default=None, max_length=120)
     tags: list[str] | None = Field(default=None, max_length=20)
     base_version: int = Field(ge=1)
+    # Absent leaves the page where it is filed; "" moves it to the top level.
+    parent: str | None = Field(default=None, max_length=64)
 
 
 class WikiAppendIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
     body: str = Field(min_length=1, max_length=65536)
+    reason: str = Field(default="", max_length=200)
+    # Where a page this creates is filed (and an existing one re-filed).
+    parent: str | None = Field(default=None, max_length=64)
+
+
+class WikiMoveIn(BaseModel):
+    """File a page under another one. `parent` is that page's slug, and ""
+    is the top level — required either way, because a move that does not say
+    where to is not a move."""
+    model_config = ConfigDict(extra="forbid")
+    parent: str = Field(max_length=64)
     reason: str = Field(default="", max_length=200)
 
 

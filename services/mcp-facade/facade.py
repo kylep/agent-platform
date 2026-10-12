@@ -12,13 +12,13 @@ The surface is CURATED into three tiers (curation 2026-08-24; see
   conversations, jobs, schedules, agents, pending changes, memory, metrics,
   health, reports, registries, apps, help, the relay rooms — read a channel,
   post in it, react, DM, search, presence/stats — the ticket board: file,
-  read, edit, move, assign, comment, stats — and the wiki: read, search, write,
+  read, edit, move, assign, comment, stats — and the wiki: read, search, write, move,
   append, history, restore, promote, wanted — the usage snapshot and its
   gate — and the artifacts: list, read, save, edit, delete, generate, the
   model registry and the stats, plus encrypted backup listing, Job control and
   one-time Tasks — schedule, read, edit, cancel, their run log and the usage
   report (which still require admin authority in the API, or a Task-granted
-  agent run). Always tools. 147 of them.
+  agent run). Always tools. 151 of them.
 - **GATE** — authorized-but-sharp: the credential/secret plane, backup
   credential configuration, admin audit
   reads, destructive/bulk ops, the relay channel lifecycle (creating, renaming
@@ -31,7 +31,7 @@ The surface is CURATED into three tiers (curation 2026-08-24; see
 - **EXCLUDE** — UI form-feeders, private-key import inspection, reviewer digests the client can compute,
   git-edit conveniences redundant with having the repo, and system-agent
   endpoints. Never tools. 21 curated-out, plus 91 session/internal/streaming/
-  byte-serving/connector/run-only operations below — 308 graded operations in all.
+  byte-serving/connector/run-only operations below — 312 graded operations in all.
 
 It is deliberately NOT the mcp-broker. The broker authenticates in-cluster run
 identities and scopes tools to an agent's grants (design/13, design/15). This

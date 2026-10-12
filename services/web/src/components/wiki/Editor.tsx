@@ -18,10 +18,14 @@ import {
  * the same refusal: somebody got there first, and nothing was overwritten. */
 type Conflict = { version: number | null; summary: string; created?: boolean };
 
-export function Editor({ slug, page, onSaved, onCancel, onReload, onDirty }: {
+export function Editor({ slug, page, parent: filedUnder = "", onSaved, onCancel, onReload,
+                        onDirty }: {
   slug: string;
   /** The page being rewritten, or null when this slug is still a wanted page. */
   page: WikiPage | null;
+  /** The slug this page is filed under now — or, for a new page, where the
+   * reader asked to put it ("Add a sub-page"). Empty is the top level. */
+  parent?: string;
   onSaved: (page: WikiPage) => void;
   onCancel: () => void;
   /** Re-read the page from the server and hand back what it says now — how
@@ -35,6 +39,7 @@ export function Editor({ slug, page, onSaved, onCancel, onReload, onDirty }: {
   const [body, setBody] = useState(page?.body ?? "");
   const [tags, setTags] = useState((page?.tags ?? []).join(", "));
   const [reason, setReason] = useState("");
+  const [parent, setParent] = useState(filedUnder);
   const [base, setBase] = useState(page?.version ?? 0);
   const [conflict, setConflict] = useState<Conflict | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -61,9 +66,14 @@ export function Editor({ slug, page, onSaved, onCancel, onReload, onDirty }: {
   async function submit() {
     setBusy(true);
     setError(null);
+    const under = parent.trim().replace(/^\[\[|\]\]$/g, "").toLowerCase();
     const draft = {
       title: title.trim() || slug, body, reason: reason.trim(),
       tags: tags.split(",").map((t) => t.trim()).filter(Boolean),
+      // A new page is filed wherever the field says. An edit sends it only
+      // when it changed: absent is "leave it filed where it is", and "" is
+      // "move it to the top level".
+      ...((creating ? under !== "" : under !== filedUnder) ? { parent: under } : {}),
     };
     try {
       onSaved(creating ? await createPage(slug, draft) : await savePage(slug, draft, base));
@@ -138,6 +148,12 @@ export function Editor({ slug, page, onSaved, onCancel, onReload, onDirty }: {
           <label className="field-label" htmlFor="wiki-tags">Tags</label>
           <Input id="wiki-tags" value={tags} onChange={(e) => touch(setTags)(e.target.value)}
                  placeholder="comma, separated" />
+        </span>
+        <span>
+          <label className="field-label" htmlFor="wiki-parent">Filed under</label>
+          <Input id="wiki-parent" value={parent} maxLength={64}
+                 onChange={(e) => touch(setParent)(e.target.value)}
+                 placeholder="parent page slug — empty for the top level" />
         </span>
       </div>
 

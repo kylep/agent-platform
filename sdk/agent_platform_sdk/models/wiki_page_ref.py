@@ -11,11 +11,12 @@ T = TypeVar("T", bound="WikiPageRef")
 
 @_attrs_define
 class WikiPageRef:
-    """A page named from somewhere else: a backlink in the sidebar.
+    """A page named from somewhere else: a backlink in the sidebar, a step in
+    the breadcrumb, a child at the foot of the page.
 
-    Attributes:
-        slug (str):
-        title (str):
+        Attributes:
+            slug (str):
+            title (str):
     """
 
     slug: str

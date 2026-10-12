@@ -37,7 +37,9 @@ PAGE = {"id": "11" * 16, "slug": SLUG, "title": "Deploying", "body": "helm upgra
         "updated_at": "2026-09-12T10:00:00+00:00", "archived_at": None,
         "updated_by_face": {"name": "news", "color": "cyan"}}
 DETAIL = {"page": PAGE, "backlinks": [{"slug": "runbook", "title": "Runbook"}],
-          "cited_in": {"count": 4, "count_capped": False, "last": []}}
+          "cited_in": {"count": 4, "count_capped": False, "last": []},
+          "ancestors": [{"slug": "ops", "title": "Ops"}],
+          "children": [{"slug": "rollback", "title": "Rollback"}]}
 ROW = {"slug": SLUG, "title": "Deploying", "summary": "how a deploy goes",
        "version": 3}
 OTHER_ROW = {"slug": "runbook", "title": "Runbook", "summary": "when it breaks",
@@ -78,6 +80,7 @@ def test_read_is_one_call_and_one_readable_answer(calls):
                             "body": "helm upgrade", "tags": ["ops"], "version": 3,
                             "updated_by": "agent:news",
                             "updated_at": "2026-09-12T10:00:00+00:00"},
+                   "path": ["ops"], "children": ["rollback"],
                    "backlinks": DETAIL["backlinks"],
                    "cited_in": DETAIL["cited_in"]}
 
@@ -103,7 +106,28 @@ def test_search_asks_the_index_and_renders_one_line_per_page(calls):
                                 "runbook  Runbook  when it breaks"]
 
 
-def test_search_needs_something_to_look_for(calls):
+def test_a_search_no_page_answers_whole_widens_to_any_word(monkeypatch):
+    seen = []
+
+    async def _call(method, path, params=None, json=None):
+        seen.append(params)
+        return "[]" if params.get("match") != "any" else json_mod.dumps([ROW])
+
+    json_mod = json
+    monkeypatch.setattr(broker, "_call", _call)
+    out = wiki(action="search", q="how do we deploy the nuc")
+    assert [p.get("match") for p in seen] == [None, "any"]
+    assert out.splitlines() == ["no page has every word; pages with some of them:",
+                                "deploying  Deploying  how a deploy goes"]
+
+
+def test_a_search_nothing_answers_at_all_says_no_pages(calls):
+    calls.replies[PAGES] = "[]"
+    assert wiki(action="search", q="zebra") == "no pages"
+    assert len(calls) == 2
+
+
+def test_a_search_needs_something_to_look_for(calls):
     out = wiki(action="search")
     assert out.startswith("error:") and "q" in out
     assert calls == []
@@ -522,3 +546,38 @@ def test_metering_keeps_the_signature_fastmcp_turns_into_a_schema():
     assert ["action", "slug"] == list(params)[:2]
     assert params["limit"].default == 20
     assert broker.wiki.__name__ == "wiki"
+
+
+# --- nesting --------------------------------------------------------------------
+
+def test_a_write_answers_with_one_line_not_the_page(calls):
+    calls.replies[PAGE_URL] = json.dumps(PAGE)
+    assert wiki(action="write", slug=SLUG, body="b", reason="r",
+                base_version=2) == "saved [[deploying]] v3"
+    calls.replies[f"{PAGE_URL}/append"] = json.dumps(PAGE)
+    assert wiki(action="append", slug=SLUG, body="b", reason="r") == (
+        "saved [[deploying]] v3")
+
+
+def test_a_created_page_can_be_filed_under_a_parent(calls):
+    wiki(action="write", slug="rollback", body="b", reason="r", parent="[[Ops]]")
+    assert calls[-1][3]["parent"] == "ops"
+    wiki(action="append", slug="rollback", body="b", reason="r", parent="ops")
+    assert calls[-1][3]["parent"] == "ops"
+    wiki(action="write", slug="rollback", body="b", reason="r")
+    assert "parent" not in calls[-1][3]
+
+
+def test_move_re_files_a_page_and_empty_is_the_top_level(calls):
+    wiki(action="move", slug=SLUG, parent="ops", reason="belongs under ops")
+    assert calls[-1] == ("POST", f"{PAGE_URL}/move", None,
+                         {"parent": "ops", "reason": "belongs under ops"})
+    wiki(action="move", slug=SLUG, parent="")
+    assert calls[-1][3] == {"parent": ""}
+
+
+def test_move_needs_somewhere_to_go_and_a_real_slug(calls):
+    assert "requires parent" in wiki(action="move", slug=SLUG)
+    assert wiki(action="move", slug=SLUG, parent="../x").startswith(
+        "error: a parent is")
+    assert calls == []

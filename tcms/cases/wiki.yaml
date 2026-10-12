@@ -25,14 +25,32 @@ cases:
     tags: [api]
 
   - key: wiki.search-ors-the-words
-    title: The list searches with every word OR-ed and strips mentions from the query
+    title: The list searches every word first, and match=any widens to any of them on the indexed expression
     layer: integration
     priority: p1
-    steps: ["search for \"deploy helm\" with only one word present on a page"]
-    expected: the page is found; filters by area and archived state narrow the list
+    steps: ["search for \"forecast hailstorm\" with only one word present on a page", "repeat with match=any"]
+    expected: every-word finds nothing, any-word finds the page; both postgres queries use the GIN expression; filters narrow the list
     automation:
       - pytest:services/backend/tests/test_wiki_api.py::test_the_list_searches_and_filters
+      - pytest:services/backend/tests/test_wiki_api.py::test_a_search_can_widen_to_any_word
+      - pytest:services/backend/tests/test_wiki_api.py::test_the_any_word_search_compiles_for_postgres_with_one_bound_query
+      - pytest:services/backend/tests/test_wiki_api.py::test_the_every_word_search_uses_the_indexed_expression_too
     tags: [api, search]
+
+  - key: wiki.page-tree
+    title: Pages nest — a page lists its children at its foot, shows its breadcrumb, and moves without breaking links
+    layer: integration
+    priority: p1
+    steps: [create ops, nuc under ops, deploying under nuc, open nuc, move nuc, try to file ops under its own sub-page]
+    expected: nuc shows ops as its breadcrumb and its children by title; a move writes no version and keeps children; a loop is a 400
+    automation:
+      - pytest:services/backend/tests/test_wiki_api.py::test_a_page_lists_its_children_and_its_breadcrumb
+      - pytest:services/backend/tests/test_wiki_api.py::test_moving_a_page_keeps_its_children
+      - pytest:services/backend/tests/test_wiki_store.py::test_a_page_cannot_be_filed_under_itself_or_its_own_branch
+      - pytest:services/backend/tests/test_wiki_store.py::test_an_archived_parent_drops_out_of_the_breadcrumb
+      - pytest:services/mcp-broker/test_wiki_tool.py::test_move_re_files_a_page_and_empty_is_the_top_level
+      - "playwright:services/web/tests/wiki.spec.ts::a page shows where it is filed and lists the pages under it"
+    tags: [api, tree, ui]
 
   - key: wiki.agent-needs-grant-and-run
     title: An agent writes the wiki as itself, only from its own run, and only with the wiki grant

@@ -37,7 +37,7 @@ from types import SimpleNamespace
 
 from sqlalchemy import Text, cast, delete, false, func, literal_column, or_, select
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import aliased
+from sqlalchemy.orm import aliased, defer
 
 from agentplatform.config import get_settings
 from agentplatform.db import (
@@ -100,6 +100,10 @@ SEARCH_CANDIDATES_MAX = 200
 # `_search_words` only ever emits these, and `_pg_search` re-checks at the seam
 # where the SQL is actually built.
 TSQUERY_WORD_RE = re.compile(r"[a-z0-9]+")
+# How far up a page's parents any walk goes. A guard, not a design rule: the
+# store refuses the move that would close a loop, but a walk that trusted that
+# would hang every page view on the one row somebody edited by hand.
+TREE_DEPTH_MAX = 32
 
 
 class WikiRuleError(ValueError):
@@ -156,6 +160,7 @@ def page_view(page) -> dict:
             "tags": list(page.tags or []), "version": page.version,
             "created_by": page.created_by, "updated_by": page.updated_by,
             "source_memory_id": page.source_memory_id,
+            "parent_id": page.parent_id,
             "created_at": _iso(page.created_at), "updated_at": _iso(page.updated_at),
             "archived_at": _iso(page.archived_at)}
 
@@ -205,6 +210,7 @@ async def create_page(session, producer, *, actor: str, slug: str, title: str,
                       url_base: str = "", budget_limit: int | None = None,
                       max_body_bytes: int | None = None,
                       source_memory_id: str | None = None,
+                      parent: str | None = None,
                       event: str = "created") -> WikiPage:
     """Write a page that does not exist yet, at v1, and post its card.
 
@@ -217,7 +223,10 @@ async def create_page(session, producer, *, actor: str, slug: str, title: str,
     by the caller: a check made before the call is a count that N concurrent
     writes all pass, and an agent in a retry loop is exactly that concurrency.
     Under the room lock the count and the insert are one decision, so the
-    N+1st write is the one that is refused."""
+    N+1st write is the one that is refused.
+
+    `parent` is the slug of the page to file this one under; None or empty
+    is the top level."""
     _require_actor(actor, run)
     slug = _check_slug(slug)
     title, tags, reason = (_check_title(title), _check_tags(tags),
@@ -227,11 +236,12 @@ async def create_page(session, producer, *, actor: str, slug: str, title: str,
     await _check_budget(session, actor, budget_limit)
     if await _page_by_slug(session, slug) is not None:
         raise WikiExistsError(f"a page called {slug} already exists")
+    parent_id = await _parent_id(session, parent, None) if parent else None
     now = utcnow()
     page = WikiPage(slug=slug, title=title, body=body or "",
                     summary=summary_of(body), tags=tags, version=1,
                     created_by=actor, updated_by=actor,
-                    source_memory_id=source_memory_id,
+                    source_memory_id=source_memory_id, parent_id=parent_id,
                     created_at=now, updated_at=now)
     # The lookup above is the courteous refusal; THIS is the guard. Two creates
     # of the same new slug race whenever the room lock is not there to serialise
@@ -256,8 +266,10 @@ async def write_page(session, producer, slug: str, *, actor: str, body: str,
                      title: str | None = None, tags=None,
                      base_version: int | None = None, reason: str = "", run=None,
                      url_base: str = "", budget_limit: int | None = None,
-                     max_body_bytes: int | None = None) -> WikiPage:
-    """Replace a page's body (and optionally its title and tags) with `body`.
+                     max_body_bytes: int | None = None,
+                     parent: str | None = None) -> WikiPage:
+    """Replace a page's body (and optionally its title, tags and parent) with
+    `body`. `parent` follows `move_page`: None leaves it, "" is the top level.
 
     `base_version` is the version the writer read, and on an existing page it
     is REQUIRED: a write with no base is a writer claiming the page has not
@@ -279,22 +291,24 @@ async def write_page(session, producer, slug: str, *, actor: str, body: str,
                                  title=title or _title_from(slug), body=body,
                                  tags=tags, reason=reason, run=run,
                                  url_base=url_base, budget_limit=budget_limit,
-                                 max_body_bytes=max_body_bytes)
+                                 max_body_bytes=max_body_bytes, parent=parent)
     if base_version is None:
         raise WikiRuleError(f"a write to {slug} must name the base_version it read")
     if base_version != page.version:
         raise WikiConflictError(slug, page.version, page.summary or "")
     return await _apply(session, producer, page, actor=actor, body=body,
                         title=title, tags=tags, reason=reason, run=run,
-                        event="edited", url_base=url_base,
+                        event="edited", url_base=url_base, parent=parent,
                         budget_limit=budget_limit, max_body_bytes=max_body_bytes)
 
 
 async def append_page(session, producer, slug: str, *, actor: str, body: str,
                       reason: str = "", run=None, url_base: str = "",
                       budget_limit: int | None = None,
-                      max_body_bytes: int | None = None) -> WikiPage:
-    """Add a section to the end of a page, creating it when it is not there.
+                      max_body_bytes: int | None = None,
+                      parent: str | None = None) -> WikiPage:
+    """Add a section to the end of a page, creating it when it is not there —
+    under `parent` when one is named, which also re-files a page that exists.
 
     The shape an agent should prefer (docs/design/21): it never conflicts,
     because appending is the one edit whose meaning does not depend on what the
@@ -309,13 +323,46 @@ async def append_page(session, producer, slug: str, *, actor: str, body: str,
                                  title=_title_from(slug), body=body,
                                  reason=reason, run=run, url_base=url_base,
                                  budget_limit=budget_limit,
-                                 max_body_bytes=max_body_bytes)
+                                 max_body_bytes=max_body_bytes, parent=parent)
     added = (body or "").strip()
     whole = f"{(page.body or '').rstrip()}\n\n{added}" if page.body else added
     return await _apply(session, producer, page, actor=actor, body=whole,
                         reason=reason, run=run, event="appended",
                         url_base=url_base, budget_limit=budget_limit,
-                        max_body_bytes=max_body_bytes)
+                        max_body_bytes=max_body_bytes, parent=parent)
+
+
+async def move_page(session, producer, slug: str, *, actor: str, parent: str,
+                    reason: str = "", run=None, url_base: str = "",
+                    budget_limit: int | None = None) -> WikiPage:
+    """File a page under another one, or ("") at the top level.
+
+    No version row, for the reason archiving writes none: the text did not
+    move, the page did. The card still goes up, so the room sees the move.
+    Its children come with it — they point at the page's id, not at where it
+    used to be — and so does every `[[link]]` to it, because the slug is the
+    name and filing a page somewhere else does not rename it.
+
+    Metered like a write: re-filing thirty pages in a loop is the same
+    hammering, and the room would carry thirty cards about it."""
+    _require_actor(actor, run)
+    reason = _check_reason(reason)
+    page = await _lock_page(session, _check_slug(slug))
+    if page is None:
+        raise WikiRuleError(f"there is no page called {slug}")
+    if page.archived_at is not None:
+        raise WikiRuleError(f"{page.slug} is archived; restore it first")
+    conv = await _lock_room(session)
+    await _check_budget(session, actor, budget_limit)
+    parent_id = await _parent_id(session, parent, page)
+    if parent_id == page.parent_id:
+        raise WikiRuleError(f"{page.slug} is already filed there")
+    page.parent_id, page.updated_by = parent_id, actor
+    where = f"under [[{parent}]]" if parent_id else "to the top level"
+    return await _finish(session, producer, conv, page,
+                         _card_stand_in(page, actor, reason or f"moved {where}"),
+                         event="moved", counts=(0, 0), actor=actor, run=run,
+                         url_base=url_base)
 
 
 async def archive_page(session, producer, slug: str, *, actor: str,
@@ -463,6 +510,37 @@ async def backlinks(session, slug: str) -> list[WikiPage]:
         .order_by(WikiPage.title))).scalars())
 
 
+async def ancestors(session, page) -> list[WikiPage]:
+    """The pages above this one, top level first — the breadcrumb.
+
+    The walk stops at the first archived parent: archiving takes a page out of
+    the wiki, so the pages under it read as top-level until it is restored, and
+    restoring puts them back without anybody re-filing them. It also stops at a
+    parent that is missing or that it has already seen, which the store never
+    writes but a walk run on every page view must not trust."""
+    out: list[WikiPage] = []
+    seen = {page.id}
+    parent_id = page.parent_id
+    while parent_id and parent_id not in seen and len(out) < TREE_DEPTH_MAX:
+        parent = await session.get(WikiPage, parent_id)
+        if parent is None or parent.archived_at is not None:
+            break
+        out.append(parent)
+        seen.add(parent.id)
+        parent_id = parent.parent_id
+    return out[::-1]
+
+
+async def children(session, page) -> list[WikiPage]:
+    """The live pages filed directly under this one, by title — what a page
+    lists at its foot, the way Notion does. Archived children are out of the
+    wiki and out of this list."""
+    return list((await session.execute(
+        select(WikiPage).options(defer(WikiPage.body))
+        .where(WikiPage.parent_id == page.id, WikiPage.archived_at.is_(None))
+        .order_by(WikiPage.title, WikiPage.slug))).scalars())
+
+
 async def wanted(session) -> list[dict]:
     """The red links: `[[slug]]`s that no live page answers to, most-asked
     first. This is the wiki's to-do list, and it is a feature rather than a
@@ -567,14 +645,8 @@ def _pg_search(live, words: list[str], limit: int):
         # Nothing askable survived: a search that matches nothing, not a
         # `to_tsquery('')` for postgres to raise a notice about.
         return live.where(false()).limit(limit)
-    # Words that are all stopwords ("where does this") parse to an EMPTY
-    # tsquery, which matches nothing — a miss, never an error.
-    query = func.to_tsquery("english", " | ".join(safe))
-    # Keep the separator literal in SQL. SQLAlchemy 2.0 may cast a bound
-    # string parameter to VARCHAR, producing a different-looking expression
-    # from the fixed GIN index DDL below.
-    indexed = func.to_tsvector("english", WikiPage.title + literal_column("' '")
-                               + WikiPage.body)
+    query = or_query(safe)
+    indexed = indexed_vector()
     # Ties broken by slug for the reason the other branch breaks them there,
     # in BOTH passes: the inner one decides which rows the outer gets to see.
     candidates = (live.where(indexed.op("@@")(query))
@@ -586,6 +658,38 @@ def _pg_search(live, words: list[str], limit: int):
     return (select(page)
             .order_by(func.ts_rank(ranked, query).desc(), page.slug)
             .limit(limit))
+
+
+def indexed_vector():
+    """`_ensure_wiki_ddl`'s GIN expression, the one every search must match on
+    VERBATIM or postgres scans the whole table instead of using the index. The
+    separator stays a literal in the SQL: as a bound parameter SQLAlchemy 2.0
+    renders it `%(title_1)s::VARCHAR`, an expression the planner does not
+    recognise as the indexed one."""
+    return func.to_tsvector("english", WikiPage.title + literal_column("' '")
+                            + WikiPage.body)
+
+
+def or_query(words: list[str]):
+    """`words` as ONE postgres tsquery that any of them satisfies — the prompt
+    search's net, and the search box's when every word found nothing. Only
+    `TSQUERY_WORD_RE` words get in, since `to_tsquery` parses its argument;
+    the caller makes sure at least one is left. Words that are all stopwords
+    ("where does this") parse to an EMPTY tsquery, which matches nothing — a
+    miss, never an error."""
+    safe = [w for w in words if TSQUERY_WORD_RE.fullmatch(w)]
+    return func.to_tsquery("english", " | ".join(safe))
+
+
+def query_words(text: str) -> list[str]:
+    """The words of a search somebody TYPED, for the any-word fallback. Unlike
+    `_search_words` it keeps short words: a person searching `dns` or `k3s`
+    meant it, where three letters out of a room's chatter is noise."""
+    seen: list[str] = []
+    for word in TSQUERY_WORD_RE.findall((text or "").lower()):
+        if len(word) >= 2 and word not in seen:
+            seen.append(word)
+    return seen[:SEARCH_WORDS_MAX]
 
 
 def _search_words(text: str) -> list[str]:
@@ -646,7 +750,8 @@ async def say_budget_once(session, producer, conv, limit: int, now) -> RelayMess
 async def _apply(session, producer, page, *, actor: str, body: str, event: str,
                  title: str | None = None, tags=None, reason: str = "", run=None,
                  url_base: str = "", budget_limit: int | None = None,
-                 max_body_bytes: int | None = None) -> WikiPage:
+                 max_body_bytes: int | None = None,
+                 parent: str | None = None) -> WikiPage:
     """One write to a page that already exists: the caller has decided WHAT the
     new body is and has already taken the row lock; everything after that is
     the same for an edit, an append, a roll-back and a promotion."""
@@ -658,12 +763,16 @@ async def _apply(session, producer, page, *, actor: str, body: str, event: str,
     new_tags = page.tags if tags is None else _check_tags(tags)
     conv = await _lock_room(session)
     await _check_budget(session, actor, budget_limit)
+    # After the room lock, so two moves that would each file a page under the
+    # other are judged one after the other rather than both against the old tree.
+    parent_id = (page.parent_id if parent is None
+                 else await _parent_id(session, parent, page))
     # Nothing above this line has touched the row: every refusal — a cap, the
-    # budget — has to leave the caller's session as clean as it found it, since
-    # a caller that catches WikiRuleError and carries on would otherwise flush
-    # a half-written page on its next commit.
+    # budget, a parent that cannot be — has to leave the caller's session as
+    # clean as it found it, since a caller that catches WikiRuleError and
+    # carries on would otherwise flush a half-written page on its next commit.
     counts = line_counts(page.body or "", body or "")
-    page.title, page.tags = new_title, new_tags
+    page.title, page.tags, page.parent_id = new_title, new_tags, parent_id
     page.body, page.summary = body or "", summary_of(body)
     page.updated_by, page.version = actor, (page.version or 0) + 1
     version = await _add_version(session, page, actor=actor, run=run, reason=reason)
@@ -766,6 +875,37 @@ async def _version_of(session, page, version: int) -> WikiVersion | None:
     return (await session.execute(select(WikiVersion).where(
         WikiVersion.page_id == page.id,
         WikiVersion.version == version))).scalars().first()
+
+
+async def _parent_id(session, parent: str | None, page) -> str | None:
+    """The id of the page `parent` names, checked as a place to file `page`
+    (None while it is still being created), or None for "" — the top level.
+
+    A parent must be a live page, must not be the page itself, and must not be
+    anywhere beneath it: filing a page under its own sub-page would cut the
+    whole branch off from the top, and every breadcrumb in it would go round
+    in a circle."""
+    if not parent:
+        return None
+    target = await _page_by_slug(session, _check_slug(parent))
+    if target is None:
+        raise WikiRuleError(f"there is no page called {parent} to file this under")
+    if target.archived_at is not None:
+        raise WikiRuleError(f"{parent} is archived; restore it before filing pages under it")
+    if page is None:
+        return target.id
+    if target.id == page.id:
+        raise WikiRuleError(f"{page.slug} cannot be filed under itself")
+    walked, cursor = 0, target
+    while cursor.parent_id and walked < TREE_DEPTH_MAX:
+        if cursor.parent_id == page.id:
+            raise WikiRuleError(f"{parent} is filed under {page.slug}; a page "
+                                f"cannot be filed under its own sub-page")
+        cursor = await session.get(WikiPage, cursor.parent_id)
+        if cursor is None:
+            break
+        walked += 1
+    return target.id
 
 
 async def _add_version(session, page, *, actor: str, run, reason: str) -> WikiVersion:

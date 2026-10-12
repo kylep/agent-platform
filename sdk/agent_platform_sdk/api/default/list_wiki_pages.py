@@ -17,6 +17,8 @@ def _get_kwargs(
     tag: None | str | Unset = UNSET,
     changed_since: datetime.datetime | None | Unset = UNSET,
     source_memory_id: None | str | Unset = UNSET,
+    parent: None | str | Unset = UNSET,
+    match: str | Unset = "all",
     limit: int | Unset = 200,
 ) -> dict[str, Any]:
 
@@ -51,6 +53,15 @@ def _get_kwargs(
     else:
         json_source_memory_id = source_memory_id
     params["source_memory_id"] = json_source_memory_id
+
+    json_parent: None | str | Unset
+    if isinstance(parent, Unset):
+        json_parent = UNSET
+    else:
+        json_parent = parent
+    params["parent"] = json_parent
+
+    params["match"] = match
 
     params["limit"] = limit
 
@@ -107,19 +118,27 @@ def sync_detailed(
     tag: None | str | Unset = UNSET,
     changed_since: datetime.datetime | None | Unset = UNSET,
     source_memory_id: None | str | Unset = UNSET,
+    parent: None | str | Unset = UNSET,
+    match: str | Unset = "all",
     limit: int | Unset = 200,
 ) -> Response[HTTPValidationError | list[WikiPageView]]:
-    """List Wiki Pages
+    r"""List Wiki Pages
 
      The wiki, filtered. Newest first, or by relevance when `q` is a search
     the dialect can rank. Archived pages are excluded from all of it: they are
     out of the wiki by definition, and their history is read by slug.
+
+    `match=any` widens `q` from every word to any of them (see `_matching`);
+    `parent` narrows to the pages filed directly under that slug, and \"\" to
+    the top level.
 
     Args:
         q (None | str | Unset):
         tag (None | str | Unset):
         changed_since (datetime.datetime | None | Unset):
         source_memory_id (None | str | Unset):
+        parent (None | str | Unset):
+        match (str | Unset):  Default: 'all'.
         limit (int | Unset):  Default: 200.
 
     Raises:
@@ -135,6 +154,8 @@ def sync_detailed(
         tag=tag,
         changed_since=changed_since,
         source_memory_id=source_memory_id,
+        parent=parent,
+        match=match,
         limit=limit,
     )
 
@@ -152,19 +173,27 @@ def sync(
     tag: None | str | Unset = UNSET,
     changed_since: datetime.datetime | None | Unset = UNSET,
     source_memory_id: None | str | Unset = UNSET,
+    parent: None | str | Unset = UNSET,
+    match: str | Unset = "all",
     limit: int | Unset = 200,
 ) -> HTTPValidationError | list[WikiPageView] | None:
-    """List Wiki Pages
+    r"""List Wiki Pages
 
      The wiki, filtered. Newest first, or by relevance when `q` is a search
     the dialect can rank. Archived pages are excluded from all of it: they are
     out of the wiki by definition, and their history is read by slug.
+
+    `match=any` widens `q` from every word to any of them (see `_matching`);
+    `parent` narrows to the pages filed directly under that slug, and \"\" to
+    the top level.
 
     Args:
         q (None | str | Unset):
         tag (None | str | Unset):
         changed_since (datetime.datetime | None | Unset):
         source_memory_id (None | str | Unset):
+        parent (None | str | Unset):
+        match (str | Unset):  Default: 'all'.
         limit (int | Unset):  Default: 200.
 
     Raises:
@@ -181,6 +210,8 @@ def sync(
         tag=tag,
         changed_since=changed_since,
         source_memory_id=source_memory_id,
+        parent=parent,
+        match=match,
         limit=limit,
     ).parsed
 
@@ -192,19 +223,27 @@ async def asyncio_detailed(
     tag: None | str | Unset = UNSET,
     changed_since: datetime.datetime | None | Unset = UNSET,
     source_memory_id: None | str | Unset = UNSET,
+    parent: None | str | Unset = UNSET,
+    match: str | Unset = "all",
     limit: int | Unset = 200,
 ) -> Response[HTTPValidationError | list[WikiPageView]]:
-    """List Wiki Pages
+    r"""List Wiki Pages
 
      The wiki, filtered. Newest first, or by relevance when `q` is a search
     the dialect can rank. Archived pages are excluded from all of it: they are
     out of the wiki by definition, and their history is read by slug.
+
+    `match=any` widens `q` from every word to any of them (see `_matching`);
+    `parent` narrows to the pages filed directly under that slug, and \"\" to
+    the top level.
 
     Args:
         q (None | str | Unset):
         tag (None | str | Unset):
         changed_since (datetime.datetime | None | Unset):
         source_memory_id (None | str | Unset):
+        parent (None | str | Unset):
+        match (str | Unset):  Default: 'all'.
         limit (int | Unset):  Default: 200.
 
     Raises:
@@ -220,6 +259,8 @@ async def asyncio_detailed(
         tag=tag,
         changed_since=changed_since,
         source_memory_id=source_memory_id,
+        parent=parent,
+        match=match,
         limit=limit,
     )
 
@@ -235,19 +276,27 @@ async def asyncio(
     tag: None | str | Unset = UNSET,
     changed_since: datetime.datetime | None | Unset = UNSET,
     source_memory_id: None | str | Unset = UNSET,
+    parent: None | str | Unset = UNSET,
+    match: str | Unset = "all",
     limit: int | Unset = 200,
 ) -> HTTPValidationError | list[WikiPageView] | None:
-    """List Wiki Pages
+    r"""List Wiki Pages
 
      The wiki, filtered. Newest first, or by relevance when `q` is a search
     the dialect can rank. Archived pages are excluded from all of it: they are
     out of the wiki by definition, and their history is read by slug.
+
+    `match=any` widens `q` from every word to any of them (see `_matching`);
+    `parent` narrows to the pages filed directly under that slug, and \"\" to
+    the top level.
 
     Args:
         q (None | str | Unset):
         tag (None | str | Unset):
         changed_since (datetime.datetime | None | Unset):
         source_memory_id (None | str | Unset):
+        parent (None | str | Unset):
+        match (str | Unset):  Default: 'all'.
         limit (int | Unset):  Default: 200.
 
     Raises:
@@ -265,6 +314,8 @@ async def asyncio(
             tag=tag,
             changed_since=changed_since,
             source_memory_id=source_memory_id,
+            parent=parent,
+            match=match,
             limit=limit,
         )
     ).parsed

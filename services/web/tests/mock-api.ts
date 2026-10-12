@@ -892,6 +892,10 @@ const wikiDetails: Record<string, unknown> = {
     cited_in: { count: 2, count_capped: false,
                 last: [wikiCitation("k1r4", "agent:pai", 583),
                        wikiCitation("k1r5", "user:kyle", 590)] },
+    // Filed under home, with a sub-page of its own: the breadcrumb above the
+    // title and the list at the foot.
+    ancestors: [{ slug: "home", title: "The wiki" }],
+    children: [{ slug: "rollback", title: "Rolling back" }],
   },
   "kyle-location": { page: wikiFixtures[2], backlinks: [],
                      cited_in: { count: 0, count_capped: false, last: [] } },

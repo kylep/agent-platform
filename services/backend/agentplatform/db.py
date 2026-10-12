@@ -690,8 +690,10 @@ class WikiPage(Base):
     version — the number a write names to prove it read the row it is editing —
     and every value it has ever held is a row in wiki_versions."""
     __tablename__ = "wiki_pages"
-    # Recent changes is the wiki's front page, and it is this index.
-    __table_args__ = (Index("ix_wiki_pages_updated", "updated_at"),)
+    # Recent changes is the wiki's front page, and it is this index; a page's
+    # child list (read on every page view) is the second.
+    __table_args__ = (Index("ix_wiki_pages_updated", "updated_at"),
+                      Index("ix_wiki_pages_parent", "parent_id"))
     id: Mapped[str] = mapped_column(String(32), primary_key=True, default=lambda: uuid.uuid4().hex)
     slug: Mapped[str] = mapped_column(String(64), unique=True)
     title: Mapped[str] = mapped_column(String(120))
@@ -709,6 +711,12 @@ class WikiPage(Base):
     # the wiki must not reach into it — and the memory is left in place, so
     # this is a note about where the fact came from, not ownership of it.
     source_memory_id: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    # The page this one is nested under, or None at the top level. An id and
+    # not a slug, so moving a page never touches its children, and not a
+    # foreign key, like every other join in the wiki. Not versioned either:
+    # where a page is filed is a fact about the page, as its tags are, and a
+    # history entry whose body did not move is a diff nobody can read.
+    parent_id: Mapped[str | None] = mapped_column(String(32), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
     # Archive, not delete: an archived page drops out of search, links and the
@@ -2149,7 +2157,12 @@ def _ensure_tickets_seed(conn) -> None:
 def _ensure_wiki_ddl(conn) -> None:
     """The wiki schema the model declarations cannot express (docs/design/21):
     search is a GIN tsvector over a page's title and body, which is postgres
-    only — on sqlite the API falls back to LIKE, as the ticket board does."""
+    only — on sqlite the API falls back to LIKE, as the ticket board does.
+
+    The parent index is here too, for the live table `_ensure_columns` grew
+    `parent_id` on: create_all builds a model's indexes only with its table."""
+    conn.exec_driver_sql("CREATE INDEX IF NOT EXISTS ix_wiki_pages_parent "
+                         "ON wiki_pages (parent_id)")
     if conn.dialect.name == "postgresql":
         conn.exec_driver_sql("CREATE INDEX IF NOT EXISTS ix_wiki_pages_fts ON wiki_pages "
                              "USING GIN (to_tsvector('english', title || ' ' || body))")

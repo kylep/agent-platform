@@ -28,6 +28,23 @@ only thing an agent has to remember. It is lower-case letters, digits and
 hyphens (`^[a-z0-9][a-z0-9-]{0,63}$`) — anything else is refused rather than
 mangled, because a slug that is a near-miss is a second page about one thing.
 
+## Pages under pages
+
+Pages nest the way they do in Notion. Any page can be **filed under** another,
+and a page always lists the pages filed directly under it at its foot —
+computed from where pages are filed, never written into the body, so the list
+cannot go stale when one moves. A breadcrumb above the title shows the way
+down from the top. **Add sub-page** at the foot of a page names a new one and
+opens the editor on it already filed there; the editor's **Filed under** field
+moves a page (empty is the top level).
+
+The slug is still the whole name: a page filed under `ops` is `deploying`,
+not `ops/deploying`, so moving it breaks no link and renames nothing. Its own
+sub-pages move with it. A page cannot be filed under itself or under anything
+beneath it. Moving writes no version — the text did not change — but it posts
+a card in `#wiki` like any other change. Archiving a page leaves its sub-pages
+where they are: they read as top-level until it is restored.
+
 ## Links, and the red ones
 
 `[[slug]]` is a **wiki-link**, and it works wherever prose is rendered: a page,
@@ -73,11 +90,12 @@ status, one sentence, however the collision was found.
 page rendered — a page like any other, so whoever wants it to say something
 else edits it — with a rail beside it: search, tags, **Recent changes** live
 from the stream, **Wanted pages**, and **Stale** (untouched for
-`wiki_stale_days`, **30**). The search box wants **every** word: `deploy helm`
-finds only pages carrying both, so a search that comes back empty is usually a
-word too many. (The `<wiki>` prompt block below is the one deliberate
-exception — it is handed a whole room's worth of talk and has nobody to ask,
-so it ORs.) A page's own URL is `/wiki/<slug>`; **Edit** is a markdown box and
+`wiki_stale_days`, **30**). The search box wants **every** word first:
+`deploy helm` finds the pages carrying both. When no page has them all, it
+shows the pages carrying **some** of them, best match first, and says so in
+the heading — those are near misses, not answers. (The `<wiki>` prompt block
+below always ORs: it is handed a whole room's worth of talk and has nobody to
+ask.) A page's own URL is `/wiki/<slug>`; **Edit** is a markdown box and
 a reason, **History** is the drawer. The Dashboard carries the
 wiki's three numbers (pages · edits today · wanted), and raises a row when the
 wanted list passes 5 or the stale list passes 10 — a couple of red links is how
@@ -90,11 +108,12 @@ Agents hold one default-granted broker tool, `wiki`
 
 | action | what it does |
 |---|---|
-| `read` | one page whole, with its backlinks and how often it is cited |
-| `search` | ranked full-text search, every word required: slug · title · summary |
+| `read` | one page whole, with its backlinks, how often it is cited, its `path` (the pages above it) and its `children` |
+| `search` | ranked full-text search: every word, or — when no page has them all — any of them, labelled as such: slug · title · summary |
 | `list` | newest first; `tag`, `changed_since` to narrow it |
-| `write` | replace the body (`body`, `reason`, `title?`, `tags?`, `base_version`) — with no `base_version` it only creates a page that is not there |
-| `append` | add a section (`body`, `reason`); never conflicts, writes the page if it is missing |
+| `write` | replace the body (`body`, `reason`, `title?`, `tags?`, `parent?`, `base_version`) — with no `base_version` it only creates a page that is not there |
+| `append` | add a section (`body`, `reason`, `parent?`); never conflicts, writes the page if it is missing |
+| `move` | file a page under `parent` (a slug), or `''` for the top level; no new version |
 | `history` | the versions, with author, reason and ±lines |
 | `promote` | turn one of its **own** memories (`memory_id`, or its `key`) into a page |
 | `wanted` | the red links, most-linked first |

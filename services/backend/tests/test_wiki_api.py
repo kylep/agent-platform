@@ -586,3 +586,92 @@ async def test_the_wiki_default_can_be_turned_off_platform_wide(admin_client, sf
     assert r.json()["platform_tools"] == [RELAY_GRANT, TICKETS_GRANT, QUOTA_GRANT,
                                           ARTIFACTS_GRANT, "mcp__platform__memory",
 ]
+
+
+async def test_a_page_lists_its_children_and_its_breadcrumb(admin_client):
+    await _create(admin_client, slug="ops", title="Ops")
+    await _create(admin_client, slug="nuc", title="The NUC", parent="ops")
+    await _create(admin_client, parent="nuc")
+    await _create(admin_client, slug="backups", title="Backups", parent="nuc")
+
+    r = await admin_client.get("/api/wiki/pages/nuc")
+    assert r.status_code == 200, r.text
+    detail = r.json()
+    assert detail["ancestors"] == [{"slug": "ops", "title": "Ops"}]
+    assert [c["slug"] for c in detail["children"]] == ["backups", "deploying"]
+    assert detail["page"]["parent_id"] is not None
+
+    r = await admin_client.get("/api/wiki/pages", params={"parent": "nuc"})
+    assert sorted(p["slug"] for p in r.json()) == ["backups", "deploying"]
+    r = await admin_client.get("/api/wiki/pages", params={"parent": ""})
+    assert sorted(p["slug"] for p in r.json()) == ["home", "ops"]
+
+
+async def test_moving_a_page_keeps_its_children(admin_client):
+    await _create(admin_client, slug="ops", title="Ops")
+    await _create(admin_client, slug="nuc", title="The NUC")
+    await _create(admin_client, parent="nuc")
+
+    r = await admin_client.post("/api/wiki/pages/nuc/move", json={"parent": "ops"})
+    assert r.status_code == 200, r.text
+    assert r.json()["version"] == 1
+    r = await admin_client.get("/api/wiki/pages/deploying")
+    assert [a["slug"] for a in r.json()["ancestors"]] == ["ops", "nuc"]
+
+    r = await admin_client.post("/api/wiki/pages/ops/move", json={"parent": "deploying"})
+    assert r.status_code == 400
+    assert "own sub-page" in r.json()["detail"]
+    r = await admin_client.post("/api/wiki/pages/nuc/move", json={"parent": "Not A Slug"})
+    assert r.status_code == 400
+
+
+async def test_a_search_can_widen_to_any_word(admin_client):
+    await _create(admin_client, slug="weather", title="Weather",
+                  body="The forecast is a daily item.")
+
+    async def slugs(**params):
+        r = await admin_client.get("/api/wiki/pages", params=params)
+        assert r.status_code == 200, r.text
+        return [p["slug"] for p in r.json()]
+
+    assert await slugs(q="forecast hailstorm") == []
+    assert await slugs(q="forecast hailstorm", match="any") == ["weather"]
+    assert await slugs(q="!!", match="any") == []
+    r = await admin_client.get("/api/wiki/pages", params={"q": "x", "match": "some"})
+    assert r.status_code == 422
+
+
+def test_the_any_word_search_compiles_for_postgres_with_one_bound_query():
+    """No postgres in CI, so the SQL is the assertion: the any-word match is
+    the GIN index's expression, ORs the words, and binds them as ONE value."""
+    from sqlalchemy.dialects import postgresql
+
+    from agentplatform.api.wiki import _matching
+
+    class Bind:
+        dialect = postgresql.dialect()
+
+    clause, rank = _matching(Bind(), "Forecast, hail!", "any")
+    compiled = select(WikiPage).where(clause).order_by(rank).compile(
+        dialect=postgresql.dialect())
+    sql = " ".join(str(compiled).split())
+    assert "wiki_pages.title || ' ' || wiki_pages.body" in sql
+    assert "plainto_tsquery" not in sql and "ts_rank" in sql
+    assert "forecast | hail" in compiled.params.values()
+
+
+def test_the_every_word_search_uses_the_indexed_expression_too():
+    """The search box's own query once bound the `' '` separator, which
+    compiles to an expression the GIN index does not match: every search was
+    a full scan of a table of 64 KB bodies."""
+    from sqlalchemy.dialects import postgresql
+
+    from agentplatform.api.wiki import _matching
+
+    class Bind:
+        dialect = postgresql.dialect()
+
+    clause, _ = _matching(Bind(), "forecast", "all")
+    sql = " ".join(str(select(WikiPage).where(clause).compile(
+        dialect=postgresql.dialect())).split())
+    assert "wiki_pages.title || ' ' || wiki_pages.body" in sql

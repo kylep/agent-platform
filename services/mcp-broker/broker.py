@@ -1348,7 +1348,7 @@ async def tickets(action: str, key: str | None = None, channel: str | None = Non
 # different here is that a page is not in a room — there is no channel to
 # resolve, and the only thing the model names is a slug, which becomes both a
 # URL path and a `[[link]]`.
-WIKI_ACTIONS = ("read", "search", "list", "write", "append", "history",
+WIKI_ACTIONS = ("read", "search", "list", "write", "append", "move", "history",
                 "promote", "wanted")
 # `api/wiki.py`'s own page cap, which bounds the history's limit too.
 WIKI_LIST_LIMIT = 200
@@ -1416,6 +1416,23 @@ def _wiki_changed(out: str) -> str:
             f"or use append")
 
 
+def _wiki_saved(out: str) -> str:
+    """A write's answer as one line. The API answers with the whole page — up
+    to 64 KB of body the agent itself just sent — and what it needs back is
+    that the write landed and the version to name next time."""
+    try:
+        page = _json.loads(out)
+    except ValueError:
+        return out
+    if not isinstance(page, dict) or not page.get("slug") or not page.get("version"):
+        return out
+    return f"saved [[{page['slug']}]] v{page['version']}"
+
+
+def _wiki_refs(rows) -> list[str]:
+    return [r.get("slug") or "?" for r in rows or []]
+
+
 def _wiki_line(p: dict) -> str:
     return "  ".join([p.get("slug") or "?", _flat(p.get("title")),
                       _flat(p.get("summary"))])
@@ -1453,9 +1470,13 @@ async def _wiki_read(slug: str) -> str:
     except ValueError:
         return out
     page = detail.get("page") or {}
+    # Where the page sits, as slugs: `path` is the breadcrumb from the top
+    # level down to its parent, and `children` the pages filed under it.
     return _json.dumps({
         "page": {k: page.get(k) for k in ("slug", "title", "body", "tags",
                                           "version", "updated_by", "updated_at")},
+        "path": _wiki_refs(detail.get("ancestors")),
+        "children": _wiki_refs(detail.get("children")),
         "backlinks": detail.get("backlinks") or [],
         "cited_in": detail.get("cited_in") or {}})
 
@@ -1477,6 +1498,22 @@ async def _current_version(slug: str) -> tuple[int | None, bool]:
         return (_json.loads(out).get("page") or {}).get("version"), False
     except (ValueError, AttributeError):
         return None, False
+
+
+async def _wiki_search(q: str, size: int) -> str:
+    """Every word first, as the search box does; when no page carries them
+    all, the same words ORed and ranked, said as such. An agent's query is a
+    sentence more often than a keyword, and "no pages" to a sentence sends it
+    off to write a page that already exists."""
+    out = _wiki_lines(await _call("GET", "/api/wiki/pages",
+                                  {"q": q, "limit": size}), size)
+    if out != "no pages":
+        return out
+    wider = _wiki_lines(await _call("GET", "/api/wiki/pages",
+                                    {"q": q, "match": "any", "limit": size}), size)
+    if wider == "no pages" or wider.startswith("error:"):
+        return out
+    return "no page has every word; pages with some of them:\n" + wider
 
 
 async def _wiki_history(slug: str, limit: int) -> str:
@@ -1516,23 +1553,28 @@ async def wiki(action: str, slug: str | None = None, q: str | None = None,
                title: str | None = None, tags: list[str] | str | None = None,
                base_version: int | None = None, tag: str | None = None,
                changed_since: str | None = None, key: str | None = None,
-               memory_id: str | None = None, limit: int = 20) -> str:
+               memory_id: str | None = None, parent: str | None = None,
+               limit: int = 20) -> str:
     """The wiki — what everybody here knows; you write as yourself, from your
-    token. Actions: read · search · list · write · append · history · promote ·
-    wanted. A slug is lowercase-with-dashes (`deploying`); cite a page as
-    `[[slug]]` anywhere and never invent one — search or read first. Prefer
-    `append` for a note: it adds a section, never conflicts, and writes the
-    page if it is missing. `write` REPLACES the page, so read it first and pass
-    the `base_version` you read; with no base_version it only creates a page
-    that does not exist yet. Every write needs a `reason` — one line on what
-    changed and why. `promote` turns one of your own memories (by the `key` you
-    saved it under, or `memory_id`) into a page everybody can cite."""
+    token. Actions: read · search · list · write · append · move · history ·
+    promote · wanted. A slug is lowercase-with-dashes; cite a page as `[[slug]]`
+    and never invent one — search or read first. Prefer `append` for a note:
+    it never conflicts and writes the page if missing. `write` REPLACES the
+    page: pass the `base_version` you read (none = create only). Every write
+    needs a `reason`. Pages nest: `parent` (a slug) files a page you create, and
+    `move` re-files one (parent '' = top level); `read` shows path + children.
+    `promote` turns one of your own memories (`key` or `memory_id`) into a page."""
     if action not in WIKI_ACTIONS:
         return "error: action must be one of " + "|".join(WIKI_ACTIONS)
     ref, error = _wiki_slug(slug)
     if error:
         return error
-    if action in ("read", "write", "append", "history") and not ref:
+    # The parent goes in a body, not a path, but it is held to the same
+    # grammar: a near-miss slug here would file the page under nothing.
+    above, error = _wiki_slug(parent)
+    if error:
+        return error.replace("a slug", "a parent")
+    if action in ("read", "write", "append", "move", "history") and not ref:
         return (f"error: action='{action}' requires slug, the page's slug "
                 f"(e.g. deploying)")
     size = _clamp(limit, WIKI_LIST_LIMIT)
@@ -1542,8 +1584,7 @@ async def wiki(action: str, slug: str | None = None, q: str | None = None,
     if action == "search":
         if not q:
             return "error: action='search' requires q, the words to look for"
-        return _wiki_lines(await _call("GET", "/api/wiki/pages",
-                                       {"q": q, "limit": size}), size)
+        return await _wiki_search(q, size)
     if action == "list":
         return _wiki_lines(await _call("GET", "/api/wiki/pages", {
             "tag": tag or None, "changed_since": changed_since or None,
@@ -1552,6 +1593,13 @@ async def wiki(action: str, slug: str | None = None, q: str | None = None,
         return await _wiki_history(ref, size)
     if action == "wanted":
         return await _wiki_wanted()
+    if action == "move":
+        if parent is None:
+            return ("error: action='move' requires parent, the slug of the page "
+                    "to file it under ('' for the top level)")
+        return _wiki_saved(await _call(
+            "POST", f"/api/wiki/pages/{ref}/move",
+            json={"parent": above, **_given(reason=reason)}))
     if action == "promote":
         if not (memory_id or key):
             return ("error: action='promote' requires key, the key you saved "
@@ -1569,14 +1617,18 @@ async def wiki(action: str, slug: str | None = None, q: str | None = None,
                    if action == "write" else "section to add"))
     if not reason:
         return "error: give a reason for the edit"
+    # None leaves where a page is filed alone; "" is the top level, which only
+    # means something to a page that already has a parent.
+    filed = None if parent is None else above
     if action == "append":
-        return await _call("POST", f"/api/wiki/pages/{ref}/append",
-                           json={"body": body, "reason": reason})
+        return _wiki_saved(await _call(
+            "POST", f"/api/wiki/pages/{ref}/append",
+            json={"body": body, "reason": reason, **_given(parent=filed)}))
     if base_version is not None:
-        return _wiki_changed(await _call(
+        return _wiki_saved(_wiki_changed(await _call(
             "PUT", f"/api/wiki/pages/{ref}",
             json={"body": body, "reason": reason, "base_version": base_version,
-                  **_given(title=title, tags=_wiki_tags(tags))}))
+                  **_given(title=title, tags=_wiki_tags(tags), parent=filed)})))
     # No base_version, so this is a create — and the create is also how the
     # tool asks whether the page is there at all. A slug that is taken comes
     # back as the guidance a blind overwrite needs, never as a write: a replace
@@ -1585,9 +1637,9 @@ async def wiki(action: str, slug: str | None = None, q: str | None = None,
     out = await _call("POST", "/api/wiki/pages",
                       json={"slug": ref, "title": title or _wiki_title(ref),
                             "body": body, "reason": reason,
-                            **_given(tags=_wiki_tags(tags))})
+                            **_given(tags=_wiki_tags(tags), parent=filed or None)})
     if not out.startswith("error: 409"):
-        return out
+        return _wiki_saved(out)
     current, gone = await _current_version(ref)
     if gone:
         # The slug is taken and the page will not answer for it: it is in the

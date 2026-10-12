@@ -24,6 +24,8 @@ export function Rail({ wiki }: { wiki: WikiIndex }) {
   const [term, setTerm] = useState("");
   const [tag, setTag] = useState<string | null>(null);
   const [hits, setHits] = useState<WikiPage[] | null>(null);
+  // The hits are pages carrying SOME of the words, because none carried all.
+  const [widened, setWidened] = useState(false);
   const search = useRef<HTMLInputElement>(null);
   // Searches overlap and can answer in either order — a slow query for "dep"
   // landing after a fast one for "deploying" would put the wrong list under
@@ -57,9 +59,18 @@ export function Rail({ wiki }: { wiki: WikiIndex }) {
       if (q) params.set("q", q);
       if (tag) params.set("tag", tag);
       const mine = ++issued.current;
-      api<WikiPage[]>(`/api/wiki/pages?${params}`)
-        .then((rows) => { if (mine === issued.current) setHits(rows); })
-        .catch(() => { if (mine === issued.current) setHits([]); });
+      // Every word first; when no page carries them all, any of them, ranked —
+      // and the heading says so, since those are near misses, not answers.
+      (async () => {
+        let rows = await api<WikiPage[]>(`/api/wiki/pages?${params}`);
+        let wide = false;
+        if (rows.length === 0 && q.includes(" ")) {
+          params.set("match", "any");
+          rows = await api<WikiPage[]>(`/api/wiki/pages?${params}`);
+          wide = rows.length > 0;
+        }
+        if (mine === issued.current) { setHits(rows); setWidened(wide); }
+      })().catch(() => { if (mine === issued.current) { setHits([]); setWidened(false); } });
     }, q ? SEARCH_SETTLE_MS : 0);
     return () => clearTimeout(id);
   }, [term, tag]);
@@ -89,6 +100,7 @@ export function Rail({ wiki }: { wiki: WikiIndex }) {
         <section className="wiki-rail-block" aria-label="Search results">
           <h2 className="wiki-rail-head">
             {hits.length} {hits.length === 1 ? "page" : "pages"}
+            {widened && " with some of the words"}
           </h2>
           {hits.length === 0
             ? <p className="muted">Nothing matches. A page nobody has written is a page worth writing.</p>
