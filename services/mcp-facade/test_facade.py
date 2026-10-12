@@ -175,11 +175,11 @@ async def test_backup_resource_forwards_admin_and_returns_only_ciphertext(spec, 
 
 def test_everything_else_is_a_tool(spec, tools):
     """The default surface, by construction: exactly the operations that are
-    not design-17-excluded, not curated out, and not gated. Pinned at 151."""
+    not design-17-excluded, not curated out, and not gated. Pinned at 148."""
     hidden = {(m, p) for m, p in operations(spec) if matches(ALL_RULES, m, p)}
     expected = set(operations(spec)) - hidden
     assert {(t._route.method, t._route.path) for t in tools} == expected
-    assert len(tools) == len(expected) == 151, \
+    assert len(tools) == len(expected) == 148, \
         sorted({(t._route.method, t._route.path) for t in tools})
     assert {("GET", "/api/backups"), ("POST", "/api/backups/run"),
             ("GET", "/api/backups/jobs/{name}")} <= {
@@ -283,6 +283,27 @@ def test_method_scoped_gates_do_not_overreach(tools):
             "/api/relay/channels/{channel_id}/bindings/{binding_id}") not in surface
     # The connectors' own cross-channel listing is not an MCP question.
     assert ("GET", "/api/relay/bindings") not in surface
+
+
+def test_room_watchers_are_admin_gated(spec, tools, admin_tools):
+    """Design 41's three watcher routes all answer `require_admin` only: who
+    watches a room decides which agents a stranger's post can wake. They are
+    off the default menu and come back only with the admin flag."""
+    watcher_ops = {("GET", "/api/relay/channels/{channel_id}/watchers"),
+                   ("PUT", "/api/relay/channels/{channel_id}/watchers"),
+                   ("GET", "/api/relay/channels/{channel_id}/watch-turns")}
+    assert watcher_ops <= set(operations(spec))
+    normal = {(t._route.method, t._route.path) for t in tools}
+    elevated = {(t._route.method, t._route.path) for t in admin_tools}
+    assert not watcher_ops & normal
+    assert watcher_ops <= elevated
+    names = {t.name for t in admin_tools}
+    for name in ("get_room_watchers", "put_room_watchers", "get_watch_turns"):
+        assert name in names
+        assert name not in {t.name for t in tools}
+    # Reading and posting in the same room stay on the default menu.
+    assert ("GET", "/api/relay/channels/{channel_id}") in normal
+    assert ("POST", "/api/relay/channels/{channel_id}/messages") in normal
 
 
 def test_tickets_are_tools_except_the_stream(spec, tools):

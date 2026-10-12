@@ -18,14 +18,15 @@ The surface is CURATED into three tiers (curation 2026-08-24; see
   model registry and the stats, plus encrypted backup listing, Job control and
   one-time Tasks — schedule, read, edit, cancel, their run log and the usage
   report (which still require admin authority in the API, or a Task-granted
-  agent run). Always tools. 151 of them.
+  agent run). Always tools. 148 of them.
 - **GATE** — authorized-but-sharp: the credential/secret plane, backup
   credential configuration, admin audit
   reads, destructive/bulk ops, the relay channel lifecycle (creating, renaming
   and archiving rooms), a system row into a room one is not in, and
   archiving a wiki page, and the Task schedule grants (which agent may
-  schedule which). Offered ONLY when `AP_MCP_ADMIN_TOOLS` is truthy
-  (`admin_tools_enabled()`). 49 of them. The
+  schedule which), and a room's watcher list and watch-turn log. Offered
+  ONLY when `AP_MCP_ADMIN_TOOLS` is truthy (`admin_tools_enabled()`). 52 of
+  them. The
   role ladder authorizes every call regardless — the flag controls the MENU,
   not the kitchen.
 - **EXCLUDE** — UI form-feeders, private-key import inspection, reviewer digests the client can compute,
@@ -277,6 +278,12 @@ GATED_ADMIN = (
     # as `^/api/live-operation-grants` — so list/add/remove all gate. The Tasks
     # themselves (and the admin-only usage report) stay KEEP.
     ("*",         r"^/api/tasks/grants"),
+    # Room watchers (design/41, all `require_admin`): the watcher list decides
+    # which agents an unaddressed post in a room can wake — the same class of
+    # decision as binding the room — and the watch-turn log is an admin audit
+    # read of why each watcher answered or declined. An agent key gets 403.
+    (("GET", "PUT"), r"^/api/relay/channels/\{channel_id\}/watchers$"),
+    (("GET",),    r"^/api/relay/channels/\{channel_id\}/watch-turns$"),
 )
 
 # operationId -> MCP tool name. Keys are route function names (api/app.py sets
