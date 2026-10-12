@@ -73,8 +73,8 @@ def sync_detailed(
     r"""Move Wiki Page
 
      File a page under another one, or (\"\") at the top level. The page keeps
-    its slug, its links and its children; no version is written, because the
-    text did not move.
+    its slug, its links and its children. The move is a version with the body
+    unchanged, so the agent's hourly budget counts it.
 
     Args:
         slug (str):
@@ -111,8 +111,8 @@ def sync(
     r"""Move Wiki Page
 
      File a page under another one, or (\"\") at the top level. The page keeps
-    its slug, its links and its children; no version is written, because the
-    text did not move.
+    its slug, its links and its children. The move is a version with the body
+    unchanged, so the agent's hourly budget counts it.
 
     Args:
         slug (str):
@@ -144,8 +144,8 @@ async def asyncio_detailed(
     r"""Move Wiki Page
 
      File a page under another one, or (\"\") at the top level. The page keeps
-    its slug, its links and its children; no version is written, because the
-    text did not move.
+    its slug, its links and its children. The move is a version with the body
+    unchanged, so the agent's hourly budget counts it.
 
     Args:
         slug (str):
@@ -180,8 +180,8 @@ async def asyncio(
     r"""Move Wiki Page
 
      File a page under another one, or (\"\") at the top level. The page keeps
-    its slug, its links and its children; no version is written, because the
-    text did not move.
+    its slug, its links and its children. The move is a version with the body
+    unchanged, so the agent's hourly budget counts it.
 
     Args:
         slug (str):
