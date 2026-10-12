@@ -293,6 +293,11 @@ class K8sJobLauncher(Launcher):
             # Legacy direct-token mode only: the subscription token in the pod.
             volume_mounts.insert(0, k8s.V1VolumeMount(
                 name="claude-credentials", mount_path="/secrets/claude", read_only=True))
+        if sa_identity:
+            # Before V1Container: the client copies the list, so a mount
+            # appended afterwards never reaches the pod.
+            volume_mounts.append(k8s.V1VolumeMount(
+                name="ap-identity", mount_path="/var/run/ap-identity", read_only=True))
         if dev:
             # A clone, `npm ci`, a pytest suite and a browser at once: the lean
             # profile's ceiling would OOM the verify step, not the model.
@@ -353,9 +358,8 @@ class K8sJobLauncher(Launcher):
             # Audience-bound projected token: valid ONLY against the platform
             # (not the k8s apiserver), TTL covers the longest run, kubelet
             # keeps it fresh. automount stays False — this explicit projection
-            # is the pod's entire identity surface.
-            volume_mounts.append(k8s.V1VolumeMount(
-                name="ap-identity", mount_path="/var/run/ap-identity", read_only=True))
+            # is the pod's entire identity surface. (Its mount is added above,
+            # before the container is built.)
             volumes.append(k8s.V1Volume(
                 name="ap-identity",
                 projected=k8s.V1ProjectedVolumeSource(sources=[
