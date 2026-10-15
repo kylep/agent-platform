@@ -590,6 +590,14 @@ async def kill_run(request: Request, run_id: str):
         if run is None: raise HTTPException(404)
         await assert_readable_run(s, request, run)
         if run.state not in ACTIVE_STATES: raise HTTPException(409, "run is terminal")
+        if run.local_persona_session_id:
+            from agentplatform.db import LocalPersonaSession
+            from agentplatform.local_persona import drain
+            local = await s.get(LocalPersonaSession, run.local_persona_session_id, with_for_update=True)
+            local.revoked_at = utcnow()
+            await drain(s, local, 'revoked')
+            await s.commit()
+            return {"ok": True}
     await request.app.state.producer.publish(TOPIC_RUN_REQUESTS, run_id,
                                              {"type": "cancel", "run_id": run_id},
                                              type="run.request")

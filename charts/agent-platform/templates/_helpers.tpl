@@ -49,6 +49,8 @@ references it via $(POSTGRES_PASSWORD) k8s env substitution.
 Env vars shared by the api/dispatcher/recorder backend Deployments.
 */}}
 {{- define "agent-platform.backendEnv" -}}
+- name: AP_LOCAL_PERSONA_ENABLED
+  value: {{ .Values.localPersona.enabled | quote }}
 {{ include "agent-platform.postgresEnv" . }}
 - name: AP_KAFKA_BOOTSTRAP
   value: "{{ .Release.Name }}-kafka:9092"

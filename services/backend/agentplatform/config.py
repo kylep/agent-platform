@@ -3,6 +3,7 @@ from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class Settings(BaseSettings):
+    local_persona_enabled: bool = False
     model_config = SettingsConfigDict(env_prefix="AP_")
     db_url: str = "sqlite+aiosqlite:///:memory:"
     kafka_bootstrap: str = "localhost:9092"

@@ -297,3 +297,6 @@ Agents can maintain their own avatar, model and persona through the default-gran
 grant. Security grants remain an operator decision.
 
 Backup runtime/model provides one pre-work provider retry with the same identity and grants. See [Agent self-management](agent-self-management.md#backup-models) for fallback conditions and session behavior.
+
+Personas can also be explicitly launched in [local persona sessions](local-persona-sessions.md),
+using a native laptop harness, the same private memory namespace and a separate recorded conversation.

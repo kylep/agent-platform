@@ -35,6 +35,9 @@ async def current_generation(session, agent):
 
 
 async def ensure_run_authority(session, run):
+    if run.local_persona_session_id:
+        from agentplatform.local_persona import run_authorized
+        return await run_authorized(session, run)
     generation = await current_generation(session, run.agent)
     if generation is None or generation != (run.authorization_generation or 0):
         return False
@@ -110,7 +113,22 @@ def migrate_authority(conn):
 async def assert_readable_run(session, request, run):
     from fastapi import HTTPException
     caller = getattr(request.state, 'api_key_agent', None)
+    local_session_id = getattr(run, 'local_persona_session_id', None)
+    if local_session_id and not caller:
+        from agentplatform.db import Principal, LocalPersonaSession, LocalPersonaEnrollment
+        if getattr(request.state, 'auth_kind', None) != 'session':
+            raise HTTPException(403, 'Local history requires its initiating human session')
+        principal = await session.get(Principal, getattr(request.state, 'principal_id', None))
+        local = await session.get(LocalPersonaSession, local_session_id)
+        enrollment = await session.get(LocalPersonaEnrollment, local.enrollment_id) if local else None
+        if not principal or not enrollment or principal.name != enrollment.initiated_by:
+            raise HTTPException(403, 'Local history belongs to another human')
+    if caller and local_session_id:
+        if getattr(request.state, 'local_persona_session_id', None) != local_session_id:
+            raise HTTPException(403, 'Local history is private to its human and owning local session')
     if not caller or not run.conversation_id:
+        return
+    if local_session_id:
         return
     from agentplatform.relay import is_member, participant_of
     from agentplatform.relay_store import enabled_agents, explicit_members

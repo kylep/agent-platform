@@ -1,0 +1,16 @@
+[project]
+name = "ap-persona"
+version = "0.1.0"
+requires-python = ">=3.11"
+description = "Opt-in native local Agent Platform persona sessions"
+dependencies = []
+[project.scripts]
+ap-persona = "ap_persona.cli:main"
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+[tool.setuptools.packages.find]
+include = ["ap_persona*"]
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"

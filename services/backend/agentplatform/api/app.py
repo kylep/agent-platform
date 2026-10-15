@@ -22,6 +22,7 @@ from agentplatform.api import artifacts_feed as artifacts_feed_api
 from agentplatform.api import audit as audit_api
 from agentplatform.api import accounts as accounts_api
 from agentplatform.api import auth
+from agentplatform.api import local_persona as local_persona_api
 from agentplatform.api import backups as backups_api
 from agentplatform.api import conversations as conversations_api
 from agentplatform.api import codex_proxy as codex_proxy_api
@@ -383,6 +384,46 @@ def create_app(settings, session_factory, producer, secret_store=None, agent_sto
     st.settings, st.session_factory, st.producer = settings, session_factory, producer
     st.live_read_last_prune = 0.0
 
+    @app.middleware("http")
+    async def fence_local_personas(request, call_next):
+        from fastapi import HTTPException
+        from starlette.responses import JSONResponse
+        from sqlalchemy import select
+        from agentplatform.db import Conversation, RelayMessage
+        header = request.headers.get('authorization', '')
+        try:
+            if request.url.path.startswith('/api/local-persona/') and request.method == 'POST':
+                data = bytearray()
+                async for chunk in request.stream():
+                    data.extend(chunk)
+                    if len(data) > 524288:
+                        raise HTTPException(413, 'persona request exceeds 512 KiB')
+                request._body = bytes(data)
+            if header.startswith(('Bearer lps_', 'Bearer lpe_', 'Bearer lpr_')):
+                if not request.url.path.startswith('/api/local-persona/'):
+                    # Even a future route without an auth dependency is closed.
+                    if not header.startswith('Bearer lps_'):
+                        raise HTTPException(403)
+                    from agentplatform.local_persona import authenticate
+                    await authenticate(request, header[7:])
+            if request.method not in ('GET', 'HEAD', 'OPTIONS'):
+                # Recordings have one writer: the ingest protocol. This also
+                # prevents existing human lifecycle/binding endpoints mutating
+                # a recording into a dispatchable or publicly readable room.
+                import re
+                match = re.fullmatch(r'/api/relay/channels/([a-f0-9]{32})(?:/.*)?', request.url.path)
+                message = re.fullmatch(r'/api/relay/messages/([a-f0-9]{32})(?:/.*)?', request.url.path)
+                if match or message:
+                    async with st.session_factory() as s:
+                        channel_id = match[1] if match else await s.scalar(select(
+                            RelayMessage.channel_id).where(RelayMessage.id == message[1]))
+                        conv = await s.get(Conversation, channel_id) if channel_id else None
+                        if conv and conv.home == 'local_persona':
+                            raise HTTPException(403, 'Local session recordings are read-only')
+        except HTTPException as exc:
+            return JSONResponse({'detail': exc.detail}, status_code=exc.status_code)
+        return await call_next(request)
+
     async def record_live_read(view_id: str, status: int, duration_ms: int):
         """Persist metadata only, after the response is sent to the viewer."""
         try:
@@ -457,6 +498,7 @@ def create_app(settings, session_factory, producer, secret_store=None, agent_sto
     from agentplatform.toolregistry import ToolRegistry
     st.tool_registry = ToolRegistry(Path(settings.tools_root))
 
+    app.include_router(local_persona_api.router)
     app.include_router(auth.router)
     app.include_router(accounts_api.router)
     app.include_router(backups_api.router)

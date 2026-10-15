@@ -47,9 +47,9 @@ export default function ThreadPane({ room, threadId, highlight, onHighlighted, o
       </header>
 
       <Transcript rows={visible} me={room.me} loading={pending} highlight={highlight}
-                  onHighlighted={onHighlighted} pin={pin} inThread onReact={room.channel?.home === "external" ? undefined : room.react} />
+                  onHighlighted={onHighlighted} pin={pin} inThread onReact={["external", "local_persona"].includes(room.channel?.home ?? "") ? undefined : room.react} />
 
-      {room.channel?.home !== "external" && <Compose channelId={room.channelId} archived={room.channel?.archived_at != null}
+      {!["external", "local_persona"].includes(room.channel?.home ?? "") && <Compose channelId={room.channelId} archived={room.channel?.archived_at != null}
                agents={room.agents} mentionable={mentionable} threadId={threadId}
                onPosted={(m) => { room.absorb([m]); setPin((n) => n + 1); }} />}
     </section>

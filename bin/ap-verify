@@ -162,6 +162,10 @@ def suite_table(root: Path, out: Path | None = None) -> list[dict]:
         _suite("sdk", ["sdk/**"] + api_globs, ".",
                _sh(f"{shlex.quote(py)} sdk/regenerate.py", "git diff --exit-code -- sdk/"),
                env=pp, on_fail_note=SDK_DRIFT_NOTE),
+        _suite("persona", ["clients/persona/**", "services/backend/agentplatform/local_persona.py"],
+               ".", pytest_q + ["clients/persona/tests/test_persona.py"], env=pp),
+        _suite("persona-postgres", ["clients/persona/**", "services/backend/**", "tools/memory/**"],
+               ".", ["bin/ap-persona-postgres-test"], env={**pp, "AP_VERIFY_PYTHON": py}, requires=["docker"]),
         _suite("broker", ["services/mcp-broker/**"], "services/mcp-broker", pytest_q, env=pp),
         # The facade pins tier counts from the API's own OpenAPI document, so a
         # route change is a facade change too (CI runs it on every push).

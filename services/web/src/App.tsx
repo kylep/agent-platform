@@ -36,6 +36,7 @@ import Skills from "./pages/Skills";
 import Profile from "./pages/Profile";
 import SettingsUsers from "./pages/SettingsUsers";
 import SettingsGroups from "./pages/SettingsGroups";
+import LocalPersonaSessions from "./pages/LocalPersonaSessions";
 import Settings from "./pages/Settings";
 import Backups from "./pages/Backups";
 import RestoreReport from "./pages/RestoreReport";
@@ -93,6 +94,7 @@ export default function App() {
             <Route path="/schedules" element={<Schedules />} />
             <Route path="/tasks" element={<Tasks />} />
             <Route path="/secrets" element={<Secrets />} />
+            <Route path="/settings/local-personas" element={<LocalPersonaSessions />} />
             <Route path="/settings" element={<Settings />} />
             <Route path="/settings/users" element={<SettingsUsers />} />
             <Route path="/settings/groups" element={<SettingsGroups />} />

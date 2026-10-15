@@ -41,6 +41,7 @@ git.
 | [Workbench](workbench.md) | Postgres (+ Kafka) + GitHub | how dev agents change the code |
 | [TCMS](tcms.md) | git `tcms/cases/` (definitions) + Postgres `app_tcms` (results) | what the tests are and how they are doing |
 | [Judgment](judgment.md) | Postgres `app_judgment` | what Kai believes about Kyle, what it predicted, and what he actually said |
+| [Local persona sessions](local-persona-sessions.md) | Laptop + Postgres | native opt-in persona work and recording |
 | [External API](external-api.md) | HTTP + generated SDK | how outside clients access the platform |
 
 Two pages describe the platform rather than a block of it:

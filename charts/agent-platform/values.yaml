@@ -35,6 +35,9 @@ mcpFacade:
 
 # The MCP broker exposes the platform API as MCP tools over HTTP so token-
 # bearing agents can act without a shell (see docs/design/08).
+localPersona:
+  enabled: false
+
 mcpBroker:
   image:
     repository: agent-platform-mcp-broker
@@ -265,6 +268,7 @@ topics:
     - {name: quota.events, partitions: 1, retentionMs: "604800000"}         # 7d (usage snapshot changes; the row in pg is the current value)
     - {name: artifacts.events, partitions: 3, retentionMs: "2592000000"}     # 30d (every artifact create/delete → the Studio's live strip)
     - {name: workbench.events, partitions: 3, retentionMs: "2592000000"}     # 30d (every publish/refusal with its file list → the Changes page, the audit)
+    - {name: local-persona.events, partitions: 3, retentionMs: "604800000"}   # cursor-only fanout; history lives in pg
     # News state App (design 11): the recorder publishes the gatherer digest to inbound; the
     # state writer emits one event per accepted / freshness-rejected item. Formerly created by
     # the retired news app.yaml, so they are declared here now.

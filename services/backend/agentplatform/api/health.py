@@ -72,7 +72,7 @@ async def kafka_health(request: Request):
         queued = (await s.execute(select(func.count()).select_from(Run)
                   .where(Run.state == RunState.QUEUED))).scalar_one()
         active = (await s.execute(select(func.count()).select_from(Run)
-                  .where(Run.state.in_([RunState.DISPATCHED, RunState.RUNNING])))).scalar_one()
+                  .where(Run.execution_location == "cluster", Run.state.in_([RunState.DISPATCHED, RunState.RUNNING])))).scalar_one()
         dlq = (await s.execute(select(func.count()).select_from(Run)
                .where(Run.state == RunState.DLQ))).scalar_one()
     result["backlog"] = {"queued": queued, "active": active, "dlq": dlq}

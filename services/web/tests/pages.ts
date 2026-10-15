@@ -22,6 +22,7 @@ export type PageRoute = {
 };
 
 export const PAGES: PageRoute[] = [
+  { path: "/settings/local-personas", heading: "Local persona sessions", mobile: true },
   { path: "/", heading: "Dashboard", probe: /news blocked|blocked: skill/, mobile: false },
   { path: "/agents", heading: "Agents", probe: /blocked/, mobile: false },
   { path: "/agents/health-monitor", heading: "health-monitor", probe: /Entrypoints/, mobile: false },

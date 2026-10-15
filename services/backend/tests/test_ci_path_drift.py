@@ -16,6 +16,7 @@ REPO_ROOT = Path(__file__).resolve().parents[3]
 # ap-verify suite -> the CI job (a `changes` output) that runs it. A new suite
 # must be added here, which is the point: the author has to decide where CI runs it.
 EXACT = {"backend": "backend", "sdk": "backend", "broker": "backend",
+         "persona": "backend", "persona-postgres": "backend",
          "connector-discord": "backend", "facade": "facade", "executor": "tools",
          "runner": "runner", "helm": "chart", "claude-proxy": "chart",
          "codex-proxy": "codex_proxy"}

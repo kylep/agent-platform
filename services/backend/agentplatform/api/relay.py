@@ -99,6 +99,7 @@ class Caller(NamedTuple):
     participant: str
     agent: str | None
     principal: str
+    auth_kind: str = ''
 
 
 def _participant(**identity) -> str:
@@ -126,10 +127,10 @@ def require_relay_access(*roles: str, agents: bool = True):
         if agent is not None:
             if not agents or not role_allows(role, AGENT_ROLES):
                 raise HTTPException(403)
-            return Caller(_participant(agent=agent), agent, name)
+            return Caller(_participant(agent=agent), agent, name, getattr(request.state, 'auth_kind', ''))
         if not role_allows(role, roles):
             raise HTTPException(403)
-        return Caller(_participant(principal=name), None, name)
+        return Caller(_participant(principal=name), None, name, getattr(request.state, 'auth_kind', ''))
     return dep
 
 
@@ -283,6 +284,8 @@ async def _visible(s, caller: Caller, agents: set[str], include_archived: bool =
         stmt = stmt.where(Conversation.archived_at.is_(None))
     rows = list((await s.execute(stmt)).scalars())
     explicit = await _explicit_many(s, [c.id for c in rows])
+    rows = [c for c in rows if c.home != 'local_persona' or
+            (caller.agent is None and caller.auth_kind == 'session' and caller.participant in explicit[c.id])]
     if caller.agent is not None:
         rows = [c for c in rows
                 if is_member(c, caller.participant, agents, explicit[c.id])]
@@ -344,6 +347,9 @@ async def _channel_or_404(s, channel_id: str, caller: Caller,
     conv = await s.get(Conversation, channel_id)
     if conv is None:
         raise HTTPException(404, "unknown channel")
+    if conv.home == 'local_persona' and (caller.auth_kind != 'session' or
+            caller.participant not in await _explicit(s, conv.id)):
+        raise HTTPException(403, 'Local recordings require the initiating human session')
     if caller.agent is not None and not is_member(
             conv, caller.participant, agents, await _explicit(s, conv.id)):
         raise HTTPException(403, "not a member of this channel")
@@ -1156,7 +1162,7 @@ async def relay_presence(request: Request):
     infos = sorted(store.list(), key=lambda i: i.name)
     async with request.app.state.session_factory() as s:
         active = (await s.execute(select(Run.agent, Run.conversation_id).where(
-            Run.state.in_(ACTIVE_STATES), Run.conversation_id.isnot(None)))).all()
+            Run.execution_location == "cluster", Run.state.in_(ACTIVE_STATES), Run.conversation_id.isnot(None)))).all()
         faces = await _faces(s, {i.name for i in infos})
     thinking: dict[str, list[str]] = {}
     for agent, channel_id in active:

@@ -372,7 +372,7 @@ export default function RunDetail() {
       </dl>
 
       <div className="row-actions" style={{ marginTop: 8 }}>
-        <Button variant="danger" onClick={kill} disabled={!active || killing}>{killing ? "Killing…" : "Kill"}</Button>
+        <Button variant="danger" onClick={kill} disabled={!active || killing}>{killing ? "Updating…" : run.trigger === "local_persona" ? "Revoke AP access" : "Kill"}</Button>
         {killError && <span className="error">{killError}</span>}
       </div>
 

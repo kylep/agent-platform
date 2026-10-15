@@ -668,3 +668,16 @@ def test_a_valid_key_bearing_client_gets_through_the_door(spec):
              auth_client=client)
     assert r.status_code != 401
     assert "protocolVersion" in r.text
+
+
+def test_persona_credentials_never_enter_management_discovery(spec):
+    calls = []
+    def verify(request):
+        calls.append(request)
+        return httpx.Response(200, json={"principal":"agent:alice"})
+    client = httpx.AsyncClient(transport=httpx.MockTransport(verify), base_url="http://api")
+    for token in ("lps_test", "lpe_test", "lpr_test"):
+        response = door(spec, {"Accept":MCP_ACCEPT, "Authorization":"Bearer "+token,
+                              "Cookie":"ap_session=admin"}, auth_client=client)
+        assert response.status_code == 401 and response.text == ""
+    assert calls == []

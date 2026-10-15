@@ -128,6 +128,7 @@ async def update_self_profile(request: Request, body: SelfProfileIn):
     st = request.app.state
     async with st.session_factory() as session:
         row, run = await actor(session, request)
+        before_local_edit = snapshot_of(row)
         version = await next_version(session, row.name) - 1
         if body.expected_version != version:
             raise HTTPException(409, "profile changed; read agent_self get before trying again")
@@ -177,6 +178,11 @@ async def update_self_profile(request: Request, body: SelfProfileIn):
         version += 1
         session.add(AgentVersion(agent=row.name, version=version, snapshot=snapshot_of(row),
             changed_by=f"run:{run.id}", changed_via="tool:agent_self"))
+        if run.local_persona_session_id:
+            from agentplatform.db import LocalPersonaMutation
+            session.add(LocalPersonaMutation(session_id=run.local_persona_session_id,
+                run_id=run.id, kind='profile', target_id=row.name,
+                before=before_local_edit, after=snapshot_of(row)))
         await session.commit()
         out = profile_view(row, version)
     await st.agent_store.reload()
@@ -187,7 +193,8 @@ async def update_self_profile(request: Request, body: SelfProfileIn):
 async def set_self_avatar(request: Request, body: AgentImageIn):
     st = request.app.state
     async with st.session_factory() as session:
-        row, _ = await actor(session, request)
+        row, avatar_run = await actor(session, request)
+        prior_avatar = row.image_artifact_id
         view = None
         if body.artifact_id is not None:
             art = await artifact_store.get(session, body.artifact_id)
@@ -202,6 +209,11 @@ async def set_self_avatar(request: Request, body: AgentImageIn):
                     await assert_readable_run(session, request, source_run)
             view = artifact_store.artifact_view(art)
         row.image_artifact_id = body.artifact_id
+        if avatar_run.local_persona_session_id and prior_avatar != body.artifact_id:
+            from agentplatform.db import LocalPersonaMutation
+            session.add(LocalPersonaMutation(session_id=avatar_run.local_persona_session_id,
+                run_id=avatar_run.id, kind='avatar', target_id=row.name,
+                before={'image_artifact_id': prior_avatar}, after={'image_artifact_id': body.artifact_id}))
         await session.commit()
         out = profile_view(row, await next_version(session, row.name) - 1)
     await artifact_store.publish_artifact_event(st.producer, event="agent_image", artifact=view, agent=out["name"])

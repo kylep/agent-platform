@@ -6,13 +6,15 @@ import asyncio
 import logging
 from datetime import timedelta
 
-from sqlalchemy import delete, or_, select
+from sqlalchemy import delete, or_, select, update
 
 from agentplatform.db import (
     LiveIntent,
     LiveInvocation,
     LiveSnapshot,
     LoginSession,
+    LocalPersonaEvent,
+    LocalPersonaSession,
     Run,
     TranscriptEvent,
     utcnow,
@@ -50,6 +52,16 @@ class TranscriptPruner:
                 if days <= 0:
                     continue
                 cutoff = now - timedelta(days=days)
+                # Local tool payloads follow the same transcript retention;
+                # projected room messages retain ordinary Relay semantics.
+                local_ids = select(LocalPersonaSession.id).where(
+                    LocalPersonaSession.agent == agent)
+                res = await s.execute(update(LocalPersonaEvent).where(
+                    LocalPersonaEvent.session_id.in_(local_ids),
+                    LocalPersonaEvent.received_at < cutoff,
+                    LocalPersonaEvent.payload_pruned_at.is_(None))
+                    .values(payload={}, payload_pruned_at=now))
+                deleted += res.rowcount or 0
                 old_ids = (await s.execute(select(Run.id).where(
                     Run.agent == agent, Run.created_at < cutoff))).scalars().all()
                 for i in range(0, len(old_ids), _CHUNK):

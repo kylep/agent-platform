@@ -163,7 +163,7 @@ export default function Relay() {
         </div>
       )}
       {error && <div className="error">{error}</div>}
-      {!popout && room && room.home !== "external" &&
+      {!popout && room && room.home !== "external" && room.home !== "local_persona" &&
         (room.kind === "group" || (room.kind === "channel" &&
           !["general", "ops", "standup"].includes(room.name ?? ""))) &&
         <div className="row-actions">
@@ -172,7 +172,7 @@ export default function Relay() {
           </button>
           {room.archived_at && <span className="muted">History stays readable. Restore to post again.</span>}
         </div>}
-      {!popout && room && (teams.length > 0 || projects.length > 0) &&
+      {!popout && room && room.home !== "local_persona" && (teams.length > 0 || projects.length > 0) &&
         <div className="row-actions" aria-label="Conversation context">
           <label>Team <select value={currentTeam} onChange={e => setScope(e.target.value, currentProject)}>
             <option value="">None</option>{teams.filter(t => !t.archived).map(t => <option key={t.id} value={t.slug}>{t.name}</option>)}

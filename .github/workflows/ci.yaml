@@ -136,9 +136,16 @@ jobs:
       - name: Broker tool tests
         if: matrix.shard == 'extras'
         # The broker's own tools (services/mcp-broker): the modules that reach
-        # the API with the caller's token. They stub fastmcp rather than
-        # installing an MCP runtime, so they ride along with the backend job.
-        run: pytest services/mcp-broker
+        # Unit mappings plus the real persona MCP ingress/discovery boundary.
+        run: |
+          pip install -r services/mcp-broker/requirements.txt
+          pytest services/mcp-broker
+      - name: Local persona helper and PostgreSQL contract
+        if: matrix.shard == 'extras'
+        run: |
+          pip install 'psycopg[binary]>=3.1,<4'
+          pytest clients/persona/tests/test_persona.py
+          AP_VERIFY_PYTHON=python bin/ap-persona-postgres-test
       - name: Discord connector tests
         if: matrix.shard == 'extras'
         # The bridge (services/connector-discord): it stubs discord.py and
@@ -408,7 +415,7 @@ jobs:
         run: |
           pip install semgrep==1.170.0
           semgrep --config p/python --config p/typescript --config p/secrets \
-            --error --severity ERROR services/
+            --error --severity ERROR services/ clients/persona
 
   subscription-guard:
     runs-on: ubuntu-latest

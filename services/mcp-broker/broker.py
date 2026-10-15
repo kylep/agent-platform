@@ -48,6 +48,8 @@ _REFRESH_SECONDS = int(os.environ.get("AP_TOOLS_REFRESH_SECONDS", "60"))
 mcp = FastMCP("platform")
 
 
+
+
 def _caller_headers() -> dict:
     """The caller's identity headers, forwarded verbatim: bearer (SA token or
     API key) plus the sender-constrained run JWT when present (design/13 C)."""
@@ -55,7 +57,7 @@ def _caller_headers() -> dict:
     headers = {}
     if req.headers.get("authorization"):
         headers["Authorization"] = req.headers["authorization"]
-    if req.headers.get("x-ap-run-token"):
+    if req.headers.get("x-ap-run-token") and not headers.get('Authorization', '').startswith('Bearer lps_'):
         headers["X-AP-Run-Token"] = req.headers["x-ap-run-token"]
     return headers
 

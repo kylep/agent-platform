@@ -481,7 +481,8 @@ class RequireAuthorization:
     async def __call__(self, scope, receive, send):
         if scope["type"] == "http":
             bearer = Headers(scope=scope).get("authorization", "")
-            if bearer.startswith("Bearer ") and len(bearer) > len("Bearer "):
+            if (bearer.startswith("Bearer ") and len(bearer) > len("Bearer ")
+                    and not bearer.startswith(("Bearer lps_", "Bearer lpe_", "Bearer lpr_"))):
                 try:
                     verified = await self.auth_client.get(
                         "/api/whoami", headers={"Authorization": bearer})

@@ -26,6 +26,48 @@ spec:
         seccompProfile:
           type: RuntimeDefault
       containers:
+        {{- if .Values.localPersona.enabled }}
+        # Separate listener, same broker workload identity and executor mTLS
+        # tunnel. Only nginx can reach this port; it accepts lps_ tokens only.
+        - name: local-persona
+          image: "{{ .Values.mcpBroker.image.repository }}:{{ .Values.mcpBroker.image.tag }}"
+          imagePullPolicy: {{ .Values.mcpBroker.image.pullPolicy | default "IfNotPresent" }}
+          command: ["python", "persona_edge.py"]
+          securityContext:
+            allowPrivilegeEscalation: false
+            runAsNonRoot: true
+            runAsUser: 1001
+            runAsGroup: 1001
+            capabilities: {drop: ["ALL"]}
+          env:
+            - name: AP_API_URL
+              value: "http://agent-platform-api:8000"
+            - name: AP_EXECUTOR_URL
+              {{- if .Values.spire.enabled }}
+              value: "http://127.0.0.1:8301"
+              {{- else }}
+              value: "http://agent-platform-tool-executor:8000"
+              {{- end }}
+            - name: AP_TOOLS_ROOT
+              value: /agents/tools
+            - name: AP_BROKER_TOKEN_FILE
+              value: /var/run/ap-identity/token
+            - name: AP_KAFKA_BOOTSTRAP
+              value: "{{ .Release.Name }}-kafka:9092"
+          ports: [{containerPort: 8001}]
+          readinessProbe:
+            tcpSocket: {port: 8001}
+          volumeMounts:
+            - name: agent-definitions
+              mountPath: /agents
+              readOnly: true
+            - name: ap-identity
+              mountPath: /var/run/ap-identity
+              readOnly: true
+          resources:
+            requests: {memory: 128Mi, cpu: 50m}
+            limits: {memory: 256Mi}
+        {{- end }}
         - name: mcp-broker
           image: "{{ .Values.mcpBroker.image.repository }}:{{ .Values.mcpBroker.image.tag }}"
           imagePullPolicy: {{ .Values.mcpBroker.image.pullPolicy | default "IfNotPresent" }}
@@ -177,6 +219,10 @@ spec:
   selector:
     {{- include "agent-platform.selectorLabels" (dict "Release" .Release "Chart" .Chart "component" "mcp-broker") | nindent 4 }}
   ports:
+    {{- if .Values.localPersona.enabled }}
+    - port: 8001
+      targetPort: 8001
+    {{- end }}
     {{- if .Values.spire.enabled }}
     # mTLS mode: the ghostunnel sidecar is the only listener on the pod IP.
     - port: 8443

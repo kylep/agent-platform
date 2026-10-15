@@ -109,7 +109,7 @@ def test_docs_map_to_nothing(apv):
 def test_mixed_change_picks_both(apv):
     table = apv.suite_table(REPO_ROOT)
     names = _names(apv.select(table, ["services/backend/x.py", "services/mcp-broker/y.py"]))
-    assert names == ["backend", "broker"]
+    assert names == ["backend", "persona-postgres", "broker"]
 
 
 def test_select_all_returns_whole_table_in_order(apv):

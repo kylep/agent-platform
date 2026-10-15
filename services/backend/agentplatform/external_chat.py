@@ -380,10 +380,11 @@ async def has_scan_activity(session, agent: str) -> bool:
 
 async def queue_send(session, *, agent, run_id, identity_id, external_ref, text, answer_to=None, automatic=False):
     from agentplatform.authority import current_generation, ensure_run_authority
-    generation = await current_generation(session, agent)
+    run = await session.get(Run, run_id) if run_id else None
+    generation = (run.authorization_generation if run and run.local_persona_session_id
+                  else await current_generation(session, agent))
     if generation is None:
         raise ExternalChatError("persona is unavailable")
-    run = await session.get(Run, run_id) if run_id else None
     if not run or run.agent != agent or not await ensure_run_authority(session, run):
         raise ExternalChatError("current persona run required")
     account = await owned_identity(session, identity_id, agent)
@@ -447,8 +448,9 @@ async def queue_final(session, run, text):
 
 async def delivery_authorized(session, row):
     from agentplatform.authority import current_generation, ensure_run_authority
-    generation = await current_generation(session, row.agent)
     run = await session.get(Run, row.run_id) if row.run_id else None
+    generation = (run.authorization_generation if run and run.local_persona_session_id
+                  else await current_generation(session, row.agent))
     if generation != row.authorization_generation or not run or not await ensure_run_authority(session, run):
         raise ExternalChatError("delivery authority revoked")
     account = await owned_identity(session, row.identity_id, row.agent)

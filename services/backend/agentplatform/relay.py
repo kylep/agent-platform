@@ -247,6 +247,8 @@ def is_member(channel, participant: str, enabled_agents: set[str],
     participant rows must go as quiet there as it does everywhere else — the
     row is its membership, not its licence to run."""
     name = agent_name(participant)
+    if room_home(channel) == "local_persona" and name is not None:
+        return False
     if name is not None and name not in enabled_agents:
         return False
     if room_home(channel) == "external":
@@ -259,6 +261,8 @@ def mentionable_in(channel, enabled_agents: set[str], explicit: set[str]) -> set
     channel, only the members of a closed one. Mentioning an agent that is not
     in the room would otherwise pull it into a conversation it cannot read —
     and, in a private room, hand it messages its absence was meant to withhold."""
+    if room_home(channel) == "local_persona":
+        return set()
     if room_home(channel) == "external":
         return {name for name, channels in getattr(enabled_agents, "external_owners", {}).items()
                 if channel.id in channels}

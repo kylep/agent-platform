@@ -62,6 +62,7 @@ export default function ChannelView({ room, onThread, highlight, onHighlighted, 
   const archived = channel?.archived_at != null;
   const title = channel ? channelLabel(channel, me) : "…";
   const group = channel?.kind === "group";
+  const recording = channel?.home === "local_persona";
   const connected = channel?.home === "external";
   const endpoint = connected ? channel?.bindings?.[0] : null;
   const externalUrl = safeExternalUrl(endpoint?.external_url);
@@ -100,6 +101,7 @@ export default function ChannelView({ room, onThread, highlight, onHighlighted, 
           <a href={externalUrl} target="_blank" rel="noreferrer">open ↗</a>
         )}
         {channel?.topic && <span className="relay-topic muted">{channel.topic}</span>}
+        {recording && <Chip>local session recording · continue in your terminal</Chip>}
         {connected && <Chip>read-only external archive</Chip>}
         {archived && <Chip variant="warn">archived</Chip>}
         {onPopout && (
@@ -116,7 +118,7 @@ export default function ChannelView({ room, onThread, highlight, onHighlighted, 
 
       <Transcript rows={roots} me={me} loading={!loaded} highlight={highlight}
                   onHighlighted={onHighlighted} pin={pin}
-                  onReact={connected ? undefined : room.react} onThread={openThread} threads={threads}>
+                  onReact={connected || recording ? undefined : room.react} onThread={openThread} threads={threads}>
         {empty && (
           <div className="relay-welcome">
             {avatar(44)}
@@ -128,7 +130,7 @@ export default function ChannelView({ room, onThread, highlight, onHighlighted, 
       </Transcript>
 
       <Thinking who={thinking} />
-      {!connected && <Compose channelId={room.channelId} archived={archived} agents={agents}
+      {!connected && !recording && <Compose channelId={room.channelId} archived={archived} agents={agents}
                mentionable={mentionable}
                onPosted={(m) => { room.absorb([m]); setPin((n) => n + 1); }} />}
     </section>

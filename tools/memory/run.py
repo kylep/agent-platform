@@ -13,6 +13,7 @@ import sys
 import uuid
 
 TABLE = "tool_memory.memories"
+LOCAL_PERSONA_PROTOCOL = 1
 
 
 def view(row) -> dict:
@@ -89,7 +90,10 @@ def main() -> int:
     with psycopg.connect(url) as conn, conn.cursor() as cur:
         cur.execute("SELECT team_id, project_id FROM public.memory_run_scope(%s, %s)",
                     (os.environ.get("TOOL_RUN_ID", ""), agent))
-        scope = cur.fetchone() or (None, None)
+        scope = cur.fetchone()
+        if scope is None:
+            print("memory run authority is unavailable", file=sys.stderr)
+            return 2
         if args["action"] == "read":
             if ((args.get("current_team") and not scope[0]) or
                     (args.get("current_project") and not scope[1])):
@@ -100,7 +104,24 @@ def main() -> int:
                                   scope[0] if args.get("current_team") else None,
                                   scope[1] if args.get("current_project") else None)))
         elif args["action"] == "save":
+            # Lock the previous value in the same transaction as scope and
+            # write. Provenance is derived by the definer function, never args.
+            cur.execute(f"SELECT id, key, content, tags, created_at, updated_at, team_id, project_id FROM {TABLE} "
+                        "WHERE agent = %s AND key = %s FOR UPDATE", (agent, args.get("key")))
+            previous = cur.fetchone()
+            before = view(previous) if previous else None
             out = save(cur, agent, args, *scope)
+            from psycopg.types.json import Jsonb
+            fields = ("key", "content", "tags", "team_id", "project_id")
+            # Capability sync may precede the backend rollout. Old backends
+            # cannot create local sessions, so ordinary cluster writes may
+            # continue until the additive provenance function is provisioned.
+            cur.execute("SELECT to_regprocedure('public.local_persona_memory_mutation(text,text,text,jsonb,jsonb)')")
+            if cur.fetchone()[0]:
+                cur.execute("SELECT public.local_persona_memory_mutation(%s,%s,%s,%s,%s)",
+                            (os.environ.get("TOOL_RUN_ID", ""), agent, out["id"],
+                             Jsonb({k: before[k] for k in fields}) if before else None,
+                             Jsonb({k: out[k] for k in fields})))
             conn.commit()
             print(json.dumps(out))
         else:

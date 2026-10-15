@@ -45,6 +45,10 @@ class Recorder:
             s.add(meta)
 
     async def handle(self, topic: str, key: str, value: dict) -> None:
+        async with self.sf() as s:
+            run = await s.get(Run, key)
+            if run and run.execution_location == 'laptop':
+                return
         if topic == TOPIC_RUN_TRANSCRIPT:
             await self._handle_transcript(key, value)
         elif topic == TOPIC_RUN_EVENTS:
@@ -63,7 +67,7 @@ class Recorder:
                 return
 
             run = await s.get(Run, run_id)
-            if run is None:
+            if run is None or run.execution_location == "laptop":
                 return
             # Tool calls surface as `tool_use` content blocks inside an
             # `assistant` stream-json frame (one block per invocation); the
@@ -199,8 +203,10 @@ class Recorder:
 
         A failed run says so in the room rather than going quiet: silence is
         indistinguishable from an agent that is still thinking."""
+        if run.execution_location == 'laptop':
+            return None
         conv = await s.get(Conversation, run.conversation_id)
-        if conv is None:
+        if conv is None or conv.home == 'local_persona':
             return None
         if conv.home == "external":
             from agentplatform.authority import ensure_run_authority
@@ -299,6 +305,7 @@ class Recorder:
             rows = (await s.execute(
                 select(Run).where(Run.conversation_id.is_not(None),
                                   Run.reply_published_at.is_(None),
+                                  Run.execution_location == "cluster",
                                   Run.state.not_in(ACTIVE_STATES),
                                   Run.finished_at.is_not(None),
                                   Run.finished_at < cutoff))).scalars().all()
@@ -322,7 +329,7 @@ class Recorder:
     async def _handle_state(self, run_id: str, value: dict) -> None:
         async with self.sf() as s:
             run = await s.get(Run, run_id)
-            if run is None:
+            if run is None or run.execution_location == "laptop":
                 return
             terminal = run.state not in ACTIVE_STATES
             if terminal:
@@ -364,7 +371,7 @@ class Recorder:
     async def _handle_dlq(self, run_id: str, value: dict) -> None:
         async with self.sf() as s:
             run = await s.get(Run, run_id)
-            if run is None:
+            if run is None or run.execution_location == "laptop":
                 return
             if run.state not in ACTIVE_STATES:
                 return

@@ -232,6 +232,7 @@ class Dispatcher:
         async with self.sf() as s:
             run = await s.get(Run, run_id)
         if run is None: return
+        if run.execution_location == 'laptop': return
         if message.get("type") == "cancel":
             if run.state in ACTIVE_STATES:
                 await self.launcher.cancel(run_id)
@@ -279,10 +280,10 @@ class Dispatcher:
             return
         async with self.sf() as s:
             busy = (await s.execute(select(func.count()).select_from(Run)
-                    .where(Run.state.in_([RunState.DISPATCHED, RunState.RUNNING])))).scalar_one()
+                    .where(Run.execution_location == "cluster", Run.state.in_([RunState.DISPATCHED, RunState.RUNNING])))).scalar_one()
             agent_busy = (await s.execute(select(func.count()).select_from(Run)
                     .where(Run.agent == run.agent,
-                           Run.state.in_([RunState.DISPATCHED, RunState.RUNNING])))).scalar_one()
+                           Run.execution_location == "cluster", Run.state.in_([RunState.DISPATCHED, RunState.RUNNING])))).scalar_one()
         if busy >= self.settings.global_concurrency or agent_busy >= manifest.concurrency:
             await asyncio.sleep(5)
             await self.producer.publish(TOPIC_RUN_REQUESTS, run_id, message, type="run.request")

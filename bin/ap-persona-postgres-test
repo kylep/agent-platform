@@ -1,0 +1,18 @@
+#!/bin/sh
+# Ephemeral local database only. Never accepts a production database URL.
+set -eu
+cd "$(dirname "$0")/.."
+name="ap-persona-test-$$"
+port="${AP_PERSONA_TEST_PORT:-15439}"
+py="${AP_VERIFY_PYTHON:-services/backend/.venv/bin/python}"
+trap 'docker rm -f "$name" >/dev/null 2>&1 || true' EXIT INT TERM
+docker run --rm -d --name "$name" -e POSTGRES_PASSWORD=persona-test-only \
+  -p "127.0.0.1:$port:5432" postgres:16-alpine >/dev/null
+ready=0
+for attempt in 1 2 3 4 5 6 7 8 9 10; do
+  if docker exec "$name" pg_isready -U postgres >/dev/null 2>&1; then ready=1; break; fi
+  sleep 1
+done
+[ "$ready" = 1 ] || { echo 'Test PostgreSQL did not become ready' >&2; exit 1; }
+AP_PERSONA_TEST_POSTGRES_URL="postgresql+asyncpg://postgres:persona-test-only@127.0.0.1:$port/postgres" \
+  "$py" -m pytest -q clients/persona/tests/test_postgres.py

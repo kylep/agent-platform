@@ -471,7 +471,7 @@ async def get_ticket(request: Request, key: str,
                 summoned.append(Run.id.notin_(named))
             runs += await _runs_in(s, *summoned, limit=fill)
         runs.sort(key=lambda r: (r.created_at, r.id), reverse=True)
-        thinking = next((r for r in runs if r.state in ACTIVE_STATES), None)
+        thinking = next((r for r in runs if r.state in ACTIVE_STATES and r.execution_location == 'cluster'), None)
         faces = await faces_for(s, _agents_in([e.actor for e in events]))
         view = await _one(s, ticket, request.app.state.settings)
     return {"ticket": view,

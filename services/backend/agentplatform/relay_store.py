@@ -53,6 +53,9 @@ async def post_relay_message(session, conv, *, author: str, body: str,
     """Insert a message into `conv`. Flushed but NOT committed: the caller owns
     the transaction, so a turn's message and the run that answers it land
     together or not at all."""
+    if conv.home == 'local_persona':
+        from fastapi import HTTPException
+        raise HTTPException(403, 'Local recordings accept only the ingest protocol')
     thread_root = None
     if reply_to:
         parent = await session.get(RelayMessage, reply_to)

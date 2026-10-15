@@ -620,7 +620,7 @@ class JobWatcher:
         async with self.sf() as s:
             from sqlalchemy import select
             rows = (await s.execute(
-                select(Run).where(Run.state.in_([RunState.DISPATCHED, RunState.RUNNING]))
+                select(Run).where(Run.execution_location == "cluster", Run.state.in_([RunState.DISPATCHED, RunState.RUNNING]))
             )).scalars().all()
             runs = [(r.id, r.state) for r in rows]
 

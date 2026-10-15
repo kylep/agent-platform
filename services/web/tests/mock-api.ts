@@ -1100,6 +1100,8 @@ const FIXTURES: Record<string, unknown> = {
                          prompt: "Take OPS-5 through review." },
   "/api/runs/r-qa-1": { ...runDetail, id: "r-qa-1", agent: "qa", trigger: "mention", exit_code: 1,
                         state: "failed", prompt: "Write the test for OPS-5." },
+  "/api/local-persona/sessions": [],
+  "/api/local-persona/enrollments": [],
   "/api/whoami": { principal: "kyle", role: "admin", agent: null, run_id: null, tools: null },
   "/api/chat-identities": [{ id: "discord-default", connector: "discord",
     display_name: "Platform Discord bot", status: "active", configured: true,

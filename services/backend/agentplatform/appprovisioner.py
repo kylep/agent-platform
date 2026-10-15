@@ -244,13 +244,72 @@ class ToolProvisioner:
                     RETURNS TABLE(team_id text, project_id text)
                     LANGUAGE sql SECURITY DEFINER SET search_path = public AS $$
                       SELECT r.team_id::text, r.project_id::text FROM public.runs r
-                      WHERE r.id = p_run AND r.agent = p_agent
+                      WHERE r.id = p_run AND r.agent = p_agent AND (
+                        r.local_persona_session_id IS NULL OR EXISTS (
+                          SELECT 1 FROM public.local_persona_sessions l
+                          JOIN public.local_persona_enrollments e ON e.id = l.enrollment_id
+                          JOIN public.agent_defs a ON a.name = l.agent
+                          WHERE l.id = r.local_persona_session_id AND l.run_id = r.id
+                            AND l.writer_epoch = r.local_persona_epoch
+                            AND l.state = 'active' AND l.revoked_at IS NULL
+                            AND l.expires_at > now() AND e.revoked_at IS NULL AND e.expires_at > now()
+                            AND a.enabled AND a.authorization_generation = l.authorization_generation
+                            AND r.state = 'running'
+                            AND a.platform_tools::jsonb ? 'mcp__platform__memory'
+                            AND l.frozen_tools::jsonb ? 'mcp__platform__memory'
+                            AND NOT EXISTS (
+                              SELECT 1 FROM jsonb_array_elements_text(l.access_snapshot::jsonb->'rooms') room
+                              WHERE NOT EXISTS (SELECT 1 FROM public.conversations c
+                                WHERE c.id = room.value AND c.home = 'relay' AND
+                                  ((c.kind = 'channel' AND c.open) OR EXISTS (
+                                    SELECT 1 FROM public.relay_participants rp
+                                    WHERE rp.channel_id = c.id AND rp.participant = 'agent:' || r.agent))))
+                            AND NOT EXISTS (
+                              SELECT 1 FROM jsonb_each(l.access_snapshot::jsonb->'owned') owner
+                              WHERE NOT EXISTS (SELECT 1 FROM public.chat_identities i
+                                WHERE i.id = owner.key AND i.owner_agent = r.agent
+                                  AND i.ownership_generation = (owner.value #>> '{}')::integer
+                                  AND i.status NOT IN ('deleted', 'deleting')))
+                            AND NOT EXISTS (
+                              SELECT 1 FROM jsonb_each(l.access_snapshot::jsonb->'endpoints') permission
+                              WHERE NOT EXISTS (SELECT 1 FROM public.external_access ea
+                                WHERE ea.identity_id = (permission.key::jsonb->>0)
+                                  AND ea.endpoint_id = (permission.key::jsonb->>1)
+                                  AND (NOT (permission.value->>0)::boolean OR ea.can_read)
+                                  AND (NOT (permission.value->>1)::boolean OR ea.can_history)
+                                  AND (NOT (permission.value->>2)::boolean OR ea.can_send)))
+                          FOR SHARE OF l, e, a))
+                      FOR SHARE OF r
                     $$
                 """))
                 await conn.execute(text(
                     "REVOKE ALL ON FUNCTION public.memory_run_scope(text, text) FROM PUBLIC"))
                 await conn.execute(text(
                     f'GRANT EXECUTE ON FUNCTION public.memory_run_scope(text, text) TO "{ident}"'))
+                await conn.execute(text("""
+                    CREATE OR REPLACE FUNCTION public.local_persona_memory_mutation(
+                      p_run text, p_agent text, p_id text, p_before jsonb, p_after jsonb)
+                    RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
+                    BEGIN
+                      IF NOT EXISTS (SELECT 1 FROM public.memory_run_scope(p_run, p_agent)) THEN
+                        RAISE EXCEPTION 'memory run authority ended';
+                      END IF;
+                      INSERT INTO public.local_persona_mutations
+                        (id, session_id, run_id, kind, target_id, before, after, created_at)
+                        SELECT md5(random()::text || clock_timestamp()::text),
+                          r.local_persona_session_id, r.id, 'memory', p_id, p_before, p_after, now()
+                        FROM public.runs r WHERE r.id = p_run AND r.agent = p_agent
+                          AND r.local_persona_session_id IS NOT NULL;
+                    END $$
+                """))
+                await conn.execute(text(
+                    "REVOKE ALL ON FUNCTION public.local_persona_memory_mutation(text,text,text,jsonb,jsonb) FROM PUBLIC"))
+                await conn.execute(text(
+                    'GRANT EXECUTE ON FUNCTION public.local_persona_memory_mutation(text,text,text,jsonb,jsonb) TO tool_memory'))
+                await conn.execute(text("""
+                    INSERT INTO public.schema_marks (name, applied_at)
+                    VALUES ('local-persona-memory-fence-v1', now()) ON CONFLICT (name) DO NOTHING
+                """))
         if existing is None:
             from sqlalchemy.engine.url import make_url
             u = make_url(self.settings.db_url)

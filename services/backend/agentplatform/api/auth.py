@@ -293,6 +293,14 @@ async def authenticate(request: Request) -> tuple[str, str] | None:
 
 
 async def _authenticate(request: Request) -> tuple[str, str] | None:
+    # A persona bearer decides the request even beside a human cookie or
+    # injected workload headers. It can never fall through to ambient admin.
+    persona_header = request.headers.get("authorization", "")
+    if persona_header.startswith("Bearer lps_"):
+        from agentplatform.local_persona import authenticate as persona_auth
+        return await persona_auth(request, persona_header[7:])
+    if persona_header.startswith(("Bearer lpe_", "Bearer lpr_")):
+        return None
     resolved = await resolve_session(request.app, request.cookies.get("ap_session"))
     if resolved is not None:
         p, sid = resolved
@@ -319,6 +327,10 @@ async def authenticate_bearer(request: Request, token: str,
     """The bearer half of `authenticate`, for a token and run JWT given
     explicitly. The tool-call mint resolves the broker's CALLER through here,
     since that request's own bearer is the broker's."""
+    if token.startswith("lps_"):
+        from agentplatform.local_persona import authenticate as persona_auth
+        return await persona_auth(request, token,
+            delegated_mint=request.url.path == '/api/tool-calls')
     if token.startswith("ap_"):
         k = await _lookup_api_key(request, token)
         if k is not None:
@@ -419,6 +431,15 @@ async def _authenticate_tool_call(request: Request, token: str,
         return (claims["principal"], "tools")
     if not await _current_run(request, claims["run_id"]):
         return None
+    from agentplatform.db import Run
+    from agentplatform.local_persona import run_authorized
+    async with request.app.state.session_factory() as session:
+        run = await session.get(Run, claims["run_id"])
+        if run and run.local_persona_session_id:
+            allowed = await run_authorized(session, run, claims['tool'])
+            await session.commit()
+            if not allowed:
+                return None
     request.state.auth_kind = _tc.KIND_TOOL_CALL
     request.state.api_key_agent = claims["agent"]
     request.state.api_key_run_id = claims["run_id"]

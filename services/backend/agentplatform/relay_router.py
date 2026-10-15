@@ -204,7 +204,7 @@ class RelayRouter:
             # may since have been edited or deleted, and what the router acts
             # on has to be what the room currently holds.
             msg = await s.get(RelayMessage, (data.get("id") or ""))
-            if conv is None or msg is None or msg.deleted_at is not None:
+            if conv is None or conv.home == "local_persona" or msg is None or msg.deleted_at is not None:
                 return
             if conv.home != "external" and await s.get(RelayMentionQueue, (msg.id, 0)):
                 return  # Kafka replay: this message already has an ordered turn.
@@ -786,7 +786,7 @@ class RelayRouter:
         fired."""
         q = select(Run.id).where(
             Run.conversation_id == channel_id, Run.agent == agent,
-            Run.state.in_(ACTIVE_STATES))
+            Run.execution_location == "cluster", Run.state.in_(ACTIVE_STATES))
         if ignore_run_id:
             q = q.where(Run.id != ignore_run_id)
         return (await s.execute(q.limit(1))).first() is not None

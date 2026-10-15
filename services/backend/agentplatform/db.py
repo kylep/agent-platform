@@ -17,6 +17,7 @@ def utcnow() -> datetime:
 class RunState(StrEnum):
     QUEUED = "queued"; DISPATCHED = "dispatched"; RUNNING = "running"
     SUCCEEDED = "succeeded"; FAILED = "failed"; TIMED_OUT = "timed_out"
+    INTERRUPTED = "interrupted"
     KILLED = "killed"; REJECTED = "rejected"; DLQ = "dlq"
 
 ACTIVE_STATES = (RunState.QUEUED, RunState.DISPATCHED, RunState.RUNNING)
@@ -43,6 +44,9 @@ class Run(Base):
     __tablename__ = "runs"
     id: Mapped[str] = mapped_column(String(32), primary_key=True, default=lambda: uuid.uuid4().hex)
     agent: Mapped[str] = mapped_column(String(128))
+    execution_location: Mapped[str] = mapped_column(String(16), default="cluster", server_default="cluster")
+    local_persona_session_id: Mapped[str | None] = mapped_column(String(32), nullable=True, index=True)
+    local_persona_epoch: Mapped[int | None] = mapped_column(Integer, nullable=True)
     # Provider selected by the dispatcher, frozen before the pod launches.
     runtime: Mapped[str] = mapped_column(String(16), default="")
     fallback_used: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
@@ -122,6 +126,97 @@ class Run(Base):
     # both consumers race to publish; this is the claim that makes it once.
     reply_published_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True)
+
+class LocalPersonaEnrollment(Base):
+    __tablename__ = "local_persona_enrollments"
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=lambda: uuid.uuid4().hex)
+    agent: Mapped[str] = mapped_column(String(128))
+    initiated_by: Mapped[str] = mapped_column(String(128))
+    device_id: Mapped[str] = mapped_column(String(128))
+    device_label: Mapped[str] = mapped_column(String(128))
+    token_hash: Mapped[str] = mapped_column(String(64), unique=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class LocalPersonaSession(Base):
+    __tablename__ = "local_persona_sessions"
+    __table_args__ = (UniqueConstraint("enrollment_id", "launch_nonce"),)
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=lambda: uuid.uuid4().hex)
+    enrollment_id: Mapped[str] = mapped_column(String(32), ForeignKey("local_persona_enrollments.id"))
+    launch_nonce: Mapped[str] = mapped_column(String(64))
+    agent: Mapped[str] = mapped_column(String(128))
+    harness: Mapped[str] = mapped_column(String(16))
+    conversation_id: Mapped[str] = mapped_column(String(32), unique=True)
+    run_id: Mapped[str] = mapped_column(String(32))
+    state: Mapped[str] = mapped_column(String(16), default="active")
+    writer_epoch: Mapped[int] = mapped_column(Integer, default=1)
+    renewal_hash: Mapped[str] = mapped_column(String(64))
+    frozen_tools: Mapped[list] = mapped_column(JSON, default=list)
+    access_snapshot: Mapped[dict] = mapped_column(JSON, default=dict)
+    authorization_generation: Mapped[int] = mapped_column(Integer, default=0)
+    context_hash: Mapped[str] = mapped_column(String(64), default="")
+    context_stale: Mapped[bool] = mapped_column(default=False)
+    native_session_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    accepted_sequence: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    last_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    drain_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class LocalPersonaCredential(Base):
+    __tablename__ = "local_persona_credentials"
+    token_hash: Mapped[str] = mapped_column(String(64), primary_key=True)
+    session_id: Mapped[str] = mapped_column(String(32), ForeignKey("local_persona_sessions.id"), index=True)
+    writer_epoch: Mapped[int] = mapped_column(Integer)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class LocalPersonaTurn(Base):
+    __tablename__ = "local_persona_turns"
+    __table_args__ = (UniqueConstraint("session_id", "local_turn_id"),)
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=lambda: uuid.uuid4().hex)
+    session_id: Mapped[str] = mapped_column(String(32), ForeignKey("local_persona_sessions.id"))
+    local_turn_id: Mapped[str] = mapped_column(String(128))
+    run_id: Mapped[str] = mapped_column(String(32))
+    sync_state: Mapped[str] = mapped_column(String(16), default="open")
+    usage: Mapped[dict] = mapped_column(JSON, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class LocalPersonaEvent(Base):
+    __tablename__ = "local_persona_events"
+    __table_args__ = (UniqueConstraint("session_id", "sequence"),
+                     UniqueConstraint("session_id", "event_id"))
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=lambda: uuid.uuid4().hex)
+    session_id: Mapped[str] = mapped_column(String(32), ForeignKey("local_persona_sessions.id"), index=True)
+    sequence: Mapped[int] = mapped_column(Integer)
+    event_id: Mapped[str] = mapped_column(String(256))
+    local_turn_id: Mapped[str] = mapped_column(String(128))
+    relay_message_id: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    payload_hash: Mapped[str] = mapped_column(String(64))
+    payload: Mapped[dict] = mapped_column(JSON)
+    received_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    payload_pruned_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class LocalPersonaMutation(Base):
+    """Human-only undo ledger. Compare current value before restoring an older value."""
+    __tablename__ = "local_persona_mutations"
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=lambda: uuid.uuid4().hex)
+    session_id: Mapped[str] = mapped_column(String(32), index=True)
+    run_id: Mapped[str] = mapped_column(String(32))
+    kind: Mapped[str] = mapped_column(String(16))
+    target_id: Mapped[str] = mapped_column(String(128))
+    before: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    after: Mapped[dict] = mapped_column(JSON)
+    reverted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
 
 class ToolAudit(Base):
     """Append-only audit of custom-tool calls at the broker chokepoint
@@ -1314,6 +1409,14 @@ def _ensure_columns(conn) -> None:
                 ddl = col.type.compile(dialect=conn.dialect)
                 qualified = f'{schema}.{table.name}' if schema else table.name
                 conn.exec_driver_sql(f'ALTER TABLE {qualified} ADD COLUMN {col.name} {ddl}')
+
+
+def _ensure_local_persona_ddl(conn):
+    # ADD COLUMN cannot backfill Python defaults; old runs remain cluster runs.
+    conn.execute(Run.__table__.update().where(Run.execution_location.is_(None))
+                 .values(execution_location='cluster'))
+    if conn.dialect.name == 'postgresql':
+        conn.exec_driver_sql("ALTER TABLE runs ALTER COLUMN execution_location SET DEFAULT 'cluster'")
 
 
 def _ensure_appdata_index_diet(conn) -> None:
@@ -3833,6 +3936,7 @@ async def init_db(engine: AsyncEngine, default_grant: bool = True,
             await conn.execute(text(f'CREATE SCHEMA IF NOT EXISTS "{MEMORY_SCHEMA}"'))
         await conn.run_sync(Base.metadata.create_all)
         await conn.run_sync(_ensure_columns)
+        await conn.run_sync(_ensure_local_persona_ddl)
         await conn.run_sync(_ensure_scope_indexes)
         await conn.run_sync(_ensure_appdata_index_diet)
         await conn.run_sync(_ensure_agent_type_default)

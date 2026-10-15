@@ -170,6 +170,14 @@ spec:
       app.kubernetes.io/component: mcp-broker
   policyTypes: [Ingress]
   ingress:
+    {{- if .Values.localPersona.enabled }}
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: agent-platform
+              app.kubernetes.io/component: web
+      ports: [{port: 8001, protocol: TCP}]
+    {{- end }}
     - from:
         - podSelector:
             matchExpressions:

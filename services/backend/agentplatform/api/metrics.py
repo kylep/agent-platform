@@ -74,7 +74,7 @@ def _last_failure(runs: list[Run]):
 async def _recent_runs(request: Request) -> list[Run]:
     async with request.app.state.session_factory() as s:
         return list((await s.execute(
-            select(Run).order_by(Run.created_at.desc()).limit(_WINDOW))).scalars())
+            select(Run).where(Run.execution_location == "cluster").order_by(Run.created_at.desc()).limit(_WINDOW))).scalars())
 
 
 @router.get("/api/metrics/overview", response_model=S.MetricsOverview, dependencies=[Depends(require_role(*READ_ROLES))])
@@ -122,7 +122,7 @@ async def durations(request: Request, days: int = 14, agent: str | None = None):
     days = max(1, min(days, 90))
     cutoff = utcnow() - timedelta(days=days)
     stmt = (select(Run)
-            .where(Run.finished_at.isnot(None), Run.started_at.isnot(None),
+            .where(Run.execution_location == 'cluster', Run.finished_at.isnot(None), Run.started_at.isnot(None),
                    Run.finished_at >= cutoff)
             .order_by(Run.finished_at.desc()).limit(2000))
     if agent:

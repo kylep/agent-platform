@@ -278,6 +278,7 @@ export default function Settings() {
   return (
     <div className="page">
       <h1>Settings</h1>
+      <p><Link to="/settings/local-personas">Local persona sessions and device enrollments</Link></p>
       <PasswordSection />
       <ApiKeysSection />
       <section><h2>Connections</h2><p className="muted">Manage Discord chat identities and other connector credentials on <Link to="/secrets">Connections</Link>.</p></section>

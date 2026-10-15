@@ -231,7 +231,7 @@ class Scheduler:
                 from agentplatform.external_chat import has_scan_activity
                 active_scan = (await s.execute(select(Run.id).where(
                     Run.agent == job.agent, Run.trigger == "schedule",
-                    Run.prompt == job.prompt, Run.state.in_(ACTIVE_STATES))
+                    Run.prompt == job.prompt, Run.execution_location == "cluster", Run.state.in_(ACTIVE_STATES))
                     .limit(1))).first() is not None
                 if not job.agent or active_scan or not await has_scan_activity(s, job.agent):
                     # A quiet check advances the clock without consuming a
