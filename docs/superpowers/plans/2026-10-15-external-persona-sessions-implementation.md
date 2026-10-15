@@ -158,7 +158,8 @@ A live Pai session successfully loaded canonical identity, assigned skills and
 an actual memory search succeeded through nginx, the separate persona broker,
 SPIRE executor tunnel and the provisioned memory tool. The check performed no
 memory writes and closed/finalized its session. A second installed-client
-preflight session was also finalized. All deployments reported ready.
+preflight session was also finalized. All deployments reported ready. Helm revision 101 completed with status
+`deployed`; its topic hook created `local-persona.events`.
 
 The human memory test is deliberately still unperformed: launch Pai locally,
 explicitly ask her to save a unique fact in AP memory, then ask Pai in her
