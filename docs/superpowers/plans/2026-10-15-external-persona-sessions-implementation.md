@@ -3,8 +3,8 @@
 Date: 2026-10-15. Starting repository revision: `31d50d6`.
 Implementation authorized by the user's request to read the plan/Phase 0 report
 and build it. The original planning files and unrelated working-tree files are
-preserved. Implementation is local; production deployment and real-persona
-pilot enrollment remain pending.
+preserved. Implementation has been deployed for the human-driven Pai laptop memory pilot.
+See the live rollout evidence below.
 
 User contract and installation:
 [Local persona sessions](../../building-blocks/local-persona-sessions.md).
@@ -136,3 +136,31 @@ remain the Phase 0 limitations; this implementation does not turn them into
 stronger guarantees. Unsupported native resumes are detected as recovered gaps
 when new records are found at the next launcher resume. Same-UID determined
 bypasses remain the explicitly accepted reasonable-tamper-resistance limit.
+
+
+## Live rollout — 2026-10-15
+
+Implementation `f909f51` was pushed to main. Built/imported amd64 backend,
+broker, web and management-facade images; deployed the backend migration and
+restarted dispatcher/recorder, broker, web and facade. Enabled
+`localPersona.enabled` using the current Helm values. Kubernetes validation
+caught missing names on the broker's now-multiple Service ports; named the
+local, mTLS and plain HTTP ports and reapplied successfully.
+
+The installed `ap-persona` 0.1.0 pipx package and Codex 0.162.1 preflight passed
+from `~/pai-laptop-test`, including the actual sandbox fence and effective MCP
+allowlist. An authenticated localhost SSH forward on port 18090 protects the
+laptop transport. Pai's enrollment is stored privately in the launcher state,
+with the repository credential paths included in the fence.
+
+A live Pai session successfully loaded canonical identity, assigned skills and
+20 seeded memories. Authenticated MCP discovery exposed 27 granted tools and
+an actual memory search succeeded through nginx, the separate persona broker,
+SPIRE executor tunnel and the provisioned memory tool. The check performed no
+memory writes and closed/finalized its session. A second installed-client
+preflight session was also finalized. All deployments reported ready.
+
+The human memory test is deliberately still unperformed: launch Pai locally,
+explicitly ask her to save a unique fact in AP memory, then ask Pai in her
+ordinary platform DM to retrieve it. Read-only setup checks did not pre-seed
+that fact or send any persona messages.

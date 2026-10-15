@@ -220,14 +220,17 @@ spec:
     {{- include "agent-platform.selectorLabels" (dict "Release" .Release "Chart" .Chart "component" "mcp-broker") | nindent 4 }}
   ports:
     {{- if .Values.localPersona.enabled }}
-    - port: 8001
+    - name: local-persona
+      port: 8001
       targetPort: 8001
     {{- end }}
     {{- if .Values.spire.enabled }}
     # mTLS mode: the ghostunnel sidecar is the only listener on the pod IP.
-    - port: 8443
+    - name: mtls
+      port: 8443
       targetPort: 8443
     {{- else }}
-    - port: 8000
+    - name: http
+      port: 8000
       targetPort: 8000
     {{- end }}
