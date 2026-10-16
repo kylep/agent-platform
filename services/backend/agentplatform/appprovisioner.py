@@ -296,7 +296,7 @@ class ToolProvisioner:
                       END IF;
                       INSERT INTO public.local_persona_mutations
                         (id, session_id, run_id, kind, target_id, before, after, created_at)
-                        SELECT md5(random()::text || clock_timestamp()::text),
+                        SELECT replace(gen_random_uuid()::text, '-', ''),
                           r.local_persona_session_id, r.id, 'memory', p_id, p_before, p_after, now()
                         FROM public.runs r WHERE r.id = p_run AND r.agent = p_agent
                           AND r.local_persona_session_id IS NOT NULL;

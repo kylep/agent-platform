@@ -30,6 +30,14 @@ async def test_postgres_memory_fencing_provenance_revert_and_migration(tmp_path)
     engine = make_engine(url)
     await init_db(engine)
     sf = make_session_factory(engine)
+    # Production's crypto policy rejects MD5. Reproduce that restriction in
+    # this disposable database so memory saves cannot regress to hashed IDs.
+    async with engine.begin() as c:
+        await c.execute(text("""
+            CREATE OR REPLACE FUNCTION pg_catalog.md5(text) RETURNS text
+            LANGUAGE plpgsql IMMUTABLE STRICT AS $$
+            BEGIN RAISE EXCEPTION 'MD5 disabled by crypto policy'; END $$
+        """))
     async with sf() as s:
         s.add(AgentDef(name='local-test', agent_type='persona', platform_tools=['mcp__platform__memory']))
         s.add(Conversation(id='scope-room', connector='web', agent='local-test', kind='group'))
@@ -78,6 +86,7 @@ async def test_postgres_memory_fencing_provenance_revert_and_migration(tmp_path)
             memory_id = json.loads(saved.stdout)['id']
             async with sf() as s:
                 audit = (await s.execute(select(LocalPersonaMutation))).scalar_one()
+                assert len(audit.id) == 32 and uuid.UUID(audit.id).version == 4
                 assert audit.session_id == session['session_id'] and audit.target_id == memory_id
                 assert audit.before is None and audit.after['content'] == 'synthetic identity'
             # Permission loss between broker authorization and execution is
