@@ -165,3 +165,36 @@ The human memory test is deliberately still unperformed: launch Pai locally,
 explicitly ask her to save a unique fact in AP memory, then ask Pai in her
 ordinary platform DM to retrieve it. Read-only setup checks did not pre-seed
 that fact or send any persona messages.
+
+## Completed laptop to platform memory pilot — 2026-10-16 UTC
+
+At the user's request, ran installed Codex 0.162.1 / gpt-6-sol through the
+real laptop launcher, then asked Pai in her ordinary platform DM to retrieve
+a unique test fact. The recall question contained neither the answer nor the
+memory key. No external connector message was sent.
+
+The live write exposed a production failure: PostgreSQL rejected SQL MD5 under
+its crypto policy while creating memory provenance, rolling back the memory
+transaction. Fix `6f63e0d` replaces audit ID generation with core
+`gen_random_uuid()` in the existing 32-character representation. The regression
+test disables SQL MD5 in disposable PostgreSQL and verifies actual memory save,
+UUID provenance and undo. That database test and 26 affected backend checks
+passed before publishing and deploying the fix. The affected deployments and
+refreshed facade reported ready.
+
+An earlier automated attempt misplaced a Codex configuration option after
+`exec`, replacing the launcher's overrides. Corrected the temporary automation
+to keep configuration flags before the subcommand; the normal interactive
+launcher was unchanged. Neither failed attempt persisted a test memory.
+
+The successful native run saved the fact with a confirmed memory-tool result
+and exited normally. The laptop recording finalized with 11 acknowledged and
+projected events; server-derived provenance linked its memory write. The
+independent platform run succeeded, made one actual memory-tool read, and
+returned the exact codeword and memory key. Detailed identifiers and the test
+fact are retained locally, outside this public report.
+
+**Result: PASS — native laptop write, persistent Pai memory, independent
+platform tool retrieval and exact recall.** One clearly labeled pilot memory
+is retained for user inspection. Pilot sessions are closed; device enrollment
+remains usable.
