@@ -206,3 +206,20 @@ def test_invalid_json_text_is_explicitly_recovered_and_literal_escapes_survive()
     assert events[1] == ('assistant_message',{'text':'a\ufffdb','final':False})
     _,_,events = normalize('claude',claude_record('literal',content=[{'type':'text','text':r'\u0000'}]),'turn')
     assert events == [('assistant_message',{'text':r'\u0000','final':False})]
+
+
+@pytest.mark.parametrize('reported,accepted', [
+    ('codex-cli 0.162.1', True),
+    ('codex-cli 0.163.0', True),
+    ('codex-cli 0.164.0', False),
+    ('unrecognized version', False),
+])
+def test_harness_version_gate_reports_verified_versions(reported, accepted, monkeypatch):
+    from types import SimpleNamespace
+    monkeypatch.setattr(harness.subprocess, 'run',
+                        lambda *a, **kw: SimpleNamespace(stdout=reported))
+    if accepted:
+        assert harness.version('codex') == reported.split()[-1]
+    else:
+        with pytest.raises(ValueError, match='verified versions: 0.162.1, 0.163.0'):
+            harness.version('codex')

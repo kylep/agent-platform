@@ -16,12 +16,15 @@ unsupported and can retain a persona prompt while dropping recording hooks.
 ## Install and enroll
 
 Requires Python 3.11+, macOS sandbox support, Claude Code 2.1.299/2.1.300 or
-Codex 0.162.1. Other versions fail closed until their compatibility is checked.
+Codex 0.162.1 or 0.163.0. Other versions fail closed until their compatibility is
+checked.
 The provider must already work in your ordinary local harness.
 
 Install the reviewed package, for example with `pipx install ./clients/persona`.
 Installation does not edit global hooks, managed policies, user harness config
-or repository settings.
+or repository settings. After updating this checkout, refresh an existing pipx
+installation with `pipx install --force ./clients/persona`. A CLI upgrade can
+require a newly verified helper version.
 
 An administrator signs into AP, opens **Settings → Local persona sessions**,
 selects an enabled persona and creates a device enrollment. The token is shown

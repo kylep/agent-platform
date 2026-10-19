@@ -10,7 +10,7 @@ import tomllib
 
 from .storage import write_json
 
-SUPPORTED = {'claude': {'2.1.299', '2.1.300'}, 'codex': {'0.162.1'}}
+SUPPORTED = {'claude': {'2.1.299', '2.1.300'}, 'codex': {'0.162.1', '0.163.0'}}
 EVENTS = {'claude': ['SessionStart', 'UserPromptSubmit', 'PostToolUse', 'PostToolUseFailure',
                      'Stop', 'PreCompact', 'SessionEnd', 'SubagentStart', 'SubagentStop'],
           'codex': ['SessionStart', 'UserPromptSubmit', 'PostToolUse', 'PostToolUseFailure',
@@ -27,7 +27,10 @@ def version(harness):
                             check=True, env=clean_environment(), timeout=10)
     match = re.search(r'\b(\d+\.\d+\.\d+)\b', result.stdout)
     if not match or match[1] not in SUPPORTED[harness]:
-        raise ValueError('unsupported harness version; run compatibility probes before adding support')
+        detected = match[1] if match else 'unknown'
+        supported = ', '.join(sorted(SUPPORTED[harness]))
+        raise ValueError(f'unsupported {harness} version {detected}; verified versions: {supported}. '
+                         'Run compatibility probes before adding support, then reinstall ap-persona.')
     return match[1]
 
 
