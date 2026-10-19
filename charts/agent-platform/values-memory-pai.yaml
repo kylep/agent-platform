@@ -1,6 +1,12 @@
 # Apply after the disabled protocol rollout, explicit pgvector migration,
 # successful cache provisioning and independent Stage A/B acceptance.
 # No prompts, credentials or database image/storage changes belong here.
+images:
+  backend:
+    tag: memory-f7214ac
+mcpBroker:
+  image:
+    tag: memory-f7214ac
 env:
   AP_STARTUP_MEMORY_PILOT_AGENTS: pai
   AP_MEMORY_SEMANTIC_ENABLED: "true"
