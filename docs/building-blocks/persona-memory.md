@@ -106,11 +106,14 @@ env:
   AP_MEMORY_SEMANTIC_AGENTS: 'one-persona'
   AP_MEMORY_EMBEDDING_URL: 'http://ap-memory-embedding:11434'
   AP_MEMORY_EMBEDDING_TIMEOUT_SECONDS: '3'
+  AP_MEMORY_INDEX_EMBEDDING_TIMEOUT_SECONDS: '30'
 ```
 
 Canonical saves/deletes never call embeddings. The indexer's bounded reconciliation
 covers both REST and Tool commits, survives restarts and records failed sources
-with a five-minute retry. Failures do not starve newer records. Retrieval joins
+with a five-minute retry. Query retrieval has a three-second total deadline;
+indexing allows thirty seconds per bounded record batch, under a 150-second Job
+deadline, so long documents cannot force interactive calls to inherit that wait. Failures do not starve newer records. Retrieval joins
 canonical source ownership, timestamp/content hash and index generation before
 its result limit, then verifies full source hashes. Overwrites/deletes become
 ineligible immediately, before cleanup. Exact vector search is deliberate for

@@ -49,7 +49,7 @@ references it via $(POSTGRES_PASSWORD) k8s env substitution.
 Env vars shared by the api/dispatcher/recorder backend Deployments.
 */}}
 {{- define "agent-platform.backendEnv" -}}
-{{- range $key := list "AP_STARTUP_MEMORY_PILOT_AGENTS" "AP_MEMORY_SEMANTIC_ENABLED" "AP_MEMORY_SEMANTIC_AGENTS" "AP_MEMORY_EMBEDDING_TIMEOUT_SECONDS" }}
+{{- range $key := list "AP_STARTUP_MEMORY_PILOT_AGENTS" "AP_MEMORY_SEMANTIC_ENABLED" "AP_MEMORY_SEMANTIC_AGENTS" "AP_MEMORY_EMBEDDING_TIMEOUT_SECONDS" "AP_MEMORY_INDEX_EMBEDDING_TIMEOUT_SECONDS" }}
 - name: {{ $key }}
   value: {{ index $.Values.env $key | quote }}
 {{- end }}

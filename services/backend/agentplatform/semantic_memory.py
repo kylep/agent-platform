@@ -122,7 +122,9 @@ async def reconcile(sf, settings, batch=4):
     for memory in rows:
         revision = source_hash(memory)
         try:
-            vectors = await embed(settings, ['title: ' + bounded(memory.key or 'none', 128) + ' | text: ' + t
+            index_settings = settings.model_copy(update={
+                'memory_embedding_timeout_seconds': settings.memory_index_embedding_timeout_seconds})
+            vectors = await embed(index_settings, ['title: ' + bounded(memory.key or 'none', 128) + ' | text: ' + t
                                              for t in chunks(memory)])
         except (httpx.HTTPError, TimeoutError, ValueError):
             # A bad record/outage must not starve the rest of the durable scan.

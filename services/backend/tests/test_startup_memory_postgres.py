@@ -33,6 +33,10 @@ async def test_vector_migration_reconciliation_live_revisions_and_generations(mo
         await s.commit()
     settings=Settings(memory_semantic_enabled=True,memory_semantic_agents=agent)
     async def embed(*args):
+        if args[1][0].startswith('title:'):
+            assert args[0].memory_embedding_timeout_seconds == settings.memory_index_embedding_timeout_seconds
+        else:
+            assert args[0].memory_embedding_timeout_seconds == settings.memory_embedding_timeout_seconds
         return [[1.0]+[0.0]*767 for _ in args[1]]
     monkeypatch.setattr(semantic,'embed',embed)
     assert await semantic.reconcile(sf,settings)==1

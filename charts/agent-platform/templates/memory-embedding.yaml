@@ -117,7 +117,12 @@ spec:
             periodSeconds: 10
             failureThreshold: 30
           readinessProbe:
-            exec: {command: [ollama, show, {{ .Values.memoryEmbedding.model | quote }}]}
+            # /show parses model metadata and can exceed one second under
+            # CPU-limited backfill. Startup already proved real inference;
+            # /tags (ollama list) is a cheap cached-model/serving check.
+            exec:
+              command: [/bin/bash, -ec, {{ printf "ollama list | grep -F -- %s" (.Values.memoryEmbedding.model | quote) | quote }}]
+            timeoutSeconds: 3
             periodSeconds: 20
           livenessProbe:
             tcpSocket: {port: embeddings}
@@ -167,7 +172,7 @@ spec:
   jobTemplate:
     spec:
       backoffLimit: 0
-      activeDeadlineSeconds: 50
+      activeDeadlineSeconds: 150
       template:
         metadata:
           labels:
