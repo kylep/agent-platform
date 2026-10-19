@@ -195,8 +195,12 @@ ap-persona resume --persona pai --harness codex <existing-ap-session-id>
 ```
 
 The installed supported launcher fetches/validates a fresh bootstrap before
-building the native resume invocation. Use `ap-persona status <id>` first; a drained
-or expired session needs a fresh `ap-persona launch` instead. Plain native resume,
+building the native resume invocation. Explicit resume uses the enrollment and
+can reopen a drained/finalized recording within its original absolute lifetime,
+provided its enrollment and access remain valid. Bearer renewal alone cannot do
+this. An expired absolute lifetime or lost access requires a fresh conversation.
+Use `ap-persona status <id>` to inspect synchronization, but an expired bearer is
+not itself evidence that enrollment-based resume is unavailable. Plain native resume,
 `/clear` and forks do not substitute for this path. A server deploy alone also
 provides no evidence that an old laptop process's AP bridge/network has recovered.
 

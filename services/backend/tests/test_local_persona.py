@@ -92,11 +92,15 @@ async def test_ingest_atomic_replay_and_no_dispatch(local, token_client, sf, pro
     assert not any(x[0] in ('run.requests', 'conversation.outbound') for x in producer.published)
 
 
-async def test_resume_fences_hooks_tools_and_old_run(local, token_client, sf):
+@pytest.mark.parametrize('previous_state', ['active', 'draining', 'finalized'])
+async def test_resume_fences_hooks_tools_and_old_run(local, token_client, sf, previous_state):
     state = await local('codex')
     path, headers = state['path'], state['headers']
     assert (await token_client.post(path + '/bind', headers=headers,
         json={'native_session_id': 'native-1'})).status_code == 200
+    if previous_state != 'active':
+        endpoint = '/finalize' if previous_state == 'finalized' else '/close'
+        assert (await token_client.post(path + endpoint, headers=headers)).status_code == 200
     eheaders = {'Authorization': 'Bearer ' + state['enrollment']['token']}
     resumed = await token_client.post(path + '/resume', headers=eheaders,
         json={'native_session_id': 'native-1'})
