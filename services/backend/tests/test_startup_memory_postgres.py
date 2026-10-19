@@ -124,3 +124,67 @@ async def test_failed_indexing_is_durable_and_does_not_starve(monkeypatch):
     async with sf() as s:
         assert (await s.execute(text('SELECT count(*) FROM public.memory_embedding_failures_v1'))).scalar()>=1
     await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_task_cancel_after_capture_before_dispatch_claim(monkeypatch):
+    from datetime import timedelta
+    from types import SimpleNamespace
+    from agentplatform.db import ScheduledTask,utcnow
+    from agentplatform.api.tasks import cancel_task,Caller
+    engine=make_engine(os.environ['AP_PERSONA_TEST_POSTGRES_URL']);await init_db(engine)
+    sf=make_session_factory(engine);agent='cancel-'+uuid.uuid4().hex[:8]
+    rid,tid=uuid.uuid4().hex,uuid.uuid4().hex
+    async with sf() as s:
+        s.add(AgentDef(name=agent,agent_type='persona',platform_tools=['mcp__platform__memory']))
+        s.add(Memory(agent=agent,key='preferences.test',content='synthetic'))
+        s.add(ScheduledTask(id=tid,title='Synthetic cancellation',agent=agent,prompt='task',runtime='claude',model='',
+            run_at=utcnow(),expires_at=utcnow()+timedelta(hours=1),creator='user:admin',status='launched',run_id=rid))
+        s.add(Run(id=rid,agent=agent,trigger='task',requested_by='test',prompt='task',task_id=tid))
+        await s.commit()
+    store=AgentStore(sf);await store.reload();launcher=FakeLauncher()
+    disp=Dispatcher(Settings(startup_memory_pilot_agents=agent),sf,FakeProducer(),store,launcher)
+    async def cancel_after_capture(manifest):
+        async with sf() as s:
+            assert (await s.get(RunStartupContext,rid)).enabled
+        request=SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace(session_factory=sf)))
+        await cancel_task(request,tid,Caller(name='admin'))
+        return None
+    monkeypatch.setattr(disp,'_readiness_blocks',cancel_after_capture)
+    await asyncio.wait_for(disp.handle({'type':'run','run_id':rid}),timeout=5)
+    assert not launcher.launched
+    async with sf() as s:
+        assert (await s.get(Run,rid)).state=='killed'
+        assert (await s.get(ScheduledTask,tid)).status=='cancelled'
+        assert (await s.get(RunStartupContext,rid)).enabled
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_authority_change_serializes_before_capture(monkeypatch):
+    from agentplatform.authority import authority_lock
+    import agentplatform.authority as authority
+    engine=make_engine(os.environ['AP_PERSONA_TEST_POSTGRES_URL']);await init_db(engine)
+    sf=make_session_factory(engine);agent='authority-'+uuid.uuid4().hex[:8]
+    async with sf() as s:
+        s.add(AgentDef(name=agent,agent_type='persona',platform_tools=['mcp__platform__memory']))
+        run=Run(agent=agent,trigger='manual',requested_by='test',prompt='task');s.add(run);await s.commit()
+    store=AgentStore(sf);await store.reload()
+    disp=Dispatcher(Settings(startup_memory_pilot_agents=agent),sf,FakeProducer(),store,FakeLauncher())
+    reached_lock=asyncio.Event()
+    async def observed_lock(session):
+        reached_lock.set();await authority_lock(session)
+    async with sf() as s:
+        await authority_lock(s)
+        target=await s.get(AgentDef,agent,with_for_update=True);target.enabled=False;await s.flush()
+        monkeypatch.setattr(authority,'authority_lock',observed_lock)
+        freeze=asyncio.create_task(disp._freeze_definition(run))
+        await asyncio.wait_for(reached_lock.wait(),timeout=5)
+        assert not freeze.done()
+        await s.commit()
+    _,error=await asyncio.wait_for(freeze,timeout=5)
+    assert error=='agent is disabled'
+    async with sf() as s:
+        assert (await s.get(Run,run.id)).definition_snapshot is None
+        assert await s.get(RunStartupContext,run.id) is None
+    await engine.dispose()
