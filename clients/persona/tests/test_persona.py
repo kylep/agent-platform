@@ -1,5 +1,6 @@
 import concurrent.futures
 import json
+import os
 from pathlib import Path
 import sys
 import tomllib
@@ -110,6 +111,9 @@ def test_invocation_only_flags_and_isolated_personas(tmp_path, monkeypatch):
     home = tmp_path/'home'
     root = secure_dir(tmp_path/'state')
     cwd = secure_dir(tmp_path/'work')
+    # harness denies every AP_*/PERSONA_* var present; isolate from the host env
+    for name in [k for k in os.environ if k.startswith(('AP_','PERSONA_'))]:
+        monkeypatch.delenv(name)
     monkeypatch.setenv('AP_MCP_TOKEN', 'must-not-inherit')
     assert 'AP_MCP_TOKEN' not in harness.clean_environment()
     assert harness.clean_environment({'NORMAL':'keep', 'PERSONA_TOKEN':'no'}) == {'NORMAL':'keep'}
