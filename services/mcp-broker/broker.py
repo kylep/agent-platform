@@ -2553,7 +2553,7 @@ def _clamp_timeout(raw) -> int:
     return max(_TIMEOUT_MIN, min(value, _TIMEOUT_MAX))
 
 
-_registered: dict[str, tuple[str, int, bool]] = {}  # name → (description, timeout, app_access): change detection
+_registered: dict[str, tuple[str, int, bool, str]] = {}  # description, timeout, app_access, parameter schema
 
 
 def refresh_custom_tools() -> None:
@@ -2571,15 +2571,18 @@ def refresh_custom_tools() -> None:
         desc = m["description"]
         timeout = m["timeout_seconds"]
         app_access = bool(m.get("app_access"))
-        if _registered.get(name) == (desc, timeout, app_access):
+        params = dict(m.get("params") or {"type": "object", "properties": {}})
+        params["properties"] = {**(params.get("properties") or {}), FILES_ARG: _FILES_SCHEMA}
+        # Schema-only capability changes must reach fresh MCP discovery too.
+        # Canonical JSON ignores YAML mapping order and snapshots nested values.
+        signature = (desc, timeout, app_access, _json.dumps(params, sort_keys=True))
+        if _registered.get(name) == signature:
             continue
         if name in _registered:
             mcp.local_provider.remove_tool(name)
-        params = dict(m.get("params") or {"type": "object", "properties": {}})
-        params["properties"] = {**(params.get("properties") or {}), FILES_ARG: _FILES_SCHEMA}
         mcp.add_tool(CustomTool(name=name, description=desc, parameters=params,
                                 timeout_seconds=timeout, app_access=app_access))
-        _registered[name] = (desc, timeout, app_access)
+        _registered[name] = signature
         log.info("custom tool registered: %s", name)
 
 

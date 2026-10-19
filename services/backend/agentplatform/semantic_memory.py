@@ -185,7 +185,9 @@ async def prepare(sf, settings, agent, query, team_id=None, project_id=None):
         lexical = (await s.execute(select(Memory).where(*conditions,
             or_(*(or_(func.lower(Memory.content).contains(term, autoescape=True),
                       func.lower(Memory.key).contains(term, autoescape=True)) for term in terms)))
-            .order_by((Memory.key == query).desc(), Memory.updated_at.desc(), Memory.id.desc()).limit(20))).scalars().all()
+            # PostgreSQL DESC puts NULL first by default. Unkeyed lexical
+            # matches must not consume the limit ahead of an exact key.
+            .order_by((Memory.key == query).desc().nulls_last(), Memory.updated_at.desc(), Memory.id.desc()).limit(20))).scalars().all()
     semantic = []
     if settings.memory_semantic_enabled and agent in settings.memory_semantic_agents.split(','):
         try:

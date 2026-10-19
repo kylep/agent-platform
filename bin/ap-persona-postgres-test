@@ -9,10 +9,19 @@ trap 'docker rm -f "$name" >/dev/null 2>&1 || true' EXIT INT TERM
 docker run --rm -d --name "$name" -e POSTGRES_PASSWORD=persona-test-only \
   -p "127.0.0.1:$port:5432" pgvector/pgvector@sha256:2358fcba361ed2233a5ed81b5fe4ca779ccb304120ce531a3bf51c0ed7e2bc11 >/dev/null
 ready=0
+test_url="postgresql://postgres:persona-test-only@127.0.0.1:$port/postgres"
 for attempt in 1 2 3 4 5 6 7 8 9 10; do
   # initdb's temporary Unix-socket server reports ready before the final
   # TCP listener exists. Test the listener the suite actually connects to.
-  if docker exec "$name" pg_isready -h 127.0.0.1 -U postgres >/dev/null 2>&1; then ready=1; break; fi
+  # Docker Desktop can expose the host forwarding socket after the container's
+  # listener is ready. Exercise the same host connection as asyncpg/pytest.
+  if docker exec "$name" pg_isready -h 127.0.0.1 -U postgres >/dev/null 2>&1 &&
+     AP_PERSONA_READY_URL="$test_url" "$py" -c 'import asyncio,asyncpg,os
+async def probe():
+    c = await asyncpg.connect(os.environ["AP_PERSONA_READY_URL"], timeout=2)
+    try: await c.fetchval("SELECT 1")
+    finally: await c.close()
+asyncio.run(probe())' >/dev/null 2>&1; then ready=1; break; fi
   sleep 1
 done
 [ "$ready" = 1 ] || { echo 'Test PostgreSQL did not become ready' >&2; exit 1; }

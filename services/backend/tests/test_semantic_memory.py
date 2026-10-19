@@ -53,12 +53,43 @@ async def test_hybrid_api_requires_active_owning_run_and_rechecks_grants(sf,seed
         await s.commit()
     headers=await _agent_token(sf,'semantic-api',role='reader')
     assert (await token_client.post('/api/memory-hybrid',headers=headers,json={'q':'migration'})).status_code==403
+
     headers=await _agent_token(sf,'semantic-api',role='reader',run_id=run.id)
     response=await token_client.post('/api/memory-hybrid',headers=headers,json={'q':'migration'})
     assert response.status_code==200 and [r['content'] for r in response.json()['memories']]==['own memory']
     async with sf() as s:
         (await s.get(AgentDef,'semantic-api')).platform_tools=[];await s.commit()
     assert (await token_client.post('/api/memory-hybrid',headers=headers,json={'q':'migration'})).status_code==403
+
+
+@pytest.mark.parametrize('revoked', ['current', 'frozen'])
+async def test_hybrid_api_rechecks_authority_after_retrieval(sf, seed_agent, token_client, monkeypatch, revoked):
+    from agentplatform.db import AgentDef, Run
+    from .test_relay_api import _agent_token
+    name = 'hybrid-recheck-' + revoked
+    grant = 'mcp__platform__memory'
+    await seed_agent(name, agent_type='persona', platform_tools=[grant])
+    async with sf() as s:
+        run = Run(agent=name, trigger='manual', requested_by='test', prompt='task', state='running',
+                  definition_snapshot={'platform_tools': [grant]})
+        s.add(run)
+        await s.commit()
+    calls = []
+    async def prepare(*args):
+        calls.append(True)
+        # Inference runs outside the authority lock. A revoke during that
+        # interval must still prevent results from leaving the API boundary.
+        async with sf() as s:
+            if revoked == 'current':
+                (await s.get(AgentDef, name)).platform_tools = []
+            else:
+                (await s.get(Run, run.id)).definition_snapshot = {'platform_tools': []}
+            await s.commit()
+        return [], {'state': 'lexical'}
+    monkeypatch.setattr(semantic, 'prepare', prepare)
+    headers = await _agent_token(sf, name, role='reader', run_id=run.id)
+    response = await token_client.post('/api/memory-hybrid', headers=headers, json={'q': 'migration'})
+    assert calls == [True] and response.status_code == 403
 
 
 async def test_pinned_runtime_request_and_model_identity(monkeypatch):

@@ -141,6 +141,35 @@ def test_refresh_re_registers_when_the_timeout_changes(tools_root, monkeypatch):
     assert [t.timeout_seconds for t in added] == [60, 240]
 
 
+def test_refresh_updates_parameter_only_changes_and_removals(tools_root, monkeypatch):
+    _tool(tools_root, "memory")
+    added, removed = [], []
+    monkeypatch.setattr(broker.mcp, "add_tool", added.append)
+    monkeypatch.setattr(broker.mcp.local_provider, "remove_tool", removed.append)
+    monkeypatch.setattr(broker, "_registered", {})
+    path = tools_root / "memory" / "tool.yaml"
+    original = broker.yaml.safe_load(path.read_text())
+    broker.refresh_custom_tools()
+    changed = broker.yaml.safe_load(path.read_text())
+    changed["params"]["properties"]["mode"] = {"type": "string", "enum": ["lexical", "hybrid"]}
+    changed["params"]["required"] = ["mode"]
+    path.write_text(broker.yaml.safe_dump(changed))
+    broker.refresh_custom_tools()
+    assert added[-1].parameters["properties"]["mode"]["enum"] == ["lexical", "hybrid"]
+    assert added[-1].parameters["required"] == ["mode"]
+    assert "mode" not in added[0].parameters["properties"]
+    assert removed == ["memory"]
+    # Reordering YAML keys is not a semantic change and must not churn tools.
+    path.write_text(broker.yaml.safe_dump(changed, sort_keys=False))
+    broker.refresh_custom_tools()
+    assert len(added) == 2
+    path.write_text(broker.yaml.safe_dump(original))
+    broker.refresh_custom_tools()
+    assert "mode" not in added[-1].parameters["properties"]
+    assert "required" not in added[-1].parameters
+    assert removed == ["memory", "memory"]
+
+
 @pytest.mark.parametrize("raw, clamped", [("9999", 300), ("0", 1), ("-5", 1),
                                           ("abc", 30), ("200", 200)])
 def test_scan_clamps_the_manifest_timeout(tools_root, raw, clamped):

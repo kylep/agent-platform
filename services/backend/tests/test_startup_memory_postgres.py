@@ -15,6 +15,46 @@ pytestmark=pytest.mark.skipif(not os.environ.get('AP_PERSONA_TEST_POSTGRES_URL')
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize('unavailable', [False, True])
+async def test_exact_key_precedes_null_keys_before_candidate_limit(monkeypatch, unavailable):
+    engine = make_engine(os.environ['AP_PERSONA_TEST_POSTGRES_URL'])
+    try:
+        await init_db(engine)
+        sf = make_session_factory(engine)
+        agent = 'exact-' + uuid.uuid4().hex[:8]
+        key = 'preferences.exact-key'
+        exact = uuid.uuid4().hex
+        async with sf() as s:
+            s.add(Memory(id=exact, agent=agent, key=key, content='older grounded summary',
+                         team_id='own-team', project_id='own-project'))
+            await s.commit()
+            s.add_all([Memory(agent=agent, content=key + ' unkeyed note',
+                              team_id='own-team', project_id='own-project') for _ in range(25)])
+            # These must be excluded before LIMIT, even though they have exact
+            # keys or newer timestamps and would otherwise consume candidates.
+            s.add_all([Memory(agent=agent + '-foreign-' + str(i), key=key, content=key) for i in range(25)])
+            s.add_all([Memory(agent=agent, content=key, team_id='other-team',
+                              project_id='own-project') for _ in range(25)])
+            s.add_all([Memory(agent=agent, content=key, team_id='own-team',
+                              project_id='other-project') for _ in range(25)])
+            await s.commit()
+        async def down(*args):
+            raise TimeoutError('synthetic embedding outage')
+        monkeypatch.setattr(semantic, 'embed', down)
+        refs, status = await semantic.prepare(sf, Settings(memory_semantic_enabled=unavailable,
+            memory_semantic_agents=agent), agent, key, 'own-team', 'own-project')
+        assert len(refs) == 20 and refs[0]['id'] == exact
+        assert status['state'] == ('degraded' if unavailable else 'lexical')
+        async with sf() as s:
+            rows = await semantic.resolve(s, agent, refs)
+            assert len(rows) == 20
+            assert all(m.agent == agent and m.team_id == 'own-team'
+                       and m.project_id == 'own-project' for m in rows)
+    finally:
+        await engine.dispose()
+
+
+@pytest.mark.asyncio
 async def test_vector_migration_reconciliation_live_revisions_and_generations(monkeypatch):
     engine=make_engine(os.environ['AP_PERSONA_TEST_POSTGRES_URL'])
     await init_db(engine)

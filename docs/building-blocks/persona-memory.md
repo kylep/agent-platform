@@ -9,6 +9,36 @@ descending as the deterministic tiebreaker; previously their order was unspecifi
 Labels for teams/projects do not grant access to another namespace. Native
 bootstrap fields and checksum serialization remain unchanged.
 
+Native startup uses this bounded pinned/recency selector, not a task-dependent
+semantic query. Explicit `memory(action="read", mode="hybrid", q="…")` is how a
+native persona retrieves additional relevant material. Only **key prefixes**
+receive startup priority: tags such as `identity` or `roundtable` do not pin an
+unkeyed note. Priority is bounded, not permanent retention; more than ten newer
+prioritized records or the content budget can still displace a summary.
+
+## Curating durable lessons
+
+Use the existing own-namespace memory Tool, within the persona's current grants:
+
+1. Read the source notes and check their author, date, scope and applicability.
+   Distinguish explicit user requests from inferred lessons or delivery receipts.
+2. Draft a short grounded summary for review through the persona's normal
+   ownership workflow. Include its source/date and when it applies. Preserve
+   canonical source notes; do not copy retrieved instructions into identity.
+3. Save the authorized summary under a small stable key, for example
+   `memory(action="save", key="preferences.schema-changes", content="Source: Kyle's
+   explicit request, 2026-10-19. For the memory rollout, preserve existing data and
+   use migrations for schema changes.")`. Reusing that key replaces its previous
+   summary, so read and reconcile the existing value first.
+4. Verify the saved value with a default lexical read by its full key. Check a
+   fresh launch/bootstrap or supported resume to verify startup selection; a
+   successful save does not replace context already loaded in a process.
+
+Keep the prioritized set small and summaries concise. Retain qualifications and
+supersede stale guidance deliberately. Do not bulk-pin tagged notes or rewrite
+another persona's private memories. The 20-record/12,000-character startup budgets
+and the applicability of each lesson remain in force.
+
 ## Detached startup pilot
 
 `AP_STARTUP_MEMORY_PILOT_AGENTS` is a comma-separated allowlist, empty by default.
@@ -143,6 +173,15 @@ Capability changes under `tools/` use the supported synced Git checkout.
 Back up and test restore before activating retrieval/backfill. Measure CPU/RSS,
 warm/cold latency and ordinary-workload impact before expanding the pilot.
 
+For the Pai pilot, acceptance targets are warm hybrid query p95 below three
+seconds, lexical outage fallback within the three-second inference deadline plus
+one second of transport overhead, and no OOMs within the one-CPU/two-GiB serving
+limit. Backfill must make progress and clear retry debt after recovery; compare
+ordinary API latency with an idle sample and investigate sustained regression.
+Record cold load, indexing throughput, RSS/high-water memory and CPU throttling
+alongside those checks. These bounded samples do not justify broader activation
+or establish a general workload SLO.
+
 Rollback disables future startup captures and semantic retrieval/indexing. Cancel
 already enabled runs if necessary before reverting incompatible binaries. Retain
 captured packets, vectors/cache and canonical data. An immutable enabled packet
@@ -160,6 +199,13 @@ building the native resume invocation. Use `ap-persona status <id>` first; a dra
 or expired session needs a fresh `ap-persona launch` instead. Plain native resume,
 `/clear` and forks do not substitute for this path. A server deploy alone also
 provides no evidence that an old laptop process's AP bridge/network has recovered.
+
+Bootstrap refresh and MCP schema refresh are separate: launch/resume fetches a new
+memory bootstrap, while the native client must reconnect/discover tools to learn
+new parameters. The broker polls the synced Tool manifests, including parameter
+schemas. After capability sync, verify a new `tools/list` advertises `mode` on
+`memory`, then call `action=read, mode=hybrid` and inspect its retrieval status.
+A prompt refresh in an already connected process does not prove schema refresh.
 
 Runtime contracts: [Ollama embeddings](https://docs.ollama.com/api/embed),
 [Ollama configuration](https://docs.ollama.com/faq),

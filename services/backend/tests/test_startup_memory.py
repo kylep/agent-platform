@@ -42,6 +42,29 @@ async def test_selector_churn_ties_labels_isolation_and_budgets(sf):
     assert provenance[1]['truncated'] and all(r['id'] != 'other' for r in records)
 
 
+async def test_curation_preserves_grounded_lesson_under_churn_without_tag_pinning(sf):
+    now = utcnow()
+    async with sf() as s:
+        original = Memory(id='lesson', agent='one', content='Source: user request. Preserve data.',
+                          tags=['identity', 'roundtable'], updated_at=now-timedelta(days=2))
+        s.add(original)
+        s.add_all([Memory(agent='one', content='routine note', updated_at=now) for _ in range(30)])
+        await s.commit()
+        records, _ = await select_memory(s, 'one')
+        assert 'lesson' not in {r['id'] for r in records}
+        # Curation is an explicit own-namespace summary, retaining its source
+        # and applicability. It does not reclassify every tagged source note.
+        s.add(Memory(id='curated', agent='one', key='preferences.data-changes',
+                     content='Source: user request. Preserve data during schema changes.',
+                     updated_at=now-timedelta(days=1)))
+        await s.commit()
+        records, _ = await select_memory(s, 'one')
+        assert records[0]['id'] == 'curated'
+        assert len(records) == 20 and 'lesson' not in {r['id'] for r in records}
+        assert (await s.get(Memory, 'lesson')).key is None
+        assert (await s.get(Memory, 'lesson')).tags == ['identity', 'roundtable']
+
+
 async def test_capture_atomic_and_redrive_immutable(sf, seed_agent, agent_store):
     disp, run = await pilot(sf, seed_agent, agent_store)
     assert (await disp._freeze_definition(run))[1] is None
