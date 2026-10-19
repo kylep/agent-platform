@@ -1,12 +1,18 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import Any, TypeVar, cast
+from typing import TYPE_CHECKING, Any, TypeVar, cast
 
 from attrs import define as _attrs_define
 from attrs import field as _attrs_field
 
 from ..types import UNSET, Unset
+
+if TYPE_CHECKING:
+    from ..models.run_agent_def_startup_memory_type_0 import (
+        RunAgentDefStartupMemoryType0,
+    )
+
 
 T = TypeVar("T", bound="RunAgentDef")
 
@@ -36,6 +42,7 @@ class RunAgentDef:
             platform_tools (list[str] | Unset):
             runtime (str | Unset):  Default: 'claude'.
             skills (list[str] | Unset):
+            startup_memory (None | RunAgentDefStartupMemoryType0 | Unset):
     """
 
     name: str
@@ -48,9 +55,14 @@ class RunAgentDef:
     platform_tools: list[str] | Unset = UNSET
     runtime: str | Unset = "claude"
     skills: list[str] | Unset = UNSET
+    startup_memory: None | RunAgentDefStartupMemoryType0 | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
+        from ..models.run_agent_def_startup_memory_type_0 import (
+            RunAgentDefStartupMemoryType0,
+        )
+
         name = self.name
 
         prompt = self.prompt
@@ -77,6 +89,14 @@ class RunAgentDef:
         if not isinstance(self.skills, Unset):
             skills = self.skills
 
+        startup_memory: dict[str, Any] | None | Unset
+        if isinstance(self.startup_memory, Unset):
+            startup_memory = UNSET
+        elif isinstance(self.startup_memory, RunAgentDefStartupMemoryType0):
+            startup_memory = self.startup_memory.to_dict()
+        else:
+            startup_memory = self.startup_memory
+
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
@@ -101,11 +121,17 @@ class RunAgentDef:
             field_dict["runtime"] = runtime
         if skills is not UNSET:
             field_dict["skills"] = skills
+        if startup_memory is not UNSET:
+            field_dict["startup_memory"] = startup_memory
 
         return field_dict
 
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
+        from ..models.run_agent_def_startup_memory_type_0 import (
+            RunAgentDefStartupMemoryType0,
+        )
+
         d = dict(src_dict)
         name = d.pop("name")
 
@@ -127,6 +153,25 @@ class RunAgentDef:
 
         skills = cast(list[str], d.pop("skills", UNSET))
 
+        def _parse_startup_memory(
+            data: object,
+        ) -> None | RunAgentDefStartupMemoryType0 | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            try:
+                if not isinstance(data, dict):
+                    raise TypeError()
+                startup_memory_type_0 = RunAgentDefStartupMemoryType0.from_dict(data)
+
+                return startup_memory_type_0
+            except (TypeError, ValueError, AttributeError, KeyError):
+                pass
+            return cast(None | RunAgentDefStartupMemoryType0 | Unset, data)
+
+        startup_memory = _parse_startup_memory(d.pop("startup_memory", UNSET))
+
         run_agent_def = cls(
             name=name,
             prompt=prompt,
@@ -138,6 +183,7 @@ class RunAgentDef:
             platform_tools=platform_tools,
             runtime=runtime,
             skills=skills,
+            startup_memory=startup_memory,
         )
 
         run_agent_def.additional_properties = d

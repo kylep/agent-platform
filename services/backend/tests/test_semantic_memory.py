@@ -1,0 +1,61 @@
+import pytest
+from agentplatform.config import Settings
+from agentplatform.db import Memory
+from agentplatform import semantic_memory as semantic
+
+
+async def test_disabled_lexical_exact_namespace_and_scope(sf):
+    async with sf() as s:
+        s.add_all([Memory(id='exact',agent='one',key='name.exact',content='older'),
+                   Memory(id='words',agent='one',content='name.exact details'),
+                   Memory(id='secret',agent='two',content='name.exact private'),
+                   Memory(id='label',agent='one',content='labelled',team_id='team')])
+        await s.commit()
+    refs,status = await semantic.prepare(sf,Settings(),'one','name.exact')
+    assert [r['id'] for r in refs] == ['exact','words']
+    assert status['state']=='lexical'
+    refs,_=await semantic.prepare(sf,Settings(),'one','labelled',team_id='other')
+    assert not refs
+
+
+async def test_failure_falls_back_and_stale_references_excluded(sf,monkeypatch):
+    async with sf() as s:
+        s.add(Memory(id='one',agent='one',content='schema migration'))
+        await s.commit()
+    async def down(*args):
+        raise TimeoutError()
+    monkeypatch.setattr(semantic,'embed',down)
+    refs,status=await semantic.prepare(sf,Settings(memory_semantic_enabled=True,memory_semantic_agents='one'),'one','schema')
+    assert refs[0]['id']=='one' and status['state']=='degraded'
+    async with sf() as s:
+        (await s.get(Memory,'one')).content='changed'
+        await s.commit()
+        assert not await semantic.resolve(s,'one',refs)
+        assert not await semantic.resolve(s,'two',refs)
+
+
+def test_embedding_preprocessing_is_bounded():
+    result=semantic.bounded('🦊'*1000)
+    assert len(result.encode())==1024
+    assert len(semantic.chunks(Memory(content='x'*100000)))==16
+
+
+async def test_hybrid_api_requires_active_owning_run_and_rechecks_grants(sf,seed_agent,agent_store,token_client):
+    from agentplatform.db import AgentDef,Run
+    from .test_relay_api import _agent_token
+    await seed_agent('semantic-api',agent_type='persona',platform_tools=['mcp__platform__memory'])
+    async with sf() as s:
+        run=Run(agent='semantic-api',trigger='manual',requested_by='test',prompt='task',state='running',
+                definition_snapshot={'platform_tools':['mcp__platform__memory']})
+        s.add(run)
+        s.add(Memory(agent='semantic-api',key='migration',content='own memory'))
+        s.add(Memory(agent='other',key='migration',content='private other memory'))
+        await s.commit()
+    headers=await _agent_token(sf,'semantic-api',role='reader')
+    assert (await token_client.post('/api/memory-hybrid',headers=headers,json={'q':'migration'})).status_code==403
+    headers=await _agent_token(sf,'semantic-api',role='reader',run_id=run.id)
+    response=await token_client.post('/api/memory-hybrid',headers=headers,json={'q':'migration'})
+    assert response.status_code==200 and [r['content'] for r in response.json()['memories']]==['own memory']
+    async with sf() as s:
+        (await s.get(AgentDef,'semantic-api')).platform_tools=[];await s.commit()
+    assert (await token_client.post('/api/memory-hybrid',headers=headers,json={'q':'migration'})).status_code==403

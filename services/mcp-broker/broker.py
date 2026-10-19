@@ -570,6 +570,16 @@ class CustomTool(Tool):
             return ToolResult(content=_RATE_LIMITED)
         if self.name == "discord_chat":
             return ToolResult(content="error: discord_chat is retired; use the owned-account discord connector Tool")
+        if self.name == 'memory' and arguments.get('mode') == 'hybrid':
+            if arguments.get('action') != 'read':
+                return ToolResult(content='error: hybrid mode is read-only')
+            result = await _request('POST', '/api/memory-hybrid', json={
+                'q': arguments.get('q') or ' ', 'limit': min(20, max(1, arguments.get('limit') or 20)),
+                'current_team': bool(arguments.get('current_team')),
+                'current_project': bool(arguments.get('current_project'))})
+            await _audit(agent, run_id, initiated_by, self.name, arguments,
+                         'allow' if result.is_success else 'deny:api', t0)
+            return ToolResult(content=result.text)
         caller = {"agent": agent, "run_id": run_id}
         payload = {"tool": self.name, "args": arguments, "caller": caller}
         files_bytes = 0

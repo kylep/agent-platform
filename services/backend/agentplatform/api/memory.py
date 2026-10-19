@@ -215,3 +215,55 @@ async def delete_memory(request: Request, memory_id: str):
             await s.delete(row)
             await s.commit()
     return {"ok": True, "id": memory_id}
+
+
+class HybridSearch(BaseModel):
+    q: str = Field(min_length=1, max_length=1000)
+    limit: int = Field(default=20, ge=1, le=20)
+    current_team: bool = False
+    current_project: bool = False
+
+
+@router.post('/api/memory-hybrid', dependencies=[Depends(require_role(*READ_ROLES, 'relay', 'tools'))])
+async def hybrid_search(request: Request, body: HybridSearch):
+    """Explicit hybrid mode; default memory term-AND searches are unchanged."""
+    from agentplatform.db import AgentDef, ACTIVE_STATES
+    from agentplatform.authority import authority_lock, ensure_run_authority
+    from agentplatform.persona_memory import select_records
+    from agentplatform.semantic_memory import prepare, resolve
+    agent = getattr(request.state, 'api_key_agent', None)
+    if not agent:
+        raise HTTPException(403, 'verified persona namespace required')
+    async def authorize(s):
+        await authority_lock(s)
+        row = await s.get(AgentDef, agent, with_for_update=True)
+        if not row or not row.enabled or row.agent_type != 'persona' or 'mcp__platform__memory' not in (row.platform_tools or []):
+            raise HTTPException(403, 'current persona memory grant required')
+        frozen = getattr(request.state, 'frozen_tools', None)
+        if frozen is not None and 'mcp__platform__memory' not in frozen:
+            raise HTTPException(403, 'frozen memory grant required')
+        rid = getattr(request.state, 'api_key_run_id', None)
+        run = await s.get(Run, rid) if rid else None
+        if (not run or run.agent != agent or run.state not in ACTIVE_STATES
+                or not await ensure_run_authority(s, run)):
+            raise HTTPException(403, 'active owning run authority required')
+        if run.definition_snapshot and 'mcp__platform__memory' not in run.definition_snapshot.get('platform_tools', []):
+            raise HTTPException(403, 'frozen memory grant required')
+        return run
+    async with request.app.state.session_factory() as s:
+        run = await authorize(s)
+        team = run.team_id if run and body.current_team else None
+        project = run.project_id if run and body.current_project else None
+        await s.commit()
+    if (body.current_team and not team) or (body.current_project and not project):
+        return {'memories': [], 'retrieval': {'state': 'lexical', 'reason': 'empty_scope'}}
+    refs, status = await prepare(request.app.state.session_factory, request.app.state.settings,
+                                agent, body.q, team, project)
+    async with request.app.state.session_factory() as s:
+        await authorize(s)
+        rows = await resolve(s, agent, refs)
+        if len(rows) != len(refs):
+            status = {**status, 'state': 'degraded', 'reason': 'source_changed'}
+        records, _ = select_records(rows[:body.limit])
+        await s.commit()
+    return {'memories': records, 'retrieval': status}

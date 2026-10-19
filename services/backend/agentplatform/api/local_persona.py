@@ -288,24 +288,8 @@ async def bootstrap(request: Request, session_id: str):
         try:
             row = await own(s, request, session_id, refresh=True)
             agent = await s.get(AgentDef, row.agent)
-            from sqlalchemy import or_
-            pinned = list((await s.execute(select(Memory).where(Memory.agent == row.agent,
-                or_(Memory.key.like('identity%'), Memory.key.like('preferences%'),
-                    Memory.key.like('continuity%'))).order_by(Memory.updated_at.desc()).limit(10))).scalars())
-            recent = list((await s.execute(select(Memory).where(Memory.agent == row.agent)
-                .order_by(Memory.updated_at.desc()).limit(20))).scalars())
-            memories = list({m.id: m for m in [*pinned, *recent]}.values())
-            # Existing content is unchanged. Explicit identity/preferences keys
-            # get priority; then a bounded index of recent continuity memories.
-            memories.sort(key=lambda m: (not (m.key or '').startswith(('identity', 'preferences', 'continuity')),))
-            seed, remaining = [], 12000
-            for m in memories[:20]:
-                text = m.content[:min(2000, remaining)]
-                if not text:
-                    break
-                seed.append({'id': m.id, 'key': m.key, 'content': text,
-                    'updated_at': m.updated_at.isoformat(), 'tags': m.tags})
-                remaining -= len(text)
+            from agentplatform.persona_memory import select_memory
+            seed, _ = await select_memory(s, row.agent)
             st.skill_store.reload()
             skills = []
             for name in agent.skills or []:

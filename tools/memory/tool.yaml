@@ -14,6 +14,7 @@ params:
     action:
       type: string
       enum: [read, save]
+    mode: {type: string, enum: [lexical, hybrid], default: lexical, description: "read: opt in to shared hybrid retrieval; returns retrieval status with results"}
     q:
       type: string
       description: "read: search terms (all must match); empty lists newest"

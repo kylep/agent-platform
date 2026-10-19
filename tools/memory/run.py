@@ -75,6 +75,9 @@ def save(cur, agent: str, args: dict, team_id: str | None = None,
 
 def main() -> int:
     args = json.load(sys.stdin)
+    if args.get('mode') == 'hybrid':
+        print('hybrid retrieval requires the trusted broker/API path', file=sys.stderr)
+        return 2
     agent = os.environ.get("TOOL_CALLER_AGENT", "").strip()
     if not agent:
         print("no verified caller identity — memory is namespaced and cannot "

@@ -49,6 +49,12 @@ references it via $(POSTGRES_PASSWORD) k8s env substitution.
 Env vars shared by the api/dispatcher/recorder backend Deployments.
 */}}
 {{- define "agent-platform.backendEnv" -}}
+{{- range $key := list "AP_STARTUP_MEMORY_PILOT_AGENTS" "AP_MEMORY_SEMANTIC_ENABLED" "AP_MEMORY_SEMANTIC_AGENTS" "AP_MEMORY_EMBEDDING_TIMEOUT_SECONDS" }}
+- name: {{ $key }}
+  value: {{ index $.Values.env $key | quote }}
+{{- end }}
+- name: AP_MEMORY_EMBEDDING_URL
+  value: {{ .Values.env.AP_MEMORY_EMBEDDING_URL | default (printf "http://%s-memory-embedding:11434" .Release.Name) | quote }}
 - name: AP_LOCAL_PERSONA_ENABLED
   value: {{ .Values.localPersona.enabled | quote }}
 {{ include "agent-platform.postgresEnv" . }}

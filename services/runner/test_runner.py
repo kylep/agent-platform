@@ -1208,3 +1208,129 @@ def test_actual_provider_error_frames_are_not_tool_work_or_answers():
         'message': {'model': '<synthetic>', 'content': [{'type': 'text', 'text': "There's an issue with the selected model. It may not exist."}]}})
     assert runner._work_began({'type': 'assistant', 'message': {'content': [{'type': 'tool_use', 'name': 'memory'}]}})
     assert runner._work_began({'type': 'item.started', 'item': {'type': 'mcp_tool_call'}})
+
+
+def startup_payload():
+    data = {'memories': [{'id':'m1','key':'preferences.db','content':'use migrations 🦊','updated_at':'2026-10-19T00:00:00+00:00','tags':[]}]}
+    encoded = json.dumps(data,ensure_ascii=False,sort_keys=True,separators=(',',':')).encode()
+    return {'protocol':1,'state':'enabled','payload':data,'digest':hashlib.sha256(encoded).hexdigest()}
+
+
+@pytest.mark.parametrize('resume,replay', [(False,False),(True,False),(True,True)])
+def test_startup_packet_actual_argv_and_receipts(tmp_path,monkeypatch,resume,replay):
+    script = ('#!/bin/sh\ncase "$*" in *--resume*) exit 1;; esac\n'
+              'echo \'{"type":"result","result":"ok"}\'\n') if replay else OK_CLAUDE
+    _session_env(monkeypatch,tmp_path,script)
+    if not resume:
+        monkeypatch.setenv('AP_USER_MESSAGE','')
+    monkeypatch.setattr(runner,'_restore_session',lambda cwd:'sid' if resume else None)
+    monkeypatch.setattr(runner,'_upload_session',lambda *args:None)
+    definition = {'name':'hello-world','description':'test','prompt':'Canonical instructions',
+                  'startup_memory':startup_payload()}
+    calls=[]
+    monkeypatch.setattr(runner,'_agentdef',lambda:(calls.append(1) or definition,''))
+    seen=[]
+    real=runner.subprocess.Popen
+    def spy(args,**kw):
+        seen.append(args)
+        return real(args,**kw)
+    monkeypatch.setattr(runner.subprocess,'Popen',spy)
+    producer=FakeProducer()
+    assert runner.run(producer=producer)==0
+    assert len(seen)==(2 if replay else 1)
+    for args in seen:
+        task=args[args.index('-p')+1]
+        assert task.count('<historical-persona-memory>')==1
+        assert 'use migrations 🦊' in task and 'Canonical instructions' not in task
+    assert 'Canonical instructions' in runner._agent_path('hello-world').read_text()
+    assert len(calls)==1+len(seen)
+    receipts=[v for _,_,v in producer.published if v.get('type')=='startup_memory']
+    assert [r['phase'] for r in receipts]==['attempted','started']*len(seen)
+    assert all(r['captured_digest']==definition['startup_memory']['digest'] for r in receipts)
+    assert all('payload' not in r for r in receipts)
+    assert receipts[0]['attempt_kind']==('resume' if resume else 'fresh')
+    if replay:
+        assert receipts[-1]['attempt_kind']=='replay'
+
+
+def test_startup_revalidation_prevents_spawn(tmp_path,monkeypatch):
+    _session_env(monkeypatch,tmp_path,OK_CLAUDE)
+    monkeypatch.setenv('AP_USER_MESSAGE','')
+    definition={'name':'hello-world','prompt':'canonical','startup_memory':startup_payload()}
+    answers=iter([(definition,''),(None,'HTTP 403 killed')])
+    monkeypatch.setattr(runner,'_agentdef',lambda:next(answers))
+    monkeypatch.setattr(runner.subprocess,'Popen',lambda *a,**kw:pytest.fail('must not spawn'))
+    assert runner.run(producer=FakeProducer())==1
+
+
+@pytest.mark.parametrize('field,value',[('digest','0'*64),('protocol',2),('payload',{'memories':'invalid'})])
+def test_startup_invalid_envelope_fails_before_spawn(tmp_path,monkeypatch,field,value):
+    _session_env(monkeypatch,tmp_path,OK_CLAUDE)
+    packet=startup_payload();packet[field]=value
+    monkeypatch.setattr(runner,'_agentdef',lambda:({'name':'hello-world','prompt':'canonical','startup_memory':packet},''))
+    monkeypatch.setattr(runner.subprocess,'Popen',lambda *a,**kw:pytest.fail('must not spawn'))
+    assert runner.run(producer=FakeProducer())==1
+
+
+def test_startup_byte_budget_includes_environment_wrappers_and_unicode():
+    runner._invocation_size(['wrapper','binary','🦊'*1000],{'SAMPLE':'value'})
+    with pytest.raises(runner.AgentUnavailable):
+        runner._invocation_size(['binary','🦊'*25000],{})
+    with pytest.raises(runner.AgentUnavailable):
+        runner._invocation_size(['wrapper','x'*65000],{'SAMPLE':'z'*65000,'OTHER':'y'*5000})
+
+
+@pytest.mark.parametrize('runtime', ['claude','codex'])
+def test_startup_cross_provider_fallback_reuses_packet(tmp_path,monkeypatch,runtime):
+    _session_env(monkeypatch,tmp_path,OK_CLAUDE)
+    monkeypatch.setenv('AP_USER_MESSAGE','')
+    monkeypatch.setenv('AP_RUNTIME',runtime)
+    monkeypatch.setenv('AP_CODEX_PROXY_URL','http://codex-proxy')
+    scripts={
+      'claude': '#!/bin/sh\necho \'{"type":"result","result":"PASS"}\'\n',
+      'codex': '#!/bin/sh\necho \'{"type":"item.completed","item":{"type":"agent_message","text":"PASS"}}\'\n'}
+    errors={
+      'claude': '#!/bin/sh\necho \'{"type":"result","is_error":true,"result":"Provider overloaded (529)"}\'\nexit 1\n',
+      'codex': '#!/bin/sh\necho \'{"type":"error","message":"Provider overloaded (529)"}\'\nexit 1\n'}
+    backup='codex' if runtime=='claude' else 'claude'
+    for kind in ('claude','codex'):
+        path=tmp_path/kind
+        path.write_text(errors[kind] if kind==runtime else scripts[kind]);path.chmod(0o755)
+        monkeypatch.setenv(kind.upper()+'_BIN',str(path))
+    packet=startup_payload()
+    definition={'name':'hello-world','prompt':'canonical','runtime':runtime,'startup_memory':packet}
+    monkeypatch.setattr(runner,'_agentdef',lambda:(definition,''))
+    monkeypatch.setattr(runner,'_api_req',lambda *a,**k:{'runtime':backup,'model':'','notice':'fallback'})
+    seen=[];real=runner.subprocess.Popen
+    def spy(args,**kw):
+        seen.append(args);return real(args,**kw)
+    monkeypatch.setattr(runner.subprocess,'Popen',spy)
+    producer=FakeProducer()
+    assert runner.run(producer=producer)==0
+    assert len(seen)==2
+    for args in seen:
+        assert sum(a.count('<historical-persona-memory>') for a in args)==1
+    receipts=[v for _,_,v in producer.published if v.get('type')=='startup_memory']
+    assert [r['attempt_kind'] for r in receipts]==['fresh','fresh','fallback','fallback']
+    assert len({r['captured_digest'] for r in receipts})==1
+    assert len({r['block_digest'] for r in receipts})==1
+
+
+@pytest.mark.parametrize('resume',[False,True])
+def test_startup_codex_fresh_and_resume_arguments(tmp_path,monkeypatch,resume):
+    _session_env(monkeypatch,tmp_path,OK_CLAUDE)
+    monkeypatch.setenv('AP_CODEX_PROXY_URL','http://codex-proxy')
+    if not resume:monkeypatch.setenv('AP_USER_MESSAGE','')
+    code=tmp_path/'codex';code.write_text('#!/bin/sh\necho \'{"type":"item.completed","item":{"type":"agent_message","text":"PASS"}}\'\n');code.chmod(0o755)
+    monkeypatch.setenv('CODEX_BIN',str(code))
+    monkeypatch.setattr(runner,'_restore_codex_thread',lambda *a:'thread' if resume else None)
+    monkeypatch.setattr(runner,'_upload_codex_thread',lambda *a:None)
+    definition={'name':'hello-world','prompt':'canonical','runtime':'codex','startup_memory':startup_payload()}
+    monkeypatch.setattr(runner,'_agentdef',lambda:(definition,''))
+    seen=[];real=runner.subprocess.Popen
+    def spy(args,**kw):seen.append(args);return real(args,**kw)
+    monkeypatch.setattr(runner.subprocess,'Popen',spy)
+    assert runner.run(producer=FakeProducer())==0
+    assert ('resume' in seen[0])==resume
+    assert seen[0][-1].count('<historical-persona-memory>')==1
+    assert ('continue please' in seen[0][-1])==resume

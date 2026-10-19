@@ -253,6 +253,9 @@ def create_app(settings, session_factory, producer, secret_store=None, agent_sto
                   memory_grant=settings.memory_default_grant,
                   self_grant=settings.self_default_grant,
                   tasks_grant=settings.tasks_default_grant)
+            if settings.memory_semantic_enabled:
+                from agentplatform.semantic_memory import require_storage
+                await require_storage(engine)
             st.session_factory = make_session_factory(engine)
             # After init_db, and here rather than in it: the `qa` row's
             # password lives in the secret store, which only the API holds

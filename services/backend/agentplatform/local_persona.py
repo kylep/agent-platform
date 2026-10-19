@@ -37,6 +37,7 @@ def digest(value):
 # Resource ACLs and action/role checks still execute inside the target API.
 ROUTES = (
     ('GET', r'/api/whoami', None),
+    ('POST', r'/api/memory-hybrid', 'memory'),
     ('GET', r'/api/runs(?:/[a-f0-9]{32})?', 'runs_read'),
     ('GET', r'/api/tags', 'runs_read'),
     ('GET', r'/api/agents(?:/[a-z0-9-]+(?:/versions(?:/[0-9]+)?)?)?', None),

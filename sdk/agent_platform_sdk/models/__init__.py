@@ -89,6 +89,7 @@ from .group_ref import GroupRef
 from .help_topic import HelpTopic
 from .help_topic_detail import HelpTopicDetail
 from .http_validation_error import HTTPValidationError
+from .hybrid_search import HybridSearch
 from .image_model import ImageModel
 from .image_model_billing import ImageModelBilling
 from .incident_in import IncidentIn
@@ -223,6 +224,7 @@ from .room_watchers_in import RoomWatchersIn
 from .room_watchers_view import RoomWatchersView
 from .run_accepted import RunAccepted
 from .run_agent_def import RunAgentDef
+from .run_agent_def_startup_memory_type_0 import RunAgentDefStartupMemoryType0
 from .run_detail import RunDetail
 from .run_detail_permission_denials_item import RunDetailPermissionDenialsItem
 from .run_duration_point import RunDurationPoint
@@ -419,6 +421,7 @@ __all__ = (
     "HelpTopic",
     "HelpTopicDetail",
     "HTTPValidationError",
+    "HybridSearch",
     "ImageModel",
     "ImageModelBilling",
     "IncidentIn",
@@ -551,6 +554,7 @@ __all__ = (
     "RoomWatchersView",
     "RunAccepted",
     "RunAgentDef",
+    "RunAgentDefStartupMemoryType0",
     "RunDetail",
     "RunDetailPermissionDenialsItem",
     "RunDurationPoint",

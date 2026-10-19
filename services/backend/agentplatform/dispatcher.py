@@ -131,48 +131,67 @@ class Dispatcher:
                     return None, "Task blocked before dispatch: " + reason
                 if run.requested_runtime and task.runtime != run.requested_runtime:
                     return None, "Task runtime changed before dispatch"
-        if run.definition_snapshot:
-            try:
-                model = AgentDefModel(**run.definition_snapshot)
-                if run.fallback_used:
-                    model.runtime, model.model = run.runtime, run.model
-                return self._manifest(model), None
-            except Exception:
-                return None, "run has an invalid frozen agent definition"
-
-        await self.agents.reload()
-        info = self.agents.get(run.agent)
-        if info is None or info.error is not None:
-            return None, "unknown or quarantined agent"
-        if not info.enabled:
-            return None, "agent is disabled"
+        prepared = None
+        if (not run.definition_snapshot and self.settings.memory_semantic_enabled
+                and run.agent in self.settings.startup_memory_pilot_agents.split(',')):
+            # Only an authorized eligible pilot sends its bounded task to inference.
+            from agentplatform.semantic_memory import prepare
+            from agentplatform.startup_memory import eligible
+            async with self.sf() as preflight:
+                current = await preflight.get(AgentDef, run.agent)
+                allowed = (current and current.enabled
+                    and eligible(run, model_of(current), current, self.settings)[0]
+                    and (current.authorization_generation or 0) == (run.authorization_generation or 0))
+            if allowed:
+                prepared = await prepare(self.sf, self.settings, run.agent,
+                                         run.user_message or run.prompt)
+        from agentplatform.authority import authority_lock, ensure_run_authority
+        from agentplatform.startup_memory import capture
         async with self.sf() as s:
-            row = await s.get(AgentDef, run.agent)
+            await authority_lock(s)
+            row = await s.get(AgentDef, run.agent, with_for_update=True)
+            db_run = await s.get(Run, run.id, with_for_update=True)
+            if db_run is None or (not db_run.definition_snapshot and db_run.state != RunState.QUEUED):
+                return None, "run is no longer queued"
             if row is None:
                 return None, "unknown or quarantined agent"
-            try:
-                model = model_of(row)
-            except Exception:
-                return None, "unknown or quarantined agent"
-            if run.requested_runtime and model.runtime != run.requested_runtime:
-                return None, "Task target runtime changed before dispatch"
-            if run.requested_model:
-                model.model = run.requested_model
-                if model.backup_runtime == model.runtime and model.backup_model == model.model:
-                    # An invocation override already selected the configured
-                    # backup. Do not retry the same provider/model twice.
-                    model.backup_runtime, model.backup_model = None, ""
-            snapshot = model.model_dump(mode="json")
-            version = ((await s.execute(select(func.max(AgentVersion.version)).where(
-                AgentVersion.agent == run.agent))).scalar() or 0)
-            db_run = await s.get(Run, run.id)
-            db_run.runtime = model.runtime
-            db_run.model = model.model
-            db_run.agent_version = version
-            db_run.definition_snapshot = snapshot
+            if not row.enabled:
+                return None, "agent is disabled"
+            if not await ensure_run_authority(s, db_run):
+                return None, "run authority unavailable before freeze"
+            if db_run.definition_snapshot:
+                try:
+                    model = AgentDefModel(**db_run.definition_snapshot)
+                except Exception:
+                    return None, "run has an invalid frozen agent definition"
+                # A pre-protocol snapshot is legacy disabled. Never recapture.
+                if db_run.startup_memory_enabled:
+                    from agentplatform.startup_memory import envelope
+                    await envelope(s, db_run, row, '1')
+            else:
+                try:
+                    model = model_of(row)
+                    if run.requested_runtime and model.runtime != run.requested_runtime:
+                        return None, "Task target runtime changed before dispatch"
+                    if run.requested_model:
+                        model.model = run.requested_model
+                        if model.backup_runtime == model.runtime and model.backup_model == model.model:
+                            model.backup_runtime, model.backup_model = None, ""
+                    version = ((await s.execute(select(func.max(AgentVersion.version)).where(
+                        AgentVersion.agent == run.agent))).scalar() or 0)
+                    db_run.runtime, db_run.model = model.runtime, model.model
+                    db_run.agent_version = version
+                    db_run.definition_snapshot = model.model_dump(mode="json")
+                    await capture(s, db_run, model, row, self.settings, prepared)
+                    await s.flush()
+                except Exception:
+                    await s.rollback()
+                    return None, "startup definition/context capture failed"
             await s.commit()
-        run.runtime, run.model = model.runtime, model.model
-        run.agent_version, run.definition_snapshot = version, snapshot
+            for field in ('runtime', 'model', 'agent_version', 'definition_snapshot', 'startup_memory_enabled'):
+                setattr(run, field, getattr(db_run, field))
+            if run.fallback_used:
+                model.runtime, model.model = run.runtime, run.model
         return self._manifest(model), None
 
     async def _set_state(self, run: Run, state: RunState, error: str | None = None) -> None:

@@ -286,6 +286,7 @@ async def authenticate(request: Request) -> tuple[str, str] | None:
     in, gets 403 outside USER_PATHS. Many handlers only ask "is anyone signed
     in?", so the no-access tier is stopped here, once."""
     ident = await _authenticate(request)
+    request.state.resolved_role = ident[1] if ident else None
     if (ident is not None and ident[1] == USER_ROLE
             and request.url.path not in USER_PATHS):
         raise HTTPException(403)

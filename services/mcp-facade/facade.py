@@ -25,14 +25,14 @@ The surface is CURATED into three tiers (curation 2026-08-24; see
   and archiving rooms), a system row into a room one is not in, and
   archiving a wiki page, and the Task schedule grants (which agent may
   schedule which), and a room's watcher list and watch-turn log. Offered
-  ONLY when `AP_MCP_ADMIN_TOOLS` is truthy (`admin_tools_enabled()`). 52 of
+  ONLY when `AP_MCP_ADMIN_TOOLS` is truthy (`admin_tools_enabled()`). 53 of
   them. The
   role ladder authorizes every call regardless — the flag controls the MENU,
   not the kitchen.
 - **EXCLUDE** — UI form-feeders, private-key import inspection, reviewer digests the client can compute,
   git-edit conveniences redundant with having the repo, and system-agent
-  endpoints. Never tools. 21 curated-out, plus 91 session/internal/streaming/
-  byte-serving/connector/run-only operations below — 312 graded operations in all.
+  endpoints. Never tools. 21 curated-out, plus 92 session/internal/streaming/
+  byte-serving/connector/run-only operations below — 314 graded operations in all.
 
 It is deliberately NOT the mcp-broker. The broker authenticates in-cluster run
 identities and scopes tools to an agent's grants (design/13, design/15). This
@@ -105,6 +105,7 @@ EXCLUDED_PATHS = (
     # Self-management and model fallback require the owning active run's key;
     # an external MCP API key cannot call them. Agents use their brokered tools.
     ("*", r"^/api/agent-self(?:/|$)"),
+    ("*", r"^/api/memory-hybrid$"),
     ("*", r"^/api/runs/\{run_id\}/model-fallback$"),
     # The persona chat scan and its ack (design/25) answer only `persona()`: a
     # key bound to an enabled persona agent's CURRENT run. An external MCP key
@@ -226,6 +227,7 @@ CURATED_OUT = (
 # purpose: each covers its whole domain and nothing else starts with it (the
 # stale-pattern test keeps that honest).
 GATED_ADMIN = (
+    (("GET",), r"^/api/runs/\{run_id\}/startup-context$"),
     ("*",         r"^/api/backups/connection$"),
     (("POST",),   r"^/api/backups/connection/verify$"),
     (("GET",),    r"^/api/live-actions/observation$"),

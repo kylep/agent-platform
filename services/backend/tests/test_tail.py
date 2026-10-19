@@ -48,3 +48,31 @@ def test_tail_replays_then_streams(producer):
         with tc.websocket_connect("/api/runs/RUNID/tail") as ws:
             assert ws.receive_json()["type"] == "assistant"
             assert ws.receive_json()["terminal"] is True
+
+
+def test_enabled_startup_pilot_tail_uses_actual_session_role(producer):
+    from agentplatform.db import Principal, Run
+    from agentplatform.api.auth import ph
+    async def events():
+        yield ('pilot-tail', {'type':'lifecycle','terminal':True,'state':'succeeded'})
+    app=create_app(Settings(),None,producer,consumer_factory=events)
+    async def seed():
+        async with app.state.session_factory() as s:
+            s.add(Run(id='pilot-tail',agent='pilot',trigger='manual',requested_by='test',
+                      prompt='x',startup_memory_enabled=True))
+            from sqlalchemy import select
+            qa=(await s.execute(select(Principal).where(Principal.name=='qa'))).scalar_one()
+            qa.password_hash=ph.hash('reader-test')
+            await s.commit()
+    with TestClient(app) as client:
+        client.post('/api/setup',json={'password':'pw12345678'})
+        client.portal.call(seed)
+        assert client.post('/api/login',json={'password':'pw12345678'}).status_code==200
+        with client.websocket_connect('/api/runs/pilot-tail/tail') as ws:
+            assert ws.receive_json()['terminal']
+        client.post('/api/logout')
+        assert client.post('/api/login',json={'principal':'qa','password':'reader-test'}).status_code==200
+        with pytest.raises(WebSocketDisconnect) as exc:
+            with client.websocket_connect('/api/runs/pilot-tail/tail') as ws:
+                ws.receive_json()
+        assert exc.value.code==4403

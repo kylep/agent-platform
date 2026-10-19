@@ -1,0 +1,12 @@
+# Apply after the disabled protocol rollout, explicit pgvector migration,
+# successful cache provisioning and independent Stage A/B acceptance.
+# No prompts, credentials or database image/storage changes belong here.
+env:
+  AP_STARTUP_MEMORY_PILOT_AGENTS: pai
+  AP_MEMORY_SEMANTIC_ENABLED: "true"
+  AP_MEMORY_SEMANTIC_AGENTS: pai
+  AP_MEMORY_EMBEDDING_TIMEOUT_SECONDS: "3"
+memoryEmbedding:
+  enabled: true
+  provision: false
+  indexer: true

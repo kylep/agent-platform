@@ -3,6 +3,11 @@ from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class Settings(BaseSettings):
+    startup_memory_pilot_agents: str = ""
+    memory_semantic_enabled: bool = False
+    memory_semantic_agents: str = ""
+    memory_embedding_url: str = "http://ap-memory-embedding:11434"
+    memory_embedding_timeout_seconds: float = 3.0
     local_persona_enabled: bool = False
     model_config = SettingsConfigDict(env_prefix="AP_")
     db_url: str = "sqlite+aiosqlite:///:memory:"

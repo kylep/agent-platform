@@ -135,7 +135,7 @@ class Recorder:
                     if not snapshot and self.agent_store is not None:
                         info = self.agent_store.get(run.agent)
                         topic = info.manifest.result_topic if info and info.manifest else ""
-                    if topic:
+                    if topic and not run.startup_memory_enabled:
                         result_event = (topic, {"run_id": run_id, "agent": run.agent,
                                                 "result": value.get("result")})
             usage = value.get("usage", {})
@@ -203,7 +203,7 @@ class Recorder:
 
         A failed run says so in the room rather than going quiet: silence is
         indistinguishable from an agent that is still thinking."""
-        if run.execution_location == 'laptop':
+        if run.startup_memory_enabled or run.execution_location == 'laptop':
             return None
         conv = await s.get(Conversation, run.conversation_id)
         if conv is None or conv.home == 'local_persona':

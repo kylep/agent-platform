@@ -1,0 +1,190 @@
+{{- if or .Values.memoryEmbedding.enabled .Values.memoryEmbedding.provision }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ .Release.Name }}-memory-models
+  annotations:
+    helm.sh/resource-policy: keep
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: {{ .Values.memoryEmbedding.storage }}
+  {{- if .Values.memoryEmbedding.storageClass }}
+  storageClassName: {{ .Values.memoryEmbedding.storageClass }}
+  {{- end }}
+---
+{{- end }}
+{{- if .Values.memoryEmbedding.provision }}
+# Ordinary bounded Job, never a pre-install hook depending on a missing PVC.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ .Release.Name }}-memory-model-provision-v1
+spec:
+  backoffLimit: 1
+  activeDeadlineSeconds: 900
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: agent-platform
+        app.kubernetes.io/component: memory-provision
+    spec:
+      restartPolicy: Never
+      automountServiceAccountToken: false
+      nodeSelector: {kubernetes.io/os: linux, kubernetes.io/arch: amd64}
+      securityContext: {runAsUser: 1001, runAsGroup: 1001, fsGroup: 1001, seccompProfile: {type: RuntimeDefault}}
+      containers:
+        - name: provision
+          image: {{ .Values.memoryEmbedding.image | quote }}
+          command: ["/bin/bash", "-ec"]
+          args:
+            - |
+              ollama serve & server=$!
+              trap 'kill "$server"; wait "$server" || true' EXIT
+              for attempt in {1..30}; do ollama list >/dev/null 2>&1 && break; sleep 1; done
+              ollama pull {{ .Values.memoryEmbedding.model | quote }}
+              echo '{{ .Values.memoryEmbedding.manifestSha256 }}  /models/manifests/registry.ollama.ai/library/embeddinggemma/300m-qat-q8_0' | sha256sum -c -
+              ollama show {{ .Values.memoryEmbedding.model | quote }} >/dev/null
+          env:
+            - {name: HOME, value: /tmp}
+            - {name: OLLAMA_MODELS, value: /models}
+            - {name: OLLAMA_HOST, value: '127.0.0.1:11434'}
+            - {name: OLLAMA_NO_CLOUD, value: '1'}
+            - {name: OLLAMA_NUM_PARALLEL, value: '1'}
+            - {name: OLLAMA_MAX_LOADED_MODELS, value: '1'}
+          securityContext: {allowPrivilegeEscalation: false, capabilities: {drop: [ALL]}}
+          resources:
+            {{- toYaml .Values.memoryEmbedding.resources | nindent 12 }}
+          volumeMounts: [{name: models, mountPath: /models}]
+      volumes:
+        - name: models
+          persistentVolumeClaim: {claimName: {{ .Release.Name }}-memory-models}
+---
+{{- end }}
+{{- if .Values.memoryEmbedding.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}-memory-embedding
+spec:
+  replicas: 1
+  strategy: {type: Recreate}
+  selector:
+    matchLabels: {app.kubernetes.io/component: memory-embedding}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: agent-platform
+        app.kubernetes.io/component: memory-embedding
+    spec:
+      automountServiceAccountToken: false
+      nodeSelector: {kubernetes.io/os: linux, kubernetes.io/arch: amd64}
+      securityContext: {runAsUser: 1001, runAsGroup: 1001, fsGroup: 1001, seccompProfile: {type: RuntimeDefault}}
+      containers:
+        - name: ollama
+          image: {{ .Values.memoryEmbedding.image | quote }}
+          command: [/bin/bash, -ec]
+          args:
+            - |
+              echo '{{ .Values.memoryEmbedding.manifestSha256 }}  /models/manifests/registry.ollama.ai/library/embeddinggemma/300m-qat-q8_0' | sha256sum -c -
+              exec ollama serve
+          env:
+            - {name: HOME, value: /tmp}
+            - {name: OLLAMA_MODELS, value: /models}
+            - {name: OLLAMA_HOST, value: '0.0.0.0:11434'}
+            - {name: OLLAMA_NO_CLOUD, value: '1'}
+            - {name: OLLAMA_NUM_PARALLEL, value: '1'}
+            - {name: OLLAMA_MAX_LOADED_MODELS, value: '1'}
+            - {name: OLLAMA_MAX_QUEUE, value: '4'}
+            - {name: OLLAMA_KEEP_ALIVE, value: '-1'}
+            - {name: CUDA_VISIBLE_DEVICES, value: '-1'}
+          ports: [{name: embeddings, containerPort: 11434}]
+          securityContext: {allowPrivilegeEscalation: false, capabilities: {drop: [ALL]}}
+          resources:
+            {{- toYaml .Values.memoryEmbedding.resources | nindent 12 }}
+          startupProbe:
+            exec:
+              command:
+                - /bin/bash
+                - -ec
+                - |
+                  exec 3<>/dev/tcp/127.0.0.1/11434
+                  body='{"model":{{ .Values.memoryEmbedding.model | toJson }},"input":"startup probe","truncate":false,"keep_alive":"-1","options":{"num_gpu":0,"num_thread":1}}'
+                  printf 'POST /api/embed HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\nContent-Type: application/json\r\nContent-Length: %s\r\n\r\n%s' "${#body}" "$body" >&3
+                  grep -q '"embeddings":' <&3
+            timeoutSeconds: 30
+            periodSeconds: 10
+            failureThreshold: 30
+          readinessProbe:
+            exec: {command: [ollama, show, {{ .Values.memoryEmbedding.model | quote }}]}
+            periodSeconds: 20
+          livenessProbe:
+            tcpSocket: {port: embeddings}
+            periodSeconds: 30
+          volumeMounts: [{name: models, mountPath: /models, readOnly: true}]
+      volumes:
+        - name: models
+          persistentVolumeClaim: {claimName: {{ .Release.Name }}-memory-models}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Release.Name }}-memory-embedding
+spec:
+  type: ClusterIP
+  selector: {app.kubernetes.io/component: memory-embedding}
+  ports: [{port: 11434, targetPort: embeddings}]
+---
+# No steady-state network egress, no database credentials, no agent access.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ .Release.Name }}-memory-embedding
+spec:
+  podSelector:
+    matchLabels: {app.kubernetes.io/component: memory-embedding}
+  policyTypes: [Ingress, Egress]
+  egress: []
+  ingress:
+    - from:
+        - podSelector:
+            matchExpressions:
+              - {key: app.kubernetes.io/component, operator: In, values: [api, dispatcher, memory-indexer]}
+      ports: [{port: 11434, protocol: TCP}]
+---
+{{- end }}
+{{- if .Values.memoryEmbedding.indexer }}
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ .Release.Name }}-memory-indexer
+spec:
+  schedule: '*/1 * * * *'
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 2
+  jobTemplate:
+    spec:
+      backoffLimit: 0
+      activeDeadlineSeconds: 50
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: agent-platform
+            app.kubernetes.io/component: memory-indexer
+        spec:
+          automountServiceAccountToken: false
+          restartPolicy: Never
+          securityContext: {runAsUser: 65534, runAsGroup: 65534, seccompProfile: {type: RuntimeDefault}}
+          containers:
+            - name: indexer
+              image: '{{ .Values.images.backend.repository }}:{{ .Values.images.backend.tag }}'
+              command: [python, -m, agentplatform.semantic_memory]
+              env:
+                {{- include "agent-platform.backendEnv" . | nindent 16 }}
+              securityContext: {allowPrivilegeEscalation: false, capabilities: {drop: [ALL]}}
+              resources:
+                requests: {cpu: 25m, memory: 96Mi}
+                limits: {cpu: 250m, memory: 256Mi}
+{{- end }}

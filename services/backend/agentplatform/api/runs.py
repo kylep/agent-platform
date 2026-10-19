@@ -66,6 +66,7 @@ class RunAgentDef(BaseModel):
     runtime: str = "claude"
     fallback_notice: str = ""
     fallback_used: bool = False
+    startup_memory: dict | None = None
 
 class CodexAuth(BaseModel):
     auth_json: str
@@ -373,26 +374,33 @@ async def get_agentdef(run_id: str, request: Request):
     mount — it asks for exactly its own agent, with the same run-scoped
     `session` token the conversation endpoints use."""
     _own_run_or_403(request, run_id)
+    from agentplatform.db import AgentDef
+    from agentplatform.startup_memory import envelope
+    from agentplatform.authority import authority_lock
     async with request.app.state.session_factory() as s:
-        run = await s.get(Run, run_id)
-        if run is not None:
-            await _current_run_or_403(s, run)
+        await authority_lock(s)
+        # Global authority lock precedes AgentDef and Run, as in freeze.
+        initial = await s.get(Run, run_id)
+        if initial is None:
+            raise HTTPException(404, "unknown run")
+        current = await s.get(AgentDef, initial.agent, with_for_update=True)
+        run = await s.get(Run, run_id, with_for_update=True, populate_existing=True)
+        await _current_run_or_403(s, run)
+        startup = await envelope(s, run, current, request.headers.get('X-AP-Startup-Memory-Protocol'))
+        if run.definition_snapshot:
+            try:
+                frozen = AgentDefModel(**run.definition_snapshot)
+            except Exception:
+                raise HTTPException(409, "invalid frozen agent definition")
+            response = RunAgentDef(name=frozen.name, prompt=frozen.prompt,
+                description=frozen.description, harness_tools=frozen.harness_tools,
+                platform_tools=frozen.platform_tools, skills=frozen.skills,
+                model=run.model or frozen.model, runtime=run.runtime or frozen.runtime,
+                fallback_used=bool(run.fallback_used), fallback_notice=fallback_notice(run),
+                startup_memory=startup)
             await s.commit()
-    if run is None:
-        raise HTTPException(status_code=404, detail="unknown run")
-    if run.definition_snapshot:
-        try:
-            frozen = AgentDefModel(**run.definition_snapshot)
-        except Exception:
-            raise HTTPException(status_code=409, detail="invalid frozen agent definition")
-        return RunAgentDef(name=frozen.name, prompt=frozen.prompt,
-                           description=frozen.description,
-                           harness_tools=frozen.harness_tools,
-                           platform_tools=frozen.platform_tools,
-                           skills=frozen.skills, model=run.model or frozen.model,
-                           runtime=run.runtime or frozen.runtime,
-                           fallback_used=bool(run.fallback_used),
-                           fallback_notice=fallback_notice(run))
+            return response
+        await s.commit()
     # Compatibility for runs queued before design 27 was deployed.
     store = request.app.state.agent_store
     info = store.get(run.agent)
@@ -749,3 +757,21 @@ async def publish_run(run_id: str, request: Request, response: Response):
         raise HTTPException(e.status, e.reason)
     response.status_code = result.status
     return result.body()
+
+
+@router.get('/api/runs/{run_id}/startup-context', dependencies=[Depends(require_admin)])
+async def startup_context_diagnostic(request: Request, run_id: str):
+    """Administrative capture evidence; contains no memory content."""
+    from agentplatform.db import RunStartupContext
+    async with request.app.state.session_factory() as s:
+        run = await s.get(Run, run_id)
+        if run is None:
+            raise HTTPException(404, 'unknown run')
+        row = await s.get(RunStartupContext, run_id)
+        if row is None:
+            if run.startup_memory_enabled:
+                raise HTTPException(409, 'enabled startup capture missing')
+            return {'state': 'disabled', 'reason': 'legacy'}
+        return {'state': 'enabled' if row.enabled else 'disabled', 'reason': row.reason,
+                'protocol': row.protocol, 'policy': row.policy, 'digest': row.digest,
+                'captured_at': row.captured_at.isoformat(), 'provenance': row.provenance}

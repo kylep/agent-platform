@@ -57,6 +57,7 @@ class Run(Base):
     model: Mapped[str] = mapped_column(String(64), default="")
     authorization_generation: Mapped[int] = mapped_column(Integer, default=0)
     agent_version: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    startup_memory_enabled: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
     definition_snapshot: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     trigger: Mapped[str] = mapped_column(String(32))
     requested_by: Mapped[str] = mapped_column(String(128))
@@ -126,6 +127,19 @@ class Run(Base):
     # both consumers race to publish; this is the claim that makes it once.
     reply_published_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True)
+
+class RunStartupContext(Base):
+    __tablename__ = "run_startup_contexts"
+    run_id: Mapped[str] = mapped_column(String(32), ForeignKey("runs.id"), primary_key=True)
+    enabled: Mapped[bool] = mapped_column(Boolean)
+    reason: Mapped[str] = mapped_column(String(64))
+    protocol: Mapped[int] = mapped_column(Integer, default=1)
+    policy: Mapped[str] = mapped_column(String(64))
+    captured_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    payload: Mapped[dict] = mapped_column(JSON)
+    provenance: Mapped[dict] = mapped_column(JSON)
+    digest: Mapped[str] = mapped_column(String(64))
+
 
 class LocalPersonaEnrollment(Base):
     __tablename__ = "local_persona_enrollments"
@@ -1409,6 +1423,14 @@ def _ensure_columns(conn) -> None:
                 ddl = col.type.compile(dialect=conn.dialect)
                 qualified = f'{schema}.{table.name}' if schema else table.name
                 conn.exec_driver_sql(f'ALTER TABLE {qualified} ADD COLUMN {col.name} {ddl}')
+
+
+def _ensure_startup_memory_ddl(conn):
+    conn.execute(Run.__table__.update().where(Run.startup_memory_enabled.is_(None))
+                 .values(startup_memory_enabled=False))
+    if conn.dialect.name == 'postgresql':
+        conn.exec_driver_sql("ALTER TABLE runs ALTER COLUMN startup_memory_enabled SET DEFAULT false")
+        conn.exec_driver_sql("ALTER TABLE runs ALTER COLUMN startup_memory_enabled SET NOT NULL")
 
 
 def _ensure_local_persona_ddl(conn):
@@ -3936,6 +3958,7 @@ async def init_db(engine: AsyncEngine, default_grant: bool = True,
             await conn.execute(text(f'CREATE SCHEMA IF NOT EXISTS "{MEMORY_SCHEMA}"'))
         await conn.run_sync(Base.metadata.create_all)
         await conn.run_sync(_ensure_columns)
+        await conn.run_sync(_ensure_startup_memory_ddl)
         await conn.run_sync(_ensure_local_persona_ddl)
         await conn.run_sync(_ensure_scope_indexes)
         await conn.run_sync(_ensure_appdata_index_diet)

@@ -316,7 +316,7 @@ spec:
     # The views pool has its own, narrower allow (below); policies add up, so
     # selecting it here would reopen what that one closes.
     matchExpressions:
-      - {key: app.kubernetes.io/component, operator: NotIn, values: [tool-executor-views]}
+      - {key: app.kubernetes.io/component, operator: NotIn, values: [tool-executor-views, memory-embedding]}
   policyTypes: [Egress]
   egress:
     - to:
@@ -341,7 +341,7 @@ spec:
     # The views pool has its own, narrower allow (below); policies add up, so
     # selecting it here would reopen what that one closes.
     matchExpressions:
-      - {key: app.kubernetes.io/component, operator: NotIn, values: [tool-executor-views]}
+      - {key: app.kubernetes.io/component, operator: NotIn, values: [tool-executor-views, memory-embedding]}
   policyTypes: [Egress]
   egress:
     - to:
@@ -364,7 +364,7 @@ spec:
       - {key: app.kubernetes.io/name, operator: In, values: [agent-platform]}
       # tool-executor: the designated third-party-egress point for custom
       # tools (docs/design/12 — Yahoo, Discord, Linear, …).
-      - {key: app.kubernetes.io/component, operator: In, values: [api, dispatcher, runner, agents-sync, connector-discord, claude-proxy, codex-proxy, tool-executor, cloud-backup]}
+      - {key: app.kubernetes.io/component, operator: In, values: [api, dispatcher, runner, agents-sync, connector-discord, claude-proxy, codex-proxy, tool-executor, cloud-backup, memory-provision]}
   policyTypes: [Egress]
   egress:
     - ports:

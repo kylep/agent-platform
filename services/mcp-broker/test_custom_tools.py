@@ -199,3 +199,21 @@ def test_stale_checkout_cannot_restore_discord_custom_tool(tools_root, monkeypat
     monkeypatch.setattr(broker, "_registered", {})
     broker.refresh_custom_tools()
     assert added == []
+
+
+def test_memory_hybrid_uses_trusted_api_without_executor_or_namespace_argument(monkeypatch):
+    seen=[]
+    async def identity():return {'agent':'pilot','run_id':'run','tools':['mcp__platform__memory']}
+    async def request(method,path,params=None,json=None,timeout=20):
+        seen.append((method,path,json));return httpx.Response(200,json={'memories':[],'retrieval':{'state':'degraded'}})
+    async def audit(*args,**kwargs):pass
+    monkeypatch.setattr(broker,'_whoami',identity)
+    monkeypatch.setattr(broker,'_request',request)
+    monkeypatch.setattr(broker,'_audit',audit)
+    tool=broker.CustomTool(name='memory',description='Read and save private memory.',parameters={'type':'object','properties':{}})
+    result=asyncio.run(tool.run({'action':'read','mode':'hybrid','q':'migration','agent':'other','limit':50}))
+    assert 'degraded' in result.content
+    assert seen==[('POST','/api/memory-hybrid',{'q':'migration','limit':20,'current_team':False,'current_project':False})]
+    seen.clear()
+    result=asyncio.run(tool.run({'action':'save','mode':'hybrid','content':'x'}))
+    assert 'read-only' in result.content and not seen

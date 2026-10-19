@@ -113,6 +113,14 @@ def migrate_authority(conn):
 async def assert_readable_run(session, request, run):
     from fastapi import HTTPException
     caller = getattr(request.state, 'api_key_agent', None)
+    if getattr(run, 'startup_memory_enabled', False):
+        if getattr(request.state, 'resolved_role', None) == 'admin':
+            return
+        agent = await session.get(AgentDef, caller) if caller else None
+        if (caller != run.agent or not agent or not agent.enabled
+                or agent.agent_type != 'persona'
+                or 'mcp__platform__memory' not in (agent.platform_tools or [])):
+            raise HTTPException(403, 'Startup pilot history is private to its owner and administrators')
     local_session_id = getattr(run, 'local_persona_session_id', None)
     if local_session_id and not caller:
         from agentplatform.db import Principal, LocalPersonaSession, LocalPersonaEnrollment

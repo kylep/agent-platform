@@ -50,7 +50,7 @@ async def test_serves_the_definition_the_pod_must_materialize(client, sf, seed_a
                         "harness_tools": ["WebSearch", "WebFetch"],
                         "platform_tools": ["mcp__platform__memory"],
                         "skills": ["git"], "model": "sonnet", "runtime": "claude",
-                        "fallback_notice": "", "fallback_used": False}
+                        "fallback_notice": "", "fallback_used": False, "startup_memory": None}
 
 
 async def test_the_description_is_served_because_the_cli_requires_it(

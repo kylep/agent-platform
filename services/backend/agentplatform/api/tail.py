@@ -1,7 +1,7 @@
 import asyncio
 import json
 
-from fastapi import APIRouter, WebSocket
+from fastapi import APIRouter, WebSocket, HTTPException
 from sqlalchemy import select
 
 from agentplatform.api import auth
@@ -24,6 +24,9 @@ async def tail(ws: WebSocket, run_id: str):
     if resolved[0].role == USER_ROLE:
         await ws.close(code=4403)
         return
+    ws.state.resolved_role = resolved[0].role
+    ws.state.auth_kind = 'session'
+    ws.state.principal_id = resolved[0].id
     signed_in_now(ws.app, cookie, resolved[0].id)
     async with ws.app.state.session_factory() as s:
         run = await s.get(Run, run_id)
@@ -32,7 +35,11 @@ async def tail(ws: WebSocket, run_id: str):
             return
         # This endpoint authenticates human session cookies only. Keep the
         # shared history policy here if agent authentication is added later.
-        await assert_readable_run(s, ws, run)
+        try:
+            await assert_readable_run(s, ws, run)
+        except HTTPException:
+            await ws.close(code=4403)
+            return
         rows = (
             await s.execute(
                 select(TranscriptEvent)

@@ -24,6 +24,9 @@ async def main() -> None:
                   memory_grant=settings.memory_default_grant,
                   self_grant=settings.self_default_grant,
                   tasks_grant=settings.tasks_default_grant)
+    if settings.memory_semantic_enabled:
+        from agentplatform.semantic_memory import require_storage
+        await require_storage(engine)
     session_factory = make_session_factory(engine)
 
     # A producer for conversation-outbound, result_topic feeds, and dead-lettering.

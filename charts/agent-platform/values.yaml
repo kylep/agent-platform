@@ -232,6 +232,11 @@ agents:
 # AP_INTERNAL_SECRET is the same kind of value: no default, required, and it
 # authenticates the claude-proxy's quota push to the API (docs/design/22).
 env:
+  AP_STARTUP_MEMORY_PILOT_AGENTS: ""
+  AP_MEMORY_SEMANTIC_ENABLED: "false"
+  AP_MEMORY_SEMANTIC_AGENTS: ""
+  AP_MEMORY_EMBEDDING_URL: ""
+  AP_MEMORY_EMBEDDING_TIMEOUT_SECONDS: "3"
   # Comma-separated IDs of Kyle's trusted admin API keys. Configure in the
   # private Helm values on the cluster; do not identify keys by display name.
   AP_TRUSTED_ADMIN_KEY_IDS: ""
@@ -354,3 +359,19 @@ kafka:
   listeners:
     client:
       protocol: PLAINTEXT
+
+# Private CPU embeddings. Provision cache first, then enable serving, then the
+# generic AP_MEMORY_SEMANTIC_* env flags. Neither stage alters canonical memory.
+memoryEmbedding:
+  enabled: false
+  provision: false
+  indexer: false
+  # Ollama v0.19.0 linux/amd64; model Gemma license retained in cache manifest.
+  image: docker.io/ollama/ollama@sha256:7d6a418c59f7caae7bc0c5f15f169d6ca0a59510f60b8a251639b44b11fe16b2
+  model: embeddinggemma:300m-qat-q8_0
+  manifestSha256: e84a7acc23943b7a589852cf6da122f0b925631b7884f297a001303dff54ffe6
+  storage: 2Gi
+  storageClass: ""
+  resources:
+    requests: {cpu: 100m, memory: 1Gi}
+    limits: {cpu: "1", memory: 2Gi}
