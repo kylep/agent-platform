@@ -45,7 +45,10 @@ def lexical_start(content, terms, weights):
     counts, score, best, start, left, right = Counter(), 0.0, -1.0, 0, 0, 0
     for position, _, _ in events:
         lo = max(0, position - 160)
-        while right < len(events) and events[right][0] < lo + 2000:
+        # Reserve trailing context as well as the leading 160 characters.
+        # Otherwise a window can end just after a matching label ("code:")
+        # while clipping the value that follows it.
+        while right < len(events) and events[right][0] < lo + 1840:
             _, term, weight = events[right]
             if not counts[term]:
                 score += weight

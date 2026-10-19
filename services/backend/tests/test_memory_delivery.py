@@ -56,6 +56,20 @@ def test_excerpts_are_unicode_offsets_and_stale_hints_are_not_applied():
     assert records[0]["excerpt"]["start"] == 0
 
 
+def test_lexical_window_includes_the_value_after_a_late_matching_label():
+    from agentplatform.memory_relevance import query_terms, lexical_start
+    text = ('Ephemeral CA-3 synthetic acceptance fixture, not a user preference or instruction. '
+            + 'Unrelated weather archive status. ' * 145
+            + ' Synthetic archive verification code: violet-harbor-abcdef.')
+    source = note('late-value', text)
+    terms = query_terms('What is the synthetic archive verification code?')
+    start = lexical_start(text, terms, [1.0] * len(terms))
+    records, _ = select_records([source], references=[{'id': source.id,
+        'source_hash': source_hash(source), 'match_start': start}])
+    assert 'violet-harbor-abcdef.' in records[0]['content']
+    assert records[0]['truncated'] and records[0]['excerpt']['start'] > 2000
+
+
 async def test_rest_empty_note_and_long_lexical_passage_reach_hybrid_and_startup(
     admin_client, token_client, sf, seed_agent
 ):
