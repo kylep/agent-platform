@@ -2,12 +2,13 @@
 
 Native `ap-persona` launch/resume and detached cluster runs share the own-namespace
 selector. Identity, preferences and continuity key prefixes receive priority:
-10 newest pinned candidates and 20 newest general candidates, deduplicated,
+10 newest pinned candidates and 20 newest general nonempty candidates, deduplicated,
 then at most 20 delivered records, 2,000 characters each and 12,000 total.
 Candidates are fetched in one statement. Equal update timestamps now use ID
 descending as the deterministic tiebreaker; previously their order was unspecified.
 Labels for teams/projects do not grant access to another namespace. Native
-bootstrap fields and checksum serialization remain unchanged.
+bootstrap root fields and checksum serialization remain unchanged; record metadata
+is additive as described below.
 
 Native startup uses this bounded pinned/recency selector, not a task-dependent
 semantic query. Explicit `memory(action="read", mode="hybrid", q="…")` is how a
@@ -149,7 +150,7 @@ its result limit, then verifies full source hashes. Overwrites/deletes become
 ineligible immediately, before cleanup. Exact vector search is deliberate for
 this small corpus; no approximate index is needed yet.
 
-The one shared hybrid ranking policy combines 20 lexical term-OR and 20 cosine
+The one shared hybrid ranking policy combines 20 IDF-weighted lexical and 20 cosine
 candidates using reciprocal rank fusion (k=60), exact whole-key matches first,
 then score and ID ties. Startup keeps mandatory pins ahead of relevant results
 and applies the existing record/content budgets. Semantic preparation happens
@@ -214,3 +215,54 @@ A prompt refresh in an already connected process does not prove schema refresh.
 Runtime contracts: [Ollama embeddings](https://docs.ollama.com/api/embed),
 [Ollama configuration](https://docs.ollama.com/faq),
 [pgvector](https://github.com/pgvector/pgvector).
+
+## Matching passages and relevance evaluation
+
+Selection policy `persona-memory-v2-excerpts` skips zero-length notes before
+candidate limits and while formatting; only delivered records consume the record
+budget. Canonical notes, including empty notes, are retained. Exhausting the
+content budget still stops delivery.
+
+Native pinned/recency startup returns bounded prefixes. Explicit hybrid reads and
+eligible semantic detached startup instead retain the winning source chunk and
+revision. A stronger literal-match window can win over that chunk, including a
+literal match beyond the sixteen-chunk embedding cap. Each delivered record now
+also includes `source_hash`, `truncated`, and `excerpt` with zero-based `start`,
+exclusive `end`, `source_length`, `unit=unicode_codepoints` and selection `method`.
+Thus `canonical_content[start:end]` equals delivered `content`. Explicit hybrid
+responses also expose `sources` provenance. The limits remain twenty records,
+2,000 codepoints per record and 12,000 total. A partial excerpt is not the full
+source. Source overwrite/deletion invalidates prepared references immediately;
+new authority checks still precede returning data or freezing a packet.
+
+This is additive metadata within native bootstrap schema 1 and runner protocol 1.
+Existing readers accept extra record fields; checksums cover the complete new
+payload. Previously captured packets retain their original content and digest.
+No canonical source rewrite or embedding-generation migration is required.
+
+Hybrid policy `hybrid-rrf60-idf-v2` keeps whole-key priority and 20 lexical / 20
+semantic candidates with RRF k=60. Lexical selection removes grammatical query
+words and orders by distinct term coverage weighted by inverse document frequency
+within the authorized namespace/scope, then recency/ID. Namespace and scope filters
+apply before statistics and limits. Receipts receive the same policy as lessons;
+explicit receipt questions remain supported. No similarity cutoff is calibrated:
+unrelated queries can return nearest semantic neighbors even with no lexical
+matches, so recipients must assess applicability rather than treat similarity as
+an instruction. Legacy default term-AND reads are unchanged.
+
+The synthetic corpus in `services/backend/tests/fixtures/memory-relevance/corpus.json`
+contains older lessons, thirty newer routine receipts, explicit keys, receipt and
+unrelated questions, paraphrases and a late long-note fact. Reproduce a bounded
+comparison against the pre-change ranking on disposable PostgreSQL/pgvector:
+
+```sh
+services/backend/.venv/bin/python bin/ap-memory-relevance-eval \
+  --embedding-url http://127.0.0.1:<authorized-forward> \
+  --write-vectors /private/tmp/memory-eval-vectors.json
+```
+
+The pinned model identity is verified. Use `--vectors` to replay that capture;
+`--baseline-ref` selects the reviewed Git baseline (default `a0226b4`). Output
+includes corpus hash, generation, per-query ranks/contributions, nDCG@3 and
+recall@3, with unlabelled unrelated queries reported separately. These small,
+explicit relevance judgments measure this fixture rather than general judgment.

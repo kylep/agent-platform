@@ -9,9 +9,10 @@ import hashlib
 import json
 import math
 import httpx
-from sqlalchemy import func, or_, select, text
+from sqlalchemy import case, func, literal, or_, select, text
 from agentplatform.db import Memory
-from agentplatform.persona_memory import PREFIXES, source_hash
+from agentplatform.persona_memory import chunk_ranges, source_hash
+from agentplatform.memory_relevance import query_terms, lexical_start, coverage
 
 MODEL = 'embeddinggemma:300m-qat-q8_0'
 ARTIFACT = 'e84a7acc23943b7a589852cf6da122f0b925631b7884f297a001303dff54ffe6'
@@ -27,15 +28,7 @@ def bounded(value, size=1024):
 
 
 def chunks(memory):
-    raw = memory.content.encode()
-    # Bounded batch: one canonical record per reconciliation unit, at most 16
-    # chunks. Oversized tails remain canonical and lexical-searchable.
-    out = []
-    while raw and len(out) < 16:
-        piece = raw[:1024].decode('utf-8', errors='ignore')
-        out.append(piece)
-        raw = raw[len(piece.encode()):]
-    return out or ['']
+    return [memory.content[start:end] for start, end in chunk_ranges(memory.content)] or ['']
 
 
 async def embed(settings, inputs):
@@ -109,7 +102,7 @@ async def reconcile(sf, settings, batch=4):
         await ready(s)
         await s.execute(text('DELETE FROM public.memory_vectors_v1 v WHERE NOT EXISTS '
                             '(SELECT 1 FROM tool_memory.memories m WHERE m.id=v.memory_id)'))
-        rows = (await s.execute(select(Memory).where(Memory.agent.in_(settings.memory_semantic_agents.split(',')),
+        rows = (await s.execute(select(Memory).where(Memory.content != '', Memory.agent.in_(settings.memory_semantic_agents.split(',')),
             ~Memory.id.in_(select(text('memory_id')).select_from(text('public.memory_vectors_v1'))
                 .where(text('generation=:generation AND source_updated_at=tool_memory.memories.updated_at '
                             "AND content_hash=encode(sha256(convert_to(tool_memory.memories.content,'UTF8')),'hex')"))))
@@ -166,29 +159,34 @@ async def reconcile(sf, settings, batch=4):
 async def prepare(sf, settings, agent, query, team_id=None, project_id=None):
     """Return ranked revision references, never a privileged cached source payload.
 
-    RRF k=60 over term-OR lexical and cosine ranks (20 each), ties by ID.
+    RRF k=60 over IDF-weighted lexical coverage and cosine ranks (20 each).
     Exact full key first. Startup mandatory pins are applied by capture later.
     """
-    status = {'policy': 'hybrid-rrf60-v1', 'preprocessing': PREPROCESS,
+    status = {'policy': 'hybrid-rrf60-idf-v2', 'preprocessing': PREPROCESS,
               'model': MODEL, 'artifact': ARTIFACT, 'generation': GENERATION,
               'state': 'lexical', 'reason': 'disabled'}
     query = bounded(query or '')
     if not query.strip():
         return [], {**status, 'reason': 'empty_query'}
-    conditions = [Memory.agent == agent]
+    conditions = [Memory.agent == agent, Memory.content != '']
     if team_id:
         conditions.append(Memory.team_id == team_id)
     if project_id:
         conditions.append(Memory.project_id == project_id)
     async with sf() as s:
-        terms = query.lower().split()[:32]
+        terms = query_terms(query)
+        matches = [or_(func.lower(Memory.content).contains(term, autoescape=True),
+                       func.lower(Memory.key).contains(term, autoescape=True)) for term in terms]
+        stats = (await s.execute(select(func.count(Memory.id),
+            *(func.sum(case((match, 1), else_=0)) for match in matches)).where(*conditions))).one()
+        weights = [math.log(1 + (stats[0] + 1) / ((df or 0) + 1)) for df in stats[1:]]
+        relevance = sum((weight * case((match, 1), else_=0)
+                         for weight, match in zip(weights, matches)), literal(0.0))
         lexical = (await s.execute(select(Memory).where(*conditions,
-            or_(*(or_(func.lower(Memory.content).contains(term, autoescape=True),
-                      func.lower(Memory.key).contains(term, autoescape=True)) for term in terms)))
-            # PostgreSQL DESC puts NULL first by default. Unkeyed lexical
-            # matches must not consume the limit ahead of an exact key.
-            .order_by((Memory.key == query).desc().nulls_last(), Memory.updated_at.desc(), Memory.id.desc()).limit(20))).scalars().all()
-    semantic = []
+            or_(Memory.key == query, *matches))
+            .order_by(func.coalesce(Memory.key == query, False).desc(), relevance.desc(),
+                      Memory.updated_at.desc(), Memory.id.desc()).limit(20))).scalars().all()
+    semantic, hits = [], []
     if settings.memory_semantic_enabled and agent in settings.memory_semantic_agents.split(','):
         try:
             async with asyncio.timeout(settings.memory_embedding_timeout_seconds):
@@ -201,13 +199,15 @@ async def prepare(sf, settings, agent, query, team_id=None, project_id=None):
                         if value:
                             scope += f' AND m.{field}=:{field}'
                             params[field] = value
-                    hits = (await s.execute(text('''SELECT v.memory_id, v.source_hash,
-                        min(v.embedding <=> CAST(:v AS public.vector)) AS distance
+                    hits = (await s.execute(text('''SELECT memory_id, source_hash, chunk, distance FROM (
+                        SELECT DISTINCT ON (v.memory_id) v.memory_id, v.source_hash, v.chunk,
+                        v.embedding <=> CAST(:v AS public.vector) AS distance
                         FROM public.memory_vectors_v1 v JOIN tool_memory.memories m ON m.id=v.memory_id
-                        WHERE v.agent=:agent AND m.agent=:agent AND v.generation=:g
+                        WHERE v.agent=:agent AND m.agent=:agent AND m.content<>'' AND v.generation=:g
                           AND v.source_updated_at=m.updated_at
                           AND v.content_hash=encode(sha256(convert_to(m.content,'UTF8')),'hex')'''
-                        + scope + ' GROUP BY v.memory_id,v.source_hash ORDER BY distance,v.memory_id LIMIT 20'), params)).all()
+                        + scope + ' ORDER BY v.memory_id,distance,v.chunk) matched '
+                        'ORDER BY distance,memory_id LIMIT 20'), params)).all()
                     semantic = [(r.memory_id, r.source_hash) for r in hits]
             status.update(state='hybrid', reason='')
         except (httpx.HTTPError, TimeoutError, ValueError, RuntimeError):
@@ -218,7 +218,28 @@ async def prepare(sf, settings, agent, query, team_id=None, project_id=None):
             scores[mid] = scores.get(mid, 0) + 1 / (60 + rank)
             hashes[mid] = revision
     exact = {m.id for m in lexical if m.key == query}
-    return [{'id': mid, 'source_hash': hashes[mid]} for mid in sorted(scores,
+    hints = {m.id: {'match_start': lexical_start(m.content, terms, weights)} for m in lexical}
+    lexical_rows = {m.id: m for m in lexical}
+    for hit in hits:
+        if hit.memory_id not in exact:
+            m = lexical_rows.get(hit.memory_id)
+            if m is not None and source_hash(m) == hit.source_hash:
+                spans = list(chunk_ranges(m.content))
+                if 0 <= hit.chunk < len(spans):
+                    sem_start = min(max(0, spans[hit.chunk][0] - 160), max(0, len(m.content) - 2000))
+                    lex_start = hints[m.id]['match_start']
+                    # Keep stronger literal evidence, including matches beyond
+                    # the bounded embedding index; otherwise use the winning
+                    # semantic passage for paraphrases with no literal overlap.
+                    if coverage(m.content[lex_start:lex_start+2000], terms, weights) > coverage(
+                            m.content[sem_start:sem_start+2000], terms, weights) + 1e-9:
+                        continue
+            hints[hit.memory_id] = {'match_chunk': hit.chunk}
+    ranks = {mid: {'lexical_rank': next((i for i, m in enumerate(lexical, 1) if m.id == mid), None),
+                   'semantic_rank': next((i for i, pair in enumerate(semantic, 1) if pair[0] == mid), None),
+                   'rrf_score': scores[mid]} for mid in scores}
+    status.update(lexical_candidates=len(lexical), semantic_candidates=len(semantic))
+    return [{'id': mid, 'source_hash': hashes[mid], **hints.get(mid, {}), **ranks[mid]} for mid in sorted(scores,
         key=lambda mid: (mid not in exact, -scores[mid], mid))[:20]], status
 
 

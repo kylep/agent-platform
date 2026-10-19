@@ -1,0 +1,260 @@
+#!/usr/bin/env python3
+"""Compare a fixed synthetic corpus on disposable PostgreSQL/pgvector.
+
+Use the backend Python. --vectors replays vectors captured from the pinned model;
+otherwise --embedding-url must explicitly name a reachable Ollama service. No
+production database URL is accepted. Output contains synthetic fixture IDs only.
+"""
+
+import argparse
+import asyncio
+from datetime import timedelta
+import hashlib
+import json
+import math
+from pathlib import Path
+import subprocess
+import sys
+import types
+import uuid
+
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "services/backend"))
+from agentplatform import semantic_memory as proposed
+from agentplatform.config import Settings
+from agentplatform.db import Memory, init_db, make_engine, make_session_factory, utcnow
+from sqlalchemy import text
+
+parser = argparse.ArgumentParser(description=__doc__)
+parser.add_argument("--vectors", type=Path)
+parser.add_argument("--embedding-url")
+parser.add_argument("--write-vectors", type=Path)
+parser.add_argument("--baseline-ref", default="a0226b4")
+args = parser.parse_args()
+fixture_path = ROOT / "services/backend/tests/fixtures/memory-relevance/corpus.json"
+fixture = json.loads(fixture_path.read_text())
+name = "ap-memory-eval-" + uuid.uuid4().hex[:10]
+
+
+def metric(results):
+    labelled = [r for r in results if r["relevance"]]
+
+    def ndcg(row):
+        gains = [row["relevance"].get(mid, 0) for mid in row["top_ids"][:3]]
+        dcg = lambda xs: sum((2**g - 1) / math.log2(i + 2) for i, g in enumerate(xs))
+        return dcg(gains) / dcg(sorted(row["relevance"].values(), reverse=True)[:3])
+
+    return {
+        "mean_ndcg_at_3": sum(map(ndcg, labelled)) / len(labelled),
+        "mean_recall_at_3": sum(
+            len(set(r["top_ids"][:3]) & r["relevance"].keys()) / len(r["relevance"])
+            for r in labelled
+        )
+        / len(labelled),
+    }
+
+
+async def main():
+    import asyncpg
+
+    vector_data = json.loads(args.vectors.read_text()) if args.vectors else None
+    if not vector_data:
+        if not args.embedding_url:
+            parser.error("provide --vectors or an explicit --embedding-url")
+        inputs = []
+        for d in fixture["documents"]:
+            inputs += [
+                "title: "
+                + proposed.bounded(d["memory_label"] or "none", 128)
+                + " | text: "
+                + t
+                for t in proposed.chunks(Memory(content=d["content"]))
+            ]
+        inputs += [
+            "task: search result | query: " + proposed.bounded(q["q"])
+            for q in fixture["queries"]
+        ]
+        inputs = list(dict.fromkeys(inputs))
+        vectors = {}
+        for i in range(0, len(inputs), 8):
+            vectors.update(
+                zip(
+                    inputs[i : i + 8],
+                    await proposed.embed(
+                        Settings(
+                            memory_embedding_url=args.embedding_url,
+                            memory_embedding_timeout_seconds=60,
+                        ),
+                        inputs[i : i + 8],
+                    ),
+                )
+            )
+        vector_data = {"generation": proposed.GENERATION, "vectors": vectors}
+        if args.write_vectors:
+            args.write_vectors.write_text(json.dumps(vector_data))
+            args.write_vectors.chmod(0o600)
+    assert vector_data["generation"] == proposed.GENERATION
+
+    async def embed(settings, inputs):
+        return [vector_data["vectors"][text] for text in inputs]
+
+    baseline = types.ModuleType("memory_ranking_baseline")
+    code = subprocess.run(
+        [
+            "git",
+            "show",
+            args.baseline_ref + ":services/backend/agentplatform/semantic_memory.py",
+        ],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout
+    exec(compile(code, "git:" + args.baseline_ref, "exec"), baseline.__dict__)
+    baseline.embed = proposed.embed = embed
+    subprocess.run(
+        [
+            "docker",
+            "run",
+            "--rm",
+            "-d",
+            "--name",
+            name,
+            "-e",
+            "POSTGRES_PASSWORD=memory-eval-only",
+            "-e",
+            "POSTGRES_DB=memory_relevance_eval",
+            "-p",
+            "127.0.0.1::5432",
+            "pgvector/pgvector@sha256:2358fcba361ed2233a5ed81b5fe4ca779ccb304120ce531a3bf51c0ed7e2bc11",
+        ],
+        check=True,
+        capture_output=True,
+    )
+    port = (
+        subprocess.run(
+            ["docker", "port", name, "5432/tcp"],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        .stdout.strip()
+        .rsplit(":", 1)[-1]
+    )
+    url = (
+        f"postgresql://postgres:memory-eval-only@127.0.0.1:{port}/memory_relevance_eval"
+    )
+    for _ in range(60):
+        try:
+            c = await asyncpg.connect(url, timeout=1)
+            await c.fetchval("SELECT 1")
+            await c.close()
+            break
+        except (OSError, asyncpg.PostgresError):
+            await asyncio.sleep(0.5)
+    engine = make_engine(url.replace("postgresql:", "postgresql+asyncpg:", 1))
+    try:
+        await init_db(engine)
+        await proposed.migrate(engine)
+        sf = make_session_factory(engine)
+        now = utcnow()
+        agent = "evaluation"
+        async with sf() as s:
+            for i, d in enumerate(fixture["documents"]):
+                s.add(
+                    Memory(
+                        id=d["id"],
+                        agent=agent,
+                        key=d["memory_label"],
+                        content=d["content"],
+                        updated_at=now - timedelta(days=5)
+                        if not d["id"].startswith("churn")
+                        else now + timedelta(seconds=i),
+                    )
+                )
+            await s.commit()
+        settings = Settings(memory_semantic_enabled=True, memory_semantic_agents=agent)
+        while await proposed.reconcile(sf, settings, batch=4):
+            pass
+        output = {
+            "fixture_sha256": hashlib.sha256(fixture_path.read_bytes()).hexdigest(),
+            "generation": proposed.GENERATION,
+            "baseline_ref": args.baseline_ref,
+            "documents": len(fixture["documents"]),
+        }
+        for label, module in [("baseline", baseline), ("proposed", proposed)]:
+            for enabled in (True, False):
+                rows = []
+                for q in fixture["queries"]:
+                    refs, status = await module.prepare(
+                        sf,
+                        settings.model_copy(
+                            update={"memory_semantic_enabled": enabled}
+                        ),
+                        agent,
+                        q["q"],
+                    )
+                    # Reconstruct both baseline contributions through its own
+                    # lexical policy and the shared unchanged vector ranking.
+                    lexical, _ = await module.prepare(
+                        sf,
+                        settings.model_copy(update={"memory_semantic_enabled": False}),
+                        agent,
+                        q["q"],
+                    )
+                    async with sf() as s:
+                        semantic = (
+                            await s.execute(
+                                text(
+                                    "SELECT memory_id, min(embedding <=> CAST(:v AS public.vector)) AS distance "
+                                    "FROM public.memory_vectors_v1 WHERE agent=:agent AND generation=:g "
+                                    "GROUP BY memory_id ORDER BY distance,memory_id LIMIT 20"
+                                ),
+                                {
+                                    "v": json.dumps(
+                                        vector_data["vectors"][
+                                            "task: search result | query: "
+                                            + proposed.bounded(q["q"])
+                                        ]
+                                    ),
+                                    "agent": agent,
+                                    "g": proposed.GENERATION,
+                                },
+                            )
+                        ).all()
+                    lexical_ranks = {r["id"]: i for i, r in enumerate(lexical, 1)}
+                    semantic_ranks = (
+                        {r.memory_id: i for i, r in enumerate(semantic, 1)}
+                        if enabled
+                        else {}
+                    )
+                    for ref in refs:
+                        ref["lexical_rank"] = lexical_ranks.get(ref["id"])
+                        ref["semantic_rank"] = semantic_ranks.get(ref["id"])
+                        ref["rrf_score"] = sum(
+                            1 / (60 + rank)
+                            for rank in (ref["lexical_rank"], ref["semantic_rank"])
+                            if rank is not None
+                        )
+                    rows.append(
+                        {
+                            "case": q["id"],
+                            "relevance": q["relevance"],
+                            "top_ids": [r["id"] for r in refs],
+                            "contributions": refs,
+                            "state": status["state"],
+                        }
+                    )
+                output[label + ("_hybrid" if enabled else "_lexical")] = {
+                    "metrics": metric(rows),
+                    "cases": rows,
+                }
+        print(json.dumps(output, indent=2))
+    finally:
+        await engine.dispose()
+
+
+try:
+    asyncio.run(main())
+finally:
+    subprocess.run(["docker", "rm", "-f", name], capture_output=True)

@@ -264,6 +264,6 @@ async def hybrid_search(request: Request, body: HybridSearch):
         rows = await resolve(s, agent, refs)
         if len(rows) != len(refs):
             status = {**status, 'state': 'degraded', 'reason': 'source_changed'}
-        records, _ = select_records(rows[:body.limit])
+        records, sources = select_records(rows, references=refs, limit=body.limit)
         await s.commit()
-    return {'memories': records, 'retrieval': status}
+    return {'memories': records, 'sources': sources, 'retrieval': status}

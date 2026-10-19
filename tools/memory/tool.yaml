@@ -3,21 +3,24 @@ category: platform_capability
 description: >-
   Your persistent memory across runs — reading and writing are one tool
   because your namespace is private (you can never see another agent's
-  memories). action="read" searches your namespace: q is split into terms
+  memories). Default action="read" searches your namespace: q is split into terms
   and a memory matches when every term appears in its content or key; empty
   q lists the newest. action="save" stores content; pass key ONLY for state
   you overwrite in place (reusing a key replaces that memory) — omit it for
-  plain notes, don't invent meaningless keys. Optional tags on save.
+  plain notes, don't invent meaningless keys. Optional tags on save. Explicit
+  mode="hybrid" ranks meaningful query terms and semantic matches, returning
+  bounded matching excerpts with source_hash, truncated and excerpt offsets
+  (Unicode codepoints). Similarity is not proof a lesson applies to the task.
 params:
   type: object
   properties:
     action:
       type: string
       enum: [read, save]
-    mode: {type: string, enum: [lexical, hybrid], default: lexical, description: "read: opt in to shared hybrid retrieval; returns retrieval status with results"}
+    mode: {type: string, enum: [lexical, hybrid], default: lexical, description: "read: hybrid returns ranked excerpts, source_hash, truncated, excerpt offsets and retrieval status; lexical retains term-AND behavior"}
     q:
       type: string
-      description: "read: search terms (all must match); empty lists newest"
+      description: "read: default lexical search terms all must match and empty lists newest; hybrid accepts a natural-language question or full key"
     content:
       type: string
       description: "save: the memory text"

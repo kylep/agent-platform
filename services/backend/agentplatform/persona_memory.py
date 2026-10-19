@@ -1,14 +1,14 @@
 """Own-namespace startup selection. Labels are not ACLs.
 
-v1 preserves native ordering/budgets, adding ID-descending timestamp ties.
-A single statement ranks both pinned (10) and general (20) candidates.
+v2 retains ordering/budgets, skips empty notes and exposes bounded excerpts.
+A single statement ranks both pinned (10) and general (20) nonempty candidates.
 """
 import hashlib
 import json
 from sqlalchemy import case, func, or_, select
 from agentplatform.db import Memory
 
-POLICY = 'persona-memory-v1'
+POLICY = 'persona-memory-v2-excerpts'
 PREFIXES = ('identity', 'preferences', 'continuity')
 
 
@@ -31,7 +31,7 @@ async def candidates(session, agent):
     ranked = select(Memory.id,
         func.row_number().over(order_by=order).label('recent'),
         func.row_number().over(partition_by=case((pinned, 1), else_=0),
-                               order_by=order).label('pin')).where(Memory.agent == agent).subquery()
+                               order_by=order).label('pin')).where(Memory.agent == agent, Memory.content != '').subquery()
     rows = (await session.execute(select(Memory).join(ranked, Memory.id == ranked.c.id)
         .where(or_(ranked.c.recent <= 20, pinned & (ranked.c.pin <= 10)))
         .order_by(*order))).scalars().all()
@@ -39,17 +39,43 @@ async def candidates(session, agent):
     return sorted(rows, key=lambda m: not (m.key or '').startswith(PREFIXES))
 
 
-def select_records(rows):
+def chunk_ranges(content):
+    """The existing UTF-8 preprocessing, with codepoint offsets for delivery."""
+    raw, start, count = content.encode(), 0, 0
+    while raw and count < 16:
+        piece = raw[:1024].decode('utf-8', errors='ignore')
+        end = start + len(piece)
+        yield start, end
+        raw, start, count = raw[len(piece.encode()):], end, count + 1
+
+
+def select_records(rows, references=(), limit=20):
     seed, provenance, remaining = [], [], 12000
-    for m in rows[:20]:
-        content = m.content[:min(2000, remaining)]
-        if not content:
+    hints = {r['id']: r for r in references}
+    for m in rows:
+        if remaining <= 0 or len(seed) >= min(20, limit):
             break
+        if not m.content:
+            continue
+        revision, size = source_hash(m), min(2000, remaining)
+        hint, start, method = hints.get(m.id, {}), 0, 'prefix'
+        if hint.get('source_hash') == revision:
+            if type(hint.get('match_chunk')) is int:
+                ranges = list(chunk_ranges(m.content))
+                if 0 <= hint['match_chunk'] < len(ranges):
+                    start, method = max(0, ranges[hint['match_chunk']][0] - 160), 'semantic_chunk'
+            elif type(hint.get('match_start')) is int:
+                start, method = max(0, hint['match_start']), 'lexical_match'
+        start = min(start, max(0, len(m.content) - size))
+        content = m.content[start:start + size]
+        excerpt = {'start': start, 'end': start + len(content), 'source_length': len(m.content),
+                   'unit': 'unicode_codepoints', 'method': method}
         seed.append({'id': m.id, 'key': m.key, 'content': content,
-                     'updated_at': m.updated_at.isoformat(), 'tags': m.tags})
+                     'updated_at': m.updated_at.isoformat(), 'tags': m.tags,
+                     'source_hash': revision, 'truncated': len(content) < len(m.content), 'excerpt': excerpt})
         provenance.append({'id': m.id, 'updated_at': m.updated_at.isoformat(),
-            'source_hash': source_hash(m), 'delivered_hash': digest(seed[-1]),
-            'position': len(seed) - 1, 'truncated': len(content) < len(m.content)})
+            'source_hash': revision, 'delivered_hash': digest(seed[-1]),
+            'position': len(seed) - 1, 'truncated': len(content) < len(m.content), 'excerpt': excerpt})
         remaining -= len(content)
     return seed, provenance
 

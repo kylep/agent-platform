@@ -228,3 +228,54 @@ async def test_authority_change_serializes_before_capture(monkeypatch):
         assert (await s.get(Run,run.id)).definition_snapshot is None
         assert await s.get(RunStartupContext,run.id) is None
     await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_semantic_late_chunk_delivery_is_bound_to_live_revision_and_frozen_packet(monkeypatch):
+    from agentplatform.persona_memory import select_records
+    engine = make_engine(os.environ['AP_PERSONA_TEST_POSTGRES_URL'])
+    try:
+        await init_db(engine); await semantic.migrate(engine)
+        sf = make_session_factory(engine); agent = 'passage-' + uuid.uuid4().hex[:8]
+        content = 'Unrelated 🦊 weather receipt. ' * 165 + 'The archive verification code is violet-harbor-672.'
+        mid = uuid.uuid4().hex
+        async with sf() as s:
+            s.add(AgentDef(name=agent, agent_type='persona', platform_tools=['mcp__platform__memory']))
+            s.add(Memory(id=mid, agent=agent, key='lessons.archive', content=content))
+            s.add(Memory(agent=agent, key='identity.empty', content=''))
+            s.add(Memory(agent=agent+'-foreign', content='The archive verification code is private.'))
+            run = Run(agent=agent, trigger='manual', requested_by='test', prompt='What is the archive verification code?')
+            s.add(run); await s.commit()
+        async def embed(settings, inputs):
+            return [[1., 0.] + [0.] * 766 if text.startswith('task:') or 'violet-harbor-672' in text
+                    else [0., 1.] + [0.] * 766 for text in inputs]
+        monkeypatch.setattr(semantic, 'embed', embed)
+        settings = Settings(memory_semantic_enabled=True, memory_semantic_agents=agent, startup_memory_pilot_agents=agent)
+        assert await semantic.reconcile(sf, settings) == 1 # Empty sources do not consume indexing work.
+        refs, status = await semantic.prepare(sf, settings, agent, run.prompt)
+        assert status['state'] == 'hybrid' and refs[0]['match_chunk'] >= 2
+        async with sf() as s:
+            rows = await semantic.resolve(s, agent, refs)
+            records, sources = select_records(rows, references=refs)
+            assert len(records) == 1 and 'violet-harbor-672' in records[0]['content']
+            assert records[0]['truncated'] and records[0]['excerpt']['start'] > 2000
+            assert content[records[0]['excerpt']['start']:records[0]['excerpt']['end']] == records[0]['content']
+            assert sources[0]['source_hash'] == records[0]['source_hash']
+            assert not await semantic.resolve(s, agent+'-foreign', refs)
+        store = AgentStore(sf); await store.reload()
+        disp = Dispatcher(settings, sf, FakeProducer(), store, FakeLauncher())
+        assert (await disp._freeze_definition(run))[1] is None
+        async with sf() as s:
+            captured = await s.get(RunStartupContext, run.id)
+            assert 'violet-harbor-672' in captured.payload['memories'][0]['content']
+            original_digest = captured.digest
+            memory = await s.get(Memory, mid); assert memory.content == content
+            memory.content = 'Overwritten source'; await s.commit()
+            assert not await semantic.resolve(s, agent, refs)
+        assert (await disp._freeze_definition(run))[1] is None
+        async with sf() as s:
+            assert (await s.get(RunStartupContext, run.id)).digest == original_digest
+            await s.delete(await s.get(Memory, mid)); await s.commit()
+            assert not await semantic.resolve(s, agent, refs)
+    finally:
+        await engine.dispose()

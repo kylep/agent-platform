@@ -1,0 +1,244 @@
+{
+  "description": "Synthetic fixed relevance fixture; older lessons plus thirty newer routine receipts. Labels are bounded engineering judgments, not general quality claims.",
+  "documents": [
+    {
+      "id": "db",
+      "content": "Source: explicit user request. Preserve existing data when changing the database schema for the persona memory rollout. Apply additive, idempotent migrations and test restores before activation.",
+      "memory_label": "preferences.database"
+    },
+    {
+      "id": "infra",
+      "content": "Source: explicit user request. Provision compute resources with declarative infrastructure: checked-in Helm values and Kubernetes manifests. Preserve existing storage and credentials.",
+      "memory_label": "preferences.infrastructure"
+    },
+    {
+      "id": "lesson",
+      "content": "Lesson from a schema upgrade: compare the old and new database schema, migrate existing rows, verify a populated restore, and retain rollback evidence. Do not replace the storage volume.",
+      "memory_label": null
+    },
+    {
+      "id": "running",
+      "content": "For marathon training, increase weekly distance gradually and include easy recovery runs. Compare pace and heart rate over several weeks.",
+      "memory_label": "preferences.running"
+    },
+    {
+      "id": "receipt",
+      "content": "News briefing delivery receipt, 2026-10-19: publication to Discord completed. Message reference delivery-741. This records a completed send, not a preference for future work.",
+      "memory_label": "receipt.news.2026-10-19"
+    },
+    {
+      "id": "long",
+      "content": "Archive status: routine housekeeping completed. Archive status: routine housekeeping completed. Archive status: routine housekeeping completed. Archive status: routine housekeeping completed. Archive status: routine housekeeping completed. Archive status: routine housekeeping completed. Archive status: routine housekeeping completed. Archive status: routine housekeeping completed. Archive status: routine housekeeping completed. Archive status: routine housekeeping completed. Archive status: routine housekeeping completed. Archive status: routine housekeeping completed. Archive status: routine housekeeping completed. Archive status: routine housekeeping completed. Archive status: routine housekeeping completed. Archive status: routine housekeeping completed. Archive status: routine housekeeping completed. Archive status: routine housekeeping completed. Archive status: routine housekeeping completed. Archive status: routine housekeeping completed. Archive status: routine housekeeping completed. Archive status: routine housekeeping completed. Archive status: routine housekeeping completed. Archive status: routine housekeeping completed. Archive status: routine housekeeping completed. Archive status: routine housekeeping completed. Archive status: routine housekeeping completed. Archive status: routine housekeeping completed. Archive status: routine housekeeping completed. Archive status: routine housekeeping completed. Archive status: routine housekeeping completed. Archive status: routine housekeeping completed. Archive status: routine housekeeping completed. Archive status: routine housekeeping completed. Archive status: routine housekeeping completed. Archive status: routine housekeeping completed. Archive status: routine housekeeping completed. Archive status: routine housekeeping completed. Archive status: routine housekeeping completed. Archive status: routine housekeeping completed. Archive status: routine housekeeping completed. Archive status: routine housekeeping completed. Archive status: routine housekeeping completed. Archive status: routine housekeeping completed. Archive status: routine housekeeping completed. Archive status: routine housekeeping completed. Archive status: routine housekeeping completed. Archive status: routine housekeeping completed. Archive status: routine housekeeping completed. Archive status: routine housekeeping completed. Archive status: routine housekeeping completed. Archive status: routine housekeeping completed. Archive status: routine housekeeping completed. Archive status: routine housekeeping completed. Archive status: routine housekeeping completed. Archive status: routine housekeeping completed. Archive status: routine housekeeping completed. Archive status: routine housekeeping completed. Archive status: routine housekeeping completed. Archive status: routine housekeeping completed. Archive status: routine housekeeping completed. Archive status: routine housekeeping completed. Archive status: routine housekeeping completed. Archive status: routine housekeeping completed. Archive status: routine housekeeping completed. Archive status: routine housekeeping completed. Archive status: routine housekeeping completed. Archive status: routine housekeeping completed. Archive status: routine housekeeping completed. Archive status: routine housekeeping completed. Archive status: routine housekeeping completed. Archive status: routine housekeeping completed. Archive status: routine housekeeping completed. Archive status: routine housekeeping completed. Archive status: routine housekeeping completed. Archive status: routine housekeeping completed. Archive status: routine housekeeping completed. Archive status: routine housekeeping completed. Archive status: routine housekeeping completed. Archive status: routine housekeeping completed. Archive status: routine housekeeping completed. Archive status: routine housekeeping completed. Archive status: routine housekeeping completed. Archive status: routine housekeeping completed. Archive status: routine housekeeping completed. Archive status: routine housekeeping completed. Archive status: routine housekeeping completed. Archive status: routine housekeeping completed. Archive status: routine housekeeping completed. Archive status: routine housekeeping completed. Archive status: routine housekeeping completed. Archive status: routine housekeeping completed. Archive status: routine housekeeping completed. Archive status: routine housekeeping completed. Archive status: routine housekeeping completed. The archive verification code is violet-harbor-672. Keep retention manifests declarative and verify an archive restore before deleting old backups.",
+      "memory_label": "lessons.archive"
+    },
+    {
+      "id": "churn-00",
+      "content": "Routine delivery receipt 00: the daily news briefing was sent. The memory rollout status report was posted after the run. Delivery completed; no user preference was inferred.",
+      "memory_label": null
+    },
+    {
+      "id": "churn-01",
+      "content": "Routine delivery receipt 01: the daily news briefing was sent. The memory rollout status report was posted after the run. Delivery completed; no user preference was inferred.",
+      "memory_label": null
+    },
+    {
+      "id": "churn-02",
+      "content": "Routine delivery receipt 02: the daily news briefing was sent. The memory rollout status report was posted after the run. Delivery completed; no user preference was inferred.",
+      "memory_label": null
+    },
+    {
+      "id": "churn-03",
+      "content": "Routine delivery receipt 03: the daily news briefing was sent. The memory rollout status report was posted after the run. Delivery completed; no user preference was inferred.",
+      "memory_label": null
+    },
+    {
+      "id": "churn-04",
+      "content": "Routine delivery receipt 04: the daily news briefing was sent. The memory rollout status report was posted after the run. Delivery completed; no user preference was inferred.",
+      "memory_label": null
+    },
+    {
+      "id": "churn-05",
+      "content": "Routine delivery receipt 05: the daily news briefing was sent. The memory rollout status report was posted after the run. Delivery completed; no user preference was inferred.",
+      "memory_label": null
+    },
+    {
+      "id": "churn-06",
+      "content": "Routine delivery receipt 06: the daily news briefing was sent. The memory rollout status report was posted after the run. Delivery completed; no user preference was inferred.",
+      "memory_label": null
+    },
+    {
+      "id": "churn-07",
+      "content": "Routine delivery receipt 07: the daily news briefing was sent. The memory rollout status report was posted after the run. Delivery completed; no user preference was inferred.",
+      "memory_label": null
+    },
+    {
+      "id": "churn-08",
+      "content": "Routine delivery receipt 08: the daily news briefing was sent. The memory rollout status report was posted after the run. Delivery completed; no user preference was inferred.",
+      "memory_label": null
+    },
+    {
+      "id": "churn-09",
+      "content": "Routine delivery receipt 09: the daily news briefing was sent. The memory rollout status report was posted after the run. Delivery completed; no user preference was inferred.",
+      "memory_label": null
+    },
+    {
+      "id": "churn-10",
+      "content": "Routine delivery receipt 10: the daily news briefing was sent. The memory rollout status report was posted after the run. Delivery completed; no user preference was inferred.",
+      "memory_label": null
+    },
+    {
+      "id": "churn-11",
+      "content": "Routine delivery receipt 11: the daily news briefing was sent. The memory rollout status report was posted after the run. Delivery completed; no user preference was inferred.",
+      "memory_label": null
+    },
+    {
+      "id": "churn-12",
+      "content": "Routine delivery receipt 12: the daily news briefing was sent. The memory rollout status report was posted after the run. Delivery completed; no user preference was inferred.",
+      "memory_label": null
+    },
+    {
+      "id": "churn-13",
+      "content": "Routine delivery receipt 13: the daily news briefing was sent. The memory rollout status report was posted after the run. Delivery completed; no user preference was inferred.",
+      "memory_label": null
+    },
+    {
+      "id": "churn-14",
+      "content": "Routine delivery receipt 14: the daily news briefing was sent. The memory rollout status report was posted after the run. Delivery completed; no user preference was inferred.",
+      "memory_label": null
+    },
+    {
+      "id": "churn-15",
+      "content": "Routine delivery receipt 15: the daily news briefing was sent. The memory rollout status report was posted after the run. Delivery completed; no user preference was inferred.",
+      "memory_label": null
+    },
+    {
+      "id": "churn-16",
+      "content": "Routine delivery receipt 16: the daily news briefing was sent. The memory rollout status report was posted after the run. Delivery completed; no user preference was inferred.",
+      "memory_label": null
+    },
+    {
+      "id": "churn-17",
+      "content": "Routine delivery receipt 17: the daily news briefing was sent. The memory rollout status report was posted after the run. Delivery completed; no user preference was inferred.",
+      "memory_label": null
+    },
+    {
+      "id": "churn-18",
+      "content": "Routine delivery receipt 18: the daily news briefing was sent. The memory rollout status report was posted after the run. Delivery completed; no user preference was inferred.",
+      "memory_label": null
+    },
+    {
+      "id": "churn-19",
+      "content": "Routine delivery receipt 19: the daily news briefing was sent. The memory rollout status report was posted after the run. Delivery completed; no user preference was inferred.",
+      "memory_label": null
+    },
+    {
+      "id": "churn-20",
+      "content": "Routine delivery receipt 20: the daily news briefing was sent. The memory rollout status report was posted after the run. Delivery completed; no user preference was inferred.",
+      "memory_label": null
+    },
+    {
+      "id": "churn-21",
+      "content": "Routine delivery receipt 21: the daily news briefing was sent. The memory rollout status report was posted after the run. Delivery completed; no user preference was inferred.",
+      "memory_label": null
+    },
+    {
+      "id": "churn-22",
+      "content": "Routine delivery receipt 22: the daily news briefing was sent. The memory rollout status report was posted after the run. Delivery completed; no user preference was inferred.",
+      "memory_label": null
+    },
+    {
+      "id": "churn-23",
+      "content": "Routine delivery receipt 23: the daily news briefing was sent. The memory rollout status report was posted after the run. Delivery completed; no user preference was inferred.",
+      "memory_label": null
+    },
+    {
+      "id": "churn-24",
+      "content": "Routine delivery receipt 24: the daily news briefing was sent. The memory rollout status report was posted after the run. Delivery completed; no user preference was inferred.",
+      "memory_label": null
+    },
+    {
+      "id": "churn-25",
+      "content": "Routine delivery receipt 25: the daily news briefing was sent. The memory rollout status report was posted after the run. Delivery completed; no user preference was inferred.",
+      "memory_label": null
+    },
+    {
+      "id": "churn-26",
+      "content": "Routine delivery receipt 26: the daily news briefing was sent. The memory rollout status report was posted after the run. Delivery completed; no user preference was inferred.",
+      "memory_label": null
+    },
+    {
+      "id": "churn-27",
+      "content": "Routine delivery receipt 27: the daily news briefing was sent. The memory rollout status report was posted after the run. Delivery completed; no user preference was inferred.",
+      "memory_label": null
+    },
+    {
+      "id": "churn-28",
+      "content": "Routine delivery receipt 28: the daily news briefing was sent. The memory rollout status report was posted after the run. Delivery completed; no user preference was inferred.",
+      "memory_label": null
+    },
+    {
+      "id": "churn-29",
+      "content": "Routine delivery receipt 29: the daily news briefing was sent. The memory rollout status report was posted after the run. Delivery completed; no user preference was inferred.",
+      "memory_label": null
+    }
+  ],
+  "queries": [
+    {
+      "id": "db-question",
+      "q": "What should I preserve when changing the database schema for the persona memory rollout?",
+      "relevance": {
+        "db": 3,
+        "lesson": 2,
+        "infra": 1
+      }
+    },
+    {
+      "id": "db-paraphrase",
+      "q": "How should we evolve stored information safely?",
+      "relevance": {
+        "db": 3,
+        "lesson": 2
+      }
+    },
+    {
+      "id": "infra-paraphrase",
+      "q": "How should we reproducibly provision compute resources?",
+      "relevance": {
+        "infra": 3
+      }
+    },
+    {
+      "id": "exact-key",
+      "q": "preferences.database",
+      "relevance": {
+        "db": 3
+      }
+    },
+    {
+      "id": "receipt-question",
+      "q": "Which news briefing delivery receipt confirms publication to Discord on 2026-10-19?",
+      "relevance": {
+        "receipt": 3
+      }
+    },
+    {
+      "id": "training",
+      "q": "How should I increase marathon training distance and recovery?",
+      "relevance": {
+        "running": 3
+      }
+    },
+    {
+      "id": "late-fact",
+      "q": "What is the archive verification code?",
+      "relevance": {
+        "long": 3
+      }
+    },
+    {
+      "id": "unrelated",
+      "q": "How many moons orbit Neptune?",
+      "relevance": {}
+    }
+  ]
+}

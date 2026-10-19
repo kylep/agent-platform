@@ -1334,3 +1334,14 @@ def test_startup_codex_fresh_and_resume_arguments(tmp_path,monkeypatch,resume):
     assert ('resume' in seen[0])==resume
     assert seen[0][-1].count('<historical-persona-memory>')==1
     assert ('continue please' in seen[0][-1])==resume
+
+
+def test_startup_excerpt_metadata_remains_protocol_one_compatible():
+    import hashlib,json
+    packet = startup_payload()
+    record = packet['payload']['memories'][0]
+    record.update(content='late matching passage', source_hash='a'*64, truncated=True,
+                  excerpt={'start':3000,'end':3021,'source_length':5000,'unit':'unicode_codepoints','method':'semantic_chunk'})
+    packet['digest'] = hashlib.sha256(json.dumps(packet['payload'],ensure_ascii=False,sort_keys=True,separators=(',',':')).encode()).hexdigest()
+    assert runner._memory_envelope({'startup_memory':packet}) == packet
+    assert 'late matching passage' in runner._memory_block(packet)

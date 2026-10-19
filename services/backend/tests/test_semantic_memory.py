@@ -109,3 +109,23 @@ async def test_pinned_runtime_request_and_model_identity(monkeypatch):
     monkeypatch.setattr(semantic.httpx,'AsyncClient',lambda **kw:real(transport=httpx.MockTransport(handle),**kw))
     assert len((await semantic.embed(Settings(),['task: search result | query: test']))[0])==768
     assert calls==['/api/tags','/api/embed']
+
+
+async def test_fixed_relevance_fixture_prefers_lessons_over_receipt_churn(sf):
+    import json
+    from pathlib import Path
+    from datetime import timedelta
+    from agentplatform.db import utcnow
+    fixture = json.loads((Path(__file__).parent/'fixtures/memory-relevance/corpus.json').read_text())
+    async with sf() as s:
+        for i, d in enumerate(fixture['documents']):
+            s.add(Memory(id=d['id'], agent='relevance', key=d['memory_label'], content=d['content'],
+                         updated_at=utcnow()+timedelta(days=1) if d['id'].startswith('churn') else utcnow()-timedelta(days=5)))
+        await s.commit()
+    queries = {q['id']:q for q in fixture['queries']}
+    for case, expected in [('db-question',['db','lesson','infra']),('receipt-question',['receipt']),
+                           ('exact-key',['db']),('unrelated',[])]:
+        refs, _ = await semantic.prepare(sf, Settings(), 'relevance', queries[case]['q'])
+        assert [r['id'] for r in refs][:len(expected)] == expected
+        if not expected:
+            assert not refs

@@ -32,7 +32,7 @@ async def capture(session, run, frozen, current, settings, prepared=None):
             relevant = []
         pins = [m for m in rows if (m.key or '').startswith(PREFIXES)]
         rows = list({m.id: m for m in [*pins, *relevant, *rows]}.values())
-    records, sources = select_records(rows)
+    records, sources = select_records(rows, references=prepared[0] if enabled and prepared else ())
     payload = {'memories': records}
     provenance = {'sources': sources, 'selection_policy': POLICY, 'retrieval': retrieval}
     row = RunStartupContext(run_id=run.id, enabled=enabled, reason=reason,
