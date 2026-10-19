@@ -49,7 +49,7 @@ async def embed(settings, inputs):
                    for m in tags.json().get('models', [])):
             raise ValueError('embedding model identity mismatch')
         response = await client.post(settings.memory_embedding_url + '/api/embed', json={
-            'model': MODEL, 'input': inputs, 'truncate': False, 'keep_alive': '-1',
+            'model': MODEL, 'input': inputs, 'truncate': False, 'keep_alive': -1,
             'options': {'num_gpu': 0, 'num_thread': 1}})
         response.raise_for_status()
         vectors = response.json()['embeddings']

@@ -59,3 +59,22 @@ async def test_hybrid_api_requires_active_owning_run_and_rechecks_grants(sf,seed
     async with sf() as s:
         (await s.get(AgentDef,'semantic-api')).platform_tools=[];await s.commit()
     assert (await token_client.post('/api/memory-hybrid',headers=headers,json={'q':'migration'})).status_code==403
+
+
+async def test_pinned_runtime_request_and_model_identity(monkeypatch):
+    import httpx,json
+    calls=[]
+    async def handle(request):
+        calls.append(request.url.path)
+        if request.url.path=='/api/tags':
+            return httpx.Response(200,json={'models':[{'name':semantic.MODEL,'digest':semantic.ARTIFACT}]})
+        body=json.loads(request.content)
+        # Ollama Duration rejects the string '-1' (missing a unit); numeric
+        # negative durations mean indefinite retention on the tested release.
+        assert isinstance(body['keep_alive'],int) and body['keep_alive']<0
+        assert body['truncate'] is False and body['options']['num_gpu']==0
+        return httpx.Response(200,json={'embeddings':[[1.0]+[0.0]*767]})
+    real=httpx.AsyncClient
+    monkeypatch.setattr(semantic.httpx,'AsyncClient',lambda **kw:real(transport=httpx.MockTransport(handle),**kw))
+    assert len((await semantic.embed(Settings(),['task: search result | query: test']))[0])==768
+    assert calls==['/api/tags','/api/embed']

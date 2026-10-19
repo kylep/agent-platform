@@ -110,7 +110,7 @@ spec:
                 - -ec
                 - |
                   exec 3<>/dev/tcp/127.0.0.1/11434
-                  body='{"model":{{ .Values.memoryEmbedding.model | toJson }},"input":"startup probe","truncate":false,"keep_alive":"-1","options":{"num_gpu":0,"num_thread":1}}'
+                  body='{"model":{{ .Values.memoryEmbedding.model | toJson }},"input":"startup probe","truncate":false,"keep_alive":-1,"options":{"num_gpu":0,"num_thread":1}}'
                   printf 'POST /api/embed HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\nContent-Type: application/json\r\nContent-Length: %s\r\n\r\n%s' "${#body}" "$body" >&3
                   grep -q '"embeddings":' <&3
             timeoutSeconds: 30
