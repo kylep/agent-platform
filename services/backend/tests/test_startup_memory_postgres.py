@@ -277,5 +277,16 @@ async def test_semantic_late_chunk_delivery_is_bound_to_live_revision_and_frozen
             assert (await s.get(RunStartupContext, run.id)).digest == original_digest
             await s.delete(await s.get(Memory, mid)); await s.commit()
             assert not await semantic.resolve(s, agent, refs)
+            # Literal evidence beyond the bounded embedding tail must still
+            # beat an unrelated indexed opening passage of that same source.
+            s.add(Memory(id=mid, agent=agent, content='Unrelated weather. ' * 1500 + ' tailuniquefact: amber.'))
+            await s.commit()
+        assert await semantic.reconcile(sf, settings) == 1
+        tail_refs, _ = await semantic.prepare(sf, settings, agent, 'tailuniquefact')
+        assert tail_refs[0]['match_start'] > 16000
+        async with sf() as s:
+            tail_records, _ = select_records(await semantic.resolve(s, agent, tail_refs), references=tail_refs)
+            assert 'tailuniquefact: amber.' in tail_records[0]['content']
+            assert tail_records[0]['excerpt']['start'] > 16000
     finally:
         await engine.dispose()
