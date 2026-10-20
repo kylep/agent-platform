@@ -256,7 +256,8 @@ async def hybrid_search(request: Request, body: HybridSearch):
         project = run.project_id if run and body.current_project else None
         await s.commit()
     if (body.current_team and not team) or (body.current_project and not project):
-        return {'memories': [], 'retrieval': {'state': 'lexical', 'reason': 'empty_scope'}}
+        return {'memories': [], 'sources': [], 'retrieval': {'state': 'lexical', 'reason': 'empty_scope',
+                'relevance': {'state': 'unassessed', 'reason': 'empty_scope'}}}
     refs, status = await prepare(request.app.state.session_factory, request.app.state.settings,
                                 agent, body.q, team, project)
     async with request.app.state.session_factory() as s:

@@ -168,11 +168,19 @@ async def runs_write(run_id: str, summary: str, tags: list[str] | None = None) -
 
 # --- health/metrics (health-monitor) -----------------------------------------
 @mcp.tool
-async def metrics(scope: str = "overview") -> str:
+async def metrics(scope: str = "overview", agent: str | None = None,
+                  run_id: str | None = None, limit: int = 100) -> str:
     """Platform health metrics (JSON). scope='overview' → run volumes, success
     rate, token spend; scope='agents' → per-agent metrics incl. failure_streak;
     scope='kafka' → event-bus health (reachability, consumer lag, DLQ backlog);
-    scope='tools' → per-tool call/denial/error counts from the audit trail."""
+    scope='tools' → per-tool call/denial/error counts from the audit trail;
+    scope='memory' → bounded per-call queries and hit counts (own namespace;
+    admin may filter agent), optionally filtered by run_id. Counts measure
+    returned records, never relevance or successful use of evidence."""
+    if scope == 'memory':
+        return await _call('GET', '/api/metrics/memory',
+                           {k: v for k, v in {'agent': agent, 'run_id': run_id,
+                                             'limit': limit}.items() if v is not None})
     if scope == "agents":
         return await _call("GET", "/api/metrics/agents")
     if scope == "kafka":
@@ -181,7 +189,7 @@ async def metrics(scope: str = "overview") -> str:
         return await _call("GET", "/api/metrics/tools")
     if scope == "overview":
         return await _call("GET", "/api/metrics/overview")
-    return "error: scope must be one of overview|agents|kafka|tools"
+    return "error: scope must be one of overview|agents|kafka|tools|memory"
 
 
 @mcp.tool
@@ -259,7 +267,8 @@ def _args_digest(arguments: dict) -> str:
 async def _publish_audit(agent: str, run_id: str, initiated_by: str, tool: str,
                          arguments: dict, decision: str, t0: float,
                          result_bytes: int = 0, action: str | None = None,
-                         files_bytes: int = 0) -> None:
+                         files_bytes: int = 0, memory_result_count: int | None = None,
+                         memory_details: dict | None = None) -> None:
     global _audit_producer
     if not _KAFKA:
         return
@@ -291,6 +300,15 @@ async def _publish_audit(agent: str, run_id: str, initiated_by: str, tool: str,
                         # are the artifacts' — the trail says how much, never
                         # what.
                         "files_bytes": files_bytes}}
+        if tool == 'memory' and agent:
+            # This is the only raw argument allowlist. Never include saved
+            # contents, result text, arbitrary arguments or unauthenticated q.
+            data = env['data']
+            data['memory_mode'] = 'hybrid' if arguments.get('mode') == 'hybrid' else 'lexical'
+            if arguments.get('action') == 'read':
+                query = str(arguments.get('q') or '').replace('\x00', '\ufffd')
+                data.update(memory_query=query[:1000], memory_query_truncated=len(query) > 1000,
+                            memory_result_count=memory_result_count, memory_details=memory_details)
         await _audit_producer.send_and_wait(
             _TOPIC_AUDIT, _json.dumps(env).encode(), key=agent.encode() or b"unknown")
     except Exception:
@@ -306,13 +324,15 @@ _AUDIT_TIMEOUT_S = 2.0
 
 async def _audit(agent: str, run_id: str, initiated_by: str, tool: str,
                  arguments: dict, decision: str, t0: float, result_bytes: int = 0,
-                 action: str | None = None, files_bytes: int = 0) -> None:
+                 action: str | None = None, files_bytes: int = 0,
+                 memory_result_count: int | None = None, memory_details: dict | None = None) -> None:
     """Fire-and-forget audit event; auditing must never break — or stall — a
     tool call. Every tool publishes through here, so the bound is here too."""
     try:
         await _asyncio.wait_for(
             _publish_audit(agent, run_id, initiated_by, tool, arguments, decision,
-                           t0, result_bytes, action, files_bytes), _AUDIT_TIMEOUT_S)
+                           t0, result_bytes, action or arguments.get('action'), files_bytes,
+                           memory_result_count, memory_details), _AUDIT_TIMEOUT_S)
     except TimeoutError:
         log.warning("tool audit publish timed out after %ss (call unaffected): %s/%s",
                     _AUDIT_TIMEOUT_S, tool, decision)
@@ -572,13 +592,20 @@ class CustomTool(Tool):
             return ToolResult(content="error: discord_chat is retired; use the owned-account discord connector Tool")
         if self.name == 'memory' and arguments.get('mode') == 'hybrid':
             if arguments.get('action') != 'read':
+                await _audit(agent, run_id, initiated_by, self.name, arguments, 'deny:hybrid-read-only', t0)
                 return ToolResult(content='error: hybrid mode is read-only')
-            result = await _request('POST', '/api/memory-hybrid', json={
-                'q': arguments.get('q') or ' ', 'limit': min(20, max(1, arguments.get('limit') or 20)),
-                'current_team': bool(arguments.get('current_team')),
-                'current_project': bool(arguments.get('current_project'))})
+            try:
+                result = await _request('POST', '/api/memory-hybrid', json={
+                    'q': arguments.get('q') or ' ', 'limit': min(20, max(1, arguments.get('limit') or 20)),
+                    'current_team': bool(arguments.get('current_team')),
+                    'current_project': bool(arguments.get('current_project'))})
+            except httpx.HTTPError:
+                await _audit(agent, run_id, initiated_by, self.name, arguments, 'error:api-unreachable', t0)
+                return ToolResult(content='error: memory API unreachable; retry shortly')
             await _audit(agent, run_id, initiated_by, self.name, arguments,
-                         'allow' if result.is_success else 'deny:api', t0)
+                         'allow' if result.is_success else 'deny:api', t0,
+                         memory_result_count=_memory_count(result.text) if result.is_success else None,
+                         memory_details=_memory_details(result.text) if result.is_success else None)
             return ToolResult(content=result.text)
         caller = {"agent": agent, "run_id": run_id}
         payload = {"tool": self.name, "args": arguments, "caller": caller}
@@ -599,9 +626,10 @@ class CustomTool(Tool):
             payload["args"] = {k: v for k, v in arguments.items() if k != FILES_ARG}
             payload["files_in"] = files_in
 
-        async def record(decision: str, result_bytes: int = 0) -> None:
+        async def record(decision: str, result_bytes: int = 0, memory_result_count=None, memory_details=None) -> None:
             await _audit(agent, run_id, initiated_by, self.name, arguments, decision, t0,
-                         result_bytes=result_bytes, files_bytes=files_bytes)
+                         result_bytes=result_bytes, files_bytes=files_bytes,
+                         memory_result_count=memory_result_count, memory_details=memory_details)
 
         jti = None
         if self.app_access:
@@ -633,8 +661,43 @@ class CustomTool(Tool):
             await record("error:tool")
             return ToolResult(content=f"error: {body.get('error', 'unknown tool failure')}")
         output = body.get("output", "")
-        await record("allow", result_bytes=len(output))
+        await record("allow", result_bytes=len(output), memory_result_count=(
+            _memory_count(output) if self.name == 'memory' and arguments.get('action') == 'read' else None),
+            memory_details=(_memory_details(output) if self.name == 'memory' and arguments.get('action') == 'read' else None))
         return ToolResult(content=output)
+
+
+def _memory_count(output):
+    """Unknown/error is null, distinct from a successful zero-hit read."""
+    try:
+        value = _json.loads(output)
+        rows = value.get('memories') if isinstance(value, dict) else value
+        return len(rows) if isinstance(rows, list) else None
+    except (ValueError, TypeError):
+        return None
+
+
+def _memory_details(output):
+    """Joinable provenance only, never source content or arbitrary output."""
+    try:
+        value = _json.loads(output)
+    except (ValueError, TypeError):
+        return None
+    if isinstance(value, dict):
+        rows = value.get('sources', value.get('memories'))
+        retrieval = value.get('retrieval') or {}
+    else:
+        rows, retrieval = value, {'state': 'lexical', 'policy': 'term-and-newest-v1'}
+    if not isinstance(rows, list):
+        return None
+    if not isinstance(retrieval, dict):
+        retrieval = {}
+    fields = ('id', 'updated_at', 'source_hash', 'outcome', 'reason')
+    sources = [{k: str(row[k])[:128] for k in fields if row.get(k) is not None}
+               for row in rows[:20] if isinstance(row, dict)]
+    return {'sources': sources, 'sources_truncated': len(rows) > 20,
+            'retrieval': {k: str(retrieval[k])[:128] for k in ('policy', 'state', 'reason', 'generation')
+                          if retrieval.get(k) is not None}}
 
 
 # --- tool-call credentials (docs/design/39) ----------------------------------

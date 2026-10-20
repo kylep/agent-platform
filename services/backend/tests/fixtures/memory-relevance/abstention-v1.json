@@ -1,0 +1,519 @@
+{
+  "version": "abstention-v1",
+  "protocol": "Prespecified development/held-out split. Labels authored from this synthetic corpus, not private memories. Select policy only on development queries; held-out evaluated once after selection. Same author, not an independent human benchmark. Exact/receipt and useful coverage are protected gates. Generic overlap and near misses intentionally lack answers. No prompt extraction.",
+  "documents": [
+    {
+      "id": "schema",
+      "memory_label": "preferences.schema-changes",
+      "content": "When changing a live database schema, preserve existing rows. Use additive migrations, verify a restored backup, and keep infrastructure declarative."
+    },
+    {
+      "id": "hiking",
+      "memory_label": "preferences.hiking",
+      "content": "For day hikes I prefer shaded forest loops with gradual climbs, near a lake. I carry water and a compact first-aid kit."
+    },
+    {
+      "id": "coffee",
+      "memory_label": "preferences.coffee",
+      "content": "My morning coffee is a double espresso with oat milk. I avoid sweet syrups."
+    },
+    {
+      "id": "review",
+      "memory_label": "lessons.review",
+      "content": "A code review must verify authorization at the server boundary. A hidden interface button does not protect an API."
+    },
+    {
+      "id": "network",
+      "memory_label": "lessons.network",
+      "content": "When the home server cannot reach the internet, inspect its primary network address and gateway before restarting application containers."
+    },
+    {
+      "id": "garden",
+      "memory_label": "preferences.garden",
+      "content": "My balcony herbs are basil and mint. Water them in the morning, after checking whether the soil is dry."
+    },
+    {
+      "id": "writing",
+      "memory_label": "preferences.writing",
+      "content": "I prefer short paragraphs with concrete examples. Avoid unnecessary headings and jargon in status reports."
+    },
+    {
+      "id": "backup",
+      "memory_label": "lessons.backup",
+      "content": "A backup is useful only after a restore test. Keep the original persistent volume intact during a service upgrade."
+    },
+    {
+      "id": "receipt",
+      "memory_label": "receipt.release.2026-10-18",
+      "content": "Release delivery receipt: the evening build was uploaded to the staging registry at 20:15. It passed its smoke check."
+    },
+    {
+      "id": "astro",
+      "memory_label": "notes.astronomy",
+      "content": "The astronomy club held a public lecture about constellations. No equipment preference was recorded."
+    },
+    {
+      "id": "dinner",
+      "memory_label": "notes.dinner",
+      "content": "For the dinner meetup, the group discussed vegetarian restaurants. No personal allergy information was recorded."
+    },
+    {
+      "id": "camera",
+      "memory_label": "notes.camera",
+      "content": "Camera review: a 50mm lens takes good portraits. This was a borrowed camera, not a recorded purchase preference."
+    },
+    {
+      "id": "long",
+      "memory_label": "continuity.archive",
+      "content": "Unrelated weather log. Unrelated weather log. Unrelated weather log. Unrelated weather log. Unrelated weather log. Unrelated weather log. Unrelated weather log. Unrelated weather log. Unrelated weather log. Unrelated weather log. Unrelated weather log. Unrelated weather log. Unrelated weather log. Unrelated weather log. Unrelated weather log. Unrelated weather log. Unrelated weather log. Unrelated weather log. Unrelated weather log. Unrelated weather log. Unrelated weather log. Unrelated weather log. Unrelated weather log. Unrelated weather log. Unrelated weather log. Unrelated weather log. Unrelated weather log. Unrelated weather log. Unrelated weather log. Unrelated weather log. Unrelated weather log. Unrelated weather log. Unrelated weather log. Unrelated weather log. Unrelated weather log. Unrelated weather log. Unrelated weather log. Unrelated weather log. Unrelated weather log. Unrelated weather log. Unrelated weather log. Unrelated weather log. Unrelated weather log. Unrelated weather log. Unrelated weather log. Unrelated weather log. Unrelated weather log. Unrelated weather log. Unrelated weather log. Unrelated weather log. Unrelated weather log. Unrelated weather log. Unrelated weather log. Unrelated weather log. Unrelated weather log. Unrelated weather log. Unrelated weather log. Unrelated weather log. Unrelated weather log. Unrelated weather log. Unrelated weather log. Unrelated weather log. Unrelated weather log. Unrelated weather log. Unrelated weather log. Unrelated weather log. Unrelated weather log. Unrelated weather log. Unrelated weather log. Unrelated weather log. Unrelated weather log. Unrelated weather log. Unrelated weather log. Unrelated weather log. Unrelated weather log. Unrelated weather log. Unrelated weather log. Unrelated weather log. Unrelated weather log. Unrelated weather log. Unrelated weather log. Unrelated weather log. Unrelated weather log. Unrelated weather log. Unrelated weather log. Unrelated weather log. Unrelated weather log. Unrelated weather log. Unrelated weather log. Unrelated weather log. Unrelated weather log. Unrelated weather log. Unrelated weather log. Unrelated weather log. Unrelated weather log. Unrelated weather log. Unrelated weather log. Unrelated weather log. Unrelated weather log. Unrelated weather log. Unrelated weather log. Unrelated weather log. Unrelated weather log. Unrelated weather log. Unrelated weather log. Unrelated weather log. Unrelated weather log. Unrelated weather log. Unrelated weather log. Unrelated weather log. Unrelated weather log. Unrelated weather log. Unrelated weather log. Unrelated weather log. Unrelated weather log. Unrelated weather log. Unrelated weather log. Unrelated weather log. Unrelated weather log. Unrelated weather log. Unrelated weather log. Unrelated weather log. Unrelated weather log. Unrelated weather log. Unrelated weather log. Unrelated weather log. Unrelated weather log. Unrelated weather log. Unrelated weather log. Unrelated weather log. Unrelated weather log. Unrelated weather log. Unrelated weather log. Unrelated weather log. Unrelated weather log. Unrelated weather log. Unrelated weather log. Unrelated weather log. Unrelated weather log. Unrelated weather log. Unrelated weather log. Unrelated weather log. Unrelated weather log. Unrelated weather log. Unrelated weather log. Unrelated weather log. Unrelated weather log. Unrelated weather log. Unrelated weather log. Unrelated weather log. Unrelated weather log. Unrelated weather log. Unrelated weather log. Unrelated weather log. Unrelated weather log. Unrelated weather log. Unrelated weather log. Unrelated weather log. Unrelated weather log. Unrelated weather log. Unrelated weather log. Unrelated weather log. Unrelated weather log. Unrelated weather log. Unrelated weather log. Unrelated weather log. Unrelated weather log. Unrelated weather log. Unrelated weather log. Unrelated weather log. Unrelated weather log. Unrelated weather log. Unrelated weather log. Unrelated weather log. Unrelated weather log. Unrelated weather log. Unrelated weather log. Unrelated weather log. Unrelated weather log. Unrelated weather log.  Archive recovery phrase: amber meadow lantern."
+    },
+    {
+      "id": "churn-0",
+      "memory_label": "receipt.daily.0",
+      "content": "Daily delivery receipt 0: the persona service posted its routine status report. The database job ran and its logs were preserved. Review completed."
+    },
+    {
+      "id": "churn-1",
+      "memory_label": "receipt.daily.1",
+      "content": "Daily delivery receipt 1: the persona service posted its routine status report. The database job ran and its logs were preserved. Review completed."
+    },
+    {
+      "id": "churn-2",
+      "memory_label": "receipt.daily.2",
+      "content": "Daily delivery receipt 2: the persona service posted its routine status report. The database job ran and its logs were preserved. Review completed."
+    },
+    {
+      "id": "churn-3",
+      "memory_label": "receipt.daily.3",
+      "content": "Daily delivery receipt 3: the persona service posted its routine status report. The database job ran and its logs were preserved. Review completed."
+    },
+    {
+      "id": "churn-4",
+      "memory_label": "receipt.daily.4",
+      "content": "Daily delivery receipt 4: the persona service posted its routine status report. The database job ran and its logs were preserved. Review completed."
+    },
+    {
+      "id": "churn-5",
+      "memory_label": "receipt.daily.5",
+      "content": "Daily delivery receipt 5: the persona service posted its routine status report. The database job ran and its logs were preserved. Review completed."
+    },
+    {
+      "id": "churn-6",
+      "memory_label": "receipt.daily.6",
+      "content": "Daily delivery receipt 6: the persona service posted its routine status report. The database job ran and its logs were preserved. Review completed."
+    },
+    {
+      "id": "churn-7",
+      "memory_label": "receipt.daily.7",
+      "content": "Daily delivery receipt 7: the persona service posted its routine status report. The database job ran and its logs were preserved. Review completed."
+    },
+    {
+      "id": "churn-8",
+      "memory_label": "receipt.daily.8",
+      "content": "Daily delivery receipt 8: the persona service posted its routine status report. The database job ran and its logs were preserved. Review completed."
+    },
+    {
+      "id": "churn-9",
+      "memory_label": "receipt.daily.9",
+      "content": "Daily delivery receipt 9: the persona service posted its routine status report. The database job ran and its logs were preserved. Review completed."
+    },
+    {
+      "id": "churn-10",
+      "memory_label": "receipt.daily.10",
+      "content": "Daily delivery receipt 10: the persona service posted its routine status report. The database job ran and its logs were preserved. Review completed."
+    },
+    {
+      "id": "churn-11",
+      "memory_label": "receipt.daily.11",
+      "content": "Daily delivery receipt 11: the persona service posted its routine status report. The database job ran and its logs were preserved. Review completed."
+    },
+    {
+      "id": "churn-12",
+      "memory_label": "receipt.daily.12",
+      "content": "Daily delivery receipt 12: the persona service posted its routine status report. The database job ran and its logs were preserved. Review completed."
+    },
+    {
+      "id": "churn-13",
+      "memory_label": "receipt.daily.13",
+      "content": "Daily delivery receipt 13: the persona service posted its routine status report. The database job ran and its logs were preserved. Review completed."
+    },
+    {
+      "id": "churn-14",
+      "memory_label": "receipt.daily.14",
+      "content": "Daily delivery receipt 14: the persona service posted its routine status report. The database job ran and its logs were preserved. Review completed."
+    },
+    {
+      "id": "churn-15",
+      "memory_label": "receipt.daily.15",
+      "content": "Daily delivery receipt 15: the persona service posted its routine status report. The database job ran and its logs were preserved. Review completed."
+    },
+    {
+      "id": "churn-16",
+      "memory_label": "receipt.daily.16",
+      "content": "Daily delivery receipt 16: the persona service posted its routine status report. The database job ran and its logs were preserved. Review completed."
+    },
+    {
+      "id": "churn-17",
+      "memory_label": "receipt.daily.17",
+      "content": "Daily delivery receipt 17: the persona service posted its routine status report. The database job ran and its logs were preserved. Review completed."
+    },
+    {
+      "id": "churn-18",
+      "memory_label": "receipt.daily.18",
+      "content": "Daily delivery receipt 18: the persona service posted its routine status report. The database job ran and its logs were preserved. Review completed."
+    },
+    {
+      "id": "churn-19",
+      "memory_label": "receipt.daily.19",
+      "content": "Daily delivery receipt 19: the persona service posted its routine status report. The database job ran and its logs were preserved. Review completed."
+    },
+    {
+      "id": "churn-20",
+      "memory_label": "receipt.daily.20",
+      "content": "Daily delivery receipt 20: the persona service posted its routine status report. The database job ran and its logs were preserved. Review completed."
+    },
+    {
+      "id": "churn-21",
+      "memory_label": "receipt.daily.21",
+      "content": "Daily delivery receipt 21: the persona service posted its routine status report. The database job ran and its logs were preserved. Review completed."
+    },
+    {
+      "id": "churn-22",
+      "memory_label": "receipt.daily.22",
+      "content": "Daily delivery receipt 22: the persona service posted its routine status report. The database job ran and its logs were preserved. Review completed."
+    },
+    {
+      "id": "churn-23",
+      "memory_label": "receipt.daily.23",
+      "content": "Daily delivery receipt 23: the persona service posted its routine status report. The database job ran and its logs were preserved. Review completed."
+    }
+  ],
+  "queries": [
+    {
+      "id": "d-schema",
+      "q": "What should survive a database migration?",
+      "relevance": {
+        "schema": 3,
+        "backup": 2
+      },
+      "split": "development",
+      "rationale": "These sources explicitly support this question."
+    },
+    {
+      "id": "d-schema-verbose",
+      "q": "What should survive a database migration? Reply concisely using startup memory; do not call tools.",
+      "relevance": {
+        "schema": 3,
+        "backup": 2
+      },
+      "split": "development",
+      "rationale": "These sources explicitly support this question."
+    },
+    {
+      "id": "d-coffee",
+      "q": "How do I like my coffee in the morning?",
+      "relevance": {
+        "coffee": 3
+      },
+      "split": "development",
+      "rationale": "These sources explicitly support this question."
+    },
+    {
+      "id": "d-review",
+      "q": "How should permissions be checked during a security review?",
+      "relevance": {
+        "review": 3
+      },
+      "split": "development",
+      "rationale": "These sources explicitly support this question."
+    },
+    {
+      "id": "d-hike",
+      "q": "What sort of walking routes do I enjoy?",
+      "relevance": {
+        "hiking": 3
+      },
+      "split": "development",
+      "rationale": "These sources explicitly support this question."
+    },
+    {
+      "id": "d-write",
+      "q": "What writing style should a status report use?",
+      "relevance": {
+        "writing": 3
+      },
+      "split": "development",
+      "rationale": "These sources explicitly support this question."
+    },
+    {
+      "id": "d-exact",
+      "q": "preferences.garden",
+      "relevance": {
+        "garden": 3
+      },
+      "split": "development",
+      "rationale": "These sources explicitly support this question."
+    },
+    {
+      "id": "d-receipt",
+      "q": "When was the evening build delivered to staging?",
+      "relevance": {
+        "receipt": 3
+      },
+      "split": "development",
+      "rationale": "These sources explicitly support this question."
+    },
+    {
+      "id": "d-negative-astro",
+      "q": "What is my preferred telescope eyepiece for observing Saturn?",
+      "relevance": {},
+      "split": "development",
+      "rationale": "No source records the requested fact or preference; topical overlap does not answer it."
+    },
+    {
+      "id": "d-negative-medicine",
+      "q": "Which medication treats my migraines?",
+      "relevance": {},
+      "split": "development",
+      "rationale": "No source records the requested fact or preference; topical overlap does not answer it."
+    },
+    {
+      "id": "d-negative-database",
+      "q": "What is my preferred database engine version?",
+      "relevance": {},
+      "split": "development",
+      "rationale": "No source records the requested fact or preference; topical overlap does not answer it."
+    },
+    {
+      "id": "d-negative-voice",
+      "q": "Which microphone should I use for a persona voice service?",
+      "relevance": {},
+      "split": "development",
+      "rationale": "No source records the requested fact or preference; topical overlap does not answer it."
+    },
+    {
+      "id": "d-negative-allergy",
+      "q": "What food allergies do I have?",
+      "relevance": {},
+      "split": "development",
+      "rationale": "No source records the requested fact or preference; topical overlap does not answer it."
+    },
+    {
+      "id": "d-negative-vehicle",
+      "q": "What tire pressure should I set on my bicycle?",
+      "relevance": {},
+      "split": "development",
+      "rationale": "No source records the requested fact or preference; topical overlap does not answer it."
+    },
+    {
+      "id": "d-negative-camera",
+      "q": "Which camera do I own?",
+      "relevance": {},
+      "split": "development",
+      "rationale": "No source records the requested fact or preference; topical overlap does not answer it."
+    },
+    {
+      "id": "d-negative-receipt",
+      "q": "What was the production release failure reason?",
+      "relevance": {},
+      "split": "development",
+      "rationale": "No source records the requested fact or preference; topical overlap does not answer it."
+    },
+    {
+      "id": "h-schema",
+      "q": "When upgrading a schema, how do I avoid losing data?",
+      "relevance": {
+        "schema": 3,
+        "backup": 2
+      },
+      "split": "held_out",
+      "rationale": "These sources explicitly support this question."
+    },
+    {
+      "id": "h-schema-verbose",
+      "q": "When upgrading a schema, how do I avoid losing data? Answer only from your memory. If absent say NO_EVIDENCE. Do not send messages or call tools.",
+      "relevance": {
+        "schema": 3,
+        "backup": 2
+      },
+      "split": "held_out",
+      "rationale": "These sources explicitly support this question."
+    },
+    {
+      "id": "h-coffee",
+      "q": "What milk goes in my espresso?",
+      "relevance": {
+        "coffee": 3
+      },
+      "split": "held_out",
+      "rationale": "These sources explicitly support this question."
+    },
+    {
+      "id": "h-garden",
+      "q": "When should I water my balcony plants?",
+      "relevance": {
+        "garden": 3
+      },
+      "split": "held_out",
+      "rationale": "These sources explicitly support this question."
+    },
+    {
+      "id": "h-hike",
+      "q": "Which landscape and difficulty do I prefer on a day hike?",
+      "relevance": {
+        "hiking": 3
+      },
+      "split": "held_out",
+      "rationale": "These sources explicitly support this question."
+    },
+    {
+      "id": "h-review",
+      "q": "Does hiding a control secure the underlying endpoint?",
+      "relevance": {
+        "review": 3
+      },
+      "split": "held_out",
+      "rationale": "These sources explicitly support this question."
+    },
+    {
+      "id": "h-network",
+      "q": "The home machine has no outbound connectivity; what do I check first?",
+      "relevance": {
+        "network": 3
+      },
+      "split": "held_out",
+      "rationale": "These sources explicitly support this question."
+    },
+    {
+      "id": "h-backup",
+      "q": "How can I know that a backup will work?",
+      "relevance": {
+        "backup": 3
+      },
+      "split": "held_out",
+      "rationale": "These sources explicitly support this question."
+    },
+    {
+      "id": "h-writing",
+      "q": "How should I structure a written progress update?",
+      "relevance": {
+        "writing": 3
+      },
+      "split": "held_out",
+      "rationale": "These sources explicitly support this question."
+    },
+    {
+      "id": "h-receipt",
+      "q": "What time did the evening upload reach the staging registry?",
+      "relevance": {
+        "receipt": 3
+      },
+      "split": "held_out",
+      "rationale": "These sources explicitly support this question."
+    },
+    {
+      "id": "h-exact",
+      "q": "preferences.coffee",
+      "relevance": {
+        "coffee": 3
+      },
+      "split": "held_out",
+      "rationale": "These sources explicitly support this question."
+    },
+    {
+      "id": "h-long",
+      "q": "What is the archive recovery phrase?",
+      "relevance": {
+        "long": 3
+      },
+      "split": "held_out",
+      "rationale": "These sources explicitly support this question."
+    },
+    {
+      "id": "h-long-verbose",
+      "q": "What is the archive recovery phrase? Reply with only that phrase from startup memory; do not call tools or send messages.",
+      "relevance": {
+        "long": 3
+      },
+      "split": "held_out",
+      "rationale": "These sources explicitly support this question."
+    },
+    {
+      "id": "h-negative-scope",
+      "q": "Which tax accountant do I use?",
+      "relevance": {},
+      "split": "held_out",
+      "rationale": "No source records the requested fact or preference; topical overlap does not answer it."
+    },
+    {
+      "id": "h-negative-astro",
+      "q": "What focal length is my favorite eyepiece for Jupiter?",
+      "relevance": {},
+      "split": "held_out",
+      "rationale": "No source records the requested fact or preference; topical overlap does not answer it."
+    },
+    {
+      "id": "h-negative-db",
+      "q": "What database password did I choose?",
+      "relevance": {},
+      "split": "held_out",
+      "rationale": "No source records the requested fact or preference; topical overlap does not answer it."
+    },
+    {
+      "id": "h-negative-deploy",
+      "q": "What is the production Kubernetes administrator credential?",
+      "relevance": {},
+      "split": "held_out",
+      "rationale": "No source records the requested fact or preference; topical overlap does not answer it."
+    },
+    {
+      "id": "h-negative-garden",
+      "q": "Which pesticide do I prefer for tomatoes?",
+      "relevance": {},
+      "split": "held_out",
+      "rationale": "No source records the requested fact or preference; topical overlap does not answer it."
+    },
+    {
+      "id": "h-negative-coffee",
+      "q": "Which brand of espresso machine do I own?",
+      "relevance": {},
+      "split": "held_out",
+      "rationale": "No source records the requested fact or preference; topical overlap does not answer it."
+    },
+    {
+      "id": "h-negative-hiking",
+      "q": "What mountain did I climb last weekend?",
+      "relevance": {},
+      "split": "held_out",
+      "rationale": "No source records the requested fact or preference; topical overlap does not answer it."
+    },
+    {
+      "id": "h-negative-network",
+      "q": "What is the preferred VPN provider for the home network?",
+      "relevance": {},
+      "split": "held_out",
+      "rationale": "No source records the requested fact or preference; topical overlap does not answer it."
+    },
+    {
+      "id": "h-negative-writing",
+      "q": "Which book publisher signed my manuscript?",
+      "relevance": {},
+      "split": "held_out",
+      "rationale": "No source records the requested fact or preference; topical overlap does not answer it."
+    },
+    {
+      "id": "h-negative-camera",
+      "q": "What is the serial number of my portrait lens?",
+      "relevance": {},
+      "split": "held_out",
+      "rationale": "No source records the requested fact or preference; topical overlap does not answer it."
+    },
+    {
+      "id": "h-negative-receipt",
+      "q": "Which failed release was delivered to production this morning?",
+      "relevance": {},
+      "split": "held_out",
+      "rationale": "No source records the requested fact or preference; topical overlap does not answer it."
+    }
+  ]
+}

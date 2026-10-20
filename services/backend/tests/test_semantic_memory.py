@@ -129,3 +129,13 @@ async def test_fixed_relevance_fixture_prefers_lessons_over_receipt_churn(sf):
         assert [r['id'] for r in refs][:len(expected)] == expected
         if not expected:
             assert not refs
+
+
+async def test_relevance_signal_remains_unassessed_without_validated_gate(sf):
+    async with sf() as s:
+        s.add(Memory(agent='unassessed',content='generic review of database tools'))
+        await s.commit()
+    refs,status=await semantic.prepare(sf,Settings(),'unassessed','database')
+    assert refs and status['relevance']=={'state':'unassessed','reason':'no_validated_abstention_policy'}
+    refs,status=await semantic.prepare(sf,Settings(),'unassessed','database',team_id='empty')
+    assert not refs and status['relevance']['state']=='unassessed'

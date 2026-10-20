@@ -164,7 +164,8 @@ async def prepare(sf, settings, agent, query, team_id=None, project_id=None):
     """
     status = {'policy': 'hybrid-rrf60-idf-v2', 'preprocessing': PREPROCESS,
               'model': MODEL, 'artifact': ARTIFACT, 'generation': GENERATION,
-              'state': 'lexical', 'reason': 'disabled'}
+              'state': 'lexical', 'reason': 'disabled',
+              'relevance': {'state': 'unassessed', 'reason': 'no_validated_abstention_policy'}}
     query = bounded(query or '')
     if not query.strip():
         return [], {**status, 'reason': 'empty_query'}
@@ -218,7 +219,11 @@ async def prepare(sf, settings, agent, query, team_id=None, project_id=None):
             scores[mid] = scores.get(mid, 0) + 1 / (60 + rank)
             hashes[mid] = revision
     exact = {m.id for m in lexical if m.key == query}
-    hints = {m.id: {'match_start': lexical_start(m.content, terms, weights)} for m in lexical}
+    hints = {m.id: {'match_start': lexical_start(m.content, terms, weights),
+                    'match_terms': terms, 'match_weights': weights} for m in lexical}
+    for m in lexical:
+        if m.id in exact or not coverage(m.content, terms, weights):
+            hints[m.id] = {'match_key': True}
     lexical_rows = {m.id: m for m in lexical}
     for hit in hits:
         if hit.memory_id not in exact:
@@ -227,14 +232,15 @@ async def prepare(sf, settings, agent, query, team_id=None, project_id=None):
                 spans = list(chunk_ranges(m.content))
                 if 0 <= hit.chunk < len(spans):
                     sem_start = min(max(0, spans[hit.chunk][0] - 160), max(0, len(m.content) - 2000))
-                    lex_start = hints[m.id]['match_start']
+                    lex_start = hints[m.id].get('match_start', 0)
                     # Keep stronger literal evidence, including matches beyond
                     # the bounded embedding index; otherwise use the winning
                     # semantic passage for paraphrases with no literal overlap.
                     if coverage(m.content[lex_start:lex_start+2000], terms, weights) > coverage(
                             m.content[sem_start:sem_start+2000], terms, weights) + 1e-9:
                         continue
-            hints[hit.memory_id] = {'match_chunk': hit.chunk}
+            hints[hit.memory_id] = {'match_chunk': hit.chunk,
+                                  'match_terms': terms, 'match_weights': weights}
     ranks = {mid: {'lexical_rank': next((i for i, m in enumerate(lexical, 1) if m.id == mid), None),
                    'semantic_rank': next((i for i, pair in enumerate(semantic, 1) if pair[0] == mid), None),
                    'rrf_score': scores[mid]} for mid in scores}

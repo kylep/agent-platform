@@ -123,3 +123,78 @@ async def test_rest_empty_note_and_long_lexical_passage_reach_hybrid_and_startup
         next(m for m in unchanged.json() if m["id"] == valid.json()["id"])["content"]
         == text
     )
+
+
+def budget_rows():
+    return [note(str(i), 'x' * 2000) for i in range(5)] + [note('uneven', 'x' * 1900)]
+
+
+@pytest.mark.parametrize('unicode_prefix', ['x', '🦊'])
+def test_residual_budget_reanchors_complete_literal_and_label_value(unicode_prefix):
+    from agentplatform.memory_relevance import lexical_start
+    for fact, term in [(' unique-late-fact ', 'unique-late-fact'),
+                       (' Archive code: violet-harbor-abcdef. ', 'code')]:
+        source = note('last', unicode_prefix * 2500 + fact + 'y' * 2500)
+        refs = [{'id': source.id, 'source_hash': source_hash(source),
+                 'match_start': lexical_start(source.content, [term], [1.0]),
+                 'match_terms': [term], 'match_weights': [1.0]}]
+        records, provenance = select_records([*budget_rows(), source], refs)
+        r, p = records[-1], provenance[-1]
+        assert (term if term == 'unique-late-fact' else 'code: violet-harbor-abcdef.') in r['content']
+        assert len(r['content']) == 100 and sum(len(r['content']) for r in records) == 12000
+        assert source.content[r['excerpt']['start']:r['excerpt']['end']] == r['content']
+        assert r['source_hash'] == p['source_hash'] and r['excerpt'] == p['excerpt']
+
+
+@pytest.mark.parametrize('remaining', [100, 1100])
+def test_semantic_chunk_complete_or_explicitly_omitted_at_residual_budget(remaining):
+    source = note('last', 'x' * 2500 + ' unique-late-fact ' + 'y' * 2500)
+    rows = [note(str(i), 'x' * 2000) for i in range(5)] + [note('uneven', 'x' * (2000-remaining)), source]
+    ref = {'id': source.id, 'source_hash': source_hash(source), 'match_chunk': 2}
+    records, provenance = select_records(rows, [ref])
+    if remaining < 1024:
+        assert source.id not in [r['id'] for r in records]
+        assert provenance[-1]['outcome'] == 'omitted'
+        assert provenance[-1]['reason'] == 'matching_evidence_exceeds_remaining_budget'
+    else:
+        assert 'unique-late-fact' in records[-1]['content']
+        assert len(records[-1]['content']) <= remaining
+    assert sum(len(r['content']) for r in records) <= 12000
+
+
+def test_oversize_label_value_is_omitted_and_later_valid_note_survives():
+    source = note('last', 'x' * 2500 + ' code: ' + 'v' * 150 + '.')
+    ref = {'id': source.id, 'source_hash': source_hash(source), 'match_start': 2341,
+           'match_terms': ['code'], 'match_weights': [1.0]}
+    records, provenance = select_records([*budget_rows(), source, note('after', 'valid')], [ref])
+    assert records[-1]['id'] == 'after'
+    assert next(p for p in provenance if p['id'] == 'last')['outcome'] == 'omitted'
+    source.content = 'changed'
+    records, _ = select_records([source], [ref])
+    assert records[0]['content'] == 'changed' and records[0]['excerpt']['method'] == 'prefix'
+
+
+async def test_actual_hybrid_delivery_reanchors_after_uneven_records(admin_client, token_client, sf, seed_agent):
+    from agentplatform.db import Run
+    from .test_relay_api import _agent_token
+    await seed_agent('residual', agent_type='persona', platform_tools=['mcp__platform__memory'])
+    # Oldest matching source sorts after six uneven, newer matches.
+    fact = ' budgetneedle: violet-harbor-abcdef. '
+    content = 'x' * 2500 + fact + 'y' * 2500
+    ids = []
+    for text in [content, 'budgetneedle ' + 'x'*1887, *['budgetneedle ' + 'x'*1987]*5]:
+        response = await admin_client.post('/api/memories', json={'agent':'residual', 'content':text})
+        assert response.status_code == 201
+        ids.append(response.json()['id'])
+    async with sf() as s:
+        run = Run(agent='residual', trigger='manual', requested_by='test', prompt='budgetneedle', state='running',
+                  definition_snapshot={'platform_tools':['mcp__platform__memory']})
+        s.add(run); await s.commit()
+    headers = await _agent_token(sf, 'residual', role='reader', run_id=run.id)
+    response = await token_client.post('/api/memory-hybrid', headers=headers, json={'q':'budgetneedle'})
+    assert response.status_code == 200
+    records = response.json()['memories']
+    last = next(r for r in records if r['id']==ids[0])
+    assert 'budgetneedle: violet-harbor-abcdef.' in last['content']
+    assert len(last['content']) == 100 and sum(len(r['content']) for r in records) == 12000
+    assert content[last['excerpt']['start']:last['excerpt']['end']] == last['content']

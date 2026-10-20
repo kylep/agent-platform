@@ -1,0 +1,464 @@
+{
+  "fixture_sha256": "666880aebcc63d6a4801e261e005be76e5b09c90b2e03a6874bd4bca4174d116",
+  "generation": "e84a7acc23943b7a589852cf6da122f0b925631b7884f297a001303dff54ffe6:gemma-search-v1-utf8-1024",
+  "baseline_ref": "e197641",
+  "selection_rule": "Development only: >=90% useful coverage and exact/receipt preserved; minimize negative any-result rate, then maximize recall@3 and nDCG@3.",
+  "development_candidates": [
+    {
+      "threshold": null,
+      "queries": 16,
+      "negative_queries": 8,
+      "negative_any_result_rate": 1.0,
+      "useful_answer_coverage": 0.875,
+      "mean_recall_at_3": 0.75,
+      "mean_ndcg_at_3": 0.821788650747743,
+      "empty_rate": 0.0,
+      "irrelevant_fraction_of_returned_top3": 0.8541666666666666
+    },
+    {
+      "threshold": 0.35,
+      "queries": 16,
+      "negative_queries": 8,
+      "negative_any_result_rate": 0.125,
+      "useful_answer_coverage": 1.0,
+      "mean_recall_at_3": 1.0,
+      "mean_ndcg_at_3": 1.0,
+      "empty_rate": 0.4375,
+      "irrelevant_fraction_of_returned_top3": 0.09090909090909091
+    },
+    {
+      "threshold": 0.4,
+      "queries": 16,
+      "negative_queries": 8,
+      "negative_any_result_rate": 0.125,
+      "useful_answer_coverage": 1.0,
+      "mean_recall_at_3": 1.0,
+      "mean_ndcg_at_3": 1.0,
+      "empty_rate": 0.4375,
+      "irrelevant_fraction_of_returned_top3": 0.09090909090909091
+    },
+    {
+      "threshold": 0.45,
+      "queries": 16,
+      "negative_queries": 8,
+      "negative_any_result_rate": 0.0,
+      "useful_answer_coverage": 1.0,
+      "mean_recall_at_3": 1.0,
+      "mean_ndcg_at_3": 1.0,
+      "empty_rate": 0.5,
+      "irrelevant_fraction_of_returned_top3": 0.0
+    },
+    {
+      "threshold": 0.5,
+      "queries": 16,
+      "negative_queries": 8,
+      "negative_any_result_rate": 0.0,
+      "useful_answer_coverage": 0.625,
+      "mean_recall_at_3": 0.5625,
+      "mean_ndcg_at_3": 0.5983943253738715,
+      "empty_rate": 0.6875,
+      "irrelevant_fraction_of_returned_top3": 0.0
+    },
+    {
+      "threshold": 0.55,
+      "queries": 16,
+      "negative_queries": 8,
+      "negative_any_result_rate": 0.0,
+      "useful_answer_coverage": 0.625,
+      "mean_recall_at_3": 0.5625,
+      "mean_ndcg_at_3": 0.5983943253738715,
+      "empty_rate": 0.6875,
+      "irrelevant_fraction_of_returned_top3": 0.0
+    },
+    {
+      "threshold": 0.6,
+      "queries": 16,
+      "negative_queries": 8,
+      "negative_any_result_rate": 0.0,
+      "useful_answer_coverage": 0.25,
+      "mean_recall_at_3": 0.25,
+      "mean_ndcg_at_3": 0.25,
+      "empty_rate": 0.875,
+      "irrelevant_fraction_of_returned_top3": 0.0
+    }
+  ],
+  "development_only_margin_diagnostic": {
+    "note": "A top-score-relative gate retains a nearest neighbor on every negative. Development only; it cannot supply a no-evidence outcome.",
+    "candidates": [
+      {
+        "margin": 0.05,
+        "negative_any_result_rate": 1.0,
+        "useful_answer_coverage": 1.0
+      },
+      {
+        "margin": 0.1,
+        "negative_any_result_rate": 1.0,
+        "useful_answer_coverage": 1.0
+      },
+      {
+        "margin": 0.15,
+        "negative_any_result_rate": 1.0,
+        "useful_answer_coverage": 1.0
+      },
+      {
+        "margin": 0.2,
+        "negative_any_result_rate": 1.0,
+        "useful_answer_coverage": 1.0
+      }
+    ]
+  },
+  "selected_threshold": 0.45,
+  "held_out_baseline": {
+    "queries": 24,
+    "negative_queries": 11,
+    "negative_any_result_rate": 1.0,
+    "useful_answer_coverage": 1.0,
+    "mean_recall_at_3": 0.9615384615384616,
+    "mean_ndcg_at_3": 0.95523725819711,
+    "empty_rate": 0.0,
+    "irrelevant_fraction_of_returned_top3": 0.8055555555555556
+  },
+  "held_out_proposed": {
+    "queries": 24,
+    "negative_queries": 11,
+    "negative_any_result_rate": 0.09090909090909091,
+    "useful_answer_coverage": 0.7692307692307693,
+    "mean_recall_at_3": 0.7307692307692307,
+    "mean_ndcg_at_3": 0.752858046383921,
+    "empty_rate": 0.5416666666666666,
+    "irrelevant_fraction_of_returned_top3": 0.08333333333333333
+  },
+  "ship_gate": false,
+  "held_out_cases": [
+    {
+      "case": "h-schema",
+      "q": "When upgrading a schema, how do I avoid losing data?",
+      "relevance": {
+        "schema": 3,
+        "backup": 2
+      },
+      "baseline": [
+        "schema",
+        "writing",
+        "churn-19"
+      ],
+      "proposed": [
+        "schema",
+        "backup"
+      ]
+    },
+    {
+      "case": "h-schema-verbose",
+      "q": "When upgrading a schema, how do I avoid losing data? Answer only from your memory. If absent say NO_EVIDENCE. Do not send messages or call tools.",
+      "relevance": {
+        "schema": 3,
+        "backup": 2
+      },
+      "baseline": [
+        "schema",
+        "backup",
+        "network"
+      ],
+      "proposed": [
+        "schema"
+      ]
+    },
+    {
+      "case": "h-coffee",
+      "q": "What milk goes in my espresso?",
+      "relevance": {
+        "coffee": 3
+      },
+      "baseline": [
+        "coffee",
+        "garden",
+        "schema"
+      ],
+      "proposed": [
+        "coffee"
+      ]
+    },
+    {
+      "case": "h-garden",
+      "q": "When should I water my balcony plants?",
+      "relevance": {
+        "garden": 3
+      },
+      "baseline": [
+        "garden",
+        "hiking",
+        "network"
+      ],
+      "proposed": [
+        "garden"
+      ]
+    },
+    {
+      "case": "h-hike",
+      "q": "Which landscape and difficulty do I prefer on a day hike?",
+      "relevance": {
+        "hiking": 3
+      },
+      "baseline": [
+        "hiking",
+        "writing",
+        "garden"
+      ],
+      "proposed": [
+        "hiking"
+      ]
+    },
+    {
+      "case": "h-review",
+      "q": "Does hiding a control secure the underlying endpoint?",
+      "relevance": {
+        "review": 3
+      },
+      "baseline": [
+        "review",
+        "backup",
+        "network"
+      ],
+      "proposed": []
+    },
+    {
+      "case": "h-network",
+      "q": "The home machine has no outbound connectivity; what do I check first?",
+      "relevance": {
+        "network": 3
+      },
+      "baseline": [
+        "network",
+        "astro",
+        "review"
+      ],
+      "proposed": [
+        "network"
+      ]
+    },
+    {
+      "case": "h-backup",
+      "q": "How can I know that a backup will work?",
+      "relevance": {
+        "backup": 3
+      },
+      "baseline": [
+        "backup",
+        "network",
+        "schema"
+      ],
+      "proposed": [
+        "backup"
+      ]
+    },
+    {
+      "case": "h-writing",
+      "q": "How should I structure a written progress update?",
+      "relevance": {
+        "writing": 3
+      },
+      "baseline": [
+        "schema",
+        "writing",
+        "churn-0"
+      ],
+      "proposed": []
+    },
+    {
+      "case": "h-receipt",
+      "q": "What time did the evening upload reach the staging registry?",
+      "relevance": {
+        "receipt": 3
+      },
+      "baseline": [
+        "receipt",
+        "churn-17",
+        "network"
+      ],
+      "proposed": [
+        "receipt"
+      ]
+    },
+    {
+      "case": "h-exact",
+      "q": "preferences.coffee",
+      "relevance": {
+        "coffee": 3
+      },
+      "baseline": [
+        "coffee",
+        "writing",
+        "hiking"
+      ],
+      "proposed": [
+        "coffee"
+      ]
+    },
+    {
+      "case": "h-long",
+      "q": "What is the archive recovery phrase?",
+      "relevance": {
+        "long": 3
+      },
+      "baseline": [
+        "long",
+        "backup",
+        "churn-0"
+      ],
+      "proposed": [
+        "long"
+      ]
+    },
+    {
+      "case": "h-long-verbose",
+      "q": "What is the archive recovery phrase? Reply with only that phrase from startup memory; do not call tools or send messages.",
+      "relevance": {
+        "long": 3
+      },
+      "baseline": [
+        "long",
+        "backup",
+        "churn-1"
+      ],
+      "proposed": []
+    },
+    {
+      "case": "h-negative-scope",
+      "q": "Which tax accountant do I use?",
+      "relevance": {},
+      "baseline": [
+        "hiking",
+        "schema",
+        "backup"
+      ],
+      "proposed": []
+    },
+    {
+      "case": "h-negative-astro",
+      "q": "What focal length is my favorite eyepiece for Jupiter?",
+      "relevance": {},
+      "baseline": [
+        "camera",
+        "hiking",
+        "coffee"
+      ],
+      "proposed": []
+    },
+    {
+      "case": "h-negative-db",
+      "q": "What database password did I choose?",
+      "relevance": {},
+      "baseline": [
+        "churn-23",
+        "churn-13",
+        "churn-19"
+      ],
+      "proposed": []
+    },
+    {
+      "case": "h-negative-deploy",
+      "q": "What is the production Kubernetes administrator credential?",
+      "relevance": {},
+      "baseline": [
+        "review",
+        "network",
+        "backup"
+      ],
+      "proposed": []
+    },
+    {
+      "case": "h-negative-garden",
+      "q": "Which pesticide do I prefer for tomatoes?",
+      "relevance": {},
+      "baseline": [
+        "writing",
+        "garden",
+        "hiking"
+      ],
+      "proposed": []
+    },
+    {
+      "case": "h-negative-coffee",
+      "q": "Which brand of espresso machine do I own?",
+      "relevance": {},
+      "baseline": [
+        "coffee",
+        "camera",
+        "garden"
+      ],
+      "proposed": [
+        "coffee"
+      ]
+    },
+    {
+      "case": "h-negative-hiking",
+      "q": "What mountain did I climb last weekend?",
+      "relevance": {},
+      "baseline": [
+        "hiking",
+        "receipt",
+        "astro"
+      ],
+      "proposed": []
+    },
+    {
+      "case": "h-negative-network",
+      "q": "What is the preferred VPN provider for the home network?",
+      "relevance": {},
+      "baseline": [
+        "network",
+        "coffee",
+        "hiking"
+      ],
+      "proposed": []
+    },
+    {
+      "case": "h-negative-writing",
+      "q": "Which book publisher signed my manuscript?",
+      "relevance": {},
+      "baseline": [
+        "receipt",
+        "churn-8",
+        "churn-5"
+      ],
+      "proposed": []
+    },
+    {
+      "case": "h-negative-camera",
+      "q": "What is the serial number of my portrait lens?",
+      "relevance": {},
+      "baseline": [
+        "camera",
+        "long",
+        "coffee"
+      ],
+      "proposed": []
+    },
+    {
+      "case": "h-negative-receipt",
+      "q": "Which failed release was delivered to production this morning?",
+      "relevance": {},
+      "baseline": [
+        "receipt",
+        "churn-19",
+        "garden"
+      ],
+      "proposed": []
+    }
+  ],
+  "lexical_outage_fallback": {
+    "policy": "Retain lexical results as unassessed; no cosine claim without inference.",
+    "metrics": {
+      "queries": 24,
+      "negative_queries": 11,
+      "negative_any_result_rate": 0.7272727272727273,
+      "useful_answer_coverage": 0.8461538461538461,
+      "mean_recall_at_3": 0.8076923076923077,
+      "mean_ndcg_at_3": 0.7913195848454594,
+      "empty_rate": 0.16666666666666666,
+      "irrelevant_fraction_of_returned_top3": 0.7073170731707317
+    }
+  },
+  "latency_note": "Local SQL timing excludes replayed embedding inference. Measure live hot-path latency separately.",
+  "limits": "Small same-author synthetic held-out corpus, not independent human calibration. Similarity threshold is model/generation-specific, not a probability. No query rewriting; verbose pairs reported. Older CA-4 development fixture remains separate."
+}

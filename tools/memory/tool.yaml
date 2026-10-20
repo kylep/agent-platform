@@ -10,7 +10,10 @@ description: >-
   plain notes, don't invent meaningless keys. Optional tags on save. Explicit
   mode="hybrid" ranks meaningful query terms and semantic matches, returning
   bounded matching excerpts with source_hash, truncated and excerpt offsets
-  (Unicode codepoints). Similarity is not proof a lesson applies to the task.
+  (Unicode codepoints). Sources can report evidence omitted for insufficient
+  remaining budget. retrieval.relevance is unassessed: similarity and valid
+  provenance do not prove a note answers the question. State uncertainty or no
+  relevant evidence when returned notes do not support an answer.
 params:
   type: object
   properties:

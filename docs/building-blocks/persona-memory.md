@@ -266,3 +266,38 @@ The pinned model identity is verified. Use `--vectors` to replay that capture;
 includes corpus hash, generation, per-query ranks/contributions, nDCG@3 and
 recall@3, with unlabelled unrelated queries reported separately. These small,
 explicit relevance judgments measure this fixture rather than general judgment.
+
+Selection policy `persona-memory-v3-budgeted-excerpts` reanchors literal evidence
+using the actual residual delivery budget. Complete matches, and a colon-bound
+label/value through its next sentence or line terminator, must fit. If a winning
+semantic chunk cannot fit, a complete literal match may supply the smaller
+excerpt; otherwise the source is omitted. `sources` then contains an entry with
+`outcome=omitted`, `reason=matching_evidence_exceeds_remaining_budget`,
+`available_codepoints` and `method`, without a delivered position/hash. Omission
+consumes no content or record slot, so a later fitting source can still appear.
+Legacy hints without exact match information cannot justify shortened evidence.
+Whole-key matches explicitly use `method=key_match` and bounded source prefixes.
+
+CA-6's separate [held-out evaluation](../../services/backend/tests/fixtures/memory-relevance/ABSTENTION.md)
+rejected the development-selected abstention gate because useful-answer coverage
+fell from 13/13 to 10/13. Ranking remains unchanged. `retrieval.relevance` reports
+`state=unassessed, reason=no_validated_abstention_policy`. This includes fallback:
+valid provenance and nonzero hit counts do not establish applicability.
+
+Per-call memory telemetry is available through `metrics(scope="memory", run_id=...)`
+and `GET /api/metrics/memory` (optional `agent`, `run_id`, bounded `limit`). Agent
+readers see their own namespace only; admin can filter across namespaces. The
+broker's existing bounded, best-effort Kafka audit path records verified agent,
+run, action, lexical/hybrid mode, query (first 1,000 codepoints with a truncation
+flag), result count, decision and latency. It also records up to twenty source
+IDs/revisions (with an explicit source-list truncation flag), retrieval policy,
+state, degradation reason and generation where supported. Lexical reads expose
+updated_at revisions; hybrid sources additionally expose source_hash. Save contents and result text are never
+recorded. Old/failed/unknown counts are null, distinct from successful zero hits;
+a hit count measures records returned, not relevant answers or successful use.
+These are post-deployment observations, not a backfill of historical calls. The
+additive nullable audit columns are migrated by the existing locked `init_db`
+column migration; old events/readers remain compatible. Query text is private
+namespace data and may contain sensitive user text; it is excluded from the
+global tool aggregates and the general audit view. Audit publication failures do
+not fail the underlying tool call and therefore can leave gaps.

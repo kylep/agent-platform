@@ -1156,6 +1156,25 @@
       "snapshot_eligible": false
     },
     {
+      "id": "core.metrics.memory@1",
+      "source": "mcp-core",
+      "tool": "metrics",
+      "action": "memory",
+      "category": "platform_capability",
+      "effects": [
+        "reads_sensitive"
+      ],
+      "output_classification": "private",
+      "view_eligible": false,
+      "reason": "No reviewed human page adapter",
+      "input_schema": null,
+      "output_schema": null,
+      "target_scope": null,
+      "supported_callers": [],
+      "limits": null,
+      "snapshot_eligible": false
+    },
+    {
       "id": "core.metrics.overview@1",
       "source": "mcp-core",
       "tool": "metrics",

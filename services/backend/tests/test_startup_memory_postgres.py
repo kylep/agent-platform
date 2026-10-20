@@ -290,3 +290,60 @@ async def test_semantic_late_chunk_delivery_is_bound_to_live_revision_and_frozen
             assert tail_records[0]['excerpt']['start'] > 16000
     finally:
         await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_populated_audit_column_upgrade_preserves_history():
+    from agentplatform.db import ToolAudit
+    engine=make_engine(os.environ['AP_PERSONA_TEST_POSTGRES_URL'])
+    try:
+        await init_db(engine);sf=make_session_factory(engine)
+        async with sf() as s:
+            row=ToolAudit(agent='upgrade-memory-audit',tool='memory',decision='allow')
+            s.add(row);await s.commit();rid=row.id
+        async with engine.begin() as c:
+            for col in ['memory_query','memory_query_truncated','memory_mode','memory_result_count','memory_details']:
+                await c.execute(text('ALTER TABLE tool_audit DROP COLUMN '+col))
+        await init_db(engine);await init_db(engine)
+        async with sf() as s:
+            row=await s.get(ToolAudit,rid)
+            assert row.agent=='upgrade-memory-audit' and row.memory_query is None and row.memory_result_count is None
+    finally:await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_detached_semantic_capture_reanchors_literal_to_actual_100_char_budget(monkeypatch):
+    from agentplatform.startup_memory import capture
+    from agentplatform.persona_memory import digest
+    from types import SimpleNamespace
+    engine=make_engine(os.environ['AP_PERSONA_TEST_POSTGRES_URL'])
+    try:
+        await init_db(engine);await semantic.migrate(engine);sf=make_session_factory(engine)
+        agent='budget-'+uuid.uuid4().hex[:8]
+        async with sf() as s:
+            pins=[Memory(agent=agent,key=f'preferences.pin{i}',content='x'*size) for i,size in enumerate([2000]*5+[1900])]
+            target=Memory(agent=agent,key='archive',content='x'*2500+' budgetneedle: amber-meadow-lantern. '+'y'*2500)
+            # Deterministic uneven pin order consumes exactly 11,900 chars.
+            from datetime import timedelta
+            from agentplatform.db import utcnow
+            for i,m in enumerate(pins):m.updated_at=utcnow()-timedelta(seconds=i)
+            s.add_all([*pins,target]);await s.commit()
+        async def vectors(settings,inputs):
+            return [[1.,0.]+[0.]*766 if t.startswith('task:') or 'budgetneedle' in t else [0.,1.]+[0.]*766 for t in inputs]
+        monkeypatch.setattr(semantic,'embed',vectors)
+        settings=Settings(memory_semantic_enabled=True,memory_semantic_agents=agent,startup_memory_pilot_agents=agent)
+        await semantic.reconcile(sf,settings,batch=32)
+        refs,status=await semantic.prepare(sf,settings,agent,'budgetneedle')
+        assert status['state']=='hybrid'
+        frozen=SimpleNamespace(agent_type='persona',platform_tools=['mcp__platform__memory'],result_topic=None)
+        async with sf() as s:
+            run=Run(agent=agent,trigger='manual',requested_by='test',prompt='budgetneedle',state='running',execution_location='cluster')
+            s.add(run);await s.flush()
+            await capture(s,run,frozen,frozen,settings,prepared=(refs,status));await s.commit()
+            packet=await s.get(RunStartupContext,run.id)
+            record=next(m for m in packet.payload['memories'] if m['id']==target.id)
+            assert len(record['content'])==100 and 'budgetneedle: amber-meadow-lantern.' in record['content']
+            assert sum(len(m['content']) for m in packet.payload['memories'])==12000
+            assert target.content[record['excerpt']['start']:record['excerpt']['end']]==record['content']
+            assert packet.digest==digest(packet.payload)
+    finally:await engine.dispose()

@@ -4,7 +4,7 @@ date math) and cheap at this scale; a bounded recent window caps the work."""
 from collections import Counter, defaultdict
 from datetime import timedelta
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy import select
 
 from agentplatform.api.auth import READ_ROLES, require_role
@@ -13,6 +13,35 @@ from agentplatform.scheduler import as_utc
 
 from agentplatform.api import schemas as S
 router = APIRouter()
+
+
+@router.get('/api/metrics/memory', dependencies=[Depends(require_role(*READ_ROLES))])
+async def memory_calls(request: Request, agent: str | None = None,
+                       run_id: str | None = None, limit: int = Query(100, ge=1, le=1000)):
+    """Per-call memory telemetry; query text is private to its namespace.
+
+    Admin sees all or filters explicitly. Agent readers see only their own
+    queries, regardless of broader run-metadata access. Historical counts are
+    null, not zero; hit counts do not measure applicability or successful use.
+    """
+    from agentplatform.db import ToolAudit
+    own = getattr(request.state, 'api_key_agent', None)
+    if not own and getattr(request.state, 'resolved_role', None) != 'admin':
+        raise HTTPException(403, 'admin or owning namespace required for memory telemetry')
+    if own and agent and own != agent:
+        raise HTTPException(403, 'cross-namespace memory telemetry denied')
+    stmt = select(ToolAudit).where(ToolAudit.tool == 'memory')
+    if own or agent:
+        stmt = stmt.where(ToolAudit.agent == (own or agent))
+    if run_id:
+        stmt = stmt.where(ToolAudit.run_id == run_id)
+    async with request.app.state.session_factory() as s:
+        rows = (await s.execute(stmt.order_by(ToolAudit.ts.desc(), ToolAudit.id.desc()).limit(limit))).scalars().all()
+    return [{'id': r.id, 'ts': r.ts.isoformat(), 'agent': r.agent, 'run_id': r.run_id,
+             'action': r.action, 'query': r.memory_query,
+             'query_truncated': r.memory_query_truncated, 'mode': r.memory_mode,
+             'result_count': r.memory_result_count, 'decision': r.decision,
+             'latency_ms': r.latency_ms, 'details': r.memory_details} for r in rows]
 
 # Cap how many recent runs a rollup scans, so metrics stay cheap as history grows.
 _WINDOW = 5000

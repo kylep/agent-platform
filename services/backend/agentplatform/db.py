@@ -252,6 +252,13 @@ class ToolAudit(Base):
     decision: Mapped[str] = mapped_column(String(64))
     latency_ms: Mapped[int] = mapped_column(Integer, default=0)
     result_bytes: Mapped[int] = mapped_column(Integer, default=0)
+    # OPS-40: narrowly allowlisted read-query telemetry. No saved contents or
+    # result text. Nullable additive columns preserve historical audit rows.
+    memory_query: Mapped[str | None] = mapped_column(Text, nullable=True)
+    memory_query_truncated: Mapped[bool | None] = mapped_column(nullable=True)
+    memory_mode: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    memory_result_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    memory_details: Mapped[dict | None] = mapped_column(JSON, nullable=True)
 
 
 class RunModelUsage(Base):

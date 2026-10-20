@@ -63,3 +63,47 @@ def lexical_start(content, terms, weights):
         if score > best + 1e-9:
             best, start = score, lo
     return start
+
+
+def lexical_window(content, terms, weights, size):
+    """Reanchor to the actual budget around a complete literal match.
+
+    An immediately following colon binds its value through the next line or
+    sentence terminator to the label. Never claim that a clipped label/value
+    is complete evidence. Other matches require their complete literal token.
+    Returns (start, required_start, required_end), or None when none fits.
+    """
+    anchors = []
+    for term, weight in zip(terms, weights):
+        for i, match in enumerate(re.finditer(re.escape(term), content, re.I)):
+            if i == 128:
+                break
+            end = match.end()
+            suffix = re.match(r"\s*:", content[end:end + 4])
+            if suffix:
+                value_start = end + suffix.end()
+                boundary = re.search(r"[\n.!?;]", content[value_start:])
+                end = value_start + boundary.end() if boundary else len(content)
+            anchors.append((match.start(), end, term, weight))
+    windows, events = [], []
+    for lo, hi, term, weight in anchors:
+        if hi - lo > size:
+            continue
+        padding = min(160, (size - (hi - lo)) // 2)
+        start = min(max(0, lo - padding), max(0, len(content) - size))
+        windows.append((start, lo, hi))
+        # A window contains this complete anchor iff end-size <= start <= lo.
+        # Sweep those intervals instead of comparing every pair of matches.
+        events.extend([(max(0, hi-size), 1, term, weight), (lo+1, -1, term, weight)])
+    events.sort()
+    counts, score, cursor, best = Counter(), 0.0, 0, None
+    for start, lo, hi in sorted(windows):
+        while cursor < len(events) and events[cursor][0] <= start:
+            _, delta, term, weight = events[cursor]
+            before = bool(counts[term])
+            counts[term] += delta
+            score += weight * (bool(counts[term]) - before)
+            cursor += 1
+        if best is None or score > best[0] + 1e-9:
+            best = (score, start, lo, hi)
+    return best[1:] if best else None

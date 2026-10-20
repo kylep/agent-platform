@@ -8,7 +8,7 @@ import json
 from sqlalchemy import case, func, or_, select
 from agentplatform.db import Memory
 
-POLICY = 'persona-memory-v2-excerpts'
+POLICY = 'persona-memory-v3-budgeted-excerpts'
 PREFIXES = ('identity', 'preferences', 'continuity')
 
 
@@ -59,13 +59,37 @@ def select_records(rows, references=(), limit=20):
             continue
         revision, size = source_hash(m), min(2000, remaining)
         hint, start, method = hints.get(m.id, {}), 0, 'prefix'
+        required = None
         if hint.get('source_hash') == revision:
-            if type(hint.get('match_chunk')) is int:
+            if hint.get('match_key'):
+                method = 'key_match'
+            elif type(hint.get('match_chunk')) is int:
                 ranges = list(chunk_ranges(m.content))
                 if 0 <= hint['match_chunk'] < len(ranges):
-                    start, method = max(0, ranges[hint['match_chunk']][0] - 160), 'semantic_chunk'
+                    required = ranges[hint['match_chunk']]
+                    padding = min(160, max(0, size - (required[1] - required[0])) // 2)
+                    start, method = max(0, required[0] - padding), 'semantic_chunk'
             elif type(hint.get('match_start')) is int:
                 start, method = max(0, hint['match_start']), 'lexical_match'
+                # Old hints have no match location inside their 2,000-char
+                # window. They remain usable at full size, never as evidence
+                # for an arbitrarily shortened prefix.
+                required = (start, min(len(m.content), start + 2000))
+            if hint.get('match_terms') and (method == 'lexical_match' or
+                    required and required[1] - required[0] > size):
+                from agentplatform.memory_relevance import lexical_window
+                window = lexical_window(m.content, hint['match_terms'], hint['match_weights'], size)
+                if window:
+                    start, lo, hi = window
+                    required, method = (lo, hi), 'lexical_match'
+                elif method == 'lexical_match':
+                    required = (0, size + 1)
+            if required and required[1] - required[0] > size:
+                provenance.append({'id': m.id, 'source_hash': revision,
+                    'updated_at': m.updated_at.isoformat(), 'outcome': 'omitted',
+                    'reason': 'matching_evidence_exceeds_remaining_budget',
+                    'available_codepoints': size, 'method': method})
+                continue
         start = min(start, max(0, len(m.content) - size))
         content = m.content[start:start + size]
         excerpt = {'start': start, 'end': start + len(content), 'source_length': len(m.content),

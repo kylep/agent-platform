@@ -1,0 +1,75 @@
+#!/usr/bin/env python3
+"""Calibrate only on development labels; evaluate one frozen policy on held-out.
+
+Input is ap-memory-relevance-eval output for abstention-v1.json, using the pinned
+real vectors. No private or live database accepted. Scores are similarities,
+not probabilities of applicability. No task prompt rewriting is performed.
+"""
+import argparse
+import hashlib
+import json
+import math
+from pathlib import Path
+
+p=argparse.ArgumentParser(description=__doc__)
+p.add_argument('results',type=Path)
+a=p.parse_args()
+fixture_path=Path(__file__).resolve().parents[1]/'services/backend/tests/fixtures/memory-relevance/abstention-v1.json'
+f=json.loads(fixture_path.read_text());r=json.loads(a.results.read_text())
+assert r['fixture_sha256']==hashlib.sha256(fixture_path.read_bytes()).hexdigest()
+assert r['generation']=='e84a7acc23943b7a589852cf6da122f0b925631b7884f297a001303dff54ffe6:gemma-search-v1-utf8-1024'
+queries={q['id']:q for q in f['queries']};keys={d['id']:d['memory_label'] for d in f['documents']}
+
+def ids(row, threshold):
+    if threshold is None:return row['top_ids']
+    return [x['id'] for x in row['contributions'] if keys[x['id']]==queries[row['case']]['q'] or
+            x.get('cosine_similarity') is not None and x['cosine_similarity']>=threshold]
+
+def measure(rows, threshold):
+    positives=[x for x in rows if x['relevance']];negatives=[x for x in rows if not x['relevance']]
+    selected={x['case']:ids(x,threshold)[:3] for x in rows}
+    def ndcg(x):
+        gains=[x['relevance'].get(i,0) for i in selected[x['case']]]
+        dcg=lambda v:sum((2**g-1)/math.log2(i+2) for i,g in enumerate(v))
+        return dcg(gains)/dcg(sorted(x['relevance'].values(),reverse=True)[:3])
+    return {'queries':len(rows),'negative_queries':len(negatives),
+            'negative_any_result_rate':sum(bool(selected[x['case']]) for x in negatives)/len(negatives),
+            'useful_answer_coverage':sum(bool(set(selected[x['case']])&x['relevance'].keys()) for x in positives)/len(positives),
+            'mean_recall_at_3':sum(len(set(selected[x['case']])&x['relevance'].keys())/len(x['relevance']) for x in positives)/len(positives),
+            'mean_ndcg_at_3':sum(ndcg(x) for x in positives)/len(positives),
+            'empty_rate':sum(not selected[x['case']] for x in rows)/len(rows),
+            'irrelevant_fraction_of_returned_top3':sum(sum(i not in x['relevance'] for i in selected[x['case']]) for x in rows)/max(1,sum(len(v) for v in selected.values()))}
+
+rows=r['baseline_hybrid']['cases'];dev=[x for x in rows if x['split']=='development'];held=[x for x in rows if x['split']=='held_out']
+candidates=[(t,measure(dev,t)) for t in [None,.35,.40,.45,.50,.55,.60]]
+margin_diagnostics=[]
+for margin in [.05,.10,.15,.20]:
+    retained=[]
+    for row in dev:
+        top=max((v['cosine_similarity'] for v in row['contributions']
+                 if v.get('cosine_similarity') is not None),default=0)
+        selected=[v['id'] for v in row['contributions'] if v.get('cosine_similarity') is not None
+                  and v['cosine_similarity']>=top-margin][:3]
+        retained.append((row,selected))
+    positive=[(x,k) for x,k in retained if x['relevance']]
+    negative=[(x,k) for x,k in retained if not x['relevance']]
+    margin_diagnostics.append({'margin':margin,
+        'negative_any_result_rate':sum(bool(k) for x,k in negative)/len(negative),
+        'useful_answer_coverage':sum(bool(set(k)&x['relevance'].keys()) for x,k in positive)/len(positive)})
+allowed=[(t,m) for t,m in candidates if m['useful_answer_coverage']>=.9 and all(
+    set(ids(x,t)[:3])&x['relevance'].keys() for x in dev if x['case'] in ['d-exact','d-receipt'])]
+threshold,development=min(allowed,key=lambda pair:(pair[1]['negative_any_result_rate'],-pair[1]['mean_recall_at_3'],-pair[1]['mean_ndcg_at_3'], pair[0] or 0))
+# Held-out labels are first consulted here, after the development choice.
+baseline=measure(held,None);proposed=measure(held,threshold)
+protected=all(set(ids(x,threshold)[:3])&x['relevance'].keys() for x in held if x['case'] in ['h-exact','h-receipt'])
+ship=threshold is not None and proposed['negative_any_result_rate']<baseline['negative_any_result_rate'] and proposed['useful_answer_coverage']>=.9 and protected
+out={'fixture_sha256':r['fixture_sha256'],'generation':r['generation'],'baseline_ref':r['baseline_ref'],
+     'selection_rule':'Development only: >=90% useful coverage and exact/receipt preserved; minimize negative any-result rate, then maximize recall@3 and nDCG@3.',
+     'development_candidates':[{'threshold':t,**m} for t,m in candidates],
+     'development_only_margin_diagnostic':{'note':'A top-score-relative gate retains a nearest neighbor on every negative. Development only; it cannot supply a no-evidence outcome.', 'candidates':margin_diagnostics},
+     'selected_threshold':threshold,'held_out_baseline':baseline,'held_out_proposed':proposed,'ship_gate':ship,
+     'held_out_cases':[{'case':x['case'],'q':queries[x['case']]['q'],'relevance':x['relevance'],'baseline':x['top_ids'][:3],'proposed':ids(x,threshold)[:3]} for x in held],
+     'lexical_outage_fallback':{'policy':'Retain lexical results as unassessed; no cosine claim without inference.','metrics':measure([x for x in r['baseline_lexical']['cases'] if x['split']=='held_out'],None)},
+     'latency_note':'Local SQL timing excludes replayed embedding inference. Measure live hot-path latency separately.',
+     'limits':'Small same-author synthetic held-out corpus, not independent human calibration. Similarity threshold is model/generation-specific, not a probability. No query rewriting; verbose pairs reported. Older CA-4 development fixture remains separate.'}
+print(json.dumps(out,indent=2))
