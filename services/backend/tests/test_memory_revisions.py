@@ -128,4 +128,34 @@ async def test_postgres_tool_and_api_concurrent_corrections_rollback_and_index(m
         creates=await asyncio.gather(api_save('create A','absent'),asyncio.to_thread(tool_save,'create B','absent'))
         assert sum(r.get('ok') is not False for r in creates)==1
         assert sum(r.get('ok') is False for r in creates)==1
+        # Deterministically interleave independent real transactions: a
+        # create-only loser sees the winning row deleted before its reread.
+        def disappeared_winner():
+            sync_url=url.replace('postgresql+asyncpg:', 'postgresql:')
+            with psycopg.connect(sync_url) as conn, conn.cursor() as real:
+                class Interleave:
+                    phase=0
+                    sql=''
+                    def execute(self,sql,params=None):
+                        self.sql=sql;return real.execute(sql,params)
+                    def fetchone(self):
+                        row=real.fetchone()
+                        if self.phase==0 and self.sql.startswith('SELECT') and row is None:
+                            with psycopg.connect(sync_url) as other, other.cursor() as cur:
+                                cur.execute("INSERT INTO tool_memory.memories(id,agent,key,content,tags,created_at,updated_at) VALUES (%s,%s,'transient','winner','[]',now(),now())",(uuid.uuid4().hex,agent))
+                            self.phase=1
+                        elif self.phase==1 and self.sql.startswith('INSERT') and row is None:
+                            with psycopg.connect(sync_url) as other, other.cursor() as cur:
+                                cur.execute("DELETE FROM tool_memory.memories WHERE agent=%s AND key='transient'",(agent,))
+                            self.phase=2
+                        return row
+                cur=Interleave()
+                out=tool.save(cur,agent,{'key':'transient','content':'must not be saved','expected_revision':'absent'})
+                assert cur.phase==2
+                return out
+        transient=await asyncio.to_thread(disappeared_winner)
+        assert transient=={'ok':False,'error':{'code':'memory_revision_conflict',
+            'expected_revision':'absent','current_revision':None}}
+        async with sf() as s:
+            assert (await s.execute(select(Memory).where(Memory.agent==agent,Memory.key=='transient'))).scalar_one_or_none() is None
     finally:await engine.dispose()

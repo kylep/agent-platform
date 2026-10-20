@@ -119,6 +119,12 @@ def save(cur, agent: str, args: dict, team_id: str | None = None,
     if error:
         return error
     if row is None:
+        if expected is not None:
+            # The key existed at unique-index arbitration but disappeared
+            # before the locked reread. Creation still lost; expose the same
+            # structured conflict, now with no current revision to report.
+            return {'ok': False, 'error': {'code': 'memory_revision_conflict',
+                    'expected_revision': expected, 'current_revision': None}}
         raise RuntimeError('memory changed during insert; retry the save')
     cur.execute(f"UPDATE {TABLE} SET content=%s, tags=%s, team_id=%s, project_id=%s, updated_at=now() "
                 "WHERE agent=%s AND key=%s RETURNING id,key,content,tags,created_at,updated_at,team_id,project_id",

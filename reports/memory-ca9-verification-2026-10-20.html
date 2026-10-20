@@ -74,5 +74,11 @@
     &quot;Omitted/null preconditions remain unconditional for compatibility. Callers must opt in; this does not claim all old clients are race-safe.&quot;,
     &quot;Synthetic real PostgreSQL race locally and API/MCP race live; no real persona note corrected for verification.&quot;
   ],
-  &quot;restart&quot;: &quot;Relaunch/resume schema-caching native persona processes to discover expected_revision on the memory Tool (and CA-8 Tasks fields). Backend/API users need no session restart.&quot;
+  &quot;restart&quot;: &quot;Relaunch/resume schema-caching native persona processes to discover expected_revision on the memory Tool (and CA-8 Tasks fields). Backend/API users need no session restart.&quot;,
+  &quot;conditional_create_delete_followup&quot;: {
+    &quot;behavior&quot;: &quot;A create-only insertion losing unique-index arbitration still returns a structured conflict when the winning key is deleted before the locked reread. current_revision is null and no new row is written.&quot;,
+    &quot;tool_source_sha256&quot;: &quot;8e11f3bbf8a48afa18047ebbde54169e7600d8a8b365cfde5b085e5c20067671&quot;,
+    &quot;verification&quot;: &quot;Real independent PostgreSQL connections deterministically insert and delete the winner between Tool statements. 17 PostgreSQL tests pass; final full backend 3233 passed/17 skipped, executor 91 and Tool 5 pass.&quot;,
+    &quot;publication&quot;: &quot;Tool capability sync only; backend memory-ca9-v1 and Helm rev114 remain unchanged.&quot;
+  }
 }</pre></html>

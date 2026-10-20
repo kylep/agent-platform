@@ -59,9 +59,10 @@ succeed. An ambiguous network retry after a committed change must reread; an
 old token is not a success receipt or idempotency key.
 
 Comparison, mutation and local-session provenance share the transaction and
-existing-row lock. The partial unique index arbitrates missing-key creation;
-a conditional loser never falls back to overwriting the winner. Successful API
-responses are captured before releasing the lock. Conflicts leave canonical
+existing-row lock. The partial unique index arbitrates missing-key creation.
+A losing conditional create returns a structured conflict even if the winning
+insertion is deleted before the locked reread; then current_revision=null.
+Successful API responses are captured before releasing the lock. Conflicts leave canonical
 state, timestamps, provenance and embedding rows unchanged. REST responds 409
 with `detail.code=memory_revision_conflict`, expected token and current token
 (or null if missing). The Tool returns `ok=false` with the equivalent `error`
