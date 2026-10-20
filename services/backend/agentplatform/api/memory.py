@@ -7,6 +7,8 @@ from sqlalchemy.exc import IntegrityError
 
 from agentplatform.api.auth import MEMORY_ROLES, READ_ROLES, require_role
 from agentplatform.db import Memory, Project, Run, Team
+from agentplatform.memory_revisions import ExpectedRevision, check_revision, conflict
+from agentplatform.persona_memory import source_hash
 
 log = logging.getLogger("memory")
 
@@ -33,6 +35,8 @@ class MemoryIn(BaseModel):
     agent: str | None = Field(default=None, max_length=_NAME_MAX)
     team_slug: str | None = None
     project_slug: str | None = None
+    expected_revision: ExpectedRevision | None = Field(default=None,
+        description="Keyed save: current revision for conditional replacement, or 'absent' for create-only. Omitted/null preserves unconditional overwrite.")
 
     @field_validator("content", "key", "agent")
     @classmethod
@@ -44,6 +48,7 @@ class MemoryIn(BaseModel):
 
 def _view(m: Memory) -> dict:
     return {"id": m.id, "agent": m.agent, "key": m.key, "content": m.content,
+            "revision": source_hash(m),
             "tags": m.tags or [],
             "team_id": m.team_id, "project_id": m.project_id,
             "created_at": m.created_at.isoformat() if m.created_at else None,
@@ -67,8 +72,12 @@ def _resolve_ns(request: Request, requested: str | None) -> str:
 @router.post("/api/memories", status_code=201, response_model=S.MemoryView, dependencies=[Depends(require_role(*MEMORY_ROLES))])
 async def save_memory(request: Request, body: MemoryIn):
     """Save a memory in the caller's namespace. A save reusing an existing
-    `key` overwrites it (idempotent remember); otherwise a new memory is added."""
+    `key` overwrites it unless expected_revision guards replacement. A stale
+    token returns 409 memory_revision_conflict; 'absent' creates only. Omitted
+    preconditions retain unconditional legacy semantics, not retry receipts."""
     ns = _resolve_ns(request, body.agent)
+    if body.expected_revision is not None and not body.key:
+        raise HTTPException(422, "expected_revision requires a nonempty key")
     async with request.app.state.session_factory() as s:
         run = await s.get(Run, request.state.api_key_run_id) if getattr(request.state, "api_key_run_id", None) else None
         team_id = run.team_id if run else None
@@ -86,7 +95,9 @@ async def save_memory(request: Request, body: MemoryIn):
         existing = None
         if body.key:
             existing = (await s.execute(select(Memory).where(
-                Memory.agent == ns, Memory.key == body.key))).scalar_one_or_none()
+                Memory.agent == ns, Memory.key == body.key).with_for_update())).scalar_one_or_none()
+        if not check_revision(body.expected_revision, existing):
+            raise HTTPException(409, conflict(body.expected_revision, existing))
         if existing is not None:
             existing.content = body.content
             existing.team_id = team_id
@@ -99,21 +110,32 @@ async def save_memory(request: Request, body: MemoryIn):
                        team_id=team_id, project_id=project_id)
             s.add(m)
         try:
+            await s.flush()
+            await s.refresh(m)
+            out = _view(m)
             await s.commit()
         except IntegrityError:
             # Two concurrent saves of the same new key: the (agent, key) unique
             # index made the loser fail — retry as the overwrite it wanted.
             await s.rollback()
             winner = (await s.execute(select(Memory).where(
-                Memory.agent == ns, Memory.key == body.key))).scalar_one()
+                Memory.agent == ns, Memory.key == body.key).with_for_update())).scalar_one_or_none()
+            if body.expected_revision is not None:
+                # The unique index, rather than an unlocked absence check,
+                # arbitrates concurrent create-only writers.
+                raise HTTPException(409, conflict(body.expected_revision, winner))
+            if winner is None:
+                raise
             winner.content = body.content
             winner.team_id = team_id
             winner.project_id = project_id
             if body.tags is not None:
                 winner.tags = body.tags
+            await s.flush()
+            await s.refresh(winner)
+            out = _view(winner)
             await s.commit()
-            m = winner
-        return _view(m)
+        return out
 
 
 @router.get("/api/memories", response_model=list[S.MemoryView], dependencies=[Depends(require_role(*READ_ROLES))])
@@ -179,6 +201,7 @@ async def get_memory(request: Request, memory_id: str):
 class MemoryPatch(BaseModel):
     content: str | None = None
     tags: list[str] | None = None
+    expected_revision: ExpectedRevision | None = None
 
     @field_validator("content")
     @classmethod
@@ -195,22 +218,30 @@ async def edit_memory(request: Request, memory_id: str, body: MemoryPatch):
     if body.content is None and body.tags is None:
         raise HTTPException(422, "nothing to change")
     async with request.app.state.session_factory() as s:
-        row = await s.get(Memory, m.id)
+        row = await s.get(Memory, m.id, with_for_update=True)
         if row is None:
             raise HTTPException(404, "unknown memory")
+        if not check_revision(body.expected_revision, row):
+            raise HTTPException(409, conflict(body.expected_revision, row))
         if body.content is not None:
             row.content = body.content
         if body.tags is not None:
             row.tags = body.tags
+        await s.flush()
+        await s.refresh(row)
+        out = _view(row)
         await s.commit()
-        return _view(row)
+        return out
 
 
 @router.delete("/api/memories/{memory_id}", response_model=S.OkId, dependencies=[Depends(require_role(*MEMORY_ROLES))])
-async def delete_memory(request: Request, memory_id: str):
+async def delete_memory(request: Request, memory_id: str,
+                        expected_revision: ExpectedRevision | None = Query(None)):
     m = await _owned(request, memory_id)
     async with request.app.state.session_factory() as s:
-        row = await s.get(Memory, m.id)
+        row = await s.get(Memory, m.id, with_for_update=True)
+        if not check_revision(expected_revision, row):
+            raise HTTPException(409, conflict(expected_revision, row))
         if row is not None:
             await s.delete(row)
             await s.commit()

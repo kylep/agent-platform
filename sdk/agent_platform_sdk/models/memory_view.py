@@ -20,6 +20,7 @@ class MemoryView:
         created_at (None | str):
         id (str):
         key (None | str):
+        revision (str):
         tags (list[str]):
         updated_at (None | str):
         project_id (None | str | Unset):
@@ -31,6 +32,7 @@ class MemoryView:
     created_at: None | str
     id: str
     key: None | str
+    revision: str
     tags: list[str]
     updated_at: None | str
     project_id: None | str | Unset = UNSET
@@ -49,6 +51,8 @@ class MemoryView:
 
         key: None | str
         key = self.key
+
+        revision = self.revision
 
         tags = self.tags
 
@@ -76,6 +80,7 @@ class MemoryView:
                 "created_at": created_at,
                 "id": id,
                 "key": key,
+                "revision": revision,
                 "tags": tags,
                 "updated_at": updated_at,
             }
@@ -110,6 +115,8 @@ class MemoryView:
 
         key = _parse_key(d.pop("key"))
 
+        revision = d.pop("revision")
+
         tags = cast(list[str], d.pop("tags"))
 
         def _parse_updated_at(data: object) -> None | str:
@@ -143,6 +150,7 @@ class MemoryView:
             created_at=created_at,
             id=id,
             key=key,
+            revision=revision,
             tags=tags,
             updated_at=updated_at,
             project_id=project_id,

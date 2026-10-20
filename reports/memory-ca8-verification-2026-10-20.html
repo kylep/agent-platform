@@ -1,0 +1,113 @@
+<!doctype html><html lang="en"><meta charset="utf-8"><title>CA-8 verification</title><style>body{font:16px system-ui;max-width:980px;margin:3rem auto;padding:0 1rem}pre{white-space:pre-wrap;overflow-wrap:anywhere;background:#f3f3f3;padding:1rem}</style><h1>CA-8 deployed and verified</h1><p>Explicit bounded memory queries are available on runs, jobs, declared crons and one-time Tasks. The existing retrieval bound, authority and pilot gates are preserved.</p><pre>{
+  &quot;ticket&quot;: &quot;CA-8&quot;,
+  &quot;commit&quot;: &quot;b124a1a&quot;,
+  &quot;helm_revision&quot;: 113,
+  &quot;backend&quot;: &quot;memory-ca8-v1&quot;,
+  &quot;broker&quot;: &quot;memory-ca8-v1&quot;,
+  &quot;local&quot;: {
+    &quot;backend_passed&quot;: 3227,
+    &quot;backend_skipped&quot;: 16,
+    &quot;postgres_passed&quot;: 14,
+    &quot;broker_passed&quot;: 442,
+    &quot;facade_passed&quot;: 37,
+    &quot;focused_query_jobs_scheduler&quot;: 59,
+    &quot;legacy_definition&quot;: 108,
+    &quot;sdk_drift&quot;: &quot;passed&quot;,
+    &quot;helm&quot;: &quot;passed&quot;
+  },
+  &quot;live&quot;: {
+    &quot;baseline&quot;: {
+      &quot;run_id&quot;: &quot;06411055cce849bd97d43a3a3fab28b8&quot;,
+      &quot;candidate_contains_target&quot;: false,
+      &quot;candidate_rank&quot;: null,
+      &quot;delivered_target&quot;: false,
+      &quot;delivered_complete_value&quot;: false,
+      &quot;source_revision_current&quot;: false,
+      &quot;canonical_slice&quot;: false,
+      &quot;answer&quot;: {
+        &quot;code&quot;: null
+      },
+      &quot;answer_matches_expected&quot;: true,
+      &quot;tokens_in&quot;: 6078,
+      &quot;tokens_out&quot;: 32,
+      &quot;latency_seconds&quot;: 10.144532,
+      &quot;candidate_probe_seconds&quot;: 2.6704213679768145
+    },
+    &quot;explicit&quot;: {
+      &quot;run_id&quot;: &quot;5452e8715c024d1eac0e788a9f77878b&quot;,
+      &quot;candidate_contains_target&quot;: true,
+      &quot;candidate_rank&quot;: 1,
+      &quot;delivered_target&quot;: true,
+      &quot;delivered_complete_value&quot;: true,
+      &quot;source_revision_current&quot;: true,
+      &quot;canonical_slice&quot;: true,
+      &quot;answer&quot;: {
+        &quot;code&quot;: &quot;indigo-canal-7167421e6e&quot;
+      },
+      &quot;answer_matches_expected&quot;: true,
+      &quot;tokens_in&quot;: 6421,
+      &quot;tokens_out&quot;: 19,
+      &quot;latency_seconds&quot;: 8.715811,
+      &quot;candidate_probe_seconds&quot;: 0.4791202270425856
+    }
+  },
+  &quot;tool&quot;: {
+    &quot;task_id&quot;: &quot;66d31af225114a6d8824d7c7e8d3fdb8&quot;,
+    &quot;schema_has_explicit_query_and_clear&quot;: true,
+    &quot;schedule_persisted_query&quot;: true,
+    &quot;clear_restored_null&quot;: true,
+    &quot;cancelled_before_execution&quot;: true,
+    &quot;parent_run_excluded_from_startup_pilot&quot;: true
+  },
+  &quot;preservation&quot;: {
+    &quot;preexisting_memories&quot;: 300,
+    &quot;missing_preexisting&quot;: 0,
+    &quot;changed_preexisting&quot;: 1,
+    &quot;new_real_memories&quot;: 1,
+    &quot;own_fixture_notes_removed&quot;: true,
+    &quot;audit_rows_before&quot;: 15002,
+    &quot;audit_rows_after&quot;: 15092,
+    &quot;secrets_unchanged&quot;: true,
+    &quot;secret_count&quot;: 4,
+    &quot;model_pvc_uid_and_binding_unchanged&quot;: true,
+    &quot;cleanup&quot;: {
+      &quot;notes_removed&quot;: 31,
+      &quot;temporary_persona_removed&quot;: true,
+      &quot;pending_tasks&quot;: 0,
+      &quot;completed_run_audits_retained&quot;: true
+    },
+    &quot;index_health&quot;: {
+      &quot;postgres&quot;: &quot;18.4&quot;,
+      &quot;pgvector&quot;: &quot;0.8.6&quot;,
+      &quot;canonical_pai&quot;: 102,
+      &quot;valid_indexed_pai&quot;: 102,
+      &quot;vector_chunks&quot;: 104,
+      &quot;retry_rows&quot;: 0
+    },
+    &quot;concurrent_changes&quot;: [
+      {
+        &quot;id&quot;: &quot;d644c3e05c1c4cfaa028f8a63ab60c7a&quot;,
+        &quot;agent&quot;: &quot;health-monitor&quot;,
+        &quot;key&quot;: &quot;alert-state&quot;,
+        &quot;created_at&quot;: &quot;2026-07-21T01:53:24.757241+00:00&quot;,
+        &quot;updated_at&quot;: &quot;2026-10-20T11:01:15.600313+00:00&quot;
+      },
+      {
+        &quot;id&quot;: &quot;c71361e5edf940c6af577a778adc1461&quot;,
+        &quot;agent&quot;: &quot;olu&quot;,
+        &quot;key&quot;: null,
+        &quot;created_at&quot;: &quot;2026-10-20T10:30:52.805110+00:00&quot;,
+        &quot;updated_at&quot;: &quot;2026-10-20T10:30:52.805110+00:00&quot;
+      }
+    ]
+  },
+  &quot;limits&quot;: [
+    &quot;Two synthetic tool-free tasks on gpt-6-sol; no claim of population-level answer improvement.&quot;,
+    &quot;Candidate coverage replayed independently against the unchanged isolated corpus; immutable capture establishes actual delivery.&quot;,
+    &quot;Candidate probe timing is not full dispatch overhead or a reliable speed comparison. Each eligible task still makes the existing one query embedding request; no query-extraction model call added.&quot;,
+    &quot;Agent-created Tasks with parent runs remain excluded by the existing startup pilot. The query field does not grant pilot eligibility.&quot;,
+    &quot;All execution instructions retained; baseline legacy prompt had 3681 UTF-8 query bytes, used 1024/truncated; explicit query used all 18 bytes.&quot;,
+    &quot;299/300 preexisting hashes unchanged; health-monitor alert-state updated during normal monitoring and Olu added a note before rollout. No existing note was deleted or deliberately rewritten for verification.&quot;
+  ],
+  &quot;restart&quot;: &quot;API contract available immediately. Relaunch/resume a persona harness that caches MCP schemas to discover the new Tasks parameters. Native memory bootstrap is unchanged.&quot;
+}</pre></html>

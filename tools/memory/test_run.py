@@ -63,11 +63,11 @@ def test_save_upserts_on_key(monkeypatch):
     for name, module in (("psycopg", pkg), ("psycopg.types", types_pkg),
                          ("psycopg.types.json", json_pkg)):
         monkeypatch.setitem(sys.modules, name, module)
-    # UPDATE hits → no INSERT issued.
+    # Lock then UPDATE an existing key; no INSERT issued.
     cur = FakeCursor(rows=[_row(key="state")])
     out = run.save(cur, "a", {"content": "new", "key": "state"})
     assert out["key"] == "state"
-    assert len(cur.executed) == 1 and cur.executed[0][0].startswith("UPDATE")
+    assert len(cur.executed) == 2 and cur.executed[1][0].startswith("UPDATE")
 
 
 def test_read_can_filter_by_current_scope():

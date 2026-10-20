@@ -8,18 +8,32 @@ from ... import errors
 from ...client import AuthenticatedClient, Client
 from ...models.http_validation_error import HTTPValidationError
 from ...models.ok_id import OkId
-from ...types import Response
+from ...types import UNSET, Response, Unset
 
 
 def _get_kwargs(
     memory_id: str,
+    *,
+    expected_revision: None | str | Unset = UNSET,
 ) -> dict[str, Any]:
+
+    params: dict[str, Any] = {}
+
+    json_expected_revision: None | str | Unset
+    if isinstance(expected_revision, Unset):
+        json_expected_revision = UNSET
+    else:
+        json_expected_revision = expected_revision
+    params["expected_revision"] = json_expected_revision
+
+    params = {k: v for k, v in params.items() if v is not UNSET and v is not None}
 
     _kwargs: dict[str, Any] = {
         "method": "delete",
         "url": "/api/memories/{memory_id}".format(
             memory_id=quote(str(memory_id), safe=""),
         ),
+        "params": params,
     }
 
     return _kwargs
@@ -59,11 +73,13 @@ def sync_detailed(
     memory_id: str,
     *,
     client: AuthenticatedClient | Client,
+    expected_revision: None | str | Unset = UNSET,
 ) -> Response[HTTPValidationError | OkId]:
     """Delete Memory
 
     Args:
         memory_id (str):
+        expected_revision (None | str | Unset):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -75,6 +91,7 @@ def sync_detailed(
 
     kwargs = _get_kwargs(
         memory_id=memory_id,
+        expected_revision=expected_revision,
     )
 
     response = client.get_httpx_client().request(
@@ -88,11 +105,13 @@ def sync(
     memory_id: str,
     *,
     client: AuthenticatedClient | Client,
+    expected_revision: None | str | Unset = UNSET,
 ) -> HTTPValidationError | OkId | None:
     """Delete Memory
 
     Args:
         memory_id (str):
+        expected_revision (None | str | Unset):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -105,6 +124,7 @@ def sync(
     return sync_detailed(
         memory_id=memory_id,
         client=client,
+        expected_revision=expected_revision,
     ).parsed
 
 
@@ -112,11 +132,13 @@ async def asyncio_detailed(
     memory_id: str,
     *,
     client: AuthenticatedClient | Client,
+    expected_revision: None | str | Unset = UNSET,
 ) -> Response[HTTPValidationError | OkId]:
     """Delete Memory
 
     Args:
         memory_id (str):
+        expected_revision (None | str | Unset):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -128,6 +150,7 @@ async def asyncio_detailed(
 
     kwargs = _get_kwargs(
         memory_id=memory_id,
+        expected_revision=expected_revision,
     )
 
     response = await client.get_async_httpx_client().request(**kwargs)
@@ -139,11 +162,13 @@ async def asyncio(
     memory_id: str,
     *,
     client: AuthenticatedClient | Client,
+    expected_revision: None | str | Unset = UNSET,
 ) -> HTTPValidationError | OkId | None:
     """Delete Memory
 
     Args:
         memory_id (str):
+        expected_revision (None | str | Unset):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -157,5 +182,6 @@ async def asyncio(
         await asyncio_detailed(
             memory_id=memory_id,
             client=client,
+            expected_revision=expected_revision,
         )
     ).parsed

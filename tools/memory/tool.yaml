@@ -8,6 +8,11 @@ description: >-
   q lists the newest. action="save" stores content; pass key ONLY for state
   you overwrite in place (reusing a key replaces that memory) — omit it for
   plain notes, don't invent meaningless keys. Optional tags on save. Explicit
+  expected_revision on keyed save guards against stale replacement: use a read's
+  revision (hybrid source_hash is the same token), or "absent" for create-only.
+  A conflict returns ok=false with error.code=memory_revision_conflict; reread
+  before deciding whether to retry. Omitted/null remains unconditional overwrite.
+  Revisions identify current state and do not recover earlier content. Explicit
   mode="hybrid" ranks meaningful query terms and semantic matches, returning
   bounded matching excerpts with source_hash, truncated and excerpt offsets
   (Unicode codepoints). Sources can report evidence omitted for insufficient
@@ -33,6 +38,10 @@ params:
     tags:
       type: array
       items: {type: string}
+    expected_revision:
+      type: [string, "null"]
+      pattern: "^(absent|[0-9a-f]{64})$"
+      description: "save with key: revision for atomic compare-and-replace, or absent for create-only. Omitted/null overwrites unconditionally."
     limit: {type: integer, default: 50}
     current_team: {type: boolean, description: "read only memories tagged to this run's team"}
     current_project: {type: boolean, description: "read only memories tagged to this run's project"}

@@ -68,7 +68,9 @@ def sync_detailed(
     """Save Memory
 
      Save a memory in the caller's namespace. A save reusing an existing
-    `key` overwrites it (idempotent remember); otherwise a new memory is added.
+    `key` overwrites it unless expected_revision guards replacement. A stale
+    token returns 409 memory_revision_conflict; 'absent' creates only. Omitted
+    preconditions retain unconditional legacy semantics, not retry receipts.
 
     Args:
         body (MemoryIn):
@@ -100,7 +102,9 @@ def sync(
     """Save Memory
 
      Save a memory in the caller's namespace. A save reusing an existing
-    `key` overwrites it (idempotent remember); otherwise a new memory is added.
+    `key` overwrites it unless expected_revision guards replacement. A stale
+    token returns 409 memory_revision_conflict; 'absent' creates only. Omitted
+    preconditions retain unconditional legacy semantics, not retry receipts.
 
     Args:
         body (MemoryIn):
@@ -127,7 +131,9 @@ async def asyncio_detailed(
     """Save Memory
 
      Save a memory in the caller's namespace. A save reusing an existing
-    `key` overwrites it (idempotent remember); otherwise a new memory is added.
+    `key` overwrites it unless expected_revision guards replacement. A stale
+    token returns 409 memory_revision_conflict; 'absent' creates only. Omitted
+    preconditions retain unconditional legacy semantics, not retry receipts.
 
     Args:
         body (MemoryIn):
@@ -157,7 +163,9 @@ async def asyncio(
     """Save Memory
 
      Save a memory in the caller's namespace. A save reusing an existing
-    `key` overwrites it (idempotent remember); otherwise a new memory is added.
+    `key` overwrites it unless expected_revision guards replacement. A stale
+    token returns 409 memory_revision_conflict; 'absent' creates only. Omitted
+    preconditions retain unconditional legacy semantics, not retry receipts.
 
     Args:
         body (MemoryIn):

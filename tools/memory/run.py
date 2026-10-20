@@ -8,9 +8,12 @@ privileges on it). Semantics mirror the retired /api/memories agent surface:
 key upsert = overwrite-in-place, term-AND search, newest first.
 """
 import json
+import hashlib
 import os
+import re
 import sys
 import uuid
+from datetime import timezone
 
 TABLE = "tool_memory.memories"
 LOCAL_PERSONA_PROTOCOL = 1
@@ -18,10 +21,19 @@ LOCAL_PERSONA_PROTOCOL = 1
 
 def view(row) -> dict:
     rid, key, content, tags, created, updated, team_id, project_id = row
-    return {"id": rid, "key": key, "content": content,
+    out = {"id": rid, "key": key, "content": content,
             "tags": tags if isinstance(tags, list) else json.loads(tags or "[]"),
             "team_id": team_id, "project_id": project_id,
             "created_at": created.isoformat(), "updated_at": updated.isoformat()}
+    # Same identity as retrieval's source_hash; no historical content is kept.
+    state = {k: out[k] for k in ('id', 'key', 'content', 'tags', 'updated_at')}
+    # asyncpg canonical readers return UTC; psycopg uses session TimeZone.
+    # Normalize the hash only so both transports accept the same token.
+    if updated.tzinfo is not None:
+        state['updated_at'] = updated.astimezone(timezone.utc).isoformat()
+    out['revision'] = hashlib.sha256(json.dumps(state, ensure_ascii=False,
+        sort_keys=True, separators=(',', ':')).encode()).hexdigest()
+    return out
 
 
 def read(cur, agent: str, q: str, limit: int,
@@ -45,7 +57,7 @@ def read(cur, agent: str, q: str, limit: int,
 
 
 def save(cur, agent: str, args: dict, team_id: str | None = None,
-         project_id: str | None = None) -> dict:
+         project_id: str | None = None, *, previous: list | None = None) -> dict:
     content = args.get("content")
     if not content:
         print("save needs content", file=sys.stderr)
@@ -55,8 +67,34 @@ def save(cur, agent: str, args: dict, team_id: str | None = None,
         raise SystemExit(2)
     from psycopg.types.json import Json
     key = args.get("key") or None
+    expected = args.get('expected_revision')
+    if expected is not None and (not key or not isinstance(expected, str) or
+            not re.fullmatch(r'absent|[0-9a-f]{64}', expected)):
+        print("expected_revision requires a key and 'absent' or a current 64-character revision", file=sys.stderr)
+        raise SystemExit(2)
     tags = Json(args.get("tags") or [])
-    if key:
+    def locked():
+        cur.execute(f"SELECT id, key, content, tags, created_at, updated_at, team_id, project_id FROM {TABLE} "
+                    "WHERE agent = %s AND key = %s FOR UPDATE", (agent, key))
+        return cur.fetchone()
+    def check(row):
+        current = view(row) if row else None
+        if previous is not None:
+            previous[:] = [current]
+        if expected is not None and expected != (current['revision'] if current else 'absent'):
+            return {'ok': False, 'error': {'code': 'memory_revision_conflict',
+                    'expected_revision': expected,
+                    'current_revision': current['revision'] if current else None}}
+    row = locked() if key else None
+    error = check(row)
+    if error:
+        return error
+    if row:
+        current = view(row)
+        if expected is not None and (current['content'], current['tags'], current['team_id'], current['project_id']) == (
+                content, args.get('tags') or [], team_id, project_id):
+            return current
+    if row:
         cur.execute(
             f"UPDATE {TABLE} SET content = %s, tags = %s, team_id = %s, project_id = %s, updated_at = now() "
             "WHERE agent = %s AND key = %s "
@@ -68,8 +106,23 @@ def save(cur, agent: str, args: dict, team_id: str | None = None,
     cur.execute(
         f"INSERT INTO {TABLE} (id, agent, key, content, tags, team_id, project_id, created_at, updated_at) "
         "VALUES (%s, %s, %s, %s, %s, %s, %s, now(), now()) "
+        "ON CONFLICT (agent, key) WHERE key IS NOT NULL DO NOTHING "
         "RETURNING id, key, content, tags, created_at, updated_at, team_id, project_id",
         (uuid.uuid4().hex, agent, key, content, tags, team_id, project_id))
+    row = cur.fetchone()
+    if row:
+        return view(row)
+    # A concurrent insertion won the unique-key race. Conditional creation
+    # conflicts; legacy unconditional saves can overwrite under the row lock.
+    row = locked()
+    error = check(row)
+    if error:
+        return error
+    if row is None:
+        raise RuntimeError('memory changed during insert; retry the save')
+    cur.execute(f"UPDATE {TABLE} SET content=%s, tags=%s, team_id=%s, project_id=%s, updated_at=now() "
+                "WHERE agent=%s AND key=%s RETURNING id,key,content,tags,created_at,updated_at,team_id,project_id",
+                (content, tags, team_id, project_id, agent, key))
     return view(cur.fetchone())
 
 
@@ -107,20 +160,21 @@ def main() -> int:
                                   scope[0] if args.get("current_team") else None,
                                   scope[1] if args.get("current_project") else None)))
         elif args["action"] == "save":
-            # Lock the previous value in the same transaction as scope and
-            # write. Provenance is derived by the definer function, never args.
-            cur.execute(f"SELECT id, key, content, tags, created_at, updated_at, team_id, project_id FROM {TABLE} "
-                        "WHERE agent = %s AND key = %s FOR UPDATE", (agent, args.get("key")))
-            previous = cur.fetchone()
-            before = view(previous) if previous else None
-            out = save(cur, agent, args, *scope)
+            # Scope, locked precondition, mutation and provenance share one
+            # transaction. Failed preconditions never record a mutation.
+            previous = []
+            out = save(cur, agent, args, *scope, previous=previous)
+            if out.get('ok') is False:
+                print(json.dumps(out))
+                return 0
+            before = previous[0]
             from psycopg.types.json import Jsonb
             fields = ("key", "content", "tags", "team_id", "project_id")
             # Capability sync may precede the backend rollout. Old backends
             # cannot create local sessions, so ordinary cluster writes may
             # continue until the additive provenance function is provisioned.
             cur.execute("SELECT to_regprocedure('public.local_persona_memory_mutation(text,text,text,jsonb,jsonb)')")
-            if cur.fetchone()[0]:
+            if cur.fetchone()[0] and (before is None or any(before[k] != out[k] for k in fields)):
                 cur.execute("SELECT public.local_persona_memory_mutation(%s,%s,%s,%s,%s)",
                             (os.environ.get("TOOL_RUN_ID", ""), agent, out["id"],
                              Jsonb({k: before[k] for k in fields}) if before else None,

@@ -390,3 +390,24 @@ Older images can coexist with nullable columns and old clients can omit it. A
 rollback must first cancel/defer newly queued explicit-query runs and pending
 Tasks/Jobs requiring it: older code would use its legacy derivation. Keep the
 additive columns and immutable captured packets; do not drop data to roll back.
+
+## Conditional corrections
+
+Reads and saves now expose `revision` (the same token as hybrid `source_hash`).
+For keyed state, pass `expected_revision` with the token you read to replace
+only that revision, or `"absent"` to create only if the key does not exist.
+Omitted/null keeps the existing unconditional overwrite behavior. REST PATCH
+also accepts this field; DELETE accepts it as a query parameter. A matching
+identical state keeps its token. A stale retry conflicts even if its desired
+text happens to match; reread before deciding how to proceed.
+
+REST conflicts return HTTP 409 with `detail.code=memory_revision_conflict` and
+current revision/null. The memory Tool returns `ok=false` with an `error` object
+of that shape. A conflict does not change canonical or embedding state and does
+not expose another namespace. A revision identifies current state; it is not a
+recoverable copy or a truth label. Existing local-session mutation/revert
+support is narrower than general history. Canonical deletion is not full
+permanent erasure of captures, transcripts, mutation records and backups.
+See [the recovery contract](../design/43-memory-correction-recovery.md) for exact
+retry/ABA semantics, current recovery limits, retention and the deferred bounded
+history proposal. No revision-history store is introduced by CA-9.

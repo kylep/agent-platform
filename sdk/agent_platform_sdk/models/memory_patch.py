@@ -16,10 +16,12 @@ class MemoryPatch:
     """
     Attributes:
         content (None | str | Unset):
+        expected_revision (None | str | Unset):
         tags (list[str] | None | Unset):
     """
 
     content: None | str | Unset = UNSET
+    expected_revision: None | str | Unset = UNSET
     tags: list[str] | None | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
@@ -29,6 +31,12 @@ class MemoryPatch:
             content = UNSET
         else:
             content = self.content
+
+        expected_revision: None | str | Unset
+        if isinstance(self.expected_revision, Unset):
+            expected_revision = UNSET
+        else:
+            expected_revision = self.expected_revision
 
         tags: list[str] | None | Unset
         if isinstance(self.tags, Unset):
@@ -44,6 +52,8 @@ class MemoryPatch:
         field_dict.update({})
         if content is not UNSET:
             field_dict["content"] = content
+        if expected_revision is not UNSET:
+            field_dict["expected_revision"] = expected_revision
         if tags is not UNSET:
             field_dict["tags"] = tags
 
@@ -61,6 +71,15 @@ class MemoryPatch:
             return cast(None | str | Unset, data)
 
         content = _parse_content(d.pop("content", UNSET))
+
+        def _parse_expected_revision(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        expected_revision = _parse_expected_revision(d.pop("expected_revision", UNSET))
 
         def _parse_tags(data: object) -> list[str] | None | Unset:
             if data is None:
@@ -81,6 +100,7 @@ class MemoryPatch:
 
         memory_patch = cls(
             content=content,
+            expected_revision=expected_revision,
             tags=tags,
         )
 

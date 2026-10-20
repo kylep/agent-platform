@@ -17,6 +17,8 @@ class MemoryIn:
     Attributes:
         content (str):
         agent (None | str | Unset):
+        expected_revision (None | str | Unset): Keyed save: current revision for conditional replacement, or 'absent'
+            for create-only. Omitted/null preserves unconditional overwrite.
         key (None | str | Unset):
         project_slug (None | str | Unset):
         tags (list[str] | None | Unset):
@@ -25,6 +27,7 @@ class MemoryIn:
 
     content: str
     agent: None | str | Unset = UNSET
+    expected_revision: None | str | Unset = UNSET
     key: None | str | Unset = UNSET
     project_slug: None | str | Unset = UNSET
     tags: list[str] | None | Unset = UNSET
@@ -39,6 +42,12 @@ class MemoryIn:
             agent = UNSET
         else:
             agent = self.agent
+
+        expected_revision: None | str | Unset
+        if isinstance(self.expected_revision, Unset):
+            expected_revision = UNSET
+        else:
+            expected_revision = self.expected_revision
 
         key: None | str | Unset
         if isinstance(self.key, Unset):
@@ -76,6 +85,8 @@ class MemoryIn:
         )
         if agent is not UNSET:
             field_dict["agent"] = agent
+        if expected_revision is not UNSET:
+            field_dict["expected_revision"] = expected_revision
         if key is not UNSET:
             field_dict["key"] = key
         if project_slug is not UNSET:
@@ -100,6 +111,15 @@ class MemoryIn:
             return cast(None | str | Unset, data)
 
         agent = _parse_agent(d.pop("agent", UNSET))
+
+        def _parse_expected_revision(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        expected_revision = _parse_expected_revision(d.pop("expected_revision", UNSET))
 
         def _parse_key(data: object) -> None | str | Unset:
             if data is None:
@@ -148,6 +168,7 @@ class MemoryIn:
         memory_in = cls(
             content=content,
             agent=agent,
+            expected_revision=expected_revision,
             key=key,
             project_slug=project_slug,
             tags=tags,

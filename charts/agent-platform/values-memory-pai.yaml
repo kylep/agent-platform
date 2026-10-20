@@ -3,7 +3,7 @@
 # No prompts, credentials or database image/storage changes belong here.
 images:
   backend:
-    tag: memory-ca8-v1
+    tag: memory-ca9-v1
 mcpBroker:
   image:
     tag: memory-ca8-v1

@@ -588,6 +588,7 @@ class MemoryView(BaseModel):
     agent: str
     key: str | None
     content: str
+    revision: str
     tags: list[str]
     team_id: str | None = None
     project_id: str | None = None
