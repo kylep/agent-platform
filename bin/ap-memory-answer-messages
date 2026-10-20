@@ -1,0 +1,118 @@
+#!/usr/bin/env python3
+"""Counted, tool-free Messages answer diagnostic. No CLI harness or platform worker.
+
+Use only an explicit localhost proxy forward. count performs no generation;
+run requires the unchanged counted manifest plus fresh allowed platform quota.
+No retries, tools, production memory writes, recurring jobs or external delivery.
+"""
+import argparse
+from datetime import datetime, timezone
+import hashlib
+import importlib.machinery
+import importlib.util
+import json
+import os
+from pathlib import Path
+import time
+from urllib.parse import urlparse
+
+import httpx
+
+ROOT=Path(__file__).resolve().parents[1]
+loader=importlib.machinery.SourceFileLoader('answer_eval',str(ROOT/'bin/ap-memory-answer-eval'))
+spec=importlib.util.spec_from_loader(loader.name,loader);evaluation=importlib.util.module_from_spec(spec);loader.exec_module(evaluation)
+HEADERS={'Authorization':'Bearer placeholder','anthropic-version':'2023-06-01','anthropic-beta':'oauth-2025-04-20'}
+BUDGET={'max_calls':25,'max_input_tokens_including_cache':90000,'max_output_tokens':6400,
+        'max_tokens_per_answer':256,'input_count_tolerance_per_call':64,'timeout_seconds':60}
+IDENTITY="You are Claude Code, Anthropic's official CLI for Claude."
+
+
+def read(path):return json.loads(path.read_text())
+def write(path,data):path.write_text(json.dumps(data,indent=2)+'\n')
+def sha(data):return hashlib.sha256(data).hexdigest()
+def payload(case,prepared):
+    return {'model':prepared['frozen']['answer_model'],'system':[{'type':'text','text':IDENTITY},
+        {'type':'text','text':prepared['frozen']['system_prompt']}],
+        'messages':[{'role':'user','content':case['prompt']}]}
+
+
+def manifest(prepared,path):
+    return {'protocol':'tool-free-messages-v1','budget':BUDGET,'prepared_sha256':sha(path.read_bytes()),
+        'helper_sha256':sha(Path(__file__).read_bytes()),'frozen_case_manifest':prepared['frozen'],
+        'system_identity_prefix':IDENTITY,'cache_control':'none requested','thinking':'none requested',
+        'reason':'CLI phase stopped at its original token budget after six calls. This distinct pre-counted protocol uses identical frozen labels/packets; it is a diagnostic replicate, not an untouched holdout. CLI results are reported separately and never pooled.',
+        'payload_hashes':[sha(evaluation.canonical(payload(case,prepared)).encode()) for case in prepared['cases']]}
+
+
+def quota(api_url):
+    with httpx.Client(base_url=api_url,trust_env=False,timeout=30) as c:
+        c.post('/api/login',json={'password':os.environ['AGENT_PLATFORM_ADMIN']}).raise_for_status()
+        r=c.get('/api/quota');r.raise_for_status();q=r.json()
+        if q.get('stale') or q.get('status')!='allowed' or any(
+                not isinstance((q.get(k) or {}).get('utilization'),(int,float)) or q[k]['utilization']>=.5
+                for k in ['five_hour','seven_day']):raise ValueError('fresh allowed quota below 50% in both windows required')
+        return q
+
+
+def run(args):
+    if urlparse(args.proxy_url).hostname not in ['127.0.0.1','localhost','::1']:
+        raise ValueError('proxy URL must be an explicit localhost forward')
+    prepared=read(args.prepared);identity=manifest(prepared,args.prepared);args.out.mkdir(parents=True,exist_ok=True)
+    path=args.out/'manifest.json'
+    if path.exists() and read(path)!=identity:raise ValueError('counted procedure changed; use a new directory before any generation')
+    write(path,identity)
+    with httpx.Client(base_url=args.proxy_url,headers=HEADERS,trust_env=False,timeout=BUDGET['timeout_seconds']) as client:
+        if args.command=='count':
+            if (args.out/'ledger.json').exists():raise ValueError('cannot recount after answer submissions')
+            counts=[]
+            for case in prepared['cases']:
+                r=client.post('/v1/messages/count_tokens',json=payload(case,prepared));r.raise_for_status();n=r.json()['input_tokens']
+                if not isinstance(n,int) or n<=0:raise ValueError('invalid count')
+                counts.append({'key':case['case']+':'+case['condition'],'input_tokens':n})
+            if len(counts)>BUDGET['max_calls'] or sum(c['input_tokens']+BUDGET['input_count_tolerance_per_call'] for c in counts)>BUDGET['max_input_tokens_including_cache']:
+                raise ValueError('preflight exceeds fixed input/call budget; do not generate')
+            data={'manifest_sha256':sha(path.read_bytes()),'calls':counts,'sum_input_tokens':sum(c['input_tokens'] for c in counts)}
+            write(args.out/'counts.json',data);print(json.dumps({'count_requests':len(counts),'projected_input_tokens':data['sum_input_tokens'],'generation_calls':0,'budget':BUDGET}));return
+        counts=read(args.out/'counts.json')
+        if counts['manifest_sha256']!=sha(path.read_bytes()):raise ValueError('count manifest mismatch')
+        write(args.out/'quota-before.json',quota(args.api_url))
+        ledger_path=args.out/'ledger.json';state=read(ledger_path) if ledger_path.exists() else {'cases':[]}
+        if any(not c.get('valid') for c in state['cases']):raise ValueError('prior failed/uncertain submission; do not automatically retry')
+        for case,count in zip(prepared['cases'],counts['calls'],strict=True):
+            key=case['case']+':'+case['condition'];assert key==count['key']
+            if any(c['key']==key for c in state['cases']):continue
+            used=sum(c['tokens_in']+c['tokens_cache_read']+c['tokens_cache_creation'] for c in state['cases'])
+            remaining=counts['calls'][len(state['cases']):]
+            if len(state['cases'])>=BUDGET['max_calls'] or used+sum(c['input_tokens']+BUDGET['input_count_tolerance_per_call'] for c in remaining)>BUDGET['max_input_tokens_including_cache']:
+                raise ValueError('fixed budget exhausted')
+            record={'key':key,'valid':False,'submitted_at':datetime.now(timezone.utc).isoformat()};state['cases'].append(record);write(ledger_path,state)
+            started=time.perf_counter();r=client.post('/v1/messages',json={**payload(case,prepared),'max_tokens':BUDGET['max_tokens_per_answer']})
+            record['http_status']=r.status_code;record['latency_seconds']=time.perf_counter()-started
+            if r.status_code!=200:
+                record['error_type']='upstream_response';write(ledger_path,state);r.raise_for_status()
+            d=r.json();u=d.get('usage') or {};record.update(result=''.join(b.get('text','') for b in d.get('content',[]) if b.get('type')=='text'),
+                response_id=d.get('id'),model=d.get('model'),runtime='messages',model_usage={d.get('model'):u},tokens_in=u.get('input_tokens'),tokens_out=u.get('output_tokens'),
+                tokens_cache_read=u.get('cache_read_input_tokens'),tokens_cache_creation=u.get('cache_creation_input_tokens'),stop_reason=d.get('stop_reason'))
+            record['valid']=bool(str(d.get('model','')).startswith(prepared['frozen']['answer_model']) and
+                all(isinstance(record.get(k),int) for k in ['tokens_in','tokens_out','tokens_cache_read','tokens_cache_creation']) and
+                not any(b.get('type')!='text' for b in d.get('content',[])) and d.get('stop_reason')=='end_turn')
+            write(ledger_path,state)
+            if not record['valid']:raise ValueError('invalid model/usage/tool-free completion; no automatic retry')
+            actual=record['tokens_in']+record['tokens_cache_read']+record['tokens_cache_creation']
+            if actual>count['input_tokens']+BUDGET['input_count_tolerance_per_call'] or record['tokens_out']>BUDGET['max_tokens_per_answer']:
+                record['valid']=False;record['stop_reason']='actual usage exceeded counted budget';write(ledger_path,state)
+                raise ValueError('actual usage exceeded preflight tolerance; stop')
+            print(json.dumps({'case':key,'input_including_cache':actual,'output_tokens':record['tokens_out'],'seconds':record['latency_seconds']}),flush=True)
+        scores=[evaluation.score_case(case,record) for case,record in zip(prepared['cases'],state['cases'],strict=True)]
+        write(args.out/'scores.json',{'manifest':identity,'cases':scores,'no_worker_created':True})
+        write(args.out/'quota-after.json',quota(args.api_url))
+
+
+def main():
+    p=argparse.ArgumentParser(description=__doc__);p.add_argument('command',choices=['count','run']);p.add_argument('--prepared',type=Path,required=True)
+    p.add_argument('--proxy-url',required=True);p.add_argument('--api-url');p.add_argument('--out',type=Path,required=True)
+    a=p.parse_args()
+    if a.command=='run' and not a.api_url:p.error('run requires --api-url for quota checks')
+    run(a)
+
+if __name__=='__main__':main()

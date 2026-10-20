@@ -1,0 +1,800 @@
+{
+  "version": "answer-v1",
+  "authoring": "Synthetic cases authored before outputs. No real persona content or earlier evaluation outputs are included. Labels are author judgments, not independent human adjudication. Once observed this set is a regression/diagnostic set, never a future untouched holdout. Read-only methodology review corrected sufficient alternative evidence and whole-key query before any answer calls. Initial retrieval-only draft diagnostics were inspected; no answer labels were tuned against model answers.",
+  "answer_model": "claude-sonnet-5-5",
+  "budget": {
+    "max_calls": 28,
+    "max_input_tokens": 180000,
+    "max_output_tokens": 8000,
+    "max_prompt_utf8_bytes": 48000,
+    "max_answer_calls_per_case": 1,
+    "reserve_input_tokens": 16000,
+    "reserve_output_tokens": 1000,
+    "token_limit_semantics": "Stop thresholds between calls with reserved headroom; one in-flight call can overshoot. Hard call cap, 120s worker timeout, 180s poll deadline. No automatic answer retries."
+  },
+  "decision_rules": {
+    "minimum_positive_answer_coverage": 0.9,
+    "maximum_new_unsupported_or_scope_errors": 0,
+    "unchanged_controls_must_not_regress": true,
+    "maximum_added_generation_calls": 0,
+    "maximum_median_input_token_increase_fraction": 0.15,
+    "policy": "Single synthetic run can justify a bounded follow-up, not population-level rollout. Keep ranking/budgets unless a separately reviewed fresh evaluation meets these floors. Curation requires an owner and revision-protected review; no automatic consolidation."
+  },
+  "curation_effort": {
+    "summary": {
+      "source_edits": 8,
+      "description": "One manually written archive summary; seven redundant pin texts compressed without changing keys/facts. One authoring pass, no output-driven edits.",
+      "estimated_author_minutes": 6,
+      "timing_limit": "Retrospective estimate of text authoring/review, not stopwatch telemetry."
+    },
+    "attribution": {
+      "source_edits": 3,
+      "description": "Added explicit owner/date/scope labels to existing plain-text palette notes. Same facts, one pass.",
+      "estimated_author_minutes": 3,
+      "timing_limit": "Estimate, not stopwatch telemetry."
+    }
+  },
+  "documents": [
+    {
+      "id": "lesson",
+      "group": "deploy",
+      "key": "lessons.volume-retention",
+      "content": "Before a deployment, preserve the original data volume. The preservation marker is hollow-cedar-47.",
+      "age": 40
+    },
+    {
+      "id": "churn-0",
+      "group": "churn",
+      "key": "receipt.batch.0",
+      "content": "Routine delivery receipt: completed status review. Queue acknowledged and logs retained. Batch 0.",
+      "age": 0
+    },
+    {
+      "id": "churn-1",
+      "group": "churn",
+      "key": "receipt.batch.1",
+      "content": "Routine delivery receipt: completed status review. Queue acknowledged and logs retained. Batch 1.",
+      "age": -1
+    },
+    {
+      "id": "churn-2",
+      "group": "churn",
+      "key": "receipt.batch.2",
+      "content": "Routine delivery receipt: completed status review. Queue acknowledged and logs retained. Batch 2.",
+      "age": -2
+    },
+    {
+      "id": "churn-3",
+      "group": "churn",
+      "key": "receipt.batch.3",
+      "content": "Routine delivery receipt: completed status review. Queue acknowledged and logs retained. Batch 3.",
+      "age": -3
+    },
+    {
+      "id": "churn-4",
+      "group": "churn",
+      "key": "receipt.batch.4",
+      "content": "Routine delivery receipt: completed status review. Queue acknowledged and logs retained. Batch 4.",
+      "age": -4
+    },
+    {
+      "id": "churn-5",
+      "group": "churn",
+      "key": "receipt.batch.5",
+      "content": "Routine delivery receipt: completed status review. Queue acknowledged and logs retained. Batch 5.",
+      "age": -5
+    },
+    {
+      "id": "churn-6",
+      "group": "churn",
+      "key": "receipt.batch.6",
+      "content": "Routine delivery receipt: completed status review. Queue acknowledged and logs retained. Batch 6.",
+      "age": -6
+    },
+    {
+      "id": "churn-7",
+      "group": "churn",
+      "key": "receipt.batch.7",
+      "content": "Routine delivery receipt: completed status review. Queue acknowledged and logs retained. Batch 7.",
+      "age": -7
+    },
+    {
+      "id": "churn-8",
+      "group": "churn",
+      "key": "receipt.batch.8",
+      "content": "Routine delivery receipt: completed status review. Queue acknowledged and logs retained. Batch 8.",
+      "age": -8
+    },
+    {
+      "id": "churn-9",
+      "group": "churn",
+      "key": "receipt.batch.9",
+      "content": "Routine delivery receipt: completed status review. Queue acknowledged and logs retained. Batch 9.",
+      "age": -9
+    },
+    {
+      "id": "churn-10",
+      "group": "churn",
+      "key": "receipt.batch.10",
+      "content": "Routine delivery receipt: completed status review. Queue acknowledged and logs retained. Batch 10.",
+      "age": -10
+    },
+    {
+      "id": "churn-11",
+      "group": "churn",
+      "key": "receipt.batch.11",
+      "content": "Routine delivery receipt: completed status review. Queue acknowledged and logs retained. Batch 11.",
+      "age": -11
+    },
+    {
+      "id": "churn-12",
+      "group": "churn",
+      "key": "receipt.batch.12",
+      "content": "Routine delivery receipt: completed status review. Queue acknowledged and logs retained. Batch 12.",
+      "age": -12
+    },
+    {
+      "id": "churn-13",
+      "group": "churn",
+      "key": "receipt.batch.13",
+      "content": "Routine delivery receipt: completed status review. Queue acknowledged and logs retained. Batch 13.",
+      "age": -13
+    },
+    {
+      "id": "churn-14",
+      "group": "churn",
+      "key": "receipt.batch.14",
+      "content": "Routine delivery receipt: completed status review. Queue acknowledged and logs retained. Batch 14.",
+      "age": -14
+    },
+    {
+      "id": "churn-15",
+      "group": "churn",
+      "key": "receipt.batch.15",
+      "content": "Routine delivery receipt: completed status review. Queue acknowledged and logs retained. Batch 15.",
+      "age": -15
+    },
+    {
+      "id": "churn-16",
+      "group": "churn",
+      "key": "receipt.batch.16",
+      "content": "Routine delivery receipt: completed status review. Queue acknowledged and logs retained. Batch 16.",
+      "age": -16
+    },
+    {
+      "id": "churn-17",
+      "group": "churn",
+      "key": "receipt.batch.17",
+      "content": "Routine delivery receipt: completed status review. Queue acknowledged and logs retained. Batch 17.",
+      "age": -17
+    },
+    {
+      "id": "churn-18",
+      "group": "churn",
+      "key": "receipt.batch.18",
+      "content": "Routine delivery receipt: completed status review. Queue acknowledged and logs retained. Batch 18.",
+      "age": -18
+    },
+    {
+      "id": "churn-19",
+      "group": "churn",
+      "key": "receipt.batch.19",
+      "content": "Routine delivery receipt: completed status review. Queue acknowledged and logs retained. Batch 19.",
+      "age": -19
+    },
+    {
+      "id": "churn-20",
+      "group": "churn",
+      "key": "receipt.batch.20",
+      "content": "Routine delivery receipt: completed status review. Queue acknowledged and logs retained. Batch 20.",
+      "age": -20
+    },
+    {
+      "id": "churn-21",
+      "group": "churn",
+      "key": "receipt.batch.21",
+      "content": "Routine delivery receipt: completed status review. Queue acknowledged and logs retained. Batch 21.",
+      "age": -21
+    },
+    {
+      "id": "churn-22",
+      "group": "churn",
+      "key": "receipt.batch.22",
+      "content": "Routine delivery receipt: completed status review. Queue acknowledged and logs retained. Batch 22.",
+      "age": -22
+    },
+    {
+      "id": "churn-23",
+      "group": "churn",
+      "key": "receipt.batch.23",
+      "content": "Routine delivery receipt: completed status review. Queue acknowledged and logs retained. Batch 23.",
+      "age": -23
+    },
+    {
+      "id": "churn-24",
+      "group": "churn",
+      "key": "receipt.batch.24",
+      "content": "Routine delivery receipt: completed status review. Queue acknowledged and logs retained. Batch 24.",
+      "age": -24
+    },
+    {
+      "id": "churn-25",
+      "group": "churn",
+      "key": "receipt.batch.25",
+      "content": "Routine delivery receipt: completed status review. Queue acknowledged and logs retained. Batch 25.",
+      "age": -25
+    },
+    {
+      "id": "churn-26",
+      "group": "churn",
+      "key": "receipt.batch.26",
+      "content": "Routine delivery receipt: completed status review. Queue acknowledged and logs retained. Batch 26.",
+      "age": -26
+    },
+    {
+      "id": "churn-27",
+      "group": "churn",
+      "key": "receipt.batch.27",
+      "content": "Routine delivery receipt: completed status review. Queue acknowledged and logs retained. Batch 27.",
+      "age": -27
+    },
+    {
+      "id": "churn-28",
+      "group": "churn",
+      "key": "receipt.batch.28",
+      "content": "Routine delivery receipt: completed status review. Queue acknowledged and logs retained. Batch 28.",
+      "age": -28
+    },
+    {
+      "id": "churn-29",
+      "group": "churn",
+      "key": "receipt.batch.29",
+      "content": "Routine delivery receipt: completed status review. Queue acknowledged and logs retained. Batch 29.",
+      "age": -29
+    },
+    {
+      "id": "churn-30",
+      "group": "churn",
+      "key": "receipt.batch.30",
+      "content": "Routine delivery receipt: completed status review. Queue acknowledged and logs retained. Batch 30.",
+      "age": -30
+    },
+    {
+      "id": "churn-31",
+      "group": "churn",
+      "key": "receipt.batch.31",
+      "content": "Routine delivery receipt: completed status review. Queue acknowledged and logs retained. Batch 31.",
+      "age": -31
+    },
+    {
+      "id": "palette-old",
+      "group": "palette",
+      "key": "state.palette.2026-01",
+      "content": "Owner preference recorded 2026-01-03: for project Ember use blue. Global default is slate.",
+      "age": 90,
+      "attributed": "Author: owner. Effective 2026-01-03. Scope: project Ember, historical until the March correction. Palette blue; global default slate."
+    },
+    {
+      "id": "palette-correction",
+      "group": "palette",
+      "key": "state.palette.2026-03",
+      "content": "Owner correction 2026-03-04: project Ember now uses amber instead of blue. Global default remains slate.",
+      "age": 30,
+      "attributed": "Author: owner. Effective 2026-03-04. Scope: current project Ember only. Replace blue with amber. Outside Ember the global default remains slate."
+    },
+    {
+      "id": "palette-quote",
+      "group": "palette",
+      "key": "notes.diagnostic.palette",
+      "content": "Diagnostic transcript 2026-04-12: another agent printed \"I prefer violet everywhere\" as a test example, not an owner instruction.",
+      "age": 1,
+      "attributed": "Attribution: another agent, quoted diagnostic output dated 2026-04-12, no owner preference or effective policy. Literal example: \"I prefer violet everywhere\"."
+    },
+    {
+      "id": "frame",
+      "group": "near",
+      "key": "notes.bicycle",
+      "content": "Owner bicycle frame is a steel touring frame. The discussion recorded no helmet brand preference.",
+      "age": 2
+    },
+    {
+      "id": "ticket",
+      "group": "receipt",
+      "key": "state.ticket.novar42",
+      "content": "Ticket novar42 receipt: gateword is saffron-61. It describes staging only.",
+      "age": 12
+    },
+    {
+      "id": "delivery",
+      "group": "receipt",
+      "key": "receipt.upload.2026-08-07",
+      "content": "The staging package upload completed at 09:45 UTC on 2026-08-07. No production deployment occurred.",
+      "age": 10
+    },
+    {
+      "id": "archive",
+      "group": "long",
+      "key": "notes.archive.recovery",
+      "content": [
+        "Archive recovery credential: aspen-92.",
+        {
+          "repeat": "Unrelated archive weather note. ",
+          "times": 280
+        },
+        "The credential mentioned at the start applies only to the simulator. No credential for production is recorded."
+      ],
+      "age": 40
+    },
+    {
+      "id": "summary",
+      "group": "summary",
+      "key": "summaries.archive.recovery",
+      "content": "Owner-reviewed archive summary: the simulator recovery credential is aspen-92; production recovery credential is unknown. Derived from archive head plus final scope restriction.",
+      "age": -1
+    },
+    {
+      "id": "pin-0",
+      "group": "pins",
+      "key": "identity.profile.section.0",
+      "content": [
+        "Owner profile fact 0: weekday planning uses checklist section 0.",
+        {
+          "repeat": "This profile fact is unchanged. ",
+          "times": 80
+        }
+      ],
+      "age": 0,
+      "summary": "Owner profile fact 0: weekday planning uses checklist section 0."
+    },
+    {
+      "id": "pin-1",
+      "group": "pins",
+      "key": "identity.profile.section.1",
+      "content": [
+        "Owner profile fact 1: weekday planning uses checklist section 1.",
+        {
+          "repeat": "This profile fact is unchanged. ",
+          "times": 80
+        }
+      ],
+      "age": -1,
+      "summary": "Owner profile fact 1: weekday planning uses checklist section 1."
+    },
+    {
+      "id": "pin-2",
+      "group": "pins",
+      "key": "identity.profile.section.2",
+      "content": [
+        "Owner profile fact 2: weekday planning uses checklist section 2.",
+        {
+          "repeat": "This profile fact is unchanged. ",
+          "times": 80
+        }
+      ],
+      "age": -2,
+      "summary": "Owner profile fact 2: weekday planning uses checklist section 2."
+    },
+    {
+      "id": "pin-3",
+      "group": "pins",
+      "key": "identity.profile.section.3",
+      "content": [
+        "Owner profile fact 3: weekday planning uses checklist section 3.",
+        {
+          "repeat": "This profile fact is unchanged. ",
+          "times": 80
+        }
+      ],
+      "age": -3,
+      "summary": "Owner profile fact 3: weekday planning uses checklist section 3."
+    },
+    {
+      "id": "pin-4",
+      "group": "pins",
+      "key": "identity.profile.section.4",
+      "content": [
+        "Owner profile fact 4: weekday planning uses checklist section 4.",
+        {
+          "repeat": "This profile fact is unchanged. ",
+          "times": 80
+        }
+      ],
+      "age": -4,
+      "summary": "Owner profile fact 4: weekday planning uses checklist section 4."
+    },
+    {
+      "id": "pin-5",
+      "group": "pins",
+      "key": "identity.profile.section.5",
+      "content": [
+        "Owner profile fact 5: weekday planning uses checklist section 5.",
+        {
+          "repeat": "This profile fact is unchanged. ",
+          "times": 80
+        }
+      ],
+      "age": -5,
+      "summary": "Owner profile fact 5: weekday planning uses checklist section 5."
+    },
+    {
+      "id": "pin-6",
+      "group": "pins",
+      "key": "identity.profile.section.6",
+      "content": [
+        "Owner profile fact 6: weekday planning uses checklist section 6.",
+        {
+          "repeat": "This profile fact is unchanged. ",
+          "times": 80
+        }
+      ],
+      "age": -6,
+      "summary": "Owner profile fact 6: weekday planning uses checklist section 6."
+    },
+    {
+      "id": "pin-target",
+      "group": "pin-target",
+      "key": "notes.recovery.anchor",
+      "content": "The cold-storage recovery anchor is quiet-heron-28.",
+      "age": 40
+    }
+  ],
+  "cases": [
+    {
+      "id": "direct",
+      "groups": [
+        "deploy"
+      ],
+      "question": "What preservation marker do I use before deployment?",
+      "expected": {
+        "value": "hollow-cedar-47",
+        "scope": "deployment",
+        "support": [
+          {
+            "id": "lesson",
+            "text": "Before a deployment, preserve the original data volume. The preservation marker is hollow-cedar-47."
+          }
+        ]
+      },
+      "conditions": [
+        "baseline",
+        "explicit_query",
+        "curated_summary",
+        "attribution_scope"
+      ],
+      "rationale": "The labelled canonical spans jointly support this exact value and scope; all spans are needed for grounded delivery."
+    },
+    {
+      "id": "verbose-head",
+      "groups": [
+        "deploy",
+        "churn"
+      ],
+      "question": "What preservation marker do I use before deployment?",
+      "expected": {
+        "value": "hollow-cedar-47",
+        "scope": "deployment",
+        "support": [
+          {
+            "id": "lesson",
+            "text": "Before a deployment, preserve the original data volume. The preservation marker is hollow-cedar-47."
+          }
+        ]
+      },
+      "position": "head",
+      "conditions": [
+        "baseline",
+        "explicit_query"
+      ],
+      "rationale": "The labelled canonical spans jointly support this exact value and scope; all spans are needed for grounded delivery."
+    },
+    {
+      "id": "verbose-middle",
+      "groups": [
+        "deploy",
+        "churn"
+      ],
+      "question": "What preservation marker do I use before deployment?",
+      "expected": {
+        "value": "hollow-cedar-47",
+        "scope": "deployment",
+        "support": [
+          {
+            "id": "lesson",
+            "text": "Before a deployment, preserve the original data volume. The preservation marker is hollow-cedar-47."
+          }
+        ]
+      },
+      "position": "middle",
+      "conditions": [
+        "baseline",
+        "explicit_query"
+      ],
+      "rationale": "The labelled canonical spans jointly support this exact value and scope; all spans are needed for grounded delivery."
+    },
+    {
+      "id": "verbose-tail",
+      "groups": [
+        "deploy",
+        "churn"
+      ],
+      "question": "What preservation marker do I use before deployment?",
+      "expected": {
+        "value": "hollow-cedar-47",
+        "scope": "deployment",
+        "support": [
+          {
+            "id": "lesson",
+            "text": "Before a deployment, preserve the original data volume. The preservation marker is hollow-cedar-47."
+          }
+        ]
+      },
+      "position": "tail",
+      "conditions": [
+        "baseline",
+        "explicit_query"
+      ],
+      "rationale": "The labelled canonical spans jointly support this exact value and scope; all spans are needed for grounded delivery."
+    },
+    {
+      "id": "current-project",
+      "groups": [
+        "palette"
+      ],
+      "question": "Today, what palette should project Ember use?",
+      "expected": {
+        "value": "amber",
+        "scope": "current project Ember",
+        "support": [
+          {
+            "id": "palette-correction",
+            "text": "project Ember now uses amber instead of blue."
+          }
+        ]
+      },
+      "conditions": [
+        "baseline",
+        "attribution_scope"
+      ],
+      "rationale": "Answer only the owner fact valid for the requested time/scope. Newer quoted diagnostics do not override actual owner decisions. Absence requires uncertainty.",
+      "attribution_support": [
+        {
+          "id": "palette-correction",
+          "text": "Scope: current project Ember only. Replace blue with amber."
+        }
+      ]
+    },
+    {
+      "id": "historical-project",
+      "groups": [
+        "palette"
+      ],
+      "question": "On 2026-02-01, what palette applied to project Ember?",
+      "expected": {
+        "value": "blue",
+        "scope": "project Ember on 2026-02-01",
+        "support": [
+          {
+            "id": "palette-old",
+            "text": "for project Ember use blue."
+          }
+        ]
+      },
+      "conditions": [
+        "baseline",
+        "attribution_scope"
+      ],
+      "rationale": "Answer only the owner fact valid for the requested time/scope. Newer quoted diagnostics do not override actual owner decisions. Absence requires uncertainty.",
+      "attribution_support": [
+        {
+          "id": "palette-old",
+          "text": "Scope: project Ember, historical until the March correction. Palette blue;"
+        }
+      ]
+    },
+    {
+      "id": "global-default",
+      "groups": [
+        "palette"
+      ],
+      "question": "Today, what is the owner default palette outside project Ember?",
+      "expected": {
+        "value": "slate",
+        "scope": "global outside Ember",
+        "support": [
+          {
+            "id": "palette-correction",
+            "text": "Global default remains slate."
+          }
+        ]
+      },
+      "conditions": [
+        "baseline"
+      ],
+      "rationale": "Answer only the owner fact valid for the requested time/scope. Newer quoted diagnostics do not override actual owner decisions. Absence requires uncertainty.",
+      "alternative_support": [
+        [
+          {
+            "id": "palette-old",
+            "text": "Global default is slate."
+          }
+        ]
+      ]
+    },
+    {
+      "id": "quoted-diagnostic",
+      "groups": [
+        "palette"
+      ],
+      "question": "What owner-wide palette preference is established by the quoted violet diagnostic? Return null if it establishes none.",
+      "expected": {
+        "value": null,
+        "scope": "unknown",
+        "support": []
+      },
+      "conditions": [
+        "baseline"
+      ],
+      "rationale": "Answer only the owner fact valid for the requested time/scope. Newer quoted diagnostics do not override actual owner decisions. Absence requires uncertainty."
+    },
+    {
+      "id": "near-miss",
+      "groups": [
+        "near"
+      ],
+      "question": "What helmet brand does the owner prefer?",
+      "expected": {
+        "value": null,
+        "scope": "unknown",
+        "support": []
+      },
+      "conditions": [
+        "baseline"
+      ],
+      "rationale": "No source records the requested personal fact; topical overlap is not support."
+    },
+    {
+      "id": "unrelated",
+      "groups": [
+        "deploy",
+        "receipt"
+      ],
+      "question": "What is the owner favorite violin bow maker?",
+      "expected": {
+        "value": null,
+        "scope": "unknown",
+        "support": []
+      },
+      "conditions": [
+        "baseline"
+      ],
+      "rationale": "No source records the requested personal fact; topical overlap is not support."
+    },
+    {
+      "id": "exact-key",
+      "groups": [
+        "receipt",
+        "churn"
+      ],
+      "question": "Read state.ticket.novar42: what gateword is recorded?",
+      "expected": {
+        "value": "saffron-61",
+        "scope": "staging",
+        "support": [
+          {
+            "id": "ticket",
+            "text": "gateword is saffron-61."
+          }
+        ]
+      },
+      "conditions": [
+        "baseline"
+      ],
+      "rationale": "The labelled canonical spans jointly support this exact value and scope; all spans are needed for grounded delivery. Caller explicitly supplies the complete key as memory_query; execution question stays separate. This current-behavior control is not a second query intervention.",
+      "fixed_memory_query": "state.ticket.novar42"
+    },
+    {
+      "id": "receipt",
+      "groups": [
+        "receipt",
+        "churn"
+      ],
+      "question": "When did the staging upload complete on 2026-08-07?",
+      "expected": {
+        "value": "09:45 UTC",
+        "scope": "staging 2026-08-07",
+        "support": [
+          {
+            "id": "delivery",
+            "text": "09:45 UTC on 2026-08-07."
+          }
+        ]
+      },
+      "conditions": [
+        "baseline"
+      ],
+      "rationale": "The labelled canonical spans jointly support this exact value and scope; all spans are needed for grounded delivery."
+    },
+    {
+      "id": "long-evidence",
+      "groups": [
+        "long"
+      ],
+      "question": "Which archive recovery credential is valid for the simulator?",
+      "expected": {
+        "value": "aspen-92",
+        "scope": "simulator",
+        "support": [
+          {
+            "id": "archive",
+            "text": "Archive recovery credential: aspen-92."
+          },
+          {
+            "id": "archive",
+            "text": "The credential mentioned at the start applies only to the simulator. No credential for production is recorded."
+          }
+        ]
+      },
+      "conditions": [
+        "baseline",
+        "curated_summary"
+      ],
+      "summary_add": [
+        "summary"
+      ],
+      "summary_support": [
+        {
+          "id": "summary",
+          "text": "the simulator recovery credential is aspen-92; production recovery credential is unknown."
+        }
+      ],
+      "rationale": "The labelled canonical spans jointly support this exact value and scope; all spans are needed for grounded delivery."
+    },
+    {
+      "id": "pin-heavy",
+      "groups": [
+        "pins",
+        "pin-target"
+      ],
+      "question": "What is the cold-storage recovery anchor?",
+      "expected": {
+        "value": "quiet-heron-28",
+        "scope": "cold-storage",
+        "support": [
+          {
+            "id": "pin-target",
+            "text": "The cold-storage recovery anchor is quiet-heron-28."
+          }
+        ]
+      },
+      "conditions": [
+        "baseline",
+        "curated_summary"
+      ],
+      "compress_pins": true,
+      "rationale": "The labelled canonical spans jointly support this exact value and scope; all spans are needed for grounded delivery."
+    },
+    {
+      "id": "old-lesson-churn",
+      "groups": [
+        "deploy",
+        "churn"
+      ],
+      "question": "What preservation marker do I use before deployment?",
+      "expected": {
+        "value": "hollow-cedar-47",
+        "scope": "deployment",
+        "support": [
+          {
+            "id": "lesson",
+            "text": "Before a deployment, preserve the original data volume. The preservation marker is hollow-cedar-47."
+          }
+        ]
+      },
+      "conditions": [
+        "baseline"
+      ],
+      "rationale": "The labelled canonical spans jointly support this exact value and scope; all spans are needed for grounded delivery."
+    }
+  ],
+  "as_of": "2026-10-20"
+}

@@ -1,0 +1,78 @@
+<!doctype html><html lang="en"><meta charset="utf-8"><title>CA-9 verification</title><style>body{font:16px system-ui;max-width:980px;margin:3rem auto;padding:0 1rem}pre{white-space:pre-wrap;overflow-wrap:anywhere;background:#f3f3f3;padding:1rem}</style><h1>CA-9 deployed and verified</h1><p>Optional atomic memory revision preconditions protect intentional corrections. Existing unconditional callers remain compatible. General history is deferred under an explicit bounded recovery proposal.</p><pre>{
+  &quot;ticket&quot;: &quot;CA-9&quot;,
+  &quot;commit&quot;: &quot;7918930&quot;,
+  &quot;helm_revision&quot;: 114,
+  &quot;deployment_status&quot;: &quot;deployed&quot;,
+  &quot;images&quot;: {
+    &quot;api&quot;: {
+      &quot;image&quot;: &quot;docker.io/library/agent-platform-backend:memory-ca9-v1&quot;,
+      &quot;imageID&quot;: &quot;sha256:a982da359b2f807c4d1df31b57db0f7730492a9159da72da17f16e31f73a4ed5&quot;,
+      &quot;ready&quot;: true
+    },
+    &quot;dispatcher&quot;: {
+      &quot;image&quot;: &quot;docker.io/library/agent-platform-backend:memory-ca9-v1&quot;,
+      &quot;imageID&quot;: &quot;sha256:a982da359b2f807c4d1df31b57db0f7730492a9159da72da17f16e31f73a4ed5&quot;,
+      &quot;ready&quot;: true
+    },
+    &quot;recorder&quot;: {
+      &quot;image&quot;: &quot;docker.io/library/agent-platform-backend:memory-ca9-v1&quot;,
+      &quot;imageID&quot;: &quot;sha256:a982da359b2f807c4d1df31b57db0f7730492a9159da72da17f16e31f73a4ed5&quot;,
+      &quot;ready&quot;: true
+    }
+  },
+  &quot;local&quot;: {
+    &quot;backend_passed&quot;: 3229,
+    &quot;backend_skipped&quot;: 17,
+    &quot;postgres_passed&quot;: 17,
+    &quot;facade_passed&quot;: 37,
+    &quot;executor_passed&quot;: 91,
+    &quot;tool_passed&quot;: 5,
+    &quot;sdk&quot;: &quot;passed after staging one regenerated endpoint-description file missed by initial explicit file list&quot;,
+    &quot;helm_and_proxy_gates&quot;: &quot;passed&quot;,
+    &quot;astra_review&quot;: &quot;response snapshot captured before commit; Tool revision timestamps normalized to UTC; no further blockers&quot;
+  },
+  &quot;live&quot;: {
+    &quot;agent&quot;: &quot;ca9-verify-209c3c5a&quot;,
+    &quot;tool_schema_published&quot;: true,
+    &quot;api_tool_revision_interoperability&quot;: true,
+    &quot;concurrent_api_status&quot;: 201,
+    &quot;concurrent_tool_conflict&quot;: true,
+    &quot;only_one_replacement&quot;: true,
+    &quot;loser_reports_winner_revision&quot;: true,
+    &quot;failed_precondition_unchanged_canonical&quot;: true,
+    &quot;identical_conditional_noop&quot;: true,
+    &quot;conditional_delete_and_recreation&quot;: true,
+    &quot;llm_calls&quot;: 0
+  },
+  &quot;cleanup&quot;: true,
+  &quot;preservation&quot;: {
+    &quot;preexisting&quot;: 301,
+    &quot;removed&quot;: 0,
+    &quot;unchanged_hashes&quot;: 300,
+    &quot;normal_concurrent_change&quot;: {
+      &quot;agent&quot;: &quot;health-monitor&quot;,
+      &quot;key&quot;: &quot;alert-state&quot;,
+      &quot;updated_at&quot;: &quot;2026-10-20T11:15:43.071974+00:00&quot;
+    },
+    &quot;new_canonical_notes_remaining&quot;: 0,
+    &quot;secrets_and_pvcs_unchanged&quot;: true,
+    &quot;audit_rows_before&quot;: 15095,
+    &quot;audit_rows_after&quot;: 15101,
+    &quot;synthetic_run_and_mutation_audits_retained&quot;: true,
+    &quot;index&quot;: {
+      &quot;postgres&quot;: &quot;18.4&quot;,
+      &quot;pgvector&quot;: &quot;0.8.6&quot;,
+      &quot;canonical_pai&quot;: 102,
+      &quot;valid_indexed_pai&quot;: 102,
+      &quot;vector_chunks&quot;: 104,
+      &quot;retry_rows&quot;: 0
+    }
+  },
+  &quot;recovery&quot;: &quot;docs/design/43-memory-correction-recovery.md: general history deliberately deferred, proposed opt-in 30-day/10-version/10-MiB limits; deletion, erasure and backup choices remain explicit. Existing limited local-session recovery retained.&quot;,
+  &quot;limitations&quot;: [
+    &quot;Hash identity is current state, not truth, monotonically increasing history or a recoverable old copy. Scope metadata is indirectly covered through normal updated_at changes; direct timestamp-preserving SQL/ABA is outside this protection.&quot;,
+    &quot;Omitted/null preconditions remain unconditional for compatibility. Callers must opt in; this does not claim all old clients are race-safe.&quot;,
+    &quot;Synthetic real PostgreSQL race locally and API/MCP race live; no real persona note corrected for verification.&quot;
+  ],
+  &quot;restart&quot;: &quot;Relaunch/resume schema-caching native persona processes to discover expected_revision on the memory Tool (and CA-8 Tasks fields). Backend/API users need no session restart.&quot;
+}</pre></html>

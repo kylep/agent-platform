@@ -411,3 +411,21 @@ permanent erasure of captures, transcripts, mutation records and backups.
 See [the recovery contract](../design/43-memory-correction-recovery.md) for exact
 retry/ABA semantics, current recovery limits, retention and the deferred bounded
 history proposal. No revision-history store is introduced by CA-9.
+
+## Answer-level diagnostic
+
+CA-10's versioned synthetic evaluation measures candidate coverage, complete
+passage delivery and correct grounded answers separately. It compares explicit
+queries, small reviewed summaries and plain-text author/date/scope labels one
+at a time, with frozen labels and explicit cost limits. The observed fixture
+supports caller-provided queries for buried needs; it does not justify a new
+ranking cutoff, pin reservation or automatic consolidation. Current ranking and
+context budgets remain in place. Summary and attribution changes still require
+concrete evidence and review.
+
+The runnable procedure is
+`services/backend/tests/fixtures/memory-relevance/ANSWERS.md`; results, per-case
+disagreements, manifests and replay vectors are in
+`reports/memory-ca10-answer-eval-2026-10-20.html`. Future policy selection must
+use fresh untouched controls. Audit clipping and embedding query truncation are
+different measurements; missing telemetry is not zero harm.
