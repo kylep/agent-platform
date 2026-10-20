@@ -198,3 +198,102 @@ async def test_actual_hybrid_delivery_reanchors_after_uneven_records(admin_clien
     assert 'budgetneedle: violet-harbor-abcdef.' in last['content']
     assert len(last['content']) == 100 and sum(len(r['content']) for r in records) == 12000
     assert content[last['excerpt']['start']:last['excerpt']['end']] == last['content']
+
+
+@pytest.mark.parametrize('prefix', ['x', '🦊'])
+@pytest.mark.parametrize('value', [
+    'amber.meadow-79d78292', 'https://archive.test/v1.2?q=a.b!c;d&e=1.25',
+    'v2.10.3-rc.1', '1234.5678', '值.紫羅蘭-🦊',
+])
+@pytest.mark.parametrize('ending', ['. Next sentence.', '\nNext line.', '! Next sentence.', '; Next clause.'])
+def test_required_value_span_budget_matrix(prefix, value, ending):
+    from agentplatform.memory_relevance import lexical_start
+    unit = 'code: ' + value + ending[0]
+    source = note('value', prefix * 2500 + ' ' + unit + ending[1:] + ' y' * 1500)
+    ref = {'id': source.id, 'source_hash': source_hash(source),
+           'match_start': lexical_start(source.content, ['code'], [1.]),
+           'match_terms': ['code'], 'match_weights': [1.]}
+    # Exercise both sides of the required-span boundary, including CA-7's 18.
+    for remaining in sorted({1, 18, len(unit)-1, len(unit), len(unit)+1, 100, 2000}):
+        before = [note(str(i), 'x'*2000) for i in range(5)]
+        before.append(note('uneven', 'x'*(2000-remaining)))
+        later = note('later', 'z')
+        records, sources = select_records([*before, note('empty', ''), source, later], [ref])
+        delivered = next((r for r in records if r['id'] == source.id), None)
+        if remaining < len(unit):
+            assert delivered is None
+            omitted = next(s for s in sources if s['id'] == source.id)
+            assert omitted['outcome'] == 'omitted'
+            assert omitted['available_codepoints'] == remaining
+            assert records[-1]['id'] == later.id  # omission consumes neither slot nor content
+        else:
+            assert delivered and unit in delivered['content']
+            excerpt = delivered['excerpt']; required = excerpt['required_span']
+            assert required == {'start':2501, 'end':2501+len(unit), 'basis':'lexical_unit'}
+            assert excerpt['start'] <= required['start'] < required['end'] <= excerpt['end']
+            assert source.content[excerpt['start']:excerpt['end']] == delivered['content']
+            assert delivered['source_hash'] == source_hash(source) and delivered['truncated']
+        assert len(records) <= 20
+        assert sum(len(r['content']) for r in records) <= 12000
+        assert all(0 < len(r['content']) <= 2000 for r in records)
+
+
+def test_substring_anchor_requires_the_whole_value_token_and_colon_does_not_cross_lines():
+    from agentplatform.memory_relevance import lexical_window
+    text = 'code: amber.meadow-79d78292. Next sentence.'
+    assert lexical_window(text, ['meadow'], [1.], 18) is None
+    window = lexical_window(text, ['meadow'], [1.], 30)
+    assert text[window[1]:window[2]] == 'amber.meadow-79d78292.'
+    text = 'code\n: unrelated value'
+    window = lexical_window(text, ['code'], [1.], 4)
+    assert window == (0, 0, 4)
+
+
+@pytest.mark.parametrize('remaining', [18, 100])
+async def test_ca7_api_omits_or_delivers_complete_punctuation_value(admin_client, token_client, sf, seed_agent, remaining):
+    from agentplatform.db import Run
+    from .test_relay_api import _agent_token
+    await seed_agent('punctuation', agent_type='persona', platform_tools=['mcp__platform__memory'])
+    unit = 'code: amber.meadow-79d78292.'
+    content = '🦊'*2500 + ' ' + unit + ' ' + 'y'*2500
+    ids=[]
+    for text in [content, 'code '+ 'x'*(1995-remaining), *['code '+ 'x'*1995]*5]:
+        r=await admin_client.post('/api/memories', json={'agent':'punctuation','content':text})
+        assert r.status_code==201; ids.append(r.json()['id'])
+    async with sf() as s:
+        run=Run(agent='punctuation',trigger='manual',requested_by='test',prompt='code',state='running',
+                definition_snapshot={'platform_tools':['mcp__platform__memory']})
+        s.add(run);await s.commit()
+    headers=await _agent_token(sf,'punctuation',role='reader',run_id=run.id)
+    r=await token_client.post('/api/memory-hybrid',headers=headers,json={'q':'code'})
+    assert r.status_code==200
+    records=r.json()['memories'];source=next(s for s in r.json()['sources'] if s['id']==ids[0])
+    if remaining==18:
+        assert ids[0] not in [m['id'] for m in records]
+        assert source['outcome']=='omitted' and source['available_codepoints']==18
+    else:
+        record=next(m for m in records if m['id']==ids[0])
+        assert unit in record['content'] and len(record['content'])==100
+        ex=record['excerpt'];assert content[ex['start']:ex['end']]==record['content']
+        assert ex==source['excerpt'] and record['source_hash']==source['source_hash']
+
+
+@pytest.mark.parametrize('start', [-1, 999999])
+def test_invalid_legacy_locations_do_not_claim_a_required_span(start):
+    source=note('invalid', 'canonical content')
+    records,_=select_records([source],[{'id':source.id,'source_hash':source_hash(source),'match_start':start}])
+    assert records[0]['content']==source.content
+    assert records[0]['excerpt']['method']=='prefix'
+    assert 'required_span' not in records[0]['excerpt']
+
+
+@pytest.mark.parametrize('gap', ['', ' ', '    ', '\t\t', ' '*2001])
+def test_aligned_colon_values_cannot_bypass_required_unit(gap):
+    from agentplatform.memory_relevance import lexical_window
+    text='code'+gap+': amber.meadow-79d78292.'
+    assert lexical_window(text,['code'],[1.],4) is None
+    if len(text)<=2000:
+        window=lexical_window(text,['code'],[1.],len(text))
+        assert window==(0,0,len(text))
+    else:
+        assert lexical_window(text,['code'],[1.],2000) is None

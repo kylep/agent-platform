@@ -23,7 +23,9 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "services/backend"))
 from agentplatform import semantic_memory as proposed
 from agentplatform.config import Settings
-from agentplatform.db import Memory, init_db, make_engine, make_session_factory, utcnow
+from agentplatform.db import Memory, Run, RunStartupContext, init_db, make_engine, make_session_factory, utcnow
+from agentplatform.persona_memory import select_records
+from agentplatform.startup_memory import capture
 from sqlalchemy import text
 
 parser = argparse.ArgumentParser(description=__doc__)
@@ -35,6 +37,10 @@ parser.add_argument("--fixture", type=Path)
 args = parser.parse_args()
 fixture_path = args.fixture or ROOT / "services/backend/tests/fixtures/memory-relevance/corpus.json"
 fixture = json.loads(fixture_path.read_text())
+annotation_path = ROOT / 'services/backend/tests/fixtures/memory-relevance/evidence-v1.json'
+annotation = json.loads(annotation_path.read_text())['fixtures'].get(fixture_path.name)
+if annotation:
+    assert annotation['fixture_sha256'] == hashlib.sha256(fixture_path.read_bytes()).hexdigest()
 name = "ap-memory-eval-" + uuid.uuid4().hex[:10]
 
 
@@ -183,7 +189,31 @@ async def main():
             "generation": proposed.GENERATION,
             "baseline_ref": args.baseline_ref,
             "documents": len(fixture["documents"]),
+            'delivery_policy': 'current selector applied to each ranking; historical selector is not replayed',
+            'evidence_annotation_sha256': hashlib.sha256(annotation_path.read_bytes()).hexdigest() if annotation else None,
         }
+        frozen = types.SimpleNamespace(agent_type='persona', platform_tools=['mcp__platform__memory'], result_topic=None)
+
+        def delivery(records, sources, relevance):
+            by_id = {r['id']: r for r in records}
+            expected = annotation['sources'] if annotation else {}
+            matched = []
+            for mid in relevance:
+                assert not annotation or mid in expected, 'positive source lacks evidence annotation'
+                record, span = by_id.get(mid), expected.get(mid)
+                if record and span and record['excerpt']['start'] <= span['start'] < span['end'] <= record['excerpt']['end']:
+                    matched.append(mid)
+            canonical = {d['id']: d['content'] for d in fixture['documents']}
+            assert len(records) <= 20 and sum(len(r['content']) for r in records) <= 12000
+            for r in records:
+                ex = r['excerpt']
+                assert 0 < len(r['content']) <= 2000
+                assert canonical[r['id']][ex['start']:ex['end']] == r['content']
+                required = ex.get('required_span')
+                assert not required or ex['start'] <= required['start'] < required['end'] <= ex['end']
+            return {'ids': list(by_id), 'evidence_ids': matched if annotation else None,
+                    'omitted_ids': [s['id'] for s in sources if s.get('outcome') == 'omitted'],
+                    'characters': sum(len(r['content']) for r in records)}
         for label, module in [("baseline", baseline), ("proposed", proposed)]:
             for enabled in (True, False):
                 rows = []
@@ -198,6 +228,20 @@ async def main():
                         q["q"],
                     )
                     elapsed = time.perf_counter() - started
+                    async with sf() as s:
+                        live_rows = await proposed.resolve(s, agent, refs)
+                        records, sources = select_records(live_rows, references=refs)
+                        explicit = delivery(records, sources, q['relevance'])
+                        explicit['evidence_top3_ids'] = [mid for mid in explicit['evidence_ids'] or []
+                                                        if mid in explicit['ids'][:3]] if annotation else None
+                        run = Run(agent=agent, trigger='manual', requested_by='evaluation',
+                                  prompt=q['q'], state='running', execution_location='cluster')
+                        s.add(run); await s.flush()
+                        await capture(s, run, frozen, frozen, settings.model_copy(
+                            update={'startup_memory_pilot_agents': agent}), prepared=(refs, status))
+                        packet = await s.get(RunStartupContext, run.id)
+                        detached = delivery(packet.payload['memories'], packet.provenance['sources'], q['relevance'])
+                        await s.rollback()
                     # Reconstruct both baseline contributions through its own
                     # lexical policy and the shared unchanged vector ranking.
                     lexical, _ = await module.prepare(
@@ -250,10 +294,19 @@ async def main():
                             "state": status["state"],
                             "split": q.get('split', 'development'),
                             "seconds": elapsed,
+                            'explicit_delivery': explicit,
+                            'detached_delivery': detached,
                         }
                     )
                 output[label + ("_hybrid" if enabled else "_lexical")] = {
                     "metrics": metric(rows),
+                    'delivery_metrics': {
+                        'positive_queries': sum(bool(r['relevance']) for r in rows),
+                        'candidate_top3_source_coverage': sum(bool(set(r['top_ids'][:3]) & r['relevance'].keys()) for r in rows if r['relevance']) / sum(bool(r['relevance']) for r in rows),
+                        'explicit_top3_evidence_coverage': sum(bool(r['explicit_delivery']['evidence_top3_ids']) for r in rows if r['relevance']) / sum(bool(r['relevance']) for r in rows) if annotation else None,
+                        'detached_evidence_coverage': sum(bool(r['detached_delivery']['evidence_ids']) for r in rows if r['relevance']) / sum(bool(r['relevance']) for r in rows) if annotation else None,
+                        'answer_correctness': 'not measured; evidence delivery does not establish correct use or nonapplication',
+                    },
                     "cases": rows,
                 }
         print(json.dumps(output, indent=2))

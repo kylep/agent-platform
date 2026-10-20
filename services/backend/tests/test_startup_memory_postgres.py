@@ -312,7 +312,8 @@ async def test_populated_audit_column_upgrade_preserves_history():
 
 
 @pytest.mark.asyncio
-async def test_detached_semantic_capture_reanchors_literal_to_actual_100_char_budget(monkeypatch):
+@pytest.mark.parametrize('remaining', [18, 100])
+async def test_detached_semantic_capture_preserves_or_omits_required_value(monkeypatch, remaining):
     from agentplatform.startup_memory import capture
     from agentplatform.persona_memory import digest
     from types import SimpleNamespace
@@ -321,8 +322,8 @@ async def test_detached_semantic_capture_reanchors_literal_to_actual_100_char_bu
         await init_db(engine);await semantic.migrate(engine);sf=make_session_factory(engine)
         agent='budget-'+uuid.uuid4().hex[:8]
         async with sf() as s:
-            pins=[Memory(agent=agent,key=f'preferences.pin{i}',content='x'*size) for i,size in enumerate([2000]*5+[1900])]
-            target=Memory(agent=agent,key='archive',content='x'*2500+' budgetneedle: amber-meadow-lantern. '+'y'*2500)
+            pins=[Memory(agent=agent,key=f'preferences.pin{i}',content='x'*size) for i,size in enumerate([2000]*5+[2000-remaining])]
+            target=Memory(agent=agent,key='archive',content='x'*2500+' budgetneedle: amber.meadow-lantern. '+'y'*2500)
             # Deterministic uneven pin order consumes exactly 11,900 chars.
             from datetime import timedelta
             from agentplatform.db import utcnow
@@ -341,9 +342,14 @@ async def test_detached_semantic_capture_reanchors_literal_to_actual_100_char_bu
             s.add(run);await s.flush()
             await capture(s,run,frozen,frozen,settings,prepared=(refs,status));await s.commit()
             packet=await s.get(RunStartupContext,run.id)
-            record=next(m for m in packet.payload['memories'] if m['id']==target.id)
-            assert len(record['content'])==100 and 'budgetneedle: amber-meadow-lantern.' in record['content']
-            assert sum(len(m['content']) for m in packet.payload['memories'])==12000
-            assert target.content[record['excerpt']['start']:record['excerpt']['end']]==record['content']
+            record=next((m for m in packet.payload['memories'] if m['id']==target.id), None)
+            if remaining == 18:
+                assert record is None
+                omitted=next(p for p in packet.provenance['sources'] if p['id']==target.id)
+                assert omitted['outcome']=='omitted' and omitted['available_codepoints']==18
+            else:
+                assert len(record['content'])==100 and 'budgetneedle: amber.meadow-lantern.' in record['content']
+                assert sum(len(m['content']) for m in packet.payload['memories'])==12000
+                assert target.content[record['excerpt']['start']:record['excerpt']['end']]==record['content']
             assert packet.digest==digest(packet.payload)
     finally:await engine.dispose()

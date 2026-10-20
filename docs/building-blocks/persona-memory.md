@@ -284,6 +284,39 @@ fell from 13/13 to 10/13. Ranking remains unchanged. `retrieval.relevance` repor
 `state=unassessed, reason=no_validated_abstention_policy`. This includes fallback:
 valid provenance and nonzero hit counts do not establish applicability.
 
+Selection policy `persona-memory-v4-required-spans` defines a structural delivery
+contract. A lexical unit includes the entire whitespace-delimited token containing
+the match. A colon after the match (allowing horizontal whitespace)
+binds its value until a line break, end of source, or `.`, `!`, `?`, `;` followed by
+whitespace. Punctuation inside dotted identifiers, URLs/query strings, versions
+and decimals remains in the unit. The selector inspects bounded context around
+each bounded match; it does not tokenize an unbounded canonical note in memory.
+If the unit cannot fit, the source is explicitly omitted and later fitting notes
+remain eligible. Surrounding context receives only the budget left after the unit.
+
+For query-selected excerpts, `excerpt.required_span` gives canonical codepoint
+`start`, exclusive `end`, and `basis` (`lexical_unit`, `index_chunk`, or
+`legacy_window`). Its revision is the record's `source_hash`; the entire required
+span lies inside the delivered excerpt. Prefix and key-match records have no
+required body span. An indexed chunk can end inside a sentence; a structural
+lexical unit can contain an abbreviation or lack a qualifier in another sentence.
+This metadata proves preservation of the selected unit, not completeness of a
+fact, truth, relevance, or correct use. No general prose parser is claimed.
+Historical captures remain immutable; fresh captures use the new policy.
+
+Retrieval also exposes `query.input_utf8_bytes`, `used_utf8_bytes`, and `truncated`.
+The existing first-1,024-UTF-8-byte query preprocessing remains unchanged. Detached
+tasks currently use their execution prompt as the query: a question after that
+prefix can be lost, now visibly. An empty result for such a query is not proof of
+absence. No model-driven prompt rewrite or relevance cutoff is introduced.
+
+The [delivery evaluation](../../services/backend/tests/fixtures/memory-relevance/DELIVERY.md)
+runs revision resolution, actual selection and detached capture after ranking.
+It separates source coverage, delivered annotated evidence, and answer correctness
+(which it does not measure). Reviews/receipts can mention a question without
+answering it. Validate negative controls in an isolated, fixed namespace: storing
+the review in the searched namespace contaminates a repeated negative query.
+
 Per-call memory telemetry is available through `metrics(scope="memory", run_id=...)`
 and `GET /api/metrics/memory` (optional `agent`, `run_id`, bounded `limit`). Agent
 readers see their own namespace only; admin can filter across namespaces. The

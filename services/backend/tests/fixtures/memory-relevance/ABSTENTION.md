@@ -33,7 +33,10 @@ and baseline Git `e197641`:
 | Irrelevant fraction of returned top-3 records | 0.806 | 0.083 |
 
 **Decision: reject the gate; retain the existing ranking.** Coverage falls below
-90%. The rejected gate loses useful API-security and writing paraphrases and the
+90%. These historical coverage figures score source IDs in the top three, not
+delivered evidence or correct answers. The CLI now calls this metric
+`positive_source_coverage`. The [delivery diagnostic](DELIVERY.md) separately
+checks the passages actually delivered. The rejected gate loses useful API-security and writing paraphrases and the
 verbose long-note question; a near-miss espresso-machine ownership question still
 gets the coffee preference. Exact-key and explicit receipt cases survive. A valid
 source hash is identity/provenance, not relevance confidence. A similarity score

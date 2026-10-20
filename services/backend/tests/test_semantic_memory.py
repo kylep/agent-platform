@@ -139,3 +139,16 @@ async def test_relevance_signal_remains_unassessed_without_validated_gate(sf):
     assert refs and status['relevance']=={'state':'unassessed','reason':'no_validated_abstention_policy'}
     refs,status=await semantic.prepare(sf,Settings(),'unassessed','database',team_id='empty')
     assert not refs and status['relevance']['state']=='unassessed'
+
+
+async def test_query_budget_exposes_loss_of_a_late_information_need(sf):
+    async with sf() as s:
+        s.add(Memory(agent='query-budget',content='archive recovery phrase: amber meadow lantern.'))
+        await s.commit()
+    direct='archive recovery phrase'
+    refs,status=await semantic.prepare(sf,Settings(),'query-budget',direct)
+    assert refs and status['query']=={'input_utf8_bytes':23,'used_utf8_bytes':23,'truncated':False}
+    verbose='🦊'*300+' '+direct
+    refs,status=await semantic.prepare(sf,Settings(),'query-budget',verbose)
+    assert not refs  # documented prefix preprocessing, never an absence proof
+    assert status['query']=={'input_utf8_bytes':len(verbose.encode()),'used_utf8_bytes':1024,'truncated':True}

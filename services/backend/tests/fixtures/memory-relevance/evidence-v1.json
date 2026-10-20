@@ -1,0 +1,79 @@
+{
+  "description": "Post-hoc diagnostic evidence annotations, separate from unchanged source-relevance fixtures. Short notes require the whole note; long notes require the explicit answer-bearing clause. Not an untouched held-out answer benchmark.",
+  "fixtures": {
+    "corpus.json": {
+      "fixture_sha256": "d6ccc98212284ed89142aa2d52f7ecb4a5b6534cc60e271975acc6d9b5afae70",
+      "sources": {
+        "db": {
+          "start": 0,
+          "end": 194
+        },
+        "infra": {
+          "start": 0,
+          "end": 183
+        },
+        "lesson": {
+          "start": 0,
+          "end": 186
+        },
+        "running": {
+          "start": 0,
+          "end": 137
+        },
+        "receipt": {
+          "start": 0,
+          "end": 174
+        },
+        "long": {
+          "start": 4560,
+          "end": 4611
+        }
+      }
+    },
+    "abstention-v1.json": {
+      "fixture_sha256": "666880aebcc63d6a4801e261e005be76e5b09c90b2e03a6874bd4bca4174d116",
+      "sources": {
+        "schema": {
+          "start": 0,
+          "end": 149
+        },
+        "hiking": {
+          "start": 0,
+          "end": 119
+        },
+        "coffee": {
+          "start": 0,
+          "end": 75
+        },
+        "review": {
+          "start": 0,
+          "end": 114
+        },
+        "network": {
+          "start": 0,
+          "end": 137
+        },
+        "garden": {
+          "start": 0,
+          "end": 103
+        },
+        "writing": {
+          "start": 0,
+          "end": 106
+        },
+        "backup": {
+          "start": 0,
+          "end": 114
+        },
+        "receipt": {
+          "start": 0,
+          "end": 117
+        },
+        "long": {
+          "start": 4141,
+          "end": 4187
+        }
+      }
+    }
+  }
+}

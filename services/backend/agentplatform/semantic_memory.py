@@ -166,7 +166,11 @@ async def prepare(sf, settings, agent, query, team_id=None, project_id=None):
               'model': MODEL, 'artifact': ARTIFACT, 'generation': GENERATION,
               'state': 'lexical', 'reason': 'disabled',
               'relevance': {'state': 'unassessed', 'reason': 'no_validated_abstention_policy'}}
-    query = bounded(query or '')
+    original = query or ''
+    query = bounded(original)
+    status['query'] = {'input_utf8_bytes': len(original.encode('utf-8')),
+                       'used_utf8_bytes': len(query.encode('utf-8')),
+                       'truncated': original != query}
     if not query.strip():
         return [], {**status, 'reason': 'empty_query'}
     conditions = [Memory.agent == agent, Memory.content != '']

@@ -68,23 +68,47 @@ def lexical_start(content, terms, weights):
 def lexical_window(content, terms, weights, size):
     """Reanchor to the actual budget around a complete literal match.
 
-    An immediately following colon binds its value through the next line or
-    sentence terminator to the label. Never claim that a clipped label/value
-    is complete evidence. Other matches require their complete literal token.
+    An immediately following colon binds its value through the next structural
+    boundary to the label. Punctuation inside a non-whitespace token (a URL,
+    decimal, version or dotted identifier) never ends that value. Other matches
+    require their entire whitespace-delimited token, even for substring queries.
+    These are structural units, not a claim of natural-language answerability.
     Returns (start, required_start, required_end), or None when none fits.
     """
+    # Inspect only enough context per bounded match to establish a fitting unit.
+    # Canonical notes have no storage size cap; never tokenize the entire note.
+    boundary = re.compile(r"[\r\n]|[.!?;](?=\s|$)")
     anchors = []
     for term, weight in zip(terms, weights):
         for i, match in enumerate(re.finditer(re.escape(term), content, re.I)):
             if i == 128:
                 break
-            end = match.end()
-            suffix = re.match(r"\s*:", content[end:end + 4])
-            if suffix:
-                value_start = end + suffix.end()
-                boundary = re.search(r"[\n.!?;]", content[value_start:])
-                end = value_start + boundary.end() if boundary else len(content)
-            anchors.append((match.start(), end, term, weight))
+            lo = match.start()
+            while lo and not content[lo - 1].isspace() and match.end() - lo <= size:
+                lo -= 1
+            if match.end() - lo > size:
+                continue
+            stop = lo + size
+            cursor = match.end()
+            while cursor < len(content) and content[cursor].isspace() and content[cursor] not in '\r\n' and cursor <= stop:
+                cursor += 1
+            # An over-budget horizontal gap cannot establish whether the label
+            # binds a value. Conservatively omit this unresolved unit.
+            if cursor > stop:
+                continue
+            if cursor < len(content) and content[cursor] == ':':
+                value_start = cursor + 1
+                # Sentence punctuation must be followed by whitespace/end.
+                # In particular '?' and ';' within URL queries are not stops.
+                found = boundary.search(content, value_start, min(len(content), stop + 1))
+                end = found.end() if found else len(content)
+            else:
+                end = match.end()
+                while end < len(content) and not content[end].isspace() and end <= stop:
+                    end += 1
+            if end > stop:
+                continue
+            anchors.append((lo, end, term, weight))
     windows, events = [], []
     for lo, hi, term, weight in anchors:
         if hi - lo > size:

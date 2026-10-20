@@ -34,7 +34,7 @@ def measure(rows, threshold):
         return dcg(gains)/dcg(sorted(x['relevance'].values(),reverse=True)[:3])
     return {'queries':len(rows),'negative_queries':len(negatives),
             'negative_any_result_rate':sum(bool(selected[x['case']]) for x in negatives)/len(negatives),
-            'useful_answer_coverage':sum(bool(set(selected[x['case']])&x['relevance'].keys()) for x in positives)/len(positives),
+            'positive_source_coverage':sum(bool(set(selected[x['case']])&x['relevance'].keys()) for x in positives)/len(positives),
             'mean_recall_at_3':sum(len(set(selected[x['case']])&x['relevance'].keys())/len(x['relevance']) for x in positives)/len(positives),
             'mean_ndcg_at_3':sum(ndcg(x) for x in positives)/len(positives),
             'empty_rate':sum(not selected[x['case']] for x in rows)/len(rows),
@@ -55,16 +55,16 @@ for margin in [.05,.10,.15,.20]:
     negative=[(x,k) for x,k in retained if not x['relevance']]
     margin_diagnostics.append({'margin':margin,
         'negative_any_result_rate':sum(bool(k) for x,k in negative)/len(negative),
-        'useful_answer_coverage':sum(bool(set(k)&x['relevance'].keys()) for x,k in positive)/len(positive)})
-allowed=[(t,m) for t,m in candidates if m['useful_answer_coverage']>=.9 and all(
+        'positive_source_coverage':sum(bool(set(k)&x['relevance'].keys()) for x,k in positive)/len(positive)})
+allowed=[(t,m) for t,m in candidates if m['positive_source_coverage']>=.9 and all(
     set(ids(x,t)[:3])&x['relevance'].keys() for x in dev if x['case'] in ['d-exact','d-receipt'])]
 threshold,development=min(allowed,key=lambda pair:(pair[1]['negative_any_result_rate'],-pair[1]['mean_recall_at_3'],-pair[1]['mean_ndcg_at_3'], pair[0] or 0))
 # Held-out labels are first consulted here, after the development choice.
 baseline=measure(held,None);proposed=measure(held,threshold)
 protected=all(set(ids(x,threshold)[:3])&x['relevance'].keys() for x in held if x['case'] in ['h-exact','h-receipt'])
-ship=threshold is not None and proposed['negative_any_result_rate']<baseline['negative_any_result_rate'] and proposed['useful_answer_coverage']>=.9 and protected
+ship=threshold is not None and proposed['negative_any_result_rate']<baseline['negative_any_result_rate'] and proposed['positive_source_coverage']>=.9 and protected
 out={'fixture_sha256':r['fixture_sha256'],'generation':r['generation'],'baseline_ref':r['baseline_ref'],
-     'selection_rule':'Development only: >=90% useful coverage and exact/receipt preserved; minimize negative any-result rate, then maximize recall@3 and nDCG@3.',
+     'selection_rule':'Development only: >=90% positive source coverage and exact/receipt preserved; minimize negative any-result rate, then maximize recall@3 and nDCG@3.',
      'development_candidates':[{'threshold':t,**m} for t,m in candidates],
      'development_only_margin_diagnostic':{'note':'A top-score-relative gate retains a nearest neighbor on every negative. Development only; it cannot supply a no-evidence outcome.', 'candidates':margin_diagnostics},
      'selected_threshold':threshold,'held_out_baseline':baseline,'held_out_proposed':proposed,'ship_gate':ship,
