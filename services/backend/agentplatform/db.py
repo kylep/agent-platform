@@ -99,6 +99,7 @@ class Run(Base):
     state: Mapped[str] = mapped_column(String(16), default=RunState.QUEUED)
     deferred_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     prompt: Mapped[str] = mapped_column(Text)
+    memory_query: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
@@ -1305,6 +1306,7 @@ class ScheduledJob(Base):
     # pinned to market open doesn't drift an hour across daylight saving.
     timezone: Mapped[str] = mapped_column(String(64), default="", server_default="")
     prompt: Mapped[str] = mapped_column(Text)
+    memory_query: Mapped[str | None] = mapped_column(Text, nullable=True)
     model: Mapped[str] = mapped_column(String(64), default="", server_default="")
     run_when: Mapped[str] = mapped_column(String(32), default="always", server_default="always")
     enabled: Mapped[bool] = mapped_column(default=True)
@@ -1321,6 +1323,7 @@ class ScheduledTask(Base):
     title: Mapped[str] = mapped_column(String(128))
     agent: Mapped[str] = mapped_column(String(128), index=True)
     prompt: Mapped[str] = mapped_column(Text)
+    memory_query: Mapped[str | None] = mapped_column(Text, nullable=True)
     runtime: Mapped[str] = mapped_column(String(16))
     model: Mapped[str] = mapped_column(String(64))
     run_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)

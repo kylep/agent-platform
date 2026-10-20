@@ -14,10 +14,11 @@ from __future__ import annotations
 
 import re
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator, model_serializer
 
 from agentplatform.agentspec import CLAUDE_TOOLS, validate_agent_name
 from agentplatform.db import AgentDef, AgentVersion
+from agentplatform.memory_queries import MemoryQuery
 
 # The roles an agent DEFINITION may declare — api.auth.ROLES minus two:
 # `admin` (an agent must never be able to mint itself admin scope; the human
@@ -95,6 +96,14 @@ class CronEntry(BaseModel):
     schedule: str
     prompt: str = ""
     model: str = ""
+    memory_query: MemoryQuery = None
+
+    @model_serializer(mode='wrap')
+    def _omit_absent_query(self, handler):
+        value = handler(self)
+        if self.memory_query is None:
+            value.pop('memory_query', None)
+        return value
 
     @field_validator("schedule")
     @classmethod

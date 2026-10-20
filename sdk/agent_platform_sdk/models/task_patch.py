@@ -17,6 +17,9 @@ class TaskPatch:
     Attributes:
         version (int):
         late_minutes (int | None | Unset):
+        memory_query (None | str | Unset): Optional detached retrieval query: nonblank, at most 1024 UTF-8 bytes. Null
+            uses the existing execution-prompt query; PATCH omission preserves the stored value. Creation omission defaults
+            to null. Does not change instructions or access.
         model (None | str | Unset):
         prompt (None | str | Unset):
         run_at (datetime.datetime | None | Unset):
@@ -26,6 +29,7 @@ class TaskPatch:
 
     version: int
     late_minutes: int | None | Unset = UNSET
+    memory_query: None | str | Unset = UNSET
     model: None | str | Unset = UNSET
     prompt: None | str | Unset = UNSET
     run_at: datetime.datetime | None | Unset = UNSET
@@ -40,6 +44,12 @@ class TaskPatch:
             late_minutes = UNSET
         else:
             late_minutes = self.late_minutes
+
+        memory_query: None | str | Unset
+        if isinstance(self.memory_query, Unset):
+            memory_query = UNSET
+        else:
+            memory_query = self.memory_query
 
         model: None | str | Unset
         if isinstance(self.model, Unset):
@@ -82,6 +92,8 @@ class TaskPatch:
         )
         if late_minutes is not UNSET:
             field_dict["late_minutes"] = late_minutes
+        if memory_query is not UNSET:
+            field_dict["memory_query"] = memory_query
         if model is not UNSET:
             field_dict["model"] = model
         if prompt is not UNSET:
@@ -108,6 +120,15 @@ class TaskPatch:
             return cast(int | None | Unset, data)
 
         late_minutes = _parse_late_minutes(d.pop("late_minutes", UNSET))
+
+        def _parse_memory_query(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        memory_query = _parse_memory_query(d.pop("memory_query", UNSET))
 
         def _parse_model(data: object) -> None | str | Unset:
             if data is None:
@@ -165,6 +186,7 @@ class TaskPatch:
         task_patch = cls(
             version=version,
             late_minutes=late_minutes,
+            memory_query=memory_query,
             model=model,
             prompt=prompt,
             run_at=run_at,

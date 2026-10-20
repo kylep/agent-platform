@@ -143,8 +143,11 @@ class Dispatcher:
                     and eligible(run, model_of(current), current, self.settings)[0]
                     and (current.authorization_generation or 0) == (run.authorization_generation or 0))
             if allowed:
+                from agentplatform.memory_queries import query_for_run
+                query, query_source = query_for_run(run)
                 prepared = await prepare(self.sf, self.settings, run.agent,
-                                         run.user_message or run.prompt)
+                                         query)
+                prepared[1]['query'] = {**prepared[1].get('query', {}), 'source': query_source}
         from agentplatform.authority import authority_lock, ensure_run_authority
         from agentplatform.startup_memory import capture
         async with self.sf() as s:

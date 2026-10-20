@@ -21,6 +21,9 @@ class TaskIn:
         delivery (str | Unset):  Default: 'log'.
         idempotency_key (None | str | Unset):
         late_minutes (int | Unset):  Default: 60.
+        memory_query (None | str | Unset): Optional detached retrieval query: nonblank, at most 1024 UTF-8 bytes. Null
+            uses the existing execution-prompt query; PATCH omission preserves the stored value. Creation omission defaults
+            to null. Does not change instructions or access.
         model (str | Unset):  Default: ''.
         run_at (datetime.datetime | None | Unset):
         source_conversation_id (None | str | Unset):
@@ -35,6 +38,7 @@ class TaskIn:
     delivery: str | Unset = "log"
     idempotency_key: None | str | Unset = UNSET
     late_minutes: int | Unset = 60
+    memory_query: None | str | Unset = UNSET
     model: str | Unset = ""
     run_at: datetime.datetime | None | Unset = UNSET
     source_conversation_id: None | str | Unset = UNSET
@@ -62,6 +66,12 @@ class TaskIn:
             idempotency_key = self.idempotency_key
 
         late_minutes = self.late_minutes
+
+        memory_query: None | str | Unset
+        if isinstance(self.memory_query, Unset):
+            memory_query = UNSET
+        else:
+            memory_query = self.memory_query
 
         model = self.model
 
@@ -105,6 +115,8 @@ class TaskIn:
             field_dict["idempotency_key"] = idempotency_key
         if late_minutes is not UNSET:
             field_dict["late_minutes"] = late_minutes
+        if memory_query is not UNSET:
+            field_dict["memory_query"] = memory_query
         if model is not UNSET:
             field_dict["model"] = model
         if run_at is not UNSET:
@@ -148,6 +160,15 @@ class TaskIn:
         idempotency_key = _parse_idempotency_key(d.pop("idempotency_key", UNSET))
 
         late_minutes = d.pop("late_minutes", UNSET)
+
+        def _parse_memory_query(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        memory_query = _parse_memory_query(d.pop("memory_query", UNSET))
 
         model = d.pop("model", UNSET)
 
@@ -199,6 +220,7 @@ class TaskIn:
             delivery=delivery,
             idempotency_key=idempotency_key,
             late_minutes=late_minutes,
+            memory_query=memory_query,
             model=model,
             run_at=run_at,
             source_conversation_id=source_conversation_id,

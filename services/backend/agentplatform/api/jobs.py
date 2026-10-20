@@ -24,6 +24,7 @@ from agentplatform.materialize import materialize_run
 from agentplatform.relay import SCHEDULER_AUTHOR
 from agentplatform.relay_store import summon_channel
 from agentplatform.scheduler import is_valid_cron, is_valid_timezone
+from agentplatform.memory_queries import MemoryQuery
 
 from agentplatform.api import schemas as S
 router = APIRouter(dependencies=[Depends(require_admin)])
@@ -31,6 +32,7 @@ router = APIRouter(dependencies=[Depends(require_admin)])
 
 def _view(j: ScheduledJob) -> dict:
     return {"id": j.id, "name": j.name, "agent": j.agent, "cron": j.cron,
+            "memory_query": j.memory_query,
             "relay_channel": j.relay_channel,
             "timezone": j.timezone or "", "prompt": j.prompt, "model": j.model or "",
             "run_when": j.run_when or "always",
@@ -43,6 +45,7 @@ class JobIn(BaseModel):
     name: str
     cron: str
     prompt: str
+    memory_query: MemoryQuery = None
     # Exactly one of these: run an agent, or post into a Relay channel.
     agent: str | None = None
     relay_channel: str | None = None
@@ -57,6 +60,7 @@ class JobPatch(BaseModel):
     cron: str | None = None
     timezone: str | None = None
     prompt: str | None = None
+    memory_query: MemoryQuery = None
     enabled: bool | None = None
     model: str | None = None
     run_when: Literal["always", "discord_unaddressed"] | None = None
@@ -87,6 +91,8 @@ async def list_jobs(request: Request):
 async def create_job(request: Request, body: JobIn):
     if bool(body.agent) == bool(body.relay_channel):
         raise HTTPException(422, "a job needs exactly one of agent or relay_channel")
+    if body.memory_query is not None and body.relay_channel:
+        raise HTTPException(422, "memory_query requires an agent job")
     if body.run_when != "always" and not body.agent:
         raise HTTPException(422, "conditional scan requires an agent job")
     # `_check` resolves the AGENT but never the room: a channel can be archived
@@ -98,6 +104,7 @@ async def create_job(request: Request, body: JobIn):
         job = ScheduledJob(name=body.name, agent=body.agent, cron=body.cron,
                            relay_channel=body.relay_channel,
                            timezone=body.timezone, prompt=body.prompt, model=body.model,
+                           memory_query=body.memory_query,
                            run_when=body.run_when)
         s.add(job)
         await s.commit()
@@ -117,6 +124,10 @@ async def edit_job(request: Request, job_id: str, body: JobPatch):
         if body.agent is not None and job.relay_channel:
             raise HTTPException(422, "a relay job has no agent; delete it and "
                                      "create an agent job instead")
+        if body.memory_query is not None and job.relay_channel:
+            raise HTTPException(422, "memory_query requires an agent job")
+        if 'memory_query' in body.model_fields_set:
+            job.memory_query = body.memory_query
         if body.run_when == "discord_unaddressed" and job.relay_channel:
             raise HTTPException(422, "conditional scan requires an agent job")
         for field in ("name", "agent", "cron", "timezone", "prompt", "enabled", "model", "run_when"):
@@ -150,6 +161,7 @@ async def run_job_now(request: Request, job_id: str, principal: str = Depends(re
         if job is None:
             raise HTTPException(404, "unknown job")
         agent, prompt, channel, model = job.agent, job.prompt, job.relay_channel, job.model
+        memory_query = job.memory_query
     if channel:
         # Authored `system:scheduler`, exactly as the tick would write it: a
         # summons a human could distinguish from the 09:00 one would be a
@@ -173,5 +185,6 @@ async def run_job_now(request: Request, job_id: str, principal: str = Depends(re
         "trigger": "manual", "requested_by": f"{principal} (job:{job_id})",
         "initiated_by": principal,
         "model": model or "",
+        **({"memory_query": memory_query} if memory_query is not None else {}),
     })
     return {"id": run_id, "agent": agent, "relay_channel": None}

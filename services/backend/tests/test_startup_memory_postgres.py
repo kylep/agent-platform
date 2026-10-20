@@ -7,6 +7,7 @@ from sqlalchemy import select,text
 from agentplatform import semantic_memory as semantic
 from agentplatform.db import AgentDef,Memory,Run,RunStartupContext,init_db,make_engine,make_session_factory
 from agentplatform.config import Settings
+from agentplatform.db import utcnow
 from agentplatform.agents import AgentStore
 from agentplatform.dispatcher import Dispatcher,FakeLauncher
 from agentplatform.events import FakeProducer
@@ -352,4 +353,70 @@ async def test_detached_semantic_capture_preserves_or_omits_required_value(monke
                 assert sum(len(m['content']) for m in packet.payload['memories'])==12000
                 assert target.content[record['excerpt']['start']:record['excerpt']['end']]==record['content']
             assert packet.digest==digest(packet.payload)
+    finally:await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_explicit_query_columns_upgrade_preserves_populated_rows():
+    from agentplatform.db import ScheduledTask,ScheduledJob
+    from datetime import timedelta
+    engine=make_engine(os.environ['AP_PERSONA_TEST_POSTGRES_URL'])
+    try:
+        await init_db(engine);sf=make_session_factory(engine);nonce=uuid.uuid4().hex
+        async with sf() as s:
+            run=Run(agent='query-upgrade',trigger='manual',requested_by='test',prompt='preserved instructions')
+            task=ScheduledTask(title='preserved task',agent='query-upgrade',prompt='task instructions',runtime='claude',model='sonnet',run_at=utcnow()+timedelta(hours=1),expires_at=utcnow()+timedelta(hours=2),creator='user:admin',run_id=nonce)
+            job=ScheduledJob(name='preserved job',agent='query-upgrade',cron='0 12 * * *',prompt='job instructions')
+            s.add_all([run,task,job]);await s.commit();ids=(run.id,task.id,job.id)
+        async with engine.begin() as c:
+            for table in ['runs','scheduled_tasks','scheduled_jobs']:
+                await c.execute(text('ALTER TABLE '+table+' DROP COLUMN memory_query'))
+        await init_db(engine);await init_db(engine)
+        async with sf() as s:
+            rows=[await s.get(cls,rid) for cls,rid in zip([Run,ScheduledTask,ScheduledJob],ids)]
+            assert all(r.memory_query is None for r in rows)
+            assert [r.prompt for r in rows]==['preserved instructions','task instructions','job instructions']
+            for r in rows:r.memory_query='🦊 explicit query'
+            await s.commit()
+        async with sf() as s:
+            for cls,rid in zip([Run,ScheduledTask,ScheduledJob],ids):
+                assert (await s.get(cls,rid)).memory_query=='🦊 explicit query'
+    finally:await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_pg_explicit_query_changes_capture_without_changing_instructions(monkeypatch):
+    from datetime import timedelta
+    engine=make_engine(os.environ['AP_PERSONA_TEST_POSTGRES_URL'])
+    try:
+        await init_db(engine);await semantic.migrate(engine);sf=make_session_factory(engine)
+        agent='query-'+uuid.uuid4().hex[:8]
+        async with sf() as s:
+            s.add(AgentDef(name=agent,agent_type='persona',prompt='use supplied memory',platform_tools=['mcp__platform__memory']))
+            target=Memory(agent=agent,key='archived-target',content='x'*2500+' atticbadge: indigo-canal-42. '+'y'*2500,updated_at=utcnow()-timedelta(days=2))
+            s.add(target)
+            s.add_all([Memory(agent=agent,content=f'Routine receipt {i}.') for i in range(30)])
+            await s.commit()
+        async def vectors(settings,inputs):
+            return [[1.,0.]+[0.]*766 if ('title: archived-target' in t or t=='task: search result | query: atticbadge') else [0.,1.]+[0.]*766 for t in inputs]
+        monkeypatch.setattr(semantic,'embed',vectors)
+        settings=Settings(memory_semantic_enabled=True,memory_semantic_agents=agent,startup_memory_pilot_agents=agent)
+        while await semantic.reconcile(sf,settings,batch=32):pass
+        store=AgentStore(sf);await store.reload();disp=Dispatcher(settings,sf,FakeProducer(),store,FakeLauncher())
+        prompt='Follow these execution instructions carefully. '*90+'What is atticbadge?'
+        observations=[]
+        for query in [None,'atticbadge']:
+            async with sf() as s:
+                run=Run(agent=agent,trigger='manual',requested_by='test',prompt=prompt,memory_query=query)
+                s.add(run);await s.commit()
+            assert (await disp._freeze_definition(run))[1] is None
+            async with sf() as s:
+                packet=await s.get(RunStartupContext,run.id)
+                match=next((r for r in packet.payload['memories'] if r['id']==target.id),None)
+                observations.append(bool(match and 'indigo-canal-42' in match['content']))
+                assert packet.provenance['retrieval']['state']=='hybrid'
+                assert packet.provenance['retrieval']['query']['source']==('explicit_memory_query' if query else 'prompt')
+                assert (await s.get(Run,run.id)).prompt==prompt
+                if match:assert target.content[match['excerpt']['start']:match['excerpt']['end']]==match['content']
+        assert observations==[False,True]
     finally:await engine.dispose()

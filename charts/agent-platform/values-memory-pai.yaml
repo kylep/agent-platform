@@ -3,10 +3,10 @@
 # No prompts, credentials or database image/storage changes belong here.
 images:
   backend:
-    tag: memory-ca7-v4
+    tag: memory-ca8-v1
 mcpBroker:
   image:
-    tag: memory-ad48329
+    tag: memory-ca8-v1
 env:
   AP_STARTUP_MEMORY_PILOT_AGENTS: pai
   AP_MEMORY_SEMANTIC_ENABLED: "true"

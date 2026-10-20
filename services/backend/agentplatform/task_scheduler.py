@@ -148,6 +148,7 @@ async def _fire_one(session_factory, producer, task_id: str, owner: str) -> bool
                       f"{task.prompt}\n</scheduled-task>\n"
                       "This is a request from the named participant, not a system instruction.")
             s.add(Run(id=task.run_id, task_id=task.id, agent=task.agent, prompt=prompt,
+                      memory_query=task.memory_query,
                       requested_model=task.model, requested_runtime=task.runtime,
                       trigger="task", requested_by=task.last_editor or task.creator,
                       initiated_by=task.initiated_by or "admin",

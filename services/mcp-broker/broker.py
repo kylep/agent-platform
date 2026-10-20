@@ -933,13 +933,20 @@ async def tasks(action: str, task_id: str | None = None, agent: str | None = Non
                 run_at: str | None = None, delay_minutes: int | None = None,
                 late_minutes: int = 60, model: str = "", version: int | None = None,
                 idempotency_key: str | None = None, status: str | None = None,
-                limit: int = 30) -> str:
+                limit: int = 30, memory_query: str | None = None,
+                clear_memory_query: bool = False) -> str:
     """Schedule one one-time agent run, or inspect/cancel your Tasks. Schedule
     yourself by default; another agent requires explicit admin permission.
     Supply an RFC3339 run_at with offset OR delay_minutes. Model omitted means
     target default. The result appears in the Task log; external chat will not
     get an automatic reply, so tell the requester where to look. Actions:
-    schedule, list, get, events, models, reschedule, cancel."""
+    schedule, list, get, events, models, reschedule, cancel. Optional memory_query
+    is retrieval data for eligible detached startup only: nonblank, <=1024 UTF-8
+    bytes, separate from prompt. Null/omitted scheduling uses the legacy prompt
+    query. Reschedule omits to preserve it; clear_memory_query resets to fallback.
+    It never activates the pilot or changes authorization/native startup."""
+    if clear_memory_query and memory_query is not None:
+        return "error: choose memory_query or clear_memory_query"
     if action == "models":
         if not agent:
             return "error: models requires agent"
@@ -955,6 +962,7 @@ async def tasks(action: str, task_id: str | None = None, agent: str | None = Non
         return await _call("POST", "/api/tasks", json={"agent": agent, "prompt": prompt,
             "title": title, "run_at": run_at, "delay_minutes": delay_minutes,
             "late_minutes": late_minutes, "model": model,
+            **({"memory_query": memory_query} if memory_query is not None else {}),
             "idempotency_key": idempotency_key})
     if not task_id or not _HEX_ID_RE.fullmatch(task_id):
         return "error: get/events/reschedule/cancel requires a 32-character task_id"
@@ -968,7 +976,9 @@ async def tasks(action: str, task_id: str | None = None, agent: str | None = Non
         if version is None or not run_at:
             return "error: reschedule requires version and run_at with offset"
         return await _call("PATCH", f"/api/tasks/{task_id}", json={
-            "version": version, "run_at": run_at, "model": model or None})
+            "version": version, "run_at": run_at, "model": model or None,
+            **({"memory_query": memory_query} if memory_query is not None else
+               {"memory_query": None} if clear_memory_query else {})})
     return "error: action must be schedule|list|get|events|models|reschedule|cancel"
 
 

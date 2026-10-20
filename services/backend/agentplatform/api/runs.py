@@ -28,6 +28,7 @@ from agentplatform.events import TOPIC_RUN_REQUESTS
 from agentplatform.github import GitHubClient
 from agentplatform.secrets import CODEX_CREDENTIAL
 from agentplatform.materialize import materialize_run
+from agentplatform.memory_queries import MemoryQuery
 from agentplatform.model_fallback import notice as fallback_notice
 
 log = logging.getLogger("runs")
@@ -39,6 +40,7 @@ class RunIn(BaseModel):
     agent: str
     prompt: str
     model: str = ""
+    memory_query: MemoryQuery = None
 
 class AnnotateIn(BaseModel):
     summary: str | None = None
@@ -129,6 +131,7 @@ async def create_run(request: Request, body: RunIn,
         "initiated_by": initiated_by,
         "parent_run_id": parent_run_id if trigger == "agent" else None, "depth": depth,
         "model": body.model,
+        "memory_query": body.memory_query,
     })
     return {"id": run_id, "state": "queued"}
 

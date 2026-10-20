@@ -20,6 +20,9 @@ class JobIn:
         name (str):
         prompt (str):
         agent (None | str | Unset):
+        memory_query (None | str | Unset): Optional detached retrieval query: nonblank, at most 1024 UTF-8 bytes. Null
+            uses the existing execution-prompt query; PATCH omission preserves the stored value. Creation omission defaults
+            to null. Does not change instructions or access.
         model (str | Unset):  Default: ''.
         relay_channel (None | str | Unset):
         run_when (JobInRunWhen | Unset):  Default: JobInRunWhen.ALWAYS.
@@ -30,6 +33,7 @@ class JobIn:
     name: str
     prompt: str
     agent: None | str | Unset = UNSET
+    memory_query: None | str | Unset = UNSET
     model: str | Unset = ""
     relay_channel: None | str | Unset = UNSET
     run_when: JobInRunWhen | Unset = JobInRunWhen.ALWAYS
@@ -48,6 +52,12 @@ class JobIn:
             agent = UNSET
         else:
             agent = self.agent
+
+        memory_query: None | str | Unset
+        if isinstance(self.memory_query, Unset):
+            memory_query = UNSET
+        else:
+            memory_query = self.memory_query
 
         model = self.model
 
@@ -74,6 +84,8 @@ class JobIn:
         )
         if agent is not UNSET:
             field_dict["agent"] = agent
+        if memory_query is not UNSET:
+            field_dict["memory_query"] = memory_query
         if model is not UNSET:
             field_dict["model"] = model
         if relay_channel is not UNSET:
@@ -103,6 +115,15 @@ class JobIn:
 
         agent = _parse_agent(d.pop("agent", UNSET))
 
+        def _parse_memory_query(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        memory_query = _parse_memory_query(d.pop("memory_query", UNSET))
+
         model = d.pop("model", UNSET)
 
         def _parse_relay_channel(data: object) -> None | str | Unset:
@@ -128,6 +149,7 @@ class JobIn:
             name=name,
             prompt=prompt,
             agent=agent,
+            memory_query=memory_query,
             model=model,
             relay_channel=relay_channel,
             run_when=run_when,

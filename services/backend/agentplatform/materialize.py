@@ -7,6 +7,8 @@ redelivered inbound event is a no-op."""
 import asyncio
 import logging
 
+from agentplatform.memory_queries import validate_memory_query
+
 from agentplatform.db import Conversation, Project, Run, Team
 from agentplatform.authority import current_generation
 from agentplatform.events import TOPIC_RUN_REQUESTS
@@ -70,6 +72,7 @@ async def materialize_run(session_factory, producer, spec: dict,
                 prompt = "<work-context>\n" + "\n".join(context) + "\n</work-context>\n\n" + prompt
             s.add(Run(
                 id=run_id, agent=spec["agent"], prompt=prompt,
+                memory_query=validate_memory_query(spec.get('memory_query')),
                 authorization_generation=generation,
                 trigger=spec["trigger"], requested_by=spec["requested_by"],
                 initiated_by=spec.get("initiated_by") or "admin",

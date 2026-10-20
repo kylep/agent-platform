@@ -23,6 +23,7 @@ class JobView:
         name (str):
         next_fire (None | str):
         prompt (str):
+        memory_query (None | str | Unset):
         model (str | Unset):  Default: ''.
         relay_channel (None | str | Unset):
         run_when (str | Unset):  Default: 'always'.
@@ -37,6 +38,7 @@ class JobView:
     name: str
     next_fire: None | str
     prompt: str
+    memory_query: None | str | Unset = UNSET
     model: str | Unset = ""
     relay_channel: None | str | Unset = UNSET
     run_when: str | Unset = "always"
@@ -62,6 +64,12 @@ class JobView:
         next_fire = self.next_fire
 
         prompt = self.prompt
+
+        memory_query: None | str | Unset
+        if isinstance(self.memory_query, Unset):
+            memory_query = UNSET
+        else:
+            memory_query = self.memory_query
 
         model = self.model
 
@@ -89,6 +97,8 @@ class JobView:
                 "prompt": prompt,
             }
         )
+        if memory_query is not UNSET:
+            field_dict["memory_query"] = memory_query
         if model is not UNSET:
             field_dict["model"] = model
         if relay_channel is not UNSET:
@@ -135,6 +145,15 @@ class JobView:
 
         prompt = d.pop("prompt")
 
+        def _parse_memory_query(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        memory_query = _parse_memory_query(d.pop("memory_query", UNSET))
+
         model = d.pop("model", UNSET)
 
         def _parse_relay_channel(data: object) -> None | str | Unset:
@@ -159,6 +178,7 @@ class JobView:
             name=name,
             next_fire=next_fire,
             prompt=prompt,
+            memory_query=memory_query,
             model=model,
             relay_channel=relay_channel,
             run_when=run_when,

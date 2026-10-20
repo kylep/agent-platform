@@ -19,6 +19,9 @@ class JobPatch:
         agent (None | str | Unset):
         cron (None | str | Unset):
         enabled (bool | None | Unset):
+        memory_query (None | str | Unset): Optional detached retrieval query: nonblank, at most 1024 UTF-8 bytes. Null
+            uses the existing execution-prompt query; PATCH omission preserves the stored value. Creation omission defaults
+            to null. Does not change instructions or access.
         model (None | str | Unset):
         name (None | str | Unset):
         prompt (None | str | Unset):
@@ -29,6 +32,7 @@ class JobPatch:
     agent: None | str | Unset = UNSET
     cron: None | str | Unset = UNSET
     enabled: bool | None | Unset = UNSET
+    memory_query: None | str | Unset = UNSET
     model: None | str | Unset = UNSET
     name: None | str | Unset = UNSET
     prompt: None | str | Unset = UNSET
@@ -54,6 +58,12 @@ class JobPatch:
             enabled = UNSET
         else:
             enabled = self.enabled
+
+        memory_query: None | str | Unset
+        if isinstance(self.memory_query, Unset):
+            memory_query = UNSET
+        else:
+            memory_query = self.memory_query
 
         model: None | str | Unset
         if isinstance(self.model, Unset):
@@ -96,6 +106,8 @@ class JobPatch:
             field_dict["cron"] = cron
         if enabled is not UNSET:
             field_dict["enabled"] = enabled
+        if memory_query is not UNSET:
+            field_dict["memory_query"] = memory_query
         if model is not UNSET:
             field_dict["model"] = model
         if name is not UNSET:
@@ -139,6 +151,15 @@ class JobPatch:
             return cast(bool | None | Unset, data)
 
         enabled = _parse_enabled(d.pop("enabled", UNSET))
+
+        def _parse_memory_query(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        memory_query = _parse_memory_query(d.pop("memory_query", UNSET))
 
         def _parse_model(data: object) -> None | str | Unset:
             if data is None:
@@ -197,6 +218,7 @@ class JobPatch:
             agent=agent,
             cron=cron,
             enabled=enabled,
+            memory_query=memory_query,
             model=model,
             name=name,
             prompt=prompt,

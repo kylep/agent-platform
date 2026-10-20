@@ -305,8 +305,8 @@ fact, truth, relevance, or correct use. No general prose parser is claimed.
 Historical captures remain immutable; fresh captures use the new policy.
 
 Retrieval also exposes `query.input_utf8_bytes`, `used_utf8_bytes`, and `truncated`.
-The existing first-1,024-UTF-8-byte query preprocessing remains unchanged. Detached
-tasks currently use their execution prompt as the query: a question after that
+The existing first-1,024-UTF-8-byte query preprocessing remains unchanged. Without
+an explicit query, detached tasks use their execution prompt: a question after that
 prefix can be lost, now visibly. An empty result for such a query is not proof of
 absence. No model-driven prompt rewrite or relevance cutoff is introduced.
 
@@ -334,3 +334,59 @@ column migration; old events/readers remain compatible. Query text is private
 namespace data and may contain sensitive user text; it is excluded from the
 global tool aggregates and the general audit view. Audit publication failures do
 not fail the underlying tool call and therefore can leave gaps.
+
+## Explicit queries for detached startup
+
+`memory_query` is optional retrieval data, separate from execution `prompt`.
+Supported creation surfaces are `POST /api/runs`, agent recurring Jobs (including
+Run Now), one-time Tasks, and the `memory_query` member of a declared cron entry.
+The Tasks broker Tool accepts it on `schedule` and `reschedule`; the generated
+REST facade/SDK exposes the corresponding API fields. Native-session startup and
+explicit `memory(read, mode="hybrid", q=...)` retain their existing contracts.
+
+On creation, missing or JSON null selects the legacy query (`user_message` when
+nonempty, otherwise the full stored execution prompt). Explicit strings must be
+nonblank, valid Unicode without NUL, and at most 1,024 UTF-8 bytes *before*
+trimming outer whitespace. Empty/whitespace, nonstrings and oversized inputs get
+422. The query is not silently expanded/truncated to accept an oversized explicit
+value. Existing embedding preprocessing, model generation and 2,048-token safety
+margin remain unchanged; legacy full prompts still receive the existing
+Unicode-safe 1,024-byte prefix. No automatic head/tail extraction is performed.
+
+Task/Job PATCH omission preserves the stored query; explicit JSON null clears it
+to legacy derivation. The Tasks Tool uses `clear_memory_query=true` to express
+that reset on reschedule; omit both query arguments to preserve it. A Task's
+existing optimistic version check still applies, and it cannot be edited after
+starting. Query changes participate in Task idempotency; null is excluded from
+its request hash so historical missing-field retries remain compatible.
+
+The query is persisted independently on Tasks, Jobs and Runs through the existing
+locked, additive nullable-column migration. Old rows mean null. Recurring cron
+entries use the existing versioned agent-definition JSON. Each fire copies the
+query into its Run; materialization replay cannot replace it. Dispatch retries
+retain it, and the first authorized capture freezes the selected packet and its
+provenance. Editing a schedule affects future runs, not historical captures.
+
+The field never enables startup memory, changes the persona namespace, expands
+Tools/grants, changes execution instructions, or alters current pilot eligibility.
+In particular, agent-created Tasks have a parent run and remain outside the
+current detached pilot, as do Relay/conversation-linked Tasks. Their stored query
+is a hint only if that execution path becomes eligible under a future explicit
+policy change. Eligible administrator-created detached Tasks/manual runs and
+root recurring agent schedules can use it now when their persona is opted in.
+Disabled or non-pilot paths retain the old startup selection behavior.
+
+Captured private `provenance.retrieval.query` records `source` as
+`explicit_memory_query`, `user_message`, or `prompt`, plus input/used UTF-8 byte
+counts and `truncated`. It adds no broadly visible raw-query audit log. Run
+summaries/details do not newly expose the field. Task reads retain their
+creator/target namespace fence; Jobs are admin-only. Declared cron queries retain
+the same configuration/version visibility as the rest of an agent's definition;
+these configuration fields are not a secret store. Captured content, query
+metadata and run outputs keep the existing private startup authority boundary.
+
+Deploy the backend migration and updated broker before relying on the field.
+Older images can coexist with nullable columns and old clients can omit it. A
+rollback must first cancel/defer newly queued explicit-query runs and pending
+Tasks/Jobs requiring it: older code would use its legacy derivation. Keep the
+additive columns and immutable captured packets; do not drop data to roll back.

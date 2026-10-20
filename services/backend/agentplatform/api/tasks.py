@@ -16,6 +16,7 @@ from agentplatform.api.auth import authenticate, require_admin
 from agentplatform.db import (AgentDef, Conversation, Principal, Run, RunState, ScheduledTask, ScheduledTaskEvent,
                               TaskScheduleGrant, utcnow)
 from agentplatform.scheduler import as_utc
+from agentplatform.memory_queries import MemoryQuery
 
 router = APIRouter()
 TOOL = "mcp__platform__tasks"
@@ -26,6 +27,7 @@ class TaskIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
     agent: str
     prompt: str = Field(min_length=1, max_length=20000)
+    memory_query: MemoryQuery = None
     title: str = Field(default="One-time run", min_length=1, max_length=128)
     run_at: datetime | None = None
     delay_minutes: int | None = Field(default=None, ge=1, le=525600)
@@ -57,6 +59,7 @@ class TaskPatch(BaseModel):
     version: int
     title: str | None = Field(default=None, min_length=1, max_length=128)
     prompt: str | None = Field(default=None, min_length=1, max_length=20000)
+    memory_query: MemoryQuery = None
     run_at: datetime | None = None
     timezone: str | None = None
     late_minutes: int | None = Field(default=None, ge=1, le=1440)
@@ -113,7 +116,7 @@ def view(task: ScheduledTask, run: Run | None = None) -> dict:
               if task.delivery == "relay" else
               "The result will appear in the Task log; no automatic external-chat reply is sent.")
     return {"id": task.id, "title": task.title, "agent": task.agent,
-            "prompt": task.prompt, "runtime": task.runtime, "model": task.model,
+            "prompt": task.prompt, "memory_query": task.memory_query, "runtime": task.runtime, "model": task.model,
             "run_at": as_utc(task.run_at).isoformat(),
             "expires_at": as_utc(task.expires_at).isoformat(),
             "timezone": task.timezone, "creator": task.creator,
@@ -211,7 +214,10 @@ async def create_task(request: Request, body: TaskIn, who: Caller = Depends(call
     if due < now + timedelta(seconds=45) or due > now + timedelta(days=365):
         raise HTTPException(422, "time must be at least one minute and at most one year ahead")
     creator = f"agent:{who.agent}" if who.agent else f"user:{who.name}"
-    digest = hashlib.sha256(json.dumps(body.model_dump(mode="json"), sort_keys=True).encode()).hexdigest()
+    request_data = body.model_dump(mode="json")
+    if body.memory_query is None:
+        request_data.pop('memory_query')  # preserve legacy idempotency hashes
+    digest = hashlib.sha256(json.dumps(request_data, sort_keys=True).encode()).hexdigest()
     async with request.app.state.session_factory() as s:
         # Serialize the creator's caps and idempotency checks on its stable row.
         if who.agent:
@@ -264,6 +270,7 @@ async def create_task(request: Request, body: TaskIn, who: Caller = Depends(call
                 raise HTTPException(429, "Task creation limit reached")
         task = ScheduledTask(title=body.title.strip(), agent=body.agent,
             prompt=body.prompt.strip(), runtime=target.runtime, model=model,
+            memory_query=body.memory_query,
             run_at=due, expires_at=due + timedelta(minutes=body.late_minutes),
             timezone=body.timezone, creator=creator, creator_agent=who.agent,
             creator_run_id=who.run_id, initiated_by=(parent.initiated_by if parent else who.name),
@@ -399,6 +406,8 @@ async def edit_task(request: Request, task_id: str, body: TaskPatch,
             task.title = body.title.strip()
         if body.prompt is not None:
             task.prompt = body.prompt.strip()
+        if 'memory_query' in body.model_fields_set:
+            task.memory_query = body.memory_query
         if body.timezone is not None:
             try:
                 ZoneInfo(body.timezone)

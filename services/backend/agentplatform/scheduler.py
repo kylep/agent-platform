@@ -193,6 +193,7 @@ class Scheduler:
             run_id = uuid.uuid4().hex
             due = _due_entry(crons, now, tz)
             prompt, model = due.prompt.strip() or GENERIC_PROMPT, due.model
+            memory_query = due.memory_query
             sched.last_fire = now
             sched.next_fire = soonest  # from now → skip any missed fires
             await s.commit()
@@ -203,6 +204,7 @@ class Scheduler:
                 "run_id": run_id, "agent": name, "prompt": prompt,
                 "trigger": "schedule", "requested_by": "scheduler",
                 "model": model,
+                **({"memory_query": memory_query} if memory_query is not None else {}),
             }, type="run.requested")
         except Exception:
             log.warning("publish failed for scheduled run %s", run_id)
@@ -241,6 +243,7 @@ class Scheduler:
                     return
             run_id, agent, prompt = uuid.uuid4().hex, job.agent, job.prompt
             model = job.model or ""
+            memory_query = job.memory_query
             channel = job.relay_channel
             job.last_fire = now
             # from now → skip missed fires
@@ -267,6 +270,7 @@ class Scheduler:
                 "run_id": run_id, "agent": agent, "prompt": prompt,
                 "trigger": "schedule", "requested_by": f"job:{job_id}",
                 "model": model,
+                **({"memory_query": memory_query} if memory_query is not None else {}),
             }, type="run.requested")
         except Exception:
             log.warning("publish failed for scheduled job run %s", run_id)
