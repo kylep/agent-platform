@@ -117,7 +117,7 @@ not.
 |---|---|---|
 | `AP_INTERNAL_SECRET` | none (required) | The one credential `POST /api/internal/quota` accepts. Empty means that door refuses everybody (503). |
 | `AP_QUOTA_REFRESH_MIN_SECONDS` | `15` | The platform-wide floor between probes. |
-| `AP_QUOTA_PROBE_MODEL` | `claude-haiku-4-5` | What the probe asks about — the cheapest current model, since the completion is thrown away and the answer is a header. |
+| `AP_QUOTA_PROBE_MODEL` | `claude-haiku-5-5` | What the probe asks about — the cheapest current model, since the completion is thrown away and the answer is a header. |
 | `AP_QUOTA_PROBE_TIMEOUT_SECONDS` | `20` | How long a probe may take before it is a 503. |
 | `claudeProxy.quota.enabled` | `true` | Whether the proxy captures at all. Off: no Secret, no mount, no `AP_INTERNAL_SECRET`, and the internal route fails closed. |
 | `claudeProxy.quota.apiUrl` | `http://agent-platform-api:8000` | Where the proxy posts its reports. |

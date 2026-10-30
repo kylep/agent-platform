@@ -1310,7 +1310,9 @@ async def _ticket_detail(key: str) -> str:
             # refuses is reported in place rather than losing the whole read.
             thread = raw
     return _json.dumps({"ticket": detail.get("ticket"),
-                        "events": detail.get("events") or [], "thread": thread,
+                        "events": detail.get("events") or [],
+                        "events_omitted": detail.get("events_omitted") or 0,
+                        "thread": thread,
                         "runs": detail.get("runs") or [],
                         "thinking": detail.get("thinking")})
 

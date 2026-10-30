@@ -1168,7 +1168,10 @@ class TicketThinking(BaseModel):
 
 class TicketDetail(BaseModel):
     ticket: TicketView
+    # The opening event plus the newest rest; older edits beyond the page are
+    # counted here rather than shipped.
     events: list[TicketEventView]
+    events_omitted: int = 0
     # The card in the channel: the client reads the discussion by asking Relay
     # for this thread, rather than having the messages duplicated here.
     root_message_id: str | None

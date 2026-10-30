@@ -197,6 +197,37 @@ def _agent_tools(agent: str) -> list[str]:
 TOPIC_TRANSCRIPT, TOPIC_EVENTS = "run.transcript", "run.events"
 SCHEMA_VERSION = 1
 
+# Kafka refuses a record over 1 MB, and the producer's refusal used to kill the
+# run mid-turn: one 1.2 MB tool result (a ticket read, OPS-34) failed every run
+# that made it. A transcript event is evidence, not the agent's input — the
+# model already has the full result — so oversized strings are clipped here.
+TRANSCRIPT_EVENT_MAX = 512 * 1024
+TRANSCRIPT_STRING_KEEP = 8 * 1024
+
+
+def _bounded(payload: dict) -> dict:
+    size = len(json.dumps(payload))
+    if size <= TRANSCRIPT_EVENT_MAX:
+        return payload
+
+    def clip(value):
+        if isinstance(value, str) and len(value) > TRANSCRIPT_STRING_KEEP:
+            return (value[:TRANSCRIPT_STRING_KEEP]
+                    + f"… [{len(value) - TRANSCRIPT_STRING_KEEP} chars omitted from transcript]")
+        if isinstance(value, dict):
+            return {k: clip(v) for k, v in value.items()}
+        if isinstance(value, list):
+            return [clip(v) for v in value]
+        return value
+
+    clipped = {**clip(payload), "transcript_truncated": size}
+    if len(json.dumps(clipped)) <= TRANSCRIPT_EVENT_MAX:
+        return clipped
+    # Many small strings can still add up; keep what identifies the event.
+    return {k: payload[k] for k in ("seq", "type", "runtime", "model") if k in payload} | {
+        "transcript_truncated": size}
+
+
 def _envelope(type_: str, key: str, data: dict) -> dict:
     # Must match agentplatform.events.Envelope so the recorder can unwrap.
     return {"type": type_, "schema_version": SCHEMA_VERSION, "id": uuid.uuid4().hex,
@@ -1022,7 +1053,7 @@ async def _run(producer, run_id: str, agent: str, prompt: str) -> int:
                     if any(word in final_error.lower()
                            for word in ("unauthorized", "authentication failed", "401")):
                         payload["error"] = "authentication_failed"
-            await producer.publish(TOPIC_TRANSCRIPT, run_id, payload)
+            await producer.publish(TOPIC_TRANSCRIPT, run_id, _bounded(payload))
         code = await asyncio.to_thread(proc.wait)
         return code or int(attempt_failed)
 

@@ -20,7 +20,7 @@ from agentplatform.memory_queries import MemoryQuery
 
 router = APIRouter()
 TOOL = "mcp__platform__tasks"
-DEFAULT_MODELS = {"claude": "claude-sonnet-5-5", "codex": "gpt-6-sol"}
+DEFAULT_MODELS = {"claude": "claude-sonnet-5-5", "codex": "gpt-6.1-sol"}
 
 
 class TaskIn(BaseModel):

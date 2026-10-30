@@ -235,7 +235,7 @@ class Settings(BaseSettings):
     quota_refresh_min_seconds: int = 15
     # What the probe asks about. The cheapest current model, because the answer
     # is a header and the completion is thrown away.
-    quota_probe_model: str = "claude-haiku-4-5"
+    quota_probe_model: str = "claude-haiku-5-5"
     quota_probe_timeout_seconds: float = 20
     # Artifacts (docs/design/23). The bytes live in postgres, so both caps are
     # about the database and not the disk: one artifact is bounded the way a

@@ -1345,3 +1345,18 @@ def test_startup_excerpt_metadata_remains_protocol_one_compatible():
     packet['digest'] = hashlib.sha256(json.dumps(packet['payload'],ensure_ascii=False,sort_keys=True,separators=(',',':')).encode()).hexdigest()
     assert runner._memory_envelope({'startup_memory':packet}) == packet
     assert 'late matching passage' in runner._memory_block(packet)
+
+
+def test_an_oversized_transcript_event_is_clipped_not_fatal():
+    """A 1.2 MB tool result exceeded Kafka's record limit and killed the run."""
+    import runner
+    huge = {"seq": 9, "type": "item.completed", "item": {
+        "type": "mcp_tool_call", "tool": "tickets",
+        "result": {"content": [{"type": "text", "text": "x" * 1_300_000}]}}}
+    out = runner._bounded(huge)
+    assert len(json.dumps(out)) <= runner.TRANSCRIPT_EVENT_MAX
+    assert out["transcript_truncated"] > runner.TRANSCRIPT_EVENT_MAX
+    assert out["item"]["tool"] == "tickets"
+    assert "chars omitted" in out["item"]["result"]["content"][0]["text"]
+    small = {"seq": 1, "type": "turn.started"}
+    assert runner._bounded(small) is small

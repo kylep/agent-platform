@@ -11,6 +11,7 @@ import uuid
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from pydantic import BaseModel, ValidationError
 from sqlalchemy import select, update
+from sqlalchemy.orm import load_only
 from sqlalchemy.exc import IntegrityError
 from agentplatform import workbench
 from agentplatform import artifact_store, image_gen_service
@@ -176,10 +177,19 @@ async def list_runs(request: Request, limit: int = Query(50, ge=1, le=500),
         rows = rows[offset:offset + limit]
     return [_summary(r) for r in rows]
 
+TAG_WINDOW = 2000
+
+
 @router.get("/api/tags", response_model=list[str], dependencies=[Depends(require_role(*READ_ROLES))])
 async def list_tags(request: Request):
+    # The vocabulary of recent runs, reading only what the tag list and the
+    # access check need. Loading every whole Run (prompts included) here
+    # OOM-killed the API at the hourly run-summarizer pass.
+    columns = load_only(Run.id, Run.agent, Run.tags, Run.conversation_id,
+                        Run.startup_memory_enabled, Run.local_persona_session_id)
     async with request.app.state.session_factory() as s:
-        rows = (await s.execute(select(Run))).scalars().all()
+        rows = (await s.execute(select(Run).options(columns)
+                                .order_by(Run.created_at.desc()).limit(TAG_WINDOW))).scalars().all()
         seen: set[str] = set()
         for run in rows:
             try:

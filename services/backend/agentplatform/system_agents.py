@@ -62,18 +62,18 @@ def definitions() -> dict[str, dict]:
     specs = {
         "health-monitor": dict(prompt=HEALTH_PROMPT,
             description="Checks platform health and asks Pai internally about interventions.",
-            runtime="codex", model="gpt-5.6-terra", platform_tools=common + [
+            runtime="codex", model="gpt-6.1-terra", platform_tools=common + [
                 "mcp__platform__metrics", HEALTH_TOOL],
             entrypoints={"crons": [{"schedule": "*/15 * * * *"}]}),
         "change-summarizer": dict(**prompts["change"], runtime="claude", model="sonnet",
             platform_tools=common, harness_tools=["Read"], concurrency=2, timeout_seconds=180),
-        "run-summarizer": dict(**prompts["run"], runtime="codex", model="gpt-5.6-terra",
+        "run-summarizer": dict(**prompts["run"], runtime="codex", model="gpt-6.1-terra",
             platform_tools=common + ["mcp__platform__runs_read", "mcp__platform__runs_write"],
             entrypoints={"crons": [{"schedule": "0 * * * *"}]}),
         "wiki": dict(prompt=WIKI_AGENT_PROMPT, description=WIKI_AGENT_DESCRIPTION,
                      platform_tools=common),
         "codex-artist": dict(prompt=CODEX_ARTIST_PROMPT, description=CODEX_ARTIST_DESCRIPTION,
-            runtime="codex", model="gpt-5.6-luna", timeout_seconds=420,
+            runtime="codex", model="gpt-6-luna", timeout_seconds=420,
             platform_tools=["mcp__platform__artifacts", "mcp__platform__relay",
                             "mcp__platform__memory"]),
     }

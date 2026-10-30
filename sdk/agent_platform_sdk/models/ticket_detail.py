@@ -6,6 +6,8 @@ from typing import TYPE_CHECKING, Any, TypeVar, cast
 from attrs import define as _attrs_define
 from attrs import field as _attrs_field
 
+from ..types import UNSET, Unset
+
 if TYPE_CHECKING:
     from ..models.ticket_event_view import TicketEventView
     from ..models.ticket_run_ref import TicketRunRef
@@ -25,6 +27,7 @@ class TicketDetail:
         runs (list[TicketRunRef]):
         thinking (None | TicketThinking):
         ticket (TicketView):
+        events_omitted (int | Unset):  Default: 0.
     """
 
     events: list[TicketEventView]
@@ -32,6 +35,7 @@ class TicketDetail:
     runs: list[TicketRunRef]
     thinking: None | TicketThinking
     ticket: TicketView
+    events_omitted: int | Unset = 0
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -58,6 +62,8 @@ class TicketDetail:
 
         ticket = self.ticket.to_dict()
 
+        events_omitted = self.events_omitted
+
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
@@ -69,6 +75,8 @@ class TicketDetail:
                 "ticket": ticket,
             }
         )
+        if events_omitted is not UNSET:
+            field_dict["events_omitted"] = events_omitted
 
         return field_dict
 
@@ -118,12 +126,15 @@ class TicketDetail:
 
         ticket = TicketView.from_dict(d.pop("ticket"))
 
+        events_omitted = d.pop("events_omitted", UNSET)
+
         ticket_detail = cls(
             events=events,
             root_message_id=root_message_id,
             runs=runs,
             thinking=thinking,
             ticket=ticket,
+            events_omitted=events_omitted,
         )
 
         ticket_detail.additional_properties = d

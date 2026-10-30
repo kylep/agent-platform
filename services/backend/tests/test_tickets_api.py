@@ -406,6 +406,26 @@ async def test_the_detail_links_the_run_that_opened_it(admin_client, token_clien
     assert len(runs) == LINKED_RUNS
 
 
+async def test_the_detail_pages_a_long_history(admin_client, sf):
+    """A ticket edited ~1,400 times made a ~1 MB read that killed every Codex
+    run opening it (OPS-34): the page is the opener plus the newest rest."""
+    from agentplatform.api.tickets import DETAIL_EVENTS
+
+    t = await _open(admin_client)
+    async with sf() as s:
+        for i in range(DETAIL_EVENTS + 20):
+            s.add(TicketEvent(ticket_id=t["id"], actor="user:admin", kind="edited",
+                              to_value="body", reason=f"edit {i}",
+                              created_at=utcnow() + timedelta(minutes=i + 1)))
+        await s.commit()
+    detail = (await admin_client.get(f"/api/tickets/{t['key']}")).json()
+    events = detail["events"]
+    assert len(events) == DETAIL_EVENTS
+    assert detail["events_omitted"] == 21
+    assert events[0]["kind"] == "created"
+    assert events[-1]["reason"] == f"edit {DETAIL_EVENTS + 19}"
+
+
 async def test_an_agent_token_with_no_run_may_not_write(token_client, sf, seed_agent,
                                                         agent_store):
     """The store refuses an agent actor that brings no run — its posts would

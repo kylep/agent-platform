@@ -375,8 +375,9 @@ TOOL_HELP: list[dict] = [
                     "instructions."},
 ]
 
-# Sonnet 5.5 and GPT-6 Sol added from official release/model docs 2026-09-29.
-# Earlier choices remain available for existing configurations.
+# Fable 5.1, Opus 5.5, Haiku 5.5 and GPT-6.1 Sol/Terra + GPT-6 Luna added from
+# the official models overview and `codex debug models` 2026-10-30. Earlier
+# choices remain available for existing configurations.
 # Models the UI offers for an agent's `model:` (runner passes it to
 # `claude --model`). ADVISORY, not an allow-list: the server accepts any value,
 # so a brand-new model isn't blocked by a stale registry (the inverse trade-off
@@ -385,10 +386,13 @@ TOOL_HELP: list[dict] = [
 KNOWN_MODELS: list[dict[str, str]] = [
     {"id": "claude-sonnet-5-5", "label": "Sonnet 5.5 — speed + intelligence"},
     {"id": "", "label": "Platform default"},
-    {"id": "claude-fable-5", "label": "Fable 5 — most capable, long-running agents"},
-    {"id": "claude-opus-5", "label": "Opus 5 — complex agentic work"},
-    {"id": "claude-sonnet-5", "label": "Sonnet 5 — speed + intelligence"},
-    {"id": "claude-haiku-4-5", "label": "Haiku 4.5 — fastest"},
+    {"id": "claude-fable-5-1", "label": "Fable 5.1 — most capable, long-running agents"},
+    {"id": "claude-opus-5-5", "label": "Opus 5.5 — complex agentic work"},
+    {"id": "claude-haiku-5-5", "label": "Haiku 5.5 — fastest"},
+    {"id": "claude-fable-5", "label": "Fable 5 (legacy)"},
+    {"id": "claude-opus-5", "label": "Opus 5 (legacy)"},
+    {"id": "claude-sonnet-5", "label": "Sonnet 5 (legacy)"},
+    {"id": "claude-haiku-4-5", "label": "Haiku 4.5 (legacy)"},
     {"id": "claude-opus-4-8", "label": "Opus 4.8 (legacy)"},
     {"id": "claude-sonnet-4-6", "label": "Sonnet 4.6 (legacy)"},
     {"id": "claude-sonnet-4-5", "label": "Sonnet 4.5 (legacy)"},
@@ -398,14 +402,17 @@ KNOWN_MODELS: list[dict[str, str]] = [
 # Models offered by the ChatGPT-backed Codex CLI. This is the user-selectable
 # catalog, not every internal model returned by Codex's /models endpoint
 # (`gpt-reserve` and `codex-auto-review` are service machinery). Verified
-# against the official OpenAI model catalog and Codex CLI catalog 2026-09-20.
+# against `codex debug models` 2026-10-30.
 CODEX_MODELS: list[dict[str, str]] = [
-    {"id": "gpt-6-sol", "label": "GPT-6 Sol — capable and efficient"},
+    {"id": "gpt-6.1-sol", "label": "GPT-6.1 Sol — capable and efficient"},
     {"id": "gpt-6-astra", "label": "GPT-6 Astra — most capable"},
-    {"id": "gpt-5.6-sol", "label": "GPT-5.6 Sol — complex professional work"},
-    {"id": "gpt-5.6-terra", "label": "GPT-5.6 Terra — balanced"},
-    {"id": "gpt-5.6-luna", "label": "GPT-5.6 Luna — fast and efficient"},
-    {"id": "gpt-5.5", "label": "GPT-5.5 — previous generation"},
+    {"id": "gpt-6.1-terra", "label": "GPT-6.1 Terra — balanced"},
+    {"id": "gpt-6-luna", "label": "GPT-6 Luna — fast and efficient"},
+    {"id": "gpt-6-sol", "label": "GPT-6 Sol — previous generation"},
+    {"id": "gpt-5.6-sol", "label": "GPT-5.6 Sol (legacy)"},
+    {"id": "gpt-5.6-terra", "label": "GPT-5.6 Terra (legacy)"},
+    {"id": "gpt-5.6-luna", "label": "GPT-5.6 Luna (legacy)"},
+    {"id": "gpt-5.5", "label": "GPT-5.5 (legacy)"},
 ]
 
 _NAME_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,62}$")

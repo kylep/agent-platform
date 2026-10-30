@@ -1,7 +1,7 @@
 """Durable health-to-persona handoff using existing OPS Tickets and Relay."""
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from html import escape
 import hashlib
 
@@ -13,6 +13,13 @@ from agentplatform import ticket_store
 from agentplatform.relay import is_member, room_home
 from agentplatform.relay_store import enabled_agents, explicit_members
 from agentplatform.tickets import CLOSED_STATES
+
+
+# The worker is a model and rewords its evidence on every 15-minute pass, so a
+# content fingerprint alone never matches: OPS-26 logged ~1,400 edits that way.
+# Evidence on an open ticket is refreshed at most this often; `updated_at` is
+# the last time the ticket was written, not the last observation.
+EVIDENCE_REFRESH = timedelta(hours=6)
 
 
 class HealthIncident(Base):
@@ -80,10 +87,15 @@ async def report_incident(session, producer, *, incident_key: str, title: str,
                 body="Recovered: " + (body or "Health check is now healthy."), run=run)
         return ticket
     recurring = record.status == "resolved"
-    changed = record.fingerprint != fingerprint
+    last = record.updated_at
+    if last is not None and last.tzinfo is None:
+        last = last.replace(tzinfo=timezone.utc)   # sqlite drops the zone
+    changed = record.fingerprint != fingerprint and (
+        recurring or last is None or utcnow() - last >= EVIDENCE_REFRESH)
     record.status = "active"
-    record.fingerprint = fingerprint
-    record.updated_at = utcnow()
+    if recurring or changed:
+        record.fingerprint = fingerprint
+        record.updated_at = utcnow()
     if recurring and ticket.state in CLOSED_STATES:
         # Flush before store._lock refreshes the ticket. Its move event/card then
         # includes current evidence and commits the incident state atomically.

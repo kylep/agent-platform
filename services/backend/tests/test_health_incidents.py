@@ -86,3 +86,36 @@ async def test_incident_endpoint_checks_current_grant_run_and_identity(token_cli
     assert (await token_client.post("/api/health/incidents", json=body, headers=headers)).status_code == 403
     other = await _agent_token(sf, "pai", run_id=run_id)
     assert (await token_client.post("/api/health/incidents", json=body, headers=other)).status_code == 403
+
+
+async def test_reworded_evidence_is_refreshed_at_most_every_six_hours(sf, producer):
+    """The worker rewords its evidence each pass; OPS-26 took ~1,400 edits."""
+    from datetime import timedelta
+
+    from agentplatform.db import TicketEvent
+    from agentplatform.health_incidents import EVIDENCE_REFRESH
+
+    run_id = await _setup(sf)
+    ticket = await _report(sf, producer, run_id)
+
+    async def edits():
+        async with sf() as s:
+            return await s.scalar(select(func.count()).select_from(TicketEvent).where(
+                TicketEvent.ticket_id == ticket.id, TicketEvent.kind == "edited"))
+
+    async def observe(body):
+        async with sf() as s:
+            await report_incident(s, producer, run=await s.get(Run, run_id),
+                incident_key="kafka-down", title="Kafka unreachable", body=body)
+
+    for minute in range(3):
+        await observe(f"Broker unreachable, observed 12:{minute:02d}Z.")
+    assert await edits() == 0
+    async with sf() as s:
+        record = await s.get(HealthIncident, "kafka-down")
+        record.updated_at = record.updated_at - EVIDENCE_REFRESH - timedelta(minutes=1)
+        await s.commit()
+    await observe("Broker unreachable, observed 18:05Z.")
+    assert await edits() == 1
+    async with sf() as s:
+        assert "18:05Z" in (await s.get(Ticket, ticket.id)).body

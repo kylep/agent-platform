@@ -75,6 +75,11 @@ BUDGET_AGENTS = 5
 # Linked runs on the detail page: the recent ones, because the list is context
 # for the thread rather than a run history, which /api/runs already is.
 LINKED_RUNS = 10
+# History on the detail page: the event that opened the ticket plus the newest
+# rest. A health incident re-observed every 15 minutes logged ~1,400 edits on
+# one ticket, and the unbounded read (~1 MB, plus a run per edit) killed every
+# Codex run that opened it (OPS-34). `events_omitted` says what was cut.
+DETAIL_EVENTS = 50
 
 
 # --- resolving what the caller named -----------------------------------------
@@ -448,9 +453,17 @@ async def get_ticket(request: Request, key: str,
     agents = relay_api._agent_set(request)
     async with request.app.state.session_factory() as s:
         ticket = await _ticket_or_404(s, key, caller, agents)
-        events = list((await s.execute(select(TicketEvent).where(
-            TicketEvent.ticket_id == ticket.id)
-            .order_by(TicketEvent.created_at, TicketEvent.id))).scalars())
+        history = select(TicketEvent).where(TicketEvent.ticket_id == ticket.id)
+        newest = list((await s.execute(history.order_by(
+            TicketEvent.created_at.desc(), TicketEvent.id.desc())
+            .limit(DETAIL_EVENTS))).scalars())
+        total = (await s.execute(select(func.count()).select_from(
+            history.subquery()))).scalar_one()
+        events = newest[::-1]
+        if total > len(events):
+            opener = (await s.execute(history.order_by(
+                TicketEvent.created_at, TicketEvent.id).limit(1))).scalars().first()
+            events = [opener, *events[1:]]
         # `Run.ticket_id` is set only for a run SUMMONED in the thread, so on
         # its own it misses the run that opened the ticket and every run that
         # moved it through the tool — the ones whose events are already on this
@@ -477,6 +490,7 @@ async def get_ticket(request: Request, key: str,
     return {"ticket": view,
             "events": [{**store.ticket_event_view(e), "actor_face": _face(e.actor, faces)}
                        for e in events],
+            "events_omitted": total - len(events),
             "root_message_id": ticket.root_message_id,
             "runs": [{"id": r.id, "agent": r.agent, "state": str(r.state),
                       "trigger": r.trigger,

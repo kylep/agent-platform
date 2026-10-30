@@ -117,7 +117,7 @@ def test_get_returns_the_ticket_its_events_the_thread_and_the_runs(calls):
          {"thread": "m1", "limit": 40}, None),
     ]
     assert out == {"ticket": DETAIL["ticket"], "events": DETAIL["events"],
-                   "thread": THREAD, "runs": DETAIL["runs"], "thinking": None}
+                   "events_omitted": 0, "thread": THREAD, "runs": DETAIL["runs"], "thinking": None}
 
 
 def test_get_skips_the_thread_when_there_is_no_card(calls):
