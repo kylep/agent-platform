@@ -92,7 +92,7 @@ async def mint(request: Request, body: MintIn):
     # route authenticates itself rather than through `authenticate`.
     from agentplatform.dreams import MEMORY_TOOL, active_dream
     async with st.session_factory() as s:
-        dreaming = await active_dream(s, getattr(request.state, "api_key_run_id", None))
+        dreaming = await active_dream(s, run_id)  # the verified caller's run; None was refused above
     if dreaming is not None and manifest.mcp_name != MEMORY_TOOL:
         raise HTTPException(403, "a dreaming run may use only its memory Tool")
 
