@@ -8,6 +8,8 @@ images:
     tag: dream-355fda4
   runnerDev:
     tag: dream-355fda4
+  mcpFacade:
+    tag: dream-d0a546f
 mcpBroker:
   image:
     tag: dream-355fda4

@@ -26,7 +26,10 @@ log = logging.getLogger("dreams")
 
 MEMORY_TOOL = "mcp__platform__memory"
 ACTIVE = ("scheduled", "running")
-PAGE_CHARS = 60_000
+# Small enough to arrive inline: Claude Code moves a larger MCP result to a
+# file, which a dream holding only its memory Tool cannot page through (Olu's
+# first dream, 2026-11-02, read 80 of 154 memories that way).
+PAGE_CHARS = 16_000
 CANDIDATE_LOOKBACK = timedelta(days=7)
 MAX_LOOKBACK = timedelta(days=30)
 DEFAULT_WINDOW = timedelta(hours=24)
