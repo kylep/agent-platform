@@ -15,7 +15,7 @@ SQRT_252 = Decimal(252).sqrt(DECIMAL_CONTEXT)
 def required_bars(signal):
     """Closes needed before the event day. Return-based signals need one more
     bar than their window: N returns span N + 1 closes."""
-    if signal.name in ("trailing_return", "volatility"):
+    if signal.name in ("trailing_return", "volatility", "rsi"):
         return signal.window + 1
     return signal.window
 
@@ -43,12 +43,22 @@ def _drawdown_from_high(closes):
     return closes[-1] / max(closes) - 1
 
 
+def _rsi(closes):
+    changes = [b - a for a, b in zip(closes, closes[1:])]
+    gain = sum((c for c in changes if c > 0), Decimal(0))
+    loss = sum((-c for c in changes if c < 0), Decimal(0))
+    if loss == 0:
+        return Decimal(100) if gain > 0 else Decimal(50)
+    return 100 - 100 / (1 + gain / loss)
+
+
 _FUNCS = {
     "trailing_return": _trailing_return,
     "sma": _sma,
     "price_vs_sma": _price_vs_sma,
     "volatility": _volatility,
     "drawdown_from_high": _drawdown_from_high,
+    "rsi": _rsi,
 }
 
 

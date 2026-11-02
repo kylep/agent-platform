@@ -265,10 +265,10 @@ def test_unknown_allocator_names_the_registry():
 
 def test_unknown_signal_and_holdings_name_the_registry():
     msg = messages(minimal(strategies=[{"id": "a", "allocate": {"rank": {
-        "universe": ["SPY"], "signal": {"rsi": {"n": 14}}, "pick": {"top": 1}}},
+        "universe": ["SPY"], "signal": {"macd": {"n": 14}}, "pick": {"top": 1}}},
         "holdings": "hodl"}]))
-    assert ("unknown signal 'rsi'; the registry has: drawdown_from_high, price_vs_sma, "
-            "sma, trailing_return, volatility") in msg
+    assert ("unknown signal 'macd'; the registry has: drawdown_from_high, price_vs_sma, "
+            "rsi, sma, trailing_return, volatility") in msg
     assert "unknown holdings 'hodl'; the registry has: keep, rebalance, rotate" in msg
 
 

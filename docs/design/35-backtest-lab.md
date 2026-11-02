@@ -247,7 +247,7 @@ benchmark: qqq
 | Family | Primitives |
 |---|---|
 | Money in | `contributions {amount, every: day\|week\|month\|quarter\|year, on: first_trading_day\|last_trading_day\|day_n}`; `lump_sum {amount, on}`; the two combine |
-| Signals | `trailing_return(lookback)`, `sma(n)`, `price_vs_sma(n)`, `volatility(n)`, `drawdown_from_high(n)` |
+| Signals | `trailing_return(lookback)`, `sma(n)`, `price_vs_sma(n)`, `volatility(n)`, `drawdown_from_high(n)`, `rsi(n)` |
 | Allocators | `fixed {weights}`; `rank {universe, signal, pick: top N\|bottom N}` (equal weight); `when {signal op threshold, then, else}`, where `else` may be `cash` |
 | Holdings | `keep` (new money only; the default), `rotate` (sell all into the new allocation at each event), `rebalance {to: weights, every}` |
 | Costs | `commission` per trade, `slippage_bps`, `fx_bps` |

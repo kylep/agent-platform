@@ -132,6 +132,12 @@ def test_signal_values_and_history_requirements():
     vol = signals.compute(_sig("volatility", n=2), _past([10, 12, 9]))
     assert vol == (d("0.10125").sqrt() * d(252).sqrt())
     assert signals.compute(_sig("volatility", n=3), _past([10, 12, 9])) is None
+    # rsi 3 on [10, 12, 9, 15]: changes +2, -3, +6; gain 8, loss 3;
+    # 100 - 100 / (1 + 8/3) = 100 - 300/11; needs n + 1 closes
+    assert signals.compute(_sig("rsi", n=3), p) == 100 - d(300) / 11
+    assert signals.compute(_sig("rsi", n=4), p) is None
+    assert signals.compute(_sig("rsi", n=2), _past([10, 11, 12])) == 100
+    assert signals.compute(_sig("rsi", n=2), _past([10, 10, 10])) == 50
 
 
 # ---- goldens ----------------------------------------------------------------

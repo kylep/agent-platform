@@ -139,6 +139,15 @@ REGISTRY = (
         (_window("n", "number of trading days"),),
         "drawdown from its {n}-day high",
         {"drawdown_from_high": {"n": 252}}, unit="fraction"),
+    Primitive(
+        "rsi", "signal",
+        "Relative strength index over the last n daily price changes, 0-100: "
+        "100 - 100 / (1 + average gain / average loss), using simple averages "
+        "(Cutler's form, so the value depends only on the window). 100 when "
+        "there were no losses; 70+ is conventionally overbought, 30- oversold.",
+        (_window("n", "number of daily price changes", minimum=2),),
+        "{n}-day RSI",
+        {"rsi": {"n": 14}}, unit="index"),
     # -- allocators: where the money of an event goes -----------------------
     Primitive(
         "fixed", "allocator",
@@ -329,6 +338,17 @@ EXAMPLES = (
              "op": "<=", "threshold": "-0.1", "then": {"fixed": {"QQQ": 1}},
              "else": {"rank": {"universe": ["SPY", "TLT"],
                                "signal": {"sma": {"n": 50}}, "pick": {"top": 1}}}}}}]},
+    {"name": "tsla-overbought-step-aside",
+     "period": {"start": "2016-01-04", "end": "2026-01-02"},
+     "base_currency": "USD",
+     "contributions": {"amount": 500, "every": "month"},
+     "strategies": [
+         {"id": "rsi-filter", "allocate": {"when": {
+             "symbol": "TSLA", "signal": {"rsi": {"n": 14}},
+             "op": "<=", "threshold": 70, "then": {"fixed": {"TSLA": 1}},
+             "else": "cash"}}, "holdings": "rotate"},
+         {"id": "tsla", "allocate": {"fixed": {"TSLA": 1}}}],
+     "benchmark": "tsla"},
 )
 
 
