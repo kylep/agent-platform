@@ -3,7 +3,7 @@
 # No prompts, credentials or database image/storage changes belong here.
 images:
   backend:
-    tag: dream-d71c949
+    tag: ops39-11fbfdc
   runner:
     tag: dream-355fda4
   runnerDev:
@@ -12,7 +12,7 @@ images:
     tag: dream-d0a546f
 mcpBroker:
   image:
-    tag: dream-355fda4
+    tag: ops39-11fbfdc
 env:
   AP_STARTUP_MEMORY_PILOT_AGENTS: pai
   AP_MEMORY_SEMANTIC_ENABLED: "true"
