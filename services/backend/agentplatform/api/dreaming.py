@@ -31,6 +31,26 @@ def _text(limit: int):
     return Field(default="", max_length=limit)
 
 
+# Models overshoot field limits even when the schema states them (OPS-39:
+# gpt-6-astra sent a 260-character source_note). Clipping a note costs a few
+# words; a 422 costs the whole promise. `summary` and `destination` stay strict.
+_CLIP_MARK = "…"
+
+
+def _clipper(*fields: str):
+    def clip(cls, v, info):
+        limit = C.LIMITS[info.field_name]
+        if isinstance(v, str) and len(v) > limit:
+            return v[:limit - len(_CLIP_MARK)] + _CLIP_MARK
+        return v
+    return field_validator(*fields, mode="before")(classmethod(clip))
+
+
+def _clipped(body: BaseModel) -> list[str]:
+    return sorted(f for f, v in body.model_dump().items()
+                  if isinstance(v, str) and v.endswith(_CLIP_MARK) and len(v) == C.LIMITS.get(f))
+
+
 def _no_nul(v):
     if isinstance(v, str) and "\x00" in v:
         raise ValueError("must not contain NUL bytes")
@@ -80,12 +100,14 @@ class CommitIn(BaseModel):
     follow_up: str = _text(C.LIMITS["follow_up"])
     source_note: str = _text(C.LIMITS["source_note"])
     _nul = field_validator("summary", "destination", "meaning", "follow_up", "source_note")(_no_nul)
+    _clip = _clipper("meaning", "follow_up", "source_note")
 
 
 class CloseIn(BaseModel):
     result_ref: str = _text(C.LIMITS["result_ref"])
     note: str = _text(C.LIMITS["note"])
     _nul = field_validator("result_ref", "note")(_no_nul)
+    _clip = _clipper("result_ref", "note")
 
 
 @router.post("/api/commitments", status_code=201, dependencies=[Depends(require_role(*AGENT_ROLES))])
@@ -105,6 +127,8 @@ async def commit(request: Request, body: CommitIn):
         await s.flush()
         out = C.view(row)
         await s.commit()
+        if clipped := _clipped(body):
+            out["clipped"] = clipped
         return out
 
 
@@ -146,6 +170,8 @@ async def close_own(request: Request, action: Literal["complete", "void"], body:
         out = await _close(request, commitment_id, body, "done" if action == "complete" else "void",
                            agent, run.id, s)
         await s.commit()
+        if clipped := _clipped(body):
+            out["clipped"] = clipped
         return out
 
 
@@ -209,7 +235,10 @@ async def memory_delete(request: Request, body: DeleteIn):
         if row is None:
             raise HTTPException(404, "unknown memory")
         if not check_revision(body.expected_revision, row):
-            raise HTTPException(409, conflict(body.expected_revision, row))
+            raise HTTPException(409, {**conflict(body.expected_revision, row), "hint": (
+                "expected_revision must match the memory's current revision exactly; "
+                "copy it again from your latest review page, or compare it to current_revision "
+                "and retry only if this is the memory you meant to delete")})
         await H.attribute(s, run.id)
         await s.delete(row)
         try:

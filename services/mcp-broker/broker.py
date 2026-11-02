@@ -603,7 +603,7 @@ class CustomTool(Tool):
                 await _audit(agent, run_id, initiated_by, self.name, arguments, 'error:api-unreachable', t0)
                 return ToolResult(content='error: memory API unreachable; retry shortly')
             await _audit(agent, run_id, initiated_by, self.name, arguments,
-                         'allow' if result.is_success else 'deny:api', t0,
+                         'allow' if result.is_success else _api_decision(f'error: {result.status_code}'), t0,
                          memory_result_count=_memory_count(result.text) if result.is_success else None,
                          memory_details=_memory_details(result.text) if result.is_success else None)
             return ToolResult(content=result.text)
@@ -613,8 +613,7 @@ class CustomTool(Tool):
             except httpx.HTTPError:
                 await _audit(agent, run_id, initiated_by, self.name, arguments, 'error:api-unreachable', t0)
                 return ToolResult(content='error: memory API unreachable; retry shortly')
-            await _audit(agent, run_id, initiated_by, self.name, arguments,
-                         'deny:api' if text.startswith('error') else 'allow', t0)
+            await _audit(agent, run_id, initiated_by, self.name, arguments, _api_decision(text), t0)
             return ToolResult(content=text)
         caller = {"agent": agent, "run_id": run_id}
         payload = {"tool": self.name, "args": arguments, "caller": caller}
@@ -1013,6 +1012,24 @@ _MEMORY_API_ACTIONS = {"commit", "complete", "void", "commitments", "review", "d
 
 def _pick(arguments: dict, *names: str) -> dict:
     return {n: arguments[n] for n in names if arguments.get(n) not in (None, "")}
+
+
+def _api_decision(text: str) -> str:
+    """The audit decision for an API-served memory action. Only 401/403 are
+    denials: a 409 revision conflict or a 422 field error is the model's
+    mistake, and calling it a denial sent health-monitor hunting for a
+    missing grant (OPS-39)."""
+    if not text.startswith("error"):
+        return "allow"
+    m = re.match(r"error: (\d{3})\b", text)
+    code = int(m.group(1)) if m else 0
+    if code in (401, 403):
+        return "deny:api"
+    if code == 409:
+        return "error:conflict"
+    if code in (0, 400, 404, 422):  # 0: refused by the broker's own checks
+        return "error:invalid"
+    return "error:api"
 
 
 async def _memory_api(arguments: dict) -> str:

@@ -291,3 +291,15 @@ def test_a_dream_runs_narrowed_grants_refuse_other_platform_tools(monkeypatch):
     monkeypatch.setattr(broker, '_audit', audit)
     tool = broker.CustomTool(name='discord', description='d', parameters={'type': 'object', 'properties': {}})
     assert 'does not declare' in asyncio.run(tool.run({'action': 'send'})).content
+
+
+def test_memory_api_errors_are_denials_only_when_refused():
+    """OPS-39: a 422 or 409 is the model's mistake, not a missing grant."""
+    from broker import _api_decision
+    assert _api_decision('{"id": "x"}') == 'allow'
+    assert _api_decision('error: 403 {"detail":"dream only"}') == 'deny:api'
+    assert _api_decision('error: 401 expired') == 'deny:api'
+    assert _api_decision('error: 409 {"detail":{"code":"memory_revision_conflict"}}') == 'error:conflict'
+    assert _api_decision('error: 422 {"detail":[]}') == 'error:invalid'
+    assert _api_decision('error: 500 boom') == 'error:api'
+    assert _api_decision('error: commitment_id must be the 32-character id') == 'error:invalid'

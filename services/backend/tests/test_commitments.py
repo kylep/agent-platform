@@ -139,3 +139,22 @@ async def test_input_bounds_and_admin_surfaces(token_client, admin_client, sf, s
     assert voided.status_code == 200 and voided.json()["status"] == "void"
     async with sf() as s:
         assert (await s.get(Commitment, c["id"])).closed_by_run_id is None
+
+
+async def test_overlong_notes_are_clipped_not_rejected(token_client, sf, seed_agent):
+    """OPS-39: a model that overshoots a note's limit keeps its promise."""
+    from agentplatform.commitments import LIMITS
+    await _persona(seed_agent)
+    run = await _run(sf, "pai")
+    made = await _commit(token_client, sf, "pai", run, source_note="x" * 260)
+    assert made.status_code == 201, made.text
+    c = made.json()
+    assert c["clipped"] == ["source_note"]
+    assert len(c["source_note"]) == LIMITS["source_note"] and c["source_note"].endswith("…")
+    # The promise itself stays strict: a clipped summary would change what was promised.
+    assert (await _commit(token_client, sf, "pai", run, summary="y" * 201)).status_code == 422
+    headers = await _agent_token(sf, "pai", role="reader", run_id=run)
+    done = await token_client.post(f"/api/commitments/{c['id']}/complete", headers=headers,
+                                   json={"result_ref": "r" * 400})
+    assert done.status_code == 200, done.text
+    assert done.json()["clipped"] == ["result_ref"]

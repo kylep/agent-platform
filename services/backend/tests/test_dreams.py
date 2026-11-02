@@ -173,7 +173,7 @@ async def test_delete_requires_the_current_revision_and_pages_cover_memories(tok
     headers = await _agent_token(sf, "pai", role="reader", run_id=d.run_id)
     wrong = await token_client.post("/api/memory-delete", headers=headers,
                                     json={"memory_id": stale.id, "expected_revision": "0" * 64})
-    assert wrong.status_code == 409
+    assert wrong.status_code == 409 and "copy it again" in wrong.json()["detail"]["hint"]
     foreign = await token_client.post("/api/memory-delete", headers=headers,
                                       json={"memory_id": other.id, "expected_revision": other_rev})
     assert foreign.status_code == 404
