@@ -315,8 +315,10 @@ def _clip(text: str | None, n: int) -> str:
 async def readable_channels(s, agent: str, since: datetime, until: datetime) -> dict[str, Conversation]:
     """Rooms the agent can read *now*, among those it took part in: posted in
     recently, is an explicit participant of, or watches. Relay's own
-    `is_member` decides, so local-persona rooms and external rooms without
-    history permission never qualify."""
+    `is_member` decides, so external rooms without history permission never
+    qualify. Local-persona recordings are invisible to Relay, but the agent's
+    own laptop sessions are its own conversations: they are added here, for
+    its dream only, so promises made on the laptop can be backfilled."""
     from agentplatform.relay import is_member
     from agentplatform.relay_store import enabled_agents
     participant = f"agent:{agent}"
@@ -327,8 +329,12 @@ async def readable_channels(s, agent: str, since: datetime, until: datetime) -> 
         RelayParticipant.participant == participant))).scalars())
     ids |= set((await s.execute(select(RoomWatcher.channel_id).where(
         RoomWatcher.agent == agent))).scalars())
+    local = {c.id: c for c in (await s.execute(select(Conversation).where(
+        Conversation.home == "local_persona", Conversation.agent == agent,
+        Conversation.archived_at.is_(None),
+        Conversation.updated_at >= since - CANDIDATE_LOOKBACK))).scalars()}
     if not ids:
-        return {}
+        return local
     agents = await enabled_agents(s)
     rooms = (await s.execute(select(Conversation).where(
         Conversation.id.in_(ids), Conversation.archived_at.is_(None)))).scalars().all()
@@ -336,7 +342,8 @@ async def readable_channels(s, agent: str, since: datetime, until: datetime) -> 
     for cid, p in (await s.execute(select(RelayParticipant.channel_id, RelayParticipant.participant)
                                    .where(RelayParticipant.channel_id.in_(ids)))).all():
         explicit.setdefault(cid, set()).add(p)
-    return {c.id: c for c in rooms if is_member(c, participant, agents, explicit.get(c.id, set()))}
+    return {**{c.id: c for c in rooms if is_member(c, participant, agents, explicit.get(c.id, set()))},
+            **local}
 
 
 async def _conversation_items(s, dream: Dream, since: datetime, until: datetime) -> list[dict]:
@@ -351,6 +358,7 @@ async def _conversation_items(s, dream: Dream, since: datetime, until: datetime)
             room = rooms[m.channel_id]
             items.append({"type": "message", "at": _iso(m.created_at),
                           "room": room.name or room.title or room.kind, "channel_id": m.channel_id,
+                          **({"local_session": True} if room.home == "local_persona" else {}),
                           "message_id": m.id, "author": m.author, "kind": m.kind,
                           "text": _clip(m.body, 4000)})
     dream_runs = select(Dream.run_id).where(Dream.agent == dream.agent, Dream.run_id.is_not(None))

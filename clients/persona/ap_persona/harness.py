@@ -176,6 +176,10 @@ def verify_mcp(argv):
 def render_prompt(bootstrap):
     prompt = bootstrap['prompt'] + '\n\n' + bootstrap['runtime_instructions']
     prompt += '\n\n<retrieved_persona_memory>\n' + json.dumps(bootstrap['memories'], ensure_ascii=False) + '\n</retrieved_persona_memory>'
+    if bootstrap.get('open_commitments'):
+        # Promise text is data: escape '<' so it cannot close the block.
+        promises = json.dumps(bootstrap['open_commitments'], ensure_ascii=False).replace('<', '\\u003c')
+        prompt += '\n\n<open_commitments>\n' + promises + '\n</open_commitments>'
     for skill in bootstrap['skills']:
         import hashlib
         if hashlib.sha256(skill['text'].encode()).hexdigest() != skill['sha256']:

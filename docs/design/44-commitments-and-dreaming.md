@@ -101,7 +101,10 @@ The broker validates `commitment_id` as 32 hex characters, then calls the API on
   1. Inline: the Tool description and the block footer ask the agent to call `commit` in the same run whenever it promises future work.
   2. The nightly dream, which records missed promises and completes fulfilled ones.
 - **Observability.** `GET /api/commitments/stats` reports per agent the open, done and void counts, plus how many were backfilled by dreams (that is the capture-miss count), and `stale_open`.
-- **Local sessions.** Local persona sessions (`ap-persona` on the laptop) are out of scope. Their bootstrap doesn't read agentdef, and their auth allowlist lacks these routes. Their recorded messages still reach the dream through `review`, so promises made there are backfilled. This is follow-up work.
+- **Local sessions.** Local persona sessions (`ap-persona` on the laptop) get the same two nets.
+  - The local-persona route fence allows `GET`/`POST /api/commitments` and `POST /api/commitments/{id}/{complete|void}` on the `memory` grant. `review` and `delete` stay dream-only.
+  - The session bootstrap carries `open_commitments`, built by the same `deliver` with the session's frozen grant. The client renders it as an `<open_commitments>` data block with `<` escaped. Like the rest of the bootstrap, it is a snapshot taken at launch or resume. A session that needs the current list mid-session calls `memory(action="commitments")`.
+  - The dream reads the persona's own laptop recordings (see `review`).
 
 ## B. Dreaming
 
@@ -128,7 +131,7 @@ The broker validates `commitment_id` as 32 hex characters, then calls the API on
 - **Budget under concurrency.** The trigger takes `FOR UPDATE` on the dream row before counting, which serializes a run's parallel writers. A Postgres test runs six parallel overwrites against a budget of 2, and exactly 2 land.
 - **`memory(action="review", section, cursor?, since?, until?)`** is routed to `POST /api/memory-review`, which is gated on a dream run. A page holds about 16,000 characters, small enough to arrive inline; the first live dream showed 60,000-character pages being spilled to a file the dream could not read. The first served page moves the dream to `running`.
   - **`conversations`**: in time order, from two sources.
-    - Relay messages in channels the agent can read **now**. Candidates are the channels where it posted in the last 7 days, the channels where it is an explicit participant, and the channels where it is a watcher. Each candidate is filtered with Relay's own `is_member`, which drops local-persona rooms and external rooms without history permission. Soft-deleted messages are excluded. Only messages inside the window are returned. The 7-day candidate lookback covers "the agent asked at 02:59 and the answer came at 03:01".
+    - Relay messages in channels the agent can read **now**. Candidates are the channels where it posted in the last 7 days, the channels where it is an explicit participant, and the channels where it is a watcher. Each candidate is filtered with Relay's own `is_member`, which drops external rooms without history permission. Relay hides local-persona recordings from every cluster run. The one exception is the persona's **own** recordings (`home='local_persona'`, `agent` = the dreamer), which are added for its dream and marked `local_session: true`. Another persona's laptop recordings are never shown. Soft-deleted messages are excluded. Only messages inside the window are returned. The 7-day candidate lookback covers "the agent asked at 02:59 and the answer came at 03:01".
     - The agent's runs with no conversation that finished in the window (selected by `finished_at`). Each includes its prompt (first 2,000 characters), `user_message`, `result` (first 4,000) and `summary`. Dream runs are excluded.
   - **`memories`**: every memory, with full content, revision, key, tags and dates, paged by `(created_at, id)`.
   - **`commitments`**: all commitments, open first.
@@ -176,7 +179,6 @@ The broker validates `commitment_id` as 32 hex characters, then calls the API on
 
 ## Non-goals
 
-- Local-persona commitment delivery.
 - A web UI.
 - Dreaming for system agents and result-topic workers.
 - Cross-agent dreaming.
@@ -185,7 +187,7 @@ The broker validates `commitment_id` as 32 hex characters, then calls the API on
 ## Security seams (worst-case tests required)
 
 1. **Namespace and IDOR.** Every route derives the agent from the token, and every id lookup includes the agent.
-2. **Review privacy.** Review uses current `is_member`, never local-persona rooms, and excludes soft-deleted messages.
+2. **Review privacy.** Review uses current `is_member`, plus only the dreamer's own local-persona recordings, and excludes soft-deleted messages.
 3. **Dream gate.** `review`, `delete` and Tool restriction depend on dream state, not on model arguments.
 4. **Loss limit.** It is enforced in the database trigger and covers both overwrite and delete.
 5. **Block breakout.** Commitments are JSON-encoded inside the block, so a `</open-commitments>` in the text stays escaped and inert.

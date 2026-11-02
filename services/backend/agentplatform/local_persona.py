@@ -38,6 +38,9 @@ def digest(value):
 ROUTES = (
     ('GET', r'/api/whoami', None),
     ('POST', r'/api/memory-hybrid', 'memory'),
+    # Commitments (docs/design/44); review/delete stay dream-only.
+    ('GET', r'/api/commitments', 'memory'),
+    ('POST', r'/api/commitments(?:/[0-9a-f]{32}/(?:complete|void))?', 'memory'),
     ('GET', r'/api/runs(?:/[a-f0-9]{32})?', 'runs_read'),
     ('GET', r'/api/tags', 'runs_read'),
     ('GET', r'/api/agents(?:/[a-z0-9-]+(?:/versions(?:/[0-9]+)?)?)?', None),

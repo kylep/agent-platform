@@ -108,6 +108,12 @@ is capped at 200KB. These are retrieval/launch limits, not limits on the persona
 own memory tool. Memory key updates retain the existing last-writer-wins
 semantics and are never replayed from an offline transcript spool.
 
+Startup also lists the persona's open commitments (promises to follow up,
+docs/design/44) in an `<open_commitments>` data block. It is a snapshot taken
+at launch or resume, like the rest of startup. The session records new promises
+and closes kept or dropped ones through the memory tool (`commit`, `complete`,
+`void`, `commitments`), which the session route fence allows on the memory grant.
+
 Own DMs, ordinary Relay sends, owned-account messaging, Apps and other tools
 continue through their existing grants and resource ACLs. The effective tool
 set is the intersection of the launch snapshot and current grants. Removal is
@@ -133,7 +139,11 @@ recording capability, not a platform grant or a cross-session history tool.
 The private `local_persona` group is a recording, with the initiating human as
 its only ordinary Relay participant. In-cluster personas, other local sessions,
 reader keys and API keys merely named `admin` cannot read it. Its own local
-session can use the scoped history tool while domain authority is active.
+session can use the scoped history tool while domain authority is active. The
+one cluster reader is the same persona's nightly dream (docs/design/44): it pages
+the recorded user and final assistant messages of its own sessions, so a promise
+made on the laptop but never recorded is still caught. A dream run can change only
+its own memory and commitments; it cannot post, search Relay or call other tools.
 Posting or changing the recording room through ordinary APIs is refused.
 
 Normalized events and message projections commit in one transaction. Acknowledged

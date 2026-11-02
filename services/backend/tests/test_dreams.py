@@ -93,7 +93,11 @@ async def test_review_shows_only_rooms_the_agent_can_read_now(token_client, sf, 
         group = Conversation(connector="web", kind="group", title="team")
         private = Conversation(connector="web", kind="group", title="not-pai")
         laptop = Conversation(connector="web", kind="dm", title="local", home="local_persona")
-        s.add_all([group, private, laptop])
+        own_laptop = Conversation(connector="web", kind="group", title="pai · claude · Laptop",
+                                  home="local_persona", agent="pai")
+        olu_laptop = Conversation(connector="web", kind="group", title="olu · claude · Laptop",
+                                  home="local_persona", agent="olu")
+        s.add_all([group, private, laptop, own_laptop, olu_laptop])
         await s.flush()
         s.add(RelayParticipant(channel_id=group.id, participant="agent:pai"))
         s.add_all([
@@ -104,6 +108,10 @@ async def test_review_shows_only_rooms_the_agent_can_read_now(token_client, sf, 
             # Pai's turns are recorded in a laptop room it has no Relay access to.
             RelayMessage(channel_id=laptop.id, author="agent:pai", body="local only"),
             RelayMessage(channel_id=laptop.id, author="user:kyle", body="laptop private"),
+            # Its own laptop sessions are its conversations; another persona's are not.
+            RelayMessage(channel_id=own_laptop.id, author="device:human", body="look at it next week?"),
+            RelayMessage(channel_id=own_laptop.id, author="agent:pai", body="I'll follow up Monday"),
+            RelayMessage(channel_id=olu_laptop.id, author="device:human", body="olu laptop private"),
         ])
         s.add(Run(agent="pai", trigger="schedule", requested_by="t", prompt="morning digest",
                   state=RunState.SUCCEEDED, result="digest sent", finished_at=utcnow()))
@@ -114,7 +122,10 @@ async def test_review_shows_only_rooms_the_agent_can_read_now(token_client, sf, 
     texts = [i.get("text") or i.get("result") for i in page["items"]]
     assert "bring the model question to the roundtable" in texts and "I'll bring it" in texts
     assert "digest sent" in texts
-    assert not {"retracted", "secret elsewhere", "local only", "laptop private"} & set(texts)
+    assert "I'll follow up Monday" in texts and "look at it next week?" in texts
+    assert all(i.get("local_session") for i in page["items"] if i.get("text") == "I'll follow up Monday")
+    assert not {"retracted", "secret elsewhere", "local only", "laptop private",
+                "olu laptop private"} & set(texts)
     assert page["done"] is True
     async with sf() as s:
         row = await s.get(D.Dream, d.id)

@@ -298,3 +298,26 @@ async def test_retention_keeps_receipts_but_removes_tool_payload(local, token_cl
         assert row.payload == {} and row.payload_hash and row.payload_pruned_at
     retry = await token_client.post(state['path']+'/events',headers=state['headers'],json={'events':batch})
     assert retry.status_code == 200 and retry.json()['accepted_sequence'] == 1
+
+
+async def test_laptop_session_records_and_sees_its_commitments(local, token_client, sf):
+    """Design 44: promises made on the laptop are tracked like cluster ones."""
+    state = await local()
+    headers = state['headers']
+    made = await token_client.post('/api/commitments', headers=headers, json={
+        'summary': 'bring the model question to the roundtable', 'destination': 'roundtable'})
+    assert made.status_code == 201, made.text
+    made = made.json()
+    assert made['source_channel_id'] == state['conversation_id']
+    listed = await token_client.get('/api/commitments', headers=headers)
+    assert [c['id'] for c in listed.json()] == [made['id']]
+    package = (await token_client.get(state['path'] + '/bootstrap', headers=headers)).json()
+    assert [c['id'] for c in package['open_commitments']] == [made['id']]
+    # Dream-only routes stay closed to a laptop session.
+    for path in ('/api/memory-review', '/api/memory-delete'):
+        assert (await token_client.post(path, headers=headers, json={})).status_code == 403
+    done = await token_client.post(f"/api/commitments/{made['id']}/complete", headers=headers,
+                                   json={'result_ref': 'roundtable 11-03'})
+    assert done.status_code == 200, done.text
+    package = (await token_client.get(state['path'] + '/bootstrap', headers=headers)).json()
+    assert package['open_commitments'] == []

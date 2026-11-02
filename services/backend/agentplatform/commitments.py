@@ -95,9 +95,12 @@ def deliverable(agent_row, frozen_tools: list[str] | None) -> bool:
                 and (frozen_tools is None or tool in frozen_tools))
 
 
-async def deliver(s, run, agent_row) -> list[dict]:
-    """The run's `open_commitments`, recording each delivery once."""
-    frozen = (run.definition_snapshot or {}).get("platform_tools") if run.definition_snapshot else None
+async def deliver(s, run, agent_row, frozen_tools: list[str] | None = None) -> list[dict]:
+    """The run's `open_commitments`, recording each delivery once. A laptop
+    session passes its own frozen grant; cluster runs carry theirs in the
+    definition snapshot."""
+    frozen = frozen_tools if frozen_tools is not None else (
+        (run.definition_snapshot or {}).get("platform_tools") if run.definition_snapshot else None)
     if not deliverable(agent_row, frozen):
         return []
     rows = await open_for(s, run.agent)
