@@ -3,10 +3,14 @@
 # No prompts, credentials or database image/storage changes belong here.
 images:
   backend:
-    tag: fix-99d0b20
+    tag: dream-d0a546f
+  runner:
+    tag: dream-355fda4
+  runnerDev:
+    tag: dream-355fda4
 mcpBroker:
   image:
-    tag: fix-99d0b20
+    tag: dream-355fda4
 env:
   AP_STARTUP_MEMORY_PILOT_AGENTS: pai
   AP_MEMORY_SEMANTIC_ENABLED: "true"
