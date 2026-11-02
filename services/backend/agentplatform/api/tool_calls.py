@@ -88,6 +88,13 @@ async def mint(request: Request, body: MintIn):
         frozen = live.platform_tools if live else []
     if manifest.mcp_name not in frozen:
         raise HTTPException(403, f"agent {agent} does not hold {body.tool}")
+    # The dream fence (docs/design/44) for the caller's credential, which this
+    # route authenticates itself rather than through `authenticate`.
+    from agentplatform.dreams import MEMORY_TOOL, active_dream
+    async with st.session_factory() as s:
+        dreaming = await active_dream(s, getattr(request.state, "api_key_run_id", None))
+    if dreaming is not None and manifest.mcp_name != MEMORY_TOOL:
+        raise HTTPException(403, "a dreaming run may use only its memory Tool")
 
     keys = await tc.keypair(st)
     call_id = uuid.uuid4().hex
