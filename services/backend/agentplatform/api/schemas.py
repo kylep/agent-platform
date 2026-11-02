@@ -1591,6 +1591,8 @@ class WhoAmI(BaseModel):
     # The mcp__platform__* tools the caller's agent definition declares
     # (None for non-agent callers, e.g. the admin session).
     tools: list[str] | None
+    # A dream run (docs/design/44): `tools` is narrowed to memory.
+    dream: bool = False
 
 
 # --- quota (docs/design/22) ---------------------------------------------------

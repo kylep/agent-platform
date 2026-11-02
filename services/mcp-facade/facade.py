@@ -18,7 +18,8 @@ The surface is CURATED into three tiers (curation 2026-08-24; see
   model registry and the stats, plus encrypted backup listing, Job control and
   one-time Tasks — schedule, read, edit, cancel, their run log and the usage
   report (which still require admin authority in the API, or a Task-granted
-  agent run). Always tools. 149 of them.
+  agent run), and memory's history and restore, persona commitments and
+  dreams (design 44). Always tools. 157 of them.
 - **GATE** — authorized-but-sharp: the credential/secret plane, backup
   credential configuration, admin audit
   reads, destructive/bulk ops, the relay channel lifecycle (creating, renaming
@@ -31,8 +32,8 @@ The surface is CURATED into three tiers (curation 2026-08-24; see
   not the kitchen.
 - **EXCLUDE** — UI form-feeders, private-key import inspection, reviewer digests the client can compute,
   git-edit conveniences redundant with having the repo, and system-agent
-  endpoints. Never tools. 21 curated-out, plus 92 session/internal/streaming/
-  byte-serving/connector/run-only operations below — 315 graded operations in all.
+  endpoints. Never tools. 21 curated-out, plus 97 session/internal/streaming/
+  byte-serving/connector/run-only operations below — 328 graded operations in all.
 
 It is deliberately NOT the mcp-broker. The broker authenticates in-cluster run
 identities and scopes tools to an agent's grants (design/13, design/15). This
@@ -106,6 +107,11 @@ EXCLUDED_PATHS = (
     # an external MCP API key cannot call them. Agents use their brokered tools.
     ("*", r"^/api/agent-self(?:/|$)"),
     ("*", r"^/api/memory-hybrid$"),
+    # Commitments and dream review/delete (design 44) answer only the owning
+    # run's key; the admin views of them are ordinary tools.
+    ("*", r"^/api/commitments$"),
+    (("POST",), r"^/api/commitments/\{commitment_id\}/\{action\}$"),
+    ("*", r"^/api/memory-(?:review|delete)$"),
     ("*", r"^/api/runs/\{run_id\}/model-fallback$"),
     # The persona chat scan and its ack (design/25) answer only `persona()`: a
     # key bound to an enabled persona agent's CURRENT run. An external MCP key

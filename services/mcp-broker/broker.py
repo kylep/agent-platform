@@ -607,6 +607,15 @@ class CustomTool(Tool):
                          memory_result_count=_memory_count(result.text) if result.is_success else None,
                          memory_details=_memory_details(result.text) if result.is_success else None)
             return ToolResult(content=result.text)
+        if self.name == 'memory' and arguments.get('action') in _MEMORY_API_ACTIONS:
+            try:
+                text = await _memory_api(arguments)
+            except httpx.HTTPError:
+                await _audit(agent, run_id, initiated_by, self.name, arguments, 'error:api-unreachable', t0)
+                return ToolResult(content='error: memory API unreachable; retry shortly')
+            await _audit(agent, run_id, initiated_by, self.name, arguments,
+                         'deny:api' if text.startswith('error') else 'allow', t0)
+            return ToolResult(content=text)
         caller = {"agent": agent, "run_id": run_id}
         payload = {"tool": self.name, "args": arguments, "caller": caller}
         files_bytes = 0
@@ -995,6 +1004,36 @@ RELAY_ACTIONS = ("post", "read", "channels", "dm", "react", "search")
 # in every message the agent has read. For a message id there is no second
 # reading, and the id goes into a URL path, so it is a gate.
 _HEX_ID_RE = re.compile(r"[0-9a-f]{32}")
+
+# Commitment and dream actions of the memory Tool (docs/design/44) are served
+# by the API on the run's own token: the namespace is the verified caller,
+# and `review`/`delete` exist only while the run is dreaming.
+_MEMORY_API_ACTIONS = {"commit", "complete", "void", "commitments", "review", "delete"}
+
+
+def _pick(arguments: dict, *names: str) -> dict:
+    return {n: arguments[n] for n in names if arguments.get(n) not in (None, "")}
+
+
+async def _memory_api(arguments: dict) -> str:
+    action = arguments["action"]
+    if action == "commit":
+        return await _call("POST", "/api/commitments", json=_pick(
+            arguments, "summary", "destination", "meaning", "follow_up", "source_note"))
+    if action == "commitments":
+        return await _call("GET", "/api/commitments", params={
+            "status": arguments.get("status") or "open", "limit": arguments.get("limit")})
+    if action in ("complete", "void"):
+        cid = arguments.get("commitment_id") or ""
+        if not _HEX_ID_RE.fullmatch(cid):
+            return "error: commitment_id must be the 32-character id from your commitments"
+        return await _call("POST", f"/api/commitments/{cid}/{action}",
+                           json=_pick(arguments, "result_ref", "note"))
+    if action == "review":
+        return await _call("POST", "/api/memory-review", json=_pick(
+            arguments, "section", "cursor", "since", "until"))
+    return await _call("POST", "/api/memory-delete", json=_pick(
+        arguments, "memory_id", "key", "expected_revision"))
 
 
 async def _relay_rooms() -> tuple[list, str | None]:

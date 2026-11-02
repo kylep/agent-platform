@@ -39,6 +39,7 @@ from agentplatform.api import live_snapshots as live_snapshots_api
 from agentplatform.api import live_views as live_views_api
 from agentplatform.api import maintenance as maintenance_api
 from agentplatform.api import memory as memory_api
+from agentplatform.api import dreaming as dreaming_api
 from agentplatform.api import metrics as metrics_api
 from agentplatform.api import pulls as pulls_api
 from agentplatform.api import quota as quota_api
@@ -530,6 +531,7 @@ def create_app(settings, session_factory, producer, secret_store=None, agent_sto
     app.include_router(live_views_api.router)
     app.include_router(maintenance_api.router)
     app.include_router(memory_api.router)
+    app.include_router(dreaming_api.router)
     app.include_router(metrics_api.router)
     app.include_router(pulls_api.router)
     app.include_router(quota_api.router)

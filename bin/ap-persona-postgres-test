@@ -26,4 +26,4 @@ asyncio.run(probe())' >/dev/null 2>&1; then ready=1; break; fi
 done
 [ "$ready" = 1 ] || { echo 'Test PostgreSQL did not become ready' >&2; exit 1; }
 AP_PERSONA_TEST_POSTGRES_URL="postgresql+asyncpg://postgres:persona-test-only@127.0.0.1:$port/postgres" \
-  "$py" -m pytest -q clients/persona/tests/test_postgres.py services/backend/tests/test_startup_memory_postgres.py services/backend/tests/test_memory_revisions.py
+  "$py" -m pytest -q clients/persona/tests/test_postgres.py services/backend/tests/test_startup_memory_postgres.py services/backend/tests/test_memory_revisions.py services/backend/tests/test_memory_history_postgres.py

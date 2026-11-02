@@ -3943,6 +3943,7 @@ async def init_db(engine: AsyncEngine, default_grant: bool = True,
     dispatcher, recorder) and none of them hands `db` a settings object. They
     default to on so a caller that has no opinion gets the platform's."""
     from agentplatform import external_chat, health_incidents  # register capability tables
+    from agentplatform import commitments, dreams, memory_history  # noqa: F401  design 44 tables
     from agentplatform.appdata import models as _appdata_models  # noqa: F401  the app_data_* tables
     from agentplatform.system_agents import reconcile_system_agents
     from agentplatform.authority import migrate_authority
@@ -3967,6 +3968,7 @@ async def init_db(engine: AsyncEngine, default_grant: bool = True,
             # role its privileges — creation order is API-first-safe).
             await conn.execute(text(f'CREATE SCHEMA IF NOT EXISTS "{MEMORY_SCHEMA}"'))
         await conn.run_sync(Base.metadata.create_all)
+        await conn.run_sync(memory_history.ensure_trigger)
         await conn.run_sync(_ensure_columns)
         await conn.run_sync(_ensure_startup_memory_ddl)
         await conn.run_sync(_ensure_local_persona_ddl)

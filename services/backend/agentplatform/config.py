@@ -10,6 +10,17 @@ class Settings(BaseSettings):
     memory_embedding_timeout_seconds: float = 3.0
     memory_index_embedding_timeout_seconds: float = 30.0
     local_persona_enabled: bool = False
+    # Nightly dreaming (docs/design/44 B). Off by default: enabling seeds one
+    # `dream:<agent>` Scheduled Job per eligible agent, staggered from the
+    # base time, which Kyle can then retime or disable like any job.
+    dream_enabled: bool = False
+    dream_hour: int = 3
+    dream_minute: int = 0
+    dream_stagger_minutes: int = 15
+    dream_timezone: str = "America/Toronto"
+    dream_exclude: str = ""
+    # Memory version history retention (docs/design/44 C).
+    memory_history_days: int = 30
     model_config = SettingsConfigDict(env_prefix="AP_")
     db_url: str = "sqlite+aiosqlite:///:memory:"
     kafka_bootstrap: str = "localhost:9092"

@@ -12,6 +12,7 @@ env:
   AP_MEMORY_SEMANTIC_ENABLED: "true"
   AP_MEMORY_SEMANTIC_AGENTS: pai
   AP_MEMORY_EMBEDDING_TIMEOUT_SECONDS: "3"
+  AP_DREAM_ENABLED: "true"
 memoryEmbedding:
   enabled: true
   provision: false

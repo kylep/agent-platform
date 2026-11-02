@@ -238,6 +238,10 @@ env:
   AP_MEMORY_EMBEDDING_URL: ""
   AP_MEMORY_EMBEDDING_TIMEOUT_SECONDS: "3"
   AP_MEMORY_INDEX_EMBEDDING_TIMEOUT_SECONDS: "30"
+  # Nightly dreaming (docs/design/44): true seeds a staggered `dream:<agent>`
+  # Scheduled Job per eligible agent. Memory history is kept this many days.
+  AP_DREAM_ENABLED: "false"
+  AP_MEMORY_HISTORY_DAYS: "30"
   # Comma-separated IDs of Kyle's trusted admin API keys. Configure in the
   # private Helm values on the cluster; do not identify keys by display name.
   AP_TRUSTED_ADMIN_KEY_IDS: ""

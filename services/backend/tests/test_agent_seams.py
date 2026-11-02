@@ -383,8 +383,9 @@ def test_the_agentdef_payload_and_the_renderer_agree_on_field_names():
                "harness_tools": ["WebFetch"],
                "platform_tools": [MEMORY], "skills": ["git"], "model": "sonnet",
                "runtime": "claude", "fallback_notice": "", "fallback_used": False}
-    # Startup memory is task data, validated by the invocation protocol tests.
-    assert set(RunAgentDef.model_fields) == set(payload) | {"startup_memory"}
+    # Startup memory and open commitments are task data (user turn), validated
+    # by the invocation protocol and runner block tests, not the agent file.
+    assert set(RunAgentDef.model_fields) == set(payload) | {"startup_memory", "open_commitments"}
 
     runner = _load_runner()
     full = runner._render_agent_md(payload)

@@ -15,6 +15,7 @@ def _get_kwargs(
     memory_id: str,
     *,
     expected_revision: None | str | Unset = UNSET,
+    purge_history: bool | Unset = False,
 ) -> dict[str, Any]:
 
     params: dict[str, Any] = {}
@@ -25,6 +26,8 @@ def _get_kwargs(
     else:
         json_expected_revision = expected_revision
     params["expected_revision"] = json_expected_revision
+
+    params["purge_history"] = purge_history
 
     params = {k: v for k, v in params.items() if v is not UNSET and v is not None}
 
@@ -74,12 +77,15 @@ def sync_detailed(
     *,
     client: AuthenticatedClient | Client,
     expected_revision: None | str | Unset = UNSET,
+    purge_history: bool | Unset = False,
 ) -> Response[HTTPValidationError | OkId]:
     """Delete Memory
 
     Args:
         memory_id (str):
         expected_revision (None | str | Unset):
+        purge_history (bool | Unset): admin only: also erase this memory's version history
+            Default: False.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -92,6 +98,7 @@ def sync_detailed(
     kwargs = _get_kwargs(
         memory_id=memory_id,
         expected_revision=expected_revision,
+        purge_history=purge_history,
     )
 
     response = client.get_httpx_client().request(
@@ -106,12 +113,15 @@ def sync(
     *,
     client: AuthenticatedClient | Client,
     expected_revision: None | str | Unset = UNSET,
+    purge_history: bool | Unset = False,
 ) -> HTTPValidationError | OkId | None:
     """Delete Memory
 
     Args:
         memory_id (str):
         expected_revision (None | str | Unset):
+        purge_history (bool | Unset): admin only: also erase this memory's version history
+            Default: False.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -125,6 +135,7 @@ def sync(
         memory_id=memory_id,
         client=client,
         expected_revision=expected_revision,
+        purge_history=purge_history,
     ).parsed
 
 
@@ -133,12 +144,15 @@ async def asyncio_detailed(
     *,
     client: AuthenticatedClient | Client,
     expected_revision: None | str | Unset = UNSET,
+    purge_history: bool | Unset = False,
 ) -> Response[HTTPValidationError | OkId]:
     """Delete Memory
 
     Args:
         memory_id (str):
         expected_revision (None | str | Unset):
+        purge_history (bool | Unset): admin only: also erase this memory's version history
+            Default: False.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -151,6 +165,7 @@ async def asyncio_detailed(
     kwargs = _get_kwargs(
         memory_id=memory_id,
         expected_revision=expected_revision,
+        purge_history=purge_history,
     )
 
     response = await client.get_async_httpx_client().request(**kwargs)
@@ -163,12 +178,15 @@ async def asyncio(
     *,
     client: AuthenticatedClient | Client,
     expected_revision: None | str | Unset = UNSET,
+    purge_history: bool | Unset = False,
 ) -> HTTPValidationError | OkId | None:
     """Delete Memory
 
     Args:
         memory_id (str):
         expected_revision (None | str | Unset):
+        purge_history (bool | Unset): admin only: also erase this memory's version history
+            Default: False.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -183,5 +201,6 @@ async def asyncio(
             memory_id=memory_id,
             client=client,
             expected_revision=expected_revision,
+            purge_history=purge_history,
         )
     ).parsed

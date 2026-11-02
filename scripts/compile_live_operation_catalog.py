@@ -185,7 +185,7 @@ def _effect_policy(source: str, tool: str, action: str) -> tuple[list[str], str]
                 return ["external_send"], "private"
             # raw_graphql is arbitrarily read or write, never page-eligible.
         if tool == "memory":
-            return (["reads_sensitive"] if action == "read"
+            return (["reads_sensitive"] if action in ("read", "commitments", "review")
                     else ["mutates_platform"]), "private"
         if tool == "strava":
             return (["external_read", "reads_sensitive"] if action != "sync"

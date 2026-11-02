@@ -3062,6 +3062,82 @@
       "snapshot_eligible": false
     },
     {
+      "id": "tool.memory.commit@1",
+      "source": "mcp-custom",
+      "tool": "memory",
+      "action": "commit",
+      "category": "platform_capability",
+      "effects": [
+        "mutates_platform"
+      ],
+      "output_classification": "private",
+      "view_eligible": false,
+      "reason": "No reviewed human page adapter",
+      "input_schema": null,
+      "output_schema": null,
+      "target_scope": null,
+      "supported_callers": [],
+      "limits": null,
+      "snapshot_eligible": false
+    },
+    {
+      "id": "tool.memory.commitments@1",
+      "source": "mcp-custom",
+      "tool": "memory",
+      "action": "commitments",
+      "category": "platform_capability",
+      "effects": [
+        "reads_sensitive"
+      ],
+      "output_classification": "private",
+      "view_eligible": false,
+      "reason": "No reviewed human page adapter",
+      "input_schema": null,
+      "output_schema": null,
+      "target_scope": null,
+      "supported_callers": [],
+      "limits": null,
+      "snapshot_eligible": false
+    },
+    {
+      "id": "tool.memory.complete@1",
+      "source": "mcp-custom",
+      "tool": "memory",
+      "action": "complete",
+      "category": "platform_capability",
+      "effects": [
+        "mutates_platform"
+      ],
+      "output_classification": "private",
+      "view_eligible": false,
+      "reason": "No reviewed human page adapter",
+      "input_schema": null,
+      "output_schema": null,
+      "target_scope": null,
+      "supported_callers": [],
+      "limits": null,
+      "snapshot_eligible": false
+    },
+    {
+      "id": "tool.memory.delete@1",
+      "source": "mcp-custom",
+      "tool": "memory",
+      "action": "delete",
+      "category": "platform_capability",
+      "effects": [
+        "mutates_platform"
+      ],
+      "output_classification": "private",
+      "view_eligible": false,
+      "reason": "No reviewed human page adapter",
+      "input_schema": null,
+      "output_schema": null,
+      "target_scope": null,
+      "supported_callers": [],
+      "limits": null,
+      "snapshot_eligible": false
+    },
+    {
       "id": "tool.memory.read@1",
       "source": "mcp-custom",
       "tool": "memory",
@@ -3081,10 +3157,48 @@
       "snapshot_eligible": false
     },
     {
+      "id": "tool.memory.review@1",
+      "source": "mcp-custom",
+      "tool": "memory",
+      "action": "review",
+      "category": "platform_capability",
+      "effects": [
+        "reads_sensitive"
+      ],
+      "output_classification": "private",
+      "view_eligible": false,
+      "reason": "No reviewed human page adapter",
+      "input_schema": null,
+      "output_schema": null,
+      "target_scope": null,
+      "supported_callers": [],
+      "limits": null,
+      "snapshot_eligible": false
+    },
+    {
       "id": "tool.memory.save@1",
       "source": "mcp-custom",
       "tool": "memory",
       "action": "save",
+      "category": "platform_capability",
+      "effects": [
+        "mutates_platform"
+      ],
+      "output_classification": "private",
+      "view_eligible": false,
+      "reason": "No reviewed human page adapter",
+      "input_schema": null,
+      "output_schema": null,
+      "target_scope": null,
+      "supported_callers": [],
+      "limits": null,
+      "snapshot_eligible": false
+    },
+    {
+      "id": "tool.memory.void@1",
+      "source": "mcp-custom",
+      "tool": "memory",
+      "action": "void",
       "category": "platform_capability",
       "effects": [
         "mutates_platform"

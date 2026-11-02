@@ -9,6 +9,7 @@ from agentplatform.api.auth import MEMORY_ROLES, READ_ROLES, require_role
 from agentplatform.db import Memory, Project, Run, Team
 from agentplatform.memory_revisions import ExpectedRevision, check_revision, conflict
 from agentplatform.persona_memory import source_hash
+from agentplatform import memory_history
 
 log = logging.getLogger("memory")
 
@@ -46,6 +47,12 @@ class MemoryIn(BaseModel):
         return v
 
 
+def _writer(request: Request) -> str:
+    """Who the history trigger records for a REST write (docs/design/44 C)."""
+    run = getattr(request.state, "api_key_run_id", None)
+    return run or f"rest:{getattr(request.state, 'api_key_agent', None) or 'admin'}"
+
+
 def _view(m: Memory) -> dict:
     return {"id": m.id, "agent": m.agent, "key": m.key, "content": m.content,
             "revision": source_hash(m),
@@ -79,6 +86,7 @@ async def save_memory(request: Request, body: MemoryIn):
     if body.expected_revision is not None and not body.key:
         raise HTTPException(422, "expected_revision requires a nonempty key")
     async with request.app.state.session_factory() as s:
+        await memory_history.attribute(s, _writer(request))
         run = await s.get(Run, request.state.api_key_run_id) if getattr(request.state, "api_key_run_id", None) else None
         team_id = run.team_id if run else None
         project_id = run.project_id if run else None
@@ -118,6 +126,7 @@ async def save_memory(request: Request, body: MemoryIn):
             # Two concurrent saves of the same new key: the (agent, key) unique
             # index made the loser fail — retry as the overwrite it wanted.
             await s.rollback()
+            await memory_history.attribute(s, _writer(request))
             winner = (await s.execute(select(Memory).where(
                 Memory.agent == ns, Memory.key == body.key).with_for_update())).scalar_one_or_none()
             if body.expected_revision is not None:
@@ -218,6 +227,7 @@ async def edit_memory(request: Request, memory_id: str, body: MemoryPatch):
     if body.content is None and body.tags is None:
         raise HTTPException(422, "nothing to change")
     async with request.app.state.session_factory() as s:
+        await memory_history.attribute(s, _writer(request))
         row = await s.get(Memory, m.id, with_for_update=True)
         if row is None:
             raise HTTPException(404, "unknown memory")
@@ -236,15 +246,26 @@ async def edit_memory(request: Request, memory_id: str, body: MemoryPatch):
 
 @router.delete("/api/memories/{memory_id}", response_model=S.OkId, dependencies=[Depends(require_role(*MEMORY_ROLES))])
 async def delete_memory(request: Request, memory_id: str,
-                        expected_revision: ExpectedRevision | None = Query(None)):
+                        expected_revision: ExpectedRevision | None = Query(None),
+                        purge_history: bool = Query(False, description="admin only: also erase this memory's version history")):
     m = await _owned(request, memory_id)
+    if purge_history:
+        from agentplatform.api.auth import require_admin
+        await require_admin(request)
     async with request.app.state.session_factory() as s:
+        await memory_history.attribute(s, _writer(request))
         row = await s.get(Memory, m.id, with_for_update=True)
         if not check_revision(expected_revision, row):
             raise HTTPException(409, conflict(expected_revision, row))
         if row is not None:
             await s.delete(row)
-            await s.commit()
+            await s.flush()
+        if purge_history:
+            # Erasure means the history too (design 43's open question).
+            from sqlalchemy import delete
+            await s.execute(delete(memory_history.MemoryVersion).where(
+                memory_history.MemoryVersion.memory_id == m.id))
+        await s.commit()
     return {"ok": True, "id": memory_id}
 
 

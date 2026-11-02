@@ -129,11 +129,13 @@ def _due_entry(crons: list["CronEntry"], now: datetime, tz: str = "") -> "CronEn
 
 
 class Scheduler:
-    def __init__(self, session_factory, agent_store, producer, *, materializer=None):
+    def __init__(self, session_factory, agent_store, producer, *, materializer=None, settings=None):
         self.sf = session_factory
         self.agents = agent_store
         self.producer = producer
         self.materializer = materializer
+        self.settings = settings
+        self._history_purged_at = None
 
     async def tick(self, now: datetime) -> None:
         await self.agents.reload()
@@ -148,6 +150,7 @@ class Scheduler:
             if info.error is None and info.enabled and info.entrypoints.crons:
                 await self._tick_agent(info.name, info.entrypoints.crons, now,
                                        info.entrypoints.timezone, paused)
+        await self._dream_upkeep(now)
         # First-class Scheduled Jobs (1:many — one agent, many cron+prompt jobs).
         async with self.sf() as s:
             jobs = (await s.execute(select(ScheduledJob))).scalars().all()
@@ -163,6 +166,22 @@ class Scheduler:
                 except Exception:
                     log.warning("App materializer tick failed", exc_info=True)
         await reconcile_task_runs(self.sf)
+
+    async def _dream_upkeep(self, now: datetime) -> None:
+        """Design 44: seed dream jobs, close finished dreams, expire memory
+        history. Contained like the materializer: a failure here must not
+        cost the crons and jobs their tick."""
+        from agentplatform import dreams, memory_history
+        try:
+            if self.settings is not None:
+                await dreams.enroll(self.sf, self.settings)
+            await dreams.finalize(self.sf)
+            if self.settings is not None and (self._history_purged_at is None
+                                              or now - self._history_purged_at >= timedelta(hours=1)):
+                self._history_purged_at = now
+                await memory_history.purge_expired(self.sf, self.settings.memory_history_days)
+        except Exception:
+            log.warning("dream upkeep failed", exc_info=True)
 
     async def _tick_agent(self, name: str, crons: list["CronEntry"], now: datetime,
                           tz: str = "", paused: bool = False) -> None:
@@ -241,6 +260,20 @@ class Scheduler:
                     job.next_fire = next_fire(job.cron, now, job.timezone)
                     await s.commit()
                     return
+            if job.run_when == "dream":
+                # The dream opens its own run (docs/design/44): the clock
+                # advances here, exactly as for any other fire.
+                agent, guidance = job.agent, job.prompt
+                job.last_fire = now
+                job.next_fire = next_fire(job.cron, now, job.timezone)
+                await s.commit()
+                from agentplatform import dreams
+                try:
+                    await dreams.start(self.sf, self.producer, agent, requested_by=f"job:{job_id}",
+                                       guidance="" if guidance == dreams.JOB_PROMPT else guidance)
+                except Exception:
+                    log.warning("dream start failed for job %s", job_id, exc_info=True)
+                return
             run_id, agent, prompt = uuid.uuid4().hex, job.agent, job.prompt
             model = job.model or ""
             memory_query = job.memory_query

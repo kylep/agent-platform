@@ -1,3 +1,4 @@
+import re
 import asyncio
 import secrets
 import time
@@ -290,7 +291,28 @@ async def authenticate(request: Request) -> tuple[str, str] | None:
     if (ident is not None and ident[1] == USER_ROLE
             and request.url.path not in USER_PATHS):
         raise HTTPException(403)
+    if ident is not None and ident[1] != "session":
+        await _dream_fence(request)
     return ident
+
+
+# A dream run (docs/design/44) may reach only its memory routes. Enforced here,
+# on the run's agent credential, so it holds for every broker Tool and both
+# runtimes; the runner's own `session` key (agentdef, session blob, results)
+# is unaffected.
+DREAM_PATHS = re.compile(r"^/api/(?:whoami|memory-(?:review|delete|hybrid)|commitments(?:/[0-9a-f]{32}/(?:complete|void))?)$")
+
+
+async def _dream_fence(request: Request) -> None:
+    run_id = getattr(request.state, "api_key_run_id", None)
+    if not run_id or not getattr(request.state, "api_key_agent", None):
+        return
+    if DREAM_PATHS.match(request.url.path):
+        return
+    from agentplatform.dreams import active_dream
+    async with request.app.state.session_factory() as s:
+        if await active_dream(s, run_id) is not None:
+            raise HTTPException(403, "a dreaming run may use only its memory Tool")
 
 
 async def _authenticate(request: Request) -> tuple[str, str] | None:
@@ -614,13 +636,20 @@ async def whoami(request: Request):
     agent = getattr(request.state, "api_key_agent", None)
     run_id = getattr(request.state, "api_key_run_id", None)
     tools: list[str] | None = None
+    dream = False
+    if agent and run_id:
+        # A dream run (docs/design/44) holds only its memory Tool, whatever
+        # the agent's grants: the broker enforces this answer.
+        from agentplatform.dreams import MEMORY_TOOL, active_dream
+        async with request.app.state.session_factory() as s:
+            dream = await active_dream(s, run_id) is not None
     frozen = getattr(request.state, "frozen_tools", None)
     if frozen is not None:
         # design/13 C: the grant set was FROZEN into the run JWT at launch —
         # a mid-run grant edit cannot widen (or shrink) a live run.
         return {"principal": name, "role": role, "agent": agent,
-                "run_id": run_id, "tools": frozen,
-                "initiated_by": getattr(request.state, "initiated_by", None)}
+                "run_id": run_id, "tools": [t for t in frozen if t == MEMORY_TOOL] if dream else frozen,
+                "initiated_by": getattr(request.state, "initiated_by", None), "dream": dream}
     if agent:
         st = request.app.state
         await st.agent_store.reload()
@@ -631,8 +660,10 @@ async def whoami(request: Request):
         # and the broker's grant check stays a plain membership test.
         granted = info.platform_tools if info else []
         tools = [t for t in granted if t.startswith("mcp__platform__")]
+        if dream:
+            tools = [t for t in tools if t == MEMORY_TOOL]
     return {"principal": name, "role": role, "agent": agent,
-            "run_id": run_id, "tools": tools}
+            "run_id": run_id, "tools": tools, "dream": dream}
 
 @router.get("/api/setup-state", response_model=S.SetupState)
 async def setup_state(request: Request):

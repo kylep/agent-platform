@@ -246,3 +246,48 @@ def test_memory_hybrid_uses_trusted_api_without_executor_or_namespace_argument(m
     seen.clear()
     result=asyncio.run(tool.run({'action':'save','mode':'hybrid','content':'x'}))
     assert 'read-only' in result.content and not seen
+
+
+def test_commitment_and_dream_actions_go_to_the_api_on_the_runs_own_token(monkeypatch):
+    """docs/design/44: these actions never reach the executor, carry no
+    namespace argument, and a malformed commitment id never becomes a path."""
+    seen = []
+    async def identity(): return {'agent': 'pai', 'run_id': 'run', 'tools': ['mcp__platform__memory']}
+    async def request(method, path, params=None, json=None, timeout=20):
+        seen.append((method, path, params, json)); return httpx.Response(200, json={'ok': True})
+    async def audit(*args, **kwargs): pass
+    async def executor(*args, **kwargs): raise AssertionError('executor must not be called')
+    monkeypatch.setattr(broker, '_whoami', identity)
+    monkeypatch.setattr(broker, '_request', request)
+    monkeypatch.setattr(broker, '_audit', audit)
+    tool = broker.CustomTool(name='memory', description='m', parameters={'type': 'object', 'properties': {}})
+    cid = 'a' * 32
+    calls = [
+        ({'action': 'commit', 'summary': 's', 'destination': 'roundtable', 'meaning': 'm', 'agent': 'olu'},
+         ('POST', '/api/commitments', None, {'summary': 's', 'destination': 'roundtable', 'meaning': 'm'})),
+        ({'action': 'commitments'}, ('GET', '/api/commitments', {'status': 'open', 'limit': None}, None)),
+        ({'action': 'complete', 'commitment_id': cid, 'result_ref': 'r'},
+         ('POST', f'/api/commitments/{cid}/complete', None, {'result_ref': 'r'})),
+        ({'action': 'void', 'commitment_id': cid, 'note': 'n'},
+         ('POST', f'/api/commitments/{cid}/void', None, {'note': 'n'})),
+        ({'action': 'review', 'section': 'memories', 'cursor': '3'},
+         ('POST', '/api/memory-review', None, {'section': 'memories', 'cursor': '3'})),
+        ({'action': 'delete', 'memory_id': cid, 'expected_revision': 'f' * 64},
+         ('POST', '/api/memory-delete', None, {'memory_id': cid, 'expected_revision': 'f' * 64})),
+    ]
+    for args, expected in calls:
+        seen.clear()
+        assert 'ok' in asyncio.run(tool.run(args)).content
+        assert seen == [expected]
+    seen.clear()
+    bad = asyncio.run(tool.run({'action': 'void', 'commitment_id': '../../api/agents'}))
+    assert bad.content.startswith('error') and not seen
+
+
+def test_a_dream_runs_narrowed_grants_refuse_other_platform_tools(monkeypatch):
+    async def identity(): return {'agent': 'pai', 'run_id': 'run', 'tools': ['mcp__platform__memory'], 'dream': True}
+    async def audit(*args, **kwargs): pass
+    monkeypatch.setattr(broker, '_whoami', identity)
+    monkeypatch.setattr(broker, '_audit', audit)
+    tool = broker.CustomTool(name='discord', description='d', parameters={'type': 'object', 'properties': {}})
+    assert 'does not declare' in asyncio.run(tool.run({'action': 'send'})).content

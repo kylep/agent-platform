@@ -21,6 +21,7 @@ class WhoAmI:
         role (str):
         run_id (None | str):
         tools (list[str] | None):
+        dream (bool | Unset):  Default: False.
         initiated_by (None | str | Unset):
     """
 
@@ -29,6 +30,7 @@ class WhoAmI:
     role: str
     run_id: None | str
     tools: list[str] | None
+    dream: bool | Unset = False
     initiated_by: None | str | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
@@ -50,6 +52,8 @@ class WhoAmI:
         else:
             tools = self.tools
 
+        dream = self.dream
+
         initiated_by: None | str | Unset
         if isinstance(self.initiated_by, Unset):
             initiated_by = UNSET
@@ -67,6 +71,8 @@ class WhoAmI:
                 "tools": tools,
             }
         )
+        if dream is not UNSET:
+            field_dict["dream"] = dream
         if initiated_by is not UNSET:
             field_dict["initiated_by"] = initiated_by
 
@@ -109,6 +115,8 @@ class WhoAmI:
 
         tools = _parse_tools(d.pop("tools"))
 
+        dream = d.pop("dream", UNSET)
+
         def _parse_initiated_by(data: object) -> None | str | Unset:
             if data is None:
                 return data
@@ -124,6 +132,7 @@ class WhoAmI:
             role=role,
             run_id=run_id,
             tools=tools,
+            dream=dream,
             initiated_by=initiated_by,
         )
 

@@ -108,7 +108,7 @@ async def main() -> None:
     materializer_state = SimpleNamespace(
         settings=settings, secret_store=K8sSecretStore(core, settings.k8s_namespace),
         tool_registry=ToolRegistry(settings.tools_root))
-    scheduler = Scheduler(session_factory, agent_store, producer,
+    scheduler = Scheduler(session_factory, agent_store, producer, settings=settings,
                           materializer=lambda sf, now: refresh_due(
                               sf, materializer_state, now=now))
     pruner = TranscriptPruner(session_factory, agent_store, settings)

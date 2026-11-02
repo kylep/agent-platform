@@ -150,6 +150,9 @@ def main() -> int:
 
     import psycopg
     with psycopg.connect(url) as conn, conn.cursor() as cur:
+        # The history trigger (docs/design/44) records which run wrote, and
+        # enforces a dream's replace/delete budget by that run id.
+        cur.execute("SELECT set_config('ap.run_id', %s, true)", (os.environ.get("TOOL_RUN_ID", ""),))
         cur.execute("SELECT team_id, project_id FROM public.memory_run_scope(%s, %s)",
                     (os.environ.get("TOOL_RUN_ID", ""), agent))
         scope = cur.fetchone()
@@ -169,7 +172,15 @@ def main() -> int:
             # Scope, locked precondition, mutation and provenance share one
             # transaction. Failed preconditions never record a mutation.
             previous = []
-            out = save(cur, agent, args, *scope, previous=previous)
+            try:
+                out = save(cur, agent, args, *scope, previous=previous)
+            except psycopg.errors.RaiseException as exc:
+                if 'memory_dream_loss_limit' not in str(exc):
+                    raise
+                conn.rollback()
+                print(json.dumps({'ok': False, 'error': {'code': 'memory_dream_loss_limit',
+                      'message': 'this dream has used its replace/delete budget; stop replacing notes'}}))
+                return 0
             if out.get('ok') is False:
                 print(json.dumps(out))
                 return 0

@@ -19,12 +19,20 @@ description: >-
   remaining budget. retrieval.relevance is unassessed: similarity and valid
   provenance do not prove a note answers the question. State uncertainty or no
   relevant evidence when returned notes do not support an answer.
+  Commitments (personas): when you promise future work in any chat ("I'll
+  bring this to the next roundtable"), call action="commit" in that same run
+  with summary, destination and meaning. Open commitments are shown to you in
+  every later run; close them with action="complete" (result_ref) or
+  action="void" (note). action="commitments" lists them. During a nightly
+  dream only: action="review" pages your conversations, memories or
+  commitments (section, cursor, optional since/until), and action="delete"
+  removes a memory by memory_id or key with its expected_revision.
 params:
   type: object
   properties:
     action:
       type: string
-      enum: [read, save]
+      enum: [read, save, commit, complete, void, commitments, review, delete]
     mode: {type: string, enum: [lexical, hybrid], default: lexical, description: "read: hybrid returns ranked excerpts, source_hash, truncated, excerpt offsets and retrieval status; lexical retains term-AND behavior"}
     q:
       type: string
@@ -41,7 +49,21 @@ params:
     expected_revision:
       type: [string, "null"]
       pattern: "^(absent|[0-9a-f]{64})$"
-      description: "save with key: revision for atomic compare-and-replace, or absent for create-only. Omitted/null overwrites unconditionally."
+      description: "save with key: revision for atomic compare-and-replace, or absent for create-only. Omitted/null overwrites unconditionally. delete: required."
+    summary: {type: string, maxLength: 200, description: "commit: the promise, one sentence"}
+    destination: {type: string, maxLength: 120, description: "commit: where it is due, e.g. roundtable, kyle, ticket GEN-8"}
+    meaning: {type: string, maxLength: 400, description: "commit: why it matters / the context"}
+    follow_up: {type: string, maxLength: 200, description: "commit: what done looks like"}
+    source_note: {type: string, maxLength: 200, description: "commit: where and when it was made (used by dreams)"}
+    commitment_id: {type: string, pattern: "^[0-9a-f]{32}$", description: "complete/void: the commitment's id"}
+    result_ref: {type: string, maxLength: 300, description: "complete: link or note on the result"}
+    note: {type: string, maxLength: 300, description: "void: why it no longer applies"}
+    status: {type: string, enum: [open, done, void, all], description: "commitments: which to list (default open)"}
+    section: {type: string, enum: [conversations, memories, commitments], description: "review (dream only)"}
+    cursor: {type: string, description: "review: the cursor from the previous page"}
+    since: {type: string, description: "review conversations: ISO start, at most 30 days back"}
+    until: {type: string, description: "review conversations: ISO end"}
+    memory_id: {type: string, pattern: "^[0-9a-f]{32}$", description: "delete (dream only): the memory's id"}
     limit: {type: integer, default: 50}
     current_team: {type: boolean, description: "read only memories tagged to this run's team"}
     current_project: {type: boolean, description: "read only memories tagged to this run's project"}

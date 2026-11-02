@@ -51,7 +51,7 @@ class JobIn(BaseModel):
     relay_channel: str | None = None
     timezone: str = ""          # IANA zone; empty = UTC
     model: str = ""             # empty = agent default
-    run_when: Literal["always", "discord_unaddressed"] = "always"
+    run_when: Literal["always", "discord_unaddressed", "dream"] = "always"
 
 
 class JobPatch(BaseModel):
@@ -63,7 +63,7 @@ class JobPatch(BaseModel):
     memory_query: MemoryQuery = None
     enabled: bool | None = None
     model: str | None = None
-    run_when: Literal["always", "discord_unaddressed"] | None = None
+    run_when: Literal["always", "discord_unaddressed", "dream"] | None = None
 
 
 async def _check(request: Request, *, cron: str | None, agent: str | None,
@@ -128,7 +128,7 @@ async def edit_job(request: Request, job_id: str, body: JobPatch):
             raise HTTPException(422, "memory_query requires an agent job")
         if 'memory_query' in body.model_fields_set:
             job.memory_query = body.memory_query
-        if body.run_when == "discord_unaddressed" and job.relay_channel:
+        if body.run_when in ("discord_unaddressed", "dream") and job.relay_channel:
             raise HTTPException(422, "conditional scan requires an agent job")
         for field in ("name", "agent", "cron", "timezone", "prompt", "enabled", "model", "run_when"):
             val = getattr(body, field)
@@ -162,6 +162,16 @@ async def run_job_now(request: Request, job_id: str, principal: str = Depends(re
             raise HTTPException(404, "unknown job")
         agent, prompt, channel, model = job.agent, job.prompt, job.relay_channel, job.model
         memory_query = job.memory_query
+        dream_job = job.run_when == "dream"
+    if dream_job:
+        # A dream opens its own run with its rails (docs/design/44).
+        from agentplatform import dreams
+        dream = await dreams.start(request.app.state.session_factory, request.app.state.producer,
+                                   agent, requested_by=f"{principal} (job:{job_id})", force=True,
+                                   guidance="" if prompt == dreams.JOB_PROMPT else prompt)
+        if dream is None or dream.run_id is None:
+            raise HTTPException(409, "agent is not eligible to dream or is already dreaming")
+        return {"id": dream.run_id, "agent": agent, "relay_channel": None}
     if channel:
         # Authored `system:scheduler`, exactly as the tick would write it: a
         # summons a human could distinguish from the 09:00 one would be a

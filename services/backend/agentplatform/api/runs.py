@@ -70,6 +70,9 @@ class RunAgentDef(BaseModel):
     fallback_notice: str = ""
     fallback_used: bool = False
     startup_memory: dict | None = None
+    # Live, not frozen (docs/design/44 A): the persona's open promises, which
+    # the runner renders as a data block in the user turn.
+    open_commitments: list[dict] = []
 
 class CodexAuth(BaseModel):
     auth_json: str
@@ -390,6 +393,7 @@ async def get_agentdef(run_id: str, request: Request):
     from agentplatform.db import AgentDef
     from agentplatform.startup_memory import envelope
     from agentplatform.authority import authority_lock
+    from agentplatform import commitments
     async with request.app.state.session_factory() as s:
         await authority_lock(s)
         # Global authority lock precedes AgentDef and Run, as in freeze.
@@ -410,7 +414,8 @@ async def get_agentdef(run_id: str, request: Request):
                 platform_tools=frozen.platform_tools, skills=frozen.skills,
                 model=run.model or frozen.model, runtime=run.runtime or frozen.runtime,
                 fallback_used=bool(run.fallback_used), fallback_notice=fallback_notice(run),
-                startup_memory=startup)
+                startup_memory=startup,
+                open_commitments=await commitments.deliver(s, run, current))
             await s.commit()
             return response
         await s.commit()

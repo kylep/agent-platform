@@ -9,6 +9,9 @@ from attrs import field as _attrs_field
 from ..types import UNSET, Unset
 
 if TYPE_CHECKING:
+    from ..models.run_agent_def_open_commitments_item import (
+        RunAgentDefOpenCommitmentsItem,
+    )
     from ..models.run_agent_def_startup_memory_type_0 import (
         RunAgentDefStartupMemoryType0,
     )
@@ -39,6 +42,7 @@ class RunAgentDef:
             fallback_used (bool | Unset):  Default: False.
             harness_tools (list[str] | Unset):
             model (str | Unset):  Default: ''.
+            open_commitments (list[RunAgentDefOpenCommitmentsItem] | Unset):
             platform_tools (list[str] | Unset):
             runtime (str | Unset):  Default: 'claude'.
             skills (list[str] | Unset):
@@ -52,6 +56,7 @@ class RunAgentDef:
     fallback_used: bool | Unset = False
     harness_tools: list[str] | Unset = UNSET
     model: str | Unset = ""
+    open_commitments: list[RunAgentDefOpenCommitmentsItem] | Unset = UNSET
     platform_tools: list[str] | Unset = UNSET
     runtime: str | Unset = "claude"
     skills: list[str] | Unset = UNSET
@@ -78,6 +83,13 @@ class RunAgentDef:
             harness_tools = self.harness_tools
 
         model = self.model
+
+        open_commitments: list[dict[str, Any]] | Unset = UNSET
+        if not isinstance(self.open_commitments, Unset):
+            open_commitments = []
+            for open_commitments_item_data in self.open_commitments:
+                open_commitments_item = open_commitments_item_data.to_dict()
+                open_commitments.append(open_commitments_item)
 
         platform_tools: list[str] | Unset = UNSET
         if not isinstance(self.platform_tools, Unset):
@@ -115,6 +127,8 @@ class RunAgentDef:
             field_dict["harness_tools"] = harness_tools
         if model is not UNSET:
             field_dict["model"] = model
+        if open_commitments is not UNSET:
+            field_dict["open_commitments"] = open_commitments
         if platform_tools is not UNSET:
             field_dict["platform_tools"] = platform_tools
         if runtime is not UNSET:
@@ -128,6 +142,9 @@ class RunAgentDef:
 
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
+        from ..models.run_agent_def_open_commitments_item import (
+            RunAgentDefOpenCommitmentsItem,
+        )
         from ..models.run_agent_def_startup_memory_type_0 import (
             RunAgentDefStartupMemoryType0,
         )
@@ -146,6 +163,17 @@ class RunAgentDef:
         harness_tools = cast(list[str], d.pop("harness_tools", UNSET))
 
         model = d.pop("model", UNSET)
+
+        _open_commitments = d.pop("open_commitments", UNSET)
+        open_commitments: list[RunAgentDefOpenCommitmentsItem] | Unset = UNSET
+        if _open_commitments is not UNSET:
+            open_commitments = []
+            for open_commitments_item_data in _open_commitments:
+                open_commitments_item = RunAgentDefOpenCommitmentsItem.from_dict(
+                    open_commitments_item_data
+                )
+
+                open_commitments.append(open_commitments_item)
 
         platform_tools = cast(list[str], d.pop("platform_tools", UNSET))
 
@@ -180,6 +208,7 @@ class RunAgentDef:
             fallback_used=fallback_used,
             harness_tools=harness_tools,
             model=model,
+            open_commitments=open_commitments,
             platform_tools=platform_tools,
             runtime=runtime,
             skills=skills,
