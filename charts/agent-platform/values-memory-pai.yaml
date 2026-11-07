@@ -3,7 +3,7 @@
 # No prompts, credentials or database image/storage changes belong here.
 images:
   backend:
-    tag: cron-f0d0074
+    tag: ca12-74c8caa
   web:
     tag: persona-unlimited-20261107
   runner:
@@ -14,7 +14,7 @@ images:
     tag: dream-d0a546f
 mcpBroker:
   image:
-    tag: ops39-11fbfdc
+    tag: ca12-74c8caa
 env:
   AP_STARTUP_MEMORY_PILOT_AGENTS: pai
   AP_MEMORY_SEMANTIC_ENABLED: "true"
