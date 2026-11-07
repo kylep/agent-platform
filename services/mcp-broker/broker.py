@@ -812,12 +812,13 @@ async def agent_self(action: str = "get", artifact_id: str | None = None,
                      expected_version: int | None = None):
     """Manage YOURSELF, never another agent. get reads your profile/version;
     models lists known choices; avatar assigns an image artifact (null clears);
-    model sets your primary model/runtime; backup sets ONLY your backup model/runtime
-    (claude/codex), or model="" clears the backup. Never change both in one call. persona replaces
+    model sets your primary model/runtime; moving it onto your backup's runtime makes the old
+    primary your backup. backup sets ONLY your backup model/runtime, which must be the other
+    runtime (claude/codex); it can be replaced but not cleared. Never change both in one call. persona replaces
     your complete persona prompt and/or description. schedule replaces your ENTIRE list
     of own cron triggers with crons=[{"schedule": "0 8 * * *", "prompt": "...", "model": ""}]
     (get shows the current list; resend the ones you keep) and optionally timezone (IANA,
-    e.g. America/Toronto); max 6, none more often than hourly. Read get first and supply
+    e.g. America/Toronto); none more often than hourly. Read get first and supply
     expected_version for model/backup/persona; a conflict requires rereading. Changes
     apply next run; your current run may finish, but its old session is discarded.
     System prompts are code-owned and cannot be rewritten. No grants, credentials,
@@ -834,12 +835,9 @@ async def agent_self(action: str = "get", artifact_id: str | None = None,
     if expected_version is None:
         return "error: read agent_self get and supply expected_version"
     if action == "backup":
-        if model == "":
-            changes = {"backup_runtime": None, "backup_model": ""}
-        elif model and runtime:
-            changes = {"backup_runtime": runtime, "backup_model": model}
-        else:
-            return 'error: choose backup model and runtime, or model="" to clear'
+        if not (model and runtime):
+            return "error: choose backup model and runtime"
+        changes = {"backup_runtime": runtime, "backup_model": model}
         return await _call("PATCH", "/api/agent-self", json={**changes, "expected_version": expected_version})
     if action == "schedule":
         if crons is None:

@@ -111,7 +111,9 @@ resources:
       memory: 256Mi
       cpu: 100m
     limits:
-      memory: 256Mi
+      # The API settles near 565Mi after its feed consumers start; 512Mi
+      # OOM-looped it within a minute of boot (2026-11-07).
+      memory: 1Gi
   dispatcher:
     requests:
       memory: 256Mi

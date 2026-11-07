@@ -13,8 +13,8 @@ Tools, so a newly added grant becomes available on their next run.
 | `get` | Read your own prompt, description, primary and backup model/runtime, avatar and version. |
 | `models` | Discover the known Claude and Codex model choices. |
 | `avatar` | Assign a readable image artifact to yourself; null restores the emoji. |
-| `model` | Set your next-run model, optionally switching between Claude and Codex. Empty model uses the platform default. |
-| `backup` | Set only your backup model and runtime; an empty model clears it. |
+| `model` | Set your next-run model, optionally switching between Claude and Codex. Empty model uses the platform default. Moving onto your backup's runtime makes your old primary the backup. |
+| `backup` | Replace only your backup model and runtime. It must use the other runtime, and it can't be cleared: every agent keeps a Claude and a Codex model so one provider's outage never strands it. |
 | `persona` | Replace your own complete prompt and/or one-line description. |
 
 For `model`, `backup` and `persona`, first read `get`, then pass its `expected_version`.
@@ -50,7 +50,9 @@ the other in a separate call. Humans may configure both together.
 A provider capacity, rate-limit/quota, authentication, unavailable model or
 server/connection failure can trigger **one** backup attempt, only before any
 answer or Tool work begins. A known-invalid primary credential can select the
-backup before dispatch. Failed tools, permission denials, cancellations, hard
+backup before dispatch. A Codex run that is still retrying an unreachable
+provider after three reconnects, before any work, stops and takes the backup
+instead of waiting out its time limit. Failed tools, permission denials, cancellations, hard
 time limits, incomplete output and failures after work begins are not retried.
 The original run ID, persona, grants and conversation context stay the same.
 The backup receives a platform instruction explaining the switch and uses a

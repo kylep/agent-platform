@@ -27,8 +27,8 @@ def test_self_backup_call_cannot_smuggle_primary_fields(monkeypatch):
     fn = broker.agent_self.__wrapped__
     asyncio.run(fn(action='backup', runtime='claude', model='claude-sonnet-5-5', expected_version=2))
     assert calls == [{'backup_runtime': 'claude', 'backup_model': 'claude-sonnet-5-5', 'expected_version': 2}]
-    asyncio.run(fn(action='backup', model='', expected_version=3))
-    assert calls[-1] == {'backup_runtime': None, 'backup_model': '', 'expected_version': 3}
+    assert asyncio.run(fn(action='backup', model='', expected_version=3)).startswith('error:')
+    assert len(calls) == 1
 
 
 def test_self_schedule_sends_only_cron_fields(monkeypatch):

@@ -173,7 +173,19 @@ async def test_self_primary_and_backup_are_readable_but_cannot_change_together(c
     assert backup.status_code == 200, backup.text
     assert backup.json()['model'] == 'gpt-6-sol'
     cleared = await client.patch('/api/agent-self', headers=headers, json={'expected_version': backup.json()['version'], 'backup_runtime': None, 'backup_model': ''})
-    assert cleared.status_code == 200 and cleared.json()['backup_runtime'] is None
+    assert cleared.status_code == 422 and 'keeps its backup' in cleared.text
+    same = await client.patch('/api/agent-self', headers=headers, json={'expected_version': backup.json()['version'], 'backup_runtime': 'codex', 'backup_model': 'gpt-6-astra'})
+    assert same.status_code == 422 and 'other runtime' in same.text
+
+
+async def test_self_primary_onto_backup_runtime_swaps_the_backup(client, sf, seed_agent, agent_store):
+    _, headers = await own_run(sf, seed_agent, agent_store, model='gpt-6-astra', backup_runtime='claude', backup_model='claude-sonnet-5-5')
+    version = (await client.get('/api/agent-self', headers=headers)).json()['version']
+    moved = await client.patch('/api/agent-self', headers=headers, json={'expected_version': version, 'runtime': 'claude', 'model': 'claude-sonnet-5-5'})
+    assert moved.status_code == 200, moved.text
+    out = moved.json()
+    assert (out['runtime'], out['model']) == ('claude', 'claude-sonnet-5-5')
+    assert (out['backup_runtime'], out['backup_model']) == ('codex', 'gpt-6-astra')
 
 
 async def test_self_primary_and_backup_edit_restriction_also_applies_to_broad_editor(client, sf, seed_agent, agent_store):

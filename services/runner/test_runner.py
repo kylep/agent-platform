@@ -1,5 +1,5 @@
 import hashlib
-import json, os, re, stat
+import json, os, re, stat, time
 import base64
 import urllib.error
 from pathlib import Path
@@ -1195,6 +1195,36 @@ def test_cross_provider_fallback_before_work_only(tmp_path, monkeypatch, began):
         assert len([c for c in calls if c[1].endswith('model-fallback')]) == 1
     seqs = [e['seq'] for e in events if 'seq' in e]
     assert seqs == sorted(set(seqs))
+
+
+def test_unreachable_codex_provider_falls_back_instead_of_waiting(tmp_path, monkeypatch):
+    retry = {"type": "error", "message": "Reconnecting... waiting for network (Connection failed: error sending request)"}
+    # Codex keeps retrying forever; the sleep stands in for the run deadline.
+    _session_env(monkeypatch, tmp_path, '#!/bin/sh\n' + ''.join('echo ' + repr(json.dumps(retry)) + '\n' for _ in range(3)) + 'exec sleep 30\n')
+    monkeypatch.setenv("AP_RUNTIME", "codex")
+    monkeypatch.setenv("AP_MODEL", "gpt-6-astra")
+    monkeypatch.setenv("AP_CODEX_PROXY_URL", "http://codex-proxy")
+    codex = tmp_path / "codex"
+    codex.write_text((tmp_path / "claude").read_text())
+    codex.chmod(0o755)
+    monkeypatch.setenv("CODEX_BIN", str(codex))
+    claude = tmp_path / "claude"
+    claude.write_text('#!/bin/sh\necho \'{"type":"result","result":"PASS","session_id":"backup"}\'\nexit 0\n')
+    monkeypatch.setattr(runner, "_restore_session", lambda *_: None)
+    monkeypatch.setattr(runner, "_upload_codex_thread", lambda *_: None)
+    def api(method, path, body=None):
+        if path.endswith("model-fallback"):
+            assert body == {"reason": "provider_unavailable"}
+            return {"runtime": "claude", "model": "claude-sonnet-5-5", "notice": "Platform fallback."}
+        return {}
+    monkeypatch.setattr(runner, "_api_req", api)
+    p = FakeProducer()
+    started = time.monotonic()
+    assert runner.run(producer=p) == 0
+    assert time.monotonic() - started < 20
+    events = [value for _, _, value in p.published]
+    assert sum(e.get("type") == "model_fallback" for e in events) == 1
+    assert [e["result"] for e in events if e.get("type") == "result"] == ["PASS"]
 
 
 @pytest.mark.parametrize("error,reason", [("Selected model is at capacity", "capacity"), ("429 rate limit", "rate_limit"), ("401 Unauthorized", "authentication"), ("502 Bad Gateway", "provider_unavailable"), ("model does not exist", "model_unavailable"), ("tool validation failed", None)])

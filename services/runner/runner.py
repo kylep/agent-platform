@@ -819,6 +819,9 @@ async def _abort(producer, run_id: str, detail: str) -> int:
     return 1
 
 
+CODEX_RECONNECT_LIMIT = 3
+
+
 def _provider_failure(error: str) -> str | None:
     text = error.lower()
     if "model" in text and any(word in text for word in ("does not exist", "may not exist", "not supported", "not found", "not available")):
@@ -1010,6 +1013,7 @@ async def _run(producer, run_id: str, agent: str, prompt: str) -> int:
 
     async def _invoke(args: list[str], kind: str) -> int:
         attempt_failed = False
+        reconnects = 0
         nonlocal seq, final_sid, final_text, final_error, work_began, attempt_blocked
         try:
             if startup or (os.environ.get('AP_API_URL') and os.environ.get('AP_SESSION_TOKEN')):
@@ -1086,6 +1090,14 @@ async def _run(producer, run_id: str, agent: str, prompt: str) -> int:
                     error = payload.get("error") or payload.get("message") or ""
                     final_error = (error.get("message", "") if isinstance(error, dict)
                                    else str(error))
+                    # Codex retries an unreachable provider until the run's
+                    # deadline. Stop after a few retries before any work, so
+                    # the backup model gets the turn instead of a timeout.
+                    if (not work_began and final_error.startswith("Reconnecting")
+                            and _provider_failure(final_error) == "provider_unavailable"):
+                        reconnects += 1
+                        if reconnects >= CODEX_RECONNECT_LIMIT:
+                            proc.terminate()
                     if any(word in final_error.lower()
                            for word in ("unauthorized", "authentication failed", "401")):
                         payload["error"] = "authentication_failed"

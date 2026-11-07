@@ -138,6 +138,18 @@ async def update_self_profile(request: Request, body: SelfProfileIn):
             raise HTTPException(422, "profile fields cannot be null; use an empty model for the platform default")
         if "runtime" in changes and changes["runtime"] != row.runtime and "model" not in changes:
             raise HTTPException(422, "changing runtime requires an explicit model, or an empty model for its default")
+        # Every agent keeps a backup on the other runtime, so one provider's
+        # outage never strands it (Kyle, 2026-11-07). A self-edit can replace
+        # the backup but not drop it, and moving the primary onto the backup's
+        # runtime makes the old primary the new backup.
+        if row.backup_runtime and "backup_model" in changes and not changes["backup_model"]:
+            raise HTTPException(422, "an agent keeps its backup model; choose a different one instead of clearing it")
+        if "backup_runtime" in changes and changes["backup_runtime"] == row.runtime:
+            raise HTTPException(422, f"the backup must run on the other runtime than the primary ({row.runtime})")
+        new_runtime = changes.get("runtime", row.runtime)
+        if ("model" in changes and row.backup_runtime and row.model
+                and new_runtime == row.backup_runtime != row.runtime):
+            changes["backup_runtime"], changes["backup_model"] = row.runtime, row.model
         payload = {**_payload(row), **changes}
         cron_change = {"crons", "timezone"} & changes.keys()
         if cron_change:
