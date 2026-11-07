@@ -3,7 +3,7 @@
 # No prompts, credentials or database image/storage changes belong here.
 images:
   backend:
-    tag: ops39-11fbfdc
+    tag: eng12-8aaf272
   runner:
     tag: dream-355fda4
   runnerDev:
