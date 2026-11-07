@@ -3,7 +3,7 @@
 # No prompts, credentials or database image/storage changes belong here.
 images:
   backend:
-    tag: persona-unlimited-20261107
+    tag: cron-f0d0074
   web:
     tag: persona-unlimited-20261107
   runner:
