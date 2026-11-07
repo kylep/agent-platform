@@ -164,10 +164,19 @@ def main() -> int:
                     (args.get("current_project") and not scope[1])):
                 print("[]")
                 return 0
-            print(json.dumps(read(cur, agent, args.get("q") or "",
-                                  args.get("limit") or 50,
-                                  scope[0] if args.get("current_team") else None,
-                                  scope[1] if args.get("current_project") else None)))
+            found = read(cur, agent, args.get("q") or "",
+                         args.get("limit") or 50,
+                         scope[0] if args.get("current_team") else None,
+                         scope[1] if args.get("current_project") else None)
+            # A searched read is a retrieval (ENG-12); listing the newest is
+            # not. Older backends lack the function, so ask for it first.
+            cur.execute("SELECT to_regprocedure('public.memory_note_use(text,text,text[])')")
+            if found and (args.get("q") or "").strip() and cur.fetchone()[0]:
+                cur.execute("SELECT public.memory_note_use(%s, %s, %s)",
+                            # The top hits only: a broad term matching half
+                            # the namespace is not half the namespace used.
+                            (os.environ.get("TOOL_RUN_ID", ""), agent, [m["id"] for m in found[:10]]))
+            print(json.dumps(found))
         elif args["action"] == "save":
             # Scope, locked precondition, mutation and provenance share one
             # transaction. Failed preconditions never record a mutation.
@@ -175,6 +184,14 @@ def main() -> int:
             try:
                 out = save(cur, agent, args, *scope, previous=previous)
             except psycopg.errors.RaiseException as exc:
+                guard = next((c for c in ('memory_locked', 'memory_pinned') if c in str(exc)), None)
+                if guard:
+                    # An admin guard (ENG-13): report it, don't crash the call.
+                    conn.rollback()
+                    print(json.dumps({'ok': False, 'error': {'code': guard, 'message': (
+                          'an admin locked this memory; leave it as it is' if guard == 'memory_locked'
+                          else 'an admin pinned this memory; it can be edited but not deleted')}}))
+                    return 0
                 if 'memory_dream_loss_limit' not in str(exc):
                     raise
                 conn.rollback()

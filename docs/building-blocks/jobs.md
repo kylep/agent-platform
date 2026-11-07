@@ -24,6 +24,12 @@ awareness job, `discord_unaddressed` checks its owned, currently readable guild
 channels for new human posts and skips the model run on a quiet tick. The
 persona acknowledges each bounded batch using the `discord` Tool after triage.
 
+**Skipped fires (ENG-14):** a job that runs an agent is skipped without a run in two cases. The clock still advances, and the reason is shown as `skip_reason` / `skipped_at`.
+- **Agent unavailable:** its agent no longer exists or is disabled.
+- **Repeated failures:** after 3 consecutive failed runs (failed, timed out, rejected or DLQ), the job backs off. It fires at most once per 1h, 2h, 4h… after the last failure, capped at 24h. A success resets the backoff.
+
+`failure_streak` shows the current count. Models are not preflighted, because jobs accept aliases that the runtime resolves.
+
 **Timezones:** `timezone` is an IANA zone (`America/Toronto`) that the cron is
 read in; blank means UTC, and stored times are always UTC either way. Set it
 for anything pinned to human hours — "9:35 on a weekday" is a different UTC

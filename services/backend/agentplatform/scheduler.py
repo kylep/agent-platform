@@ -21,9 +21,9 @@ from typing import TYPE_CHECKING
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from croniter import croniter
-from sqlalchemy import select
+from sqlalchemy import or_, select
 
-from agentplatform.db import ACTIVE_STATES, Run, Schedule, ScheduledJob, utcnow
+from agentplatform.db import ACTIVE_STATES, Run, RunState, Schedule, ScheduledJob, utcnow
 from agentplatform import maintenance_mode
 from agentplatform.events import TOPIC_RUN_INBOUND
 from agentplatform.relay import SCHEDULER_AUTHOR
@@ -107,6 +107,58 @@ def prev_fire(expr: str, at: datetime, tz: str | None = None) -> datetime:
             log.warning("unknown timezone %r; falling back to UTC", tz)
     local = as_utc(at).astimezone(zone) + timedelta(microseconds=1)
     return croniter(expr, local).get_prev(datetime).astimezone(timezone.utc)
+
+
+# Runs that count against a job's failure streak (ENG-14). A success ends the
+# streak; anything else finished (killed, interrupted) is not a failure of the
+# job, so it ends the count too rather than extending it. Rejected and DLQ runs
+# are left out: the dispatcher rejects for platform reasons (a bad credential,
+# readiness), and one outage must not park every job for a day after it.
+FAILURE_STATES = (RunState.FAILED, RunState.TIMED_OUT)
+BACKOFF_AFTER = 3
+BACKOFF_CAP = timedelta(hours=24)
+STREAK_WINDOW = timedelta(days=7)
+
+
+def _job_runs(job_id: str):
+    """A job's runs: scheduled fires and Run Now (`<principal> (job:<id>)`)."""
+    return or_(Run.requested_by == f"job:{job_id}", Run.requested_by.like(f"% (job:{job_id})"))
+
+
+async def failure_streak(s, job_id: str, now: datetime | None = None) -> tuple[int, datetime | None]:
+    """Consecutive most-recent finished runs of a job that failed, and when the
+    latest of them finished. Counted newest-first and stopped at the first run
+    that did not fail, so one success resets the streak with no bookkeeping.
+    Only the last week counts; `created_at` bounds the scan of `runs`."""
+    since = (now or utcnow()) - STREAK_WINDOW
+    rows = (await s.execute(select(Run.state, Run.finished_at).where(
+        _job_runs(job_id), Run.created_at >= since, Run.finished_at.is_not(None))
+        .order_by(Run.finished_at.desc()).limit(50))).all()
+    streak, last = 0, None
+    for state, finished in rows:
+        if state not in FAILURE_STATES:
+            break
+        streak += 1
+        last = last or as_utc(finished)
+    return streak, last
+
+
+async def _in_flight(s, job_id: str, now: datetime) -> bool:
+    return (await s.execute(select(Run.id).where(
+        _job_runs(job_id), Run.created_at >= now - STREAK_WINDOW,
+        Run.state.in_(ACTIVE_STATES)).limit(1))).first() is not None
+
+
+def preflight_problem(agents, agent: str) -> str | None:
+    """Why a job's run could not possibly start, checked before spending one.
+    Models are not checked: jobs and agents accept aliases the runtime
+    resolves, so a model list here would park jobs that work."""
+    info = agents.get(agent)
+    if info is None:
+        return f"agent {agent!r} does not exist"
+    if not info.enabled:
+        return f"agent {agent!r} is disabled"
+    return None
 
 
 # What a cron fire asks for when its entry declares nothing.
@@ -274,6 +326,28 @@ class Scheduler:
                 except Exception:
                     log.warning("dream start failed for job %s", job_id, exc_info=True)
                 return
+            if job.agent and not job.relay_channel:
+                # Zero-cost guards (ENG-14): a fire that cannot succeed is
+                # skipped, not published — the clock still advances, so the
+                # job resumes by itself once the cause is fixed.
+                reason = preflight_problem(self.agents, job.agent)
+                if reason is None:
+                    streak, last_failed = await failure_streak(s, job_id, now)
+                    if streak >= BACKOFF_AFTER and last_failed is not None:
+                        wait = min(BACKOFF_CAP, timedelta(hours=1) * 2 ** min(streak - BACKOFF_AFTER, 5))
+                        if now < last_failed + wait:
+                            reason = (f"backing off after {streak} consecutive failed runs; "
+                                      f"retry after {(last_failed + wait).isoformat()}")
+                        elif await _in_flight(s, job_id, now):
+                            # One retry at a time: until it finishes, the
+                            # streak can't tell this window was already used.
+                            reason = f"backing off after {streak} consecutive failed runs; a retry is running"
+                if reason is not None:
+                    job.skip_reason, job.skipped_at = reason, now
+                    job.next_fire = next_fire(job.cron, now, job.timezone)
+                    await s.commit()
+                    return
+            job.skip_reason = job.skipped_at = None
             run_id, agent, prompt = uuid.uuid4().hex, job.agent, job.prompt
             model = job.model or ""
             memory_query = job.memory_query

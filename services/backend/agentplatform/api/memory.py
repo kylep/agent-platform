@@ -10,6 +10,7 @@ from agentplatform.db import Memory, Project, Run, Team
 from agentplatform.memory_revisions import ExpectedRevision, check_revision, conflict
 from agentplatform.persona_memory import source_hash
 from agentplatform import memory_history
+from agentplatform.memory_curation import guarded, note_use
 
 log = logging.getLogger("memory")
 
@@ -50,7 +51,12 @@ class MemoryIn(BaseModel):
 def _writer(request: Request) -> str:
     """Who the history trigger records for a REST write (docs/design/44 C)."""
     run = getattr(request.state, "api_key_run_id", None)
-    return run or f"rest:{getattr(request.state, 'api_key_agent', None) or 'admin'}"
+    agent = getattr(request.state, "api_key_agent", None)
+    if run or agent:
+        return run or f"rest:{agent}"
+    # Only a real admin is `rest:admin`: the memory guard trigger lets that
+    # writer past pins and locks (ENG-13), and an operator must not pass.
+    return "rest:admin" if getattr(request.state, "resolved_role", None) == "admin" else "rest:human"
 
 
 def _view(m: Memory) -> dict:
@@ -77,6 +83,7 @@ def _resolve_ns(request: Request, requested: str | None) -> str:
 
 
 @router.post("/api/memories", status_code=201, response_model=S.MemoryView, dependencies=[Depends(require_role(*MEMORY_ROLES))])
+@guarded
 async def save_memory(request: Request, body: MemoryIn):
     """Save a memory in the caller's namespace. A save reusing an existing
     `key` overwrites it unless expected_revision guards replacement. A stale
@@ -221,6 +228,7 @@ class MemoryPatch(BaseModel):
 
 
 @router.patch("/api/memories/{memory_id}", response_model=S.MemoryView, dependencies=[Depends(require_role(*MEMORY_ROLES))])
+@guarded
 async def edit_memory(request: Request, memory_id: str, body: MemoryPatch):
     """Edit a memory's content/tags in place (the key is identity and stays)."""
     m = await _owned(request, memory_id)
@@ -245,6 +253,7 @@ async def edit_memory(request: Request, memory_id: str, body: MemoryPatch):
 
 
 @router.delete("/api/memories/{memory_id}", response_model=S.OkId, dependencies=[Depends(require_role(*MEMORY_ROLES))])
+@guarded
 async def delete_memory(request: Request, memory_id: str,
                         expected_revision: ExpectedRevision | None = Query(None),
                         purge_history: bool = Query(False, description="admin only: also erase this memory's version history")):
@@ -318,5 +327,6 @@ async def hybrid_search(request: Request, body: HybridSearch):
         if len(rows) != len(refs):
             status = {**status, 'state': 'degraded', 'reason': 'source_changed'}
         records, sources = select_records(rows, references=refs, limit=body.limit)
+        await note_use(s, run.id, agent, [r['id'] for r in records])
         await s.commit()
     return {'memories': records, 'sources': sources, 'retrieval': status}

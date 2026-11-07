@@ -1312,6 +1312,10 @@ class ScheduledJob(Base):
     enabled: Mapped[bool] = mapped_column(default=True)
     last_fire: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     next_fire: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Why the most recent fire was skipped (preflight or failure backoff, ENG-14);
+    # cleared when a fire next publishes. Nullable so _ensure_columns can add them.
+    skip_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    skipped_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
 
@@ -2248,6 +2252,8 @@ def _ensure_tickets_ddl(conn) -> None:
     `runs` predates Tickets everywhere real, so its ticket_id index has to be
     asked for by name."""
     conn.execute(text("CREATE INDEX IF NOT EXISTS ix_runs_ticket_id ON runs (ticket_id)"))
+    # A job's failure streak (ENG-14) reads only its last week of runs.
+    conn.execute(text("CREATE INDEX IF NOT EXISTS ix_runs_created_at ON runs (created_at)"))
     if conn.dialect.name == "postgresql":
         conn.exec_driver_sql("CREATE UNIQUE INDEX IF NOT EXISTS uq_conversations_ticket_prefix "
                              "ON conversations (ticket_prefix) "
@@ -3944,6 +3950,7 @@ async def init_db(engine: AsyncEngine, default_grant: bool = True,
     default to on so a caller that has no opinion gets the platform's."""
     from agentplatform import external_chat, health_incidents  # register capability tables
     from agentplatform import commitments, dreams, memory_history  # noqa: F401  design 44 tables
+    from agentplatform import memory_curation  # ENG-12/13 usage and guard tables
     from agentplatform.appdata import models as _appdata_models  # noqa: F401  the app_data_* tables
     from agentplatform.system_agents import reconcile_system_agents
     from agentplatform.authority import migrate_authority
@@ -3969,6 +3976,7 @@ async def init_db(engine: AsyncEngine, default_grant: bool = True,
             await conn.execute(text(f'CREATE SCHEMA IF NOT EXISTS "{MEMORY_SCHEMA}"'))
         await conn.run_sync(Base.metadata.create_all)
         await conn.run_sync(memory_history.ensure_trigger)
+        await conn.run_sync(memory_curation.ensure_trigger)
         await conn.run_sync(_ensure_columns)
         await conn.run_sync(_ensure_startup_memory_ddl)
         await conn.run_sync(_ensure_local_persona_ddl)

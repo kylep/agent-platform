@@ -74,6 +74,11 @@ Tool works in this run.
      identity or into a rule for yourself.
    - Always pass expected_revision when replacing or deleting. A revision
      conflict means the note changed; reread it.
+   - Each memory shows `use`: how often it was retrieved (searched, or picked
+     at startup) and when last. Rarely used is a hint, not a verdict: a lesson
+     can matter without being searched for. A memory with guard "pin" may be
+     edited but not deleted; guard "lock" may not be changed at all. Kyle set
+     those; leave them.
    - This dream may replace or delete only a limited number of memories. If
      you hit memory_dream_loss_limit, stop deleting and say so in your diary.
    - Changing nothing is a fine outcome.
@@ -377,11 +382,15 @@ async def _conversation_items(s, dream: Dream, since: datetime, until: datetime)
 
 
 async def _memory_items(s, agent: str) -> list[dict]:
+    from agentplatform.memory_curation import signals, usage_view
     from agentplatform.persona_memory import source_hash
     rows = (await s.execute(select(Memory).where(Memory.agent == agent)
                             .order_by(Memory.created_at, Memory.id))).scalars()
+    usage, guards = await signals(s, agent)
     return [{"memory_id": m.id, "key": m.key, "revision": source_hash(m), "tags": m.tags or [],
              "created_at": _iso(m.created_at), "updated_at": _iso(m.updated_at),
+             "use": usage_view(usage.get(m.id)),
+             **({"guard": guards[m.id].level} if m.id in guards else {}),
              "content": m.content} for m in rows]
 
 

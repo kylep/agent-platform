@@ -563,6 +563,9 @@ class JobView(BaseModel):
     enabled: bool
     last_fire: str | None
     next_fire: str | None
+    skip_reason: str | None = None
+    skipped_at: str | None = None
+    failure_streak: int = 0
 
 
 class JobRunAccepted(BaseModel):

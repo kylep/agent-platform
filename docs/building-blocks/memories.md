@@ -53,3 +53,25 @@ With `AP_DREAM_ENABLED=true`, each eligible agent gets a `dream:<agent>` Schedul
 - The history trigger caps how many existing memories one dream may replace or delete, at a quarter of the namespace with a minimum of one.
 
 **Reviewing dreams:** `GET /api/dreams` lists them with their diary and an exact per-run change list. `POST /api/dreams {agent}`, or the job's Run Now, dreams immediately.
+
+## Usage and guards
+
+These two signals help a dream decide what to keep. The idea comes from Hermes Agent's skill curator.
+
+**Usage (ENG-12).** Every memory records `retrievals` and `last_retrieved_at`.
+- **Counted:** a searched `read` (with `q`), a hybrid hit, or being picked for startup memory.
+- **Not counted:** listing the newest notes, and a dream's own reading.
+- **Where it shows:** as `use` on each memory in the dream review page.
+- **Storage:** `public.memory_usage`. The Tool reports reads only through the `memory_note_use` function, which checks the run's own scope, so it cannot write counts directly.
+
+**Guards (ENG-13).** An admin can guard one memory with `PUT /api/memories/{id}/guard {level, note}`:
+- **`pin`:** the agent may edit the memory but not delete it.
+- **`lock`:** the agent may not change it at all.
+- **Lifting a guard:** send `level: null`.
+- **Listing guards:** `GET /api/memory-guards`.
+
+How guards are enforced and shown:
+- **Who is held:** a `BEFORE UPDATE OR DELETE` trigger holds every writer except admin-attributed ones (`admin:*` and `rest:admin`). That covers the Tool, agent REST keys, dream deletes and unattributed writes.
+- **Refusals:** a refusal is `memory_pinned` or `memory_locked`. The Tool returns it as `ok=false` and the REST routes as 409.
+- **In dreams:** dreams see the guard on the review page.
+- **After deletion:** deleting a memory removes its usage and guard rows. A restored memory starts fresh.

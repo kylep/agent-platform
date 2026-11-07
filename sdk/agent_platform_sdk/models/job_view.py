@@ -23,10 +23,13 @@ class JobView:
         name (str):
         next_fire (None | str):
         prompt (str):
+        failure_streak (int | Unset):  Default: 0.
         memory_query (None | str | Unset):
         model (str | Unset):  Default: ''.
         relay_channel (None | str | Unset):
         run_when (str | Unset):  Default: 'always'.
+        skip_reason (None | str | Unset):
+        skipped_at (None | str | Unset):
         timezone (str | Unset):  Default: ''.
     """
 
@@ -38,10 +41,13 @@ class JobView:
     name: str
     next_fire: None | str
     prompt: str
+    failure_streak: int | Unset = 0
     memory_query: None | str | Unset = UNSET
     model: str | Unset = ""
     relay_channel: None | str | Unset = UNSET
     run_when: str | Unset = "always"
+    skip_reason: None | str | Unset = UNSET
+    skipped_at: None | str | Unset = UNSET
     timezone: str | Unset = ""
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
@@ -65,6 +71,8 @@ class JobView:
 
         prompt = self.prompt
 
+        failure_streak = self.failure_streak
+
         memory_query: None | str | Unset
         if isinstance(self.memory_query, Unset):
             memory_query = UNSET
@@ -80,6 +88,18 @@ class JobView:
             relay_channel = self.relay_channel
 
         run_when = self.run_when
+
+        skip_reason: None | str | Unset
+        if isinstance(self.skip_reason, Unset):
+            skip_reason = UNSET
+        else:
+            skip_reason = self.skip_reason
+
+        skipped_at: None | str | Unset
+        if isinstance(self.skipped_at, Unset):
+            skipped_at = UNSET
+        else:
+            skipped_at = self.skipped_at
 
         timezone = self.timezone
 
@@ -97,6 +117,8 @@ class JobView:
                 "prompt": prompt,
             }
         )
+        if failure_streak is not UNSET:
+            field_dict["failure_streak"] = failure_streak
         if memory_query is not UNSET:
             field_dict["memory_query"] = memory_query
         if model is not UNSET:
@@ -105,6 +127,10 @@ class JobView:
             field_dict["relay_channel"] = relay_channel
         if run_when is not UNSET:
             field_dict["run_when"] = run_when
+        if skip_reason is not UNSET:
+            field_dict["skip_reason"] = skip_reason
+        if skipped_at is not UNSET:
+            field_dict["skipped_at"] = skipped_at
         if timezone is not UNSET:
             field_dict["timezone"] = timezone
 
@@ -145,6 +171,8 @@ class JobView:
 
         prompt = d.pop("prompt")
 
+        failure_streak = d.pop("failure_streak", UNSET)
+
         def _parse_memory_query(data: object) -> None | str | Unset:
             if data is None:
                 return data
@@ -167,6 +195,24 @@ class JobView:
 
         run_when = d.pop("run_when", UNSET)
 
+        def _parse_skip_reason(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        skip_reason = _parse_skip_reason(d.pop("skip_reason", UNSET))
+
+        def _parse_skipped_at(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        skipped_at = _parse_skipped_at(d.pop("skipped_at", UNSET))
+
         timezone = d.pop("timezone", UNSET)
 
         job_view = cls(
@@ -178,10 +224,13 @@ class JobView:
             name=name,
             next_fire=next_fire,
             prompt=prompt,
+            failure_streak=failure_streak,
             memory_query=memory_query,
             model=model,
             relay_channel=relay_channel,
             run_when=run_when,
+            skip_reason=skip_reason,
+            skipped_at=skipped_at,
             timezone=timezone,
         )
 

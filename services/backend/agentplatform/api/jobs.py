@@ -23,14 +23,14 @@ from agentplatform.db import ScheduledJob
 from agentplatform.materialize import materialize_run
 from agentplatform.relay import SCHEDULER_AUTHOR
 from agentplatform.relay_store import summon_channel
-from agentplatform.scheduler import is_valid_cron, is_valid_timezone
+from agentplatform.scheduler import failure_streak, is_valid_cron, is_valid_timezone
 from agentplatform.memory_queries import MemoryQuery
 
 from agentplatform.api import schemas as S
 router = APIRouter(dependencies=[Depends(require_admin)])
 
 
-def _view(j: ScheduledJob) -> dict:
+def _view(j: ScheduledJob, streak: int = 0) -> dict:
     return {"id": j.id, "name": j.name, "agent": j.agent, "cron": j.cron,
             "memory_query": j.memory_query,
             "relay_channel": j.relay_channel,
@@ -38,7 +38,15 @@ def _view(j: ScheduledJob) -> dict:
             "run_when": j.run_when or "always",
             "enabled": j.enabled,
             "last_fire": j.last_fire.isoformat() if j.last_fire else None,
-            "next_fire": j.next_fire.isoformat() if j.next_fire else None}
+            "next_fire": j.next_fire.isoformat() if j.next_fire else None,
+            "skip_reason": j.skip_reason,
+            "skipped_at": j.skipped_at.isoformat() if j.skipped_at else None,
+            "failure_streak": streak}
+
+
+async def _view_of(s, j: ScheduledJob) -> dict:
+    """`_view` plus the failure streak, which is a query over runs, not a column."""
+    return _view(j, (await failure_streak(s, j.id))[0] if j.agent else 0)
 
 
 class JobIn(BaseModel):
@@ -84,7 +92,7 @@ async def _check(request: Request, *, cron: str | None, agent: str | None,
 async def list_jobs(request: Request):
     async with request.app.state.session_factory() as s:
         jobs = (await s.execute(select(ScheduledJob).order_by(ScheduledJob.name))).scalars().all()
-        return [_view(j) for j in jobs]
+        return [await _view_of(s, j) for j in jobs]
 
 
 @router.post("/api/jobs", status_code=201, response_model=S.JobView)
@@ -108,7 +116,7 @@ async def create_job(request: Request, body: JobIn):
                            run_when=body.run_when)
         s.add(job)
         await s.commit()
-        return _view(job)
+        return await _view_of(s, job)
 
 
 @router.patch("/api/jobs/{job_id}", response_model=S.JobView)
@@ -139,7 +147,7 @@ async def edit_job(request: Request, job_id: str, body: JobPatch):
         if body.cron is not None or body.timezone is not None:
             job.next_fire = None
         await s.commit()
-        return _view(job)
+        return await _view_of(s, job)
 
 
 @router.delete("/api/jobs/{job_id}", status_code=204)

@@ -17,6 +17,7 @@ from sqlalchemy.exc import DBAPIError
 
 from agentplatform import commitments as C
 from agentplatform import dreams as D
+from agentplatform import memory_curation as MC
 from agentplatform import memory_history as H
 from agentplatform.api.auth import READ_ROLES, require_admin, require_role
 from agentplatform.db import ACTIVE_STATES, AgentDef, Memory, Run, utcnow
@@ -224,6 +225,7 @@ class DeleteIn(BaseModel):
 
 
 @router.post("/api/memory-delete", dependencies=[Depends(require_role(*AGENT_ROLES))])
+@MC.guarded
 async def memory_delete(request: Request, body: DeleteIn):
     if bool(body.memory_id) == bool(body.key):
         raise HTTPException(422, "pass exactly one of memory_id or key")
@@ -301,6 +303,45 @@ async def memory_history(request: Request, agent: str | None = None, memory_id: 
                 stmt = stmt.where(col == value)
         rows = (await s.execute(stmt.order_by(H.MemoryVersion.at.desc()).limit(limit))).scalars()
         return [H.view(v) for v in rows]
+
+
+class GuardIn(BaseModel):
+    level: Literal["pin", "lock"] | None
+    note: str = Field(default="", max_length=300)
+
+
+@router.put("/api/memories/{memory_id}/guard")
+async def set_memory_guard(request: Request, body: GuardIn, memory_id: str = Path(pattern=_ID),
+                    principal: str = Depends(require_admin)):
+    """ENG-13: pin (agents may edit, not delete) or lock (agents may not
+    change it at all) one memory; level null lifts the guard."""
+    async with request.app.state.session_factory() as s:
+        row = await s.get(Memory, memory_id)
+        if row is None:
+            raise HTTPException(404, "unknown memory")
+        guard = await s.get(MC.MemoryGuard, memory_id)
+        if body.level is None:
+            if guard is not None:
+                await s.delete(guard)
+            await s.commit()
+            return {"memory_id": memory_id, "level": None}
+        if guard is None:
+            guard = MC.MemoryGuard(memory_id=memory_id, agent=row.agent, level=body.level,
+                                  set_by=f"admin:{principal}")
+            s.add(guard)
+        guard.level, guard.note, guard.set_by, guard.set_at = body.level, body.note, f"admin:{principal}", utcnow()
+        out = MC.guard_view(guard)
+        await s.commit()
+        return out
+
+
+@router.get("/api/memory-guards", dependencies=[Depends(require_admin)])
+async def list_memory_guards(request: Request, agent: str | None = None):
+    async with request.app.state.session_factory() as s:
+        stmt = select(MC.MemoryGuard).order_by(MC.MemoryGuard.agent, MC.MemoryGuard.set_at)
+        if agent:
+            stmt = stmt.where(MC.MemoryGuard.agent == agent)
+        return [MC.guard_view(g) for g in (await s.execute(stmt)).scalars()]
 
 
 @router.post("/api/memory-versions/{version_id}/restore")

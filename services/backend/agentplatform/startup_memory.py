@@ -43,6 +43,11 @@ async def capture(session, run, frozen, current, settings, prepared=None):
         raise ValueError('startup memory envelope exceeds 64 KiB')
     run.startup_memory_enabled = enabled
     session.add(row)
+    if enabled:
+        # Startup selection is a retrieval (ENG-12): a note read only here
+        # must not look unused to a dream.
+        from agentplatform.memory_curation import note_use
+        await note_use(session, run.id, run.agent, [r['id'] for r in records])
 
 
 async def envelope(session, run, current, support):

@@ -4,7 +4,7 @@ import pytest
 from sqlalchemy import select
 
 from agentplatform.agents import AgentInfo, Manifest
-from agentplatform.db import Run, Schedule
+from agentplatform.db import ACTIVE_STATES, Run, RunState, Schedule, ScheduledJob
 from agentplatform.events import FakeProducer, TOPIC_RUN_INBOUND
 from agentplatform.scheduler import (Scheduler, as_utc, is_valid_cron,
                                      is_valid_timezone, next_fire)
@@ -55,6 +55,7 @@ class FakeStore:
     def __init__(self, infos): self._infos = infos
     async def reload(self): pass
     def list(self): return self._infos
+    def get(self, name): return next((i for i in self._infos if i.name == name), None)
 
 
 def _agent(name, cron, error=None, prompt="", enabled=True):
@@ -178,3 +179,96 @@ async def test_cronless_and_quarantined_agents_not_scheduled(sf, now):
     await sch.tick(now)
     async with sf() as s:
         assert (await s.execute(select(Schedule))).scalars().all() == []
+
+
+# --- ENG-14: Scheduled Job guards -------------------------------------------
+
+async def _job(sf, now, agent="cronbot", **kw):
+    async with sf() as s:
+        job = ScheduledJob(name="j", agent=agent, cron="*/10 * * * *", prompt="go",
+                           next_fire=now - timedelta(minutes=1), **kw)
+        s.add(job)
+        await s.commit()
+        return job.id
+
+
+async def _runs(sf, job_id, states, now, requested_by=None):
+    """Finished runs of the job, oldest first, one minute apart ending at `now`."""
+    async with sf() as s:
+        for i, st in enumerate(states):
+            at = now - timedelta(minutes=len(states) - i)
+            s.add(Run(agent="cronbot", trigger="schedule", requested_by=requested_by or f"job:{job_id}",
+                      prompt="go", state=st, created_at=at,
+                      finished_at=None if st in ACTIVE_STATES else at))
+        await s.commit()
+
+
+async def _fire(sf, store, now, job_id):
+    producer = FakeProducer()
+    await Scheduler(sf, FakeStore(store), producer)._tick_job(job_id, now)
+    async with sf() as s:
+        job = await s.get(ScheduledJob, job_id)
+    return job, [v for t, _, v in producer.published if t == TOPIC_RUN_INBOUND]
+
+
+@pytest.mark.parametrize("store,kw,why", [
+    ([], {}, "does not exist"),
+    ([_agent("cronbot", "* * * * *", enabled=False)], {}, "disabled"),
+])
+async def test_job_preflight_skips_but_advances(sf, now, store, kw, why):
+    job_id = await _job(sf, now, **kw)
+    job, published = await _fire(sf, store, now, job_id)
+    assert published == [] and why in job.skip_reason and as_utc(job.skipped_at) == now
+    assert as_utc(job.next_fire) == next_fire("*/10 * * * *", now) and job.last_fire is None
+
+
+async def test_job_preflight_ignores_model_aliases_and_clears_skip(sf, now):
+    # "sonnet" is not in the UI model list; the runtime resolves it.
+    job_id = await _job(sf, now, model="sonnet", skip_reason="old", skipped_at=now)
+    job, published = await _fire(sf, [_agent("cronbot", "* * * * *")], now, job_id)
+    assert len(published) == 1 and job.skip_reason is None and job.skipped_at is None
+
+
+async def test_job_backoff_after_three_failures_then_resumes(sf, now):
+    job_id = await _job(sf, now)
+    await _runs(sf, job_id, [RunState.FAILED, RunState.TIMED_OUT, RunState.FAILED], now)
+    store = [_agent("cronbot", "* * * * *")]
+    job, published = await _fire(sf, store, now, job_id)        # streak 3 -> wait 1h
+    assert published == [] and "3 consecutive" in job.skip_reason
+    async with sf() as s:
+        (await s.get(ScheduledJob, job_id)).next_fire = now
+        await s.commit()
+    job, published = await _fire(sf, store, now + timedelta(hours=1, minutes=1), job_id)
+    assert len(published) == 1 and job.skip_reason is None
+
+
+async def test_job_success_resets_streak(sf, now):
+    job_id = await _job(sf, now)
+    await _runs(sf, job_id, [RunState.FAILED, RunState.FAILED, RunState.SUCCEEDED,
+                             RunState.FAILED, RunState.REJECTED], now)
+    job, published = await _fire(sf, [_agent("cronbot", "* * * * *")], now, job_id)
+    assert len(published) == 1                                  # streak is only 2
+
+
+async def test_platform_rejections_do_not_build_a_streak(sf, now):
+    # The dispatcher rejects for platform reasons (credentials, readiness).
+    job_id = await _job(sf, now)
+    await _runs(sf, job_id, [RunState.REJECTED, RunState.DLQ, RunState.REJECTED, RunState.REJECTED], now)
+    job, published = await _fire(sf, [_agent("cronbot", "* * * * *")], now, job_id)
+    assert len(published) == 1
+
+
+async def test_backoff_allows_one_retry_at_a_time(sf, now):
+    job_id = await _job(sf, now)
+    await _runs(sf, job_id, [RunState.FAILED] * 3, now - timedelta(hours=2))
+    await _runs(sf, job_id, [RunState.RUNNING], now)            # the window's retry
+    job, published = await _fire(sf, [_agent("cronbot", "* * * * *")], now, job_id)
+    assert published == [] and "a retry is running" in job.skip_reason
+
+
+async def test_a_run_now_success_resets_the_streak(sf, now):
+    job_id = await _job(sf, now)
+    await _runs(sf, job_id, [RunState.FAILED] * 3, now - timedelta(minutes=5))
+    await _runs(sf, job_id, [RunState.SUCCEEDED], now, requested_by=f"kyle (job:{job_id})")
+    job, published = await _fire(sf, [_agent("cronbot", "* * * * *")], now, job_id)
+    assert len(published) == 1

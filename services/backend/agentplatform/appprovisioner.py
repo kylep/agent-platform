@@ -286,6 +286,14 @@ class ToolProvisioner:
                     "REVOKE ALL ON FUNCTION public.memory_run_scope(text, text) FROM PUBLIC"))
                 await conn.execute(text(
                     f'GRANT EXECUTE ON FUNCTION public.memory_run_scope(text, text) TO "{ident}"'))
+                # Retrieval counts (ENG-12): the Tool may report what it read,
+                # only for its own run and namespace, and never write the table.
+                from agentplatform.memory_curation import NOTE_USE_DDL
+                await conn.execute(text(NOTE_USE_DDL))
+                await conn.execute(text(
+                    "REVOKE ALL ON FUNCTION public.memory_note_use(text, text, text[]) FROM PUBLIC"))
+                await conn.execute(text(
+                    f'GRANT EXECUTE ON FUNCTION public.memory_note_use(text, text, text[]) TO "{ident}"'))
                 await conn.execute(text("""
                     CREATE OR REPLACE FUNCTION public.local_persona_memory_mutation(
                       p_run text, p_agent text, p_id text, p_before jsonb, p_after jsonb)
